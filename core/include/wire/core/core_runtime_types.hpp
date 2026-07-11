@@ -222,11 +222,8 @@ struct VisualSettings {
 
 struct CacheState {
   // Derived cache layer. Not treated as authoritative topology state.
-  GeometrySettings geometry_settings{};
   CurveCache curve_cache{};
   BoundsCache bounds_cache{};
-  VisualSettings visual_settings{};
-  VariationSettings variation_settings{};
   SpanLayoutCache span_layout_cache{};
   VisualCache visual_cache{};
   RenderCache render_cache{};

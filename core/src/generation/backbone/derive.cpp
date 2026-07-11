@@ -43,7 +43,7 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
     return out;
   }
   BoundsCacheEntry bounds = generation::backbone::bounds(curve.value, layout.value.source_version);
-  SpanVisualCacheEntry visual = generation::backbone::visual(runtime_.cache_state.visual_settings, layout.value);
+  SpanVisualCacheEntry visual = generation::backbone::visual(authoritative_.visual_settings, layout.value);
   SpanRenderCacheEntry render = generation::backbone::render(*this, span_id, curve.value);
 
   cache_span_layout(std::move(layout.value));
@@ -75,7 +75,7 @@ EditResult<bool> CoreState::derive_generated_span_shape_outputs(ObjectId span_id
     return out;
   }
   BoundsCacheEntry bounds = generation::backbone::bounds(curve.value, layout.source_version);
-  SpanVisualCacheEntry visual = generation::backbone::visual(runtime_.cache_state.visual_settings, layout);
+  SpanVisualCacheEntry visual = generation::backbone::visual(authoritative_.visual_settings, layout);
   SpanRenderCacheEntry render = generation::backbone::render(*this, span_id, curve.value);
   cache_span_curve(span_id, std::move(curve.value));
   cache_span_bounds(span_id, std::move(bounds));
@@ -103,7 +103,7 @@ EditResult<bool> CoreState::derive_generated_span_draw_outputs(ObjectId span_id)
     out.error = "backbone update: span curve not found";
     return out;
   }
-  SpanVisualCacheEntry visual = generation::backbone::visual(runtime_.cache_state.visual_settings, *layout_view.entry);
+  SpanVisualCacheEntry visual = generation::backbone::visual(authoritative_.visual_settings, *layout_view.entry);
   SpanRenderCacheEntry render = generation::backbone::render(*this, span_id, curve->detail);
   cache_span_visual(span_id, std::move(visual));
   cache_span_render(span_id, std::move(render));

@@ -28,9 +28,11 @@ BackboneSpec
 | layout | `SpanLayoutEntry` | `support_world` と `endpoint_world` |
 | geom | `DetailCurve` / bounds | layout endpointからの形状派生 |
 | draw | visual / render cache | layout/geomからの表示出力 |
+| settings | `CoreStateAuthoritativeStorage` | geometry / visual / variation / context / layout のユーザー設定 |
 
 生成済みのspan、layout、curve、bounds、visual、port位置からtopologyを復元してはいけない。
 同じ意味を複数段で再判断せず、下流は上流の決定済み値だけを消費する。
+ユーザーが Update API で設定し derived 出力に影響する値は authoritative に置き、runtime cache に mirror を持たない。
 
 ## backbone generation
 

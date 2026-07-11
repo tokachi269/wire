@@ -1431,10 +1431,10 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
   }
   normalized.pole_clearance_m = std::max(0.0, normalized.pole_clearance_m);
 
-  const bool changed = normalized.curve_samples != runtime_.cache_state.geometry_settings.curve_samples ||
-                       normalized.sag_enabled != runtime_.cache_state.geometry_settings.sag_enabled ||
-                       std::abs(normalized.sag_factor - runtime_.cache_state.geometry_settings.sag_factor) > 1e-12 ||
-                       std::abs(normalized.pole_clearance_m - runtime_.cache_state.geometry_settings.pole_clearance_m) > 1e-12;
+  const bool changed = normalized.curve_samples != authoritative_.geometry_settings.curve_samples ||
+                       normalized.sag_enabled != authoritative_.geometry_settings.sag_enabled ||
+                       std::abs(normalized.sag_factor - authoritative_.geometry_settings.sag_factor) > 1e-12 ||
+                       std::abs(normalized.pole_clearance_m - authoritative_.geometry_settings.pole_clearance_m) > 1e-12;
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
@@ -1456,7 +1456,7 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
       return result;
     }
   }
-  runtime_.cache_state.geometry_settings = normalized;
+  authoritative_.geometry_settings = normalized;
   result.ok = true;
   result.value = changed;
 
@@ -1652,14 +1652,14 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
   normalized.insulator_radius_m = std::max(0.0, normalized.insulator_radius_m);
   normalized.insulator_length_m = std::max(0.0, normalized.insulator_length_m);
 
-  const bool changed = normalized.enable_support_structures != runtime_.cache_state.visual_settings.enable_support_structures ||
-                       normalized.enable_insulators != runtime_.cache_state.visual_settings.enable_insulators ||
+  const bool changed = normalized.enable_support_structures != authoritative_.visual_settings.enable_support_structures ||
+                       normalized.enable_insulators != authoritative_.visual_settings.enable_insulators ||
                        std::abs(normalized.support_center_threshold_m -
-                                runtime_.cache_state.visual_settings.support_center_threshold_m) > 1e-12 ||
-                       std::abs(normalized.support_arm_extra_m - runtime_.cache_state.visual_settings.support_arm_extra_m) > 1e-12 ||
-                       std::abs(normalized.support_arm_radius_m - runtime_.cache_state.visual_settings.support_arm_radius_m) > 1e-12 ||
-                       std::abs(normalized.insulator_radius_m - runtime_.cache_state.visual_settings.insulator_radius_m) > 1e-12 ||
-                       std::abs(normalized.insulator_length_m - runtime_.cache_state.visual_settings.insulator_length_m) > 1e-12;
+                                authoritative_.visual_settings.support_center_threshold_m) > 1e-12 ||
+                       std::abs(normalized.support_arm_extra_m - authoritative_.visual_settings.support_arm_extra_m) > 1e-12 ||
+                       std::abs(normalized.support_arm_radius_m - authoritative_.visual_settings.support_arm_radius_m) > 1e-12 ||
+                       std::abs(normalized.insulator_radius_m - authoritative_.visual_settings.insulator_radius_m) > 1e-12 ||
+                       std::abs(normalized.insulator_length_m - authoritative_.visual_settings.insulator_length_m) > 1e-12;
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
@@ -1669,7 +1669,7 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
       return result;
     }
   }
-  runtime_.cache_state.visual_settings = normalized;
+  authoritative_.visual_settings = normalized;
   result.ok = true;
   result.value = changed;
   if (changed) {
@@ -1696,7 +1696,7 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
   normalized.sag_variation_scale = std::max(0.0, normalized.sag_variation_scale);
   normalized.branch_down_offset_variation_scale = std::max(0.0, normalized.branch_down_offset_variation_scale);
 
-  const VariationSettings& current = runtime_.cache_state.variation_settings;
+  const VariationSettings& current = authoritative_.variation_settings;
   const bool changed =
       normalized.enabled != current.enabled || normalized.global_seed != current.global_seed ||
       std::abs(normalized.world_cell_size_m - current.world_cell_size_m) > 1e-12 ||
@@ -1711,7 +1711,7 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
     result.error = "backbone unsupported: variation settings are not consumed by generated outputs";
     return result;
   }
-  runtime_.cache_state.variation_settings = normalized;
+  authoritative_.variation_settings = normalized;
   result.ok = true;
   result.value = changed;
   return result;
@@ -2490,7 +2490,7 @@ double CoreState::pole_radius_at_height_m(const Pole& pole, double local_z_m) co
 
 Vec3d CoreState::apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local, SlotSide side) const {
   Vec3d adjusted = local;
-  const double min_offset = pole_radius_at_height_m(pole, std::max(0.0, adjusted.z)) + runtime_.cache_state.geometry_settings.pole_clearance_m;
+  const double min_offset = pole_radius_at_height_m(pole, std::max(0.0, adjusted.z)) + authoritative_.geometry_settings.pole_clearance_m;
   double sign = (adjusted.y >= 0.0) ? 1.0 : -1.0;
   if (side == SlotSide::kLeft) {
     sign = -1.0;

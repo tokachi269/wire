@@ -570,6 +570,36 @@ void write_layout_settings(StateWriter& writer, const LayoutSettings& value) {
   writer.value("authoritative.layout_settings.max_side_scale", value.max_side_scale);
 }
 
+void write_geometry_settings(StateWriter& writer, const GeometrySettings& value) {
+  writer.value("authoritative.geometry_settings.curve_samples", value.curve_samples);
+  writer.value("authoritative.geometry_settings.sag_enabled", value.sag_enabled);
+  writer.value("authoritative.geometry_settings.sag_factor", value.sag_factor);
+  writer.value("authoritative.geometry_settings.pole_clearance_m", value.pole_clearance_m);
+}
+
+void write_visual_settings(StateWriter& writer, const VisualSettings& value) {
+  writer.value("authoritative.visual_settings.enable_support_structures", value.enable_support_structures);
+  writer.value("authoritative.visual_settings.enable_insulators", value.enable_insulators);
+  writer.value("authoritative.visual_settings.support_center_threshold_m", value.support_center_threshold_m);
+  writer.value("authoritative.visual_settings.support_arm_extra_m", value.support_arm_extra_m);
+  writer.value("authoritative.visual_settings.support_arm_radius_m", value.support_arm_radius_m);
+  writer.value("authoritative.visual_settings.insulator_radius_m", value.insulator_radius_m);
+  writer.value("authoritative.visual_settings.insulator_length_m", value.insulator_length_m);
+}
+
+void write_variation_settings(StateWriter& writer, const VariationSettings& value) {
+  writer.value("authoritative.variation_settings.enabled", value.enabled);
+  writer.value("authoritative.variation_settings.global_seed", value.global_seed);
+  writer.value("authoritative.variation_settings.world_cell_size_m", value.world_cell_size_m);
+  writer.value("authoritative.variation_settings.world_bias_scale", value.world_bias_scale);
+  writer.value("authoritative.variation_settings.flow_bias_scale", value.flow_bias_scale);
+  writer.value("authoritative.variation_settings.pole_delta_scale", value.pole_delta_scale);
+  writer.value("authoritative.variation_settings.local_jitter_scale", value.local_jitter_scale);
+  writer.value("authoritative.variation_settings.sag_variation_scale", value.sag_variation_scale);
+  writer.value("authoritative.variation_settings.branch_down_offset_variation_scale",
+               value.branch_down_offset_variation_scale);
+}
+
 } // namespace
 
 EditResult<bool> CoreState::SerializeAuthoritative(std::string* out) const {
@@ -612,6 +642,9 @@ EditResult<bool> CoreState::SerializeAuthoritative(std::string* out) const {
   write_map(writer, "authoritative.override_state.span_support_by_span",
             authoritative_.override_state.span_support_by_span, write_span_support_override);
   write_layout_settings(writer, authoritative_.layout_settings);
+  write_geometry_settings(writer, authoritative_.geometry_settings);
+  write_visual_settings(writer, authoritative_.visual_settings);
+  write_variation_settings(writer, authoritative_.variation_settings);
 
   *out = std::move(writer).finish();
   result.ok = true;

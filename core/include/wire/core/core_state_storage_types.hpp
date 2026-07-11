@@ -32,6 +32,9 @@ struct CoreStateAuthoritativeStorage {
   ContextProfile context_profile{};
   OverrideState override_state{};
   LayoutSettings layout_settings{};
+  GeometrySettings geometry_settings{};
+  VisualSettings visual_settings{};
+  VariationSettings variation_settings{};
 };
 
 struct CoreStateRuntimeStorage {

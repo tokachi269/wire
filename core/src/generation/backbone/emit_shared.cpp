@@ -58,11 +58,6 @@ double LaneOffset(std::size_t lane_index, int count, double spacing_m) {
   return (static_cast<double>(lane_index) - (static_cast<double>(count - 1) * 0.5)) * spacing_m;
 }
 
-double BundleGroupOffset(std::size_t bundle_index, std::size_t bundle_count, int lane_count, double spacing_m) {
-  return (static_cast<double>(bundle_index) - (static_cast<double>(bundle_count - 1) * 0.5)) *
-         (spacing_m * static_cast<double>(lane_count + 1));
-}
-
 double PortLayoutYawDeg(const Vec3d& row_axis) {
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
   return YawDegFromXY(ScaleVec(ComputeLateralAxis(axis), -1.0));
@@ -92,21 +87,20 @@ EditResult<PortPlacementBand> SelectPortPlacementBand(const PoleTypeDefinition& 
 }
 
 Vec3d PortLocalPosition(const Vec3d& row_axis, const PortPlacementBand& band, std::size_t lane_index, int lane_count,
-                        double spacing_m, double group_offset_m, double lateral_offset_m, const Vec3d& shift) {
+                        double spacing_m, double lateral_offset_m, const Vec3d& shift) {
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
   const Vec3d forward_axis = ScaleVec(ComputeLateralAxis(axis), -1.0);
-  const double offset = group_offset_m + LaneOffset(lane_index, lane_count, spacing_m) + lateral_offset_m;
+  const double offset = LaneOffset(lane_index, lane_count, spacing_m) + lateral_offset_m;
   return {Dot(shift, forward_axis), offset + Dot(shift, axis), band.height_center_m + shift.z};
 }
 
 Vec3d PortWorldPosition(const Pole& pole, const Vec3d& row_axis, const PortPlacementBand& band,
-                        std::size_t lane_index, int lane_count, double spacing_m, double group_offset_m,
-                        double lateral_offset_m, const Vec3d& shift) {
+                        std::size_t lane_index, int lane_count, double spacing_m, double lateral_offset_m,
+                        const Vec3d& shift) {
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
   const double layout_yaw_deg = PortLayoutYawDeg(axis);
   return LocalPointToWorld(BuildPoleFrame(pole.world_transform, layout_yaw_deg),
-                           PortLocalPosition(axis, band, lane_index, lane_count, spacing_m, group_offset_m,
-                                             lateral_offset_m, shift));
+                           PortLocalPosition(axis, band, lane_index, lane_count, spacing_m, lateral_offset_m, shift));
 }
 
 void ApplyPortBandTemplateFields(Port* port, const PortPlacementBand& band) {

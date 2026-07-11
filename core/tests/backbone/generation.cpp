@@ -772,6 +772,47 @@ bool C407_backbone_multiple_bundle_heights_are_band_based() {
   return saw_lv && saw_comm;
 }
 
+bool C749_backbone_zero_offset_keeps_bundle_centers_on_band_center() {
+  wire::core::CoreState single;
+  const auto single_generated = single.GenerateFromBackboneSpec(line_req(single));
+  if (!single_generated.ok || single_generated.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId single_lv_span =
+      span_for_bundle(single, single_generated.value.generated_span_ids, wire::core::BundleKind::kLowVoltage);
+  if (single_lv_span == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> single_ports =
+      generated_ports_on_pole(single, {single_lv_span}, single_generated.value.generated_pole_ids.front());
+
+  wire::core::CoreState combined;
+  wire::core::BackboneSpec combined_request = line_req(combined);
+  add_backbone_bundle(combined_request, wire::core::BundleKind::kCommunication);
+  const auto combined_generated = combined.GenerateFromBackboneSpec(combined_request);
+  if (!combined_generated.ok || combined_generated.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId combined_lv_span =
+      span_for_bundle(combined, combined_generated.value.generated_span_ids, wire::core::BundleKind::kLowVoltage);
+  if (combined_lv_span == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> combined_ports =
+      generated_ports_on_pole(combined, {combined_lv_span}, combined_generated.value.generated_pole_ids.front());
+  if (single_ports.size() != combined_ports.size() || single_ports.empty()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < single_ports.size(); ++index) {
+    if (!almost_equal(single_ports[index].x, combined_ports[index].x, 1e-12) ||
+        !almost_equal(single_ports[index].y, combined_ports[index].y, 1e-12) ||
+        !almost_equal(single_ports[index].z, combined_ports[index].z, 1e-12)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C408_backbone_existing_pole_uses_actual_pole_type_height() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);

@@ -2481,8 +2481,6 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         out.error = v.error;
         return out;
       }
-      const double group_offset =
-          BundleGroupOffset(bundle_index, made->bundles.size(), v.value.count, v.value.tmpl->default_spacing_m);
       tr.ports[bundle_index].reserve(static_cast<std::size_t>(v.value.count));
       PortPlacementBand band{};
       if (!ownerless) {
@@ -2518,8 +2516,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             return out;
           }
           p = PortWorldPosition(*pole, r.axis, band, static_cast<std::size_t>(lane), v.value.count,
-                                v.value.tmpl->default_spacing_m, group_offset,
-                                spec_.constraints.lateral_offset_m, row_offset);
+                                v.value.tmpl->default_spacing_m, spec_.constraints.lateral_offset_m, row_offset);
         }
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
         EditResult<ObjectId> resolved =

@@ -1048,9 +1048,11 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   for (const Anchor& anchor : trial.authoritative_.edit_state.anchors.items()) {
     index_add(trial.runtime_.relation_index.anchors_by_pole, anchor.owner_pole_id, anchor.id);
   }
+  std::uint64_t loaded_span_data_version = 1;
   for (const Span& span : trial.authoritative_.edit_state.spans.items()) {
     trial.add_span_to_index(span);
     trial.initialize_span_runtime_state(span.id);
+    trial.runtime_.span_runtime_states.at(span.id).data_version = loaded_span_data_version++;
   }
   for (const Attachment& attachment : trial.authoritative_.edit_state.attachments.items()) {
     index_add(trial.runtime_.relation_index.attachments_by_span, attachment.span_id, attachment.id);

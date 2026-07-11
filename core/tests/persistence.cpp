@@ -148,6 +148,12 @@ bool snapshot_derived(const wire::core::CoreState& state, DerivedSnapshot* out) 
 }
 
 bool same_visual_part(const wire::core::VisualCurvePart& a, const wire::core::VisualCurvePart& b) {
+  const bool same_section_key =
+      a.section_key.logical_span_id == b.section_key.logical_span_id &&
+      a.section_key.edge_bundle_id == b.section_key.edge_bundle_id &&
+      a.section_key.rule_owner_id == b.section_key.rule_owner_id &&
+      a.section_key.rule_id == b.section_key.rule_id &&
+      a.section_key.instance_index == b.section_key.instance_index;
   if (a.kind != b.kind || a.node_patch_classification != b.node_patch_classification ||
       a.source_node_id != b.source_node_id || a.source_edge_id != b.source_edge_id ||
       a.source_span_id != b.source_span_id || a.source_bundle_id != b.source_bundle_id ||
@@ -158,13 +164,13 @@ bool same_visual_part(const wire::core::VisualCurvePart& a, const wire::core::Vi
       a.has_attachment_point != b.has_attachment_point || a.passes_attachment_point != b.passes_attachment_point ||
       a.has_explicit_attachment_orientation != b.has_explicit_attachment_orientation ||
       a.section_count != b.section_count || a.sag_method != b.sag_method || !same_double(a.sag_m, b.sag_m) ||
-      a.has_section_key != b.has_section_key || a.cable_run_id != b.cable_run_id ||
+      a.has_section_key != b.has_section_key || !same_section_key || a.cable_run_id != b.cable_run_id ||
       a.endpoint_a_pole_type_id != b.endpoint_a_pole_type_id ||
       a.endpoint_b_pole_type_id != b.endpoint_b_pole_type_id || a.endpoint_a_band_id != b.endpoint_a_band_id ||
       a.endpoint_b_band_id != b.endpoint_b_band_id || !same_double(a.wire_radius_m, b.wire_radius_m) ||
       a.color_rgba != b.color_rgba || a.material_style != b.material_style ||
       a.bezier_control_points.size() != b.bezier_control_points.size() || a.samples.size() != b.samples.size() ||
-      !same_aabb(a.bounds, b.bounds)) {
+      !same_aabb(a.bounds, b.bounds) || a.source_version != b.source_version) {
     return false;
   }
   for (std::size_t i = 0; i < a.bezier_control_points.size(); ++i) {
@@ -177,7 +183,11 @@ bool same_visual_part(const wire::core::VisualCurvePart& a, const wire::core::Vi
 }
 
 bool same_derived(const DerivedSnapshot& a, const DerivedSnapshot& b) {
-  if (a.spans.size() != b.spans.size() || a.visual.parts.size() != b.visual.parts.size()) return false;
+  if (a.spans.size() != b.spans.size() || a.visual.parts.size() != b.visual.parts.size() ||
+      a.visual.diagnostics.size() != b.visual.diagnostics.size() ||
+      a.visual.population_diagnostics.size() != b.visual.population_diagnostics.size() ||
+      a.visual.stats.curve_builds != b.visual.stats.curve_builds ||
+      a.visual.stats.sections != b.visual.stats.sections) return false;
   for (std::size_t i = 0; i < a.spans.size(); ++i) {
     if (a.spans[i].span_id != b.spans[i].span_id || !same_layout(a.spans[i].layout, b.spans[i].layout) ||
         a.spans[i].curve_samples.size() != b.spans[i].curve_samples.size() ||
@@ -192,6 +202,20 @@ bool same_derived(const DerivedSnapshot& a, const DerivedSnapshot& b) {
   }
   for (std::size_t i = 0; i < a.visual.parts.size(); ++i) {
     if (!same_visual_part(a.visual.parts[i], b.visual.parts[i])) return false;
+  }
+  for (std::size_t i = 0; i < a.visual.diagnostics.size(); ++i) {
+    const auto& x = a.visual.diagnostics[i];
+    const auto& y = b.visual.diagnostics[i];
+    if (x.source_node_id != y.source_node_id || x.source_span_id != y.source_span_id ||
+        x.bundle_template_id != y.bundle_template_id || x.lane_index != y.lane_index || x.reason != y.reason) return false;
+  }
+  for (std::size_t i = 0; i < a.visual.population_diagnostics.size(); ++i) {
+    const auto& x = a.visual.population_diagnostics[i];
+    const auto& y = b.visual.population_diagnostics[i];
+    if (x.logical_span_id != y.logical_span_id || x.edge_bundle_id != y.edge_bundle_id ||
+        x.rule_id != y.rule_id || x.extra_count_requested != y.extra_count_requested ||
+        x.extra_count_accepted != y.extra_count_accepted || x.omitted_count != y.omitted_count ||
+        x.reason != y.reason) return false;
   }
   return true;
 }

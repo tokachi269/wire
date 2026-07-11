@@ -560,48 +560,60 @@ void write_backbone(StateWriter& writer, const SavedBackboneGraph& graph) {
                        }, write_saved_span_binding);
 }
 
-void write_port_band(StateWriter& writer, const std::string& prefix, const PortPlacementBand& value) {
-  writer.value(child(prefix, "band_id"), value.band_id);
-  writer.value(child(prefix, "category"), value.category);
-  write_frame(writer, child(prefix, "local_direction"), value.local_direction);
-  writer.value(child(prefix, "layer"), value.layer);
-  writer.value(child(prefix, "side"), value.side);
-  writer.value(child(prefix, "role"), value.role);
-  writer.value(child(prefix, "lateral_center_m"), value.lateral_center_m);
-  writer.value(child(prefix, "lateral_min_m"), value.lateral_min_m);
-  writer.value(child(prefix, "lateral_max_m"), value.lateral_max_m);
-  writer.value(child(prefix, "height_center_m"), value.height_center_m);
-  writer.value(child(prefix, "height_min_m"), value.height_min_m);
-  writer.value(child(prefix, "height_max_m"), value.height_max_m);
-  writer.value(child(prefix, "priority"), value.priority);
-  writer.value(child(prefix, "min_spacing_m"), value.min_spacing_m);
-  writer.value(child(prefix, "allow_multiple"), value.allow_multiple);
-  writer.value(child(prefix, "overflow_policy"), value.overflow_policy);
-  writer.value(child(prefix, "enabled"), value.enabled);
+#define ARCHIVE_VALUE(field) archive.value(child(prefix, #field), value.field)
+#define ARCHIVE_STRING(field) archive.string_value(child(prefix, #field), value.field)
+
+template <typename Archive, typename Value>
+bool archive_port_band(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(band_id) && ARCHIVE_VALUE(category) &&
+         archive_frame(archive, child(prefix, "local_direction"), value.local_direction) &&
+         ARCHIVE_VALUE(layer) && ARCHIVE_VALUE(side) && ARCHIVE_VALUE(role) &&
+         ARCHIVE_VALUE(lateral_center_m) && ARCHIVE_VALUE(lateral_min_m) && ARCHIVE_VALUE(lateral_max_m) &&
+         ARCHIVE_VALUE(height_center_m) && ARCHIVE_VALUE(height_min_m) && ARCHIVE_VALUE(height_max_m) &&
+         ARCHIVE_VALUE(priority) && ARCHIVE_VALUE(min_spacing_m) && ARCHIVE_VALUE(allow_multiple) &&
+         ARCHIVE_VALUE(overflow_policy) && ARCHIVE_VALUE(enabled);
 }
 
-void write_anchor_slot(StateWriter& writer, const std::string& prefix, const AnchorSlotTemplate& value) {
-  writer.value(child(prefix, "slot_id"), value.slot_id);
-  writer.value(child(prefix, "usage"), value.usage);
-  write_vec3(writer, child(prefix, "local_position"), value.local_position);
-  writer.value(child(prefix, "priority"), value.priority);
-  writer.value(child(prefix, "enabled"), value.enabled);
+template <typename Archive, typename Value>
+bool archive_anchor_slot(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(slot_id) && ARCHIVE_VALUE(usage) &&
+         archive_vec3(archive, child(prefix, "local_position"), value.local_position) &&
+         ARCHIVE_VALUE(priority) && ARCHIVE_VALUE(enabled);
 }
 
-void write_pole_type(StateWriter& writer, const std::string& prefix, const PoleTypeDefinition& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.string_value(child(prefix, "name"), value.name);
-  writer.string_value(child(prefix, "description"), value.description);
-  writer.value(child(prefix, "default_height_m"), value.default_height_m);
-  writer.value(child(prefix, "port_bands.count"), value.port_bands.size());
-  for (std::size_t i = 0; i < value.port_bands.size(); ++i) {
-    write_port_band(writer, indexed(child(prefix, "port_bands"), i), value.port_bands[i]);
+template <typename Archive, typename Value>
+bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value) {
+  if (!ARCHIVE_VALUE(id) || !ARCHIVE_STRING(name) || !ARCHIVE_STRING(description) ||
+      !ARCHIVE_VALUE(default_height_m)) return false;
+  std::size_t port_band_count = value.port_bands.size();
+  if (!archive.count(child(prefix, "port_bands.count"), port_band_count)) return false;
+  if constexpr (Archive::loading) value.port_bands.resize(port_band_count);
+  for (std::size_t i = 0; i < port_band_count; ++i) {
+    if (!archive_port_band(archive, indexed(child(prefix, "port_bands"), i), value.port_bands[i])) return false;
   }
-  writer.value(child(prefix, "anchor_slots.count"), value.anchor_slots.size());
-  for (std::size_t i = 0; i < value.anchor_slots.size(); ++i) {
-    write_anchor_slot(writer, indexed(child(prefix, "anchor_slots"), i), value.anchor_slots[i]);
+  std::size_t anchor_slot_count = value.anchor_slots.size();
+  if (!archive.count(child(prefix, "anchor_slots.count"), anchor_slot_count)) return false;
+  if constexpr (Archive::loading) value.anchor_slots.resize(anchor_slot_count);
+  for (std::size_t i = 0; i < anchor_slot_count; ++i) {
+    if (!archive_anchor_slot(archive, indexed(child(prefix, "anchor_slots"), i), value.anchor_slots[i])) return false;
   }
+  return true;
 }
+
+#undef ARCHIVE_VALUE
+#undef ARCHIVE_STRING
+
+#define WRITE_POLE_TEMPLATE_WRAPPER(name, type)                                                                        \
+  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
+    WriteFieldArchive archive(writer);                                                                                 \
+    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
+  }
+
+WRITE_POLE_TEMPLATE_WRAPPER(port_band, PortPlacementBand)
+WRITE_POLE_TEMPLATE_WRAPPER(anchor_slot, AnchorSlotTemplate)
+WRITE_POLE_TEMPLATE_WRAPPER(pole_type, PoleTypeDefinition)
+
+#undef WRITE_POLE_TEMPLATE_WRAPPER
 
 void write_supplemental_path(StateWriter& writer, const std::string& prefix,
                              const CableSupplementalPathTemplate& value) {
@@ -714,47 +726,62 @@ void write_bundle_template(StateWriter& writer, const std::string& prefix, const
   writer.value(child(prefix, "version"), value.version);
 }
 
-void write_attachment_socket(StateWriter& writer, const std::string& prefix,
-                             const AttachmentSocketTemplate& value) {
-  writer.value(child(prefix, "id"), value.id);
-  write_vec3(writer, child(prefix, "local_position"), value.local_position);
-  write_vec3(writer, child(prefix, "tangent_dir"), value.tangent_dir);
-  writer.value(child(prefix, "has_normal"), value.has_normal);
-  write_vec3(writer, child(prefix, "normal_dir"), value.normal_dir);
-  writer.value(child(prefix, "has_binormal"), value.has_binormal);
-  write_vec3(writer, child(prefix, "binormal_dir"), value.binormal_dir);
-  writer.value(child(prefix, "kind"), value.kind);
+#define ARCHIVE_VALUE(field) archive.value(child(prefix, #field), value.field)
+#define ARCHIVE_STRING(field) archive.string_value(child(prefix, #field), value.field)
+
+template <typename Archive, typename Value>
+bool archive_attachment_socket(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(id) && archive_vec3(archive, child(prefix, "local_position"), value.local_position) &&
+         archive_vec3(archive, child(prefix, "tangent_dir"), value.tangent_dir) && ARCHIVE_VALUE(has_normal) &&
+         archive_vec3(archive, child(prefix, "normal_dir"), value.normal_dir) && ARCHIVE_VALUE(has_binormal) &&
+         archive_vec3(archive, child(prefix, "binormal_dir"), value.binormal_dir) && ARCHIVE_VALUE(kind);
 }
 
-void write_internal_path(StateWriter& writer, const std::string& prefix,
-                         const AttachmentInternalPathTemplate& value) {
-  writer.value(child(prefix, "start_socket_id"), value.start_socket_id);
-  writer.value(child(prefix, "end_socket_id"), value.end_socket_id);
-  writer.value(child(prefix, "profile_kind"), value.profile_kind);
-  writer.value(child(prefix, "local_points.count"), value.local_points.size());
-  for (std::size_t i = 0; i < value.local_points.size(); ++i) {
-    write_vec3(writer, indexed(child(prefix, "local_points"), i), value.local_points[i]);
+template <typename Archive, typename Value>
+bool archive_internal_path(Archive& archive, const std::string& prefix, Value& value) {
+  if (!ARCHIVE_VALUE(start_socket_id) || !ARCHIVE_VALUE(end_socket_id) || !ARCHIVE_VALUE(profile_kind)) return false;
+  std::size_t point_count = value.local_points.size();
+  if (!archive.count(child(prefix, "local_points.count"), point_count)) return false;
+  if constexpr (Archive::loading) value.local_points.resize(point_count);
+  for (std::size_t i = 0; i < point_count; ++i) {
+    if (!archive_vec3(archive, indexed(child(prefix, "local_points"), i), value.local_points[i])) return false;
   }
-  writer.value(child(prefix, "coil_radius_m"), value.coil_radius_m);
-  writer.value(child(prefix, "coil_turn_count"), value.coil_turn_count);
-  writer.value(child(prefix, "coil_samples_per_turn"), value.coil_samples_per_turn);
+  return ARCHIVE_VALUE(coil_radius_m) && ARCHIVE_VALUE(coil_turn_count) && ARCHIVE_VALUE(coil_samples_per_turn);
 }
 
-void write_attachment_template(StateWriter& writer, const std::string& prefix, const AttachmentTemplate& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.string_value(child(prefix, "name"), value.name);
-  writer.value(child(prefix, "kind"), value.kind);
-  writer.value(child(prefix, "line_interaction_mode"), value.line_interaction_mode);
-  writer.value(child(prefix, "sockets.count"), value.sockets.size());
-  for (std::size_t i = 0; i < value.sockets.size(); ++i) {
-    write_attachment_socket(writer, indexed(child(prefix, "sockets"), i), value.sockets[i]);
+template <typename Archive, typename Value>
+bool archive_attachment_template(Archive& archive, const std::string& prefix, Value& value) {
+  if (!ARCHIVE_VALUE(id) || !ARCHIVE_STRING(name) || !ARCHIVE_VALUE(kind) ||
+      !ARCHIVE_VALUE(line_interaction_mode)) return false;
+  std::size_t socket_count = value.sockets.size();
+  if (!archive.count(child(prefix, "sockets.count"), socket_count)) return false;
+  if constexpr (Archive::loading) value.sockets.resize(socket_count);
+  for (std::size_t i = 0; i < socket_count; ++i) {
+    if (!archive_attachment_socket(archive, indexed(child(prefix, "sockets"), i), value.sockets[i])) return false;
   }
-  writer.value(child(prefix, "internal_paths.count"), value.internal_paths.size());
-  for (std::size_t i = 0; i < value.internal_paths.size(); ++i) {
-    write_internal_path(writer, indexed(child(prefix, "internal_paths"), i), value.internal_paths[i]);
+  std::size_t path_count = value.internal_paths.size();
+  if (!archive.count(child(prefix, "internal_paths.count"), path_count)) return false;
+  if constexpr (Archive::loading) value.internal_paths.resize(path_count);
+  for (std::size_t i = 0; i < path_count; ++i) {
+    if (!archive_internal_path(archive, indexed(child(prefix, "internal_paths"), i), value.internal_paths[i])) return false;
   }
-  writer.value(child(prefix, "version"), value.version);
+  return ARCHIVE_VALUE(version);
 }
+
+#undef ARCHIVE_VALUE
+#undef ARCHIVE_STRING
+
+#define WRITE_ATTACHMENT_TEMPLATE_WRAPPER(name, type)                                                                  \
+  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
+    WriteFieldArchive archive(writer);                                                                                 \
+    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
+  }
+
+WRITE_ATTACHMENT_TEMPLATE_WRAPPER(attachment_socket, AttachmentSocketTemplate)
+WRITE_ATTACHMENT_TEMPLATE_WRAPPER(internal_path, AttachmentInternalPathTemplate)
+WRITE_ATTACHMENT_TEMPLATE_WRAPPER(attachment_template, AttachmentTemplate)
+
+#undef WRITE_ATTACHMENT_TEMPLATE_WRAPPER
 
 template <typename K, typename V, typename Write>
 void write_map(StateWriter& writer, const std::string& prefix, const std::unordered_map<K, V>& values, Write write) {
@@ -971,55 +998,17 @@ bool read_backbone(StateReader& reader, SavedBackboneGraph* graph) {
   return true;
 }
 
-bool read_port_band(StateReader& reader, const std::string& prefix, PortPlacementBand* value) {
-  READ_VALUE(band_id);
-  READ_VALUE(category);
-  if (!read_frame(reader, child(prefix, "local_direction"), &value->local_direction)) return false;
-  READ_VALUE(layer);
-  READ_VALUE(side);
-  READ_VALUE(role);
-  READ_VALUE(lateral_center_m);
-  READ_VALUE(lateral_min_m);
-  READ_VALUE(lateral_max_m);
-  READ_VALUE(height_center_m);
-  READ_VALUE(height_min_m);
-  READ_VALUE(height_max_m);
-  READ_VALUE(priority);
-  READ_VALUE(min_spacing_m);
-  READ_VALUE(allow_multiple);
-  READ_VALUE(overflow_policy);
-  READ_VALUE(enabled);
-  return true;
-}
-
-bool read_anchor_slot(StateReader& reader, const std::string& prefix, AnchorSlotTemplate* value) {
-  READ_VALUE(slot_id);
-  READ_VALUE(usage);
-  if (!read_vec3(reader, child(prefix, "local_position"), &value->local_position)) return false;
-  READ_VALUE(priority);
-  READ_VALUE(enabled);
-  return true;
-}
-
-bool read_pole_type(StateReader& reader, const std::string& prefix, PoleTypeDefinition* value) {
-  READ_VALUE(id);
-  READ_STRING(name);
-  READ_STRING(description);
-  READ_VALUE(default_height_m);
-  std::size_t port_count = 0;
-  if (!reader.count(child(prefix, "port_bands.count"), &port_count)) return false;
-  value->port_bands.resize(port_count);
-  for (std::size_t i = 0; i < port_count; ++i) {
-    if (!read_port_band(reader, indexed(child(prefix, "port_bands"), i), &value->port_bands[i])) return false;
+#define READ_POLE_TEMPLATE_WRAPPER(name, type)                                                                         \
+  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
+    ReadFieldArchive archive(reader);                                                                                  \
+    return archive_##name(archive, prefix, *value);                                                                    \
   }
-  std::size_t anchor_count = 0;
-  if (!reader.count(child(prefix, "anchor_slots.count"), &anchor_count)) return false;
-  value->anchor_slots.resize(anchor_count);
-  for (std::size_t i = 0; i < anchor_count; ++i) {
-    if (!read_anchor_slot(reader, indexed(child(prefix, "anchor_slots"), i), &value->anchor_slots[i])) return false;
-  }
-  return true;
-}
+
+READ_POLE_TEMPLATE_WRAPPER(port_band, PortPlacementBand)
+READ_POLE_TEMPLATE_WRAPPER(anchor_slot, AnchorSlotTemplate)
+READ_POLE_TEMPLATE_WRAPPER(pole_type, PoleTypeDefinition)
+
+#undef READ_POLE_TEMPLATE_WRAPPER
 
 bool read_supplemental_path(StateReader& reader, const std::string& prefix,
                             CableSupplementalPathTemplate* value) {
@@ -1143,54 +1132,17 @@ bool read_bundle_template(StateReader& reader, const std::string& prefix, Bundle
   return true;
 }
 
-bool read_attachment_socket(StateReader& reader, const std::string& prefix, AttachmentSocketTemplate* value) {
-  READ_VALUE(id);
-  if (!read_vec3(reader, child(prefix, "local_position"), &value->local_position) ||
-      !read_vec3(reader, child(prefix, "tangent_dir"), &value->tangent_dir)) return false;
-  READ_VALUE(has_normal);
-  if (!read_vec3(reader, child(prefix, "normal_dir"), &value->normal_dir)) return false;
-  READ_VALUE(has_binormal);
-  if (!read_vec3(reader, child(prefix, "binormal_dir"), &value->binormal_dir)) return false;
-  READ_VALUE(kind);
-  return true;
-}
+#define READ_ATTACHMENT_TEMPLATE_WRAPPER(name, type)                                                                   \
+  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
+    ReadFieldArchive archive(reader);                                                                                  \
+    return archive_##name(archive, prefix, *value);                                                                    \
+  }
 
-bool read_internal_path(StateReader& reader, const std::string& prefix, AttachmentInternalPathTemplate* value) {
-  READ_VALUE(start_socket_id);
-  READ_VALUE(end_socket_id);
-  READ_VALUE(profile_kind);
-  std::size_t count = 0;
-  if (!reader.count(child(prefix, "local_points.count"), &count)) return false;
-  value->local_points.resize(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    if (!read_vec3(reader, indexed(child(prefix, "local_points"), i), &value->local_points[i])) return false;
-  }
-  READ_VALUE(coil_radius_m);
-  READ_VALUE(coil_turn_count);
-  READ_VALUE(coil_samples_per_turn);
-  return true;
-}
+READ_ATTACHMENT_TEMPLATE_WRAPPER(attachment_socket, AttachmentSocketTemplate)
+READ_ATTACHMENT_TEMPLATE_WRAPPER(internal_path, AttachmentInternalPathTemplate)
+READ_ATTACHMENT_TEMPLATE_WRAPPER(attachment_template, AttachmentTemplate)
 
-bool read_attachment_template(StateReader& reader, const std::string& prefix, AttachmentTemplate* value) {
-  READ_VALUE(id);
-  READ_STRING(name);
-  READ_VALUE(kind);
-  READ_VALUE(line_interaction_mode);
-  std::size_t socket_count = 0;
-  if (!reader.count(child(prefix, "sockets.count"), &socket_count)) return false;
-  value->sockets.resize(socket_count);
-  for (std::size_t i = 0; i < socket_count; ++i) {
-    if (!read_attachment_socket(reader, indexed(child(prefix, "sockets"), i), &value->sockets[i])) return false;
-  }
-  std::size_t path_count = 0;
-  if (!reader.count(child(prefix, "internal_paths.count"), &path_count)) return false;
-  value->internal_paths.resize(path_count);
-  for (std::size_t i = 0; i < path_count; ++i) {
-    if (!read_internal_path(reader, indexed(child(prefix, "internal_paths"), i), &value->internal_paths[i])) return false;
-  }
-  READ_VALUE(version);
-  return true;
-}
+#undef READ_ATTACHMENT_TEMPLATE_WRAPPER
 
 template <typename K, typename V, typename Read>
 bool read_map(StateReader& reader, const std::string& prefix, std::unordered_map<K, V>* values, Read read) {

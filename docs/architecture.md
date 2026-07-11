@@ -150,12 +150,11 @@ preflight を増やしたことを理由に本 state 直接変更へ戻すこと
 統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
 既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
-現対応は `UpdateBundleTemplate` の fixed count 増減、`UpdateCableTemplate` の backbone continuity policy decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
+現対応は `UpdateBundleTemplate` の fixed count 増減と `kTopology` policy 差分、`UpdateCableTemplate` の backbone continuity policy / default endpoint attachment decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeのpair rowは、saved edge の route/order と saved node から
 pipeline graph を復元して再確定する。
-存続する span の attachment は span id とともに保持する。退役する span に attachment がある場合だけ、
-暗黙削除せず mutation 前に `unsupported` で拒否する。`UpdateCableTemplate` の continuity policy は route scope ごとに同じ入口を通し、既存 span の curve decision を編集後 cable template で再導出する。non-backbone span を含む decision 差分は未対応として拒否する。default endpoint attachment 変更は post-edit 経路で attachment 生成/退役/置換をまだ消費しないため、構造反映の実用 scenario まで保留する。
+row key / lane が一致する binding は再利用し、不一致の binding は retire + emit で reconcile する。存続する user attachment は span id とともに保持し、退役spanに user attachment があれば mutation 前に `unsupported` で拒否する。`AttachmentOrigin::kDefaultEndpoint` は trial 内で退役できる。`UpdateCableTemplate` の continuity policy と default endpoint attachment は route scope ごとに同じ入口を通し、既存spanのcurve decisionとauto endpoint attachmentを編集後 template へreconcileする。non-backbone span を含む decision 差分は未対応として拒否する。
 
 `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中でもplacement-only差分なら
 `kReposition`として既存auto portを再配置し、layout -> geom -> drawを再導出する。

@@ -98,11 +98,13 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   };
 
   const bool count_changes = next_template.fixed_count != previous_template.fixed_count;
+  const bool bundle_topology_change = cause == BackboneRegenerateCause::kBundleTopology;
   if (previous_template.count_rule != BundleCountRuleKind::kFixed ||
       next_template.count_rule != BundleCountRuleKind::kFixed || previous_template.fixed_count <= 0 ||
       next_template.fixed_count <= 0 ||
       (!count_changes && cable_template_override == nullptr && pole_type_override == nullptr &&
-       cause != BackboneRegenerateCause::kSpanOverride && cause != BackboneRegenerateCause::kLayoutSettings)) {
+       !bundle_topology_change && cause != BackboneRegenerateCause::kSpanOverride &&
+       cause != BackboneRegenerateCause::kLayoutSettings)) {
     return fail("backbone unsupported: regenerate requires fixed count, cable decision, or pole type changes");
   }
   if (cable_template_override != nullptr &&
@@ -363,7 +365,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     }
     BackboneBundleSpec bundle_spec{};
     bundle_spec.bundle_template_id = scoped_bundle->bundle_template_id;
-    bundle_spec.layer = template_it->second.default_layer;
+    bundle_spec.layer = scoped_bundle->bundle_template_id == bundle_template_id ? next_template.default_layer
+                                                                                  : template_it->second.default_layer;
     spec.bundles.push_back(bundle_spec);
     active_bundle_indices.push_back(spec.bundles.size() - 1);
   }

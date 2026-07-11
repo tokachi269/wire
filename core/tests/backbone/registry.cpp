@@ -976,6 +976,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "range count policy validates existing bundles without regenerating outputs",
                          "Invariant", false,
                          C747_backbone_range_count_policy_validates_without_regenerate);
+  test_registry::AddTest(tests, "C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation",
+                         "bundle policy changes regenerate their scope and reject fresh-invalid policy before mutation",
+                         "Invariant", false,
+                         C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation);
   test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,

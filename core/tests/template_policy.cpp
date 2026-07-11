@@ -42,7 +42,7 @@ bool test_backbone_hv_rejects_midair_branch_mode() {
   return !generated.ok && regex_contains(generated.error, "node bundle mode");
 }
 
-bool test_bundle_template_topology_change_is_rejected_before_mutation() {
+bool test_bundle_template_topology_change_regenerates_backbone_scope() {
   CoreState state;
   const auto made = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}});
   if (!made.ok || made.value.spans.empty()) {
@@ -54,18 +54,20 @@ bool test_bundle_template_topology_change_is_rejected_before_mutation() {
     return false;
   }
   wire::core::BundleTemplate tpl = tpl_it->second;
-  const wire::core::SpanLayer original_layer = tpl.default_layer;
   tpl.default_layer = wire::core::SpanLayer::kCommunication;
   const auto apply = state.UpdateBundleTemplate(tpl);
-  if (apply.ok || !regex_contains(apply.error, "unsupported")) return false;
-  const auto* span = state.view().edit_state().spans.find(made.value.spans.front());
-  if (span == nullptr) {
-    return false;
+  const wire::core::Span* span = nullptr;
+  for (const wire::core::Span& candidate : state.view().edit_state().spans.items()) {
+    const wire::core::Bundle* bundle = state.view().edit_state().bundles.find(candidate.bundle_id);
+    if (bundle != nullptr && bundle->bundle_template_id == tpl.id) {
+      span = &candidate;
+      break;
+    }
   }
-  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
   const auto current = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
-  return bundle != nullptr && current != state.view().bundle_templates().end() &&
-         current->second.default_layer == original_layer;
+  return apply.ok && apply.value && span != nullptr && current != state.view().bundle_templates().end() &&
+         current->second.default_layer == tpl.default_layer && !apply.change_set.created_ids.empty() &&
+         !apply.change_set.deleted_ids.empty();
 }
 
 bool test_bundle_template_output_change_rejects_manual_span_before_mutation() {
@@ -530,9 +532,9 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
                          "HV template keeps midair branch disabled", "Exact", true,
                          test_backbone_hv_rejects_midair_branch_mode);
 
-  test_registry::AddTest(tests, "C123_BundleTemplate_TopologyChangeRejected",
-                         "Topology-affecting bundle template edits reject before mutation",
-                         "Invariant", true, test_bundle_template_topology_change_is_rejected_before_mutation);
+  test_registry::AddTest(tests, "C123_BundleTemplate_TopologyChangeRegenerates",
+                         "Topology-affecting bundle template edits regenerate their backbone scope",
+                         "Invariant", true, test_bundle_template_topology_change_regenerates_backbone_scope);
   test_registry::AddTest(tests, "C124_BundleTemplate_OutputChangeRejectsManualSpan",
                          "Bundle output changes reject when the span has no backbone derive state",
                          "Invariant", true, test_bundle_template_output_change_rejects_manual_span_before_mutation);

@@ -2317,4 +2317,74 @@ bool C747_backbone_range_count_policy_validates_without_regenerate() {
              wire::core::BundleCountRuleKind::kFixed;
 }
 
+bool C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation() {
+  wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const std::vector<wire::core::ObjectId> target_edge_bundle_ids =
+      edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage);
+  if (target_edge_bundle_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec outside = line_req(state);
+  outside.path.polyline = {{0.0, 100.0, 0.0}, {12.0, 100.0, 0.0}};
+  outside.bundles.clear();
+  add_backbone_bundle(outside, wire::core::BundleKind::kCommunication);
+  const auto outside_generated = state.GenerateFromBackboneSpec(outside);
+  if (!outside_generated.ok || outside_generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const std::vector<SpanOutputSnapshot> outside_before =
+      snapshot_span_outputs(state, outside_generated.value.generated_span_ids);
+
+  const wire::core::BundleTemplateId template_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
+  const auto template_it = state.view().bundle_templates().find(template_id);
+  if (template_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate spacing_edited = template_it->second;
+  spacing_edited.default_spacing_m += 0.15;
+  const auto spacing_updated = state.UpdateBundleTemplate(spacing_edited);
+  if (!spacing_updated.ok || !spacing_updated.value || !same_span_output_snapshots(outside_before, state)) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  if (!set_low_voltage_count_before_generation(fresh, 2)) {
+    return false;
+  }
+  const auto fresh_template_it = fresh.view().bundle_templates().find(template_id);
+  if (fresh_template_it == fresh.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate fresh_spacing_edited = fresh_template_it->second;
+  fresh_spacing_edited.default_spacing_m = spacing_edited.default_spacing_m;
+  if (!fresh.UpdateBundleTemplate(fresh_spacing_edited).ok) {
+    return false;
+  }
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
+  if (!fresh_generated.ok ||
+      !same_route_bundle_signatures(route_bundle_signatures_for_ids(state, target_edge_bundle_ids),
+                                    route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage))) {
+    return false;
+  }
+
+  const std::vector<SpanOutputSnapshot> target_before_reject =
+      snapshot_span_outputs(state, generated.value.generated_span_ids);
+  const std::uint64_t before_version = state.view().bundle_templates().at(template_id).version;
+  wire::core::BundleTemplate invalid = state.view().bundle_templates().at(template_id);
+  invalid.default_layer = wire::core::SpanLayer::kUnknown;
+  const auto rejected = state.UpdateBundleTemplate(invalid);
+  return !rejected.ok && same_span_output_snapshots(target_before_reject, state) &&
+         same_span_output_snapshots(outside_before, state) &&
+         state.view().bundle_templates().at(template_id).version == before_version;
+}
+
 } // namespace backbone_tests

@@ -350,6 +350,7 @@ bool C744_backbone_span_layout_group_keys_have_one_definition();
 bool C745_wrap_behavior_has_one_production_owner();
 bool C746_backbone_generation_trial_copy_stays_under_cost_gate();
 bool C747_backbone_range_count_policy_validates_without_regenerate();
+bool C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation();
 bool C717_backbone_layout_settings_regenerate_matches_fresh();
 bool C727_backbone_pipeline_execution_entry_is_build_input();
 bool C728_backbone_pipeline_has_no_run_mode_flags();

@@ -166,6 +166,7 @@ private:
                                       ObjectId port_id);
   enum class BackboneRegenerateCause : std::uint8_t {
     kBundleCount,
+    kBundleTopology,
     kCableDecision,
     kPoleType,
     kSpanOverride,

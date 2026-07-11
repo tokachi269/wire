@@ -24,6 +24,11 @@ struct CableDecisionRegenerateScope {
   std::vector<ObjectId> edge_bundle_ids{};
 };
 
+struct BundleRegenerateScope {
+  std::size_t route = 0;
+  std::vector<ObjectId> edge_bundle_ids{};
+};
+
 const SavedBackboneEdge* saved_edge_by_id(const SavedBackboneGraph& graph, ObjectId edge_id) {
   const auto it = std::find_if(graph.edges.begin(), graph.edges.end(),
                                [&](const SavedBackboneEdge& edge) { return edge.edge_id == edge_id; });
@@ -58,6 +63,35 @@ bool collect_cable_decision_regenerate_scopes(const CoreState& state,
     if (scope_it == scopes->end()) {
       CableDecisionRegenerateScope scope{};
       scope.bundle_template_id = bundle->bundle_template_id;
+      scope.route = edge->route;
+      scope.edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+      scopes->push_back(std::move(scope));
+    } else {
+      scope_it->edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+    }
+  }
+  return true;
+}
+
+bool collect_bundle_regenerate_scopes(const CoreState& state, BundleTemplateId bundle_template_id,
+                                      std::vector<BundleRegenerateScope>* scopes, std::string* error) {
+  const SavedBackboneGraph& graph = state.view().backbone();
+  for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    const Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id) {
+      continue;
+    }
+    const SavedBackboneEdge* edge = saved_edge_by_id(graph, edge_bundle.edge_id);
+    if (edge == nullptr) {
+      if (error != nullptr) {
+        *error = "backbone regenerate: edge missing";
+      }
+      return false;
+    }
+    auto scope_it = std::find_if(scopes->begin(), scopes->end(),
+                                 [&](const BundleRegenerateScope& scope) { return scope.route == edge->route; });
+    if (scope_it == scopes->end()) {
+      BundleRegenerateScope scope{};
       scope.route = edge->route;
       scope.edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
       scopes->push_back(std::move(scope));
@@ -597,25 +631,68 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     }
   }
 
+  const bool fixed_count_change =
+      count_change && previous.count_rule == BundleCountRuleKind::kFixed &&
+      normalized.count_rule == BundleCountRuleKind::kFixed && normalized.fixed_count > 0 &&
+      normalized.fixed_count != previous.fixed_count;
+  constexpr std::uint32_t kRegenerateChangeMask = kMetadata | kDefinition | kCount;
+  const bool topology_regenerate = (changes & kTopology) != 0;
+
   std::vector<ObjectId> affected_spans{};
+  std::vector<ObjectId> affected_bundle_ids{};
   for (const Bundle& existing_bundle : state.authoritative_.edit_state.bundles.items()) {
     if (existing_bundle.bundle_template_id != normalized.id) {
       continue;
     }
-    const bool fixed_count_change =
-        count_change && previous.count_rule == BundleCountRuleKind::kFixed &&
-        normalized.count_rule == BundleCountRuleKind::kFixed && normalized.fixed_count > 0 &&
-        normalized.fixed_count != previous.fixed_count;
-    constexpr std::uint32_t kRegenerateChangeMask = kMetadata | kDefinition | kCount;
-    if ((changes & kTopology) != 0 ||
-        (count_change && !range_count_policy_change &&
-         (!fixed_count_change || (changes & ~kRegenerateChangeMask) != 0))) {
-      result.error = "backbone unsupported: bundle topology changes require regeneration";
-      return result;
-    }
+    affected_bundle_ids.push_back(existing_bundle.id);
     const auto spans_it = state.runtime_.relation_index.spans_by_bundle.find(existing_bundle.id);
     if (spans_it != state.runtime_.relation_index.spans_by_bundle.end()) {
       append_unique(affected_spans, spans_it->second);
+    }
+  }
+  if (topology_regenerate) {
+    for (ObjectId span_id : affected_spans) {
+      if (state.runtime_.backbone_index.span_edge_bundle.find(span_id) ==
+          state.runtime_.backbone_index.span_edge_bundle.end()) {
+        result.error = "backbone unsupported: bundle policy changes require regeneration";
+        return result;
+      }
+    }
+    if (!affected_bundle_ids.empty()) {
+      std::vector<BundleRegenerateScope> scopes{};
+      if (!collect_bundle_regenerate_scopes(state, normalized.id, &scopes, &result.error)) {
+        return result;
+      }
+      if (scopes.empty()) {
+        result.error = "backbone unsupported: bundle policy changes require regeneration";
+        return result;
+      }
+
+      normalized.version += 1;
+      CoreState trial = state;
+      ChangeSet regenerated_changes{};
+      for (const BundleRegenerateScope& scope : scopes) {
+        auto regenerated = trial.regenerate_backbone_edge_bundles(
+            normalized.id, previous, normalized, &regenerated_changes, nullptr, &scope.edge_bundle_ids, nullptr,
+            (changes & kTopology) != 0 ? CoreState::BackboneRegenerateCause::kBundleTopology
+                                        : CoreState::BackboneRegenerateCause::kBundleCount);
+        if (!regenerated.ok) {
+          result.error = regenerated.error;
+          return result;
+        }
+      }
+      trial.authoritative_.bundle_templates[normalized.id] = normalized;
+      for (ObjectId bundle_id : affected_bundle_ids) {
+        CoreState::add_unique_id(regenerated_changes.updated_ids, bundle_id);
+      }
+      state.identity_ = trial.identity_;
+      state.authoritative_ = trial.authoritative_;
+      state.runtime_ = trial.runtime_;
+      state.debug_ = trial.debug_;
+      result.ok = true;
+      result.value = true;
+      result.change_set = std::move(regenerated_changes);
+      return result;
     }
   }
   std::vector<UpdatePlan> plans{};
@@ -633,9 +710,12 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   }
 
   normalized.version += 1;
-  if ((changes & kCount) != 0 && previous.count_rule == BundleCountRuleKind::kFixed &&
-      normalized.count_rule == BundleCountRuleKind::kFixed && normalized.fixed_count > 0 &&
-      normalized.fixed_count != previous.fixed_count) {
+  if (!affected_bundle_ids.empty() && count_change && !range_count_policy_change &&
+      (!fixed_count_change || (changes & ~kRegenerateChangeMask) != 0)) {
+    result.error = "backbone unsupported: bundle count changes require fixed count regeneration";
+    return result;
+  }
+  if (fixed_count_change) {
     auto regenerated = state.regenerate_backbone_edge_bundles(normalized.id, previous, normalized,
                                                               &result.change_set);
     if (!regenerated.ok) {

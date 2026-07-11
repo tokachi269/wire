@@ -203,7 +203,7 @@ bool test_move_pole_updates_only_target_pole_owned_endpoints() {
          !contains_id(move.change_set.updated_ids, anchor_b);
 }
 
-bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
+bool test_update_bundle_template_regenerates_branch_down_offset_policy() {
   CoreState state;
   const auto fixture = helpers::make_backbone_fixture(
       state, {{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}}, {BundleKind::kHighVoltage});
@@ -212,6 +212,7 @@ bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
   if (hv_span == nullptr) {
     return false;
   }
+  const ObjectId hv_span_id = hv_span->id;
   const wire::core::Bundle* hv_bundle = state.view().bundles().find(hv_span->bundle_id);
   const wire::core::BundleTemplate* hv_template =
       state.view().bundle_templates().contains(kDefaultHighVoltageBundleTemplateId)
@@ -222,12 +223,12 @@ bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
   }
 
   wire::core::BundleTemplate edited = *hv_template;
-  const bool original_policy = hv_template->enable_branch_down_offset;
   edited.enable_branch_down_offset = !edited.enable_branch_down_offset;
   const auto update = state.UpdateBundleTemplate(edited);
   const auto current = state.view().bundle_templates().find(kDefaultHighVoltageBundleTemplateId);
-  return !update.ok && current != state.view().bundle_templates().end() &&
-         current->second.enable_branch_down_offset == original_policy;
+  return update.ok && update.value && current != state.view().bundle_templates().end() &&
+         current->second.enable_branch_down_offset == edited.enable_branch_down_offset &&
+         state.view().spans().find(hv_span_id) != nullptr;
 }
 
 bool test_update_cable_template_rejects_manual_span_render_change() {
@@ -303,7 +304,7 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C200_CoreStateService_TemplateMutation_BranchDownOffsetPolicyIsTopology",
                          "bundle template branch-down-offset policy changes force regeneration instead of being ignored or treated as visual-only",
                          "Invariant", false,
-                         &test_update_bundle_template_rejects_branch_down_offset_before_mutation);
+                         &test_update_bundle_template_regenerates_branch_down_offset_policy);
   test_registry::AddTest(tests, "C357_CoreStateService_CableTemplatePolicyChangeRegenerates",
                          "decision-bearing cable template changes regenerate backbone outputs",
                          "Invariant", false, &test_update_cable_template_decision_change_regenerates_backbone);

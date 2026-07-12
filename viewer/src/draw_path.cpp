@@ -124,6 +124,8 @@ const char* VisualCurvePartKindLabelLocal(wire::core::VisualCurvePartKind kind) 
     return "lead";
   case wire::core::VisualCurvePartKind::kJumper:
     return "jumper";
+  case wire::core::VisualCurvePartKind::kSupplemental:
+    return "supplemental";
   default:
     return "unknown";
   }

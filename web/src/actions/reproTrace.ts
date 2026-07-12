@@ -1,7 +1,7 @@
 import type { EditResult, PathPickInfo } from "../model";
 import type { PathPointSpec, ViewerSnapshot, WorldPoint } from "../store/viewer";
 
-const PART_KIND_NAMES = ["EdgeBody", "NodePatch", "Lead", "Jumper"];
+const PART_KIND_NAMES = ["EdgeBody", "NodePatch", "Lead", "Jumper", "Supplemental"];
 
 function formatNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(3) : "non-finite";

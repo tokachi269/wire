@@ -588,8 +588,10 @@ int visual_part_kind_order(VisualCurvePartKind kind) {
     return 2;
   case VisualCurvePartKind::kJumper:
     return 3;
+  case VisualCurvePartKind::kSupplemental:
+    return 4;
   }
-  return 4;
+  return 5;
 }
 
 bool section_key_less(const CableSectionKey& a, const CableSectionKey& b) {

@@ -283,6 +283,12 @@ member twist と member wander は visual curve だけを変更し、Span、Port
 CableRun identity を変更しない。member の関連付けは `CableSectionKey.logical_span_id` による
 明示的なものだけであり、geometry 近傍から探索しない。
 
+`BundleTemplate.span_visual_assembly` は assembly の正本設定である。radius が 0 の場合は、
+support path からの member offset、member wire radius、helix wire radius、clearance を含む最小半径を
+derived 側で求める。contained member は support path のnormalized arc-length位置へ対応付け、
+helix内周から出ないように断面offsetをclampする。wander はclamp後に残るmarginの比率だけを使い、
+同じvariation flowとsection keyから決定的に導出する。
+
 ## wire domain境界
 
 wire coreはroad、rail、building、terrain、cityのdomain型を知らない。

@@ -27,6 +27,29 @@ bool same_vec3(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
          almost_equal(a.z, b.z, 1e-12);
 }
 
+bool same_visual_curve_samples(const wire::core::VisualCurvePartCache& lhs,
+                               const wire::core::VisualCurvePartCache& rhs) {
+  if (lhs.parts.size() != rhs.parts.size()) return false;
+  for (std::size_t i = 0; i < lhs.parts.size(); ++i) {
+    const wire::core::VisualCurvePart& a = lhs.parts[i];
+    const wire::core::VisualCurvePart& b = rhs.parts[i];
+    if (a.kind != b.kind || a.supplemental_kind != b.supplemental_kind || a.lane_index != b.lane_index ||
+        a.has_section_key != b.has_section_key || a.samples.size() != b.samples.size()) {
+      return false;
+    }
+    if (a.has_section_key && (a.section_key.logical_span_id != b.section_key.logical_span_id ||
+                              a.section_key.rule_owner_id != b.section_key.rule_owner_id ||
+                              a.section_key.rule_id != b.section_key.rule_id ||
+                              a.section_key.instance_index != b.section_key.instance_index)) {
+      return false;
+    }
+    for (std::size_t sample = 0; sample < a.samples.size(); ++sample) {
+      if (!same_vec3(a.samples[sample], b.samples[sample])) return false;
+    }
+  }
+  return true;
+}
+
 bool same_frame(const wire::core::Frame3d& a, const wire::core::Frame3d& b) {
   return same_vec3(a.origin, b.origin) && same_vec3(a.forward, b.forward) &&
          same_vec3(a.right, b.right) && same_vec3(a.up, b.up);
@@ -2460,9 +2483,23 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
     members_below_support = members_below_support &&
         part.samples[part.samples.size() / 2].z < support->second->samples[support->second->samples.size() / 2].z;
   }
+  wire::core::CoreState fresh;
+  wire::core::BundleTemplate fresh_template = fresh.view().bundle_templates().at(id);
+  fresh_template.fixed_count = 2;
+  fresh_template.default_count = 2;
+  fresh_template.support_wire_pole_band_id = 100;
+  fresh_template.span_visual_assembly.helix_enabled = true;
+  fresh_template.span_visual_assembly.helix_turns_per_meter = 1.0;
+  fresh_template.span_visual_assembly.helix_samples_per_turn = 12;
+  fresh_template.span_visual_assembly.endpoint_trim_m = 0.25;
+  fresh_template.span_visual_assembly.helix_clearance_m = 0.08;
+  const auto fresh_update = fresh.UpdateBundleTemplate(fresh_template);
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(line_req(fresh));
   return support_count == generated.value.generated_span_ids.size() &&
          helix_count == generated.value.generated_span_ids.size() && support_is_curved && helix_is_trimmed &&
-         members_below_support && state.view().visual_curve_parts().stats.curve_builds == member_count + support_count;
+         members_below_support && state.view().visual_curve_parts().stats.curve_builds == member_count + support_count &&
+         fresh_update.ok && fresh_generated.ok &&
+         same_visual_curve_samples(state.view().visual_curve_parts(), fresh.view().visual_curve_parts());
 }
 
 bool C759_span_visual_assembly_has_one_geometry_owner() {

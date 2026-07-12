@@ -135,7 +135,23 @@ export interface BundleTemplateInfo {
   supportStyle: number;
   branchPolicy: number;
   continuityPolicy: number;
+  supportWirePoleBandId: number;
+  spanVisualAssembly: SpanVisualAssemblyInfo;
   populationRules: PopulationRuleInfo[];
+}
+
+export interface SpanVisualAssemblyInfo {
+  helixEnabled: boolean;
+  helixRadius: number;
+  helixClearance: number;
+  helixTurnsPerMeter: number;
+  helixSamplesPerTurn: number;
+  endpointTrim: number;
+  memberWanderRatio: number;
+  memberWanderWavelength: number;
+  memberWanderPhaseBias: number;
+  memberTwistTurnsPerMeter: number;
+  memberTwistPhase: number;
 }
 
 export interface PopulationRuleInfo {
@@ -150,12 +166,6 @@ export interface PopulationRuleInfo {
   heightMin: number;
   heightMax: number;
   randomness: number;
-  profile: number;
-  wrapRadius: number;
-  wrapTurnsPerMeter: number;
-  wrapPhase: number;
-  wrapDirection: number;
-  endTrim: number;
 }
 
 export interface CableTemplateInfo {

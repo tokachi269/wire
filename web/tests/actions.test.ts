@@ -75,6 +75,13 @@ describe("viewer actions", () => {
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
           groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
           continuityPolicy: 0,
+          supportWirePoleBandId: 0,
+          spanVisualAssembly: {
+            helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
+            helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
+            memberWanderWavelength: 0, memberWanderPhaseBias: 0,
+            memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
+          },
           populationRules: []
         }
       ],
@@ -137,6 +144,13 @@ describe("viewer actions", () => {
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
           groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
           continuityPolicy: 0,
+          supportWirePoleBandId: 0,
+          spanVisualAssembly: {
+            helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
+            helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
+            memberWanderWavelength: 0, memberWanderPhaseBias: 0,
+            memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
+          },
           populationRules: []
         }
       ],
@@ -187,6 +201,13 @@ describe("viewer actions", () => {
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
           groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
           continuityPolicy: 0,
+          supportWirePoleBandId: 0,
+          spanVisualAssembly: {
+            helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
+            helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
+            memberWanderWavelength: 0, memberWanderPhaseBias: 0,
+            memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
+          },
           populationRules: []
         }
       ],
@@ -222,6 +243,13 @@ const bundleTemplate: BundleTemplateInfo = {
   supportStyle: 0,
   branchPolicy: 0,
   continuityPolicy: 0,
+  supportWirePoleBandId: 0,
+  spanVisualAssembly: {
+    helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
+    helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
+    memberWanderWavelength: 0, memberWanderPhaseBias: 0,
+    memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
+  },
   populationRules: []
 };
 
@@ -525,13 +553,7 @@ describe("P1 action contracts", () => {
           lateralMax: 0.4,
           heightMin: 5,
           heightMax: 6,
-          randomness: 0.5,
-        profile: 0,
-        wrapRadius: 0,
-        wrapTurnsPerMeter: 0,
-        wrapPhase: 0,
-        wrapDirection: 1,
-        endTrim: 0
+          randomness: 0.5
         }
       ]
     });
@@ -568,13 +590,7 @@ describe("P1 action contracts", () => {
           lateralMax: 1,
           heightMin: 0,
           heightMax: 20,
-          randomness: 0.25,
-        profile: 0,
-        wrapRadius: 0,
-        wrapTurnsPerMeter: 0,
-        wrapPhase: 0,
-        wrapDirection: 1,
-        endTrim: 0
+          randomness: 0.25
         }
       ]
     };

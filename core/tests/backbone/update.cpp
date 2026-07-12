@@ -2433,6 +2433,16 @@ bool C745_legacy_wrap_family_is_absent() {
       return false;
     }
   }
+  const std::filesystem::path web_source = repo_root() / "web/src";
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(web_source)) {
+    if (!entry.is_regular_file()) continue;
+    std::string source{};
+    if (!file_text(entry.path(), &source) || contains_text(source, "wrapRadius") ||
+        contains_text(source, "wrapTurnsPerMeter") || contains_text(source, "wrapPhase") ||
+        contains_text(source, "wrapDirection") || contains_text(source, "Wrap (carrier)")) {
+      return false;
+    }
+  }
   std::string workflow{};
   if (!file_text(repo_root() / "core/include/wire/core/workflow_types.hpp", &workflow)) {
     return false;

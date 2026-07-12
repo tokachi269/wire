@@ -80,6 +80,7 @@
   function cloneBundle(template: BundleTemplateInfo): BundleTemplateInfo {
     return {
       ...template,
+      spanVisualAssembly: { ...template.spanVisualAssembly },
       populationRules: template.populationRules.map((rule) => ({ ...rule }))
     };
   }
@@ -486,51 +487,47 @@
         related poleを既存へ適用
       </button>
       <details>
+        <summary>Span visual assembly</summary>
+        <label>Support band id
+          <input type="number" value={bundle.supportWirePoleBandId}
+            onchange={(event) => updateBundle(bundle, (draft) => {
+              draft.supportWirePoleBandId = Math.trunc(numberValue(event));
+            })} />
+        </label>
+        <label class="check"><input type="checkbox" checked={bundle.spanVisualAssembly.helixEnabled}
+          onchange={(event) => updateBundle(bundle, (draft) => {
+            draft.spanVisualAssembly.helixEnabled = checkedValue(event);
+          })} />Helix enabled</label>
+        {#each [
+          ["helixRadius", "Helix radius (0 = auto-fit)", 0.005],
+          ["helixClearance", "Helix clearance", 0.005],
+          ["helixTurnsPerMeter", "Helix turns / m", 0.1],
+          ["endpointTrim", "Endpoint trim", 0.05],
+          ["memberWanderRatio", "Member wander ratio", 0.05],
+          ["memberWanderWavelength", "Member wander wavelength", 0.1],
+          ["memberWanderPhaseBias", "Member wander phase", 0.1],
+          ["memberTwistTurnsPerMeter", "Member twist turns / m", 0.1],
+          ["memberTwistPhase", "Member twist phase", 0.1]
+        ] as field}
+          <label>{field[1]}<input type="number" step={field[2]}
+            value={fmt(bundle.spanVisualAssembly[field[0] as keyof typeof bundle.spanVisualAssembly] as number)}
+            onchange={(event) => updateBundle(bundle, (draft) => {
+              (draft.spanVisualAssembly[field[0] as keyof typeof draft.spanVisualAssembly] as number) =
+                round6(numberValue(event));
+            })} /></label>
+        {/each}
+        <label>Helix samples / turn
+          <input type="number" min="4" step="1" value={bundle.spanVisualAssembly.helixSamplesPerTurn}
+            onchange={(event) => updateBundle(bundle, (draft) => {
+              draft.spanVisualAssembly.helixSamplesPerTurn = Math.trunc(numberValue(event));
+            })} />
+        </label>
+      </details>
+      <details>
         <summary>Population rules ({bundle.populationRules.length})</summary>
         {#each bundle.populationRules as rule (rule.ruleId)}
           <div class="record">
-            <strong>Rule {rule.ruleId} · {rule.profile === 1 ? "wrap" : "free"} · extra {rule.minExtraCount}-{rule.maxExtraCount}</strong>
-            <label>Profile
-              <select value={rule.profile}
-                onchange={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
-                  draft.profile = numberValue(event);
-                  if (draft.profile === 1) {
-                    if (draft.wrapRadius <= 0) draft.wrapRadius = 0.05;
-                    if (draft.wrapTurnsPerMeter <= 0) draft.wrapTurnsPerMeter = 1.5;
-                    if (draft.endTrim <= 0) draft.endTrim = 0.5;
-                  } else {
-                    draft.wrapRadius = 0;
-                    draft.wrapTurnsPerMeter = 0;
-                    draft.wrapPhase = 0;
-                    draft.endTrim = 0;
-                  }
-                })}>
-                <option value="0">Free (parallel)</option>
-                <option value="1">Wrap (carrier)</option>
-              </select>
-            </label>
-            {#if rule.profile === 1}
-              {#each [
-                ["wrapRadius", "Wrap radius", 0.005],
-                ["wrapTurnsPerMeter", "Turns / m", 0.1],
-                ["wrapPhase", "Phase", 0.1],
-                ["endTrim", "End trim", 0.05]
-              ] as field}
-                <label>{field[1]}<input type="number" step={field[2]} value={fmt(rule[field[0] as keyof PopulationRuleInfo] as number)}
-                  onchange={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
-                    (draft[field[0] as keyof PopulationRuleInfo] as number) = round6(numberValue(event));
-                  })} /></label>
-              {/each}
-              <label>Direction
-                <select value={rule.wrapDirection}
-                  onchange={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
-                    draft.wrapDirection = numberValue(event);
-                  })}>
-                  <option value="1">S (+1)</option>
-                  <option value="-1">Z (-1)</option>
-                </select>
-              </label>
-            {/if}
+            <strong>Rule {rule.ruleId} · free section · extra {rule.minExtraCount}-{rule.maxExtraCount}</strong>
             {#each [
               ["ruleId", "Rule id"], ["explicitSeed", "Seed"], ["priority", "Priority"],
               ["minExtraCount", "Min extra"], ["maxExtraCount", "Max extra"]
@@ -581,13 +578,7 @@
             lateralMax: 1,
             heightMin: 0,
             heightMax: 20,
-            randomness: 0.25,
-            profile: 0,
-            wrapRadius: 0,
-            wrapTurnsPerMeter: 0,
-            wrapPhase: 0,
-            wrapDirection: 1,
-            endTrim: 0
+            randomness: 0.25
           });
         })}>Rule追加</button>
       </details>

@@ -386,6 +386,7 @@ public:
     output.set("supportStyle", static_cast<int>(bundle_template.support_style));
     output.set("branchPolicy", static_cast<int>(bundle_template.branch_policy));
     output.set("continuityPolicy", static_cast<int>(bundle_template.continuity_policy));
+    output.set("supportWirePoleBandId", bundle_template.support_wire_pole_band_id);
     const auto& assembly = bundle_template.span_visual_assembly;
     val assembly_output = val::object();
     assembly_output.set("helixEnabled", assembly.helix_enabled);
@@ -445,6 +446,7 @@ public:
         static_cast<wire::core::BundleBranchPolicyHint>(property<int>(input, "branchPolicy"));
     bundle_template.continuity_policy =
         static_cast<wire::core::CableContinuityPolicyHint>(property<int>(input, "continuityPolicy"));
+    bundle_template.support_wire_pole_band_id = property<int>(input, "supportWirePoleBandId");
     const val assembly = input["spanVisualAssembly"];
     bundle_template.span_visual_assembly.helix_enabled = property<bool>(assembly, "helixEnabled");
     bundle_template.span_visual_assembly.helix_radius_m = property<double>(assembly, "helixRadius");

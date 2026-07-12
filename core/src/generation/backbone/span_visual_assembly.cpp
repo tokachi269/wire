@@ -3,6 +3,7 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../../geometry/detail_curve_postprocess.hpp"
+#include "../../geometry/detail_curve_input_resolution.hpp"
 #include "out.hpp"
 
 #include <algorithm>
@@ -55,7 +56,7 @@ Vec3d sample_normalized(const std::vector<Vec3d>& samples, double t) {
   return samples[index] + ScaleVec(samples[next] - samples[index], scaled - static_cast<double>(index));
 }
 
-void contain_members(const VisualCurvePart& support, const SpanVisualAssemblyTemplate& settings,
+void contain_members(const CoreState& state, const VisualCurvePart& support, const SpanVisualAssemblyTemplate& settings,
                      const std::vector<VisualCurvePart*>& members, double radius) {
   const double allowed = std::max(0.0, radius - support.wire_radius_m - settings.helix_clearance_m);
   for (VisualCurvePart* member : members) {
@@ -71,7 +72,10 @@ void contain_members(const VisualCurvePart& support, const SpanVisualAssemblyTem
       if (distance > limit && distance > 1e-9) offset = ScaleVec(offset, limit / distance);
       const double margin = std::max(0.0, limit - Length(offset));
       if (settings.member_wander_ratio > 0.0 && margin > 0.0) {
-        const std::uint64_t seed = mix_seed(static_cast<std::uint64_t>(member->section_key.logical_span_id) ^
+        const Span* source_span = state.view().spans().find(member->section_key.logical_span_id);
+        const std::uint64_t flow_key = source_span == nullptr ? 0 :
+            variation_flow_key_for_span(state.view().find_span_runtime_state(source_span->id), *source_span);
+        const std::uint64_t seed = mix_seed(flow_key ^ static_cast<std::uint64_t>(member->section_key.logical_span_id) ^
             member->section_key.rule_owner_id ^ static_cast<std::uint64_t>(member->section_key.rule_id) ^
             static_cast<std::uint64_t>(member->section_key.instance_index));
         const double phase = settings.member_wander_phase_bias +
@@ -216,7 +220,7 @@ void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* 
     support.source_version = members.front()->source_version;
     const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m :
         auto_fit_radius(members, settings.helix_clearance_m, support.wire_radius_m);
-    contain_members(support, settings, members, radius);
+    contain_members(state, support, settings, members, radius);
     VisualCurvePart helix = make_helix_part(support, settings, members);
     supplemental.push_back(std::move(support));
     if (helix.samples.size() >= 2) supplemental.push_back(std::move(helix));

@@ -288,6 +288,7 @@ support path からの member offset、member wire radius、helix wire radius、
 derived 側で求める。contained member は support path のnormalized arc-length位置へ対応付け、
 helix内周から出ないように断面offsetをclampする。wander はclamp後に残るmarginの比率だけを使い、
 同じvariation flowとsection keyから決定的に導出する。
+明示radiusは、support wireとhelix wireの径およびclearanceを収められない値を設定時に拒否する。
 
 ## wire domain境界
 

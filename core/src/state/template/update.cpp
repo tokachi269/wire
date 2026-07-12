@@ -610,6 +610,13 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       result.error = "enabled span visual assembly requires an enabled support band on the related pole type";
       return result;
     }
+    const CableTemplate* assembly_cable = state.find_cable_template(normalized.cable_template_id);
+    const double minimum_radius =
+        (assembly_cable == nullptr ? 0.0 : assembly_cable->outer_diameter_m) + assembly.helix_clearance_m;
+    if (assembly.helix_radius_m > 0.0 && assembly.helix_radius_m + 1e-9 < minimum_radius) {
+      result.error = "span visual assembly helix radius cannot contain the wire diameter";
+      return result;
+    }
   }
   for (CablePopulationRule& rule : normalized.population_rules) {
     if (rule.explicit_seed == 0) {

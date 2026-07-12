@@ -2415,6 +2415,9 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   tpl.support_wire_pole_band_id = 100;
   tpl.span_visual_assembly.helix_samples_per_turn = 12;
   tpl.span_visual_assembly.endpoint_trim_m = 0.25;
+  tpl.span_visual_assembly.helix_radius_m = 1e-6;
+  if (state.UpdateBundleTemplate(tpl).ok) return false;
+  tpl.span_visual_assembly.helix_radius_m = 0.0;
   if (!state.UpdateBundleTemplate(tpl).ok) return false;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok || generated.value.generated_span_ids.empty()) return false;

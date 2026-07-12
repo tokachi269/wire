@@ -21,18 +21,18 @@
         <span>position {pole.positionX.toFixed(2)}, {pole.positionY.toFixed(2)}, {pole.positionZ.toFixed(2)}</span>
       {/if}
       <button class="secondary" onclick={() => actions.clearSelectedOverride("pole")}>
-        orientation override解除
+        Clear orientation override
       </button>
     {:else if snapshot.selection.kind === "span"}
       {@const span = snapshot.spans.find((item) => item.id === snapshot.selection?.id)}
       {#if span}<span>ports {span.portAId} -&gt; {span.portBId}</span>{/if}
-      <button class="secondary" onclick={() => actions.clearSelectedOverride("socketA")}>socket A解除</button>
-      <button class="secondary" onclick={() => actions.clearSelectedOverride("socketB")}>socket B解除</button>
-      <button class="secondary" onclick={() => actions.clearSelectedOverride("branchDown")}>branch down解除</button>
+      <button class="secondary" onclick={() => actions.clearSelectedOverride("socketA")}>Clear socket A</button>
+      <button class="secondary" onclick={() => actions.clearSelectedOverride("socketB")}>Clear socket B</button>
+      <button class="secondary" onclick={() => actions.clearSelectedOverride("branchDown")}>Clear branch down</button>
     {:else}
       <span>read-only selection</span>
     {/if}
   {:else}
-    <span>未選択: scene settings を編集</span>
+    <span>No selection: edit scene settings</span>
   {/if}
 </section>

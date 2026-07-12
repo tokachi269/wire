@@ -225,8 +225,11 @@
         bind:this={stateFileInput}
         onchange={loadStateFile}
       />
+      <button class="secondary" type="button" onclick={() => actions.resetWorkspace()}>
+        Reset
+      </button>
       <button type="button" onclick={() => actions.generatePath()}>
-        Path生成
+        Generate Path
       </button>
     </div>
   </header>
@@ -241,7 +244,7 @@
       </div>
       <button
         class="resize-handle"
-        aria-label="左サイドバーの幅を変更"
+        aria-label="Resize left sidebar"
         type="button"
         onpointerdown={(event) => beginResize("left", event)}
       ></button>
@@ -252,7 +255,7 @@
     {#if snapshot.showRightPanel}
       <button
         class="resize-handle"
-        aria-label="右サイドバーの幅を変更"
+        aria-label="Resize right sidebar"
         type="button"
         onpointerdown={(event) => beginResize("right", event)}
       ></button>
@@ -318,20 +321,20 @@
           </label>
           <button class="secondary" type="button"
             onclick={() => actions.setDrawOption("directionMode", snapshot.directionMode === 1 ? 2 : 1)}>
-            Direction反転
+            Flip Direction
           </button>
           <label>Plane Z
             <input type="number" step="0.1" value={snapshot.drawPlaneZ}
               onchange={(event) => actions.setDrawOption("drawPlaneZ", Number(event.currentTarget.value))} />
           </label>
-          <p class="hint">LMB: 点追加 / RMB: 1点戻す / Enter: 生成 / Esc: 取消</p>
+          <p class="hint">LMB: add point / RMB: undo point / Enter: generate / Esc: cancel</p>
           <strong class="point-count">{snapshot.pathPoints.length} points</strong>
           <div class="path-actions">
             <button class="secondary" type="button" onclick={() => actions.undoPathPoint()}>
-              1点戻す
+              Undo Point
             </button>
             <button class="secondary" type="button" onclick={() => actions.clearPath()}>
-              クリア
+              Clear
             </button>
           </div>
         </div>
@@ -430,7 +433,7 @@
 
   {#if snapshot.interaction}
     <div class="interaction">
-      editing {snapshot.interaction.param} · Escで取消
+      editing {snapshot.interaction.param} · Esc to cancel
     </div>
   {/if}
 </main>

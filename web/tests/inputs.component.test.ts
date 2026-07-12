@@ -177,6 +177,30 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).parts).toEqual(generatedParts);
   });
 
+  it("resets both core state and viewer settings", async () => {
+    const mounted = await mountViewer();
+    const factorySagFactor = mounted.bridge.geometrySettings().sagFactor;
+    mounted.actions.commitGeometry("sagFactor", factorySagFactor + 0.02);
+    mounted.actions.setDrawOption("cameraFov", 81);
+    expect(current(mounted.store).parts.length).toBeGreaterThan(0);
+
+    const reset = [...document.querySelectorAll("button")]
+      .find((button) => button.textContent?.trim() === "Reset");
+    if (!(reset instanceof HTMLButtonElement)) {
+      throw new Error("Reset button not found");
+    }
+    reset.click();
+    await tick();
+
+    expect(mounted.bridge.geometrySettings().sagFactor)
+      .toBeCloseTo(factorySagFactor, 8);
+    expect(current(mounted.store)).toEqual(expect.objectContaining({
+      cameraFov: 48,
+      pathPoints: [],
+      parts: []
+    }));
+  });
+
   async function mountViewer() {
     const wasmBinary = await readFile(resolve("src/wasm-generated/wire_web_core.wasm"));
     bridge = await WireBridge.create({ wasmBinary });

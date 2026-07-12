@@ -8,6 +8,7 @@ import type {
   PoleTemplateInfo
 } from "../src/model";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
+import { WorkspaceCache } from "../src/workspaceCache";
 
 function current(store: ViewerStore): ViewerSnapshot {
   let snapshot: ViewerSnapshot | undefined;
@@ -20,6 +21,75 @@ function current(store: ViewerStore): ViewerSnapshot {
   }
   return snapshot;
 }
+
+describe("workspace cache", () => {
+  it("restores core state and viewer preferences, then resets both", async () => {
+    vi.useFakeTimers();
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); }
+    };
+    const cache = new WorkspaceCache(storage);
+    let firstCoreState = "factory-core";
+    const firstStore = new ViewerStore();
+    const firstActions = new ViewerActions(
+      actionBridge({
+        saveState: () => firstCoreState,
+        loadState: (text: string) => {
+          firstCoreState = text;
+          return { ok: true, error: "" };
+        }
+      }),
+      firstStore,
+      cache
+    );
+    firstActions.initialize();
+    firstCoreState = "edited-core";
+    firstActions.setDrawOption("cameraFov", 73);
+    firstActions.setDrawOption("showRightPanel", false);
+    firstActions.addPathPoint([1, 2, 3]);
+    await vi.advanceTimersByTimeAsync(251);
+    firstActions.dispose();
+
+    let secondCoreState = "fresh-core";
+    const secondStore = new ViewerStore();
+    const secondActions = new ViewerActions(
+      actionBridge({
+        saveState: () => secondCoreState,
+        loadState: (text: string) => {
+          secondCoreState = text;
+          return { ok: true, error: "" };
+        }
+      }),
+      secondStore,
+      cache
+    );
+    secondActions.initialize();
+
+    expect(secondCoreState).toBe("edited-core");
+    expect(current(secondStore)).toEqual(expect.objectContaining({
+      cameraFov: 73,
+      showRightPanel: false,
+      pathPoints: [[1, 2, 3]]
+    }));
+
+    secondActions.resetWorkspace();
+    expect(secondCoreState).toBe("fresh-core");
+    expect(current(secondStore)).toEqual(expect.objectContaining({
+      cameraFov: 48,
+      showRightPanel: true,
+      pathPoints: []
+    }));
+    expect(cache.read()).toEqual(expect.objectContaining({
+      coreState: "fresh-core",
+      viewer: expect.objectContaining({ cameraFov: 48 })
+    }));
+    secondActions.dispose();
+    vi.useRealTimers();
+  });
+});
 
 function timing(totalMs: number): GenerationTiming {
   return {
@@ -105,6 +175,7 @@ describe("viewer actions", () => {
         insulatorRadius: 0.07,
         insulatorLength: 0.16
       }),
+      saveState: () => "factory-state",
       generate: () => ({
         ok: true,
         error: "",
@@ -308,6 +379,8 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     }),
     updateCableTemplate: () => ({ ok: true, error: "" }),
     updatePoleTemplate: () => ({ ok: true, error: "" }),
+    saveState: () => "factory-state",
+    loadState: () => ({ ok: true, error: "" }),
     scene: () => emptyScene,
     ...overrides
   } as WireBridge;

@@ -201,12 +201,12 @@
       onchange={(event) => actions.setDrawOption("selectionIncludeSpans", checkedValue(event))} />
       Select spans</label>
     <label>
-      Max tilt (生成時にも適用)
+      Max tilt (also used for generation)
       <input type="number" step="0.5" value={snapshot.maxTiltDeg}
         onchange={(event) => actions.setDrawOption("maxTiltDeg", numberValue(event))} />
     </label>
     <button type="button" onclick={() => actions.applyTiltToAll(snapshot.maxTiltDeg)}>
-      全poleへtilt適用
+      Apply tilt to all poles
     </button>
     <button
       class="secondary"
@@ -214,14 +214,14 @@
       disabled={snapshot.selection?.kind !== "pole"}
       onclick={() => actions.applyTiltToSelection(snapshot.maxTiltDeg)}
     >
-      選択poleへtilt適用
+      Apply tilt to selected pole
     </button>
     <button
       class="secondary"
       type="button"
       onclick={() => actions.resetSpanReferenceLengths()}
     >
-      span基準長をreset
+      Reset span reference lengths
     </button>
   </section>
 </div>

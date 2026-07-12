@@ -36,7 +36,7 @@
   <div class="outliner-title">
     <h2>Outliner</h2>
     <button class="secondary" type="button" onclick={() => actions.clearSelection()}>
-      選択解除
+      Clear selection
     </button>
   </div>
   <label>

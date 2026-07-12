@@ -27,6 +27,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 |---|---|---|---|---|---|---|---|
 | Left/Right Panel / Workspace Width | web layout store | toggle / slider | UI | 生反映 | 直して移植 | desktop の unified/window mode は持たず、左右panelの表示と幅だけを管理する | P1 |
 | Camera FOV | renderer camera action | slider | camera | 生反映 | そのまま | renderer 所有で core 非依存 | P1 |
+| Reset Workspace | workspace cache action | button | Core + UI | commit | 直して移植 | factory CoreStateと既定UIへ戻し、同じ内容でcacheを置換する | P1 |
 | Walk Speed / Mouse Sensitivity / Start-Stop Walk | なし | slider / button | desktop input | - | 捨てる | web は OrbitControls の orbit/pan/zoomを採用し walk mode は非対象 | P2 |
 | Clear Selection | selection action | button | UI | 即時 | そのまま | store の選択だけを消す | P1 |
 | Outliner: Poles / Ports / Spans / Midair SupportNodes | read model + selection action | selectable list | UI | 即時 | そのまま | topology を解釈せず公開 view の項目を表示する | P1 |
@@ -170,3 +171,14 @@ P1 だが意図的に除外した項目:
 - direct object edit: desktop側も無効であり、Draw Pathと明示template/update actionだけを入口にする。
 
 P2 は Repro Trace のみ実装済みである。walk modeは未実装である。
+
+## Workspace persistence
+
+web viewerはversion付きworkspace documentをbrowser local storageへ自動保存する。
+documentはCoreのauthoritative save文字列と、編集中path・template選択・表示・panel配置等の
+Web設定を同じ単位で保持し、次回起動時にCoreを先にloadしてからWeb設定とderived sceneを復元する。
+parts、catalog、timing、log等の再取得可能な値は保存しない。
+
+Store変更は250ms debounceで保存し、page unloadでは同期flushする。`Reset`は起動時のfactory
+CoreStateと既定Web設定へ戻し、その状態でcacheを置換する。手動Save/LoadはCore archiveの
+入出力として残し、Load後のstateは次のcache flushに含める。

@@ -17,6 +17,9 @@ import type {
   ViewerStore,
   WorldPoint
 } from "../store/viewer";
+import { createViewerSnapshot } from "../store/viewer";
+import type { WorkspacePreferences } from "../workspaceCache";
+import { WorkspaceCache } from "../workspaceCache";
 
 const JAPAN_DISTRIBUTION_PRIMITIVE = {
   poleVisibleHeightM: 10.0,
@@ -152,10 +155,15 @@ export class ViewerActions {
   private interactionActive = false;
   private suppressNextCommit = false;
   private readonly reproTrace = new ReproTrace();
+  private factoryCoreState = "";
+  private workspaceSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private workspaceSubscription: (() => void) | null = null;
+  private persistencePaused = true;
 
   constructor(
     private readonly bridge: WireBridge,
-    private readonly store: ViewerStore
+    private readonly store: ViewerStore,
+    private readonly workspaceCache: WorkspaceCache | null = null
   ) {}
 
   initialize(): void {
@@ -231,6 +239,28 @@ export class ViewerActions {
       layout: this.bridge.layoutSettings(),
       visual: this.bridge.visualSettings()
     }));
+    this.factoryCoreState = this.bridge.saveState();
+    const cached = this.workspaceCache?.read() ?? null;
+    if (cached !== null) {
+      const result = this.bridge.loadState(cached.coreState);
+      if (result.ok) {
+        this.refreshCatalogs();
+        this.restoreWorkspacePreferences(cached.viewer);
+        this.store.update((current) => ({
+          ...current,
+          geometry: this.bridge.geometrySettings(),
+          layout: this.bridge.layoutSettings(),
+          visual: this.bridge.visualSettings(),
+          error: ""
+        }));
+        this.refreshScene();
+      } else {
+        this.workspaceCache?.clear();
+        this.store.setError(`Workspace restore failed: ${result.error}`);
+      }
+    }
+    this.persistencePaused = false;
+    this.startWorkspacePersistence();
   }
 
   addPathPoint(point: WorldPoint, pick?: PathPickInfo): void {
@@ -409,9 +439,58 @@ export class ViewerActions {
       return false;
     }
     this.refreshCatalogs();
+    this.store.update((current) => ({
+      ...current,
+      geometry: this.bridge.geometrySettings(),
+      layout: this.bridge.layoutSettings(),
+      visual: this.bridge.visualSettings()
+    }));
     this.refreshScene();
     this.store.setError("");
     return true;
+  }
+
+  resetWorkspace(): void {
+    if (this.factoryCoreState.length === 0) {
+      this.store.setError("Workspace reset is unavailable before initialization");
+      return;
+    }
+    this.persistencePaused = true;
+    this.clearWorkspaceSaveTimer();
+    this.workspaceCache?.clear();
+    const result = this.bridge.loadState(this.factoryCoreState);
+    if (!result.ok) {
+      this.persistencePaused = false;
+      this.store.setError(`Workspace reset failed: ${result.error}`);
+      return;
+    }
+    this.store.replace(createViewerSnapshot());
+    this.initialize();
+    this.refreshScene();
+    this.store.update((current) => ({
+      ...current,
+      logs: [...current.logs, "Workspace reset"]
+    }));
+    this.flushWorkspaceCache();
+  }
+
+  flushWorkspaceCache(): void {
+    if (this.workspaceCache === null || this.persistencePaused) return;
+    this.clearWorkspaceSaveTimer();
+    try {
+      this.workspaceCache.write(this.bridge.saveState(), this.readSnapshot());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.persistencePaused = true;
+      this.store.setError(`Workspace cache failed: ${message}`);
+    }
+  }
+
+  dispose(): void {
+    this.flushWorkspaceCache();
+    this.workspaceSubscription?.();
+    this.workspaceSubscription = null;
+    this.clearWorkspaceSaveTimer();
   }
 
   generatePath(): void {
@@ -1041,6 +1120,29 @@ export class ViewerActions {
       generationMs: scene.lastGenerationTiming?.totalMs ?? current.generationMs,
       generationTiming: scene.lastGenerationTiming ?? current.generationTiming
     }));
+  }
+
+  private restoreWorkspacePreferences(preferences: WorkspacePreferences): void {
+    this.store.update((current) => ({ ...current, ...preferences }));
+  }
+
+  private startWorkspacePersistence(): void {
+    if (this.workspaceCache === null || this.workspaceSubscription !== null) return;
+    this.workspaceSubscription = this.store.value.subscribe(() => {
+      if (this.persistencePaused) return;
+      this.clearWorkspaceSaveTimer();
+      this.workspaceSaveTimer = setTimeout(() => {
+        this.workspaceSaveTimer = null;
+        this.flushWorkspaceCache();
+      }, 250);
+    });
+  }
+
+  private clearWorkspaceSaveTimer(): void {
+    if (this.workspaceSaveTimer !== null) {
+      clearTimeout(this.workspaceSaveTimer);
+      this.workspaceSaveTimer = null;
+    }
   }
 
   private clearPendingPreview(): void {

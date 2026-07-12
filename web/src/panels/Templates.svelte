@@ -258,9 +258,9 @@
     {#if selectedPole()}
       {@const pole = selectedPole()!}
       <p class:warning={selectedPoleUsage() === 0}>
-        使用中 pole: {selectedPoleUsage()}本
+        Poles using this template: {selectedPoleUsage()}
         {#if selectedPoleUsage() === 0}
-          · この template の変更は現在の画面には反映されません
+          · Changes to this template are not visible in the current scene
         {/if}
       </p>
       <label>Default height
@@ -365,7 +365,7 @@
               onchange={(event) => updateBand(pole, band.bandId, (draft) => draft.enabled = checkedValue(event))} />Enabled</label>
             <button class="secondary" type="button" onclick={() => updatePole(pole, (draft) => {
               draft.portBands = draft.portBands.filter((item) => item.bandId !== band.bandId);
-            })}>Band削除</button>
+            })}>Remove band</button>
           </div>
         {/each}
         <button type="button" onclick={() => updatePole(pole, (draft) => {
@@ -377,7 +377,7 @@
             heightMax: draft.defaultHeight + 0.1, priority: 0, minSpacing: 0.2,
             allowMultiple: false, overflowPolicy: 2, enabled: true
           });
-        })}>Band追加</button>
+        })}>Add band</button>
       </details>
 
       <details>
@@ -411,13 +411,13 @@
               })} />Enabled</label>
             <button class="secondary" type="button" onclick={() => updatePole(pole, (draft) => {
               draft.anchorSlots = draft.anchorSlots.filter((item) => item.slotId !== slot.slotId);
-            })}>Slot削除</button>
+            })}>Remove slot</button>
           </div>
         {/each}
         <button type="button" onclick={() => updatePole(pole, (draft) => {
           const nextId = Math.max(0, ...draft.anchorSlots.map((slot) => slot.slotId)) + 1;
           draft.anchorSlots.push({slotId: nextId, usage: 0, localX: 0, localY: 0, localZ: 0, priority: 0, enabled: true});
-        })}>Slot追加</button>
+        })}>Add slot</button>
       </details>
     {/if}
   </section>
@@ -462,7 +462,7 @@
           )} />{field[1]}</label>
       {/each}
       <button class="secondary" type="button" onclick={() => actions.applyRelatedPoleType(bundle.id)}>
-        related poleを既存へ適用
+        Apply related pole type to existing poles
       </button>
       <details>
         <summary>Span visual assembly</summary>
@@ -538,7 +538,7 @@
             {/each}
             <button class="secondary" type="button" onclick={() => updateBundle(bundle, (draft) => {
               draft.populationRules = draft.populationRules.filter((item) => item.ruleId !== rule.ruleId);
-            })}>Rule削除</button>
+            })}>Remove rule</button>
           </div>
         {/each}
         <button type="button" onclick={() => updateBundle(bundle, (draft) => {
@@ -555,7 +555,7 @@
             heightMin: 0,
             heightMax: 20
           });
-        })}>Rule追加</button>
+        })}>Add rule</button>
       </details>
     {/if}
   </section>

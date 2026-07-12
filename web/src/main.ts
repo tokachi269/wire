@@ -4,6 +4,7 @@ import { ViewerActions } from "./actions/viewer";
 import { WireBridge } from "./bridge/wire";
 import { WireScene } from "./render/scene";
 import { ViewerStore } from "./store/viewer";
+import { WorkspaceCache } from "./workspaceCache";
 import "./style.css";
 
 const target = document.getElementById("app");
@@ -13,7 +14,11 @@ if (target === null) {
 
 const store = new ViewerStore();
 const bridge = await WireBridge.create();
-const actions = new ViewerActions(bridge, store);
+const actions = new ViewerActions(
+  bridge,
+  store,
+  new WorkspaceCache(window.localStorage)
+);
 actions.initialize();
 const scene = new WireScene(
   store,
@@ -32,6 +37,7 @@ mount(App, {
 });
 
 window.addEventListener("beforeunload", () => {
+  actions.dispose();
   scene.dispose();
   bridge.dispose();
 });

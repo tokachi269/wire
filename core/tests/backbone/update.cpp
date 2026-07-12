@@ -2405,4 +2405,27 @@ bool C745_legacy_wrap_family_is_absent() {
              std::string::npos;
 }
 
+bool C758_span_visual_assembly_emits_support_and_helix() {
+  wire::core::CoreState state;
+  const auto id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
+  wire::core::BundleTemplate tpl = state.view().bundle_templates().at(id);
+  tpl.support_wire_pole_band_id = 100;
+  tpl.span_visual_assembly.helix_enabled = true;
+  tpl.span_visual_assembly.helix_turns_per_meter = 1.0;
+  tpl.span_visual_assembly.helix_samples_per_turn = 12;
+  tpl.span_visual_assembly.endpoint_trim_m = 0.25;
+  if (!state.UpdateBundleTemplate(tpl).ok) return false;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.empty()) return false;
+  std::size_t support_count = 0;
+  std::size_t helix_count = 0;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kSupplemental) continue;
+    support_count += part.supplemental_kind == wire::core::VisualSupplementalKind::kSupportPath;
+    helix_count += part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix;
+  }
+  return support_count == generated.value.generated_span_ids.size() &&
+         helix_count == generated.value.generated_span_ids.size();
+}
+
 } // namespace backbone_tests

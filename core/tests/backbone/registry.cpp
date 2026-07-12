@@ -1095,6 +1095,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies",
                          "sharp-corner jumper boundaries are G1 with incident edge bodies",
                          "Invariant", false, C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies);
+  test_registry::AddTest(tests, "C758_span_visual_assembly_emits_support_and_helix",
+                         "enabled span visual assembly emits one support path and helix per logical span",
+                         "Invariant", false, C758_span_visual_assembly_emits_support_and_helix);
   test_registry::AddTest(tests, "C745_legacy_wrap_family_is_absent",
                          "legacy population wrap and cable-template coil families are absent from production surfaces",
                          "Boundary", false, C745_legacy_wrap_family_is_absent);

@@ -99,6 +99,13 @@ enum class VisualCurvePartKind : std::uint8_t {
   kNodePatch = 1,
   kLead = 2,
   kJumper = 3,
+  kSupplemental = 4,
+};
+
+enum class VisualSupplementalKind : std::uint8_t {
+  kNone = 0,
+  kSupportPath = 1,
+  kHelix = 2,
 };
 
 enum class NodePatchClassification : std::uint8_t {
@@ -154,6 +161,7 @@ struct VisualCurveDiagnostic {
 
 struct VisualCurvePart {
   VisualCurvePartKind kind = VisualCurvePartKind::kEdgeBody;
+  VisualSupplementalKind supplemental_kind = VisualSupplementalKind::kNone;
   NodePatchClassification node_patch_classification = NodePatchClassification::kNone;
   ObjectId source_node_id = kInvalidObjectId;
   ObjectId source_edge_id = kInvalidObjectId;

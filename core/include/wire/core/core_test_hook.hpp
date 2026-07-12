@@ -13,6 +13,7 @@ struct CoreStateTestHook {
   static RelationIndex& relation_index(CoreState& state) { return state.runtime_.relation_index; }
   static OverrideState& override_state(CoreState& state) { return state.authoritative_.override_state; }
   static IdGenerator& id_generator(CoreState& state) { return state.identity_.id_generator; }
+  static bool authoritative_equals(const CoreState& a, const CoreState& b) { return a.authoritative_equals(b); }
   static std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states(CoreState& state) {
     return state.runtime_.span_runtime_states;
   }

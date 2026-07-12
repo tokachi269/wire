@@ -2,7 +2,9 @@
 #include "registry.hpp"
 
 #include "wire/core/core_state.hpp"
+#include "wire/core/core_test_hook.hpp"
 #include "wire/core/core_view.hpp"
+#include "wire/core/model_descriptor.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -15,32 +17,23 @@
 namespace persistence_tests {
 namespace {
 
+struct DerivedSnapshot;
+bool make_roundtrip_source(wire::core::CoreState* state, std::string* saved, DerivedSnapshot* snapshot);
+
 bool C750_authoritative_save_is_deterministic_and_changes_after_edit() {
   wire::core::CoreState state;
-  wire::core::BackboneSpec first = backbone_tests::line_req(state);
-  first.path.polyline = {{0.0, 0.0, 0.0}, {650.0, 0.0, 0.0}};
-  first.interval_m = 10.0;
-  const auto populated = state.GenerateFromBackboneSpec(first);
-  if (!populated.ok || populated.value.generated_pole_ids.size() < 66) {
-    return false;
-  }
-
   std::string first_save{};
   std::string repeated_save{};
-  const auto saved = state.SerializeAuthoritative(&first_save);
-  const auto repeated = state.SerializeAuthoritative(&repeated_save);
-  if (!saved.ok || !repeated.ok || first_save.empty() || first_save.rfind("wire_state_v1\n", 0) != 0 ||
+  if (!make_roundtrip_source(&state, &first_save, nullptr)) return false;
+  const auto saved = state.SerializeAuthoritative(&repeated_save);
+  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v1\n", 0) != 0 ||
       first_save != repeated_save) {
     return false;
   }
-
-  wire::core::BackboneSpec second = backbone_tests::line_req(state);
-  second.path.polyline = {{0.0, 100.0, 0.0}, {650.0, 100.0, 0.0}};
-  second.interval_m = 10.0;
-  const auto edited = state.GenerateFromBackboneSpec(second);
-  if (!edited.ok || edited.value.generated_pole_ids.size() < 66) {
-    return false;
-  }
+  if (state.view().poles().items().empty()) return false;
+  const wire::core::Pole& pole = state.view().poles().items().front();
+  const auto edited = state.AddPort(pole.id, pole.world_transform.position + wire::core::Vec3d{0.3, 0.2, 2.0});
+  if (!edited.ok) return false;
   std::string edited_save{};
   const auto saved_after_edit = state.SerializeAuthoritative(&edited_save);
   return saved_after_edit.ok && edited_save != first_save;
@@ -220,31 +213,177 @@ bool same_derived(const DerivedSnapshot& a, const DerivedSnapshot& b) {
   return true;
 }
 
+wire::core::AttachmentTemplateId replace_attachment_template_id(const wire::core::CoreState& state) {
+  for (const auto& [id, value] : state.view().attachment_templates()) {
+    if (value.line_interaction_mode == wire::core::AttachmentLineInteractionMode::kReplaceWithInternalPath &&
+        !value.internal_paths.empty()) return id;
+  }
+  return wire::core::kInvalidAttachmentTemplateId;
+}
+
+wire::core::CablePopulationRule population_rule(std::uint64_t id,
+                                                wire::core::CableSectionProfile profile) {
+  wire::core::CablePopulationRule rule{};
+  rule.rule_id = id;
+  rule.explicit_seed = 100 + id;
+  rule.priority = static_cast<int>(10 + id);
+  rule.min_extra_count = 1;
+  rule.max_extra_count = 1;
+  rule.min_spacing_m = 0.04;
+  rule.lateral_min_m = -0.4;
+  rule.lateral_max_m = 0.4;
+  rule.height_min_m = 4.0;
+  rule.height_max_m = 9.0;
+  rule.randomness = 0.25;
+  rule.profile = profile;
+  if (profile == wire::core::CableSectionProfile::kWrap) {
+    rule.wrap_radius_m = 0.05;
+    rule.wrap_turns_per_meter = 1.25;
+    rule.wrap_phase = 0.2;
+    rule.wrap_direction = -1;
+    rule.end_trim_m = 0.4;
+  }
+  return rule;
+}
+
+bool full_fat_fixture_is_non_default(const wire::core::CoreState& state) {
+  const auto& view = state.view();
+  const auto lv_it = view.bundle_templates().find(wire::core::kDefaultLowVoltageBundleTemplateId);
+  if (lv_it == view.bundle_templates().end() || lv_it->second.population_rules.size() < 2) return false;
+  bool has_free = false;
+  bool has_wrap = false;
+  for (const auto& rule : lv_it->second.population_rules) {
+    has_free = has_free || rule.profile == wire::core::CableSectionProfile::kFree;
+    has_wrap = has_wrap || rule.profile == wire::core::CableSectionProfile::kWrap;
+  }
+  const auto comm_it = view.bundle_templates().find(
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
+  const auto& overrides = wire::core::CoreStateTestHook::override_state(
+      const_cast<wire::core::CoreState&>(state));
+  const bool has_manual_port = std::any_of(view.ports().items().begin(), view.ports().items().end(),
+      [](const wire::core::Port& port) { return !port.generated_from_template && !port.generated_by_rule; });
+  const bool has_tilt = std::any_of(view.poles().items().begin(), view.poles().items().end(),
+      [](const wire::core::Pole& pole) { return pole.tilt_magnitude_deg > 0.0; });
+  const bool has_midair = std::any_of(view.backbone().nodes.begin(), view.backbone().nodes.end(),
+      [](const wire::core::SavedBackboneNode& node) { return node.support_kind == wire::core::SupportKind::kMidair; });
+  const bool has_offset_echo = std::any_of(view.backbone().edges.begin(), view.backbone().edges.end(),
+      [](const wire::core::SavedBackboneEdge& edge) { return edge.lateral_offset_m == 0.35; });
+  const bool has_route_echo = std::any_of(view.backbone().edges.begin(), view.backbone().edges.end(),
+      [](const wire::core::SavedBackboneEdge& edge) { return edge.route != 0 || edge.order != 0; });
+  return has_free && has_wrap && comm_it != view.bundle_templates().end() &&
+         comm_it->second.count_rule == wire::core::BundleCountRuleKind::kRange &&
+         view.context_profile().style_seed == 4242 && !view.layout_settings().angle_correction_enabled &&
+         view.variation_settings().enabled && !overrides.pole_orientation_by_pole.empty() &&
+         !overrides.span_endpoint_by_span.empty() && !overrides.span_support_by_span.empty() &&
+         has_manual_port && has_tilt && has_offset_echo && has_route_echo &&
+         !view.attachments().empty();
+}
 bool make_roundtrip_source(wire::core::CoreState* state, std::string* saved, DerivedSnapshot* snapshot) {
+  if (state == nullptr || saved == nullptr) return false;
+
+  wire::core::ContextProfile context = state->view().context_profile();
+  context.age = 0.21;
+  context.clutter = 0.73;
+  context.regularity = 0.38;
+  context.service_mix = 0.84;
+  context.style_seed = 4242;
+  if (!state->UpdateContextProfile(context).ok) return false;
+  wire::core::LayoutSettings layout = state->view().layout_settings();
+  layout.angle_correction_enabled = false;
+  layout.corner_threshold_deg = 63.0;
+  layout.min_side_scale = 0.91;
+  layout.max_side_scale = 1.42;
+  if (!state->UpdateLayoutSettings(layout).ok) return false;
+  wire::core::VariationSettings variation = state->view().variation_settings();
+  variation.enabled = true;
+  variation.global_seed = 987654;
+  variation.world_cell_size_m = 31.0;
+  variation.sag_variation_scale = 0.13;
+  variation.branch_down_offset_variation_scale = 0.17;
+  if (!state->UpdateVariationSettings(variation).ok) return false;
   wire::core::GeometrySettings geometry = state->view().geometry_settings();
   geometry.curve_samples = 12;
   geometry.sag_enabled = true;
   geometry.sag_factor = 0.041;
+  geometry.pole_clearance_m = 0.19;
   if (!state->UpdateGeometrySettings(geometry).ok) return false;
   wire::core::VisualSettings visual = state->view().visual_settings();
   visual.support_arm_radius_m = 0.037;
+  visual.insulator_length_m = 0.27;
   if (!state->UpdateVisualSettings(visual).ok) return false;
-  const auto generated = state->GenerateFromBackboneSpec(backbone_tests::poly3_req(*state));
-  return generated.ok && state->SerializeAuthoritative(saved).ok && snapshot_derived(*state, snapshot);
+
+  const wire::core::AttachmentTemplateId attachment_template_id = replace_attachment_template_id(*state);
+  if (attachment_template_id == wire::core::kInvalidAttachmentTemplateId) return false;
+  wire::core::ModelDescriptor descriptor{};
+  descriptor.measurement.name = "persistence_fixture_insulator";
+  descriptor.measurement.version = 17;
+  descriptor.measurement.replace_length_m = 0.34;
+  descriptor.measurement.sockets = {
+      {"line_in", wire::core::ModelSocketRole::kLineIn, {-0.17, 0.01, 0.0}, {-1.0, 0.0, 0.0}},
+      {"line_out", wire::core::ModelSocketRole::kLineOut, {0.17, -0.01, 0.0}, {1.0, 0.0, 0.0}}};
+  const auto built = wire::core::build_attachment_template(descriptor, attachment_template_id);
+  if (!built.report.conflicts.empty() || !state->UpdateAttachmentTemplate(built.attachment_template).ok) return false;
+
+  wire::core::BundleTemplate lv = state->view().bundle_templates().at(
+      wire::core::kDefaultLowVoltageBundleTemplateId);
+  lv.population_rules = {
+      population_rule(31, wire::core::CableSectionProfile::kFree),
+      population_rule(32, wire::core::CableSectionProfile::kWrap)};
+  if (!state->UpdateBundleTemplate(lv).ok) return false;
+  wire::core::CableTemplate cable = state->view().cable_templates().at(lv.cable_template_id);
+  cable.default_endpoint_attachment_template_id = attachment_template_id;
+  cable.sag_factor = 0.029;
+  if (!state->UpdateCableTemplate(cable).ok) return false;
+  const auto comm_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
+  wire::core::BundleTemplate comm = state->view().bundle_templates().at(comm_id);
+  comm.count_rule = wire::core::BundleCountRuleKind::kRange;
+  comm.fixed_count = 0;
+  comm.min_count = 1;
+  comm.max_count = 4;
+  comm.default_count = 2;
+  if (!state->UpdateBundleTemplate(comm).ok) return false;
+
+  wire::core::BackboneSpec sharp = backbone_tests::line_req(*state);
+  sharp.path.polyline = {{0.0, -30.0, 0.0}, {10.0, -30.0, 0.0},
+                         {5.0, -21.339745962155614, 0.0}};
+  sharp.constraints.lateral_offset_m = 0.35;
+  sharp.pole_placement.enable_tilt = true;
+  sharp.pole_placement.max_tilt_deg = 9.0;
+  const auto generated = state->GenerateFromBackboneSpec(sharp);
+  if (!generated.ok || generated.value.generated_span_ids.empty() || generated.value.generated_pole_ids.empty()) return false;
+
+  const wire::core::ObjectId first_pole_id = generated.value.generated_pole_ids.front();
+  const wire::core::ObjectId first_span_id = generated.value.generated_span_ids.front();
+  if (!state->SetPoleManualYawOverride(first_pole_id, 17.0).ok) return false;
+  if (!state->SetSpanEndpointSocketOverride(first_span_id, true, 0).ok) return false;
+  if (!state->SetSpanBranchDownOffsetOverride(first_span_id, 0.62).ok) return false;
+  const wire::core::Pole* first_pole = state->view().poles().find(first_pole_id);
+  if (first_pole == nullptr) return false;
+  const wire::core::Vec3d manual_position = first_pole->world_transform.position + wire::core::Vec3d{0.3, -0.2, 3.4};
+  if (!state->AddPort(first_pole_id, manual_position, wire::core::PortKind::kGeneric,
+                      wire::core::PortLayer::kUnknown).ok) return false;
+  const wire::core::AttachmentTemplate* attachment_template = state->find_attachment_template(attachment_template_id);
+  if (attachment_template == nullptr ||
+      !state->AddAttachment(first_span_id, 0.43, attachment_template->kind, 0.08, attachment_template_id).ok ||
+      !state->DeriveGeneratedSpanOutputs(first_span_id).ok) return false;
+
+  return full_fat_fixture_is_non_default(*state) && state->SerializeAuthoritative(saved).ok &&
+         (snapshot == nullptr || snapshot_derived(*state, snapshot));
 }
 
 bool C751_authoritative_load_roundtrip_rederives_bit_exact_outputs() {
   wire::core::CoreState source;
   std::string saved{};
+  if (!make_roundtrip_source(&source, &saved, nullptr)) return false;
+  wire::core::CoreState first_load;
+  if (!first_load.DeserializeAuthoritative(saved).ok) return false;
   DerivedSnapshot before{};
-  if (!make_roundtrip_source(&source, &saved, &before)) return false;
-  wire::core::CoreState loaded;
-  const auto result = loaded.DeserializeAuthoritative(saved);
-  if (!result.ok) {
-    return false;
-  }
+  std::string canonical{};
+  if (!snapshot_derived(first_load, &before) || !first_load.SerializeAuthoritative(&canonical).ok) return false;
+  wire::core::CoreState second_load;
   DerivedSnapshot after{};
-  return snapshot_derived(loaded, &after) && same_derived(before, after);
+  return second_load.DeserializeAuthoritative(canonical).ok && snapshot_derived(second_load, &after) &&
+         same_derived(before, after);
 }
 
 bool C752_authoritative_load_resave_is_byte_identical() {
@@ -314,6 +453,16 @@ bool C756_persistence_has_no_type_specific_write_read_wrappers() {
          text.find("bool read_bundle_template(") == std::string::npos;
 }
 
+bool C757_authoritative_roundtrip_compares_fields_directly() {
+  wire::core::CoreState source;
+  std::string saved{};
+  DerivedSnapshot ignored{};
+  if (!make_roundtrip_source(&source, &saved, &ignored)) return false;
+  wire::core::CoreState loaded;
+  return loaded.DeserializeAuthoritative(saved).ok &&
+         wire::core::CoreStateTestHook::authoritative_equals(source, loaded);
+}
+
 void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C750_authoritative_save_is_deterministic_and_changes_after_edit",
                          "authoritative save is versioned, deterministic, and changes after state edit",
@@ -333,6 +482,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
                          "persistence derives write and read from type archive visitors",
                          "Boundary", false, C756_persistence_has_no_type_specific_write_read_wrappers);
+  test_registry::AddTest(tests, "C757_authoritative_roundtrip_compares_fields_directly",
+                         "authoritative roundtrip compares every archived field directly",
+                         "Invariant", false, C757_authoritative_roundtrip_compares_fields_directly);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_tests);

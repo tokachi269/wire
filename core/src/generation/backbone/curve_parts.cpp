@@ -5,6 +5,7 @@
 
 #include "out.hpp"
 #include "population.hpp"
+#include "span_visual_assembly.hpp"
 #include "../../geometry/detail_curve_postprocess.hpp"
 
 #include <algorithm>
@@ -1008,6 +1009,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       out.parts.push_back(std::move(body));
     }
   }
+
+  apply_span_visual_assemblies(state, &out);
 
   for (const curve_patch_spec& spec : patch_specs) {
     curve_boundary a_boundary{};

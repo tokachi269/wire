@@ -178,9 +178,9 @@ const SavedBackboneSpanBinding* source_span_binding_for(const CoreState& state,
   return span_binding;
 }
 
-EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId span_id, const Vec3d& start,
-                                                const Vec3d& end, const Vec3d* start_tangent_hint,
-                                                const Vec3d* end_tangent_hint) {
+EditResult<DetailCurve> make_primary_curve_between_impl(const CoreState& state, ObjectId span_id, const Vec3d& start,
+                                                        const Vec3d& end, const Vec3d* start_tangent_hint,
+                                                        const Vec3d* end_tangent_hint) {
   EditResult<DetailCurve> result{};
   const GeometrySettings& settings = state.view().geometry_settings();
   const curve_input_data data = make_curve_input_data(state, span_id, start, end, start_tangent_hint, end_tangent_hint);
@@ -215,7 +215,6 @@ EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId
     }
     result.value = geometry::curve::ToDetailCurve(data.input, built.value);
   }
-  apply_attachment_line_effects_to_curve(state, span_id, &result.value);
   result.ok = true;
   return result;
 }
@@ -224,19 +223,29 @@ EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId
 
 EditResult<DetailCurve> make_curve_between(const CoreState& state, ObjectId span_id, const Vec3d& start,
                                           const Vec3d& end) {
-  return make_curve_between_impl(state, span_id, start, end, nullptr, nullptr);
+  return make_curve_between_with_tangent_hints(state, span_id, start, end, nullptr, nullptr);
+}
+
+EditResult<DetailCurve> make_primary_curve_between(const CoreState& state, ObjectId span_id, const Vec3d& start,
+                                                    const Vec3d& end, const Vec3d* start_tangent,
+                                                    const Vec3d* end_tangent) {
+  return make_primary_curve_between_impl(state, span_id, start, end, start_tangent, end_tangent);
 }
 
 EditResult<DetailCurve> make_curve_between(const CoreState& state, ObjectId span_id, const Vec3d& start,
                                           const Vec3d& end, const Vec3d& start_tangent,
                                           const Vec3d& end_tangent) {
-  return make_curve_between_impl(state, span_id, start, end, &start_tangent, &end_tangent);
+  return make_curve_between_with_tangent_hints(state, span_id, start, end, &start_tangent, &end_tangent);
 }
 
 EditResult<DetailCurve> make_curve_between_with_tangent_hints(
     const CoreState& state, ObjectId span_id, const Vec3d& start, const Vec3d& end,
     const Vec3d* start_tangent, const Vec3d* end_tangent) {
-  return make_curve_between_impl(state, span_id, start, end, start_tangent, end_tangent);
+  EditResult<DetailCurve> result = make_primary_curve_between_impl(state, span_id, start, end, start_tangent, end_tangent);
+  if (result.ok) {
+    apply_attachment_line_effects_to_curve(state, span_id, &result.value);
+  }
+  return result;
 }
 
 EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, const SpanLayoutEntry& layout) {

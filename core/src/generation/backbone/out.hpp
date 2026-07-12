@@ -10,6 +10,9 @@ namespace wire::core::generation::backbone {
                                                  const SpanLayoutEntry& layout);
 [[nodiscard]] EditResult<DetailCurve> make_curve_between(const CoreState& state, ObjectId span_id,
                                                          const Vec3d& start, const Vec3d& end);
+[[nodiscard]] EditResult<DetailCurve> make_primary_curve_between(
+    const CoreState& state, ObjectId span_id, const Vec3d& start, const Vec3d& end,
+    const Vec3d* start_tangent = nullptr, const Vec3d* end_tangent = nullptr);
 [[nodiscard]] EditResult<DetailCurve> make_curve_between(const CoreState& state, ObjectId span_id,
                                                          const Vec3d& start, const Vec3d& end,
                                                          const Vec3d& start_tangent,

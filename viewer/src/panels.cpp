@@ -637,6 +637,7 @@ void LoadBundleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui
   ui_state.bundle_template_branch_policy = static_cast<int>(it->second.branch_policy);
   ui_state.bundle_template_continuity_policy = static_cast<int>(it->second.continuity_policy);
   ui_state.bundle_template_grouped_support_fanout_spacing = it->second.grouped_support_fanout_spacing_m;
+  ui_state.bundle_template_span_visual_assembly = it->second.span_visual_assembly;
   LoadCableTemplateState(view, ui_state, it->second.cable_template_id);
   if (it->second.related_pole_type_id != wire::core::kInvalidPoleTypeId) {
     LoadPoleTemplateState(view, ui_state, it->second.related_pole_type_id);
@@ -2504,6 +2505,18 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Checkbox("Bundle Allow Midair Branch", &ui_state.bundle_template_allow_midair_branch);
       ImGui::InputDouble("Bundle Grouped Fanout Spacing", &ui_state.bundle_template_grouped_support_fanout_spacing,
                          0.01, 0.05, "%.3f");
+      auto& assembly = ui_state.bundle_template_span_visual_assembly;
+      ImGui::Checkbox("Assembly Helix Enabled", &assembly.helix_enabled);
+      ImGui::InputDouble("Assembly Helix Radius", &assembly.helix_radius_m, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Helix Clearance", &assembly.helix_clearance_m, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Helix Turns Per Meter", &assembly.helix_turns_per_meter, 0.01, 0.05, "%.3f");
+      ImGui::InputInt("Assembly Helix Samples Per Turn", &assembly.helix_samples_per_turn);
+      ImGui::InputDouble("Assembly Endpoint Trim", &assembly.endpoint_trim_m, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Wander Ratio", &assembly.member_wander_ratio, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Wander Wavelength", &assembly.member_wander_wavelength_m, 0.1, 0.5, "%.3f");
+      ImGui::InputDouble("Assembly Wander Phase", &assembly.member_wander_phase_bias, 0.1, 0.5, "%.3f");
+      ImGui::InputDouble("Assembly Twist Turns Per Meter", &assembly.member_twist_turns_per_meter, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Twist Phase", &assembly.member_twist_phase, 0.1, 0.5, "%.3f");
       const auto selected_support_style =
           static_cast<wire::core::BundleSupportStyleHint>(ui_state.bundle_template_support_style);
       if (ImGui::BeginCombo("Bundle Support Style", BundleSupportStyleLabel(selected_support_style))) {
@@ -2563,6 +2576,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         tpl.support_style = static_cast<wire::core::BundleSupportStyleHint>(ui_state.bundle_template_support_style);
         tpl.branch_policy = static_cast<wire::core::BundleBranchPolicyHint>(ui_state.bundle_template_branch_policy);
         tpl.grouped_support_fanout_spacing_m = ui_state.bundle_template_grouped_support_fanout_spacing;
+        tpl.span_visual_assembly = ui_state.bundle_template_span_visual_assembly;
         tpl.continuity_policy =
             static_cast<wire::core::CableContinuityPolicyHint>(ui_state.bundle_template_continuity_policy);
         const auto apply = viewer_core_state::UpdateBundleTemplate(state, tpl);

@@ -110,6 +110,7 @@ struct ViewerUiState {
   int bundle_template_branch_policy = static_cast<int>(wire::core::BundleBranchPolicyHint::kAuto);
   int bundle_template_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
   double bundle_template_grouped_support_fanout_spacing = 0.2;
+  wire::core::SpanVisualAssemblyTemplate bundle_template_span_visual_assembly{};
   bool pole_template_loaded = false;
   wire::core::PoleTypeId selected_pole_template_id = wire::core::kInvalidPoleTypeId;
   wire::core::PoleTypeDefinition pole_template_edit{};

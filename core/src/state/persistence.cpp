@@ -754,7 +754,18 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "order_decision_policy", v.order_decision_policy) ||
       !ar.field(p, "row_layout_axis_mode", v.row_layout_axis_mode) || !ar.field(p, "support_style", v.support_style) ||
       !ar.field(p, "branch_policy", v.branch_policy) || !ar.field(p, "continuity_policy", v.continuity_policy) ||
-      !ar.field(p, "support_wire_pole_band_id", v.support_wire_pole_band_id)) return false;
+      !ar.field(p, "support_wire_pole_band_id", v.support_wire_pole_band_id) ||
+      !ar.field(p, "span_visual_assembly.helix_enabled", v.span_visual_assembly.helix_enabled) ||
+      !ar.field(p, "span_visual_assembly.helix_radius_m", v.span_visual_assembly.helix_radius_m) ||
+      !ar.field(p, "span_visual_assembly.helix_clearance_m", v.span_visual_assembly.helix_clearance_m) ||
+      !ar.field(p, "span_visual_assembly.helix_turns_per_meter", v.span_visual_assembly.helix_turns_per_meter) ||
+      !ar.field(p, "span_visual_assembly.helix_samples_per_turn", v.span_visual_assembly.helix_samples_per_turn) ||
+      !ar.field(p, "span_visual_assembly.endpoint_trim_m", v.span_visual_assembly.endpoint_trim_m) ||
+      !ar.field(p, "span_visual_assembly.member_wander_ratio", v.span_visual_assembly.member_wander_ratio) ||
+      !ar.field(p, "span_visual_assembly.member_wander_wavelength_m", v.span_visual_assembly.member_wander_wavelength_m) ||
+      !ar.field(p, "span_visual_assembly.member_wander_phase_bias", v.span_visual_assembly.member_wander_phase_bias) ||
+      !ar.field(p, "span_visual_assembly.member_twist_turns_per_meter", v.span_visual_assembly.member_twist_turns_per_meter) ||
+      !ar.field(p, "span_visual_assembly.member_twist_phase", v.span_visual_assembly.member_twist_phase)) return false;
   std::size_t count = v.population_rules.size();
   if (!ar.count(child(p, "population_rules.count"), count)) return false;
   if constexpr (Archive::loading) v.population_rules.resize(count);
@@ -766,7 +777,7 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
 
 
 #ifdef _MSC_VER
-static_assert(sizeof(BundleTemplate) == 176, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(BundleTemplate) == 264, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

@@ -599,6 +599,26 @@ ValidationResult CoreState::Validate() const {
                             kInvalidObjectId});
       }
     }
+    const SpanVisualAssemblyTemplate& assembly = bundle_template.span_visual_assembly;
+    const bool values_valid = std::isfinite(assembly.helix_radius_m) && assembly.helix_radius_m >= 0.0 &&
+        std::isfinite(assembly.helix_clearance_m) && assembly.helix_clearance_m >= 0.0 &&
+        std::isfinite(assembly.helix_turns_per_meter) && assembly.helix_turns_per_meter >= 0.0 &&
+        assembly.helix_samples_per_turn >= 4 && std::isfinite(assembly.endpoint_trim_m) &&
+        assembly.endpoint_trim_m >= 0.0 && std::isfinite(assembly.member_wander_ratio) &&
+        assembly.member_wander_ratio >= 0.0 && assembly.member_wander_ratio <= 1.0 &&
+        std::isfinite(assembly.member_wander_wavelength_m) &&
+        std::isfinite(assembly.member_wander_phase_bias) &&
+        std::isfinite(assembly.member_twist_turns_per_meter) && std::isfinite(assembly.member_twist_phase) &&
+        (assembly.member_wander_ratio == 0.0 || assembly.member_wander_wavelength_m > 0.0);
+    if (!values_valid) {
+      result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "SpanVisualAssemblyInvalid",
+          "Span visual assembly settings are invalid", kInvalidObjectId});
+    }
+    if (assembly.helix_enabled &&
+        (bundle_template.support_wire_pole_band_id <= 0 || assembly.helix_turns_per_meter <= 0.0)) {
+      result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "SpanVisualAssemblySupportMissing",
+          "Enabled span visual assembly requires a support band and positive turns-per-meter", kInvalidObjectId});
+    }
   }
 
   for (const auto& [cable_template_id, cable_template] : cable_templates) {

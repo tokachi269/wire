@@ -386,6 +386,20 @@ public:
     output.set("supportStyle", static_cast<int>(bundle_template.support_style));
     output.set("branchPolicy", static_cast<int>(bundle_template.branch_policy));
     output.set("continuityPolicy", static_cast<int>(bundle_template.continuity_policy));
+    const auto& assembly = bundle_template.span_visual_assembly;
+    val assembly_output = val::object();
+    assembly_output.set("helixEnabled", assembly.helix_enabled);
+    assembly_output.set("helixRadius", assembly.helix_radius_m);
+    assembly_output.set("helixClearance", assembly.helix_clearance_m);
+    assembly_output.set("helixTurnsPerMeter", assembly.helix_turns_per_meter);
+    assembly_output.set("helixSamplesPerTurn", assembly.helix_samples_per_turn);
+    assembly_output.set("endpointTrim", assembly.endpoint_trim_m);
+    assembly_output.set("memberWanderRatio", assembly.member_wander_ratio);
+    assembly_output.set("memberWanderWavelength", assembly.member_wander_wavelength_m);
+    assembly_output.set("memberWanderPhaseBias", assembly.member_wander_phase_bias);
+    assembly_output.set("memberTwistTurnsPerMeter", assembly.member_twist_turns_per_meter);
+    assembly_output.set("memberTwistPhase", assembly.member_twist_phase);
+    output.set("spanVisualAssembly", assembly_output);
     val population_rules = val::array();
     for (std::size_t index = 0; index < bundle_template.population_rules.size(); ++index) {
       const auto& rule = bundle_template.population_rules[index];
@@ -431,6 +445,18 @@ public:
         static_cast<wire::core::BundleBranchPolicyHint>(property<int>(input, "branchPolicy"));
     bundle_template.continuity_policy =
         static_cast<wire::core::CableContinuityPolicyHint>(property<int>(input, "continuityPolicy"));
+    const val assembly = input["spanVisualAssembly"];
+    bundle_template.span_visual_assembly.helix_enabled = property<bool>(assembly, "helixEnabled");
+    bundle_template.span_visual_assembly.helix_radius_m = property<double>(assembly, "helixRadius");
+    bundle_template.span_visual_assembly.helix_clearance_m = property<double>(assembly, "helixClearance");
+    bundle_template.span_visual_assembly.helix_turns_per_meter = property<double>(assembly, "helixTurnsPerMeter");
+    bundle_template.span_visual_assembly.helix_samples_per_turn = property<int>(assembly, "helixSamplesPerTurn");
+    bundle_template.span_visual_assembly.endpoint_trim_m = property<double>(assembly, "endpointTrim");
+    bundle_template.span_visual_assembly.member_wander_ratio = property<double>(assembly, "memberWanderRatio");
+    bundle_template.span_visual_assembly.member_wander_wavelength_m = property<double>(assembly, "memberWanderWavelength");
+    bundle_template.span_visual_assembly.member_wander_phase_bias = property<double>(assembly, "memberWanderPhaseBias");
+    bundle_template.span_visual_assembly.member_twist_turns_per_meter = property<double>(assembly, "memberTwistTurnsPerMeter");
+    bundle_template.span_visual_assembly.member_twist_phase = property<double>(assembly, "memberTwistPhase");
     bundle_template.population_rules.clear();
     const val population_rules = input["populationRules"];
     const std::size_t population_rule_count = population_rules["length"].as<std::size_t>();

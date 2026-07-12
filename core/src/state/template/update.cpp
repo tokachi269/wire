@@ -276,6 +276,17 @@ bool population_rules_equal(const std::vector<CablePopulationRule>& a,
   return true;
 }
 
+bool span_visual_assembly_equals(const SpanVisualAssemblyTemplate& a, const SpanVisualAssemblyTemplate& b) {
+  return a.helix_enabled == b.helix_enabled && a.helix_radius_m == b.helix_radius_m &&
+         a.helix_clearance_m == b.helix_clearance_m && a.helix_turns_per_meter == b.helix_turns_per_meter &&
+         a.helix_samples_per_turn == b.helix_samples_per_turn && a.endpoint_trim_m == b.endpoint_trim_m &&
+         a.member_wander_ratio == b.member_wander_ratio &&
+         a.member_wander_wavelength_m == b.member_wander_wavelength_m &&
+         a.member_wander_phase_bias == b.member_wander_phase_bias &&
+         a.member_twist_turns_per_meter == b.member_twist_turns_per_meter &&
+         a.member_twist_phase == b.member_twist_phase;
+}
+
 enum BundleTemplateChange : std::uint32_t {
   kMetadata = 1u << 0,
   kDefinition = 1u << 1,
@@ -298,7 +309,8 @@ std::uint32_t classify_bundle_template_changes(const BundleTemplate& before,
     changes |= kDraw;
   }
   if (before.support_wire_pole_band_id != after.support_wire_pole_band_id ||
-      !population_rules_equal(before.population_rules, after.population_rules)) {
+      !population_rules_equal(before.population_rules, after.population_rules) ||
+      !span_visual_assembly_equals(before.span_visual_assembly, after.span_visual_assembly)) {
     changes |= kDetail;
   }
   if (before.count_rule != after.count_rule || before.fixed_count != after.fixed_count ||
@@ -569,6 +581,36 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
 
   BundleTemplate normalized = bundle_template;
   normalized.support_wire_pole_band_id = std::max(0, normalized.support_wire_pole_band_id);
+  const SpanVisualAssemblyTemplate& assembly = normalized.span_visual_assembly;
+  if (!std::isfinite(assembly.helix_radius_m) || assembly.helix_radius_m < 0.0 ||
+      !std::isfinite(assembly.helix_clearance_m) || assembly.helix_clearance_m < 0.0 ||
+      !std::isfinite(assembly.helix_turns_per_meter) || assembly.helix_turns_per_meter < 0.0 ||
+      assembly.helix_samples_per_turn < 4 || !std::isfinite(assembly.endpoint_trim_m) ||
+      assembly.endpoint_trim_m < 0.0 || !std::isfinite(assembly.member_wander_ratio) ||
+      assembly.member_wander_ratio < 0.0 || assembly.member_wander_ratio > 1.0 ||
+      !std::isfinite(assembly.member_wander_wavelength_m) ||
+      !std::isfinite(assembly.member_wander_phase_bias) ||
+      !std::isfinite(assembly.member_twist_turns_per_meter) || !std::isfinite(assembly.member_twist_phase) ||
+      (assembly.member_wander_ratio > 0.0 && assembly.member_wander_wavelength_m <= 0.0)) {
+    result.error = "span visual assembly settings are invalid";
+    return result;
+  }
+  if (assembly.helix_enabled &&
+      (normalized.support_wire_pole_band_id <= 0 || assembly.helix_turns_per_meter <= 0.0)) {
+    result.error = "enabled span visual assembly requires a support band and positive helix turns";
+    return result;
+  }
+  if (assembly.helix_enabled) {
+    const PoleTypeDefinition* pole_type = state.find_pole_type(normalized.related_pole_type_id);
+    const bool has_support_band = pole_type != nullptr && std::any_of(
+        pole_type->port_bands.begin(), pole_type->port_bands.end(), [&](const PortPlacementBand& band) {
+          return band.band_id == normalized.support_wire_pole_band_id && band.enabled;
+        });
+    if (!has_support_band) {
+      result.error = "enabled span visual assembly requires an enabled support band on the related pole type";
+      return result;
+    }
+  }
   for (CablePopulationRule& rule : normalized.population_rules) {
     if (rule.explicit_seed == 0) {
       rule.explicit_seed = 1;

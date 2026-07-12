@@ -159,6 +159,20 @@ constexpr BundleTemplateId kDefaultOpticalBundleTemplateId = 105;
   return kInvalidBundleTemplateId;
 }
 
+struct SpanVisualAssemblyTemplate {
+  bool helix_enabled = false;
+  double helix_radius_m = 0.0;
+  double helix_clearance_m = 0.0;
+  double helix_turns_per_meter = 0.0;
+  int helix_samples_per_turn = 16;
+  double endpoint_trim_m = 0.0;
+  double member_wander_ratio = 0.0;
+  double member_wander_wavelength_m = 0.0;
+  double member_wander_phase_bias = 0.0;
+  double member_twist_turns_per_meter = 0.0;
+  double member_twist_phase = 0.0;
+};
+
 struct BundleTemplate {
   // Bundle/system rule set. Topology policy lives here, not on CableTemplate.
   BundleTemplateId id = kInvalidBundleTemplateId;
@@ -188,6 +202,7 @@ struct BundleTemplate {
   BundleBranchPolicyHint branch_policy = BundleBranchPolicyHint::kAuto;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
   int support_wire_pole_band_id = 0;
+  SpanVisualAssemblyTemplate span_visual_assembly{};
   std::vector<CablePopulationRule> population_rules{};
   std::uint64_t version = 1;
 };

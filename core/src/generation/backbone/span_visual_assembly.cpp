@@ -14,6 +14,13 @@ namespace {
 
 constexpr double kTwoPi = 6.28318530717958647692;
 
+std::uint64_t mix_seed(std::uint64_t value) {
+  value += 0x9E3779B97F4A7C15ull;
+  value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ull;
+  value = (value ^ (value >> 27)) * 0x94D049BB133111EBull;
+  return value ^ (value >> 31);
+}
+
 Vec3d unit_or(const Vec3d& value, const Vec3d& fallback) {
   const double length = Length(value);
   return length > 1e-9 ? ScaleVec(value, 1.0 / length) : fallback;
@@ -62,6 +69,21 @@ void contain_members(const VisualCurvePart& support, const SpanVisualAssemblyTem
       const double limit = std::max(0.0, allowed - member->wire_radius_m);
       const double distance = Length(offset);
       if (distance > limit && distance > 1e-9) offset = ScaleVec(offset, limit / distance);
+      const double margin = std::max(0.0, limit - Length(offset));
+      if (settings.member_wander_ratio > 0.0 && margin > 0.0) {
+        const std::uint64_t seed = mix_seed(static_cast<std::uint64_t>(member->section_key.logical_span_id) ^
+            member->section_key.rule_owner_id ^ static_cast<std::uint64_t>(member->section_key.rule_id) ^
+            static_cast<std::uint64_t>(member->section_key.instance_index));
+        const double phase = settings.member_wander_phase_bias +
+            kTwoPi * (static_cast<double>(seed >> 11) / static_cast<double>(1ull << 53)) +
+            kTwoPi * t * std::max(0.0, settings.member_wander_wavelength_m);
+        const Vec3d lateral = unit_or(Cross({0.0, 0.0, 1.0}, tangent), {0.0, 1.0, 0.0});
+        const Vec3d up = unit_or(Cross(tangent, lateral), {0.0, 0.0, 1.0});
+        offset = offset + ScaleVec(lateral, std::cos(phase) * margin * settings.member_wander_ratio) +
+                 ScaleVec(up, std::sin(phase * 1.37) * margin * settings.member_wander_ratio);
+        const double wandered = Length(offset);
+        if (wandered > limit && wandered > 1e-9) offset = ScaleVec(offset, limit / wandered);
+      }
       const double endpoint_blend = std::min(1.0, settings.endpoint_trim_m <= 1e-9 ? 1.0 :
           std::min(t, 1.0 - t) * static_cast<double>(member->samples.size() - 1) / std::max(1.0, settings.endpoint_trim_m));
       member->samples[index] = member->samples[index] + ScaleVec(center + offset - member->samples[index], endpoint_blend);

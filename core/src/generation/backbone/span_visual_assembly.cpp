@@ -2,8 +2,8 @@
 
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
-#include "../../geometry/detail_curve_postprocess.hpp"
 #include "../../geometry/detail_curve_input_resolution.hpp"
+#include "../../geometry/detail_curve_postprocess.hpp"
 #include "out.hpp"
 
 #include <algorithm>
@@ -14,6 +14,12 @@ namespace wire::core::generation::backbone {
 namespace {
 
 constexpr double kTwoPi = 6.28318530717958647692;
+
+struct path_sample {
+  Vec3d point{};
+  Vec3d tangent{1.0, 0.0, 0.0};
+  double distance = 0.0;
+};
 
 std::uint64_t mix_seed(std::uint64_t value) {
   value += 0x9E3779B97F4A7C15ull;
@@ -39,151 +45,222 @@ AABBd bounds_for(const std::vector<Vec3d>& points) {
   return bounds;
 }
 
-Vec3d sample_normalized(const std::vector<Vec3d>& samples, double t);
-
-double auto_fit_radius(const VisualCurvePart& support, const std::vector<VisualCurvePart*>& members,
-                       double clearance, double helix_wire_radius) {
-  double radius = helix_wire_radius + clearance;
-  for (const VisualCurvePart* member : members) {
-    if (member->samples.empty()) continue;
-    for (std::size_t index = 0; index < member->samples.size(); ++index) {
-      const double t = member->samples.size() < 2 ? 0.0 :
-          static_cast<double>(index) / static_cast<double>(member->samples.size() - 1);
-      const Vec3d center = sample_normalized(support.samples, t);
-      radius = std::max(radius, Length(member->samples[index] - center) + member->wire_radius_m +
-                                    helix_wire_radius + clearance);
-    }
-  }
-  return std::max(0.01, radius);
+double path_length(const std::vector<Vec3d>& samples) {
+  double length = 0.0;
+  for (std::size_t i = 1; i < samples.size(); ++i) length += Length(samples[i] - samples[i - 1]);
+  return length;
 }
 
-Vec3d sample_normalized(const std::vector<Vec3d>& samples, double t) {
-  if (samples.size() < 2) return samples.empty() ? Vec3d{} : samples.front();
-  const double scaled = std::clamp(t, 0.0, 1.0) * static_cast<double>(samples.size() - 1);
-  const std::size_t index = static_cast<std::size_t>(scaled);
-  const std::size_t next = std::min(index + 1, samples.size() - 1);
-  return samples[index] + ScaleVec(samples[next] - samples[index], scaled - static_cast<double>(index));
+path_sample sample_at_distance(const std::vector<Vec3d>& samples, double target) {
+  if (samples.empty()) return {};
+  if (samples.size() == 1) return {samples.front(), {}, 0.0};
+  const double total = path_length(samples);
+  target = std::clamp(target, 0.0, total);
+  double accumulated = 0.0;
+  for (std::size_t i = 1; i < samples.size(); ++i) {
+    const Vec3d segment = samples[i] - samples[i - 1];
+    const double length = Length(segment);
+    if (target <= accumulated + length || i + 1 == samples.size()) {
+      const double fraction = length <= 1e-9 ? 0.0 : (target - accumulated) / length;
+      return {samples[i - 1] + ScaleVec(segment, std::clamp(fraction, 0.0, 1.0)),
+              unit_or(segment, {1.0, 0.0, 0.0}), target};
+    }
+    accumulated += length;
+  }
+  return {samples.back(), unit_or(samples.back() - samples[samples.size() - 2], {1.0, 0.0, 0.0}), total};
+}
+
+path_sample sample_normalized(const std::vector<Vec3d>& samples, double t) {
+  return sample_at_distance(samples, path_length(samples) * std::clamp(t, 0.0, 1.0));
+}
+
+void frame_for(const Vec3d& tangent, Vec3d* lateral, Vec3d* up) {
+  *lateral = unit_or(Cross({0.0, 0.0, 1.0}, tangent), {0.0, 1.0, 0.0});
+  *up = unit_or(Cross(tangent, *lateral), {0.0, 0.0, 1.0});
+}
+
+double smoothstep(double value) {
+  value = std::clamp(value, 0.0, 1.0);
+  return value * value * (3.0 - 2.0 * value);
+}
+
+double endpoint_envelope(double distance, double total, double trim) {
+  if (trim <= 1e-9) return 1.0;
+  return smoothstep(std::min(distance / trim, (total - distance) / trim));
+}
+
+Vec3d projected_offset(const Vec3d& point, const path_sample& support) {
+  const Vec3d raw = point - support.point;
+  return raw - ScaleVec(support.tangent, Dot(raw, support.tangent));
+}
+
+double top_inset(const VisualCurvePart& support, double clearance) {
+  return support.wire_radius_m * 2.0 + clearance;
+}
+
+double required_member_radius(const VisualCurvePart& support, const VisualCurvePart& member,
+                              double clearance) {
+  return support.wire_radius_m + member.wire_radius_m + clearance;
+}
+
+Vec3d place_below_support(const Vec3d& offset, const Vec3d& up, double minimum_drop) {
+  return offset - ScaleVec(up, std::max(0.0, Dot(offset, up) + minimum_drop));
+}
+
+bool members_fit_radius(const VisualCurvePart& support, const std::vector<VisualCurvePart*>& members,
+                        double clearance, double radius) {
+  const double inset = top_inset(support, clearance);
+  if (radius + 1e-9 < inset) return false;
+  for (const VisualCurvePart* member : members) {
+    if (member->samples.empty()) continue;
+    for (const double t : {0.0, 1.0}) {
+      const path_sample anchor = sample_normalized(support.samples, t);
+      Vec3d lateral{};
+      Vec3d up{};
+      frame_for(anchor.tangent, &lateral, &up);
+      Vec3d offset = projected_offset(member->samples[t == 0.0 ? 0 : member->samples.size() - 1], anchor);
+      offset = place_below_support(offset, up, required_member_radius(support, *member, clearance));
+      const Vec3d axis = anchor.point - ScaleVec(up, radius - inset);
+      if (Length(anchor.point + offset - axis) + required_member_radius(support, *member, clearance) > radius + 1e-9) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+double auto_fit_radius(const VisualCurvePart& support, const std::vector<VisualCurvePart*>& members,
+                       double clearance) {
+  double low = std::max(0.01, top_inset(support, clearance));
+  double high = low;
+  while (!members_fit_radius(support, members, clearance, high)) high *= 2.0;
+  for (int iteration = 0; iteration < 32; ++iteration) {
+    const double middle = (low + high) * 0.5;
+    if (members_fit_radius(support, members, clearance, middle)) high = middle;
+    else low = middle;
+  }
+  return high;
+}
+
+void apply_member_twist(const SpanVisualAssemblyTemplate& settings, std::vector<VisualCurvePart*> members) {
+  if (settings.member_twist_turns_per_meter == 0.0 || members.size() < 2) return;
+  std::size_t sample_count = members.front()->samples.size();
+  for (const VisualCurvePart* member : members) sample_count = std::min(sample_count, member->samples.size());
+  if (sample_count < 2) return;
+
+  std::vector<std::vector<Vec3d>> original{};
+  for (const VisualCurvePart* member : members) original.push_back(member->samples);
+  double distance = 0.0;
+  const double total = path_length(original.front());
+  for (std::size_t index = 0; index < sample_count; ++index) {
+    if (index > 0) distance += Length(original.front()[index] - original.front()[index - 1]);
+    Vec3d centroid{};
+    for (const VisualCurvePart* member : members) centroid = centroid + member->samples[index];
+    centroid = ScaleVec(centroid, 1.0 / static_cast<double>(members.size()));
+    const Vec3d tangent = index + 1 < sample_count
+        ? unit_or(original.front()[index + 1] - original.front()[index], {1.0, 0.0, 0.0})
+        : unit_or(original.front()[index] - original.front()[index - 1], {1.0, 0.0, 0.0});
+    Vec3d lateral{};
+    Vec3d up{};
+    frame_for(tangent, &lateral, &up);
+    const double angle = settings.member_twist_phase + kTwoPi * settings.member_twist_turns_per_meter * distance;
+    const double cosine = std::cos(angle);
+    const double sine = std::sin(angle);
+    const double envelope = endpoint_envelope(distance, total, settings.endpoint_trim_m);
+    for (std::size_t member_index = 0; member_index < members.size(); ++member_index) {
+      const Vec3d offset = original[member_index][index] - centroid;
+      const double x = Dot(offset, lateral);
+      const double y = Dot(offset, up);
+      const Vec3d rotated = centroid + ScaleVec(tangent, Dot(offset, tangent)) +
+          ScaleVec(lateral, x * cosine - y * sine) + ScaleVec(up, x * sine + y * cosine);
+      members[member_index]->samples[index] = original[member_index][index] +
+          ScaleVec(rotated - original[member_index][index], envelope);
+    }
+  }
+  for (VisualCurvePart* member : members) member->bounds = bounds_for(member->samples);
 }
 
 void contain_members(const CoreState& state, const VisualCurvePart& support, const SpanVisualAssemblyTemplate& settings,
                      const std::vector<VisualCurvePart*>& members, double radius) {
-  const double allowed = std::max(0.0, radius - support.wire_radius_m - settings.helix_clearance_m);
+  const double support_length = path_length(support.samples);
+  const double inset = top_inset(support, settings.helix_clearance_m);
   for (VisualCurvePart* member : members) {
-    for (std::size_t index = 0; index < member->samples.size(); ++index) {
-      const double t = member->samples.size() < 2 ? 0.0 : static_cast<double>(index) / static_cast<double>(member->samples.size() - 1);
-      const Vec3d center = sample_normalized(support.samples, t);
-      const Vec3d tangent = unit_or(sample_normalized(support.samples, std::min(1.0, t + 0.01)) -
-                                    sample_normalized(support.samples, std::max(0.0, t - 0.01)), {1.0, 0.0, 0.0});
-      Vec3d offset = member->samples[index] - center;
-      offset = offset - ScaleVec(tangent, Dot(offset, tangent));
-      const double limit = std::max(0.0, allowed - member->wire_radius_m);
-      const double distance = Length(offset);
-      if (distance > limit && distance > 1e-9) offset = ScaleVec(offset, limit / distance);
-      const double margin = std::max(0.0, limit - Length(offset));
-      if (settings.member_wander_ratio > 0.0 && margin > 0.0) {
-        const Span* source_span = state.view().spans().find(member->section_key.logical_span_id);
-        const std::uint64_t flow_key = source_span == nullptr ? 0 :
-            variation_flow_key_for_span(state.view().find_span_runtime_state(source_span->id), *source_span);
-        const std::uint64_t seed = mix_seed(flow_key ^ static_cast<std::uint64_t>(member->section_key.logical_span_id) ^
-            member->section_key.rule_owner_id ^ static_cast<std::uint64_t>(member->section_key.rule_id) ^
-            static_cast<std::uint64_t>(member->section_key.instance_index));
+    const std::vector<Vec3d> original = member->samples;
+    const double member_length = path_length(original);
+    const Span* source_span = state.view().spans().find(member->section_key.logical_span_id);
+    const std::uint64_t flow_key = source_span == nullptr ? 0 :
+        variation_flow_key_for_span(state.view().find_span_runtime_state(source_span->id), *source_span);
+    const std::uint64_t seed = mix_seed(flow_key ^ static_cast<std::uint64_t>(member->section_key.logical_span_id) ^
+        member->section_key.rule_owner_id ^ static_cast<std::uint64_t>(member->section_key.rule_id) ^
+        static_cast<std::uint64_t>(member->section_key.instance_index));
+    for (std::size_t index = 0; index < original.size(); ++index) {
+      const double t = original.size() < 2 ? 0.0 : static_cast<double>(index) / static_cast<double>(original.size() - 1);
+      const double member_distance = member_length * t;
+      const path_sample anchor = sample_normalized(support.samples, t);
+      Vec3d lateral{};
+      Vec3d up{};
+      frame_for(anchor.tangent, &lateral, &up);
+      const Vec3d axis = anchor.point - ScaleVec(up, radius - inset);
+      const path_sample start_anchor = sample_normalized(support.samples, 0.0);
+      const path_sample end_anchor = sample_normalized(support.samples, 1.0);
+      Vec3d baseline = projected_offset(original.front(), start_anchor) +
+          ScaleVec(projected_offset(original.back(), end_anchor) - projected_offset(original.front(), start_anchor), t);
+      baseline = baseline - ScaleVec(anchor.tangent, Dot(baseline, anchor.tangent));
+      baseline = place_below_support(
+          baseline, up, required_member_radius(support, *member, settings.helix_clearance_m));
+      Vec3d radial = anchor.point + baseline - axis;
+      const double limit = std::max(0.0, radius - required_member_radius(support, *member, settings.helix_clearance_m));
+      const double radial_length = Length(radial);
+      if (radial_length > limit && radial_length > 1e-9) radial = ScaleVec(radial, limit / radial_length);
+      const double margin = std::max(0.0, limit - Length(radial));
+      const double envelope = endpoint_envelope(member_distance, member_length, settings.endpoint_trim_m);
+      if (settings.member_wander_ratio > 0.0 && margin > 0.0 && envelope > 0.0) {
         const double phase = settings.member_wander_phase_bias +
             kTwoPi * (static_cast<double>(seed >> 11) / static_cast<double>(1ull << 53)) +
-            kTwoPi * t * std::max(0.0, settings.member_wander_wavelength_m);
-        const Vec3d lateral = unit_or(Cross({0.0, 0.0, 1.0}, tangent), {0.0, 1.0, 0.0});
-        const Vec3d up = unit_or(Cross(tangent, lateral), {0.0, 0.0, 1.0});
-        offset = offset + ScaleVec(lateral, std::cos(phase) * margin * settings.member_wander_ratio) +
-                 ScaleVec(up, std::sin(phase * 1.37) * margin * settings.member_wander_ratio);
-        const double wandered = Length(offset);
-        if (wandered > limit && wandered > 1e-9) offset = ScaleVec(offset, limit / wandered);
+            kTwoPi * member_distance / settings.member_wander_wavelength_m;
+        radial = radial + ScaleVec(lateral, std::cos(phase) * margin * settings.member_wander_ratio * envelope) +
+            ScaleVec(up, std::sin(phase * 1.37) * margin * settings.member_wander_ratio * envelope);
+        const double wandered = Length(radial);
+        if (wandered > limit && wandered > 1e-9) radial = ScaleVec(radial, limit / wandered);
       }
-      const double endpoint_blend = std::min(1.0, settings.endpoint_trim_m <= 1e-9 ? 1.0 :
-          std::min(t, 1.0 - t) * static_cast<double>(member->samples.size() - 1) / std::max(1.0, settings.endpoint_trim_m));
-      member->samples[index] = member->samples[index] + ScaleVec(center + offset - member->samples[index], endpoint_blend);
+      const Vec3d contained = axis + radial;
+      member->samples[index] = original[index] + ScaleVec(contained - original[index], envelope);
     }
     member->bounds = bounds_for(member->samples);
   }
 }
 
 VisualCurvePart make_helix_part(const VisualCurvePart& support, const SpanVisualAssemblyTemplate& settings,
-                                const std::vector<VisualCurvePart*>& members) {
+                                double radius) {
   VisualCurvePart helix = support;
   helix.supplemental_kind = VisualSupplementalKind::kHelix;
   helix.samples.clear();
-  const double support_length = [&]() { double length = 0.0; for (std::size_t i = 1; i < support.samples.size(); ++i) length += Length(support.samples[i] - support.samples[i - 1]); return length; }();
+  const double support_length = path_length(support.samples);
   const double trim = std::min(settings.endpoint_trim_m, support_length * 0.5);
   const double visible = support_length - trim * 2.0;
-  const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m :
-      auto_fit_radius(support, members, settings.helix_clearance_m, support.wire_radius_m);
-  const int samples = std::max(4, static_cast<int>(std::ceil(std::max(visible, 0.0) * settings.helix_turns_per_meter * settings.helix_samples_per_turn)));
+  const int samples = std::max(4, static_cast<int>(std::ceil(visible * settings.helix_turns_per_meter * settings.helix_samples_per_turn)));
   if (visible <= 1e-9 || samples < 2) return helix;
+  const double inset = top_inset(support, settings.helix_clearance_m);
   for (int i = 0; i <= samples; ++i) {
-    const double target = trim + visible * static_cast<double>(i) / static_cast<double>(samples);
-    double accumulated = 0.0; std::size_t segment = 1;
-    while (segment < support.samples.size() && accumulated + Length(support.samples[segment] - support.samples[segment - 1]) < target) { accumulated += Length(support.samples[segment] - support.samples[segment - 1]); ++segment; }
-    if (segment >= support.samples.size()) segment = support.samples.size() - 1;
-    const Vec3d a = support.samples[segment - 1], b = support.samples[segment];
-    const double length = std::max(1e-9, Length(b - a)); const double t = std::clamp((target - accumulated) / length, 0.0, 1.0);
-    const Vec3d center = a + ScaleVec(b - a, t); const Vec3d tangent = unit_or(b - a, {1.0, 0.0, 0.0});
-    const Vec3d lateral = unit_or(Cross({0.0, 0.0, 1.0}, tangent), {0.0, 1.0, 0.0});
-    const Vec3d up = unit_or(Cross(tangent, lateral), {0.0, 0.0, 1.0});
-    const double phase = kTwoPi * settings.helix_turns_per_meter * (target - trim);
-    helix.samples.push_back(center + ScaleVec(lateral, std::cos(phase) * radius) + ScaleVec(up, std::sin(phase) * radius));
+    const double distance = trim + visible * static_cast<double>(i) / static_cast<double>(samples);
+    const path_sample anchor = sample_at_distance(support.samples, distance);
+    Vec3d lateral{};
+    Vec3d up{};
+    frame_for(anchor.tangent, &lateral, &up);
+    const Vec3d axis = anchor.point - ScaleVec(up, radius - inset);
+    const double phase = kTwoPi * settings.helix_turns_per_meter * (distance - trim);
+    helix.samples.push_back(axis + ScaleVec(lateral, std::cos(phase) * radius) + ScaleVec(up, std::sin(phase) * radius));
   }
-  helix.boundary_a = helix.samples.front(); helix.boundary_b = helix.samples.back(); helix.bounds = bounds_for(helix.samples);
+  helix.boundary_a = helix.samples.front();
+  helix.boundary_b = helix.samples.back();
+  helix.bounds = bounds_for(helix.samples);
   return helix;
-}
-
-void apply_member_twist(const SpanVisualAssemblyTemplate& settings, std::vector<VisualCurvePart*> members) {
-  if (settings.member_twist_turns_per_meter == 0.0 || members.size() < 2) {
-    return;
-  }
-  std::size_t sample_count = members.front()->samples.size();
-  for (const VisualCurvePart* member : members) {
-    sample_count = std::min(sample_count, member->samples.size());
-  }
-  if (sample_count < 2) {
-    return;
-  }
-  double distance = 0.0;
-  for (std::size_t index = 0; index < sample_count; ++index) {
-    if (index > 0) {
-      distance += Length(members.front()->samples[index] - members.front()->samples[index - 1]);
-    }
-    Vec3d centroid{};
-    for (const VisualCurvePart* member : members) {
-      centroid = centroid + member->samples[index];
-    }
-    centroid = ScaleVec(centroid, 1.0 / static_cast<double>(members.size()));
-    const Vec3d tangent = index + 1 < sample_count
-        ? unit_or(members.front()->samples[index + 1] - members.front()->samples[index], {1.0, 0.0, 0.0})
-        : unit_or(members.front()->samples[index] - members.front()->samples[index - 1], {1.0, 0.0, 0.0});
-    Vec3d lateral = Cross({0.0, 0.0, 1.0}, tangent);
-    lateral = unit_or(lateral, {0.0, 1.0, 0.0});
-    const Vec3d up = unit_or(Cross(tangent, lateral), {0.0, 0.0, 1.0});
-    const double angle = settings.member_twist_phase + kTwoPi * settings.member_twist_turns_per_meter * distance;
-    const double cosine = std::cos(angle);
-    const double sine = std::sin(angle);
-    for (VisualCurvePart* member : members) {
-      const Vec3d offset = member->samples[index] - centroid;
-      const double x = Dot(offset, lateral);
-      const double y = Dot(offset, up);
-      const Vec3d axial = ScaleVec(tangent, Dot(offset, tangent));
-      member->samples[index] = centroid + axial + ScaleVec(lateral, x * cosine - y * sine) +
-                               ScaleVec(up, x * sine + y * cosine);
-    }
-  }
-  for (VisualCurvePart* member : members) {
-    member->bounds = bounds_for(member->samples);
-  }
 }
 
 } // namespace
 
 void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* cache) {
-  if (cache == nullptr) {
-    return;
-  }
+  if (cache == nullptr) return;
   std::unordered_map<ObjectId, std::vector<VisualCurvePart*>> members_by_span{};
   for (VisualCurvePart& part : cache->parts) {
     if (part.kind == VisualCurvePartKind::kEdgeBody && part.has_section_key) {
@@ -196,19 +273,16 @@ void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* 
     const Bundle* bundle = span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
     const auto template_it = bundle == nullptr ? state.view().bundle_templates().end() :
         state.view().bundle_templates().find(bundle->bundle_template_id);
-    if (template_it == state.view().bundle_templates().end()) {
-      continue;
-    }
+    if (template_it == state.view().bundle_templates().end()) continue;
     const SpanVisualAssemblyTemplate& settings = template_it->second.span_visual_assembly;
     apply_member_twist(settings, members);
     if (!settings.helix_enabled) continue;
     const std::optional<std::pair<Vec3d, Vec3d>> endpoints =
         resolve_pole_band_chord_endpoints(state, *span, template_it->second.support_wire_pole_band_id);
-    if (!endpoints.has_value()) {
-      continue;
-    }
+    if (!endpoints.has_value()) continue;
     const EditResult<DetailCurve> support_curve =
         make_primary_curve_between(state, logical_span_id, endpoints->first, endpoints->second);
+    ++cache->stats.curve_builds;
     if (!support_curve.ok || support_curve.value.sample_points.size() < 2) continue;
     VisualCurvePart support{};
     support.kind = VisualCurvePartKind::kSupplemental;
@@ -227,18 +301,19 @@ void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* 
     support.material_style = members.front()->material_style;
     support.bounds = bounds_for(support.samples);
     support.source_version = members.front()->source_version;
-    const double fitted_radius = auto_fit_radius(support, members, settings.helix_clearance_m, support.wire_radius_m);
+    const double fitted_radius = auto_fit_radius(support, members, settings.helix_clearance_m);
     const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m : fitted_radius;
     if (settings.helix_radius_m > 0.0 && settings.helix_radius_m + 1e-9 < fitted_radius) {
       cache->diagnostics.push_back({kInvalidObjectId, logical_span_id, template_it->second.id,
                                     members.front()->lane_index, "span visual assembly radius clamped members"});
     }
     contain_members(state, support, settings, members, radius);
-    VisualCurvePart helix = make_helix_part(support, settings, members);
+    VisualCurvePart helix = make_helix_part(support, settings, radius);
     supplemental.push_back(std::move(support));
     if (helix.samples.size() >= 2) supplemental.push_back(std::move(helix));
   }
-  cache->parts.insert(cache->parts.end(), std::make_move_iterator(supplemental.begin()), std::make_move_iterator(supplemental.end()));
+  cache->parts.insert(cache->parts.end(), std::make_move_iterator(supplemental.begin()),
+                      std::make_move_iterator(supplemental.end()));
 }
 
 } // namespace wire::core::generation::backbone

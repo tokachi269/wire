@@ -188,6 +188,20 @@ void contain_members(const CoreState& state, const VisualCurvePart& support, con
                      const std::vector<VisualCurvePart*>& members, double radius) {
   const double support_length = path_length(support.samples);
   const double inset = top_inset(support, settings.helix_clearance_m);
+  const path_sample start_anchor = sample_normalized(support.samples, 0.0);
+  const path_sample end_anchor = sample_normalized(support.samples, 1.0);
+  std::unordered_map<const VisualCurvePart*, std::pair<Vec3d, Vec3d>> endpoint_offsets{};
+  for (const VisualCurvePart* member : members) {
+    endpoint_offsets.emplace(member, std::make_pair(projected_offset(member->samples.front(), start_anchor),
+                                                     projected_offset(member->samples.back(), end_anchor)));
+  }
+  const auto baseline_offset = [&](const VisualCurvePart& member, double t, const path_sample& anchor) {
+    const auto endpoint = endpoint_offsets.find(&member);
+    const Vec3d start = endpoint->second.first;
+    const Vec3d end = endpoint->second.second;
+    Vec3d offset = start + ScaleVec(end - start, t);
+    return offset - ScaleVec(anchor.tangent, Dot(offset, anchor.tangent));
+  };
   for (VisualCurvePart* member : members) {
     const std::vector<Vec3d> original = member->samples;
     const double member_length = path_length(original);
@@ -205,11 +219,19 @@ void contain_members(const CoreState& state, const VisualCurvePart& support, con
       Vec3d up{};
       frame_for(anchor.tangent, &lateral, &up);
       const Vec3d axis = anchor.point - ScaleVec(up, radius - inset);
-      const path_sample start_anchor = sample_normalized(support.samples, 0.0);
-      const path_sample end_anchor = sample_normalized(support.samples, 1.0);
-      Vec3d baseline = projected_offset(original.front(), start_anchor) +
-          ScaleVec(projected_offset(original.back(), end_anchor) - projected_offset(original.front(), start_anchor), t);
-      baseline = baseline - ScaleVec(anchor.tangent, Dot(baseline, anchor.tangent));
+      Vec3d baseline = baseline_offset(*member, t, anchor);
+      if (settings.member_twist_turns_per_meter != 0.0 && members.size() > 1) {
+        Vec3d centroid{};
+        for (const VisualCurvePart* candidate : members) centroid = centroid + baseline_offset(*candidate, t, anchor);
+        centroid = ScaleVec(centroid, 1.0 / static_cast<double>(members.size()));
+        const Vec3d relative = baseline - centroid;
+        const double angle = settings.member_twist_phase +
+            kTwoPi * settings.member_twist_turns_per_meter * support_length * t;
+        const double lateral_value = Dot(relative, lateral);
+        const double up_value = Dot(relative, up);
+        baseline = centroid + ScaleVec(lateral, lateral_value * std::cos(angle) - up_value * std::sin(angle)) +
+            ScaleVec(up, lateral_value * std::sin(angle) + up_value * std::cos(angle));
+      }
       baseline = place_below_support(
           baseline, up, required_member_radius(support, *member, settings.helix_clearance_m));
       Vec3d radial = anchor.point + baseline - axis;
@@ -281,8 +303,10 @@ void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* 
         state.view().bundle_templates().find(bundle->bundle_template_id);
     if (template_it == state.view().bundle_templates().end()) continue;
     const SpanVisualAssemblyTemplate& settings = template_it->second.span_visual_assembly;
-    apply_member_twist(settings, members);
-    if (!settings.helix_enabled) continue;
+    if (!settings.helix_enabled) {
+      apply_member_twist(settings, members);
+      continue;
+    }
     const std::optional<std::pair<Vec3d, Vec3d>> endpoints =
         resolve_pole_band_chord_endpoints(state, *span, template_it->second.support_wire_pole_band_id);
     if (!endpoints.has_value()) continue;

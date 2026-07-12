@@ -50,6 +50,22 @@ bool same_visual_curve_samples(const wire::core::VisualCurvePartCache& lhs,
   return true;
 }
 
+bool visual_member_samples_differ(const wire::core::VisualCurvePartCache& lhs,
+                                  const wire::core::VisualCurvePartCache& rhs) {
+  if (lhs.parts.size() != rhs.parts.size()) return true;
+  for (std::size_t i = 0; i < lhs.parts.size(); ++i) {
+    const wire::core::VisualCurvePart& a = lhs.parts[i];
+    const wire::core::VisualCurvePart& b = rhs.parts[i];
+    if (a.kind != wire::core::VisualCurvePartKind::kEdgeBody ||
+        b.kind != wire::core::VisualCurvePartKind::kEdgeBody) continue;
+    if (a.samples.size() != b.samples.size()) return true;
+    for (std::size_t sample = 0; sample < a.samples.size(); ++sample) {
+      if (!same_vec3(a.samples[sample], b.samples[sample])) return true;
+    }
+  }
+  return false;
+}
+
 bool same_frame(const wire::core::Frame3d& a, const wire::core::Frame3d& b) {
   return same_vec3(a.origin, b.origin) && same_vec3(a.forward, b.forward) &&
          same_vec3(a.right, b.right) && same_vec3(a.up, b.up);
@@ -2515,12 +2531,18 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   fresh_template.span_visual_assembly.helix_clearance_m = 0.08;
   const auto fresh_update = fresh.UpdateBundleTemplate(fresh_template);
   const auto fresh_generated = fresh.GenerateFromBackboneSpec(line_req(fresh));
+  const bool matches_fresh = fresh_update.ok && fresh_generated.ok &&
+      same_visual_curve_samples(state.view().visual_curve_parts(), fresh.view().visual_curve_parts());
+  wire::core::BundleTemplate untwisted = fresh.view().bundle_templates().at(id);
+  untwisted.span_visual_assembly.member_twist_turns_per_meter = 0.0;
+  const auto untwisted_update = fresh.UpdateBundleTemplate(untwisted);
   return support_count == generated.value.generated_span_ids.size() &&
          helix_count == generated.value.generated_span_ids.size() && support_is_curved && helix_is_trimmed &&
          members_below_support && member_count >= generated.value.generated_span_ids.size() * 2 &&
          state.view().visual_curve_parts().stats.curve_builds == member_count + support_count &&
-         fresh_update.ok && fresh_generated.ok &&
-         same_visual_curve_samples(state.view().visual_curve_parts(), fresh.view().visual_curve_parts());
+         matches_fresh && untwisted_update.ok &&
+         fresh.view().last_update_timing().kind == wire::core::UpdateKind::kReshape &&
+         visual_member_samples_differ(state.view().visual_curve_parts(), fresh.view().visual_curve_parts());
 }
 
 bool C759_span_visual_assembly_has_one_geometry_owner() {

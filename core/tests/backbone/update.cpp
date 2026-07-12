@@ -2436,6 +2436,22 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   tpl.default_count = 2;
   tpl.span_visual_assembly.helix_enabled = true;
   tpl.span_visual_assembly.helix_turns_per_meter = 1.0;
+  tpl.span_visual_assembly.member_wander_ratio = 0.5;
+  tpl.span_visual_assembly.member_wander_wavelength_m = 3.0;
+  tpl.span_visual_assembly.member_twist_turns_per_meter = 0.2;
+  wire::core::CablePopulationRule population{};
+  population.rule_id = 77;
+  population.explicit_seed = 1234;
+  population.priority = 10;
+  population.min_extra_count = 1;
+  population.max_extra_count = 1;
+  population.min_spacing_m = 0.04;
+  population.lateral_min_m = -2.0;
+  population.lateral_max_m = 2.0;
+  population.height_min_m = 0.0;
+  population.height_max_m = 20.0;
+  population.randomness = 0.4;
+  tpl.population_rules = {population};
   if (state.UpdateBundleTemplate(tpl).ok) return false;
   tpl.support_wire_pole_band_id = 100;
   tpl.span_visual_assembly.helix_samples_per_turn = 12;
@@ -2490,6 +2506,10 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   fresh_template.support_wire_pole_band_id = 100;
   fresh_template.span_visual_assembly.helix_enabled = true;
   fresh_template.span_visual_assembly.helix_turns_per_meter = 1.0;
+  fresh_template.span_visual_assembly.member_wander_ratio = 0.5;
+  fresh_template.span_visual_assembly.member_wander_wavelength_m = 3.0;
+  fresh_template.span_visual_assembly.member_twist_turns_per_meter = 0.2;
+  fresh_template.population_rules = {population};
   fresh_template.span_visual_assembly.helix_samples_per_turn = 12;
   fresh_template.span_visual_assembly.endpoint_trim_m = 0.25;
   fresh_template.span_visual_assembly.helix_clearance_m = 0.08;
@@ -2497,7 +2517,8 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   const auto fresh_generated = fresh.GenerateFromBackboneSpec(line_req(fresh));
   return support_count == generated.value.generated_span_ids.size() &&
          helix_count == generated.value.generated_span_ids.size() && support_is_curved && helix_is_trimmed &&
-         members_below_support && state.view().visual_curve_parts().stats.curve_builds == member_count + support_count &&
+         members_below_support && member_count >= generated.value.generated_span_ids.size() * 2 &&
+         state.view().visual_curve_parts().stats.curve_builds == member_count + support_count &&
          fresh_update.ok && fresh_generated.ok &&
          same_visual_curve_samples(state.view().visual_curve_parts(), fresh.view().visual_curve_parts());
 }

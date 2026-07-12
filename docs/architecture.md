@@ -270,12 +270,18 @@ rule 変更は `UpdateBundleTemplate` の `kReshape` 差分であり、topology/
 配置は rule の explicit seed、logical span、edge bundle、rule id、instance index から決定的に導出する。
 lateral / height は rule 範囲と endpoint band 範囲の交差内で stable random 配置する。
 
-rule は `CableSectionProfile` を持つ。`kFree` は自前の endpoint と sag で吊る平行線、
-`kWrap` は同じ span の base cable を carrier とする巻き付き実線である。wrap section は
-carrier の最終 curve(boundary 適用後)から `sample_wrap_helix_points` で centerline を派生し、
-独自の sag や band 配置を持たず、`end_trim_m` で support 手前に留まり、node patch へ参加しない。
-carrier は rule 宣言から解決し、geometry 近傍から探さない。位相は instance index で等分し、
-巻き方向は rule の +1/-1 で明示する(C689/C690)。
+## span visual assembly
+
+span visual assembly は derived visual output であり、authoritative topology ではない。
+assembly の単位は logical span であり、Bundle の全 lane を物理的に束ねるものではない。
+
+members は base section と同一 logical span の population sections である。support path と
+members は helix の内側に置き、support path は内周上部に接し、members は下側に配置する。
+helix は endpoint trim 区間だけ生成し、電柱や attachment へ接続しない。
+
+member twist と member wander は visual curve だけを変更し、Span、Port、SavedGraph、
+CableRun identity を変更しない。member の関連付けは `CableSectionKey.logical_span_id` による
+明示的なものだけであり、geometry 近傍から探索しない。
 
 ## wire domain境界
 

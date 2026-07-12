@@ -2417,6 +2417,12 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   if (!state.UpdateBundleTemplate(tpl).ok) return false;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok || generated.value.generated_span_ids.empty()) return false;
+  const std::size_t saved_edges_before = state.view().backbone().edges.size();
+  wire::core::BundleTemplate edited = state.view().bundle_templates().at(id);
+  edited.span_visual_assembly.helix_clearance_m = 0.08;
+  const auto reshaped = state.UpdateBundleTemplate(edited);
+  if (!reshaped.ok || state.view().last_update_timing().kind != wire::core::UpdateKind::kReshape ||
+      state.view().backbone().edges.size() != saved_edges_before) return false;
   std::size_t support_count = 0;
   std::size_t helix_count = 0;
   for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {

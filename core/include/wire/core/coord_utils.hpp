@@ -144,6 +144,18 @@ inline Vec3d RotateAroundWorldUpDeg(const Vec3d& local, double yaw_deg) {
   return {local.x * c - local.y * s, local.x * s + local.y * c, local.z};
 }
 
+inline Vec3d RotateAroundAxisDeg(const Vec3d& value, Vec3d axis, double angle_deg) {
+  if (!Normalize(&axis)) {
+    return value;
+  }
+  constexpr double kPi = 3.14159265358979323846;
+  const double angle = angle_deg * (kPi / 180.0);
+  const double cosine = std::cos(angle);
+  const double sine = std::sin(angle);
+  return ScaleVec(value, cosine) + ScaleVec(Cross(axis, value), sine) +
+         ScaleVec(axis, Dot(axis, value) * (1.0 - cosine));
+}
+
 inline Vec3d RotateXDeg(const Vec3d& v, double deg) {
   constexpr double kPi = 3.14159265358979323846;
   const double rad = deg * (kPi / 180.0);
@@ -176,10 +188,15 @@ inline PoleFrame BuildPoleFrame(const Transformd& transform, double layout_yaw_d
   PoleFrame frame{};
   frame.origin = transform.position;
   frame.euler_deg = transform.rotation_euler_deg;
+  // Tilt is an instance-owned physical direction. Layout yaw may vary per port,
+  // so it only rotates the local placement axes around the already tilted pole.
+  frame.forward = RotateEulerXYZDeg(WorldForward(), transform.rotation_euler_deg);
+  frame.lateral = RotateEulerXYZDeg(WorldLateral(), transform.rotation_euler_deg);
+  frame.up = RotateEulerXYZDeg(WorldUp(), transform.rotation_euler_deg);
+  const double layout_delta_deg = layout_yaw_deg - transform.rotation_euler_deg.z;
+  frame.forward = RotateAroundAxisDeg(frame.forward, frame.up, layout_delta_deg);
+  frame.lateral = RotateAroundAxisDeg(frame.lateral, frame.up, layout_delta_deg);
   frame.euler_deg.z = layout_yaw_deg;
-  frame.forward = RotateEulerXYZDeg(WorldForward(), frame.euler_deg);
-  frame.lateral = RotateEulerXYZDeg(WorldLateral(), frame.euler_deg);
-  frame.up = RotateEulerXYZDeg(WorldUp(), frame.euler_deg);
   Normalize(&frame.forward);
   Normalize(&frame.lateral);
   Normalize(&frame.up);

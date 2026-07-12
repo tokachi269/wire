@@ -415,10 +415,12 @@ bool test_build_pole_frame_roundtrips_local_point_under_tilt() {
   tf.position = {3.0, -4.0, 1.5};
   tf.rotation_euler_deg = {7.0, -5.0, 15.0};
   const wire::core::PoleFrame frame = wire::core::BuildPoleFrame(tf, 33.0);
+  const wire::core::PoleFrame other_layout = wire::core::BuildPoleFrame(tf, -72.0);
   const wire::core::Vec3d local{0.2, 0.8, 6.0};
   const wire::core::Vec3d world = wire::core::LocalPointToWorld(frame, local);
   const wire::core::Vec3d roundtrip = wire::core::WorldPointToLocal(frame, world);
-  return almost_equal(local, roundtrip, 1e-9);
+  return almost_equal(local, roundtrip, 1e-9) &&
+         almost_equal(frame.up, other_layout.up, 1e-12);
 }
 
 bool test_detail_curve_builds_with_endpoint_position_and_tangent_constraints() {

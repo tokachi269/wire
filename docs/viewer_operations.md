@@ -75,9 +75,8 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Cable Template / Name | template read / `UpdateCableTemplate` | select / read-only text | mixed | release commit | そのまま | stable id で選択する。現行desktopもnameはread-only | P1 |
 | Outer Diameter / Bend Stiffness / Min Bend Radius | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | `preferred_visible_span_ids` を必ず渡す | P1 |
 | Cable Material | `UpdateCableTemplate` | select | `kRedraw` | 約30 Hz | そのまま | render/visual のみ | P1 |
-| Requires Insulator / Insulator Attach Height | `UpdateCableTemplate` | toggle / number | `kRedraw` | commit | そのまま | render 差分で unsupported にならない。現行 backbone visual は insulator を未消費のため commit のみ | P1 |
+| Requires Insulator / Insulator Attach Height | `UpdateCableTemplate` | toggle / number | `kRedraw` | commit | そのまま | endpoint detail curveが設定を消費する | P1 |
 | Sag Factor / Slack Factor | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | geom/draw の再導出 | P1 |
-| Default Grouped Fanout Spacing | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | geometry 差分で unsupported にならない。live 反映する | P1 |
 | Cable Continuity | `UpdateCableTemplate` | select | `kRegenerate` | release commit | そのまま | decision 差分。現行保留条件を表示する | P1 |
 | CurveOffset Straight Supplemental | `UpdateCableTemplate` | toggle | `kReshape` | 約30 Hz | そのまま | explicit supplemental visual setting | P1 |
 | Supplemental Lateral / Vertical Offset | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | JS で offset geometry を作らない | P1 |
@@ -90,9 +89,8 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 |---|---|---|---|---|---|---|---|
 | Bundle Template / Name / Description | template read / `UpdateBundleTemplate` | select / text | mixed | release commit | そのまま | stable id で編集する | P1 |
 | Bundle Cable Template / Related Pole Template / Default Layer | `UpdateBundleTemplate` | select | `kRegenerate` | release commit | 直して移植 | definition 更新だけを行い related pole 適用を暗黙に呼ばない | P1 |
-| Allow Mirror / Midair Node / Midair Branch | `UpdateBundleTemplate` | toggle | `kRegenerate` | release commit | そのまま | generation decision | P1 |
-| Grouped Fanout Spacing | `UpdateBundleTemplate` | number | `kRegenerate` | release commit | そのまま | placement decision | P1 |
-| Support Style / Branch Policy / Continuity | `UpdateBundleTemplate` | select | `kRegenerate` | release commit | そのまま | 未対応 policy 差分は core の error を表示する | P1 |
+| Midair Node / Midair Branch | `UpdateBundleTemplate` | toggle | `kRegenerate` | release commit | そのまま | branch pick policyが消費する | P1 |
+| Span Visual Assembly / Support Band | `UpdateBundleTemplate` | folded editor | `kReshape` | commit | 直して移植 | helix、containment、wander、twistの正本設定 | P1 |
 | Apply Bundle Template | `UpdateBundleTemplate` | button | mixed | commit | 直して移植 | `ApplyBundleRelatedPoleTypeToExistingPoles` の自動呼出を禁止する | P1 |
 | Apply related pole type | `ApplyBundleRelatedPoleTypeToExistingPoles` | 独立 button | `kRegenerate` | commit | 直して移植 | 現行は Bundle/Pole Apply 後に暗黙実行される。web では独立操作にし error を表示する | P1 |
 

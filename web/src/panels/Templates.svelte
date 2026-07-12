@@ -10,7 +10,6 @@
   import type { ViewerSnapshot } from "../store/viewer";
   import {
     ANCHOR_USAGE_LABELS,
-    BRANCH_POLICY_LABELS,
     CATEGORY_LABELS,
     CONTINUITY_LABELS,
     MATERIAL_LABELS,
@@ -18,7 +17,6 @@
     ROLE_LABELS,
     SIDE_LABELS,
     SPAN_LAYER_LABELS,
-    SUPPORT_STYLE_LABELS,
     categoryLabel,
     categoryShort,
     fmt,
@@ -109,15 +107,14 @@
     preview = false,
     control = "population",
     param = "population",
-    startValue = 0,
-    value = 0
+    startValue = 0
   ): void {
     const draft = cloneBundle(template);
     const rule = draft.populationRules.find((candidate) => candidate.ruleId === ruleId);
     if (rule === undefined) return;
     change(rule);
     if (preview) {
-      actions.previewBundleTemplate(draft, control, param, startValue, value);
+      actions.previewBundleTemplate(draft, control, param, startValue);
     } else {
       actions.commitBundleTemplate(draft);
     }
@@ -183,7 +180,7 @@
       band.heightMax = round6(height + half);
     }
     if (preview) {
-      actions.previewPoleTemplate(draft, `pole.category.${category}.height`, "height", start, height);
+      actions.previewPoleTemplate(draft, `pole.category.${category}.height`, "height", start);
     } else {
       actions.commitPoleTemplate(draft);
     }
@@ -204,7 +201,7 @@
       band.lateralMax = round6(band.lateralMax + delta);
     }
     if (preview) {
-      actions.previewPoleTemplate(draft, `pole.category.${category}.offset`, "offset", oldCenter, offset);
+      actions.previewPoleTemplate(draft, `pole.category.${category}.offset`, "offset", oldCenter);
     } else {
       actions.commitPoleTemplate(draft);
     }
@@ -232,7 +229,7 @@
     if (preview) {
       actions.previewPoleTemplate(
         draft, `pole.category.${category}.spread`, "spread",
-        categorySpread(template, category), spread
+        categorySpread(template, category)
       );
     } else {
       actions.commitPoleTemplate(draft);
@@ -456,7 +453,6 @@
         </select>
       </label>
       {#each [
-        ["allowMirror", "Allow mirror"],
         ["allowMidairNode", "Allow midair node"],
         ["allowMidairBranch", "Allow midair branch"]
       ] as field}
@@ -464,24 +460,6 @@
           onchange={(event) => actions.commitBundleTemplate(
             patchBundle(bundle, field[0] as keyof BundleTemplateInfo, checkedValue(event) as never)
           )} />{field[1]}</label>
-      {/each}
-      <label>Grouped fanout
-        <input type="number" step="0.01" value={fmt(bundle.groupedSupportFanoutSpacing)}
-          onchange={(event) => actions.commitBundleTemplate(patchBundle(bundle, "groupedSupportFanoutSpacing", numberValue(event)))} />
-      </label>
-      {#each [
-        ["supportStyle", "Support style", SUPPORT_STYLE_LABELS],
-        ["branchPolicy", "Branch policy", BRANCH_POLICY_LABELS],
-        ["continuityPolicy", "Continuity", CONTINUITY_LABELS]
-      ] as const as field}
-        <label>{field[1]}
-          <select value={bundle[field[0] as keyof BundleTemplateInfo] as number}
-            onchange={(event) => actions.commitBundleTemplate(
-              patchBundle(bundle, field[0] as keyof BundleTemplateInfo, numberValue(event) as never)
-            )}>
-            {#each field[2] as label, option}<option value={option}>{label}</option>{/each}
-          </select>
-        </label>
       {/each}
       <button class="secondary" type="button" onclick={() => actions.applyRelatedPoleType(bundle.id)}>
         related poleを既存へ適用
@@ -540,8 +518,7 @@
             {#each [
               ["minSpacing", "Min spacing", 0.01],
               ["lateralMin", "Lateral min", 0.02], ["lateralMax", "Lateral max", 0.02],
-              ["heightMin", "Height min", 0.05], ["heightMax", "Height max", 0.05],
-              ["randomness", "Randomness", 0.05]
+              ["heightMin", "Height min", 0.05], ["heightMax", "Height max", 0.05]
             ] as field}
               <label>{field[1]}<input type="number" step={field[2]} value={fmt(rule[field[0] as keyof PopulationRuleInfo] as number)}
                 oninput={(event) => updatePopulationRule(
@@ -553,8 +530,7 @@
                   true,
                   `bundle.population.${rule.ruleId}.${field[0]}`,
                   field[0],
-                  rule[field[0] as keyof PopulationRuleInfo] as number,
-                  numberValue(event)
+                  rule[field[0] as keyof PopulationRuleInfo] as number
                 )}
                 onblur={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
                   (draft[field[0] as keyof PopulationRuleInfo] as number) = round6(numberValue(event));
@@ -577,8 +553,7 @@
             lateralMin: -1,
             lateralMax: 1,
             heightMin: 0,
-            heightMax: 20,
-            randomness: 0.25
+            heightMax: 20
           });
         })}>Rule追加</button>
       </details>
@@ -640,11 +615,6 @@
         <input type="number" step="0.005" value={fmt(cable.slackFactor)}
           oninput={(event) => actions.previewCableTemplate("slackFactor", numberValue(event))}
           onblur={(event) => actions.commitCableTemplate(patchCable(cable, "slackFactor", numberValue(event)))} />
-      </label>
-      <label>Grouped fanout
-        <input type="number" step="0.01" value={fmt(cable.groupedFanoutSpacing)}
-          oninput={(event) => actions.previewCableTemplate("groupedFanoutSpacing", numberValue(event))}
-          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "groupedFanoutSpacing", numberValue(event)))} />
       </label>
       <label>Continuity
         <select value={cable.continuityPolicy}

@@ -27,18 +27,6 @@ export const ANCHOR_USAGE_LABELS = ["Generic", "Ground", "External", "Midair"] a
 
 export const SPAN_LAYER_LABELS = ["Unknown", "HV", "LV", "COMM", "OPT", "DROP"] as const;
 
-export const SUPPORT_STYLE_LABELS = [
-  "Auto",
-  "Center preferred",
-  "Side structure preferred"
-] as const;
-
-export const BRANCH_POLICY_LABELS = [
-  "Auto",
-  "Prefer pass-through",
-  "Prefer explicit branch"
-] as const;
-
 export const CONTINUITY_LABELS = ["Auto", "Prefer G1", "Prefer G2"] as const;
 
 export const MATERIAL_LABELS = ["Generic", "Bare", "Insulated", "Optical"] as const;

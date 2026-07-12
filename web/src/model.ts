@@ -128,13 +128,8 @@ export interface BundleTemplateInfo {
   cableTemplateId: number;
   relatedPoleTypeId: number;
   defaultLayer: number;
-  allowMirror: boolean;
   allowMidairNode: boolean;
   allowMidairBranch: boolean;
-  groupedSupportFanoutSpacing: number;
-  supportStyle: number;
-  branchPolicy: number;
-  continuityPolicy: number;
   supportWirePoleBandId: number;
   spanVisualAssembly: SpanVisualAssemblyInfo;
   populationRules: PopulationRuleInfo[];
@@ -165,7 +160,6 @@ export interface PopulationRuleInfo {
   lateralMax: number;
   heightMin: number;
   heightMax: number;
-  randomness: number;
 }
 
 export interface CableTemplateInfo {
@@ -180,7 +174,6 @@ export interface CableTemplateInfo {
   insulatorAttachmentHeight: number;
   sagFactor: number;
   slackFactor: number;
-  groupedFanoutSpacing: number;
   continuityPolicy: number;
   supplementalEnabled: boolean;
   supplementalLateralOffset: number;

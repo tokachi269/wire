@@ -379,13 +379,8 @@ public:
     output.set("cableTemplateId", bundle_template.cable_template_id);
     output.set("relatedPoleTypeId", bundle_template.related_pole_type_id);
     output.set("defaultLayer", static_cast<int>(bundle_template.default_layer));
-    output.set("allowMirror", bundle_template.allow_mirror);
     output.set("allowMidairNode", bundle_template.allow_midair_node);
     output.set("allowMidairBranch", bundle_template.allow_midair_branch);
-    output.set("groupedSupportFanoutSpacing", bundle_template.grouped_support_fanout_spacing_m);
-    output.set("supportStyle", static_cast<int>(bundle_template.support_style));
-    output.set("branchPolicy", static_cast<int>(bundle_template.branch_policy));
-    output.set("continuityPolicy", static_cast<int>(bundle_template.continuity_policy));
     output.set("supportWirePoleBandId", bundle_template.support_wire_pole_band_id);
     const auto& assembly = bundle_template.span_visual_assembly;
     val assembly_output = val::object();
@@ -415,7 +410,6 @@ public:
       item.set("lateralMax", rule.lateral_max_m);
       item.set("heightMin", rule.height_min_m);
       item.set("heightMax", rule.height_max_m);
-      item.set("randomness", rule.randomness);
       population_rules.set(index, item);
     }
     output.set("populationRules", population_rules);
@@ -436,16 +430,8 @@ public:
     bundle_template.cable_template_id = property<wire::core::CableTemplateId>(input, "cableTemplateId");
     bundle_template.related_pole_type_id = property<PoleTypeId>(input, "relatedPoleTypeId");
     bundle_template.default_layer = static_cast<SpanLayer>(property<int>(input, "defaultLayer"));
-    bundle_template.allow_mirror = property<bool>(input, "allowMirror");
     bundle_template.allow_midair_node = property<bool>(input, "allowMidairNode");
     bundle_template.allow_midair_branch = property<bool>(input, "allowMidairBranch");
-    bundle_template.grouped_support_fanout_spacing_m = property<double>(input, "groupedSupportFanoutSpacing");
-    bundle_template.support_style =
-        static_cast<wire::core::BundleSupportStyleHint>(property<int>(input, "supportStyle"));
-    bundle_template.branch_policy =
-        static_cast<wire::core::BundleBranchPolicyHint>(property<int>(input, "branchPolicy"));
-    bundle_template.continuity_policy =
-        static_cast<wire::core::CableContinuityPolicyHint>(property<int>(input, "continuityPolicy"));
     bundle_template.support_wire_pole_band_id = property<int>(input, "supportWirePoleBandId");
     const val assembly = input["spanVisualAssembly"];
     bundle_template.span_visual_assembly.helix_enabled = property<bool>(assembly, "helixEnabled");
@@ -459,14 +445,22 @@ public:
     bundle_template.span_visual_assembly.member_wander_phase_bias = property<double>(assembly, "memberWanderPhaseBias");
     bundle_template.span_visual_assembly.member_twist_turns_per_meter = property<double>(assembly, "memberTwistTurnsPerMeter");
     bundle_template.span_visual_assembly.member_twist_phase = property<double>(assembly, "memberTwistPhase");
+    const std::vector<wire::core::CablePopulationRule> existing_population_rules =
+        bundle_template.population_rules;
     bundle_template.population_rules.clear();
     const val population_rules = input["populationRules"];
     const std::size_t population_rule_count = population_rules["length"].as<std::size_t>();
     bundle_template.population_rules.reserve(population_rule_count);
     for (std::size_t index = 0; index < population_rule_count; ++index) {
       const val item = population_rules[index];
-      wire::core::CablePopulationRule rule{};
-      rule.rule_id = property<wire::core::CableSectionRuleId>(item, "ruleId");
+      const wire::core::CableSectionRuleId rule_id =
+          property<wire::core::CableSectionRuleId>(item, "ruleId");
+      const auto existing_rule = std::ranges::find_if(
+          existing_population_rules,
+          [rule_id](const wire::core::CablePopulationRule& rule) { return rule.rule_id == rule_id; });
+      wire::core::CablePopulationRule rule =
+          existing_rule == existing_population_rules.end() ? wire::core::CablePopulationRule{} : *existing_rule;
+      rule.rule_id = rule_id;
       rule.explicit_seed = property<std::uint64_t>(item, "explicitSeed");
       rule.priority = property<int>(item, "priority");
       rule.min_extra_count = property<int>(item, "minExtraCount");
@@ -476,7 +470,6 @@ public:
       rule.lateral_max_m = property<double>(item, "lateralMax");
       rule.height_min_m = property<double>(item, "heightMin");
       rule.height_max_m = property<double>(item, "heightMax");
-      rule.randomness = property<double>(item, "randomness");
       bundle_template.population_rules.push_back(rule);
     }
     const auto updated = state_->UpdateBundleTemplate(bundle_template);
@@ -521,7 +514,6 @@ public:
     output.set("insulatorAttachmentHeight", cable_template.insulator_attachment_height_m);
     output.set("sagFactor", cable_template.sag_factor);
     output.set("slackFactor", cable_template.slack_factor);
-    output.set("groupedFanoutSpacing", cable_template.default_grouped_support_fanout_spacing_m);
     output.set("continuityPolicy", static_cast<int>(cable_template.continuity_policy));
     const auto supplemental = std::ranges::find_if(
         cable_template.supplemental_paths, [](const wire::core::CableSupplementalPathTemplate& path) {
@@ -557,7 +549,6 @@ public:
     cable_template.insulator_attachment_height_m = property<double>(input, "insulatorAttachmentHeight");
     cable_template.sag_factor = property<double>(input, "sagFactor");
     cable_template.slack_factor = property<double>(input, "slackFactor");
-    cable_template.default_grouped_support_fanout_spacing_m = property<double>(input, "groupedFanoutSpacing");
     cable_template.continuity_policy =
         static_cast<wire::core::CableContinuityPolicyHint>(property<int>(input, "continuityPolicy"));
 

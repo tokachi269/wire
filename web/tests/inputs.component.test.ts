@@ -114,8 +114,7 @@ describe("viewer numeric inputs", () => {
           lateralMin: -1,
           lateralMax: 1,
           heightMin: 0,
-          heightMax: 20,
-          randomness: 0.25
+          heightMax: 20
         }]
       });
       await tick();

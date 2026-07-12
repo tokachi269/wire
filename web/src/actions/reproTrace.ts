@@ -73,7 +73,7 @@ function formatGenerationRequest(snapshot: ViewerSnapshot, points: readonly Worl
     const count = snapshot.drawBundleCounts[id] ?? bundle?.defaultCount ?? "default";
     return bundle === undefined
       ? `${id}:count=${count}`
-      : `${id}:count=${count},kind=${bundle.kind},branch=${bundle.branchPolicy},continuity=${bundle.continuityPolicy}` +
+      : `${id}:count=${count},kind=${bundle.kind}` +
         `,cable=${bundle.cableTemplateId}${cable === undefined ? "" : `/sag=${formatNumber(cable.sagFactor)}`}`;
   }).join(";");
   const anchors = snapshot.pathPointSpecs

@@ -445,7 +445,6 @@ export class ViewerActions {
   ): void {
     this.commitSetting(
       `geometry.${String(param)}`,
-      String(param),
       value,
       (current, next) => ({ ...current, geometry: { ...current.geometry, [param]: next } }),
       () => this.bridge.updateGeometrySettings(this.readSnapshot().geometry),
@@ -463,7 +462,6 @@ export class ViewerActions {
   ): void {
     this.commitSetting(
       `layout.${String(param)}`,
-      String(param),
       value,
       (current, next) => ({ ...current, layout: { ...current.layout, [param]: next } }),
       () => this.bridge.updateLayoutSettings(this.readSnapshot().layout),
@@ -496,7 +494,6 @@ export class ViewerActions {
   ): void {
     this.commitSetting(
       `visual.${String(param)}`,
-      String(param),
       value,
       (current, next) => ({ ...current, visual: { ...current.visual, [param]: next } }),
       () => this.bridge.updateVisualSettings(this.readSnapshot().visual),
@@ -617,8 +614,7 @@ export class ViewerActions {
     template: BundleTemplateInfo,
     controlId: string,
     param: string,
-    startValue: number,
-    value: number
+    startValue: number
   ): void {
     const before = this.readSnapshot();
     if (before.interaction === null) {
@@ -710,8 +706,7 @@ export class ViewerActions {
     template: PoleTemplateInfo,
     controlId: string,
     param: string,
-    startValue: number,
-    value: number
+    startValue: number
   ): void {
     const before = this.readSnapshot();
     if (before.interaction === null) {
@@ -779,7 +774,6 @@ export class ViewerActions {
   }
 
   cancel(suppressBlurCommit = false): void {
-    const hadInteraction = this.readSnapshot().interaction !== null;
     this.clearPendingPreview();
     this.activeCancel?.();
     this.activeCancel = null;
@@ -936,7 +930,6 @@ export class ViewerActions {
 
   private commitSetting<T>(
     controlId: string,
-    param: string,
     value: T,
     write: (current: ViewerSnapshot, value: T) => ViewerSnapshot,
     apply: () => OperationResult,

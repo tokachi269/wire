@@ -72,9 +72,7 @@ describe("viewer actions", () => {
           id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
-          allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
-          groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
-          continuityPolicy: 0,
+          allowMidairNode: true, allowMidairBranch: true,
           supportWirePoleBandId: 0,
           spanVisualAssembly: {
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
@@ -141,9 +139,7 @@ describe("viewer actions", () => {
           id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
-          allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
-          groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
-          continuityPolicy: 0,
+          allowMidairNode: true, allowMidairBranch: true,
           supportWirePoleBandId: 0,
           spanVisualAssembly: {
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
@@ -198,9 +194,7 @@ describe("viewer actions", () => {
           id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
-          allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
-          groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
-          continuityPolicy: 0,
+          allowMidairNode: true, allowMidairBranch: true,
           supportWirePoleBandId: 0,
           spanVisualAssembly: {
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
@@ -236,13 +230,8 @@ const bundleTemplate: BundleTemplateInfo = {
   cableTemplateId: 2,
   relatedPoleTypeId: 1,
   defaultLayer: 2,
-  allowMirror: true,
   allowMidairNode: true,
   allowMidairBranch: true,
-  groupedSupportFanoutSpacing: 0.2,
-  supportStyle: 0,
-  branchPolicy: 0,
-  continuityPolicy: 0,
   supportWirePoleBandId: 0,
   spanVisualAssembly: {
     helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
@@ -265,7 +254,6 @@ const cableTemplate: CableTemplateInfo = {
   insulatorAttachmentHeight: 0,
   sagFactor: 0.03,
   slackFactor: 0,
-  groupedFanoutSpacing: 0.2,
   continuityPolicy: 0,
   supplementalEnabled: false,
   supplementalLateralOffset: 0,
@@ -522,7 +510,7 @@ describe("P1 action contracts", () => {
     );
     actions.initialize();
 
-    actions.commitBundleTemplate({ ...bundleTemplate, allowMirror: false });
+    actions.commitBundleTemplate({ ...bundleTemplate, allowMidairNode: false });
     expect(updateBundle).toHaveBeenCalledOnce();
     expect(applyRelated).not.toHaveBeenCalled();
 
@@ -552,8 +540,7 @@ describe("P1 action contracts", () => {
           lateralMin: -0.4,
           lateralMax: 0.4,
           heightMin: 5,
-          heightMax: 6,
-          randomness: 0.5
+          heightMax: 6
         }
       ]
     });
@@ -589,8 +576,7 @@ describe("P1 action contracts", () => {
           lateralMin: -1,
           lateralMax: 1,
           heightMin: 0,
-          heightMax: 20,
-          randomness: 0.25
+          heightMax: 20
         }
       ]
     };
@@ -599,8 +585,7 @@ describe("P1 action contracts", () => {
       template,
       "bundle.population.1.minSpacing",
       "minSpacing",
-      0.05,
-      0.09
+      0.05
     );
     await vi.advanceTimersByTimeAsync(33);
 

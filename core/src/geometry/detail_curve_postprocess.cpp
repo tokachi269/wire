@@ -475,25 +475,6 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
         }
       }
     }
-    if (bundle_template != nullptr && bundle_template->support_wire_pole_band_id > 0) {
-      CableSupplementalPathTemplate support_wire{};
-      support_wire.anchor_mode = CableSupplementalPathTemplate::AnchorMode::kPoleBandChord;
-      support_wire.profile_kind = CableSupplementalPathTemplate::ProfileKind::kStraightCable;
-      support_wire.interaction_mode = AttachmentLineInteractionMode::kAddInternalPath;
-      support_wire.pole_band_id = bundle_template->support_wire_pole_band_id;
-      const std::vector<Vec3d> path_points =
-          build_cable_supplemental_points(support_wire, state, *span, *curve,
-                                          static_cast<std::uint32_t>((cable_template == nullptr)
-                                                                         ? 0
-                                                                         : cable_template->supplemental_paths.size()));
-      if (path_points.size() >= 2) {
-        DetailSupplementalPath supplemental{};
-        supplemental.attachment_template_id = kInvalidAttachmentTemplateId;
-        supplemental.interaction_mode = support_wire.interaction_mode;
-        supplemental.points = path_points;
-        supplemental_paths.push_back(std::move(supplemental));
-      }
-    }
   }
 
   curve->hidden_intervals = merged_intervals(std::move(hidden), curve->Length());

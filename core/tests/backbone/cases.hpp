@@ -368,6 +368,7 @@ bool C676_backbone_noop_move_preserves_port_positions_exactly();
 bool C677_backbone_corner_scale_has_one_definition();
 bool C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies();
 bool C758_span_visual_assembly_emits_support_and_helix();
+bool C759_span_visual_assembly_has_one_geometry_owner();
 bool C745_legacy_wrap_family_is_absent();
 
 } // namespace backbone_tests

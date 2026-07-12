@@ -2460,4 +2460,19 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
          members_below_support && state.view().visual_curve_parts().stats.curve_builds == member_count + support_count;
 }
 
+bool C759_span_visual_assembly_has_one_geometry_owner() {
+  std::string assembly{};
+  std::string curve_parts{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/span_visual_assembly.cpp", &assembly) ||
+      !file_text(repo_root() / "core/src/generation/backbone/curve_parts.cpp", &curve_parts)) {
+    return false;
+  }
+  return contains_text(assembly, "make_helix_part") && contains_text(assembly, "contain_members") &&
+         contains_text(assembly, "apply_member_twist") && contains_text(assembly, "apply_span_visual_assemblies") &&
+         !contains_text(assembly, "find_nearest") && !contains_text(assembly, "SavedBackbone") &&
+         !contains_text(assembly, "AddSpan") && !contains_text(assembly, "AddBundle") &&
+         !contains_text(assembly, "AddPort") && contains_text(curve_parts, "apply_span_visual_assemblies(state, &out)") &&
+         !contains_text(curve_parts, "member_wander_ratio") && !contains_text(curve_parts, "helix_turns_per_meter");
+}
+
 } // namespace backbone_tests

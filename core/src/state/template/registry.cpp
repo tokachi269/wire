@@ -235,6 +235,11 @@ void CoreState::register_default_bundle_templates() {
   comm.enable_branch_down_offset = false;
   comm.branch_endpoint_offset_m = 0.0;
   comm.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  comm.support_wire_pole_band_id = 600;
+  comm.span_visual_assembly.helix_enabled = true;
+  comm.span_visual_assembly.helix_turns_per_meter = 0.5;
+  comm.span_visual_assembly.helix_samples_per_turn = 16;
+  comm.span_visual_assembly.endpoint_trim_m = 0.25;
   authoritative_.bundle_templates[comm.id] = comm;
 
   BundleTemplate optical{};

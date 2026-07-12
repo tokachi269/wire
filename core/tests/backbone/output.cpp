@@ -746,6 +746,28 @@ bool C760_backbone_terminal_edge_body_ends_at_port() {
   return terminal_bodies == out.value.generated_span_ids.size();
 }
 
+bool C761_default_communication_bundle_emits_helix() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec request = line_req(state);
+  const auto comm_template = state.view().bundle_templates().find(
+      wire::core::kDefaultCommunicationBundleTemplateId);
+  if (comm_template == state.view().bundle_templates().end()) return false;
+  request.bundles.clear();
+  request.pole_type_id = comm_template->second.related_pole_type_id;
+  add_backbone_bundle(request, wire::core::BundleKind::kCommunication);
+  const auto out = state.GenerateFromBackboneSpec(request);
+  if (!out.ok || out.value.generated_span_ids.empty()) return false;
+  std::size_t support_count = 0;
+  std::size_t helix_count = 0;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    support_count += part.kind == wire::core::VisualCurvePartKind::kSupplemental &&
+        part.supplemental_kind == wire::core::VisualSupplementalKind::kSupportPath;
+    helix_count += part.kind == wire::core::VisualCurvePartKind::kSupplemental &&
+        part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix;
+  }
+  return support_count == out.value.generated_span_ids.size() && helix_count == support_count;
+}
+
 bool C635_backbone_simple_continuous_node_creates_node_patch_curve() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));

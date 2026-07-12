@@ -74,7 +74,6 @@ export interface ViewerSnapshot {
   selectionIncludePoles: boolean;
   selectionIncludeMidair: boolean;
   selectionIncludeSpans: boolean;
-  showWorkspace: boolean;
   showLeftPanel: boolean;
   showRightPanel: boolean;
   workspaceLeftWidth: number;
@@ -146,7 +145,6 @@ export function createViewerSnapshot(): ViewerSnapshot {
     selectionIncludePoles: true,
     selectionIncludeMidair: true,
     selectionIncludeSpans: true,
-    showWorkspace: true,
     showLeftPanel: true,
     showRightPanel: true,
     workspaceLeftWidth: 220,

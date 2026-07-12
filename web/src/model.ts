@@ -71,7 +71,6 @@ export interface SpanInfo {
   id: string;
   portAId: string;
   portBId: string;
-  bundleId: string;
 }
 
 export interface SupportNodeInfo {

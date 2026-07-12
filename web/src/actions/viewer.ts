@@ -322,7 +322,6 @@ export class ViewerActions {
       | "selectionIncludePoles"
       | "selectionIncludeMidair"
       | "selectionIncludeSpans"
-      | "showWorkspace"
       | "showLeftPanel"
       | "showRightPanel"
       | "workspaceLeftWidth"

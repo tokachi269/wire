@@ -232,11 +232,10 @@
   </header>
 
   <section
-    class:panels-hidden={!snapshot.showWorkspace}
     class="workspace"
     style={`--left-width:${snapshot.workspaceLeftWidth}px;--right-width:${snapshot.workspaceWidth}px`}
   >
-    {#if snapshot.showWorkspace && snapshot.showLeftPanel}
+    {#if snapshot.showLeftPanel}
       <div class="left-region">
         <Outliner {actions} {snapshot} />
       </div>
@@ -250,7 +249,7 @@
 
     <div class="viewport" bind:this={sceneHost}></div>
 
-    {#if snapshot.showWorkspace && snapshot.showRightPanel}
+    {#if snapshot.showRightPanel}
       <button
         class="resize-handle"
         aria-label="右サイドバーの幅を変更"

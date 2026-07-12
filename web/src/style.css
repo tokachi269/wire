@@ -63,12 +63,6 @@ button:hover {
   display: none;
 }
 
-.top-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
 main {
   position: relative;
   width: 100vw;
@@ -117,10 +111,6 @@ h1 {
   inset: 0;
   min-height: 480px;
   background: #c8d6e4;
-}
-
-.workspace.panels-hidden {
-  display: block;
 }
 
 .left-region,

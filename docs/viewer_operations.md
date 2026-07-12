@@ -25,7 +25,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 
 | UI 項目 | 呼ぶ API / action | control | 更新クラス | drag policy | 判定 | 理由 | 優先度 |
 |---|---|---|---|---|---|---|---|
-| Unified UI / Show Workspace / Workspace Width | web layout store | toggle / slider | UI | 生反映 | 直して移植 | desktop の window mode は不要。web の panel 表示と幅へ読み替える | P1 |
+| Left/Right Panel / Workspace Width | web layout store | toggle / slider | UI | 生反映 | 直して移植 | desktop の unified/window mode は持たず、左右panelの表示と幅だけを管理する | P1 |
 | Camera FOV | renderer camera action | slider | camera | 生反映 | そのまま | renderer 所有で core 非依存 | P1 |
 | Walk Speed / Mouse Sensitivity / Start-Stop Walk | なし | slider / button | desktop input | - | 捨てる | web は OrbitControls の orbit/pan/zoomを採用し walk mode は非対象 | P2 |
 | Clear Selection | selection action | button | UI | 即時 | そのまま | store の選択だけを消す | P1 |
@@ -38,7 +38,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 |---|---|---|---|---|---|---|---|
 | Enable DrawPath Pick | draw store | toggle | UI | 生反映 | 直して移植 | W3 では Draw Path tool の有効状態として扱う | P1 |
 | Show Backbone Overlay | renderer store | toggle | `kRedraw`相当 | 生反映 | そのまま | store 内の派生出力表示切替だけ | P1 |
-| Draw Snap Radius | `ResolveBranchPick` | number | UI | 生反映 | 直して移植 | W4では意図的に除外。web側のscene hit idを公開pick payloadへ渡す境界が未実装で、半径だけ置くと無効controlになる | P1 |
+| Draw branch pick | scene raycast / `ResolveBranchPick` | scene pick | UI | 生反映 | 直して移植 | sceneが公開hit kind/idを渡し、coreがbranch接続点を解決する。JSで近傍topologyを推測しない | P1 |
 | Draw Plane Z | draw store | number | UI | 生反映 | そのまま | ray-plane 交差だけに使う | P1 |
 | Path Interval | `GenerateFromBackboneSpec` | number | `kRegenerate` | release commit | そのまま | generation input | P1 |
 | Clicked Points Only | `GenerateFromBackboneSpec` | toggle | `kRegenerate` | release commit | そのまま | `interval_m` の有無へ変換する | P1 |
@@ -165,8 +165,6 @@ P1 の実装済み family:
 
 P1 だが意図的に除外した項目:
 
-- Draw Snap Radius / branch pick: W1のwasm境界はscene raycast/pick idを公開していない。
-  JSで既存span/nodeを近傍推測しないため、地面clickだけに限定する。
 - Related entity links: W1の最小inspection境界にlinkを含めていない。ID関係をJSで再構成しない。
 - Unified UI toggle: webは単一workspaceを唯一の構成とし、旧window modeを持たない。
 - direct object edit: desktop側も無効であり、Draw Pathと明示template/update actionだけを入口にする。

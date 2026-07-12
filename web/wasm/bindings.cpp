@@ -287,7 +287,6 @@ public:
     output.set("id", std::to_string(span->id));
     output.set("portAId", std::to_string(span->port_a_id));
     output.set("portBId", std::to_string(span->port_b_id));
-    output.set("bundleId", std::to_string(span->bundle_id));
     return output;
   }
 

@@ -227,8 +227,12 @@ void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* 
     support.material_style = members.front()->material_style;
     support.bounds = bounds_for(support.samples);
     support.source_version = members.front()->source_version;
-    const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m :
-        auto_fit_radius(support, members, settings.helix_clearance_m, support.wire_radius_m);
+    const double fitted_radius = auto_fit_radius(support, members, settings.helix_clearance_m, support.wire_radius_m);
+    const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m : fitted_radius;
+    if (settings.helix_radius_m > 0.0 && settings.helix_radius_m + 1e-9 < fitted_radius) {
+      cache->diagnostics.push_back({kInvalidObjectId, logical_span_id, template_it->second.id,
+                                    members.front()->lane_index, "span visual assembly radius clamped members"});
+    }
     contain_members(state, support, settings, members, radius);
     VisualCurvePart helix = make_helix_part(support, settings, members);
     supplemental.push_back(std::move(support));

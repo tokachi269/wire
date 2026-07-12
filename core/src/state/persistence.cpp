@@ -312,12 +312,20 @@ bool archive_vec3(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "x", value.x) && archive.field(prefix, "y", value.y) && archive.field(prefix, "z", value.z);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(Vec3d) == 24, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_transform(Archive& archive, const std::string& prefix, Value& value) {
   return archive_vec3(archive, child(prefix, "position"), value.position) &&
          archive_vec3(archive, child(prefix, "rotation_euler_deg"), value.rotation_euler_deg) &&
          archive_vec3(archive, child(prefix, "scale"), value.scale);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(Transformd) == 72, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_frame(Archive& archive, const std::string& prefix, Value& value) {
@@ -327,17 +335,29 @@ bool archive_frame(Archive& archive, const std::string& prefix, Value& value) {
          archive_vec3(archive, child(prefix, "up"), value.up);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(Frame3d) == 96, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_generation(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "generated", value.generated) && archive.field(prefix, "source", value.source) && archive.field(prefix, "generation_session_id", value.generation_session_id) &&
          archive.field(prefix, "generation_order", value.generation_order);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(GenerationMeta) == 24, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_pole_context(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "kind", value.kind) && archive.field(prefix, "corner_angle_deg", value.corner_angle_deg) && archive.field(prefix, "corner_turn_sign", value.corner_turn_sign) &&
          archive.field(prefix, "side_scale", value.side_scale) && archive.field(prefix, "angle_correction_applied", value.angle_correction_applied);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(PoleContextInfo) == 40, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_pole(Archive& archive, const std::string& prefix, Value& value) {
@@ -348,6 +368,10 @@ bool archive_pole(Archive& archive, const std::string& prefix, Value& value) {
          archive.field(prefix, "placement_mode", value.placement_mode) && archive.field(prefix, "user_edited", value.user_edited) && archive.field(prefix, "placement_override_flag", value.placement_override_flag) &&
          archive_generation(archive, child(prefix, "generation"), value.generation);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(Pole) == 256, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_port(Archive& archive, const std::string& prefix, Value& value) {
@@ -362,6 +386,10 @@ bool archive_port(Archive& archive, const std::string& prefix, Value& value) {
          archive.field(prefix, "orientation_override_flag", value.orientation_override_flag);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(Port) == 216, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_anchor(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "owner_pole_id", value.owner_pole_id) &&
@@ -369,11 +397,19 @@ bool archive_anchor(Archive& archive, const std::string& prefix, Value& value) {
          archive.field(prefix, "support_kind", value.support_kind) && archive.field(prefix, "support_strength", value.support_strength) && archive.field(prefix, "generated_from_template", value.generated_from_template);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(Anchor) == 104, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_bundle(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "conductor_count", value.conductor_count) &&
          archive.field(prefix, "phase_spacing_m", value.phase_spacing_m) && archive.field(prefix, "bundle_template_id", value.bundle_template_id);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(Bundle) == 72, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_span(Archive& archive, const std::string& prefix, Value& value) {
@@ -386,11 +422,19 @@ bool archive_span(Archive& archive, const std::string& prefix, Value& value) {
          archive.field(prefix, "reference_length_m", value.reference_length_m) && archive_generation(archive, child(prefix, "generation"), value.generation);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(Span) == 168, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_attachment(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "span_id", value.span_id) && archive.field(prefix, "template_id", value.template_id) &&
          archive.field(prefix, "t", value.t) && archive.field(prefix, "kind", value.kind) && archive.field(prefix, "display_offset_m", value.display_offset_m) && archive.field(prefix, "origin", value.origin);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(Attachment) == 96, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename T, typename Write>
 void write_object_store(StateWriter& writer, const std::string& prefix, const ObjectStore<T>& store, Write write) {
@@ -428,6 +472,10 @@ bool archive_bundle_mode(Archive& archive, const std::string& prefix, Value& val
   return archive.field(prefix, "bundle_template_id", value.bundle_template_id) && archive.field(prefix, "mode", value.mode);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(SupportNodeBundleMode) == 8, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_saved_node(Archive& archive, const std::string& prefix, Value& value) {
   if (!archive.field(prefix, "node_id", value.node_id) || !archive.field(prefix, "pole_id", value.pole_id) || !archive.field(prefix, "support_kind", value.support_kind) ||
@@ -443,12 +491,20 @@ bool archive_saved_node(Archive& archive, const std::string& prefix, Value& valu
   return true;
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(SavedBackboneNode) == 120, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_saved_edge(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "edge_id", value.edge_id) && archive.field(prefix, "node_a", value.node_a) && archive.field(prefix, "node_b", value.node_b) && archive.field(prefix, "route", value.route) &&
          archive.field(prefix, "order", value.order) && archive_vec3(archive, child(prefix, "dir"), value.dir) &&
          archive.field(prefix, "lateral_offset_m", value.lateral_offset_m);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(SavedBackboneEdge) == 72, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_saved_edge_bundle(Archive& archive, const std::string& prefix, Value& value) {
@@ -464,11 +520,19 @@ bool archive_saved_edge_bundle(Archive& archive, const std::string& prefix, Valu
   return true;
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(SavedBackboneEdgeBundle) == 104, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_row_key(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "node_id", value.node_id) && archive.field(prefix, "source_is_open", value.source_is_open) && archive.field(prefix, "source_edge_a", value.source_edge_a) &&
          archive.field(prefix, "source_edge_b", value.source_edge_b);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(SavedBackboneRowKey) == 32, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_saved_port_binding(Archive& archive, const std::string& prefix, Value& value) {
@@ -478,10 +542,18 @@ bool archive_saved_port_binding(Archive& archive, const std::string& prefix, Val
          archive.field(prefix, "port_id", value.port_id);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(SavedBackbonePortBinding) == 80, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_saved_span_binding(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) && archive.field(prefix, "lane_index", value.lane_index) && archive.field(prefix, "span_id", value.span_id);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(SavedBackboneSpanBinding) == 24, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename T, typename Id, typename Write>
 void write_id_vector(StateWriter& writer, const std::string& prefix, const std::vector<T>& values, Id id, Write write) {
@@ -555,12 +627,20 @@ bool archive_port_band(Archive& archive, const std::string& prefix, Value& value
          archive.field(prefix, "overflow_policy", value.overflow_policy) && archive.field(prefix, "enabled", value.enabled);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(PortPlacementBand) == 184, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_anchor_slot(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "slot_id", value.slot_id) && archive.field(prefix, "usage", value.usage) &&
          archive_vec3(archive, child(prefix, "local_position"), value.local_position) &&
          archive.field(prefix, "priority", value.priority) && archive.field(prefix, "enabled", value.enabled);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(AnchorSlotTemplate) == 40, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value) {
@@ -581,6 +661,10 @@ bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value
   return true;
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(PoleTypeDefinition) == 160, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_supplemental_path(Archive& ar, const std::string& p, Value& v) {
   return ar.field(p, "anchor_mode", v.anchor_mode) && ar.field(p, "profile_kind", v.profile_kind) &&
@@ -591,6 +675,10 @@ bool archive_supplemental_path(Archive& ar, const std::string& p, Value& v) {
          ar.field(p, "endpoint_envelope_ratio", v.endpoint_envelope_ratio) && ar.field(p, "coil_radius_m", v.coil_radius_m) &&
          ar.field(p, "coil_turns_per_meter", v.coil_turns_per_meter) && ar.field(p, "coil_samples_per_turn", v.coil_samples_per_turn);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(CableSupplementalPathTemplate) == 88, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
@@ -613,6 +701,10 @@ bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
   return ar.field(p, "version", v.version);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(CableTemplate) == 168, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_reserve(Archive& ar, const std::string& p, Value& v) {
   return ar.field(p, "reserve_id", v.reserve_id) && ar.field(p, "pole_type_id", v.pole_type_id) &&
@@ -620,6 +712,10 @@ bool archive_reserve(Archive& ar, const std::string& p, Value& v) {
          ar.field(p, "lateral_max_m", v.lateral_max_m) && ar.field(p, "height_min_m", v.height_min_m) &&
          ar.field(p, "height_max_m", v.height_max_m);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(PlacementReserve) == 48, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_population_rule(Archive& ar, const std::string& p, Value& v) {
@@ -640,6 +736,10 @@ bool archive_population_rule(Archive& ar, const std::string& p, Value& v) {
   }
   return true;
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(CablePopulationRule) == 160, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
@@ -669,6 +769,10 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
 }
 
 
+#ifdef _MSC_VER
+static_assert(sizeof(BundleTemplate) == 176, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_attachment_socket(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "id", value.id) && archive_vec3(archive, child(prefix, "local_position"), value.local_position) &&
@@ -676,6 +780,10 @@ bool archive_attachment_socket(Archive& archive, const std::string& prefix, Valu
          archive_vec3(archive, child(prefix, "normal_dir"), value.normal_dir) && archive.field(prefix, "has_binormal", value.has_binormal) &&
          archive_vec3(archive, child(prefix, "binormal_dir"), value.binormal_dir) && archive.field(prefix, "kind", value.kind);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(AttachmentSocketTemplate) == 128, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_internal_path(Archive& archive, const std::string& prefix, Value& value) {
@@ -688,6 +796,10 @@ bool archive_internal_path(Archive& archive, const std::string& prefix, Value& v
   }
   return archive.field(prefix, "coil_radius_m", value.coil_radius_m) && archive.field(prefix, "coil_turn_count", value.coil_turn_count) && archive.field(prefix, "coil_samples_per_turn", value.coil_samples_per_turn);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(AttachmentInternalPathTemplate) == 64, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_attachment_template(Archive& archive, const std::string& prefix, Value& value) {
@@ -707,6 +819,10 @@ bool archive_attachment_template(Archive& archive, const std::string& prefix, Va
   }
   return archive.field(prefix, "version", value.version);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(AttachmentTemplate) == 128, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename K, typename V, typename Write>
 void write_map(StateWriter& writer, const std::string& prefix, const std::unordered_map<K, V>& values, Write write) {
@@ -731,12 +847,20 @@ bool archive_pole_orientation_override(Archive& archive, const std::string& pref
          archive.value(child(prefix, "version"), value.version);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(PoleOrientationOverride) == 48, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_span_endpoint_override(Archive& archive, const std::string& prefix, Value& value) {
   return archive.optional(child(prefix, "socket_a_id"), value.socket_a_id) &&
          archive.optional(child(prefix, "socket_b_id"), value.socket_b_id) &&
          archive.value(child(prefix, "version"), value.version);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(SpanEndpointOverride) == 24, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_span_support_override(Archive& archive, const std::string& prefix, Value& value) {
@@ -745,11 +869,19 @@ bool archive_span_support_override(Archive& archive, const std::string& prefix, 
 }
 
 
+#ifdef _MSC_VER
+static_assert(sizeof(SpanSupportOverride) == 24, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_context_profile(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "age", value.age) && archive.field(prefix, "clutter", value.clutter) && archive.field(prefix, "regularity", value.regularity) &&
          archive.field(prefix, "service_mix", value.service_mix) && archive.field(prefix, "style_seed", value.style_seed);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(ContextProfile) == 40, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_layout_settings(Archive& archive, const std::string& prefix, Value& value) {
@@ -757,11 +889,19 @@ bool archive_layout_settings(Archive& archive, const std::string& prefix, Value&
          archive.field(prefix, "min_side_scale", value.min_side_scale) && archive.field(prefix, "max_side_scale", value.max_side_scale);
 }
 
+#ifdef _MSC_VER
+static_assert(sizeof(LayoutSettings) == 32, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename Archive, typename Value>
 bool archive_geometry_settings(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "curve_samples", value.curve_samples) && archive.field(prefix, "sag_enabled", value.sag_enabled) && archive.field(prefix, "sag_factor", value.sag_factor) &&
          archive.field(prefix, "pole_clearance_m", value.pole_clearance_m);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(GeometrySettings) == 24, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_visual_settings(Archive& archive, const std::string& prefix, Value& value) {
@@ -770,6 +910,10 @@ bool archive_visual_settings(Archive& archive, const std::string& prefix, Value&
          archive.field(prefix, "support_arm_radius_m", value.support_arm_radius_m) && archive.field(prefix, "insulator_radius_m", value.insulator_radius_m) &&
          archive.field(prefix, "insulator_length_m", value.insulator_length_m);
 }
+
+#ifdef _MSC_VER
+static_assert(sizeof(VisualSettings) == 48, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename Archive, typename Value>
 bool archive_variation_settings(Archive& archive, const std::string& prefix, Value& value) {
@@ -810,6 +954,10 @@ public:
 private:
   StateWriter& fields_;
 };
+
+#ifdef _MSC_VER
+static_assert(sizeof(VariationSettings) == 72, "field added: update archive visitor and full-fat persistence fixture");
+#endif
 
 template <typename FieldArchive>
 void write_authoritative_as(StateWriter& writer, const CoreStateAuthoritativeStorage& authoritative) {

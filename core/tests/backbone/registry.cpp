@@ -773,7 +773,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone edge bodies stop at node patch boundaries", "Boundary", false,
                          C636_backbone_edge_body_stops_at_node_patch_boundaries);
   test_registry::AddTest(tests, "C637_backbone_node_patch_edge_body_boundary_tangents_are_g1",
-                         "backbone node patch and edge body boundary tangents are G1-compatible", "Boundary", false,
+                         "backbone edge bodies preserve the formal sag curve up to G1 node-patch boundaries", "Boundary", false,
                          C637_backbone_node_patch_edge_body_boundary_tangents_are_g1);
   test_registry::AddTest(tests, "C638_backbone_visual_curve_parts_are_finite",
                          "backbone visual curve part samples are finite", "Boundary", false,

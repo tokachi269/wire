@@ -553,6 +553,27 @@ bool boundary_matches_source_curve(const wire::core::CoreState& state,
          tangent_compatible(body_tangent, expected_tangent);
 }
 
+bool body_samples_follow_source_curve(const wire::core::CoreState& state,
+                                      const wire::core::VisualCurvePart& body) {
+  if (!body.has_section_key || !body.section_key.is_base() || body.samples.size() < 2) return false;
+  const wire::core::CurveCacheEntry* source = state.find_curve_cache(body.source_span_id);
+  if (source == nullptr) return false;
+  const wire::core::DetailCurve& curve = source->detail;
+  const wire::core::Vec3d start = curve.EvaluatePosition(0.0);
+  const wire::core::Vec3d end = curve.EvaluatePosition(1.0);
+  const double dx = end.x - start.x;
+  const double dy = end.y - start.y;
+  const double horizontal_length2 = dx * dx + dy * dy;
+  if (horizontal_length2 <= 1e-12) return false;
+  for (const wire::core::Vec3d& sample : body.samples) {
+    const double u = std::clamp(((sample.x - start.x) * dx + (sample.y - start.y) * dy) /
+                                    horizontal_length2,
+                                0.0, 1.0);
+    if (!almost_equal(sample, curve.EvaluatePosition(u), 1e-7)) return false;
+  }
+  return true;
+}
+
 double sampled_curve_length(const wire::core::VisualCurvePart& part) {
   double length = 0.0;
   for (std::size_t i = 1; i < part.samples.size(); ++i) {
@@ -842,6 +863,8 @@ bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
     bool b_ok = false;
     bool a_source_ok = false;
     bool b_source_ok = false;
+    bool a_shape_ok = false;
+    bool b_shape_ok = false;
     for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
       if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody) {
         continue;
@@ -849,21 +872,25 @@ bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
       if (almost_equal(body.boundary_a, patch.boundary_a, 1e-9)) {
         a_ok = a_ok || sampled_boundary_is_g1(body, patch, patch.boundary_a);
         a_source_ok = a_source_ok || boundary_matches_source_curve(state, body, patch.boundary_a);
+        a_shape_ok = a_shape_ok || body_samples_follow_source_curve(state, body);
       }
       if (almost_equal(body.boundary_b, patch.boundary_a, 1e-9)) {
         a_ok = a_ok || sampled_boundary_is_g1(body, patch, patch.boundary_a);
         a_source_ok = a_source_ok || boundary_matches_source_curve(state, body, patch.boundary_a);
+        a_shape_ok = a_shape_ok || body_samples_follow_source_curve(state, body);
       }
       if (almost_equal(body.boundary_a, patch.boundary_b, 1e-9)) {
         b_ok = b_ok || sampled_boundary_is_g1(body, patch, patch.boundary_b);
         b_source_ok = b_source_ok || boundary_matches_source_curve(state, body, patch.boundary_b);
+        b_shape_ok = b_shape_ok || body_samples_follow_source_curve(state, body);
       }
       if (almost_equal(body.boundary_b, patch.boundary_b, 1e-9)) {
         b_ok = b_ok || sampled_boundary_is_g1(body, patch, patch.boundary_b);
         b_source_ok = b_source_ok || boundary_matches_source_curve(state, body, patch.boundary_b);
+        b_shape_ok = b_shape_ok || body_samples_follow_source_curve(state, body);
       }
     }
-    return a_ok && b_ok && a_source_ok && b_source_ok;
+    return a_ok && b_ok && a_source_ok && b_source_ok && a_shape_ok && b_shape_ok;
   }
   return false;
 }

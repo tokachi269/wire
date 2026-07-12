@@ -65,6 +65,7 @@ struct curve_boundary {
   bool is_start = true;
   Vec3d attachment_point{};
   double horizontal_length_m = 0.0;
+  double source_u = 0.0;
   Vec3d point{};
   Vec3d tangent{};
 };
@@ -86,6 +87,7 @@ struct visual_cable_section {
   ObjectId end_jumper_peer_port_id = kInvalidObjectId;
   SavedBackboneRowKey start_row_key{};
   SavedBackboneRowKey end_row_key{};
+  std::size_t source_curve_index = std::numeric_limits<std::size_t>::max();
 };
 
 bool same_cable_section(const CableSectionKey& a, const CableSectionKey& b) {
@@ -368,12 +370,35 @@ curve_boundary boundary_from_source_curve(const curve_endpoint_ref& endpoint,
     }
   }
   const double u = (low + high) * 0.5;
+  boundary.source_u = u;
   boundary.point = curve.EvaluatePosition(u);
   boundary.tangent = curve.EvaluateTangent(u);
   if (!endpoint.is_start) {
     boundary.tangent = ScaleVec(boundary.tangent, -1.0);
   }
   return boundary;
+}
+
+std::vector<Vec3d> trimmed_source_curve_samples(const DetailCurve& curve, double start_u, double end_u) {
+  std::vector<Vec3d> samples{};
+  start_u = std::clamp(start_u, 0.0, 1.0);
+  end_u = std::clamp(end_u, start_u, 1.0);
+  samples.reserve(curve.sample_points.size() + 2);
+  samples.push_back(curve.EvaluatePosition(start_u));
+  if (curve.sample_points.size() >= 2) {
+    const double denominator = static_cast<double>(curve.sample_points.size() - 1);
+    for (std::size_t index = 1; index + 1 < curve.sample_points.size(); ++index) {
+      const double u = static_cast<double>(index) / denominator;
+      if (u > start_u + kCurveEps && u < end_u - kCurveEps) {
+        samples.push_back(curve.sample_points[index]);
+      }
+    }
+  }
+  const Vec3d end = curve.EvaluatePosition(end_u);
+  if (samples.empty() || Length(end - samples.back()) > kCurveEps) {
+    samples.push_back(end);
+  }
+  return samples;
 }
 
 ObjectId saved_node_id_for_endpoint(const CoreState& state, ObjectId endpoint_node_id) {
@@ -756,7 +781,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   source_curves.reserve(sections.size());
   const Vec3d fallback_dir{1.0, 0.0, 0.0};
 
-  for (const visual_cable_section& section : sections) {
+  for (visual_cable_section& section : sections) {
     const CableSectionLayout& entry = section.layout;
     const Span* span = state.view().spans().find(entry.key.logical_span_id);
     const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.key.logical_span_id);
@@ -798,6 +823,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const std::size_t source_curve_index = source_curves.size();
     if (has_curve_tangent) {
       source_curves.push_back(std::move(source_curve));
+      section.source_curve_index = source_curve_index;
     }
     const Vec3d start_away =
         has_curve_tangent ? source_curves[source_curve_index].start_constraint.tangent_dir
@@ -931,8 +957,6 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
 
   const std::vector<cable_run_assignment> cable_runs = derive_cable_run_ids(sections, patch_specs);
 
-  // Base final curves are retained for later node-patch construction.
-  std::unordered_map<ObjectId, DetailCurve> base_final_curves{};
   for (const visual_cable_section& section : sections) {
     const CableSectionLayout& entry = section.layout;
     const Span* span = state.view().spans().find(entry.key.logical_span_id);
@@ -953,20 +977,19 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const bool has_end_patch = boundary_for(boundaries, boundary_index, entry.key, false, &end_boundary);
     const Vec3d start = has_start_patch ? start_boundary.point : entry.endpoint_a;
     const Vec3d end = has_end_patch ? end_boundary.point : entry.endpoint_b;
-    const Vec3d end_boundary_param_tangent = ScaleVec(end_boundary.tangent, -1.0);
-    const EditResult<DetailCurve> curve =
-        make_curve_between_with_tangent_hints(state, entry.key.logical_span_id, start, end,
-                                              has_start_patch ? &start_boundary.tangent : nullptr,
-                                              has_end_patch ? &end_boundary_param_tangent : nullptr);
     ++out.stats.curve_builds;
-    if (!curve.ok || curve.value.sample_points.size() < 2) {
+    if (section.source_curve_index >= source_curves.size()) {
       continue;
     }
-    if (entry.key.is_base()) {
-      base_final_curves[entry.key.logical_span_id] = curve.value;
+    const DetailCurve& source_curve = source_curves[section.source_curve_index];
+    const double start_u = has_start_patch ? start_boundary.source_u : 0.0;
+    const double end_u = has_end_patch ? end_boundary.source_u : 1.0;
+    std::vector<Vec3d> body_samples = trimmed_source_curve_samples(source_curve, start_u, end_u);
+    if (body_samples.size() < 2) {
+      continue;
     }
-    const Vec3d start_param_tangent = curve.value.start_constraint.tangent_dir;
-    const Vec3d end_param_tangent = curve.value.end_constraint.tangent_dir;
+    const Vec3d start_param_tangent = source_curve.EvaluateTangent(start_u);
+    const Vec3d end_param_tangent = source_curve.EvaluateTangent(end_u);
     const Vec3d start_outward_tangent = start_param_tangent;
     const Vec3d end_outward_tangent = ScaleVec(end_param_tangent, -1.0);
     if (curve_boundary* boundary = mutable_boundary_for(&boundaries, boundary_index, entry.key, true);
@@ -997,9 +1020,9 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     body.tangent_a = start_outward_tangent;
     body.tangent_b = end_outward_tangent;
     body.sag_method = VisualCurveSagMethod::kParabolic;
-    body.sag_m = curve.value.sag_amplitude_m;
+    body.sag_m = source_curve.sag_amplitude_m;
     copy_span_appearance(state, entry.key.logical_span_id, &body);
-    body.samples = curve.value.sample_points;
+    body.samples = std::move(body_samples);
     body.bounds = curve_part_bounds(body.samples);
     if (!body.samples.empty() && finite_point(body.samples.front()) && finite_point(body.samples.back())) {
       if (const SpanRuntimeState* runtime =

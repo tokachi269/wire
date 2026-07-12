@@ -728,6 +728,24 @@ bool C634_backbone_terminal_nodes_create_no_node_patch_curve() {
              out.value.generated_span_ids.size();
 }
 
+bool C760_backbone_terminal_edge_body_ends_at_port() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) return false;
+  std::size_t terminal_bodies = 0;
+  for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
+    if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_section_key ||
+        !body.section_key.is_base()) continue;
+    const wire::core::Span* span = state.view().spans().find(body.source_span_id);
+    const wire::core::Port* port_a = span == nullptr ? nullptr : state.view().ports().find(span->port_a_id);
+    const wire::core::Port* port_b = span == nullptr ? nullptr : state.view().ports().find(span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr || !almost_equal(body.boundary_a, port_a->world_position, 1e-9) ||
+        !almost_equal(body.boundary_b, port_b->world_position, 1e-9)) return false;
+    ++terminal_bodies;
+  }
+  return terminal_bodies == out.value.generated_span_ids.size();
+}
+
 bool C635_backbone_simple_continuous_node_creates_node_patch_curve() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));

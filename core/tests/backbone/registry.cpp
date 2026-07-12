@@ -760,6 +760,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C634_backbone_terminal_nodes_create_no_node_patch_curve",
                          "terminal backbone nodes do not create node patch curves", "Boundary", false,
                          C634_backbone_terminal_nodes_create_no_node_patch_curve);
+  test_registry::AddTest(tests, "C760_backbone_terminal_edge_body_ends_at_port",
+                         "terminal edge body reaches its resolved port endpoints", "Invariant", false,
+                         C760_backbone_terminal_edge_body_ends_at_port);
   test_registry::AddTest(tests, "C635_backbone_simple_continuous_node_creates_node_patch_curve",
                          "simple continuous backbone nodes create one local node patch curve", "Boundary", false,
                          C635_backbone_simple_continuous_node_creates_node_patch_curve);

@@ -931,8 +931,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
 
   const std::vector<cable_run_assignment> cable_runs = derive_cable_run_ids(sections, patch_specs);
 
-  // Base bodies land before population extras in `sections`, so a wrap section can always read
-  // its carrier's final (boundary-trimmed) curve from this map.
+  // Base final curves are retained for later node-patch construction.
   std::unordered_map<ObjectId, DetailCurve> base_final_curves{};
   for (const visual_cable_section& section : sections) {
     const CableSectionLayout& entry = section.layout;

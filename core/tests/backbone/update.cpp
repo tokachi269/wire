@@ -2426,13 +2426,38 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
       state.view().backbone().edges.size() != saved_edges_before) return false;
   std::size_t support_count = 0;
   std::size_t helix_count = 0;
+  std::size_t member_count = 0;
+  bool support_is_curved = true;
+  bool helix_is_trimmed = true;
+  bool members_below_support = true;
+  std::unordered_map<wire::core::ObjectId, const wire::core::VisualCurvePart*> supports{};
   for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
-    if (part.kind != wire::core::VisualCurvePartKind::kSupplemental) continue;
-    support_count += part.supplemental_kind == wire::core::VisualSupplementalKind::kSupportPath;
-    helix_count += part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix;
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.has_section_key) {
+      ++member_count;
+    } else if (part.kind == wire::core::VisualCurvePartKind::kSupplemental) {
+      if (part.supplemental_kind == wire::core::VisualSupplementalKind::kSupportPath) {
+        ++support_count;
+        supports.emplace(part.source_span_id, &part);
+        support_is_curved = support_is_curved && part.samples.size() > 2;
+      } else if (part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix) {
+        ++helix_count;
+        const auto support = supports.find(part.source_span_id);
+        helix_is_trimmed = helix_is_trimmed && support != supports.end() && part.samples.size() >= 2 &&
+            !same_vec3(part.boundary_a, support->second->boundary_a) &&
+            !same_vec3(part.boundary_b, support->second->boundary_b);
+      }
+    }
+  }
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kEdgeBody || !part.has_section_key || part.samples.empty()) continue;
+    const auto support = supports.find(part.section_key.logical_span_id);
+    if (support == supports.end() || support->second->samples.empty()) return false;
+    members_below_support = members_below_support &&
+        part.samples[part.samples.size() / 2].z < support->second->samples[support->second->samples.size() / 2].z;
   }
   return support_count == generated.value.generated_span_ids.size() &&
-         helix_count == generated.value.generated_span_ids.size();
+         helix_count == generated.value.generated_span_ids.size() && support_is_curved && helix_is_trimmed &&
+         members_below_support && state.view().visual_curve_parts().stats.curve_builds == member_count + support_count;
 }
 
 } // namespace backbone_tests

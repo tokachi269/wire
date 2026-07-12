@@ -177,7 +177,11 @@ void apply_member_twist(const SpanVisualAssemblyTemplate& settings, std::vector<
           ScaleVec(rotated - original[member_index][index], envelope);
     }
   }
-  for (VisualCurvePart* member : members) member->bounds = bounds_for(member->samples);
+  for (VisualCurvePart* member : members) {
+    member->boundary_a = member->samples.front();
+    member->boundary_b = member->samples.back();
+    member->bounds = bounds_for(member->samples);
+  }
 }
 
 void contain_members(const CoreState& state, const VisualCurvePart& support, const SpanVisualAssemblyTemplate& settings,
@@ -226,6 +230,8 @@ void contain_members(const CoreState& state, const VisualCurvePart& support, con
       const Vec3d contained = axis + radial;
       member->samples[index] = original[index] + ScaleVec(contained - original[index], envelope);
     }
+    member->boundary_a = member->samples.front();
+    member->boundary_b = member->samples.back();
     member->bounds = bounds_for(member->samples);
   }
 }

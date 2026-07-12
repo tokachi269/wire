@@ -2536,13 +2536,23 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   wire::core::BundleTemplate untwisted = fresh.view().bundle_templates().at(id);
   untwisted.span_visual_assembly.member_twist_turns_per_meter = 0.0;
   const auto untwisted_update = fresh.UpdateBundleTemplate(untwisted);
+  wire::core::CoreState twist_without_helix = fresh;
+  wire::core::BundleTemplate no_helix = twist_without_helix.view().bundle_templates().at(id);
+  no_helix.span_visual_assembly.helix_enabled = false;
+  const auto no_helix_update = twist_without_helix.UpdateBundleTemplate(no_helix);
+  const wire::core::VisualCurvePartCache no_helix_before = twist_without_helix.view().visual_curve_parts();
+  no_helix.span_visual_assembly.member_twist_turns_per_meter = 0.2;
+  const auto twist_without_helix_update = twist_without_helix.UpdateBundleTemplate(no_helix);
   return support_count == generated.value.generated_span_ids.size() &&
          helix_count == generated.value.generated_span_ids.size() && support_is_curved && helix_is_trimmed &&
          members_below_support && member_count >= generated.value.generated_span_ids.size() * 2 &&
          state.view().visual_curve_parts().stats.curve_builds == member_count + support_count &&
          matches_fresh && untwisted_update.ok &&
          fresh.view().last_update_timing().kind == wire::core::UpdateKind::kReshape &&
-         visual_member_samples_differ(state.view().visual_curve_parts(), fresh.view().visual_curve_parts());
+         visual_member_samples_differ(state.view().visual_curve_parts(), fresh.view().visual_curve_parts()) &&
+         no_helix_update.ok && twist_without_helix_update.ok &&
+         twist_without_helix.view().last_update_timing().kind == wire::core::UpdateKind::kReshape &&
+         visual_member_samples_differ(no_helix_before, twist_without_helix.view().visual_curve_parts());
 }
 
 bool C759_span_visual_assembly_has_one_geometry_owner() {

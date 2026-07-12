@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ViewerActions } from "../src/actions/viewer";
 import { WireBridge } from "../src/bridge/wire";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
-import { WorkspaceCache } from "../src/workspaceCache";
+import { WorkspaceCache } from "../src/store/workspace";
 
 describe("workspace persistence", () => {
   it("restores authoritative core state and viewer settings in a new instance", async () => {

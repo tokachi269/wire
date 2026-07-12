@@ -4,7 +4,7 @@ import { ViewerActions } from "./actions/viewer";
 import { WireBridge } from "./bridge/wire";
 import { WireScene } from "./render/scene";
 import { ViewerStore } from "./store/viewer";
-import { WorkspaceCache } from "./workspaceCache";
+import { WorkspaceCache } from "./store/workspace";
 import "./style.css";
 
 const target = document.getElementById("app");

@@ -3,7 +3,7 @@ import type {
   SelectionKind,
   ViewerSnapshot,
   WorldPoint
-} from "./store/viewer";
+} from "./viewer";
 
 const WORKSPACE_CACHE_KEY = "wire.workspace.v1";
 const WORKSPACE_VERSION = 1;

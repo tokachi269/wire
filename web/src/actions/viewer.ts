@@ -18,8 +18,8 @@ import type {
   WorldPoint
 } from "../store/viewer";
 import { createViewerSnapshot } from "../store/viewer";
-import type { WorkspacePreferences } from "../workspaceCache";
-import { WorkspaceCache } from "../workspaceCache";
+import type { WorkspacePreferences } from "../store/workspace";
+import { WorkspaceCache } from "../store/workspace";
 
 const JAPAN_DISTRIBUTION_PRIMITIVE = {
   poleVisibleHeightM: 10.0,

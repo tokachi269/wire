@@ -8,7 +8,7 @@ import type {
   PoleTemplateInfo
 } from "../src/model";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
-import { WorkspaceCache } from "../src/workspaceCache";
+import { WorkspaceCache } from "../src/store/workspace";
 
 function current(store: ViewerStore): ViewerSnapshot {
   let snapshot: ViewerSnapshot | undefined;

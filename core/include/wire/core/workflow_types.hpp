@@ -88,7 +88,6 @@ struct CableSupplementalPathTemplate {
   enum class ProfileKind : std::uint8_t {
     kNone = 0,
     kStraightCable = 1,
-    kCoiledCable = 2,
   };
 
   AnchorMode anchor_mode = AnchorMode::kCurveOffset;
@@ -102,9 +101,6 @@ struct CableSupplementalPathTemplate {
   double wobble_wavelength_m = 0.0;
   double wobble_phase_bias = 0.0;
   double endpoint_envelope_ratio = 0.0;
-  double coil_radius_m = 0.0;
-  double coil_turns_per_meter = 0.0;
-  int coil_samples_per_turn = 12;
 };
 
 enum class BundleCountRuleKind : std::uint8_t {

@@ -672,12 +672,11 @@ bool archive_supplemental_path(Archive& ar, const std::string& p, Value& v) {
          ar.field(p, "endpoint_trim_m", v.endpoint_trim_m) && ar.field(p, "lateral_offset_m", v.lateral_offset_m) &&
          ar.field(p, "vertical_offset_m", v.vertical_offset_m) && ar.field(p, "wobble_amplitude_m", v.wobble_amplitude_m) &&
          ar.field(p, "wobble_wavelength_m", v.wobble_wavelength_m) && ar.field(p, "wobble_phase_bias", v.wobble_phase_bias) &&
-         ar.field(p, "endpoint_envelope_ratio", v.endpoint_envelope_ratio) && ar.field(p, "coil_radius_m", v.coil_radius_m) &&
-         ar.field(p, "coil_turns_per_meter", v.coil_turns_per_meter) && ar.field(p, "coil_samples_per_turn", v.coil_samples_per_turn);
+         ar.field(p, "endpoint_envelope_ratio", v.endpoint_envelope_ratio);
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(CableSupplementalPathTemplate) == 88, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(CableSupplementalPathTemplate) == 64, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -724,10 +723,7 @@ bool archive_population_rule(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "max_extra_count", v.max_extra_count) || !ar.field(p, "min_spacing_m", v.min_spacing_m) ||
       !ar.field(p, "lateral_min_m", v.lateral_min_m) || !ar.field(p, "lateral_max_m", v.lateral_max_m) ||
       !ar.field(p, "height_min_m", v.height_min_m) || !ar.field(p, "height_max_m", v.height_max_m) ||
-      !ar.field(p, "randomness", v.randomness) || !ar.field(p, "profile", v.profile) ||
-      !ar.field(p, "wrap_radius_m", v.wrap_radius_m) || !ar.field(p, "wrap_turns_per_meter", v.wrap_turns_per_meter) ||
-      !ar.field(p, "wrap_phase", v.wrap_phase) || !ar.field(p, "wrap_direction", v.wrap_direction) ||
-      !ar.field(p, "end_trim_m", v.end_trim_m)) return false;
+      !ar.field(p, "randomness", v.randomness)) return false;
   std::size_t count = v.reserves.size();
   if (!ar.count(child(p, "reserves.count"), count)) return false;
   if constexpr (Archive::loading) v.reserves.resize(count);
@@ -738,7 +734,7 @@ bool archive_population_rule(Archive& ar, const std::string& p, Value& v) {
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(CablePopulationRule) == 160, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(CablePopulationRule) == 112, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

@@ -659,20 +659,6 @@ ValidationResult CoreState::Validate() const {
                             "Supplemental wobble requires positive wavelength when amplitude is non-zero",
                             kInvalidObjectId});
       }
-      if (supplemental.profile_kind == CableSupplementalPathTemplate::ProfileKind::kCoiledCable) {
-        if (!std::isfinite(supplemental.coil_radius_m) || supplemental.coil_radius_m <= 1e-6 ||
-            !std::isfinite(supplemental.coil_turns_per_meter) || supplemental.coil_turns_per_meter <= 1e-6 ||
-            supplemental.coil_samples_per_turn < 4) {
-          result.issues.emplace_back(
-              ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalCoilInvalid",
-                              "Coiled cable supplemental path requires finite positive radius, positive turns-per-meter, and samples-per-turn >= 4",
-                              kInvalidObjectId});
-        }
-      } else if (std::abs(supplemental.coil_radius_m) > 1e-12 || std::abs(supplemental.coil_turns_per_meter) > 1e-12) {
-        result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalCoilParamsUnused",
-                                                   "Only CoiledCable supplemental paths may set coil parameters",
-                                                   kInvalidObjectId});
-      }
     }
   }
 

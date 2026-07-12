@@ -17,7 +17,6 @@ add_library(
   src/generation/backbone/out.cpp
   src/generation/backbone/population.cpp
   src/generation/backbone/regenerate.cpp
-  src/generation/backbone/section_behavior.cpp
   src/generation/backbone/pipeline.cpp
   src/generation/generate_from_backbone.cpp
   src/state/backbone.cpp

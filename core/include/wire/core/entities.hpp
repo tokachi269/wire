@@ -155,14 +155,6 @@ struct PlacementReserve {
   double height_max_m = 0.0;
 };
 
-// kFree hangs on its own endpoints and sag. kWrap follows the same span's base cable as its
-// carrier and has no independent sag or band placement; the carrier is declared by the rule,
-// never searched from geometry.
-enum class CableSectionProfile : std::uint8_t {
-  kFree = 0,
-  kWrap = 1,
-};
-
 struct CablePopulationRule {
   CableSectionRuleId rule_id = 0;
   std::uint64_t explicit_seed = 1;
@@ -175,12 +167,6 @@ struct CablePopulationRule {
   double height_min_m = 0.0;
   double height_max_m = 20.0;
   double randomness = 0.25;
-  CableSectionProfile profile = CableSectionProfile::kFree;
-  double wrap_radius_m = 0.0;
-  double wrap_turns_per_meter = 0.0;
-  double wrap_phase = 0.0;
-  int wrap_direction = 1;
-  double end_trim_m = 0.0;
   std::vector<PlacementReserve> reserves{};
 };
 

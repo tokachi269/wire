@@ -221,8 +221,7 @@ wire::core::AttachmentTemplateId replace_attachment_template_id(const wire::core
   return wire::core::kInvalidAttachmentTemplateId;
 }
 
-wire::core::CablePopulationRule population_rule(std::uint64_t id,
-                                                wire::core::CableSectionProfile profile) {
+wire::core::CablePopulationRule population_rule(std::uint64_t id) {
   wire::core::CablePopulationRule rule{};
   rule.rule_id = id;
   rule.explicit_seed = 100 + id;
@@ -235,14 +234,6 @@ wire::core::CablePopulationRule population_rule(std::uint64_t id,
   rule.height_min_m = 4.0;
   rule.height_max_m = 9.0;
   rule.randomness = 0.25;
-  rule.profile = profile;
-  if (profile == wire::core::CableSectionProfile::kWrap) {
-    rule.wrap_radius_m = 0.05;
-    rule.wrap_turns_per_meter = 1.25;
-    rule.wrap_phase = 0.2;
-    rule.wrap_direction = -1;
-    rule.end_trim_m = 0.4;
-  }
   return rule;
 }
 
@@ -250,12 +241,6 @@ bool full_fat_fixture_is_non_default(const wire::core::CoreState& state) {
   const auto& view = state.view();
   const auto lv_it = view.bundle_templates().find(wire::core::kDefaultLowVoltageBundleTemplateId);
   if (lv_it == view.bundle_templates().end() || lv_it->second.population_rules.size() < 2) return false;
-  bool has_free = false;
-  bool has_wrap = false;
-  for (const auto& rule : lv_it->second.population_rules) {
-    has_free = has_free || rule.profile == wire::core::CableSectionProfile::kFree;
-    has_wrap = has_wrap || rule.profile == wire::core::CableSectionProfile::kWrap;
-  }
   const auto comm_it = view.bundle_templates().find(
       wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
   const auto& overrides = wire::core::CoreStateTestHook::override_state(
@@ -270,7 +255,7 @@ bool full_fat_fixture_is_non_default(const wire::core::CoreState& state) {
       [](const wire::core::SavedBackboneEdge& edge) { return edge.lateral_offset_m == 0.35; });
   const bool has_route_echo = std::any_of(view.backbone().edges.begin(), view.backbone().edges.end(),
       [](const wire::core::SavedBackboneEdge& edge) { return edge.route != 0 || edge.order != 0; });
-  return has_free && has_wrap && comm_it != view.bundle_templates().end() &&
+  return comm_it != view.bundle_templates().end() &&
          comm_it->second.count_rule == wire::core::BundleCountRuleKind::kRange &&
          view.context_profile().style_seed == 4242 && !view.layout_settings().angle_correction_enabled &&
          view.variation_settings().enabled && !overrides.pole_orientation_by_pole.empty() &&
@@ -326,9 +311,7 @@ bool make_roundtrip_source(wire::core::CoreState* state, std::string* saved, Der
 
   wire::core::BundleTemplate lv = state->view().bundle_templates().at(
       wire::core::kDefaultLowVoltageBundleTemplateId);
-  lv.population_rules = {
-      population_rule(31, wire::core::CableSectionProfile::kFree),
-      population_rule(32, wire::core::CableSectionProfile::kWrap)};
+  lv.population_rules = {population_rule(31), population_rule(32)};
   if (!state->UpdateBundleTemplate(lv).ok) return false;
   wire::core::CableTemplate cable = state->view().cable_templates().at(lv.cable_template_id);
   cable.default_endpoint_attachment_template_id = attachment_template_id;

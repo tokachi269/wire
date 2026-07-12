@@ -290,8 +290,6 @@ bool C653_population_rejects_duplicate_band_identity();
 bool C654_population_does_not_mutate_logical_topology();
 bool C686_population_rule_on_bundle_template_adds_visual_only_sections();
 bool C687_population_rule_update_is_reshape_not_regenerate();
-bool C689_wrap_rule_derives_carried_helix_without_topology();
-bool C690_wrap_sections_do_not_join_node_patches();
 bool C730_same_kind_bundle_templates_can_coexist();
 bool C731_backbone_spec_references_duplicate_kind_templates();
 bool C732_population_rule_owner_is_bundle_template_id();
@@ -347,7 +345,6 @@ bool C741_scoped_visual_curve_rebuild_matches_full_rebuild();
 bool C742_backbone_bundle_count_decrease_allows_metadata_change();
 bool C743_backbone_bundle_template_change_classification_has_one_field_owner();
 bool C744_backbone_span_layout_group_keys_have_one_definition();
-bool C745_wrap_behavior_has_one_production_owner();
 bool C746_backbone_generation_trial_copy_stays_under_cost_gate();
 bool C747_backbone_range_count_policy_validates_without_regenerate();
 bool C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation();
@@ -370,5 +367,6 @@ bool C675_backbone_layout_yaw_does_not_read_debug_records();
 bool C676_backbone_noop_move_preserves_port_positions_exactly();
 bool C677_backbone_corner_scale_has_one_definition();
 bool C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies();
+bool C745_legacy_wrap_family_is_absent();
 
 } // namespace backbone_tests

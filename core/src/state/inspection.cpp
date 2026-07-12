@@ -803,8 +803,6 @@ std::optional<TemplateInspectionView> CoreView::inspect_cable_template(CableTemp
       return "None";
     case CableSupplementalPathTemplate::ProfileKind::kStraightCable:
       return "StraightCable";
-    case CableSupplementalPathTemplate::ProfileKind::kCoiledCable:
-      return "CoiledCable";
     default:
       return "Unknown";
     }

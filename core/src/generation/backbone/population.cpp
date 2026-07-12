@@ -1,5 +1,4 @@
 #include "population.hpp"
-#include "section_behavior.hpp"
 
 #include "wire/core/core_view.hpp"
 #include "../../state/port_placement.hpp"
@@ -207,14 +206,6 @@ EditResult<CablePopulationOutput> populate_cable_sections(const CablePopulationI
   diagnostic.rule_id = input.key.rule_id;
   diagnostic.extra_count_requested = requested_count(input);
 
-  out.value.sections = make_behavior_sections(input, diagnostic.extra_count_requested);
-  if (input.rule.profile != CableSectionProfile::kFree) {
-    diagnostic.extra_count_accepted = static_cast<int>(out.value.sections.size());
-    diagnostic.reason = "ok";
-    out.ok = true;
-    return out;
-  }
-
   if (!input.endpoint_a.valid || !input.endpoint_b.valid) {
     diagnostic.omitted_count = diagnostic.extra_count_requested;
     diagnostic.reason = !input.endpoint_a.valid ? input.endpoint_a.failure_reason : input.endpoint_b.failure_reason;
@@ -320,7 +311,7 @@ CablePopulation make_cable_population(
       }
       output.diagnostics.push_back(populated.value.diagnostic);
       output.sections.insert(output.sections.end(), populated.value.sections.begin(), populated.value.sections.end());
-      if (!populated.value.sections.empty() && participates_in_node_patch(populated.value.sections.front())) {
+      if (!populated.value.sections.empty()) {
         for (const CableSectionLayout& section : populated.value.sections) {
           occupied_a.push_back(WorldPointToLocal(input.endpoint_a.frame,
                                                 section.endpoint_a - input.endpoint_a.endpoint_offset_world));

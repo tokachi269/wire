@@ -132,14 +132,6 @@ struct CableSectionLayout {
   PoleTypeId endpoint_b_pole_type_id = kInvalidPoleTypeId;
   int endpoint_a_band_id = 0;
   int endpoint_b_band_id = 0;
-  // Section behavior. Wrap sections derive their centerline from the same span's base cable
-  // (the carrier) and never join node patches; end_trim_m keeps them clear of the supports.
-  CableSectionProfile profile = CableSectionProfile::kFree;
-  double wrap_radius_m = 0.0;
-  double wrap_turns_per_meter = 0.0;
-  double wrap_phase = 0.0;
-  int wrap_direction = 1;
-  double end_trim_m = 0.0;
 };
 
 struct CablePopulationDiagnostic {

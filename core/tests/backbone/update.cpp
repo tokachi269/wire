@@ -2221,23 +2221,6 @@ bool C744_backbone_span_layout_group_keys_have_one_definition() {
          contains_text(derive, "derive_span_layout(");
 }
 
-bool C745_wrap_behavior_has_one_production_owner() {
-  const std::vector<std::filesystem::path> forbidden = {
-      repo_root() / "core/src/generation/backbone/population.cpp",
-      repo_root() / "core/src/generation/backbone/curve_parts.cpp",
-      repo_root() / "core/src/state/template/update.cpp",
-  };
-  for (const std::filesystem::path& path : forbidden) {
-    std::string source{};
-    if (!file_text(path, &source) || contains_text(source, "kWrap")) {
-      return false;
-    }
-  }
-  std::string behavior{};
-  return file_text(repo_root() / "core/src/generation/backbone/section_behavior.cpp", &behavior) &&
-         contains_text(behavior, "kWrap") && contains_text(behavior, "build_behavior_curve_part");
-}
-
 bool C746_backbone_generation_trial_copy_stays_under_cost_gate() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = line_req(state);
@@ -2385,6 +2368,41 @@ bool C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation() 
   return !rejected.ok && same_span_output_snapshots(target_before_reject, state) &&
          same_span_output_snapshots(outside_before, state) &&
          state.view().bundle_templates().at(template_id).version == before_version;
+}
+
+bool C745_legacy_wrap_family_is_absent() {
+  const std::vector<std::filesystem::path> sources = {
+      repo_root() / "core/include/wire/core/entities.hpp",
+      repo_root() / "core/include/wire/core/core_runtime_types.hpp",
+      repo_root() / "core/src/generation/backbone/population.cpp",
+      repo_root() / "core/src/generation/backbone/curve_parts.cpp",
+      repo_root() / "core/src/geometry/detail_curve_postprocess.cpp",
+      repo_root() / "core/src/geometry/detail_curve_postprocess.hpp",
+      repo_root() / "core/src/state/template/update.cpp",
+      repo_root() / "core/src/state/template/registry.cpp",
+      repo_root() / "core/src/state/persistence.cpp",
+      repo_root() / "core/src/state/inspection.cpp",
+      repo_root() / "core/src/validation/validator.cpp",
+      repo_root() / "web/wasm/bindings.cpp",
+      repo_root() / "docs/architecture.md",
+      repo_root() / "docs/cable_instance_section.md",
+  };
+  for (const std::filesystem::path& path : sources) {
+    std::string source{};
+    if (!file_text(path, &source) || contains_text(source, "CableSectionProfile") || contains_text(source, "kWrap") ||
+        contains_text(source, "wrap_radius_m") || contains_text(source, "sample_wrap_helix_points")) {
+      return false;
+    }
+  }
+  std::string workflow{};
+  if (!file_text(repo_root() / "core/include/wire/core/workflow_types.hpp", &workflow)) {
+    return false;
+  }
+  const std::size_t supplemental_begin = workflow.find("struct CableSupplementalPathTemplate");
+  const std::size_t supplemental_end = workflow.find("};", supplemental_begin);
+  return supplemental_begin != std::string::npos && supplemental_end != std::string::npos &&
+         workflow.substr(supplemental_begin, supplemental_end - supplemental_begin).find("kCoiledCable") ==
+             std::string::npos;
 }
 
 } // namespace backbone_tests

@@ -356,23 +356,6 @@ void CoreState::register_default_cable_templates() {
   optical.continuity_policy = CableContinuityPolicyHint::kPreferG2;
   optical.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   optical.default_endpoint_attachment_template_id = kInvalidAttachmentTemplateId;
-  {
-    CableSupplementalPathTemplate coil{};
-    coil.anchor_mode = CableSupplementalPathTemplate::AnchorMode::kCurveOffset;
-    coil.profile_kind = CableSupplementalPathTemplate::ProfileKind::kCoiledCable;
-    coil.interaction_mode = AttachmentLineInteractionMode::kAddInternalPath;
-    coil.endpoint_trim_m = 0.45;
-    coil.vertical_offset_m = 0.0;
-    coil.coil_radius_m = 0.025;
-    coil.coil_turns_per_meter = 1.8;
-    coil.coil_samples_per_turn = 16;
-    coil.wobble_amplitude_m = 0.0;
-    coil.wobble_wavelength_m = 0.0;
-    coil.wobble_phase_bias = 0.0;
-    coil.endpoint_envelope_ratio = 0.18;
-    optical.supplemental_paths.push_back(coil);
-
-  }
   authoritative_.cable_templates[optical.id] = optical;
 }
 

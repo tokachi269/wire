@@ -5,7 +5,6 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
-#include "../../generation/backbone/section_behavior.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -234,10 +233,7 @@ bool cable_supplemental_path_equals(const CableSupplementalPathTemplate& a, cons
   return a.anchor_mode == b.anchor_mode && a.profile_kind == b.profile_kind && a.pole_band_id == b.pole_band_id &&
          std::abs(a.endpoint_trim_m - b.endpoint_trim_m) <= 1e-12 &&
          std::abs(a.lateral_offset_m - b.lateral_offset_m) <= 1e-12 &&
-         std::abs(a.vertical_offset_m - b.vertical_offset_m) <= 1e-12 &&
-         std::abs(a.coil_radius_m - b.coil_radius_m) <= 1e-12 &&
-         std::abs(a.coil_turns_per_meter - b.coil_turns_per_meter) <= 1e-12 &&
-         a.coil_samples_per_turn == b.coil_samples_per_turn;
+         std::abs(a.vertical_offset_m - b.vertical_offset_m) <= 1e-12;
 }
 
 bool placement_reserve_equals(const PlacementReserve& a, const PlacementReserve& b) {
@@ -256,11 +252,7 @@ bool population_rule_equals(const CablePopulationRule& a, const CablePopulationR
       std::abs(a.lateral_max_m - b.lateral_max_m) > 1e-12 ||
       std::abs(a.height_min_m - b.height_min_m) > 1e-12 ||
       std::abs(a.height_max_m - b.height_max_m) > 1e-12 ||
-      std::abs(a.randomness - b.randomness) > 1e-12 || a.profile != b.profile ||
-      std::abs(a.wrap_radius_m - b.wrap_radius_m) > 1e-12 ||
-      std::abs(a.wrap_turns_per_meter - b.wrap_turns_per_meter) > 1e-12 ||
-      std::abs(a.wrap_phase - b.wrap_phase) > 1e-12 || a.wrap_direction != b.wrap_direction ||
-      std::abs(a.end_trim_m - b.end_trim_m) > 1e-12 || a.reserves.size() != b.reserves.size()) {
+      std::abs(a.randomness - b.randomness) > 1e-12 || a.reserves.size() != b.reserves.size()) {
     return false;
   }
   for (std::size_t i = 0; i < a.reserves.size(); ++i) {
@@ -371,11 +363,6 @@ bool validate_population_rules(const CoreState& state, const std::vector<CablePo
       *error = "cable population: invalid rule range";
       return false;
     }
-    const std::string behavior_error = generation::backbone::validate_population_rule_behavior(rule);
-    if (!behavior_error.empty()) {
-      *error = behavior_error;
-      return false;
-    }
     std::unordered_set<PlacementReserveId> reserve_ids{};
     for (const PlacementReserve& reserve : rule.reserves) {
       if (reserve.reserve_id == 0 || !reserve_ids.insert(reserve.reserve_id).second ||
@@ -426,9 +413,6 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
   normalized.slack_factor = std::max(0.0, normalized.slack_factor);
   for (auto& path : normalized.supplemental_paths) {
     path.endpoint_trim_m = std::max(0.0, path.endpoint_trim_m);
-    path.coil_radius_m = std::max(0.0, path.coil_radius_m);
-    path.coil_turns_per_meter = std::max(0.0, path.coil_turns_per_meter);
-    path.coil_samples_per_turn = std::max(4, path.coil_samples_per_turn);
   }
   normalized.version = it->second.version;
   bool supplemental_paths_changed = normalized.supplemental_paths.size() != it->second.supplemental_paths.size();

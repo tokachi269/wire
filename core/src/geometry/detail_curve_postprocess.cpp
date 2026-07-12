@@ -243,19 +243,13 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
   }
   const double visible_length_m = end_s - start_s;
   int sample_count = 2;
-  if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kCoiledCable) {
-    sample_count =
-        std::max(16, static_cast<int>(std::ceil(visible_length_m * path.coil_turns_per_meter *
-                                                std::max(4, path.coil_samples_per_turn))));
+  if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
+      path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
+      path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
+    const double sample_step_m = std::max(0.25, path.wobble_wavelength_m / 8.0);
+    sample_count = std::max(8, static_cast<int>(std::ceil(visible_length_m / sample_step_m)));
   } else {
-    if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
-        path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
-        path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
-      const double sample_step_m = std::max(0.25, path.wobble_wavelength_m / 8.0);
-      sample_count = std::max(8, static_cast<int>(std::ceil(visible_length_m / sample_step_m)));
-    } else {
-      sample_count = std::max(2, static_cast<int>(std::ceil(visible_length_m / 1.0)));
-    }
+    sample_count = std::max(2, static_cast<int>(std::ceil(visible_length_m / 1.0)));
   }
 
   const std::uint64_t variation_flow_key = variation_flow_key_for_span(state.view().find_span_runtime_state(span.id), span);
@@ -291,14 +285,7 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
     }
 
     Vec3d point = base + ScaleVec(lateral, path.lateral_offset_m) + ScaleVec(up, path.vertical_offset_m);
-    if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kCoiledCable) {
-      point = point +
-              ScaleVec(lateral, supplemental_wobble_offset_m(path, t, s - start_s, wobble_phase, amplitude_scale,
-                                                             wavelength_scale));
-      const double phase = kTwoPi * path.coil_turns_per_meter * (s - start_s);
-      point = point + ScaleVec(lateral, std::cos(phase) * path.coil_radius_m) +
-              ScaleVec(up, std::sin(phase) * path.coil_radius_m);
-    } else if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
+    if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
                path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
                path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
       point = point +
@@ -487,40 +474,6 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
   }
   curve->replacement_paths = std::move(replacement_paths);
   curve->supplemental_paths = std::move(supplemental_paths);
-}
-
-std::vector<Vec3d> sample_wrap_helix_points(const DetailCurve& carrier, double start_s, double end_s,
-                                            double radius_m, double turns_per_meter, double phase,
-                                            double direction_sign) {
-  std::vector<Vec3d> points{};
-  const double carrier_length = carrier.Length();
-  const double clamped_start = std::clamp(start_s, 0.0, carrier_length);
-  const double clamped_end = std::clamp(end_s, 0.0, carrier_length);
-  const double visible_length_m = clamped_end - clamped_start;
-  if (visible_length_m <= kZeroLengthEps || radius_m <= 0.0 || turns_per_meter <= 0.0) {
-    return points;
-  }
-  constexpr int kSamplesPerTurn = 16;
-  const int sample_count =
-      std::max(16, static_cast<int>(std::ceil(visible_length_m * turns_per_meter * kSamplesPerTurn)));
-  const double direction = direction_sign < 0.0 ? -1.0 : 1.0;
-  points.reserve(static_cast<std::size_t>(sample_count + 1));
-  for (int i = 0; i <= sample_count; ++i) {
-    const double t = static_cast<double>(i) / static_cast<double>(sample_count);
-    const double s = clamped_start + visible_length_m * t;
-    const Vec3d base = carrier.PositionAtLength(s);
-    const Vec3d tangent = carrier.EvaluateTangent(carrier.LengthToU(s));
-    Vec3d forward{};
-    Vec3d lateral{};
-    Vec3d up{};
-    if (!build_attachment_frame(tangent, &forward, &lateral, &up)) {
-      continue;
-    }
-    const double angle = phase + direction * kTwoPi * turns_per_meter * (s - clamped_start);
-    points.push_back(base + ScaleVec(lateral, std::cos(angle) * radius_m) +
-                     ScaleVec(up, std::sin(angle) * radius_m));
-  }
-  return points;
 }
 
 } // namespace wire::core

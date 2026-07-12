@@ -39,11 +39,20 @@ AABBd bounds_for(const std::vector<Vec3d>& points) {
   return bounds;
 }
 
-double auto_fit_radius(const std::vector<VisualCurvePart*>& members, double clearance, double helix_wire_radius) {
+Vec3d sample_normalized(const std::vector<Vec3d>& samples, double t);
+
+double auto_fit_radius(const VisualCurvePart& support, const std::vector<VisualCurvePart*>& members,
+                       double clearance, double helix_wire_radius) {
   double radius = helix_wire_radius + clearance;
   for (const VisualCurvePart* member : members) {
     if (member->samples.empty()) continue;
-    radius = std::max(radius, member->wire_radius_m + helix_wire_radius + clearance);
+    for (std::size_t index = 0; index < member->samples.size(); ++index) {
+      const double t = member->samples.size() < 2 ? 0.0 :
+          static_cast<double>(index) / static_cast<double>(member->samples.size() - 1);
+      const Vec3d center = sample_normalized(support.samples, t);
+      radius = std::max(radius, Length(member->samples[index] - center) + member->wire_radius_m +
+                                    helix_wire_radius + clearance);
+    }
   }
   return std::max(0.01, radius);
 }
@@ -105,7 +114,7 @@ VisualCurvePart make_helix_part(const VisualCurvePart& support, const SpanVisual
   const double trim = std::min(settings.endpoint_trim_m, support_length * 0.5);
   const double visible = support_length - trim * 2.0;
   const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m :
-      auto_fit_radius(members, settings.helix_clearance_m, support.wire_radius_m);
+      auto_fit_radius(support, members, settings.helix_clearance_m, support.wire_radius_m);
   const int samples = std::max(4, static_cast<int>(std::ceil(std::max(visible, 0.0) * settings.helix_turns_per_meter * settings.helix_samples_per_turn)));
   if (visible <= 1e-9 || samples < 2) return helix;
   for (int i = 0; i <= samples; ++i) {
@@ -219,7 +228,7 @@ void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* 
     support.bounds = bounds_for(support.samples);
     support.source_version = members.front()->source_version;
     const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m :
-        auto_fit_radius(members, settings.helix_clearance_m, support.wire_radius_m);
+        auto_fit_radius(support, members, settings.helix_clearance_m, support.wire_radius_m);
     contain_members(state, support, settings, members, radius);
     VisualCurvePart helix = make_helix_part(support, settings, members);
     supplemental.push_back(std::move(support));

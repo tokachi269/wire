@@ -1298,12 +1298,55 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   }
 
   const CoreStateIdentityStorage persisted_identity = trial.identity_;
+  const CoreStateAuthoritativeStorage persisted_authoritative = trial.authoritative_;
   const auto rebuilt = trial.rebuild_loaded_outputs();
   if (!rebuilt.ok) {
     result.error = rebuilt.error;
     return result;
   }
   trial.identity_ = persisted_identity;
+  trial.authoritative_ = persisted_authoritative;
+  trial.runtime_.relation_index = {};
+  trial.runtime_.backbone_index = {};
+  for (const Port& port : trial.authoritative_.edit_state.ports.items()) {
+    index_add(trial.runtime_.relation_index.ports_by_pole, port.owner_pole_id, port.id);
+  }
+  for (const Anchor& anchor : trial.authoritative_.edit_state.anchors.items()) {
+    index_add(trial.runtime_.relation_index.anchors_by_pole, anchor.owner_pole_id, anchor.id);
+  }
+  for (const Span& span : trial.authoritative_.edit_state.spans.items()) {
+    trial.add_span_to_index(span);
+  }
+  for (const Attachment& attachment : trial.authoritative_.edit_state.attachments.items()) {
+    index_add(trial.runtime_.relation_index.attachments_by_span, attachment.span_id, attachment.id);
+  }
+  for (const SavedBackboneNode& node : trial.authoritative_.backbone.nodes) {
+    if (node.pole_id != kInvalidObjectId) trial.runtime_.backbone_index.pole_node[node.pole_id] = node.node_id;
+  }
+  for (const SavedBackboneEdge& edge : trial.authoritative_.backbone.edges) {
+    index_add(trial.runtime_.backbone_index.node_edges, edge.node_a, edge.edge_id);
+    index_add(trial.runtime_.backbone_index.node_edges, edge.node_b, edge.edge_id);
+    const BackboneEdgeKey key{std::min(edge.node_a, edge.node_b), std::max(edge.node_a, edge.node_b)};
+    trial.runtime_.backbone_index.edge_by_nodes[key] = edge.edge_id;
+  }
+  for (const SavedBackboneEdgeBundle& edge_bundle : trial.authoritative_.backbone.edge_bundles) {
+    index_add(trial.runtime_.backbone_index.edge_bundles, edge_bundle.edge_id, edge_bundle.edge_bundle_id);
+    index_add(trial.runtime_.backbone_index.bundle_edge, edge_bundle.bundle_id, edge_bundle.edge_id);
+    for (ObjectId span_id : edge_bundle.span_ids) {
+      index_add(trial.runtime_.backbone_index.edge_bundle_spans, edge_bundle.edge_bundle_id, span_id);
+      trial.runtime_.backbone_index.span_edge_bundle[span_id] = edge_bundle.edge_bundle_id;
+    }
+  }
+  for (std::size_t i = 0; i < trial.authoritative_.backbone.span_bindings.size(); ++i) {
+    const SavedBackboneSpanBinding& binding = trial.authoritative_.backbone.span_bindings[i];
+    trial.runtime_.backbone_index.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
+    trial.runtime_.backbone_index.span_bindings_by_span[binding.span_id].push_back(i);
+  }
+  for (std::size_t i = 0; i < trial.authoritative_.backbone.port_bindings.size(); ++i) {
+    const SavedBackbonePortBinding& binding = trial.authoritative_.backbone.port_bindings[i];
+    trial.runtime_.backbone_index.edge_bundle_ports[binding.edge_bundle_id].push_back(i);
+    trial.runtime_.backbone_index.port_bindings_by_port[binding.port_id].push_back(i);
+  }
   const ValidationResult validation = trial.Validate();
   if (!validation.ok()) {
     result.error = "authoritative deserialization: loaded state failed validation";

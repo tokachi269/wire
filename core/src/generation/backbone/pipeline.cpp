@@ -85,7 +85,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
     out.error = derived.error;
     return out;
   }
-  retire_untouched(&made.value);
+  if (input.retire_untouched) retire_untouched(&made.value);
   write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made));
   if (timing != nullptr) {
     timing->total_ms = elapsed_ms_since(total_started);
@@ -104,10 +104,11 @@ pipeline::build_input pipeline::build_input_from_spec() const {
 }
 
 pipeline::build_input pipeline::build_input_from_saved_scope(
-    graph made_graph, std::vector<std::size_t> active_bundle_indices) const {
+    graph made_graph, std::vector<std::size_t> active_bundle_indices, bool retire_untouched) const {
   build_input input{};
   input.made = std::move(made_graph);
   input.active_bundle_indices = std::move(active_bundle_indices);
+  input.retire_untouched = retire_untouched;
   return input;
 }
 

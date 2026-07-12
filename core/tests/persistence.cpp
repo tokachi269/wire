@@ -275,7 +275,7 @@ bool full_fat_fixture_is_non_default(const wire::core::CoreState& state) {
          view.context_profile().style_seed == 4242 && !view.layout_settings().angle_correction_enabled &&
          view.variation_settings().enabled && !overrides.pole_orientation_by_pole.empty() &&
          !overrides.span_endpoint_by_span.empty() && !overrides.span_support_by_span.empty() &&
-         has_manual_port && has_tilt && has_offset_echo && has_route_echo &&
+         has_manual_port && has_tilt && has_midair && has_offset_echo && has_route_echo &&
          !view.attachments().empty();
 }
 bool make_roundtrip_source(wire::core::CoreState* state, std::string* saved, DerivedSnapshot* snapshot) {
@@ -357,6 +357,22 @@ bool make_roundtrip_source(wire::core::CoreState* state, std::string* saved, Der
   if (!state->SetPoleManualYawOverride(first_pole_id, 17.0).ok) return false;
   if (!state->SetSpanEndpointSocketOverride(first_span_id, true, 0).ok) return false;
   if (!state->SetSpanBranchDownOffsetOverride(first_span_id, 0.62).ok) return false;
+  const wire::core::ObjectId branch_pole_id = generated.value.generated_pole_ids.back();
+  const wire::core::Pole* branch_pole = state->view().poles().find(branch_pole_id);
+  if (branch_pole == nullptr) return false;
+  const wire::core::Vec3d branch_position = branch_pole->world_transform.position;
+  wire::core::BackboneSpec midair_branch = backbone_tests::line_req(*state);
+  midair_branch.path.polyline = {branch_position, branch_position + wire::core::Vec3d{4.0, 12.0, 6.0}};
+  midair_branch.constraints.lateral_offset_m = 0.35;
+  wire::core::BackboneInputSpec::NodeSpec existing_pole{};
+  existing_pole.point_index = 0;
+  existing_pole.support_kind = wire::core::SupportKind::kPole;
+  existing_pole.node_id = branch_pole_id;
+  wire::core::BackboneInputSpec::NodeSpec midair_node{};
+  midair_node.point_index = 1;
+  midair_node.support_kind = wire::core::SupportKind::kMidair;
+  midair_branch.path.node_specs = {existing_pole, midair_node};
+  if (!state->GenerateFromBackboneSpec(midair_branch).ok) return false;
   const wire::core::Pole* first_pole = state->view().poles().find(first_pole_id);
   if (first_pole == nullptr) return false;
   const wire::core::Vec3d manual_position = first_pole->world_transform.position + wire::core::Vec3d{0.3, -0.2, 3.4};

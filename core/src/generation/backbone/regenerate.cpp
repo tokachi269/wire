@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -446,20 +447,38 @@ EditResult<bool> CoreState::regenerate_backbone_span_override(ObjectId span_id, 
 EditResult<bool> CoreState::rebuild_loaded_outputs() {
   EditResult<bool> result{};
   const SavedBackboneGraph saved = view().backbone();
-  std::vector<std::size_t> routes{};
-  for (const SavedBackboneEdge& edge : saved.edges) routes.push_back(edge.route);
-  std::sort(routes.begin(), routes.end());
-  routes.erase(std::unique(routes.begin(), routes.end()), routes.end());
-
-  for (std::size_t route_id : routes) {
-    std::vector<const SavedBackboneEdge*> edges{};
-    for (const SavedBackboneEdge& edge : saved.edges) {
-      if (edge.route == route_id) edges.push_back(&edge);
+  std::vector<std::vector<const SavedBackboneEdge*>> saved_routes{};
+  std::vector<const SavedBackboneEdge*> remaining{};
+  remaining.reserve(saved.edges.size());
+  for (const SavedBackboneEdge& edge : saved.edges) remaining.push_back(&edge);
+  while (!remaining.empty()) {
+    const auto start = std::min_element(remaining.begin(), remaining.end(),
+        [](const SavedBackboneEdge* a, const SavedBackboneEdge* b) {
+          const bool a_start = a->order == 0;
+          const bool b_start = b->order == 0;
+          return a_start != b_start ? a_start : a->edge_id < b->edge_id;
+        });
+    if (start == remaining.end() || (*start)->order != 0) {
+      result.error = "authoritative deserialization: saved route has no order-zero edge";
+      return result;
     }
-    std::sort(edges.begin(), edges.end(), [](const SavedBackboneEdge* a, const SavedBackboneEdge* b) {
-      return a->order < b->order;
-    });
-    if (edges.empty()) continue;
+    std::vector<const SavedBackboneEdge*> edges{*start};
+    remaining.erase(start);
+    while (true) {
+      const SavedBackboneEdge* previous = edges.back();
+      const auto next = std::find_if(remaining.begin(), remaining.end(),
+          [&](const SavedBackboneEdge* candidate) {
+            return candidate->route == previous->route && candidate->order == previous->order + 1 &&
+                   candidate->node_a == previous->node_b;
+          });
+      if (next == remaining.end()) break;
+      edges.push_back(*next);
+      remaining.erase(next);
+    }
+    saved_routes.push_back(std::move(edges));
+  }
+
+  for (const std::vector<const SavedBackboneEdge*>& edges : saved_routes) {
 
     generation::backbone::graph graph{};
     for (std::size_t i = 0; i <= edges.size(); ++i) {
@@ -501,6 +520,54 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       graph.links.push_back(std::move(link));
     }
 
+    std::unordered_map<ObjectId, int> node_index{};
+    for (std::size_t i = 0; i < graph.nodes.size(); ++i) {
+      node_index.emplace(graph.nodes[i].saved, static_cast<int>(i));
+    }
+    auto append_context_node = [&](ObjectId node_id) -> int {
+      if (const auto found = node_index.find(node_id); found != node_index.end()) return found->second;
+      const SavedBackboneNode* saved_node = saved_node_by_id(saved, node_id);
+      if (saved_node == nullptr) return -1;
+      generation::backbone::node node{};
+      node.id = static_cast<int>(graph.nodes.size());
+      node.pos = saved_node->position;
+      node.support = saved_node->support_kind;
+      node.pole = saved_node->pole_id;
+      node.saved = saved_node->node_id;
+      node.has_source_edge = saved_node->has_source_edge;
+      node.source_edge_node_a = saved_node->source_edge_node_a;
+      node.source_edge_node_b = saved_node->source_edge_node_b;
+      node.source_edge_t = saved_node->source_edge_t;
+      node.is_new = false;
+      node.on_route = false;
+      node.bundle_modes = saved_node->bundle_modes;
+      graph.nodes.push_back(std::move(node));
+      node_index.emplace(node_id, static_cast<int>(graph.nodes.back().id));
+      return graph.nodes.back().id;
+    };
+    std::unordered_set<ObjectId> route_edge_ids{};
+    for (const SavedBackboneEdge* route_edge : edges) route_edge_ids.insert(route_edge->edge_id);
+    for (const SavedBackboneEdge& candidate : saved.edges) {
+      if (route_edge_ids.contains(candidate.edge_id) ||
+          (!node_index.contains(candidate.node_a) && !node_index.contains(candidate.node_b))) continue;
+      const int a = append_context_node(candidate.node_a);
+      const int b = append_context_node(candidate.node_b);
+      if (a < 0 || b < 0) {
+        result.error = "authoritative deserialization: saved context node is missing";
+        return result;
+      }
+      generation::backbone::link link{};
+      link.id = static_cast<int>(graph.links.size());
+      link.a = a;
+      link.b = b;
+      link.route = candidate.route;
+      link.order = candidate.order;
+      link.dir = candidate.dir;
+      link.saved = candidate.edge_id;
+      link.is_new = false;
+      graph.links.push_back(std::move(link));
+    }
+
     BackboneSpec spec{};
     spec.pole_type_id = kInvalidPoleTypeId;
     spec.constraints.lateral_offset_m = edges.front()->lateral_offset_m;
@@ -532,7 +599,7 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
     }
     generation::backbone::pipeline pipeline(*this, spec);
     const auto replay = pipeline.build(
-        pipeline.build_input_from_saved_scope(std::move(graph), std::move(active_bundle_indices)));
+        pipeline.build_input_from_saved_scope(std::move(graph), std::move(active_bundle_indices), false));
     if (!replay.ok) {
       result.error = replay.error;
       return result;

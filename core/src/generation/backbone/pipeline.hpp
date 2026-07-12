@@ -197,13 +197,14 @@ public:
     std::vector<std::size_t> active_bundle_indices{};
     std::vector<std::size_t> local_by_input{};
     GenerationTiming* timing = nullptr;
+    bool retire_untouched = true;
   };
 
   [[nodiscard]] EditResult<bool> prepare();
   [[nodiscard]] EditResult<bool> check() const;
   [[nodiscard]] build_input build_input_from_spec() const;
   [[nodiscard]] build_input build_input_from_saved_scope(
-      graph made, std::vector<std::size_t> active_bundle_indices) const;
+      graph made, std::vector<std::size_t> active_bundle_indices, bool retire_untouched = true) const;
   [[nodiscard]] EditResult<GenerateBundleFromPathResult> build(build_input input);
 
 private:

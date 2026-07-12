@@ -2409,6 +2409,8 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   wire::core::CoreState state;
   const auto id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   wire::core::BundleTemplate tpl = state.view().bundle_templates().at(id);
+  tpl.fixed_count = 2;
+  tpl.default_count = 2;
   tpl.span_visual_assembly.helix_enabled = true;
   tpl.span_visual_assembly.helix_turns_per_meter = 1.0;
   if (state.UpdateBundleTemplate(tpl).ok) return false;

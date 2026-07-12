@@ -240,7 +240,8 @@ wire::core::CablePopulationRule population_rule(std::uint64_t id) {
 bool full_fat_fixture_is_non_default(const wire::core::CoreState& state) {
   const auto& view = state.view();
   const auto lv_it = view.bundle_templates().find(wire::core::kDefaultLowVoltageBundleTemplateId);
-  if (lv_it == view.bundle_templates().end() || lv_it->second.population_rules.size() < 2) return false;
+  if (lv_it == view.bundle_templates().end() || lv_it->second.population_rules.size() < 2 ||
+      !lv_it->second.span_visual_assembly.helix_enabled) return false;
   const auto comm_it = view.bundle_templates().find(
       wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
   const auto& overrides = wire::core::CoreStateTestHook::override_state(
@@ -312,6 +313,14 @@ bool make_roundtrip_source(wire::core::CoreState* state, std::string* saved, Der
   wire::core::BundleTemplate lv = state->view().bundle_templates().at(
       wire::core::kDefaultLowVoltageBundleTemplateId);
   lv.population_rules = {population_rule(31), population_rule(32)};
+  lv.support_wire_pole_band_id = 100;
+  lv.span_visual_assembly.helix_enabled = true;
+  lv.span_visual_assembly.helix_turns_per_meter = 0.5;
+  lv.span_visual_assembly.helix_samples_per_turn = 12;
+  lv.span_visual_assembly.endpoint_trim_m = 0.2;
+  lv.span_visual_assembly.member_wander_ratio = 0.6;
+  lv.span_visual_assembly.member_wander_wavelength_m = 3.0;
+  lv.span_visual_assembly.member_twist_turns_per_meter = 0.2;
   if (!state->UpdateBundleTemplate(lv).ok) return false;
   wire::core::CableTemplate cable = state->view().cable_templates().at(lv.cable_template_id);
   cable.default_endpoint_attachment_template_id = attachment_template_id;

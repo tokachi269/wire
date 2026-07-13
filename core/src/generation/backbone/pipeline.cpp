@@ -380,8 +380,8 @@ EditResult<PoleTypeId> pole_type_for(const CoreState& state, const BackboneSpec&
   return out;
 }
 
-EditResult<PortPlacementBand> band_for(const CoreState& state, ObjectId pole_id, const spec_view& view) {
-  EditResult<PortPlacementBand> out{};
+EditResult<std::vector<PortPlacementBand>> bands_for(const CoreState& state, ObjectId pole_id, const spec_view& view) {
+  EditResult<std::vector<PortPlacementBand>> out{};
   const Pole* pole = state.view().poles().find(pole_id);
   if (pole == nullptr || pole->pole_type_id == kInvalidPoleTypeId) {
     out.error = "backbone unsupported: pole type missing";
@@ -392,7 +392,7 @@ EditResult<PortPlacementBand> band_for(const CoreState& state, ObjectId pole_id,
     out.error = "backbone unsupported: pole type missing";
     return out;
   }
-  return SelectPortPlacementBand(type_it->second, view.tmpl->category, view.layer);
+  return SelectPortPlacementBands(type_it->second, view.tmpl->category, view.layer, view.count);
 }
 
 ObjectId saved_edge_for(const CoreState& state, const graph& made, const link& edge) {
@@ -647,7 +647,7 @@ bool needs_pole_type(const graph& made) {
 }
 
 bool has_band(const PoleTypeDefinition& pole_type, const spec_view& spec) {
-  return SelectPortPlacementBand(pole_type, spec.tmpl->category, spec.layer).ok;
+  return SelectPortPlacementBands(pole_type, spec.tmpl->category, spec.layer, spec.count).ok;
 }
 
 EditResult<bool> check_port_bands(const CoreState& state, const graph& made, const BackboneSpec& spec,
@@ -1962,20 +1962,19 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
         failed.error = v.error;
         return failed;
       }
-      PortPlacementBand band{};
+      std::vector<PortPlacementBand> bands(static_cast<std::size_t>(v.value.count));
       if (!ownerless) {
-        EditResult<PortPlacementBand> resolved_band =
-            new_pole_type == nullptr ? band_for(state_, pole_id, v.value)
-                                     : SelectPortPlacementBand(*new_pole_type, v.value.tmpl->category, v.value.layer);
-        if (!resolved_band.ok) {
+        EditResult<std::vector<PortPlacementBand>> resolved_bands =
+            new_pole_type == nullptr
+                ? bands_for(state_, pole_id, v.value)
+                : SelectPortPlacementBands(*new_pole_type, v.value.tmpl->category, v.value.layer, v.value.count);
+        if (!resolved_bands.ok) {
           EditResult<bool> failed{};
-          failed.error = resolved_band.error;
+          failed.error = resolved_bands.error;
           return failed;
         }
-        band = resolved_band.value;
+        bands = std::move(resolved_bands.value);
       }
-      const port_scope scope{bundle_spec.bundle_template_id, PortKindForCategory(v.value.tmpl->category),
-                             PortLayerForSpanLayer(v.value.layer), band.band_id};
       trow preflight_row{};
       preflight_row.row = r.id;
       preflight_row.node = r.node;
@@ -1984,6 +1983,9 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
       preflight_row.pole = pole_id;
       const SavedBackboneRowKey row_key = key_for(ps, preflight_row, node_id_by_local, edge_by_link);
       for (int lane = 0; lane < v.value.count; ++lane) {
+        const PortPlacementBand& band = bands[static_cast<std::size_t>(lane)];
+        const port_scope scope{bundle_spec.bundle_template_id, PortKindForCategory(v.value.tmpl->category),
+                               PortLayerForSpanLayer(v.value.layer), band.band_id};
         if (ownerless && g_.nodes[r.node].has_source_edge) {
           const SourceEdgeProjectionRef ref =
               source_projection_for(state_, g_.nodes[r.node], scope.bundle, static_cast<std::size_t>(lane));
@@ -2483,19 +2485,25 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         return out;
       }
       tr.ports[bundle_index].reserve(static_cast<std::size_t>(v.value.count));
-      PortPlacementBand band{};
+      std::vector<PortPlacementBand> bands(static_cast<std::size_t>(v.value.count));
       if (!ownerless) {
-        EditResult<PortPlacementBand> resolved_band = band_for(state_, tr.pole, v.value);
-        if (!resolved_band.ok) {
-          out.error = resolved_band.error;
+        EditResult<std::vector<PortPlacementBand>> resolved_bands = bands_for(state_, tr.pole, v.value);
+        if (!resolved_bands.ok) {
+          out.error = resolved_bands.error;
           return out;
         }
-        band = resolved_band.value;
+        bands = std::move(resolved_bands.value);
       }
-      tr.placement_band_ids[bundle_index] = band.band_id;
-      const port_scope scope{spec_.bundles[spec_index].bundle_template_id, PortKindForCategory(v.value.tmpl->category),
-                             PortLayerForSpanLayer(v.value.layer), band.band_id};
+      tr.placement_band_ids[bundle_index].resize(static_cast<std::size_t>(v.value.count));
+      const bool uses_lane_bands = std::adjacent_find(bands.begin(), bands.end(), [](const auto& a, const auto& b) {
+                                     return a.band_id != b.band_id;
+                                   }) != bands.end();
       for (int lane = 0; lane < v.value.count; ++lane) {
+        const PortPlacementBand& band = bands[static_cast<std::size_t>(lane)];
+        tr.placement_band_ids[bundle_index][static_cast<std::size_t>(lane)] = band.band_id;
+        const port_scope scope{spec_.bundles[spec_index].bundle_template_id,
+                               PortKindForCategory(v.value.tmpl->category),
+                               PortLayerForSpanLayer(v.value.layer), band.band_id};
         const Vec3d row_offset = (r.id < row_offsets.size()) ? row_offsets[r.id] : Vec3d{};
         Vec3d p{};
         if (ownerless) {
@@ -2516,8 +2524,11 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             out.error = "backbone topology: active row pole missing";
             return out;
           }
-          p = PortWorldPosition(*pole, r.axis, band, static_cast<std::size_t>(lane), v.value.count,
-                                v.value.tmpl->default_spacing_m, spec_.constraints.lateral_offset_m, row_offset);
+          const double lane_offset = uses_lane_bands
+                                         ? 0.0
+                                         : LaneOffset(static_cast<std::size_t>(lane), v.value.count,
+                                                      v.value.tmpl->default_spacing_m);
+          p = PortWorldPosition(*pole, r.axis, band, lane_offset, spec_.constraints.lateral_offset_m, row_offset);
         }
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
         EditResult<ObjectId> resolved =
@@ -2740,8 +2751,9 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
       EditResult<bool> bound =
           state_.bind_backbone_port(edge_bundle_id, row_key, span.lane, bundle->bundle_template_id, port->kind,
                                     port->layer,
-                                    span.bundle < made.rows[row_index].placement_band_ids.size()
-                                        ? made.rows[row_index].placement_band_ids[span.bundle]
+                                    span.bundle < made.rows[row_index].placement_band_ids.size() &&
+                                            span.lane < made.rows[row_index].placement_band_ids[span.bundle].size()
+                                        ? made.rows[row_index].placement_band_ids[span.bundle][span.lane]
                                         : 0,
                                     PortLayoutYawDeg(made.rows[row_index].axis),
                                     port->id);

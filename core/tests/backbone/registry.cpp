@@ -977,7 +977,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation);
   test_registry::AddTest(tests, "C749_backbone_zero_offset_keeps_bundle_centers_on_band_center",
-                         "adding a bundle does not laterally shift another zero-offset bundle",
+                         "zero offset uses each lane band center without cross-bundle drift",
                          "Invariant", false,
                          C749_backbone_zero_offset_keeps_bundle_centers_on_band_center);
   test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",

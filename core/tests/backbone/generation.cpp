@@ -5,6 +5,7 @@
 
 #include "wire/core/core_test_hook.hpp"
 #include "wire/core/core_view.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -807,6 +808,62 @@ bool C749_backbone_zero_offset_keeps_bundle_centers_on_band_center() {
     if (!almost_equal(single_ports[index].x, combined_ports[index].x, 1e-12) ||
         !almost_equal(single_ports[index].y, combined_ports[index].y, 1e-12) ||
         !almost_equal(single_ports[index].z, combined_ports[index].z, 1e-12)) {
+      return false;
+    }
+  }
+
+  wire::core::CoreState hv_state;
+  wire::core::BackboneSpec hv_request = line_req(hv_state);
+  hv_request.bundles.clear();
+  add_backbone_bundle(hv_request, wire::core::BundleKind::kHighVoltage);
+  const auto hv_generated = hv_state.GenerateFromBackboneSpec(hv_request);
+  if (!hv_generated.ok || hv_generated.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId pole_id = hv_generated.value.generated_pole_ids.front();
+  const wire::core::Pole* pole = hv_state.view().poles().find(pole_id);
+  const auto pole_type_it = pole == nullptr ? hv_state.view().pole_types().end()
+                                            : hv_state.view().pole_types().find(pole->pole_type_id);
+  if (pole == nullptr || pole_type_it == hv_state.view().pole_types().end()) {
+    return false;
+  }
+  std::vector<const wire::core::PortPlacementBand*> expected_bands{};
+  for (const wire::core::PortPlacementBand& band : pole_type_it->second.port_bands) {
+    if (band.enabled && band.category == wire::core::ConnectionCategory::kHighVoltage && band.layer == 2) {
+      expected_bands.push_back(&band);
+    }
+  }
+  std::sort(expected_bands.begin(), expected_bands.end(), [](const auto* a, const auto* b) {
+    if (!almost_equal(a->lateral_center_m, b->lateral_center_m, 1e-12)) {
+      return a->lateral_center_m < b->lateral_center_m;
+    }
+    return a->band_id < b->band_id;
+  });
+  if (expected_bands.size() != 3) {
+    return false;
+  }
+  std::vector<const wire::core::SavedBackbonePortBinding*> bindings{};
+  for (const wire::core::SavedBackbonePortBinding& binding : hv_state.view().backbone().port_bindings) {
+    const wire::core::Port* port = hv_state.view().ports().find(binding.port_id);
+    if (port != nullptr && port->owner_pole_id == pole_id &&
+        binding.bundle_template_id == wire::core::kDefaultHighVoltageBundleTemplateId) {
+      bindings.push_back(&binding);
+    }
+  }
+  std::sort(bindings.begin(), bindings.end(), [](const auto* a, const auto* b) {
+    return a->lane_index < b->lane_index;
+  });
+  if (bindings.size() != expected_bands.size()) {
+    return false;
+  }
+  for (std::size_t lane = 0; lane < bindings.size(); ++lane) {
+    const wire::core::Port* port = hv_state.view().ports().find(bindings[lane]->port_id);
+    if (port == nullptr || bindings[lane]->placement_band_id != expected_bands[lane]->band_id) {
+      return false;
+    }
+    const wire::core::PoleFrame frame = wire::core::BuildPoleFrame(pole->world_transform, bindings[lane]->layout_yaw_deg);
+    const wire::core::Vec3d local = wire::core::WorldPointToLocal(frame, port->world_position);
+    if (!almost_equal(local.y, expected_bands[lane]->lateral_center_m, 1e-9)) {
       return false;
     }
   }

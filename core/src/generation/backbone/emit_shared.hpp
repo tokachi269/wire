@@ -2,6 +2,8 @@
 
 #include "wire/core/core_state.hpp"
 
+#include <vector>
+
 namespace wire::core::generation::backbone {
 
 PortKind PortKindForCategory(ConnectionCategory category);
@@ -12,15 +14,15 @@ int TemplateLayerForSpanLayer(SpanLayer layer);
 double LaneOffset(std::size_t lane_index, int count, double spacing_m);
 double PortLayoutYawDeg(const Vec3d& row_axis);
 
-EditResult<PortPlacementBand> SelectPortPlacementBand(const PoleTypeDefinition& pole_type, ConnectionCategory category,
-                                                      SpanLayer layer);
+EditResult<std::vector<PortPlacementBand>> SelectPortPlacementBands(const PoleTypeDefinition& pole_type,
+                                                                    ConnectionCategory category, SpanLayer layer,
+                                                                    int lane_count);
 
-Vec3d PortLocalPosition(const Vec3d& row_axis, const PortPlacementBand& band, std::size_t lane_index, int lane_count,
-                        double spacing_m, double lateral_offset_m, const Vec3d& shift);
+Vec3d PortLocalPosition(const Vec3d& row_axis, const PortPlacementBand& band, double lane_offset_m,
+                        double lateral_offset_m, const Vec3d& shift);
 
 Vec3d PortWorldPosition(const Pole& pole, const Vec3d& row_axis, const PortPlacementBand& band,
-                        std::size_t lane_index, int lane_count, double spacing_m, double lateral_offset_m,
-                        const Vec3d& shift);
+                        double lane_offset_m, double lateral_offset_m, const Vec3d& shift);
 
 void ApplyPortBandTemplateFields(Port* port, const PortPlacementBand& band);
 

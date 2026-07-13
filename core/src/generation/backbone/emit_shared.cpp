@@ -2,6 +2,10 @@
 
 #include "wire/core/coord_utils.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <utility>
+
 namespace wire::core::generation::backbone {
 
 PortKind PortKindForCategory(ConnectionCategory category) {
@@ -63,44 +67,72 @@ double PortLayoutYawDeg(const Vec3d& row_axis) {
   return YawDegFromXY(ScaleVec(ComputeLateralAxis(axis), -1.0));
 }
 
-EditResult<PortPlacementBand> SelectPortPlacementBand(const PoleTypeDefinition& pole_type, ConnectionCategory category,
-                                                      SpanLayer layer) {
-  EditResult<PortPlacementBand> out{};
+EditResult<std::vector<PortPlacementBand>> SelectPortPlacementBands(const PoleTypeDefinition& pole_type,
+                                                                    ConnectionCategory category, SpanLayer layer,
+                                                                    int lane_count) {
+  EditResult<std::vector<PortPlacementBand>> out{};
+  if (lane_count <= 0) {
+    out.error = "backbone unsupported: bundle count resolved to zero";
+    return out;
+  }
   const int target_rank = TemplateLayerForSpanLayer(layer);
-  const PortPlacementBand* best = nullptr;
+  std::vector<PortPlacementBand> candidates{};
   for (const PortPlacementBand& band : pole_type.port_bands) {
-    if (!band.enabled || band.category != category || band.layer != target_rank) {
-      continue;
-    }
-    if (best == nullptr || band.priority > best->priority ||
-        (band.priority == best->priority && band.band_id < best->band_id)) {
-      best = &band;
+    if (band.enabled && band.category == category && band.layer == target_rank) {
+      candidates.push_back(band);
     }
   }
-  if (best == nullptr) {
+  if (candidates.empty()) {
     out.error = "backbone unsupported: port band missing";
     return out;
   }
-  out.value = *best;
+  std::sort(candidates.begin(), candidates.end(), [](const PortPlacementBand& a, const PortPlacementBand& b) {
+    if (a.priority != b.priority) {
+      return a.priority > b.priority;
+    }
+    return a.band_id < b.band_id;
+  });
+  std::vector<PortPlacementBand> distinct{};
+  for (const PortPlacementBand& candidate : candidates) {
+    const bool same_position = std::any_of(distinct.begin(), distinct.end(), [&](const PortPlacementBand& selected) {
+      return std::abs(selected.lateral_center_m - candidate.lateral_center_m) <= 1e-12;
+    });
+    if (!same_position) {
+      distinct.push_back(candidate);
+    }
+    if (distinct.size() == static_cast<std::size_t>(lane_count)) {
+      break;
+    }
+  }
+  if (lane_count > 1 && distinct.size() == static_cast<std::size_t>(lane_count)) {
+    std::sort(distinct.begin(), distinct.end(), [](const PortPlacementBand& a, const PortPlacementBand& b) {
+      if (std::abs(a.lateral_center_m - b.lateral_center_m) > 1e-12) {
+        return a.lateral_center_m < b.lateral_center_m;
+      }
+      return a.band_id < b.band_id;
+    });
+    out.value = std::move(distinct);
+  } else {
+    out.value.assign(static_cast<std::size_t>(lane_count), candidates.front());
+  }
   out.ok = true;
   return out;
 }
 
-Vec3d PortLocalPosition(const Vec3d& row_axis, const PortPlacementBand& band, std::size_t lane_index, int lane_count,
-                        double spacing_m, double lateral_offset_m, const Vec3d& shift) {
+Vec3d PortLocalPosition(const Vec3d& row_axis, const PortPlacementBand& band, double lane_offset_m,
+                        double lateral_offset_m, const Vec3d& shift) {
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
   const Vec3d forward_axis = ScaleVec(ComputeLateralAxis(axis), -1.0);
-  const double offset = LaneOffset(lane_index, lane_count, spacing_m) + lateral_offset_m;
+  const double offset = band.lateral_center_m + lane_offset_m + lateral_offset_m;
   return {Dot(shift, forward_axis), offset + Dot(shift, axis), band.height_center_m + shift.z};
 }
 
 Vec3d PortWorldPosition(const Pole& pole, const Vec3d& row_axis, const PortPlacementBand& band,
-                        std::size_t lane_index, int lane_count, double spacing_m, double lateral_offset_m,
-                        const Vec3d& shift) {
+                        double lane_offset_m, double lateral_offset_m, const Vec3d& shift) {
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
   const double layout_yaw_deg = PortLayoutYawDeg(axis);
   return LocalPointToWorld(BuildPoleFrame(pole.world_transform, layout_yaw_deg),
-                           PortLocalPosition(axis, band, lane_index, lane_count, spacing_m, lateral_offset_m, shift));
+                           PortLocalPosition(axis, band, lane_offset_m, lateral_offset_m, shift));
 }
 
 void ApplyPortBandTemplateFields(Port* port, const PortPlacementBand& band) {

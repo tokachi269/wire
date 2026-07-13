@@ -605,7 +605,14 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
           if (other_port == nullptr) {
             continue;
           }
-          Vec3d span_dir = other_port->world_position - pole->world_transform.position;
+          Vec3d other_world = other_port->world_position;
+          if (other_port->owner_pole_id != kInvalidObjectId) {
+            if (const Pole* other_pole = authoritative_.edit_state.poles.find(other_port->owner_pole_id);
+                other_pole != nullptr) {
+              other_world = other_pole->world_transform.position;
+            }
+          }
+          Vec3d span_dir = other_world - pole->world_transform.position;
           span_dir.z = 0.0;
           if (!NormalizeXY(&span_dir)) {
             continue;

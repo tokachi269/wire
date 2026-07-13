@@ -63,6 +63,21 @@ member-wise move commitする。どの段階で失敗しても、本stateは変�
 context linkは判断入力であり、生成・保存対象ではない。
 T/cross/branchのkind enumは作らず、pair/open/rowの組合せで表す。
 
+### pole / port配置座標
+
+pole local frameの配置原点は、poleのtiltを含む中心軸とする。mesh表面やmesh下端を原点にしない。
+`PortPlacementBand.lateral_center_m`は中心軸から測ったbandの既定位置であり、
+`BackboneSpec.constraints.lateral_offset_m = 0`は選択されたband位置から追加移動しないことを意味する。
+Offsetはband位置へ加算する入力であり、band位置を置き換えない。
+
+同一category/layerにlane数ぶんの異なるlateral位置を持つbandがある場合、laneはpriorityで採用したbandを
+lateral順に1つずつ使用する。既定HV 3相は左・中央・右bandを各laneが使用し、3相全体を片側のpole表面へ寄せない。
+異なるband位置がlane数に足りない場合だけ、priority最上位の1 bandをrow中心としてlane spacingを展開する。
+保存済みport bindingはlaneごとのplacement band identityを保持する。
+
+pole表面へ直接取り付けるportや部品は、中心軸原点を変えず、その高さのsection半径とstandoff / clearanceから
+表面位置を導出する。表面位置を既定offsetへ混ぜず、laneごとに後処理してbundle重心をずらしてはならない。
+
 pair row axisは`pairs make(graph)`だけが決める。
 通常cornerでは前後linkの単位接線和から二等分方向を作り、その直交方向をrow axisにする。
 径間長の差でrow axisを回さず、各incident spanのlane順が反転しない範囲に保つ。

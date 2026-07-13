@@ -767,15 +767,21 @@ bool C760_backbone_terminal_edge_body_ends_at_port() {
   return terminal_bodies == out.value.generated_span_ids.size();
 }
 
-bool C761_default_communication_bundle_emits_helix() {
+bool C761_default_optical_bundle_emits_helix() {
   wire::core::CoreState state;
   wire::core::BackboneSpec request = line_req(state);
-  const auto comm_template = state.view().bundle_templates().find(
-      wire::core::kDefaultCommunicationBundleTemplateId);
-  if (comm_template == state.view().bundle_templates().end()) return false;
+  const auto optical_template = state.view().bundle_templates().find(wire::core::kDefaultOpticalBundleTemplateId);
+  const auto communication_template =
+      state.view().bundle_templates().find(wire::core::kDefaultCommunicationBundleTemplateId);
+  if (optical_template == state.view().bundle_templates().end() ||
+      communication_template == state.view().bundle_templates().end() ||
+      !optical_template->second.span_visual_assembly.helix_enabled ||
+      optical_template->second.support_wire_pole_band_id != 600 ||
+      communication_template->second.span_visual_assembly.helix_enabled ||
+      communication_template->second.support_wire_pole_band_id != 0) return false;
   request.bundles.clear();
-  request.pole_type_id = comm_template->second.related_pole_type_id;
-  add_backbone_bundle(request, wire::core::BundleKind::kCommunication);
+  request.pole_type_id = optical_template->second.related_pole_type_id;
+  add_backbone_bundle(request, wire::core::BundleKind::kOptical);
   const auto out = state.GenerateFromBackboneSpec(request);
   if (!out.ok || out.value.generated_span_ids.empty()) return false;
   std::size_t support_count = 0;

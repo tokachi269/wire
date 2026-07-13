@@ -265,7 +265,7 @@ bool C628_backbone_active_pole_type_update_repositions();
 bool C622_backbone_stage_timing_is_diagnostic_only();
 bool C634_backbone_terminal_nodes_create_no_node_patch_curve();
 bool C760_backbone_terminal_edge_body_ends_at_port();
-bool C761_default_communication_bundle_emits_helix();
+bool C761_default_optical_bundle_emits_helix();
 bool C635_backbone_simple_continuous_node_creates_node_patch_curve();
 bool C636_backbone_edge_body_stops_at_node_patch_boundaries();
 bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1();

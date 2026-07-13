@@ -237,9 +237,10 @@ void CoreState::register_default_bundle_templates() {
   comm.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   comm.support_wire_pole_band_id = 600;
   comm.span_visual_assembly.helix_enabled = true;
-  comm.span_visual_assembly.helix_turns_per_meter = 0.5;
+  comm.span_visual_assembly.helix_clearance_m = 0.015;
+  comm.span_visual_assembly.helix_turns_per_meter = 1.8;
   comm.span_visual_assembly.helix_samples_per_turn = 16;
-  comm.span_visual_assembly.endpoint_trim_m = 0.25;
+  comm.span_visual_assembly.endpoint_trim_m = 1.05;
   authoritative_.bundle_templates[comm.id] = comm;
 
   BundleTemplate optical{};
@@ -288,7 +289,7 @@ void CoreState::register_default_cable_templates() {
   hv.color_rgba = 0xBFC7CFFFu;
   hv.requires_insulator = true;
   hv.insulator_attachment_height_m = 0.16;
-  hv.sag_factor = 0.03;
+  hv.sag_factor = 0.025;
   hv.slack_factor = 0.0;
   hv.continuity_policy = CableContinuityPolicyHint::kPreferG1;
   hv.attachment_style = CableAttachmentStyleHint::kDirectThrough;
@@ -339,7 +340,7 @@ void CoreState::register_default_cable_templates() {
   comm.color_rgba = 0x5D5D5DFFu;
   comm.requires_insulator = false;
   comm.insulator_attachment_height_m = 0.0;
-  comm.sag_factor = 0.025;
+  comm.sag_factor = 0.01;
   comm.slack_factor = 0.02;
   comm.continuity_policy = CableContinuityPolicyHint::kPreferG2;
   comm.attachment_style = CableAttachmentStyleHint::kAuto;
@@ -356,7 +357,7 @@ void CoreState::register_default_cable_templates() {
   optical.color_rgba = 0x6EC9D8FFu;
   optical.requires_insulator = false;
   optical.insulator_attachment_height_m = 0.0;
-  optical.sag_factor = 0.02;
+  optical.sag_factor = 0.005;
   optical.slack_factor = 0.03;
   optical.continuity_policy = CableContinuityPolicyHint::kPreferG2;
   optical.attachment_style = CableAttachmentStyleHint::kDirectThrough;

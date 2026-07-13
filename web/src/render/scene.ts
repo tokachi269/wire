@@ -18,6 +18,22 @@ const POLE_TAPER_RATIO = 75;
 const POLE_RENDER_SIDES = 16;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
 
+export function setPoleRotation(
+  object: THREE.Object3D,
+  rotationXDeg: number,
+  rotationYDeg: number,
+  rotationZDeg: number
+): void {
+  // Core applies X, then Y, then Z to the local vector. Three.js expresses
+  // that same composition with a ZYX Euler order.
+  object.rotation.set(
+    THREE.MathUtils.degToRad(rotationXDeg),
+    THREE.MathUtils.degToRad(rotationYDeg),
+    THREE.MathUtils.degToRad(rotationZDeg),
+    "ZYX"
+  );
+}
+
 class SampledWireCurve extends THREE.Curve<THREE.Vector3> {
   private readonly lengths: number[] = [0];
   private readonly totalLength: number;
@@ -548,11 +564,7 @@ export class WireScene {
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(pole.positionX, pole.positionY, pole.positionZ);
-      mesh.rotation.set(
-        THREE.MathUtils.degToRad(pole.rotationX),
-        THREE.MathUtils.degToRad(pole.rotationY),
-        THREE.MathUtils.degToRad(pole.rotationZ)
-      );
+      setPoleRotation(mesh, pole.rotationX, pole.rotationY, pole.rotationZ);
       mesh.scale.set(pole.scaleX, pole.scaleY, pole.scaleZ);
       mesh.castShadow = true;
       mesh.receiveShadow = true;

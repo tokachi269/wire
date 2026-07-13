@@ -136,6 +136,28 @@ describe("viewer numeric inputs", () => {
       ?.minSpacing).toBeCloseTo(next, 8);
   });
 
+  it("exposes helix controls and applies them to the selected bundle template", async () => {
+    const mounted = await mountViewer();
+    const selectedId = current(mounted.store).selectedBundleTemplateId;
+    const before = mounted.bridge.bundleTemplates()
+      .find((template) => template.id === selectedId);
+    expect(before).toBeDefined();
+
+    const heading = [...document.querySelectorAll("h3")]
+      .find((candidate) => candidate.textContent?.trim() === "Helix");
+    expect(heading).toBeDefined();
+
+    const input = inputForLabel("Helix clearance");
+    const next = before!.spanVisualAssembly.helixClearance + 0.005;
+    input.value = String(next);
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await tick();
+
+    const after = mounted.bridge.bundleTemplates()
+      .find((template) => template.id === selectedId);
+    expect(after?.spanVisualAssembly.helixClearance).toBeCloseTo(next, 8);
+  });
+
   it("restores an uncommitted number input with Escape before blur", async () => {
     const mounted = await mountViewer();
     const input = inputForLabel("Max tilt");

@@ -432,6 +432,7 @@
     </select>
     {#if selectedBundle()}
       {@const bundle = selectedBundle()!}
+      {@const relatedPole = snapshot.poleTemplates.find((template) => template.id === bundle.relatedPoleTypeId)}
       <label>Cable template
         <select value={bundle.cableTemplateId}
           onchange={(event) => actions.commitBundleTemplate(patchBundle(bundle, "cableTemplateId", numberValue(event)))}>
@@ -464,28 +465,37 @@
       <button class="secondary" type="button" onclick={() => actions.applyRelatedPoleType(bundle.id)}>
         Apply related pole type to existing poles
       </button>
-      <details>
-        <summary>Span visual assembly</summary>
-        <label>Support band id
-          <input type="number" value={bundle.supportWirePoleBandId}
-            onchange={(event) => updateBundle(bundle, (draft) => {
-              draft.supportWirePoleBandId = Math.trunc(numberValue(event));
-            })} />
-        </label>
+      <div class="helix-editor">
+        <div class="helix-heading">
+          <h3>Helix</h3>
+          <span class:enabled={bundle.spanVisualAssembly.helixEnabled}>
+            {bundle.spanVisualAssembly.helixEnabled ? "On" : "Off"}
+          </span>
+        </div>
         <label class="check"><input type="checkbox" checked={bundle.spanVisualAssembly.helixEnabled}
           onchange={(event) => updateBundle(bundle, (draft) => {
             draft.spanVisualAssembly.helixEnabled = checkedValue(event);
-          })} />Helix enabled</label>
+          })} />Enable helix</label>
+        <label>Support band
+          <select value={bundle.supportWirePoleBandId}
+            onchange={(event) => updateBundle(bundle, (draft) => {
+              draft.supportWirePoleBandId = Math.trunc(numberValue(event));
+            })}>
+            <option value="0">None</option>
+            {#if relatedPole}
+              {#each sortedBands(relatedPole) as band}
+                <option value={band.bandId} disabled={!band.enabled}>
+                  {bandTitle(band)}{band.enabled ? "" : " · disabled"}
+                </option>
+              {/each}
+            {/if}
+          </select>
+        </label>
         {#each [
           ["helixRadius", "Helix radius (0 = auto-fit)", 0.005],
           ["helixClearance", "Helix clearance", 0.005],
           ["helixTurnsPerMeter", "Helix turns / m", 0.1],
-          ["endpointTrim", "Endpoint trim", 0.05],
-          ["memberWanderRatio", "Member wander ratio", 0.05],
-          ["memberWanderWavelength", "Member wander wavelength", 0.1],
-          ["memberWanderPhaseBias", "Member wander phase", 0.1],
-          ["memberTwistTurnsPerMeter", "Member twist turns / m", 0.1],
-          ["memberTwistPhase", "Member twist phase", 0.1]
+          ["endpointTrim", "Endpoint trim", 0.05]
         ] as field}
           <label>{field[1]}<input type="number" step={field[2]}
             value={fmt(bundle.spanVisualAssembly[field[0] as keyof typeof bundle.spanVisualAssembly] as number)}
@@ -494,13 +504,32 @@
                 round6(numberValue(event));
             })} /></label>
         {/each}
-        <label>Helix samples / turn
-          <input type="number" min="4" step="1" value={bundle.spanVisualAssembly.helixSamplesPerTurn}
-            onchange={(event) => updateBundle(bundle, (draft) => {
-              draft.spanVisualAssembly.helixSamplesPerTurn = Math.trunc(numberValue(event));
-            })} />
-        </label>
-      </details>
+        <p class="hint">Radius 0 uses auto-fit. A valid support band is required when enabled.</p>
+        <details>
+          <summary>Wander, twist, and sampling</summary>
+          {#each [
+            ["memberWanderRatio", "Member wander ratio", 0.05],
+            ["memberWanderWavelength", "Member wander wavelength", 0.1],
+            ["memberWanderPhaseBias", "Member wander phase", 0.1],
+            ["memberTwistTurnsPerMeter", "Member twist turns / m", 0.1],
+            ["memberTwistPhase", "Member twist phase", 0.1]
+          ] as field}
+            <label>{field[1]}<input type="number" step={field[2]}
+              value={fmt(bundle.spanVisualAssembly[field[0] as keyof typeof bundle.spanVisualAssembly] as number)}
+              onchange={(event) => updateBundle(bundle, (draft) => {
+                (draft.spanVisualAssembly[field[0] as keyof typeof draft.spanVisualAssembly] as number) =
+                  round6(numberValue(event));
+              })} /></label>
+          {/each}
+          <label>Helix samples / turn
+            <input type="number" min="4" step="1" value={bundle.spanVisualAssembly.helixSamplesPerTurn}
+              onchange={(event) => updateBundle(bundle, (draft) => {
+                draft.spanVisualAssembly.helixSamplesPerTurn = Math.trunc(numberValue(event));
+              })} />
+          </label>
+          <p class="hint">Member twist also works when helix is disabled.</p>
+        </details>
+      </div>
       <details>
         <summary>Population rules ({bundle.populationRules.length})</summary>
         {#each bundle.populationRules as rule (rule.ruleId)}

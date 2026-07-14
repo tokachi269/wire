@@ -1,10 +1,11 @@
 import * as THREE from "three";
-import type { PathPickInfo, SupportNodeInfo } from "../model";
+import type { PathPickInfo, PoleInfo, PortInfo, SupportNodeInfo } from "../model";
 import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
 import {
   cloneSharedAsset,
   type LoadedModelAsset,
+  type ModelAssetKind,
   modelAssetCache,
   poleGroundAnchor,
   poleVisibleLength
@@ -25,6 +26,12 @@ const POLE_TAPER_RATIO = 75;
 export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
+const ACCESSORY_ASSET_KINDS: ModelAssetKind[] = [
+  "belt",
+  "communicationClampLong",
+  "crossarmHv",
+  "hvInsulator"
+];
 
 export interface SceneContentSyncStats {
   total: number;
@@ -113,6 +120,8 @@ export class WireScene {
     ownsResources: boolean;
   }>();
   private poleAsset: LoadedModelAsset | null = null;
+  private readonly accessoryAssets = new Map<ModelAssetKind, LoadedModelAsset>();
+  private readonly accessoryObjects = new Map<string, { object: THREE.Object3D; version: string }>();
   private contentSyncStats: SceneContentSyncStats = { total: 0, reused: 0, rebuilt: 0, removed: 0 };
 
   constructor(
@@ -164,6 +173,14 @@ export class WireScene {
       if (this.snapshot !== null) this.syncContent(this.snapshot);
     }).catch((error: unknown) => {
       console.warn(`[wire] pole GLB unavailable; using primitive fallback: ${String(error)}`);
+    });
+    void Promise.all(ACCESSORY_ASSET_KINDS.map(async (kind) => {
+      const asset = await modelAssetCache.load(kind);
+      this.accessoryAssets.set(kind, asset);
+    })).then(() => {
+      if (this.snapshot !== null) this.syncContent(this.snapshot);
+    }).catch((error: unknown) => {
+      console.warn(`[wire] accessory GLB unavailable; keeping existing visual fallback: ${String(error)}`);
     });
 
     this.unsubscribe = this.store.value.subscribe((snapshot) => this.applySnapshot(snapshot));
@@ -317,8 +334,10 @@ export class WireScene {
     this.unsubscribe();
     for (const item of this.partMeshes.values()) this.disposeContentMesh(item.mesh);
     for (const item of this.poleMeshes.values()) this.disposePoleObject(item);
+    for (const item of this.accessoryObjects.values()) this.content.remove(item.object);
     this.partMeshes.clear();
     this.poleMeshes.clear();
+    this.accessoryObjects.clear();
     this.disposeGroup(this.backbone);
     this.disposeGroup(this.guide);
     this.disposeGroup(this.snapPreview);
@@ -635,6 +654,7 @@ export class WireScene {
       this.poleMeshes.delete(key);
       changed = true;
     }
+    changed = this.syncPoleAccessories(snapshot) || changed;
     return changed;
   }
 
@@ -711,6 +731,244 @@ export class WireScene {
       });
     }
     this.content.remove(entry.object);
+  }
+
+  private syncPoleAccessories(snapshot: ViewerSnapshot): boolean {
+    // Focused sync tests construct a minimal scene shell without loading assets.
+    if (this.accessoryAssets === undefined || this.accessoryObjects === undefined) return false;
+    const poleAsset = this.poleAsset;
+    const beltAsset = this.accessoryAssets.get("belt");
+    const clampAsset = this.accessoryAssets.get("communicationClampLong");
+    const crossarmAsset = this.accessoryAssets.get("crossarmHv");
+    const insulatorAsset = this.accessoryAssets.get("hvInsulator");
+    if (poleAsset === null || beltAsset === undefined || clampAsset === undefined ||
+        crossarmAsset === undefined || insulatorAsset === undefined) {
+      return false;
+    }
+
+    const portsByPole = new Map<string, PortInfo[]>();
+    for (const port of snapshot.ports) {
+      const ports = portsByPole.get(port.ownerPoleId) ?? [];
+      ports.push(port);
+      portsByPole.set(port.ownerPoleId, ports);
+    }
+
+    let changed = false;
+    const nextKeys = new Set<string>();
+    for (const pole of snapshot.poles) {
+      const ports = portsByPole.get(pole.id) ?? [];
+      const hvPorts = ports.filter((port) => port.category === 0);
+      if (hvPorts.length > 0) {
+        changed = this.upsertAccessory(
+          `${pole.id}:crossarm`,
+          this.poleAccessoryVersion(pole, "crossarm"),
+          () => this.makePoleRelativeModel(crossarmAsset, poleAsset, pole, Math.PI / 2),
+          nextKeys
+        ) || changed;
+        const insulatorCount = Math.min(3, hvPorts.length);
+        for (let index = 0; index < insulatorCount; index += 1) {
+          const key = `${pole.id}:insulator:${index}`;
+          changed = this.upsertAccessory(
+            key,
+            this.poleAccessoryVersion(pole, `insulator:${index}`),
+            () => this.makePoleRelativeModel(
+              insulatorAsset,
+              poleAsset,
+              pole,
+              Math.PI / 2,
+              new THREE.Vector3(index * 0.75, 0, 0)
+            ),
+            nextKeys
+          ) || changed;
+        }
+      }
+
+      for (const port of ports.filter((candidate) => candidate.category === 2)) {
+        const key = `${pole.id}:communication-clamp:${port.id}`;
+        changed = this.upsertAccessory(
+          key,
+          `${this.poleAccessoryVersion(pole, "communication-clamp")}:${port.x}:${port.y}:${port.z}`,
+          () => this.makeClampModel(clampAsset, pole, port),
+          nextKeys
+        ) || changed;
+      }
+
+      const bandGroups = new Map<string, PortInfo[]>();
+      for (const port of ports) {
+        const groupKey = `${port.category}:${port.layer}`;
+        const group = bandGroups.get(groupKey) ?? [];
+        group.push(port);
+        bandGroups.set(groupKey, group);
+      }
+      for (const [bandKey, bandPorts] of bandGroups) {
+        const key = `${pole.id}:belt:${bandKey}`;
+        const positions = bandPorts.map((port) => `${port.x}:${port.y}:${port.z}`).join("|");
+        changed = this.upsertAccessory(
+          key,
+          `${this.poleAccessoryVersion(pole, `belt:${bandKey}`)}:${positions}`,
+          () => this.makeBeltModel(beltAsset, pole, bandPorts),
+          nextKeys
+        ) || changed;
+      }
+    }
+
+    for (const [key, previous] of [...this.accessoryObjects]) {
+      if (nextKeys.has(key)) continue;
+      this.content.remove(previous.object);
+      this.accessoryObjects.delete(key);
+      changed = true;
+    }
+    return changed;
+  }
+
+  private upsertAccessory(
+    key: string,
+    version: string,
+    makeObject: () => THREE.Object3D,
+    nextKeys: Set<string>
+  ): boolean {
+    nextKeys.add(key);
+    const previous = this.accessoryObjects.get(key);
+    if (previous?.version === version) return false;
+    if (previous !== undefined) this.content.remove(previous.object);
+    const object = makeObject();
+    object.userData.sourceKind = "pole-accessory";
+    object.userData.sourceId = key;
+    this.content.add(object);
+    this.accessoryObjects.set(key, { object, version });
+    return true;
+  }
+
+  private poleAccessoryVersion(pole: PoleInfo, suffix: string): string {
+    return [
+      suffix,
+      pole.positionX,
+      pole.positionY,
+      pole.positionZ,
+      pole.rotationX,
+      pole.rotationY,
+      pole.rotationZ,
+      pole.scaleX,
+      pole.scaleY,
+      pole.scaleZ,
+      pole.height
+    ].join(":");
+  }
+
+  private makePoleRelativeModel(
+    asset: LoadedModelAsset,
+    poleAsset: LoadedModelAsset,
+    pole: PoleInfo,
+    yawY = 0,
+    assetTranslation = new THREE.Vector3()
+  ): THREE.Object3D {
+    const source = cloneSharedAsset(asset);
+    source.position.sub(poleGroundAnchor(poleAsset)).add(assetTranslation);
+    this.enableModelShadows(source);
+
+    const fixed = new THREE.Group();
+    fixed.rotation.y = yawY;
+    fixed.add(source);
+    const oriented = new THREE.Group();
+    oriented.rotation.x = Math.PI / 2;
+    const scale = pole.height / poleVisibleLength(poleAsset) * pole.scaleX;
+    oriented.scale.setScalar(scale);
+    oriented.add(fixed);
+    const root = new THREE.Group();
+    root.position.set(pole.positionX, pole.positionY, pole.positionZ);
+    setPoleRotation(root, pole.rotationX, pole.rotationY, pole.rotationZ);
+    root.add(oriented);
+    return root;
+  }
+
+  private makeClampModel(asset: LoadedModelAsset, pole: PoleInfo, port: PortInfo): THREE.Object3D {
+    const frame = this.poleFrame(pole);
+    const target = new THREE.Vector3(port.x, port.y, port.z);
+    const offset = target.clone().sub(frame.origin);
+    const axisPoint = frame.origin.clone().addScaledVector(frame.up, offset.dot(frame.up));
+    let outward = target.clone().sub(axisPoint);
+    if (outward.lengthSq() <= 1e-12) outward = frame.localY.clone().multiplyScalar(-1);
+    outward.normalize();
+    const localX = frame.up.clone().cross(outward).normalize();
+    const anchor = asset.bounds.getCenter(new THREE.Vector3());
+    anchor.z = asset.bounds.min.z;
+    return this.makeAnchoredModel(asset, anchor, target, localX, frame.up, outward, pole.scaleX);
+  }
+
+  private makeBeltModel(asset: LoadedModelAsset, pole: PoleInfo, ports: PortInfo[]): THREE.Object3D {
+    const frame = this.poleFrame(pole);
+    const centroid = ports.reduce(
+      (sum, port) => sum.add(new THREE.Vector3(port.x, port.y, port.z)),
+      new THREE.Vector3()
+    ).multiplyScalar(1 / ports.length);
+    const height = centroid.clone().sub(frame.origin).dot(frame.up);
+    const target = frame.origin.clone().addScaledVector(frame.up, height);
+    const anchor = asset.bounds.getCenter(new THREE.Vector3());
+    const bottomHeight = -pole.height * (2 / 10);
+    const bottomRadius = this.poleRadiusAtHeight(pole, bottomHeight);
+    const targetRadius = this.poleRadiusAtHeight(pole, height);
+    const radialScale = bottomRadius > 1e-9 ? targetRadius / bottomRadius : 1;
+    return this.makeAnchoredModel(
+      asset,
+      anchor,
+      target,
+      frame.localX,
+      frame.up,
+      frame.localY.clone().multiplyScalar(-1),
+      pole.scaleX,
+      radialScale
+    );
+  }
+
+  private makeAnchoredModel(
+    asset: LoadedModelAsset,
+    anchor: THREE.Vector3,
+    target: THREE.Vector3,
+    axisX: THREE.Vector3,
+    axisY: THREE.Vector3,
+    axisZ: THREE.Vector3,
+    scale: number,
+    radialScale = 1
+  ): THREE.Object3D {
+    const source = cloneSharedAsset(asset);
+    source.position.copy(anchor).multiplyScalar(-1);
+    this.enableModelShadows(source);
+    const root = new THREE.Group();
+    root.position.copy(target);
+    const basis = new THREE.Matrix4().makeBasis(axisX, axisY, axisZ);
+    root.quaternion.setFromRotationMatrix(basis);
+    root.scale.set(scale * radialScale, scale, scale * radialScale);
+    root.add(source);
+    return root;
+  }
+
+  private poleFrame(pole: PoleInfo): {
+    origin: THREE.Vector3;
+    localX: THREE.Vector3;
+    localY: THREE.Vector3;
+    up: THREE.Vector3;
+  } {
+    const rotation = new THREE.Object3D();
+    setPoleRotation(rotation, pole.rotationX, pole.rotationY, pole.rotationZ);
+    return {
+      origin: new THREE.Vector3(pole.positionX, pole.positionY, pole.positionZ),
+      localX: new THREE.Vector3(1, 0, 0).applyQuaternion(rotation.quaternion),
+      localY: new THREE.Vector3(0, 1, 0).applyQuaternion(rotation.quaternion),
+      up: new THREE.Vector3(0, 0, 1).applyQuaternion(rotation.quaternion)
+    };
+  }
+
+  private poleRadiusAtHeight(pole: PoleInfo, height: number): number {
+    const topRadius = POLE_TOP_DIAMETER_M / 2;
+    return Math.max(topRadius, topRadius + (pole.height - height) / (2 * POLE_TAPER_RATIO));
+  }
+
+  private enableModelShadows(root: THREE.Object3D): void {
+    root.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      object.castShadow = true;
+      object.receiveShadow = true;
+    });
   }
 
   private rebuildBackbone(snapshot: ViewerSnapshot): void {

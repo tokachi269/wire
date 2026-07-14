@@ -235,8 +235,8 @@ describe("viewer actions", () => {
     expect([...snapshot.parts[0].samples].every(Number.isFinite)).toBe(true);
     expect(snapshot.generationMs).toBe(1.25);
     expect(snapshot.error).toBe("");
-    expect(snapshot.logs.at(-1)).toBe(
-      "route generated: 2 poles / 1 spans | scene parts total=1 reused=0 rebuilt=1 removed=0"
+    expect(snapshot.logs.at(-1)).toMatch(
+      /^route generated: 2 poles \/ 1 spans \| perf core=1\.25ms wasm-call=.+ms scene=.+ms action=.+ms emit=0\.10ms save-graph=0\.10ms geom=0\.10ms \| scene parts total=1 reused=0 rebuilt=1 removed=0$/
     );
   });
 

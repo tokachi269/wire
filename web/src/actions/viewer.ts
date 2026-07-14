@@ -922,13 +922,22 @@ export class ViewerActions {
       ? ""
       : ` | scene parts total=${sceneStats.total} reused=${sceneStats.reused}` +
         ` rebuilt=${sceneStats.rebuilt} removed=${sceneStats.removed}`;
+    const timingDiagnostic =
+      ` | perf core=${result.totalMs.toFixed(2)}ms` +
+      ` wasm-call=${(generateEnd - generateStart).toFixed(2)}ms` +
+      ` scene=${sceneUpdateMs.toFixed(2)}ms` +
+      ` action=${viewerUpdateMs.toFixed(2)}ms` +
+      ` emit=${result.timing.emitMs.toFixed(2)}ms` +
+      ` save-graph=${result.timing.saveGraphMs.toFixed(2)}ms` +
+      ` geom=${result.timing.geomMs.toFixed(2)}ms`;
     this.store.update((current) => ({
       ...current,
       sceneUpdateMs,
       viewerUpdateMs,
       logs: [
         ...current.logs,
-        `route generated: ${result.generatedPoleCount} poles / ${result.generatedSpanCount} spans${sceneDiagnostic}`
+        `route generated: ${result.generatedPoleCount} poles / ${result.generatedSpanCount} spans` +
+          `${timingDiagnostic}${sceneDiagnostic}`
       ]
     }));
   }

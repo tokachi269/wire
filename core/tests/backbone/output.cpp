@@ -776,6 +776,7 @@ bool C761_default_optical_bundle_emits_helix() {
   if (optical_template == state.view().bundle_templates().end() ||
       communication_template == state.view().bundle_templates().end() ||
       !optical_template->second.span_visual_assembly.helix_enabled ||
+      optical_template->second.span_visual_assembly.helix_samples_per_turn != 6 ||
       optical_template->second.support_wire_pole_band_id != 600 ||
       communication_template->second.span_visual_assembly.helix_enabled ||
       communication_template->second.support_wire_pole_band_id != 0) return false;

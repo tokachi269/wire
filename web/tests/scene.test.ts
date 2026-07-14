@@ -30,8 +30,8 @@ describe("pole rendering", () => {
     expect(renderedTop.distanceTo(coreTop)).toBeLessThan(1e-12);
   });
 
-  it("uses a six-sided pole and triangular wire tubes", () => {
-    expect(POLE_RENDER_SIDES).toBe(6);
+  it("keeps the pole round while using triangular wire tubes", () => {
+    expect(POLE_RENDER_SIDES).toBe(16);
     expect(WIRE_RADIAL_SEGMENTS).toBe(3);
   });
 });

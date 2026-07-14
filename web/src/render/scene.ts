@@ -15,7 +15,7 @@ function colorFromRgba(rgba: number): { color: THREE.Color; opacity: number } {
 
 const POLE_TOP_DIAMETER_M = 0.190;
 const POLE_TAPER_RATIO = 75;
-export const POLE_RENDER_SIDES = 6;
+export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
 

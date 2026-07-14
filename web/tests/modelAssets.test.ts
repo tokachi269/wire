@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import {
+  buildDefaultModelBootstrap,
   cloneSharedAsset,
   ModelAssetCache
 } from "../src/render/modelAssets";
@@ -32,5 +33,48 @@ describe("model asset cache", () => {
     expect(meshA!.material).toBe(meshB!.material);
     expect(first.mountAnchor.y).toBeCloseTo(0, 12);
     expect(first.size.y * (10 / 12)).toBeCloseTo(10, 12);
+  });
+
+  it("builds HV and communication assemblies from measured local assets", async () => {
+    const load = vi.fn(async () => {
+      const geometry = new THREE.BoxGeometry(0.1, 0.2, 0.4);
+      const source = new THREE.Group();
+      source.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()));
+      return source;
+    });
+    const cache = new ModelAssetCache(load);
+    const [pole, crossarm, belt, insulator, clamp] = await Promise.all([
+      cache.load("poleBody"),
+      cache.load("crossarmHv"),
+      cache.load("belt"),
+      cache.load("hvInsulator"),
+      cache.load("communicationClampLong")
+    ]);
+    const bootstrap = buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp);
+
+    expect(bootstrap.poleAssignments).toEqual([
+      { poleTypeId: 1, assemblyId: 9201 },
+      { poleTypeId: 2, assemblyId: 9205 }
+    ]);
+    const distributionPole = bootstrap.assemblies.find((assembly) => assembly.id === 9201)!;
+    const communicationPole = bootstrap.assemblies.find((assembly) => assembly.id === 9205)!;
+    expect(distributionPole.parts[0].localTransform.scaleZ).toBeCloseTo(
+      10 / (pole.bounds.max.y - pole.mountAnchor.y), 12
+    );
+    expect(communicationPole.parts[0].localTransform.scaleZ).toBeCloseTo(
+      11.35 / (pole.bounds.max.y - pole.mountAnchor.y), 12
+    );
+    expect(bootstrap.bundleAssignments).toContainEqual({
+      bundleTemplateId: 104,
+      rowAssemblyId: 0,
+      endpointAssemblyId: 9204
+    });
+    const communication = bootstrap.assemblies.find((assembly) => assembly.id === 9204)!;
+    const clampPart = communication.parts[0];
+    expect(clampPart.modelKey).toBe("communication_clamp_long");
+    expect(clampPart.localTransform.rotationZ).toBe(180);
+    expect(clampPart.localTransform.positionY).toBeCloseTo(clamp.size.z * 0.5, 12);
+    expect(clampPart.sockets[0].positionY).toBeCloseTo(-clamp.size.z * 0.5, 12);
+    expect(communication.wireSocket).toEqual({ partId: 1, socketName: "wire" });
   });
 });

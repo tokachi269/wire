@@ -50,9 +50,27 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
         }]
       }],
       wireSocket: { partId: 1, socketName: "wire" }
+    }, {
+      id: 9904,
+      version: 1,
+      parts: [{
+        partId: 1, modelKey: "communication_clamp_long", descriptorName: "clamp", descriptorVersion: 1,
+        fitMode: 0, localTransform: identityTransform(), sockets: [{
+          name: "wire",
+          positionX: 0, positionY: 0.3, positionZ: 0,
+          directionX: 0, directionY: 1, directionZ: 0
+        }]
+      }],
+      wireSocket: { partId: 1, socketName: "wire" }
     }],
-    poleAssignments: [{ poleTypeId: 1, assemblyId: 9901 }],
-    bundleAssignments: [{ bundleTemplateId: 101, rowAssemblyId: 9902, endpointAssemblyId: 9903 }]
+    poleAssignments: [
+      { poleTypeId: 1, assemblyId: 9901 },
+      { poleTypeId: 2, assemblyId: 9901 }
+    ],
+    bundleAssignments: [
+      { bundleTemplateId: 101, rowAssemblyId: 9902, endpointAssemblyId: 9903 },
+      { bundleTemplateId: 104, rowAssemblyId: 0, endpointAssemblyId: 9904 }
+    ]
   };
 }
 
@@ -64,6 +82,22 @@ describe("wire wasm smoke", () => {
     const module = await loadWireModule();
     createState = () => new module.WireState();
     state = new module.WireState();
+  });
+
+  it("bootstraps one straight communication fixture per Port", () => {
+    const modelState = createState();
+    const configured = modelState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+    const generated = modelState.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0]), [104], 0, 2, [0], 0, 7, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const models = modelState.visualScene().models;
+    expect(models.filter((model) => model.modelKey === "pole_body")).toHaveLength(2);
+    expect(models.filter((model) => model.modelKey === "communication_clamp_long")).toHaveLength(2);
+    expect(new Set(models.map((model) => model.stableKey)).size).toBe(models.length);
+    modelState.delete();
   });
 
   afterAll(() => {

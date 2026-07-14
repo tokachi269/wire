@@ -4,6 +4,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type {
   ModelAssemblyBootstrapInput,
   ModelAssemblyPartInput,
+  ModelSocketInput,
   ModelTransformInput
 } from "../model";
 
@@ -192,7 +193,7 @@ function part(
   partId: number,
   fitMode: number,
   localTransform = identityTransform(),
-  wireSocketHeight = 0
+  wireSocket: ModelSocketInput | null = null
 ): ModelAssemblyPartInput {
   return {
     partId,
@@ -201,27 +202,25 @@ function part(
     descriptorVersion: asset.descriptorVersion,
     fitMode,
     localTransform,
-    sockets: wireSocketHeight > 0
-      ? [{
-          name: "wire",
-          positionX: 0,
-          positionY: 0,
-          positionZ: wireSocketHeight,
-          directionX: 1,
-          directionY: 0,
-          directionZ: 0
-        }]
-      : []
+    sockets: wireSocket === null ? [] : [wireSocket]
   };
 }
 
-export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstrapInput> {
-  const [pole, crossarm, belt, insulator] = await Promise.all([
-    modelAssetCache.load("poleBody"),
-    modelAssetCache.load("crossarmHv"),
-    modelAssetCache.load("belt"),
-    modelAssetCache.load("hvInsulator")
-  ]);
+export function buildDefaultModelBootstrap(
+  pole: LoadedModelAsset,
+  crossarm: LoadedModelAsset,
+  belt: LoadedModelAsset,
+  insulator: LoadedModelAsset,
+  communicationClamp: LoadedModelAsset
+): ModelAssemblyBootstrapInput {
+  const poleVisibleLength = pole.bounds.max.y - pole.mountAnchor.y;
+  if (!Number.isFinite(poleVisibleLength) || poleVisibleLength <= 0) {
+    throw new Error("Pole adapter requires a positive visible length");
+  }
+  const distributionPoleTransform = identityTransform();
+  distributionPoleTransform.scaleZ = 10.0 / poleVisibleLength;
+  const communicationPoleTransform = identityTransform();
+  communicationPoleTransform.scaleZ = 11.35 / poleVisibleLength;
   const beltReference = belt.adapter.radialReferenceM;
   if (beltReference === undefined || beltReference <= 0) {
     throw new Error("Belt adapter requires a positive radial reference");
@@ -231,16 +230,47 @@ export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstra
   beltTransform.scaleY = 1 / beltReference;
   const crossarmTransform = identityTransform();
   crossarmTransform.rotationZ = 90;
+  const hvWireSocket: ModelSocketInput = {
+    name: "wire",
+    positionX: 0,
+    positionY: 0,
+    positionZ: insulator.size.y,
+    directionX: 1,
+    directionY: 0,
+    directionZ: 0
+  };
+
+  // Blender +Y is the clamp insertion axis. After glTF Y-up normalization it
+  // is assembly-local +Y. Rotate that end toward the pole and place the wire
+  // socket at the opposite end, using the measured model length.
+  const clampLength = communicationClamp.size.z;
+  if (!Number.isFinite(clampLength) || clampLength <= 0) {
+    throw new Error("Communication clamp adapter requires a positive insertion length");
+  }
+  const clampTransform = identityTransform();
+  clampTransform.positionY = clampLength * 0.5;
+  clampTransform.rotationZ = 180;
+  const clampWireSocket: ModelSocketInput = {
+    name: "wire",
+    positionX: 0,
+    positionY: -clampLength * 0.5,
+    positionZ: 0,
+    directionX: 0,
+    directionY: -1,
+    directionZ: 0
+  };
 
   const poleAssemblyId = 9201;
   const hvRowAssemblyId = 9202;
   const hvEndpointAssemblyId = 9203;
+  const communicationEndpointAssemblyId = 9204;
+  const communicationPoleAssemblyId = 9205;
   return {
     assemblies: [
       {
         id: poleAssemblyId,
         version: 1,
-        parts: [part(pole, 1, 1)],
+        parts: [part(pole, 1, 1, distributionPoleTransform)],
         wireSocket: null
       },
       {
@@ -255,17 +285,50 @@ export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstra
       {
         id: hvEndpointAssemblyId,
         version: 1,
-        parts: [part(insulator, 1, 0, identityTransform(), insulator.size.y)],
+        parts: [part(insulator, 1, 0, identityTransform(), hvWireSocket)],
         wireSocket: { partId: 1, socketName: "wire" }
+      },
+      {
+        id: communicationEndpointAssemblyId,
+        version: 1,
+        parts: [part(communicationClamp, 1, 0, clampTransform, clampWireSocket)],
+        wireSocket: { partId: 1, socketName: "wire" }
+      },
+      {
+        id: communicationPoleAssemblyId,
+        version: 1,
+        parts: [part(pole, 1, 1, communicationPoleTransform)],
+        wireSocket: null
       }
     ],
-    poleAssignments: [{ poleTypeId: 1, assemblyId: poleAssemblyId }],
-    bundleAssignments: [{
-      bundleTemplateId: 101,
-      rowAssemblyId: hvRowAssemblyId,
-      endpointAssemblyId: hvEndpointAssemblyId
-    }]
+    poleAssignments: [
+      { poleTypeId: 1, assemblyId: poleAssemblyId },
+      { poleTypeId: 2, assemblyId: communicationPoleAssemblyId }
+    ],
+    bundleAssignments: [
+      {
+        bundleTemplateId: 101,
+        rowAssemblyId: hvRowAssemblyId,
+        endpointAssemblyId: hvEndpointAssemblyId
+      },
+      {
+        bundleTemplateId: 104,
+        rowAssemblyId: 0,
+        endpointAssemblyId: communicationEndpointAssemblyId
+      }
+    ]
   };
+}
+
+export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstrapInput> {
+  const [pole, crossarm, belt, insulator, communicationClamp] = await Promise.all([
+    modelAssetCache.load("poleBody"),
+    modelAssetCache.load("crossarmHv"),
+    modelAssetCache.load("belt"),
+    modelAssetCache.load("hvInsulator"),
+    modelAssetCache.load("communicationClampLong")
+  ]);
+  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, communicationClamp);
 }
 
 async function loadGltfScene(url: string): Promise<THREE.Group> {

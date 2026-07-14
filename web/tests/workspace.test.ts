@@ -45,7 +45,8 @@ describe("workspace persistence", () => {
     expect(restoredBridge.scene().spans.length).toBeGreaterThan(0);
     expect(current(restoredStore)).toEqual(expect.objectContaining({
       cameraFov: 67,
-      showLeftPanel: false
+      showLeftPanel: false,
+      pathPoints: []
     }));
 
     await restoredActions.resetWorkspace();

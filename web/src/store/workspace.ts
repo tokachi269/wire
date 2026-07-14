@@ -1,8 +1,6 @@
 import type {
-  PathPointSpec,
   SelectionKind,
-  ViewerSnapshot,
-  WorldPoint
+  ViewerSnapshot
 } from "./viewer";
 
 export const WORKSPACE_CACHE_KEY = "wire.workspace.v1";
@@ -43,8 +41,6 @@ export class IndexedDbWorkspaceStorage implements WorkspaceStorage {
 }
 
 export interface WorkspacePreferences {
-  pathPoints: WorldPoint[];
-  pathPointSpecs: Array<PathPointSpec | null>;
   selectedBundleTemplateId: number | null;
   selectedDrawBundleTemplateIds: number[];
   drawBundleCounts: Record<number, number>;
@@ -80,8 +76,6 @@ export function captureWorkspacePreferences(
   snapshot: ViewerSnapshot
 ): WorkspacePreferences {
   return {
-    pathPoints: snapshot.pathPoints,
-    pathPointSpecs: snapshot.pathPointSpecs,
     selectedBundleTemplateId: snapshot.selectedBundleTemplateId,
     selectedDrawBundleTemplateIds: snapshot.selectedDrawBundleTemplateIds,
     drawBundleCounts: snapshot.drawBundleCounts,

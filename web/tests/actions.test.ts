@@ -74,8 +74,10 @@ describe("workspace cache", () => {
     expect(current(secondStore)).toEqual(expect.objectContaining({
       cameraFov: 73,
       showRightPanel: false,
-      pathPoints: [[1, 2, 3]]
+      pathPoints: []
     }));
+    expect((await cache.read())?.viewer).not.toHaveProperty("pathPoints");
+    expect((await cache.read())?.viewer).not.toHaveProperty("pathPointSpecs");
 
     await secondActions.resetWorkspace();
     expect(secondCoreState).toBe("fresh-core");

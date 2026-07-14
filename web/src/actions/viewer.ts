@@ -1094,7 +1094,12 @@ export class ViewerActions {
   }
 
   private restoreWorkspacePreferences(preferences: WorkspacePreferences): void {
-    this.store.update((current) => ({ ...current, ...preferences }));
+    this.store.update((current) => ({
+      ...current,
+      ...preferences,
+      pathPoints: [],
+      pathPointSpecs: []
+    }));
   }
 
   private startWorkspacePersistence(): void {

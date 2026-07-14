@@ -91,6 +91,33 @@ describe("workspace cache", () => {
     secondActions.dispose();
     vi.useRealTimers();
   });
+
+  it("preserves a workspace that the current core cannot restore", async () => {
+    const values = new Map<string, string>();
+    const cache = new WorkspaceCache({
+      get: async (key: string) => values.get(key) ?? null,
+      set: async (key: string, value: string) => { values.set(key, value); },
+      remove: async (key: string) => { values.delete(key); }
+    });
+    const store = new ViewerStore();
+    await cache.write("future-core-state", current(store));
+    const actions = new ViewerActions(
+      actionBridge({
+        saveState: () => "factory-core",
+        loadState: () => ({ ok: false, error: "loaded state failed validation: Example" })
+      }),
+      store,
+      cache
+    );
+
+    actions.initialize();
+    await actions.restoreWorkspace();
+    await actions.flushWorkspaceCache();
+
+    expect((await cache.read())?.coreState).toBe("future-core-state");
+    expect(current(store).error).toContain("loaded state failed validation: Example");
+    actions.dispose();
+  });
 });
 
 function timing(totalMs: number): GenerationTiming {

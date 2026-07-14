@@ -258,8 +258,9 @@ export class ViewerActions {
         }));
         this.refreshScene();
       } else {
-        await this.workspaceCache?.clear();
+        this.persistencePaused = true;
         this.store.setError(`Workspace restore failed: ${result.error}`);
+        return;
       }
     }
     this.persistencePaused = false;

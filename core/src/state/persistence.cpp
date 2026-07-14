@@ -1365,6 +1365,16 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   const ValidationResult validation = trial.Validate();
   if (!validation.ok()) {
     result.error = "authoritative deserialization: loaded state failed validation";
+    const auto issue = std::find_if(validation.issues.begin(), validation.issues.end(),
+                                    [](const ValidationIssue& candidate) {
+                                      return candidate.severity == ValidationSeverity::kError;
+                                    });
+    if (issue != validation.issues.end()) {
+      result.error += ": " + issue->code + ": " + issue->message;
+      if (issue->object_id != kInvalidObjectId) {
+        result.error += " (object " + std::to_string(issue->object_id) + ")";
+      }
+    }
     return result;
   }
 

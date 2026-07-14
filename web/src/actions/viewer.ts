@@ -419,40 +419,6 @@ export class ViewerActions {
     }));
   }
 
-  saveState(): void {
-    const text = this.bridge.saveState();
-    if (text.length === 0) {
-      this.store.setError("state save failed");
-      return;
-    }
-    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `wire-state-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  loadState(text: string): boolean {
-    const result = this.bridge.loadState(text);
-    if (!result.ok) {
-      this.store.setError(result.error);
-      return false;
-    }
-    this.refreshCatalogs();
-    this.store.update((current) => ({
-      ...current,
-      geometry: this.bridge.geometrySettings(),
-      layout: this.bridge.layoutSettings(),
-      visual: this.bridge.visualSettings()
-    }));
-    this.refreshScene();
-    this.store.setError("");
-    return true;
-  }
-
   async resetWorkspace(): Promise<void> {
     if (this.factoryCoreState.length === 0) {
       this.store.setError("Workspace reset is unavailable before initialization");

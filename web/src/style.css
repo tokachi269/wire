@@ -59,10 +59,6 @@ button:hover {
   gap: 0.65rem;
 }
 
-.state-file-input {
-  display: none;
-}
-
 main {
   position: relative;
   width: 100vw;

@@ -628,13 +628,6 @@
             patchCable(cable, "colorRgba", rgbaValue(textValue(event), cable.colorRgba))
           )} />
       </label>
-      <label class="check"><input type="checkbox" checked={cable.requiresInsulator}
-        onchange={(event) => actions.commitCableTemplate(patchCable(cable, "requiresInsulator", checkedValue(event)))} />
-        Requires insulator</label>
-      <label>Insulator attach height
-        <input type="number" step="0.005" value={fmt(cable.insulatorAttachmentHeight)}
-          onchange={(event) => actions.commitCableTemplate(patchCable(cable, "insulatorAttachmentHeight", numberValue(event)))} />
-      </label>
       <label>Sag factor
         <input type="number" step="0.005" value={fmt(cable.sagFactor)}
           oninput={(event) => actions.previewCableTemplate("sagFactor", numberValue(event))}

@@ -11,6 +11,7 @@ import type {
   GenerationTiming,
   GeometrySettings,
   LayoutSettings,
+  ModelAssemblyBootstrapInput,
   OperationResult,
   PathPickInfo,
   PoleInfo,
@@ -20,6 +21,7 @@ import type {
   SpanInfo,
   SupportNodeInfo,
   VisualPartInfo,
+  VisualModelInstanceInfo,
   VisualSettings
 } from "../model";
 
@@ -30,6 +32,7 @@ export interface VisualPartData {
 
 export interface SceneData {
   parts: VisualPartData[];
+  models: VisualModelInstanceInfo[];
   poles: PoleInfo[];
   ports: PortInfo[];
   spans: SpanInfo[];
@@ -39,6 +42,8 @@ export interface SceneData {
 }
 
 export class WireBridge {
+  private modelBootstrap: ModelAssemblyBootstrapInput | null = null;
+
   private constructor(private readonly state: WireStateHandle) {}
 
   static async create(options?: WireModuleOptions): Promise<WireBridge> {
@@ -118,6 +123,12 @@ export class WireBridge {
     return this.state.updatePoleTemplate(template);
   }
 
+  configureModelAssemblies(input: ModelAssemblyBootstrapInput): OperationResult {
+    const result = this.state.configureModelAssemblies(input);
+    if (result.ok) this.modelBootstrap = input;
+    return result;
+  }
+
   geometrySettings(): GeometrySettings {
     return this.state.geometrySettings();
   }
@@ -155,7 +166,9 @@ export class WireBridge {
   }
 
   loadState(text: string): OperationResult {
-    return this.state.loadState(text);
+    return this.modelBootstrap === null
+      ? this.state.loadState(text)
+      : this.state.loadStateWithModels(text, this.modelBootstrap);
   }
 
   scene(): SceneData {
@@ -190,7 +203,16 @@ export class WireBridge {
     }
     const timing = this.state.lastGenerationTiming();
     const lastGenerationTiming = timing.totalMs > 0 ? timing : null;
-    return { parts, poles, ports, spans, supportNodes, backboneEdges, lastGenerationTiming };
+    return {
+      parts,
+      models: visual.models,
+      poles,
+      ports,
+      spans,
+      supportNodes,
+      backboneEdges,
+      lastGenerationTiming
+    };
   }
 
   clearPoleOrientationOverride(poleId: string): OperationResult {

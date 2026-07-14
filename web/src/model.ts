@@ -45,6 +45,82 @@ export interface VisualPartInfo {
   sampleCount: number;
 }
 
+export interface VisualModelInstanceInfo {
+  stableKey: string;
+  modelKey: string;
+  contentVersion: string;
+  positionX: number;
+  positionY: number;
+  positionZ: number;
+  rotationX: number;
+  rotationY: number;
+  rotationZ: number;
+  scaleX: number;
+  scaleY: number;
+  scaleZ: number;
+}
+
+export interface ModelSocketInput {
+  name: string;
+  positionX: number;
+  positionY: number;
+  positionZ: number;
+  directionX: number;
+  directionY: number;
+  directionZ: number;
+}
+
+export interface ModelTransformInput {
+  positionX: number;
+  positionY: number;
+  positionZ: number;
+  rotationX: number;
+  rotationY: number;
+  rotationZ: number;
+  scaleX: number;
+  scaleY: number;
+  scaleZ: number;
+}
+
+export interface ModelAssemblyPartInput {
+  partId: number;
+  modelKey: string;
+  descriptorName: string;
+  descriptorVersion: number;
+  fitMode: number;
+  localTransform: ModelTransformInput;
+  sockets: ModelSocketInput[];
+}
+
+export interface ModelAssemblyTemplateInput {
+  id: number;
+  version: number;
+  parts: ModelAssemblyPartInput[];
+  wireSocket: { partId: number; socketName: string } | null;
+}
+
+export interface ModelAssemblyBootstrapInput {
+  assemblies: ModelAssemblyTemplateInput[];
+  poleAssignments: Array<{ poleTypeId: number; assemblyId: number }>;
+  bundleAssignments: Array<{
+    bundleTemplateId: number;
+    rowAssemblyId: number;
+    endpointAssemblyId: number;
+  }>;
+}
+
+export interface SceneContentSyncStats {
+  total: number;
+  reused: number;
+  rebuilt: number;
+  removed: number;
+  modelTotal: number;
+  modelReused: number;
+  modelUpdated: number;
+  modelRebuilt: number;
+  modelRemoved: number;
+}
+
 export interface PoleInfo {
   id: string;
   poleTypeId?: number;
@@ -133,6 +209,8 @@ export interface BundleTemplateInfo {
   allowMidairNode: boolean;
   allowMidairBranch: boolean;
   supportWirePoleBandId: number;
+  rowFixtureAssemblyId: number;
+  endpointFixtureAssemblyId: number;
   spanVisualAssembly: SpanVisualAssemblyInfo;
   populationRules: PopulationRuleInfo[];
 }
@@ -172,8 +250,6 @@ export interface CableTemplateInfo {
   minBendRadius: number;
   materialStyle: number;
   colorRgba: number;
-  requiresInsulator: boolean;
-  insulatorAttachmentHeight: number;
   sagFactor: number;
   slackFactor: number;
   continuityPolicy: number;
@@ -220,6 +296,7 @@ export interface PoleTemplateInfo {
   name: string;
   description: string;
   defaultHeight: number;
+  poleVisualAssemblyId: number;
   portBands: PortBandInfo[];
   anchorSlots: AnchorSlotInfo[];
 }

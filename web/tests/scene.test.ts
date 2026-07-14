@@ -7,6 +7,7 @@ import {
   WIRE_RADIAL_SEGMENTS,
   setPoleRotation
 } from "../src/render/scene";
+import { modelAssetCache } from "../src/render/modelAssets";
 import { createViewerSnapshot } from "../src/store/viewer";
 
 function rotateCoreXyz(value: THREE.Vector3, xDeg: number, yDeg: number, zDeg: number): THREE.Vector3 {
@@ -55,6 +56,8 @@ describe("scene part reuse", () => {
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
+    scene.modelObjects = new Map();
+    scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
     const snapshot = createViewerSnapshot();
     snapshot.parts = [{
@@ -96,22 +99,97 @@ describe("scene part reuse", () => {
     }];
 
     expect(scene.syncContent(snapshot)).toBe(true);
-    expect(scene.contentSyncStats).toEqual({ total: 2, reused: 0, rebuilt: 2, removed: 0 });
+    expect(scene.contentSyncStats).toEqual({
+      total: 2, reused: 0, rebuilt: 2, removed: 0,
+      modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
+    });
     const first = scene.partMeshes.get("edge:1:lane:0").mesh;
     const second = scene.partMeshes.get("edge:2:lane:0").mesh;
     snapshot.logs.push("unrelated store update");
     expect(scene.syncContent(snapshot)).toBe(false);
-    expect(scene.contentSyncStats).toEqual({ total: 2, reused: 2, rebuilt: 0, removed: 0 });
+    expect(scene.contentSyncStats).toEqual({
+      total: 2, reused: 2, rebuilt: 0, removed: 0,
+      modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
+    });
     expect(scene.partMeshes.get("edge:1:lane:0").mesh).toBe(first);
 
     snapshot.parts[0].info.sourceVersion = "11";
     expect(scene.syncContent(snapshot)).toBe(true);
-    expect(scene.contentSyncStats).toEqual({ total: 2, reused: 1, rebuilt: 1, removed: 0 });
+    expect(scene.contentSyncStats).toEqual({
+      total: 2, reused: 1, rebuilt: 1, removed: 0,
+      modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
+    });
     expect(scene.partMeshes.get("edge:1:lane:0").mesh).not.toBe(first);
     expect(scene.partMeshes.get("edge:2:lane:0").mesh).toBe(second);
 
     snapshot.parts.splice(1, 1);
     expect(scene.syncContent(snapshot)).toBe(true);
-    expect(scene.contentSyncStats).toEqual({ total: 1, reused: 1, rebuilt: 0, removed: 1 });
+    expect(scene.contentSyncStats).toEqual({
+      total: 1, reused: 1, rebuilt: 0, removed: 1,
+      modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
+    });
+  });
+});
+
+describe("scene model reuse", () => {
+  it("reuses the Object3D for the same stable key and updates only its Core transform", () => {
+    const source = new THREE.Group();
+    source.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial()));
+    const bounds = new THREE.Box3(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5));
+    (modelAssetCache as any).loaded.set("poleBody", {
+      kind: "poleBody",
+      modelKey: "pole_body",
+      source,
+      bounds,
+      size: new THREE.Vector3(1, 1, 1),
+      mountAnchor: new THREE.Vector3(),
+      descriptorVersion: 1,
+      adapter: { modelKey: "pole_body", url: "test", mountRule: "center" }
+    });
+
+    const scene = Object.create(WireScene.prototype) as any;
+    scene.content = new THREE.Group();
+    scene.partMeshes = new Map();
+    scene.modelObjects = new Map();
+    scene.pendingModelKeys = new Set();
+    scene.poleMeshes = new Map();
+    const snapshot = createViewerSnapshot();
+    snapshot.models = [{
+      stableKey: "pole:1:9201:1",
+      modelKey: "pole_body",
+      contentVersion: "10",
+      positionX: 1,
+      positionY: 2,
+      positionZ: 3,
+      rotationX: 4,
+      rotationY: 5,
+      rotationZ: 6,
+      scaleX: 1,
+      scaleY: 1,
+      scaleZ: 1
+    }];
+
+    expect(scene.syncContent(snapshot)).toBe(true);
+    const first = scene.modelObjects.get("pole:1:9201:1").object;
+    expect(first.position.toArray()).toEqual([1, 2, 3]);
+
+    expect(scene.syncContent(snapshot)).toBe(false);
+    expect(scene.modelObjects.get("pole:1:9201:1").object).toBe(first);
+
+    snapshot.models[0] = {
+      ...snapshot.models[0],
+      contentVersion: "11",
+      positionX: 8
+    };
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.modelObjects.get("pole:1:9201:1").object).toBe(first);
+    expect(first.position.x).toBe(8);
+    expect(scene.contentSyncStats.modelUpdated).toBe(1);
+
+    snapshot.models = [];
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.modelObjects.size).toBe(0);
+    expect(scene.contentSyncStats.modelRemoved).toBe(1);
+    (modelAssetCache as any).loaded.delete("poleBody");
   });
 });

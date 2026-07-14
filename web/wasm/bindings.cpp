@@ -11,6 +11,7 @@
 
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
+#include "wire/core/model_descriptor.hpp"
 
 namespace {
 
@@ -63,6 +64,145 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
 
 [[nodiscard]] BundleTemplateId bundle_template_id(int raw) {
   return raw <= 0 ? wire::core::kInvalidBundleTemplateId : static_cast<BundleTemplateId>(raw);
+}
+
+[[nodiscard]] wire::core::Transformd transform_value(const val& input) {
+  wire::core::Transformd transform{};
+  transform.position = {
+      property<double>(input, "positionX"),
+      property<double>(input, "positionY"),
+      property<double>(input, "positionZ"),
+  };
+  transform.rotation_euler_deg = {
+      property<double>(input, "rotationX"),
+      property<double>(input, "rotationY"),
+      property<double>(input, "rotationZ"),
+  };
+  transform.scale = {
+      property<double>(input, "scaleX"),
+      property<double>(input, "scaleY"),
+      property<double>(input, "scaleZ"),
+  };
+  return transform;
+}
+
+[[nodiscard]] wire::core::EditResult<bool> apply_model_bootstrap(CoreState& state,
+                                                                  const val& input) {
+  wire::core::EditResult<bool> result{};
+  CoreState trial = state;
+  const val assemblies = input["assemblies"];
+  const std::size_t assembly_count = assemblies["length"].as<std::size_t>();
+  for (std::size_t assembly_index = 0; assembly_index < assembly_count; ++assembly_index) {
+    const val assembly_input = assemblies[assembly_index];
+    wire::core::ModelAssemblyTemplate assembly{};
+    assembly.id = property<wire::core::ModelAssemblyTemplateId>(assembly_input, "id");
+    assembly.version = property<std::uint64_t>(assembly_input, "version");
+    const val parts = assembly_input["parts"];
+    const std::size_t part_count = parts["length"].as<std::size_t>();
+    assembly.parts.reserve(part_count);
+    for (std::size_t part_index = 0; part_index < part_count; ++part_index) {
+      const val part_input = parts[part_index];
+      wire::core::ModelDescriptor descriptor{};
+      descriptor.measurement.name = property<std::string>(part_input, "descriptorName");
+      descriptor.measurement.version = property<std::uint64_t>(part_input, "descriptorVersion");
+      const val sockets = part_input["sockets"];
+      const std::size_t socket_count = sockets["length"].as<std::size_t>();
+      descriptor.measurement.sockets.reserve(socket_count);
+      for (std::size_t socket_index = 0; socket_index < socket_count; ++socket_index) {
+        const val socket_input = sockets[socket_index];
+        wire::core::ModelSocket socket{};
+        socket.name = property<std::string>(socket_input, "name");
+        socket.local_position = {
+            property<double>(socket_input, "positionX"),
+            property<double>(socket_input, "positionY"),
+            property<double>(socket_input, "positionZ"),
+        };
+        socket.local_direction = {
+            property<double>(socket_input, "directionX"),
+            property<double>(socket_input, "directionY"),
+            property<double>(socket_input, "directionZ"),
+        };
+        descriptor.measurement.sockets.push_back(std::move(socket));
+      }
+      const auto built = wire::core::build_model_assembly_part(
+          descriptor, property<std::uint32_t>(part_input, "partId"),
+          property<std::string>(part_input, "modelKey"),
+          transform_value(part_input["localTransform"]),
+          static_cast<wire::core::ModelFitMode>(property<int>(part_input, "fitMode")));
+      if (!built.report.conflicts.empty()) {
+        result.error = "model bootstrap: " + built.report.conflicts.front().message;
+        return result;
+      }
+      assembly.parts.push_back(built.part);
+    }
+    const val wire_socket = assembly_input["wireSocket"];
+    if (!wire_socket.isNull() && !wire_socket.isUndefined()) {
+      assembly.wire_socket = wire::core::AssemblySocketRef{
+          property<std::uint32_t>(wire_socket, "partId"),
+          property<std::string>(wire_socket, "socketName"),
+      };
+    }
+    const auto existing = CoreView(trial).model_assembly_templates().find(assembly.id);
+    if (existing != CoreView(trial).model_assembly_templates().end()) {
+      if (!(existing->second == assembly)) {
+        result.error = "model bootstrap: existing assembly differs from adapter input";
+        return result;
+      }
+    } else {
+      const auto registered = trial.RegisterModelAssemblyTemplate(assembly);
+      if (!registered.ok) {
+        result.error = registered.error;
+        return result;
+      }
+    }
+  }
+
+  const val pole_assignments = input["poleAssignments"];
+  const std::size_t pole_assignment_count = pole_assignments["length"].as<std::size_t>();
+  for (std::size_t index = 0; index < pole_assignment_count; ++index) {
+    const val assignment = pole_assignments[index];
+    const PoleTypeId pole_type_id = property<PoleTypeId>(assignment, "poleTypeId");
+    const auto pole_type_it = CoreView(trial).pole_types().find(pole_type_id);
+    if (pole_type_it == CoreView(trial).pole_types().end()) {
+      result.error = "model bootstrap: pole type is missing";
+      return result;
+    }
+    auto pole_type = pole_type_it->second;
+    pole_type.pole_visual_assembly_id =
+        property<wire::core::ModelAssemblyTemplateId>(assignment, "assemblyId");
+    const auto updated = trial.UpdatePoleTypeDefinition(pole_type);
+    if (!updated.ok) {
+      result.error = updated.error;
+      return result;
+    }
+  }
+
+  const val bundle_assignments = input["bundleAssignments"];
+  const std::size_t bundle_assignment_count = bundle_assignments["length"].as<std::size_t>();
+  for (std::size_t index = 0; index < bundle_assignment_count; ++index) {
+    const val assignment = bundle_assignments[index];
+    const BundleTemplateId id = property<BundleTemplateId>(assignment, "bundleTemplateId");
+    const auto bundle_it = CoreView(trial).bundle_templates().find(id);
+    if (bundle_it == CoreView(trial).bundle_templates().end()) {
+      result.error = "model bootstrap: bundle template is missing";
+      return result;
+    }
+    auto bundle_template = bundle_it->second;
+    bundle_template.row_fixture_assembly_id =
+        property<wire::core::ModelAssemblyTemplateId>(assignment, "rowAssemblyId");
+    bundle_template.endpoint_fixture_assembly_id =
+        property<wire::core::ModelAssemblyTemplateId>(assignment, "endpointAssemblyId");
+    const auto updated = trial.UpdateBundleTemplate(bundle_template);
+    if (!updated.ok) {
+      result.error = updated.error;
+      return result;
+    }
+  }
+
+  state = std::move(trial);
+  result.ok = true;
+  result.value = true;
+  return result;
 }
 
 class WireState {
@@ -238,8 +378,33 @@ public:
     }
     val result = val::object();
     result.set("parts", descriptors);
+    val models = val::array();
+    const auto& model_instances = state_->visual_model_instances().instances;
+    for (std::size_t index = 0; index < model_instances.size(); ++index) {
+      const auto& instance = model_instances[index];
+      val output = val::object();
+      output.set("stableKey", instance.stable_key);
+      output.set("modelKey", instance.model_key);
+      output.set("contentVersion", std::to_string(instance.content_version));
+      output.set("positionX", instance.world_transform.position.x);
+      output.set("positionY", instance.world_transform.position.y);
+      output.set("positionZ", instance.world_transform.position.z);
+      output.set("rotationX", instance.world_transform.rotation_euler_deg.x);
+      output.set("rotationY", instance.world_transform.rotation_euler_deg.y);
+      output.set("rotationZ", instance.world_transform.rotation_euler_deg.z);
+      output.set("scaleX", instance.world_transform.scale.x);
+      output.set("scaleY", instance.world_transform.scale.y);
+      output.set("scaleZ", instance.world_transform.scale.z);
+      models.set(index, output);
+    }
+    result.set("models", models);
     result.set("samples", val(emscripten::typed_memory_view(sample_buffer_.size(), sample_buffer_.data())));
     return result;
+  }
+
+  val configure_model_assemblies(const val& input) {
+    const auto configured = apply_model_bootstrap(*state_, input);
+    return result_value(configured.ok, configured.error);
   }
 
   [[nodiscard]] std::size_t pole_count() const {
@@ -395,6 +560,8 @@ public:
     output.set("allowMidairNode", bundle_template.allow_midair_node);
     output.set("allowMidairBranch", bundle_template.allow_midair_branch);
     output.set("supportWirePoleBandId", bundle_template.support_wire_pole_band_id);
+    output.set("rowFixtureAssemblyId", bundle_template.row_fixture_assembly_id);
+    output.set("endpointFixtureAssemblyId", bundle_template.endpoint_fixture_assembly_id);
     const auto& assembly = bundle_template.span_visual_assembly;
     val assembly_output = val::object();
     assembly_output.set("helixEnabled", assembly.helix_enabled);
@@ -446,6 +613,10 @@ public:
     bundle_template.allow_midair_node = property<bool>(input, "allowMidairNode");
     bundle_template.allow_midair_branch = property<bool>(input, "allowMidairBranch");
     bundle_template.support_wire_pole_band_id = property<int>(input, "supportWirePoleBandId");
+    bundle_template.row_fixture_assembly_id =
+        property<wire::core::ModelAssemblyTemplateId>(input, "rowFixtureAssemblyId");
+    bundle_template.endpoint_fixture_assembly_id =
+        property<wire::core::ModelAssemblyTemplateId>(input, "endpointFixtureAssemblyId");
     const val assembly = input["spanVisualAssembly"];
     bundle_template.span_visual_assembly.helix_enabled = property<bool>(assembly, "helixEnabled");
     bundle_template.span_visual_assembly.helix_radius_m = property<double>(assembly, "helixRadius");
@@ -618,6 +789,7 @@ public:
     output.set("name", pole_template.name);
     output.set("description", pole_template.description);
     output.set("defaultHeight", pole_template.default_height_m);
+    output.set("poleVisualAssemblyId", pole_template.pole_visual_assembly_id);
     val bands = val::array();
     for (std::size_t band_index = 0; band_index < pole_template.port_bands.size(); ++band_index) {
       const auto& band = pole_template.port_bands[band_index];
@@ -664,6 +836,8 @@ public:
     pole_template.name = property<std::string>(input, "name");
     pole_template.description = property<std::string>(input, "description");
     pole_template.default_height_m = property<double>(input, "defaultHeight");
+    pole_template.pole_visual_assembly_id =
+        property<wire::core::ModelAssemblyTemplateId>(input, "poleVisualAssemblyId");
     const val bands = input["portBands"];
     const std::size_t band_count = bands["length"].as<std::size_t>();
     pole_template.port_bands.reserve(band_count);
@@ -801,6 +975,20 @@ public:
     return result_value(loaded.ok, loaded.error);
   }
 
+  val load_state_with_models(const std::string& text, const val& input) {
+    CoreState trial = *state_;
+    const auto loaded = trial.DeserializeAuthoritative(text);
+    if (!loaded.ok) {
+      return result_value(false, loaded.error);
+    }
+    const auto configured = apply_model_bootstrap(trial, input);
+    if (!configured.ok) {
+      return result_value(false, configured.error);
+    }
+    *state_ = std::move(trial);
+    return result_value(true, {});
+  }
+
 private:
   std::unique_ptr<CoreState> state_;
   std::vector<double> sample_buffer_{};
@@ -817,6 +1005,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
       .function("lastGenerationTiming", &WireState::last_generation_timing)
       .function("visualScene", &WireState::visual_scene)
+      .function("configureModelAssemblies", &WireState::configure_model_assemblies)
       .function("poleCount", &WireState::pole_count)
       .function("pole", &WireState::pole)
       .function("portCount", &WireState::port_count)
@@ -849,5 +1038,6 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("applyPoleTilt", &WireState::apply_pole_tilt)
       .function("resetSpanReferenceLengths", &WireState::reset_span_reference_lengths)
       .function("saveState", &WireState::save_state)
-      .function("loadState", &WireState::load_state);
+      .function("loadState", &WireState::load_state)
+      .function("loadStateWithModels", &WireState::load_state_with_models);
 }

@@ -3,6 +3,7 @@ import App from "./App.svelte";
 import { ViewerActions } from "./actions/viewer";
 import { WireBridge } from "./bridge/wire";
 import { startConsoleLogging } from "./consoleLog";
+import { loadDefaultModelBootstrap } from "./render/modelAssets";
 import { WireScene } from "./render/scene";
 import { ViewerStore } from "./store/viewer";
 import {
@@ -19,7 +20,12 @@ if (target === null) {
 
 const store = new ViewerStore();
 const stopConsoleLogging = startConsoleLogging(store);
+const modelBootstrap = await loadDefaultModelBootstrap();
 const bridge = await WireBridge.create();
+const modelBootstrapResult = bridge.configureModelAssemblies(modelBootstrap);
+if (!modelBootstrapResult.ok) {
+  throw new Error(`Model bootstrap failed: ${modelBootstrapResult.error}`);
+}
 const workspaceStorage = new IndexedDbWorkspaceStorage();
 try {
   const legacyWorkspace = window.localStorage.getItem(WORKSPACE_CACHE_KEY);

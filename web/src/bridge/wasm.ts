@@ -6,6 +6,7 @@ import type {
   GenerationTiming,
   GeometrySettings,
   LayoutSettings,
+  ModelAssemblyBootstrapInput,
   OperationResult,
   PathPickInfo,
   PoleInfo,
@@ -15,6 +16,7 @@ import type {
   SpanInfo,
   SupportNodeInfo,
   VisualPartInfo,
+  VisualModelInstanceInfo,
   VisualSettings
 } from "../model";
 
@@ -38,7 +40,12 @@ export interface WireStateHandle {
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo;
   lastGenerationTiming(): GenerationTiming;
-  visualScene(): { parts: VisualPartInfo[]; samples: Float64Array };
+  visualScene(): {
+    parts: VisualPartInfo[];
+    models: VisualModelInstanceInfo[];
+    samples: Float64Array;
+  };
+  configureModelAssemblies(input: ModelAssemblyBootstrapInput): OperationResult;
   poleCount(): number;
   pole(index: number): PoleInfo;
   portCount(): number;
@@ -75,6 +82,7 @@ export interface WireStateHandle {
   resetSpanReferenceLengths(): OperationResult;
   saveState(): string;
   loadState(text: string): OperationResult;
+  loadStateWithModels(text: string, input: ModelAssemblyBootstrapInput): OperationResult;
   delete(): void;
 }
 

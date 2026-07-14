@@ -142,8 +142,6 @@ struct ModelMergeResult {
 struct ModelAttachmentTemplateBuildResult {
   AttachmentTemplate attachment_template{};
   ModelMergeReport report{};
-
-  bool operator==(const ModelAttachmentTemplateBuildResult&) const = default;
 };
 
 struct ModelAssemblyPartBuildResult {

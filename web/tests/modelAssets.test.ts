@@ -2,9 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import {
   cloneSharedAsset,
-  ModelAssetCache,
-  poleGroundAnchor,
-  poleVisibleLength
+  ModelAssetCache
 } from "../src/render/modelAssets";
 
 describe("model asset cache", () => {
@@ -24,11 +22,15 @@ describe("model asset cache", () => {
 
     const cloneA = cloneSharedAsset(first);
     const cloneB = cloneSharedAsset(first);
-    const meshA = cloneA.children[0] as THREE.Mesh;
-    const meshB = cloneB.children[0] as THREE.Mesh;
-    expect(meshA.geometry).toBe(meshB.geometry);
-    expect(meshA.material).toBe(meshB.material);
-    expect(poleGroundAnchor(first).y).toBeCloseTo(0, 12);
-    expect(poleVisibleLength(first)).toBeCloseTo(10, 12);
+    let meshA: THREE.Mesh | null = null;
+    let meshB: THREE.Mesh | null = null;
+    cloneA.traverse((object) => { if (object instanceof THREE.Mesh) meshA = object; });
+    cloneB.traverse((object) => { if (object instanceof THREE.Mesh) meshB = object; });
+    expect(meshA).not.toBeNull();
+    expect(meshB).not.toBeNull();
+    expect(meshA!.geometry).toBe(meshB!.geometry);
+    expect(meshA!.material).toBe(meshB!.material);
+    expect(first.mountAnchor.y).toBeCloseTo(0, 12);
+    expect(first.size.y * (10 / 12)).toBeCloseTo(10, 12);
   });
 });

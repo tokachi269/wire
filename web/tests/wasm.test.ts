@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadWireModule, type WireStateHandle } from "../src/bridge/wasm";
+import type { ModelAssemblyBootstrapInput, ModelTransformInput } from "../src/model";
 
 function visualParts(state: WireStateHandle) {
   const scene = state.visualScene();
@@ -8,6 +9,51 @@ function visualParts(state: WireStateHandle) {
     info,
     samples: samples.subarray(info.sampleOffset, info.sampleOffset + info.sampleCount * 3)
   }));
+}
+
+const identityTransform = (): ModelTransformInput => ({
+  positionX: 0, positionY: 0, positionZ: 0,
+  rotationX: 0, rotationY: 0, rotationZ: 0,
+  scaleX: 1, scaleY: 1, scaleZ: 1
+});
+
+function modelBootstrap(): ModelAssemblyBootstrapInput {
+  return {
+    assemblies: [{
+      id: 9901,
+      version: 1,
+      parts: [{
+        partId: 1, modelKey: "pole_body", descriptorName: "pole", descriptorVersion: 1,
+        fitMode: 1, localTransform: identityTransform(), sockets: []
+      }],
+      wireSocket: null
+    }, {
+      id: 9902,
+      version: 1,
+      parts: [{
+        partId: 1, modelKey: "hv_crossarm", descriptorName: "crossarm", descriptorVersion: 1,
+        fitMode: 0, localTransform: identityTransform(), sockets: []
+      }, {
+        partId: 2, modelKey: "pole_belt", descriptorName: "belt", descriptorVersion: 1,
+        fitMode: 2, localTransform: identityTransform(), sockets: []
+      }],
+      wireSocket: null
+    }, {
+      id: 9903,
+      version: 1,
+      parts: [{
+        partId: 1, modelKey: "hv_insulator", descriptorName: "insulator", descriptorVersion: 1,
+        fitMode: 0, localTransform: identityTransform(), sockets: [{
+          name: "wire",
+          positionX: 0, positionY: 0, positionZ: 0.18,
+          directionX: 1, directionY: 0, directionZ: 0
+        }]
+      }],
+      wireSocket: { partId: 1, socketName: "wire" }
+    }],
+    poleAssignments: [{ poleTypeId: 1, assemblyId: 9901 }],
+    bundleAssignments: [{ bundleTemplateId: 101, rowAssemblyId: 9902, endpointAssemblyId: 9903 }]
+  };
 }
 
 describe("wire wasm smoke", () => {
@@ -39,6 +85,37 @@ describe("wire wasm smoke", () => {
       expect(samples.length).toBe(info.sampleCount * 3);
       expect([...samples].every(Number.isFinite)).toBe(true);
     }
+  });
+
+  it("bootstraps straight HV assemblies and returns model instances in the scene payload", () => {
+    const modelState = createState();
+    const bootstrap = modelBootstrap();
+    const configured = modelState.configureModelAssemblies(bootstrap);
+    expect(configured.ok, configured.error).toBe(true);
+    const generated = modelState.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0]), [101], 0, 1, [0], 0, 7, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const models = modelState.visualScene().models;
+    expect(models.filter((model) => model.modelKey === "pole_body")).toHaveLength(2);
+    expect(models.filter((model) => model.modelKey === "hv_crossarm")).toHaveLength(2);
+    expect(models.filter((model) => model.modelKey === "pole_belt")).toHaveLength(2);
+    expect(models.filter((model) => model.modelKey === "hv_insulator")).toHaveLength(6);
+    expect(new Set(models.map((model) => model.stableKey)).size).toBe(models.length);
+    expect(models.every((model) => [
+      model.positionX, model.positionY, model.positionZ,
+      model.rotationX, model.rotationY, model.rotationZ,
+      model.scaleX, model.scaleY, model.scaleZ
+    ].every(Number.isFinite))).toBe(true);
+
+    const saved = modelState.saveState();
+    const loadedState = createState();
+    const loaded = loadedState.loadStateWithModels(saved, bootstrap);
+    expect(loaded.ok, loaded.error).toBe(true);
+    expect(loadedState.visualScene().models).toEqual(models);
+    modelState.delete();
+    loadedState.delete();
   });
 
   it("applies generation-time tilt when a max tilt is requested", () => {

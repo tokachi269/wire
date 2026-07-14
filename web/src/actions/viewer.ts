@@ -8,6 +8,7 @@ import type {
   OperationResult,
   PathPickInfo,
   PoleTemplateInfo,
+  SceneContentSyncStats,
   VisualSettings
 } from "../model";
 import type {
@@ -18,7 +19,6 @@ import type {
   WorldPoint
 } from "../store/viewer";
 import { createViewerSnapshot } from "../store/viewer";
-import type { SceneContentSyncStats } from "../render/scene";
 import type { WorkspacePreferences } from "../store/workspace";
 import { WorkspaceCache } from "../store/workspace";
 
@@ -50,16 +50,9 @@ function patchedCableTemplate(template: CableTemplateInfo): CableTemplateInfo {
   if (diameter === undefined) {
     return template;
   }
-  const requiresInsulator = template.name === "HV_BARE" || template.name === "LV_INSULATED";
   return {
     ...template,
-    outerDiameter: diameter,
-    requiresInsulator,
-    insulatorAttachmentHeight: template.name === "HV_BARE"
-      ? 0.18
-      : template.name === "LV_INSULATED"
-        ? 0.10
-        : 0.0
+    outerDiameter: diameter
   };
 }
 
@@ -898,6 +891,7 @@ export class ViewerActions {
     this.store.update((current) => ({
       ...current,
       parts: scene.parts,
+      models: scene.models,
       poles: scene.poles,
       ports: scene.ports,
       spans: scene.spans,
@@ -921,7 +915,10 @@ export class ViewerActions {
     const sceneDiagnostic = sceneStats === null
       ? ""
       : ` | scene parts total=${sceneStats.total} reused=${sceneStats.reused}` +
-        ` rebuilt=${sceneStats.rebuilt} removed=${sceneStats.removed}`;
+        ` rebuilt=${sceneStats.rebuilt} removed=${sceneStats.removed}` +
+        ` models total=${sceneStats.modelTotal} reused=${sceneStats.modelReused}` +
+        ` updated=${sceneStats.modelUpdated} rebuilt=${sceneStats.modelRebuilt}` +
+        ` removed=${sceneStats.modelRemoved}`;
     const timingDiagnostic =
       ` | perf core=${result.totalMs.toFixed(2)}ms` +
       ` wasm-call=${(generateEnd - generateStart).toFixed(2)}ms` +
@@ -1104,6 +1101,7 @@ export class ViewerActions {
     this.store.update((current) => ({
       ...current,
       parts: scene.parts,
+      models: scene.models,
       poles: scene.poles,
       ports: scene.ports,
       spans: scene.spans,

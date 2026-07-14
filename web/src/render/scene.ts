@@ -1,13 +1,16 @@
 import * as THREE from "three";
-import type { PathPickInfo, SupportNodeInfo } from "../model";
+import type {
+  PathPickInfo,
+  SceneContentSyncStats,
+  SupportNodeInfo,
+  VisualModelInstanceInfo
+} from "../model";
 import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
 import {
   cloneSharedAsset,
   type LoadedModelAsset,
-  modelAssetCache,
-  poleGroundAnchor,
-  poleVisibleLength
+  modelAssetCache
 } from "./modelAssets";
 
 function colorFromRgba(rgba: number): { color: THREE.Color; opacity: number } {
@@ -25,13 +28,6 @@ const POLE_TAPER_RATIO = 75;
 export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
-
-export interface SceneContentSyncStats {
-  total: number;
-  reused: number;
-  rebuilt: number;
-  removed: number;
-}
 
 export function setPoleRotation(
   object: THREE.Object3D,
@@ -107,13 +103,28 @@ export class WireScene {
   private guideSignature = "";
   private cameraFov: number | null = null;
   private readonly partMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
+  private readonly modelObjects = new Map<string, {
+    object: THREE.Object3D;
+    modelKey: string;
+    version: string;
+  }>();
+  private readonly pendingModelKeys = new Set<string>();
   private readonly poleMeshes = new Map<string, {
     object: THREE.Object3D;
     version: string;
     ownsResources: boolean;
   }>();
-  private poleAsset: LoadedModelAsset | null = null;
-  private contentSyncStats: SceneContentSyncStats = { total: 0, reused: 0, rebuilt: 0, removed: 0 };
+  private contentSyncStats: SceneContentSyncStats = {
+    total: 0,
+    reused: 0,
+    rebuilt: 0,
+    removed: 0,
+    modelTotal: 0,
+    modelReused: 0,
+    modelUpdated: 0,
+    modelRebuilt: 0,
+    modelRemoved: 0
+  };
 
   constructor(
     private readonly store: ViewerStore,
@@ -159,13 +170,6 @@ export class WireScene {
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(24, -30, 20);
     this.camera.lookAt(this.cameraTarget);
-    void modelAssetCache.load("poleBody").then((asset) => {
-      this.poleAsset = asset;
-      if (this.snapshot !== null) this.syncContent(this.snapshot);
-    }).catch((error: unknown) => {
-      console.warn(`[wire] pole GLB unavailable; using primitive fallback: ${String(error)}`);
-    });
-
     this.unsubscribe = this.store.value.subscribe((snapshot) => this.applySnapshot(snapshot));
   }
 
@@ -316,8 +320,10 @@ export class WireScene {
     this.detachInput?.();
     this.unsubscribe();
     for (const item of this.partMeshes.values()) this.disposeContentMesh(item.mesh);
+    for (const item of this.modelObjects.values()) this.content.remove(item.object);
     for (const item of this.poleMeshes.values()) this.disposePoleObject(item);
     this.partMeshes.clear();
+    this.modelObjects.clear();
     this.poleMeshes.clear();
     this.disposeGroup(this.backbone);
     this.disposeGroup(this.guide);
@@ -593,10 +599,69 @@ export class WireScene {
       changed = true;
     }
 
-    this.contentSyncStats = { total: snapshot.parts.length, reused, rebuilt, removed };
+    let modelReused = 0;
+    let modelUpdated = 0;
+    let modelRebuilt = 0;
+    let modelRemoved = 0;
+    const modeledPoleIds = new Set<string>();
+    const nextModelKeys = new Set<string>();
+    for (const model of snapshot.models) {
+      nextModelKeys.add(model.stableKey);
+      if (model.stableKey.startsWith("pole:")) {
+        const separator = model.stableKey.indexOf(":", 5);
+        if (separator > 5) modeledPoleIds.add(model.stableKey.slice(5, separator));
+      }
+      const previous = this.modelObjects.get(model.stableKey);
+      if (previous?.modelKey === model.modelKey) {
+        if (previous.version === model.contentVersion) {
+          modelReused += 1;
+        } else {
+          this.applyModelTransform(previous.object, model);
+          previous.version = model.contentVersion;
+          modelUpdated += 1;
+          changed = true;
+        }
+        continue;
+      }
+      const asset = modelAssetCache.loadedModel(model.modelKey);
+      if (asset === null) {
+        if (!this.pendingModelKeys.has(model.modelKey)) {
+          this.pendingModelKeys.add(model.modelKey);
+          void modelAssetCache.loadModel(model.modelKey).then(() => {
+            this.pendingModelKeys.delete(model.modelKey);
+            if (this.snapshot !== null) this.syncContent(this.snapshot);
+          }).catch((error: unknown) => {
+            this.pendingModelKeys.delete(model.modelKey);
+            console.error(`[wire] model asset unavailable: ${model.modelKey}: ${String(error)}`);
+          });
+        }
+        continue;
+      }
+      if (previous !== undefined) {
+        this.content.remove(previous.object);
+        this.modelObjects.delete(model.stableKey);
+      }
+      const object = this.makeModelObject(asset, model);
+      this.content.add(object);
+      this.modelObjects.set(model.stableKey, {
+        object,
+        modelKey: model.modelKey,
+        version: model.contentVersion
+      });
+      modelRebuilt += 1;
+      changed = true;
+    }
+    for (const [key, previous] of [...this.modelObjects]) {
+      if (nextModelKeys.has(key)) continue;
+      this.content.remove(previous.object);
+      this.modelObjects.delete(key);
+      modelRemoved += 1;
+      changed = true;
+    }
 
     const nextPoleKeys = new Set<string>();
     for (const pole of snapshot.poles) {
+      if (modeledPoleIds.has(pole.id)) continue;
       const key = pole.id;
       nextPoleKeys.add(key);
       const version = [
@@ -611,8 +676,7 @@ export class WireScene {
         pole.scaleY,
         pole.scaleZ,
         pole.height,
-        snapshot.solidSupportRender ? 1 : 0,
-        this.poleAsset === null ? "primitive" : "glb"
+        snapshot.solidSupportRender ? 1 : 0
       ].join(":");
       const previous = this.poleMeshes.get(key);
       if (previous?.version === version) continue;
@@ -620,11 +684,7 @@ export class WireScene {
         this.disposePoleObject(previous);
         this.poleMeshes.delete(key);
       }
-      const uniformPoleScale = Math.abs(pole.scaleX - pole.scaleY) <= 1e-9 &&
-        Math.abs(pole.scaleY - pole.scaleZ) <= 1e-9;
-      const entry = this.poleAsset !== null && uniformPoleScale
-        ? this.makePoleModel(this.poleAsset, pole)
-        : this.makePolePrimitive(pole, snapshot.solidSupportRender);
+      const entry = this.makePolePrimitive(pole, snapshot.solidSupportRender);
       this.content.add(entry.object);
       this.poleMeshes.set(key, { ...entry, version });
       changed = true;
@@ -635,6 +695,17 @@ export class WireScene {
       this.poleMeshes.delete(key);
       changed = true;
     }
+    this.contentSyncStats = {
+      total: snapshot.parts.length,
+      reused,
+      rebuilt,
+      removed,
+      modelTotal: snapshot.models.length,
+      modelReused,
+      modelUpdated,
+      modelRebuilt,
+      modelRemoved
+    };
     return changed;
   }
 
@@ -645,32 +716,29 @@ export class WireScene {
     this.content.remove(mesh);
   }
 
-  private makePoleModel(
+  private makeModelObject(
     asset: LoadedModelAsset,
-    pole: ViewerSnapshot["poles"][number]
-  ): { object: THREE.Object3D; ownsResources: boolean } {
-    const source = cloneSharedAsset(asset);
-    source.position.sub(poleGroundAnchor(asset));
-    source.traverse((object) => {
-      if (object instanceof THREE.Mesh) {
-        object.castShadow = true;
-        object.receiveShadow = true;
-      }
-    });
-    const oriented = new THREE.Group();
-    oriented.rotation.x = Math.PI / 2;
-    const visibleLength = poleVisibleLength(asset);
-    const scale = visibleLength > 1e-9 ? pole.height / visibleLength : 1;
-    oriented.scale.setScalar(scale * pole.scaleX);
-    oriented.add(source);
-
+    model: VisualModelInstanceInfo
+  ): THREE.Object3D {
     const root = new THREE.Group();
-    root.position.set(pole.positionX, pole.positionY, pole.positionZ);
-    setPoleRotation(root, pole.rotationX, pole.rotationY, pole.rotationZ);
-    root.add(oriented);
-    root.userData.sourceKind = "pole";
-    root.userData.sourceId = pole.id;
-    return { object: root, ownsResources: false };
+    const source = cloneSharedAsset(asset);
+    source.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      object.castShadow = true;
+      object.receiveShadow = true;
+    });
+    root.add(source);
+    this.applyModelTransform(root, model);
+    root.userData.sourceKind = "model";
+    root.userData.sourceId = model.stableKey;
+    root.userData.modelKey = model.modelKey;
+    return root;
+  }
+
+  private applyModelTransform(object: THREE.Object3D, model: VisualModelInstanceInfo): void {
+    object.position.set(model.positionX, model.positionY, model.positionZ);
+    setPoleRotation(object, model.rotationX, model.rotationY, model.rotationZ);
+    object.scale.set(model.scaleX, model.scaleY, model.scaleZ);
   }
 
   private makePolePrimitive(

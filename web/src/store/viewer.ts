@@ -11,6 +11,7 @@ import type {
   PortInfo,
   SpanInfo,
   SupportNodeInfo,
+  VisualModelInstanceInfo,
   VisualPartInfo,
   VisualSettings
 } from "../model";
@@ -30,6 +31,7 @@ export interface PathPointSpec {
 
 export interface ViewerSnapshot {
   parts: VisualPart[];
+  models: VisualModelInstanceInfo[];
   poles: PoleInfo[];
   ports: PortInfo[];
   spans: SpanInfo[];
@@ -88,6 +90,7 @@ export interface ViewerSnapshot {
 export function createViewerSnapshot(): ViewerSnapshot {
   return {
     parts: [],
+    models: [],
     poles: [],
     ports: [],
     spans: [],

@@ -1,6 +1,12 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
+import type {
+  ModelAssemblyBootstrapInput,
+  ModelAssemblyPartInput,
+  ModelTransformInput
+} from "../model";
+
 export type ModelAssetKind =
   | "belt"
   | "communicationClamp"
@@ -9,20 +15,31 @@ export type ModelAssetKind =
   | "hvInsulator"
   | "poleBody";
 
-export type ModelAxis = "x" | "y" | "z" | "-x" | "-y" | "-z";
+export type ModelKey =
+  | "pole_belt"
+  | "communication_clamp"
+  | "communication_clamp_long"
+  | "hv_crossarm"
+  | "hv_insulator"
+  | "pole_body";
+
+type MountRule = "center" | "bottom" | "pole-ground";
 
 export interface ModelAssetAdapter {
+  modelKey: ModelKey;
   url: string;
-  mainAxis: ModelAxis;
-  upAxis: ModelAxis;
-  mountSide: ModelAxis | "center" | "radial-inner";
+  mountRule: MountRule;
+  radialReferenceM?: number;
 }
 
 export interface LoadedModelAsset {
   kind: ModelAssetKind;
+  modelKey: ModelKey;
   source: THREE.Group;
   bounds: THREE.Box3;
   size: THREE.Vector3;
+  mountAnchor: THREE.Vector3;
+  descriptorVersion: number;
   adapter: ModelAssetAdapter;
 }
 
@@ -30,47 +47,72 @@ type SceneLoader = (url: string) => Promise<THREE.Group>;
 
 const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
   belt: {
+    modelKey: "pole_belt",
     url: new URL("../assets/belt.glb", import.meta.url).href,
-    mainAxis: "y",
-    upAxis: "y",
-    mountSide: "radial-inner"
+    mountRule: "center",
+    // The source belt was authored against the lower pole radius. The adapter
+    // normalizes that local radius before Core applies kPoleRadial.
+    radialReferenceM: 0.20
   },
   communicationClamp: {
+    modelKey: "communication_clamp",
     url: new URL("../assets/communication_clamp_1.glb", import.meta.url).href,
-    mainAxis: "z",
-    upAxis: "y",
-    mountSide: "-z"
+    mountRule: "center"
   },
   communicationClampLong: {
+    modelKey: "communication_clamp_long",
     url: new URL("../assets/communication_clamp_long_1.glb", import.meta.url).href,
-    mainAxis: "z",
-    upAxis: "y",
-    // Blender +Y is glTF -Z under the unchanged standard export.
-    // The user-defined insertion direction therefore points toward -Z.
-    mountSide: "-z"
+    mountRule: "center"
   },
   crossarmHv: {
+    modelKey: "hv_crossarm",
     url: new URL("../assets/crossarm_hv_1p7m.glb", import.meta.url).href,
-    mainAxis: "x",
-    upAxis: "y",
-    mountSide: "center"
+    mountRule: "center"
   },
   hvInsulator: {
+    modelKey: "hv_insulator",
     url: new URL("../assets/hv_phase_1_disc_3.glb", import.meta.url).href,
-    mainAxis: "y",
-    upAxis: "y",
-    mountSide: "-y"
+    mountRule: "bottom"
   },
   poleBody: {
+    modelKey: "pole_body",
     url: new URL("../assets/pole_body_tapered_12m_visible10m.glb", import.meta.url).href,
-    mainAxis: "y",
-    upAxis: "y",
-    mountSide: "-y"
+    mountRule: "pole-ground"
   }
 };
 
+const kindByModelKey = new Map<ModelKey, ModelAssetKind>(
+  Object.entries(adapters).map(([kind, adapter]) => [adapter.modelKey, kind as ModelAssetKind])
+);
+
+function mountAnchor(bounds: THREE.Box3, size: THREE.Vector3, rule: MountRule): THREE.Vector3 {
+  const center = bounds.getCenter(new THREE.Vector3());
+  if (rule === "center") return center;
+  if (rule === "bottom") return new THREE.Vector3(center.x, bounds.min.y, center.z);
+  return new THREE.Vector3(center.x, bounds.min.y + size.y * (2 / 12), center.z);
+}
+
+function descriptorVersion(kind: ModelAssetKind, bounds: THREE.Box3): number {
+  let hash = 2166136261;
+  const bytes = new TextEncoder().encode([
+    kind,
+    bounds.min.x,
+    bounds.min.y,
+    bounds.min.z,
+    bounds.max.x,
+    bounds.max.y,
+    bounds.max.z
+  ].join(":"));
+  for (const value of bytes) {
+    hash ^= value;
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0 || 1;
+}
+
 export class ModelAssetCache {
   private readonly promises = new Map<ModelAssetKind, Promise<LoadedModelAsset>>();
+  private readonly loaded = new Map<ModelAssetKind, LoadedModelAsset>();
   private readonly loads = new Map<ModelAssetKind, number>();
 
   constructor(private readonly loadScene: SceneLoader = loadGltfScene) {}
@@ -80,20 +122,48 @@ export class ModelAssetCache {
     if (cached !== undefined) return cached;
     const adapter = adapters[kind];
     this.loads.set(kind, (this.loads.get(kind) ?? 0) + 1);
-    const pending = this.loadScene(adapter.url).then((source) => {
-      source.updateMatrixWorld(true);
-      const bounds = new THREE.Box3().setFromObject(source, true);
+    const pending = this.loadScene(adapter.url).then((rawSource) => {
+      rawSource.updateMatrixWorld(true);
+      const bounds = new THREE.Box3().setFromObject(rawSource, true);
       if (bounds.isEmpty()) throw new Error(`GLB has no visible bounds: ${kind}`);
-      return {
+      const size = bounds.getSize(new THREE.Vector3());
+      const anchor = mountAnchor(bounds, size, adapter.mountRule);
+
+      // Local adapter normalization only: glTF Y-up becomes Core-local Z-up,
+      // and the declared mount anchor becomes the assembly-local origin.
+      rawSource.position.sub(anchor);
+      const source = new THREE.Group();
+      source.rotation.x = Math.PI / 2;
+      source.add(rawSource);
+      source.updateMatrixWorld(true);
+
+      const asset: LoadedModelAsset = {
         kind,
+        modelKey: adapter.modelKey,
         source,
         bounds,
-        size: bounds.getSize(new THREE.Vector3()),
+        size,
+        mountAnchor: anchor,
+        descriptorVersion: descriptorVersion(kind, bounds),
         adapter
       };
+      this.loaded.set(kind, asset);
+      return asset;
     });
     this.promises.set(kind, pending);
     return pending;
+  }
+
+  loadModel(modelKey: string): Promise<LoadedModelAsset> {
+    const kind = kindByModelKey.get(modelKey as ModelKey);
+    return kind === undefined
+      ? Promise.reject(new Error(`Unknown model key: ${modelKey}`))
+      : this.load(kind);
+  }
+
+  loadedModel(modelKey: string): LoadedModelAsset | null {
+    const kind = kindByModelKey.get(modelKey as ModelKey);
+    return kind === undefined ? null : this.loaded.get(kind) ?? null;
   }
 
   loadCount(kind: ModelAssetKind): number {
@@ -105,14 +175,97 @@ export function cloneSharedAsset(asset: LoadedModelAsset): THREE.Group {
   return asset.source.clone(true);
 }
 
-export function poleGroundAnchor(asset: LoadedModelAsset): THREE.Vector3 {
-  const center = asset.bounds.getCenter(new THREE.Vector3());
-  const groundY = asset.bounds.min.y + asset.size.y * (2 / 12);
-  return new THREE.Vector3(center.x, groundY, center.z);
+const identityTransform = (): ModelTransformInput => ({
+  positionX: 0,
+  positionY: 0,
+  positionZ: 0,
+  rotationX: 0,
+  rotationY: 0,
+  rotationZ: 0,
+  scaleX: 1,
+  scaleY: 1,
+  scaleZ: 1
+});
+
+function part(
+  asset: LoadedModelAsset,
+  partId: number,
+  fitMode: number,
+  localTransform = identityTransform(),
+  wireSocketHeight = 0
+): ModelAssemblyPartInput {
+  return {
+    partId,
+    modelKey: asset.modelKey,
+    descriptorName: asset.kind,
+    descriptorVersion: asset.descriptorVersion,
+    fitMode,
+    localTransform,
+    sockets: wireSocketHeight > 0
+      ? [{
+          name: "wire",
+          positionX: 0,
+          positionY: 0,
+          positionZ: wireSocketHeight,
+          directionX: 1,
+          directionY: 0,
+          directionZ: 0
+        }]
+      : []
+  };
 }
 
-export function poleVisibleLength(asset: LoadedModelAsset): number {
-  return asset.size.y * (10 / 12);
+export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstrapInput> {
+  const [pole, crossarm, belt, insulator] = await Promise.all([
+    modelAssetCache.load("poleBody"),
+    modelAssetCache.load("crossarmHv"),
+    modelAssetCache.load("belt"),
+    modelAssetCache.load("hvInsulator")
+  ]);
+  const beltReference = belt.adapter.radialReferenceM;
+  if (beltReference === undefined || beltReference <= 0) {
+    throw new Error("Belt adapter requires a positive radial reference");
+  }
+  const beltTransform = identityTransform();
+  beltTransform.scaleX = 1 / beltReference;
+  beltTransform.scaleY = 1 / beltReference;
+  const crossarmTransform = identityTransform();
+  crossarmTransform.rotationZ = 90;
+
+  const poleAssemblyId = 9201;
+  const hvRowAssemblyId = 9202;
+  const hvEndpointAssemblyId = 9203;
+  return {
+    assemblies: [
+      {
+        id: poleAssemblyId,
+        version: 1,
+        parts: [part(pole, 1, 1)],
+        wireSocket: null
+      },
+      {
+        id: hvRowAssemblyId,
+        version: 1,
+        parts: [
+          part(crossarm, 1, 0, crossarmTransform),
+          part(belt, 2, 2, beltTransform)
+        ],
+        wireSocket: null
+      },
+      {
+        id: hvEndpointAssemblyId,
+        version: 1,
+        parts: [part(insulator, 1, 0, identityTransform(), insulator.size.y)],
+        wireSocket: { partId: 1, socketName: "wire" }
+      }
+    ],
+    poleAssignments: [{ poleTypeId: 1, assemblyId: poleAssemblyId }],
+    bundleAssignments: [{
+      bundleTemplateId: 101,
+      rowAssemblyId: hvRowAssemblyId,
+      endpointAssemblyId: hvEndpointAssemblyId
+    }]
+  };
 }
 
 async function loadGltfScene(url: string): Promise<THREE.Group> {

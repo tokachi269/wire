@@ -164,6 +164,7 @@ describe("viewer actions", () => {
           samples: new Float64Array([0, 0, 2, 10, 0, 2])
         }
       ],
+      models: [],
       poles: [],
       ports: [],
       spans: [],
@@ -178,6 +179,8 @@ describe("viewer actions", () => {
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMidairNode: true, allowMidairBranch: true,
           supportWirePoleBandId: 0,
+          rowFixtureAssemblyId: 0,
+          endpointFixtureAssemblyId: 0,
           spanVisualAssembly: {
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
             helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
@@ -227,7 +230,10 @@ describe("viewer actions", () => {
     actions.addPathPoint([0, 0, 0]);
     actions.addPathPoint([16, 2, 0]);
     actions.addPathPoint([32, 0, 0]);
-    actions.recordSceneContentSync({ total: 1, reused: 0, rebuilt: 1, removed: 0 });
+    actions.recordSceneContentSync({
+      total: 1, reused: 0, rebuilt: 1, removed: 0,
+      modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
+    });
     actions.generatePath();
 
     const snapshot = current(store);
@@ -236,7 +242,7 @@ describe("viewer actions", () => {
     expect(snapshot.generationMs).toBe(1.25);
     expect(snapshot.error).toBe("");
     expect(snapshot.logs.at(-1)).toMatch(
-      /^route generated: 2 poles \/ 1 spans \| perf core=1\.25ms wasm-call=.+ms scene=.+ms action=.+ms emit=0\.10ms save-graph=0\.10ms geom=0\.10ms \| scene parts total=1 reused=0 rebuilt=1 removed=0$/
+      /^route generated: 2 poles \/ 1 spans \| perf core=1\.25ms wasm-call=.+ms scene=.+ms action=.+ms emit=0\.10ms save-graph=0\.10ms geom=0\.10ms \| scene parts total=1 reused=0 rebuilt=1 removed=0 models total=0 reused=0 updated=0 rebuilt=0 removed=0$/
     );
   });
 
@@ -249,7 +255,9 @@ describe("viewer actions", () => {
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMidairNode: true, allowMidairBranch: true,
-          supportWirePoleBandId: 0,
+           supportWirePoleBandId: 0,
+           rowFixtureAssemblyId: 0,
+           endpointFixtureAssemblyId: 0,
           spanVisualAssembly: {
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
             helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
@@ -308,6 +316,8 @@ describe("viewer actions", () => {
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMidairNode: true, allowMidairBranch: true,
           supportWirePoleBandId: 0,
+          rowFixtureAssemblyId: 0,
+          endpointFixtureAssemblyId: 0,
           spanVisualAssembly: {
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
             helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
@@ -345,6 +355,8 @@ const bundleTemplate: BundleTemplateInfo = {
   allowMidairNode: true,
   allowMidairBranch: true,
   supportWirePoleBandId: 0,
+  rowFixtureAssemblyId: 0,
+  endpointFixtureAssemblyId: 0,
   spanVisualAssembly: {
     helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
     helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
@@ -362,8 +374,6 @@ const cableTemplate: CableTemplateInfo = {
   minBendRadius: 0.2,
   materialStyle: 2,
   colorRgba: 0xffffffff,
-  requiresInsulator: false,
-  insulatorAttachmentHeight: 0,
   sagFactor: 0.03,
   slackFactor: 0,
   continuityPolicy: 0,
@@ -381,6 +391,7 @@ const poleTemplate: PoleTemplateInfo = {
   name: "DistributionPole",
   description: "default",
   defaultHeight: 10,
+  poleVisualAssemblyId: 0,
   portBands: [],
   anchorSlots: []
 };
@@ -388,6 +399,7 @@ const poleTemplate: PoleTemplateInfo = {
 function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
   const emptyScene: SceneData = {
     parts: [],
+    models: [],
     poles: [],
     ports: [],
     spans: [],
@@ -756,6 +768,7 @@ describe("P1 action contracts", () => {
     const bridge = actionBridge({
       scene: () => ({
         parts: [],
+        models: [],
         poles: [
           {
             id: "42",
@@ -860,6 +873,7 @@ describe("P1 action contracts", () => {
       },
       scene: () => ({
         parts: [],
+        models: [],
         poles: [],
         ports: [],
         spans: [],
@@ -904,6 +918,7 @@ describe("P1 action contracts", () => {
       }),
       scene: () => ({
         parts: [],
+        models: [],
         poles: [],
         ports: [],
         spans: [],

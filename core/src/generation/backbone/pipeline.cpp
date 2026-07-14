@@ -2966,7 +2966,8 @@ EditResult<geom> pipeline::make(const layout& made) const {
   for (const SpanLayoutEntry& entry : made.entries) {
     visual_scope_span_ids.push_back(entry.span_id);
   }
-  out.value.visual_curves = make_visual_curve_parts(state_, made, visual_scope_span_ids);
+  out.value.visual_curves =
+      make_visual_curve_parts(state_, made, visual_scope_span_ids, &out.value.curves);
   out.ok = true;
   return out;
 }

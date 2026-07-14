@@ -695,10 +695,18 @@ VisualCurvePartCache merge_scoped_visual_curve_parts(const CoreState& state, Vis
 } // namespace
 
 VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layout& made,
-                                             const std::vector<ObjectId>& scope_span_ids) {
+                                             const std::vector<ObjectId>& scope_span_ids,
+                                             const curve* built_curves) {
   const layout merged_layout = merged_visual_curve_layouts(state, made);
   const std::unordered_set<ObjectId> scoped_spans = scoped_visual_spans(state, scope_span_ids);
   const layout placed = filter_layouts_to_spans(merged_layout, scoped_spans);
+  std::unordered_map<ObjectId, const DetailCurve*> built_curve_by_span{};
+  if (built_curves != nullptr) {
+    built_curve_by_span.reserve(built_curves->data.size());
+    for (const auto& [span_id, detail] : built_curves->data) {
+      built_curve_by_span.emplace(span_id, &detail);
+    }
+  }
   VisualCurvePartCache out{};
   std::vector<visual_cable_section> sections{};
   sections.reserve(placed.entries.size());
@@ -802,8 +810,12 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     DetailCurve source_curve{};
     bool has_curve_tangent = false;
     if (entry.key.is_base()) {
-      if (const CurveCacheEntry* cached = state.find_curve_cache(entry.key.logical_span_id);
-          cached != nullptr && cached->detail.sample_points.size() >= 2) {
+      const auto built = built_curve_by_span.find(entry.key.logical_span_id);
+      if (built != built_curve_by_span.end() && built->second->sample_points.size() >= 2) {
+        source_curve = *built->second;
+        has_curve_tangent = true;
+      } else if (const CurveCacheEntry* cached = state.find_curve_cache(entry.key.logical_span_id);
+                 cached != nullptr && cached->detail.sample_points.size() >= 2) {
         source_curve = cached->detail;
         has_curve_tangent = true;
       }

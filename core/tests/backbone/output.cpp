@@ -192,7 +192,36 @@ bool C740_visual_curve_part_stats_count_full_curve_builds() {
   }
   const wire::core::VisualCurvePartCache& cache = state.visual_curve_parts();
   const std::size_t expected_sections = out.value.generated_span_ids.size();
-  return cache.stats.sections == expected_sections && cache.stats.curve_builds == expected_sections;
+  if (cache.stats.sections != expected_sections || cache.stats.curve_builds != expected_sections) {
+    return false;
+  }
+
+  const wire::core::ObjectId span_id = out.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView span_layout = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* cached = state.find_curve_cache(span_id);
+  if (!span_layout.has_layout() || cached == nullptr || cached->detail.sample_points.size() < 3) {
+    return false;
+  }
+  wire::core::generation::backbone::layout made{};
+  made.entries.push_back(*span_layout.entry);
+  wire::core::generation::backbone::curve built{};
+  wire::core::DetailCurve injected = cached->detail;
+  const std::size_t middle = injected.sample_points.size() / 2;
+  injected.sample_points[middle].z += 0.123;
+  const wire::core::Vec3d expected = injected.sample_points[middle];
+  built.data.push_back({span_id, std::move(injected)});
+  const wire::core::VisualCurvePartCache supplied =
+      wire::core::generation::backbone::make_visual_curve_parts(state, made, {span_id}, &built);
+  for (const wire::core::VisualCurvePart& part : supplied.parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.source_span_id == span_id &&
+        part.section_key.is_base() &&
+        std::find_if(part.samples.begin(), part.samples.end(), [&](const wire::core::Vec3d& point) {
+          return almost_equal(point, expected, 1e-12);
+        }) != part.samples.end()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::vector<std::string> visual_part_snapshot(const wire::core::VisualCurvePartCache& cache) {

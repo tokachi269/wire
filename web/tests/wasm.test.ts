@@ -100,6 +100,36 @@ describe("wire wasm smoke", () => {
     modelState.delete();
   });
 
+  it("keeps the current state unchanged when model bootstrap configure or load fails", () => {
+    const target = createState();
+    const generated = target.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0]), [102], 0, 1, [0], 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const before = target.saveState();
+
+    const invalid = modelBootstrap();
+    invalid.bundleAssignments[0].endpointAssemblyId = 9999;
+    const configured = target.configureModelAssemblies(invalid);
+    expect(configured.ok).toBe(false);
+    expect(target.saveState()).toBe(before);
+
+    const source = createState();
+    const sourceConfigured = source.configureModelAssemblies(modelBootstrap());
+    expect(sourceConfigured.ok, sourceConfigured.error).toBe(true);
+    const sourceGenerated = source.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0]), [101], 0, 1, [0], 0, 0, []
+    );
+    expect(sourceGenerated.ok, sourceGenerated.error).toBe(true);
+
+    const loaded = target.loadStateWithModels(source.saveState(), invalid);
+    expect(loaded.ok).toBe(false);
+    expect(target.saveState()).toBe(before);
+
+    source.delete();
+    target.delete();
+  });
+
   afterAll(() => {
     state.delete();
   });

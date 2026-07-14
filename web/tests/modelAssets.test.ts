@@ -50,6 +50,12 @@ describe("model asset cache", () => {
       cache.load("hvInsulator"),
       cache.load("communicationClampLong")
     ]);
+    expect(cache.loadCount("poleBody")).toBe(1);
+    expect(cache.loadCount("crossarmHv")).toBe(1);
+    expect(cache.loadCount("belt")).toBe(1);
+    expect(cache.loadCount("hvInsulator")).toBe(1);
+    expect(cache.loadCount("communicationClampLong")).toBe(1);
+    expect(cache.loadCount("communicationClamp")).toBe(0);
     const bootstrap = buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp);
 
     expect(bootstrap.poleAssignments).toEqual([

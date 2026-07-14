@@ -1661,11 +1661,15 @@ bool C696_cable_run_id_is_visual_derived_only() {
     return false;
   }
   std::string derive_body;
-  if (!function_body(cpp, "std::vector<cable_run_assignment> derive_cable_run_ids", &derive_body)) {
+  std::string lookup_body;
+  if (!function_body(cpp, "cable_run_assignments derive_cable_run_ids", &derive_body) ||
+      !function_body(cpp, "CableRunId run_id_for_section", &lookup_body)) {
     return false;
   }
   return contains_text(cpp, "cable_run_id") && contains_text(runtime, "CableRunId cable_run_id") &&
-         contains_text(derive_body, "patch_specs") && !contains_text(derive_body, "SavedBackboneGraph") &&
+         contains_text(derive_body, "patch_specs") && contains_text(derive_body, "index_by_section") &&
+         contains_text(lookup_body, "index_by_section.find(key)") && !contains_text(lookup_body, "for (") &&
+         !contains_text(derive_body, "SavedBackboneGraph") &&
          !contains_text(derive_body, "state.view()") && !contains_text(derive_body, "save_backbone");
 }
 

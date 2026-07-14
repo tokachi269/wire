@@ -139,27 +139,50 @@ struct cable_run_assignment {
   CableRunId run_id = 0;
 };
 
-std::size_t find_run_root(std::vector<cable_run_assignment>* assignments, std::size_t index) {
-  std::size_t parent = (*assignments)[index].parent;
+struct cable_section_key_hash {
+  std::size_t operator()(const CableSectionKey& key) const {
+    std::uint64_t hash = hash_combine(0, static_cast<std::uint64_t>(key.edge_bundle_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.logical_span_id));
+    hash = hash_combine(hash, key.rule_owner_id);
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.rule_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.instance_index));
+    return static_cast<std::size_t>(hash);
+  }
+};
+
+struct cable_section_key_equal {
+  bool operator()(const CableSectionKey& a, const CableSectionKey& b) const {
+    return same_cable_section(a, b);
+  }
+};
+
+struct cable_run_assignments {
+  std::vector<cable_run_assignment> items{};
+  std::unordered_map<CableSectionKey, std::size_t, cable_section_key_hash, cable_section_key_equal>
+      index_by_section{};
+};
+
+std::size_t find_run_root(cable_run_assignments* assignments, std::size_t index) {
+  std::size_t parent = assignments->items[index].parent;
   if (parent != index) {
     parent = find_run_root(assignments, parent);
-    (*assignments)[index].parent = parent;
+    assignments->items[index].parent = parent;
   }
   return parent;
 }
 
-std::size_t ensure_run_section(std::vector<cable_run_assignment>* assignments, const CableSectionKey& key) {
-  for (std::size_t i = 0; i < assignments->size(); ++i) {
-    if (same_cable_section((*assignments)[i].section_key, key)) {
-      return i;
-    }
+std::size_t ensure_run_section(cable_run_assignments* assignments, const CableSectionKey& key) {
+  if (const auto found = assignments->index_by_section.find(key);
+      found != assignments->index_by_section.end()) {
+    return found->second;
   }
-  const std::size_t index = assignments->size();
-  assignments->push_back({key, index, key, 0});
+  const std::size_t index = assignments->items.size();
+  assignments->items.push_back({key, index, key, 0});
+  assignments->index_by_section.emplace(key, index);
   return index;
 }
 
-void union_run_sections(std::vector<cable_run_assignment>* assignments, const CableSectionKey& a,
+void union_run_sections(cable_run_assignments* assignments, const CableSectionKey& a,
                         const CableSectionKey& b) {
   const std::size_t a_index = ensure_run_section(assignments, a);
   const std::size_t b_index = ensure_run_section(assignments, b);
@@ -169,37 +192,37 @@ void union_run_sections(std::vector<cable_run_assignment>* assignments, const Ca
     return;
   }
   const CableSectionKey canonical =
-      cable_section_less_for_run((*assignments)[a_root].canonical_key, (*assignments)[b_root].canonical_key)
-          ? (*assignments)[a_root].canonical_key
-          : (*assignments)[b_root].canonical_key;
-  (*assignments)[b_root].parent = a_root;
-  (*assignments)[a_root].canonical_key = canonical;
+      cable_section_less_for_run(assignments->items[a_root].canonical_key,
+                                 assignments->items[b_root].canonical_key)
+          ? assignments->items[a_root].canonical_key
+          : assignments->items[b_root].canonical_key;
+  assignments->items[b_root].parent = a_root;
+  assignments->items[a_root].canonical_key = canonical;
 }
 
-std::vector<cable_run_assignment> derive_cable_run_ids(const std::vector<visual_cable_section>& sections,
-                                                       const std::vector<curve_patch_spec>& patch_specs) {
-  std::vector<cable_run_assignment> assignments{};
+cable_run_assignments derive_cable_run_ids(const std::vector<visual_cable_section>& sections,
+                                           const std::vector<curve_patch_spec>& patch_specs) {
+  cable_run_assignments assignments{};
+  assignments.items.reserve(sections.size());
+  assignments.index_by_section.reserve(sections.size());
   for (const visual_cable_section& section : sections) {
     ensure_run_section(&assignments, section.layout.key);
   }
   for (const curve_patch_spec& spec : patch_specs) {
     union_run_sections(&assignments, spec.a.section_key, spec.b.section_key);
   }
-  for (cable_run_assignment& assignment : assignments) {
-    const std::size_t root = find_run_root(&assignments, &assignment - assignments.data());
-    const CableSectionKey& canonical = assignments[root].canonical_key;
+  for (std::size_t index = 0; index < assignments.items.size(); ++index) {
+    cable_run_assignment& assignment = assignments.items[index];
+    const std::size_t root = find_run_root(&assignments, index);
+    const CableSectionKey& canonical = assignments.items[root].canonical_key;
     assignment.run_id = run_id_from_canonical_section(canonical);
   }
   return assignments;
 }
 
-CableRunId run_id_for_section(const std::vector<cable_run_assignment>& assignments, const CableSectionKey& key) {
-  for (const cable_run_assignment& assignment : assignments) {
-    if (same_cable_section(assignment.section_key, key)) {
-      return assignment.run_id;
-    }
-  }
-  return 0;
+CableRunId run_id_for_section(const cable_run_assignments& assignments, const CableSectionKey& key) {
+  const auto found = assignments.index_by_section.find(key);
+  return found == assignments.index_by_section.end() ? 0 : assignments.items[found->second].run_id;
 }
 
 bool same_key(const curve_patch_key& a, const curve_patch_key& b) {
@@ -963,7 +986,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     patch_specs.push_back({key, patch_a, patch_b, ScaleVec(patch_a.point + patch_b.point, 0.5)});
   }
 
-  const std::vector<cable_run_assignment> cable_runs = derive_cable_run_ids(sections, patch_specs);
+  const cable_run_assignments cable_runs = derive_cable_run_ids(sections, patch_specs);
 
   for (const visual_cable_section& section : sections) {
     const CableSectionLayout& entry = section.layout;

@@ -1115,8 +1115,11 @@ void pipeline::retire_untouched(route* route) {
     const BackboneEdgeKey key{std::min(item.node_a, item.node_b), std::max(item.node_a, item.node_b)};
     rebuilt.edge_by_nodes[key] = item.edge_id;
   }
-  for (const SavedBackboneEdgeBundle& item : graph.edge_bundles) {
+  for (std::size_t position = 0; position < graph.edge_bundles.size(); ++position) {
+    const SavedBackboneEdgeBundle& item = graph.edge_bundles[position];
     CoreState::index_add(rebuilt.edge_bundles, item.edge_id, item.edge_bundle_id);
+    rebuilt.edge_bundle_by_edge_and_bundle[{item.edge_id, item.bundle_id}] = item.edge_bundle_id;
+    rebuilt.edge_bundle_positions[item.edge_bundle_id] = position;
     CoreState::index_add(rebuilt.bundle_edge, item.bundle_id, item.edge_id);
     for (ObjectId span_id : item.span_ids) {
       CoreState::index_add(rebuilt.edge_bundle_spans, item.edge_bundle_id, span_id);

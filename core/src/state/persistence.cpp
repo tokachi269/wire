@@ -1282,8 +1282,12 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
       return result;
     }
   }
-  for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+  for (std::size_t position = 0; position < graph.edge_bundles.size(); ++position) {
+    const SavedBackboneEdgeBundle& edge_bundle = graph.edge_bundles[position];
     index_add(trial.runtime_.backbone_index.edge_bundles, edge_bundle.edge_id, edge_bundle.edge_bundle_id);
+    trial.runtime_.backbone_index.edge_bundle_by_edge_and_bundle[
+        {edge_bundle.edge_id, edge_bundle.bundle_id}] = edge_bundle.edge_bundle_id;
+    trial.runtime_.backbone_index.edge_bundle_positions[edge_bundle.edge_bundle_id] = position;
     index_add(trial.runtime_.backbone_index.bundle_edge, edge_bundle.bundle_id, edge_bundle.edge_id);
     for (ObjectId span_id : edge_bundle.span_ids) {
       index_add(trial.runtime_.backbone_index.edge_bundle_spans, edge_bundle.edge_bundle_id, span_id);
@@ -1336,8 +1340,12 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
     const BackboneEdgeKey key{std::min(edge.node_a, edge.node_b), std::max(edge.node_a, edge.node_b)};
     trial.runtime_.backbone_index.edge_by_nodes[key] = edge.edge_id;
   }
-  for (const SavedBackboneEdgeBundle& edge_bundle : trial.authoritative_.backbone.edge_bundles) {
+  for (std::size_t position = 0; position < trial.authoritative_.backbone.edge_bundles.size(); ++position) {
+    const SavedBackboneEdgeBundle& edge_bundle = trial.authoritative_.backbone.edge_bundles[position];
     index_add(trial.runtime_.backbone_index.edge_bundles, edge_bundle.edge_id, edge_bundle.edge_bundle_id);
+    trial.runtime_.backbone_index.edge_bundle_by_edge_and_bundle[
+        {edge_bundle.edge_id, edge_bundle.bundle_id}] = edge_bundle.edge_bundle_id;
+    trial.runtime_.backbone_index.edge_bundle_positions[edge_bundle.edge_bundle_id] = position;
     index_add(trial.runtime_.backbone_index.bundle_edge, edge_bundle.bundle_id, edge_bundle.edge_id);
     for (ObjectId span_id : edge_bundle.span_ids) {
       index_add(trial.runtime_.backbone_index.edge_bundle_spans, edge_bundle.edge_bundle_id, span_id);

@@ -36,12 +36,13 @@ const SavedBackboneEdge* CoreView::backbone_edge(ObjectId edge_id) const {
   return it == state_.authoritative_.backbone.edges.end() ? nullptr : &*it;
 }
 const SavedBackboneEdgeBundle* CoreView::backbone_edge_bundle(ObjectId edge_bundle_id) const {
-  const auto it = std::find_if(state_.authoritative_.backbone.edge_bundles.begin(),
-                               state_.authoritative_.backbone.edge_bundles.end(),
-                               [&](const SavedBackboneEdgeBundle& item) {
-                                 return item.edge_bundle_id == edge_bundle_id;
-                               });
-  return it == state_.authoritative_.backbone.edge_bundles.end() ? nullptr : &*it;
+  const auto position = state_.runtime_.backbone_index.edge_bundle_positions.find(edge_bundle_id);
+  if (position == state_.runtime_.backbone_index.edge_bundle_positions.end() ||
+      position->second >= state_.authoritative_.backbone.edge_bundles.size()) {
+    return nullptr;
+  }
+  const SavedBackboneEdgeBundle& item = state_.authoritative_.backbone.edge_bundles[position->second];
+  return item.edge_bundle_id == edge_bundle_id ? &item : nullptr;
 }
 const SavedBackboneNode* CoreView::backbone_node_for_pole(ObjectId pole_id) const {
   const auto it = state_.runtime_.backbone_index.pole_node.find(pole_id);

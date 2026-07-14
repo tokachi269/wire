@@ -51,7 +51,7 @@ describe("sampled wire curve", () => {
 });
 
 describe("scene part reuse", () => {
-  it("keeps a mesh for the same stable key and source version", () => {
+  it("rebuilds only the part whose stable key version changed", () => {
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
@@ -75,10 +75,29 @@ describe("scene part reuse", () => {
         sampleCount: 2
       },
       samples: new Float64Array([0, 0, 0, 10, 0, 0])
+    }, {
+      info: {
+        partKey: "edge:2:lane:0",
+        sourceVersion: "20",
+        sampleOffset: 6,
+        kind: 0,
+        wireRadius: 0.02,
+        colorRgba: 0xffffffff,
+        sourceNodeId: "0",
+        sourceEdgeId: "2",
+        sourceSpanId: "4",
+        sourceBundleId: "3",
+        bundleTemplateId: 102,
+        laneIndex: 0,
+        runId: 2,
+        sampleCount: 2
+      },
+      samples: new Float64Array([0, 1, 0, 10, 1, 0])
     }];
 
     expect(scene.syncContent(snapshot)).toBe(true);
     const first = scene.partMeshes.get("edge:1:lane:0").mesh;
+    const second = scene.partMeshes.get("edge:2:lane:0").mesh;
     snapshot.logs.push("unrelated store update");
     expect(scene.syncContent(snapshot)).toBe(false);
     expect(scene.partMeshes.get("edge:1:lane:0").mesh).toBe(first);
@@ -86,5 +105,6 @@ describe("scene part reuse", () => {
     snapshot.parts[0].info.sourceVersion = "11";
     expect(scene.syncContent(snapshot)).toBe(true);
     expect(scene.partMeshes.get("edge:1:lane:0").mesh).not.toBe(first);
+    expect(scene.partMeshes.get("edge:2:lane:0").mesh).toBe(second);
   });
 });

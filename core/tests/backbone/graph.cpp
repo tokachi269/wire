@@ -1347,6 +1347,16 @@ bool C502_backbone_span_bindings_save_lane() {
     return false;
   }
   const wire::core::ObjectId edge_bundle_id = graph.edge_bundles.front().edge_bundle_id;
+  const wire::core::SavedBackboneEdgeBundle& edge_bundle = graph.edge_bundles.front();
+  const wire::core::BackboneIndex& backbone_index = state.view().backbone_index();
+  const auto position = backbone_index.edge_bundle_positions.find(edge_bundle_id);
+  const auto by_pair = backbone_index.edge_bundle_by_edge_and_bundle.find(
+      {edge_bundle.edge_id, edge_bundle.bundle_id});
+  if (position == backbone_index.edge_bundle_positions.end() || position->second != 0 ||
+      by_pair == backbone_index.edge_bundle_by_edge_and_bundle.end() || by_pair->second != edge_bundle_id ||
+      state.view().backbone_edge_bundle(edge_bundle_id) != &graph.edge_bundles.front()) {
+    return false;
+  }
   const auto index_it = state.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
   if (index_it == state.view().backbone_index().edge_bundle_span_bindings.end() ||
       index_it->second.size() != graph.span_bindings.size()) {

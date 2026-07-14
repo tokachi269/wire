@@ -131,10 +131,10 @@ ObjectId CoreState::bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, b
   if (edge_id == kInvalidObjectId || bundle_id == kInvalidObjectId) {
     return kInvalidObjectId;
   }
-  for (SavedBackboneEdgeBundle& item : authoritative_.backbone.edge_bundles) {
-    if (item.edge_id == edge_id && item.bundle_id == bundle_id) {
-      return item.edge_bundle_id;
-    }
+  const BackboneEdgeBundleKey key{edge_id, bundle_id};
+  if (const auto existing = runtime_.backbone_index.edge_bundle_by_edge_and_bundle.find(key);
+      existing != runtime_.backbone_index.edge_bundle_by_edge_and_bundle.end()) {
+    return existing->second;
   }
 
   SavedBackboneEdgeBundle item{};
@@ -146,7 +146,10 @@ ObjectId CoreState::bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, b
   item.order = order;
   item.dir = dir;
   authoritative_.backbone.edge_bundles.push_back(item);
+  const std::size_t position = authoritative_.backbone.edge_bundles.size() - 1;
   index_add(runtime_.backbone_index.edge_bundles, edge_id, item.edge_bundle_id);
+  runtime_.backbone_index.edge_bundle_by_edge_and_bundle.emplace(key, item.edge_bundle_id);
+  runtime_.backbone_index.edge_bundle_positions[item.edge_bundle_id] = position;
   index_add(runtime_.backbone_index.bundle_edge, bundle_id, edge_id);
   return item.edge_bundle_id;
 }
@@ -157,14 +160,14 @@ EditResult<bool> CoreState::bind_backbone_span(ObjectId edge_bundle_id, std::siz
     out.error = "invalid backbone span binding";
     return out;
   }
-  SavedBackboneEdgeBundle* found = nullptr;
-  for (SavedBackboneEdgeBundle& item : authoritative_.backbone.edge_bundles) {
-    if (item.edge_bundle_id == edge_bundle_id) {
-      found = &item;
-      break;
-    }
+  const auto position = runtime_.backbone_index.edge_bundle_positions.find(edge_bundle_id);
+  if (position == runtime_.backbone_index.edge_bundle_positions.end() ||
+      position->second >= authoritative_.backbone.edge_bundles.size()) {
+    out.error = "invalid backbone span binding";
+    return out;
   }
-  if (found == nullptr) {
+  SavedBackboneEdgeBundle* found = &authoritative_.backbone.edge_bundles[position->second];
+  if (found->edge_bundle_id != edge_bundle_id) {
     out.error = "invalid backbone span binding";
     return out;
   }

@@ -266,10 +266,29 @@ struct BackboneEdgeKeyHash {
   }
 };
 
+struct BackboneEdgeBundleKey {
+  ObjectId edge_id = kInvalidObjectId;
+  ObjectId bundle_id = kInvalidObjectId;
+  bool operator==(const BackboneEdgeBundleKey& other) const {
+    return edge_id == other.edge_id && bundle_id == other.bundle_id;
+  }
+};
+
+struct BackboneEdgeBundleKeyHash {
+  std::size_t operator()(const BackboneEdgeBundleKey& key) const {
+    const std::size_t h1 = std::hash<ObjectId>{}(key.edge_id);
+    const std::size_t h2 = std::hash<ObjectId>{}(key.bundle_id);
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+  }
+};
+
 struct BackboneIndex {
   std::unordered_map<ObjectId, std::vector<ObjectId>> node_edges;
   std::unordered_map<BackboneEdgeKey, ObjectId, BackboneEdgeKeyHash> edge_by_nodes;
   std::unordered_map<ObjectId, std::vector<ObjectId>> edge_bundles;
+  std::unordered_map<BackboneEdgeBundleKey, ObjectId, BackboneEdgeBundleKeyHash>
+      edge_bundle_by_edge_and_bundle;
+  std::unordered_map<ObjectId, std::size_t> edge_bundle_positions;
   std::unordered_map<ObjectId, std::vector<ObjectId>> bundle_edge;
   std::unordered_map<ObjectId, std::vector<ObjectId>> edge_bundle_spans;
   std::unordered_map<ObjectId, ObjectId> span_edge_bundle;

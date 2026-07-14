@@ -400,6 +400,37 @@ bool C685_descriptor_attachment_template_updates_used_span_and_reload_geometry()
   return std::abs(after_curve->detail.hidden_intervals.front().start_m - before_start) > 1e-6;
 }
 
+bool C762_model_descriptor_builds_stable_model_assembly_part() {
+  wire::core::ModelDescriptor descriptor{};
+  descriptor.measurement.name = "hv endpoint fixture";
+  descriptor.measurement.version = 7;
+  descriptor.measurement.sockets = {
+      {"mount", wire::core::ModelSocketRole::kMount, {0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}},
+      {"wire", wire::core::ModelSocketRole::kLineOut, {0.35, -0.1, 0.02}, {1.0, 0.0, 0.0}},
+  };
+  wire::core::Transformd local_transform{};
+  local_transform.position = {0.1, 0.2, 0.3};
+  local_transform.rotation_euler_deg = {0.0, 0.0, 90.0};
+  const auto built = wire::core::build_model_assembly_part(
+      descriptor, 12, "hv_phase_1_disc_3", local_transform, wire::core::ModelFitMode::kRigid);
+  if (!built.report.conflicts.empty() || built.part.part_id != 12 ||
+      built.part.model_key != "hv_phase_1_disc_3" || built.part.descriptor_version != 7 ||
+      built.part.local_transform.position.x != 0.1 || built.part.local_transform.position.y != 0.2 ||
+      built.part.local_transform.position.z != 0.3 ||
+      built.part.local_transform.rotation_euler_deg.z != 90.0 ||
+      built.part.fit_mode != wire::core::ModelFitMode::kRigid || built.part.sockets.size() != 2 ||
+      built.part.sockets[1].name != "wire" ||
+      built.part.sockets[1].local_position.x != 0.35 ||
+      built.part.sockets[1].local_position.y != -0.1 ||
+      built.part.sockets[1].local_position.z != 0.02) {
+    return false;
+  }
+
+  descriptor.measurement.sockets.push_back(descriptor.measurement.sockets.back());
+  const auto invalid = wire::core::build_model_assembly_part(descriptor, 13, "");
+  return invalid.report.conflicts.size() == 2 && invalid.part.sockets.size() == 2;
+}
+
 // Intent: Detailed generation should not crash when path includes non-pole support nodes.
 
 bool test_backbone_generation_requires_non_empty_bundles() {
@@ -562,6 +593,9 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C685_ModelDescriptor_AttachmentTemplateReloadUpdatesCurve",
                          "Descriptor-built attachment template updates an existing span through the normal template path",
                          "Invariant", false, C685_descriptor_attachment_template_updates_used_span_and_reload_geometry);
+  test_registry::AddTest(tests, "C762_ModelDescriptor_BuildsStableModelAssemblyPart",
+                         "Model descriptor copies stable named sockets into an adapter-built assembly part",
+                         "Invariant", true, C762_model_descriptor_builds_stable_model_assembly_part);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);

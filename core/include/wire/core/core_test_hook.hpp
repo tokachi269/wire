@@ -24,6 +24,9 @@ struct CoreStateTestHook {
   static std::unordered_map<CableTemplateId, CableTemplate>& cable_templates(CoreState& state) {
     return state.authoritative_.cable_templates;
   }
+  static std::unordered_map<ModelAssemblyTemplateId, ModelAssemblyTemplate>& model_assembly_templates(CoreState& state) {
+    return state.authoritative_.model_assembly_templates;
+  }
   static std::vector<SupportNode>& pending_support_nodes(CoreState& state) {
     return state.debug_.pending_support_nodes;
   }

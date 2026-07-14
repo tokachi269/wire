@@ -242,6 +242,9 @@ const std::unordered_map<BundleTemplateId, BundleTemplate>& CoreView::bundle_tem
 const std::unordered_map<AttachmentTemplateId, AttachmentTemplate>& CoreView::attachment_templates() const {
   return state_.authoritative_.attachment_templates;
 }
+const std::unordered_map<ModelAssemblyTemplateId, ModelAssemblyTemplate>& CoreView::model_assembly_templates() const {
+  return state_.authoritative_.model_assembly_templates;
+}
 const std::vector<PortResolutionDebugRecord>& CoreView::port_resolution_debug_records() const {
   return state_.debug_.port_resolution_debug_records;
 }

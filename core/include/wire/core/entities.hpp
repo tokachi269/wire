@@ -17,6 +17,8 @@ using BundleTemplateId = std::uint32_t;
 constexpr BundleTemplateId kInvalidBundleTemplateId = 0;
 using AttachmentTemplateId = std::uint32_t;
 constexpr AttachmentTemplateId kInvalidAttachmentTemplateId = 0;
+using ModelAssemblyTemplateId = std::uint32_t;
+constexpr ModelAssemblyTemplateId kInvalidModelAssemblyTemplateId = 0;
 enum class ConnectionCategory : std::uint8_t {
   kHighVoltage = 0,
   kLowVoltage = 1,
@@ -284,6 +286,7 @@ struct PoleTypeDefinition {
   std::string name{};
   std::string description{};
   double default_height_m = 10.0;
+  ModelAssemblyTemplateId pole_visual_assembly_id = kInvalidModelAssemblyTemplateId;
   std::vector<PortPlacementBand> port_bands{};
   std::vector<AnchorSlotTemplate> anchor_slots{};
 };

@@ -16,6 +16,8 @@
 | C752 | Symptom | Commit | load後の再saveは元byteと一致する | 生成済みstateのsave | load→save | Exact: byte一致 | serialized text | 保存と再読込の反復でproject fileを変質させない |
 | C753 | Symptom | Generate/Edit | load後もID衝突なく編集を継続できる | route生成済みsave | load→既存終端から延長→template編集 | Invariant: 生成と編集が成功し全IDが一意 | next_id / public stores | 読込後の編集で既存objectを上書きしない |
 | C754 | Boundary | Commit | 不正loadは本stateを変更しない | 生成済みstateと正常save | version不一致、未知key、途中切断 | Boundary: 明示error、stateの再save byte不変 | EditResult.error / serialized text | 壊れたfileの部分適用を防ぐ |
+| C762 | Boundary | model adapter | ModelDescriptorからassembly partへstable socketを値コピーする | 2 named socketsとdescriptor versionを持つ測定値 | build_model_assembly_part | part id/model key/version/transform/socket値が一致し、空keyとsocket名重複はconflict | ModelAssemblyPartBuildResult | transient descriptorへのpointer保持やscene geometryからのsocket再推測を防ぐ |
+| C763 | Boundary | model assembly / Persistence | assembly登録はvalidation後だけ反映しsave/load対象になる | wire socket付きassemblyと未解決socket参照 | RegisterModelAssemblyTemplate→SerializeAuthoritative→DeserializeAuthoritative | 正常assemblyはfield一致、未解決socketと重複idは拒否されstate byte不変 | ModelAssemblyTemplate / serialized text | adapterが正本mapを直書きする、または不完全assemblyを部分反映する回帰を防ぐ |
 | C01 | Symptom | Init | ID生成の単調増加 | 新規IdGenerator | next/peek/reset | Exact: 連番・重複なし | 戻り値 | 永続ID衝突防止 |
 | C02 | Symptom | Init | ObjectStore整合 | 空Store | insert/find/remove/upsert | Exact: 件数・参照整合 | 公開API | 参照崩壊防止 |
 | C03 | Symptom | Generate/Edit | Span追加初期Dirty | 有効Port2点 | AddSpan | Exact: runtime生成+dirty | runtime | 再計算漏れ防止 |

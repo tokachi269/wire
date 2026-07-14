@@ -523,8 +523,6 @@ public:
     output.set("minBendRadius", cable_template.min_bend_radius_m);
     output.set("materialStyle", static_cast<int>(cable_template.material_style));
     output.set("colorRgba", cable_template.color_rgba);
-    output.set("requiresInsulator", cable_template.requires_insulator);
-    output.set("insulatorAttachmentHeight", cable_template.insulator_attachment_height_m);
     output.set("sagFactor", cable_template.sag_factor);
     output.set("slackFactor", cable_template.slack_factor);
     output.set("continuityPolicy", static_cast<int>(cable_template.continuity_policy));
@@ -558,8 +556,6 @@ public:
     cable_template.material_style =
         static_cast<wire::core::CableMaterialStyleKind>(property<int>(input, "materialStyle"));
     cable_template.color_rgba = property<std::uint32_t>(input, "colorRgba");
-    cable_template.requires_insulator = property<bool>(input, "requiresInsulator");
-    cable_template.insulator_attachment_height_m = property<double>(input, "insulatorAttachmentHeight");
     cable_template.sag_factor = property<double>(input, "sagFactor");
     cable_template.slack_factor = property<double>(input, "slackFactor");
     cable_template.continuity_policy =

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -145,6 +146,13 @@ struct ModelAttachmentTemplateBuildResult {
   bool operator==(const ModelAttachmentTemplateBuildResult&) const = default;
 };
 
+struct ModelAssemblyPartBuildResult {
+  ModelAssemblyPart part{};
+  ModelMergeReport report{};
+
+  bool operator==(const ModelAssemblyPartBuildResult&) const = default;
+};
+
 namespace model_descriptor_detail {
 
 inline ModelSocket* find_socket(std::vector<ModelSocket>& sockets, const std::string& name) {
@@ -274,6 +282,41 @@ inline ModelAttachmentTemplateBuildResult build_attachment_template(const ModelD
                                           "ModelDescriptor is missing a line_out socket");
   }
 
+  return result;
+}
+
+inline ModelAssemblyPartBuildResult build_model_assembly_part(const ModelDescriptor& descriptor,
+                                                               std::uint32_t part_id,
+                                                               std::string model_key,
+                                                               const Transformd& local_transform = {},
+                                                               ModelFitMode fit_mode = ModelFitMode::kRigid) {
+  ModelAssemblyPartBuildResult result{};
+  result.part.part_id = part_id;
+  result.part.model_key = std::move(model_key);
+  result.part.descriptor_version = descriptor.measurement.version == 0 ? 1 : descriptor.measurement.version;
+  result.part.local_transform = local_transform;
+  result.part.fit_mode = fit_mode;
+  if (result.part.model_key.empty()) {
+    model_descriptor_detail::add_conflict(result.report, descriptor.measurement.name, "model_key",
+                                          "Model assembly part requires a model key");
+  }
+  for (const ModelSocket& socket : descriptor.measurement.sockets) {
+    if (socket.name.empty()) {
+      model_descriptor_detail::add_conflict(result.report, descriptor.measurement.name, "socket.name",
+                                            "Model assembly sockets require stable names");
+      continue;
+    }
+    const auto duplicate = std::find_if(result.part.sockets.begin(), result.part.sockets.end(),
+                                        [&](const ModelAssemblySocket& existing) {
+                                          return existing.name == socket.name;
+                                        });
+    if (duplicate != result.part.sockets.end()) {
+      model_descriptor_detail::add_conflict(result.report, socket.name, "socket.name",
+                                            "Model assembly socket names must be unique within one part");
+      continue;
+    }
+    result.part.sockets.push_back({socket.name, socket.local_position, socket.local_direction});
+  }
   return result;
 }
 

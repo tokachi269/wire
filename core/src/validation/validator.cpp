@@ -142,30 +142,6 @@ bool support_group_decision_equal(const SupportGroupDecision& a, const SupportGr
          a.side == b.side && a.origin == b.origin;
 }
 
-double insulator_lift_for_span(const CoreView& core, ObjectId span_id) {
-  const Span* span = core.edit_state().spans.find(span_id);
-  if (span == nullptr) {
-    return 0.0;
-  }
-  const Bundle* bundle = core.edit_state().bundles.find(span->bundle_id);
-  if (bundle == nullptr) {
-    return 0.0;
-  }
-  const auto bundle_template_it = core.bundle_templates().find(bundle->bundle_template_id);
-  if (bundle_template_it == core.bundle_templates().end()) {
-    return 0.0;
-  }
-  const auto cable_template_it = core.cable_templates().find(bundle_template_it->second.cable_template_id);
-  if (cable_template_it == core.cable_templates().end()) {
-    return 0.0;
-  }
-  const CableTemplate& cable_template = cable_template_it->second;
-  if (!cable_template.requires_insulator) {
-    return 0.0;
-  }
-  return std::max(0.0, cable_template.insulator_attachment_height_m);
-}
-
 double template_layer_base_z_for_validation(const CoreView& core, const Pole& pole, ConnectionCategory category) {
   return core.port_category_base_z_for_pole(pole, category);
 }
@@ -174,8 +150,7 @@ using SupportGroupCategoryMap =
     std::unordered_map<LoweredSupportGroupKey, ConnectionCategory, LoweredSupportGroupKeyHash>;
 
 void validate_projected_span_layout_endpoint(ValidationResult* result, const CoreView& core, const EditState& edit_state,
-                                             ObjectId span_id, double endpoint_attach_lift_m,
-                                             const LayoutEndpoint& endpoint, const char* code) {
+                                             ObjectId span_id, const LayoutEndpoint& endpoint, const char* code) {
   if (result == nullptr) {
     return;
   }
@@ -198,8 +173,7 @@ void validate_projected_span_layout_endpoint(ValidationResult* result, const Cor
   const Port* endpoint_port = edit_state.ports.find(endpoint.port_id);
   if (endpoint_pole != nullptr && endpoint_port != nullptr &&
       endpoint.continuity_class == ContinuityCategoryClass::kBundleLike) {
-    const double template_z =
-        template_layer_base_z_for_validation(core, *endpoint_pole, endpoint_port->category) + endpoint_attach_lift_m;
+    const double template_z = template_layer_base_z_for_validation(core, *endpoint_pole, endpoint_port->category);
     if (endpoint.relation_kind == JunctionRelationKind::kThroughMain) {
       if (endpoint.lower_required || endpoint.branch_down_offset_m > 1e-9 ||
           !almost_equal_validation(endpoint.support_world.z, template_z)) {
@@ -422,7 +396,68 @@ ValidationResult CoreState::Validate() const {
   const auto& cable_templates = core.cable_templates();
   const auto& bundle_templates = core.bundle_templates();
   const auto& attachment_templates = core.attachment_templates();
+  const auto& model_assembly_templates = core.model_assembly_templates();
   const auto& port_resolution_debug_records = core.port_resolution_debug_records();
+
+  const auto finite_vec3 = [](const Vec3d& value) {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+  };
+  for (const auto& [assembly_id, assembly] : model_assembly_templates) {
+    if (assembly.id != assembly_id || assembly.id == kInvalidModelAssemblyTemplateId || assembly.version == 0) {
+      result.issues.push_back({ValidationSeverity::kError, "ModelAssemblyIdentityInvalid",
+                               "Model assembly id and version must be valid", kInvalidObjectId});
+    }
+    std::unordered_set<std::uint32_t> part_ids{};
+    bool wire_socket_found = !assembly.wire_socket.has_value();
+    for (const ModelAssemblyPart& part : assembly.parts) {
+      if (!part_ids.insert(part.part_id).second) {
+        result.issues.push_back({ValidationSeverity::kError, "ModelAssemblyPartDuplicate",
+                                 "Model assembly part ids must be unique", kInvalidObjectId});
+      }
+      const Transformd& transform = part.local_transform;
+      const bool fit_mode_valid = part.fit_mode == ModelFitMode::kRigid ||
+                                  part.fit_mode == ModelFitMode::kPoleHeight ||
+                                  part.fit_mode == ModelFitMode::kPoleRadial;
+      if (part.model_key.empty() || part.descriptor_version == 0 || !finite_vec3(transform.position) ||
+          !finite_vec3(transform.rotation_euler_deg) || !finite_vec3(transform.scale) ||
+          transform.scale.x <= 0.0 || transform.scale.y <= 0.0 || transform.scale.z <= 0.0 ||
+          !fit_mode_valid) {
+        result.issues.push_back({ValidationSeverity::kError, "ModelAssemblyPartInvalid",
+                                 "Model assembly part key, version, and transform must be valid", kInvalidObjectId});
+      }
+      std::unordered_set<std::string> socket_names{};
+      for (const ModelAssemblySocket& socket : part.sockets) {
+        if (socket.name.empty() || !socket_names.insert(socket.name).second ||
+            !finite_vec3(socket.local_position) || !finite_vec3(socket.local_direction) ||
+            Length(socket.local_direction) <= 1e-12) {
+          result.issues.push_back({ValidationSeverity::kError, "ModelAssemblySocketInvalid",
+                                   "Model assembly sockets require unique names and finite values", kInvalidObjectId});
+        }
+        if (assembly.wire_socket.has_value() && assembly.wire_socket->part_id == part.part_id &&
+            assembly.wire_socket->socket_name == socket.name) {
+          wire_socket_found = true;
+        }
+      }
+    }
+    if (!wire_socket_found) {
+      result.issues.push_back({ValidationSeverity::kError, "ModelAssemblyWireSocketMissing",
+                               "Model assembly wire socket must resolve to one part socket", kInvalidObjectId});
+    }
+  }
+
+  for (const auto& [pole_type_id, pole_type] : pole_types) {
+    (void)pole_type_id;
+    if (pole_type.pole_visual_assembly_id == kInvalidModelAssemblyTemplateId) continue;
+    const auto assembly_it = model_assembly_templates.find(pole_type.pole_visual_assembly_id);
+    if (assembly_it == model_assembly_templates.end()) {
+      result.issues.push_back({ValidationSeverity::kError, "PoleTypeModelAssemblyMissing",
+                               "PoleType references an unknown model assembly", kInvalidObjectId});
+    } else if (assembly_it->second.wire_socket.has_value()) {
+      result.issues.push_back({ValidationSeverity::kError, "PoleVisualWireSocketInvalid",
+                               "Pole visual assembly must not own a wire socket", kInvalidObjectId});
+    }
+  }
+
   for (const Pole& pole : edit_state.poles.items()) {
     if (pole.pole_type_id != kInvalidPoleTypeId && !pole_types.contains(pole.pole_type_id)) {
       result.issues.push_back(
@@ -570,6 +605,28 @@ ValidationResult CoreState::Validate() const {
       result.issues.push_back({ValidationSeverity::kError, "BundleTemplateCableMissing",
                                "BundleTemplate references unknown CableTemplate", kInvalidObjectId});
     }
+    const auto assembly_exists = [&](ModelAssemblyTemplateId id) {
+      return id == kInvalidModelAssemblyTemplateId || model_assembly_templates.contains(id);
+    };
+    if (!assembly_exists(bundle_template.row_fixture_assembly_id) ||
+        !assembly_exists(bundle_template.endpoint_fixture_assembly_id)) {
+      result.issues.push_back({ValidationSeverity::kError, "BundleTemplateModelAssemblyMissing",
+                               "BundleTemplate references an unknown model assembly", kInvalidObjectId});
+    }
+    if (bundle_template.row_fixture_assembly_id != kInvalidModelAssemblyTemplateId) {
+      const auto row_it = model_assembly_templates.find(bundle_template.row_fixture_assembly_id);
+      if (row_it != model_assembly_templates.end() && row_it->second.wire_socket.has_value()) {
+        result.issues.push_back({ValidationSeverity::kError, "RowFixtureWireSocketInvalid",
+                                 "Row fixture assembly must not own a wire socket", kInvalidObjectId});
+      }
+    }
+    if (bundle_template.endpoint_fixture_assembly_id != kInvalidModelAssemblyTemplateId) {
+      const auto endpoint_it = model_assembly_templates.find(bundle_template.endpoint_fixture_assembly_id);
+      if (endpoint_it != model_assembly_templates.end() && !endpoint_it->second.wire_socket.has_value()) {
+        result.issues.push_back({ValidationSeverity::kError, "EndpointFixtureWireSocketMissing",
+                                 "Endpoint fixture assembly requires a wire socket", kInvalidObjectId});
+      }
+    }
     if (!std::isfinite(bundle_template.grouped_support_fanout_spacing_m) ||
         bundle_template.grouped_support_fanout_spacing_m < 0.0) {
       result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "BundleTemplateGroupedSupportFanoutInvalid",
@@ -634,16 +691,6 @@ ValidationResult CoreState::Validate() const {
       result.issues.emplace_back(
           ValidationIssue{ValidationSeverity::kError, "CableTemplateAttachmentTemplateMissing",
                           "CableTemplate default endpoint attachment template must exist", kInvalidObjectId});
-    }
-    if (!std::isfinite(cable_template.insulator_attachment_height_m) || cable_template.insulator_attachment_height_m < 0.0) {
-      result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateInsulatorAttachmentHeightInvalid",
-                                                 "CableTemplate insulator attachment height must be finite and >= 0",
-                                                 kInvalidObjectId});
-    }
-    if (!cable_template.requires_insulator && cable_template.insulator_attachment_height_m > 1e-9) {
-      result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateInsulatorAttachmentHeightUnused",
-                                                 "Only insulator-requiring cable templates may set insulator attachment height",
-                                                 kInvalidObjectId});
     }
     for (const CableSupplementalPathTemplate& supplemental : cable_template.supplemental_paths) {
       if (supplemental.interaction_mode != AttachmentLineInteractionMode::kReplaceWithInternalPath &&
@@ -847,11 +894,10 @@ ValidationResult CoreState::Validate() const {
   };
   cache_state.span_layout_cache.for_each_layout_record(
       [&](ObjectId span_id, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {
-        const double endpoint_attach_lift_m = insulator_lift_for_span(core, span_id);
-        validate_projected_span_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
-                                                layout.start, "SpanLayoutStartAxisMissing");
-        validate_projected_span_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
-                                                layout.end, "SpanLayoutEndAxisMissing");
+        validate_projected_span_layout_endpoint(&result, core, edit_state, span_id, layout.start,
+                                                "SpanLayoutStartAxisMissing");
+        validate_projected_span_layout_endpoint(&result, core, edit_state, span_id, layout.end,
+                                                "SpanLayoutEndAxisMissing");
         validate_grouped_support_layout(&result, edit_state, span_id, layout, layout.start,
                                         cache_state.span_layout_cache.support_groups, &support_group_category_by_key);
         validate_grouped_support_layout(&result, edit_state, span_id, layout, layout.end,

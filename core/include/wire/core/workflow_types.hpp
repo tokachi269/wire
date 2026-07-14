@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -79,6 +80,66 @@ struct AttachmentTemplate {
   std::uint64_t version = 1;
 };
 
+enum class ModelFitMode : std::uint8_t {
+  kRigid = 0,
+  kPoleHeight = 1,
+  // Circular-pole radial approximation at the assembly placement height.
+  kPoleRadial = 2,
+};
+
+struct ModelAssemblySocket {
+  std::string name{};
+  Vec3d local_position{};
+  Vec3d local_direction{1.0, 0.0, 0.0};
+
+  bool operator==(const ModelAssemblySocket& other) const {
+    return name == other.name && local_position.x == other.local_position.x &&
+           local_position.y == other.local_position.y && local_position.z == other.local_position.z &&
+           local_direction.x == other.local_direction.x && local_direction.y == other.local_direction.y &&
+           local_direction.z == other.local_direction.z;
+  }
+};
+
+struct ModelAssemblyPart {
+  std::uint32_t part_id = 0;
+  std::string model_key{};
+  std::uint64_t descriptor_version = 1;
+  Transformd local_transform{};
+  ModelFitMode fit_mode = ModelFitMode::kRigid;
+  std::vector<ModelAssemblySocket> sockets{};
+
+  bool operator==(const ModelAssemblyPart& other) const {
+    return part_id == other.part_id && model_key == other.model_key &&
+           descriptor_version == other.descriptor_version &&
+           local_transform.position.x == other.local_transform.position.x &&
+           local_transform.position.y == other.local_transform.position.y &&
+           local_transform.position.z == other.local_transform.position.z &&
+           local_transform.rotation_euler_deg.x == other.local_transform.rotation_euler_deg.x &&
+           local_transform.rotation_euler_deg.y == other.local_transform.rotation_euler_deg.y &&
+           local_transform.rotation_euler_deg.z == other.local_transform.rotation_euler_deg.z &&
+           local_transform.scale.x == other.local_transform.scale.x &&
+           local_transform.scale.y == other.local_transform.scale.y &&
+           local_transform.scale.z == other.local_transform.scale.z && fit_mode == other.fit_mode &&
+           sockets == other.sockets;
+  }
+};
+
+struct AssemblySocketRef {
+  std::uint32_t part_id = 0;
+  std::string socket_name{};
+
+  bool operator==(const AssemblySocketRef&) const = default;
+};
+
+struct ModelAssemblyTemplate {
+  ModelAssemblyTemplateId id = kInvalidModelAssemblyTemplateId;
+  std::vector<ModelAssemblyPart> parts{};
+  std::optional<AssemblySocketRef> wire_socket{};
+  std::uint64_t version = 1;
+
+  bool operator==(const ModelAssemblyTemplate&) const = default;
+};
+
 struct CableSupplementalPathTemplate {
   enum class AnchorMode : std::uint8_t {
     kCurveOffset = 0,
@@ -118,8 +179,6 @@ struct CableTemplate {
   double min_bend_radius_m = 0.2;
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
   std::uint32_t color_rgba = 0xFFFFFFFFu;
-  bool requires_insulator = false;
-  double insulator_attachment_height_m = 0.0;
   double sag_factor = 0.03;
   double slack_factor = 0.0;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
@@ -202,6 +261,8 @@ struct BundleTemplate {
   BundleBranchPolicyHint branch_policy = BundleBranchPolicyHint::kAuto;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
   int support_wire_pole_band_id = 0;
+  ModelAssemblyTemplateId row_fixture_assembly_id = kInvalidModelAssemblyTemplateId;
+  ModelAssemblyTemplateId endpoint_fixture_assembly_id = kInvalidModelAssemblyTemplateId;
   SpanVisualAssemblyTemplate span_visual_assembly{};
   std::vector<CablePopulationRule> population_rules{};
   std::uint64_t version = 1;

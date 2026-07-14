@@ -29,6 +29,7 @@ struct CoreStateAuthoritativeStorage {
   std::unordered_map<CableTemplateId, CableTemplate> cable_templates{};
   std::unordered_map<BundleTemplateId, BundleTemplate> bundle_templates{};
   std::unordered_map<AttachmentTemplateId, AttachmentTemplate> attachment_templates{};
+  std::unordered_map<ModelAssemblyTemplateId, ModelAssemblyTemplate> model_assembly_templates{};
   ContextProfile context_profile{};
   OverrideState override_state{};
   LayoutSettings layout_settings{};

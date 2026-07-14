@@ -309,6 +309,8 @@ std::uint32_t classify_bundle_template_changes(const BundleTemplate& before,
     changes |= kDraw;
   }
   if (before.support_wire_pole_band_id != after.support_wire_pole_band_id ||
+      before.row_fixture_assembly_id != after.row_fixture_assembly_id ||
+      before.endpoint_fixture_assembly_id != after.endpoint_fixture_assembly_id ||
       !population_rules_equal(before.population_rules, after.population_rules) ||
       !span_visual_assembly_equals(before.span_visual_assembly, after.span_visual_assembly)) {
     changes |= kDetail;
@@ -420,7 +422,6 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
   normalized.default_grouped_support_fanout_spacing_m = std::max(0.0, normalized.default_grouped_support_fanout_spacing_m);
   normalized.bend_stiffness = std::max(0.0, normalized.bend_stiffness);
   normalized.min_bend_radius_m = std::max(0.0, normalized.min_bend_radius_m);
-  normalized.insulator_attachment_height_m = std::max(0.0, normalized.insulator_attachment_height_m);
   normalized.sag_factor = std::max(0.0, normalized.sag_factor);
   normalized.slack_factor = std::max(0.0, normalized.slack_factor);
   for (auto& path : normalized.supplemental_paths) {
@@ -447,8 +448,6 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
       std::abs(normalized.slack_factor - it->second.slack_factor) > 1e-12 || supplemental_paths_changed;
   const bool render_change =
       normalized.material_style != it->second.material_style || normalized.color_rgba != it->second.color_rgba ||
-      normalized.requires_insulator != it->second.requires_insulator ||
-      std::abs(normalized.insulator_attachment_height_m - it->second.insulator_attachment_height_m) > 1e-12 ||
       normalized.attachment_style != it->second.attachment_style;
   const bool decision_change =
       normalized.continuity_policy != it->second.continuity_policy ||

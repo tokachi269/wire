@@ -70,10 +70,7 @@ bool same_layout_endpoint(const wire::core::LayoutEndpoint& a, const wire::core:
          same_double(a.source_projection.t, b.source_projection.t) &&
          a.resolved_socket_id == b.resolved_socket_id && a.flow_kind == b.flow_kind && a.origin == b.origin &&
          a.endpoint_source == b.endpoint_source && a.port_source == b.port_source && a.side == b.side &&
-         a.endpoint_mode == b.endpoint_mode && a.has_visual_arm_geometry == b.has_visual_arm_geometry &&
-         same_vec3(a.visual_arm_mount_world, b.visual_arm_mount_world) &&
-         same_vec3(a.visual_arm_tip_world, b.visual_arm_tip_world) &&
-         same_vec3(a.visual_insulator_base_world, b.visual_insulator_base_world) &&
+         a.endpoint_mode == b.endpoint_mode &&
          same_vec3(a.support_world, b.support_world) && same_vec3(a.endpoint_world, b.endpoint_world) &&
          same_vec3(a.departure_dir, b.departure_dir) && same_vec3(a.endpoint_offset, b.endpoint_offset) &&
          same_double(a.local_departure_length_m, b.local_departure_length_m) &&
@@ -471,6 +468,39 @@ bool C757_authoritative_roundtrip_compares_fields_directly() {
          wire::core::CoreStateTestHook::authoritative_equals(source, loaded);
 }
 
+bool C763_model_assembly_registration_is_transactional_and_persistent() {
+  wire::core::CoreState state;
+  wire::core::ModelAssemblyTemplate assembly{};
+  assembly.id = 9001;
+  assembly.version = 4;
+  wire::core::ModelAssemblyPart part{};
+  part.part_id = 7;
+  part.model_key = "hv_phase_1_disc_3";
+  part.descriptor_version = 11;
+  part.local_transform.position = {0.1, -0.2, 0.3};
+  part.sockets.push_back({"wire", {0.35, 0.0, 0.0}, {1.0, 0.0, 0.0}});
+  assembly.parts.push_back(part);
+  assembly.wire_socket = wire::core::AssemblySocketRef{7, "wire"};
+  if (!state.RegisterModelAssemblyTemplate(assembly).ok) return false;
+
+  std::string saved{};
+  if (!state.SerializeAuthoritative(&saved).ok) return false;
+  wire::core::CoreState loaded;
+  if (!loaded.DeserializeAuthoritative(saved).ok ||
+      loaded.view().model_assembly_templates().at(assembly.id) != assembly) {
+    return false;
+  }
+
+  wire::core::ModelAssemblyTemplate invalid = assembly;
+  invalid.id = 9002;
+  invalid.wire_socket = wire::core::AssemblySocketRef{7, "missing"};
+  const auto rejected = state.RegisterModelAssemblyTemplate(invalid);
+  std::string after{};
+  return !rejected.ok && rejected.error.find("ModelAssemblyWireSocketMissing") != std::string::npos &&
+         state.SerializeAuthoritative(&after).ok && after == saved &&
+         !state.RegisterModelAssemblyTemplate(assembly).ok;
+}
+
 void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C750_authoritative_save_is_deterministic_and_changes_after_edit",
                          "authoritative save is versioned, deterministic, and changes after state edit",
@@ -493,6 +523,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C757_authoritative_roundtrip_compares_fields_directly",
                          "authoritative roundtrip compares every archived field directly",
                          "Invariant", false, C757_authoritative_roundtrip_compares_fields_directly);
+  test_registry::AddTest(tests, "C763_model_assembly_registration_is_transactional_and_persistent",
+                         "model assembly registration validates before mutation and survives save/load",
+                         "Boundary", true, C763_model_assembly_registration_is_transactional_and_persistent);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_tests);

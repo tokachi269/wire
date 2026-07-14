@@ -287,8 +287,6 @@ void CoreState::register_default_cable_templates() {
   hv.min_bend_radius_m = 0.8;
   hv.material_style = CableMaterialStyleKind::kBareConductor;
   hv.color_rgba = 0xBFC7CFFFu;
-  hv.requires_insulator = true;
-  hv.insulator_attachment_height_m = 0.16;
   hv.sag_factor = 0.025;
   hv.slack_factor = 0.0;
   hv.continuity_policy = CableContinuityPolicyHint::kPreferG1;
@@ -304,8 +302,6 @@ void CoreState::register_default_cable_templates() {
   lv.min_bend_radius_m = 0.25;
   lv.material_style = CableMaterialStyleKind::kInsulated;
   lv.color_rgba = 0x2E2E2EFFu;
-  lv.requires_insulator = true;
-  lv.insulator_attachment_height_m = 0.16;
   lv.sag_factor = 0.03;
   lv.slack_factor = 0.0;
   lv.continuity_policy = CableContinuityPolicyHint::kAuto;
@@ -321,8 +317,6 @@ void CoreState::register_default_cable_templates() {
   drop.min_bend_radius_m = 0.20;
   drop.material_style = CableMaterialStyleKind::kInsulated;
   drop.color_rgba = 0x1E1E1EFFu;
-  drop.requires_insulator = false;
-  drop.insulator_attachment_height_m = 0.0;
   drop.sag_factor = 0.035;
   drop.slack_factor = 0.01;
   drop.continuity_policy = CableContinuityPolicyHint::kPreferG1;
@@ -338,8 +332,6 @@ void CoreState::register_default_cable_templates() {
   comm.min_bend_radius_m = 0.18;
   comm.material_style = CableMaterialStyleKind::kGeneric;
   comm.color_rgba = 0x5D5D5DFFu;
-  comm.requires_insulator = false;
-  comm.insulator_attachment_height_m = 0.0;
   comm.sag_factor = 0.01;
   comm.slack_factor = 0.02;
   comm.continuity_policy = CableContinuityPolicyHint::kPreferG2;
@@ -355,8 +347,6 @@ void CoreState::register_default_cable_templates() {
   optical.min_bend_radius_m = 0.20;
   optical.material_style = CableMaterialStyleKind::kOptical;
   optical.color_rgba = 0x6EC9D8FFu;
-  optical.requires_insulator = false;
-  optical.insulator_attachment_height_m = 0.0;
   optical.sag_factor = 0.005;
   optical.slack_factor = 0.03;
   optical.continuity_policy = CableContinuityPolicyHint::kPreferG2;

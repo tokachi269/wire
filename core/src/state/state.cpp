@@ -205,7 +205,8 @@ bool anchor_slot_equals(const AnchorSlotTemplate& a, const AnchorSlotTemplate& b
 
 bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefinition& b) {
   if (a.id != b.id || a.name != b.name || a.description != b.description ||
-      std::abs(a.default_height_m - b.default_height_m) > 1e-12 || a.port_bands.size() != b.port_bands.size() ||
+      std::abs(a.default_height_m - b.default_height_m) > 1e-12 ||
+      a.pole_visual_assembly_id != b.pole_visual_assembly_id || a.port_bands.size() != b.port_bands.size() ||
       a.anchor_slots.size() != b.anchor_slots.size()) {
     return false;
   }
@@ -1766,6 +1767,37 @@ EditResult<bool> CoreState::UpdatePoleTypeDefinition(const PoleTypeDefinition& p
 
 EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_template) {
   return state_internal::TemplateMutationService::UpdateBundleTemplate(*this, bundle_template);
+}
+
+EditResult<bool> CoreState::RegisterModelAssemblyTemplate(
+    const ModelAssemblyTemplate& model_assembly_template) {
+  EditResult<bool> result{};
+  if (model_assembly_template.id == kInvalidModelAssemblyTemplateId) {
+    result.error = "model assembly registration requires a valid id";
+    return result;
+  }
+  if (authoritative_.model_assembly_templates.contains(model_assembly_template.id)) {
+    result.error = "model assembly template already exists";
+    return result;
+  }
+
+  CoreState trial = *this;
+  trial.authoritative_.model_assembly_templates.emplace(model_assembly_template.id,
+                                                        model_assembly_template);
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity != ValidationSeverity::kError) {
+      continue;
+    }
+    result.error = "model assembly registration: " + issue.code + ": " + issue.message;
+    return result;
+  }
+
+  authoritative_.model_assembly_templates.emplace(model_assembly_template.id,
+                                                   model_assembly_template);
+  result.ok = true;
+  result.value = true;
+  return result;
 }
 
 EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemplateId bundle_template_id) {

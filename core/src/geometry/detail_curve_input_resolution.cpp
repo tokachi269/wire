@@ -183,11 +183,6 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
       (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
   inputs.bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;
   inputs.min_bend_radius_hint_m = (cable_template == nullptr) ? 0.0 : cable_template->min_bend_radius_m;
-  inputs.endpoint_vertical_attachment_offset_m =
-      (cable_template != nullptr && cable_template->requires_insulator)
-          ? std::max(0.0, cable_template->insulator_attachment_height_m)
-          : 0.0;
-
   const SpanRuntimeState* runtime = view.find_span_runtime_state(span.id);
   inputs.variation_flow_key = variation_flow_key_for_span(runtime, span);
   VariationContext sag_variation_context{};

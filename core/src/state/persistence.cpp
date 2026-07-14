@@ -645,7 +645,8 @@ static_assert(sizeof(AnchorSlotTemplate) == 40, "field added: update archive vis
 template <typename Archive, typename Value>
 bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value) {
   if (!archive.field(prefix, "id", value.id) || !archive.string_value(child(prefix, "name"), value.name) || !archive.string_value(child(prefix, "description"), value.description) ||
-      !archive.field(prefix, "default_height_m", value.default_height_m)) return false;
+      !archive.field(prefix, "default_height_m", value.default_height_m) ||
+      !archive.field(prefix, "pole_visual_assembly_id", value.pole_visual_assembly_id)) return false;
   std::size_t port_band_count = value.port_bands.size();
   if (!archive.count(child(prefix, "port_bands.count"), port_band_count)) return false;
   if constexpr (Archive::loading) value.port_bands.resize(port_band_count);
@@ -662,7 +663,7 @@ bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(PoleTypeDefinition) == 160, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(PoleTypeDefinition) == 168, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -686,8 +687,6 @@ bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "default_grouped_support_fanout_spacing_m", v.default_grouped_support_fanout_spacing_m) ||
       !ar.field(p, "bend_stiffness", v.bend_stiffness) || !ar.field(p, "min_bend_radius_m", v.min_bend_radius_m) ||
       !ar.field(p, "material_style", v.material_style) || !ar.field(p, "color_rgba", v.color_rgba) ||
-      !ar.field(p, "requires_insulator", v.requires_insulator) ||
-      !ar.field(p, "insulator_attachment_height_m", v.insulator_attachment_height_m) ||
       !ar.field(p, "sag_factor", v.sag_factor) || !ar.field(p, "slack_factor", v.slack_factor) ||
       !ar.field(p, "continuity_policy", v.continuity_policy) || !ar.field(p, "attachment_style", v.attachment_style) ||
       !ar.field(p, "default_endpoint_attachment_template_id", v.default_endpoint_attachment_template_id)) return false;
@@ -701,7 +700,7 @@ bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(CableTemplate) == 168, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(CableTemplate) == 152, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -755,6 +754,8 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "row_layout_axis_mode", v.row_layout_axis_mode) || !ar.field(p, "support_style", v.support_style) ||
       !ar.field(p, "branch_policy", v.branch_policy) || !ar.field(p, "continuity_policy", v.continuity_policy) ||
       !ar.field(p, "support_wire_pole_band_id", v.support_wire_pole_band_id) ||
+      !ar.field(p, "row_fixture_assembly_id", v.row_fixture_assembly_id) ||
+      !ar.field(p, "endpoint_fixture_assembly_id", v.endpoint_fixture_assembly_id) ||
       !ar.field(p, "span_visual_assembly.helix_enabled", v.span_visual_assembly.helix_enabled) ||
       !ar.field(p, "span_visual_assembly.helix_radius_m", v.span_visual_assembly.helix_radius_m) ||
       !ar.field(p, "span_visual_assembly.helix_clearance_m", v.span_visual_assembly.helix_clearance_m) ||
@@ -777,7 +778,7 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
 
 
 #ifdef _MSC_VER
-static_assert(sizeof(BundleTemplate) == 264, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(BundleTemplate) == 272, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -830,6 +831,51 @@ bool archive_attachment_template(Archive& archive, const std::string& prefix, Va
 #ifdef _MSC_VER
 static_assert(sizeof(AttachmentTemplate) == 128, "field added: update archive visitor and full-fat persistence fixture");
 #endif
+
+template <typename Archive, typename Value>
+bool archive_model_assembly_socket(Archive& archive, const std::string& prefix, Value& value) {
+  return archive.string_value(child(prefix, "name"), value.name) &&
+         archive_vec3(archive, child(prefix, "local_position"), value.local_position) &&
+         archive_vec3(archive, child(prefix, "local_direction"), value.local_direction);
+}
+
+template <typename Archive, typename Value>
+bool archive_model_assembly_part(Archive& archive, const std::string& prefix, Value& value) {
+  if (!archive.field(prefix, "part_id", value.part_id) ||
+      !archive.string_value(child(prefix, "model_key"), value.model_key) ||
+      !archive.field(prefix, "descriptor_version", value.descriptor_version) ||
+      !archive_transform(archive, child(prefix, "local_transform"), value.local_transform) ||
+      !archive.field(prefix, "fit_mode", value.fit_mode)) return false;
+  std::size_t socket_count = value.sockets.size();
+  if (!archive.count(child(prefix, "sockets.count"), socket_count)) return false;
+  if constexpr (Archive::loading) value.sockets.resize(socket_count);
+  for (std::size_t i = 0; i < socket_count; ++i) {
+    if (!archive_model_assembly_socket(archive, indexed(child(prefix, "sockets"), i), value.sockets[i])) return false;
+  }
+  return true;
+}
+
+template <typename Archive, typename Value>
+bool archive_model_assembly_template(Archive& archive, const std::string& prefix, Value& value) {
+  if (!archive.field(prefix, "id", value.id)) return false;
+  std::size_t part_count = value.parts.size();
+  if (!archive.count(child(prefix, "parts.count"), part_count)) return false;
+  if constexpr (Archive::loading) value.parts.resize(part_count);
+  for (std::size_t i = 0; i < part_count; ++i) {
+    if (!archive_model_assembly_part(archive, indexed(child(prefix, "parts"), i), value.parts[i])) return false;
+  }
+  bool has_wire_socket = value.wire_socket.has_value();
+  if (!archive.field(prefix, "wire_socket.has", has_wire_socket)) return false;
+  if constexpr (Archive::loading) {
+    if (has_wire_socket) value.wire_socket.emplace();
+    else value.wire_socket.reset();
+  }
+  if (has_wire_socket) {
+    if (!archive.field(prefix, "wire_socket.part_id", value.wire_socket->part_id) ||
+        !archive.string_value(child(prefix, "wire_socket.socket_name"), value.wire_socket->socket_name)) return false;
+  }
+  return archive.field(prefix, "version", value.version);
+}
 
 template <typename K, typename V, typename Write>
 void write_map(StateWriter& writer, const std::string& prefix, const std::unordered_map<K, V>& values, Write write) {
@@ -985,6 +1031,10 @@ void write_authoritative_as(StateWriter& writer, const CoreStateAuthoritativeSto
   write_map(writer, "authoritative.attachment_templates", authoritative.attachment_templates,
             [](auto& out, const auto& prefix, const AttachmentTemplate& value) {
               FieldArchive a(out); (void)archive_attachment_template(a, prefix, value);
+            });
+  write_map(writer, "authoritative.model_assembly_templates", authoritative.model_assembly_templates,
+            [](auto& out, const auto& prefix, const ModelAssemblyTemplate& value) {
+              FieldArchive a(out); (void)archive_model_assembly_template(a, prefix, value);
             });
   {
     FieldArchive a(writer);
@@ -1167,6 +1217,10 @@ bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* auth
          read_map(reader, "authoritative.attachment_templates", &authoritative->attachment_templates,
                   [](auto& in, const auto& prefix, AttachmentTemplate* value) {
                     ReadFieldArchive a(in); return archive_attachment_template(a, prefix, *value);
+                  }) &&
+         read_map(reader, "authoritative.model_assembly_templates", &authoritative->model_assembly_templates,
+                  [](auto& in, const auto& prefix, ModelAssemblyTemplate* value) {
+                    ReadFieldArchive a(in); return archive_model_assembly_template(a, prefix, *value);
                   }))) return false;
   ReadFieldArchive fields(reader);
   if (!archive_context_profile(fields, "authoritative.context_profile", authoritative->context_profile) ||

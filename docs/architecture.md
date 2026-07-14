@@ -215,8 +215,7 @@ coreはbackend非依存のcurve、bounds、primitive、style参照を出力す�
 UE、Blender、viewer、exporter固有のasset/material型はadapter側で解決する。
 
 現在のsupport visualは、lowered endpointに対する`support_world -> endpoint_world`の`SupportArm` placeholderまでである。
-crossarmはsupport group単位、insulatorはlane attachment単位の生成として未実装であり、
-`enable_insulators`や`requires_insulator`はbackbone visual出力でまだ完全には消費していない。
+row fixtureとPort fixtureはgeneric model assemblyから派生し、旧い用途boolや高さscalarを決定者にしない。
 viewerが不足fixtureを推測して補ってはいけない。
 
 ## cable curve

@@ -789,9 +789,6 @@ std::optional<TemplateInspectionView> CoreView::inspect_cable_template(CableTemp
   result.properties.push_back({"stiffness", std::to_string(tpl.bend_stiffness), PropertyAccessKind::kEditable});
   result.properties.push_back(
       {"min_bend_radius_m", std::to_string(tpl.min_bend_radius_m), PropertyAccessKind::kEditable});
-  result.properties.push_back({"requires_insulator", BoolText(tpl.requires_insulator), PropertyAccessKind::kEditable});
-  result.properties.push_back(
-      {"insulator_attachment_height_m", std::to_string(tpl.insulator_attachment_height_m), PropertyAccessKind::kEditable});
   result.properties.push_back({"sag_factor", std::to_string(tpl.sag_factor), PropertyAccessKind::kEditable});
   result.properties.push_back({"slack_factor", std::to_string(tpl.slack_factor), PropertyAccessKind::kEditable});
   result.properties.push_back({"default_grouped_support_fanout_spacing_m",

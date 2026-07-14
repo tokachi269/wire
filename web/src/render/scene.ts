@@ -2,6 +2,13 @@ import * as THREE from "three";
 import type { PathPickInfo, SupportNodeInfo } from "../model";
 import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
+import {
+  cloneSharedAsset,
+  type LoadedModelAsset,
+  modelAssetCache,
+  poleGroundAnchor,
+  poleVisibleLength
+} from "./modelAssets";
 
 function colorFromRgba(rgba: number): { color: THREE.Color; opacity: number } {
   const red = (rgba >>> 24) & 0xff;
@@ -100,7 +107,12 @@ export class WireScene {
   private guideSignature = "";
   private cameraFov: number | null = null;
   private readonly partMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
-  private readonly poleMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
+  private readonly poleMeshes = new Map<string, {
+    object: THREE.Object3D;
+    version: string;
+    ownsResources: boolean;
+  }>();
+  private poleAsset: LoadedModelAsset | null = null;
   private contentSyncStats: SceneContentSyncStats = { total: 0, reused: 0, rebuilt: 0, removed: 0 };
 
   constructor(
@@ -147,6 +159,12 @@ export class WireScene {
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(24, -30, 20);
     this.camera.lookAt(this.cameraTarget);
+    void modelAssetCache.load("poleBody").then((asset) => {
+      this.poleAsset = asset;
+      if (this.snapshot !== null) this.syncContent(this.snapshot);
+    }).catch((error: unknown) => {
+      console.warn(`[wire] pole GLB unavailable; using primitive fallback: ${String(error)}`);
+    });
 
     this.unsubscribe = this.store.value.subscribe((snapshot) => this.applySnapshot(snapshot));
   }
@@ -298,7 +316,7 @@ export class WireScene {
     this.detachInput?.();
     this.unsubscribe();
     for (const item of this.partMeshes.values()) this.disposeContentMesh(item.mesh);
-    for (const item of this.poleMeshes.values()) this.disposeContentMesh(item.mesh);
+    for (const item of this.poleMeshes.values()) this.disposePoleObject(item);
     this.partMeshes.clear();
     this.poleMeshes.clear();
     this.disposeGroup(this.backbone);
@@ -593,37 +611,27 @@ export class WireScene {
         pole.scaleY,
         pole.scaleZ,
         pole.height,
-        snapshot.solidSupportRender ? 1 : 0
+        snapshot.solidSupportRender ? 1 : 0,
+        this.poleAsset === null ? "primitive" : "glb"
       ].join(":");
       const previous = this.poleMeshes.get(key);
       if (previous?.version === version) continue;
       if (previous !== undefined) {
-        this.disposeContentMesh(previous.mesh);
+        this.disposePoleObject(previous);
         this.poleMeshes.delete(key);
       }
-      const topRadius = POLE_TOP_DIAMETER_M / 2;
-      const groundRadius = (POLE_TOP_DIAMETER_M + pole.height / POLE_TAPER_RATIO) / 2;
-      const geometry = new THREE.CylinderGeometry(topRadius, groundRadius, pole.height, POLE_RENDER_SIDES);
-      geometry.rotateX(Math.PI / 2);
-      geometry.translate(0, 0, pole.height / 2);
-      const material = new THREE.MeshStandardMaterial({
-        color: 0x434b48,
-        roughness: 0.88,
-        wireframe: !snapshot.solidSupportRender
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(pole.positionX, pole.positionY, pole.positionZ);
-      setPoleRotation(mesh, pole.rotationX, pole.rotationY, pole.rotationZ);
-      mesh.scale.set(pole.scaleX, pole.scaleY, pole.scaleZ);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.content.add(mesh);
-      this.poleMeshes.set(key, { mesh, version });
+      const uniformPoleScale = Math.abs(pole.scaleX - pole.scaleY) <= 1e-9 &&
+        Math.abs(pole.scaleY - pole.scaleZ) <= 1e-9;
+      const entry = this.poleAsset !== null && uniformPoleScale
+        ? this.makePoleModel(this.poleAsset, pole)
+        : this.makePolePrimitive(pole, snapshot.solidSupportRender);
+      this.content.add(entry.object);
+      this.poleMeshes.set(key, { ...entry, version });
       changed = true;
     }
     for (const [key, previous] of [...this.poleMeshes]) {
       if (nextPoleKeys.has(key)) continue;
-      this.disposeContentMesh(previous.mesh);
+      this.disposePoleObject(previous);
       this.poleMeshes.delete(key);
       changed = true;
     }
@@ -635,6 +643,74 @@ export class WireScene {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of materials) material.dispose();
     this.content.remove(mesh);
+  }
+
+  private makePoleModel(
+    asset: LoadedModelAsset,
+    pole: ViewerSnapshot["poles"][number]
+  ): { object: THREE.Object3D; ownsResources: boolean } {
+    const source = cloneSharedAsset(asset);
+    source.position.sub(poleGroundAnchor(asset));
+    source.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        object.castShadow = true;
+        object.receiveShadow = true;
+      }
+    });
+    const oriented = new THREE.Group();
+    oriented.rotation.x = Math.PI / 2;
+    const visibleLength = poleVisibleLength(asset);
+    const scale = visibleLength > 1e-9 ? pole.height / visibleLength : 1;
+    oriented.scale.setScalar(scale * pole.scaleX);
+    oriented.add(source);
+
+    const root = new THREE.Group();
+    root.position.set(pole.positionX, pole.positionY, pole.positionZ);
+    setPoleRotation(root, pole.rotationX, pole.rotationY, pole.rotationZ);
+    root.add(oriented);
+    root.userData.sourceKind = "pole";
+    root.userData.sourceId = pole.id;
+    return { object: root, ownsResources: false };
+  }
+
+  private makePolePrimitive(
+    pole: ViewerSnapshot["poles"][number],
+    solidSupportRender: boolean
+  ): { object: THREE.Object3D; ownsResources: boolean } {
+    const topRadius = POLE_TOP_DIAMETER_M / 2;
+    const groundRadius = (POLE_TOP_DIAMETER_M + pole.height / POLE_TAPER_RATIO) / 2;
+    const geometry = new THREE.CylinderGeometry(topRadius, groundRadius, pole.height, POLE_RENDER_SIDES);
+    geometry.rotateX(Math.PI / 2);
+    geometry.translate(0, 0, pole.height / 2);
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x434b48,
+      roughness: 0.88,
+      wireframe: !solidSupportRender
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(pole.positionX, pole.positionY, pole.positionZ);
+    setPoleRotation(mesh, pole.rotationX, pole.rotationY, pole.rotationZ);
+    mesh.scale.set(pole.scaleX, pole.scaleY, pole.scaleZ);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.sourceKind = "pole";
+    mesh.userData.sourceId = pole.id;
+    return { object: mesh, ownsResources: true };
+  }
+
+  private disposePoleObject(entry: {
+    object: THREE.Object3D;
+    ownsResources: boolean;
+  }): void {
+    if (entry.ownsResources) {
+      entry.object.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) return;
+        object.geometry.dispose();
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        for (const material of materials) material.dispose();
+      });
+    }
+    this.content.remove(entry.object);
   }
 
   private rebuildBackbone(snapshot: ViewerSnapshot): void {

@@ -373,5 +373,6 @@ bool C758_span_visual_assembly_emits_support_and_helix();
 bool C759_span_visual_assembly_has_one_geometry_owner();
 bool C745_legacy_wrap_family_is_absent();
 bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement();
+bool C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture();
 
 } // namespace backbone_tests

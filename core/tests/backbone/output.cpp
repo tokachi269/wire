@@ -1857,4 +1857,76 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
          moved_endpoint_instances == moved_port_ids.size();
 }
 
+bool C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture() {
+  constexpr wire::core::ModelAssemblyTemplateId kEndpointAssembly = 9110;
+  wire::core::CoreState state;
+
+  wire::core::ModelAssemblyTemplate endpoint_assembly{};
+  endpoint_assembly.id = kEndpointAssembly;
+  wire::core::ModelAssemblyPart endpoint_part{};
+  endpoint_part.part_id = 1;
+  endpoint_part.model_key = "hv_insulator";
+  endpoint_part.descriptor_version = 13;
+  endpoint_part.sockets.push_back({"wire", {0.0, 0.0, -0.25}, {1.0, 0.0, 0.0}});
+  endpoint_assembly.parts.push_back(endpoint_part);
+  endpoint_assembly.wire_socket = wire::core::AssemblySocketRef{1, "wire"};
+  if (!state.RegisterModelAssemblyTemplate(endpoint_assembly).ok) return false;
+
+  const wire::core::BundleTemplateId hv_template_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
+  wire::core::BundleTemplate hv = state.view().bundle_templates().at(hv_template_id);
+  hv.endpoint_fixture_assembly_id = kEndpointAssembly;
+  if (!state.UpdateBundleTemplate(hv).ok) return false;
+
+  const std::vector<wire::core::ObjectId> branch_spans = lowering_branch_spans(state);
+  if (branch_spans.empty()) return false;
+
+  bool saw_lowered_socket = false;
+  for (wire::core::ObjectId span_id : branch_spans) {
+    const wire::core::SpanLayoutEntry* layout = state.span_layout(span_id).entry;
+    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+    if (layout == nullptr || curve == nullptr || curve->detail.sample_points.size() < 2) return false;
+    for (const auto& endpoint_and_curve : {
+             std::pair<const wire::core::LayoutEndpoint*, const wire::core::Vec3d*>{
+                 &layout->start, &curve->detail.sample_points.front()},
+             std::pair<const wire::core::LayoutEndpoint*, const wire::core::Vec3d*>{
+                 &layout->end, &curve->detail.sample_points.back()}}) {
+      const wire::core::LayoutEndpoint& endpoint = *endpoint_and_curve.first;
+      const wire::core::Port* port = state.view().ports().find(endpoint.port_id);
+      const wire::core::Pole* pole = port == nullptr ? nullptr : state.view().poles().find(port->owner_pole_id);
+      const wire::core::SavedBackbonePortBinding* binding =
+          port == nullptr ? nullptr : state.view().backbone_port_binding_for_port(port->id);
+      if (port == nullptr || pole == nullptr || binding == nullptr ||
+          !almost_equal(*endpoint_and_curve.second, endpoint.endpoint_world, 1e-9)) {
+        return false;
+      }
+      const wire::core::PoleFrame frame =
+          wire::core::BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
+      const wire::core::Vec3d expected_socket =
+          port->world_position + wire::core::ScaleVec(frame.up, -0.25);
+      if (!almost_equal(endpoint.support_world, expected_socket, 1e-9)) return false;
+      if (endpoint.default_lower_required) {
+        if (endpoint.endpoint_world.z >= endpoint.support_world.z - 0.1 ||
+            std::abs(endpoint.endpoint_world.x - endpoint.support_world.x) > 1e-9 ||
+            std::abs(endpoint.endpoint_world.y - endpoint.support_world.y) > 1e-9) {
+          return false;
+        }
+        saw_lowered_socket = true;
+      }
+    }
+  }
+
+  std::unordered_set<wire::core::ObjectId> bound_ports{};
+  for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (binding.bundle_template_id == hv_template_id) bound_ports.insert(binding.port_id);
+  }
+  std::unordered_set<std::string> model_keys{};
+  std::size_t endpoint_instance_count = 0;
+  for (const wire::core::VisualModelInstance& instance : state.view().visual_model_instances().instances) {
+    if (!model_keys.insert(instance.stable_key).second) return false;
+    if (instance.stable_key.rfind("port:", 0) == 0) ++endpoint_instance_count;
+  }
+  return saw_lowered_socket && endpoint_instance_count == bound_ports.size();
+}
+
 } // namespace backbone_tests

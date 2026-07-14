@@ -1113,6 +1113,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C764_straight_hv_model_assemblies_own_fixture_and_wire_placement",
                          "straight HV model assemblies materialize once per Pole, row, and Port and own wire sockets",
                          "Invariant", false, C764_straight_hv_model_assemblies_own_fixture_and_wire_placement);
+  test_registry::AddTest(tests, "C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture",
+                         "branch lowering starts at the model socket and keeps one fixture per bound Port",
+                         "Invariant", false,
+                         C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture);
 }
 
 

@@ -55,6 +55,10 @@ const VisualCurvePartCache& CoreState::visual_curve_parts() const {
   return runtime_.cache_state.visual_curve_part_cache;
 }
 
+const VisualModelInstanceCache& CoreState::visual_model_instances() const {
+  return runtime_.cache_state.visual_model_instance_cache;
+}
+
 const SpanRuntimeState* CoreState::find_span_runtime_state(ObjectId span_id) const {
   auto it = runtime_.span_runtime_states.find(span_id);
   if (it == runtime_.span_runtime_states.end()) {
@@ -423,6 +427,10 @@ void CoreState::cache_span_render(ObjectId span_id, SpanRenderCacheEntry render)
 
 void CoreState::cache_visual_curve_parts(VisualCurvePartCache visual_curves) {
   runtime_.cache_state.visual_curve_part_cache = std::move(visual_curves);
+}
+
+void CoreState::cache_visual_model_instances(VisualModelInstanceCache model_instances) {
+  runtime_.cache_state.visual_model_instance_cache = std::move(model_instances);
 }
 
 void CoreState::cache_span_rules(const SpanLayoutRules& rules) {

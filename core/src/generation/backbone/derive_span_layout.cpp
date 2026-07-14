@@ -3,6 +3,7 @@
 #include "wire/core/coord_utils.hpp"
 
 #include "out.hpp"
+#include "model_assembly.hpp"
 
 #include <algorithm>
 #include <optional>
@@ -17,7 +18,6 @@ EditResult<Vec3d> resolve_span_layout_endpoint(const CoreState& state, const Edi
     out.error = "backbone layout: endpoint port not found";
     return out;
   }
-  out.value = port->world_position;
   if (rule.source_projection.valid()) {
     const std::optional<Vec3d> projection = source_edge_projection_world(state, rule.source_projection);
     if (!projection.has_value()) {
@@ -25,9 +25,10 @@ EditResult<Vec3d> resolve_span_layout_endpoint(const CoreState& state, const Edi
       return out;
     }
     out.value = *projection;
+    out.ok = true;
+    return out;
   }
-  out.ok = true;
-  return out;
+  return resolve_model_assembly_wire_socket(state, *port);
 }
 
 EditResult<SpanLayoutEntry> derive_span_layout(const SpanLayoutRule& rule,

@@ -4,6 +4,7 @@
 
 #include "curve_parts.hpp"
 #include "derive_span_layout.hpp"
+#include "model_assembly.hpp"
 #include "out.hpp"
 
 #include <algorithm>
@@ -158,6 +159,16 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
   if (plan.kind == UpdateKind::kReposition || plan.kind == UpdateKind::kReshape) {
     cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}, plan.affected.spans));
   }
+  EditResult<VisualModelInstanceCache> model_instances =
+      generation::backbone::materialize_model_assemblies(*this);
+  if (!model_instances.ok) {
+    timing.total_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    debug_.last_update_timing = timing;
+    out.error = model_instances.error;
+    return out;
+  }
+  cache_visual_model_instances(std::move(model_instances.value));
   timing.total_ms =
       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
   debug_.last_update_timing = timing;

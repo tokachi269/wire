@@ -7,6 +7,7 @@
 #include "curve_parts.hpp"
 #include "derive_span_layout.hpp"
 #include "emit_shared.hpp"
+#include "model_assembly.hpp"
 #include "out.hpp"
 
 #include <algorithm>
@@ -180,7 +181,7 @@ EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* ti
   }
   draw drawn = timed(timing, &GenerationTiming::draw_ms, [&] { return make(placed.value, shaped.value); });
   save(saved);
-  save(placed.value);
+  save(std::move(placed.value));
   save(std::move(shaped.value));
   save(std::move(drawn));
   out.ok = true;
@@ -2946,6 +2947,12 @@ EditResult<layout> pipeline::make(const rules& made) const {
     }
     out.value.entries.push_back(std::move(entry.value));
   }
+  EditResult<VisualModelInstanceCache> model_instances = materialize_model_assemblies(state_);
+  if (!model_instances.ok) {
+    out.error = model_instances.error;
+    return out;
+  }
+  out.value.model_instances = std::move(model_instances.value);
   out.ok = true;
   return out;
 }
@@ -2993,7 +3000,7 @@ void pipeline::save(const rules& made) {
   state_.cache_span_rules(made.data);
 }
 
-void pipeline::save(const layout& made) {
+void pipeline::save(layout made) {
   struct cached_group {
     LoweredSupportGroupKey key{};
     SupportGroupDecision decision{};
@@ -3040,9 +3047,10 @@ void pipeline::save(const layout& made) {
   for (cached_group& item : groups) {
     state_.cache_support_group(std::move(item.decision), std::move(item.placement));
   }
-  for (SpanLayoutEntry entry : made.entries) {
+  for (SpanLayoutEntry& entry : made.entries) {
     state_.cache_span_layout(std::move(entry));
   }
+  state_.cache_visual_model_instances(std::move(made.model_instances));
 }
 
 void pipeline::save(geom made) {

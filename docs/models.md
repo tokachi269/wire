@@ -87,6 +87,14 @@ Attachment                   -> span途中のinline model
 Coreのmodel contractには用途名を持ち込まない。assemblyはpart、local transform、限定fit mode、
 任意のwire socketだけを持つ。wire socket無しassemblyは表示だけで、curve endpointを変更しない。
 
+model assemblyのworld materializationはbackboneのlayout endpoint resolverが所有し、初回生成とpost-editで
+同じ経路を使う。`VisualModelInstance`はderived cacheであり、Pole、row、PortやSavedBackboneGraphへ
+model instance identityを追加しない。
+
+v1のwire socketはcurve endpointの位置を決める。socketのlocal directionはdescriptor/assemblyへ保持するが、
+現行のcurve tangent authorityにはしない。方向をG1拘束へ使う場合は、continuity policyとnode patchの契約を
+含めて別scenarioとして設計する。
+
 ## 表面占有(重なり回避)
 
 - 電柱meshは素のテーパー柱にし、柱表面を占有するもの(昇降ボルト、バンド、広告、端子函)は

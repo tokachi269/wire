@@ -577,6 +577,35 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     result.error = "bundle template references unknown pole type";
     return result;
   }
+  const auto assembly_for = [&](ModelAssemblyTemplateId assembly_id) -> const ModelAssemblyTemplate* {
+    if (assembly_id == kInvalidModelAssemblyTemplateId) {
+      return nullptr;
+    }
+    const auto assembly_it = state.authoritative_.model_assembly_templates.find(assembly_id);
+    return assembly_it == state.authoritative_.model_assembly_templates.end() ? nullptr : &assembly_it->second;
+  };
+  if (bundle_template.row_fixture_assembly_id != kInvalidModelAssemblyTemplateId) {
+    const ModelAssemblyTemplate* row_assembly = assembly_for(bundle_template.row_fixture_assembly_id);
+    if (row_assembly == nullptr) {
+      result.error = "bundle template references unknown row fixture assembly";
+      return result;
+    }
+    if (row_assembly->wire_socket.has_value()) {
+      result.error = "row fixture assembly must not own a wire socket";
+      return result;
+    }
+  }
+  if (bundle_template.endpoint_fixture_assembly_id != kInvalidModelAssemblyTemplateId) {
+    const ModelAssemblyTemplate* endpoint_assembly = assembly_for(bundle_template.endpoint_fixture_assembly_id);
+    if (endpoint_assembly == nullptr) {
+      result.error = "bundle template references unknown endpoint fixture assembly";
+      return result;
+    }
+    if (!endpoint_assembly->wire_socket.has_value()) {
+      result.error = "endpoint fixture assembly requires a wire socket";
+      return result;
+    }
+  }
 
   BundleTemplate normalized = bundle_template;
   normalized.support_wire_pole_band_id = std::max(0, normalized.support_wire_pole_band_id);

@@ -162,6 +162,7 @@ struct rules {
 
 struct layout {
   std::vector<SpanLayoutEntry> entries{};
+  VisualModelInstanceCache model_instances{};
 };
 
 struct curve {
@@ -236,7 +237,7 @@ private:
   [[nodiscard]] EditResult<geom> make(const layout& made) const;
   [[nodiscard]] draw make(const layout& placed, const geom& shaped) const;
   void save(const rules& made);
-  void save(const layout& made);
+  void save(layout made);
   void save(geom made);
   void save(draw made);
   [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps);

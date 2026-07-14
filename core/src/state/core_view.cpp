@@ -280,6 +280,10 @@ const VisualCurvePartCache& CoreView::visual_curve_parts() const {
   return state_.visual_curve_parts();
 }
 
+const VisualModelInstanceCache& CoreView::visual_model_instances() const {
+  return state_.visual_model_instances();
+}
+
 namespace {
 
 const SavedBackboneNode* find_saved_node(const SavedBackboneGraph& graph, ObjectId node_id) {

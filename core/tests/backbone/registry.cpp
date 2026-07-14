@@ -1110,6 +1110,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C745_legacy_wrap_family_is_absent",
                          "legacy population wrap and cable-template coil families are absent from production surfaces",
                          "Boundary", false, C745_legacy_wrap_family_is_absent);
+  test_registry::AddTest(tests, "C764_straight_hv_model_assemblies_own_fixture_and_wire_placement",
+                         "straight HV model assemblies materialize once per Pole, row, and Port and own wire sockets",
+                         "Invariant", false, C764_straight_hv_model_assemblies_own_fixture_and_wire_placement);
 }
 
 

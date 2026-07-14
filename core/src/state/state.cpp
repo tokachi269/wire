@@ -2078,6 +2078,18 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     result.error = "pole type not found";
     return result;
   }
+  if (pole_type.pole_visual_assembly_id != kInvalidModelAssemblyTemplateId) {
+    const auto assembly_it = authoritative_.model_assembly_templates.find(
+        pole_type.pole_visual_assembly_id);
+    if (assembly_it == authoritative_.model_assembly_templates.end()) {
+      result.error = "pole type references unknown model assembly";
+      return result;
+    }
+    if (assembly_it->second.wire_socket.has_value()) {
+      result.error = "pole visual assembly must not own a wire socket";
+      return result;
+    }
+  }
   if (pole_type_definition_equals(it->second, pole_type)) {
     result.ok = true;
     result.value = false;

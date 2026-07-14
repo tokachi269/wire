@@ -107,6 +107,7 @@ public:
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
   [[nodiscard]] const VisualCurvePartCache& visual_curve_parts() const;
+  [[nodiscard]] const VisualModelInstanceCache& visual_model_instances() const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
   [[nodiscard]] ValidationResult ValidateFast() const;
   [[nodiscard]] double effective_pole_layout_yaw_deg(const Pole& pole) const;
@@ -149,6 +150,7 @@ private:
   void cache_span_visual(ObjectId span_id, SpanVisualCacheEntry visual);
   void cache_span_render(ObjectId span_id, SpanRenderCacheEntry render);
   void cache_visual_curve_parts(VisualCurvePartCache visual_curves);
+  void cache_visual_model_instances(VisualModelInstanceCache model_instances);
   void cache_support_group(SupportGroupDecision decision, LoweredSupportGroupPlacement placement);
   ObjectId save_backbone_node(ObjectId pole_id, const Vec3d& position,
                               SupportKind support_kind = SupportKind::kPole,

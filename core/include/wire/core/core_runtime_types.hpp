@@ -210,6 +210,31 @@ struct VisualCurvePartCache {
   VisualCurvePartStats stats{};
 };
 
+struct VisualModelInstance {
+  std::string stable_key{};
+  std::string model_key{};
+  std::uint64_t content_version = 0;
+  Transformd world_transform{};
+
+  bool operator==(const VisualModelInstance& other) const {
+    return stable_key == other.stable_key && model_key == other.model_key &&
+           content_version == other.content_version &&
+           world_transform.position.x == other.world_transform.position.x &&
+           world_transform.position.y == other.world_transform.position.y &&
+           world_transform.position.z == other.world_transform.position.z &&
+           world_transform.rotation_euler_deg.x == other.world_transform.rotation_euler_deg.x &&
+           world_transform.rotation_euler_deg.y == other.world_transform.rotation_euler_deg.y &&
+           world_transform.rotation_euler_deg.z == other.world_transform.rotation_euler_deg.z &&
+           world_transform.scale.x == other.world_transform.scale.x &&
+           world_transform.scale.y == other.world_transform.scale.y &&
+           world_transform.scale.z == other.world_transform.scale.z;
+  }
+};
+
+struct VisualModelInstanceCache {
+  std::vector<VisualModelInstance> instances{};
+};
+
 struct VisualSettings {
   bool enable_support_structures = true;
   bool enable_insulators = true;
@@ -228,6 +253,7 @@ struct CacheState {
   VisualCache visual_cache{};
   RenderCache render_cache{};
   VisualCurvePartCache visual_curve_part_cache{};
+  VisualModelInstanceCache visual_model_instance_cache{};
 };
 
 inline constexpr double kDefaultCornerThresholdDeg = 70.0;

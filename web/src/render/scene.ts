@@ -19,6 +19,13 @@ export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
 
+export interface SceneContentSyncStats {
+  total: number;
+  reused: number;
+  rebuilt: number;
+  removed: number;
+}
+
 export function setPoleRotation(
   object: THREE.Object3D,
   rotationXDeg: number,
@@ -94,12 +101,14 @@ export class WireScene {
   private cameraFov: number | null = null;
   private readonly partMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
   private readonly poleMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
+  private contentSyncStats: SceneContentSyncStats = { total: 0, reused: 0, rebuilt: 0, removed: 0 };
 
   constructor(
     private readonly store: ViewerStore,
     private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo) => void,
     private readonly onContextAction: () => void,
-    private readonly onFrame: (deltaMs: number) => void
+    private readonly onFrame: (deltaMs: number) => void,
+    private readonly onContentSync?: (stats: SceneContentSyncStats) => void
   ) {
     this.scene.background = new THREE.Color(0xc8d6e4);
     this.scene.add(this.backbone);
@@ -460,6 +469,7 @@ export class WireScene {
     if (this.syncContent(snapshot)) {
       this.clearSnapPreview();
     }
+    this.onContentSync?.(this.contentSyncStats);
 
     const nextBackboneSignature = this.sceneBackboneSignature(snapshot);
     if (this.backboneSignature !== nextBackboneSignature) {
@@ -502,6 +512,9 @@ export class WireScene {
 
   private syncContent(snapshot: ViewerSnapshot): boolean {
     let changed = false;
+    let reused = 0;
+    let rebuilt = 0;
+    let removed = 0;
     const nextPartKeys = new Set<string>();
     for (const part of snapshot.parts) {
       const key = part.info.partKey;
@@ -513,7 +526,10 @@ export class WireScene {
         part.info.sampleCount
       ].join(":");
       const previous = this.partMeshes.get(key);
-      if (previous?.version === version) continue;
+      if (previous?.version === version) {
+        reused += 1;
+        continue;
+      }
       if (previous !== undefined) {
         this.disposeContentMesh(previous.mesh);
         this.partMeshes.delete(key);
@@ -548,14 +564,18 @@ export class WireScene {
       mesh.receiveShadow = true;
       this.content.add(mesh);
       this.partMeshes.set(key, { mesh, version });
+      rebuilt += 1;
       changed = true;
     }
     for (const [key, previous] of [...this.partMeshes]) {
       if (nextPartKeys.has(key)) continue;
       this.disposeContentMesh(previous.mesh);
       this.partMeshes.delete(key);
+      removed += 1;
       changed = true;
     }
+
+    this.contentSyncStats = { total: snapshot.parts.length, reused, rebuilt, removed };
 
     const nextPoleKeys = new Set<string>();
     for (const pole of snapshot.poles) {

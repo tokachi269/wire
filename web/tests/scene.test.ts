@@ -96,15 +96,22 @@ describe("scene part reuse", () => {
     }];
 
     expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.contentSyncStats).toEqual({ total: 2, reused: 0, rebuilt: 2, removed: 0 });
     const first = scene.partMeshes.get("edge:1:lane:0").mesh;
     const second = scene.partMeshes.get("edge:2:lane:0").mesh;
     snapshot.logs.push("unrelated store update");
     expect(scene.syncContent(snapshot)).toBe(false);
+    expect(scene.contentSyncStats).toEqual({ total: 2, reused: 2, rebuilt: 0, removed: 0 });
     expect(scene.partMeshes.get("edge:1:lane:0").mesh).toBe(first);
 
     snapshot.parts[0].info.sourceVersion = "11";
     expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.contentSyncStats).toEqual({ total: 2, reused: 1, rebuilt: 1, removed: 0 });
     expect(scene.partMeshes.get("edge:1:lane:0").mesh).not.toBe(first);
     expect(scene.partMeshes.get("edge:2:lane:0").mesh).toBe(second);
+
+    snapshot.parts.splice(1, 1);
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.contentSyncStats).toEqual({ total: 1, reused: 1, rebuilt: 0, removed: 1 });
   });
 });

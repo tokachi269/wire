@@ -227,6 +227,7 @@ describe("viewer actions", () => {
     actions.addPathPoint([0, 0, 0]);
     actions.addPathPoint([16, 2, 0]);
     actions.addPathPoint([32, 0, 0]);
+    actions.recordSceneContentSync({ total: 1, reused: 0, rebuilt: 1, removed: 0 });
     actions.generatePath();
 
     const snapshot = current(store);
@@ -234,6 +235,7 @@ describe("viewer actions", () => {
     expect([...snapshot.parts[0].samples].every(Number.isFinite)).toBe(true);
     expect(snapshot.generationMs).toBe(1.25);
     expect(snapshot.error).toBe("");
+    expect(snapshot.logs.at(-1)).toContain("scene parts total=1 reused=0 rebuilt=1 removed=0");
   });
 
   it("keeps derived parts when generation fails", () => {

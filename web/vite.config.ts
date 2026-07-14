@@ -17,10 +17,11 @@ const buildInfo = {
   packageVersion: packageJson.version
 };
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   base: "/wire/",
   define: {
-    __WIRE_BUILD_INFO__: JSON.stringify(buildInfo)
+    __WIRE_BUILD_INFO__: JSON.stringify(buildInfo),
+    __WIRE_DEV__: JSON.stringify(command === "serve")
   },
   plugins: [svelte()]
-});
+}));

@@ -18,6 +18,7 @@ import type {
   WorldPoint
 } from "../store/viewer";
 import { createViewerSnapshot } from "../store/viewer";
+import type { SceneContentSyncStats } from "../render/scene";
 import type { WorkspacePreferences } from "../store/workspace";
 import { WorkspaceCache } from "../store/workspace";
 
@@ -159,6 +160,7 @@ export class ViewerActions {
   private workspaceSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private workspaceSubscription: (() => void) | null = null;
   private persistencePaused = true;
+  private pendingSceneSyncStats: SceneContentSyncStats | null = null;
 
   constructor(
     private readonly bridge: WireBridge,
@@ -836,6 +838,10 @@ export class ViewerActions {
     }
   }
 
+  recordSceneContentSync(stats: SceneContentSyncStats): void {
+    this.pendingSceneSyncStats = stats;
+  }
+
   private generatePoints(points: WorldPoint[]): void {
     const before = this.readSnapshot();
     const selectedBundleTemplateIds = before.selectedDrawBundleTemplateIds;
@@ -910,13 +916,19 @@ export class ViewerActions {
     this.reproTrace.recordGeneration(before, points, result, this.readSnapshot());
     const sceneUpdateMs = performance.now() - sceneStart;
     const viewerUpdateMs = performance.now() - generateStart;
+    const sceneStats = this.pendingSceneSyncStats;
+    this.pendingSceneSyncStats = null;
+    const sceneDiagnostic = sceneStats === null
+      ? ""
+      : ` | scene parts total=${sceneStats.total} reused=${sceneStats.reused}` +
+        ` rebuilt=${sceneStats.rebuilt} removed=${sceneStats.removed}`;
     this.store.update((current) => ({
       ...current,
       sceneUpdateMs,
       viewerUpdateMs,
       logs: [
         ...current.logs,
-        `route generated: ${result.generatedPoleCount} poles / ${result.generatedSpanCount} spans`
+        `route generated: ${result.generatedPoleCount} poles / ${result.generatedSpanCount} spans${sceneDiagnostic}`
       ]
     }));
   }

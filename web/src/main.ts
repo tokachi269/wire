@@ -1,6 +1,7 @@
 import { mount } from "svelte";
 import App from "./App.svelte";
 import { ViewerActions } from "./actions/viewer";
+import { devBuild } from "./buildInfo";
 import { WireBridge } from "./bridge/wire";
 import { WireScene } from "./render/scene";
 import { ViewerStore } from "./store/viewer";
@@ -41,7 +42,8 @@ const scene = new WireScene(
   store,
   (point, pick) => actions.addPathPoint(point, pick),
   () => actions.undoPathPointOrClearSelection(),
-  (deltaMs) => actions.recordFrame(deltaMs)
+  (deltaMs) => actions.recordFrame(deltaMs),
+  devBuild ? (stats) => actions.recordSceneContentSync(stats) : undefined
 );
 
 mount(App, {

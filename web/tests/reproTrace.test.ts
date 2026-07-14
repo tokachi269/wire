@@ -15,6 +15,9 @@ describe("repro trace", () => {
       backboneEdges: [{ nodeAId: "node-7", nodeBId: "node-8", bundleIds: ["bundle-3"] }],
       parts: [{
         info: {
+          partKey: "patch:node-7",
+          sourceVersion: "1",
+          sampleOffset: 0,
           kind: 1, wireRadius: 0.02, colorRgba: 0xffffffff,
           sourceNodeId: "node-7", sourceEdgeId: "", sourceSpanId: "span-1",
           sourceBundleId: "bundle-3", bundleTemplateId: 102, laneIndex: 0,

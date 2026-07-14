@@ -240,7 +240,10 @@ export class ViewerActions {
       visual: this.bridge.visualSettings()
     }));
     this.factoryCoreState = this.bridge.saveState();
-    const cached = this.workspaceCache?.read() ?? null;
+  }
+
+  async restoreWorkspace(): Promise<void> {
+    const cached = await (this.workspaceCache?.read() ?? Promise.resolve(null));
     if (cached !== null) {
       const result = this.bridge.loadState(cached.coreState);
       if (result.ok) {
@@ -255,7 +258,7 @@ export class ViewerActions {
         }));
         this.refreshScene();
       } else {
-        this.workspaceCache?.clear();
+        await this.workspaceCache?.clear();
         this.store.setError(`Workspace restore failed: ${result.error}`);
       }
     }
@@ -450,14 +453,14 @@ export class ViewerActions {
     return true;
   }
 
-  resetWorkspace(): void {
+  async resetWorkspace(): Promise<void> {
     if (this.factoryCoreState.length === 0) {
       this.store.setError("Workspace reset is unavailable before initialization");
       return;
     }
     this.persistencePaused = true;
     this.clearWorkspaceSaveTimer();
-    this.workspaceCache?.clear();
+    await this.workspaceCache?.clear();
     const result = this.bridge.loadState(this.factoryCoreState);
     if (!result.ok) {
       this.persistencePaused = false;
@@ -466,19 +469,20 @@ export class ViewerActions {
     }
     this.store.replace(createViewerSnapshot());
     this.initialize();
+    await this.restoreWorkspace();
     this.refreshScene();
     this.store.update((current) => ({
       ...current,
       logs: [...current.logs, "Workspace reset"]
     }));
-    this.flushWorkspaceCache();
+    await this.flushWorkspaceCache();
   }
 
-  flushWorkspaceCache(): void {
+  async flushWorkspaceCache(): Promise<void> {
     if (this.workspaceCache === null || this.persistencePaused) return;
     this.clearWorkspaceSaveTimer();
     try {
-      this.workspaceCache.write(this.bridge.saveState(), this.readSnapshot());
+      await this.workspaceCache.write(this.bridge.saveState(), this.readSnapshot());
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.persistencePaused = true;
@@ -487,7 +491,7 @@ export class ViewerActions {
   }
 
   dispose(): void {
-    this.flushWorkspaceCache();
+    void this.flushWorkspaceCache();
     this.workspaceSubscription?.();
     this.workspaceSubscription = null;
     this.clearWorkspaceSaveTimer();
@@ -1133,7 +1137,7 @@ export class ViewerActions {
       this.clearWorkspaceSaveTimer();
       this.workspaceSaveTimer = setTimeout(() => {
         this.workspaceSaveTimer = null;
-        this.flushWorkspaceCache();
+        void this.flushWorkspaceCache();
       }, 250);
     });
   }

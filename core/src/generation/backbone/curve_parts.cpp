@@ -357,19 +357,10 @@ curve_boundary boundary_from_source_curve(const curve_endpoint_ref& endpoint,
   boundary.is_start = endpoint.is_start;
   boundary.attachment_point = endpoint.point;
   boundary.horizontal_length_m = horizontal_length_m;
-  double low = endpoint.is_start ? 0.0 : 0.5;
-  double high = endpoint.is_start ? 0.5 : 1.0;
-  for (int iteration = 0; iteration < 60; ++iteration) {
-    const double u = (low + high) * 0.5;
-    const Vec3d point = curve.EvaluatePosition(u);
-    const double distance_xy = std::hypot(point.x - endpoint.point.x, point.y - endpoint.point.y);
-    if ((distance_xy < horizontal_length_m) == endpoint.is_start) {
-      low = u;
-    } else {
-      high = u;
-    }
-  }
-  const double u = (low + high) * 0.5;
+  const double length_from_start = endpoint.is_start
+                                       ? horizontal_length_m
+                                       : std::max(0.0, curve.Length() - horizontal_length_m);
+  const double u = curve.LengthToU(length_from_start);
   boundary.source_u = u;
   boundary.point = curve.EvaluatePosition(u);
   boundary.tangent = curve.EvaluateTangent(u);
@@ -523,6 +514,11 @@ void copy_span_appearance(const CoreState& state, ObjectId span_id, VisualCurveP
   part->wire_radius_m = appearance.wire_radius_m;
   part->color_rgba = appearance.color_rgba;
   part->material_style = appearance.material_style;
+}
+
+std::uint64_t span_source_version(const CoreState& state, ObjectId span_id) {
+  const SpanRuntimeState* runtime = state.view().find_span_runtime_state(span_id);
+  return runtime == nullptr ? 0 : runtime->data_version;
 }
 
 layout merged_visual_curve_layouts(const CoreState& state, const layout& made) {
@@ -1073,6 +1069,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
                                  "node patch cable run mismatch"});
     }
     copy_span_appearance(state, spec.a.section_key.logical_span_id, &patch);
+    patch.source_version = std::max(span_source_version(state, spec.a.section_key.logical_span_id),
+                                    span_source_version(state, spec.b.section_key.logical_span_id));
     append_patch_section(a_boundary.point, incoming, b_boundary.point, outgoing, true,
                          &patch.bezier_control_points, &patch.samples);
     patch.bounds = curve_part_bounds(patch.samples);
@@ -1112,6 +1110,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     jumper_part.tangent_b = ScaleVec(end_direction, -1.0);
     jumper_part.section_count = 1;
     copy_span_appearance(state, endpoint.section_key.logical_span_id, &jumper_part);
+    jumper_part.source_version = std::max(span_source_version(state, endpoint.section_key.logical_span_id),
+                                          span_source_version(state, peer->section_key.logical_span_id));
     append_patch_section(jumper_part.boundary_a, start_direction, jumper_part.boundary_b,
                          end_direction, true, &jumper_part.bezier_control_points,
                          &jumper_part.samples);

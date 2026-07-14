@@ -15,7 +15,8 @@ function colorFromRgba(rgba: number): { color: THREE.Color; opacity: number } {
 
 const POLE_TOP_DIAMETER_M = 0.190;
 const POLE_TAPER_RATIO = 75;
-const POLE_RENDER_SIDES = 16;
+export const POLE_RENDER_SIDES = 6;
+export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
 
 export function setPoleRotation(
@@ -34,7 +35,7 @@ export function setPoleRotation(
   );
 }
 
-class SampledWireCurve extends THREE.Curve<THREE.Vector3> {
+export class SampledWireCurve extends THREE.Curve<THREE.Vector3> {
   private readonly lengths: number[] = [0];
   private readonly totalLength: number;
 
@@ -51,10 +52,17 @@ class SampledWireCurve extends THREE.Curve<THREE.Vector3> {
     if (this.points.length === 1 || this.totalLength <= 0) return target.copy(this.points[0]);
 
     const distance = THREE.MathUtils.clamp(t, 0, 1) * this.totalLength;
-    let index = 1;
-    while (index < this.lengths.length - 1 && this.lengths[index] < distance) {
-      index += 1;
+    let low = 1;
+    let high = this.lengths.length - 1;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (this.lengths[middle] < distance) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
     }
+    const index = low;
 
     const start = this.points[index - 1];
     const end = this.points[index];
@@ -81,10 +89,11 @@ export class WireScene {
   private detachInput: (() => void) | null = null;
   private snapshot: ViewerSnapshot | null = null;
   private lastFrameTime: number | null = null;
-  private contentSignature = "";
   private backboneSignature = "";
   private guideSignature = "";
   private cameraFov: number | null = null;
+  private readonly partMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
+  private readonly poleMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
 
   constructor(
     private readonly store: ViewerStore,
@@ -279,6 +288,13 @@ export class WireScene {
     this.resizeObserver?.disconnect();
     this.detachInput?.();
     this.unsubscribe();
+    for (const item of this.partMeshes.values()) this.disposeContentMesh(item.mesh);
+    for (const item of this.poleMeshes.values()) this.disposeContentMesh(item.mesh);
+    this.partMeshes.clear();
+    this.poleMeshes.clear();
+    this.disposeGroup(this.backbone);
+    this.disposeGroup(this.guide);
+    this.disposeGroup(this.snapPreview);
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -441,10 +457,7 @@ export class WireScene {
       this.camera.updateProjectionMatrix();
     }
 
-    const nextContentSignature = this.sceneContentSignature(snapshot);
-    if (this.contentSignature !== nextContentSignature) {
-      this.contentSignature = nextContentSignature;
-      this.rebuildContent(snapshot);
+    if (this.syncContent(snapshot)) {
       this.clearSnapPreview();
     }
 
@@ -460,38 +473,6 @@ export class WireScene {
       this.guideSignature = nextGuideSignature;
       this.rebuildGuide(snapshot);
     }
-  }
-
-  private sceneContentSignature(snapshot: ViewerSnapshot): string {
-    const partKey = snapshot.parts.map((part) => [
-      part.info.kind,
-      part.info.wireRadius,
-      part.info.colorRgba,
-      part.info.sourceSpanId,
-      part.info.sourceNodeId,
-      part.info.sourceEdgeId,
-      part.info.sourceBundleId,
-      part.info.bundleTemplateId,
-      part.info.laneIndex,
-      part.info.runId,
-      part.info.sampleCount,
-      part.samples.join(",")
-    ].join(":")).join("|");
-    const poleKey = snapshot.poles.map((pole) => [
-      pole.id,
-      pole.poleTypeId,
-      pole.positionX,
-      pole.positionY,
-      pole.positionZ,
-      pole.rotationX,
-      pole.rotationY,
-      pole.rotationZ,
-      pole.scaleX,
-      pole.scaleY,
-      pole.scaleZ,
-      pole.height
-    ].join(":")).join("|");
-    return `${snapshot.solidSupportRender ? 1 : 0};${partKey};${poleKey}`;
   }
 
   private sceneBackboneSignature(snapshot: ViewerSnapshot): string {
@@ -519,10 +500,24 @@ export class WireScene {
     return `${points};${specs}`;
   }
 
-  private rebuildContent(snapshot: ViewerSnapshot): void {
-    this.disposeGroup(this.content);
-
+  private syncContent(snapshot: ViewerSnapshot): boolean {
+    let changed = false;
+    const nextPartKeys = new Set<string>();
     for (const part of snapshot.parts) {
+      const key = part.info.partKey;
+      nextPartKeys.add(key);
+      const version = [
+        part.info.sourceVersion,
+        part.info.wireRadius,
+        part.info.colorRgba,
+        part.info.sampleCount
+      ].join(":");
+      const previous = this.partMeshes.get(key);
+      if (previous?.version === version) continue;
+      if (previous !== undefined) {
+        this.disposeContentMesh(previous.mesh);
+        this.partMeshes.delete(key);
+      }
       const points: THREE.Vector3[] = [];
       for (let index = 0; index + 2 < part.samples.length; index += 3) {
         points.push(new THREE.Vector3(
@@ -531,12 +526,15 @@ export class WireScene {
           part.samples[index + 2]
         ));
       }
-      if (points.length < 2) continue;
+      if (points.length < 2) {
+        changed = true;
+        continue;
+      }
 
       const curve = new SampledWireCurve(points);
       const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
       const segments = Math.max(4, points.length - 1);
-      const geometry = new THREE.TubeGeometry(curve, segments, radius, 10, false);
+      const geometry = new THREE.TubeGeometry(curve, segments, radius, WIRE_RADIAL_SEGMENTS, false);
       const appearance = colorFromRgba(part.info.colorRgba);
       const material = new THREE.MeshStandardMaterial({
         color: appearance.color,
@@ -549,9 +547,40 @@ export class WireScene {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.content.add(mesh);
+      this.partMeshes.set(key, { mesh, version });
+      changed = true;
+    }
+    for (const [key, previous] of [...this.partMeshes]) {
+      if (nextPartKeys.has(key)) continue;
+      this.disposeContentMesh(previous.mesh);
+      this.partMeshes.delete(key);
+      changed = true;
     }
 
+    const nextPoleKeys = new Set<string>();
     for (const pole of snapshot.poles) {
+      const key = pole.id;
+      nextPoleKeys.add(key);
+      const version = [
+        pole.poleTypeId,
+        pole.positionX,
+        pole.positionY,
+        pole.positionZ,
+        pole.rotationX,
+        pole.rotationY,
+        pole.rotationZ,
+        pole.scaleX,
+        pole.scaleY,
+        pole.scaleZ,
+        pole.height,
+        snapshot.solidSupportRender ? 1 : 0
+      ].join(":");
+      const previous = this.poleMeshes.get(key);
+      if (previous?.version === version) continue;
+      if (previous !== undefined) {
+        this.disposeContentMesh(previous.mesh);
+        this.poleMeshes.delete(key);
+      }
       const topRadius = POLE_TOP_DIAMETER_M / 2;
       const groundRadius = (POLE_TOP_DIAMETER_M + pole.height / POLE_TAPER_RATIO) / 2;
       const geometry = new THREE.CylinderGeometry(topRadius, groundRadius, pole.height, POLE_RENDER_SIDES);
@@ -569,7 +598,23 @@ export class WireScene {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.content.add(mesh);
+      this.poleMeshes.set(key, { mesh, version });
+      changed = true;
     }
+    for (const [key, previous] of [...this.poleMeshes]) {
+      if (nextPoleKeys.has(key)) continue;
+      this.disposeContentMesh(previous.mesh);
+      this.poleMeshes.delete(key);
+      changed = true;
+    }
+    return changed;
+  }
+
+  private disposeContentMesh(mesh: THREE.Mesh): void {
+    mesh.geometry.dispose();
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) material.dispose();
+    this.content.remove(mesh);
   }
 
   private rebuildBackbone(snapshot: ViewerSnapshot): void {

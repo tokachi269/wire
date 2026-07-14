@@ -188,44 +188,58 @@ public:
 
 
 
-  [[nodiscard]] std::size_t visual_part_count() const {
-    return state_->visual_curve_parts().parts.size();
-  }
-
-  [[nodiscard]] val visual_part(std::size_t index) const {
+  val visual_scene() {
     const auto& parts = state_->visual_curve_parts().parts;
-    if (index >= parts.size()) {
-      throw std::out_of_range("visual part index is out of range");
-    }
-    const auto& part = parts[index];
-    val output = val::object();
-    output.set("kind", static_cast<int>(part.kind));
-    output.set("wireRadius", part.wire_radius_m);
-    output.set("colorRgba", part.color_rgba);
-    output.set("sourceNodeId", std::to_string(part.source_node_id));
-    output.set("sourceEdgeId", std::to_string(part.source_edge_id));
-    output.set("sourceSpanId", std::to_string(part.source_span_id));
-    output.set("sourceBundleId", std::to_string(part.source_bundle_id));
-    output.set("bundleTemplateId", static_cast<int>(part.bundle_template_id));
-    output.set("laneIndex", part.lane_index);
-    output.set("runId", static_cast<double>(part.cable_run_id));
-    output.set("sampleCount", part.samples.size());
-    return output;
-  }
-
-  val visual_part_samples(std::size_t index) {
-    const auto& parts = state_->visual_curve_parts().parts;
-    if (index >= parts.size()) {
-      throw std::out_of_range("visual part index is out of range");
-    }
     sample_buffer_.clear();
-    sample_buffer_.reserve(parts[index].samples.size() * 3);
-    for (const Vec3d& point : parts[index].samples) {
-      sample_buffer_.push_back(point.x);
-      sample_buffer_.push_back(point.y);
-      sample_buffer_.push_back(point.z);
+    std::size_t sample_value_count = 0;
+    for (const auto& part : parts) {
+      sample_value_count += part.samples.size() * 3;
     }
-    return val(emscripten::typed_memory_view(sample_buffer_.size(), sample_buffer_.data()));
+    sample_buffer_.reserve(sample_value_count);
+    val descriptors = val::array();
+    for (std::size_t index = 0; index < parts.size(); ++index) {
+      const auto& part = parts[index];
+      const std::size_t sample_offset = sample_buffer_.size();
+      for (const Vec3d& point : part.samples) {
+        sample_buffer_.push_back(point.x);
+        sample_buffer_.push_back(point.y);
+        sample_buffer_.push_back(point.z);
+      }
+      std::string part_key = std::to_string(static_cast<int>(part.kind)) + ":" +
+                             std::to_string(static_cast<int>(part.supplemental_kind)) + ":" +
+                             std::to_string(part.source_node_id) + ":" + std::to_string(part.source_edge_id) + ":" +
+                             std::to_string(part.source_span_id) + ":" + std::to_string(part.source_bundle_id) + ":" +
+                             std::to_string(part.bundle_template_id) + ":" + std::to_string(part.lane_index);
+      if (part.has_section_key) {
+        part_key += ":s:" + std::to_string(part.section_key.logical_span_id) + ":" +
+                    std::to_string(part.section_key.edge_bundle_id) + ":" +
+                    std::to_string(part.section_key.rule_owner_id) + ":" + std::to_string(part.section_key.rule_id) +
+                    ":" + std::to_string(part.section_key.instance_index);
+      }
+      for (ObjectId edge_id : part.incident_edge_ids) {
+        part_key += ":e:" + std::to_string(edge_id);
+      }
+      val output = val::object();
+      output.set("partKey", part_key);
+      output.set("sourceVersion", std::to_string(part.source_version));
+      output.set("sampleOffset", sample_offset);
+      output.set("sampleCount", part.samples.size());
+      output.set("kind", static_cast<int>(part.kind));
+      output.set("wireRadius", part.wire_radius_m);
+      output.set("colorRgba", part.color_rgba);
+      output.set("sourceNodeId", std::to_string(part.source_node_id));
+      output.set("sourceEdgeId", std::to_string(part.source_edge_id));
+      output.set("sourceSpanId", std::to_string(part.source_span_id));
+      output.set("sourceBundleId", std::to_string(part.source_bundle_id));
+      output.set("bundleTemplateId", static_cast<int>(part.bundle_template_id));
+      output.set("laneIndex", part.lane_index);
+      output.set("runId", static_cast<double>(part.cable_run_id));
+      descriptors.set(index, output);
+    }
+    val result = val::object();
+    result.set("parts", descriptors);
+    result.set("samples", val(emscripten::typed_memory_view(sample_buffer_.size(), sample_buffer_.data())));
+    return result;
   }
 
   [[nodiscard]] std::size_t pole_count() const {
@@ -806,9 +820,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("generate", &WireState::generate)
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
       .function("lastGenerationTiming", &WireState::last_generation_timing)
-      .function("visualPartCount", &WireState::visual_part_count)
-      .function("visualPart", &WireState::visual_part)
-      .function("visualPartSamples", &WireState::visual_part_samples)
+      .function("visualScene", &WireState::visual_scene)
       .function("poleCount", &WireState::pole_count)
       .function("pole", &WireState::pole)
       .function("portCount", &WireState::port_count)

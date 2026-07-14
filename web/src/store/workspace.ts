@@ -5,13 +5,41 @@ import type {
   WorldPoint
 } from "./viewer";
 
-const WORKSPACE_CACHE_KEY = "wire.workspace.v1";
+export const WORKSPACE_CACHE_KEY = "wire.workspace.v1";
 const WORKSPACE_VERSION = 1;
 
-export interface KeyValueStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
+export interface WorkspaceStorage {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+  remove(key: string): Promise<void>;
+}
+
+const WORKSPACE_DB_NAME = "wire.workspace";
+const WORKSPACE_STORE_NAME = "documents";
+
+export class IndexedDbWorkspaceStorage implements WorkspaceStorage {
+  private database: Promise<IDBDatabase> | null = null;
+
+  async get(key: string): Promise<string | null> {
+    const store = await this.store("readonly");
+    const value = await requestResult(store.get(key));
+    return typeof value === "string" ? value : null;
+  }
+
+  async set(key: string, value: string): Promise<void> {
+    const store = await this.store("readwrite");
+    await requestResult(store.put(value, key));
+  }
+
+  async remove(key: string): Promise<void> {
+    const store = await this.store("readwrite");
+    await requestResult(store.delete(key));
+  }
+
+  private async store(mode: IDBTransactionMode): Promise<IDBObjectStore> {
+    const database = await (this.database ??= openWorkspaceDatabase());
+    return database.transaction(WORKSPACE_STORE_NAME, mode).objectStore(WORKSPACE_STORE_NAME);
+  }
 }
 
 export interface WorkspacePreferences {
@@ -81,12 +109,15 @@ export function captureWorkspacePreferences(
 }
 
 export class WorkspaceCache {
-  constructor(private readonly storage: KeyValueStorage) {}
+  private pending: Promise<void> = Promise.resolve();
 
-  read(): WorkspaceDocument | null {
+  constructor(private readonly storage: WorkspaceStorage) {}
+
+  async read(): Promise<WorkspaceDocument | null> {
     let text: string | null;
     try {
-      text = this.storage.getItem(WORKSPACE_CACHE_KEY);
+      await this.pending;
+      text = await this.storage.get(WORKSPACE_CACHE_KEY);
     } catch {
       return null;
     }
@@ -94,33 +125,56 @@ export class WorkspaceCache {
     try {
       const value: unknown = JSON.parse(text);
       if (!isWorkspaceDocument(value)) {
-        this.clear();
+        void this.clear();
         return null;
       }
       return value;
     } catch {
-      this.clear();
+      void this.clear();
       return null;
     }
   }
 
-  write(coreState: string, snapshot: ViewerSnapshot): void {
-    if (coreState.length === 0) return;
+  write(coreState: string, snapshot: ViewerSnapshot): Promise<void> {
+    if (coreState.length === 0) return Promise.resolve();
     const document: WorkspaceDocument = {
       version: WORKSPACE_VERSION,
       coreState,
       viewer: captureWorkspacePreferences(snapshot)
     };
-    this.storage.setItem(WORKSPACE_CACHE_KEY, JSON.stringify(document));
+    return this.enqueue(() => this.storage.set(WORKSPACE_CACHE_KEY, JSON.stringify(document)));
   }
 
-  clear(): void {
-    try {
-      this.storage.removeItem(WORKSPACE_CACHE_KEY);
-    } catch {
-      // Storage can be unavailable in privacy modes. Reset still applies in memory.
-    }
+  clear(): Promise<void> {
+    return this.enqueue(() => this.storage.remove(WORKSPACE_CACHE_KEY));
   }
+
+  private enqueue(operation: () => Promise<void>): Promise<void> {
+    const next = this.pending.then(operation, operation);
+    this.pending = next.catch(() => undefined);
+    return next;
+  }
+}
+
+function openWorkspaceDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(WORKSPACE_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(WORKSPACE_STORE_NAME)) {
+        database.createObjectStore(WORKSPACE_STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
+  });
+}
+
+function requestResult<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("IndexedDB request failed"));
+  });
 }
 
 function isWorkspaceDocument(value: unknown): value is WorkspaceDocument {

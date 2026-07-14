@@ -38,9 +38,7 @@ export interface WireStateHandle {
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo;
   lastGenerationTiming(): GenerationTiming;
-  visualPartCount(): number;
-  visualPart(index: number): VisualPartInfo;
-  visualPartSamples(index: number): Float64Array;
+  visualScene(): { parts: VisualPartInfo[]; samples: Float64Array };
   poleCount(): number;
   pole(index: number): PoleInfo;
   portCount(): number;

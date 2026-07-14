@@ -1,6 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadWireModule, type WireStateHandle } from "../src/bridge/wasm";
 
+function visualParts(state: WireStateHandle) {
+  const scene = state.visualScene();
+  const samples = new Float64Array(scene.samples);
+  return scene.parts.map((info) => ({
+    info,
+    samples: samples.subarray(info.sampleOffset, info.sampleOffset + info.sampleCount * 3)
+  }));
+}
+
 describe("wire wasm smoke", () => {
   let state: WireStateHandle;
   let createState: () => WireStateHandle;
@@ -21,11 +30,11 @@ describe("wire wasm smoke", () => {
     expect(result.ok, result.error).toBe(true);
     expect(result.generatedPoleCount).toBe(2);
     expect(result.generatedSpanCount).toBeGreaterThan(0);
-    expect(state.visualPartCount()).toBeGreaterThan(0);
+    const parts = visualParts(state);
+    expect(parts.length).toBeGreaterThan(0);
+    expect(new Set(parts.map((part) => part.info.partKey)).size).toBe(parts.length);
 
-    for (let index = 0; index < state.visualPartCount(); index += 1) {
-      const info = state.visualPart(index);
-      const samples = new Float64Array(state.visualPartSamples(index));
+    for (const { info, samples } of parts) {
       expect(samples).toBeInstanceOf(Float64Array);
       expect(samples.length).toBe(info.sampleCount * 3);
       expect([...samples].every(Number.isFinite)).toBe(true);
@@ -66,10 +75,8 @@ describe("wire wasm smoke", () => {
     );
     expect(result.ok, result.error).toBe(true);
 
-    const edgeBodies = Array.from(
-      { length: runState.visualPartCount() },
-      (_, index) => runState.visualPart(index)
-    ).filter((part) => part.kind === 0 && part.bundleTemplateId === 102 && part.laneIndex === 0);
+    const edgeBodies = visualParts(runState).map((part) => part.info)
+      .filter((part) => part.kind === 0 && part.bundleTemplateId === 102 && part.laneIndex === 0);
 
     expect(edgeBodies).toHaveLength(2);
     expect(edgeBodies[0].runId).toBeGreaterThan(0);
@@ -99,25 +106,21 @@ describe("wire wasm smoke", () => {
       new Float64Array([0, 0, 0, 20, 0, 0, 20, 10, 0]), [102], 0, 1, [0], 0, 0, []
     );
     expect(generated.ok, generated.error).toBe(true);
-    const expected = Array.from(
-      { length: savedState.visualPartCount() },
-      (_, index) => ({
-        info: savedState.visualPart(index),
-        samples: [...new Float64Array(savedState.visualPartSamples(index))]
-      })
-    );
+    const expected = visualParts(savedState).map((part) => ({
+      info: part.info,
+      samples: [...part.samples]
+    }));
 
     const text = savedState.saveState();
     expect(text.startsWith("wire_state_v1\n")).toBe(true);
     const loadedState = createState();
     const loaded = loadedState.loadState(text);
     expect(loaded.ok, loaded.error).toBe(true);
-    expect(loadedState.visualPartCount()).toBe(expected.length);
+    const actual = visualParts(loadedState);
+    expect(actual).toHaveLength(expected.length);
     for (let index = 0; index < expected.length; index += 1) {
-      expect(loadedState.visualPart(index)).toEqual(expected[index].info);
-      expect([...new Float64Array(loadedState.visualPartSamples(index))]).toEqual(
-        expected[index].samples
-      );
+      expect(actual[index].info).toEqual(expected[index].info);
+      expect([...actual[index].samples]).toEqual(expected[index].samples);
     }
     savedState.delete();
     loadedState.delete();
@@ -135,8 +138,7 @@ describe("wire wasm smoke", () => {
     expect(result.ok, result.error).toBe(true);
 
     let maxDrop = 0;
-    for (let index = 0; index < state.visualPartCount(); index += 1) {
-      const samples = new Float64Array(state.visualPartSamples(index));
+    for (const { samples } of visualParts(state)) {
       if (samples.length < 9) continue;
       const startZ = samples[2];
       const endZ = samples[samples.length - 1];
@@ -187,7 +189,7 @@ describe("wire wasm smoke", () => {
       sagFactor: geometry.sagFactor + 0.005
     });
     expect(reshape.ok, reshape.error).toBe(true);
-    expect(layoutState.visualPartCount()).toBeGreaterThan(0);
+    expect(visualParts(layoutState).length).toBeGreaterThan(0);
 
     const layout = layoutState.layoutSettings();
     const regenerate = layoutState.updateLayoutSettings({
@@ -195,7 +197,7 @@ describe("wire wasm smoke", () => {
       cornerThresholdDeg: layout.cornerThresholdDeg - 1
     });
     expect(regenerate.ok, regenerate.error).toBe(true);
-    expect(layoutState.visualPartCount()).toBeGreaterThan(0);
+    expect(visualParts(layoutState).length).toBeGreaterThan(0);
     layoutState.delete();
   });
 
@@ -224,10 +226,7 @@ describe("wire wasm smoke", () => {
       (_, index) => placementState.port(index)
     ).filter((port) => port.category === 0);
     expect(portsBefore.length).toBeGreaterThan(0);
-    const partsBefore = Array.from(
-      { length: placementState.visualPartCount() },
-      (_, index) => new Float64Array(placementState.visualPartSamples(index))
-    );
+    const partsBefore = visualParts(placementState).map((part) => new Float64Array(part.samples));
 
     const edited = structuredClone(original!);
     for (const band of edited.portBands.filter((candidate) => candidate.category === 0)) {
@@ -249,10 +248,7 @@ describe("wire wasm smoke", () => {
       expect(after?.z).toBeCloseTo(before.z + 1, 8);
     }
 
-    const partsAfter = Array.from(
-      { length: placementState.visualPartCount() },
-      (_, index) => new Float64Array(placementState.visualPartSamples(index))
-    );
+    const partsAfter = visualParts(placementState).map((part) => new Float64Array(part.samples));
     expect(partsAfter).toHaveLength(partsBefore.length);
     expect(
       partsAfter.some((samples, index) =>

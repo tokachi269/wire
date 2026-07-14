@@ -27,9 +27,9 @@ describe("workspace cache", () => {
     vi.useFakeTimers();
     const values = new Map<string, string>();
     const storage = {
-      getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => { values.set(key, value); },
-      removeItem: (key: string) => { values.delete(key); }
+      get: async (key: string) => values.get(key) ?? null,
+      set: async (key: string, value: string) => { values.set(key, value); },
+      remove: async (key: string) => { values.delete(key); }
     };
     const cache = new WorkspaceCache(storage);
     let firstCoreState = "factory-core";
@@ -46,6 +46,7 @@ describe("workspace cache", () => {
       cache
     );
     firstActions.initialize();
+    await firstActions.restoreWorkspace();
     firstCoreState = "edited-core";
     firstActions.setDrawOption("cameraFov", 73);
     firstActions.setDrawOption("showRightPanel", false);
@@ -67,6 +68,7 @@ describe("workspace cache", () => {
       cache
     );
     secondActions.initialize();
+    await secondActions.restoreWorkspace();
 
     expect(secondCoreState).toBe("edited-core");
     expect(current(secondStore)).toEqual(expect.objectContaining({
@@ -75,14 +77,14 @@ describe("workspace cache", () => {
       pathPoints: [[1, 2, 3]]
     }));
 
-    secondActions.resetWorkspace();
+    await secondActions.resetWorkspace();
     expect(secondCoreState).toBe("fresh-core");
     expect(current(secondStore)).toEqual(expect.objectContaining({
       cameraFov: 48,
       showRightPanel: true,
       pathPoints: []
     }));
-    expect(cache.read()).toEqual(expect.objectContaining({
+    expect(await cache.read()).toEqual(expect.objectContaining({
       coreState: "fresh-core",
       viewer: expect.objectContaining({ cameraFov: 48 })
     }));
@@ -115,6 +117,9 @@ describe("viewer actions", () => {
       parts: [
         {
           info: {
+            partKey: "edge:2",
+            sourceVersion: "1",
+            sampleOffset: 0,
             kind: 0,
             wireRadius: 0.02,
             colorRgba: 0xffffffff,
@@ -239,6 +244,9 @@ describe("viewer actions", () => {
     const store = new ViewerStore();
     const existingPart = {
       info: {
+        partKey: "edge:2",
+        sourceVersion: "1",
+        sampleOffset: 0,
         kind: 0,
         wireRadius: 0.02,
         colorRgba: 0xffffffff,

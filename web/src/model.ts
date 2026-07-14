@@ -29,6 +29,9 @@ export interface OperationResult {
 }
 
 export interface VisualPartInfo {
+  partKey: string;
+  sourceVersion: string;
+  sampleOffset: number;
   kind: number;
   wireRadius: number;
   colorRgba: number;

@@ -159,13 +159,14 @@ export class WireBridge {
   }
 
   scene(): SceneData {
-    const parts: VisualPartData[] = [];
-    for (let index = 0; index < this.state.visualPartCount(); index += 1) {
-      const info = this.state.visualPart(index);
-      // The wasm view is scratch memory. Copy it before requesting another part.
-      const samples = new Float64Array(this.state.visualPartSamples(index));
-      parts.push({ info, samples });
-    }
+    const visual = this.state.visualScene();
+    // The WASM view is one scene-owned scratch buffer. Copy it before any
+    // subsequent state call, then keep zero-copy subarray views per part.
+    const sceneSamples = new Float64Array(visual.samples);
+    const parts = visual.parts.map((info) => ({
+      info,
+      samples: sceneSamples.subarray(info.sampleOffset, info.sampleOffset + info.sampleCount * 3)
+    }));
 
     const poles: PoleInfo[] = [];
     for (let index = 0; index < this.state.poleCount(); index += 1) {

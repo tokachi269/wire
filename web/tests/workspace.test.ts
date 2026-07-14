@@ -11,15 +11,16 @@ describe("workspace persistence", () => {
     const wasmBinary = await readFile(resolve("src/wasm-generated/wire_web_core.wasm"));
     const values = new Map<string, string>();
     const cache = new WorkspaceCache({
-      getItem: (key) => values.get(key) ?? null,
-      setItem: (key, value) => { values.set(key, value); },
-      removeItem: (key) => { values.delete(key); }
+      get: async (key) => values.get(key) ?? null,
+      set: async (key, value) => { values.set(key, value); },
+      remove: async (key) => { values.delete(key); }
     });
 
     const firstBridge = await WireBridge.create({ wasmBinary });
     const firstStore = new ViewerStore();
     const firstActions = new ViewerActions(firstBridge, firstStore, cache);
     firstActions.initialize();
+    await firstActions.restoreWorkspace();
     const factorySagFactor = firstBridge.geometrySettings().sagFactor;
     firstActions.commitGeometry("sagFactor", factorySagFactor + 0.015);
     firstActions.setDrawOption("cameraFov", 67);
@@ -29,7 +30,7 @@ describe("workspace persistence", () => {
     firstActions.addPathPoint([20, 0, 0]);
     firstActions.generatePath();
     expect(firstBridge.scene().spans.length).toBeGreaterThan(0);
-    firstActions.flushWorkspaceCache();
+    await firstActions.flushWorkspaceCache();
     firstActions.dispose();
     firstBridge.dispose();
 
@@ -37,6 +38,7 @@ describe("workspace persistence", () => {
     const restoredStore = new ViewerStore();
     const restoredActions = new ViewerActions(restoredBridge, restoredStore, cache);
     restoredActions.initialize();
+    await restoredActions.restoreWorkspace();
 
     expect(restoredBridge.geometrySettings().sagFactor)
       .toBeCloseTo(factorySagFactor + 0.015, 8);
@@ -46,7 +48,7 @@ describe("workspace persistence", () => {
       showLeftPanel: false
     }));
 
-    restoredActions.resetWorkspace();
+    await restoredActions.resetWorkspace();
     expect(restoredBridge.geometrySettings().sagFactor)
       .toBeCloseTo(factorySagFactor, 8);
     expect(restoredBridge.scene().spans).toEqual([]);

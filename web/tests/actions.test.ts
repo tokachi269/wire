@@ -235,7 +235,9 @@ describe("viewer actions", () => {
     expect([...snapshot.parts[0].samples].every(Number.isFinite)).toBe(true);
     expect(snapshot.generationMs).toBe(1.25);
     expect(snapshot.error).toBe("");
-    expect(snapshot.logs.at(-1)).toContain("scene parts total=1 reused=0 rebuilt=1 removed=0");
+    expect(snapshot.logs.at(-1)).toBe(
+      "route generated: 2 poles / 1 spans | scene parts total=1 reused=0 rebuilt=1 removed=0"
+    );
   });
 
   it("keeps derived parts when generation fails", () => {

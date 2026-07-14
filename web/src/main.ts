@@ -1,8 +1,8 @@
 import { mount } from "svelte";
 import App from "./App.svelte";
 import { ViewerActions } from "./actions/viewer";
-import { devBuild } from "./buildInfo";
 import { WireBridge } from "./bridge/wire";
+import { startConsoleLogging } from "./consoleLog";
 import { WireScene } from "./render/scene";
 import { ViewerStore } from "./store/viewer";
 import {
@@ -18,6 +18,7 @@ if (target === null) {
 }
 
 const store = new ViewerStore();
+const stopConsoleLogging = startConsoleLogging(store);
 const bridge = await WireBridge.create();
 const workspaceStorage = new IndexedDbWorkspaceStorage();
 try {
@@ -43,7 +44,7 @@ const scene = new WireScene(
   (point, pick) => actions.addPathPoint(point, pick),
   () => actions.undoPathPointOrClearSelection(),
   (deltaMs) => actions.recordFrame(deltaMs),
-  devBuild ? (stats) => actions.recordSceneContentSync(stats) : undefined
+  (stats) => actions.recordSceneContentSync(stats)
 );
 
 mount(App, {
@@ -56,6 +57,7 @@ mount(App, {
 });
 
 window.addEventListener("beforeunload", () => {
+  stopConsoleLogging();
   actions.dispose();
   scene.dispose();
   bridge.dispose();

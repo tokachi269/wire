@@ -6,7 +6,8 @@
   "scripts": {
     "wasm:configure": "scripts\\wasm-nmake-build.cmd configure",
     "wasm:build": "npm run wasm:configure && scripts\\wasm-nmake-build.cmd build",
-    "test": "npm run wasm:build && vitest run",
+    "test": "vitest run",
+    "test:with-wasm": "npm run wasm:build && vitest run",
     "build": "npm run wasm:build && vite build",
     "dev": "vite",
     "check": "tsc --noEmit",

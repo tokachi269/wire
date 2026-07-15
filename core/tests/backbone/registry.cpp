@@ -1118,11 +1118,11 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture);
   test_registry::AddTest(tests, "C766_row_fixture_and_wire_follow_port_band_lateral_change",
-                         "row fixture, endpoint fixture, and connected curve follow one band lateral change while the belt stays on the pole axis",
+                         "row mount, endpoint fixture, and connected curve share placement and follow band lateral change while the belt stays on the pole axis",
                          "Invariant", false,
                          C766_row_fixture_and_wire_follow_port_band_lateral_change);
   test_registry::AddTest(tests, "C767_default_hv_emits_one_support_path_per_phase_span",
-                         "default HV derives one support path from each phase span's saved placement band",
+                         "default HV derives one support path parallel to each phase span's resolved base member",
                          "Invariant", false,
                          C767_default_hv_emits_one_support_path_per_phase_span);
 }

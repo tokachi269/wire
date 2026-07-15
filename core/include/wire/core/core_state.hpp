@@ -91,8 +91,9 @@ public:
   EditResult<bool> UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
   // Registers one adapter-built assembly before any template references it.
-  // Existing ids are rejected; live assembly replacement belongs to the later reshape path.
+  // Existing ids are rejected; versioned adapter reload uses UpdateModelAssemblyTemplate.
   EditResult<bool> RegisterModelAssemblyTemplate(const ModelAssemblyTemplate& model_assembly_template);
+  EditResult<bool> UpdateModelAssemblyTemplate(const ModelAssemblyTemplate& model_assembly_template);
   EditResult<bool> ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemplateId bundle_template_id);
   EditResult<bool> UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
                                             bool mark_dependent_spans_dirty = true);

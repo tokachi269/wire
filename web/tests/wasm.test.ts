@@ -182,6 +182,44 @@ describe("wire wasm smoke", () => {
     loadedState.delete();
   });
 
+  it("upgrades an older saved row assembly by adapter version during restore", () => {
+    const oldState = createState();
+    const oldBootstrap = modelBootstrap();
+    expect(oldState.configureModelAssemblies(oldBootstrap).ok).toBe(true);
+    expect(oldState.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0]), [101], 0, 1, [0], 0, 0, []
+    ).ok).toBe(true);
+    const oldModels = oldState.visualScene().models;
+
+    const upgraded = modelBootstrap();
+    const row = upgraded.assemblies.find((assembly) => assembly.id === 9902)!;
+    row.version = 2;
+    row.parts[0].localTransform.positionX = 0.17;
+    row.parts[0].sockets.push({
+      name: "endpoint_mount",
+      positionX: 0, positionY: 0, positionZ: 0.04,
+      directionX: 0, directionY: 0, directionZ: 1
+    });
+    row.endpointMountSocket = { partId: 1, socketName: "endpoint_mount" };
+
+    const restored = createState();
+    const loaded = restored.loadStateWithModels(oldState.saveState(), upgraded);
+    expect(loaded.ok, loaded.error).toBe(true);
+    const newModels = restored.visualScene().models;
+    expect(new Set(newModels.map((model) => model.stableKey)))
+      .toEqual(new Set(oldModels.map((model) => model.stableKey)));
+    const oldInsulator = oldModels.find((model) => model.modelKey === "hv_insulator")!;
+    const newInsulator = newModels.find((model) => model.stableKey === oldInsulator.stableKey)!;
+    expect(newInsulator.contentVersion).not.toBe(oldInsulator.contentVersion);
+    expect(Math.hypot(
+      newInsulator.positionX - oldInsulator.positionX,
+      newInsulator.positionY - oldInsulator.positionY,
+      newInsulator.positionZ - oldInsulator.positionZ
+    )).toBeGreaterThan(0.17);
+    oldState.delete();
+    restored.delete();
+  });
+
   it("applies generation-time tilt when a max tilt is requested", () => {
     const tilted = createState();
     const generated = tilted.generate(

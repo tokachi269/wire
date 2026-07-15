@@ -135,6 +135,9 @@ struct ModelAssemblyTemplate {
   ModelAssemblyTemplateId id = kInvalidModelAssemblyTemplateId;
   std::vector<ModelAssemblyPart> parts{};
   std::optional<AssemblySocketRef> wire_socket{};
+  // Optional row-fixture point from which endpoint fixtures inherit position.
+  // Rotation remains owned by the Port PoleFrame/layout yaw.
+  std::optional<AssemblySocketRef> endpoint_mount_socket{};
   std::uint64_t version = 1;
 
   bool operator==(const ModelAssemblyTemplate&) const = default;

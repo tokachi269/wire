@@ -519,8 +519,10 @@ bool C763_model_assembly_registration_is_transactional_and_persistent() {
   part.descriptor_version = 11;
   part.local_transform.position = {0.1, -0.2, 0.3};
   part.sockets.push_back({"wire", {0.35, 0.0, 0.0}, {1.0, 0.0, 0.0}});
+  part.sockets.push_back({"mount", {0.0, 0.0, 0.1}, {0.0, 0.0, 1.0}});
   assembly.parts.push_back(part);
   assembly.wire_socket = wire::core::AssemblySocketRef{7, "wire"};
+  assembly.endpoint_mount_socket = wire::core::AssemblySocketRef{7, "mount"};
   if (!state.RegisterModelAssemblyTemplate(assembly).ok) return false;
 
   std::string saved{};
@@ -530,6 +532,21 @@ bool C763_model_assembly_registration_is_transactional_and_persistent() {
       loaded.view().model_assembly_templates().at(assembly.id) != assembly) {
     return false;
   }
+  std::string legacy = saved;
+  for (const std::string& field : {
+           "authoritative.model_assembly_templates.9001.endpoint_mount_socket.has",
+           "authoritative.model_assembly_templates.9001.endpoint_mount_socket.part_id",
+           "authoritative.model_assembly_templates.9001.endpoint_mount_socket.socket_name"}) {
+    const std::size_t begin = legacy.find(field + "=");
+    if (begin == std::string::npos) return false;
+    const std::size_t end = legacy.find('\n', begin);
+    if (end == std::string::npos) return false;
+    legacy.erase(begin, end - begin + 1);
+  }
+  wire::core::CoreState legacy_loaded;
+  if (!legacy_loaded.DeserializeAuthoritative(legacy).ok ||
+      legacy_loaded.view().model_assembly_templates().at(assembly.id)
+          .endpoint_mount_socket.has_value()) return false;
 
   wire::core::ModelAssemblyTemplate invalid = assembly;
   invalid.id = 9002;

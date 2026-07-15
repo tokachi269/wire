@@ -97,6 +97,7 @@ export interface ModelAssemblyTemplateInput {
   version: number;
   parts: ModelAssemblyPartInput[];
   wireSocket: { partId: number; socketName: string } | null;
+  endpointMountSocket?: { partId: number; socketName: string } | null;
 }
 
 export interface ModelAssemblyBootstrapInput {

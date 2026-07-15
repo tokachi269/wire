@@ -91,6 +91,11 @@ model assemblyのworld materializationはbackboneのlayout endpoint resolverが�
 同じ経路を使う。`VisualModelInstance`はderived cacheであり、Pole、row、PortやSavedBackboneGraphへ
 model instance identityを追加しない。
 
+row fixtureは任意の`endpoint_mount_socket`を公開できる。このsocketのworld位置とrow rootの差分だけを
+各Portのendpoint fixture rootへ加え、腕金の柱表面取付位置を碍子へ伝える。endpoint fixtureの回転は
+従来どおりPoleFrame/layout yawが所有し、row partのGLB軸補正rotationやscaleを親子継承しない。
+endpoint fixture表示とlayoutのwire endpointは同じ`resolve_endpoint_placement`結果を使用する。
+
 v1のwire socketはcurve endpointの位置を決める。socketのlocal directionはdescriptor/assemblyへ保持するが、
 現行のcurve tangent authorityにはしない。方向をG1拘束へ使う場合は、continuity policyとnode patchの契約を
 含めて別scenarioとして設計する。

@@ -894,6 +894,19 @@ bool archive_model_assembly_template(Archive& archive, const std::string& prefix
     if (!archive.field(prefix, "wire_socket.part_id", value.wire_socket->part_id) ||
         !archive.string_value(child(prefix, "wire_socket.socket_name"), value.wire_socket->socket_name)) return false;
   }
+  bool has_endpoint_mount_socket = value.endpoint_mount_socket.has_value();
+  if (!archive.compatible_field(prefix, "endpoint_mount_socket.has",
+                                has_endpoint_mount_socket, false)) return false;
+  if constexpr (Archive::loading) {
+    if (has_endpoint_mount_socket) value.endpoint_mount_socket.emplace();
+    else value.endpoint_mount_socket.reset();
+  }
+  if (has_endpoint_mount_socket) {
+    if (!archive.field(prefix, "endpoint_mount_socket.part_id",
+                       value.endpoint_mount_socket->part_id) ||
+        !archive.string_value(child(prefix, "endpoint_mount_socket.socket_name"),
+                              value.endpoint_mount_socket->socket_name)) return false;
+  }
   return archive.field(prefix, "version", value.version);
 }
 

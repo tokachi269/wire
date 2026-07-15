@@ -142,11 +142,25 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
           property<std::string>(wire_socket, "socketName"),
       };
     }
+    const val endpoint_mount_socket = assembly_input["endpointMountSocket"];
+    if (!endpoint_mount_socket.isNull() && !endpoint_mount_socket.isUndefined()) {
+      assembly.endpoint_mount_socket = wire::core::AssemblySocketRef{
+          property<std::uint32_t>(endpoint_mount_socket, "partId"),
+          property<std::string>(endpoint_mount_socket, "socketName"),
+      };
+    }
     const auto existing = CoreView(trial).model_assembly_templates().find(assembly.id);
     if (existing != CoreView(trial).model_assembly_templates().end()) {
       if (!(existing->second == assembly)) {
-        result.error = "model bootstrap: existing assembly differs from adapter input";
-        return result;
+        if (assembly.version <= existing->second.version) {
+          result.error = "model bootstrap: existing assembly differs without a newer adapter version";
+          return result;
+        }
+        const auto updated = trial.UpdateModelAssemblyTemplate(assembly);
+        if (!updated.ok) {
+          result.error = updated.error;
+          return result;
+        }
       }
     } else {
       const auto registered = trial.RegisterModelAssemblyTemplate(assembly);

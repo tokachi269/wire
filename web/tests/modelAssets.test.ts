@@ -88,8 +88,10 @@ describe("model asset cache", () => {
     expect(clampPart.sockets[0].positionY).toBeCloseTo(-clamp.size.z * 0.5, 12);
     expect(communication.wireSocket).toEqual({ partId: 1, socketName: "wire" });
     const highVoltage = bootstrap.assemblies.find((assembly) => assembly.id === 9202)!;
-    expect(highVoltage.parts.find((part) => part.modelKey === "hv_crossarm")!
-      .localTransform.positionX).toBeCloseTo(0.169, 12);
+    const highVoltageArm = highVoltage.parts.find((part) => part.modelKey === "hv_crossarm")!;
+    expect(highVoltageArm.localTransform.positionX).toBeCloseTo(0.169, 12);
+    expect(highVoltage.endpointMountSocket).toEqual({ partId: 1, socketName: "endpoint_mount" });
+    expect(highVoltageArm.sockets[0].positionZ).toBeCloseTo(crossarm.size.y * 0.5, 12);
     const lowVoltage = bootstrap.assemblies.find((assembly) => assembly.id === 9206)!;
     expect(lowVoltage.parts.map((part) => part.modelKey)).toEqual([
       "communication_clamp_long",

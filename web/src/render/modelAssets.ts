@@ -233,6 +233,15 @@ export function buildDefaultModelBootstrap(
   // row. Offset the 0.08 m-deep arm so its pole-facing surface meets the pole.
   crossarmTransform.positionX = 0.169;
   crossarmTransform.rotationZ = 90;
+  const endpointMountSocket: ModelSocketInput = {
+    name: "endpoint_mount",
+    positionX: 0,
+    positionY: 0,
+    positionZ: crossarm.size.y * 0.5,
+    directionX: 0,
+    directionY: 0,
+    directionZ: 1
+  };
   const lowVoltageArmTransform = identityTransform();
   // At the default 7.4 m LV row the pole radius is 0.147 m; the long clamp is
   // 0.047 m deep. Its authored long axis becomes assembly-local Y.
@@ -283,12 +292,13 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: hvRowAssemblyId,
-        version: 1,
+        version: 2,
         parts: [
-          part(crossarm, 1, 0, crossarmTransform),
+          part(crossarm, 1, 0, crossarmTransform, endpointMountSocket),
           part(belt, 2, 2, beltTransform)
         ],
-        wireSocket: null
+        wireSocket: null,
+        endpointMountSocket: { partId: 1, socketName: "endpoint_mount" }
       },
       {
         id: hvEndpointAssemblyId,

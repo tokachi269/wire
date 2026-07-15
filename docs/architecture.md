@@ -305,9 +305,10 @@ helix内周から出ないように断面offsetをclampする。wander はclamp�
 明示radiusは、support wireとhelix wireの径およびclearanceを収められない値を設定時に拒否する。
 
 support path は helix と独立して有効化できる。`support_wire_pole_band_id == 0` の場合は、
-各 logical span の両端に保存された `SavedBackbonePortBinding.placement_band_id` を使用する。
-したがって複数laneは固定bandへ重ねず、laneごとのspanに1本ずつ派生する。support-onlyでは
-member curveへcontainmentを適用しない。
+各 logical span の解決済みbase member curveから線径分だけ離した並行線を派生する。
+したがってendpoint fixture socket、tilt、lowering、post-edit後の形状を再解釈せず共有し、
+複数laneはlaneごとのspanに1本ずつ派生する。`support_wire_pole_band_id > 0` の明示band経路は
+helix用の独立support primary curveを維持する。support-onlyではmember curveへcontainmentを適用しない。
 
 ## wire domain境界
 

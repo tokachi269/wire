@@ -26,6 +26,7 @@ struct Matrix3 {
 struct PortFixtureContext {
   const Pole* pole = nullptr;
   const ModelAssemblyTemplate* assembly = nullptr;
+  const ModelAssemblyTemplate* row_assembly = nullptr;
   double layout_yaw_deg = 0.0;
 };
 
@@ -180,6 +181,7 @@ EditResult<PortFixtureContext> port_fixture_context(const CoreState& state, cons
   }
 
   std::optional<ModelAssemblyTemplateId> assembly_id{};
+  std::optional<ModelAssemblyTemplateId> row_assembly_id{};
   double layout_yaw_deg = bindings.front()->layout_yaw_deg;
   for (const SavedBackbonePortBinding* binding : bindings) {
     const auto bundle_it = view.bundle_templates().find(binding->bundle_template_id);
@@ -188,8 +190,13 @@ EditResult<PortFixtureContext> port_fixture_context(const CoreState& state, cons
       return out;
     }
     const ModelAssemblyTemplateId candidate = bundle_it->second.endpoint_fixture_assembly_id;
+    const ModelAssemblyTemplateId row_candidate = bundle_it->second.row_fixture_assembly_id;
     if (assembly_id.has_value() && candidate != *assembly_id) {
       out.error = "model assembly unsupported: shared Port resolves different endpoint assemblies";
+      return out;
+    }
+    if (row_assembly_id.has_value() && row_candidate != *row_assembly_id) {
+      out.error = "model assembly unsupported: shared Port resolves different row assemblies";
       return out;
     }
     if (std::abs(binding->layout_yaw_deg - layout_yaw_deg) > 1e-9) {
@@ -197,17 +204,26 @@ EditResult<PortFixtureContext> port_fixture_context(const CoreState& state, cons
       return out;
     }
     assembly_id = candidate;
+    row_assembly_id = row_candidate;
   }
-  if (!assembly_id.has_value() || *assembly_id == kInvalidModelAssemblyTemplateId) {
-    out.ok = true;
-    return out;
+  if (row_assembly_id.has_value() && *row_assembly_id != kInvalidModelAssemblyTemplateId) {
+    const auto row_it = view.model_assembly_templates().find(*row_assembly_id);
+    if (row_it == view.model_assembly_templates().end()) {
+      out.error = "model assembly unsupported: row assembly is missing";
+      return out;
+    }
+    out.value.row_assembly = &row_it->second;
   }
-  const auto assembly_it = view.model_assembly_templates().find(*assembly_id);
-  if (assembly_it == view.model_assembly_templates().end() || !assembly_it->second.wire_socket.has_value()) {
-    out.error = "model assembly unsupported: endpoint assembly or wire socket is missing";
-    return out;
+  if (assembly_id.has_value() && *assembly_id != kInvalidModelAssemblyTemplateId) {
+    const auto assembly_it = view.model_assembly_templates().find(*assembly_id);
+    if (assembly_it == view.model_assembly_templates().end() || !assembly_it->second.wire_socket.has_value()) {
+      out.error = "model assembly unsupported: endpoint assembly or wire socket is missing";
+      return out;
+    }
+    out.value.assembly = &assembly_it->second;
   }
-  out.value = {pole, &assembly_it->second, layout_yaw_deg};
+  out.value.pole = pole;
+  out.value.layout_yaw_deg = layout_yaw_deg;
   out.ok = true;
   return out;
 }
@@ -326,38 +342,74 @@ std::string row_key_text(const SavedBackboneRowKey& row_key) {
 
 } // namespace
 
-EditResult<Vec3d> resolve_model_assembly_wire_socket(const CoreState& state, const Port& port) {
-  EditResult<Vec3d> out{};
-  out.value = port.world_position;
+EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState& state,
+                                                                  const Port& port) {
+  EditResult<ResolvedEndpointPlacement> out{};
+  out.value.fixture_root.position = port.world_position;
+  out.value.wire_endpoint = port.world_position;
   const EditResult<PortFixtureContext> context = port_fixture_context(state, port);
   if (!context.ok) {
     out.error = context.error;
     return out;
   }
-  if (context.value.assembly == nullptr || context.value.pole == nullptr) {
+  if (context.value.pole == nullptr) {
     out.ok = true;
     return out;
   }
 
-  const ModelAssemblyTemplate& assembly = *context.value.assembly;
-  const ModelAssemblyPart* socket_part = nullptr;
-  const ModelAssemblySocket* socket = socket_for(assembly, *assembly.wire_socket, &socket_part);
-  if (socket == nullptr || socket_part == nullptr) {
-    out.error = "model assembly unsupported: endpoint wire socket does not resolve";
-    return out;
-  }
   const PoleFrame frame = BuildPoleFrame(context.value.pole->world_transform,
                                          context.value.layout_yaw_deg);
-  const Transformd root = transform_from_frame(frame, port.world_position);
   const double placement_height_m = WorldPointToLocal(frame, port.world_position).z;
-  const EditResult<Transformd> world = fitted_part_transform(
-      state, *context.value.pole, placement_height_m, *socket_part, root);
-  if (!world.ok) {
-    out.error = world.error;
-    return out;
+  Transformd fixture_root = transform_from_frame(frame, port.world_position);
+
+  if (context.value.row_assembly != nullptr &&
+      context.value.row_assembly->endpoint_mount_socket.has_value()) {
+    const ModelAssemblyPart* mount_part = nullptr;
+    const ModelAssemblySocket* mount = socket_for(
+        *context.value.row_assembly, *context.value.row_assembly->endpoint_mount_socket,
+        &mount_part);
+    if (mount == nullptr || mount_part == nullptr) {
+      out.error = "model assembly unsupported: row endpoint mount socket does not resolve";
+      return out;
+    }
+    const EditResult<Transformd> mount_world = fitted_part_transform(
+        state, *context.value.pole, placement_height_m, *mount_part, fixture_root);
+    if (!mount_world.ok) {
+      out.error = mount_world.error;
+      return out;
+    }
+    fixture_root.position = fixture_root.position +
+        (transform_point(mount_world.value, mount->local_position) - port.world_position);
   }
-  out.value = transform_point(world.value, socket->local_position);
+  out.value.fixture_root = fixture_root;
+  out.value.wire_endpoint = fixture_root.position;
+
+  if (context.value.assembly != nullptr) {
+    const ModelAssemblyPart* socket_part = nullptr;
+    const ModelAssemblySocket* socket = socket_for(
+        *context.value.assembly, *context.value.assembly->wire_socket, &socket_part);
+    if (socket == nullptr || socket_part == nullptr) {
+      out.error = "model assembly unsupported: endpoint wire socket does not resolve";
+      return out;
+    }
+    const EditResult<Transformd> world = fitted_part_transform(
+        state, *context.value.pole, placement_height_m, *socket_part, fixture_root);
+    if (!world.ok) {
+      out.error = world.error;
+      return out;
+    }
+    out.value.wire_endpoint = transform_point(world.value, socket->local_position);
+  }
   out.ok = true;
+  return out;
+}
+
+EditResult<Vec3d> resolve_model_assembly_wire_socket(const CoreState& state, const Port& port) {
+  EditResult<Vec3d> out{};
+  const EditResult<ResolvedEndpointPlacement> placement = resolve_endpoint_placement(state, port);
+  out.ok = placement.ok;
+  out.error = placement.error;
+  out.value = placement.value.wire_endpoint;
   return out;
 }
 
@@ -490,9 +542,15 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
     const PoleFrame frame = BuildPoleFrame(context.value.pole->world_transform,
                                            context.value.layout_yaw_deg);
     const double height_m = WorldPointToLocal(frame, port->world_position).z;
-    const Transformd root = transform_from_frame(frame, port->world_position);
+    const EditResult<ResolvedEndpointPlacement> placement =
+        resolve_endpoint_placement(state, *port);
+    if (!placement.ok) {
+      out.error = placement.error;
+      return out;
+    }
     std::string error{};
-    append_instances(state, *context.value.pole, height_m, *context.value.assembly, root, {},
+    append_instances(state, *context.value.pole, height_m, *context.value.assembly,
+                     placement.value.fixture_root, {},
                      "port:" + std::to_string(port->id), &out.value, &error);
     if (!error.empty()) {
       out.error = std::move(error);

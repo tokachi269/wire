@@ -285,6 +285,39 @@ VisualCurvePart make_helix_part(const VisualCurvePart& support, const SpanVisual
   return helix;
 }
 
+VisualCurvePart make_member_following_support(const VisualCurvePart& member,
+                                               const SpanVisualAssemblyTemplate& settings) {
+  VisualCurvePart support = member;
+  support.kind = VisualCurvePartKind::kSupplemental;
+  support.supplemental_kind = VisualSupplementalKind::kSupportPath;
+  support.has_section_key = false;
+  support.section_key = {};
+  support.cable_run_id = 0;
+  support.bezier_control_points.clear();
+  const std::vector<Vec3d> source = member.samples;
+  const double total = path_length(source);
+  double distance = 0.0;
+  const double separation = member.wire_radius_m * 2.0;
+  for (std::size_t index = 0; index < source.size(); ++index) {
+    if (index > 0) distance += Length(source[index] - source[index - 1]);
+    const Vec3d tangent = index + 1 < source.size()
+        ? unit_or(source[index + 1] - source[index], {1.0, 0.0, 0.0})
+        : unit_or(source[index] - source[index - 1], {1.0, 0.0, 0.0});
+    Vec3d lateral{};
+    Vec3d up{};
+    frame_for(tangent, &lateral, &up);
+    support.samples[index] = source[index] + ScaleVec(
+        up, separation * endpoint_envelope(distance, total, settings.endpoint_trim_m));
+  }
+  support.boundary_a = support.samples.front();
+  support.boundary_b = support.samples.back();
+  support.tangent_a = unit_or(support.samples[1] - support.samples[0], member.tangent_a);
+  support.tangent_b = unit_or(support.samples[support.samples.size() - 2] - support.samples.back(),
+                              member.tangent_b);
+  support.bounds = bounds_for(support.samples);
+  return support;
+}
+
 } // namespace
 
 void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* cache) {
@@ -307,30 +340,38 @@ void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* 
       apply_member_twist(settings, members);
       continue;
     }
-    const std::optional<std::pair<Vec3d, Vec3d>> endpoints =
-        resolve_pole_band_chord_endpoints(state, *span, template_it->second.support_wire_pole_band_id);
-    if (!endpoints.has_value()) continue;
-    const EditResult<DetailCurve> support_curve =
-        make_primary_curve_between(state, logical_span_id, endpoints->first, endpoints->second);
-    ++cache->stats.curve_builds;
-    if (!support_curve.ok || support_curve.value.sample_points.size() < 2) continue;
     VisualCurvePart support{};
-    support.kind = VisualCurvePartKind::kSupplemental;
-    support.supplemental_kind = VisualSupplementalKind::kSupportPath;
-    support.source_span_id = logical_span_id;
-    support.source_bundle_id = span->bundle_id;
-    support.bundle_template_id = template_it->second.id;
-    support.lane_index = members.front()->lane_index;
-    support.samples = support_curve.value.sample_points;
-    support.boundary_a = support.samples.front();
-    support.boundary_b = support.samples.back();
-    support.tangent_a = support_curve.value.start_constraint.tangent_dir;
-    support.tangent_b = ScaleVec(support_curve.value.end_constraint.tangent_dir, -1.0);
-    support.wire_radius_m = members.front()->wire_radius_m;
-    support.color_rgba = members.front()->color_rgba;
-    support.material_style = members.front()->material_style;
-    support.bounds = bounds_for(support.samples);
-    support.source_version = members.front()->source_version;
+    if (template_it->second.support_wire_pole_band_id == 0) {
+      const auto base = std::find_if(members.begin(), members.end(), [](const VisualCurvePart* member) {
+        return member->section_key.is_base();
+      });
+      if (base == members.end() || (*base)->samples.size() < 2) continue;
+      support = make_member_following_support(**base, settings);
+    } else {
+      const std::optional<std::pair<Vec3d, Vec3d>> endpoints =
+          resolve_pole_band_chord_endpoints(state, *span, template_it->second.support_wire_pole_band_id);
+      if (!endpoints.has_value()) continue;
+      const EditResult<DetailCurve> support_curve =
+          make_primary_curve_between(state, logical_span_id, endpoints->first, endpoints->second);
+      ++cache->stats.curve_builds;
+      if (!support_curve.ok || support_curve.value.sample_points.size() < 2) continue;
+      support.kind = VisualCurvePartKind::kSupplemental;
+      support.supplemental_kind = VisualSupplementalKind::kSupportPath;
+      support.source_span_id = logical_span_id;
+      support.source_bundle_id = span->bundle_id;
+      support.bundle_template_id = template_it->second.id;
+      support.lane_index = members.front()->lane_index;
+      support.samples = support_curve.value.sample_points;
+      support.boundary_a = support.samples.front();
+      support.boundary_b = support.samples.back();
+      support.tangent_a = support_curve.value.start_constraint.tangent_dir;
+      support.tangent_b = ScaleVec(support_curve.value.end_constraint.tangent_dir, -1.0);
+      support.wire_radius_m = members.front()->wire_radius_m;
+      support.color_rgba = members.front()->color_rgba;
+      support.material_style = members.front()->material_style;
+      support.bounds = bounds_for(support.samples);
+      support.source_version = members.front()->source_version;
+    }
     if (!settings.helix_enabled) {
       apply_member_twist(settings, members);
       supplemental.push_back(std::move(support));

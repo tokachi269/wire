@@ -20,8 +20,9 @@ CableSection を carrier として保存する関係や geometry 近傍探索は
 assembly は base section、同じ logical span の population sections、support path、helix を一時的に
 まとめる。Bundle の複数 lane を一つの束として扱わず、lane ごとの logical span に独立して適用する。
 helix と support path は topology、connectivity、CableRun identity を変更しない。
-support path はhelixなしでも生成できる。support bandを0にした場合は各logical spanの保存済み
-endpoint bandを使い、別laneを一つのsupport pathへまとめない。
+support path はhelixなしでも生成できる。support bandを0にした場合は各logical spanの解決済み
+base member curveへ線径分だけ並行追従し、別laneを一つのsupport pathへまとめない。
+正数bandはhelix用の独立support primary curveを明示する。
 
 ## 禁止する実装
 

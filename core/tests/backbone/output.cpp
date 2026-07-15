@@ -8,6 +8,7 @@
 #include "wire/core/core_view.hpp"
 
 #include "../../src/generation/backbone/curve_parts.hpp"
+#include "../../src/generation/backbone/model_assembly.hpp"
 #include "../../src/geometry/detail_curve_postprocess.hpp"
 
 #include <algorithm>
@@ -854,12 +855,21 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
       continue;
     }
     if (part.supplemental_kind != wire::core::VisualSupplementalKind::kSupportPath) continue;
-    const wire::core::Span* span = state.view().spans().find(part.source_span_id);
-    const auto expected = span == nullptr ? std::nullopt :
-        wire::core::resolve_pole_band_chord_endpoints(state, *span, 0);
-    if (!expected.has_value() || !almost_equal(part.boundary_a, expected->first, 1e-9) ||
-        !almost_equal(part.boundary_b, expected->second, 1e-9)) {
+    const auto member = std::find_if(
+        state.view().visual_curve_parts().parts.begin(),
+        state.view().visual_curve_parts().parts.end(),
+        [&](const wire::core::VisualCurvePart& candidate) {
+          return candidate.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
+                 candidate.source_span_id == part.source_span_id && candidate.has_section_key &&
+                 candidate.section_key.is_base();
+        });
+    if (member == state.view().visual_curve_parts().parts.end() ||
+        member->samples.size() != part.samples.size()) {
       return false;
+    }
+    for (std::size_t index = 0; index < part.samples.size(); ++index) {
+      if (!almost_equal(wire::core::Length(part.samples[index] - member->samples[index]),
+                        member->wire_radius_m * 2.0, 1e-9)) return false;
     }
     support_span_ids.insert(part.source_span_id);
     support_starts.push_back(part.boundary_a);
@@ -911,7 +921,7 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
     }
   }
   return state.view().visual_curve_parts().stats.curve_builds ==
-         without_support.view().visual_curve_parts().stats.curve_builds + support_span_ids.size();
+         without_support.view().visual_curve_parts().stats.curve_builds;
 }
 
 bool C635_backbone_simple_continuous_node_creates_node_patch_curve() {
@@ -2024,16 +2034,22 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
 
   wire::core::ModelAssemblyTemplate row_assembly{};
   row_assembly.id = kRowAssembly;
-  row_assembly.parts.push_back(
-      {1, "hv_crossarm", 1, {}, wire::core::ModelFitMode::kRigid, {}});
+  wire::core::ModelAssemblyPart row_part{};
+  row_part.part_id = 1;
+  row_part.model_key = "hv_crossarm";
+  row_part.local_transform.position = {0.17, 0.0, 0.0};
+  row_part.sockets.push_back({"endpoint_mount", {0.0, 0.0, 0.04}, {0.0, 0.0, 1.0}});
+  row_assembly.parts.push_back(row_part);
   row_assembly.parts.push_back(
       {2, "pole_belt", 1, {}, wire::core::ModelFitMode::kPoleRadial, {}});
+  row_assembly.endpoint_mount_socket =
+      wire::core::AssemblySocketRef{1, "endpoint_mount"};
   wire::core::ModelAssemblyTemplate endpoint_assembly{};
   endpoint_assembly.id = kEndpointAssembly;
   wire::core::ModelAssemblyPart endpoint_part{};
   endpoint_part.part_id = 1;
   endpoint_part.model_key = "hv_insulator";
-  endpoint_part.sockets.push_back({"wire", {}, {1.0, 0.0, 0.0}});
+  endpoint_part.sockets.push_back({"wire", {0.0, 0.0, 0.25}, {1.0, 0.0, 0.0}});
   endpoint_assembly.parts.push_back(endpoint_part);
   endpoint_assembly.wire_socket = wire::core::AssemblySocketRef{1, "wire"};
   if (!state.RegisterModelAssemblyTemplate(row_assembly).ok ||
@@ -2053,6 +2069,25 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
   const auto generated = state.GenerateFromBackboneSpec(request);
   if (!generated.ok) return false;
 
+  std::unordered_map<std::string, std::uint64_t> model_versions{};
+  for (const wire::core::VisualModelInstance& instance :
+       state.view().visual_model_instances().instances) {
+    model_versions.emplace(instance.stable_key, instance.content_version);
+  }
+  wire::core::ModelAssemblyTemplate moved_row = row_assembly;
+  moved_row.version = 2;
+  moved_row.parts.front().local_transform.position.x += 0.05;
+  const auto moved = state.UpdateModelAssemblyTemplate(moved_row);
+  if (!moved.ok || moved.value == false ||
+      moved.change_set.updated_ids.size() != generated.value.generated_span_ids.size()) return false;
+  for (const wire::core::VisualModelInstance& instance :
+       state.view().visual_model_instances().instances) {
+    const auto before_version = model_versions.find(instance.stable_key);
+    if (before_version == model_versions.end()) return false;
+    if ((instance.model_key == "hv_crossarm" || instance.model_key == "hv_insulator") &&
+        before_version->second == instance.content_version) return false;
+  }
+
   std::unordered_map<std::string, wire::core::Vec3d> fixture_positions{};
   for (const wire::core::VisualModelInstance& instance :
        state.view().visual_model_instances().instances) {
@@ -2069,6 +2104,20 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
       const wire::core::Port* port = state.view().ports().find(port_id);
       if (port == nullptr) return false;
       port_positions.emplace(port_id, port->world_position);
+      const auto placement = wire::core::generation::backbone::resolve_endpoint_placement(
+          state, *port);
+      if (!placement.ok) return false;
+      const std::string prefix = "port:" + std::to_string(port_id) + ":";
+      const auto fixture = std::find_if(
+          state.view().visual_model_instances().instances.begin(),
+          state.view().visual_model_instances().instances.end(),
+          [&](const wire::core::VisualModelInstance& instance) {
+            return instance.stable_key.rfind(prefix, 0) == 0 &&
+                   instance.model_key == "hv_insulator";
+          });
+      if (fixture == state.view().visual_model_instances().instances.end() ||
+          !almost_equal(fixture->world_transform.position,
+                        placement.value.fixture_root.position, 1e-9)) return false;
     }
   }
 
@@ -2139,11 +2188,22 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
   }
 
   for (wire::core::ObjectId span_id : generated.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
     const wire::core::SpanLayoutEntry* layout = state.span_layout(span_id).entry;
     const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
-    if (layout == nullptr || curve == nullptr || curve->detail.sample_points.size() < 2 ||
+    const wire::core::Port* port_a = span == nullptr ? nullptr : state.view().ports().find(span->port_a_id);
+    const wire::core::Port* port_b = span == nullptr ? nullptr : state.view().ports().find(span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr) return false;
+    const auto placement_a =
+        wire::core::generation::backbone::resolve_endpoint_placement(state, *port_a);
+    const auto placement_b =
+        wire::core::generation::backbone::resolve_endpoint_placement(state, *port_b);
+    if (layout == nullptr || curve == nullptr || !placement_a.ok || !placement_b.ok ||
+        curve->detail.sample_points.size() < 2 ||
         !almost_equal(curve->detail.sample_points.front(), layout->start.endpoint_world, 1e-9) ||
-        !almost_equal(curve->detail.sample_points.back(), layout->end.endpoint_world, 1e-9)) {
+        !almost_equal(curve->detail.sample_points.back(), layout->end.endpoint_world, 1e-9) ||
+        !almost_equal(layout->start.support_world, placement_a.value.wire_endpoint, 1e-9) ||
+        !almost_equal(layout->end.support_world, placement_b.value.wire_endpoint, 1e-9)) {
       return false;
     }
   }

@@ -409,6 +409,7 @@ ValidationResult CoreState::Validate() const {
     }
     std::unordered_set<std::uint32_t> part_ids{};
     bool wire_socket_found = !assembly.wire_socket.has_value();
+    bool endpoint_mount_socket_found = !assembly.endpoint_mount_socket.has_value();
     for (const ModelAssemblyPart& part : assembly.parts) {
       if (!part_ids.insert(part.part_id).second) {
         result.issues.push_back({ValidationSeverity::kError, "ModelAssemblyPartDuplicate",
@@ -437,11 +438,21 @@ ValidationResult CoreState::Validate() const {
             assembly.wire_socket->socket_name == socket.name) {
           wire_socket_found = true;
         }
+        if (assembly.endpoint_mount_socket.has_value() &&
+            assembly.endpoint_mount_socket->part_id == part.part_id &&
+            assembly.endpoint_mount_socket->socket_name == socket.name) {
+          endpoint_mount_socket_found = true;
+        }
       }
     }
     if (!wire_socket_found) {
       result.issues.push_back({ValidationSeverity::kError, "ModelAssemblyWireSocketMissing",
                                "Model assembly wire socket must resolve to one part socket", kInvalidObjectId});
+    }
+    if (!endpoint_mount_socket_found) {
+      result.issues.push_back({ValidationSeverity::kError, "ModelAssemblyEndpointMountSocketMissing",
+                               "Model assembly endpoint mount socket must resolve to one part socket",
+                               kInvalidObjectId});
     }
   }
 

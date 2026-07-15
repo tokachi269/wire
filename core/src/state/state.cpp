@@ -5,6 +5,8 @@
 #include "internal_services.hpp"
 #include "port_placement.hpp"
 #include "../generation/support_policy.hpp"
+#include "../generation/backbone/curve_parts.hpp"
+#include "../generation/backbone/model_assembly.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -1797,6 +1799,69 @@ EditResult<bool> CoreState::RegisterModelAssemblyTemplate(
                                                    model_assembly_template);
   result.ok = true;
   result.value = true;
+  return result;
+}
+
+EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
+    const ModelAssemblyTemplate& model_assembly_template) {
+  EditResult<bool> result{};
+  const auto existing = authoritative_.model_assembly_templates.find(model_assembly_template.id);
+  if (existing == authoritative_.model_assembly_templates.end()) {
+    result.error = "model assembly template not found";
+    return result;
+  }
+  if (model_assembly_template.version <= existing->second.version) {
+    result.error = "model assembly update requires a newer version";
+    return result;
+  }
+
+  CoreState trial = *this;
+  trial.authoritative_.model_assembly_templates[model_assembly_template.id] =
+      model_assembly_template;
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      result.error = "model assembly update: " + issue.code + ": " + issue.message;
+      return result;
+    }
+  }
+
+  std::vector<ObjectId> affected_span_ids{};
+  for (const Bundle& bundle : trial.authoritative_.edit_state.bundles.items()) {
+    const auto bundle_template = trial.authoritative_.bundle_templates.find(
+        bundle.bundle_template_id);
+    if (bundle_template == trial.authoritative_.bundle_templates.end() ||
+        (bundle_template->second.row_fixture_assembly_id != model_assembly_template.id &&
+         bundle_template->second.endpoint_fixture_assembly_id != model_assembly_template.id)) {
+      continue;
+    }
+    const auto spans = trial.runtime_.relation_index.spans_by_bundle.find(bundle.id);
+    if (spans == trial.runtime_.relation_index.spans_by_bundle.end()) continue;
+    for (ObjectId span_id : spans->second) add_unique_id(affected_span_ids, span_id);
+  }
+  std::sort(affected_span_ids.begin(), affected_span_ids.end());
+  for (ObjectId span_id : affected_span_ids) {
+    const EditResult<bool> derived = trial.derive_generated_span_shape_outputs(span_id);
+    if (!derived.ok) {
+      result.error = derived.error;
+      return result;
+    }
+  }
+  if (!affected_span_ids.empty()) {
+    trial.cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(
+        trial, {}, affected_span_ids));
+  }
+  EditResult<VisualModelInstanceCache> model_instances =
+      generation::backbone::materialize_model_assemblies(trial);
+  if (!model_instances.ok) {
+    result.error = model_instances.error;
+    return result;
+  }
+  trial.cache_visual_model_instances(std::move(model_instances.value));
+  *this = std::move(trial);
+  result.ok = true;
+  result.value = true;
+  result.change_set.updated_ids = std::move(affected_span_ids);
   return result;
 }
 

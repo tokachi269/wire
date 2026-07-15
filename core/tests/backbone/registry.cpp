@@ -1122,7 +1122,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          C766_row_fixture_and_wire_follow_port_band_lateral_change);
   test_registry::AddTest(tests, "C767_default_hv_emits_one_support_path_per_phase_span",
-                         "default HV derives one support path parallel to each phase span's resolved base member",
+                         "default HV and LV support paths use the shared primary-curve path and reach resolved endpoints",
                          "Invariant", false,
                          C767_default_hv_emits_one_support_path_per_phase_span);
 }

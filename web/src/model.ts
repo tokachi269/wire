@@ -33,6 +33,7 @@ export interface VisualPartInfo {
   sourceVersion: string;
   sampleOffset: number;
   kind: number;
+  supplementalKind: number;
   wireRadius: number;
   colorRgba: number;
   sourceNodeId: string;

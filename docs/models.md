@@ -97,7 +97,8 @@ row fixtureは任意の`endpoint_mount_socket`を公開できる。このsocket�
 endpoint fixture表示とlayoutのwire endpointは同じ`resolve_endpoint_placement`結果を使用する。
 
 v1のwire socketはcurve endpointの位置を決める。socketのlocal directionはdescriptor/assemblyへ保持するが、
-現行のcurve tangent authorityにはしない。方向をG1拘束へ使う場合は、continuity policyとnode patchの契約を
+現行のcurve tangent authorityにはしない。挿し込み型fixtureもadapterが測定長とwire socketを渡し、
+Coreは用途名やGLB軸を知らず同じPort endpoint placementで配置する。方向をG1拘束へ使う場合は、continuity policyとnode patchの契約を
 含めて別scenarioとして設計する。
 
 ## 表面占有(重なり回避)

@@ -2462,6 +2462,7 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   tpl.fixed_count = 2;
   tpl.default_count = 2;
   tpl.support_wire_pole_band_id = 100;
+  tpl.span_visual_assembly.support_path_enabled = false;
   tpl.span_visual_assembly.helix_enabled = true;
   tpl.span_visual_assembly.helix_turns_per_meter = 1.0;
   tpl.span_visual_assembly.member_wander_ratio = 0.5;
@@ -2576,10 +2577,13 @@ bool C759_span_visual_assembly_has_one_geometry_owner() {
     return false;
   }
   return contains_text(assembly, "make_helix_part") && contains_text(assembly, "contain_members") &&
+         contains_text(assembly, "make_support_path") &&
+         contains_text(assembly, "make_primary_curve_between") &&
          contains_text(assembly, "apply_member_twist") && contains_text(assembly, "apply_span_visual_assemblies") &&
          !contains_text(assembly, "find_nearest") && !contains_text(assembly, "SavedBackbone") &&
          !contains_text(assembly, "AddSpan") && !contains_text(assembly, "AddBundle") &&
-         !contains_text(assembly, "AddPort") && contains_text(curve_parts, "apply_span_visual_assemblies(state, &out)") &&
+         !contains_text(assembly, "AddPort") && contains_text(curve_parts, "apply_span_visual_assemblies(state, assembly_endpoints, &out)") &&
+         !contains_text(curve_parts, "make_primary_curve_between") &&
          !contains_text(curve_parts, "member_wander_ratio") && !contains_text(curve_parts, "helix_turns_per_meter");
 }
 

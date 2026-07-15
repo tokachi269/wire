@@ -304,11 +304,12 @@ helix内周から出ないように断面offsetをclampする。wander はclamp�
 同じvariation flowとsection keyから決定的に導出する。
 明示radiusは、support wireとhelix wireの径およびclearanceを収められない値を設定時に拒否する。
 
-support path は helix と独立して有効化できる。`support_wire_pole_band_id == 0` の場合は、
-各 logical span の解決済みbase member curveから線径分だけ離した並行線を派生する。
-したがってendpoint fixture socket、tilt、lowering、post-edit後の形状を再解釈せず共有し、
-複数laneはlaneごとのspanに1本ずつ派生する。`support_wire_pole_band_id > 0` の明示band経路は
-helix用の独立support primary curveを維持する。support-onlyではmember curveへcontainmentを適用しない。
+support path は helix と独立して有効化できる。全support pathはendpoint解決後に
+make_primary_curve_betweenで主曲線を1回構築する。support_wire_pole_band_id == 0は
+endpoint fixture socketまで解決済みのmember endpointを入力とし、endpoint_trim_m区間で同じ接続点へ
+収束しながら中央部を線径分だけ離す。正数bandは明示band endpointを同じ主曲線生成へ入力する。
+したがってHV/LV/Opticalでcurve familyを分岐せず、複数laneはlaneごとのspanに1本ずつ派生する。
+support-onlyではmember curveへcontainmentを適用しない。
 
 ## wire domain境界
 

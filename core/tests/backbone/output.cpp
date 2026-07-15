@@ -9,6 +9,7 @@
 
 #include "../../src/generation/backbone/curve_parts.hpp"
 #include "../../src/generation/backbone/model_assembly.hpp"
+#include "../../src/generation/backbone/out.hpp"
 #include "../../src/geometry/detail_curve_postprocess.hpp"
 
 #include <algorithm>
@@ -196,7 +197,12 @@ bool C740_visual_curve_part_stats_count_full_curve_builds() {
   }
   const wire::core::VisualCurvePartCache& cache = state.visual_curve_parts();
   const std::size_t expected_sections = out.value.generated_span_ids.size();
-  if (cache.stats.sections != expected_sections || cache.stats.curve_builds != expected_sections) {
+  const std::size_t support_count = static_cast<std::size_t>(std::count_if(
+      cache.parts.begin(), cache.parts.end(), [](const wire::core::VisualCurvePart& part) {
+        return part.supplemental_kind == wire::core::VisualSupplementalKind::kSupportPath;
+      }));
+  if (cache.stats.sections != expected_sections ||
+      cache.stats.curve_builds != expected_sections + support_count) {
     return false;
   }
 
@@ -273,7 +279,12 @@ bool C741_scoped_visual_curve_rebuild_matches_full_rebuild() {
   }
   const wire::core::VisualCurvePartCache scoped = state.visual_curve_parts();
   const wire::core::VisualCurvePartCache full = wire::core::generation::backbone::make_visual_curve_parts(state, {});
-  return scoped.stats.curve_builds == 2 && visual_part_snapshot(scoped) == visual_part_snapshot(full);
+  const std::size_t rebuilt_support_count = static_cast<std::size_t>(std::count_if(
+      scoped.parts.begin(), scoped.parts.end(), [](const wire::core::VisualCurvePart& part) {
+        return part.supplemental_kind == wire::core::VisualSupplementalKind::kSupportPath;
+      }));
+  return scoped.stats.curve_builds == scoped.stats.sections + rebuilt_support_count &&
+         visual_part_snapshot(scoped) == visual_part_snapshot(full);
 }
 
 bool C515_backbone_rejects_existing_pole_without_saved_graph() {
@@ -839,11 +850,11 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
       hv.span_visual_assembly.helix_enabled || hv.support_wire_pole_band_id != 0) {
     return false;
   }
-  wire::core::BackboneSpec request = line_req(state);
+  wire::core::BackboneSpec request = poly3_req(state);
   request.bundles.clear();
   add_backbone_bundle(request, wire::core::BundleKind::kHighVoltage);
   const auto generated = state.GenerateFromBackboneSpec(request);
-  if (!generated.ok || generated.value.generated_span_ids.size() != 3) return false;
+  if (!generated.ok || generated.value.generated_span_ids.size() != 6) return false;
 
   std::unordered_set<wire::core::ObjectId> support_span_ids{};
   std::vector<wire::core::Vec3d> support_starts{};
@@ -855,27 +866,26 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
       continue;
     }
     if (part.supplemental_kind != wire::core::VisualSupplementalKind::kSupportPath) continue;
-    const auto member = std::find_if(
-        state.view().visual_curve_parts().parts.begin(),
-        state.view().visual_curve_parts().parts.end(),
-        [&](const wire::core::VisualCurvePart& candidate) {
-          return candidate.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-                 candidate.source_span_id == part.source_span_id && candidate.has_section_key &&
-                 candidate.section_key.is_base();
-        });
-    if (member == state.view().visual_curve_parts().parts.end() ||
-        member->samples.size() != part.samples.size()) {
-      return false;
-    }
+    const wire::core::SpanLayoutEntry* layout = state.span_layout(part.source_span_id).entry;
+    if (layout == nullptr || !almost_equal(part.samples.front(), layout->start.endpoint_world, 1e-9) ||
+        !almost_equal(part.samples.back(), layout->end.endpoint_world, 1e-9)) return false;
+    const auto primary = wire::core::generation::backbone::make_primary_curve_between(
+        state, part.source_span_id, layout->start.endpoint_world, layout->end.endpoint_world);
+    if (!primary.ok || primary.value.sample_points.size() != part.samples.size()) return false;
+    bool reached_separation = false;
     for (std::size_t index = 0; index < part.samples.size(); ++index) {
-      if (!almost_equal(wire::core::Length(part.samples[index] - member->samples[index]),
-                        member->wire_radius_m * 2.0, 1e-9)) return false;
+      const double separation =
+          wire::core::Length(part.samples[index] - primary.value.sample_points[index]);
+      if (separation > part.wire_radius_m * 2.0 + 1e-9) return false;
+      reached_separation = reached_separation ||
+          separation >= part.wire_radius_m * 2.0 - 1e-9;
     }
+    if (!reached_separation) return false;
     support_span_ids.insert(part.source_span_id);
     support_starts.push_back(part.boundary_a);
   }
   if (support_span_ids.size() != generated.value.generated_span_ids.size() ||
-      helix_count != 0 || support_starts.size() != 3) {
+      helix_count != 0 || support_starts.size() != 6) {
     return false;
   }
   for (std::size_t i = 0; i < support_starts.size(); ++i) {
@@ -888,7 +898,7 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
   wire::core::BundleTemplate disabled = without_support.view().bundle_templates().at(hv_id);
   disabled.span_visual_assembly.support_path_enabled = false;
   if (!without_support.UpdateBundleTemplate(disabled).ok) return false;
-  wire::core::BackboneSpec baseline_request = line_req(without_support);
+  wire::core::BackboneSpec baseline_request = poly3_req(without_support);
   baseline_request.bundles.clear();
   add_backbone_bundle(baseline_request, wire::core::BundleKind::kHighVoltage);
   const auto baseline = without_support.GenerateFromBackboneSpec(baseline_request);
@@ -920,8 +930,31 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
       return false;
     }
   }
-  return state.view().visual_curve_parts().stats.curve_builds ==
-         without_support.view().visual_curve_parts().stats.curve_builds;
+  if (state.view().visual_curve_parts().stats.curve_builds !=
+      without_support.view().visual_curve_parts().stats.curve_builds + support_span_ids.size()) {
+    return false;
+  }
+
+  wire::core::CoreState lv_state;
+  const wire::core::BundleTemplate& lv = lv_state.view().bundle_templates().at(
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
+  if (!lv.span_visual_assembly.support_path_enabled ||
+      lv.span_visual_assembly.helix_enabled || lv.support_wire_pole_band_id != 0) return false;
+  wire::core::BackboneSpec lv_request = poly3_req(lv_state);
+  lv_request.bundles.clear();
+  add_backbone_bundle(lv_request, wire::core::BundleKind::kLowVoltage);
+  const auto lv_generated = lv_state.GenerateFromBackboneSpec(lv_request);
+  if (!lv_generated.ok) return false;
+  std::unordered_set<wire::core::ObjectId> lv_support_span_ids{};
+  for (const wire::core::VisualCurvePart& part : lv_state.view().visual_curve_parts().parts) {
+    if (part.supplemental_kind != wire::core::VisualSupplementalKind::kSupportPath) continue;
+    const wire::core::SpanLayoutEntry* layout = lv_state.span_layout(part.source_span_id).entry;
+    if (layout == nullptr || !almost_equal(part.boundary_a, layout->start.endpoint_world, 1e-9) ||
+        !almost_equal(part.boundary_b, layout->end.endpoint_world, 1e-9)) return false;
+    lv_support_span_ids.insert(part.source_span_id);
+  }
+  if (lv_support_span_ids.size() != lv_generated.value.generated_span_ids.size()) return false;
+  return true;
 }
 
 bool C635_backbone_simple_continuous_node_creates_node_patch_curve() {
@@ -1735,6 +1768,9 @@ bool C695_cable_run_id_is_deterministic() {
   std::vector<std::string> snapshot_b{};
   const auto collect = [](const wire::core::CoreState& state, std::vector<std::string>* out) {
     for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+      if (part.kind == wire::core::VisualCurvePartKind::kSupplemental) {
+        continue;
+      }
       if (part.cable_run_id == 0) {
         return false;
       }

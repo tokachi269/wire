@@ -143,6 +143,9 @@ describe("wire wasm smoke", () => {
     const parts = visualParts(state);
     expect(parts.length).toBeGreaterThan(0);
     expect(new Set(parts.map((part) => part.info.partKey)).size).toBe(parts.length);
+    expect(parts.filter((part) => part.info.supplementalKind === 1)).toHaveLength(
+      result.generatedSpanCount
+    );
 
     for (const { info, samples } of parts) {
       expect(samples).toBeInstanceOf(Float64Array);

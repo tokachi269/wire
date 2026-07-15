@@ -19,8 +19,8 @@ function colorFromRgba(rgba: number): { color: THREE.Color; opacity: number } {
   const blue = (rgba >>> 8) & 0xff;
   const alpha = rgba & 0xff;
   const source = new THREE.Color(red / 255, green / 255, blue / 255);
-  const charcoal = new THREE.Color(42 / 255, 46 / 255, 52 / 255);
-  return { color: charcoal.lerp(source, 0.22), opacity: Math.max(210, alpha) / 255 };
+  const nearBlack = new THREE.Color(12 / 255, 14 / 255, 16 / 255);
+  return { color: nearBlack.lerp(source, 0.12), opacity: Math.max(210, alpha) / 255 };
 }
 
 const POLE_TOP_DIAMETER_M = 0.190;
@@ -28,6 +28,7 @@ const POLE_TAPER_RATIO = 75;
 export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
+const SUPPORT_PATH_SUPPLEMENTAL_KIND = 1;
 
 export function setPoleRotation(
   object: THREE.Object3D,
@@ -103,6 +104,7 @@ export class WireScene {
   private guideSignature = "";
   private cameraFov: number | null = null;
   private readonly partMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
+  private supportWireMaterial: THREE.MeshStandardMaterial | null = null;
   private readonly modelObjects = new Map<string, {
     object: THREE.Object3D;
     modelKey: string;
@@ -320,6 +322,8 @@ export class WireScene {
     this.detachInput?.();
     this.unsubscribe();
     for (const item of this.partMeshes.values()) this.disposeContentMesh(item.mesh);
+    this.supportWireMaterial?.dispose();
+    this.supportWireMaterial = null;
     for (const item of this.modelObjects.values()) this.content.remove(item.object);
     for (const item of this.poleMeshes.values()) this.disposePoleObject(item);
     this.partMeshes.clear();
@@ -575,14 +579,9 @@ export class WireScene {
       const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
       const segments = Math.max(4, points.length - 1);
       const geometry = new THREE.TubeGeometry(curve, segments, radius, WIRE_RADIAL_SEGMENTS, false);
-      const appearance = colorFromRgba(part.info.colorRgba);
-      const material = new THREE.MeshStandardMaterial({
-        color: appearance.color,
-        metalness: 0.12,
-        roughness: 0.58,
-        opacity: appearance.opacity,
-        transparent: appearance.opacity < 1
-      });
+      const material = part.info.supplementalKind === SUPPORT_PATH_SUPPLEMENTAL_KIND
+        ? this.getSupportWireMaterial()
+        : this.makeWireMaterial(part.info.colorRgba);
       const mesh = new THREE.Mesh(geometry, material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -709,10 +708,34 @@ export class WireScene {
     return changed;
   }
 
+  private makeWireMaterial(colorRgba: number): THREE.MeshStandardMaterial {
+    const appearance = colorFromRgba(colorRgba);
+    return new THREE.MeshStandardMaterial({
+      color: appearance.color,
+      metalness: 0.12,
+      roughness: 0.58,
+      opacity: appearance.opacity,
+      transparent: appearance.opacity < 1
+    });
+  }
+
+  private getSupportWireMaterial(): THREE.MeshStandardMaterial {
+    if (this.supportWireMaterial === null || this.supportWireMaterial === undefined) {
+      this.supportWireMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(18 / 255, 21 / 255, 24 / 255),
+        metalness: 0.18,
+        roughness: 0.72
+      });
+    }
+    return this.supportWireMaterial;
+  }
+
   private disposeContentMesh(mesh: THREE.Mesh): void {
     mesh.geometry.dispose();
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    for (const material of materials) material.dispose();
+    for (const material of materials) {
+      if (material !== this.supportWireMaterial) material.dispose();
+    }
     this.content.remove(mesh);
   }
 

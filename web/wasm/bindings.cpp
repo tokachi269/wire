@@ -379,6 +379,7 @@ public:
       output.set("sampleOffset", sample_offset);
       output.set("sampleCount", part.samples.size());
       output.set("kind", static_cast<int>(part.kind));
+      output.set("supplementalKind", static_cast<int>(part.supplemental_kind));
       output.set("wireRadius", part.wire_radius_m);
       output.set("colorRgba", part.color_rgba);
       output.set("sourceNodeId", std::to_string(part.source_node_id));

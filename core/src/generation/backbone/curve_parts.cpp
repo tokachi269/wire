@@ -1065,7 +1065,14 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
   }
 
-  apply_span_visual_assemblies(state, &out);
+  SpanVisualAssemblyEndpointMap assembly_endpoints{};
+  assembly_endpoints.reserve(placed.entries.size());
+  for (const SpanLayoutEntry& entry : placed.entries) {
+    assembly_endpoints.emplace(
+        entry.span_id,
+        SpanVisualAssemblyEndpoints{entry.start.endpoint_world, entry.end.endpoint_world});
+  }
+  apply_span_visual_assemblies(state, assembly_endpoints, &out);
 
   for (const curve_patch_spec& spec : patch_specs) {
     curve_boundary a_boundary{};

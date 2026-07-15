@@ -161,6 +161,7 @@ void CoreState::register_default_bundle_templates() {
   hv.order_decision_policy = OrderDecisionPolicyKind::kPermutableHomogeneous;
   hv.row_layout_axis_mode = RowLayoutAxisMode::kSupportAxis;
   hv.span_visual_assembly.support_path_enabled = true;
+  hv.span_visual_assembly.endpoint_trim_m = 0.35;
   authoritative_.bundle_templates[hv.id] = hv;
 
   BundleTemplate lv{};
@@ -186,6 +187,8 @@ void CoreState::register_default_bundle_templates() {
   lv.enable_branch_down_offset = false;
   lv.branch_endpoint_offset_m = 0.0;
   lv.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  lv.span_visual_assembly.support_path_enabled = true;
+  lv.span_visual_assembly.endpoint_trim_m = 0.35;
   authoritative_.bundle_templates[lv.id] = lv;
 
   BundleTemplate drop{};

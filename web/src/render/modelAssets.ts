@@ -206,12 +206,40 @@ function part(
   };
 }
 
+function insertionFixture(asset: LoadedModelAsset): {
+  transform: ModelTransformInput;
+  wireSocket: ModelSocketInput;
+} {
+  // Blender +Y is the insertion axis. After glTF Y-up normalization its
+  // measured length is assembly-local Y.
+  const length = asset.size.z;
+  if (!Number.isFinite(length) || length <= 0) {
+    throw new Error("Insertion fixture adapter requires a positive length");
+  }
+  const transform = identityTransform();
+  transform.positionY = length * 0.5;
+  transform.rotationZ = 180;
+  return {
+    transform,
+    wireSocket: {
+      name: "wire",
+      positionX: 0,
+      positionY: -length * 0.5,
+      positionZ: 0,
+      directionX: 0,
+      directionY: -1,
+      directionZ: 0
+    }
+  };
+}
+
 export function buildDefaultModelBootstrap(
   pole: LoadedModelAsset,
   crossarm: LoadedModelAsset,
   belt: LoadedModelAsset,
   insulator: LoadedModelAsset,
-  communicationClamp: LoadedModelAsset
+  communicationClamp: LoadedModelAsset,
+  communicationClampLong: LoadedModelAsset
 ): ModelAssemblyBootstrapInput {
   const poleVisibleLength = pole.bounds.max.y - pole.mountAnchor.y;
   if (!Number.isFinite(poleVisibleLength) || poleVisibleLength <= 0) {
@@ -242,10 +270,7 @@ export function buildDefaultModelBootstrap(
     directionY: 0,
     directionZ: 1
   };
-  const lowVoltageArmTransform = identityTransform();
-  // At the default 7.4 m LV row the pole radius is 0.147 m; the long clamp is
-  // 0.047 m deep. Its authored long axis becomes assembly-local Y.
-  lowVoltageArmTransform.positionX = 0.170;
+
   const hvWireSocket: ModelSocketInput = {
     name: "wire",
     positionX: 0,
@@ -256,32 +281,15 @@ export function buildDefaultModelBootstrap(
     directionZ: 0
   };
 
-  // Blender +Y is the clamp insertion axis. After glTF Y-up normalization it
-  // is assembly-local +Y. Rotate that end toward the pole and place the wire
-  // socket at the opposite end, using the measured model length.
-  const clampLength = communicationClamp.size.z;
-  if (!Number.isFinite(clampLength) || clampLength <= 0) {
-    throw new Error("Communication clamp adapter requires a positive insertion length");
-  }
-  const clampTransform = identityTransform();
-  clampTransform.positionY = clampLength * 0.5;
-  clampTransform.rotationZ = 180;
-  const clampWireSocket: ModelSocketInput = {
-    name: "wire",
-    positionX: 0,
-    positionY: -clampLength * 0.5,
-    positionZ: 0,
-    directionX: 0,
-    directionY: -1,
-    directionZ: 0
-  };
+  const lvInsertion = insertionFixture(communicationClamp);
+  const communicationInsertion = insertionFixture(communicationClampLong);
 
   const poleAssemblyId = 9201;
   const hvRowAssemblyId = 9202;
   const hvEndpointAssemblyId = 9203;
   const communicationEndpointAssemblyId = 9204;
   const communicationPoleAssemblyId = 9205;
-  const lowVoltageRowAssemblyId = 9206;
+  const lowVoltageEndpointAssemblyId = 9206;
   return {
     assemblies: [
       {
@@ -309,7 +317,10 @@ export function buildDefaultModelBootstrap(
       {
         id: communicationEndpointAssemblyId,
         version: 1,
-        parts: [part(communicationClamp, 1, 0, clampTransform, clampWireSocket)],
+        parts: [part(
+          communicationClampLong, 1, 0,
+          communicationInsertion.transform, communicationInsertion.wireSocket
+        )],
         wireSocket: { partId: 1, socketName: "wire" }
       },
       {
@@ -319,13 +330,10 @@ export function buildDefaultModelBootstrap(
         wireSocket: null
       },
       {
-        id: lowVoltageRowAssemblyId,
-        version: 1,
-        parts: [
-          part(communicationClamp, 1, 0, lowVoltageArmTransform),
-          part(belt, 2, 2, beltTransform)
-        ],
-        wireSocket: null
+        id: lowVoltageEndpointAssemblyId,
+        version: 2,
+        parts: [part(communicationClamp, 1, 0, lvInsertion.transform, lvInsertion.wireSocket)],
+        wireSocket: { partId: 1, socketName: "wire" }
       }
     ],
     poleAssignments: [
@@ -340,8 +348,8 @@ export function buildDefaultModelBootstrap(
       },
       {
         bundleTemplateId: 102,
-        rowAssemblyId: lowVoltageRowAssemblyId,
-        endpointAssemblyId: 0
+        rowAssemblyId: 0,
+        endpointAssemblyId: lowVoltageEndpointAssemblyId
       },
       {
         bundleTemplateId: 104,
@@ -353,14 +361,18 @@ export function buildDefaultModelBootstrap(
 }
 
 export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstrapInput> {
-  const [pole, crossarm, belt, insulator, communicationClamp] = await Promise.all([
-    modelAssetCache.load("poleBody"),
-    modelAssetCache.load("crossarmHv"),
-    modelAssetCache.load("belt"),
-    modelAssetCache.load("hvInsulator"),
-    modelAssetCache.load("communicationClampLong")
-  ]);
-  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, communicationClamp);
+  const [pole, crossarm, belt, insulator, communicationClamp, communicationClampLong] =
+    await Promise.all([
+      modelAssetCache.load("poleBody"),
+      modelAssetCache.load("crossarmHv"),
+      modelAssetCache.load("belt"),
+      modelAssetCache.load("hvInsulator"),
+      modelAssetCache.load("communicationClamp"),
+      modelAssetCache.load("communicationClampLong")
+    ]);
+  return buildDefaultModelBootstrap(
+    pole, crossarm, belt, insulator, communicationClamp, communicationClampLong
+  );
 }
 
 async function loadGltfScene(url: string): Promise<THREE.Group> {

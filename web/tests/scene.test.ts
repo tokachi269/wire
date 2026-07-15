@@ -66,6 +66,7 @@ describe("scene part reuse", () => {
         sourceVersion: "10",
         sampleOffset: 0,
         kind: 0,
+        supplementalKind: 0,
         wireRadius: 0.02,
         colorRgba: 0xffffffff,
         sourceNodeId: "0",
@@ -84,6 +85,7 @@ describe("scene part reuse", () => {
         sourceVersion: "20",
         sampleOffset: 6,
         kind: 0,
+        supplementalKind: 0,
         wireRadius: 0.02,
         colorRgba: 0xffffffff,
         sourceNodeId: "0",
@@ -128,6 +130,54 @@ describe("scene part reuse", () => {
       total: 1, reused: 1, rebuilt: 0, removed: 1,
       modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
     });
+  });
+
+  it("shares one dedicated support material and renders conductor colors near black", () => {
+    const scene = Object.create(WireScene.prototype) as any;
+    scene.content = new THREE.Group();
+    scene.partMeshes = new Map();
+    scene.modelObjects = new Map();
+    scene.pendingModelKeys = new Set();
+    scene.poleMeshes = new Map();
+    scene.supportWireMaterial = null;
+    const snapshot = createViewerSnapshot();
+    const part = (partKey: string, supplementalKind: number, colorRgba: number, y: number) => ({
+      info: {
+        partKey,
+        sourceVersion: "1",
+        sampleOffset: 0,
+        kind: supplementalKind === 0 ? 0 : 3,
+        supplementalKind,
+        wireRadius: 0.02,
+        colorRgba,
+        sourceNodeId: "0",
+        sourceEdgeId: "1",
+        sourceSpanId: partKey,
+        sourceBundleId: "3",
+        bundleTemplateId: 101,
+        laneIndex: 0,
+        runId: 1,
+        sampleCount: 2
+      },
+      samples: new Float64Array([0, y, 0, 10, y, 0])
+    });
+    snapshot.parts = [
+      part("main", 0, 0xffffffff, 0),
+      part("support-a", 1, 0xffffffff, 1),
+      part("support-b", 1, 0x112233ff, 2)
+    ];
+
+    expect(scene.syncContent(snapshot)).toBe(true);
+    const mainMaterial = scene.partMeshes.get("main").mesh.material as THREE.MeshStandardMaterial;
+    const supportA = scene.partMeshes.get("support-a").mesh.material;
+    const supportB = scene.partMeshes.get("support-b").mesh.material;
+    expect(supportA).toBe(supportB);
+    expect(supportA).not.toBe(mainMaterial);
+    expect(Math.max(mainMaterial.color.r, mainMaterial.color.g, mainMaterial.color.b)).toBeLessThan(0.2);
+
+    snapshot.parts[1].info.sourceVersion = "2";
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.partMeshes.get("support-a").mesh.material).toBe(supportB);
   });
 });
 

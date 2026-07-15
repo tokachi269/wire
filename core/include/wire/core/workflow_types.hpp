@@ -85,6 +85,8 @@ enum class ModelFitMode : std::uint8_t {
   kPoleHeight = 1,
   // Circular-pole radial approximation at the assembly placement height.
   kPoleRadial = 2,
+  // Place the part root on the pole surface toward the endpoint fixture root.
+  kPoleSurface = 3,
 };
 
 struct ModelAssemblySocket {

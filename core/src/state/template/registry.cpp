@@ -151,7 +151,7 @@ void CoreState::register_default_bundle_templates() {
   hv.min_count = 3;
   hv.max_count = 3;
   hv.default_count = 3;
-  hv.default_spacing_m = 0.75;
+  hv.default_spacing_m = 0.45;
   hv.grouped_support_fanout_spacing_m =
       grouped_support_fanout_spacing_for(hv.cable_template_id, hv.default_spacing_m);
   hv.allow_mirror = true;

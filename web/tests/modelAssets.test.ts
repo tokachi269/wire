@@ -90,8 +90,12 @@ describe("model asset cache", () => {
     });
     const communication = bootstrap.assemblies.find((assembly) => assembly.id === 9204)!;
     const clampPart = communication.parts[0];
+    const beltPart = communication.parts[1];
     expect(clampPart.modelKey).toBe("communication_clamp");
     expect(communication.parts.map((part) => part.modelKey)).toEqual(["communication_clamp", "pole_belt"]);
+    expect(beltPart.localTransform.scaleX).toBeCloseTo(1 / (belt.size.x * 0.5), 12);
+    expect(beltPart.localTransform.scaleY).toBeCloseTo(1 / (belt.size.z * 0.5), 12);
+    expect(clampPart.fitMode).toBe(3);
     expect(clampPart.localTransform.rotationZ).toBe(180);
     expect(clampPart.localTransform.positionY).toBeCloseTo(clamp.size.z * 0.5, 12);
     expect(clampPart.sockets[0].positionY).toBeCloseTo(-clamp.size.z * 0.5, 12);
@@ -103,9 +107,11 @@ describe("model asset cache", () => {
     expect(highVoltageArm.sockets[0].positionZ).toBeCloseTo(crossarm.size.y * 0.5, 12);
     const lowVoltage = bootstrap.assemblies.find((assembly) => assembly.id === 9206)!;
     expect(lowVoltage.parts.map((part) => part.modelKey)).toEqual(["communication_clamp_long", "pole_belt"]);
+    expect(lowVoltage.parts[0].fitMode).toBe(0);
     expect(lowVoltage.parts[0].localTransform.rotationZ).toBe(180);
     expect(lowVoltage.parts[0].localTransform.positionY).toBeCloseTo(clampLong.size.z * 0.5, 12);
-    expect(lowVoltage.parts[0].sockets[0].positionY).toBeCloseTo(-clampLong.size.z * 0.5, 12);
+    expect(lowVoltage.parts[0].sockets[0].positionY).toBeCloseTo(0, 12);
+    expect(lowVoltage.parts[0].sockets[0].positionZ).toBeCloseTo(clampLong.size.y * 0.5, 12);
     expect(lowVoltage.wireSocket).toEqual({ partId: 1, socketName: "wire" });
   });
 });

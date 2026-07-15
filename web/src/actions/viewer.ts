@@ -175,21 +175,35 @@ function defaultBundlePlacements(
   templates: BundleTemplateInfo[],
   poleTemplate: PoleTemplateInfo | undefined
 ): BundlePlacement[] {
-  return templates
-    .filter((template) => [0, 1, 2, 3].includes(bundleTemplateCategory(template)))
-    .map((template) => ({
-      id: 0,
+  const preset = [
+    { category: 0, count: 3, height: 9.2, offset: 0.2, spacing: 0.75 },
+    { category: 1, count: 1, height: 7.7, offset: 0, spacing: 0.2 },
+    { category: 1, count: 1, height: 7.35, offset: 0, spacing: 0.2 },
+    { category: 1, count: 1, height: 7.0, offset: 0, spacing: 0.2 },
+    { category: 2, count: 1, height: 5.5, offset: 0, spacing: 0.2 },
+    { category: 3, count: 1, height: 5.3, offset: 0, spacing: 0.2 }
+  ];
+  const byCategory = new Map<number, BundleTemplateInfo>();
+  for (const template of templates) {
+    const category = bundleTemplateCategory(template);
+    if ([0, 1, 2, 3].includes(category) && !byCategory.has(category)) {
+      byCategory.set(category, template);
+    }
+  }
+  return preset.flatMap((row, index) => {
+    const template = byCategory.get(row.category);
+    if (template === undefined) return [];
+    const fallback = bundlePlacementDefault(template, poleTemplate);
+    return [{
+      id: index + 1,
       bundleTemplateId: template.id,
-      count: template.defaultCount,
+      count: row.count,
       explicit: true,
-      ...bundlePlacementDefault(template, poleTemplate)
-    }))
-    .sort((a, b) => b.height - a.height ||
-      bundleTemplateCategory(templates.find((item) => item.id === a.bundleTemplateId) ??
-        { defaultLayer: 0 }) -
-      bundleTemplateCategory(templates.find((item) => item.id === b.bundleTemplateId) ??
-        { defaultLayer: 0 }))
-    .map((placement, index) => ({ ...placement, id: index + 1 }));
+      height: row.height,
+      offset: row.offset,
+      spacing: row.spacing || fallback.spacing
+    }];
+  });
 }
 
 function placementUsesTransientZeroDefaults(placements: BundlePlacement[]): boolean {

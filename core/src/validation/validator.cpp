@@ -418,7 +418,8 @@ ValidationResult CoreState::Validate() const {
       const Transformd& transform = part.local_transform;
       const bool fit_mode_valid = part.fit_mode == ModelFitMode::kRigid ||
                                   part.fit_mode == ModelFitMode::kPoleHeight ||
-                                  part.fit_mode == ModelFitMode::kPoleRadial;
+                                  part.fit_mode == ModelFitMode::kPoleRadial ||
+                                  part.fit_mode == ModelFitMode::kPoleSurface;
       if (part.model_key.empty() || part.descriptor_version == 0 || !finite_vec3(transform.position) ||
           !finite_vec3(transform.rotation_euler_deg) || !finite_vec3(transform.scale) ||
           transform.scale.x <= 0.0 || transform.scale.y <= 0.0 || transform.scale.z <= 0.0 ||

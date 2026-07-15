@@ -7,6 +7,12 @@ import type {
   ModelSocketInput,
   ModelTransformInput
 } from "../model";
+import beltUrl from "../assets/belt.glb?url";
+import communicationClampUrl from "../assets/communication_clamp_1.glb?url";
+import communicationClampLongUrl from "../assets/communication_clamp_long_1.glb?url";
+import crossarmHvUrl from "../assets/crossarm_hv_1p7m.glb?url";
+import hvInsulatorUrl from "../assets/hv_phase_1_disc_3.glb?url";
+import poleBodyUrl from "../assets/pole_body_tapered_12m_visible10m.glb?url";
 
 export type ModelAssetKind =
   | "belt"
@@ -30,7 +36,8 @@ export interface ModelAssetAdapter {
   modelKey: ModelKey;
   url: string;
   mountRule: MountRule;
-  radialReferenceM?: number;
+  wireSocketInsetRatio?: number;
+  wireSocketTopCenter?: boolean;
 }
 
 export interface LoadedModelAsset {
@@ -49,35 +56,36 @@ type SceneLoader = (url: string) => Promise<THREE.Group>;
 const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
   belt: {
     modelKey: "pole_belt",
-    url: new URL("../assets/belt.glb", import.meta.url).href,
-    mountRule: "center",
-    // The source belt was authored against the lower pole radius. The adapter
-    // normalizes that local radius before Core applies kPoleRadial.
-    radialReferenceM: 0.20
+    url: beltUrl,
+    mountRule: "center"
   },
   communicationClamp: {
     modelKey: "communication_clamp",
-    url: new URL("../assets/communication_clamp_1.glb", import.meta.url).href,
+    url: communicationClampUrl,
     mountRule: "center"
   },
   communicationClampLong: {
     modelKey: "communication_clamp_long",
-    url: new URL("../assets/communication_clamp_long_1.glb", import.meta.url).href,
-    mountRule: "center"
+    url: communicationClampLongUrl,
+    mountRule: "center",
+    // The long clamp has a thin insertion tip beyond the usable body. The wire
+    // should attach to the top center of the long body, not the tip center.
+    wireSocketInsetRatio: 0.5,
+    wireSocketTopCenter: true
   },
   crossarmHv: {
     modelKey: "hv_crossarm",
-    url: new URL("../assets/crossarm_hv_1p7m.glb", import.meta.url).href,
+    url: crossarmHvUrl,
     mountRule: "center"
   },
   hvInsulator: {
     modelKey: "hv_insulator",
-    url: new URL("../assets/hv_phase_1_disc_3.glb", import.meta.url).href,
+    url: hvInsulatorUrl,
     mountRule: "bottom"
   },
   poleBody: {
     modelKey: "pole_body",
-    url: new URL("../assets/pole_body_tapered_12m_visible10m.glb", import.meta.url).href,
+    url: poleBodyUrl,
     mountRule: "pole-ground"
   }
 };
@@ -219,13 +227,16 @@ function insertionFixture(asset: LoadedModelAsset): {
   const transform = identityTransform();
   transform.positionY = length * 0.5;
   transform.rotationZ = 180;
+  const socketInsetRatio = asset.adapter.wireSocketInsetRatio ?? 0;
+  const socketLocalY = -length * (0.5 - socketInsetRatio);
+  const socketLocalZ = asset.adapter.wireSocketTopCenter ? asset.size.y * 0.5 : 0;
   return {
     transform,
     wireSocket: {
       name: "wire",
       positionX: 0,
-      positionY: -length * 0.5,
-      positionZ: 0,
+      positionY: socketLocalY,
+      positionZ: socketLocalZ,
       directionX: 0,
       directionY: -1,
       directionZ: 0
@@ -249,13 +260,18 @@ export function buildDefaultModelBootstrap(
   distributionPoleTransform.scaleZ = 10.0 / poleVisibleLength;
   const communicationPoleTransform = identityTransform();
   communicationPoleTransform.scaleZ = 11.35 / poleVisibleLength;
-  const beltReference = belt.adapter.radialReferenceM;
-  if (beltReference === undefined || beltReference <= 0) {
-    throw new Error("Belt adapter requires a positive radial reference");
+  const beltRadiusX = belt.size.x * 0.5;
+  const beltRadiusY = belt.size.z * 0.5;
+  if (!Number.isFinite(beltRadiusX) || !Number.isFinite(beltRadiusY) ||
+      beltRadiusX <= 0 || beltRadiusY <= 0) {
+    throw new Error("Belt adapter requires positive measured radii");
   }
   const beltTransform = identityTransform();
-  beltTransform.scaleX = 1 / beltReference;
-  beltTransform.scaleY = 1 / beltReference;
+  // Normalize the authored belt cross-section before Core applies the
+  // height-dependent pole radius. This keeps belts on tapered poles instead of
+  // preserving the source model's lower-pole radius.
+  beltTransform.scaleX = 1 / beltRadiusX;
+  beltTransform.scaleY = 1 / beltRadiusY;
   const crossarmTransform = identityTransform();
   // The default 10 m distribution pole is 0.129 m in radius at the 9.2 m HV
   // row. Offset the 0.08 m-deep arm so its pole-facing surface meets the pole.
@@ -319,7 +335,7 @@ export function buildDefaultModelBootstrap(
         version: 2,
         parts: [
           part(
-            communicationClamp, 1, 0,
+            communicationClamp, 1, 3,
             communicationInsertion.transform, communicationInsertion.wireSocket
           ),
           part(belt, 2, 2, beltTransform)

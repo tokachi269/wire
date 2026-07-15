@@ -256,6 +256,22 @@ EditResult<Transformd> fitted_part_transform(const CoreState& state,
   return out;
 }
 
+Vec3d pole_surface_position_at_root(const CoreState& state, const Pole& pole,
+                                    double placement_height_m, const Transformd& root) {
+  const Matrix3 rotation = matrix_from_euler(root.rotation_euler_deg);
+  const Vec3d up = multiply(rotation, Vec3d{0.0, 0.0, 1.0});
+  const Vec3d axis_position = pole.world_transform.position +
+      multiply(rotation, Vec3d{0.0, 0.0, placement_height_m});
+  Vec3d direction = root.position - axis_position;
+  direction = direction - ScaleVec(up, Dot(direction, up));
+  if (Length(direction) <= 1e-9) {
+    direction = multiply(rotation, Vec3d{0.0, 1.0, 0.0});
+  }
+  Normalize(&direction);
+  return axis_position + ScaleVec(
+      direction, state.view().pole_radius_at_height_m(pole, placement_height_m));
+}
+
 const ModelAssemblySocket* socket_for(const ModelAssemblyTemplate& assembly,
                                       const AssemblySocketRef& ref,
                                       const ModelAssemblyPart** part_out) {
@@ -286,6 +302,9 @@ void append_instances(const CoreState& state, const Pole& pole, double placement
       part_root.position = pole.world_transform.position +
           multiply(matrix_from_euler(root.rotation_euler_deg),
                    Vec3d{0.0, 0.0, placement_height_m});
+    } else if (part.fit_mode == ModelFitMode::kPoleSurface) {
+      part_root.position = pole_surface_position_at_root(
+          state, pole, placement_height_m, root);
     } else {
       part_root.position = part_root.position + rigid_offset_world;
     }
@@ -402,8 +421,13 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
       out.error = "model assembly unsupported: endpoint wire socket does not resolve";
       return out;
     }
+    Transformd socket_root = fixture_root;
+    if (socket_part->fit_mode == ModelFitMode::kPoleSurface) {
+      socket_root.position = pole_surface_position_at_root(
+          state, *context.value.pole, placement_height_m, fixture_root);
+    }
     const EditResult<Transformd> world = fitted_part_transform(
-        state, *context.value.pole, placement_height_m, *socket_part, fixture_root);
+        state, *context.value.pole, placement_height_m, *socket_part, socket_root);
     if (!world.ok) {
       out.error = world.error;
       return out;

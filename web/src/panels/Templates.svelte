@@ -468,10 +468,14 @@
       <div class="helix-editor">
         <div class="helix-heading">
           <h3>Helix</h3>
-          <span class:enabled={bundle.spanVisualAssembly.helixEnabled}>
-            {bundle.spanVisualAssembly.helixEnabled ? "On" : "Off"}
+          <span class:enabled={bundle.spanVisualAssembly.supportPathEnabled}>
+            {bundle.spanVisualAssembly.supportPathEnabled ? "On" : "Off"}
           </span>
         </div>
+        <label class="check"><input type="checkbox" checked={bundle.spanVisualAssembly.supportPathEnabled}
+          onchange={(event) => updateBundle(bundle, (draft) => {
+            draft.spanVisualAssembly.supportPathEnabled = checkedValue(event);
+          })} />Enable support path</label>
         <label class="check"><input type="checkbox" checked={bundle.spanVisualAssembly.helixEnabled}
           onchange={(event) => updateBundle(bundle, (draft) => {
             draft.spanVisualAssembly.helixEnabled = checkedValue(event);
@@ -481,7 +485,7 @@
             onchange={(event) => updateBundle(bundle, (draft) => {
               draft.supportWirePoleBandId = Math.trunc(numberValue(event));
             })}>
-            <option value="0">None</option>
+            <option value="0">Member band</option>
             {#if relatedPole}
               {#each sortedBands(relatedPole) as band}
                 <option value={band.bandId} disabled={!band.enabled}>
@@ -504,7 +508,7 @@
                 round6(numberValue(event));
             })} /></label>
         {/each}
-        <p class="hint">Radius 0 uses auto-fit. A valid support band is required when enabled.</p>
+        <p class="hint">Band 0 follows each member's saved band. Helix requires an explicit support band.</p>
         <details>
           <summary>Wander, twist, and sampling</summary>
           {#each [

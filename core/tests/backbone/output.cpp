@@ -8,6 +8,7 @@
 #include "wire/core/core_view.hpp"
 
 #include "../../src/generation/backbone/curve_parts.hpp"
+#include "../../src/geometry/detail_curve_postprocess.hpp"
 
 #include <algorithm>
 #include <array>
@@ -806,6 +807,7 @@ bool C761_default_optical_bundle_emits_helix() {
       state.view().bundle_templates().find(wire::core::kDefaultCommunicationBundleTemplateId);
   if (optical_template == state.view().bundle_templates().end() ||
       communication_template == state.view().bundle_templates().end() ||
+      !optical_template->second.span_visual_assembly.support_path_enabled ||
       !optical_template->second.span_visual_assembly.helix_enabled ||
       optical_template->second.span_visual_assembly.helix_samples_per_turn != 6 ||
       optical_template->second.support_wire_pole_band_id != 600 ||
@@ -825,6 +827,91 @@ bool C761_default_optical_bundle_emits_helix() {
         part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix;
   }
   return support_count == out.value.generated_span_ids.size() && helix_count == support_count;
+}
+
+bool C767_default_hv_emits_one_support_path_per_phase_span() {
+  wire::core::CoreState state;
+  const auto hv_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
+  const wire::core::BundleTemplate& hv = state.view().bundle_templates().at(hv_id);
+  if (!hv.span_visual_assembly.support_path_enabled ||
+      hv.span_visual_assembly.helix_enabled || hv.support_wire_pole_band_id != 0) {
+    return false;
+  }
+  wire::core::BackboneSpec request = line_req(state);
+  request.bundles.clear();
+  add_backbone_bundle(request, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(request);
+  if (!generated.ok || generated.value.generated_span_ids.size() != 3) return false;
+
+  std::unordered_set<wire::core::ObjectId> support_span_ids{};
+  std::vector<wire::core::Vec3d> support_starts{};
+  std::size_t helix_count = 0;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kSupplemental) continue;
+    if (part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix) {
+      ++helix_count;
+      continue;
+    }
+    if (part.supplemental_kind != wire::core::VisualSupplementalKind::kSupportPath) continue;
+    const wire::core::Span* span = state.view().spans().find(part.source_span_id);
+    const auto expected = span == nullptr ? std::nullopt :
+        wire::core::resolve_pole_band_chord_endpoints(state, *span, 0);
+    if (!expected.has_value() || !almost_equal(part.boundary_a, expected->first, 1e-9) ||
+        !almost_equal(part.boundary_b, expected->second, 1e-9)) {
+      return false;
+    }
+    support_span_ids.insert(part.source_span_id);
+    support_starts.push_back(part.boundary_a);
+  }
+  if (support_span_ids.size() != generated.value.generated_span_ids.size() ||
+      helix_count != 0 || support_starts.size() != 3) {
+    return false;
+  }
+  for (std::size_t i = 0; i < support_starts.size(); ++i) {
+    for (std::size_t j = i + 1; j < support_starts.size(); ++j) {
+      if (wire::core::Length(support_starts[i] - support_starts[j]) < 0.1) return false;
+    }
+  }
+
+  wire::core::CoreState without_support;
+  wire::core::BundleTemplate disabled = without_support.view().bundle_templates().at(hv_id);
+  disabled.span_visual_assembly.support_path_enabled = false;
+  if (!without_support.UpdateBundleTemplate(disabled).ok) return false;
+  wire::core::BackboneSpec baseline_request = line_req(without_support);
+  baseline_request.bundles.clear();
+  add_backbone_bundle(baseline_request, wire::core::BundleKind::kHighVoltage);
+  const auto baseline = without_support.GenerateFromBackboneSpec(baseline_request);
+  if (!baseline.ok || state.view().poles().size() != without_support.view().poles().size() ||
+      state.view().ports().size() != without_support.view().ports().size() ||
+      state.view().spans().size() != without_support.view().spans().size() ||
+      state.view().bundles().size() != without_support.view().bundles().size()) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kEdgeBody || !part.has_section_key) continue;
+    const auto baseline_part = std::find_if(
+        without_support.view().visual_curve_parts().parts.begin(),
+        without_support.view().visual_curve_parts().parts.end(),
+        [&](const wire::core::VisualCurvePart& candidate) {
+          return candidate.kind == part.kind && candidate.has_section_key &&
+                 candidate.section_key.logical_span_id == part.section_key.logical_span_id &&
+                 candidate.section_key.edge_bundle_id == part.section_key.edge_bundle_id &&
+                 candidate.section_key.rule_owner_id == part.section_key.rule_owner_id &&
+                 candidate.section_key.rule_id == part.section_key.rule_id &&
+                 candidate.section_key.instance_index == part.section_key.instance_index;
+        });
+    if (baseline_part == without_support.view().visual_curve_parts().parts.end() ||
+        baseline_part->samples.size() != part.samples.size() ||
+        !std::equal(part.samples.begin(), part.samples.end(), baseline_part->samples.begin(),
+                    [](const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+                      return almost_equal(a, b, 0.0);
+                    })) {
+      return false;
+    }
+  }
+  return state.view().visual_curve_parts().stats.curve_builds ==
+         without_support.view().visual_curve_parts().stats.curve_builds + support_span_ids.size();
 }
 
 bool C635_backbone_simple_continuous_node_creates_node_patch_curve() {

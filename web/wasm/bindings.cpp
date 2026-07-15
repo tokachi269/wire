@@ -564,6 +564,7 @@ public:
     output.set("endpointFixtureAssemblyId", bundle_template.endpoint_fixture_assembly_id);
     const auto& assembly = bundle_template.span_visual_assembly;
     val assembly_output = val::object();
+    assembly_output.set("supportPathEnabled", assembly.support_path_enabled);
     assembly_output.set("helixEnabled", assembly.helix_enabled);
     assembly_output.set("helixRadius", assembly.helix_radius_m);
     assembly_output.set("helixClearance", assembly.helix_clearance_m);
@@ -618,6 +619,8 @@ public:
     bundle_template.endpoint_fixture_assembly_id =
         property<wire::core::ModelAssemblyTemplateId>(input, "endpointFixtureAssemblyId");
     const val assembly = input["spanVisualAssembly"];
+    bundle_template.span_visual_assembly.support_path_enabled =
+        property<bool>(assembly, "supportPathEnabled");
     bundle_template.span_visual_assembly.helix_enabled = property<bool>(assembly, "helixEnabled");
     bundle_template.span_visual_assembly.helix_radius_m = property<double>(assembly, "helixRadius");
     bundle_template.span_visual_assembly.helix_clearance_m = property<double>(assembly, "helixClearance");

@@ -311,6 +311,7 @@ bool make_roundtrip_source(wire::core::CoreState* state, std::string* saved, Der
       wire::core::kDefaultLowVoltageBundleTemplateId);
   lv.population_rules = {population_rule(31), population_rule(32)};
   lv.support_wire_pole_band_id = 100;
+  lv.span_visual_assembly.support_path_enabled = true;
   lv.span_visual_assembly.helix_enabled = true;
   lv.span_visual_assembly.helix_turns_per_meter = 0.5;
   lv.span_visual_assembly.helix_samples_per_turn = 12;
@@ -468,6 +469,45 @@ bool C757_authoritative_roundtrip_compares_fields_directly() {
          wire::core::CoreStateTestHook::authoritative_equals(source, loaded);
 }
 
+bool C768_legacy_state_preserves_implicit_helix_support() {
+  wire::core::CoreState source;
+  std::string saved{};
+  if (!source.SerializeAuthoritative(&saved).ok) return false;
+
+  static constexpr std::string_view kField = ".span_visual_assembly.support_path_enabled=";
+  std::string legacy{};
+  legacy.reserve(saved.size());
+  std::size_t removed = 0;
+  std::size_t line_begin = 0;
+  while (line_begin < saved.size()) {
+    const std::size_t line_end = saved.find('\n', line_begin);
+    if (line_end == std::string::npos) return false;
+    const std::string_view line(saved.data() + line_begin, line_end - line_begin);
+    if (line.find(kField) == std::string_view::npos) {
+      legacy.append(line);
+      legacy.push_back('\n');
+    } else {
+      ++removed;
+    }
+    line_begin = line_end + 1;
+  }
+  if (removed == 0) return false;
+
+  wire::core::CoreState loaded;
+  if (!loaded.DeserializeAuthoritative(legacy).ok) return false;
+  for (const auto& [id, bundle] : loaded.view().bundle_templates()) {
+    static_cast<void>(id);
+    if (bundle.span_visual_assembly.support_path_enabled !=
+        bundle.span_visual_assembly.helix_enabled) return false;
+  }
+
+  std::string migrated{};
+  if (!loaded.SerializeAuthoritative(&migrated).ok) return false;
+  return std::count(migrated.begin(), migrated.end(), '\n') ==
+             std::count(legacy.begin(), legacy.end(), '\n') + static_cast<std::ptrdiff_t>(removed) &&
+         migrated.find(kField) != std::string::npos;
+}
+
 bool C763_model_assembly_registration_is_transactional_and_persistent() {
   wire::core::CoreState state;
   wire::core::ModelAssemblyTemplate assembly{};
@@ -523,6 +563,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C757_authoritative_roundtrip_compares_fields_directly",
                          "authoritative roundtrip compares every archived field directly",
                          "Invariant", false, C757_authoritative_roundtrip_compares_fields_directly);
+  test_registry::AddTest(tests, "C768_legacy_state_preserves_implicit_helix_support",
+                         "legacy authoritative states preserve implicit helix support and resave the explicit field",
+                         "Boundary", true, C768_legacy_state_preserves_implicit_helix_support);
   test_registry::AddTest(tests, "C763_model_assembly_registration_is_transactional_and_persistent",
                          "model assembly registration validates before mutation and survives save/load",
                          "Boundary", true, C763_model_assembly_registration_is_transactional_and_persistent);

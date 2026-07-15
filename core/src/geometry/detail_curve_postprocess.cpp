@@ -309,7 +309,6 @@ CurveLengthInterval cable_supplemental_replaced_interval(const CableSupplemental
 
 std::optional<std::pair<Vec3d, Vec3d>> resolve_pole_band_chord_endpoints(
     const CoreState& state, const Span& span, int pole_band_id) {
-  if (pole_band_id == 0) return std::nullopt;
   const Port* port_a = state.view().edit_state().ports.find(span.port_a_id);
   const Port* port_b = state.view().edit_state().ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr || port_a->owner_pole_id == kInvalidObjectId ||
@@ -320,13 +319,18 @@ std::optional<std::pair<Vec3d, Vec3d>> resolve_pole_band_chord_endpoints(
   const auto type_a = state.view().pole_types().find(pole_a->pole_type_id);
   const auto type_b = state.view().pole_types().find(pole_b->pole_type_id);
   if (type_a == state.view().pole_types().end() || type_b == state.view().pole_types().end()) return std::nullopt;
-  const auto find_band = [&](const PoleTypeDefinition& type) -> const PortPlacementBand* {
+  const auto band_id_for_port = [&](const Port& port) {
+    if (pole_band_id != 0) return pole_band_id;
+    const SavedBackbonePortBinding* binding = state.view().backbone_port_binding_for_port(port.id);
+    return binding == nullptr ? 0 : binding->placement_band_id;
+  };
+  const auto find_band = [&](const PoleTypeDefinition& type, int band_id) -> const PortPlacementBand* {
     const auto it = std::find_if(type.port_bands.begin(), type.port_bands.end(),
-                                 [&](const PortPlacementBand& band) { return band.band_id == pole_band_id; });
+                                 [&](const PortPlacementBand& band) { return band.band_id == band_id; });
     return it == type.port_bands.end() ? nullptr : &*it;
   };
-  const PortPlacementBand* band_a = find_band(type_a->second);
-  const PortPlacementBand* band_b = find_band(type_b->second);
+  const PortPlacementBand* band_a = find_band(type_a->second, band_id_for_port(*port_a));
+  const PortPlacementBand* band_b = find_band(type_b->second, band_id_for_port(*port_b));
   if (band_a == nullptr || band_b == nullptr) return std::nullopt;
   const double yaw_a = state.effective_port_layout_yaw_deg(*pole_a, port_a->id, port_a->category);
   const double yaw_b = state.effective_port_layout_yaw_deg(*pole_b, port_b->id, port_b->category);

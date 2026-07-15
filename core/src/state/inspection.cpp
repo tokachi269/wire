@@ -847,6 +847,9 @@ std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleTe
                                PropertyAccessKind::kEditable});
   result.properties.push_back(
       {"support_wire_pole_band_id", std::to_string(tpl.support_wire_pole_band_id), PropertyAccessKind::kEditable});
+  result.properties.push_back({"span_visual_assembly.support_path_enabled",
+                               BoolText(tpl.span_visual_assembly.support_path_enabled),
+                               PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.helix_enabled", BoolText(tpl.span_visual_assembly.helix_enabled), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.helix_radius_m", std::to_string(tpl.span_visual_assembly.helix_radius_m), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.helix_clearance_m", std::to_string(tpl.span_visual_assembly.helix_clearance_m), PropertyAccessKind::kEditable});

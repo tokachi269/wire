@@ -277,7 +277,8 @@ bool population_rules_equal(const std::vector<CablePopulationRule>& a,
 }
 
 bool span_visual_assembly_equals(const SpanVisualAssemblyTemplate& a, const SpanVisualAssemblyTemplate& b) {
-  return a.helix_enabled == b.helix_enabled && a.helix_radius_m == b.helix_radius_m &&
+  return a.support_path_enabled == b.support_path_enabled &&
+         a.helix_enabled == b.helix_enabled && a.helix_radius_m == b.helix_radius_m &&
          a.helix_clearance_m == b.helix_clearance_m && a.helix_turns_per_meter == b.helix_turns_per_meter &&
          a.helix_samples_per_turn == b.helix_samples_per_turn && a.endpoint_trim_m == b.endpoint_trim_m &&
          a.member_wander_ratio == b.member_wander_ratio &&
@@ -624,7 +625,8 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     return result;
   }
   if (assembly.helix_enabled &&
-      (normalized.support_wire_pole_band_id <= 0 || assembly.helix_turns_per_meter <= 0.0)) {
+      (!assembly.support_path_enabled || normalized.support_wire_pole_band_id <= 0 ||
+       assembly.helix_turns_per_meter <= 0.0)) {
     result.error = "enabled span visual assembly requires a support band and positive helix turns";
     return result;
   }

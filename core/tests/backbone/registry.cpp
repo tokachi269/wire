@@ -1121,6 +1121,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "row fixture, endpoint fixture, and connected curve follow one band lateral change while the belt stays on the pole axis",
                          "Invariant", false,
                          C766_row_fixture_and_wire_follow_port_band_lateral_change);
+  test_registry::AddTest(tests, "C767_default_hv_emits_one_support_path_per_phase_span",
+                         "default HV derives one support path from each phase span's saved placement band",
+                         "Invariant", false,
+                         C767_default_hv_emits_one_support_path_per_phase_span);
 }
 
 

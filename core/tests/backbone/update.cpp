@@ -2461,6 +2461,7 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   wire::core::BundleTemplate tpl = state.view().bundle_templates().at(id);
   tpl.fixed_count = 2;
   tpl.default_count = 2;
+  tpl.support_wire_pole_band_id = 100;
   tpl.span_visual_assembly.helix_enabled = true;
   tpl.span_visual_assembly.helix_turns_per_meter = 1.0;
   tpl.span_visual_assembly.member_wander_ratio = 0.5;
@@ -2480,7 +2481,7 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   population.randomness = 0.4;
   tpl.population_rules = {population};
   if (state.UpdateBundleTemplate(tpl).ok) return false;
-  tpl.support_wire_pole_band_id = 100;
+  tpl.span_visual_assembly.support_path_enabled = true;
   tpl.span_visual_assembly.helix_samples_per_turn = 12;
   tpl.span_visual_assembly.endpoint_trim_m = 0.25;
   tpl.span_visual_assembly.helix_radius_m = 1e-6;
@@ -2531,6 +2532,7 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   fresh_template.fixed_count = 2;
   fresh_template.default_count = 2;
   fresh_template.support_wire_pole_band_id = 100;
+  fresh_template.span_visual_assembly.support_path_enabled = true;
   fresh_template.span_visual_assembly.helix_enabled = true;
   fresh_template.span_visual_assembly.helix_turns_per_meter = 1.0;
   fresh_template.span_visual_assembly.member_wander_ratio = 0.5;

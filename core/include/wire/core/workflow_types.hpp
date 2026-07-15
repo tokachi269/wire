@@ -219,6 +219,7 @@ constexpr BundleTemplateId kDefaultOpticalBundleTemplateId = 105;
 }
 
 struct SpanVisualAssemblyTemplate {
+  bool support_path_enabled = false;
   bool helix_enabled = false;
   double helix_radius_m = 0.0;
   double helix_clearance_m = 0.0;

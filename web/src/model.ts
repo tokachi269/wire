@@ -216,6 +216,7 @@ export interface BundleTemplateInfo {
 }
 
 export interface SpanVisualAssemblyInfo {
+  supportPathEnabled: boolean;
   helixEnabled: boolean;
   helixRadius: number;
   helixClearance: number;

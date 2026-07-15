@@ -160,6 +160,7 @@ void CoreState::register_default_bundle_templates() {
   hv.branch_endpoint_offset_m = -0.275;
   hv.order_decision_policy = OrderDecisionPolicyKind::kPermutableHomogeneous;
   hv.row_layout_axis_mode = RowLayoutAxisMode::kSupportAxis;
+  hv.span_visual_assembly.support_path_enabled = true;
   authoritative_.bundle_templates[hv.id] = hv;
 
   BundleTemplate lv{};
@@ -261,6 +262,7 @@ void CoreState::register_default_bundle_templates() {
   optical.branch_endpoint_offset_m = 0.0;
   optical.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   optical.support_wire_pole_band_id = 600;
+  optical.span_visual_assembly.support_path_enabled = true;
   optical.span_visual_assembly.helix_enabled = true;
   optical.span_visual_assembly.helix_clearance_m = 0.015;
   optical.span_visual_assembly.helix_turns_per_meter = 1.8;

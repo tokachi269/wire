@@ -303,7 +303,7 @@ void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* 
         state.view().bundle_templates().find(bundle->bundle_template_id);
     if (template_it == state.view().bundle_templates().end()) continue;
     const SpanVisualAssemblyTemplate& settings = template_it->second.span_visual_assembly;
-    if (!settings.helix_enabled) {
+    if (!settings.support_path_enabled) {
       apply_member_twist(settings, members);
       continue;
     }
@@ -331,6 +331,11 @@ void apply_span_visual_assemblies(const CoreState& state, VisualCurvePartCache* 
     support.material_style = members.front()->material_style;
     support.bounds = bounds_for(support.samples);
     support.source_version = members.front()->source_version;
+    if (!settings.helix_enabled) {
+      apply_member_twist(settings, members);
+      supplemental.push_back(std::move(support));
+      continue;
+    }
     const double fitted_radius = auto_fit_radius(support, members, settings.helix_clearance_m);
     const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m : fitted_radius;
     if (settings.helix_radius_m > 0.0 && settings.helix_radius_m + 1e-9 < fitted_radius) {

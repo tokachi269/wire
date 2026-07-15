@@ -168,6 +168,10 @@ public:
     return true;
   }
 
+  [[nodiscard]] bool contains(const std::string& key) const {
+    return values_.contains(key);
+  }
+
   bool record_ids(const std::string& prefix, std::size_t expected_count, std::vector<std::uint64_t>* out) {
     const std::string marker = prefix + ".";
     out->clear();
@@ -250,6 +254,10 @@ public:
   template <typename T> bool field(const std::string& prefix, std::string_view name, const T& input) {
     return value(child(prefix, name), input);
   }
+  template <typename T>
+  bool compatible_field(const std::string& prefix, std::string_view name, const T& input, const T&) {
+    return field(prefix, name, input);
+  }
 
   bool string_value(const std::string& key, const std::string& input) {
     writer_.string_value(key, input);
@@ -281,6 +289,15 @@ public:
   }
   template <typename T> bool field(const std::string& prefix, std::string_view name, T& output) {
     return value(child(prefix, name), output);
+  }
+  template <typename T>
+  bool compatible_field(const std::string& prefix, std::string_view name, T& output, const T& legacy_default) {
+    const std::string key = child(prefix, name);
+    if (!reader_.contains(key)) {
+      output = legacy_default;
+      return true;
+    }
+    return value(key, output);
   }
 
   bool string_value(const std::string& key, std::string& output) {
@@ -757,6 +774,9 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "row_fixture_assembly_id", v.row_fixture_assembly_id) ||
       !ar.field(p, "endpoint_fixture_assembly_id", v.endpoint_fixture_assembly_id) ||
       !ar.field(p, "span_visual_assembly.helix_enabled", v.span_visual_assembly.helix_enabled) ||
+      !ar.compatible_field(p, "span_visual_assembly.support_path_enabled",
+                           v.span_visual_assembly.support_path_enabled,
+                           v.span_visual_assembly.helix_enabled) ||
       !ar.field(p, "span_visual_assembly.helix_radius_m", v.span_visual_assembly.helix_radius_m) ||
       !ar.field(p, "span_visual_assembly.helix_clearance_m", v.span_visual_assembly.helix_clearance_m) ||
       !ar.field(p, "span_visual_assembly.helix_turns_per_meter", v.span_visual_assembly.helix_turns_per_meter) ||
@@ -989,6 +1009,10 @@ public:
   }
   template <typename T> bool field(const std::string& prefix, std::string_view name, const T& input) {
     return value(child(prefix, name), input);
+  }
+  template <typename T>
+  bool compatible_field(const std::string& prefix, std::string_view name, const T& input, const T&) {
+    return field(prefix, name, input);
   }
   bool string_value(const std::string& key, const std::string& input) {
     fields_.string_value(key, input);

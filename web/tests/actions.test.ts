@@ -182,6 +182,7 @@ describe("viewer actions", () => {
           rowFixtureAssemblyId: 0,
           endpointFixtureAssemblyId: 0,
           spanVisualAssembly: {
+            supportPathEnabled: false,
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
             helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
             memberWanderWavelength: 0, memberWanderPhaseBias: 0,
@@ -259,6 +260,7 @@ describe("viewer actions", () => {
            rowFixtureAssemblyId: 0,
            endpointFixtureAssemblyId: 0,
           spanVisualAssembly: {
+            supportPathEnabled: false,
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
             helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
             memberWanderWavelength: 0, memberWanderPhaseBias: 0,
@@ -319,6 +321,7 @@ describe("viewer actions", () => {
           rowFixtureAssemblyId: 0,
           endpointFixtureAssemblyId: 0,
           spanVisualAssembly: {
+            supportPathEnabled: false,
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
             helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
             memberWanderWavelength: 0, memberWanderPhaseBias: 0,
@@ -358,6 +361,7 @@ const bundleTemplate: BundleTemplateInfo = {
   rowFixtureAssemblyId: 0,
   endpointFixtureAssemblyId: 0,
   spanVisualAssembly: {
+    supportPathEnabled: false,
     helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
     helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
     memberWanderWavelength: 0, memberWanderPhaseBias: 0,

@@ -60,7 +60,7 @@ describe("viewer numeric inputs", () => {
       .sort((a, b) => a.key.localeCompare(b.key));
     expect(nonHvPartsAfter).toEqual(nonHvPartsBefore);
     const hvSamplesAfter = mounted.bridge.scene().parts
-      .filter((part) => part.info.bundleTemplateId === 101)
+      .filter((part) => part.info.bundleTemplateId === 101 && part.info.kind === 0)
       .map((part) => [...part.samples]);
     expect(new Set(hvSamplesAfter.map((samples) => samples.join(","))).size)
       .toBe(hvSamplesAfter.length);

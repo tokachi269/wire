@@ -28,8 +28,6 @@ std::uint64_t combine(std::uint64_t seed, std::uint64_t value) {
 std::uint64_t key_seed(const CablePopulationInput& input, std::size_t instance_index,
                        std::size_t attempt) {
   std::uint64_t seed = mix64(input.rule.explicit_seed == 0 ? 1 : input.rule.explicit_seed);
-  seed = combine(seed, input.key.logical_span_id);
-  seed = combine(seed, input.key.edge_bundle_id);
   seed = combine(seed, input.key.rule_owner_id);
   seed = combine(seed, input.key.rule_id);
   seed = combine(seed, instance_index);
@@ -121,9 +119,28 @@ std::vector<const CablePopulationRule*> sorted_rules(const BundleTemplate& bundl
   return matches;
 }
 
+const SavedBackbonePortBinding* port_binding_for(const CoreState& state, ObjectId edge_bundle_id,
+                                                 std::size_t lane_index, ObjectId port_id) {
+  const std::vector<const SavedBackbonePortBinding*> bindings =
+      state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id);
+  const SavedBackbonePortBinding* found = nullptr;
+  for (const SavedBackbonePortBinding* binding : bindings) {
+    if (binding == nullptr || binding->lane_index != lane_index || binding->port_id != port_id) {
+      continue;
+    }
+    if (found != nullptr) {
+      return nullptr;
+    }
+    found = binding;
+  }
+  return found;
+}
+
 CablePopulationEndpoint resolve_endpoint(const CoreState& state, const LayoutEndpoint& layout,
                                                const BundleTemplate& bundle_template,
-                                               const CablePopulationRule& rule) {
+                                               const CablePopulationRule& rule,
+                                               ObjectId edge_bundle_id,
+                                               std::size_t lane_index) {
   CablePopulationEndpoint out{};
   const Port* port = state.view().ports().find(layout.port_id);
   if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
@@ -152,9 +169,9 @@ CablePopulationEndpoint resolve_endpoint(const CoreState& state, const LayoutEnd
   out.original_local = WorldPointToLocal(out.frame, layout.support_world);
   out.endpoint_offset_world = layout.endpoint_world - layout.support_world;
 
-  const SavedBackbonePortBinding* binding = state.view().backbone_port_binding_for_port(port->id);
+  const SavedBackbonePortBinding* binding = port_binding_for(state, edge_bundle_id, lane_index, port->id);
   if (binding == nullptr) {
-    out.failure_reason = "endpoint port has no saved backbone binding";
+    out.failure_reason = "endpoint port has no saved backbone binding for this section";
     return out;
   }
   const PortPlacementBand* selected =
@@ -286,8 +303,10 @@ CablePopulation make_cable_population(
       input.key.rule_owner_id = static_cast<std::uint64_t>(bundle->bundle_template_id);
       input.key.rule_id = rule->rule_id;
       input.rule = *rule;
-      input.endpoint_a = resolve_endpoint(state, layout.start, bundle_template_it->second, *rule);
-      input.endpoint_b = resolve_endpoint(state, layout.end, bundle_template_it->second, *rule);
+      input.endpoint_a = resolve_endpoint(state, layout.start, bundle_template_it->second, *rule,
+                                          binding->edge_bundle_id, binding->lane_index);
+      input.endpoint_b = resolve_endpoint(state, layout.end, bundle_template_it->second, *rule,
+                                          binding->edge_bundle_id, binding->lane_index);
       input.endpoint_a_world = layout.start.endpoint_world;
       input.endpoint_b_world = layout.end.endpoint_world;
       input.occupied_a_local = occupied_a;

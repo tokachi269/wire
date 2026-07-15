@@ -202,6 +202,7 @@ constexpr BundleTemplateId kDefaultLowVoltageBundleTemplateId = 102;
 constexpr BundleTemplateId kDefaultDropBundleTemplateId = 103;
 constexpr BundleTemplateId kDefaultCommunicationBundleTemplateId = 104;
 constexpr BundleTemplateId kDefaultOpticalBundleTemplateId = 105;
+constexpr CableTemplateId kDefaultSupportWireCableTemplateId = 6;
 
 [[nodiscard]] constexpr BundleTemplateId DefaultBundleTemplateId(BundleKind kind) noexcept {
   switch (kind) {

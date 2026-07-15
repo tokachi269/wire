@@ -22,6 +22,7 @@ constexpr CableTemplateId kLowVoltageCableTemplate = 2;
 constexpr CableTemplateId kCommunicationCableTemplate = 3;
 constexpr CableTemplateId kOpticalCableTemplate = 4;
 constexpr CableTemplateId kDropCableTemplate = 5;
+constexpr CableTemplateId kSupportWireCableTemplate = kDefaultSupportWireCableTemplateId;
 constexpr AttachmentTemplateId kGenericAttachmentTemplate = 1;
 constexpr AttachmentTemplateId kHiddenAttachmentTemplate = 2;
 constexpr AttachmentTemplateId kInternalPathAttachmentTemplate = 3;
@@ -150,7 +151,7 @@ void CoreState::register_default_bundle_templates() {
   hv.min_count = 3;
   hv.max_count = 3;
   hv.default_count = 3;
-  hv.default_spacing_m = 0.45;
+  hv.default_spacing_m = 0.75;
   hv.grouped_support_fanout_spacing_m =
       grouped_support_fanout_spacing_for(hv.cable_template_id, hv.default_spacing_m);
   hv.allow_mirror = true;
@@ -287,7 +288,7 @@ void CoreState::register_default_cable_templates() {
   hv.id = kHighVoltageCableTemplate;
   hv.name = "HV_BARE";
   hv.outer_diameter_m = 0.030;
-  hv.default_grouped_support_fanout_spacing_m = 0.45;
+  hv.default_grouped_support_fanout_spacing_m = 0.75;
   hv.bend_stiffness = 1.4;
   hv.min_bend_radius_m = 0.8;
   hv.material_style = CableMaterialStyleKind::kBareConductor;
@@ -358,6 +359,21 @@ void CoreState::register_default_cable_templates() {
   optical.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   optical.default_endpoint_attachment_template_id = kInvalidAttachmentTemplateId;
   authoritative_.cable_templates[optical.id] = optical;
+
+  CableTemplate support{};
+  support.id = kSupportWireCableTemplate;
+  support.name = "SUPPORT_WIRE";
+  support.outer_diameter_m = 0.010;
+  support.default_grouped_support_fanout_spacing_m = 0.20;
+  support.bend_stiffness = 0.6;
+  support.min_bend_radius_m = 0.18;
+  support.material_style = CableMaterialStyleKind::kGeneric;
+  support.color_rgba = 0x1E1E1EFFu;
+  support.sag_factor = 0.01;
+  support.slack_factor = 0.02;
+  support.continuity_policy = CableContinuityPolicyHint::kPreferG2;
+  support.attachment_style = CableAttachmentStyleHint::kDirectThrough;
+  authoritative_.cable_templates[support.id] = support;
 }
 
 void CoreState::register_default_attachment_templates() {

@@ -483,6 +483,23 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
       }
     }
   }
+  if (normalized.id == kDefaultSupportWireCableTemplateId) {
+    for (const auto& [bundle_id, span_ids] : state.runtime_.relation_index.spans_by_bundle) {
+      const Bundle* bundle = state.authoritative_.edit_state.bundles.find(bundle_id);
+      if (bundle == nullptr) {
+        continue;
+      }
+      const BundleTemplate* bundle_template = state.find_bundle_template(bundle->bundle_template_id);
+      if (bundle_template == nullptr || !bundle_template->span_visual_assembly.support_path_enabled) {
+        continue;
+      }
+      for (ObjectId span_id : span_ids) {
+        if (target_span_ids.insert(span_id).second) {
+          ordered_target_span_ids.push_back(span_id);
+        }
+      }
+    }
+  }
   if (decision_change && !ordered_target_span_ids.empty()) {
     for (ObjectId span_id : ordered_target_span_ids) {
       if (state.runtime_.backbone_index.span_edge_bundle.find(span_id) ==

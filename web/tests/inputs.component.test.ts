@@ -46,6 +46,26 @@ describe("viewer numeric inputs", () => {
     expect(placementPanel?.textContent).not.toContain("DROP");
     expect([...(placementPanel?.querySelectorAll("button") ?? [])]
       .some((button) => button.textContent?.trim() === "Remove")).toBe(false);
+    expect(placementPanel?.querySelectorAll('input[aria-label$="count"]')).toHaveLength(0);
+  });
+
+  it("updates existing Bundle placement without regenerating the route", async () => {
+    const mounted = await mountViewer();
+    expect(current(mounted.store).pathPoints).toHaveLength(0);
+    const source = current(mounted.store).drawBundlePlacements[0];
+    expect(source.generatedBundleId).toBeDefined();
+    const beforeScene = mounted.bridge.scene();
+    const beforeLogCount = current(mounted.store).logs.length;
+    const beforeZ = Math.max(...mounted.bridge.scene().ports.map((port) => port.z));
+    mounted.actions.updateDrawBundlePlacement(source.id, { height: source.height + 0.5 });
+    await tick();
+    const afterScene = mounted.bridge.scene();
+    const afterZ = Math.max(...afterScene.ports.map((port) => port.z));
+
+    expect(afterScene.poles).toHaveLength(beforeScene.poles.length);
+    expect(afterScene.spans).toHaveLength(beforeScene.spans.length);
+    expect(current(mounted.store).logs).toHaveLength(beforeLogCount);
+    expect(afterZ).toBeGreaterThan(beforeZ + 0.25);
   });
 
   it("duplicates a Bundle placement and generates independent support and helix output", async () => {

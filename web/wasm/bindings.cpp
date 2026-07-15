@@ -314,6 +314,11 @@ public:
     val result = result_value(generated.ok, generated.error);
     result.set("generatedPoleCount", generated.value.generated_pole_ids.size());
     result.set("generatedSpanCount", generated.value.generated_span_ids.size());
+    val generated_bundle_ids = val::array();
+    for (std::size_t index = 0; index < generated.value.bundle_ids.size(); ++index) {
+      generated_bundle_ids.set(index, std::to_string(generated.value.bundle_ids[index]));
+    }
+    result.set("generatedBundleIds", generated_bundle_ids);
     result.set("totalMs", generated.value.timing.total_ms);
     result.set("timing", generation_timing_value(generated.value.timing));
     return result;
@@ -726,6 +731,17 @@ public:
     return result_value(updated.ok, updated.error);
   }
 
+  val update_backbone_bundle_placement(const std::string& bundle_id, const val& placement) {
+    const ObjectId id = static_cast<ObjectId>(std::stoull(bundle_id));
+    const auto updated = state_->UpdateBackboneBundlePlacement(
+        id,
+        property<bool>(placement, "explicit"),
+        property<double>(placement, "height"),
+        property<double>(placement, "offset"),
+        property<double>(placement, "spacing"));
+    return result_value(updated.ok, updated.error);
+  }
+
   [[nodiscard]] std::size_t cable_template_count() const {
     return CoreView(*state_).cable_templates().size();
   }
@@ -1080,6 +1096,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("bundleTemplateCount", &WireState::bundle_template_count)
       .function("bundleTemplate", &WireState::bundle_template)
       .function("updateBundleTemplate", &WireState::update_bundle_template)
+      .function("updateBackboneBundlePlacement", &WireState::update_backbone_bundle_placement)
       .function("applyRelatedPoleType", &WireState::apply_related_pole_type)
       .function("cableTemplateCount", &WireState::cable_template_count)
       .function("cableTemplate", &WireState::cable_template)

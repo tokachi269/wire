@@ -10,6 +10,10 @@
   --muted: #929d9a;
   --accent: #4f86c6;
   --accent-hover: #5f9de3;
+  --sidebar-title-size: 0.7rem;
+  --sidebar-control-size: 0.7rem;
+  --sidebar-small-size: 0.66rem;
+  --sidebar-meta-size: 0.68rem;
   font-synthesis: none;
 }
 
@@ -149,6 +153,7 @@ h1 {
   align-content: start;
   gap: 6px;
   padding: 6px;
+  font-size: var(--sidebar-control-size);
 }
 
 .resize-handle {
@@ -215,7 +220,7 @@ h1 {
 .bundle-picker legend {
   padding: 0 0.25rem;
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: var(--sidebar-control-size);
 }
 
 .bundle-placement {
@@ -226,13 +231,13 @@ h1 {
   gap: 3px;
   padding: 4px 0;
   border-bottom: 1px solid var(--line);
-  font-size: 0.66rem;
+  font-size: var(--sidebar-control-size);
 }
 
 .bundle-placement input {
   min-width: 0;
   padding: 3px;
-  font-size: 0.7rem;
+  font-size: var(--sidebar-control-size);
 }
 
 .bundle-placement-name {
@@ -264,7 +269,7 @@ h1 {
 
 .bundle-placement-head {
   color: var(--muted);
-  font-size: 0.58rem;
+  font-size: var(--sidebar-small-size);
 }
 
 .bundle-placement-empty {
@@ -275,6 +280,7 @@ h1 {
   margin: 0 0 0.55rem;
   color: var(--accent);
   font-weight: 600;
+  font-size: var(--sidebar-title-size);
   letter-spacing: 0.08em;
 }
 
@@ -282,7 +288,7 @@ label {
   display: grid;
   min-width: 0;
   gap: 0.2rem;
-  font-size: 0.7rem;
+  font-size: var(--sidebar-control-size);
   color: var(--muted);
 }
 
@@ -301,13 +307,13 @@ select {
 .hint {
   margin: 0.65rem 0 0.25rem;
   color: var(--muted);
-  font-size: 0.68rem;
+  font-size: var(--sidebar-meta-size);
 }
 
 .point-count {
   display: block;
   margin-bottom: 0.55rem;
-  font-size: 0.9rem;
+  font-size: var(--sidebar-control-size);
 }
 
 .path-actions {
@@ -342,14 +348,14 @@ aside > .metric-button,
   border: 1px solid var(--line);
   background: var(--panel);
   padding: 0.3rem 0.5rem;
-  font-size: 0.68rem;
+  font-size: var(--sidebar-meta-size);
   background: rgba(34, 40, 43, 0.88);
   backdrop-filter: blur(6px);
 }
 
 aside > .metric-button {
   color: #d7dddb;
-  font: 400 0.68rem "IBM Plex Sans", sans-serif;
+  font: 400 var(--sidebar-meta-size) "IBM Plex Sans", sans-serif;
   text-align: left;
   cursor: default;
 }
@@ -385,7 +391,7 @@ aside .metric:focus {
   background: rgba(23, 28, 30, 0.96);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
   color: #d7dddb;
-  font-size: 0.68rem;
+  font-size: var(--sidebar-meta-size);
   line-height: 1.35;
 }
 
@@ -397,7 +403,7 @@ aside .metric:focus {
 
 .metric-tooltip > strong {
   color: var(--accent);
-  font: 600 0.68rem "JetBrains Mono", monospace;
+  font: 600 var(--sidebar-meta-size) "JetBrains Mono", monospace;
   text-transform: uppercase;
 }
 
@@ -471,7 +477,7 @@ aside .metric:focus {
 .outliner h2,
 .outliner h3 {
   margin: 0 0 0.5rem;
-  font: 600 0.7rem "JetBrains Mono", monospace;
+  font: 600 var(--sidebar-title-size) "JetBrains Mono", monospace;
   color: var(--accent);
 }
 
@@ -487,7 +493,7 @@ aside .metric:focus {
   width: 100%;
   margin: 0.15rem 0;
   padding: 0.4rem;
-  font-size: 0.66rem;
+  font-size: var(--sidebar-small-size);
 }
 
 .entity-lists button.active {
@@ -513,12 +519,12 @@ aside .metric:focus {
   border: 1px solid var(--line);
   background: var(--panel-raised);
   padding: 0.65rem;
-  font-size: 0.72rem;
+  font-size: var(--sidebar-control-size);
 }
 
 .selection-inspector h2 {
   margin: 0 0 0.15rem;
-  font: 600 0.7rem "JetBrains Mono", monospace;
+  font: 600 var(--sidebar-title-size) "JetBrains Mono", monospace;
   color: var(--accent);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -539,7 +545,7 @@ aside .metric:focus {
 .template-grid h2,
 .template-grid h3 {
   margin: 0 0 0.7rem;
-  font: 600 0.7rem "JetBrains Mono", monospace;
+  font: 600 var(--sidebar-title-size) "JetBrains Mono", monospace;
   color: var(--accent);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -567,7 +573,7 @@ aside .metric:focus {
 .template-grid button {
   margin-top: 0.65rem;
   padding: 0.55rem;
-  font-size: 0.7rem;
+  font-size: var(--sidebar-control-size);
 }
 
 .helix-editor {
@@ -595,7 +601,7 @@ aside .metric:focus {
   border-radius: 999px;
   padding: 0.15rem 0.45rem;
   color: var(--muted);
-  font: 600 0.62rem "JetBrains Mono", monospace;
+  font: 600 var(--sidebar-small-size) "JetBrains Mono", monospace;
   text-align: center;
   text-transform: uppercase;
 }
@@ -608,7 +614,7 @@ aside .metric:focus {
 .helix-editor .hint {
   margin: 0.55rem 0 0;
   color: var(--muted);
-  font-size: 0.64rem;
+  font-size: var(--sidebar-small-size);
   line-height: 1.4;
 }
 
@@ -622,12 +628,12 @@ aside .metric:focus {
 
 .category-row strong {
   align-self: center;
-  font: 600 0.68rem "JetBrains Mono", monospace;
+  font: 600 var(--sidebar-meta-size) "JetBrains Mono", monospace;
 }
 
 .category-head {
   color: var(--muted);
-  font-size: 0.62rem;
+  font-size: var(--sidebar-small-size);
 }
 
 details {
@@ -667,7 +673,7 @@ summary {
 
 .settings h2 {
   margin: 0 0 0.7rem;
-  font: 600 0.7rem "JetBrains Mono", monospace;
+  font: 600 var(--sidebar-title-size) "JetBrains Mono", monospace;
   color: var(--accent);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -692,7 +698,7 @@ summary {
   width: 100%;
   margin-top: 0.65rem;
   padding: 0.55rem;
-  font-size: 0.7rem;
+  font-size: var(--sidebar-control-size);
 }
 
 .interaction {
@@ -702,14 +708,14 @@ summary {
   padding: 0.55rem 0.7rem;
   background: #17201d;
   color: var(--accent);
-  font-size: 0.72rem;
+  font-size: var(--sidebar-control-size);
 }
 
 .last-log {
   border-left: 3px solid var(--accent);
   padding: 0.3rem 0.5rem;
   background: rgba(34, 40, 43, 0.88);
-  font-size: 0.68rem;
+  font-size: var(--sidebar-meta-size);
   backdrop-filter: blur(6px);
 }
 

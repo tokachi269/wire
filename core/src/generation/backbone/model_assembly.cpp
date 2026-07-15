@@ -282,7 +282,11 @@ void append_instances(const CoreState& state, const Pole& pole, double placement
                       std::string* error) {
   for (const ModelAssemblyPart& part : assembly.parts) {
     Transformd part_root = root;
-    if (part.fit_mode != ModelFitMode::kPoleRadial) {
+    if (part.fit_mode == ModelFitMode::kPoleRadial) {
+      part_root.position = pole.world_transform.position +
+          multiply(matrix_from_euler(root.rotation_euler_deg),
+                   Vec3d{0.0, 0.0, placement_height_m});
+    } else {
       part_root.position = part_root.position + rigid_offset_world;
     }
     const EditResult<Transformd> world =

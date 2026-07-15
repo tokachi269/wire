@@ -194,13 +194,14 @@ bool C648_population_same_seed_is_stable() {
   });
 }
 
-bool C649_population_span_identity_changes_placement() {
+bool C649_population_span_identity_does_not_change_placement() {
   const auto first = wire::core::generation::backbone::populate_cable_sections(population_input(101));
   const auto second = wire::core::generation::backbone::populate_cable_sections(population_input(102));
   if (!first.ok || !second.ok || first.value.sections.empty() || second.value.sections.empty()) {
     return false;
   }
-  return dist2(first.value.sections.front().endpoint_a, second.value.sections.front().endpoint_a) > 1e-12;
+  return dist2(first.value.sections.front().endpoint_a, second.value.sections.front().endpoint_a) <= 1e-18 &&
+         dist2(first.value.sections.front().endpoint_b, second.value.sections.front().endpoint_b) <= 1e-18;
 }
 
 bool C650_population_reserve_blocks_candidates() {

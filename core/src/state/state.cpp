@@ -6,6 +6,7 @@
 #include "port_placement.hpp"
 #include "../generation/support_policy.hpp"
 #include "../generation/backbone/curve_parts.hpp"
+#include "../generation/backbone/emit_shared.hpp"
 #include "../generation/backbone/model_assembly.hpp"
 
 #include <algorithm>
@@ -1780,6 +1781,143 @@ EditResult<bool> CoreState::UpdatePoleTypeDefinition(const PoleTypeDefinition& p
 
 EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_template) {
   return state_internal::TemplateMutationService::UpdateBundleTemplate(*this, bundle_template);
+}
+
+EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
+                                                          double height_m, double lateral_m, double spacing_m) {
+  EditResult<bool> result;
+  Bundle* bundle = authoritative_.edit_state.bundles.find(bundle_id);
+  if (bundle == nullptr) {
+    result.error = "bundle not found";
+    return result;
+  }
+  if (!std::isfinite(height_m) || !std::isfinite(lateral_m) || !std::isfinite(spacing_m) || spacing_m <= 0.0) {
+    result.error = "bundle placement is invalid";
+    return result;
+  }
+  if (bundle->placement_explicit == placement_explicit &&
+      std::abs(bundle->height_m - height_m) <= 1e-12 &&
+      std::abs(bundle->lateral_m - lateral_m) <= 1e-12 &&
+      std::abs(bundle->phase_spacing_m - spacing_m) <= 1e-12 &&
+      std::abs(bundle->spacing_override_m - spacing_m) <= 1e-12) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+
+  std::vector<ObjectId> edge_bundle_ids{};
+  for (const SavedBackboneEdgeBundle& edge_bundle : authoritative_.backbone.edge_bundles) {
+    if (edge_bundle.bundle_id == bundle_id) {
+      add_unique_id(edge_bundle_ids, edge_bundle.edge_bundle_id);
+    }
+  }
+  if (edge_bundle_ids.empty()) {
+    result.error = "bundle placement update requires a generated backbone bundle";
+    return result;
+  }
+
+  const Bundle previous_bundle = *bundle;
+  bundle->placement_explicit = placement_explicit;
+  bundle->height_m = height_m;
+  bundle->lateral_m = lateral_m;
+  bundle->phase_spacing_m = spacing_m;
+  bundle->spacing_override_m = spacing_m;
+  add_unique_id(result.change_set.updated_ids, bundle_id);
+
+  struct PlannedPortPosition {
+    ObjectId port_id = kInvalidObjectId;
+    Vec3d position{};
+  };
+  std::vector<PlannedPortPosition> planned_port_positions{};
+  std::unordered_set<ObjectId> planned_port_ids{};
+  std::vector<ObjectId> changed_port_ids{};
+  for (ObjectId edge_bundle_id : edge_bundle_ids) {
+    const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
+    const SavedBackboneEdge* edge =
+        edge_bundle == nullptr ? nullptr : view().backbone_edge(edge_bundle->edge_id);
+    if (edge_bundle == nullptr || edge == nullptr) {
+      result.error = "bundle placement update: saved edge bundle is missing";
+      return result;
+    }
+    const auto port_bindings = view().backbone_port_bindings_for_edge_bundle(edge_bundle_id);
+    if (port_bindings.empty()) {
+      result.error = "bundle placement update: saved port bindings are missing";
+      return result;
+    }
+    const bool uses_lane_bands = !placement_explicit && std::adjacent_find(
+        port_bindings.begin(), port_bindings.end(), [](const auto* a, const auto* b) {
+          return a != nullptr && b != nullptr && a->placement_band_id != b->placement_band_id;
+        }) != port_bindings.end();
+    for (const SavedBackbonePortBinding* binding : port_bindings) {
+      if (binding == nullptr) continue;
+      if (planned_port_ids.find(binding->port_id) != planned_port_ids.end()) {
+        continue;
+      }
+      Port* port = authoritative_.edit_state.ports.find(binding->port_id);
+      const Pole* pole = port == nullptr ? nullptr : authoritative_.edit_state.poles.find(port->owner_pole_id);
+      const PoleTypeDefinition* pole_type = pole == nullptr ? nullptr : find_pole_type(pole->pole_type_id);
+      const PortPlacementBand* band =
+          pole_type == nullptr ? nullptr : state_internal::FindPortPlacementBandById(*pole_type, binding->placement_band_id);
+      if (port == nullptr || pole == nullptr || band == nullptr) {
+        result.error = "bundle placement update: saved port placement is missing";
+        return result;
+      }
+      const PoleFrame frame = BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
+      const Vec3d current_local = WorldPointToLocal(frame, port->world_position);
+      const double previous_base_height =
+          previous_bundle.placement_explicit ? previous_bundle.height_m : band->height_center_m;
+      const double preserved_row_height_offset = current_local.z - previous_base_height;
+      PortPlacementBand placement_band = *band;
+      if (placement_explicit) {
+        placement_band.height_center_m = height_m;
+        placement_band.lateral_center_m = lateral_m;
+      }
+      const double lane_offset = uses_lane_bands
+                                     ? 0.0
+                                     : generation::backbone::LaneOffset(
+                                           binding->lane_index, bundle->conductor_count, spacing_m);
+      const Vec3d next_local{
+          0.0,
+          placement_band.lateral_center_m + lane_offset + edge->lateral_offset_m,
+          placement_band.height_center_m + preserved_row_height_offset};
+      const Vec3d next_position =
+          LocalPointToWorld(BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg),
+                            next_local);
+      planned_port_ids.insert(port->id);
+      planned_port_positions.push_back({port->id, next_position});
+    }
+  }
+
+  for (const PlannedPortPosition& planned : planned_port_positions) {
+    Port* port = authoritative_.edit_state.ports.find(planned.port_id);
+    if (port == nullptr) {
+      result.error = "bundle placement update: planned port is missing";
+      return result;
+    }
+    if (Length(port->world_position - planned.position) > 1e-12) {
+      port->world_position = planned.position;
+      add_unique_id(changed_port_ids, port->id);
+      add_unique_id(result.change_set.updated_ids, port->id);
+    }
+  }
+
+  for (ObjectId port_id : changed_port_ids) {
+    touch_connected_spans_from_port(port_id, &result.change_set);
+    const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPort, port_id});
+    if (!plan.ok) {
+      result.error = plan.error;
+      return result;
+    }
+    const auto updated = execute_update_plan(plan.value);
+    if (!updated.ok) {
+      result.error = updated.error;
+      return result;
+    }
+  }
+
+  result.ok = true;
+  result.value = true;
+  return result;
 }
 
 EditResult<bool> CoreState::RegisterModelAssemblyTemplate(

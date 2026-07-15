@@ -19,6 +19,7 @@ export interface EditResult {
   error: string;
   generatedPoleCount: number;
   generatedSpanCount: number;
+  generatedBundleIds?: string[];
   totalMs: number;
   timing: GenerationTiming;
 }
@@ -222,6 +223,7 @@ export interface BundleTemplateInfo {
 export interface BundlePlacement {
   id: number;
   bundleTemplateId: number;
+  generatedBundleId?: string;
   count: number;
   explicit: boolean;
   height: number;

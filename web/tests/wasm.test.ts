@@ -54,7 +54,7 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       id: 9904,
       version: 1,
       parts: [{
-        partId: 1, modelKey: "communication_clamp_long", descriptorName: "clamp", descriptorVersion: 1,
+        partId: 1, modelKey: "communication_clamp", descriptorName: "clamp", descriptorVersion: 1,
         fitMode: 0, localTransform: identityTransform(), sockets: [{
           name: "wire",
           positionX: 0, positionY: 0.3, positionZ: 0,
@@ -95,7 +95,7 @@ describe("wire wasm smoke", () => {
 
     const models = modelState.visualScene().models;
     expect(models.filter((model) => model.modelKey === "pole_body")).toHaveLength(2);
-    expect(models.filter((model) => model.modelKey === "communication_clamp_long")).toHaveLength(2);
+    expect(models.filter((model) => model.modelKey === "communication_clamp")).toHaveLength(2);
     expect(new Set(models.map((model) => model.stableKey)).size).toBe(models.length);
     modelState.delete();
   });

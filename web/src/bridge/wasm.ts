@@ -72,6 +72,7 @@ export interface WireStateHandle {
   bundleTemplateCount(): number;
   bundleTemplate(index: number): BundleTemplateInfo;
   updateBundleTemplate(template: BundleTemplateInfo): OperationResult;
+  updateBackboneBundlePlacement(bundleId: string, placement: BundlePlacement): OperationResult;
   applyRelatedPoleType(bundleTemplateId: number): OperationResult;
   cableTemplateCount(): number;
   cableTemplate(index: number): CableTemplateInfo;

@@ -137,6 +137,13 @@ export class WireBridge {
     return this.state.updateBundleTemplate(template);
   }
 
+  updateBackboneBundlePlacement(
+    bundleId: string,
+    placement: BundlePlacement
+  ): OperationResult {
+    return this.state.updateBackboneBundlePlacement(bundleId, placement);
+  }
+
   applyRelatedPoleType(bundleTemplateId: number): OperationResult {
     return this.state.applyRelatedPoleType(bundleTemplateId);
   }

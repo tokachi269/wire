@@ -820,9 +820,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C648_population_same_seed_is_stable",
                          "cable population is stable for the same explicit seed", "Invariant", false,
                          C648_population_same_seed_is_stable);
-  test_registry::AddTest(tests, "C649_population_span_identity_changes_placement",
-                         "cable population placement is keyed by logical span identity", "Invariant", false,
-                         C649_population_span_identity_changes_placement);
+  test_registry::AddTest(tests, "C649_population_span_identity_does_not_change_placement",
+                         "cable population placement is continuous across logical spans", "Invariant", false,
+                         C649_population_span_identity_does_not_change_placement);
   test_registry::AddTest(tests, "C650_population_reserve_blocks_candidates",
                          "cable population reserves block candidate pairs", "Invariant", false,
                          C650_population_reserve_blocks_candidates);
@@ -1129,6 +1129,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "duplicate Bundle placements keep independent identity and move their complete visual output",
                          "Invariant", false,
                          C769_bundle_placements_duplicate_template_as_independent_bundles);
+  test_registry::AddTest(tests, "C770_backbone_bundle_placement_update_preserves_cross_row_height",
+                         "Bundle placement height updates preserve crossing row height and move row fixtures",
+                         "Invariant", false,
+                         C770_backbone_bundle_placement_update_preserves_cross_row_height);
 }
 
 

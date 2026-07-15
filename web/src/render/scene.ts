@@ -188,6 +188,7 @@ export class WireScene {
       button: number;
       mode: "orbit" | "pan" | "dolly";
       moved: boolean;
+      orbitAnchor: THREE.Vector3 | null;
     } | null = null;
     let pinch: {
       distance: number;
@@ -232,7 +233,8 @@ export class WireScene {
         startY: event.clientY,
         button: event.button,
         mode,
-        moved: false
+        moved: false,
+        orbitAnchor: mode === "orbit" ? this.pointerWorldPoint(event.clientX, event.clientY) : null
       };
       event.preventDefault();
       this.renderer.domElement.setPointerCapture(event.pointerId);
@@ -244,7 +246,7 @@ export class WireScene {
       if (activePointers.size >= 2) {
         const next = currentPinch();
         if (pinch !== null && next !== null) {
-          this.dolly(-Math.log(next.distance / pinch.distance));
+          this.dolly(-Math.log(next.distance / pinch.distance), this.pointerWorldPoint(next.centerX, next.centerY));
           this.pan(next.centerX - pinch.centerX, next.centerY - pinch.centerY);
         }
         pinch = next;
@@ -266,9 +268,9 @@ export class WireScene {
       pointerDown.y = event.clientY;
       pointerDown.moved ||= Math.hypot(totalDx, totalDy) > 6;
       if (!pointerDown.moved) return;
-      if (pointerDown.mode === "orbit") this.orbit(dx, dy);
+      if (pointerDown.mode === "orbit") this.orbit(dx, dy, pointerDown.orbitAnchor);
       if (pointerDown.mode === "pan") this.pan(dx, dy);
-      if (pointerDown.mode === "dolly") this.dolly(dy * 0.01);
+      if (pointerDown.mode === "dolly") this.dolly(dy * 0.01, this.pointerWorldPoint(event.clientX, event.clientY));
       event.preventDefault();
     };
     const onPointerUp = (event: PointerEvent) => {
@@ -292,7 +294,7 @@ export class WireScene {
     };
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      this.dolly(event.deltaY * 0.0012);
+      this.dolly(event.deltaY * 0.0012, this.pointerWorldPoint(event.clientX, event.clientY));
     };
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
@@ -345,11 +347,7 @@ export class WireScene {
   }
 
   private addGroundPoint(event: PointerEvent): void {
-    const bounds = this.renderer.domElement.getBoundingClientRect();
-    const pointer = new THREE.Vector2(
-      ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
-      -((event.clientY - bounds.top) / bounds.height) * 2 + 1
-    );
+    const pointer = this.pointerFromClient(event.clientX, event.clientY);
     const ray = new THREE.Raycaster();
     ray.params.Line = { threshold: 0.35 };
     ray.setFromCamera(pointer, this.camera);
@@ -369,6 +367,27 @@ export class WireScene {
       return;
     }
     this.onGroundClick([hit.x, hit.y, hit.z]);
+  }
+
+  private pointerFromClient(clientX: number, clientY: number): THREE.Vector2 {
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    return new THREE.Vector2(
+      ((clientX - bounds.left) / bounds.width) * 2 - 1,
+      -((clientY - bounds.top) / bounds.height) * 2 + 1
+    );
+  }
+
+  private pointerWorldPoint(clientX: number, clientY: number): THREE.Vector3 | null {
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(this.pointerFromClient(clientX, clientY), this.camera);
+    const hit = new THREE.Vector3();
+    const forward = this.cameraTarget.clone().sub(this.camera.position).normalize();
+    if (forward.lengthSq() <= 0) return null;
+    const targetPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(forward, this.cameraTarget);
+    if (ray.ray.intersectPlane(targetPlane, hit)) {
+      return hit.clone();
+    }
+    return null;
   }
 
   private pickBackbonePoint(ray: THREE.Raycaster): { point: WorldPoint; pick: PathPickInfo } | null {
@@ -453,7 +472,29 @@ export class WireScene {
     this.frame = requestAnimationFrame(this.animate);
   };
 
-  private orbit(dx: number, dy: number): void {
+  private orbit(dx: number, dy: number, anchor: THREE.Vector3 | null = null): void {
+    if (anchor !== null) {
+      const cameraOffset = this.camera.position.clone().sub(anchor);
+      const targetOffset = this.cameraTarget.clone().sub(anchor);
+      const yawAxis = this.camera.up.clone().normalize();
+      cameraOffset.applyAxisAngle(yawAxis, -dx * 0.006);
+      targetOffset.applyAxisAngle(yawAxis, -dx * 0.006);
+      const forward = targetOffset.clone().sub(cameraOffset).normalize();
+      const right = forward.clone().cross(this.camera.up).normalize();
+      if (right.lengthSq() > 0) {
+        const pitchedCamera = cameraOffset.clone().applyAxisAngle(right, -dy * 0.006);
+        const pitchedTarget = targetOffset.clone().applyAxisAngle(right, -dy * 0.006);
+        const pitchedForward = pitchedTarget.clone().sub(pitchedCamera).normalize();
+        if (Math.abs(pitchedForward.dot(this.camera.up)) < 0.995) {
+          cameraOffset.copy(pitchedCamera);
+          targetOffset.copy(pitchedTarget);
+        }
+      }
+      this.camera.position.copy(anchor).add(cameraOffset);
+      this.cameraTarget.copy(anchor).add(targetOffset);
+      this.camera.lookAt(this.cameraTarget);
+      return;
+    }
     const offset = this.camera.position.clone().sub(this.cameraTarget);
     offset.applyAxisAngle(this.camera.up, -dx * 0.006);
     const forward = offset.clone().negate().normalize();
@@ -476,9 +517,25 @@ export class WireScene {
     this.cameraTarget.add(shift);
   }
 
-  private dolly(amount: number): void {
+  private dolly(amount: number, anchor: THREE.Vector3 | null = null): void {
     const offset = this.camera.position.clone().sub(this.cameraTarget);
-    const distance = THREE.MathUtils.clamp(offset.length() * Math.exp(amount), 0.2, 2000);
+    const currentDistance = offset.length();
+    if (!Number.isFinite(currentDistance) || currentDistance <= 0) return;
+    const distance = THREE.MathUtils.clamp(currentDistance * Math.exp(amount), 0.2, 2000);
+    const factor = distance / currentDistance;
+    if (anchor !== null) {
+      const nextPosition = anchor.clone().add(this.camera.position.clone().sub(anchor).multiplyScalar(factor));
+      const nextTarget = anchor.clone().add(this.cameraTarget.clone().sub(anchor).multiplyScalar(factor));
+      if (!Number.isFinite(nextPosition.x) || !Number.isFinite(nextPosition.y) ||
+          !Number.isFinite(nextPosition.z) || !Number.isFinite(nextTarget.x) ||
+          !Number.isFinite(nextTarget.y) || !Number.isFinite(nextTarget.z)) {
+        return;
+      }
+      this.camera.position.copy(nextPosition);
+      this.cameraTarget.copy(nextTarget);
+      this.camera.lookAt(this.cameraTarget);
+      return;
+    }
     this.camera.position.copy(this.cameraTarget).add(offset.normalize().multiplyScalar(distance));
   }
 

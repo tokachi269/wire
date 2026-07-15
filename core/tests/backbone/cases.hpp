@@ -284,7 +284,7 @@ bool C655_backbone_node_patch_grouping_uses_band_identity();
 bool C656_backbone_node_patch_does_not_mix_base_and_extra_sections();
 bool C657_backbone_node_patch_does_not_mix_extra_instance_indices();
 bool C648_population_same_seed_is_stable();
-bool C649_population_span_identity_changes_placement();
+bool C649_population_span_identity_does_not_change_placement();
 bool C650_population_reserve_blocks_candidates();
 bool C651_population_spacing_rejects_overlap();
 bool C652_population_endpoint_failure_omits_pair();
@@ -377,5 +377,6 @@ bool C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture()
 bool C766_row_fixture_and_wire_follow_port_band_lateral_change();
 bool C767_default_hv_emits_one_support_path_per_phase_span();
 bool C769_bundle_placements_duplicate_template_as_independent_bundles();
+bool C770_backbone_bundle_placement_update_preserves_cross_row_height();
 
 } // namespace backbone_tests

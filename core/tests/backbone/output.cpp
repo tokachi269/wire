@@ -898,6 +898,14 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
   add_backbone_bundle(request, wire::core::BundleKind::kHighVoltage);
   const auto generated = state.GenerateFromBackboneSpec(request);
   if (!generated.ok || generated.value.generated_span_ids.size() != 6) return false;
+  const std::size_t initial_curve_builds = state.view().visual_curve_parts().stats.curve_builds;
+  auto support_cable_it = state.view().cable_templates().find(
+      wire::core::kDefaultSupportWireCableTemplateId);
+  if (support_cable_it == state.view().cable_templates().end() ||
+      support_cable_it->second.name != "SUPPORT_WIRE") {
+    return false;
+  }
+  const wire::core::CableTemplate support_cable = support_cable_it->second;
 
   std::unordered_set<wire::core::ObjectId> support_span_ids{};
   std::vector<wire::core::Vec3d> support_starts{};
@@ -909,6 +917,11 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
       continue;
     }
     if (part.supplemental_kind != wire::core::VisualSupplementalKind::kSupportPath) continue;
+    if (!almost_equal(part.wire_radius_m, support_cable.outer_diameter_m * 0.5, 1e-12) ||
+        part.color_rgba != support_cable.color_rgba ||
+        part.material_style != support_cable.material_style) {
+      return false;
+    }
     const wire::core::SpanLayoutEntry* layout = state.span_layout(part.source_span_id).entry;
     if (layout == nullptr || !almost_equal(part.samples.front(), layout->start.endpoint_world, 1e-9) ||
         !almost_equal(part.samples.back(), layout->end.endpoint_world, 1e-9)) return false;
@@ -931,6 +944,23 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
       helix_count != 0 || support_starts.size() != 6) {
     return false;
   }
+
+  wire::core::CableTemplate edited_support_cable = support_cable;
+  edited_support_cable.outer_diameter_m += 0.004;
+  edited_support_cable.color_rgba ^= 0x0000FF00u;
+  const auto updated_support_cable = state.UpdateCableTemplate(edited_support_cable);
+  if (!updated_support_cable.ok || !updated_support_cable.value) return false;
+  std::size_t updated_support_count = 0;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.supplemental_kind != wire::core::VisualSupplementalKind::kSupportPath) continue;
+    if (!almost_equal(part.wire_radius_m, edited_support_cable.outer_diameter_m * 0.5, 1e-12) ||
+        part.color_rgba != edited_support_cable.color_rgba) {
+      return false;
+    }
+    ++updated_support_count;
+  }
+  if (updated_support_count != support_span_ids.size()) return false;
+
   for (std::size_t i = 0; i < support_starts.size(); ++i) {
     for (std::size_t j = i + 1; j < support_starts.size(); ++j) {
       if (wire::core::Length(support_starts[i] - support_starts[j]) < 0.1) return false;
@@ -973,8 +1003,7 @@ bool C767_default_hv_emits_one_support_path_per_phase_span() {
       return false;
     }
   }
-  if (state.view().visual_curve_parts().stats.curve_builds !=
-      without_support.view().visual_curve_parts().stats.curve_builds + support_span_ids.size()) {
+  if (initial_curve_builds != without_support.view().visual_curve_parts().stats.curve_builds + support_span_ids.size()) {
     return false;
   }
 
@@ -2131,6 +2160,8 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
   endpoint_part.model_key = "hv_insulator";
   endpoint_part.sockets.push_back({"wire", {0.0, 0.0, 0.25}, {1.0, 0.0, 0.0}});
   endpoint_assembly.parts.push_back(endpoint_part);
+  endpoint_assembly.parts.push_back(
+      {2, "pole_belt", 1, {}, wire::core::ModelFitMode::kPoleRadial, {}});
   endpoint_assembly.wire_socket = wire::core::AssemblySocketRef{1, "wire"};
   if (!state.RegisterModelAssemblyTemplate(row_assembly).ok ||
       !state.RegisterModelAssemblyTemplate(endpoint_assembly).ok) {
@@ -2370,6 +2401,155 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
     if (support_count != 1 || helix_count != 1) return false;
   }
   return true;
+}
+
+bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
+  constexpr wire::core::ModelAssemblyTemplateId kRowAssembly = 9130;
+  constexpr wire::core::ModelAssemblyTemplateId kEndpointAssembly = 9131;
+  constexpr double kHeightDelta = 0.6;
+  wire::core::CoreState state;
+
+  wire::core::ModelAssemblyTemplate row_assembly{};
+  row_assembly.id = kRowAssembly;
+  wire::core::ModelAssemblyPart row_part{};
+  row_part.part_id = 1;
+  row_part.model_key = "hv_crossarm";
+  row_part.sockets.push_back({"endpoint_mount", {0.0, 0.0, 0.04}, {0.0, 0.0, 1.0}});
+  row_assembly.parts.push_back(row_part);
+  row_assembly.endpoint_mount_socket = wire::core::AssemblySocketRef{1, "endpoint_mount"};
+
+  wire::core::ModelAssemblyTemplate endpoint_assembly{};
+  endpoint_assembly.id = kEndpointAssembly;
+  wire::core::ModelAssemblyPart endpoint_part{};
+  endpoint_part.part_id = 1;
+  endpoint_part.model_key = "hv_insulator";
+  endpoint_part.sockets.push_back({"wire", {0.0, 0.0, 0.20}, {1.0, 0.0, 0.0}});
+  endpoint_assembly.parts.push_back(endpoint_part);
+  endpoint_assembly.wire_socket = wire::core::AssemblySocketRef{1, "wire"};
+
+  if (!state.RegisterModelAssemblyTemplate(row_assembly).ok ||
+      !state.RegisterModelAssemblyTemplate(endpoint_assembly).ok) {
+    return false;
+  }
+  const wire::core::BundleTemplateId hv_template_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
+  wire::core::BundleTemplate hv = state.view().bundle_templates().at(hv_template_id);
+  hv.row_fixture_assembly_id = kRowAssembly;
+  hv.endpoint_fixture_assembly_id = kEndpointAssembly;
+  if (!state.UpdateBundleTemplate(hv).ok) return false;
+
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() < 2) return false;
+  const wire::core::ObjectId pole_id = first.value.generated_pole_ids[1];
+  const wire::core::Pole* pole = state.view().poles().find(pole_id);
+  if (pole == nullptr) return false;
+
+  wire::core::BackboneSpec cross = line_req(state);
+  cross.bundles.clear();
+  add_backbone_bundle(cross, wire::core::BundleKind::kHighVoltage);
+  cross.path.polyline = {{12.0, -8.0, 0.0}, pole->world_transform.position, {20.0, 0.0, 0.0}};
+  cross.path.node_specs = {pole_spec(1, pole_id)};
+  const auto second = state.GenerateFromBackboneSpec(cross);
+  if (!second.ok || second.value.bundle_ids.empty()) return false;
+  const wire::core::ObjectId bundle_id = second.value.bundle_ids.front();
+  const wire::core::Bundle* bundle = state.view().bundles().find(bundle_id);
+  if (bundle == nullptr) return false;
+
+  auto average_port_height = [&]() -> std::optional<double> {
+    double sum = 0.0;
+    std::size_t count = 0;
+    for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+      const wire::core::SavedBackboneEdgeBundle* edge_bundle =
+          state.view().backbone_edge_bundle(binding.edge_bundle_id);
+      const wire::core::Port* port = state.view().ports().find(binding.port_id);
+      const wire::core::Pole* owner =
+          port == nullptr ? nullptr : state.view().poles().find(port->owner_pole_id);
+      if (edge_bundle == nullptr || edge_bundle->bundle_id != bundle_id ||
+          port == nullptr || owner == nullptr || owner->id != pole_id) {
+        continue;
+      }
+      const wire::core::PoleFrame frame =
+          wire::core::BuildPoleFrame(owner->world_transform, binding.layout_yaw_deg);
+      sum += wire::core::WorldPointToLocal(frame, port->world_position).z;
+      ++count;
+    }
+    if (count == 0) return std::nullopt;
+    return sum / static_cast<double>(count);
+  };
+  auto average_base_height = [&]() -> std::optional<double> {
+    double sum = 0.0;
+    std::size_t count = 0;
+    for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+      const wire::core::SavedBackboneEdgeBundle* edge_bundle =
+          state.view().backbone_edge_bundle(binding.edge_bundle_id);
+      const wire::core::Port* port = state.view().ports().find(binding.port_id);
+      const wire::core::Pole* owner =
+          port == nullptr ? nullptr : state.view().poles().find(port->owner_pole_id);
+      const auto pole_type_it =
+          owner == nullptr ? state.view().pole_types().end() : state.view().pole_types().find(owner->pole_type_id);
+      const wire::core::PoleTypeDefinition* pole_type =
+          pole_type_it == state.view().pole_types().end() ? nullptr : &pole_type_it->second;
+      const wire::core::PortPlacementBand* band = nullptr;
+      if (pole_type != nullptr) {
+        for (const wire::core::PortPlacementBand& candidate : pole_type->port_bands) {
+          if (candidate.band_id == binding.placement_band_id) {
+            band = &candidate;
+            break;
+          }
+        }
+      }
+      if (edge_bundle == nullptr || edge_bundle->bundle_id != bundle_id ||
+          port == nullptr || owner == nullptr || owner->id != pole_id || band == nullptr) {
+        continue;
+      }
+      sum += bundle->placement_explicit ? bundle->height_m : band->height_center_m;
+      ++count;
+    }
+    if (count == 0) return std::nullopt;
+    return sum / static_cast<double>(count);
+  };
+  auto row_model_height = [&]() -> std::optional<double> {
+    double sum = 0.0;
+    std::size_t count = 0;
+    const std::string prefix = "row:" + std::to_string(pole_id) + ":";
+    const std::string bundle_token = ":" + std::to_string(bundle_id) + ":";
+    for (const wire::core::VisualModelInstance& instance : state.view().visual_model_instances().instances) {
+      if (instance.model_key != "hv_crossarm" ||
+          instance.stable_key.rfind(prefix, 0) != 0 ||
+          instance.stable_key.find(bundle_token, prefix.size()) == std::string::npos) {
+        continue;
+      }
+      const wire::core::Pole* current_pole = state.view().poles().find(pole_id);
+      if (current_pole == nullptr) return std::nullopt;
+      const wire::core::PoleFrame frame =
+          wire::core::BuildPoleFrame(current_pole->world_transform, 0.0);
+      sum += wire::core::WorldPointToLocal(frame, instance.world_transform.position).z;
+      ++count;
+    }
+    if (count == 0) return std::nullopt;
+    return sum / static_cast<double>(count);
+  };
+
+  const std::optional<double> port_height_before = average_port_height();
+  const std::optional<double> row_height_before = row_model_height();
+  const std::optional<double> base_height_before = average_base_height();
+  if (!port_height_before.has_value() || !row_height_before.has_value() || !base_height_before.has_value()) return false;
+  const double preserved_cross_offset = *port_height_before - *base_height_before;
+  if (std::abs(preserved_cross_offset) < 0.1) return false;
+
+  const double next_height = *base_height_before + kHeightDelta;
+  const auto updated = state.UpdateBackboneBundlePlacement(
+      bundle_id, true, next_height, bundle->lateral_m, bundle->phase_spacing_m);
+  if (!updated.ok || !updated.value) return false;
+
+  const wire::core::Bundle* after_bundle = state.view().bundles().find(bundle_id);
+  const std::optional<double> port_height_after = average_port_height();
+  const std::optional<double> row_height_after = row_model_height();
+  if (after_bundle == nullptr || !port_height_after.has_value() || !row_height_after.has_value()) return false;
+
+  return almost_equal((*port_height_after - after_bundle->height_m), preserved_cross_offset, 1e-9) &&
+         almost_equal(*port_height_after - *port_height_before, kHeightDelta, 1e-9) &&
+         almost_equal(*row_height_after - *row_height_before, kHeightDelta, 1e-9);
 }
 
 } // namespace backbone_tests

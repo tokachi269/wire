@@ -144,7 +144,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     intervalM: 0,
     clickedPointsOnly: true,
     directionMode: 0,
-    maxTiltDeg: 9.5,
+    maxTiltDeg: 12,
     solidSupportRender: true,
     selectionIncludePoles: true,
     selectionIncludeMidair: true,

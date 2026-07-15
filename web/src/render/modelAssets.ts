@@ -281,8 +281,8 @@ export function buildDefaultModelBootstrap(
     directionZ: 0
   };
 
-  const lvInsertion = insertionFixture(communicationClamp);
-  const communicationInsertion = insertionFixture(communicationClampLong);
+  const communicationInsertion = insertionFixture(communicationClamp);
+  const lowVoltageInsertion = insertionFixture(communicationClampLong);
 
   const poleAssemblyId = 9201;
   const hvRowAssemblyId = 9202;
@@ -316,11 +316,14 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: communicationEndpointAssemblyId,
-        version: 1,
-        parts: [part(
-          communicationClampLong, 1, 0,
-          communicationInsertion.transform, communicationInsertion.wireSocket
-        )],
+        version: 2,
+        parts: [
+          part(
+            communicationClamp, 1, 0,
+            communicationInsertion.transform, communicationInsertion.wireSocket
+          ),
+          part(belt, 2, 2, beltTransform)
+        ],
         wireSocket: { partId: 1, socketName: "wire" }
       },
       {
@@ -331,8 +334,14 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: lowVoltageEndpointAssemblyId,
-        version: 2,
-        parts: [part(communicationClamp, 1, 0, lvInsertion.transform, lvInsertion.wireSocket)],
+        version: 3,
+        parts: [
+          part(
+            communicationClampLong, 1, 0,
+            lowVoltageInsertion.transform, lowVoltageInsertion.wireSocket
+          ),
+          part(belt, 2, 2, beltTransform)
+        ],
         wireSocket: { partId: 1, socketName: "wire" }
       }
     ],
@@ -353,6 +362,11 @@ export function buildDefaultModelBootstrap(
       },
       {
         bundleTemplateId: 104,
+        rowAssemblyId: 0,
+        endpointAssemblyId: communicationEndpointAssemblyId
+      },
+      {
+        bundleTemplateId: 105,
         rowAssemblyId: 0,
         endpointAssemblyId: communicationEndpointAssemblyId
       }

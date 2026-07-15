@@ -83,12 +83,18 @@ describe("model asset cache", () => {
       rowAssemblyId: 0,
       endpointAssemblyId: 9204
     });
+    expect(bootstrap.bundleAssignments).toContainEqual({
+      bundleTemplateId: 105,
+      rowAssemblyId: 0,
+      endpointAssemblyId: 9204
+    });
     const communication = bootstrap.assemblies.find((assembly) => assembly.id === 9204)!;
     const clampPart = communication.parts[0];
-    expect(clampPart.modelKey).toBe("communication_clamp_long");
+    expect(clampPart.modelKey).toBe("communication_clamp");
+    expect(communication.parts.map((part) => part.modelKey)).toEqual(["communication_clamp", "pole_belt"]);
     expect(clampPart.localTransform.rotationZ).toBe(180);
-    expect(clampPart.localTransform.positionY).toBeCloseTo(clampLong.size.z * 0.5, 12);
-    expect(clampPart.sockets[0].positionY).toBeCloseTo(-clampLong.size.z * 0.5, 12);
+    expect(clampPart.localTransform.positionY).toBeCloseTo(clamp.size.z * 0.5, 12);
+    expect(clampPart.sockets[0].positionY).toBeCloseTo(-clamp.size.z * 0.5, 12);
     expect(communication.wireSocket).toEqual({ partId: 1, socketName: "wire" });
     const highVoltage = bootstrap.assemblies.find((assembly) => assembly.id === 9202)!;
     const highVoltageArm = highVoltage.parts.find((part) => part.modelKey === "hv_crossarm")!;
@@ -96,10 +102,10 @@ describe("model asset cache", () => {
     expect(highVoltage.endpointMountSocket).toEqual({ partId: 1, socketName: "endpoint_mount" });
     expect(highVoltageArm.sockets[0].positionZ).toBeCloseTo(crossarm.size.y * 0.5, 12);
     const lowVoltage = bootstrap.assemblies.find((assembly) => assembly.id === 9206)!;
-    expect(lowVoltage.parts.map((part) => part.modelKey)).toEqual(["communication_clamp"]);
+    expect(lowVoltage.parts.map((part) => part.modelKey)).toEqual(["communication_clamp_long", "pole_belt"]);
     expect(lowVoltage.parts[0].localTransform.rotationZ).toBe(180);
-    expect(lowVoltage.parts[0].localTransform.positionY).toBeCloseTo(clamp.size.z * 0.5, 12);
-    expect(lowVoltage.parts[0].sockets[0].positionY).toBeCloseTo(-clamp.size.z * 0.5, 12);
+    expect(lowVoltage.parts[0].localTransform.positionY).toBeCloseTo(clampLong.size.z * 0.5, 12);
+    expect(lowVoltage.parts[0].sockets[0].positionY).toBeCloseTo(-clampLong.size.z * 0.5, 12);
     expect(lowVoltage.wireSocket).toEqual({ partId: 1, socketName: "wire" });
   });
 });

@@ -1757,7 +1757,7 @@ bool C674_backbone_port_band_selection_has_one_owner() {
       occurrences(population, priority_decision) + occurrences(shared, priority_decision) +
       occurrences(emit, priority_decision);
   return decision_count <= 2 && !contains_text(population, "identity_score") &&
-         contains_text(population, "backbone_port_binding_for_port") &&
+         contains_text(population, "backbone_port_bindings_for_edge_bundle") &&
          contains_text(shared, "placement_band_id");
 }
 

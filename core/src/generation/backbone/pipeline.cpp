@@ -191,7 +191,7 @@ EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* ti
 
 namespace {
 
-constexpr double kRowHeightSeparationM = 0.35;
+constexpr double kRowHeightSeparationM = 0.5;
 constexpr double kSharpCornerInteriorAngleMaxDeg = 74.0;
 constexpr double kRadiansToDegrees = 57.2957795130823208768;
 

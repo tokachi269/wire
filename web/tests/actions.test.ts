@@ -441,6 +441,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       insulatorLength: 0.16
     }),
     updateCableTemplate: () => ({ ok: true, error: "" }),
+    updateBackboneBundlePlacement: () => ({ ok: true, error: "" }),
     updatePoleTemplate: () => ({ ok: true, error: "" }),
     saveState: () => "factory-state",
     loadState: () => ({ ok: true, error: "" }),

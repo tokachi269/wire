@@ -189,7 +189,7 @@
   <header>
     <div>
       <p class="eyebrow">WIRE</p>
-      <h1>Backbone viewer</h1>
+      <h1>Viewer</h1>
     </div>
     <div class="header-actions">
       <button class="secondary panel-toggle" class:active={snapshot.showLeftPanel} type="button"
@@ -270,18 +270,12 @@
                       onclick={() => actions.duplicateDrawBundlePlacement(placement.id)}>+</button>
                   </span>
                   <input aria-label={`${template.name} ${index + 1} height`} type="number" step="0.05" value={placement.height}
-                    onchange={(event) => actions.updateDrawBundlePlacement(placement.id, { height: Number(event.currentTarget.value) })} />
+                    oninput={(event) => actions.updateDrawBundlePlacement(placement.id, { height: Number(event.currentTarget.value) })} />
                   <input aria-label={`${template.name} ${index + 1} offset`} type="number" step="0.02" value={placement.offset}
-                    onchange={(event) => actions.updateDrawBundlePlacement(placement.id, { offset: Number(event.currentTarget.value) })} />
+                    oninput={(event) => actions.updateDrawBundlePlacement(placement.id, { offset: Number(event.currentTarget.value) })} />
                   <input aria-label={`${template.name} ${index + 1} spread`} type="number" min="0.001" step="0.02" value={placement.spacing}
-                    onchange={(event) => actions.updateDrawBundlePlacement(placement.id, { spacing: Number(event.currentTarget.value) })} />
-                  {#if template.fixedCount}
-                    <span>{template.fixedCountValue}</span>
-                  {:else}
-                    <input aria-label={`${template.name} ${index + 1} count`} type="number"
-                      min={template.minCount} max={template.maxCount} value={placement.count}
-                      onchange={(event) => actions.updateDrawBundlePlacement(placement.id, { count: Number(event.currentTarget.value) })} />
-                  {/if}
+                    oninput={(event) => actions.updateDrawBundlePlacement(placement.id, { spacing: Number(event.currentTarget.value) })} />
+                  <span>{template.fixedCount ? template.fixedCountValue : placement.count}</span>
                 </div>
               {/if}
             {/each}

@@ -336,10 +336,19 @@ std::optional<VisualCurvePart> make_support_path(
   support.bundle_template_id = bundle_template.id;
   support.lane_index = member.lane_index;
   support.samples = support_curve.value.sample_points;
-  support.wire_radius_m = member.wire_radius_m;
-  support.color_rgba = member.color_rgba;
-  support.material_style = member.material_style;
-  support.source_version = member.source_version;
+  const auto support_cable_it = state.view().cable_templates().find(kDefaultSupportWireCableTemplateId);
+  if (support_cable_it != state.view().cable_templates().end()) {
+    const CableTemplate& support_cable = support_cable_it->second;
+    support.wire_radius_m = support_cable.outer_diameter_m * 0.5;
+    support.color_rgba = support_cable.color_rgba;
+    support.material_style = support_cable.material_style;
+    support.source_version = std::max(member.source_version, support_cable.version);
+  } else {
+    support.wire_radius_m = member.wire_radius_m;
+    support.color_rgba = member.color_rgba;
+    support.material_style = member.material_style;
+    support.source_version = member.source_version;
+  }
   if (bundle_template.support_wire_pole_band_id == 0) {
     separate_support_from_member(&support, settings);
   }

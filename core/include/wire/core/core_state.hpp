@@ -93,6 +93,8 @@ public:
                                        const std::vector<ObjectId>& preferred_visible_span_ids);
   EditResult<bool> UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
+  EditResult<bool> UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
+                                                 double height_m, double lateral_m, double spacing_m);
   // Registers one adapter-built assembly before any template references it.
   // Existing ids are rejected; versioned adapter reload uses UpdateModelAssemblyTemplate.
   EditResult<bool> RegisterModelAssemblyTemplate(const ModelAssemblyTemplate& model_assembly_template);

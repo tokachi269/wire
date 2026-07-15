@@ -166,7 +166,7 @@ function bundlePlacementDefault(
   const divisor = Math.max(1, bands.length);
   return {
     height: bands.reduce((sum, band) => sum + band.heightCenter, 0) / divisor,
-    offset: bands.reduce((sum, band) => sum + band.lateralCenter, 0) / divisor,
+    offset: category === 0 ? -0.2 : bands.reduce((sum, band) => sum + band.lateralCenter, 0) / divisor,
     spacing: template.defaultSpacing
   };
 }
@@ -438,6 +438,14 @@ export class ViewerActions {
         placement.id === id ? { ...placement, ...change } : placement
       )
     }));
+    const placement = this.readSnapshot().drawBundlePlacements.find((item) => item.id === id);
+    if (placement?.generatedBundleId === undefined) return;
+    const result = this.bridge.updateBackboneBundlePlacement(placement.generatedBundleId, placement);
+    if (!result.ok) {
+      this.store.setError(result.error);
+      return;
+    }
+    this.refreshScene();
   }
 
   duplicateDrawBundlePlacement(id: number): void {
@@ -446,7 +454,8 @@ export class ViewerActions {
       if (index < 0) return current;
       const nextId = Math.max(0, ...current.drawBundlePlacements.map((placement) => placement.id)) + 1;
       const placements = [...current.drawBundlePlacements];
-      placements.splice(index + 1, 0, { ...placements[index], id: nextId });
+      const { generatedBundleId: _generatedBundleId, ...source } = placements[index];
+      placements.splice(index + 1, 0, { ...source, id: nextId });
       return { ...current, drawBundlePlacements: placements };
     });
   }
@@ -521,11 +530,13 @@ export class ViewerActions {
 
   generatePath(): void {
     let points: WorldPoint[] = [];
+    let specs: Array<PathPointSpec | null> = [];
     const unsubscribe = this.store.value.subscribe((current) => {
       points = current.pathPoints;
+      specs = current.pathPointSpecs;
     });
     unsubscribe();
-    this.generatePoints(points);
+    this.generatePoints(points, specs);
   }
 
   previewGeometry<K extends keyof GeometrySettings>(
@@ -895,7 +906,11 @@ export class ViewerActions {
     this.pendingSceneSyncStats = stats;
   }
 
-  private generatePoints(points: WorldPoint[]): void {
+  private generatePoints(
+    points: WorldPoint[],
+    pointSpecs: Array<PathPointSpec | null>,
+    fromPlacementEdit = false
+  ): void {
     const before = this.readSnapshot();
     const placements = before.drawBundlePlacements;
     const bundleTemplates: BundleTemplateInfo[] = before.bundleTemplates;
@@ -917,7 +932,7 @@ export class ViewerActions {
     }
     const flatPoints = new Float64Array(points.length * 3);
     points.forEach((point, index) => flatPoints.set(point, index * 3));
-    const nodeSpecs = before.pathPointSpecs
+    const nodeSpecs = pointSpecs
       .map((spec, index) => spec === null ? null : {
         pointIndex: index,
         supportKind: spec.supportKind,
@@ -940,9 +955,12 @@ export class ViewerActions {
       this.store.setError(result.error);
       return;
     }
-
     const sceneStart = performance.now();
     const scene = this.bridge.scene();
+    const placementsWithGeneratedIds = placements.map((placement, index) => ({
+      ...placement,
+      generatedBundleId: result.generatedBundleIds?.[index] ?? placement.generatedBundleId
+    }));
     this.store.update((current) => ({
       ...current,
       parts: scene.parts,
@@ -957,10 +975,10 @@ export class ViewerActions {
       generationTiming: result.timing,
       generationCallMs: generateEnd - generateStart,
       pathPoints: before.keepPathAfterGenerate ? points : [],
-      pathPointSpecs: before.keepPathAfterGenerate ? before.pathPointSpecs : [],
+      pathPointSpecs: before.keepPathAfterGenerate ? pointSpecs : [],
       showBackboneOverlay: true,
       bundleTemplates,
-      drawBundlePlacements: placements
+      drawBundlePlacements: placementsWithGeneratedIds
     }));
     this.reproTrace.recordGeneration(before, points, result, this.readSnapshot());
     const sceneUpdateMs = performance.now() - sceneStart;
@@ -988,7 +1006,8 @@ export class ViewerActions {
       viewerUpdateMs,
       logs: [
         ...current.logs,
-        `route generated: ${result.generatedPoleCount} poles / ${result.generatedSpanCount} spans` +
+        `${fromPlacementEdit ? "bundle placement updated" : "route generated"}: ` +
+          `${result.generatedPoleCount} poles / ${result.generatedSpanCount} spans` +
           `${timingDiagnostic}${sceneDiagnostic}`
       ]
     }));

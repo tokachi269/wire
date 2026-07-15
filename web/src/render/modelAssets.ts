@@ -229,7 +229,14 @@ export function buildDefaultModelBootstrap(
   beltTransform.scaleX = 1 / beltReference;
   beltTransform.scaleY = 1 / beltReference;
   const crossarmTransform = identityTransform();
+  // The default 10 m distribution pole is 0.129 m in radius at the 9.2 m HV
+  // row. Offset the 0.08 m-deep arm so its pole-facing surface meets the pole.
+  crossarmTransform.positionX = 0.169;
   crossarmTransform.rotationZ = 90;
+  const lowVoltageArmTransform = identityTransform();
+  // At the default 7.4 m LV row the pole radius is 0.147 m; the long clamp is
+  // 0.047 m deep. Its authored long axis becomes assembly-local Y.
+  lowVoltageArmTransform.positionX = 0.170;
   const hvWireSocket: ModelSocketInput = {
     name: "wire",
     positionX: 0,
@@ -265,6 +272,7 @@ export function buildDefaultModelBootstrap(
   const hvEndpointAssemblyId = 9203;
   const communicationEndpointAssemblyId = 9204;
   const communicationPoleAssemblyId = 9205;
+  const lowVoltageRowAssemblyId = 9206;
   return {
     assemblies: [
       {
@@ -299,6 +307,15 @@ export function buildDefaultModelBootstrap(
         version: 1,
         parts: [part(pole, 1, 1, communicationPoleTransform)],
         wireSocket: null
+      },
+      {
+        id: lowVoltageRowAssemblyId,
+        version: 1,
+        parts: [
+          part(communicationClamp, 1, 0, lowVoltageArmTransform),
+          part(belt, 2, 2, beltTransform)
+        ],
+        wireSocket: null
       }
     ],
     poleAssignments: [
@@ -310,6 +327,11 @@ export function buildDefaultModelBootstrap(
         bundleTemplateId: 101,
         rowAssemblyId: hvRowAssemblyId,
         endpointAssemblyId: hvEndpointAssemblyId
+      },
+      {
+        bundleTemplateId: 102,
+        rowAssemblyId: lowVoltageRowAssemblyId,
+        endpointAssemblyId: 0
       },
       {
         bundleTemplateId: 104,

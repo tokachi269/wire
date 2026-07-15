@@ -1,5 +1,7 @@
 #include "model_assembly.hpp"
 
+#include "emit_shared.hpp"
+
 #include "wire/core/coord_utils.hpp"
 #include "wire/core/core_view.hpp"
 
@@ -33,7 +35,13 @@ struct RowFixtureContext {
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   ModelAssemblyTemplateId assembly_id = kInvalidModelAssemblyTemplateId;
   double layout_yaw_deg = 0.0;
-  std::vector<ObjectId> port_ids{};
+  struct Member {
+    ObjectId port_id = kInvalidObjectId;
+    std::size_t lane_index = 0;
+    int placement_band_id = 0;
+    double edge_lateral_offset_m = 0.0;
+  };
+  std::vector<Member> members{};
 };
 
 Matrix3 matrix_from_euler(const Vec3d& euler_deg) {
@@ -249,11 +257,16 @@ const ModelAssemblySocket* socket_for(const ModelAssemblyTemplate& assembly,
 
 void append_instances(const CoreState& state, const Pole& pole, double placement_height_m,
                       const ModelAssemblyTemplate& assembly, const Transformd& root,
+                      const Vec3d& rigid_offset_world,
                       const std::string& key_prefix, VisualModelInstanceCache* cache,
                       std::string* error) {
   for (const ModelAssemblyPart& part : assembly.parts) {
+    Transformd part_root = root;
+    if (part.fit_mode != ModelFitMode::kPoleRadial) {
+      part_root.position = part_root.position + rigid_offset_world;
+    }
     const EditResult<Transformd> world =
-        fitted_part_transform(state, pole, placement_height_m, part, root);
+        fitted_part_transform(state, pole, placement_height_m, part, part_root);
     if (!world.ok) {
       *error = world.error;
       return;
@@ -266,6 +279,42 @@ void append_instances(const CoreState& state, const Pole& pole, double placement
     instance.content_version = content_version(assembly, part, instance.world_transform);
     cache->instances.push_back(std::move(instance));
   }
+}
+
+EditResult<double> row_lateral_position(const CoreState& state,
+                                        const RowFixtureContext& row) {
+  EditResult<double> out{};
+  const CoreView view = state.view();
+  const auto pole_type_it = view.pole_types().find(row.pole->pole_type_id);
+  const auto bundle_it = view.bundle_templates().find(row.bundle_template_id);
+  if (pole_type_it == view.pole_types().end() ||
+      bundle_it == view.bundle_templates().end() || row.members.empty()) {
+    out.error = "model assembly unsupported: row placement definition is missing";
+    return out;
+  }
+  const bool uses_lane_bands = std::any_of(
+      row.members.begin() + 1, row.members.end(), [&](const RowFixtureContext::Member& member) {
+        return member.placement_band_id != row.members.front().placement_band_id;
+      });
+  double sum = 0.0;
+  for (const RowFixtureContext::Member& member : row.members) {
+    const auto band_it = std::find_if(
+        pole_type_it->second.port_bands.begin(), pole_type_it->second.port_bands.end(),
+        [&](const PortPlacementBand& band) { return band.band_id == member.placement_band_id; });
+    if (band_it == pole_type_it->second.port_bands.end()) {
+      out.error = "model assembly unsupported: row placement band is missing";
+      return out;
+    }
+    const double lane_offset = uses_lane_bands
+                                   ? 0.0
+                                   : LaneOffset(member.lane_index,
+                                                static_cast<int>(row.members.size()),
+                                                bundle_it->second.default_spacing_m);
+    sum += band_it->lateral_center_m + lane_offset + member.edge_lateral_offset_m;
+  }
+  out.value = sum / static_cast<double>(row.members.size());
+  out.ok = true;
+  return out;
 }
 
 std::string row_key_text(const SavedBackboneRowKey& row_key) {
@@ -329,7 +378,7 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
       return out;
     }
     std::string error{};
-    append_instances(state, pole, 0.0, assembly_it->second, pole.world_transform,
+    append_instances(state, pole, 0.0, assembly_it->second, pole.world_transform, {},
                      "pole:" + std::to_string(pole.id), &out.value, &error);
     if (!error.empty()) {
       out.error = std::move(error);
@@ -357,38 +406,67 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
              row.bundle_template_id == binding.bundle_template_id;
     });
     if (row_it == rows.end()) {
+      const SavedBackboneEdgeBundle* edge_bundle =
+          view.backbone_edge_bundle(binding.edge_bundle_id);
+      const SavedBackboneEdge* edge =
+          edge_bundle == nullptr ? nullptr : view.backbone_edge(edge_bundle->edge_id);
+      if (edge == nullptr) {
+        out.error = "model assembly unsupported: row source edge is missing";
+        return out;
+      }
       rows.push_back({pole, binding.row_key, binding.bundle_template_id,
-                      bundle_it->second.row_fixture_assembly_id, binding.layout_yaw_deg, {port->id}});
+                      bundle_it->second.row_fixture_assembly_id, binding.layout_yaw_deg,
+                      {{port->id, binding.lane_index, binding.placement_band_id,
+                        edge->lateral_offset_m}}});
     } else {
       if (row_it->assembly_id != bundle_it->second.row_fixture_assembly_id ||
           std::abs(row_it->layout_yaw_deg - binding.layout_yaw_deg) > 1e-9) {
         out.error = "model assembly unsupported: saved row resolves inconsistent fixture data";
         return out;
       }
-      if (std::find(row_it->port_ids.begin(), row_it->port_ids.end(), port->id) == row_it->port_ids.end()) {
-        row_it->port_ids.push_back(port->id);
+      const auto member_it = std::find_if(
+          row_it->members.begin(), row_it->members.end(),
+          [&](const RowFixtureContext::Member& member) { return member.port_id == port->id; });
+      if (member_it == row_it->members.end()) {
+        const SavedBackboneEdgeBundle* edge_bundle =
+            view.backbone_edge_bundle(binding.edge_bundle_id);
+        const SavedBackboneEdge* edge =
+            edge_bundle == nullptr ? nullptr : view.backbone_edge(edge_bundle->edge_id);
+        if (edge == nullptr) {
+          out.error = "model assembly unsupported: row source edge is missing";
+          return out;
+        }
+        row_it->members.push_back({port->id, binding.lane_index, binding.placement_band_id,
+                                   edge->lateral_offset_m});
       }
     }
   }
 
   for (const RowFixtureContext& row : rows) {
     const auto assembly_it = view.model_assembly_templates().find(row.assembly_id);
-    if (assembly_it == view.model_assembly_templates().end() || row.port_ids.empty()) {
+    if (assembly_it == view.model_assembly_templates().end() || row.members.empty()) {
       out.error = "model assembly unsupported: row fixture assembly is missing";
       return out;
     }
     const PoleFrame frame = BuildPoleFrame(row.pole->world_transform, row.layout_yaw_deg);
     double height_m = 0.0;
-    for (ObjectId port_id : row.port_ids) {
-      height_m += WorldPointToLocal(frame, view.ports().find(port_id)->world_position).z;
+    for (const RowFixtureContext::Member& member : row.members) {
+      height_m += WorldPointToLocal(frame, view.ports().find(member.port_id)->world_position).z;
     }
-    height_m /= static_cast<double>(row.port_ids.size());
+    height_m /= static_cast<double>(row.members.size());
+    const EditResult<double> lateral = row_lateral_position(state, row);
+    if (!lateral.ok) {
+      out.error = lateral.error;
+      return out;
+    }
     const Transformd root = transform_from_frame(frame, LocalPointToWorld(frame, {0.0, 0.0, height_m}));
     std::string error{};
-    append_instances(state, *row.pole, height_m, assembly_it->second, root,
-                     "row:" + std::to_string(row.pole->id) + ":" + row_key_text(row.row_key) + ":" +
-                         std::to_string(row.bundle_template_id),
-                     &out.value, &error);
+    append_instances(
+        state, *row.pole, height_m, assembly_it->second, root,
+        ScaleVec(frame.lateral, lateral.value),
+        "row:" + std::to_string(row.pole->id) + ":" + row_key_text(row.row_key) + ":" +
+            std::to_string(row.bundle_template_id),
+        &out.value, &error);
     if (!error.empty()) {
       out.error = std::move(error);
       return out;
@@ -414,7 +492,7 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
     const double height_m = WorldPointToLocal(frame, port->world_position).z;
     const Transformd root = transform_from_frame(frame, port->world_position);
     std::string error{};
-    append_instances(state, *context.value.pole, height_m, *context.value.assembly, root,
+    append_instances(state, *context.value.pole, height_m, *context.value.assembly, root, {},
                      "port:" + std::to_string(port->id), &out.value, &error);
     if (!error.empty()) {
       out.error = std::move(error);

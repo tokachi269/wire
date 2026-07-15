@@ -35,7 +35,7 @@ describe("model asset cache", () => {
     expect(first.size.y * (10 / 12)).toBeCloseTo(10, 12);
   });
 
-  it("builds HV and communication assemblies from measured local assets", async () => {
+  it("builds HV, LV, and communication assemblies from measured local assets", async () => {
     const load = vi.fn(async () => {
       const geometry = new THREE.BoxGeometry(0.1, 0.2, 0.4);
       const source = new THREE.Group();
@@ -71,6 +71,11 @@ describe("model asset cache", () => {
       11.35 / (pole.bounds.max.y - pole.mountAnchor.y), 12
     );
     expect(bootstrap.bundleAssignments).toContainEqual({
+      bundleTemplateId: 102,
+      rowAssemblyId: 9206,
+      endpointAssemblyId: 0
+    });
+    expect(bootstrap.bundleAssignments).toContainEqual({
       bundleTemplateId: 104,
       rowAssemblyId: 0,
       endpointAssemblyId: 9204
@@ -82,5 +87,14 @@ describe("model asset cache", () => {
     expect(clampPart.localTransform.positionY).toBeCloseTo(clamp.size.z * 0.5, 12);
     expect(clampPart.sockets[0].positionY).toBeCloseTo(-clamp.size.z * 0.5, 12);
     expect(communication.wireSocket).toEqual({ partId: 1, socketName: "wire" });
+    const highVoltage = bootstrap.assemblies.find((assembly) => assembly.id === 9202)!;
+    expect(highVoltage.parts.find((part) => part.modelKey === "hv_crossarm")!
+      .localTransform.positionX).toBeCloseTo(0.169, 12);
+    const lowVoltage = bootstrap.assemblies.find((assembly) => assembly.id === 9206)!;
+    expect(lowVoltage.parts.map((part) => part.modelKey)).toEqual([
+      "communication_clamp_long",
+      "pole_belt"
+    ]);
+    expect(lowVoltage.parts[0].localTransform.positionX).toBeCloseTo(0.170, 12);
   });
 });

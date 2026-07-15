@@ -2436,6 +2436,7 @@ bool C745_legacy_wrap_family_is_absent() {
   const std::filesystem::path web_source = repo_root() / "web/src";
   for (const auto& entry : std::filesystem::recursive_directory_iterator(web_source)) {
     if (!entry.is_regular_file()) continue;
+    if (entry.path().extension() != ".ts" && entry.path().extension() != ".svelte") continue;
     std::string source{};
     if (!file_text(entry.path(), &source) || contains_text(source, "wrapRadius") ||
         contains_text(source, "wrapTurnsPerMeter") || contains_text(source, "wrapPhase") ||

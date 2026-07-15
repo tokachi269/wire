@@ -27,6 +27,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 |---|---|---|---|---|---|---|---|
 | Left/Right Panel / Workspace Width | web layout store | toggle / slider | UI | 生反映 | 直して移植 | desktop の unified/window mode は持たず、左右panelの表示と幅だけを管理する | P1 |
 | Camera FOV | renderer camera action | slider | camera | 生反映 | そのまま | renderer 所有で core 非依存 | P1 |
+| Ground Grid | renderer store | toggle | UI | 生反映 | そのまま | world geometryを変えずGridHelperの表示だけ切り替える | P1 |
 | Reset Workspace | workspace cache action | button | Core + UI | commit | 直して移植 | factory CoreStateと既定UIへ戻し、同じ内容でcacheを置換する | P1 |
 | Walk Speed / Mouse Sensitivity / Start-Stop Walk | なし | slider / button | desktop input | - | 捨てる | web は OrbitControls の orbit/pan/zoomを採用し walk mode は非対象 | P2 |
 | Clear Selection | selection action | button | UI | 即時 | そのまま | store の選択だけを消す | P1 |
@@ -46,7 +47,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Show Preview | renderer store | toggle | `kRedraw`相当 | 生反映 | そのまま | JS は点列を表示するだけで wire geometry を補完しない | P1 |
 | Keep Path After Generate | draw store | toggle | UI | 生反映 | そのまま | action 成功後の入力点列保持だけ | P1 |
 | Path PoleType | generation action input | select | `kRegenerate` | release commit | そのまま | 明示 template id を渡す | P1 |
-| Bundle Templates / Count | generation action input | multi-select / number | `kRegenerate` | release commit | そのまま | bundle と count は明示入力。JS で topology を作らない | P1 |
+| Bundle placement / Count / Height / Offset / Spread | `BackboneSpec::bundles` | ordered records | `kRegenerate` | release commit | 直して移植 | Height/Offsetはpole-local絶対値。全category共通。同じBundleTemplateを複数配置でき、行右上の小さい`＋`は配置recordを直後へ複製する。JSでSpan topologyを作らない | P1 |
 | Direction Mode / Flip Direction | generation action input | select / button | `kRegenerate` | release commit | そのまま | `BackboneSpec` の明示入力 | P1 |
 | Generate From Path | `GenerateFromBackboneSpec` | button | `kRegenerate` | commit | 直して移植 | W3 の action。`EditResult.error`を必ず表示する | P1 |
 | Undo Last Point / Clear Path | draw store | button | UI | 即時 | そのまま | committed core state は変更しない | P1 |

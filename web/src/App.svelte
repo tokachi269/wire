@@ -6,6 +6,7 @@
   import Outliner from "./panels/Outliner.svelte";
   import SelectionInspector from "./panels/SelectionInspector.svelte";
   import { buildInfo } from "./buildInfo";
+  import { bundleTemplateCategory, categoryShort } from "./labels";
   import type { GenerationTiming } from "./model";
   import {
     createViewerSnapshot,
@@ -252,25 +253,37 @@
             </select>
           </label>
           <fieldset class="bundle-picker">
-            <legend>Bundle templates</legend>
-            {#each snapshot.bundleTemplates as template}
-              <div class="bundle-choice">
-                <label class="check">
-                  <input type="checkbox"
-                    checked={snapshot.selectedDrawBundleTemplateIds.includes(template.id)}
-                    onchange={() => actions.toggleDrawBundleTemplate(template.id)} />
-                  {template.name}
-                </label>
-                {#if template.fixedCount}
-                  <span>{template.fixedCountValue}</span>
-                {:else}
-                  <input aria-label={`${template.name} count`} type="number"
-                    min={template.minCount} max={template.maxCount}
-                    value={snapshot.drawBundleCounts[template.id] ?? template.defaultCount}
-                    onchange={(event) =>
-                      actions.setDrawBundleCount(template.id, Number(event.currentTarget.value))} />
-                {/if}
-              </div>
+            <legend>Bundle placement</legend>
+            <div class="bundle-placement bundle-placement-head">
+              <span>Bundle</span><span>Height</span><span>Offset</span><span>Spread</span><span>Count</span>
+            </div>
+            {#each snapshot.drawBundlePlacements as placement (placement.id)}
+              {@const template = snapshot.bundleTemplates.find((item) => item.id === placement.bundleTemplateId)}
+              {#if template !== undefined && bundleTemplateCategory(template) !== 4}
+                {@const siblings = snapshot.drawBundlePlacements.filter((item) => item.bundleTemplateId === template.id)}
+                {@const index = siblings.findIndex((item) => item.id === placement.id)}
+                <div class="bundle-placement">
+                  <span class="bundle-placement-name">
+                    <strong>{categoryShort(bundleTemplateCategory(template))}{siblings.length > 1 ? ` ${index + 1}` : ""}</strong>
+                    <button class="bundle-placement-add" type="button"
+                      aria-label={`Duplicate ${template.name}`} title="Duplicate bundle placement"
+                      onclick={() => actions.duplicateDrawBundlePlacement(placement.id)}>+</button>
+                  </span>
+                  <input aria-label={`${template.name} ${index + 1} height`} type="number" step="0.05" value={placement.height}
+                    onchange={(event) => actions.updateDrawBundlePlacement(placement.id, { height: Number(event.currentTarget.value) })} />
+                  <input aria-label={`${template.name} ${index + 1} offset`} type="number" step="0.02" value={placement.offset}
+                    onchange={(event) => actions.updateDrawBundlePlacement(placement.id, { offset: Number(event.currentTarget.value) })} />
+                  <input aria-label={`${template.name} ${index + 1} spread`} type="number" min="0.001" step="0.02" value={placement.spacing}
+                    onchange={(event) => actions.updateDrawBundlePlacement(placement.id, { spacing: Number(event.currentTarget.value) })} />
+                  {#if template.fixedCount}
+                    <span>{template.fixedCountValue}</span>
+                  {:else}
+                    <input aria-label={`${template.name} ${index + 1} count`} type="number"
+                      min={template.minCount} max={template.maxCount} value={placement.count}
+                      onchange={(event) => actions.updateDrawBundlePlacement(placement.id, { count: Number(event.currentTarget.value) })} />
+                  {/if}
+                </div>
+              {/if}
             {/each}
           </fieldset>
           <label class="check"><input type="checkbox" checked={snapshot.showBackboneOverlay}

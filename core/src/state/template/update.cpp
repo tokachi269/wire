@@ -625,20 +625,21 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     return result;
   }
   if (assembly.helix_enabled &&
-      (!assembly.support_path_enabled || normalized.support_wire_pole_band_id <= 0 ||
-       assembly.helix_turns_per_meter <= 0.0)) {
-    result.error = "enabled span visual assembly requires a support band and positive helix turns";
+      (!assembly.support_path_enabled || assembly.helix_turns_per_meter <= 0.0)) {
+    result.error = "enabled span visual assembly requires a support path and positive helix turns";
     return result;
   }
   if (assembly.helix_enabled) {
-    const PoleTypeDefinition* pole_type = state.find_pole_type(normalized.related_pole_type_id);
-    const bool has_support_band = pole_type != nullptr && std::any_of(
-        pole_type->port_bands.begin(), pole_type->port_bands.end(), [&](const PortPlacementBand& band) {
-          return band.band_id == normalized.support_wire_pole_band_id && band.enabled;
-        });
-    if (!has_support_band) {
-      result.error = "enabled span visual assembly requires an enabled support band on the related pole type";
-      return result;
+    if (normalized.support_wire_pole_band_id > 0) {
+      const PoleTypeDefinition* pole_type = state.find_pole_type(normalized.related_pole_type_id);
+      const bool has_support_band = pole_type != nullptr && std::any_of(
+          pole_type->port_bands.begin(), pole_type->port_bands.end(), [&](const PortPlacementBand& band) {
+            return band.band_id == normalized.support_wire_pole_band_id && band.enabled;
+          });
+      if (!has_support_band) {
+        result.error = "enabled span visual assembly requires an enabled support band on the related pole type";
+        return result;
+      }
     }
     const CableTemplate* assembly_cable = state.find_cable_template(normalized.cable_template_id);
     const double minimum_radius =

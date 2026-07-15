@@ -325,6 +325,13 @@ struct BackboneBundleSpec {
   SpanLayer layer = SpanLayer::kUnknown;
   // Used only for variable-count templates. Fixed templates reject count input.
   int count = 0;
+  // Explicit pole-local Bundle placement. Band selection still owns fixture semantics.
+  bool placement_explicit = false;
+  double height_m = 0.0;
+  double lateral_m = 0.0;
+  double spacing_m = 0.0;
+  // Existing Bundle identity used only by saved-scope regeneration.
+  ObjectId existing_bundle_id = kInvalidObjectId;
 };
 
 struct BackboneSpec {

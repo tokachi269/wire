@@ -1,6 +1,7 @@
 import { ReproTrace } from "./reproTrace";
 import type { WireBridge } from "../bridge/wire";
 import type {
+  BundlePlacement,
   BundleTemplateInfo,
   CableTemplateInfo,
   GeometrySettings,
@@ -21,6 +22,7 @@ import type {
 import { createViewerSnapshot } from "../store/viewer";
 import type { WorkspacePreferences } from "../store/workspace";
 import { WorkspaceCache } from "../store/workspace";
+import { bundleTemplateCategory } from "../labels";
 
 const JAPAN_DISTRIBUTION_PRIMITIVE = {
   poleVisibleHeightM: 10.0,
@@ -142,6 +144,61 @@ function shallowEqual<T extends object>(a: T, b: T): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+function targetTemplateLayerForCategory(category: number): number {
+  if (category === 0) return 2;
+  if (category === 4) return 0;
+  return 1;
+}
+
+function bundlePlacementDefault(
+  template: BundleTemplateInfo,
+  poleTemplate: PoleTemplateInfo | undefined
+): Pick<BundlePlacement, "height" | "offset" | "spacing"> {
+  const category = bundleTemplateCategory(template);
+  const targetLayer = targetTemplateLayerForCategory(category);
+  const laneCount = template.fixedCount ? template.fixedCountValue : template.defaultCount;
+  const candidates = (poleTemplate?.portBands ?? [])
+    .filter((band) => band.enabled && band.category === category && band.layer === targetLayer)
+    .sort((a, b) => b.priority - a.priority || a.bandId - b.bandId);
+  const bands = candidates.filter((candidate, index, all) =>
+    all.findIndex((item) => Math.abs(item.lateralCenter - candidate.lateralCenter) <= 1e-12) === index
+  ).slice(0, Math.max(1, laneCount));
+  const divisor = Math.max(1, bands.length);
+  return {
+    height: bands.reduce((sum, band) => sum + band.heightCenter, 0) / divisor,
+    offset: bands.reduce((sum, band) => sum + band.lateralCenter, 0) / divisor,
+    spacing: template.defaultSpacing
+  };
+}
+
+function defaultBundlePlacements(
+  templates: BundleTemplateInfo[],
+  poleTemplate: PoleTemplateInfo | undefined
+): BundlePlacement[] {
+  return templates
+    .filter((template) => [0, 1, 2, 3].includes(bundleTemplateCategory(template)))
+    .map((template) => ({
+      id: 0,
+      bundleTemplateId: template.id,
+      count: template.defaultCount,
+      explicit: true,
+      ...bundlePlacementDefault(template, poleTemplate)
+    }))
+    .sort((a, b) => b.height - a.height ||
+      bundleTemplateCategory(templates.find((item) => item.id === a.bundleTemplateId) ??
+        { defaultLayer: 0 }) -
+      bundleTemplateCategory(templates.find((item) => item.id === b.bundleTemplateId) ??
+        { defaultLayer: 0 }))
+    .map((placement, index) => ({ ...placement, id: index + 1 }));
+}
+
+function placementUsesTransientZeroDefaults(placements: BundlePlacement[]): boolean {
+  return placements.length > 0 &&
+    placements.every((placement) =>
+      Math.abs(placement.height) <= 1e-12 && Math.abs(placement.offset) <= 1e-12
+    );
+}
+
 export class ViewerActions {
   private pendingPreview: ReturnType<typeof setTimeout> | null = null;
   private activeCancel: (() => void) | null = null;
@@ -196,7 +253,7 @@ export class ViewerActions {
       return patched;
     });
     const defaultBundleId =
-      bundleTemplates.find((template) => template.kind === 0)?.id ??
+      bundleTemplates.find((template) => bundleTemplateCategory(template) === 0)?.id ??
       bundleTemplates[0]?.id ??
       null;
     const defaultCableId =
@@ -212,18 +269,13 @@ export class ViewerActions {
       bundleTemplates,
       selectedBundleTemplateId:
         current.selectedBundleTemplateId ?? defaultBundleId,
-      selectedDrawBundleTemplateIds:
-        current.selectedDrawBundleTemplateIds.length > 0
-          ? current.selectedDrawBundleTemplateIds
-          : bundleTemplates
-              .filter((template) => [0, 1, 2, 3].includes(template.kind))
-              .map((template) => template.id),
-      drawBundleCounts: Object.fromEntries(
-        bundleTemplates.map((template) => [
-          template.id,
-          current.drawBundleCounts[template.id] ?? template.defaultCount
-        ])
-      ),
+      drawBundlePlacements:
+        current.drawBundlePlacements.length > 0
+          ? current.drawBundlePlacements
+          : defaultBundlePlacements(
+              bundleTemplates,
+              poleTemplates.find((template) => template.id === defaultPoleId)
+            ),
       cableTemplates,
       selectedCableTemplateId:
         current.selectedCableTemplateId ?? defaultCableId,
@@ -268,7 +320,10 @@ export class ViewerActions {
     let nextSpec: PathPointSpec | null = null;
     if (pick !== undefined) {
       const before = this.readSnapshot();
-      const resolved = this.bridge.resolveBranchPick(pick, before.selectedDrawBundleTemplateIds);
+      const resolved = this.bridge.resolveBranchPick(
+        pick,
+        [...new Set(before.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
+      );
       if (!resolved.ok) {
         this.store.setError(resolved.error);
         return;
@@ -340,6 +395,7 @@ export class ViewerActions {
     param:
       | "cameraFov"
       | "showBackboneOverlay"
+      | "showGroundGrid"
       | "showPreview"
       | "keepPathAfterGenerate"
       | "drawPlaneZ"
@@ -375,20 +431,24 @@ export class ViewerActions {
     }));
   }
 
-  toggleDrawBundleTemplate(id: number): void {
+  updateDrawBundlePlacement(id: number, change: Partial<Omit<BundlePlacement, "id">>): void {
     this.store.update((current) => ({
       ...current,
-      selectedDrawBundleTemplateIds: current.selectedDrawBundleTemplateIds.includes(id)
-        ? current.selectedDrawBundleTemplateIds.filter((candidate) => candidate !== id)
-        : [...current.selectedDrawBundleTemplateIds, id]
+      drawBundlePlacements: current.drawBundlePlacements.map((placement) =>
+        placement.id === id ? { ...placement, ...change } : placement
+      )
     }));
   }
 
-  setDrawBundleCount(id: number, count: number): void {
-    this.store.update((current) => ({
-      ...current,
-      drawBundleCounts: { ...current.drawBundleCounts, [id]: count }
-    }));
+  duplicateDrawBundlePlacement(id: number): void {
+    this.store.update((current) => {
+      const index = current.drawBundlePlacements.findIndex((placement) => placement.id === id);
+      if (index < 0) return current;
+      const nextId = Math.max(0, ...current.drawBundlePlacements.map((placement) => placement.id)) + 1;
+      const placements = [...current.drawBundlePlacements];
+      placements.splice(index + 1, 0, { ...placements[index], id: nextId });
+      return { ...current, drawBundlePlacements: placements };
+    });
   }
 
   selectCableTemplate(id: number): void {
@@ -837,19 +897,19 @@ export class ViewerActions {
 
   private generatePoints(points: WorldPoint[]): void {
     const before = this.readSnapshot();
-    const selectedBundleTemplateIds = before.selectedDrawBundleTemplateIds;
+    const placements = before.drawBundlePlacements;
     const bundleTemplates: BundleTemplateInfo[] = before.bundleTemplates;
 
     if (points.length < 2) {
       this.store.setError("path needs at least 2 points");
       return;
     }
-    if (selectedBundleTemplateIds.length === 0) {
-      this.store.setError("select at least one bundle template");
+    if (placements.length === 0) {
+      this.store.setError("add at least one bundle placement");
       return;
     }
-    const selectedTemplates = selectedBundleTemplateIds.map((id) =>
-      bundleTemplates.find((template) => template.id === id)
+    const selectedTemplates = placements.map((placement) =>
+      bundleTemplates.find((template) => template.id === placement.bundleTemplateId)
     );
     if (selectedTemplates.some((template) => template === undefined)) {
       this.store.setError("selected bundle template is not available");
@@ -867,14 +927,9 @@ export class ViewerActions {
     const generateStart = performance.now();
     const result = this.bridge.generate(
       flatPoints,
-      selectedTemplates.map((template) => template!.id),
+      placements,
       before.clickedPointsOnly ? 0 : before.intervalM,
       before.selectedPoleTemplateId ?? 1,
-      selectedTemplates.map((template) =>
-        template!.fixedCount
-          ? 0
-          : before.drawBundleCounts[template!.id] ?? template!.defaultCount
-      ),
       before.directionMode,
       before.maxTiltDeg,
       nodeSpecs
@@ -905,7 +960,7 @@ export class ViewerActions {
       pathPointSpecs: before.keepPathAfterGenerate ? before.pathPointSpecs : [],
       showBackboneOverlay: true,
       bundleTemplates,
-      selectedDrawBundleTemplateIds: selectedBundleTemplateIds
+      drawBundlePlacements: placements
     }));
     this.reproTrace.recordGeneration(before, points, result, this.readSnapshot());
     const sceneUpdateMs = performance.now() - sceneStart;
@@ -1113,12 +1168,70 @@ export class ViewerActions {
   }
 
   private restoreWorkspacePreferences(preferences: WorkspacePreferences): void {
-    this.store.update((current) => ({
-      ...current,
-      ...preferences,
-      pathPoints: [],
-      pathPointSpecs: []
-    }));
+    this.store.update((current) => {
+      const legacyIds = preferences.selectedDrawBundleTemplateIds ?? [];
+      const placements = preferences.drawBundlePlacements ?? legacyIds.map((bundleTemplateId, index) => {
+        const template = current.bundleTemplates.find((item) => item.id === bundleTemplateId);
+        return {
+          id: index + 1,
+          bundleTemplateId,
+          count: preferences.drawBundleCounts?.[bundleTemplateId] ?? template?.defaultCount ?? 1,
+          explicit: true,
+          ...(template === undefined
+            ? { height: 0, offset: 0, spacing: 0.2 }
+            : bundlePlacementDefault(
+                template,
+                current.poleTemplates.find((item) => item.id === current.selectedPoleTemplateId)
+              ))
+        };
+      });
+      const transientZeroDefaults = preferences.drawBundlePlacements !== undefined &&
+        placementUsesTransientZeroDefaults(preferences.drawBundlePlacements);
+      const normalizedPlacements = placements.map((placement) => {
+        const legacy = placement as BundlePlacement & {
+          heightOffset?: number;
+          lateralOffset?: number;
+        };
+        const template = current.bundleTemplates.find(
+          (item) => item.id === placement.bundleTemplateId
+        );
+        const defaults = template === undefined
+          ? { height: 0, offset: 0, spacing: placement.spacing }
+          : bundlePlacementDefault(
+              template,
+              current.poleTemplates.find((item) => item.id === current.selectedPoleTemplateId)
+            );
+        return {
+          id: placement.id,
+          bundleTemplateId: placement.bundleTemplateId,
+          count: placement.count,
+          explicit: legacy.explicit ?? true,
+          height: transientZeroDefaults
+            ? defaults.height
+            : placement.height ?? defaults.height + (legacy.heightOffset ?? 0),
+          offset: transientZeroDefaults
+            ? defaults.offset
+            : placement.offset ?? defaults.offset + (legacy.lateralOffset ?? 0),
+          spacing: placement.spacing
+        };
+      });
+      const uniqueTemplates = new Set(
+        normalizedPlacements.map((placement) => placement.bundleTemplateId)
+      ).size === normalizedPlacements.length;
+      const orderedPlacements = uniqueTemplates
+        ? [...normalizedPlacements].sort((a, b) => b.height - a.height)
+        : normalizedPlacements;
+      return {
+        ...current,
+        ...preferences,
+        drawBundlePlacements: orderedPlacements.length > 0
+          ? orderedPlacements
+          : current.drawBundlePlacements,
+        showGroundGrid: preferences.showGroundGrid ?? current.showGroundGrid,
+        pathPoints: [],
+        pathPointSpecs: []
+      };
+    });
   }
 
   private startWorkspacePersistence(): void {

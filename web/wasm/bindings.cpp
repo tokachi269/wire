@@ -224,7 +224,35 @@ public:
   WireState() : state_(std::make_unique<CoreState>()) {}
 
   val generate(const val& flat_points, const val& bundle_template_ids, double interval_m, int pole_type_id,
-               const val& counts, int direction_mode, double max_tilt_deg, const val& node_specs = val::undefined()) {
+               const val& counts, int direction_mode, double max_tilt_deg,
+               const val& node_specs = val::undefined()) {
+    const std::size_t count = bundle_template_ids["length"].as<std::size_t>();
+    if (count == 0 || counts["length"].as<std::size_t>() != count) {
+      return result_value(false, "bundle template ids and counts must be non-empty and aligned");
+    }
+    val placements = val::array();
+    for (std::size_t index = 0; index < count; ++index) {
+      const BundleTemplateId id = bundle_template_id(bundle_template_ids[index].as<int>());
+      const auto template_it = CoreView(*state_).bundle_templates().find(id);
+      if (template_it == CoreView(*state_).bundle_templates().end()) {
+        return result_value(false, "bundle template is missing");
+      }
+      val placement = val::object();
+      placement.set("bundleTemplateId", static_cast<int>(id));
+      placement.set("count", counts[index]);
+      placement.set("explicit", false);
+      placement.set("height", 0.0);
+      placement.set("offset", 0.0);
+      placement.set("spacing", template_it->second.default_spacing_m);
+      placements.set(index, placement);
+    }
+    return generate_placements(flat_points, placements, interval_m, pole_type_id,
+                               direction_mode, max_tilt_deg, node_specs);
+  }
+
+  val generate_placements(const val& flat_points, const val& bundle_placements, double interval_m,
+                          int pole_type_id, int direction_mode, double max_tilt_deg,
+                          const val& node_specs = val::undefined()) {
     const std::size_t value_count = flat_points["length"].as<std::size_t>();
     if (value_count % 3 != 0) {
       return result_value(false, "point array length must be divisible by 3");
@@ -257,12 +285,13 @@ public:
     spec.pole_placement.enable_tilt = max_tilt_deg > 0.0;
     spec.pole_placement.max_tilt_deg = max_tilt_deg;
 
-    const std::size_t bundle_count = bundle_template_ids["length"].as<std::size_t>();
-    if (bundle_count == 0 || counts["length"].as<std::size_t>() != bundle_count) {
-      return result_value(false, "bundle template ids and counts must be non-empty and aligned");
+    const std::size_t bundle_count = bundle_placements["length"].as<std::size_t>();
+    if (bundle_count == 0) {
+      return result_value(false, "bundle placements must be non-empty");
     }
     for (std::size_t index = 0; index < bundle_count; ++index) {
-      const BundleTemplateId id = bundle_template_id(bundle_template_ids[index].as<int>());
+      const val placement = bundle_placements[index];
+      const BundleTemplateId id = bundle_template_id(placement["bundleTemplateId"].as<int>());
       if (id == wire::core::kInvalidBundleTemplateId) {
         return result_value(false, "bundle template id is invalid");
       }
@@ -270,7 +299,15 @@ public:
       if (template_it == CoreView(*state_).bundle_templates().end()) {
         return result_value(false, "bundle template is missing");
       }
-      spec.bundles.push_back(BackboneBundleSpec{id, template_it->second.default_layer, counts[index].as<int>()});
+      BackboneBundleSpec bundle{};
+      bundle.bundle_template_id = id;
+      bundle.layer = template_it->second.default_layer;
+      bundle.count = placement["count"].as<int>();
+      bundle.placement_explicit = placement["explicit"].as<bool>();
+      bundle.height_m = placement["height"].as<double>();
+      bundle.lateral_m = placement["offset"].as<double>();
+      bundle.spacing_m = placement["spacing"].as<double>();
+      spec.bundles.push_back(bundle);
     }
 
     const auto generated = state_->GenerateFromBackboneSpec(spec);
@@ -563,8 +600,10 @@ public:
     val output = val::object();
     output.set("id", static_cast<int>(bundle_template.id));
     output.set("kind", static_cast<int>(bundle_template.kind));
+    output.set("category", static_cast<int>(bundle_template.category));
     output.set("name", bundle_template.name);
     output.set("defaultCount", bundle_template.default_count);
+    output.set("defaultSpacing", bundle_template.default_spacing_m);
     output.set("fixedCount", bundle_template.count_rule == wire::core::BundleCountRuleKind::kFixed);
     output.set("fixedCountValue", bundle_template.fixed_count);
     output.set("minCount", bundle_template.min_count);
@@ -1020,6 +1059,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
   emscripten::class_<WireState>("WireState")
       .constructor<>()
       .function("generate", &WireState::generate)
+      .function("generatePlacements", &WireState::generate_placements)
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
       .function("lastGenerationTiming", &WireState::last_generation_timing)
       .function("visualScene", &WireState::visual_scene)

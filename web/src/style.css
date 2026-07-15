@@ -218,18 +218,57 @@ h1 {
   font-size: 0.7rem;
 }
 
-.bundle-choice {
+.bundle-placement {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 56px;
+  grid-template-columns: minmax(74px, 1fr) repeat(3, 42px) 36px;
   align-items: center;
-  gap: 0.4rem;
-  margin-top: 0.25rem;
+  gap: 3px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.66rem;
+}
+
+.bundle-placement input {
+  min-width: 0;
+  padding: 3px;
   font-size: 0.7rem;
 }
 
-.bundle-choice > span {
+.bundle-placement-name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+}
+
+.bundle-placement-add {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  padding: 0;
+  border-radius: 2px;
+  font-size: 10px;
+  line-height: 12px;
+  opacity: 0;
+}
+
+.bundle-placement:hover .bundle-placement-add,
+.bundle-placement:focus-within .bundle-placement-add {
+  opacity: 1;
+}
+
+.bundle-placement-head {
   color: var(--muted);
-  text-align: right;
+  font-size: 0.58rem;
+}
+
+.bundle-placement-empty {
+  color: var(--muted);
 }
 
 .panel-label {

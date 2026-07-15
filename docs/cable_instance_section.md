@@ -23,6 +23,7 @@ helix と support path は topology、connectivity、CableRun identity を変更
 support path はhelixなしでも生成できる。全support pathは同じprimary curve生成を使う。
 support bandが0なら解決済みmember endpointへtrim区間で収束し、中央部だけ線径分離する。
 正数bandなら明示band endpointを使う。別laneを一つのsupport pathへまとめない。
+helixはband 0でも有効であり、既定OPTICALはmember endpoint追従を使う。
 
 ## 禁止する実装
 

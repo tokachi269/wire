@@ -7,6 +7,7 @@
 #include "wire/core/model_descriptor.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <filesystem>
@@ -471,10 +472,16 @@ bool C757_authoritative_roundtrip_compares_fields_directly() {
 
 bool C768_legacy_state_preserves_implicit_helix_support() {
   wire::core::CoreState source;
+  if (!source.GenerateFromBackboneSpec(backbone_tests::line_req(source)).ok) return false;
   std::string saved{};
   if (!source.SerializeAuthoritative(&saved).ok) return false;
 
-  static constexpr std::string_view kField = ".span_visual_assembly.support_path_enabled=";
+  static constexpr std::string_view kSupportField =
+      ".span_visual_assembly.support_path_enabled=";
+  static constexpr std::string_view kBundlePrefix =
+      "authoritative.edit_state.bundles.";
+  static constexpr std::array<std::string_view, 4> kBundleFields = {
+      ".spacing_override_m=", ".placement_explicit=", ".height_m=", ".lateral_m="};
   std::string legacy{};
   legacy.reserve(saved.size());
   std::size_t removed = 0;
@@ -483,7 +490,12 @@ bool C768_legacy_state_preserves_implicit_helix_support() {
     const std::size_t line_end = saved.find('\n', line_begin);
     if (line_end == std::string::npos) return false;
     const std::string_view line(saved.data() + line_begin, line_end - line_begin);
-    if (line.find(kField) == std::string_view::npos) {
+    const bool remove = line.find(kSupportField) != std::string_view::npos ||
+        (line.starts_with(kBundlePrefix) &&
+         std::any_of(kBundleFields.begin(), kBundleFields.end(), [&](std::string_view field) {
+           return line.find(field) != std::string_view::npos;
+         }));
+    if (!remove) {
       legacy.append(line);
       legacy.push_back('\n');
     } else {
@@ -500,12 +512,20 @@ bool C768_legacy_state_preserves_implicit_helix_support() {
     if (bundle.span_visual_assembly.support_path_enabled !=
         bundle.span_visual_assembly.helix_enabled) return false;
   }
+  for (const wire::core::Bundle& bundle : loaded.view().bundles().items()) {
+    if (bundle.spacing_override_m != 0.0 || bundle.placement_explicit ||
+        bundle.height_m != 0.0 || bundle.lateral_m != 0.0) return false;
+  }
 
   std::string migrated{};
   if (!loaded.SerializeAuthoritative(&migrated).ok) return false;
   return std::count(migrated.begin(), migrated.end(), '\n') ==
              std::count(legacy.begin(), legacy.end(), '\n') + static_cast<std::ptrdiff_t>(removed) &&
-         migrated.find(kField) != std::string::npos;
+         migrated.find(kSupportField) != std::string::npos &&
+         std::all_of(kBundleFields.begin(), kBundleFields.end(), [&](std::string_view field) {
+           return migrated.find(kBundlePrefix) != std::string::npos &&
+                  migrated.find(field) != std::string::npos;
+         });
 }
 
 bool C763_model_assembly_registration_is_transactional_and_persistent() {

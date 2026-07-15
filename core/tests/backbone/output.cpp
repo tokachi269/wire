@@ -17,6 +17,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -822,11 +823,12 @@ bool C761_default_optical_bundle_emits_helix() {
       !optical_template->second.span_visual_assembly.support_path_enabled ||
       !optical_template->second.span_visual_assembly.helix_enabled ||
       optical_template->second.span_visual_assembly.helix_samples_per_turn != 6 ||
-      optical_template->second.support_wire_pole_band_id != 600 ||
+      optical_template->second.support_wire_pole_band_id != 0 ||
       communication_template->second.span_visual_assembly.helix_enabled ||
       communication_template->second.support_wire_pole_band_id != 0) return false;
   request.bundles.clear();
   request.pole_type_id = optical_template->second.related_pole_type_id;
+  request.pole_placement.max_tilt_deg = 0.0;
   add_backbone_bundle(request, wire::core::BundleKind::kOptical);
   const auto out = state.GenerateFromBackboneSpec(request);
   if (!out.ok || out.value.generated_span_ids.empty()) return false;
@@ -838,7 +840,48 @@ bool C761_default_optical_bundle_emits_helix() {
     helix_count += part.kind == wire::core::VisualCurvePartKind::kSupplemental &&
         part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix;
   }
-  return support_count == out.value.generated_span_ids.size() && helix_count == support_count;
+  if (support_count != out.value.generated_span_ids.size() || helix_count != support_count) return false;
+
+  using PartSnapshot = std::pair<std::string, std::vector<wire::core::Vec3d>>;
+  const auto snapshot_parts = [](const wire::core::CoreState& source) {
+    std::vector<PartSnapshot> snapshot{};
+    for (const wire::core::VisualCurvePart& part : source.view().visual_curve_parts().parts) {
+      if (part.source_span_id == wire::core::kInvalidObjectId) continue;
+      std::ostringstream key;
+      key << static_cast<int>(part.kind) << ':' << static_cast<int>(part.supplemental_kind) << ':'
+          << part.source_span_id << ':' << part.lane_index;
+      snapshot.emplace_back(key.str(), part.samples);
+    }
+    std::sort(snapshot.begin(), snapshot.end(), [](const PartSnapshot& a, const PartSnapshot& b) {
+      return a.first < b.first;
+    });
+    return snapshot;
+  };
+  const std::vector<PartSnapshot> before = snapshot_parts(state);
+  wire::core::PoleTypeDefinition moved = state.view().pole_types().at(request.pole_type_id);
+  for (wire::core::PortPlacementBand& band : moved.port_bands) {
+    if (band.category != wire::core::ConnectionCategory::kOptical) continue;
+    band.height_center_m += 1.0;
+    band.height_min_m += 1.0;
+    band.height_max_m += 1.0;
+  }
+  const auto updated = state.UpdatePoleTypeDefinition(moved);
+  const std::vector<PartSnapshot> after = snapshot_parts(state);
+  if (!updated.ok || before.size() != after.size()) return false;
+  for (std::size_t part_index = 0; part_index < before.size(); ++part_index) {
+    if (before[part_index].first != after[part_index].first ||
+        before[part_index].second.size() != after[part_index].second.size() ||
+        before[part_index].second.empty()) return false;
+    const wire::core::Vec3d translation =
+        after[part_index].second.front() - before[part_index].second.front();
+    if (std::abs(translation.z - 1.0) > 1e-8) return false;
+    for (std::size_t sample_index = 0; sample_index < before[part_index].second.size(); ++sample_index) {
+      const wire::core::Vec3d& a = before[part_index].second[sample_index];
+      const wire::core::Vec3d& b = after[part_index].second[sample_index];
+      if (wire::core::Length((b - a) - translation) > 1e-8) return false;
+    }
+  }
+  return true;
 }
 
 bool C767_default_hv_emits_one_support_path_per_phase_span() {
@@ -1014,6 +1057,7 @@ bool C636_backbone_edge_body_stops_at_node_patch_boundaries() {
 bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
   wire::core::CoreState state;
   wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.curve_samples = 8;
   settings.sag_enabled = true;
   settings.sag_factor = 0.03;
   if (!state.UpdateGeometrySettings(settings).ok) {
@@ -2242,6 +2286,88 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
         !almost_equal(layout->end.support_world, placement_b.value.wire_endpoint, 1e-9)) {
       return false;
     }
+  }
+  return true;
+}
+
+bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
+  wire::core::CoreState state;
+  const wire::core::BundleTemplateId template_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kOptical);
+  const auto template_it = state.view().bundle_templates().find(template_id);
+  if (template_it == state.view().bundle_templates().end()) return false;
+
+  wire::core::BackboneSpec request{};
+  request.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  request.pole_type_id = template_it->second.related_pole_type_id;
+  wire::core::BackboneBundleSpec first{};
+  first.bundle_template_id = template_id;
+  first.layer = template_it->second.default_layer;
+  first.spacing_m = 0.31;
+  wire::core::BackboneBundleSpec second = first;
+  first.placement_explicit = true;
+  first.height_m = 7.4;
+  first.lateral_m = 0.0;
+  second.placement_explicit = true;
+  second.height_m = 8.4;
+  second.lateral_m = 0.4;
+  second.spacing_m = 0.47;
+  request.bundles = {first, second};
+
+  const auto generated = state.GenerateFromBackboneSpec(request);
+  if (!generated.ok || generated.value.generated_span_ids.size() != 2) return false;
+
+  std::vector<const wire::core::Span*> spans{};
+  for (wire::core::ObjectId span_id : generated.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    if (span == nullptr) return false;
+    spans.push_back(span);
+  }
+  const wire::core::Bundle* bundle_a = state.view().bundles().find(spans[0]->bundle_id);
+  const wire::core::Bundle* bundle_b = state.view().bundles().find(spans[1]->bundle_id);
+  if (bundle_a == nullptr || bundle_b == nullptr || bundle_a->id == bundle_b->id ||
+      bundle_a->bundle_template_id != template_id || bundle_b->bundle_template_id != template_id ||
+      std::abs(bundle_a->phase_spacing_m - 0.31) > 1e-12 ||
+      std::abs(bundle_b->phase_spacing_m - 0.47) > 1e-12 ||
+      !bundle_a->placement_explicit || !bundle_b->placement_explicit ||
+      std::abs(bundle_a->height_m - 7.4) > 1e-12 ||
+      std::abs(bundle_b->height_m - 8.4) > 1e-12 ||
+      std::abs(bundle_a->lateral_m) > 1e-12 ||
+      std::abs(bundle_b->lateral_m - 0.4) > 1e-12) {
+    return false;
+  }
+
+  auto local_port = [&](const wire::core::Span& span, bool start) -> std::optional<wire::core::Vec3d> {
+    const wire::core::ObjectId port_id = start ? span.port_a_id : span.port_b_id;
+    const wire::core::Port* port = state.view().ports().find(port_id);
+    const wire::core::SavedBackbonePortBinding* binding =
+        state.view().backbone_port_binding_for_port(port_id);
+    const wire::core::Pole* pole =
+        port == nullptr ? nullptr : state.view().poles().find(port->owner_pole_id);
+    if (port == nullptr || binding == nullptr || pole == nullptr) return std::nullopt;
+    return wire::core::WorldPointToLocal(
+        wire::core::BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg),
+        port->world_position);
+  };
+  for (bool start : {true, false}) {
+    const auto a = local_port(*spans[0], start);
+    const auto b = local_port(*spans[1], start);
+    if (!a.has_value() || !b.has_value() ||
+        std::abs((b->y - a->y) - 0.4) > 1e-9 ||
+        std::abs((b->z - a->z) - 1.0) > 1e-9) {
+      return false;
+    }
+  }
+
+  for (const wire::core::Bundle* bundle : {bundle_a, bundle_b}) {
+    std::size_t support_count = 0;
+    std::size_t helix_count = 0;
+    for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+      if (part.source_bundle_id != bundle->id) continue;
+      support_count += part.supplemental_kind == wire::core::VisualSupplementalKind::kSupportPath ? 1U : 0U;
+      helix_count += part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix ? 1U : 0U;
+    }
+    if (support_count != 1 || helix_count != 1) return false;
   }
   return true;
 }

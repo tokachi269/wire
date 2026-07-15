@@ -33,6 +33,7 @@ struct PortFixtureContext {
 struct RowFixtureContext {
   const Pole* pole = nullptr;
   SavedBackboneRowKey row_key{};
+  ObjectId bundle_id = kInvalidObjectId;
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   ModelAssemblyTemplateId assembly_id = kInvalidModelAssemblyTemplateId;
   double layout_yaw_deg = 0.0;
@@ -41,6 +42,9 @@ struct RowFixtureContext {
     std::size_t lane_index = 0;
     int placement_band_id = 0;
     double edge_lateral_offset_m = 0.0;
+    bool placement_explicit = false;
+    double bundle_lateral_m = 0.0;
+    double phase_spacing_m = 0.0;
   };
   std::vector<Member> members{};
 };
@@ -302,13 +306,12 @@ EditResult<double> row_lateral_position(const CoreState& state,
   EditResult<double> out{};
   const CoreView view = state.view();
   const auto pole_type_it = view.pole_types().find(row.pole->pole_type_id);
-  const auto bundle_it = view.bundle_templates().find(row.bundle_template_id);
-  if (pole_type_it == view.pole_types().end() ||
-      bundle_it == view.bundle_templates().end() || row.members.empty()) {
+  if (pole_type_it == view.pole_types().end() || row.members.empty()) {
     out.error = "model assembly unsupported: row placement definition is missing";
     return out;
   }
-  const bool uses_lane_bands = std::any_of(
+  const bool placement_explicit = row.members.front().placement_explicit;
+  const bool uses_lane_bands = !placement_explicit && std::any_of(
       row.members.begin() + 1, row.members.end(), [&](const RowFixtureContext::Member& member) {
         return member.placement_band_id != row.members.front().placement_band_id;
       });
@@ -325,8 +328,11 @@ EditResult<double> row_lateral_position(const CoreState& state,
                                    ? 0.0
                                    : LaneOffset(member.lane_index,
                                                 static_cast<int>(row.members.size()),
-                                                bundle_it->second.default_spacing_m);
-    sum += band_it->lateral_center_m + lane_offset + member.edge_lateral_offset_m;
+                                                member.phase_spacing_m);
+    const double placement_lateral = placement_explicit
+                                         ? member.bundle_lateral_m
+                                         : band_it->lateral_center_m;
+    sum += placement_lateral + lane_offset + member.edge_lateral_offset_m;
   }
   out.value = sum / static_cast<double>(row.members.size());
   out.ok = true;
@@ -453,23 +459,27 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
     if (bundle_it->second.row_fixture_assembly_id == kInvalidModelAssemblyTemplateId) {
       continue;
     }
+    const SavedBackboneEdgeBundle* edge_bundle =
+        view.backbone_edge_bundle(binding.edge_bundle_id);
+    const SavedBackboneEdge* edge =
+        edge_bundle == nullptr ? nullptr : view.backbone_edge(edge_bundle->edge_id);
+    const Bundle* bundle =
+        edge_bundle == nullptr ? nullptr : view.bundles().find(edge_bundle->bundle_id);
+    if (edge_bundle == nullptr || edge == nullptr || bundle == nullptr) {
+      out.error = "model assembly unsupported: row source bundle is missing";
+      return out;
+    }
     auto row_it = std::find_if(rows.begin(), rows.end(), [&](const RowFixtureContext& row) {
       return row.pole->id == pole->id && row.row_key == binding.row_key &&
-             row.bundle_template_id == binding.bundle_template_id;
+             row.bundle_id == edge_bundle->bundle_id;
     });
     if (row_it == rows.end()) {
-      const SavedBackboneEdgeBundle* edge_bundle =
-          view.backbone_edge_bundle(binding.edge_bundle_id);
-      const SavedBackboneEdge* edge =
-          edge_bundle == nullptr ? nullptr : view.backbone_edge(edge_bundle->edge_id);
-      if (edge == nullptr) {
-        out.error = "model assembly unsupported: row source edge is missing";
-        return out;
-      }
-      rows.push_back({pole, binding.row_key, binding.bundle_template_id,
+      rows.push_back({pole, binding.row_key, edge_bundle->bundle_id, binding.bundle_template_id,
                       bundle_it->second.row_fixture_assembly_id, binding.layout_yaw_deg,
                       {{port->id, binding.lane_index, binding.placement_band_id,
-                        edge->lateral_offset_m}}});
+                        edge->lateral_offset_m, bundle->placement_explicit,
+                        bundle->lateral_m,
+                        bundle->phase_spacing_m}}});
     } else {
       if (row_it->assembly_id != bundle_it->second.row_fixture_assembly_id ||
           std::abs(row_it->layout_yaw_deg - binding.layout_yaw_deg) > 1e-9) {
@@ -480,16 +490,10 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
           row_it->members.begin(), row_it->members.end(),
           [&](const RowFixtureContext::Member& member) { return member.port_id == port->id; });
       if (member_it == row_it->members.end()) {
-        const SavedBackboneEdgeBundle* edge_bundle =
-            view.backbone_edge_bundle(binding.edge_bundle_id);
-        const SavedBackboneEdge* edge =
-            edge_bundle == nullptr ? nullptr : view.backbone_edge(edge_bundle->edge_id);
-        if (edge == nullptr) {
-          out.error = "model assembly unsupported: row source edge is missing";
-          return out;
-        }
         row_it->members.push_back({port->id, binding.lane_index, binding.placement_band_id,
-                                   edge->lateral_offset_m});
+                                   edge->lateral_offset_m, bundle->placement_explicit,
+                                   bundle->lateral_m,
+                                   bundle->phase_spacing_m});
       }
     }
   }
@@ -517,7 +521,7 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
         state, *row.pole, height_m, assembly_it->second, root,
         ScaleVec(frame.lateral, lateral.value),
         "row:" + std::to_string(row.pole->id) + ":" + row_key_text(row.row_key) + ":" +
-            std::to_string(row.bundle_template_id),
+            std::to_string(row.bundle_id),
         &out.value, &error);
     if (!error.empty()) {
       out.error = std::move(error);

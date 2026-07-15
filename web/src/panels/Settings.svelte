@@ -65,6 +65,9 @@
           actions.commitGeometry("poleClearance", numberValue(event))}
       />
     </label>
+    <button class="secondary" type="button" onclick={() => actions.resetSpanReferenceLengths()}>
+      Reset span reference lengths
+    </button>
   </section>
 
   <section>
@@ -181,7 +184,10 @@
   </section>
 
   <section>
-    <h2>Orientation</h2>
+    <h2>Viewport</h2>
+    <label class="check"><input type="checkbox" checked={snapshot.showGroundGrid}
+      onchange={(event) => actions.setDrawOption("showGroundGrid", checkedValue(event))} />
+      Ground grid</label>
     <label>
       Camera FOV
       <input type="range" min="20" max="110" value={snapshot.cameraFov}
@@ -191,6 +197,10 @@
     <label class="check"><input type="checkbox" checked={snapshot.solidSupportRender}
       onchange={(event) => actions.setDrawOption("solidSupportRender", checkedValue(event))} />
       Solid support render</label>
+  </section>
+
+  <section>
+    <h2>Selection filter</h2>
     <label class="check"><input type="checkbox" checked={snapshot.selectionIncludePoles}
       onchange={(event) => actions.setDrawOption("selectionIncludePoles", checkedValue(event))} />
       Select poles</label>
@@ -200,6 +210,10 @@
     <label class="check"><input type="checkbox" checked={snapshot.selectionIncludeSpans}
       onchange={(event) => actions.setDrawOption("selectionIncludeSpans", checkedValue(event))} />
       Select spans</label>
+  </section>
+
+  <section>
+    <h2>Pole tilt</h2>
     <label>
       Max tilt (also used for generation)
       <input type="number" step="0.5" value={snapshot.maxTiltDeg}
@@ -215,13 +229,6 @@
       onclick={() => actions.applyTiltToSelection(snapshot.maxTiltDeg)}
     >
       Apply tilt to selected pole
-    </button>
-    <button
-      class="secondary"
-      type="button"
-      onclick={() => actions.resetSpanReferenceLengths()}
-    >
-      Reset span reference lengths
     </button>
   </section>
 </div>

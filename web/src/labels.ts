@@ -43,6 +43,27 @@ export function categoryShort(value: number): string {
   return labelOf(CATEGORY_SHORT, value);
 }
 
+export function categoryFromSpanLayer(defaultLayer: number): number {
+  switch (defaultLayer) {
+    case 1:
+      return 0;
+    case 2:
+      return 1;
+    case 3:
+      return 2;
+    case 4:
+      return 3;
+    case 5:
+      return 4;
+    default:
+      return 1;
+  }
+}
+
+export function bundleTemplateCategory(template: { category?: number; defaultLayer: number }): number {
+  return template.category ?? categoryFromSpanLayer(template.defaultLayer);
+}
+
 export function fmt(value: number, digits = 4): number {
   return Number.isFinite(value) ? Number(value.toFixed(digits)) : 0;
 }

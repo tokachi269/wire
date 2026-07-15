@@ -683,10 +683,9 @@ ValidationResult CoreState::Validate() const {
           "Span visual assembly settings are invalid", kInvalidObjectId});
     }
     if (assembly.helix_enabled &&
-        (!assembly.support_path_enabled || bundle_template.support_wire_pole_band_id <= 0 ||
-         assembly.helix_turns_per_meter <= 0.0)) {
+        (!assembly.support_path_enabled || assembly.helix_turns_per_meter <= 0.0)) {
       result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "SpanVisualAssemblySupportMissing",
-          "Enabled span visual assembly requires a support band and positive turns-per-meter", kInvalidObjectId});
+          "Enabled span visual assembly requires a support path and positive turns-per-meter", kInvalidObjectId});
     }
   }
 

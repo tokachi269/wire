@@ -294,10 +294,12 @@ struct spec_view {
   const BundleTemplate* tmpl = nullptr;
   int count = 0;
   SpanLayer layer = SpanLayer::kUnknown;
+  double spacing_m = 0.0;
 };
 
 struct port_scope {
   BundleTemplateId bundle = kInvalidBundleTemplateId;
+  ObjectId bundle_id = kInvalidObjectId;
   PortKind kind = PortKind::kGeneric;
   PortLayer layer = PortLayer::kUnknown;
   int placement_band_id = 0;
@@ -314,6 +316,13 @@ EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec&
   if (tmpl.id != spec.bundle_template_id) {
     out.error = "backbone unsupported: bundle template id mismatch";
     return out;
+  }
+  if (spec.existing_bundle_id != kInvalidObjectId) {
+    const Bundle* existing = state.view().bundles().find(spec.existing_bundle_id);
+    if (existing == nullptr || existing->bundle_template_id != spec.bundle_template_id) {
+      out.error = "backbone unsupported: existing bundle identity is invalid";
+      return out;
+    }
   }
   const int count = (tmpl.count_rule == BundleCountRuleKind::kFixed)
                         ? tmpl.fixed_count
@@ -335,7 +344,17 @@ EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec&
     out.error = "backbone unsupported: bundle layer is unknown";
     return out;
   }
-  out.value = spec_view{&spec, &tmpl, count, layer};
+  if (!std::isfinite(spec.height_m) || !std::isfinite(spec.lateral_m) ||
+      !std::isfinite(spec.spacing_m) || spec.spacing_m < 0.0) {
+    out.error = "backbone unsupported: bundle placement is invalid";
+    return out;
+  }
+  const double spacing_m = spec.spacing_m > 0.0 ? spec.spacing_m : tmpl.default_spacing_m;
+  if (!std::isfinite(spacing_m) || spacing_m <= 0.0) {
+    out.error = "backbone unsupported: bundle spacing is invalid";
+    return out;
+  }
+  out.value = spec_view{&spec, &tmpl, count, layer, spacing_m};
   out.ok = true;
   return out;
 }
@@ -458,6 +477,9 @@ ObjectId existing_span_for_lane(const CoreState& state, ObjectId edge_bundle_id,
   return found;
 }
 ObjectId resolve_existing_bundle(const CoreState& state, const graph& made, const BackboneBundleSpec& spec) {
+  if (spec.existing_bundle_id != kInvalidObjectId) {
+    return spec.existing_bundle_id;
+  }
   ObjectId resolved = kInvalidObjectId;
   bool saw_existing_edge = false;
   for (const link& edge : made.links) {
@@ -634,9 +656,16 @@ SourceEdgeProjectionRef source_projection_for(const CoreState& state, const node
   return out;
 }
 
-bool same_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
-  return binding.bundle_template_id == scope.bundle && binding.port_kind == scope.kind &&
-         binding.port_layer == scope.layer;
+bool same_scope(const CoreState& state, const SavedBackbonePortBinding& binding, port_scope scope) {
+  if (binding.bundle_template_id != scope.bundle || binding.port_kind != scope.kind ||
+      binding.port_layer != scope.layer) {
+    return false;
+  }
+  if (scope.bundle_id == kInvalidObjectId) {
+    return true;
+  }
+  const SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(binding.edge_bundle_id);
+  return edge_bundle != nullptr && edge_bundle->bundle_id == scope.bundle_id;
 }
 
 bool makes_pole(const node& item) {
@@ -731,7 +760,7 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
     if (binding == nullptr) {
       continue;
     }
-    if (!same_scope(*binding, scope)) {
+    if (!same_scope(state, *binding, scope)) {
       continue;
     }
     const Port* port = state.view().ports().find(binding->port_id);
@@ -1988,7 +2017,8 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
       const SavedBackboneRowKey row_key = key_for(ps, preflight_row, node_id_by_local, edge_by_link);
       for (int lane = 0; lane < v.value.count; ++lane) {
         const PortPlacementBand& band = bands[static_cast<std::size_t>(lane)];
-        const port_scope scope{bundle_spec.bundle_template_id, PortKindForCategory(v.value.tmpl->category),
+        const port_scope scope{bundle_spec.bundle_template_id, bundle_spec.existing_bundle_id,
+                               PortKindForCategory(v.value.tmpl->category),
                                PortLayerForSpanLayer(v.value.layer), band.band_id};
         if (ownerless && g_.nodes[r.node].has_source_edge) {
           const SourceEdgeProjectionRef ref =
@@ -2407,7 +2437,9 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
       made->bundle_specs.push_back(spec_index);
       continue;
     }
-    EditResult<ObjectId> bundle = state_.AddBundle(v.value.count, v.value.tmpl->default_spacing_m, v.value.tmpl->id);
+    EditResult<ObjectId> bundle = state_.AddBundle(
+        v.value.count, v.value.spacing_m, v.value.tmpl->id, spec.placement_explicit,
+        spec.height_m, spec.lateral_m, spec.spacing_m);
     if (!bundle.ok) {
       out.error = bundle.error;
       return out;
@@ -2499,13 +2531,14 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         bands = std::move(resolved_bands.value);
       }
       tr.placement_band_ids[bundle_index].resize(static_cast<std::size_t>(v.value.count));
-      const bool uses_lane_bands = std::adjacent_find(bands.begin(), bands.end(), [](const auto& a, const auto& b) {
+      const bool uses_lane_bands = !bundle_spec.placement_explicit &&
+                                   std::adjacent_find(bands.begin(), bands.end(), [](const auto& a, const auto& b) {
                                      return a.band_id != b.band_id;
                                    }) != bands.end();
       for (int lane = 0; lane < v.value.count; ++lane) {
         const PortPlacementBand& band = bands[static_cast<std::size_t>(lane)];
         tr.placement_band_ids[bundle_index][static_cast<std::size_t>(lane)] = band.band_id;
-        const port_scope scope{spec_.bundles[spec_index].bundle_template_id,
+        const port_scope scope{spec_.bundles[spec_index].bundle_template_id, made->bundles[bundle_index],
                                PortKindForCategory(v.value.tmpl->category),
                                PortLayerForSpanLayer(v.value.layer), band.band_id};
         const Vec3d row_offset = (r.id < row_offsets.size()) ? row_offsets[r.id] : Vec3d{};
@@ -2531,8 +2564,14 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           const double lane_offset = uses_lane_bands
                                          ? 0.0
                                          : LaneOffset(static_cast<std::size_t>(lane), v.value.count,
-                                                      v.value.tmpl->default_spacing_m);
-          p = PortWorldPosition(*pole, r.axis, band, lane_offset, spec_.constraints.lateral_offset_m, row_offset);
+                                                      v.value.spacing_m);
+          PortPlacementBand placement_band = band;
+          if (bundle_spec.placement_explicit) {
+            placement_band.height_center_m = bundle_spec.height_m;
+            placement_band.lateral_center_m = bundle_spec.lateral_m;
+          }
+          p = PortWorldPosition(*pole, r.axis, placement_band, lane_offset,
+                                spec_.constraints.lateral_offset_m, row_offset);
         }
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
         EditResult<ObjectId> resolved =

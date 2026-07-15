@@ -199,8 +199,10 @@ export interface ResolvedPathPointInfo {
 export interface BundleTemplateInfo {
   id: number;
   kind: number;
+  category?: number;
   name: string;
   defaultCount: number;
+  defaultSpacing: number;
   fixedCount: boolean;
   fixedCountValue: number;
   minCount: number;
@@ -215,6 +217,16 @@ export interface BundleTemplateInfo {
   endpointFixtureAssemblyId: number;
   spanVisualAssembly: SpanVisualAssemblyInfo;
   populationRules: PopulationRuleInfo[];
+}
+
+export interface BundlePlacement {
+  id: number;
+  bundleTemplateId: number;
+  count: number;
+  explicit: boolean;
+  height: number;
+  offset: number;
+  spacing: number;
 }
 
 export interface SpanVisualAssemblyInfo {

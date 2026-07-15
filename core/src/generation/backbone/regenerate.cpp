@@ -366,8 +366,13 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     }
     BackboneBundleSpec bundle_spec{};
     bundle_spec.bundle_template_id = scoped_bundle->bundle_template_id;
+    bundle_spec.existing_bundle_id = scoped_bundle->id;
     bundle_spec.layer = scoped_bundle->bundle_template_id == bundle_template_id ? next_template.default_layer
                                                                                   : template_it->second.default_layer;
+    bundle_spec.placement_explicit = scoped_bundle->placement_explicit;
+    bundle_spec.height_m = scoped_bundle->height_m;
+    bundle_spec.lateral_m = scoped_bundle->lateral_m;
+    bundle_spec.spacing_m = scoped_bundle->spacing_override_m;
     spec.bundles.push_back(bundle_spec);
     active_bundle_indices.push_back(spec.bundles.size() - 1);
   }
@@ -397,7 +402,9 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   Bundle* edited_bundle = trial.authoritative_.edit_state.bundles.find(target.bundle_id);
   if (edited_bundle != nullptr) {
     edited_bundle->conductor_count = next_template.fixed_count;
-    edited_bundle->phase_spacing_m = next_template.default_spacing_m;
+    if (edited_bundle->spacing_override_m == 0.0) {
+      edited_bundle->phase_spacing_m = next_template.default_spacing_m;
+    }
     if (change_set != nullptr) {
       CoreState::add_unique_id(change_set->updated_ids, edited_bundle->id);
     }
@@ -586,7 +593,12 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       }
       BackboneBundleSpec bundle_spec{};
       bundle_spec.bundle_template_id = bundle->bundle_template_id;
+      bundle_spec.existing_bundle_id = bundle->id;
       bundle_spec.layer = template_it->second.default_layer;
+      bundle_spec.placement_explicit = bundle->placement_explicit;
+      bundle_spec.height_m = bundle->height_m;
+      bundle_spec.lateral_m = bundle->lateral_m;
+      bundle_spec.spacing_m = bundle->spacing_override_m;
       if (template_it->second.count_rule == BundleCountRuleKind::kRange) {
         bundle_spec.count = bundle->conductor_count;
       }

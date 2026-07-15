@@ -17,7 +17,6 @@
     ROLE_LABELS,
     SIDE_LABELS,
     SPAN_LAYER_LABELS,
-    categoryLabel,
     categoryShort,
     fmt,
     labelOf,
@@ -133,10 +132,6 @@
     actions.commitPoleTemplate(draft);
   }
 
-  function categoryBands(template: PoleTemplateInfo, category: number) {
-    return template.portBands.filter((band) => band.category === category);
-  }
-
   function sortedBands(template: PoleTemplateInfo): PortBandInfo[] {
     return [...template.portBands].sort(
       (a, b) => a.category - b.category || b.heightCenter - a.heightCenter || a.bandId - b.bandId
@@ -145,95 +140,6 @@
 
   function bandTitle(band: PortBandInfo): string {
     return `Band ${band.bandId} · ${categoryShort(band.category)} / ${labelOf(SIDE_LABELS, band.side)} / h${fmt(band.heightCenter, 2)}`;
-  }
-
-  function categoryAverage(
-    template: PoleTemplateInfo,
-    category: number,
-    field: "heightCenter" | "lateralCenter"
-  ): number {
-    const bands = categoryBands(template, category);
-    return bands.length === 0
-      ? 0
-      : bands.reduce((sum, band) => sum + band[field], 0) / bands.length;
-  }
-
-  function categorySpread(template: PoleTemplateInfo, category: number): number {
-    const bands = categoryBands(template, category);
-    if (bands.length === 0) return 0;
-    const center = categoryAverage(template, category, "lateralCenter");
-    return Math.max(...bands.map((band) => Math.abs(band.lateralCenter - center)));
-  }
-
-  function setCategoryHeight(
-    template: PoleTemplateInfo,
-    category: number,
-    height: number,
-    preview = false
-  ): void {
-    const start = categoryAverage(template, category, "heightCenter");
-    const draft = clonePole(template);
-    for (const band of draft.portBands.filter((item) => item.category === category)) {
-      const half = Math.max(0, (band.heightMax - band.heightMin) / 2);
-      band.heightCenter = round6(height);
-      band.heightMin = round6(height - half);
-      band.heightMax = round6(height + half);
-    }
-    if (preview) {
-      actions.previewPoleTemplate(draft, `pole.category.${category}.height`, "height", start);
-    } else {
-      actions.commitPoleTemplate(draft);
-    }
-  }
-
-  function setCategoryOffset(
-    template: PoleTemplateInfo,
-    category: number,
-    offset: number,
-    preview = false
-  ): void {
-    const oldCenter = categoryAverage(template, category, "lateralCenter");
-    const draft = clonePole(template);
-    for (const band of draft.portBands.filter((item) => item.category === category)) {
-      const delta = offset - oldCenter;
-      band.lateralCenter = round6(band.lateralCenter + delta);
-      band.lateralMin = round6(band.lateralMin + delta);
-      band.lateralMax = round6(band.lateralMax + delta);
-    }
-    if (preview) {
-      actions.previewPoleTemplate(draft, `pole.category.${category}.offset`, "offset", oldCenter);
-    } else {
-      actions.commitPoleTemplate(draft);
-    }
-  }
-
-  function setCategorySpread(
-    template: PoleTemplateInfo,
-    category: number,
-    spread: number,
-    preview = false
-  ): void {
-    const bands = categoryBands(template, category);
-    const center = categoryAverage(template, category, "lateralCenter");
-    const ordered = [...bands].sort((a, b) => a.lateralCenter - b.lateralCenter);
-    const draft = clonePole(template);
-    ordered.forEach((original, index) => {
-      const target = draft.portBands.find((band) => band.bandId === original.bandId);
-      if (target === undefined) return;
-      const t = ordered.length === 1 ? 0 : index / (ordered.length - 1) * 2 - 1;
-      const half = Math.max(0, (target.lateralMax - target.lateralMin) / 2);
-      target.lateralCenter = round6(center + t * Math.max(0, spread));
-      target.lateralMin = round6(target.lateralCenter - half);
-      target.lateralMax = round6(target.lateralCenter + half);
-    });
-    if (preview) {
-      actions.previewPoleTemplate(
-        draft, `pole.category.${category}.spread`, "spread",
-        categorySpread(template, category)
-      );
-    } else {
-      actions.commitPoleTemplate(draft);
-    }
   }
 
   function updateBand(
@@ -268,33 +174,6 @@
           oninput={(event) => actions.previewPoleDefaultHeight(numberValue(event))}
           onblur={(event) => updatePole(pole, (draft) => draft.defaultHeight = round6(numberValue(event)))} />
       </label>
-
-      <h3>Placement by category</h3>
-      <div class="category-row category-head">
-        <span>Category</span>
-        <span>Height</span>
-        <span>Offset</span>
-        <span>Spread</span>
-      </div>
-      {#each [0, 1, 2, 3, 4] as category}
-        {#if categoryBands(pole, category).length > 0}
-          <div class="category-row">
-            <strong title={categoryLabel(category)}>{categoryShort(category)}</strong>
-            <input aria-label={`${categoryLabel(category)} height`} type="number" step="0.05"
-              value={fmt(categoryAverage(pole, category, "heightCenter"))}
-              oninput={(event) => setCategoryHeight(pole, category, numberValue(event), true)}
-              onblur={(event) => setCategoryHeight(pole, category, numberValue(event))} />
-            <input aria-label={`${categoryLabel(category)} offset`} type="number" step="0.02"
-              value={fmt(categoryAverage(pole, category, "lateralCenter"))}
-              oninput={(event) => setCategoryOffset(pole, category, numberValue(event), true)}
-              onblur={(event) => setCategoryOffset(pole, category, numberValue(event))} />
-            <input aria-label={`${categoryLabel(category)} spread`} type="number" step="0.02"
-              value={fmt(categorySpread(pole, category))}
-              oninput={(event) => setCategorySpread(pole, category, numberValue(event), true)}
-              onblur={(event) => setCategorySpread(pole, category, numberValue(event))} />
-          </div>
-        {/if}
-      {/each}
 
       <details>
         <summary>Name / description</summary>

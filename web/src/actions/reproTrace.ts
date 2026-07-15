@@ -65,16 +65,20 @@ function formatSettings(snapshot: ViewerSnapshot): string {
 }
 
 function formatGenerationRequest(snapshot: ViewerSnapshot, points: readonly WorldPoint[]): string {
-  const bundleCounts = snapshot.selectedDrawBundleTemplateIds.map((id) => {
+  const bundleCounts = snapshot.drawBundlePlacements.map((placement) => {
+    const id = placement.bundleTemplateId;
     const bundle = snapshot.bundleTemplates.find((candidate) => candidate.id === id);
     const cable = bundle === undefined
       ? undefined
       : snapshot.cableTemplates.find((candidate) => candidate.id === bundle.cableTemplateId);
-    const count = snapshot.drawBundleCounts[id] ?? bundle?.defaultCount ?? "default";
+    const count = placement.count;
+    const placementText = `,height=${formatNumber(placement.height)}` +
+      `,offset=${formatNumber(placement.offset)},spread=${formatNumber(placement.spacing)}`;
     return bundle === undefined
-      ? `${id}:count=${count}`
+      ? `${id}:count=${count}${placementText}`
       : `${id}:count=${count},kind=${bundle.kind}` +
-        `,cable=${bundle.cableTemplateId}${cable === undefined ? "" : `/sag=${formatNumber(cable.sagFactor)}`}`;
+        `,cable=${bundle.cableTemplateId}${cable === undefined ? "" : `/sag=${formatNumber(cable.sagFactor)}`}` +
+        placementText;
   }).join(";");
   const anchors = snapshot.pathPointSpecs
     .map((spec, index) => spec === null ? null : `${index}:${spec.nodeId}/${spec.supportKind}`)

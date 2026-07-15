@@ -2,6 +2,7 @@ import type {
   SelectionKind,
   ViewerSnapshot
 } from "./viewer";
+import type { BundlePlacement } from "../model";
 
 export const WORKSPACE_CACHE_KEY = "wire.workspace.v1";
 const WORKSPACE_VERSION = 1;
@@ -42,13 +43,15 @@ export class IndexedDbWorkspaceStorage implements WorkspaceStorage {
 
 export interface WorkspacePreferences {
   selectedBundleTemplateId: number | null;
-  selectedDrawBundleTemplateIds: number[];
-  drawBundleCounts: Record<number, number>;
+  drawBundlePlacements?: BundlePlacement[];
+  selectedDrawBundleTemplateIds?: number[];
+  drawBundleCounts?: Record<number, number>;
   selectedCableTemplateId: number | null;
   selectedPoleTemplateId: number | null;
   selection: { kind: SelectionKind; id: string } | null;
   cameraFov: number;
   showBackboneOverlay: boolean;
+  showGroundGrid?: boolean;
   showPreview: boolean;
   keepPathAfterGenerate: boolean;
   drawPlaneZ: number;
@@ -77,13 +80,13 @@ export function captureWorkspacePreferences(
 ): WorkspacePreferences {
   return {
     selectedBundleTemplateId: snapshot.selectedBundleTemplateId,
-    selectedDrawBundleTemplateIds: snapshot.selectedDrawBundleTemplateIds,
-    drawBundleCounts: snapshot.drawBundleCounts,
+    drawBundlePlacements: snapshot.drawBundlePlacements,
     selectedCableTemplateId: snapshot.selectedCableTemplateId,
     selectedPoleTemplateId: snapshot.selectedPoleTemplateId,
     selection: snapshot.selection,
     cameraFov: snapshot.cameraFov,
     showBackboneOverlay: snapshot.showBackboneOverlay,
+    showGroundGrid: snapshot.showGroundGrid,
     showPreview: snapshot.showPreview,
     keepPathAfterGenerate: snapshot.keepPathAfterGenerate,
     drawPlaneZ: snapshot.drawPlaneZ,

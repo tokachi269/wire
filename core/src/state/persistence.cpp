@@ -421,11 +421,16 @@ static_assert(sizeof(Anchor) == 104, "field added: update archive visitor and fu
 template <typename Archive, typename Value>
 bool archive_bundle(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "conductor_count", value.conductor_count) &&
-         archive.field(prefix, "phase_spacing_m", value.phase_spacing_m) && archive.field(prefix, "bundle_template_id", value.bundle_template_id);
+         archive.field(prefix, "phase_spacing_m", value.phase_spacing_m) &&
+         archive.compatible_field(prefix, "spacing_override_m", value.spacing_override_m, 0.0) &&
+         archive.compatible_field(prefix, "placement_explicit", value.placement_explicit, false) &&
+         archive.compatible_field(prefix, "height_m", value.height_m, 0.0) &&
+         archive.compatible_field(prefix, "lateral_m", value.lateral_m, 0.0) &&
+         archive.field(prefix, "bundle_template_id", value.bundle_template_id);
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(Bundle) == 72, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(Bundle) == 104, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

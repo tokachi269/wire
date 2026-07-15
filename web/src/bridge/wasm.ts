@@ -1,4 +1,5 @@
 import type {
+  BundlePlacement,
   BundleTemplateInfo,
   CableTemplateInfo,
   BackboneEdgeInfo,
@@ -31,6 +32,15 @@ export interface WireStateHandle {
     intervalM: number,
     poleTypeId: number,
     counts: number[],
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult;
+  generatePlacements(
+    points: Float64Array,
+    bundlePlacements: BundlePlacement[],
+    intervalM: number,
+    poleTypeId: number,
     directionMode: number,
     maxTiltDeg: number,
     nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>

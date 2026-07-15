@@ -94,6 +94,7 @@ export class WireScene {
   private readonly backbone = new THREE.Group();
   private readonly guide = new THREE.Group();
   private readonly snapPreview = new THREE.Group();
+  private readonly groundGrid = new THREE.GridHelper(80, 40, 0x587288, 0x72889a);
   private readonly unsubscribe: () => void;
   private frame = 0;
   private resizeObserver: ResizeObserver | null = null;
@@ -165,9 +166,8 @@ export class WireScene {
     ground.receiveShadow = true;
     this.scene.add(ground);
 
-    const grid = new THREE.GridHelper(80, 40, 0x587288, 0x72889a);
-    grid.rotateX(Math.PI / 2);
-    this.scene.add(grid);
+    this.groundGrid.rotateX(Math.PI / 2);
+    this.scene.add(this.groundGrid);
 
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(24, -30, 20);
@@ -487,6 +487,7 @@ export class WireScene {
     this.content.visible = true;
     this.backbone.visible = snapshot.showBackboneOverlay;
     this.guide.visible = snapshot.showPreview;
+    this.groundGrid.visible = snapshot.showGroundGrid;
 
     if (this.cameraFov !== snapshot.cameraFov) {
       this.cameraFov = snapshot.cameraFov;

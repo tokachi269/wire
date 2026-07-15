@@ -175,7 +175,7 @@ describe("viewer actions", () => {
     const bridge = {
       bundleTemplates: () => [
         {
-          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, defaultSpacing: 0.2, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMidairNode: true, allowMidairBranch: true,
@@ -253,7 +253,7 @@ describe("viewer actions", () => {
     const bridge = {
       bundleTemplates: () => [
         {
-          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, defaultSpacing: 0.2, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMidairNode: true, allowMidairBranch: true,
@@ -315,7 +315,7 @@ describe("viewer actions", () => {
       ],
       bundleTemplates: [
         {
-          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, defaultSpacing: 0.2, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMidairNode: true, allowMidairBranch: true,
@@ -333,7 +333,10 @@ describe("viewer actions", () => {
         }
       ],
       selectedBundleTemplateId: 102,
-      selectedDrawBundleTemplateIds: [102]
+      drawBundlePlacements: [{
+        id: 1, bundleTemplateId: 102, count: 1,
+        explicit: true, height: 7.4, offset: 0, spacing: 0.2
+      }]
     }));
 
     new ViewerActions(bridge, store).generatePath();
@@ -350,6 +353,7 @@ const bundleTemplate: BundleTemplateInfo = {
   kind: 0,
   name: "DEFAULT_SINGLE",
   defaultCount: 1,
+  defaultSpacing: 0.2,
   fixedCount: true,
   fixedCountValue: 1,
   minCount: 1,
@@ -866,8 +870,8 @@ describe("P1 action contracts", () => {
         supportKind: 1,
         nodeId: "9001"
       }),
-      generate: (_points, _templates, _interval, _poleType, _counts, _direction, _tilt, specs) => {
-        nodeSpecs = specs;
+      generate: (_points, _placements, _interval, _poleType, _direction, _tilt, specs) => {
+        nodeSpecs = Array.isArray(specs) ? specs : undefined;
         return {
           ok: true,
           error: "",

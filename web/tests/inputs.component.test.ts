@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import App from "../src/App.svelte";
 import { ViewerActions } from "../src/actions/viewer";
 import { WireBridge } from "../src/bridge/wire";
+import { bundleTemplateCategory } from "../src/labels";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 
 describe("viewer numeric inputs", () => {
@@ -19,63 +20,82 @@ describe("viewer numeric inputs", () => {
     document.body.replaceChildren();
   });
 
-  it("applies Placement by category height, offset, and spread to generated ports", async () => {
-    const mounted = await mountViewer();
-    const polesBefore = mounted.bridge.scene().poles.map((pole) => pole.id);
-    const hvPartsBefore = mounted.bridge.scene().parts
-      .filter((part) => part.info.bundleTemplateId === 101)
-      .map((part) => `${part.info.sourceSpanId}:${part.info.laneIndex}`)
-      .sort();
-    const nonHvPortsBefore = mounted.bridge.scene().ports
-      .filter((port) => port.category !== 0);
-    const nonHvPartsBefore = mounted.bridge.scene().parts
-      .filter((part) => part.info.bundleTemplateId !== 101)
-      .map((part) => ({
-        key: `${part.info.bundleTemplateId}:${part.info.sourceSpanId}:${part.info.laneIndex}`,
-        samples: [...part.samples]
+  it("initializes Bundle placement with visible template order and absolute heights", async () => {
+    const mounted = await mountViewer(false);
+    const snapshot = current(mounted.store);
+    const visible = snapshot.drawBundlePlacements
+      .map((placement) => ({
+        placement,
+        template: snapshot.bundleTemplates.find((template) =>
+          template.id === placement.bundleTemplateId
+        )
       }))
-      .sort((a, b) => a.key.localeCompare(b.key));
-    const before = mounted.bridge.scene().ports.filter((port) => port.category === 0);
-    expect(before.length).toBeGreaterThan(0);
+      .filter((entry) => entry.template !== undefined &&
+        bundleTemplateCategory(entry.template) !== 4);
 
-    await editNumberInput("High voltage height", 1, 80);
+    expect(visible.map((entry) => bundleTemplateCategory(entry.template!))).not.toContain(4);
+    expect(bundleTemplateCategory(visible[0].template!)).toBe(0);
+    expect(visible.map((entry) => entry.placement.height)).toEqual(
+      [...visible.map((entry) => entry.placement.height)].sort((a, b) => b - a)
+    );
+    expect(visible[0].placement.height).toBeGreaterThan(0);
+    expect(visible[0].placement.height).toBeCloseTo(9.2, 1);
+    const placementPanel = document.querySelector(".bundle-picker");
+    expect(placementPanel?.textContent).toContain("HV");
+    expect(placementPanel?.textContent).toContain("OPT");
+    expect(placementPanel?.textContent).not.toContain("DROP");
+    expect([...(placementPanel?.querySelectorAll("button") ?? [])]
+      .some((button) => button.textContent?.trim() === "Remove")).toBe(false);
+  });
 
-    const afterHeight = mounted.bridge.scene().ports.filter((port) => port.category === 0);
-    expect(mounted.bridge.scene().poles.map((pole) => pole.id)).toEqual(polesBefore);
-    expect(
-      mounted.bridge.scene().parts
-        .filter((part) => part.info.bundleTemplateId === 101)
-        .map((part) => `${part.info.sourceSpanId}:${part.info.laneIndex}`)
-        .sort()
-    ).toEqual(hvPartsBefore);
-    const nonHvPortsAfter = mounted.bridge.scene().ports
-      .filter((port) => port.category !== 0);
-    expect(nonHvPortsAfter).toEqual(nonHvPortsBefore);
-    const nonHvPartsAfter = mounted.bridge.scene().parts
-      .filter((part) => part.info.bundleTemplateId !== 101)
-      .map((part) => ({
-        key: `${part.info.bundleTemplateId}:${part.info.sourceSpanId}:${part.info.laneIndex}`,
-        samples: [...part.samples]
-      }))
-      .sort((a, b) => a.key.localeCompare(b.key));
-    expect(nonHvPartsAfter).toEqual(nonHvPartsBefore);
-    const hvSamplesAfter = mounted.bridge.scene().parts
-      .filter((part) => part.info.bundleTemplateId === 101 && part.info.kind === 0)
-      .map((part) => [...part.samples]);
-    expect(new Set(hvSamplesAfter.map((samples) => samples.join(","))).size)
-      .toBe(hvSamplesAfter.length);
-    for (const port of before) {
-      expect(afterHeight.find((candidate) => candidate.id === port.id)?.z)
-        .toBeCloseTo(port.z + 1, 8);
+  it("duplicates a Bundle placement and generates independent support and helix output", async () => {
+    const mounted = await mountViewer(false);
+    const optical = current(mounted.store).bundleTemplates.find((template) =>
+      bundleTemplateCategory(template) === 3
+    );
+    const source = current(mounted.store).drawBundlePlacements.find(
+      (placement) => placement.bundleTemplateId === optical?.id
+    );
+    expect(optical).toBeDefined();
+    expect(source).toBeDefined();
+
+    const duplicate = [...document.querySelectorAll("button")].find(
+      (button) => button.getAttribute("aria-label") === `Duplicate ${optical!.name}`
+    );
+    expect(duplicate).toBeInstanceOf(HTMLButtonElement);
+    (duplicate as HTMLButtonElement).click();
+    await tick();
+
+    const copies = current(mounted.store).drawBundlePlacements.filter(
+      (placement) => placement.bundleTemplateId === optical!.id
+    );
+    expect(copies).toHaveLength(2);
+    const placementIds = current(mounted.store).drawBundlePlacements.map((placement) => placement.id);
+    expect(placementIds.indexOf(copies[1].id)).toBe(placementIds.indexOf(copies[0].id) + 1);
+    expect(document.body.textContent).toContain("OPT 1");
+    expect(document.body.textContent).toContain("OPT 2");
+    mounted.actions.updateDrawBundlePlacement(copies[1].id, {
+      height: 8.4,
+      offset: 0.4,
+      spacing: 0.47
+    });
+    mounted.actions.addPathPoint([0, 0, 0]);
+    mounted.actions.addPathPoint([20, 0, 0]);
+    mounted.actions.generatePath();
+
+    const opticalParts = mounted.bridge.scene().parts.filter(
+      (part) => part.info.bundleTemplateId === optical!.id
+    );
+    const bundleIds = [...new Set(opticalParts.map((part) => part.info.sourceBundleId))];
+    expect(bundleIds).toHaveLength(2);
+    for (const bundleId of bundleIds) {
+      expect(opticalParts.filter((part) =>
+        part.info.sourceBundleId === bundleId && part.info.supplementalKind === 1
+      )).toHaveLength(1);
+      expect(opticalParts.filter((part) =>
+        part.info.sourceBundleId === bundleId && part.info.supplementalKind === 2
+      )).toHaveLength(1);
     }
-
-    await editNumberInput("High voltage offset", 0.2, 80);
-    const afterOffset = mounted.bridge.scene().ports.filter((port) => port.category === 0);
-    expect(horizontalPositionChanged(afterHeight, afterOffset)).toBe(true);
-
-    await editNumberInput("High voltage spread", 0.2, 80);
-    const afterSpread = mounted.bridge.scene().ports.filter((port) => port.category === 0);
-    expect(horizontalPositionChanged(afterOffset, afterSpread)).toBe(true);
   });
 
   it("applies Settings number input to core geometry", async () => {
@@ -89,6 +109,17 @@ describe("viewer numeric inputs", () => {
     await tick();
 
     expect(mounted.bridge.geometrySettings().sagFactor).toBeCloseTo(next, 8);
+  });
+
+  it("starts with 24 curve samples and toggles the ground grid", async () => {
+    const mounted = await mountViewer();
+    expect(mounted.bridge.geometrySettings().curveSamples).toBe(24);
+    const grid = inputForLabel("Ground grid");
+    expect(grid.checked).toBe(true);
+    grid.checked = false;
+    grid.dispatchEvent(new Event("change", { bubbles: true }));
+    await tick();
+    expect(current(mounted.store).showGroundGrid).toBe(false);
   });
 
   it("applies bundle population input to the selected template", async () => {
@@ -223,16 +254,18 @@ describe("viewer numeric inputs", () => {
     }));
   });
 
-  async function mountViewer() {
+  async function mountViewer(generate = true) {
     const wasmBinary = await readFile(resolve("src/wasm-generated/wire_web_core.wasm"));
     bridge = await WireBridge.create({ wasmBinary });
     const store = new ViewerStore();
     const actions = new ViewerActions(bridge, store);
     actions.initialize();
     actions.setDrawOption("maxTiltDeg", 0);
-    actions.addPathPoint([0, 0, 0]);
-    actions.addPathPoint([20, 0, 0]);
-    actions.generatePath();
+    if (generate) {
+      actions.addPathPoint([0, 0, 0]);
+      actions.addPathPoint([20, 0, 0]);
+      actions.generatePath();
+    }
 
     const target = document.createElement("div");
     document.body.append(target);
@@ -245,14 +278,6 @@ describe("viewer numeric inputs", () => {
   }
 });
 
-function requiredInput(selector: string): HTMLInputElement {
-  const input = document.querySelector(selector);
-  if (!(input instanceof HTMLInputElement)) {
-    throw new Error(`input not found: ${selector}`);
-  }
-  return input;
-}
-
 function current(store: ViewerStore): ViewerSnapshot {
   let snapshot: ViewerSnapshot | undefined;
   const unsubscribe = store.value.subscribe((value) => {
@@ -263,29 +288,6 @@ function current(store: ViewerStore): ViewerSnapshot {
     throw new Error("store did not emit");
   }
   return snapshot;
-}
-
-async function editNumberInput(
-  label: string,
-  delta: number,
-  previewDelayMs: number
-): Promise<void> {
-  const input = requiredInput(`input[aria-label="${label}"]`);
-  input.value = String(Number(input.value) + delta);
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, previewDelayMs));
-  input.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
-  await tick();
-}
-
-function horizontalPositionChanged(
-  before: Array<{ id: string; x: number; y: number }>,
-  after: Array<{ id: string; x: number; y: number }>
-): boolean {
-  return before.some((port) => {
-    const next = after.find((candidate) => candidate.id === port.id);
-    return next !== undefined && Math.hypot(next.x - port.x, next.y - port.y) > 1e-8;
-  });
 }
 
 function inputForLabel(text: string): HTMLInputElement {

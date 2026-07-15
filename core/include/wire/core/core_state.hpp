@@ -41,7 +41,10 @@ public:
                                  AnchorSupportKind support_kind = AnchorSupportKind::kGeneric,
                                  double support_strength = 1.0);
   EditResult<ObjectId> AddBundle(int conductor_count, double phase_spacing_m,
-                                 BundleTemplateId bundle_template_id = kInvalidBundleTemplateId);
+                                 BundleTemplateId bundle_template_id = kInvalidBundleTemplateId,
+                                 bool placement_explicit = false,
+                                 double height_m = 0.0, double lateral_m = 0.0,
+                                 double spacing_override_m = 0.0);
   EditResult<ObjectId> AddSpan(ObjectId port_a_id, ObjectId port_b_id, SpanKind kind = SpanKind::kGeneric,
                                SpanLayer layer = SpanLayer::kUnknown, ObjectId bundle_id = kInvalidObjectId,
                                ObjectId anchor_a_id = kInvalidObjectId, ObjectId anchor_b_id = kInvalidObjectId);

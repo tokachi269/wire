@@ -264,7 +264,7 @@ void CoreState::register_default_bundle_templates() {
   optical.enable_branch_down_offset = false;
   optical.branch_endpoint_offset_m = 0.0;
   optical.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
-  optical.support_wire_pole_band_id = 600;
+  optical.support_wire_pole_band_id = 0;
   optical.span_visual_assembly.support_path_enabled = true;
   optical.span_visual_assembly.helix_enabled = true;
   optical.span_visual_assembly.helix_clearance_m = 0.015;

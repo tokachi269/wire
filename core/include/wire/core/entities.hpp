@@ -359,6 +359,11 @@ struct Bundle {
   std::string display_id{};
   int conductor_count = 1;
   double phase_spacing_m = 0.3;
+  // Zero follows BundleTemplate::default_spacing_m during template regeneration.
+  double spacing_override_m = 0.0;
+  bool placement_explicit = false;
+  double height_m = 0.0;
+  double lateral_m = 0.0;
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
 };
 

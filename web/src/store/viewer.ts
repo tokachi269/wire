@@ -1,6 +1,7 @@
 import { writable, type Readable } from "svelte/store";
 import type {
   BundleTemplateInfo,
+  BundlePlacement,
   CableTemplateInfo,
   BackboneEdgeInfo,
   GenerationTiming,
@@ -47,8 +48,7 @@ export interface ViewerSnapshot {
   pathPointSpecs: Array<PathPointSpec | null>;
   bundleTemplates: BundleTemplateInfo[];
   selectedBundleTemplateId: number | null;
-  selectedDrawBundleTemplateIds: number[];
-  drawBundleCounts: Record<number, number>;
+  drawBundlePlacements: BundlePlacement[];
   cableTemplates: CableTemplateInfo[];
   selectedCableTemplateId: number | null;
   poleTemplates: PoleTemplateInfo[];
@@ -65,6 +65,7 @@ export interface ViewerSnapshot {
   selection: { kind: SelectionKind; id: string } | null;
   cameraFov: number;
   showBackboneOverlay: boolean;
+  showGroundGrid: boolean;
   showPreview: boolean;
   keepPathAfterGenerate: boolean;
   drawPlaneZ: number;
@@ -106,14 +107,13 @@ export function createViewerSnapshot(): ViewerSnapshot {
     pathPointSpecs: [],
     bundleTemplates: [],
     selectedBundleTemplateId: null,
-    selectedDrawBundleTemplateIds: [],
-    drawBundleCounts: {},
+    drawBundlePlacements: [],
     cableTemplates: [],
     selectedCableTemplateId: null,
     poleTemplates: [],
     selectedPoleTemplateId: null,
     geometry: {
-      curveSamples: 16,
+      curveSamples: 24,
       sagEnabled: true,
       sagFactor: 0.03,
       poleClearance: 0.05
@@ -137,6 +137,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     selection: null,
     cameraFov: 48,
     showBackboneOverlay: true,
+    showGroundGrid: true,
     showPreview: true,
     keepPathAfterGenerate: false,
     drawPlaneZ: 0,

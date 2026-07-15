@@ -68,7 +68,14 @@ T/cross/branchのkind enumは作らず、pair/open/rowの組合せで表す。
 pole local frameの配置原点は、poleのtiltを含む中心軸とする。mesh表面やmesh下端を原点にしない。
 `PortPlacementBand.lateral_center_m`は中心軸から測ったbandの既定位置であり、
 `BackboneSpec.constraints.lateral_offset_m = 0`は選択されたband位置から追加移動しないことを意味する。
-Offsetはband位置へ加算する入力であり、band位置を置き換えない。
+
+`BackboneSpec::bundles` の各要素は1つのBundle placementである。同じ`BundleTemplateId`を
+複数要素から参照してよく、各要素は独立した`Bundle` identityを生成する。placementの
+explicit height/lateralはpole local中心軸を原点とする絶対位置であり、spreadは`Bundle.phase_spacing_m`
+としてBundleが所有する。Pole band、category、個別Spanをplacement identityとして代用しない。
+主線、endpoint fixture、support path、helixは同じBundle placementから解決されたPortを読む。
+explicit placementでもpole band identityはfixture・roleの解決に使うが、そのheight/lateral centerを
+配置値へ加算しない。legacy/API入力でexplicit指定がない場合だけband既定位置を使用する。
 
 同一category/layerにlane数ぶんの異なるlateral位置を持つbandがある場合、laneはpriorityで採用したbandを
 lateral順に1つずつ使用する。既定HV 3相は左・中央・右bandを各laneが使用し、3相全体を片側のpole表面へ寄せない。
@@ -308,6 +315,8 @@ support path は helix と独立して有効化できる。全support pathはend
 make_primary_curve_betweenで主曲線を1回構築する。support_wire_pole_band_id == 0は
 endpoint fixture socketまで解決済みのmember endpointを入力とし、endpoint_trim_m区間で同じ接続点へ
 収束しながら中央部を線径分だけ離す。正数bandは明示band endpointを同じ主曲線生成へ入力する。
+helixはどちらのsupport endpoint方式でも利用できる。既定OPTICALはband 0を使い、placement高さ変更時も
+support、contained member、helix断面を同じmember endpointから再導出する。
 したがってHV/LV/Opticalでcurve familyを分岐せず、複数laneはlaneごとのspanに1本ずつ派生する。
 support-onlyではmember curveへcontainmentを適用しない。
 

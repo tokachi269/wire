@@ -376,5 +376,6 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement();
 bool C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture();
 bool C766_row_fixture_and_wire_follow_port_band_lateral_change();
 bool C767_default_hv_emits_one_support_path_per_phase_span();
+bool C769_bundle_placements_duplicate_template_as_independent_bundles();
 
 } // namespace backbone_tests

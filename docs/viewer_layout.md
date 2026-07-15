@@ -12,7 +12,7 @@ panels.cpp の1:1移植は禁止する。
 - 全パネルが縦一列に積まれ、3D ビューへ重なる。レイアウト領域(region)が無い。
 - Outliner が Poles/Ports/Spans をフラットに全行インライン展開し、Ports が pole 数×band 数で
   数百行になり画面を占有する(`DrawObjectList` の無制限 `Selectable`)。
-- Pole Placement が HV/LV/COMM/OPT/DROP の5カテゴリを同一項目の縦積みフォームで並べ、5倍に膨れる。
+- Bundle placement とPole band詳細が同じ表に混ざり、生成するBundle数を編集できない。
 - 生成の全体設定と、選択オブジェクトの編集が同じ列に常時同居する。累進的開示が無い。
 
 ## リージョン構成
@@ -46,14 +46,17 @@ panels.cpp の1:1移植は禁止する。
 - 高さ固定 + スクロール + filter(検索)。無制限インライン展開をしない。
 - 選択したものだけ強調する。全項目の一括ハイライトをしない。
 
-## Pole Placement は表にする
+## Bundle placement
 
-- 行 = category(HV/LV/COMM/OPT/DROP)、列 = Height / Offset / Spread。
-  現行 desktop viewer も既にこの表形式(`Category`/`Height`/`Offset`/`Spread`)を持つ。web でも踏襲する。
-  category 行は pole type がそのカテゴリを持つ場合だけ出す。
-- スクショで縦積みに見えた `Band HV / Band LV …` は placement 表ではなく `Advanced Port Bands`
-  (band ごとの詳細)を展開したもの。**Advanced Port Bands / Anchor Slots は既定折りたたみ**にする。
-  これが現行の画面占有の主因なので、既定で開かない。
+- 行 = 生成テンプレート内のBundle placement、列 = Bundle / Height / Offset / Spread / Count。
+- Height / Offsetはpole local中心軸からの絶対値。初期行はPole templateのband既定位置から設定し、
+  Heightの高い順（HV先頭）に並べる。未使用のDropは表示しない。
+- categoryはBundleTemplateの属性であり、行identityや複製可否には使わない。全categoryで同じ操作を使う。
+- 行のhoverまたはkeyboard focusで`＋`を表示し、その配置recordを直後へ複製する。
+- `＋`後は並べ替えず、保持しているplacement順をそのまま表示する。削除操作は置かない。
+- 同じBundleTemplateを複数行から参照できる。各行はGenerate時に別Bundle identityになる。
+- Pole typeの`Port bands`と`Anchor slots`はplacement表ではない。template editorのadvanced詳細として
+  既定折りたたみにし、Bundle placementへ平均値を再入力しない。
 
 ## 累進的開示
 

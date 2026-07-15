@@ -5,6 +5,7 @@ import {
 } from "./wasm";
 import type {
   BackboneEdgeInfo,
+  BundlePlacement,
   BundleTemplateInfo,
   CableTemplateInfo,
   EditResult,
@@ -53,20 +54,64 @@ export class WireBridge {
 
   generate(
     points: Float64Array,
-    bundleTemplateIds: number[] = [102],
+    bundlePlacements: BundlePlacement[],
+    intervalM?: number,
+    poleTypeId?: number,
+    directionMode?: number,
+    maxTiltDeg?: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult;
+  generate(
+    points: Float64Array,
+    bundleTemplateIds: number[],
+    intervalM?: number,
+    poleTypeId?: number,
+    counts?: number[],
+    directionMode?: number,
+    maxTiltDeg?: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult;
+  generate(
+    points: Float64Array,
+    bundleInput: BundlePlacement[] | number[],
     intervalM = 0,
     poleTypeId = 1,
-    counts: number[] = [0],
-    directionMode = 0,
-    maxTiltDeg = 0,
-    nodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }> = []
+    countsOrDirection: number[] | number = 0,
+    directionOrTilt = 0,
+    tiltOrSpecs: number | Array<{ pointIndex: number; supportKind: number; nodeId: string }> = 0,
+    legacyNodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }> = []
   ): EditResult {
-    return this.state.generate(
+    const isPlacementInput = bundleInput.length === 0 || typeof bundleInput[0] === "object";
+    const bundlePlacements = isPlacementInput
+      ? bundleInput as BundlePlacement[]
+      : (bundleInput as number[]).map((bundleTemplateId, index) => {
+          const template = this.bundleTemplates().find((item) => item.id === bundleTemplateId);
+          return {
+            id: index + 1,
+            bundleTemplateId,
+            count: Array.isArray(countsOrDirection)
+              ? countsOrDirection[index] ?? template?.defaultCount ?? 1
+              : template?.defaultCount ?? 1,
+            explicit: false,
+            height: 0,
+            offset: 0,
+            spacing: template?.defaultSpacing ?? 0.2
+          };
+        });
+    const directionMode = isPlacementInput
+      ? countsOrDirection as number
+      : directionOrTilt;
+    const maxTiltDeg = isPlacementInput
+      ? directionOrTilt
+      : typeof tiltOrSpecs === "number" ? tiltOrSpecs : 0;
+    const nodeSpecs = isPlacementInput
+      ? Array.isArray(tiltOrSpecs) ? tiltOrSpecs : []
+      : legacyNodeSpecs;
+    return this.state.generatePlacements(
       points,
-      bundleTemplateIds,
+      bundlePlacements,
       intervalM,
       poleTypeId,
-      counts,
       directionMode,
       maxTiltDeg,
       nodeSpecs

@@ -764,7 +764,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "terminal edge body reaches its resolved port endpoints", "Invariant", false,
                          C760_backbone_terminal_edge_body_ends_at_port);
   test_registry::AddTest(tests, "C761_default_optical_bundle_emits_helix",
-                         "default optical bundle emits span visual helixes while communication remains plain",
+                         "default optical helix follows member placement height while communication remains plain",
                          "Invariant", false, C761_default_optical_bundle_emits_helix);
   test_registry::AddTest(tests, "C635_backbone_simple_continuous_node_creates_node_patch_curve",
                          "simple continuous backbone nodes create one local node patch curve", "Boundary", false,
@@ -1125,6 +1125,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "default HV and LV support paths use the shared primary-curve path and reach resolved endpoints",
                          "Invariant", false,
                          C767_default_hv_emits_one_support_path_per_phase_span);
+  test_registry::AddTest(tests, "C769_bundle_placements_duplicate_template_as_independent_bundles",
+                         "duplicate Bundle placements keep independent identity and move their complete visual output",
+                         "Invariant", false,
+                         C769_bundle_placements_duplicate_template_as_independent_bundles);
 }
 
 

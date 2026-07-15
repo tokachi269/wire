@@ -6,8 +6,10 @@ describe("repro trace", () => {
   it("keeps draw order and anchor visual coverage without curve samples", () => {
     const before = createViewerSnapshot();
     before.pathPointSpecs = [null, { supportKind: 2, nodeId: "node-7" }];
-    before.selectedDrawBundleTemplateIds = [102];
-    before.drawBundleCounts = { 102: 3 };
+    before.drawBundlePlacements = [{
+      id: 1, bundleTemplateId: 102, count: 3,
+      explicit: true, height: 7.4, offset: 0, spacing: 0.2
+    }];
     before.selectedPoleTemplateId = 1;
     const after = {
       ...before,

@@ -21,6 +21,10 @@ if "%MODE%"=="configure" (
 
 if "%MODE%"=="build" (
   cd /d "%ROOT%"
+  if not exist "wasm\build-nmake\CMakeCache.txt" (
+    emcmake cmake -S wasm -B wasm/build-nmake -G "NMake Makefiles" -DBUILD_TESTING=OFF -DWIRE_ENABLE_PCH=OFF
+    if errorlevel 1 exit /b 1
+  )
   cmake --build wasm/build-nmake --target wire_web_core
   exit /b %errorlevel%
 )

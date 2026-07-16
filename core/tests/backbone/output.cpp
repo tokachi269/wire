@@ -1926,8 +1926,15 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
   wire::core::ModelAssemblyTemplate row_assembly{};
   row_assembly.id = kRowAssembly;
   row_assembly.parts.push_back({1, "hv_crossarm", 5, {}, wire::core::ModelFitMode::kRigid, {}});
+  constexpr double kMeshLowerEndHeightM = -2.0;
+  constexpr double kPoleGroundRadiusM = 0.16;
+  constexpr double kPoleTopRadiusM = 0.10;
+  constexpr double kPoleHeightM = 10.0;
+  const double mesh_lower_radius_m =
+      kPoleGroundRadiusM + (kPoleTopRadiusM - kPoleGroundRadiusM) *
+                              (kMeshLowerEndHeightM / kPoleHeightM);
   wire::core::Transformd belt_transform{};
-  belt_transform.scale = {4.0, 4.0, 1.0};
+  belt_transform.scale = {1.0 / mesh_lower_radius_m, 1.0 / mesh_lower_radius_m, 1.0};
   row_assembly.parts.push_back(
       {2, "pole_belt", 7, belt_transform, wire::core::ModelFitMode::kPoleRadial, {}});
   wire::core::ModelAssemblyTemplate endpoint_assembly{};
@@ -1947,8 +1954,8 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
 
   wire::core::PoleTypeDefinition pole_type = state.view().pole_types().at(request.pole_type_id);
   pole_type.pole_visual_assembly_id = kPoleAssembly;
-  pole_type.radius_base_m = 0.16;
-  pole_type.radius_top_m = 0.10;
+  pole_type.radius_base_m = kPoleGroundRadiusM;
+  pole_type.radius_top_m = kPoleTopRadiusM;
   if (!state.UpdatePoleTypeDefinition(pole_type).ok) return false;
   const wire::core::BundleTemplateId hv_template_id =
       wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
@@ -2013,8 +2020,10 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
       if (pole == nullptr) return false;
       if (!almost_equal(instance.world_transform.scale.x, 1.0, 1e-9) ||
           !almost_equal(instance.world_transform.scale.y, 1.0, 1e-9) ||
-          !almost_equal(state.view().pole_radius_at_height_m(*pole, 0.0), 0.16, 1e-9) ||
-          !almost_equal(state.view().pole_radius_at_height_m(*pole, pole->height_m), 0.10, 1e-9)) {
+          !almost_equal(state.view().pole_radius_at_height_m(*pole, 0.0), kPoleGroundRadiusM, 1e-9) ||
+          !almost_equal(state.view().pole_radius_at_height_m(*pole, pole->height_m), kPoleTopRadiusM, 1e-9) ||
+          !almost_equal(state.view().pole_radius_at_height_m(*pole, kMeshLowerEndHeightM),
+                        mesh_lower_radius_m, 1e-9)) {
         return false;
       }
     }
@@ -2029,8 +2038,9 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
       const wire::core::PoleFrame frame = wire::core::BuildPoleFrame(pole->world_transform, 0.0);
       const double placement_height_m =
           wire::core::WorldPointToLocal(frame, instance.world_transform.position).z;
-      const double radial_scale =
-          4.0 * state.view().pole_radius_at_height_m(*pole, placement_height_m);
+      const double radius_at_placement_m =
+          state.view().pole_radius_at_height_m(*pole, placement_height_m);
+      const double radial_scale = radius_at_placement_m / mesh_lower_radius_m;
       if (!almost_equal(instance.world_transform.scale.x, radial_scale, 1e-9) ||
           !almost_equal(instance.world_transform.scale.y, radial_scale, 1e-9) ||
           !almost_equal(instance.world_transform.scale.z, 1.0, 1e-9)) {
@@ -2043,6 +2053,44 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
       model_counts["pole_belt"] != 2 || model_counts["hv_insulator"] != unique_ports.size()) {
     return false;
   }
+
+  wire::core::CoreState lower_end_state;
+  if (!lower_end_state.RegisterModelAssemblyTemplate(row_assembly).ok ||
+      !lower_end_state.RegisterModelAssemblyTemplate(endpoint_assembly).ok) {
+    return false;
+  }
+  wire::core::PoleTypeDefinition lower_pole_type =
+      lower_end_state.view().pole_types().at(request.pole_type_id);
+  lower_pole_type.radius_base_m = kPoleGroundRadiusM;
+  lower_pole_type.radius_top_m = kPoleTopRadiusM;
+  if (!lower_end_state.UpdatePoleTypeDefinition(lower_pole_type).ok) return false;
+  wire::core::BundleTemplate lower_hv = lower_end_state.view().bundle_templates().at(hv_template_id);
+  lower_hv.row_fixture_assembly_id = kRowAssembly;
+  lower_hv.endpoint_fixture_assembly_id = kEndpointAssembly;
+  if (!lower_end_state.UpdateBundleTemplate(lower_hv).ok) return false;
+  wire::core::BackboneSpec lower_request = line_req(lower_end_state);
+  lower_request.bundles.clear();
+  add_backbone_bundle(lower_request, wire::core::BundleKind::kHighVoltage);
+  for (wire::core::BackboneBundleSpec& bundle : lower_request.bundles) {
+    bundle.placement_explicit = true;
+    bundle.height_m = kMeshLowerEndHeightM;
+    bundle.lateral_m = 0.0;
+    bundle.spacing_m = 0.75;
+  }
+  const auto lower_generated = lower_end_state.GenerateFromBackboneSpec(lower_request);
+  if (!lower_generated.ok) return false;
+  std::size_t lower_belts = 0;
+  for (const wire::core::VisualModelInstance& instance :
+       lower_end_state.view().visual_model_instances().instances) {
+    if (instance.model_key != "pole_belt") continue;
+    ++lower_belts;
+    if (!almost_equal(instance.world_transform.scale.x, 1.0, 1e-9) ||
+        !almost_equal(instance.world_transform.scale.y, 1.0, 1e-9) ||
+        !almost_equal(instance.world_transform.scale.z, 1.0, 1e-9)) {
+      return false;
+    }
+  }
+  if (lower_belts != 2) return false;
 
   const wire::core::ObjectId moved_pole_id = generated.value.generated_pole_ids.front();
   const wire::core::Pole* moved_pole = state.view().poles().find(moved_pole_id);

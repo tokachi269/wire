@@ -1982,6 +1982,25 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
     ++model_counts[instance.model_key];
     stable_keys.push_back(instance.stable_key);
     versions.emplace(instance.stable_key, instance.content_version);
+    if (instance.model_key == "pole_belt") {
+      const std::size_t pole_id_begin = instance.stable_key.find(':') + 1;
+      const std::size_t pole_id_end = instance.stable_key.find(':', pole_id_begin);
+      if (pole_id_begin == 0 || pole_id_end == std::string::npos) return false;
+      const wire::core::ObjectId pole_id = static_cast<wire::core::ObjectId>(
+          std::stoull(instance.stable_key.substr(pole_id_begin, pole_id_end - pole_id_begin)));
+      const wire::core::Pole* pole = state.view().poles().find(pole_id);
+      if (pole == nullptr) return false;
+      const wire::core::PoleFrame frame = wire::core::BuildPoleFrame(pole->world_transform, 0.0);
+      const double placement_height_m =
+          wire::core::WorldPointToLocal(frame, instance.world_transform.position).z;
+      const double radial_scale =
+          4.0 * state.view().pole_radius_at_height_m(*pole, placement_height_m);
+      if (!almost_equal(instance.world_transform.scale.x, radial_scale, 1e-9) ||
+          !almost_equal(instance.world_transform.scale.y, radial_scale, 1e-9) ||
+          !almost_equal(instance.world_transform.scale.z, 1.0, 1e-9)) {
+        return false;
+      }
+    }
   }
   std::sort(stable_keys.begin(), stable_keys.end());
   if (model_counts["pole_body"] != 2 || model_counts["hv_crossarm"] != 2 ||

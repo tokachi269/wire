@@ -97,6 +97,7 @@ describe("model asset cache", () => {
     expect(belt.innerRadiusM).not.toBeNull();
     expect(beltPart.localTransform.scaleX).toBeCloseTo(1 / belt.innerRadiusM!, 12);
     expect(beltPart.localTransform.scaleY).toBeCloseTo(1 / belt.innerRadiusM!, 12);
+    expect(beltPart.localTransform.scaleZ).toBe(1);
     expect(clampPart.fitMode).toBe(3);
     expect(clampPart.localTransform.rotationZ).toBe(180);
     expect(clampPart.localTransform.positionY).toBeCloseTo(clamp.size.z * 0.5, 12);

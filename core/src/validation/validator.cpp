@@ -294,9 +294,15 @@ void validate_grouped_support_layout(ValidationResult* result, const EditState& 
                               "Grouped-lowered endpoint must keep the same support-group identity and authoritative pair as the support-group decision",
                               span_id});
   }
-  if (!almost_equal_validation(endpoint.support_world, endpoint.endpoint_world)) {
+  const Vec3d expected_lowered_endpoint{
+      endpoint.support_world.x,
+      endpoint.support_world.y,
+      endpoint.support_world.z - endpoint.branch_down_offset_m,
+  };
+  if (!almost_equal_validation(expected_lowered_endpoint, endpoint.endpoint_world)) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupAttachPointMismatch",
-                              "Grouped-lowered endpoint must keep its per-endpoint wire attachment point", span_id});
+                              "Grouped-lowered endpoint must lower from its per-endpoint wire attachment point",
+                              span_id});
   }
   if (endpoint.branch_down_offset_m <= 1e-9 || !almost_equal_validation(endpoint.branch_down_offset_m, group.down_offset_m)) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupOffsetMismatch",

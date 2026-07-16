@@ -24,6 +24,9 @@ Vec3d PortLocalPosition(const Vec3d& row_axis, const PortPlacementBand& band, do
 Vec3d PortWorldPosition(const Pole& pole, const Vec3d& row_axis, const PortPlacementBand& band,
                         double lane_offset_m, double lateral_offset_m, const Vec3d& shift);
 
+Vec3d PortWorldPositionForLayoutYaw(const Pole& pole, double layout_yaw_deg, const PortPlacementBand& band,
+                                    double lane_offset_m, double lateral_offset_m, double height_offset_m);
+
 void ApplyPortBandTemplateFields(Port* port, const PortPlacementBand& band);
 
 } // namespace wire::core::generation::backbone

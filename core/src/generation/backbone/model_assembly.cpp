@@ -232,13 +232,16 @@ EditResult<PortFixtureContext> port_fixture_context(const CoreState& state, cons
   return out;
 }
 
-EditResult<Transformd> fitted_part_transform(const CoreState& state,
-                                             const Pole& pole,
-                                             double placement_height_m,
-                                             const ModelAssemblyPart& part,
-                                             const Transformd& root) {
+EditResult<Transformd> resolve_model_part_world_transform(const CoreState& state,
+                                                          const Pole& pole,
+                                                          const PoleFrame& frame,
+                                                          double placement_height_m,
+                                                          const Transformd& owner_root,
+                                                          const Vec3d& owner_offset_world,
+                                                          const ModelAssemblyPart& part) {
   EditResult<Transformd> out{};
   Transformd fitted = part.local_transform;
+  Transformd part_root = owner_root;
   if (part.fit_mode == ModelFitMode::kPoleHeight) {
     const auto pole_type_it = state.view().pole_types().find(pole.pole_type_id);
     if (pole_type_it == state.view().pole_types().end() || pole_type_it->second.default_height_m <= 1e-9) {
@@ -248,28 +251,18 @@ EditResult<Transformd> fitted_part_transform(const CoreState& state,
     fitted.scale.z *= pole.height_m / pole_type_it->second.default_height_m;
   } else if (part.fit_mode == ModelFitMode::kPoleRadial) {
     const double radius = state.view().pole_radius_at_height_m(pole, placement_height_m);
+    part_root.position = LocalPointToWorld(frame, {0.0, 0.0, placement_height_m});
     fitted.scale.x *= radius;
     fitted.scale.y *= radius;
+  } else if (part.fit_mode == ModelFitMode::kPoleSurface) {
+    part_root.position = owner_root.position + owner_offset_world +
+                         ScaleVec(frame.forward, state.view().pole_radius_at_height_m(pole, placement_height_m));
+  } else {
+    part_root.position = part_root.position + owner_offset_world;
   }
-  out.value = compose(root, fitted);
+  out.value = compose(part_root, fitted);
   out.ok = true;
   return out;
-}
-
-Vec3d pole_surface_position_at_root(const CoreState& state, const Pole& pole,
-                                    double placement_height_m, const Transformd& root) {
-  const Matrix3 rotation = matrix_from_euler(root.rotation_euler_deg);
-  const Vec3d up = multiply(rotation, Vec3d{0.0, 0.0, 1.0});
-  const Vec3d axis_position = pole.world_transform.position +
-      multiply(rotation, Vec3d{0.0, 0.0, placement_height_m});
-  Vec3d direction = root.position - axis_position;
-  direction = direction - ScaleVec(up, Dot(direction, up));
-  if (Length(direction) <= 1e-9) {
-    direction = multiply(rotation, Vec3d{0.0, 1.0, 0.0});
-  }
-  Normalize(&direction);
-  return axis_position + ScaleVec(
-      direction, state.view().pole_radius_at_height_m(pole, placement_height_m));
 }
 
 const ModelAssemblySocket* socket_for(const ModelAssemblyTemplate& assembly,
@@ -297,19 +290,9 @@ void append_instances(const CoreState& state, const Pole& pole, double placement
                       const std::string& key_prefix, VisualModelInstanceCache* cache,
                       std::string* error) {
   for (const ModelAssemblyPart& part : assembly.parts) {
-    Transformd part_root = root;
-    if (part.fit_mode == ModelFitMode::kPoleRadial) {
-      part_root.position = pole.world_transform.position +
-          multiply(matrix_from_euler(root.rotation_euler_deg),
-                   Vec3d{0.0, 0.0, placement_height_m});
-    } else if (part.fit_mode == ModelFitMode::kPoleSurface) {
-      part_root.position = pole_surface_position_at_root(
-          state, pole, placement_height_m, root);
-    } else {
-      part_root.position = part_root.position + rigid_offset_world;
-    }
+    const PoleFrame frame = BuildPoleFrame(pole.world_transform, root.rotation_euler_deg.z);
     const EditResult<Transformd> world =
-        fitted_part_transform(state, pole, placement_height_m, part, part_root);
+        resolve_model_part_world_transform(state, pole, frame, placement_height_m, root, rigid_offset_world, part);
     if (!world.ok) {
       *error = world.error;
       return;
@@ -401,8 +384,8 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
       out.error = "model assembly unsupported: row endpoint mount socket does not resolve";
       return out;
     }
-    const EditResult<Transformd> mount_world = fitted_part_transform(
-        state, *context.value.pole, placement_height_m, *mount_part, fixture_root);
+    const EditResult<Transformd> mount_world = resolve_model_part_world_transform(
+        state, *context.value.pole, frame, placement_height_m, fixture_root, {}, *mount_part);
     if (!mount_world.ok) {
       out.error = mount_world.error;
       return out;
@@ -421,13 +404,8 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
       out.error = "model assembly unsupported: endpoint wire socket does not resolve";
       return out;
     }
-    Transformd socket_root = fixture_root;
-    if (socket_part->fit_mode == ModelFitMode::kPoleSurface) {
-      socket_root.position = pole_surface_position_at_root(
-          state, *context.value.pole, placement_height_m, fixture_root);
-    }
-    const EditResult<Transformd> world = fitted_part_transform(
-        state, *context.value.pole, placement_height_m, *socket_part, socket_root);
+    const EditResult<Transformd> world = resolve_model_part_world_transform(
+        state, *context.value.pole, frame, placement_height_m, fixture_root, {}, *socket_part);
     if (!world.ok) {
       out.error = world.error;
       return out;

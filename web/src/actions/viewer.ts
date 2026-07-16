@@ -176,22 +176,15 @@ function defaultBundlePlacements(
   poleTemplate: PoleTemplateInfo | undefined
 ): BundlePlacement[] {
   const preset = [
-    { category: 0, count: 3, height: 9.2, offset: 0.2, spacing: 0.75 },
-    { category: 1, count: 1, height: 7.7, offset: 0, spacing: 0.2 },
-    { category: 1, count: 1, height: 7.35, offset: 0, spacing: 0.2 },
-    { category: 1, count: 1, height: 7.0, offset: 0, spacing: 0.2 },
-    { category: 2, count: 1, height: 5.5, offset: 0, spacing: 0.2 },
-    { category: 3, count: 1, height: 5.3, offset: 0, spacing: 0.2 }
+    { bundleTemplateId: 101, count: 3, height: 9.2, offset: -0.2 },
+    { bundleTemplateId: 102, count: 1, height: 7.7, offset: 0 },
+    { bundleTemplateId: 102, count: 1, height: 7.35, offset: 0 },
+    { bundleTemplateId: 102, count: 1, height: 7.0, offset: 0 },
+    { bundleTemplateId: 104, count: 1, height: 5.5, offset: 0 },
+    { bundleTemplateId: 105, count: 1, height: 5.3, offset: 0 }
   ];
-  const byCategory = new Map<number, BundleTemplateInfo>();
-  for (const template of templates) {
-    const category = bundleTemplateCategory(template);
-    if ([0, 1, 2, 3].includes(category) && !byCategory.has(category)) {
-      byCategory.set(category, template);
-    }
-  }
   return preset.flatMap((row, index) => {
-    const template = byCategory.get(row.category);
+    const template = templates.find((item) => item.id === row.bundleTemplateId);
     if (template === undefined) return [];
     const fallback = bundlePlacementDefault(template, poleTemplate);
     return [{
@@ -201,7 +194,7 @@ function defaultBundlePlacements(
       explicit: true,
       height: row.height,
       offset: row.offset,
-      spacing: row.spacing || fallback.spacing
+      spacing: fallback.spacing
     }];
   });
 }

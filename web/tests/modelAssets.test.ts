@@ -75,26 +75,28 @@ describe("model asset cache", () => {
     );
     expect(bootstrap.bundleAssignments).toContainEqual({
       bundleTemplateId: 102,
-      rowAssemblyId: 0,
+      rowAssemblyId: 9207,
       endpointAssemblyId: 9206
     });
     expect(bootstrap.bundleAssignments).toContainEqual({
       bundleTemplateId: 104,
-      rowAssemblyId: 0,
+      rowAssemblyId: 9207,
       endpointAssemblyId: 9204
     });
     expect(bootstrap.bundleAssignments).toContainEqual({
       bundleTemplateId: 105,
-      rowAssemblyId: 0,
+      rowAssemblyId: 9207,
       endpointAssemblyId: 9204
     });
     const communication = bootstrap.assemblies.find((assembly) => assembly.id === 9204)!;
     const clampPart = communication.parts[0];
-    const beltPart = communication.parts[1];
     expect(clampPart.modelKey).toBe("communication_clamp");
-    expect(communication.parts.map((part) => part.modelKey)).toEqual(["communication_clamp", "pole_belt"]);
-    expect(beltPart.localTransform.scaleX).toBeCloseTo(1 / (belt.size.x * 0.5), 12);
-    expect(beltPart.localTransform.scaleY).toBeCloseTo(1 / (belt.size.z * 0.5), 12);
+    expect(communication.parts.map((part) => part.modelKey)).toEqual(["communication_clamp"]);
+    const beltRow = bootstrap.assemblies.find((assembly) => assembly.id === 9207)!;
+    const beltPart = beltRow.parts[0];
+    expect(belt.innerRadiusM).not.toBeNull();
+    expect(beltPart.localTransform.scaleX).toBeCloseTo(1 / belt.innerRadiusM!, 12);
+    expect(beltPart.localTransform.scaleY).toBeCloseTo(1 / belt.innerRadiusM!, 12);
     expect(clampPart.fitMode).toBe(3);
     expect(clampPart.localTransform.rotationZ).toBe(180);
     expect(clampPart.localTransform.positionY).toBeCloseTo(clamp.size.z * 0.5, 12);
@@ -102,11 +104,12 @@ describe("model asset cache", () => {
     expect(communication.wireSocket).toEqual({ partId: 1, socketName: "wire" });
     const highVoltage = bootstrap.assemblies.find((assembly) => assembly.id === 9202)!;
     const highVoltageArm = highVoltage.parts.find((part) => part.modelKey === "hv_crossarm")!;
-    expect(highVoltageArm.localTransform.positionX).toBeCloseTo(0.169, 12);
+    expect(highVoltageArm.fitMode).toBe(3);
+    expect(highVoltageArm.localTransform.positionX).toBeCloseTo(0, 12);
     expect(highVoltage.endpointMountSocket).toEqual({ partId: 1, socketName: "endpoint_mount" });
     expect(highVoltageArm.sockets[0].positionZ).toBeCloseTo(crossarm.size.y * 0.5, 12);
     const lowVoltage = bootstrap.assemblies.find((assembly) => assembly.id === 9206)!;
-    expect(lowVoltage.parts.map((part) => part.modelKey)).toEqual(["communication_clamp_long", "pole_belt"]);
+    expect(lowVoltage.parts.map((part) => part.modelKey)).toEqual(["communication_clamp_long"]);
     expect(lowVoltage.parts[0].fitMode).toBe(0);
     expect(lowVoltage.parts[0].localTransform.rotationZ).toBe(180);
     expect(lowVoltage.parts[0].localTransform.positionY).toBeCloseTo(clampLong.size.z * 0.5, 12);

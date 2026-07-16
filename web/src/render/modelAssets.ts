@@ -36,8 +36,7 @@ export interface ModelAssetAdapter {
   modelKey: ModelKey;
   url: string;
   mountRule: MountRule;
-  wireSocketInsetRatio?: number;
-  wireSocketTopCenter?: boolean;
+  adapterVersion: number;
 }
 
 export interface LoadedModelAsset {
@@ -47,6 +46,7 @@ export interface LoadedModelAsset {
   bounds: THREE.Box3;
   size: THREE.Vector3;
   mountAnchor: THREE.Vector3;
+  innerRadiusM: number | null;
   descriptorVersion: number;
   adapter: ModelAssetAdapter;
 }
@@ -57,36 +57,38 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
   belt: {
     modelKey: "pole_belt",
     url: beltUrl,
-    mountRule: "center"
+    mountRule: "center",
+    adapterVersion: 2
   },
   communicationClamp: {
     modelKey: "communication_clamp",
     url: communicationClampUrl,
-    mountRule: "center"
+    mountRule: "center",
+    adapterVersion: 2
   },
   communicationClampLong: {
     modelKey: "communication_clamp_long",
     url: communicationClampLongUrl,
     mountRule: "center",
-    // The long clamp has a thin insertion tip beyond the usable body. The wire
-    // should attach to the top center of the long body, not the tip center.
-    wireSocketInsetRatio: 0.5,
-    wireSocketTopCenter: true
+    adapterVersion: 2
   },
   crossarmHv: {
     modelKey: "hv_crossarm",
     url: crossarmHvUrl,
-    mountRule: "center"
+    mountRule: "center",
+    adapterVersion: 2
   },
   hvInsulator: {
     modelKey: "hv_insulator",
     url: hvInsulatorUrl,
-    mountRule: "bottom"
+    mountRule: "bottom",
+    adapterVersion: 2
   },
   poleBody: {
     modelKey: "pole_body",
     url: poleBodyUrl,
-    mountRule: "pole-ground"
+    mountRule: "pole-ground",
+    adapterVersion: 2
   }
 };
 
@@ -101,22 +103,43 @@ function mountAnchor(bounds: THREE.Box3, size: THREE.Vector3, rule: MountRule): 
   return new THREE.Vector3(center.x, bounds.min.y + size.y * (2 / 12), center.z);
 }
 
-function descriptorVersion(kind: ModelAssetKind, bounds: THREE.Box3): number {
+function descriptorVersion(kind: ModelAssetKind, bounds: THREE.Box3, anchor: THREE.Vector3, adapterVersion: number): number {
   let hash = 2166136261;
   const bytes = new TextEncoder().encode([
     kind,
+    adapterVersion,
     bounds.min.x,
     bounds.min.y,
     bounds.min.z,
     bounds.max.x,
     bounds.max.y,
-    bounds.max.z
+    bounds.max.z,
+    anchor.x,
+    anchor.y,
+    anchor.z
   ].join(":"));
   for (const value of bytes) {
     hash ^= value;
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0 || 1;
+}
+
+function measuredInnerRadius(source: THREE.Group): number | null {
+  let radius = Number.POSITIVE_INFINITY;
+  source.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
+    const position = geometry?.getAttribute("position");
+    if (position === undefined) return;
+    for (let i = 0; i < position.count; i += 1) {
+      const point = new THREE.Vector3(position.getX(i), position.getY(i), position.getZ(i));
+      point.applyMatrix4(mesh.matrixWorld);
+      const r = Math.hypot(point.x, point.z);
+      if (Number.isFinite(r) && r > 1e-6) radius = Math.min(radius, r);
+    }
+  });
+  return Number.isFinite(radius) ? radius : null;
 }
 
 export class ModelAssetCache {
@@ -137,6 +160,7 @@ export class ModelAssetCache {
       if (bounds.isEmpty()) throw new Error(`GLB has no visible bounds: ${kind}`);
       const size = bounds.getSize(new THREE.Vector3());
       const anchor = mountAnchor(bounds, size, adapter.mountRule);
+      const innerRadiusM = kind === "belt" ? measuredInnerRadius(rawSource) : null;
 
       // Local adapter normalization only: glTF Y-up becomes Core-local Z-up,
       // and the declared mount anchor becomes the assembly-local origin.
@@ -153,7 +177,8 @@ export class ModelAssetCache {
         bounds,
         size,
         mountAnchor: anchor,
-        descriptorVersion: descriptorVersion(kind, bounds),
+        innerRadiusM,
+        descriptorVersion: descriptorVersion(kind, bounds, anchor, adapter.adapterVersion),
         adapter
       };
       this.loaded.set(kind, asset);
@@ -227,9 +252,9 @@ function insertionFixture(asset: LoadedModelAsset): {
   const transform = identityTransform();
   transform.positionY = length * 0.5;
   transform.rotationZ = 180;
-  const socketInsetRatio = asset.adapter.wireSocketInsetRatio ?? 0;
+  const socketInsetRatio = asset.kind === "communicationClampLong" ? 0.5 : 0;
   const socketLocalY = -length * (0.5 - socketInsetRatio);
-  const socketLocalZ = asset.adapter.wireSocketTopCenter ? asset.size.y * 0.5 : 0;
+  const socketLocalZ = asset.kind === "communicationClampLong" ? asset.size.y * 0.5 : 0;
   return {
     transform,
     wireSocket: {
@@ -260,22 +285,17 @@ export function buildDefaultModelBootstrap(
   distributionPoleTransform.scaleZ = 10.0 / poleVisibleLength;
   const communicationPoleTransform = identityTransform();
   communicationPoleTransform.scaleZ = 11.35 / poleVisibleLength;
-  const beltRadiusX = belt.size.x * 0.5;
-  const beltRadiusY = belt.size.z * 0.5;
-  if (!Number.isFinite(beltRadiusX) || !Number.isFinite(beltRadiusY) ||
-      beltRadiusX <= 0 || beltRadiusY <= 0) {
-    throw new Error("Belt adapter requires positive measured radii");
+  const beltInnerRadius = belt.innerRadiusM;
+  if (beltInnerRadius === null || !Number.isFinite(beltInnerRadius) || beltInnerRadius <= 0) {
+    throw new Error("Belt adapter requires a positive measured inner radius");
   }
   const beltTransform = identityTransform();
   // Normalize the authored belt cross-section before Core applies the
   // height-dependent pole radius. This keeps belts on tapered poles instead of
   // preserving the source model's lower-pole radius.
-  beltTransform.scaleX = 1 / beltRadiusX;
-  beltTransform.scaleY = 1 / beltRadiusY;
+  beltTransform.scaleX = 1 / beltInnerRadius;
+  beltTransform.scaleY = 1 / beltInnerRadius;
   const crossarmTransform = identityTransform();
-  // The default 10 m distribution pole is 0.129 m in radius at the 9.2 m HV
-  // row. Offset the 0.08 m-deep arm so its pole-facing surface meets the pole.
-  crossarmTransform.positionX = 0.169;
   crossarmTransform.rotationZ = 90;
   const endpointMountSocket: ModelSocketInput = {
     name: "endpoint_mount",
@@ -306,6 +326,7 @@ export function buildDefaultModelBootstrap(
   const communicationEndpointAssemblyId = 9204;
   const communicationPoleAssemblyId = 9205;
   const lowVoltageEndpointAssemblyId = 9206;
+  const beltRowAssemblyId = 9207;
   return {
     assemblies: [
       {
@@ -316,9 +337,9 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: hvRowAssemblyId,
-        version: 2,
+        version: 3,
         parts: [
-          part(crossarm, 1, 0, crossarmTransform, endpointMountSocket),
+          part(crossarm, 1, 3, crossarmTransform, endpointMountSocket),
           part(belt, 2, 2, beltTransform)
         ],
         wireSocket: null,
@@ -332,13 +353,12 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: communicationEndpointAssemblyId,
-        version: 2,
+        version: 3,
         parts: [
           part(
             communicationClamp, 1, 3,
             communicationInsertion.transform, communicationInsertion.wireSocket
-          ),
-          part(belt, 2, 2, beltTransform)
+          )
         ],
         wireSocket: { partId: 1, socketName: "wire" }
       },
@@ -350,15 +370,20 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: lowVoltageEndpointAssemblyId,
-        version: 3,
+        version: 4,
         parts: [
           part(
             communicationClampLong, 1, 0,
             lowVoltageInsertion.transform, lowVoltageInsertion.wireSocket
-          ),
-          part(belt, 2, 2, beltTransform)
+          )
         ],
         wireSocket: { partId: 1, socketName: "wire" }
+      },
+      {
+        id: beltRowAssemblyId,
+        version: 1,
+        parts: [part(belt, 1, 2, beltTransform)],
+        wireSocket: null
       }
     ],
     poleAssignments: [
@@ -373,17 +398,17 @@ export function buildDefaultModelBootstrap(
       },
       {
         bundleTemplateId: 102,
-        rowAssemblyId: 0,
+        rowAssemblyId: beltRowAssemblyId,
         endpointAssemblyId: lowVoltageEndpointAssemblyId
       },
       {
         bundleTemplateId: 104,
-        rowAssemblyId: 0,
+        rowAssemblyId: beltRowAssemblyId,
         endpointAssemblyId: communicationEndpointAssemblyId
       },
       {
         bundleTemplateId: 105,
-        rowAssemblyId: 0,
+        rowAssemblyId: beltRowAssemblyId,
         endpointAssemblyId: communicationEndpointAssemblyId
       }
     ]

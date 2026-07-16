@@ -2903,6 +2903,12 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       endpoint->semantic.lower_required = true;
       endpoint->semantic.lowering_blocked_by_policy = false;
       endpoint->semantic.support_group_id = static_cast<int>(source->id);
+      endpoint->semantic.side_assignment_rule = SideAssignmentRuleKind::kChord;
+      endpoint->semantic.support_orientation_rule = SupportOrientationRuleKind::kChord;
+      endpoint->semantic.support_orientation_basis = SupportOrientationBasisKind::kChordForward;
+      endpoint->semantic.has_side_axis = true;
+      endpoint->semantic.side_axis = HorizontalNormalizedOr(source->group_axis);
+      endpoint->semantic.chosen_side_sign = 1.0;
       endpoint->endpoint_offset_z_m = -resolved_down_offset;
       endpoint->automatic_endpoint_offset_z_m = source->endpoint_offset_m;
       endpoint->branch_down_offset_m = resolved_down_offset;

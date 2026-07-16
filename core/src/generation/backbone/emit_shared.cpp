@@ -135,6 +135,13 @@ Vec3d PortWorldPosition(const Pole& pole, const Vec3d& row_axis, const PortPlace
                            PortLocalPosition(axis, band, lane_offset_m, lateral_offset_m, shift));
 }
 
+Vec3d PortWorldPositionForLayoutYaw(const Pole& pole, double layout_yaw_deg, const PortPlacementBand& band,
+                                    double lane_offset_m, double lateral_offset_m, double height_offset_m) {
+  return LocalPointToWorld(BuildPoleFrame(pole.world_transform, layout_yaw_deg),
+                           {0.0, band.lateral_center_m + lane_offset_m + lateral_offset_m,
+                            band.height_center_m + height_offset_m});
+}
+
 void ApplyPortBandTemplateFields(Port* port, const PortPlacementBand& band) {
   if (port == nullptr) {
     return;

@@ -132,7 +132,7 @@
     },
     {
       "name": "web_entry",
-      "patterns": ["web/src/main.ts"],
+      "patterns": ["web/src/main.ts", "web/src/vite-env.d.ts"],
       "forbidden_tokens": ["wire/core", "viewer/"]
     },
     {

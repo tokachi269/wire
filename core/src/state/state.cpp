@@ -45,6 +45,25 @@ double deterministic_pole_tilt_factor(ObjectId pole_id) {
   return unit_random_from_u64(mix_u64(static_cast<std::uint64_t>(pole_id) ^ 0x54D3C92F7A6B1E29ull));
 }
 
+void append_unique_ids(std::vector<ObjectId>* target, const std::vector<ObjectId>& source) {
+  if (target == nullptr) return;
+  for (ObjectId id : source) {
+    if (id == kInvalidObjectId) continue;
+    if (std::find(target->begin(), target->end(), id) == target->end()) {
+      target->push_back(id);
+    }
+  }
+}
+
+void append_plan(UpdatePlan* target, const UpdatePlan& source) {
+  if (target == nullptr) return;
+  append_unique_ids(&target->affected.poles, source.affected.poles);
+  append_unique_ids(&target->affected.ports, source.affected.ports);
+  append_unique_ids(&target->affected.spans, source.affected.spans);
+  append_unique_ids(&target->affected.edges, source.affected.edges);
+  target->plan_ms += source.plan_ms;
+}
+
 double deterministic_pole_tilt_azimuth_deg(ObjectId pole_id) {
   return unit_random_from_u64(mix_u64(static_cast<std::uint64_t>(pole_id) ^ 0xA1937465C4FB2D81ull)) * 360.0;
 }
@@ -1786,7 +1805,7 @@ EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_te
 EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
                                                           double height_m, double lateral_m, double spacing_m) {
   EditResult<bool> result;
-  Bundle* bundle = authoritative_.edit_state.bundles.find(bundle_id);
+  const Bundle* bundle = authoritative_.edit_state.bundles.find(bundle_id);
   if (bundle == nullptr) {
     result.error = "bundle not found";
     return result;
@@ -1816,13 +1835,20 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
     return result;
   }
 
-  const Bundle previous_bundle = *bundle;
-  bundle->placement_explicit = placement_explicit;
-  bundle->height_m = height_m;
-  bundle->lateral_m = lateral_m;
-  bundle->phase_spacing_m = spacing_m;
-  bundle->spacing_override_m = spacing_m;
-  add_unique_id(result.change_set.updated_ids, bundle_id);
+  CoreState trial = *this;
+  ChangeSet change_set{};
+  Bundle* trial_bundle = trial.authoritative_.edit_state.bundles.find(bundle_id);
+  if (trial_bundle == nullptr) {
+    result.error = "bundle not found";
+    return result;
+  }
+  const Bundle previous_bundle = *trial_bundle;
+  trial_bundle->placement_explicit = placement_explicit;
+  trial_bundle->height_m = height_m;
+  trial_bundle->lateral_m = lateral_m;
+  trial_bundle->phase_spacing_m = spacing_m;
+  trial_bundle->spacing_override_m = spacing_m;
+  add_unique_id(change_set.updated_ids, bundle_id);
 
   struct PlannedPortPosition {
     ObjectId port_id = kInvalidObjectId;
@@ -1832,14 +1858,14 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
   std::unordered_set<ObjectId> planned_port_ids{};
   std::vector<ObjectId> changed_port_ids{};
   for (ObjectId edge_bundle_id : edge_bundle_ids) {
-    const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
+    const SavedBackboneEdgeBundle* edge_bundle = trial.view().backbone_edge_bundle(edge_bundle_id);
     const SavedBackboneEdge* edge =
-        edge_bundle == nullptr ? nullptr : view().backbone_edge(edge_bundle->edge_id);
+        edge_bundle == nullptr ? nullptr : trial.view().backbone_edge(edge_bundle->edge_id);
     if (edge_bundle == nullptr || edge == nullptr) {
       result.error = "bundle placement update: saved edge bundle is missing";
       return result;
     }
-    const auto port_bindings = view().backbone_port_bindings_for_edge_bundle(edge_bundle_id);
+    const auto port_bindings = trial.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id);
     if (port_bindings.empty()) {
       result.error = "bundle placement update: saved port bindings are missing";
       return result;
@@ -1853,9 +1879,9 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
       if (planned_port_ids.find(binding->port_id) != planned_port_ids.end()) {
         continue;
       }
-      Port* port = authoritative_.edit_state.ports.find(binding->port_id);
-      const Pole* pole = port == nullptr ? nullptr : authoritative_.edit_state.poles.find(port->owner_pole_id);
-      const PoleTypeDefinition* pole_type = pole == nullptr ? nullptr : find_pole_type(pole->pole_type_id);
+      Port* port = trial.authoritative_.edit_state.ports.find(binding->port_id);
+      const Pole* pole = port == nullptr ? nullptr : trial.authoritative_.edit_state.poles.find(port->owner_pole_id);
+      const PoleTypeDefinition* pole_type = pole == nullptr ? nullptr : trial.find_pole_type(pole->pole_type_id);
       const PortPlacementBand* band =
           pole_type == nullptr ? nullptr : state_internal::FindPortPlacementBandById(*pole_type, binding->placement_band_id);
       if (port == nullptr || pole == nullptr || band == nullptr) {
@@ -1875,21 +1901,22 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
       const double lane_offset = uses_lane_bands
                                      ? 0.0
                                      : generation::backbone::LaneOffset(
-                                           binding->lane_index, bundle->conductor_count, spacing_m);
-      const Vec3d next_local{
-          0.0,
-          placement_band.lateral_center_m + lane_offset + edge->lateral_offset_m,
-          placement_band.height_center_m + preserved_row_height_offset};
-      const Vec3d next_position =
-          LocalPointToWorld(BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg),
-                            next_local);
+                                           binding->lane_index, trial_bundle->conductor_count, spacing_m);
+      const Vec3d next_position = generation::backbone::PortWorldPositionForLayoutYaw(
+          *pole, binding->layout_yaw_deg, placement_band, lane_offset, edge->lateral_offset_m,
+          preserved_row_height_offset);
+      if ((port->position_mode == PortPositionMode::kManual || port->user_edited_position) &&
+          Length(port->world_position - next_position) > 1e-12) {
+        result.error = "bundle placement update unsupported: manual port would move";
+        return result;
+      }
       planned_port_ids.insert(port->id);
       planned_port_positions.push_back({port->id, next_position});
     }
   }
 
   for (const PlannedPortPosition& planned : planned_port_positions) {
-    Port* port = authoritative_.edit_state.ports.find(planned.port_id);
+    Port* port = trial.authoritative_.edit_state.ports.find(planned.port_id);
     if (port == nullptr) {
       result.error = "bundle placement update: planned port is missing";
       return result;
@@ -1897,24 +1924,39 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
     if (Length(port->world_position - planned.position) > 1e-12) {
       port->world_position = planned.position;
       add_unique_id(changed_port_ids, port->id);
-      add_unique_id(result.change_set.updated_ids, port->id);
+      add_unique_id(change_set.updated_ids, port->id);
     }
   }
 
+  UpdatePlan combined_plan{};
+  combined_plan.kind = UpdateKind::kReposition;
   for (ObjectId port_id : changed_port_ids) {
-    touch_connected_spans_from_port(port_id, &result.change_set);
-    const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPort, port_id});
+    trial.touch_connected_spans_from_port(port_id, &change_set);
+    const auto plan = trial.make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPort, port_id});
     if (!plan.ok) {
       result.error = plan.error;
       return result;
     }
-    const auto updated = execute_update_plan(plan.value);
+    append_plan(&combined_plan, plan.value);
+  }
+  if (!changed_port_ids.empty()) {
+    const auto updated = trial.execute_update_plan(combined_plan);
     if (!updated.ok) {
       result.error = updated.error;
       return result;
     }
   }
 
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      result.error = "bundle placement update validation failed: " + issue.code + ": " + issue.message;
+      return result;
+    }
+  }
+
+  *this = std::move(trial);
+  result.change_set = std::move(change_set);
   result.ok = true;
   result.value = true;
   return result;

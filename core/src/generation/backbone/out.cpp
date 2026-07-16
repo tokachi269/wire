@@ -112,6 +112,8 @@ CurveConstraint detail_curve_constraint(const Vec3d& point, const Vec3d& tangent
   return constraint;
 }
 
+} // namespace
+
 const SavedBackboneSpanBinding* source_span_binding_for(const CoreState& state,
                                                         const SourceEdgeProjectionRef& ref) {
   const CoreView& view = state.view();
@@ -119,24 +121,8 @@ const SavedBackboneSpanBinding* source_span_binding_for(const CoreState& state,
   if (edge == nullptr || (ref.from_node_id != edge->node_a && ref.from_node_id != edge->node_b)) {
     return nullptr;
   }
-  const auto edge_bundles_it = view.backbone_index().edge_bundles.find(ref.source_edge_id);
-  if (edge_bundles_it == view.backbone_index().edge_bundles.end()) {
-    return nullptr;
-  }
-
-  const SavedBackboneEdgeBundle* matched = nullptr;
-  for (ObjectId edge_bundle_id : edge_bundles_it->second) {
-    const SavedBackboneEdgeBundle* candidate = view.backbone_edge_bundle(edge_bundle_id);
-    const Bundle* bundle = candidate == nullptr ? nullptr : view.bundles().find(candidate->bundle_id);
-    if (bundle == nullptr || bundle->bundle_template_id != ref.bundle_template_id) {
-      continue;
-    }
-    if (matched != nullptr) {
-      return nullptr;
-    }
-    matched = candidate;
-  }
-  if (matched == nullptr) {
+  const SavedBackboneEdgeBundle* matched = view.backbone_edge_bundle(ref.source_edge_bundle_id);
+  if (matched == nullptr || matched->edge_id != ref.source_edge_id) {
     return nullptr;
   }
 
@@ -177,6 +163,8 @@ const SavedBackboneSpanBinding* source_span_binding_for(const CoreState& state,
   }
   return span_binding;
 }
+
+namespace {
 
 EditResult<DetailCurve> make_primary_curve_between_impl(const CoreState& state, ObjectId span_id, const Vec3d& start,
                                                         const Vec3d& end, const Vec3d* start_tangent_hint,
@@ -244,16 +232,16 @@ std::optional<Vec3d> source_edge_projection_world(const CoreState& state, const 
   if (!ref.valid()) {
     return std::nullopt;
   }
-  if (const std::optional<Vec3d> cached = state.view().source_edge_projection_world(
-          ref.source_edge_id, ref.from_node_id, ref.bundle_template_id, ref.lane_index, ref.t);
-      cached.has_value()) {
-    return cached;
-  }
-
   const SavedBackboneEdge* edge = state.view().backbone_edge(ref.source_edge_id);
   const SavedBackboneSpanBinding* binding = source_span_binding_for(state, ref);
   if (edge == nullptr || binding == nullptr) {
     return std::nullopt;
+  }
+  if (const CurveCacheEntry* cached = state.find_curve_cache(binding->span_id);
+      cached != nullptr && cached->detail.sample_points.size() >= 2) {
+    const double t = std::clamp(ref.t, 0.0, 1.0);
+    const double u = ref.from_node_id == edge->node_a ? t : 1.0 - t;
+    return cached->detail.EvaluatePosition(u);
   }
   const SpanLayoutView layout = state.span_layout(binding->span_id);
   if (!layout.has_layout()) {

@@ -1614,8 +1614,8 @@ bool C720_source_edge_pipeline_front_half_does_not_read_curve_projection() {
       return false;
     }
   }
-  return contains_text(check_body, "source_projection_binding_exists") &&
-         contains_text(emit_ports_body, "source_projection_binding_exists");
+  return contains_text(check_body, "source_span_binding_for") &&
+         contains_text(emit_ports_body, "source_span_binding_for");
 }
 
 bool C612_backbone_direct_derive_does_not_call_recalc_paths() {

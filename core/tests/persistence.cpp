@@ -65,6 +65,7 @@ bool same_layout_endpoint(const wire::core::LayoutEndpoint& a, const wire::core:
          a.endpoint_node_id == b.endpoint_node_id && a.port_id == b.port_id &&
          a.jumper_peer_port_id == b.jumper_peer_port_id &&
          a.source_projection.source_edge_id == b.source_projection.source_edge_id &&
+         a.source_projection.source_edge_bundle_id == b.source_projection.source_edge_bundle_id &&
          a.source_projection.from_node_id == b.source_projection.from_node_id &&
          a.source_projection.bundle_template_id == b.source_projection.bundle_template_id &&
          a.source_projection.lane_index == b.source_projection.lane_index &&

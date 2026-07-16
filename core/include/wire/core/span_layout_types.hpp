@@ -134,13 +134,15 @@ inline void CopyLayoutSemantic(LayoutSemantic& dst, const LayoutSemantic& src) {
 
 struct SourceEdgeProjectionRef {
   ObjectId source_edge_id = kInvalidObjectId;
+  ObjectId source_edge_bundle_id = kInvalidObjectId;
   ObjectId from_node_id = kInvalidObjectId;
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::size_t lane_index = 0;
   double t = 0.0;
 
   [[nodiscard]] bool valid() const noexcept {
-    return source_edge_id != kInvalidObjectId && from_node_id != kInvalidObjectId;
+    return source_edge_id != kInvalidObjectId && source_edge_bundle_id != kInvalidObjectId &&
+           from_node_id != kInvalidObjectId;
   }
 };
 

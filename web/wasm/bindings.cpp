@@ -307,6 +307,13 @@ public:
       bundle.height_m = placement["height"].as<double>();
       bundle.lateral_m = placement["offset"].as<double>();
       bundle.spacing_m = placement["spacing"].as<double>();
+      const val generated_bundle_id = placement["generatedBundleId"];
+      if (!generated_bundle_id.isUndefined() && !generated_bundle_id.isNull()) {
+        const std::string value = generated_bundle_id.as<std::string>();
+        if (!value.empty() && value != "0") {
+          bundle.source_bundle_id = static_cast<ObjectId>(std::stoull(value));
+        }
+      }
       spec.bundles.push_back(bundle);
     }
 

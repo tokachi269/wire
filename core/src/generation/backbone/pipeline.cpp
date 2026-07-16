@@ -567,75 +567,36 @@ SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& 
   return out;
 }
 
-bool source_projection_binding_exists(const CoreState& state, const SourceEdgeProjectionRef& ref) {
-  if (!ref.valid()) {
-    return false;
+ObjectId source_edge_bundle_for(const CoreState& state, ObjectId edge_id,
+                                const BackboneBundleSpec& bundle_spec) {
+  if (bundle_spec.source_bundle_id != kInvalidObjectId) {
+    const BackboneEdgeBundleKey key{edge_id, bundle_spec.source_bundle_id};
+    const auto it = state.view().backbone_index().edge_bundle_by_edge_and_bundle.find(key);
+    return it == state.view().backbone_index().edge_bundle_by_edge_and_bundle.end()
+               ? kInvalidObjectId
+               : it->second;
   }
-  const SavedBackboneEdge* edge = state.view().backbone_edge(ref.source_edge_id);
-  if (edge == nullptr || (ref.from_node_id != edge->node_a && ref.from_node_id != edge->node_b)) {
-    return false;
-  }
-  const auto edge_bundles_it = state.view().backbone_index().edge_bundles.find(ref.source_edge_id);
+  const auto edge_bundles_it = state.view().backbone_index().edge_bundles.find(edge_id);
   if (edge_bundles_it == state.view().backbone_index().edge_bundles.end()) {
-    return false;
+    return kInvalidObjectId;
   }
-  const SavedBackboneEdgeBundle* matched = nullptr;
+  ObjectId matched = kInvalidObjectId;
   for (ObjectId edge_bundle_id : edge_bundles_it->second) {
-    const SavedBackboneEdgeBundle* candidate = state.view().backbone_edge_bundle(edge_bundle_id);
-    const Bundle* bundle = candidate == nullptr ? nullptr : state.view().bundles().find(candidate->bundle_id);
-    if (bundle == nullptr || bundle->bundle_template_id != ref.bundle_template_id) {
+    const SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(edge_bundle_id);
+    const Bundle* bundle = edge_bundle == nullptr ? nullptr : state.view().bundles().find(edge_bundle->bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != bundle_spec.bundle_template_id) {
       continue;
     }
-    if (matched != nullptr) {
-      return false;
+    if (matched != kInvalidObjectId) {
+      return kInvalidObjectId;
     }
-    matched = candidate;
+    matched = edge_bundle_id;
   }
-  if (matched == nullptr) {
-    return false;
-  }
-
-  const SavedBackbonePortBinding* binding_a = nullptr;
-  const SavedBackbonePortBinding* binding_b = nullptr;
-  for (const SavedBackbonePortBinding* binding :
-       state.view().backbone_port_bindings_for_edge_bundle(matched->edge_bundle_id)) {
-    if (binding == nullptr || binding->lane_index != ref.lane_index) {
-      continue;
-    }
-    const bool at_a = binding->row_key.node_id == edge->node_a;
-    const bool at_b = binding->row_key.node_id == edge->node_b;
-    if ((!at_a && !at_b) || (at_a && binding_a != nullptr) || (at_b && binding_b != nullptr)) {
-      return false;
-    }
-    (at_a ? binding_a : binding_b) = binding;
-  }
-  if (binding_a == nullptr || binding_b == nullptr) {
-    return false;
-  }
-
-  const auto span_bindings_it = state.view().backbone_index().edge_bundle_span_bindings.find(matched->edge_bundle_id);
-  if (span_bindings_it == state.view().backbone_index().edge_bundle_span_bindings.end()) {
-    return false;
-  }
-  bool found_span = false;
-  for (std::size_t index : span_bindings_it->second) {
-    const SavedBackboneGraph& graph = state.view().backbone();
-    if (index >= graph.span_bindings.size()) {
-      return false;
-    }
-    if (graph.span_bindings[index].lane_index != ref.lane_index) {
-      continue;
-    }
-    if (found_span) {
-      return false;
-    }
-    found_span = true;
-  }
-  return found_span;
+  return matched;
 }
 
 SourceEdgeProjectionRef source_projection_for(const CoreState& state, const node& source,
-                                              BundleTemplateId bundle_template_id, std::size_t lane) {
+                                              const BackboneBundleSpec& bundle_spec, std::size_t lane) {
   SourceEdgeProjectionRef out{};
   const ObjectId source_a = saved_node_id_for(state, source.source_edge_node_a);
   const ObjectId source_b = saved_node_id_for(state, source.source_edge_node_b);
@@ -649,8 +610,9 @@ SourceEdgeProjectionRef source_projection_for(const CoreState& state, const node
     return out;
   }
   out.source_edge_id = edge_it->second;
+  out.source_edge_bundle_id = source_edge_bundle_for(state, out.source_edge_id, bundle_spec);
   out.from_node_id = source_a;
-  out.bundle_template_id = bundle_template_id;
+  out.bundle_template_id = bundle_spec.bundle_template_id;
   out.lane_index = lane;
   out.t = source.source_edge_t;
   return out;
@@ -1916,9 +1878,9 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
         return failed;
       }
       for (int lane = 0; lane < v.value.count; ++lane) {
-        const SourceEdgeProjectionRef ref = source_projection_for(
-            state_, source, spec_.bundles[spec_index].bundle_template_id, static_cast<std::size_t>(lane));
-        if (!source_projection_binding_exists(state_, ref)) {
+        const SourceEdgeProjectionRef ref =
+            source_projection_for(state_, source, spec_.bundles[spec_index], static_cast<std::size_t>(lane));
+        if (source_span_binding_for(state_, ref) == nullptr) {
           return unsupported("source edge attachment is missing");
         }
       }
@@ -2021,9 +1983,9 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
                                PortKindForCategory(v.value.tmpl->category),
                                PortLayerForSpanLayer(v.value.layer), band.band_id};
         if (ownerless && g_.nodes[r.node].has_source_edge) {
-          const SourceEdgeProjectionRef ref =
-              source_projection_for(state_, g_.nodes[r.node], scope.bundle, static_cast<std::size_t>(lane));
-          if (!source_projection_binding_exists(state_, ref)) {
+          const SourceEdgeProjectionRef ref = source_projection_for(
+              state_, g_.nodes[r.node], bundle_spec, static_cast<std::size_t>(lane));
+          if (source_span_binding_for(state_, ref) == nullptr) {
             return unsupported("source edge attachment is missing");
           }
         }
@@ -2545,9 +2507,9 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         Vec3d p{};
         if (ownerless) {
           if (g_.nodes[r.node].has_source_edge) {
-            const SourceEdgeProjectionRef ref =
-                source_projection_for(state_, g_.nodes[r.node], scope.bundle, static_cast<std::size_t>(lane));
-            if (!source_projection_binding_exists(state_, ref)) {
+            const SourceEdgeProjectionRef ref = source_projection_for(
+                state_, g_.nodes[r.node], bundle_spec, static_cast<std::size_t>(lane));
+            if (source_span_binding_for(state_, ref) == nullptr) {
               out.error = "backbone unsupported: source edge attachment is missing";
               return out;
             }
@@ -2856,8 +2818,7 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       e.same_level_feasible = true;
       if (row.node < g_.nodes.size() && g_.nodes[row.node].has_source_edge) {
         e.source_projection = source_projection_for(
-            state_, g_.nodes[row.node], spec_.bundles[made.bundle_specs[span.bundle]].bundle_template_id,
-            span.lane);
+            state_, g_.nodes[row.node], spec_.bundles[made.bundle_specs[span.bundle]], span.lane);
       }
       return e;
     };

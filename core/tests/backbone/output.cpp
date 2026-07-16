@@ -2367,6 +2367,8 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
       std::abs(bundle_b->lateral_m - 0.4) > 1e-12) {
     return false;
   }
+  const wire::core::ObjectId bundle_a_id = bundle_a->id;
+  const wire::core::ObjectId bundle_b_id = bundle_b->id;
 
   auto local_port = [&](const wire::core::Span& span, bool start) -> std::optional<wire::core::Vec3d> {
     const wire::core::ObjectId port_id = start ? span.port_a_id : span.port_b_id;
@@ -2399,6 +2401,52 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
       helix_count += part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix ? 1U : 0U;
     }
     if (support_count != 1 || helix_count != 1) return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = spans.front()->id;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {template_id};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) return false;
+
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  branch.pole_type_id = request.pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec source_node{};
+  source_node.point_index = 0;
+  source_node.support_kind = resolved.value.support_kind;
+  source_node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {source_node};
+  first.source_bundle_id = bundle_a_id;
+  second.source_bundle_id = bundle_b_id;
+  branch.bundles = {first, second};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.bundle_ids.size() != 2 ||
+      branch_out.value.generated_span_ids.size() != 2) {
+    return false;
+  }
+  const std::array<wire::core::ObjectId, 2> expected_source_bundles{bundle_a_id, bundle_b_id};
+  for (std::size_t index = 0; index < branch_out.value.bundle_ids.size(); ++index) {
+    const auto span_it = std::find_if(branch_out.value.generated_span_ids.begin(),
+                                      branch_out.value.generated_span_ids.end(),
+                                      [&](wire::core::ObjectId span_id) {
+      const wire::core::Span* span = state.view().spans().find(span_id);
+      return span != nullptr && span->bundle_id == branch_out.value.bundle_ids[index];
+    });
+    if (span_it == branch_out.value.generated_span_ids.end()) return false;
+    const wire::core::SpanLayoutView layout = state.span_layout(*span_it);
+    if (!layout.has_layout()) return false;
+    const wire::core::LayoutEndpoint& endpoint =
+        layout.entry->start.source_projection.valid() ? layout.entry->start : layout.entry->end;
+    const wire::core::SavedBackboneEdgeBundle* source_edge_bundle =
+        state.view().backbone_edge_bundle(endpoint.source_projection.source_edge_bundle_id);
+    if (!endpoint.source_projection.valid() || source_edge_bundle == nullptr ||
+        source_edge_bundle->bundle_id != expected_source_bundles[index]) {
+      return false;
+    }
   }
   return true;
 }

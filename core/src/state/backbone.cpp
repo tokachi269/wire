@@ -609,28 +609,6 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     }
   } else if (has_endpoints) {
     branch_position.z = endpoint_a.z + (endpoint_b.z - endpoint_a.z) * source_edge_t;
-    bool resolved_attachment = false;
-    const BackboneEdgeKey key{std::min(node_a_id, node_b_id), std::max(node_a_id, node_b_id)};
-    const auto edge_it = runtime_.backbone_index.edge_by_nodes.find(key);
-    if (edge_it != runtime_.backbone_index.edge_by_nodes.end() && !selected_templates.empty()) {
-      for (const SelectedTemplatePolicy& selected : selected_templates) {
-        if (options.enforce_midair_template_policy && !selected.allow_midair_path) {
-          continue;
-        }
-        const std::optional<Vec3d> attachment =
-            view().source_edge_projection_world(edge_it->second, node_a_id, selected.id, 0, source_edge_t);
-        if (!attachment.has_value()) {
-          continue;
-        }
-        resolved_attachment = true;
-        break;
-      }
-      if (!resolved_attachment) {
-        result.error = "selected bundle has no source edge attachment";
-        return result;
-      }
-    }
-
   }
   if (has_endpoints && options.snap_radius_world > 0.0) {
     const double snap_r2 = options.snap_radius_world * options.snap_radius_world;

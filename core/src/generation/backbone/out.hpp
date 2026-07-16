@@ -15,6 +15,8 @@ namespace wire::core::generation::backbone {
     const Vec3d* start_tangent = nullptr, const Vec3d* end_tangent = nullptr);
 [[nodiscard]] std::optional<Vec3d> source_edge_projection_world(const CoreState& state,
                                                                 const SourceEdgeProjectionRef& ref);
+[[nodiscard]] const SavedBackboneSpanBinding* source_span_binding_for(
+    const CoreState& state, const SourceEdgeProjectionRef& ref);
 [[nodiscard]] BoundsCacheEntry bounds(const DetailCurve& curve, std::uint64_t source_version = 0);
 [[nodiscard]] SpanRenderCacheEntry render(const CoreState& state, ObjectId span_id, const DetailCurve& detail);
 [[nodiscard]] SpanVisualCacheEntry visual(const VisualSettings& settings, const SpanLayoutEntry& layout);

@@ -154,6 +154,64 @@ describe("wire wasm smoke", () => {
     }
   });
 
+  it("keeps duplicate-template source bundle identity for a mid-edge branch", () => {
+    const branchState = createState();
+    const placements = [{
+      id: 1, bundleTemplateId: 105, count: 1, explicit: true,
+      height: 5.3, offset: 0, spacing: 0.2
+    }, {
+      id: 2, bundleTemplateId: 105, count: 1, explicit: true,
+      height: 5.8, offset: 0.25, spacing: 0.2
+    }];
+    const base = branchState.generatePlacements(
+      new Float64Array([0, 0, 0, 20, 0, 0]), placements, 0, 2, 0, 0, []
+    );
+    expect(base.ok, base.error).toBe(true);
+    expect(base.generatedBundleIds).toHaveLength(2);
+
+    expect(branchState.backboneEdgeCount()).toBe(1);
+    const edge = branchState.backboneEdge(0);
+    const nodes = Array.from(
+      { length: branchState.supportNodeCount() },
+      (_, index) => branchState.supportNode(index)
+    );
+    const nodeA = nodes.find((node) => node.id === edge.nodeAId)!;
+    const nodeB = nodes.find((node) => node.id === edge.nodeBId)!;
+    const resolved = branchState.resolveBranchPick({
+      hitKind: 2,
+      hitId: "0",
+      hitX: 10,
+      hitY: 0,
+      hitZ: 0,
+      hasSegmentEndpoints: true,
+      segmentNodeAId: edge.nodeAId,
+      segmentNodeBId: edge.nodeBId,
+      segmentEndpointAX: nodeA.x,
+      segmentEndpointAY: nodeA.y,
+      segmentEndpointAZ: nodeA.z,
+      segmentEndpointBX: nodeB.x,
+      segmentEndpointBY: nodeB.y,
+      segmentEndpointBZ: nodeB.z
+    }, [105]);
+    expect(resolved.ok, resolved.error).toBe(true);
+
+    const branch = branchState.generatePlacements(
+      new Float64Array([
+        resolved.positionX, resolved.positionY, resolved.positionZ,
+        10, 8, 0
+      ]),
+      placements.map((placement, index) => ({
+        ...placement,
+        generatedBundleId: base.generatedBundleIds![index]
+      })),
+      0, 2, 0, 0,
+      [{ pointIndex: 0, supportKind: resolved.supportKind, nodeId: resolved.nodeId }]
+    );
+    expect(branch.ok, branch.error).toBe(true);
+    expect(branch.generatedSpanCount).toBe(2);
+    branchState.delete();
+  });
+
   it("bootstraps straight HV assemblies and returns model instances in the scene payload", () => {
     const modelState = createState();
     const bootstrap = modelBootstrap();

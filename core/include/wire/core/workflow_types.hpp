@@ -333,6 +333,8 @@ struct BackboneBundleSpec {
   double height_m = 0.0;
   double lateral_m = 0.0;
   double spacing_m = 0.0;
+  // Source Bundle identity for source-edge attachment projection.
+  ObjectId source_bundle_id = kInvalidObjectId;
   // Existing Bundle identity used only by saved-scope regeneration.
   ObjectId existing_bundle_id = kInvalidObjectId;
 };

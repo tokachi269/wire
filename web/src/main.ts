@@ -17,54 +17,59 @@ const target = document.getElementById("app");
 if (target === null) {
   throw new Error("app mount point is missing");
 }
+const mountTarget = target;
 
-const store = new ViewerStore();
-const stopConsoleLogging = startConsoleLogging(store);
-const modelBootstrap = await loadDefaultModelBootstrap();
-const bridge = await WireBridge.create();
-const modelBootstrapResult = bridge.configureModelAssemblies(modelBootstrap);
-if (!modelBootstrapResult.ok) {
-  throw new Error(`Model bootstrap failed: ${modelBootstrapResult.error}`);
-}
-const workspaceStorage = new IndexedDbWorkspaceStorage();
-try {
-  const legacyWorkspace = window.localStorage.getItem(WORKSPACE_CACHE_KEY);
-  if (legacyWorkspace !== null) {
-    if (await workspaceStorage.get(WORKSPACE_CACHE_KEY) === null) {
-      await workspaceStorage.set(WORKSPACE_CACHE_KEY, legacyWorkspace);
+async function main(): Promise<void> {
+  const store = new ViewerStore();
+  const stopConsoleLogging = startConsoleLogging(store);
+  const modelBootstrap = await loadDefaultModelBootstrap();
+  const bridge = await WireBridge.create();
+  const modelBootstrapResult = bridge.configureModelAssemblies(modelBootstrap);
+  if (!modelBootstrapResult.ok) {
+    throw new Error(`Model bootstrap failed: ${modelBootstrapResult.error}`);
+  }
+  const workspaceStorage = new IndexedDbWorkspaceStorage();
+  try {
+    const legacyWorkspace = window.localStorage.getItem(WORKSPACE_CACHE_KEY);
+    if (legacyWorkspace !== null) {
+      if (await workspaceStorage.get(WORKSPACE_CACHE_KEY) === null) {
+        await workspaceStorage.set(WORKSPACE_CACHE_KEY, legacyWorkspace);
+      }
+      window.localStorage.removeItem(WORKSPACE_CACHE_KEY);
     }
-    window.localStorage.removeItem(WORKSPACE_CACHE_KEY);
+  } catch {
+    // Keep legacy data when migration cannot complete. IndexedDB remains the active store.
   }
-} catch {
-  // Keep legacy data when migration cannot complete. IndexedDB remains the active store.
-}
-const actions = new ViewerActions(
-  bridge,
-  store,
-  new WorkspaceCache(workspaceStorage)
-);
-actions.initialize();
-await actions.restoreWorkspace();
-const scene = new WireScene(
-  store,
-  (point, pick) => actions.addPathPoint(point, pick),
-  () => actions.undoPathPointOrClearSelection(),
-  (deltaMs) => actions.recordFrame(deltaMs),
-  (stats) => actions.recordSceneContentSync(stats)
-);
-
-mount(App, {
-  target,
-  props: {
-    actions,
+  const actions = new ViewerActions(
+    bridge,
     store,
-    mountScene: (host: HTMLElement) => scene.mount(host)
-  }
-});
+    new WorkspaceCache(workspaceStorage)
+  );
+  actions.initialize();
+  await actions.restoreWorkspace();
+  const scene = new WireScene(
+    store,
+    (point, pick) => actions.addPathPoint(point, pick),
+    () => actions.undoPathPointOrClearSelection(),
+    (deltaMs) => actions.recordFrame(deltaMs),
+    (stats) => actions.recordSceneContentSync(stats)
+  );
 
-window.addEventListener("beforeunload", () => {
-  stopConsoleLogging();
-  actions.dispose();
-  scene.dispose();
-  bridge.dispose();
-});
+  mount(App, {
+    target: mountTarget,
+    props: {
+      actions,
+      store,
+      mountScene: (host: HTMLElement) => scene.mount(host)
+    }
+  });
+
+  window.addEventListener("beforeunload", () => {
+    stopConsoleLogging();
+    actions.dispose();
+    scene.dispose();
+    bridge.dispose();
+  });
+}
+
+void main();

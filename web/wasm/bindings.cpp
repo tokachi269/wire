@@ -153,7 +153,8 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
     if (existing != CoreView(trial).model_assembly_templates().end()) {
       if (!(existing->second == assembly)) {
         if (assembly.version <= existing->second.version) {
-          result.error = "model bootstrap: existing assembly differs without a newer adapter version";
+          result.error = "model bootstrap: existing assembly " + std::to_string(assembly.id) +
+                         " differs without a newer adapter version";
           return result;
         }
         const auto updated = trial.UpdateModelAssemblyTemplate(assembly);

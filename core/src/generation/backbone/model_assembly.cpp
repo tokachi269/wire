@@ -248,6 +248,9 @@ EditResult<Transformd> resolve_model_part_world_transform(const CoreState& state
       out.error = "model assembly unsupported: pole height fit requires a valid PoleType default height";
       return out;
     }
+    const double base_radius = state.view().pole_radius_at_height_m(pole, 0.0);
+    fitted.scale.x *= base_radius;
+    fitted.scale.y *= base_radius;
     fitted.scale.z *= pole.height_m / pole_type_it->second.default_height_m;
   } else if (part.fit_mode == ModelFitMode::kPoleRadial) {
     const double radius = state.view().pole_radius_at_height_m(pole, placement_height_m);

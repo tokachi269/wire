@@ -46,7 +46,7 @@ export interface LoadedModelAsset {
   bounds: THREE.Box3;
   size: THREE.Vector3;
   mountAnchor: THREE.Vector3;
-  innerRadiusM: number | null;
+  radialReferenceM: number | null;
   descriptorVersion: number;
   adapter: ModelAssetAdapter;
 }
@@ -58,7 +58,7 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     modelKey: "pole_belt",
     url: beltUrl,
     mountRule: "center",
-    adapterVersion: 2
+    adapterVersion: 3
   },
   communicationClamp: {
     modelKey: "communication_clamp",
@@ -88,7 +88,7 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     modelKey: "pole_body",
     url: poleBodyUrl,
     mountRule: "pole-ground",
-    adapterVersion: 2
+    adapterVersion: 3
   }
 };
 
@@ -103,9 +103,15 @@ function mountAnchor(bounds: THREE.Box3, size: THREE.Vector3, rule: MountRule): 
   return new THREE.Vector3(center.x, bounds.min.y + size.y * (2 / 12), center.z);
 }
 
-function descriptorVersion(kind: ModelAssetKind, bounds: THREE.Box3, anchor: THREE.Vector3, adapterVersion: number): number {
+function descriptorVersion(
+  kind: ModelAssetKind,
+  bounds: THREE.Box3,
+  anchor: THREE.Vector3,
+  radialReferenceM: number | null,
+  adapterVersion: number
+): number {
   let hash = 2166136261;
-  const bytes = new TextEncoder().encode([
+  const versionParts: Array<string | number> = [
     kind,
     adapterVersion,
     bounds.min.x,
@@ -117,7 +123,9 @@ function descriptorVersion(kind: ModelAssetKind, bounds: THREE.Box3, anchor: THR
     anchor.x,
     anchor.y,
     anchor.z
-  ].join(":"));
+  ];
+  if (radialReferenceM !== null) versionParts.push(radialReferenceM);
+  const bytes = new TextEncoder().encode(versionParts.join(":"));
   for (const value of bytes) {
     hash ^= value;
     hash = Math.imul(hash, 16777619);
@@ -142,6 +150,31 @@ function measuredInnerRadius(source: THREE.Group): number | null {
   return Number.isFinite(radius) ? radius : null;
 }
 
+function measuredOuterRadiusAtHeight(source: THREE.Group, height: number): number | null {
+  let nearest = Number.POSITIVE_INFINITY;
+  let outerRadius = 0;
+  source.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
+    const position = geometry?.getAttribute("position");
+    if (position === undefined) return;
+    for (let i = 0; i < position.count; i += 1) {
+      const point = new THREE.Vector3(position.getX(i), position.getY(i), position.getZ(i));
+      point.applyMatrix4(mesh.matrixWorld);
+      const radius = Math.hypot(point.x, point.z);
+      if (!Number.isFinite(radius)) continue;
+      const distance = Math.abs(point.y - height);
+      if (distance < nearest - 1e-6) {
+        nearest = distance;
+        outerRadius = radius;
+      } else if (Math.abs(distance - nearest) <= 1e-6) {
+        outerRadius = Math.max(outerRadius, radius);
+      }
+    }
+  });
+  return Number.isFinite(nearest) && outerRadius > 1e-6 ? outerRadius : null;
+}
+
 export class ModelAssetCache {
   private readonly promises = new Map<ModelAssetKind, Promise<LoadedModelAsset>>();
   private readonly loaded = new Map<ModelAssetKind, LoadedModelAsset>();
@@ -160,7 +193,11 @@ export class ModelAssetCache {
       if (bounds.isEmpty()) throw new Error(`GLB has no visible bounds: ${kind}`);
       const size = bounds.getSize(new THREE.Vector3());
       const anchor = mountAnchor(bounds, size, adapter.mountRule);
-      const innerRadiusM = kind === "belt" ? measuredInnerRadius(rawSource) : null;
+      const radialReferenceM = kind === "belt"
+        ? measuredInnerRadius(rawSource)
+        : kind === "poleBody"
+          ? measuredOuterRadiusAtHeight(rawSource, anchor.y)
+          : null;
 
       // Local adapter normalization only: glTF Y-up becomes Core-local Z-up,
       // and the declared mount anchor becomes the assembly-local origin.
@@ -177,8 +214,10 @@ export class ModelAssetCache {
         bounds,
         size,
         mountAnchor: anchor,
-        innerRadiusM,
-        descriptorVersion: descriptorVersion(kind, bounds, anchor, adapter.adapterVersion),
+        radialReferenceM,
+        descriptorVersion: descriptorVersion(
+          kind, bounds, anchor, radialReferenceM, adapter.adapterVersion
+        ),
         adapter
       };
       this.loaded.set(kind, asset);
@@ -281,11 +320,19 @@ export function buildDefaultModelBootstrap(
   if (!Number.isFinite(poleVisibleLength) || poleVisibleLength <= 0) {
     throw new Error("Pole adapter requires a positive visible length");
   }
+  const poleGroundRadius = pole.radialReferenceM;
+  if (poleGroundRadius === null || !Number.isFinite(poleGroundRadius) || poleGroundRadius <= 0) {
+    throw new Error("Pole adapter requires a positive measured ground radius");
+  }
   const distributionPoleTransform = identityTransform();
+  distributionPoleTransform.scaleX = 1 / poleGroundRadius;
+  distributionPoleTransform.scaleY = 1 / poleGroundRadius;
   distributionPoleTransform.scaleZ = 10.0 / poleVisibleLength;
   const communicationPoleTransform = identityTransform();
+  communicationPoleTransform.scaleX = 1 / poleGroundRadius;
+  communicationPoleTransform.scaleY = 1 / poleGroundRadius;
   communicationPoleTransform.scaleZ = 11.35 / poleVisibleLength;
-  const beltInnerRadius = belt.innerRadiusM;
+  const beltInnerRadius = belt.radialReferenceM;
   if (beltInnerRadius === null || !Number.isFinite(beltInnerRadius) || beltInnerRadius <= 0) {
     throw new Error("Belt adapter requires a positive measured inner radius");
   }
@@ -331,13 +378,13 @@ export function buildDefaultModelBootstrap(
     assemblies: [
       {
         id: poleAssemblyId,
-        version: 1,
+        version: 2,
         parts: [part(pole, 1, 1, distributionPoleTransform)],
         wireSocket: null
       },
       {
         id: hvRowAssemblyId,
-        version: 3,
+        version: 4,
         parts: [
           part(crossarm, 1, 3, crossarmTransform, endpointMountSocket),
           part(belt, 2, 2, beltTransform)
@@ -364,7 +411,7 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: communicationPoleAssemblyId,
-        version: 1,
+        version: 2,
         parts: [part(pole, 1, 1, communicationPoleTransform)],
         wireSocket: null
       },
@@ -381,7 +428,7 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: beltRowAssemblyId,
-        version: 1,
+        version: 2,
         parts: [part(belt, 1, 2, beltTransform)],
         wireSocket: null
       }

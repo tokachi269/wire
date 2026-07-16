@@ -64,6 +64,9 @@ asset / descriptor / viewer は kind から template を一意に推測しない
 ## 電柱本体の長さ
 
 - 電柱本体は長さ別meshを基本的に持たない。十分長い本体meshを使い、地面下への埋まり量で見える高さを吸収する。
+- pole adapterは接地高さの基準外半径を一度だけ測定し、柱断面を半径1.0へ正規化する。
+  Coreの`kPoleHeight`はpole kindの論理基部半径を断面2軸へ、PoleType基準高に対する高さ比を長手軸へ適用する。
+  これによりbeltとpole meshは同じ`pole_radius_at_height_m`を基準に表示される。
 - 取付位置はmesh下端基準にしない。地面基準またはpole local height基準で扱い、埋め込み量でport、socket、金具位置がずれないようにする。
 - core/templateが持つのは高さ、見える高さ、中心軸、local frame、section/radius等の数値契約であり、meshの下端や三角形面を取付基準にしない。
 - 何角柱として描くか、LODをどう切り替えるかはrender/asset側の都合とする。部品配置はmesh面番号ではなく、pole local frame上の高さ、角度、半径方向offsetで表す。

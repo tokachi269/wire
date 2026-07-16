@@ -94,9 +94,16 @@ describe("model asset cache", () => {
     expect(communication.parts.map((part) => part.modelKey)).toEqual(["communication_clamp"]);
     const beltRow = bootstrap.assemblies.find((assembly) => assembly.id === 9207)!;
     const beltPart = beltRow.parts[0];
-    expect(belt.innerRadiusM).not.toBeNull();
-    expect(beltPart.localTransform.scaleX).toBeCloseTo(1 / belt.innerRadiusM!, 12);
-    expect(beltPart.localTransform.scaleY).toBeCloseTo(1 / belt.innerRadiusM!, 12);
+    expect(pole.radialReferenceM).not.toBeNull();
+    expect(distributionPole.parts[0].localTransform.scaleX).toBeCloseTo(
+      1 / pole.radialReferenceM!, 12
+    );
+    expect(distributionPole.parts[0].localTransform.scaleY).toBeCloseTo(
+      1 / pole.radialReferenceM!, 12
+    );
+    expect(belt.radialReferenceM).not.toBeNull();
+    expect(beltPart.localTransform.scaleX).toBeCloseTo(1 / belt.radialReferenceM!, 12);
+    expect(beltPart.localTransform.scaleY).toBeCloseTo(1 / belt.radialReferenceM!, 12);
     expect(beltPart.localTransform.scaleZ).toBe(1);
     expect(clampPart.fitMode).toBe(3);
     expect(clampPart.localTransform.rotationZ).toBe(180);

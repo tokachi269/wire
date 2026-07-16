@@ -583,10 +583,23 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
     }
     const PoleFrame frame = BuildPoleFrame(row.pole->world_transform, row.layout_yaw_deg);
     double height_m = 0.0;
+    double row_down_offset_m = 0.0;
+    bool has_row_down_offset = false;
     for (const RowFixtureContext::Member& member : row.members) {
       height_m += WorldPointToLocal(frame, view.ports().find(member.port_id)->world_position).z;
+      const double member_down_offset_m =
+          effective_down_offsets == nullptr || !effective_down_offsets->contains(member.port_id)
+              ? 0.0
+              : effective_down_offsets->at(member.port_id);
+      if (has_row_down_offset && std::abs(row_down_offset_m - member_down_offset_m) > 1e-9) {
+        out.error = "model assembly unsupported: row fixture resolves conflicting lowered endpoint offsets";
+        return out;
+      }
+      row_down_offset_m = member_down_offset_m;
+      has_row_down_offset = true;
     }
     height_m /= static_cast<double>(row.members.size());
+    height_m -= row_down_offset_m;
     const EditResult<double> lateral = row_lateral_position(state, row);
     if (!lateral.ok) {
       out.error = lateral.error;

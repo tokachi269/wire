@@ -2165,8 +2165,23 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
 }
 
 bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
+  constexpr wire::core::ModelAssemblyTemplateId kRowAssembly = 9109;
   constexpr wire::core::ModelAssemblyTemplateId kEndpointAssembly = 9110;
   wire::core::CoreState state;
+
+  wire::core::ModelAssemblyTemplate row_assembly{};
+  row_assembly.id = kRowAssembly;
+  wire::core::ModelAssemblyPart row_part{};
+  row_part.part_id = 1;
+  row_part.model_key = "hv_crossarm";
+  row_part.descriptor_version = 12;
+  row_part.local_transform.position = {0.02, 0.0, 0.0};
+  row_part.fit_mode = wire::core::ModelFitMode::kPoleSurface;
+  row_part.sockets.push_back({"endpoint_mount", {0.0, 0.0, 0.04}, {0.0, 0.0, 1.0}});
+  row_assembly.parts.push_back(row_part);
+  row_assembly.endpoint_mount_socket =
+      wire::core::AssemblySocketRef{1, "endpoint_mount"};
+  if (!state.RegisterModelAssemblyTemplate(row_assembly).ok) return false;
 
   wire::core::ModelAssemblyTemplate endpoint_assembly{};
   endpoint_assembly.id = kEndpointAssembly;
@@ -2182,6 +2197,7 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
   const wire::core::BundleTemplateId hv_template_id =
       wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
   wire::core::BundleTemplate hv = state.view().bundle_templates().at(hv_template_id);
+  hv.row_fixture_assembly_id = kRowAssembly;
   hv.endpoint_fixture_assembly_id = kEndpointAssembly;
   if (!state.UpdateBundleTemplate(hv).ok) return false;
 
@@ -2189,6 +2205,7 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
   if (branch_spans.empty()) return false;
 
   std::unordered_map<wire::core::ObjectId, double> port_down_offsets{};
+  bool saw_lowered_row = false;
   bool saw_lowered_socket = false;
   for (wire::core::ObjectId span_id : branch_spans) {
     const wire::core::SpanLayoutEntry* layout = state.span_layout(span_id).entry;
@@ -2237,6 +2254,14 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
             !almost_equal(*endpoint_and_curve.second, visible_socket, 1e-9)) {
           return false;
         }
+        saw_lowered_row = saw_lowered_row || std::any_of(
+            state.view().visual_model_instances().instances.begin(),
+            state.view().visual_model_instances().instances.end(),
+            [&](const wire::core::VisualModelInstance& instance) {
+              return instance.model_key == "hv_crossarm" &&
+                     instance.world_transform.position.z <
+                         port->world_position.z - endpoint.branch_down_offset_m * 0.5;
+            });
         saw_lowered_socket = true;
       } else if (!almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9) ||
                  !almost_equal(endpoint.endpoint_world, visible_socket, 1e-9)) {
@@ -2255,7 +2280,7 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
     if (!model_keys.insert(instance.stable_key).second) return false;
     if (instance.stable_key.rfind("port:", 0) == 0) ++endpoint_instance_count;
   }
-  return saw_lowered_socket && endpoint_instance_count == bound_ports.size();
+  return saw_lowered_socket && saw_lowered_row && endpoint_instance_count == bound_ports.size();
 }
 
 bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {

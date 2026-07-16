@@ -55,7 +55,7 @@ asset / descriptor / viewer は kind から template を一意に推測しない
 - 精度が要る高さだけoverrideで補正する。
 - v1のmesh beltは円形poleに限定し、配置高さの`pole_radius_at_height_m`へ径方向scaleする。
   非円形断面や幅方向の完全なテーパー追従は対応済みとしない。
-- belt adapterはGLBのring axisと基準内周半径を一度だけ確定し、ring断面を内周半径1.0へ正規化する。
+- belt adapterはBlender primitive設定の中心半径と管半径から基準内周半径を固定し、ring断面を内周半径1.0へ正規化する。
   Coreはbelt中心のpole-local高さで半径を一度だけ評価し、`target pole radius / source inner radius`
   に相当する同一scaleをring断面の2軸へ適用する。belt幅方向のscaleは常に1.0とする。
 - この近似ではbelt幅内のpole taper差を無視し、板厚の径方向成分も半径比に応じて伸縮する。
@@ -64,8 +64,8 @@ asset / descriptor / viewer は kind から template を一意に推測しない
 ## 電柱本体の長さ
 
 - 電柱本体は長さ別meshを基本的に持たない。十分長い本体meshを使い、地面下への埋まり量で見える高さを吸収する。
-- pole adapterはmeshの接地断面と装飾のない中間断面を測定し、上端まで外挿した線形半径profileを
-  `PoleTypeDefinition`へ渡す。Coreはmeshを読まず、この完成済み数値を`pole_radius_at_height_m`の正本として使う。
+- pole adapterはBlender primitive生成設定のtop diameter、visible height、taper ratioから線形半径profileを
+  固定し、`PoleTypeDefinition`へ渡す。Coreはmeshを読まず、この完成済み数値を`pole_radius_at_height_m`の正本として使う。
 - `kPoleHeight`はassetが持つ断面寸法を保ち、PoleType基準高に対する高さ比だけを長手軸へ適用する。
   表面fixtureとbeltも同じ半径profileを使うため、pole meshと別のテーパー式を再解釈しない。
 - mesh adapterが存在しないheadless Coreでは、半径profileが未設定の場合だけpole kindの既定近似を使う。

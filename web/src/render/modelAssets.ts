@@ -36,6 +36,9 @@ export interface ModelAssetAdapter {
   modelKey: ModelKey;
   url: string;
   mountRule: MountRule;
+  visibleLengthM?: number;
+  radialReferenceM?: number;
+  radialTopM?: number;
   adapterVersion: number;
 }
 
@@ -59,7 +62,9 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     modelKey: "pole_belt",
     url: beltUrl,
     mountRule: "center",
-    adapterVersion: 3
+    // Blender torus primitive: major radius 0.20 m, minor radius 0.025 m.
+    radialReferenceM: 0.20 - 0.025,
+    adapterVersion: 4
   },
   communicationClamp: {
     modelKey: "communication_clamp",
@@ -89,7 +94,11 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     modelKey: "pole_body",
     url: poleBodyUrl,
     mountRule: "pole-ground",
-    adapterVersion: 4
+    // tools/create_japan_distribution_pole_primitive.py POLE settings.
+    visibleLengthM: 10.0,
+    radialReferenceM: (0.190 + 10.0 / 75.0) * 0.5,
+    radialTopM: 0.190 * 0.5,
+    adapterVersion: 5
   }
 };
 
@@ -110,12 +119,12 @@ function descriptorVersion(
   anchor: THREE.Vector3,
   radialReferenceM: number | null,
   radialTopM: number | null,
-  adapterVersion: number
+  adapter: ModelAssetAdapter
 ): number {
   let hash = 2166136261;
   const versionParts: Array<string | number> = [
     kind,
-    adapterVersion,
+    adapter.adapterVersion,
     bounds.min.x,
     bounds.min.y,
     bounds.min.z,
@@ -128,67 +137,13 @@ function descriptorVersion(
   ];
   if (radialReferenceM !== null) versionParts.push(radialReferenceM);
   if (radialTopM !== null) versionParts.push(radialTopM);
+  if (adapter.visibleLengthM !== undefined) versionParts.push(adapter.visibleLengthM);
   const bytes = new TextEncoder().encode(versionParts.join(":"));
   for (const value of bytes) {
     hash ^= value;
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0 || 1;
-}
-
-function measuredInnerRadius(source: THREE.Group): number | null {
-  let radius = Number.POSITIVE_INFINITY;
-  source.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
-    const position = geometry?.getAttribute("position");
-    if (position === undefined) return;
-    for (let i = 0; i < position.count; i += 1) {
-      const point = new THREE.Vector3(position.getX(i), position.getY(i), position.getZ(i));
-      point.applyMatrix4(mesh.matrixWorld);
-      const r = Math.hypot(point.x, point.z);
-      if (Number.isFinite(r) && r > 1e-6) radius = Math.min(radius, r);
-    }
-  });
-  return Number.isFinite(radius) ? radius : null;
-}
-
-function measuredOuterRadiusAtHeight(source: THREE.Group, height: number): number | null {
-  let nearest = Number.POSITIVE_INFINITY;
-  let outerRadius = 0;
-  source.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
-    const position = geometry?.getAttribute("position");
-    if (position === undefined) return;
-    for (let i = 0; i < position.count; i += 1) {
-      const point = new THREE.Vector3(position.getX(i), position.getY(i), position.getZ(i));
-      point.applyMatrix4(mesh.matrixWorld);
-      const radius = Math.hypot(point.x, point.z);
-      if (!Number.isFinite(radius)) continue;
-      const distance = Math.abs(point.y - height);
-      if (distance < nearest - 1e-6) {
-        nearest = distance;
-        outerRadius = radius;
-      } else if (Math.abs(distance - nearest) <= 1e-6) {
-        outerRadius = Math.max(outerRadius, radius);
-      }
-    }
-  });
-  return Number.isFinite(nearest) && outerRadius > 1e-6 ? outerRadius : null;
-}
-
-function measuredPoleRadiusProfile(
-  source: THREE.Group,
-  groundHeight: number,
-  visibleLength: number
-): { base: number; top: number } | null {
-  const base = measuredOuterRadiusAtHeight(source, groundHeight);
-  const referenceDistance = visibleLength * 0.6;
-  const reference = measuredOuterRadiusAtHeight(source, groundHeight + referenceDistance);
-  if (base === null || reference === null || referenceDistance <= 1e-6) return null;
-  const top = base + (reference - base) * (visibleLength / referenceDistance);
-  return Number.isFinite(top) && top > 1e-6 && top <= base ? { base, top } : null;
 }
 
 export class ModelAssetCache {
@@ -209,13 +164,8 @@ export class ModelAssetCache {
       if (bounds.isEmpty()) throw new Error(`GLB has no visible bounds: ${kind}`);
       const size = bounds.getSize(new THREE.Vector3());
       const anchor = mountAnchor(bounds, size, adapter.mountRule);
-      const poleRadiusProfile = kind === "poleBody"
-        ? measuredPoleRadiusProfile(rawSource, anchor.y, bounds.max.y - anchor.y)
-        : null;
-      const radialReferenceM = kind === "belt"
-        ? measuredInnerRadius(rawSource)
-        : poleRadiusProfile?.base ?? null;
-      const radialTopM = poleRadiusProfile?.top ?? null;
+      const radialReferenceM = adapter.radialReferenceM ?? null;
+      const radialTopM = adapter.radialTopM ?? null;
 
       // Local adapter normalization only: glTF Y-up becomes Core-local Z-up,
       // and the declared mount anchor becomes the assembly-local origin.
@@ -235,7 +185,7 @@ export class ModelAssetCache {
         radialReferenceM,
         radialTopM,
         descriptorVersion: descriptorVersion(
-          kind, bounds, anchor, radialReferenceM, radialTopM, adapter.adapterVersion
+          kind, bounds, anchor, radialReferenceM, radialTopM, adapter
         ),
         adapter
       };
@@ -335,9 +285,9 @@ export function buildDefaultModelBootstrap(
   communicationClamp: LoadedModelAsset,
   communicationClampLong: LoadedModelAsset
 ): ModelAssemblyBootstrapInput {
-  const poleVisibleLength = pole.bounds.max.y - pole.mountAnchor.y;
-  if (!Number.isFinite(poleVisibleLength) || poleVisibleLength <= 0) {
-    throw new Error("Pole adapter requires a positive visible length");
+  const poleVisibleLength = pole.adapter.visibleLengthM;
+  if (poleVisibleLength === undefined || !Number.isFinite(poleVisibleLength) || poleVisibleLength <= 0) {
+    throw new Error("Pole adapter requires a positive configured visible length");
   }
   const poleGroundRadius = pole.radialReferenceM;
   const poleTopRadius = pole.radialTopM;
@@ -396,13 +346,13 @@ export function buildDefaultModelBootstrap(
     assemblies: [
       {
         id: poleAssemblyId,
-        version: 3,
+        version: 4,
         parts: [part(pole, 1, 1, distributionPoleTransform)],
         wireSocket: null
       },
       {
         id: hvRowAssemblyId,
-        version: 4,
+        version: 5,
         parts: [
           part(crossarm, 1, 3, crossarmTransform, endpointMountSocket),
           part(belt, 2, 2, beltTransform)
@@ -429,7 +379,7 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: communicationPoleAssemblyId,
-        version: 3,
+        version: 4,
         parts: [part(pole, 1, 1, communicationPoleTransform)],
         wireSocket: null
       },
@@ -446,7 +396,7 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: beltRowAssemblyId,
-        version: 2,
+        version: 3,
         parts: [part(belt, 1, 2, beltTransform)],
         wireSocket: null
       }

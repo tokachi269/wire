@@ -73,12 +73,8 @@ describe("model asset cache", () => {
     ]);
     const distributionPole = bootstrap.assemblies.find((assembly) => assembly.id === 9201)!;
     const communicationPole = bootstrap.assemblies.find((assembly) => assembly.id === 9205)!;
-    expect(distributionPole.parts[0].localTransform.scaleZ).toBeCloseTo(
-      10 / (pole.bounds.max.y - pole.mountAnchor.y), 12
-    );
-    expect(communicationPole.parts[0].localTransform.scaleZ).toBeCloseTo(
-      11.35 / (pole.bounds.max.y - pole.mountAnchor.y), 12
-    );
+    expect(distributionPole.parts[0].localTransform.scaleZ).toBeCloseTo(1, 12);
+    expect(communicationPole.parts[0].localTransform.scaleZ).toBeCloseTo(1.135, 12);
     expect(bootstrap.bundleAssignments).toContainEqual({
       bundleTemplateId: 102,
       rowAssemblyId: 9207,
@@ -102,10 +98,12 @@ describe("model asset cache", () => {
     const beltPart = beltRow.parts[0];
     expect(pole.radialReferenceM).not.toBeNull();
     expect(pole.radialTopM).not.toBeNull();
-    expect(pole.radialTopM!).toBeLessThanOrEqual(pole.radialReferenceM!);
+    expect(pole.radialReferenceM).toBeCloseTo((0.190 + 10 / 75) * 0.5, 12);
+    expect(pole.radialTopM).toBeCloseTo(0.190 * 0.5, 12);
     expect(distributionPole.parts[0].localTransform.scaleX).toBe(1);
     expect(distributionPole.parts[0].localTransform.scaleY).toBe(1);
     expect(belt.radialReferenceM).not.toBeNull();
+    expect(belt.radialReferenceM).toBeCloseTo(0.20 - 0.025, 12);
     expect(beltPart.localTransform.scaleX).toBeCloseTo(1 / belt.radialReferenceM!, 12);
     expect(beltPart.localTransform.scaleY).toBeCloseTo(1 / belt.radialReferenceM!, 12);
     expect(beltPart.localTransform.scaleZ).toBe(1);

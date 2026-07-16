@@ -2953,7 +2953,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
     }
     out.value.entries.push_back(std::move(entry.value));
   }
-  EditResult<VisualModelInstanceCache> model_instances = materialize_model_assemblies(state_);
+  EditResult<VisualModelInstanceCache> model_instances = materialize_model_assemblies(state_, out.value.entries);
   if (!model_instances.ok) {
     out.error = model_instances.error;
     return out;

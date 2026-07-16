@@ -28,7 +28,19 @@ EditResult<Vec3d> resolve_span_layout_endpoint(const CoreState& state, const Edi
     out.ok = true;
     return out;
   }
-  return resolve_model_assembly_wire_socket(state, *port);
+  double down_offset_m = 0.0;
+  if (rule.default_lower_required || rule.semantic.lower_required) {
+    if (rule.branch_down_offset_m > 0.0) {
+      down_offset_m = rule.branch_down_offset_m;
+    } else if (rule.endpoint_offset_z_m < 0.0) {
+      down_offset_m = -rule.endpoint_offset_z_m;
+    } else if (rule.automatic_branch_down_offset_m > 0.0) {
+      down_offset_m = rule.automatic_branch_down_offset_m;
+    } else {
+      down_offset_m = std::max(0.0, -rule.automatic_endpoint_offset_z_m);
+    }
+  }
+  return resolve_model_assembly_wire_socket(state, *port, down_offset_m);
 }
 
 EditResult<SpanLayoutEntry> derive_span_layout(const SpanLayoutRule& rule,

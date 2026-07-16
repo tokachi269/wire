@@ -224,15 +224,6 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
         placement->tip_world = endpoint.endpoint_world;
       }
       placement->attachment_worlds.push_back(endpoint.endpoint_world);
-      const Port* endpoint_port = authoritative_.edit_state.ports.find(endpoint.port_id);
-      const Pole* endpoint_pole =
-          endpoint_port == nullptr ? nullptr : authoritative_.edit_state.poles.find(endpoint_port->owner_pole_id);
-      if (endpoint_port != nullptr && endpoint_pole != nullptr && placement->down_offset_m > 1e-9) {
-        const double support_z = view().port_category_base_z_for_pole(*endpoint_pole, endpoint_port->category) -
-                                 placement->down_offset_m;
-        placement->mount_world.z = support_z;
-        placement->tip_world.z = support_z;
-      }
     };
     runtime_.cache_state.span_layout_cache.for_each_layout_record(
         [&](ObjectId, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {

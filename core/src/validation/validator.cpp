@@ -294,14 +294,9 @@ void validate_grouped_support_layout(ValidationResult* result, const EditState& 
                               "Grouped-lowered endpoint must keep the same support-group identity and authoritative pair as the support-group decision",
                               span_id});
   }
-  const Vec3d expected_lowered_endpoint{
-      endpoint.support_world.x,
-      endpoint.support_world.y,
-      endpoint.support_world.z - endpoint.branch_down_offset_m,
-  };
-  if (!almost_equal_validation(expected_lowered_endpoint, endpoint.endpoint_world)) {
+  if (!almost_equal_validation(endpoint.support_world, endpoint.endpoint_world)) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupAttachPointMismatch",
-                              "Grouped-lowered endpoint must lower from its per-endpoint wire attachment point",
+                              "Grouped-lowered endpoint support and endpoint points must be the final lowered fixture socket",
                               span_id});
   }
   if (endpoint.branch_down_offset_m <= 1e-9 || !almost_equal_validation(endpoint.branch_down_offset_m, group.down_offset_m)) {
@@ -978,18 +973,6 @@ ValidationResult CoreState::Validate() const {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupAttachmentCountMismatch",
                                "Grouped lowered support must carry one attachment world per grouped port",
                                key.owner_pole_id});
-    }
-    const Pole* pole = edit_state.poles.find(key.owner_pole_id);
-    const auto category_it = support_group_category_by_key.find(key);
-    if (pole != nullptr && category_it != support_group_category_by_key.end() && group.down_offset_m > 1e-9) {
-      const double expected_support_z =
-          template_layer_base_z_for_validation(core, *pole, category_it->second) - group.down_offset_m;
-      if (!almost_equal_validation(group.mount_world.z, expected_support_z) ||
-          !almost_equal_validation(group.tip_world.z, expected_support_z)) {
-        result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightNotTwoState",
-                                 "Grouped placement height must equal template height minus one-step down offset",
-                                 key.owner_pole_id});
-      }
     }
     Vec3d support_axis = group.tip_world - group.mount_world;
     support_axis.z = 0.0;

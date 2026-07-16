@@ -266,7 +266,6 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   if (rule.default_lower_required || rule.semantic.lower_required) {
     const double endpoint_offset = rule.endpoint_offset_z_m != 0.0 ? rule.endpoint_offset_z_m
                                                                    : rule.automatic_endpoint_offset_z_m;
-    dst.endpoint_world.z += endpoint_offset;
     dst.endpoint_offset_z_m = endpoint_offset;
     dst.automatic_endpoint_offset_z_m = rule.automatic_endpoint_offset_z_m;
     dst.branch_down_offset_m = rule.branch_down_offset_m != 0.0 ? rule.branch_down_offset_m

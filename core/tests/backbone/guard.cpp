@@ -1681,7 +1681,7 @@ bool C618_backbone_redraw_does_not_rewrite_layout_or_geom() {
   const std::vector<wire::core::Vec3d> before_samples = before_curve->detail.sample_points;
   const wire::core::AABBd before_whole = before_bounds->whole;
   wire::core::VisualSettings settings = state.view().visual_settings();
-  settings.support_arm_radius_m += 0.01;
+  settings.insulator_radius_m += 0.01;
   const auto updated = state.UpdateVisualSettings(settings);
   const wire::core::SpanLayoutView after_layout = state.span_layout(span_id);
   const wire::core::CurveCacheEntry* after_curve = state.find_curve_cache(span_id);

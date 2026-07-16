@@ -1254,16 +1254,25 @@ bool C484_backbone_lowering_draw_uses_layout_only() {
   if (!second.ok || second.value.generated_span_ids.empty()) {
     return false;
   }
-  bool saw_lowered_visual = false;
+  bool saw_lowered_layout = false;
   for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
     const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
     const wire::core::SpanRenderCacheEntry* render = state.find_span_render_cache(span_id);
-    if (visual == nullptr || render == nullptr) {
+    if (!layout.has_layout() || visual == nullptr || render == nullptr) {
       return false;
     }
-    saw_lowered_visual = saw_lowered_visual || !visual->parts.empty();
+    const auto lowered = [](const wire::core::LayoutEndpoint& endpoint) {
+      return (endpoint.default_lower_required || endpoint.lower_required) &&
+             endpoint.branch_down_offset_m > 1e-9 &&
+             almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9);
+    };
+    saw_lowered_layout = saw_lowered_layout || lowered(layout.entry->start) || lowered(layout.entry->end);
+    if (!visual->parts.empty()) {
+      return false;
+    }
   }
-  return saw_lowered_visual;
+  return saw_lowered_layout;
 }
 
 bool C486_backbone_pass_through_is_deterministic() {

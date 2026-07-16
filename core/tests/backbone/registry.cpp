@@ -408,9 +408,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C512_backbone_draw_does_not_read_topology",
                          "backbone draw does not read topology", "Boundary", false,
                          C512_backbone_draw_does_not_read_topology);
-  test_registry::AddTest(tests, "C513_backbone_support_visual_placeholder_from_layout",
-                         "backbone support visual placeholder comes from layout", "Boundary", false,
-                         C513_backbone_support_visual_placeholder_from_layout);
+  test_registry::AddTest(tests, "C513_backbone_lowered_layout_does_not_emit_support_arm_placeholder",
+                         "backbone lowered layout no longer emits a support-arm placeholder", "Boundary", false,
+                         C513_backbone_lowered_layout_does_not_emit_support_arm_placeholder);
   test_registry::AddTest(tests, "C514_backbone_draw_save_is_direct",
                          "backbone draw save is direct", "Boundary", false,
                          C514_backbone_draw_save_is_direct);
@@ -423,12 +423,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C517_backbone_migration_gate_does_not_infer_from_outputs",
                          "backbone migration gate does not infer from outputs", "Boundary", false,
                          C517_backbone_migration_gate_does_not_infer_from_outputs);
-  test_registry::AddTest(tests, "C518_backbone_lowered_layout_keeps_support_world_at_port_height",
-                         "backbone lowered layout keeps support world at port height", "Boundary", false,
-                         C518_backbone_lowered_layout_keeps_support_world_at_port_height);
-  test_registry::AddTest(tests, "C519_backbone_draw_placeholder_uses_layout_points",
-                         "backbone draw placeholder uses layout points", "Boundary", false,
-                         C519_backbone_draw_placeholder_uses_layout_points);
+  test_registry::AddTest(tests, "C518_backbone_lowered_layout_places_support_and_endpoint_at_final_height",
+                         "backbone lowered layout places support and endpoint at the final fixture height", "Boundary", false,
+                         C518_backbone_lowered_layout_places_support_and_endpoint_at_final_height);
+  test_registry::AddTest(tests, "C519_backbone_draw_does_not_emit_lowering_placeholder",
+                         "backbone draw does not emit a lowering placeholder after fixture placement consumes lowering", "Boundary", false,
+                         C519_backbone_draw_does_not_emit_lowering_placeholder);
   test_registry::AddTest(tests, "C520_backbone_duplicate_span_binding_preflight_before_emit",
                          "backbone duplicate span binding preflight runs before emit", "Boundary", false,
                          C520_backbone_duplicate_span_binding_preflight_before_emit);
@@ -579,15 +579,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C569_backbone_render_uses_cable_template_appearance",
                          "backbone render cache uses cable template appearance", "Boundary", false,
                          C569_backbone_render_uses_cable_template_appearance);
-  test_registry::AddTest(tests, "C570_backbone_support_visual_uses_visual_settings_radius",
-                         "backbone support visual placeholder uses visual settings radius", "Boundary", false,
-                         C570_backbone_support_visual_uses_visual_settings_radius);
-  test_registry::AddTest(tests, "C571_backbone_support_visual_respects_enable_setting",
-                         "backbone support visual placeholder respects enable_support_structures", "Boundary", false,
-                         C571_backbone_support_visual_respects_enable_setting);
-  test_registry::AddTest(tests, "C572_backbone_support_visual_radius_setting_is_mutable",
-                         "backbone support visual placeholder uses updated support arm radius", "Boundary", false,
-                         C572_backbone_support_visual_radius_setting_is_mutable);
+  test_registry::AddTest(tests, "C570_backbone_lowering_does_not_emit_support_arm_visual",
+                         "backbone lowering does not emit a support-arm visual placeholder", "Boundary", false,
+                         C570_backbone_lowering_does_not_emit_support_arm_visual);
+  test_registry::AddTest(tests, "C571_backbone_lowering_survives_insulator_visual_disable",
+                         "backbone lowering stays resolved when insulator visuals are disabled", "Boundary", false,
+                         C571_backbone_lowering_survives_insulator_visual_disable);
+  test_registry::AddTest(tests, "C572_backbone_support_arm_radius_setting_does_not_restore_placeholder",
+                         "backbone support-arm radius setting does not restore the obsolete placeholder", "Boundary", false,
+                         C572_backbone_support_arm_radius_setting_does_not_restore_placeholder);
   test_registry::AddTest(tests, "C573_backbone_saved_context_node_carries_support_metadata",
                          "backbone saved context nodes carry support metadata", "Boundary", false,
                          C573_backbone_saved_context_node_carries_support_metadata);
@@ -1113,10 +1113,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C764_straight_hv_model_assemblies_own_fixture_and_wire_placement",
                          "straight HV model assemblies materialize once per Pole, row, and Port and own wire sockets",
                          "Invariant", false, C764_straight_hv_model_assemblies_own_fixture_and_wire_placement);
-  test_registry::AddTest(tests, "C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture",
-                         "branch lowering starts at the model socket and keeps one fixture per bound Port",
+  test_registry::AddTest(tests, "C765_branch_lowering_places_final_model_socket_on_curve_endpoint",
+                         "branch lowering places the final model socket on the curve endpoint and keeps one fixture per bound Port",
                          "Invariant", false,
-                         C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture);
+                         C765_branch_lowering_places_final_model_socket_on_curve_endpoint);
   test_registry::AddTest(tests, "C766_row_fixture_and_wire_follow_port_band_lateral_change",
                          "row mount, endpoint fixture, and connected curve share placement and follow band lateral change while the belt stays on the pole axis",
                          "Invariant", false,

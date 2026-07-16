@@ -1967,31 +1967,36 @@ bool C569_backbone_render_uses_cable_template_appearance() {
   return true;
 }
 
-bool C570_backbone_support_visual_uses_visual_settings_radius() {
+bool C570_backbone_lowering_does_not_emit_support_arm_visual() {
   wire::core::CoreState state;
   const std::vector<wire::core::ObjectId> spans = lowering_branch_spans(state);
   if (spans.empty()) {
     return false;
   }
-  const double expected = state.view().visual_settings().support_arm_radius_m;
+  bool saw_lowered_endpoint = false;
   for (wire::core::ObjectId span_id : spans) {
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
     const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
-    if (visual == nullptr) {
+    if (!layout.has_layout() || visual == nullptr) {
       return false;
     }
-    for (const wire::core::VisualPart& part : visual->parts) {
-      if (part.kind == wire::core::VisualPartKind::kSupportArm) {
-        return almost_equal(part.radius_m, expected, 1e-12);
-      }
+    const auto lowered = [](const wire::core::LayoutEndpoint& endpoint) {
+      return (endpoint.default_lower_required || endpoint.lower_required) &&
+             endpoint.branch_down_offset_m > 1e-9 &&
+             almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9);
+    };
+    saw_lowered_endpoint = saw_lowered_endpoint || lowered(layout.entry->start) || lowered(layout.entry->end);
+    if (!visual->parts.empty()) {
+      return false;
     }
   }
-  return false;
+  return saw_lowered_endpoint;
 }
 
-bool C571_backbone_support_visual_respects_enable_setting() {
+bool C571_backbone_lowering_survives_insulator_visual_disable() {
   wire::core::CoreState state;
   wire::core::VisualSettings settings = state.view().visual_settings();
-  settings.enable_support_structures = false;
+  settings.enable_insulators = false;
   const auto updated = state.UpdateVisualSettings(settings, false);
   if (!updated.ok) {
     return false;
@@ -2012,43 +2017,31 @@ bool C571_backbone_support_visual_respects_enable_setting() {
     }
     const auto lowered = [](const wire::core::LayoutEndpoint& endpoint) {
       return (endpoint.default_lower_required || endpoint.lower_required) &&
-             !almost_equal(endpoint.support_world.z, endpoint.endpoint_world.z, 1e-9);
+             endpoint.branch_down_offset_m > 1e-9 &&
+             almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9);
     };
     saw_lowered_endpoint = saw_lowered_endpoint || lowered(layout.entry->start) || lowered(layout.entry->end);
-    for (const wire::core::VisualPart& part : visual->parts) {
-      if (part.kind == wire::core::VisualPartKind::kSupportArm) {
-        return false;
-      }
+    if (!visual->parts.empty()) {
+      return false;
     }
   }
   return saw_lowered_endpoint;
 }
 
-bool C572_backbone_support_visual_radius_setting_is_mutable() {
-  wire::core::CoreState state;
-  wire::core::VisualSettings settings = state.view().visual_settings();
-  settings.support_arm_radius_m = 0.123;
-  const auto updated = state.UpdateVisualSettings(settings, false);
-  if (!updated.ok || !updated.value) {
+bool C572_backbone_support_arm_radius_setting_does_not_restore_placeholder() {
+  const std::filesystem::path core_header = repo_root() / "core" / "include" / "wire" / "core" / "core_runtime_types.hpp";
+  const std::filesystem::path wasm_bindings = repo_root() / "web" / "wasm" / "bindings.cpp";
+  const std::filesystem::path web_model = repo_root() / "web" / "src" / "model.ts";
+  std::string core;
+  std::string wasm;
+  std::string web;
+  if (!file_text(core_header, &core) || !file_text(wasm_bindings, &wasm) || !file_text(web_model, &web)) {
     return false;
   }
-
-  const std::vector<wire::core::ObjectId> spans = lowering_branch_spans(state);
-  if (spans.empty()) {
-    return false;
-  }
-  for (wire::core::ObjectId span_id : spans) {
-    const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
-    if (visual == nullptr) {
-      return false;
-    }
-    for (const wire::core::VisualPart& part : visual->parts) {
-      if (part.kind == wire::core::VisualPartKind::kSupportArm) {
-        return almost_equal(part.radius_m, settings.support_arm_radius_m, 1e-12);
-      }
-    }
-  }
-  return false;
+  return !contains_text(core, "support_arm_radius_m") && !contains_text(core, "support_arm_extra_m") &&
+         !contains_text(core, "enable_support_structures") && !contains_text(core, "kSupportArm") &&
+         !contains_text(wasm, "supportArm") && !contains_text(wasm, "enableSupportStructures") &&
+         !contains_text(web, "supportArm") && !contains_text(web, "enableSupportStructures");
 }
 
 bool C609_backbone_ordinary_bend_does_not_lower() {
@@ -2123,8 +2116,8 @@ bool C610_backbone_conflict_lowers_eligible_bundle_endpoint_only() {
       if (eligible && at_junction) {
         return lowered &&
                almost_equal(endpoint.endpoint_offset_z_m, hv_template->second.branch_endpoint_offset_m, 1e-9) &&
-               almost_equal(endpoint.endpoint_world.z,
-                            endpoint.support_world.z + hv_template->second.branch_endpoint_offset_m, 1e-9);
+               almost_equal(endpoint.endpoint_world, endpoint.support_world, 1e-9) &&
+               endpoint.branch_down_offset_m > 0.1;
       }
       return !lowered && almost_equal(endpoint.endpoint_world, endpoint.support_world, 1e-9);
     };

@@ -103,8 +103,10 @@ bool C509_backbone_support_group_avoids_visual_terms() {
 
 bool C510_backbone_layout_consumes_group_offset() {
   const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "span_layout_types.hpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "derive_span_layout.cpp";
   std::string h;
-  if (!file_text(header, &h)) {
+  std::string cpp;
+  if (!file_text(header, &h) || !file_text(source, &cpp)) {
     return false;
   }
   const std::size_t fn_pos = h.find("inline void ApplyEndpointLayoutRule");
@@ -113,7 +115,9 @@ bool C510_backbone_layout_consumes_group_offset() {
     return false;
   }
   const std::string body = h.substr(fn_pos, next_pos - fn_pos);
-  return contains_text(body, "rule.endpoint_offset_z_m") && contains_text(body, "dst.endpoint_world.z += endpoint_offset") &&
+  return contains_text(body, "rule.endpoint_offset_z_m") &&
+         !contains_text(body, "dst.endpoint_world.z += endpoint_offset") &&
+         contains_text(cpp, "resolve_model_assembly_wire_socket(state, *port, down_offset_m)") &&
          !contains_text(body, "kLowerOffsetM");
 }
 
@@ -145,7 +149,7 @@ bool C511_backbone_draw_saved_from_geom() {
   return true;
 }
 
-bool C513_backbone_support_visual_placeholder_from_layout() {
+bool C513_backbone_lowered_layout_does_not_emit_support_arm_placeholder() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -167,7 +171,7 @@ bool C513_backbone_support_visual_placeholder_from_layout() {
       return false;
     }
     if (layout.entry->start.default_lower_required || layout.entry->end.default_lower_required) {
-      return !visual->parts.empty();
+      return visual->parts.empty();
     }
   }
   return false;
@@ -328,7 +332,7 @@ bool C516_backbone_generated_pole_with_saved_graph_still_connects() {
   return second.ok && !second.value.generated_span_ids.empty() && state.view().pole_frontier(b).edge_ids.size() == 3;
 }
 
-bool C518_backbone_lowered_layout_keeps_support_world_at_port_height() {
+bool C518_backbone_lowered_layout_places_support_and_endpoint_at_final_height() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -358,8 +362,8 @@ bool C518_backbone_lowered_layout_keeps_support_world_at_port_height() {
       }
       const double lower_offset =
           endpoint.branch_down_offset_m > 0.0 ? endpoint.branch_down_offset_m : endpoint.automatic_branch_down_offset_m;
-      return lower_offset > 0.0 && almost_equal(endpoint.support_world.z, port->world_position.z, 1e-9) &&
-             almost_equal(endpoint.endpoint_world.z, port->world_position.z - lower_offset, 1e-9);
+      return lower_offset > 0.0 && almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9) &&
+             endpoint.endpoint_world.z < port->world_position.z - 0.1;
     };
     if (endpoint_ok(layout.entry->start) || endpoint_ok(layout.entry->end)) {
       return true;
@@ -368,7 +372,7 @@ bool C518_backbone_lowered_layout_keeps_support_world_at_port_height() {
   return false;
 }
 
-bool C519_backbone_draw_placeholder_uses_layout_points() {
+bool C519_backbone_draw_does_not_emit_lowering_placeholder() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
@@ -404,19 +408,13 @@ bool C519_backbone_draw_placeholder_uses_layout_points() {
     if (!layout.has_layout() || visual == nullptr) {
       return false;
     }
-    auto part_matches = [&](const wire::core::LayoutEndpoint& endpoint) {
+    auto lowered_without_placeholder = [&](const wire::core::LayoutEndpoint& endpoint) {
       if (!endpoint.default_lower_required && !endpoint.lower_required) {
         return false;
       }
-      for (const wire::core::VisualPart& part : visual->parts) {
-        if (almost_equal(part.a, endpoint.support_world, 1e-9) &&
-            almost_equal(part.b, endpoint.endpoint_world, 1e-9)) {
-          return true;
-        }
-      }
-      return false;
+      return almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9) && visual->parts.empty();
     };
-    if (part_matches(layout.entry->start) || part_matches(layout.entry->end)) {
+    if (lowered_without_placeholder(layout.entry->start) || lowered_without_placeholder(layout.entry->end)) {
       return true;
     }
   }
@@ -489,7 +487,7 @@ bool C531_backbone_scenario_duplicate_reject_unchanged() {
 
 bool C532_backbone_scenario_pass_through_lowering_consumer_chain() {
   return C491_backbone_branch_lowering_v1_affects_geom() && C493_backbone_pass_through_does_not_change_pair_open() &&
-         C519_backbone_draw_placeholder_uses_layout_points();
+         C519_backbone_draw_does_not_emit_lowering_placeholder();
 }
 
 bool C534_backbone_invalid_inputs_stop_before_emit() {
@@ -498,8 +496,8 @@ bool C534_backbone_invalid_inputs_stop_before_emit() {
 }
 
 bool C536_backbone_draw_consumer_outputs_are_minimal() {
-  return C511_backbone_draw_saved_from_geom() && C513_backbone_support_visual_placeholder_from_layout() &&
-         C519_backbone_draw_placeholder_uses_layout_points();
+  return C511_backbone_draw_saved_from_geom() && C513_backbone_lowered_layout_does_not_emit_support_arm_placeholder() &&
+         C519_backbone_draw_does_not_emit_lowering_placeholder();
 }
 
 bool C539_backbone_supported_request_creates_saved_graph_outputs() {
@@ -2166,7 +2164,7 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
          moved_endpoint_instances == moved_port_ids.size();
 }
 
-bool C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture() {
+bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
   constexpr wire::core::ModelAssemblyTemplateId kEndpointAssembly = 9110;
   wire::core::CoreState state;
 
@@ -2190,6 +2188,7 @@ bool C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture()
   const std::vector<wire::core::ObjectId> branch_spans = lowering_branch_spans(state);
   if (branch_spans.empty()) return false;
 
+  std::unordered_map<wire::core::ObjectId, double> port_down_offsets{};
   bool saw_lowered_socket = false;
   for (wire::core::ObjectId span_id : branch_spans) {
     const wire::core::SpanLayoutEntry* layout = state.span_layout(span_id).entry;
@@ -2209,18 +2208,39 @@ bool C765_branch_lowering_applies_after_model_socket_without_duplicate_fixture()
           !almost_equal(*endpoint_and_curve.second, endpoint.endpoint_world, 1e-9)) {
         return false;
       }
-      const wire::core::PoleFrame frame =
-          wire::core::BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
-      const wire::core::Vec3d expected_socket =
-          port->world_position + wire::core::ScaleVec(frame.up, -0.25);
-      if (!almost_equal(endpoint.support_world, expected_socket, 1e-9)) return false;
+      const std::string fixture_prefix = "port:" + std::to_string(port->id) + ":";
+      const auto fixture = std::find_if(
+          state.view().visual_model_instances().instances.begin(),
+          state.view().visual_model_instances().instances.end(),
+          [&](const wire::core::VisualModelInstance& instance) {
+            return instance.model_key == "hv_insulator" &&
+                   instance.stable_key.rfind(fixture_prefix, 0) == 0;
+          });
+      if (fixture == state.view().visual_model_instances().instances.end()) return false;
+      const wire::core::Vec3d local_socket = endpoint_part.sockets.front().local_position;
+      const wire::core::Vec3d visible_socket =
+          fixture->world_transform.position +
+          wire::core::RotateEulerXYZDeg(
+              {local_socket.x * fixture->world_transform.scale.x,
+               local_socket.y * fixture->world_transform.scale.y,
+               local_socket.z * fixture->world_transform.scale.z},
+              fixture->world_transform.rotation_euler_deg);
+      const auto [offset_it, inserted] =
+          port_down_offsets.emplace(endpoint.port_id, endpoint.branch_down_offset_m);
+      if (!inserted && !almost_equal(offset_it->second, endpoint.branch_down_offset_m, 1e-9)) {
+        return false;
+      }
       if (endpoint.default_lower_required) {
-        if (endpoint.endpoint_world.z >= endpoint.support_world.z - 0.1 ||
-            std::abs(endpoint.endpoint_world.x - endpoint.support_world.x) > 1e-9 ||
-            std::abs(endpoint.endpoint_world.y - endpoint.support_world.y) > 1e-9) {
+        if (endpoint.branch_down_offset_m <= 0.1 ||
+            !almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9) ||
+            !almost_equal(endpoint.endpoint_world, visible_socket, 1e-9) ||
+            !almost_equal(*endpoint_and_curve.second, visible_socket, 1e-9)) {
           return false;
         }
         saw_lowered_socket = true;
+      } else if (!almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9) ||
+                 !almost_equal(endpoint.endpoint_world, visible_socket, 1e-9)) {
+        return false;
       }
     }
   }
@@ -2651,12 +2671,32 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
       const auto matches = [&](const wire::core::Port& port,
                                const wire::core::LayoutEndpoint& endpoint) {
         if (port.owner_pole_id != pole_id) return true;
-        const auto placement = wire::core::generation::backbone::resolve_endpoint_placement(
-            state, port);
-        return placement.ok &&
-               almost_equal(endpoint.support_world, placement.value.wire_endpoint, 1e-9);
+        const std::string fixture_prefix = "port:" + std::to_string(port.id) + ":";
+        const auto fixture = std::find_if(
+            state.view().visual_model_instances().instances.begin(),
+            state.view().visual_model_instances().instances.end(),
+            [&](const wire::core::VisualModelInstance& instance) {
+              return instance.model_key == "hv_insulator" &&
+                     instance.stable_key.rfind(fixture_prefix, 0) == 0;
+            });
+        if (fixture == state.view().visual_model_instances().instances.end()) {
+          return false;
+        }
+        const wire::core::Vec3d local_socket = endpoint_part.sockets.front().local_position;
+        const wire::core::Vec3d visible_socket =
+            fixture->world_transform.position +
+            wire::core::RotateEulerXYZDeg(
+                {local_socket.x * fixture->world_transform.scale.x,
+                 local_socket.y * fixture->world_transform.scale.y,
+                 local_socket.z * fixture->world_transform.scale.z},
+                fixture->world_transform.rotation_euler_deg);
+        const bool ok = almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9) &&
+                        almost_equal(endpoint.endpoint_world, visible_socket, 1e-9);
+        return ok;
       };
-      if (!matches(*port_a, layout->start) || !matches(*port_b, layout->end)) return false;
+      if (!matches(*port_a, layout->start) || !matches(*port_b, layout->end)) {
+        return false;
+      }
     }
     return true;
   };
@@ -2740,19 +2780,27 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
   const std::optional<double> port_height_before = average_port_height();
   const std::optional<double> row_height_before = row_model_height();
   const std::optional<double> base_height_before = average_base_height();
-  if (!port_height_before.has_value() || !row_height_before.has_value() || !base_height_before.has_value()) return false;
+  if (!port_height_before.has_value() || !row_height_before.has_value() || !base_height_before.has_value()) {
+    return false;
+  }
   const double preserved_cross_offset = *port_height_before - *base_height_before;
-  if (std::abs(preserved_cross_offset) < 0.1) return false;
+  if (std::abs(preserved_cross_offset) < 0.1) {
+    return false;
+  }
 
   const double next_height = *base_height_before + kHeightDelta;
   const auto updated = state.UpdateBackboneBundlePlacement(
       bundle_id, true, next_height, bundle->lateral_m, bundle->phase_spacing_m);
-  if (!updated.ok || !updated.value) return false;
+  if (!updated.ok || !updated.value) {
+    return false;
+  }
 
   const wire::core::Bundle* after_bundle = state.view().bundles().find(bundle_id);
   const std::optional<double> port_height_after = average_port_height();
   const std::optional<double> row_height_after = row_model_height();
-  if (after_bundle == nullptr || !port_height_after.has_value() || !row_height_after.has_value()) return false;
+  if (after_bundle == nullptr || !port_height_after.has_value() || !row_height_after.has_value()) {
+    return false;
+  }
 
   return almost_equal((*port_height_after - after_bundle->height_m), preserved_cross_offset, 1e-9) &&
          almost_equal(*port_height_after - *port_height_before, kHeightDelta, 1e-9) &&

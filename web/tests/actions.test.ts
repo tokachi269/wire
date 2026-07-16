@@ -207,10 +207,7 @@ describe("viewer actions", () => {
         maxSideScale: 1.7
       }),
       visualSettings: () => ({
-        enableSupportStructures: true,
         enableInsulators: true,
-        supportCenterThreshold: 0.03,
-        supportArmExtra: 0.2,
         insulatorRadius: 0.07,
         insulatorLength: 0.16
       }),
@@ -433,10 +430,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       maxSideScale: 1.7
     }),
     visualSettings: () => ({
-      enableSupportStructures: true,
       enableInsulators: true,
-      supportCenterThreshold: 0.03,
-      supportArmExtra: 0.2,
       insulatorRadius: 0.07,
       insulatorLength: 0.16
     }),

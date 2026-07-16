@@ -293,7 +293,6 @@ bool make_roundtrip_source(wire::core::CoreState* state, std::string* saved, Der
   geometry.pole_clearance_m = 0.19;
   if (!state->UpdateGeometrySettings(geometry).ok) return false;
   wire::core::VisualSettings visual = state->view().visual_settings();
-  visual.support_arm_radius_m = 0.037;
   visual.insulator_length_m = 0.27;
   if (!state->UpdateVisualSettings(visual).ok) return false;
 

@@ -355,7 +355,8 @@ std::string row_key_text(const SavedBackboneRowKey& row_key) {
 } // namespace
 
 EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState& state,
-                                                                  const Port& port) {
+                                                                  const Port& port,
+                                                                  double down_offset_m) {
   EditResult<ResolvedEndpointPlacement> out{};
   out.value.fixture_root.position = port.world_position;
   out.value.wire_endpoint = port.world_position;
@@ -371,8 +372,10 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
 
   const PoleFrame frame = BuildPoleFrame(context.value.pole->world_transform,
                                          context.value.layout_yaw_deg);
-  const double placement_height_m = WorldPointToLocal(frame, port.world_position).z;
-  Transformd fixture_root = transform_from_frame(frame, port.world_position);
+  const double resolved_down_offset_m = std::max(0.0, down_offset_m);
+  const Vec3d final_anchor = port.world_position - ScaleVec(frame.up, resolved_down_offset_m);
+  const double placement_height_m = WorldPointToLocal(frame, final_anchor).z;
+  Transformd fixture_root = transform_from_frame(frame, final_anchor);
 
   if (context.value.row_assembly != nullptr &&
       context.value.row_assembly->endpoint_mount_socket.has_value()) {
@@ -391,7 +394,7 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
       return out;
     }
     fixture_root.position = fixture_root.position +
-        (transform_point(mount_world.value, mount->local_position) - port.world_position);
+        (transform_point(mount_world.value, mount->local_position) - final_anchor);
   }
   out.value.fixture_root = fixture_root;
   out.value.wire_endpoint = fixture_root.position;
@@ -416,17 +419,85 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
   return out;
 }
 
-EditResult<Vec3d> resolve_model_assembly_wire_socket(const CoreState& state, const Port& port) {
+EditResult<Vec3d> resolve_model_assembly_wire_socket(const CoreState& state, const Port& port,
+                                                     double down_offset_m) {
   EditResult<Vec3d> out{};
-  const EditResult<ResolvedEndpointPlacement> placement = resolve_endpoint_placement(state, port);
+  const EditResult<ResolvedEndpointPlacement> placement = resolve_endpoint_placement(state, port, down_offset_m);
   out.ok = placement.ok;
   out.error = placement.error;
   out.value = placement.value.wire_endpoint;
   return out;
 }
 
-EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreState& state) {
+namespace {
+
+double layout_endpoint_down_offset(const LayoutEndpoint& endpoint) {
+  if (!endpoint.default_lower_required && !endpoint.lower_required) {
+    return 0.0;
+  }
+  if (endpoint.branch_down_offset_m > 0.0) {
+    return endpoint.branch_down_offset_m;
+  }
+  if (endpoint.endpoint_offset_z_m < 0.0) {
+    return -endpoint.endpoint_offset_z_m;
+  }
+  if (endpoint.automatic_branch_down_offset_m > 0.0) {
+    return endpoint.automatic_branch_down_offset_m;
+  }
+  return std::max(0.0, -endpoint.automatic_endpoint_offset_z_m);
+}
+
+void append_endpoint_down_offset(EditResult<EndpointDownOffsetByPort>* out,
+                                 const LayoutEndpoint& endpoint) {
+  if (out == nullptr || !out->ok || endpoint.port_id == kInvalidObjectId) {
+    return;
+  }
+  const double down_offset = layout_endpoint_down_offset(endpoint);
+  const auto [it, inserted] = out->value.emplace(endpoint.port_id, down_offset);
+  if (!inserted && std::abs(it->second - down_offset) > 1e-9) {
+    out->ok = false;
+    out->error = "model assembly unsupported: shared port resolves multiple lowered fixture heights";
+  }
+}
+
+} // namespace
+
+EditResult<EndpointDownOffsetByPort> endpoint_down_offsets_from_layouts(
+    const std::vector<SpanLayoutEntry>& layouts) {
+  EditResult<EndpointDownOffsetByPort> out{};
+  out.ok = true;
+  for (const SpanLayoutEntry& layout : layouts) {
+    append_endpoint_down_offset(&out, layout.start);
+    append_endpoint_down_offset(&out, layout.end);
+  }
+  return out;
+}
+
+EditResult<EndpointDownOffsetByPort> endpoint_down_offsets_from_cache(const CoreState& state) {
+  EditResult<EndpointDownOffsetByPort> out{};
+  out.ok = true;
+  state.view().cache_state().span_layout_cache.for_each_layout_record(
+      [&](ObjectId, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {
+        append_endpoint_down_offset(&out, layout.start);
+        append_endpoint_down_offset(&out, layout.end);
+      });
+  return out;
+}
+
+EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreState& state,
+                                                                  const EndpointDownOffsetByPort* down_offsets) {
   EditResult<VisualModelInstanceCache> out{};
+  EndpointDownOffsetByPort cached_down_offsets{};
+  const EndpointDownOffsetByPort* effective_down_offsets = down_offsets;
+  if (effective_down_offsets == nullptr) {
+    EditResult<EndpointDownOffsetByPort> from_cache = endpoint_down_offsets_from_cache(state);
+    if (!from_cache.ok) {
+      out.error = from_cache.error;
+      return out;
+    }
+    cached_down_offsets = std::move(from_cache.value);
+    effective_down_offsets = &cached_down_offsets;
+  }
   const CoreView view = state.view();
 
   for (const Pole& pole : view.poles().items()) {
@@ -553,7 +624,11 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
                                            context.value.layout_yaw_deg);
     const double height_m = WorldPointToLocal(frame, port->world_position).z;
     const EditResult<ResolvedEndpointPlacement> placement =
-        resolve_endpoint_placement(state, *port);
+        resolve_endpoint_placement(
+            state, *port,
+            effective_down_offsets == nullptr || !effective_down_offsets->contains(port->id)
+                ? 0.0
+                : effective_down_offsets->at(port->id));
     if (!placement.ok) {
       out.error = placement.error;
       return out;
@@ -574,6 +649,17 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
             });
   out.ok = true;
   return out;
+}
+
+EditResult<VisualModelInstanceCache> materialize_model_assemblies(
+    const CoreState& state, const std::vector<SpanLayoutEntry>& layouts) {
+  EditResult<EndpointDownOffsetByPort> down_offsets = endpoint_down_offsets_from_layouts(layouts);
+  if (!down_offsets.ok) {
+    EditResult<VisualModelInstanceCache> out{};
+    out.error = down_offsets.error;
+    return out;
+  }
+  return materialize_model_assemblies(state, &down_offsets.value);
 }
 
 } // namespace wire::core::generation::backbone

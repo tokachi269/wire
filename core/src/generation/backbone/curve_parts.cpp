@@ -921,7 +921,9 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       continue;
     }
     const std::vector<std::size_t>& group = group_it->second;
-    std::vector<std::pair<std::size_t, std::size_t>> candidates{};
+    std::vector<std::pair<std::size_t, std::size_t>> explicit_fallback_candidates{};
+    std::vector<std::pair<std::size_t, std::size_t>> explicit_candidates{};
+    std::vector<std::pair<std::size_t, std::size_t>> shared_port_candidates{};
     for (std::size_t a = 0; a < group.size(); ++a) {
       for (std::size_t b = a + 1; b < group.size(); ++b) {
         const curve_endpoint_ref& endpoint_a = endpoints[group[a]];
@@ -933,57 +935,86 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
             endpoint_a.port_id != kInvalidObjectId && endpoint_a.port_id == endpoint_b.port_id;
         const bool explicit_pair = row_pairs_edges(endpoint_a.row_key, endpoint_a.edge_id, endpoint_b.edge_id) ||
                                    row_pairs_edges(endpoint_b.row_key, endpoint_a.edge_id, endpoint_b.edge_id);
-        if (shared_port || explicit_pair) {
-          candidates.push_back({a, b});
+        const bool same_bundle = endpoint_a.bundle_id != kInvalidObjectId &&
+                                 endpoint_a.bundle_id == endpoint_b.bundle_id;
+        const bool same_endpoint_point = Length(endpoint_a.point - endpoint_b.point) <= kCurveEps;
+        if (explicit_pair) {
+          explicit_fallback_candidates.push_back({a, b});
+          if (same_bundle || shared_port || same_endpoint_point) {
+            explicit_candidates.push_back({a, b});
+          }
+        } else if (shared_port) {
+          shared_port_candidates.push_back({a, b});
         }
       }
     }
-    if (candidates.size() != 1) {
+    const std::vector<std::pair<std::size_t, std::size_t>>& candidates =
+        !explicit_candidates.empty() ? explicit_candidates
+                                     : (!explicit_fallback_candidates.empty() ? explicit_fallback_candidates
+                                                                              : shared_port_candidates);
+    if (candidates.empty()) {
       out.diagnostics.push_back(
           {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
-           candidates.empty() ? (group.size() < 2 ? "terminal node has no patch peer"
-                                                  : "no connectivity-owned patch pair")
-                              : "multiple connectivity-owned patch pairs"});
+           group.size() < 2 ? "terminal node has no patch peer"
+                             : "no connectivity-owned patch pair"});
       continue;
     }
-    const curve_endpoint_ref& raw_patch_a = endpoints[group[candidates.front().first]];
-    const curve_endpoint_ref& raw_patch_b = endpoints[group[candidates.front().second]];
-    const curve_endpoint_ref& patch_a =
-        section_key_less(raw_patch_a.section_key, raw_patch_b.section_key) ? raw_patch_a : raw_patch_b;
-    const curve_endpoint_ref& patch_b =
-        section_key_less(raw_patch_a.section_key, raw_patch_b.section_key) ? raw_patch_b : raw_patch_a;
-    if (!patch_a.has_curve_tangent || !patch_b.has_curve_tangent) {
-      out.diagnostics.push_back(
-          {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
-           "patch endpoint tangent missing"});
-      continue;
+    std::unordered_set<std::size_t> used_group_endpoints{};
+    bool ambiguous = false;
+    for (const auto& candidate : candidates) {
+      if (!used_group_endpoints.insert(candidate.first).second ||
+          !used_group_endpoints.insert(candidate.second).second) {
+        ambiguous = true;
+        break;
+      }
     }
-    if (patch_a.jumper_peer_port_id != kInvalidObjectId ||
-        patch_b.jumper_peer_port_id != kInvalidObjectId) {
+    if (ambiguous) {
       out.diagnostics.push_back(
           {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
-           "explicit jumper owns this connection"});
-      continue;
-    }
-    const double a_len =
-        std::min(kNodePatchHorizontalLengthM, patch_a.span_length_m * kNodePatchMaxSpanFraction);
-    const double b_len =
-        std::min(kNodePatchHorizontalLengthM, patch_b.span_length_m * kNodePatchMaxSpanFraction);
-    if (a_len <= kCurveEps || b_len <= kCurveEps) {
-      out.diagnostics.push_back(
-          {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
-           "patch boundary length is zero"});
+           "multiple overlapping connectivity-owned patch pairs"});
       continue;
     }
 
-    curve_boundary a_boundary = boundary_from_source_curve(
-        patch_a, source_curves[patch_a.source_curve_index], a_len);
-    insert_boundary_once(&boundaries, &boundary_index, a_boundary);
+    for (const auto& candidate : candidates) {
+      const curve_endpoint_ref& raw_patch_a = endpoints[group[candidate.first]];
+      const curve_endpoint_ref& raw_patch_b = endpoints[group[candidate.second]];
+      const curve_endpoint_ref& patch_a =
+          section_key_less(raw_patch_a.section_key, raw_patch_b.section_key) ? raw_patch_a : raw_patch_b;
+      const curve_endpoint_ref& patch_b =
+          section_key_less(raw_patch_a.section_key, raw_patch_b.section_key) ? raw_patch_b : raw_patch_a;
+      if (!patch_a.has_curve_tangent || !patch_b.has_curve_tangent) {
+        out.diagnostics.push_back(
+            {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
+             "patch endpoint tangent missing"});
+        continue;
+      }
+      if (patch_a.jumper_peer_port_id != kInvalidObjectId ||
+          patch_b.jumper_peer_port_id != kInvalidObjectId) {
+        out.diagnostics.push_back(
+            {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
+             "explicit jumper owns this connection"});
+        continue;
+      }
+      const double a_len =
+          std::min(kNodePatchHorizontalLengthM, patch_a.span_length_m * kNodePatchMaxSpanFraction);
+      const double b_len =
+          std::min(kNodePatchHorizontalLengthM, patch_b.span_length_m * kNodePatchMaxSpanFraction);
+      if (a_len <= kCurveEps || b_len <= kCurveEps) {
+        out.diagnostics.push_back(
+            {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
+             "patch boundary length is zero"});
+        continue;
+      }
 
-    curve_boundary b_boundary = boundary_from_source_curve(
-        patch_b, source_curves[patch_b.source_curve_index], b_len);
-    insert_boundary_once(&boundaries, &boundary_index, b_boundary);
-    patch_specs.push_back({key, patch_a, patch_b, ScaleVec(patch_a.point + patch_b.point, 0.5)});
+      curve_boundary a_boundary = boundary_from_source_curve(
+          patch_a, source_curves[patch_a.source_curve_index], a_len);
+      insert_boundary_once(&boundaries, &boundary_index, a_boundary);
+
+      curve_boundary b_boundary = boundary_from_source_curve(
+          patch_b, source_curves[patch_b.source_curve_index], b_len);
+      insert_boundary_once(&boundaries, &boundary_index, b_boundary);
+      patch_specs.push_back({key, patch_a, patch_b, ScaleVec(patch_a.point + patch_b.point, 0.5)});
+    }
   }
 
   const cable_run_assignments cable_runs = derive_cable_run_ids(sections, patch_specs);

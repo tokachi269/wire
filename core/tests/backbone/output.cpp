@@ -17,6 +17,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -1533,7 +1534,10 @@ bool C655_backbone_node_patch_grouping_uses_band_identity() {
   return contains_text(cpp, "int band_id = 0") && contains_text(cpp, "PoleTypeId pole_type_id") &&
          contains_text(cpp, "placement_band_id") && !contains_text(cpp, "band_id_for_port") &&
          contains_text(key_body, "a.band_id == b.band_id") &&
-         contains_text(key_body, "a.pole_type_id == b.pole_type_id");
+         contains_text(key_body, "a.pole_type_id == b.pole_type_id") &&
+         contains_text(cpp, "same_bundle || shared_port || same_endpoint_point") &&
+         contains_text(cpp, "explicit_fallback_candidates") &&
+         contains_text(cpp, "multiple overlapping connectivity-owned patch pairs");
 }
 
 bool C656_backbone_node_patch_does_not_mix_base_and_extra_sections() {
@@ -1702,6 +1706,21 @@ bool C667_backbone_branch_preserves_through_patch() {
     return false;
   }
   const wire::core::ObjectId branch_node_id = branch_node->node_id;
+  std::vector<wire::core::ObjectId> through_edge_ids{};
+  for (wire::core::ObjectId span_id : first.value.generated_span_ids) {
+    const auto binding_it = state.view().backbone_index().span_bindings_by_span.find(span_id);
+    if (binding_it == state.view().backbone_index().span_bindings_by_span.end() ||
+        binding_it->second.empty()) {
+      return false;
+    }
+    const wire::core::SavedBackboneSpanBinding& binding =
+        state.view().backbone().span_bindings[binding_it->second.front()];
+    const wire::core::SavedBackboneEdgeBundle* edge_bundle =
+        state.view().backbone_edge_bundle(binding.edge_bundle_id);
+    if (edge_bundle == nullptr) return false;
+    through_edge_ids.push_back(edge_bundle->edge_id);
+  }
+  std::sort(through_edge_ids.begin(), through_edge_ids.end());
   wire::core::BackboneSpec branch = line_req(state);
   branch.path.polyline = {branch_pole->world_transform.position, {20.0, -6.0, 0.0}};
   branch.path.node_specs = {pole_spec(0, branch_pole_id)};
@@ -1713,7 +1732,7 @@ bool C667_backbone_branch_preserves_through_patch() {
       state.view().visual_curve_parts().parts.begin(), state.view().visual_curve_parts().parts.end(),
       [&](const wire::core::VisualCurvePart& part) {
         return part.kind == wire::core::VisualCurvePartKind::kNodePatch &&
-               part.source_node_id == branch_node_id && part.incident_edge_ids.size() == 2;
+               part.source_node_id == branch_node_id && part.incident_edge_ids == through_edge_ids;
       });
   return found;
 }
@@ -2365,7 +2384,7 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
   if (template_it == state.view().bundle_templates().end()) return false;
 
   wire::core::BackboneSpec request{};
-  request.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  request.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 8.0, 0.0}};
   request.pole_type_id = template_it->second.related_pole_type_id;
   wire::core::BackboneBundleSpec first{};
   first.bundle_template_id = template_id;
@@ -2382,7 +2401,7 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
   request.bundles = {first, second};
 
   const auto generated = state.GenerateFromBackboneSpec(request);
-  if (!generated.ok || generated.value.generated_span_ids.size() != 2) return false;
+  if (!generated.ok || generated.value.generated_span_ids.size() != 4) return false;
 
   std::vector<const wire::core::Span*> spans{};
   for (wire::core::ObjectId span_id : generated.value.generated_span_ids) {
@@ -2390,8 +2409,16 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
     if (span == nullptr) return false;
     spans.push_back(span);
   }
-  const wire::core::Bundle* bundle_a = state.view().bundles().find(spans[0]->bundle_id);
-  const wire::core::Bundle* bundle_b = state.view().bundles().find(spans[1]->bundle_id);
+  std::vector<wire::core::ObjectId> distinct_bundle_ids{};
+  for (const wire::core::Span* span : spans) {
+    if (std::find(distinct_bundle_ids.begin(), distinct_bundle_ids.end(), span->bundle_id) ==
+        distinct_bundle_ids.end()) {
+      distinct_bundle_ids.push_back(span->bundle_id);
+    }
+  }
+  if (distinct_bundle_ids.size() != 2) return false;
+  const wire::core::Bundle* bundle_a = state.view().bundles().find(distinct_bundle_ids[0]);
+  const wire::core::Bundle* bundle_b = state.view().bundles().find(distinct_bundle_ids[1]);
   if (bundle_a == nullptr || bundle_b == nullptr || bundle_a->id == bundle_b->id ||
       bundle_a->bundle_template_id != template_id || bundle_b->bundle_template_id != template_id ||
       std::abs(bundle_a->phase_spacing_m - 0.31) > 1e-12 ||
@@ -2406,6 +2433,26 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
   const wire::core::ObjectId bundle_a_id = bundle_a->id;
   const wire::core::ObjectId bundle_b_id = bundle_b->id;
 
+  auto first_edge_span = [&](wire::core::ObjectId bundle_id) -> const wire::core::Span* {
+    const wire::core::Span* best = nullptr;
+    double best_mid_x = std::numeric_limits<double>::infinity();
+    for (const wire::core::Span* span : spans) {
+      if (span->bundle_id != bundle_id) continue;
+      const wire::core::Port* a = state.view().ports().find(span->port_a_id);
+      const wire::core::Port* b = state.view().ports().find(span->port_b_id);
+      if (a == nullptr || b == nullptr) continue;
+      const double mid_x = (a->world_position.x + b->world_position.x) * 0.5;
+      if (mid_x < best_mid_x) {
+        best_mid_x = mid_x;
+        best = span;
+      }
+    }
+    return best;
+  };
+  const wire::core::Span* bundle_a_first_span = first_edge_span(bundle_a_id);
+  const wire::core::Span* bundle_b_first_span = first_edge_span(bundle_b_id);
+  if (bundle_a_first_span == nullptr || bundle_b_first_span == nullptr) return false;
+
   auto local_port = [&](const wire::core::Span& span, bool start) -> std::optional<wire::core::Vec3d> {
     const wire::core::ObjectId port_id = start ? span.port_a_id : span.port_b_id;
     const wire::core::Port* port = state.view().ports().find(port_id);
@@ -2419,8 +2466,8 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
         port->world_position);
   };
   for (bool start : {true, false}) {
-    const auto a = local_port(*spans[0], start);
-    const auto b = local_port(*spans[1], start);
+    const auto a = local_port(*bundle_a_first_span, start);
+    const auto b = local_port(*bundle_b_first_span, start);
     if (!a.has_value() || !b.has_value() ||
         std::abs((b->y - a->y) - 0.4) > 1e-9 ||
         std::abs((b->z - a->z) - 1.0) > 1e-9) {
@@ -2431,17 +2478,19 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
   for (const wire::core::Bundle* bundle : {bundle_a, bundle_b}) {
     std::size_t support_count = 0;
     std::size_t helix_count = 0;
+    std::size_t patch_count = 0;
     for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
       if (part.source_bundle_id != bundle->id) continue;
       support_count += part.supplemental_kind == wire::core::VisualSupplementalKind::kSupportPath ? 1U : 0U;
       helix_count += part.supplemental_kind == wire::core::VisualSupplementalKind::kHelix ? 1U : 0U;
+      patch_count += part.kind == wire::core::VisualCurvePartKind::kNodePatch ? 1U : 0U;
     }
-    if (support_count != 1 || helix_count != 1) return false;
+    if (support_count != 2 || helix_count != 2 || patch_count != 1) return false;
   }
 
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kSegment;
-  pick.hit_id = spans.front()->id;
+  pick.hit_id = bundle_a_first_span->id;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
   resolve.selected_bundle_template_ids = {template_id};

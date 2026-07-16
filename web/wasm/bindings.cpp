@@ -185,6 +185,8 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
     auto pole_type = pole_type_it->second;
     pole_type.pole_visual_assembly_id =
         property<wire::core::ModelAssemblyTemplateId>(assignment, "assemblyId");
+    pole_type.radius_base_m = property<double>(assignment, "radiusBaseM");
+    pole_type.radius_top_m = property<double>(assignment, "radiusTopM");
     const auto updated = trial.UpdatePoleTypeDefinition(pole_type);
     if (!updated.ok) {
       result.error = updated.error;
@@ -954,8 +956,13 @@ public:
   }
 
   val update_pole_template(const val& input) {
-    wire::core::PoleTypeDefinition pole_template{};
-    pole_template.id = property<PoleTypeId>(input, "id");
+    const PoleTypeId pole_type_id = property<PoleTypeId>(input, "id");
+    const auto existing = CoreView(*state_).pole_types().find(pole_type_id);
+    if (existing == CoreView(*state_).pole_types().end()) {
+      return result_value(false, "pole template is missing");
+    }
+    wire::core::PoleTypeDefinition pole_template = existing->second;
+    pole_template.id = pole_type_id;
     pole_template.name = property<std::string>(input, "name");
     pole_template.description = property<std::string>(input, "description");
     pole_template.default_height_m = property<double>(input, "defaultHeight");
@@ -963,6 +970,7 @@ public:
         property<wire::core::ModelAssemblyTemplateId>(input, "poleVisualAssemblyId");
     const val bands = input["portBands"];
     const std::size_t band_count = bands["length"].as<std::size_t>();
+    pole_template.port_bands.clear();
     pole_template.port_bands.reserve(band_count);
     for (std::size_t band_index = 0; band_index < band_count; ++band_index) {
       const val item = bands[band_index];
@@ -988,6 +996,7 @@ public:
     }
     const val slots = input["anchorSlots"];
     const std::size_t slot_count = slots["length"].as<std::size_t>();
+    pole_template.anchor_slots.clear();
     pole_template.anchor_slots.reserve(slot_count);
     for (std::size_t slot_index = 0; slot_index < slot_count; ++slot_index) {
       const val item = slots[slot_index];

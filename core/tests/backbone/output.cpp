@@ -1928,6 +1928,8 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
 
   wire::core::PoleTypeDefinition pole_type = state.view().pole_types().at(request.pole_type_id);
   pole_type.pole_visual_assembly_id = kPoleAssembly;
+  pole_type.radius_base_m = 0.16;
+  pole_type.radius_top_m = 0.10;
   if (!state.UpdatePoleTypeDefinition(pole_type).ok) return false;
   const wire::core::BundleTemplateId hv_template_id =
       wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
@@ -1990,9 +1992,10 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
           std::stoull(instance.stable_key.substr(pole_id_begin, pole_id_end - pole_id_begin)));
       const wire::core::Pole* pole = state.view().poles().find(pole_id);
       if (pole == nullptr) return false;
-      const double base_radius = state.view().pole_radius_at_height_m(*pole, 0.0);
-      if (!almost_equal(instance.world_transform.scale.x, base_radius, 1e-9) ||
-          !almost_equal(instance.world_transform.scale.y, base_radius, 1e-9)) {
+      if (!almost_equal(instance.world_transform.scale.x, 1.0, 1e-9) ||
+          !almost_equal(instance.world_transform.scale.y, 1.0, 1e-9) ||
+          !almost_equal(state.view().pole_radius_at_height_m(*pole, 0.0), 0.16, 1e-9) ||
+          !almost_equal(state.view().pole_radius_at_height_m(*pole, pole->height_m), 0.10, 1e-9)) {
         return false;
       }
     }

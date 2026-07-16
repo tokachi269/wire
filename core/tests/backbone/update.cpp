@@ -87,6 +87,8 @@ bool same_band(const wire::core::PortPlacementBand& a, const wire::core::PortPla
 bool same_pole_type(const wire::core::PoleTypeDefinition& a, const wire::core::PoleTypeDefinition& b) {
   if (a.id != b.id || a.name != b.name || a.description != b.description ||
       !almost_equal(a.default_height_m, b.default_height_m, 1e-12) ||
+      !almost_equal(a.radius_base_m, b.radius_base_m, 1e-12) ||
+      !almost_equal(a.radius_top_m, b.radius_top_m, 1e-12) ||
       a.port_bands.size() != b.port_bands.size() || a.anchor_slots.size() != b.anchor_slots.size()) {
     return false;
   }

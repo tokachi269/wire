@@ -228,6 +228,8 @@ bool anchor_slot_equals(const AnchorSlotTemplate& a, const AnchorSlotTemplate& b
 bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefinition& b) {
   if (a.id != b.id || a.name != b.name || a.description != b.description ||
       std::abs(a.default_height_m - b.default_height_m) > 1e-12 ||
+      std::abs(a.radius_base_m - b.radius_base_m) > 1e-12 ||
+      std::abs(a.radius_top_m - b.radius_top_m) > 1e-12 ||
       a.pole_visual_assembly_id != b.pole_visual_assembly_id || a.port_bands.size() != b.port_bands.size() ||
       a.anchor_slots.size() != b.anchor_slots.size()) {
     return false;
@@ -2775,21 +2777,31 @@ void CoreState::apply_port_position_mode(Port& port, PortPositionMode mode, Port
 
 double CoreState::pole_radius_at_height_m(const Pole& pole, double local_z_m) const {
   double base_radius = 0.16;
-  switch (pole.kind) {
-  case PoleKind::kWood:
-    base_radius = 0.18;
-    break;
-  case PoleKind::kConcrete:
-    base_radius = 0.22;
-    break;
-  case PoleKind::kSteel:
-    base_radius = 0.14;
-    break;
-  default:
-    base_radius = 0.16;
-    break;
+  double top_radius = 0.0;
+  const PoleTypeDefinition* pole_type = find_pole_type(pole.pole_type_id);
+  if (pole_type != nullptr && pole_type->radius_base_m > 0.0 && pole_type->radius_top_m > 0.0) {
+    base_radius = pole_type->radius_base_m;
+    top_radius = pole_type->radius_top_m;
   }
-  const double top_radius = std::max(0.06, base_radius * 0.55);
+  if (top_radius <= 0.0) {
+    switch (pole.kind) {
+    case PoleKind::kWood:
+      base_radius = 0.18;
+      break;
+    case PoleKind::kConcrete:
+      base_radius = 0.22;
+      break;
+    case PoleKind::kSteel:
+      base_radius = 0.14;
+      break;
+    default:
+      base_radius = 0.16;
+      break;
+    }
+  }
+  if (top_radius <= 0.0) {
+    top_radius = std::max(0.06, base_radius * 0.55);
+  }
   const double h = std::max(0.1, pole.height_m);
   const double t = std::clamp(local_z_m / h, 0.0, 1.0);
   return base_radius + (top_radius - base_radius) * t;

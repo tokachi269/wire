@@ -104,7 +104,12 @@ export interface ModelAssemblyTemplateInput {
 
 export interface ModelAssemblyBootstrapInput {
   assemblies: ModelAssemblyTemplateInput[];
-  poleAssignments: Array<{ poleTypeId: number; assemblyId: number }>;
+  poleAssignments: Array<{
+    poleTypeId: number;
+    assemblyId: number;
+    radiusBaseM: number;
+    radiusTopM: number;
+  }>;
   bundleAssignments: Array<{
     bundleTemplateId: number;
     rowAssemblyId: number;

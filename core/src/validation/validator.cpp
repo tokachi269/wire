@@ -465,6 +465,15 @@ ValidationResult CoreState::Validate() const {
 
   for (const auto& [pole_type_id, pole_type] : pole_types) {
     (void)pole_type_id;
+    const bool has_radius_profile = pole_type.radius_base_m != 0.0 || pole_type.radius_top_m != 0.0;
+    if (has_radius_profile &&
+        (!std::isfinite(pole_type.radius_base_m) || !std::isfinite(pole_type.radius_top_m) ||
+         pole_type.radius_base_m <= 0.0 || pole_type.radius_top_m <= 0.0 ||
+         pole_type.radius_top_m > pole_type.radius_base_m)) {
+      result.issues.push_back({ValidationSeverity::kError, "PoleTypeRadiusProfileInvalid",
+                               "PoleType model radius profile must be finite, positive, and taper upward",
+                               kInvalidObjectId});
+    }
     if (pole_type.pole_visual_assembly_id == kInvalidModelAssemblyTemplateId) continue;
     const auto assembly_it = model_assembly_templates.find(pole_type.pole_visual_assembly_id);
     if (assembly_it == model_assembly_templates.end()) {

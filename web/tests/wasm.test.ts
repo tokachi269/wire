@@ -64,8 +64,8 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       wireSocket: { partId: 1, socketName: "wire" }
     }],
     poleAssignments: [
-      { poleTypeId: 1, assemblyId: 9901 },
-      { poleTypeId: 2, assemblyId: 9901 }
+      { poleTypeId: 1, assemblyId: 9901, radiusBaseM: 0.16, radiusTopM: 0.10 },
+      { poleTypeId: 2, assemblyId: 9901, radiusBaseM: 0.16, radiusTopM: 0.10 }
     ],
     bundleAssignments: [
       { bundleTemplateId: 101, rowAssemblyId: 9902, endpointAssemblyId: 9903 },

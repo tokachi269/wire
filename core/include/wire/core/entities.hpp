@@ -286,6 +286,10 @@ struct PoleTypeDefinition {
   std::string name{};
   std::string description{};
   double default_height_m = 10.0;
+  // Completed local profile supplied by the visual-model adapter.
+  // Zero/zero keeps the headless fallback profile for non-model consumers.
+  double radius_base_m = 0.0;
+  double radius_top_m = 0.0;
   ModelAssemblyTemplateId pole_visual_assembly_id = kInvalidModelAssemblyTemplateId;
   std::vector<PortPlacementBand> port_bands{};
   std::vector<AnchorSlotTemplate> anchor_slots{};

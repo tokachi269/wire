@@ -668,6 +668,8 @@ template <typename Archive, typename Value>
 bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value) {
   if (!archive.field(prefix, "id", value.id) || !archive.string_value(child(prefix, "name"), value.name) || !archive.string_value(child(prefix, "description"), value.description) ||
       !archive.field(prefix, "default_height_m", value.default_height_m) ||
+      !archive.compatible_field(prefix, "radius_base_m", value.radius_base_m, 0.0) ||
+      !archive.compatible_field(prefix, "radius_top_m", value.radius_top_m, 0.0) ||
       !archive.field(prefix, "pole_visual_assembly_id", value.pole_visual_assembly_id)) return false;
   std::size_t port_band_count = value.port_bands.size();
   if (!archive.count(child(prefix, "port_bands.count"), port_band_count)) return false;
@@ -685,7 +687,7 @@ bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(PoleTypeDefinition) == 168, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(PoleTypeDefinition) == 184, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

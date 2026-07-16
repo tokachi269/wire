@@ -920,6 +920,7 @@ export class ViewerActions {
   ): void {
     const before = this.readSnapshot();
     const placements = before.drawBundlePlacements;
+    const generationPlacements = placements.map(({ generatedBundleId: _generatedBundleId, ...placement }) => placement);
     const bundleTemplates: BundleTemplateInfo[] = before.bundleTemplates;
 
     if (points.length < 2) {
@@ -949,7 +950,7 @@ export class ViewerActions {
     const generateStart = performance.now();
     const result = this.bridge.generate(
       flatPoints,
-      placements,
+      generationPlacements,
       before.clickedPointsOnly ? 0 : before.intervalM,
       before.selectedPoleTemplateId ?? 1,
       before.directionMode,

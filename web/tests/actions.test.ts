@@ -3,6 +3,7 @@ import { ViewerActions } from "../src/actions/viewer";
 import type { SceneData, WireBridge } from "../src/bridge/wire";
 import type {
   BundleTemplateInfo,
+  BundlePlacement,
   CableTemplateInfo,
   GenerationTiming,
   PoleTemplateInfo
@@ -850,6 +851,38 @@ describe("P1 action contracts", () => {
     actions.addPathPoint([1, 2, 3]);
 
     expect(current(store).pathPoints).toEqual([[1, 2, 3]]);
+  });
+
+  it("does not send stale generated bundle ids during route generation", () => {
+    let placements: BundlePlacement[] | undefined;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({
+      generate: (_points, sentPlacements) => {
+        placements = sentPlacements as BundlePlacement[];
+        return {
+          ok: true,
+          error: "",
+          generatedPoleCount: 1,
+          generatedSpanCount: 1,
+          generatedBundleIds: ["new-bundle"],
+          totalMs: 1,
+          timing: timing(1)
+        };
+      }
+    }), store);
+    actions.initialize();
+    store.update((snapshot) => ({
+      ...snapshot,
+      drawBundlePlacements: snapshot.drawBundlePlacements.map((placement) => ({
+        ...placement,
+        generatedBundleId: "stale-bundle"
+      }))
+    }));
+
+    actions.addPathPoint([0, 0, 0]);
+    actions.addPathPoint([10, 0, 0]);
+
+    expect(placements?.[0]?.generatedBundleId).toBeUndefined();
   });
 
   it("passes resolved source snap node identity through to generation", () => {

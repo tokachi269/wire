@@ -32,6 +32,8 @@ describe("model asset cache", () => {
     expect(meshA!.geometry).toBe(meshB!.geometry);
     expect(meshA!.material).toBe(meshB!.material);
     expect(first.mountAnchor.y).toBeCloseTo(0, 12);
+    expect(first.mountAnchor.x).toBeCloseTo(0, 12);
+    expect(first.mountAnchor.z).toBeCloseTo(0, 12);
     expect(first.size.y * (10 / 12)).toBeCloseTo(10, 12);
   });
 
@@ -104,7 +106,7 @@ describe("model asset cache", () => {
     expect(distributionPole.parts[0].localTransform.scaleY).toBe(1);
     expect(belt.radialReferenceM).not.toBeNull();
     expect(belt.radialReferenceM).toBeCloseTo((0.190 + 12 / 75) * 0.5, 12);
-    expect(belt.mountAnchor.y).toBeCloseTo(belt.bounds.min.y, 12);
+    expect(belt.mountAnchor.y).toBeCloseTo(belt.bounds.getCenter(new THREE.Vector3()).y, 12);
     expect(beltPart.localTransform.scaleX).toBeCloseTo(1 / belt.radialReferenceM!, 12);
     expect(beltPart.localTransform.scaleY).toBeCloseTo(1 / belt.radialReferenceM!, 12);
     expect(beltPart.localTransform.scaleZ).toBe(1);

@@ -70,7 +70,7 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
   belt: {
     modelKey: "pole_belt",
     url: beltUrl,
-    mountRule: "bottom",
+    mountRule: "center",
     // The authored belt fits the pole model's lower-end radius.
     radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.totalLengthM),
     adapterVersion: 5
@@ -121,7 +121,7 @@ function mountAnchor(bounds: THREE.Box3, size: THREE.Vector3, rule: MountRule): 
   if (rule === "bottom") return new THREE.Vector3(center.x, bounds.min.y, center.z);
   const buriedRatio =
     (polePrimitive.totalLengthM - polePrimitive.visibleHeightM) / polePrimitive.totalLengthM;
-  return new THREE.Vector3(center.x, bounds.min.y + size.y * buriedRatio, center.z);
+  return new THREE.Vector3(0, bounds.min.y + size.y * buriedRatio, 0);
 }
 
 function descriptorVersion(

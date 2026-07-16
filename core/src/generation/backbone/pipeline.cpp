@@ -1622,6 +1622,24 @@ EditResult<bool> pipeline::prepare() {
         allowed = false;
         break;
       }
+      if (n.has_source_edge && ownerless_support(n.support)) {
+        EditResult<spec_view> v = view_for(state_, spec_.bundles[bundle_index]);
+        if (!v.ok) {
+          out.error = v.error;
+          return out;
+        }
+        for (int lane = 0; lane < v.value.count; ++lane) {
+          const SourceEdgeProjectionRef ref = source_projection_for(state_, n, spec_.bundles[bundle_index],
+                                                                    static_cast<std::size_t>(lane));
+          if (source_span_binding_for(state_, ref) == nullptr) {
+            allowed = false;
+            break;
+          }
+        }
+        if (!allowed) {
+          break;
+        }
+      }
     }
     if (allowed) {
       active_bundle_indices_.push_back(bundle_index);

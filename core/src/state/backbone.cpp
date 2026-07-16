@@ -386,7 +386,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     }
     const auto saved_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
                                        [&](const SavedBackboneNode& node) {
-                                         return node.node_id == node_id && node.pole_id == kInvalidObjectId;
+                                         return node.node_id == node_id;
                                        });
     if (saved_it != authoritative_.backbone.nodes.end()) {
       *out_kind = saved_it->support_kind;
@@ -538,6 +538,15 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     result.value.position = pick.hit_pos_world;
     result.value.support_kind = SupportKind::kPole;
     (void)resolve_node_info(pick.hit_id, &result.value.support_kind, &result.value.position);
+    const auto picked_saved_node =
+        std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
+                     [&](const SavedBackboneNode& node) { return node.node_id == pick.hit_id; });
+    if (picked_saved_node != authoritative_.backbone.nodes.end() &&
+        picked_saved_node->pole_id != kInvalidObjectId &&
+        picked_saved_node->support_kind == SupportKind::kPole) {
+      result.value.resolved_node_id = picked_saved_node->pole_id;
+      result.value.position = picked_saved_node->position;
+    }
     if (!selected_templates.empty()) {
       const auto saved_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
                                          [&](const SavedBackboneNode& node) {

@@ -2398,22 +2398,18 @@ bool C737_backbone_overlay_edge_endpoint_snap_returns_pole_node_spec_id() {
   if (node_a == nullptr || node_b == nullptr || node_a->pole_id == wire::core::kInvalidObjectId) {
     return false;
   }
+  const wire::core::ObjectId endpoint_pole_id = node_a->pole_id;
 
   wire::core::PickResult endpoint_pick{};
-  endpoint_pick.hit_kind = wire::core::PickHitKind::kSegment;
-  endpoint_pick.hit_id = wire::core::kInvalidObjectId;
+  endpoint_pick.hit_kind = wire::core::PickHitKind::kNode;
+  endpoint_pick.hit_id = node_a->node_id;
   endpoint_pick.hit_pos_world = node_a->position;
-  endpoint_pick.has_segment_endpoints = true;
-  endpoint_pick.segment_node_a_id = node_a->node_id;
-  endpoint_pick.segment_node_b_id = node_b->node_id;
-  endpoint_pick.segment_endpoint_a_world = node_a->position;
-  endpoint_pick.segment_endpoint_b_world = node_b->position;
   wire::core::ResolveBranchPickOptions endpoint_resolve{};
   endpoint_resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto endpoint_resolved = state.ResolveBranchPick(endpoint_pick, endpoint_resolve);
   if (!endpoint_resolved.ok || endpoint_resolved.value.support_kind != wire::core::SupportKind::kPole ||
       endpoint_resolved.value.resolved_node_id != node_a->pole_id ||
-      !endpoint_resolved.value.snapped_from_segment_endpoint) {
+      endpoint_resolved.value.snapped_from_segment_endpoint) {
     return false;
   }
 
@@ -2425,7 +2421,104 @@ bool C737_backbone_overlay_edge_endpoint_snap_returns_pole_node_spec_id() {
   endpoint_node.node_id = endpoint_resolved.value.resolved_node_id;
   extension.path.node_specs = {endpoint_node};
   const auto extension_out = state.GenerateFromBackboneSpec(extension);
-  return extension_out.ok && !extension_out.value.generated_span_ids.empty();
+  if (!extension_out.ok || extension_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::ObjectId cross_pole_id = endpoint_pole_id;
+  const wire::core::SavedBackboneNode* cross_pole_node = state.view().backbone_node_for_pole(cross_pole_id);
+  const auto* cross_pole = state.view().poles().find(cross_pole_id);
+  if (cross_pole_node == nullptr || cross_pole == nullptr) {
+    return false;
+  }
+
+  wire::core::BackboneSpec cross = line_req(state);
+  cross.path.polyline = {cross_pole->world_transform.position, {12.0, 8.0, 0.0}};
+  cross.path.node_specs = {pole_spec(0, cross_pole_id)};
+  const auto cross_out = state.GenerateFromBackboneSpec(cross);
+  if (!cross_out.ok || cross_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::ObjectId source_span_id = cross_out.value.generated_span_ids.front();
+  const auto* source_span = state.view().spans().find(source_span_id);
+  if (source_span == nullptr) {
+    return false;
+  }
+  const auto* port_a = state.view().ports().find(source_span->port_a_id);
+  const auto* port_b = state.view().ports().find(source_span->port_b_id);
+  if (port_a == nullptr || port_b == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d source_mid{
+      port_a->world_position.x * 0.5 + port_b->world_position.x * 0.5,
+      port_a->world_position.y * 0.5 + port_b->world_position.y * 0.5,
+      port_a->world_position.z * 0.5 + port_b->world_position.z * 0.5};
+
+  wire::core::PickResult mid_pick{};
+  mid_pick.hit_kind = wire::core::PickHitKind::kSegment;
+  mid_pick.hit_id = source_span_id;
+  mid_pick.hit_pos_world = source_mid;
+  wire::core::ResolveBranchPickOptions mid_resolve{};
+  mid_resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto mid_resolved = state.ResolveBranchPick(mid_pick, mid_resolve);
+  if (!mid_resolved.ok || mid_resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      mid_resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec mid_branch = line_req(state);
+  mid_branch.path.polyline = {mid_resolved.value.position, {18.0, 4.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec mid_node{};
+  mid_node.point_index = 0;
+  mid_node.support_kind = mid_resolved.value.support_kind;
+  mid_node.node_id = mid_resolved.value.resolved_node_id;
+  mid_branch.path.node_specs = {mid_node};
+  const auto mid_out = state.GenerateFromBackboneSpec(mid_branch);
+  if (!mid_out.ok || mid_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const auto* original_span = state.view().spans().find(base_out.value.generated_span_ids.front());
+  if (original_span == nullptr) {
+    return false;
+  }
+  const auto* original_a = state.view().ports().find(original_span->port_a_id);
+  const auto* original_b = state.view().ports().find(original_span->port_b_id);
+  if (original_a == nullptr || original_b == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d original_mid{
+      original_a->world_position.x * 0.5 + original_b->world_position.x * 0.5,
+      original_a->world_position.y * 0.5 + original_b->world_position.y * 0.5,
+      original_a->world_position.z * 0.5 + original_b->world_position.z * 0.5};
+
+  wire::core::PickResult original_mid_pick{};
+  original_mid_pick.hit_kind = wire::core::PickHitKind::kSegment;
+  original_mid_pick.hit_id = original_span->id;
+  original_mid_pick.hit_pos_world = original_mid;
+  wire::core::ResolveBranchPickOptions original_mid_resolve{};
+  original_mid_resolve.selected_bundle_template_ids = {
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto original_mid_resolved = state.ResolveBranchPick(original_mid_pick, original_mid_resolve);
+  if (!original_mid_resolved.ok ||
+      original_mid_resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      original_mid_resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec original_mid_branch = line_req(state);
+  original_mid_branch.path.polyline = {original_mid_resolved.value.position, {6.0, -5.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec original_mid_node{};
+  original_mid_node.point_index = 0;
+  original_mid_node.support_kind = original_mid_resolved.value.support_kind;
+  original_mid_node.node_id = original_mid_resolved.value.resolved_node_id;
+  original_mid_branch.path.node_specs = {original_mid_node};
+  const auto original_mid_out = state.GenerateFromBackboneSpec(original_mid_branch);
+  if (!original_mid_out.ok || original_mid_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  return true;
 }
 
 } // namespace backbone_tests

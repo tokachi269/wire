@@ -28,6 +28,7 @@ const POLE_TAPER_RATIO = 75;
 export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
+const BRANCH_ENDPOINT_SNAP_RADIUS_M = 0.6;
 const SUPPORT_PATH_SUPPLEMENTAL_KIND = 1;
 
 export function setPoleRotation(
@@ -424,7 +425,19 @@ export class WireScene {
     if (data.pickKind === "edge") {
       const endpointA = data.endpointA as WorldPoint;
       const endpointB = data.endpointB as WorldPoint;
-      const point = this.closestBackbonePointXY(displayPoint, endpointA, endpointB);
+      const edgePoint = this.closestBackbonePointXY(displayPoint, endpointA, endpointB);
+      const snappedEndpoint = this.snappedBackboneEndpoint(edgePoint, endpointA, endpointB);
+      if (snappedEndpoint !== null) {
+        const useA = snappedEndpoint === endpointA;
+        const nodeId = useA ? data.nodeAId : data.nodeBId;
+        if (nodeId !== undefined) {
+          return {
+            point: snappedEndpoint,
+            pick: makePick(snappedEndpoint, 1, nodeId)
+          };
+        }
+      }
+      const point = edgePoint;
       return {
         point,
         pick: {
@@ -442,6 +455,21 @@ export class WireScene {
       };
     }
     return null;
+  }
+
+  private snappedBackboneEndpoint(point: WorldPoint, endpointA: WorldPoint, endpointB: WorldPoint): WorldPoint | null {
+    const da2 = this.distanceSquared(point, endpointA);
+    const db2 = this.distanceSquared(point, endpointB);
+    const snapR2 = BRANCH_ENDPOINT_SNAP_RADIUS_M * BRANCH_ENDPOINT_SNAP_RADIUS_M;
+    if (da2 > snapR2 && db2 > snapR2) return null;
+    return da2 <= db2 ? endpointA : endpointB;
+  }
+
+  private distanceSquared(a: WorldPoint, b: WorldPoint): number {
+    const dx = a[0] - b[0];
+    const dy = a[1] - b[1];
+    const dz = a[2] - b[2];
+    return dx * dx + dy * dy + dz * dz;
   }
 
   private closestBackbonePointXY(point: WorldPoint, endpointA: WorldPoint, endpointB: WorldPoint): WorldPoint {
@@ -924,32 +952,6 @@ export class WireScene {
     ring.position.copy(point);
     ring.renderOrder = 44;
     this.guide.add(ring);
-
-    const beaconTop = point.clone().add(new THREE.Vector3(0, 0, 1.15));
-    const beacon = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([point, beaconTop]),
-      new THREE.LineBasicMaterial({
-        color: 0xffb13b,
-        transparent: true,
-        opacity: 0.95,
-        depthTest: false,
-        depthWrite: false
-      })
-    );
-    beacon.renderOrder = 43;
-    this.guide.add(beacon);
-
-    const lifted = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 12, 8),
-      new THREE.MeshBasicMaterial({
-        color: 0xffd36f,
-        depthTest: false,
-        depthWrite: false
-      })
-    );
-    lifted.position.copy(beaconTop);
-    lifted.renderOrder = 45;
-    this.guide.add(lifted);
   }
 
   private updateSnapPreview(event: PointerEvent): void {

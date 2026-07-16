@@ -54,8 +54,6 @@ float SolidVisualPartRadius(wire::core::VisualPartKind kind, double radius_m) {
     return static_cast<float>(radius_m);
   }
   switch (kind) {
-  case wire::core::VisualPartKind::kSupportArm:
-    return 0.024f;
   case wire::core::VisualPartKind::kInsulator:
     return 0.018f;
   case wire::core::VisualPartKind::kFitting:
@@ -100,8 +98,6 @@ static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole, double layou
 
 static Color VisualPartColor(wire::core::VisualPartKind kind) {
   switch (kind) {
-  case wire::core::VisualPartKind::kSupportArm:
-    return Color{122, 98, 73, 255};
   case wire::core::VisualPartKind::kInsulator:
     return Color{109, 141, 173, 255};
   case wire::core::VisualPartKind::kFitting:

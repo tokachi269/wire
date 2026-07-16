@@ -338,10 +338,7 @@ export interface LayoutSettings {
 }
 
 export interface VisualSettings {
-  enableSupportStructures: boolean;
   enableInsulators: boolean;
-  supportCenterThreshold: number;
-  supportArmExtra: number;
   insulatorRadius: number;
   insulatorLength: number;
 }

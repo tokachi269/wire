@@ -2111,10 +2111,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   }
   if (!ui_state.visual_settings_loaded) {
     const auto& vs = view.visual_settings();
-    ui_state.visual_enable_support_structures = vs.enable_support_structures;
     ui_state.visual_enable_insulators = vs.enable_insulators;
-    ui_state.visual_support_center_threshold = vs.support_center_threshold_m;
-    ui_state.visual_support_arm_extra = vs.support_arm_extra_m;
     ui_state.visual_insulator_radius = vs.insulator_radius_m;
     ui_state.visual_insulator_length = vs.insulator_length_m;
     ui_state.visual_settings_loaded = true;
@@ -2850,19 +2847,13 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::TextUnformatted("No pole templates");
     }
     ImGui::Separator();
-    ImGui::Checkbox("Enable Support Structures", &ui_state.visual_enable_support_structures);
     ImGui::Checkbox("Enable Insulators", &ui_state.visual_enable_insulators);
     ImGui::Checkbox("Solid Support Render", &ui_state.viewer_enable_solid_support_render);
-    ImGui::InputDouble("Support Center Threshold", &ui_state.visual_support_center_threshold, 0.005, 0.01, "%.3f");
-    ImGui::InputDouble("Support Arm Extra", &ui_state.visual_support_arm_extra, 0.01, 0.05, "%.3f");
     ImGui::InputDouble("Insulator Radius", &ui_state.visual_insulator_radius, 0.005, 0.01, "%.3f");
     ImGui::InputDouble("Insulator Length", &ui_state.visual_insulator_length, 0.005, 0.01, "%.3f");
     if (ImGui::Button("Apply Visual Cache Settings")) {
       wire::core::VisualSettings settings{};
-      settings.enable_support_structures = ui_state.visual_enable_support_structures;
       settings.enable_insulators = ui_state.visual_enable_insulators;
-      settings.support_center_threshold_m = ui_state.visual_support_center_threshold;
-      settings.support_arm_extra_m = ui_state.visual_support_arm_extra;
       settings.insulator_radius_m = ui_state.visual_insulator_radius;
       settings.insulator_length_m = ui_state.visual_insulator_length;
       const auto apply = viewer_core_state::UpdateVisualSettings(state, settings, true);

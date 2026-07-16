@@ -450,41 +450,6 @@ public:
       output.set("runId", static_cast<double>(part.cable_run_id));
       descriptors.set(descriptor_index++, output);
     }
-    constexpr int kSceneSupportArmPartKind = 5;
-    constexpr std::uint32_t kSupportArmColorRgba = 0x7A6249FFu;
-    for (const wire::core::Span& span : view.spans().items()) {
-      const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
-      if (visual == nullptr) continue;
-      const wire::core::Bundle* bundle = view.bundles().find(span.bundle_id);
-      for (std::size_t index = 0; index < visual->parts.size(); ++index) {
-        const wire::core::VisualPart& part = visual->parts[index];
-        if (part.kind != wire::core::VisualPartKind::kSupportArm) continue;
-        const std::size_t sample_offset = sample_buffer_.size();
-        for (const Vec3d& point : {part.a, part.b}) {
-          sample_buffer_.push_back(point.x);
-          sample_buffer_.push_back(point.y);
-          sample_buffer_.push_back(point.z);
-        }
-        val output = val::object();
-        output.set("partKey", "support-arm:" + std::to_string(span.id) + ":" +
-                                  std::to_string(index));
-        output.set("sourceVersion", std::to_string(visual->source_version));
-        output.set("sampleOffset", sample_offset);
-        output.set("sampleCount", 2);
-        output.set("kind", kSceneSupportArmPartKind);
-        output.set("supplementalKind", 0);
-        output.set("wireRadius", part.radius_m);
-        output.set("colorRgba", kSupportArmColorRgba);
-        output.set("sourceNodeId", "0");
-        output.set("sourceEdgeId", "0");
-        output.set("sourceSpanId", std::to_string(span.id));
-        output.set("sourceBundleId", std::to_string(span.bundle_id));
-        output.set("bundleTemplateId", bundle == nullptr ? 0 : static_cast<int>(bundle->bundle_template_id));
-        output.set("laneIndex", 0);
-        output.set("runId", 0.0);
-        descriptors.set(descriptor_index++, output);
-      }
-    }
     val result = val::object();
     result.set("parts", descriptors);
     val models = val::array();
@@ -1059,10 +1024,7 @@ public:
   [[nodiscard]] val visual_settings() const {
     const auto& settings = CoreView(*state_).visual_settings();
     val output = val::object();
-    output.set("enableSupportStructures", settings.enable_support_structures);
     output.set("enableInsulators", settings.enable_insulators);
-    output.set("supportCenterThreshold", settings.support_center_threshold_m);
-    output.set("supportArmExtra", settings.support_arm_extra_m);
     output.set("insulatorRadius", settings.insulator_radius_m);
     output.set("insulatorLength", settings.insulator_length_m);
     return output;
@@ -1070,10 +1032,7 @@ public:
 
   val update_visual_settings(const val& input) {
     wire::core::VisualSettings settings{};
-    settings.enable_support_structures = property<bool>(input, "enableSupportStructures");
     settings.enable_insulators = property<bool>(input, "enableInsulators");
-    settings.support_center_threshold_m = property<double>(input, "supportCenterThreshold");
-    settings.support_arm_extra_m = property<double>(input, "supportArmExtra");
     settings.insulator_radius_m = property<double>(input, "insulatorRadius");
     settings.insulator_length_m = property<double>(input, "insulatorLength");
     const auto updated = state_->UpdateVisualSettings(settings, true);

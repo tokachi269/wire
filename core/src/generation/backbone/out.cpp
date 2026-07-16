@@ -304,28 +304,8 @@ SpanRenderCacheEntry render(const CoreState& state, ObjectId span_id, const Deta
   return out;
 }
 
-SpanVisualCacheEntry visual(const VisualSettings& settings, const SpanLayoutEntry& layout) {
+SpanVisualCacheEntry visual(const VisualSettings&, const SpanLayoutEntry&) {
   SpanVisualCacheEntry out{};
-  auto add_part = [&](const LayoutEndpoint& endpoint) {
-    if (!settings.enable_support_structures) {
-      return;
-    }
-    if (!endpoint.default_lower_required && !endpoint.lower_required) {
-      return;
-    }
-    const Vec3d support = endpoint.support_world;
-    if (Length(endpoint.endpoint_world - support) <= 1e-9) {
-      return;
-    }
-    VisualPart part{};
-    part.kind = VisualPartKind::kSupportArm;
-    part.a = support;
-    part.b = endpoint.endpoint_world;
-    part.radius_m = settings.support_arm_radius_m;
-    out.parts.push_back(part);
-  };
-  add_part(layout.start);
-  add_part(layout.end);
   return out;
 }
 

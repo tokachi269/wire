@@ -998,14 +998,13 @@ static_assert(sizeof(GeometrySettings) == 24, "field added: update archive visit
 
 template <typename Archive, typename Value>
 bool archive_visual_settings(Archive& archive, const std::string& prefix, Value& value) {
-  return archive.field(prefix, "enable_support_structures", value.enable_support_structures) && archive.field(prefix, "enable_insulators", value.enable_insulators) &&
-         archive.field(prefix, "support_center_threshold_m", value.support_center_threshold_m) && archive.field(prefix, "support_arm_extra_m", value.support_arm_extra_m) &&
-         archive.field(prefix, "support_arm_radius_m", value.support_arm_radius_m) && archive.field(prefix, "insulator_radius_m", value.insulator_radius_m) &&
+  return archive.field(prefix, "enable_insulators", value.enable_insulators) &&
+         archive.field(prefix, "insulator_radius_m", value.insulator_radius_m) &&
          archive.field(prefix, "insulator_length_m", value.insulator_length_m);
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(VisualSettings) == 48, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(VisualSettings) == 24, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

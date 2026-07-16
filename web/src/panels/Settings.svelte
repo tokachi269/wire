@@ -167,44 +167,11 @@
     <label class="check">
       <input
         type="checkbox"
-        checked={snapshot.visual.enableSupportStructures}
-        onchange={(event) =>
-          actions.commitVisual("enableSupportStructures", checkedValue(event))}
-      />
-      Support structures
-    </label>
-    <label class="check">
-      <input
-        type="checkbox"
         checked={snapshot.visual.enableInsulators}
         onchange={(event) =>
           actions.commitVisual("enableInsulators", checkedValue(event))}
       />
       Insulators
-    </label>
-    <label>
-      Support arm extra
-      <input
-        type="number"
-        step="0.01"
-        value={snapshot.visual.supportArmExtra}
-        oninput={(event) =>
-          actions.previewVisual("supportArmExtra", numberValue(event))}
-        onblur={(event) =>
-          actions.commitVisual("supportArmExtra", numberValue(event))}
-      />
-    </label>
-    <label>
-      Support center threshold
-      <input
-        type="number"
-        step="0.005"
-        value={snapshot.visual.supportCenterThreshold}
-        oninput={(event) =>
-          actions.previewVisual("supportCenterThreshold", numberValue(event))}
-        onblur={(event) =>
-          actions.commitVisual("supportCenterThreshold", numberValue(event))}
-      />
     </label>
     <label>
       Insulator radius

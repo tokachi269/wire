@@ -1,7 +1,7 @@
 import type { EditResult, PathPickInfo } from "../model";
 import type { PathPointSpec, ViewerSnapshot, WorldPoint } from "../store/viewer";
 
-const PART_KIND_NAMES = ["EdgeBody", "NodePatch", "Lead", "Jumper", "Supplemental", "SupportArm"];
+const PART_KIND_NAMES = ["EdgeBody", "NodePatch", "Lead", "Jumper", "Supplemental"];
 
 function formatNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(3) : "non-finite";
@@ -60,7 +60,7 @@ function formatSettings(snapshot: ViewerSnapshot): string {
   return "settings " + [
     `geometry(curveSamples=${geometry.curveSamples},sagEnabled=${geometry.sagEnabled},sagFactor=${formatNumber(geometry.sagFactor)},poleClearance=${formatNumber(geometry.poleClearance)})`,
     `layout(angleCorrectionEnabled=${layout.angleCorrectionEnabled},cornerThresholdDeg=${formatNumber(layout.cornerThresholdDeg)},minSideScale=${formatNumber(layout.minSideScale)},maxSideScale=${formatNumber(layout.maxSideScale)})`,
-    `visual(supports=${visual.enableSupportStructures},insulators=${visual.enableInsulators})`
+    `visual(insulators=${visual.enableInsulators})`
   ].join(" ");
 }
 

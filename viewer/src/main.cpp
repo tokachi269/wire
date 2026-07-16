@@ -156,8 +156,6 @@ bool HasMeaningfulDragSelection(const DragSelectionState& drag_selection) {
 
 Color VisualPartColor(wire::core::VisualPartKind kind) {
   switch (kind) {
-  case wire::core::VisualPartKind::kSupportArm:
-    return BROWN;
   case wire::core::VisualPartKind::kInsulator:
     return SKYBLUE;
   case wire::core::VisualPartKind::kFitting:

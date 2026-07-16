@@ -58,13 +58,12 @@ struct BoundsCache {
 };
 
 enum class VisualPartKind : std::uint8_t {
-  kSupportArm = 0,
-  kInsulator = 1,
-  kFitting = 2,
+  kInsulator = 0,
+  kFitting = 1,
 };
 
 struct VisualPart {
-  VisualPartKind kind = VisualPartKind::kSupportArm;
+  VisualPartKind kind = VisualPartKind::kInsulator;
   Vec3d a{};
   Vec3d b{};
   double radius_m = 0.02;
@@ -236,11 +235,7 @@ struct VisualModelInstanceCache {
 };
 
 struct VisualSettings {
-  bool enable_support_structures = true;
   bool enable_insulators = true;
-  double support_center_threshold_m = 0.03;
-  double support_arm_extra_m = 0.20;
-  double support_arm_radius_m = 0.03;
   double insulator_radius_m = 0.07;
   double insulator_length_m = 0.16;
 };

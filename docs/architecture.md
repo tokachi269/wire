@@ -98,8 +98,8 @@ pole facingはこのcorner decisionの`node_forward`を消費し、角度や二�
 
 通常のroute bendはlowering対象ではない。
 同一nodeのrow conflictで重なりを避ける必要がある場合だけ、`BundleTemplate::enable_branch_down_offset` と
-`branch_endpoint_offset_m`を使い、対象bundleのjunction側`endpoint_world`をoffsetする。
-`support_world`とport位置は元の取付位置を保持する。
+`branch_endpoint_offset_m`を使い、対象bundleのjunction側fixture placementを一度だけ下げる。
+段変更後の最終wire socketを`support_world`と`endpoint_world`の両方に使い、port位置は論理anchorとして保持する。
 LV/HVなどのcategory名自体はlowering条件にしない。
 
 ownerlessなmidair branchのsource identityは、saved edge、edge bundle、lane、port bindingから特定する。
@@ -221,7 +221,8 @@ viewerが不足したtopology、pair、row、loweringを推測または補正し
 coreはbackend非依存のcurve、bounds、primitive、style参照を出力する。
 UE、Blender、viewer、exporter固有のasset/material型はadapter側で解決する。
 
-現在のsupport visualは、lowered endpointに対する`support_world -> endpoint_world`の`SupportArm` placeholderまでである。
+lowered endpointでは、段変更を反映した最終fixture socketを`support_world`と`endpoint_world`の両方に使う。
+旧`support_world -> endpoint_world`の`SupportArm` placeholderは生成しない。
 row fixtureとPort fixtureはgeneric model assemblyから派生し、旧い用途boolや高さscalarを決定者にしない。
 viewerが不足fixtureを推測して補ってはいけない。
 

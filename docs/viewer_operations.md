@@ -115,7 +115,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 
 | UI 項目 | 呼ぶ core API / source | control | 更新クラス | drag policy | 判定 | 理由 | 優先度 |
 |---|---|---|---|---|---|---|---|
-| Enable Support Structures / Enable Insulators | `UpdateVisualSettings` | toggle | `kRedraw` | 約30 Hz | そのまま | visual cache の決定済み値だけを表示する | P1 |
+| Enable Insulators | `UpdateVisualSettings` | toggle | `kRedraw` | 約30 Hz | そのまま | visual cache の決定済み値だけを表示する | P1 |
 | Support Center Threshold / Arm Extra / Insulator Radius-Length | `UpdateVisualSettings` | number | `kRedraw` | 約30 Hz | そのまま | core visual output を再取得する | P1 |
 | Solid Support Render | renderer store | toggle | `kRedraw` | 生反映 | そのまま | backend 表示方式だけ | P1 |
 | Apply Visual Cache Settings | `UpdateVisualSettings` | button | `kRedraw` | commit | 直して移植 | web では各 control の preview/commit に分解する | P1 |

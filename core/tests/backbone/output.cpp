@@ -2536,6 +2536,32 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
   const wire::core::Bundle* bundle = state.view().bundles().find(bundle_id);
   if (bundle == nullptr) return false;
 
+  const auto incident_layouts_match_fixtures = [&]() {
+    for (const wire::core::Span& span : state.view().spans().items()) {
+      const wire::core::Port* port_a = state.view().ports().find(span.port_a_id);
+      const wire::core::Port* port_b = state.view().ports().find(span.port_b_id);
+      const wire::core::SpanLayoutEntry* layout = state.span_layout(span.id).entry;
+      const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span.id);
+      if (port_a == nullptr || port_b == nullptr || layout == nullptr || curve == nullptr ||
+          curve->detail.sample_points.size() < 2 ||
+          !almost_equal(curve->detail.sample_points.front(), layout->start.endpoint_world, 1e-9) ||
+          !almost_equal(curve->detail.sample_points.back(), layout->end.endpoint_world, 1e-9)) {
+        return false;
+      }
+      const auto matches = [&](const wire::core::Port& port,
+                               const wire::core::LayoutEndpoint& endpoint) {
+        if (port.owner_pole_id != pole_id) return true;
+        const auto placement = wire::core::generation::backbone::resolve_endpoint_placement(
+            state, port);
+        return placement.ok &&
+               almost_equal(endpoint.support_world, placement.value.wire_endpoint, 1e-9);
+      };
+      if (!matches(*port_a, layout->start) || !matches(*port_b, layout->end)) return false;
+    }
+    return true;
+  };
+  if (!incident_layouts_match_fixtures()) return false;
+
   auto average_port_height = [&]() -> std::optional<double> {
     double sum = 0.0;
     std::size_t count = 0;
@@ -2630,7 +2656,8 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
 
   return almost_equal((*port_height_after - after_bundle->height_m), preserved_cross_offset, 1e-9) &&
          almost_equal(*port_height_after - *port_height_before, kHeightDelta, 1e-9) &&
-         almost_equal(*row_height_after - *row_height_before, kHeightDelta, 1e-9);
+         almost_equal(*row_height_after - *row_height_before, kHeightDelta, 1e-9) &&
+         incident_layouts_match_fixtures();
 }
 
 } // namespace backbone_tests

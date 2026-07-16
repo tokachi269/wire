@@ -243,6 +243,27 @@ describe("wire wasm smoke", () => {
     loadedState.delete();
   });
 
+  it("includes HV row-step connectors in the web scene", () => {
+    const modelState = createState();
+    const configured = modelState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+    const generated = modelState.generate(
+      new Float64Array([0, 0, 0, 10, 0, 0, 5, 8.660254037844386, 0]),
+      [101], 0, 1, [0], 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const connectors = visualParts(modelState).filter((part) => part.info.kind === 5);
+    expect(connectors.length).toBeGreaterThan(0);
+    expect(connectors.every((part) =>
+      part.info.partKey.startsWith("support-arm:") &&
+      part.info.sampleCount === 2 &&
+      part.samples.length === 6 &&
+      [...part.samples].every(Number.isFinite)
+    )).toBe(true);
+    modelState.delete();
+  });
+
   it("upgrades an older saved row assembly by adapter version during restore", () => {
     const oldState = createState();
     const oldBootstrap = modelBootstrap();

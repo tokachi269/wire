@@ -394,13 +394,20 @@ public:
 
   val visual_scene() {
     const auto& parts = state_->visual_curve_parts().parts;
+    const CoreView view(*state_);
     sample_buffer_.clear();
     std::size_t sample_value_count = 0;
     for (const auto& part : parts) {
       sample_value_count += part.samples.size() * 3;
     }
+    for (const wire::core::Span& span : view.spans().items()) {
+      const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
+      if (visual == nullptr) continue;
+      sample_value_count += visual->parts.size() * 6;
+    }
     sample_buffer_.reserve(sample_value_count);
     val descriptors = val::array();
+    std::size_t descriptor_index = 0;
     for (std::size_t index = 0; index < parts.size(); ++index) {
       const auto& part = parts[index];
       const std::size_t sample_offset = sample_buffer_.size();
@@ -439,7 +446,42 @@ public:
       output.set("bundleTemplateId", static_cast<int>(part.bundle_template_id));
       output.set("laneIndex", part.lane_index);
       output.set("runId", static_cast<double>(part.cable_run_id));
-      descriptors.set(index, output);
+      descriptors.set(descriptor_index++, output);
+    }
+    constexpr int kSceneSupportArmPartKind = 5;
+    constexpr std::uint32_t kSupportArmColorRgba = 0x7A6249FFu;
+    for (const wire::core::Span& span : view.spans().items()) {
+      const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
+      if (visual == nullptr) continue;
+      const wire::core::Bundle* bundle = view.bundles().find(span.bundle_id);
+      for (std::size_t index = 0; index < visual->parts.size(); ++index) {
+        const wire::core::VisualPart& part = visual->parts[index];
+        if (part.kind != wire::core::VisualPartKind::kSupportArm) continue;
+        const std::size_t sample_offset = sample_buffer_.size();
+        for (const Vec3d& point : {part.a, part.b}) {
+          sample_buffer_.push_back(point.x);
+          sample_buffer_.push_back(point.y);
+          sample_buffer_.push_back(point.z);
+        }
+        val output = val::object();
+        output.set("partKey", "support-arm:" + std::to_string(span.id) + ":" +
+                                  std::to_string(index));
+        output.set("sourceVersion", std::to_string(visual->source_version));
+        output.set("sampleOffset", sample_offset);
+        output.set("sampleCount", 2);
+        output.set("kind", kSceneSupportArmPartKind);
+        output.set("supplementalKind", 0);
+        output.set("wireRadius", part.radius_m);
+        output.set("colorRgba", kSupportArmColorRgba);
+        output.set("sourceNodeId", "0");
+        output.set("sourceEdgeId", "0");
+        output.set("sourceSpanId", std::to_string(span.id));
+        output.set("sourceBundleId", std::to_string(span.bundle_id));
+        output.set("bundleTemplateId", bundle == nullptr ? 0 : static_cast<int>(bundle->bundle_template_id));
+        output.set("laneIndex", 0);
+        output.set("runId", 0.0);
+        descriptors.set(descriptor_index++, output);
+      }
     }
     val result = val::object();
     result.set("parts", descriptors);

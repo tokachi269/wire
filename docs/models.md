@@ -55,10 +55,13 @@ asset / descriptor / viewer は kind から template を一意に推測しない
 - 精度が要る高さだけoverrideで補正する。
 - v1のmesh beltは円形poleに限定し、配置高さの`pole_radius_at_height_m`へ径方向scaleする。
   非円形断面や幅方向の完全なテーパー追従は対応済みとしない。
-- belt adapterはBlender primitive設定の中心半径と管半径から基準内周半径を固定し、ring断面を内周半径1.0へ正規化する。
-  Coreはbelt中心のpole-local高さで半径を一度だけ評価し、`target pole radius / source inner radius`
+- belt modelはpole modelの下端半径に合わせてauthoringする。adapterはpole primitive生成設定の
+  `top diameter + total length / taper ratio`からその基準内周半径を固定し、ring断面を内周半径1.0へ正規化する。
+- beltのlocal anchorはモデル最下面とする。Coreが配置高さで求めたpole半径をbelt最下面へ合わせ、
+  belt幅内のテーパーはasset自身の断面をそのまま使う。モデル中央を半径評価位置として再解釈しない。
+  Coreはbelt anchorのpole-local高さで半径を一度だけ評価し、`target pole radius / source inner radius`
   に相当する同一scaleをring断面の2軸へ適用する。belt幅方向のscaleは常に1.0とする。
-- この近似ではbelt幅内のpole taper差を無視し、板厚の径方向成分も半径比に応じて伸縮する。
+- この近似ではbelt幅内のtaperをasset形状に委ね、板厚の径方向成分も半径比に応じて伸縮する。
   下端・上端半径、頂点単位の径方向変形、専用shader、高さ別belt assetは持たない。
 
 ## 電柱本体の長さ

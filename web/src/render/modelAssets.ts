@@ -57,14 +57,23 @@ export interface LoadedModelAsset {
 
 type SceneLoader = (url: string) => Promise<THREE.Group>;
 
+const polePrimitive = {
+  totalLengthM: 12.0,
+  visibleHeightM: 10.0,
+  topDiameterM: 0.190,
+  taperRatio: 75.0
+} as const;
+const poleRadiusAtDistanceFromTop = (distanceM: number): number =>
+  (polePrimitive.topDiameterM + distanceM / polePrimitive.taperRatio) * 0.5;
+
 const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
   belt: {
     modelKey: "pole_belt",
     url: beltUrl,
-    mountRule: "center",
-    // Blender torus primitive: major radius 0.20 m, minor radius 0.025 m.
-    radialReferenceM: 0.20 - 0.025,
-    adapterVersion: 4
+    mountRule: "bottom",
+    // The authored belt fits the pole model's lower-end radius.
+    radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.totalLengthM),
+    adapterVersion: 5
   },
   communicationClamp: {
     modelKey: "communication_clamp",
@@ -95,9 +104,9 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     url: poleBodyUrl,
     mountRule: "pole-ground",
     // tools/create_japan_distribution_pole_primitive.py POLE settings.
-    visibleLengthM: 10.0,
-    radialReferenceM: (0.190 + 10.0 / 75.0) * 0.5,
-    radialTopM: 0.190 * 0.5,
+    visibleLengthM: polePrimitive.visibleHeightM,
+    radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM),
+    radialTopM: poleRadiusAtDistanceFromTop(0.0),
     adapterVersion: 5
   }
 };
@@ -110,7 +119,9 @@ function mountAnchor(bounds: THREE.Box3, size: THREE.Vector3, rule: MountRule): 
   const center = bounds.getCenter(new THREE.Vector3());
   if (rule === "center") return center;
   if (rule === "bottom") return new THREE.Vector3(center.x, bounds.min.y, center.z);
-  return new THREE.Vector3(center.x, bounds.min.y + size.y * (2 / 12), center.z);
+  const buriedRatio =
+    (polePrimitive.totalLengthM - polePrimitive.visibleHeightM) / polePrimitive.totalLengthM;
+  return new THREE.Vector3(center.x, bounds.min.y + size.y * buriedRatio, center.z);
 }
 
 function descriptorVersion(
@@ -352,7 +363,7 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: hvRowAssemblyId,
-        version: 5,
+        version: 6,
         parts: [
           part(crossarm, 1, 3, crossarmTransform, endpointMountSocket),
           part(belt, 2, 2, beltTransform)
@@ -396,7 +407,7 @@ export function buildDefaultModelBootstrap(
       },
       {
         id: beltRowAssemblyId,
-        version: 3,
+        version: 4,
         parts: [part(belt, 1, 2, beltTransform)],
         wireSocket: null
       }

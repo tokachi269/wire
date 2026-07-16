@@ -103,7 +103,8 @@ describe("model asset cache", () => {
     expect(distributionPole.parts[0].localTransform.scaleX).toBe(1);
     expect(distributionPole.parts[0].localTransform.scaleY).toBe(1);
     expect(belt.radialReferenceM).not.toBeNull();
-    expect(belt.radialReferenceM).toBeCloseTo(0.20 - 0.025, 12);
+    expect(belt.radialReferenceM).toBeCloseTo((0.190 + 12 / 75) * 0.5, 12);
+    expect(belt.mountAnchor.y).toBeCloseTo(belt.bounds.min.y, 12);
     expect(beltPart.localTransform.scaleX).toBeCloseTo(1 / belt.radialReferenceM!, 12);
     expect(beltPart.localTransform.scaleY).toBeCloseTo(1 / belt.radialReferenceM!, 12);
     expect(beltPart.localTransform.scaleZ).toBe(1);

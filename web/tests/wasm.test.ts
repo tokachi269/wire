@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadWireModule, type WireStateHandle } from "../src/bridge/wasm";
-import type { ModelAssemblyBootstrapInput, ModelTransformInput } from "../src/model";
+import type { BundlePlacement, ModelAssemblyBootstrapInput, ModelTransformInput } from "../src/model";
 
 function visualParts(state: WireStateHandle) {
   const scene = state.visualScene();
@@ -72,6 +72,17 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       { bundleTemplateId: 104, rowAssemblyId: 0, endpointAssemblyId: 9904 }
     ]
   };
+}
+
+function defaultBundlePlacements(): BundlePlacement[] {
+  return [
+    { id: 1, bundleTemplateId: 101, count: 3, explicit: true, height: 9.2, offset: -0.2, spacing: 0.45 },
+    { id: 2, bundleTemplateId: 102, count: 1, explicit: true, height: 7.7, offset: 0, spacing: 0.2 },
+    { id: 3, bundleTemplateId: 102, count: 1, explicit: true, height: 7.35, offset: 0, spacing: 0.2 },
+    { id: 4, bundleTemplateId: 102, count: 1, explicit: true, height: 7.0, offset: 0, spacing: 0.2 },
+    { id: 5, bundleTemplateId: 104, count: 1, explicit: true, height: 5.5, offset: 0, spacing: 0.2 },
+    { id: 6, bundleTemplateId: 105, count: 1, explicit: true, height: 5.3, offset: 0, spacing: 0.2 }
+  ];
 }
 
 describe("wire wasm smoke", () => {
@@ -356,6 +367,54 @@ describe("wire wasm smoke", () => {
 
     expect(result.ok, result.error).toBe(true);
     expect(result.generatedSpanCount).toBeGreaterThanOrEqual(4);
+  });
+
+  it("keeps HV spans when completing a T with viewer default placements", () => {
+    const runState = createState();
+    const placements = defaultBundlePlacements();
+    const base = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
+      placements,
+      0,
+      1,
+      0,
+      0,
+      []
+    );
+    expect(base.ok, base.error).toBe(true);
+    expect(base.generatedSpanCount).toBe(16);
+
+    const poleB = runState.pole(1);
+    const bd = runState.generatePlacements(
+      new Float64Array([poleB.positionX, poleB.positionY, poleB.positionZ, 12, -8, 0]),
+      placements,
+      0,
+      1,
+      0,
+      0,
+      [{ pointIndex: 0, supportKind: 0, nodeId: poleB.id }]
+    );
+    expect(bd.ok, bd.error).toBe(true);
+    expect(bd.generatedSpanCount).toBe(8);
+    expect(visualParts(runState).filter((part) =>
+      part.info.kind === 0 && part.info.bundleTemplateId === 101
+    )).toHaveLength(9);
+
+    const eb = runState.generatePlacements(
+      new Float64Array([20, 0, 0, poleB.positionX, poleB.positionY, poleB.positionZ]),
+      placements,
+      0,
+      1,
+      0,
+      0,
+      [{ pointIndex: 1, supportKind: 0, nodeId: poleB.id }]
+    );
+    expect(eb.ok, eb.error).toBe(true);
+    expect(eb.generatedSpanCount).toBe(8);
+    expect(visualParts(runState).filter((part) =>
+      part.info.kind === 0 && part.info.bundleTemplateId === 101
+    )).toHaveLength(12);
+    runState.delete();
   });
 
   it("roundtrips visual parts through authoritative save and load", () => {

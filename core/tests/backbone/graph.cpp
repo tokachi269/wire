@@ -1211,14 +1211,14 @@ bool C779_backbone_incremental_same_template_multi_placement_uses_placement_key(
   };
   auto port_for_edge_bundle_at_node = [](const wire::core::CoreState& state, wire::core::ObjectId edge_bundle_id,
                                          wire::core::ObjectId node_id) {
-    wire::core::ObjectId found = wire::core::kInvalidObjectId;
+    std::vector<wire::core::ObjectId> found{};
     for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
       if (binding.edge_bundle_id != edge_bundle_id || binding.row_key.node_id != node_id) continue;
-      if (found != wire::core::kInvalidObjectId && found != binding.port_id) {
-        return wire::core::kInvalidObjectId;
+      if (std::find(found.begin(), found.end(), binding.port_id) == found.end()) {
+        found.push_back(binding.port_id);
       }
-      found = binding.port_id;
     }
+    std::sort(found.begin(), found.end());
     return found;
   };
 
@@ -1233,7 +1233,8 @@ bool C779_backbone_incremental_same_template_multi_placement_uses_placement_key(
   bd.path.polyline = {pole_b->world_transform.position, {12.0, -8.0, 0.0}};
   bd.path.node_specs = {pole_spec(0, b)};
   const auto bd_out = state.GenerateFromBackboneSpec(bd);
-  if (!bd_out.ok || bd_out.value.generated_pole_ids.size() != 1 || bd_out.value.generated_span_ids.empty()) {
+  if (!bd_out.ok || bd_out.value.generated_pole_ids.size() != 1 ||
+      bd_out.value.generated_span_ids.size() != 8) {
     return false;
   }
   const wire::core::ObjectId d = bd_out.value.generated_pole_ids.front();
@@ -1244,23 +1245,24 @@ bool C779_backbone_incremental_same_template_multi_placement_uses_placement_key(
   if (bd_edge_before == wire::core::kInvalidObjectId) return false;
 
   std::vector<std::pair<std::uint64_t, wire::core::ObjectId>> bd_bundle_ids{};
-  std::vector<std::pair<std::uint64_t, wire::core::ObjectId>> bd_ports{};
-  for (std::uint64_t key : {2ULL, 3ULL, 4ULL}) {
+  std::vector<std::pair<std::uint64_t, std::vector<wire::core::ObjectId>>> bd_ports{};
+  for (std::uint64_t key : {1ULL, 2ULL, 3ULL, 4ULL, 5ULL, 6ULL}) {
     const wire::core::ObjectId edge_bundle_id = edge_bundle_for_key(state, bd_edge_before, key);
     const wire::core::SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(edge_bundle_id);
     if (edge_bundle == nullptr) return false;
-    const wire::core::ObjectId port_id =
+    const std::vector<wire::core::ObjectId> port_ids =
         port_for_edge_bundle_at_node(state, edge_bundle_id, node_b_before->node_id);
-    if (port_id == wire::core::kInvalidObjectId) return false;
+    if (port_ids.size() != (key == 1ULL ? 3U : 1U)) return false;
     bd_bundle_ids.push_back({key, edge_bundle->bundle_id});
-    bd_ports.push_back({key, port_id});
+    bd_ports.push_back({key, port_ids});
   }
 
   wire::core::BackboneSpec eb = web_default_req(state);
   eb.path.polyline = {{20.0, 0.0, 0.0}, pole_b->world_transform.position};
   eb.path.node_specs = {pole_spec(1, b)};
   const auto eb_out = state.GenerateFromBackboneSpec(eb);
-  if (!eb_out.ok || eb_out.value.generated_pole_ids.size() != 1 || eb_out.value.generated_span_ids.empty()) {
+  if (!eb_out.ok || eb_out.value.generated_pole_ids.size() != 1 ||
+      eb_out.value.generated_span_ids.size() != 8) {
     return false;
   }
 

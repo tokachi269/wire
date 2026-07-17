@@ -502,8 +502,10 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(
       out.error = mount_world.error;
       return out;
     }
-    fixture_root.position = fixture_root.position +
-        (transform_point(mount_world.value, mount->local_position) - final_anchor);
+    const Vec3d row_reference_world = row_root.position + row_offset;
+    const Vec3d mount_delta_world =
+        transform_point(mount_world.value, mount->local_position) - row_reference_world;
+    fixture_root.position = final_anchor + mount_delta_world;
   }
   out.value.fixture_root = fixture_root;
   out.value.wire_endpoint = fixture_root.position;

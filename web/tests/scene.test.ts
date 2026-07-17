@@ -9,8 +9,8 @@ import {
 } from "../src/render/scene";
 import { modelAssetCache } from "../src/render/modelAssets";
 import { createViewerSnapshot } from "../src/store/viewer";
-import { loadWireModule } from "../src/bridge/wasm";
-import type { BundlePlacement } from "../src/model";
+import { WireBridge } from "../src/bridge/wire";
+import type { BundlePlacement, ModelAssemblyBootstrapInput, ModelTransformInput } from "../src/model";
 
 function rotateCoreXyz(value: THREE.Vector3, xDeg: number, yDeg: number, zDeg: number): THREE.Vector3 {
   const radians = [xDeg, yDeg, zDeg].map(THREE.MathUtils.degToRad);
@@ -195,11 +195,53 @@ function defaultHvPlacement(): BundlePlacement[] {
   }];
 }
 
+const identityTransform = (): ModelTransformInput => ({
+  positionX: 0, positionY: 0, positionZ: 0,
+  rotationX: 0, rotationY: 0, rotationZ: 0,
+  scaleX: 1, scaleY: 1, scaleZ: 1
+});
+
+function modelBootstrap(): ModelAssemblyBootstrapInput {
+  return {
+    assemblies: [{
+      id: 9901,
+      version: 1,
+      parts: [{ partId: 1, modelKey: "pole_body", descriptorName: "pole", descriptorVersion: 1,
+        fitMode: 1, localTransform: identityTransform(), sockets: [] }],
+      wireSocket: null
+    }, {
+      id: 9902,
+      version: 1,
+      parts: [{
+        partId: 1, modelKey: "hv_crossarm", descriptorName: "crossarm", descriptorVersion: 1,
+        fitMode: 0, localTransform: identityTransform(),
+        sockets: [{ name: "endpoint_mount", positionX: 0, positionY: 0, positionZ: 0.04,
+          directionX: 0, directionY: 0, directionZ: 1 }]
+      }],
+      wireSocket: null,
+      endpointMountSocket: { partId: 1, socketName: "endpoint_mount" }
+    }, {
+      id: 9903,
+      version: 1,
+      parts: [{
+        partId: 1, modelKey: "hv_insulator", descriptorName: "insulator", descriptorVersion: 1,
+        fitMode: 0, localTransform: identityTransform(),
+        sockets: [{ name: "wire", positionX: 0, positionY: 0, positionZ: -0.25,
+          directionX: 1, directionY: 0, directionZ: 0 }]
+      }],
+      wireSocket: { partId: 1, socketName: "wire" }
+    }],
+    poleAssignments: [{ poleTypeId: 1, assemblyId: 9901, radiusBaseM: 0.16, radiusTopM: 0.10 }],
+    bundleAssignments: [{ bundleTemplateId: 101, rowAssemblyId: 9902, endpointAssemblyId: 9903 }]
+  };
+}
+
 describe("scene geometry from wasm", () => {
-  it("creates three distinct HV meshes on the first sync from a fresh wasm snapshot", async () => {
-    const module = await loadWireModule();
-    const state = new module.WireState();
-    const generated = state.generatePlacements(
+  it("creates three distinct model-aware HV meshes on first sync from a bridge snapshot", async () => {
+    const bridge = await WireBridge.create();
+    const configured = bridge.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+    const generated = bridge.generate(
       new Float64Array([0, 0, 0, 12, 0, 0]),
       defaultHvPlacement(),
       0,
@@ -210,13 +252,10 @@ describe("scene geometry from wasm", () => {
     );
     expect(generated.ok, generated.error).toBe(true);
 
-    const visual = state.visualScene();
-    const sceneSamples = new Float64Array(visual.samples);
+    const bridgeScene = bridge.scene();
     const snapshot = createViewerSnapshot();
-    snapshot.parts = visual.parts.map((info) => ({
-      info,
-      samples: sceneSamples.subarray(info.sampleOffset, info.sampleOffset + info.sampleCount * 3)
-    }));
+    snapshot.parts = bridgeScene.parts;
+    snapshot.models = bridgeScene.models;
 
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
@@ -243,7 +282,11 @@ describe("scene geometry from wasm", () => {
     expect(new Set(centers.map((center) => center.y.toFixed(3)))).toEqual(
       new Set(["-0.650", "-0.200", "0.250"])
     );
-    state.delete();
+    const insulatorYs = snapshot.models
+      .filter((model) => model.modelKey === "hv_insulator")
+      .map((model) => model.positionY.toFixed(3));
+    expect(new Set(insulatorYs)).toEqual(new Set(["-0.650", "-0.200", "0.250"]));
+    bridge.dispose();
   });
 });
 

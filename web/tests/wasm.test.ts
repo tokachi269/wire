@@ -134,6 +134,17 @@ function assertStraightHvSpacing(parts: ReturnType<typeof visualParts>) {
   expect(Number((endPoint(sorted[2])[1] - endPoint(sorted[1])[1]).toFixed(3))).toBe(0.45);
 }
 
+function modelPosition(model: { positionX: number; positionY: number; positionZ: number }): [number, number, number] {
+  return [model.positionX, model.positionY, model.positionZ];
+}
+
+function assertThreeYSpacing(points: Array<[number, number, number]>, spacing: number) {
+  expect(points).toHaveLength(3);
+  const ys = points.map((point) => Number(point[1].toFixed(3))).sort((a, b) => a - b);
+  expect(Number((ys[1] - ys[0]).toFixed(3))).toBe(spacing);
+  expect(Number((ys[2] - ys[1]).toFixed(3))).toBe(spacing);
+}
+
 function assertHvSeparatedByEdge(state: WireStateHandle) {
   const groups = new Map<string, ReturnType<typeof visualParts>>();
   for (const part of hvEdgeBodies(state)) {
@@ -475,6 +486,32 @@ describe("wire wasm smoke", () => {
     expect(result.ok, result.error).toBe(true);
     expect(result.generatedSpanCount).toBe(3);
     assertStraightHvSpacing(hvEdgeBodies(runState));
+    runState.delete();
+  });
+
+  it("separates model-aware fresh straight HV endpoint fixtures and curve endpoints", () => {
+    const runState = createState();
+    const configured = runState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+    const result = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0]),
+      hvBundlePlacement(),
+      0,
+      1,
+      0,
+      0,
+      []
+    );
+    expect(result.ok, result.error).toBe(true);
+    const hvParts = hvEdgeBodies(runState);
+    assertStraightHvSpacing(hvParts);
+    const models = runState.visualScene().models;
+    const insulators = models.filter((model) => model.modelKey === "hv_insulator");
+    expect(insulators).toHaveLength(6);
+    assertThreeYSpacing(insulators.slice(0, 3).map(modelPosition), 0.45);
+    assertThreeYSpacing(insulators.slice(3, 6).map(modelPosition), 0.45);
+    assertThreeYSpacing(hvParts.map(startPoint), 0.45);
+    assertThreeYSpacing(hvParts.map(endPoint), 0.45);
     runState.delete();
   });
 

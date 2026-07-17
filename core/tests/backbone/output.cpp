@@ -1915,6 +1915,10 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
   wire::core::BackboneSpec baseline_request = line_req(baseline);
   baseline_request.bundles.clear();
   add_backbone_bundle(baseline_request, wire::core::BundleKind::kHighVoltage);
+  baseline_request.bundles.front().placement_explicit = true;
+  baseline_request.bundles.front().height_m = 9.2;
+  baseline_request.bundles.front().lateral_m = -0.2;
+  baseline_request.bundles.front().spacing_m = 0.45;
   const auto baseline_generated = baseline.GenerateFromBackboneSpec(baseline_request);
   if (!baseline_generated.ok) return false;
 
@@ -1922,13 +1926,24 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
   wire::core::BackboneSpec request = line_req(state);
   request.bundles.clear();
   add_backbone_bundle(request, wire::core::BundleKind::kHighVoltage);
+  request.bundles.front().placement_explicit = true;
+  request.bundles.front().height_m = 9.2;
+  request.bundles.front().lateral_m = -0.2;
+  request.bundles.front().spacing_m = 0.45;
 
   wire::core::ModelAssemblyTemplate pole_assembly{};
   pole_assembly.id = kPoleAssembly;
   pole_assembly.parts.push_back({1, "pole_body", 3, {}, wire::core::ModelFitMode::kPoleHeight, {}});
   wire::core::ModelAssemblyTemplate row_assembly{};
   row_assembly.id = kRowAssembly;
-  row_assembly.parts.push_back({1, "hv_crossarm", 5, {}, wire::core::ModelFitMode::kRigid, {}});
+  wire::core::ModelAssemblyPart row_part{};
+  row_part.part_id = 1;
+  row_part.model_key = "hv_crossarm";
+  row_part.descriptor_version = 5;
+  row_part.fit_mode = wire::core::ModelFitMode::kRigid;
+  row_part.sockets.push_back({"endpoint_mount", {0.0, 0.0, 0.04}, {0.0, 0.0, 1.0}});
+  row_assembly.parts.push_back(row_part);
+  row_assembly.endpoint_mount_socket = wire::core::AssemblySocketRef{1, "endpoint_mount"};
   constexpr double kMeshLowerEndHeightM = -2.0;
   constexpr double kPoleGroundRadiusM = 0.16;
   constexpr double kPoleTopRadiusM = 0.10;
@@ -1988,15 +2003,26 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
     if (layout == nullptr || curve == nullptr || curve->detail.sample_points.size() < 2) return false;
     const auto endpoint_matches_socket = [&](const wire::core::LayoutEndpoint& endpoint) {
       const wire::core::Port* port = state.view().ports().find(endpoint.port_id);
-      const wire::core::SavedBackbonePortBinding* binding =
-          port == nullptr ? nullptr : state.view().backbone_port_binding_for_port(port->id);
-      const wire::core::Pole* pole = port == nullptr ? nullptr : state.view().poles().find(port->owner_pole_id);
-      if (port == nullptr || binding == nullptr || pole == nullptr) return false;
-      const wire::core::PoleFrame frame =
-          wire::core::BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
-      const wire::core::Vec3d expected = port->world_position + wire::core::ScaleVec(frame.up, -0.25);
-      return almost_equal(endpoint.support_world, expected, 1e-9) &&
-             almost_equal(endpoint.endpoint_world, expected, 1e-9);
+      if (port == nullptr) return false;
+      const std::string fixture_prefix = "port:" + std::to_string(port->id) + ":";
+      const auto fixture = std::find_if(
+          state.view().visual_model_instances().instances.begin(),
+          state.view().visual_model_instances().instances.end(),
+          [&](const wire::core::VisualModelInstance& instance) {
+            return instance.model_key == "hv_insulator" &&
+                   instance.stable_key.rfind(fixture_prefix, 0) == 0;
+          });
+      if (fixture == state.view().visual_model_instances().instances.end()) return false;
+      const wire::core::Vec3d local_socket = endpoint_part.sockets.front().local_position;
+      const wire::core::Vec3d visible_socket =
+          fixture->world_transform.position +
+          wire::core::RotateEulerXYZDeg(
+              {local_socket.x * fixture->world_transform.scale.x,
+               local_socket.y * fixture->world_transform.scale.y,
+               local_socket.z * fixture->world_transform.scale.z},
+              fixture->world_transform.rotation_euler_deg);
+      return almost_equal(endpoint.support_world, visible_socket, 1e-9) &&
+             almost_equal(endpoint.endpoint_world, visible_socket, 1e-9);
     };
     if (!endpoint_matches_socket(layout->start) || !endpoint_matches_socket(layout->end) ||
         !almost_equal(curve->detail.sample_points.front(), layout->start.endpoint_world, 1e-9) ||
@@ -2005,6 +2031,8 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
     }
   }
   if (unique_ports.size() != 6) return false;
+  std::unordered_map<wire::core::ObjectId, std::vector<wire::core::Vec3d>> endpoint_roots_by_pole{};
+  std::unordered_map<wire::core::ObjectId, std::vector<wire::core::Vec3d>> sockets_by_pole{};
 
   std::unordered_map<std::string, std::size_t> model_counts{};
   std::vector<std::string> stable_keys{};
@@ -2050,11 +2078,43 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
         return false;
       }
     }
+    if (instance.model_key == "hv_insulator") {
+      const std::size_t port_id_begin = instance.stable_key.find(':') + 1;
+      const std::size_t port_id_end = instance.stable_key.find(':', port_id_begin);
+      if (port_id_begin == 0 || port_id_end == std::string::npos) return false;
+      const wire::core::ObjectId port_id = static_cast<wire::core::ObjectId>(
+          std::stoull(instance.stable_key.substr(port_id_begin, port_id_end - port_id_begin)));
+      const wire::core::Port* port = state.view().ports().find(port_id);
+      if (port == nullptr) return false;
+      endpoint_roots_by_pole[port->owner_pole_id].push_back(instance.world_transform.position);
+      const wire::core::Vec3d local_socket = endpoint_part.sockets.front().local_position;
+      sockets_by_pole[port->owner_pole_id].push_back(
+          instance.world_transform.position +
+          wire::core::RotateEulerXYZDeg(
+              {local_socket.x * instance.world_transform.scale.x,
+               local_socket.y * instance.world_transform.scale.y,
+               local_socket.z * instance.world_transform.scale.z},
+              instance.world_transform.rotation_euler_deg));
+    }
   }
   std::sort(stable_keys.begin(), stable_keys.end());
   if (model_counts["pole_body"] != 2 || model_counts["hv_crossarm"] != 2 ||
       model_counts["pole_belt"] != 2 || model_counts["hv_insulator"] != unique_ports.size()) {
     return false;
+  }
+  const auto separated_three = [](const std::vector<wire::core::Vec3d>& points) {
+    if (points.size() != 3) return false;
+    std::vector<double> ys{};
+    for (const wire::core::Vec3d& point : points) ys.push_back(point.y);
+    std::sort(ys.begin(), ys.end());
+    return almost_equal(ys[1] - ys[0], 0.45, 1e-9) &&
+           almost_equal(ys[2] - ys[1], 0.45, 1e-9);
+  };
+  for (const auto& [_, points] : endpoint_roots_by_pole) {
+    if (!separated_three(points)) return false;
+  }
+  for (const auto& [_, points] : sockets_by_pole) {
+    if (!separated_three(points)) return false;
   }
 
   wire::core::CoreState lower_end_state;
@@ -2130,10 +2190,7 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
     for (wire::core::ObjectId port_id : moved_port_ids) {
       if (instance.stable_key.rfind("port:" + std::to_string(port_id) + ":", 0) != 0) continue;
       const wire::core::Port* port = state.view().ports().find(port_id);
-      if (port == nullptr || !almost_equal(instance.world_transform.position,
-                                           port->world_position, 1e-9)) {
-        return false;
-      }
+      if (port == nullptr) return false;
       ++moved_endpoint_instances;
       moved_endpoint = true;
       break;
@@ -2156,11 +2213,25 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
       const wire::core::SavedBackbonePortBinding* binding =
           port == nullptr ? nullptr : state.view().backbone_port_binding_for_port(port->id);
       if (port == nullptr || binding == nullptr) return false;
-      const wire::core::PoleFrame frame =
-          wire::core::BuildPoleFrame(moved_pole_after->world_transform, binding->layout_yaw_deg);
-      const wire::core::Vec3d expected = port->world_position + wire::core::ScaleVec(frame.up, -0.25);
-      if (!almost_equal(endpoint->support_world, expected, 1e-9) ||
-          !almost_equal(endpoint->endpoint_world, expected, 1e-9)) {
+      const std::string fixture_prefix = "port:" + std::to_string(port->id) + ":";
+      const auto fixture = std::find_if(
+          state.view().visual_model_instances().instances.begin(),
+          state.view().visual_model_instances().instances.end(),
+          [&](const wire::core::VisualModelInstance& instance) {
+            return instance.model_key == "hv_insulator" &&
+                   instance.stable_key.rfind(fixture_prefix, 0) == 0;
+          });
+      if (fixture == state.view().visual_model_instances().instances.end()) return false;
+      const wire::core::Vec3d local_socket = endpoint_part.sockets.front().local_position;
+      const wire::core::Vec3d visible_socket =
+          fixture->world_transform.position +
+          wire::core::RotateEulerXYZDeg(
+              {local_socket.x * fixture->world_transform.scale.x,
+               local_socket.y * fixture->world_transform.scale.y,
+               local_socket.z * fixture->world_transform.scale.z},
+              fixture->world_transform.rotation_euler_deg);
+      if (!almost_equal(endpoint->support_world, visible_socket, 1e-9) ||
+          !almost_equal(endpoint->endpoint_world, visible_socket, 1e-9)) {
         return false;
       }
     }
@@ -2211,6 +2282,7 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
   if (branch_spans.empty()) return false;
 
   std::unordered_map<wire::core::ObjectId, double> port_down_offsets{};
+  std::unordered_map<wire::core::ObjectId, std::vector<wire::core::Vec3d>> visible_sockets_by_pole{};
   bool saw_lowered_row = false;
   bool saw_lowered_socket = false;
   for (wire::core::ObjectId span_id : branch_spans) {
@@ -2248,6 +2320,7 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
                local_socket.y * fixture->world_transform.scale.y,
                local_socket.z * fixture->world_transform.scale.z},
               fixture->world_transform.rotation_euler_deg);
+      visible_sockets_by_pole[port->owner_pole_id].push_back(visible_socket);
       const auto [offset_it, inserted] =
           port_down_offsets.emplace(endpoint.port_id, endpoint.branch_down_offset_m);
       if (!inserted && !almost_equal(offset_it->second, endpoint.branch_down_offset_m, 1e-9)) {
@@ -2286,7 +2359,18 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
     if (!model_keys.insert(instance.stable_key).second) return false;
     if (instance.stable_key.rfind("port:", 0) == 0) ++endpoint_instance_count;
   }
-  return saw_lowered_socket && saw_lowered_row && endpoint_instance_count == bound_ports.size();
+  bool saw_three_distinct_sockets = false;
+  for (const auto& [_, sockets] : visible_sockets_by_pole) {
+    if (sockets.size() < 3) continue;
+    for (std::size_t a = 0; a < sockets.size(); ++a) {
+      for (std::size_t b = a + 1; b < sockets.size(); ++b) {
+        if (wire::core::Length(sockets[a] - sockets[b]) <= 0.1) return false;
+      }
+    }
+    saw_three_distinct_sockets = true;
+  }
+  return saw_lowered_socket && saw_lowered_row && saw_three_distinct_sockets &&
+         endpoint_instance_count == bound_ports.size();
 }
 
 bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {

@@ -1622,24 +1622,6 @@ EditResult<bool> pipeline::prepare() {
         allowed = false;
         break;
       }
-      if (n.has_source_edge && ownerless_support(n.support)) {
-        EditResult<spec_view> v = view_for(state_, spec_.bundles[bundle_index]);
-        if (!v.ok) {
-          out.error = v.error;
-          return out;
-        }
-        for (int lane = 0; lane < v.value.count; ++lane) {
-          const SourceEdgeProjectionRef ref = source_projection_for(state_, n, spec_.bundles[bundle_index],
-                                                                    static_cast<std::size_t>(lane));
-          if (source_span_binding_for(state_, ref) == nullptr) {
-            allowed = false;
-            break;
-          }
-        }
-        if (!allowed) {
-          break;
-        }
-      }
     }
     if (allowed) {
       active_bundle_indices_.push_back(bundle_index);
@@ -2955,8 +2937,14 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
 EditResult<layout> pipeline::make(const rules& made) const {
   EditResult<layout> out{};
   const EditState& edit = state_.view().edit_state();
+  EditResult<FixturePlacementPlanByPort> fixture_plan =
+      fixture_placement_plan_from_rules(state_, made.data.spans);
+  if (!fixture_plan.ok) {
+    out.error = fixture_plan.error;
+    return out;
+  }
   const auto endpoint_resolver = [&](const EndpointLayoutRule& endpoint) {
-    return resolve_span_layout_endpoint(state_, edit, endpoint);
+    return resolve_span_layout_endpoint(state_, edit, endpoint, &fixture_plan.value);
   };
   for (const SpanLayoutRule& rule : made.data.spans) {
     const Span* span = edit.spans.find(rule.span_id);
@@ -2971,7 +2959,8 @@ EditResult<layout> pipeline::make(const rules& made) const {
     }
     out.value.entries.push_back(std::move(entry.value));
   }
-  EditResult<VisualModelInstanceCache> model_instances = materialize_model_assemblies(state_, out.value.entries);
+  EditResult<VisualModelInstanceCache> model_instances =
+      materialize_model_assemblies(state_, &fixture_plan.value);
   if (!model_instances.ok) {
     out.error = model_instances.error;
     return out;

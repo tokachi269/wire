@@ -11,7 +11,8 @@
 namespace wire::core::generation::backbone {
 
 EditResult<Vec3d> resolve_span_layout_endpoint(const CoreState& state, const EditState& edit_state,
-                                                const EndpointLayoutRule& rule) {
+                                                const EndpointLayoutRule& rule,
+                                                const FixturePlacementPlanByPort* fixture_plan) {
   EditResult<Vec3d> out{};
   const Port* port = edit_state.ports.find(rule.port_id);
   if (port == nullptr) {
@@ -28,19 +29,15 @@ EditResult<Vec3d> resolve_span_layout_endpoint(const CoreState& state, const Edi
     out.ok = true;
     return out;
   }
-  double down_offset_m = 0.0;
-  if (rule.default_lower_required || rule.semantic.lower_required) {
-    if (rule.branch_down_offset_m > 0.0) {
-      down_offset_m = rule.branch_down_offset_m;
-    } else if (rule.endpoint_offset_z_m < 0.0) {
-      down_offset_m = -rule.endpoint_offset_z_m;
-    } else if (rule.automatic_branch_down_offset_m > 0.0) {
-      down_offset_m = rule.automatic_branch_down_offset_m;
-    } else {
-      down_offset_m = std::max(0.0, -rule.automatic_endpoint_offset_z_m);
+  if (fixture_plan != nullptr) {
+    const auto plan_it = fixture_plan->find(rule.port_id);
+    if (plan_it != fixture_plan->end()) {
+      out.value = plan_it->second.wire_endpoint;
+      out.ok = true;
+      return out;
     }
   }
-  return resolve_model_assembly_wire_socket(state, *port, down_offset_m);
+  return resolve_model_assembly_wire_socket(state, *port, endpoint_down_offset(rule));
 }
 
 EditResult<SpanLayoutEntry> derive_span_layout(const SpanLayoutRule& rule,

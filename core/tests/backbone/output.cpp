@@ -2021,7 +2021,7 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
           !almost_equal(state.view().pole_radius_at_height_m(*pole, 0.0), kPoleGroundRadiusM, 1e-9) ||
           !almost_equal(state.view().pole_radius_at_height_m(*pole, pole->height_m), kPoleTopRadiusM, 1e-9) ||
           !almost_equal(state.view().pole_radius_at_height_m(*pole, kMeshLowerEndHeightM),
-                        mesh_lower_radius_m, 1e-9)) {
+                        kPoleGroundRadiusM, 1e-9)) {
         return false;
       }
     }
@@ -2071,7 +2071,7 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
   add_backbone_bundle(lower_request, wire::core::BundleKind::kHighVoltage);
   for (wire::core::BackboneBundleSpec& bundle : lower_request.bundles) {
     bundle.placement_explicit = true;
-    bundle.height_m = kMeshLowerEndHeightM;
+    bundle.height_m = 0.0;
     bundle.lateral_m = 0.0;
     bundle.spacing_m = 0.75;
   }
@@ -2082,8 +2082,9 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
        lower_end_state.view().visual_model_instances().instances) {
     if (instance.model_key != "pole_belt") continue;
     ++lower_belts;
-    if (!almost_equal(instance.world_transform.scale.x, 1.0, 1e-9) ||
-        !almost_equal(instance.world_transform.scale.y, 1.0, 1e-9) ||
+    const double expected_ground_scale = kPoleGroundRadiusM / mesh_lower_radius_m;
+    if (!almost_equal(instance.world_transform.scale.x, expected_ground_scale, 1e-9) ||
+        !almost_equal(instance.world_transform.scale.y, expected_ground_scale, 1e-9) ||
         !almost_equal(instance.world_transform.scale.z, 1.0, 1e-9)) {
       return false;
     }

@@ -2795,11 +2795,7 @@ double CoreState::pole_radius_at_height_m(const Pole& pole, double local_z_m) co
     top_radius = std::max(0.06, base_radius * 0.55);
   }
   const double h = std::max(0.1, pole.height_m);
-  // The pole mesh can extend below the pole-local ground origin.  Belt assets
-  // are authored against that mesh lower-end radius, so callers must be able
-  // to evaluate the same linear taper below h=0 instead of being clamped to the
-  // ground radius.  Heights above the visible pole remain clamped to the top.
-  const double t = std::min(local_z_m / h, 1.0);
+  const double t = std::clamp(local_z_m / h, 0.0, 1.0);
   return base_radius + (top_radius - base_radius) * t;
 }
 

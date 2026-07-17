@@ -71,7 +71,8 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     modelKey: "pole_belt",
     url: beltUrl,
     mountRule: "center",
-    // The authored belt fits the pole model's lower-end radius.
+    // The authored lower-end radius is only the radial reference; the belt is
+    // anchored at its own center and scaled to the actual placement height.
     radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.totalLengthM),
     adapterVersion: 5
   },

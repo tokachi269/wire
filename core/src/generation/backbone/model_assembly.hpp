@@ -12,7 +12,15 @@ struct ResolvedEndpointPlacement {
   Vec3d wire_endpoint{};
 };
 
-using EndpointDownOffsetByPort = std::unordered_map<ObjectId, double>;
+struct FixturePlacementPlan {
+  double down_offset_m = 0.0;
+  Transformd endpoint_fixture_root{};
+  Vec3d wire_endpoint{};
+};
+
+using FixturePlacementPlanByPort = std::unordered_map<ObjectId, FixturePlacementPlan>;
+
+[[nodiscard]] double endpoint_down_offset(const EndpointLayoutRule& endpoint);
 
 // Resolves the endpoint-fixture root and its exported wire point from one
 // placement chain. A row fixture may contribute position through its explicit
@@ -26,18 +34,18 @@ using EndpointDownOffsetByPort = std::unordered_map<ObjectId, double>;
                                                                    const Port& port,
                                                                    double down_offset_m = 0.0);
 
-[[nodiscard]] EditResult<EndpointDownOffsetByPort> endpoint_down_offsets_from_layouts(
-    const std::vector<SpanLayoutEntry>& layouts);
+[[nodiscard]] EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_rules(
+    const CoreState& state, const std::vector<SpanLayoutRule>& rules);
 
-[[nodiscard]] EditResult<EndpointDownOffsetByPort> endpoint_down_offsets_from_cache(
+[[nodiscard]] EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache(
     const CoreState& state);
 
 // Produces generic model instances from Pole, saved row, and Port ownership.
 // The result is derived runtime output and never creates topology objects.
 [[nodiscard]] EditResult<VisualModelInstanceCache> materialize_model_assemblies(
-    const CoreState& state, const EndpointDownOffsetByPort* down_offsets = nullptr);
+    const CoreState& state, const FixturePlacementPlanByPort* fixture_plan = nullptr);
 
 [[nodiscard]] EditResult<VisualModelInstanceCache> materialize_model_assemblies(
-    const CoreState& state, const std::vector<SpanLayoutEntry>& layouts);
+    const CoreState& state, const std::vector<SpanLayoutRule>& rules);
 
 } // namespace wire::core::generation::backbone

@@ -504,6 +504,14 @@ bool C768_legacy_state_preserves_implicit_helix_support() {
     line_begin = line_end + 1;
   }
   if (removed == 0) return false;
+  static constexpr std::array<std::string_view, 4> kLegacySupportArmFields = {
+      "authoritative.visual_settings.enable_support_structures=1\n",
+      "authoritative.visual_settings.support_center_threshold_m=0x1p+0\n",
+      "authoritative.visual_settings.support_arm_extra_m=0x1p-1\n",
+      "authoritative.visual_settings.support_arm_radius_m=0x1.47ae147ae147bp-7\n"};
+  for (std::string_view field : kLegacySupportArmFields) {
+    legacy.append(field);
+  }
 
   wire::core::CoreState loaded;
   if (!loaded.DeserializeAuthoritative(legacy).ok) return false;
@@ -520,8 +528,13 @@ bool C768_legacy_state_preserves_implicit_helix_support() {
   std::string migrated{};
   if (!loaded.SerializeAuthoritative(&migrated).ok) return false;
   return std::count(migrated.begin(), migrated.end(), '\n') ==
-             std::count(legacy.begin(), legacy.end(), '\n') + static_cast<std::ptrdiff_t>(removed) &&
+             std::count(legacy.begin(), legacy.end(), '\n') + static_cast<std::ptrdiff_t>(removed) -
+                 static_cast<std::ptrdiff_t>(kLegacySupportArmFields.size()) &&
          migrated.find(kSupportField) != std::string::npos &&
+         migrated.find("enable_support_structures") == std::string::npos &&
+         migrated.find("support_center_threshold_m") == std::string::npos &&
+         migrated.find("support_arm_extra_m") == std::string::npos &&
+         migrated.find("support_arm_radius_m") == std::string::npos &&
          std::all_of(kBundleFields.begin(), kBundleFields.end(), [&](std::string_view field) {
            return migrated.find(kBundlePrefix) != std::string::npos &&
                   migrated.find(field) != std::string::npos;

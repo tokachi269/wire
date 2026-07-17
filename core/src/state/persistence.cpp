@@ -998,6 +998,25 @@ static_assert(sizeof(GeometrySettings) == 24, "field added: update archive visit
 
 template <typename Archive, typename Value>
 bool archive_visual_settings(Archive& archive, const std::string& prefix, Value& value) {
+  if constexpr (Archive::loading) {
+    bool legacy_enable_support_structures = false;
+    double legacy_support_center_threshold_m = 0.0;
+    double legacy_support_arm_extra_m = 0.0;
+    double legacy_support_arm_radius_m = 0.0;
+    if (archive.compatible_field(prefix, "enable_support_structures",
+                                 legacy_enable_support_structures, false) &&
+        archive.compatible_field(prefix, "support_center_threshold_m",
+                                 legacy_support_center_threshold_m, 0.0) &&
+        archive.compatible_field(prefix, "support_arm_extra_m", legacy_support_arm_extra_m, 0.0) &&
+        archive.compatible_field(prefix, "support_arm_radius_m", legacy_support_arm_radius_m, 0.0)) {
+      static_cast<void>(legacy_enable_support_structures);
+      static_cast<void>(legacy_support_center_threshold_m);
+      static_cast<void>(legacy_support_arm_extra_m);
+      static_cast<void>(legacy_support_arm_radius_m);
+    } else {
+      return false;
+    }
+  }
   return archive.field(prefix, "enable_insulators", value.enable_insulators) &&
          archive.field(prefix, "insulator_radius_m", value.insulator_radius_m) &&
          archive.field(prefix, "insulator_length_m", value.insulator_length_m);

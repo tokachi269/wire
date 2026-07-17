@@ -429,10 +429,8 @@ EditResult<Vec3d> resolve_model_assembly_wire_socket(const CoreState& state, con
   return out;
 }
 
-namespace {
-
-double layout_endpoint_down_offset(const LayoutEndpoint& endpoint) {
-  if (!endpoint.default_lower_required && !endpoint.lower_required) {
+double endpoint_down_offset(const EndpointLayoutRule& endpoint) {
+  if (!endpoint.default_lower_required && !endpoint.semantic.lower_required) {
     return 0.0;
   }
   if (endpoint.branch_down_offset_m > 0.0) {
@@ -447,56 +445,82 @@ double layout_endpoint_down_offset(const LayoutEndpoint& endpoint) {
   return std::max(0.0, -endpoint.automatic_endpoint_offset_z_m);
 }
 
-void append_endpoint_down_offset(EditResult<EndpointDownOffsetByPort>* out,
-                                 const LayoutEndpoint& endpoint) {
+namespace {
+
+void append_fixture_placement_plan(EditResult<FixturePlacementPlanByPort>* out,
+                                   const CoreState& state,
+                                   const EndpointLayoutRule& endpoint) {
   if (out == nullptr || !out->ok || endpoint.port_id == kInvalidObjectId) {
     return;
   }
-  const double down_offset = layout_endpoint_down_offset(endpoint);
-  const auto [it, inserted] = out->value.emplace(endpoint.port_id, down_offset);
-  if (!inserted && std::abs(it->second - down_offset) > 1e-9) {
+  const Port* port = state.view().ports().find(endpoint.port_id);
+  if (port == nullptr) {
     out->ok = false;
-    out->error = "model assembly unsupported: shared port resolves multiple lowered fixture heights";
+    out->error = "model assembly unsupported: endpoint fixture plan port is missing";
+    return;
+  }
+  const double down_offset = endpoint_down_offset(endpoint);
+  EditResult<ResolvedEndpointPlacement> placement = resolve_endpoint_placement(state, *port, down_offset);
+  if (!placement.ok) {
+    out->ok = false;
+    out->error = placement.error;
+    return;
+  }
+  FixturePlacementPlan plan{};
+  plan.down_offset_m = down_offset;
+  plan.endpoint_fixture_root = placement.value.fixture_root;
+  plan.wire_endpoint = placement.value.wire_endpoint;
+  const auto [it, inserted] = out->value.emplace(endpoint.port_id, plan);
+  if (!inserted && (std::abs(it->second.down_offset_m - plan.down_offset_m) > 1e-9 ||
+                    Length(it->second.endpoint_fixture_root.position -
+                           plan.endpoint_fixture_root.position) > 1e-9 ||
+                    Length(it->second.wire_endpoint - plan.wire_endpoint) > 1e-9)) {
+    out->ok = false;
+    out->error = "model assembly unsupported: shared port resolves multiple fixture placements";
   }
 }
 
 } // namespace
 
-EditResult<EndpointDownOffsetByPort> endpoint_down_offsets_from_layouts(
-    const std::vector<SpanLayoutEntry>& layouts) {
-  EditResult<EndpointDownOffsetByPort> out{};
+EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_rules(
+    const CoreState& state, const std::vector<SpanLayoutRule>& rules) {
+  EditResult<FixturePlacementPlanByPort> out{};
   out.ok = true;
-  for (const SpanLayoutEntry& layout : layouts) {
-    append_endpoint_down_offset(&out, layout.start);
-    append_endpoint_down_offset(&out, layout.end);
+  for (const SpanLayoutRule& rule : rules) {
+    append_fixture_placement_plan(&out, state, rule.start);
+    append_fixture_placement_plan(&out, state, rule.end);
   }
   return out;
 }
 
-EditResult<EndpointDownOffsetByPort> endpoint_down_offsets_from_cache(const CoreState& state) {
-  EditResult<EndpointDownOffsetByPort> out{};
+EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache(const CoreState& state) {
+  EditResult<FixturePlacementPlanByPort> out{};
   out.ok = true;
   state.view().cache_state().span_layout_cache.for_each_layout_record(
-      [&](ObjectId, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {
-        append_endpoint_down_offset(&out, layout.start);
-        append_endpoint_down_offset(&out, layout.end);
+      [&](ObjectId, const SpanLayoutCacheRecord& record, const SpanLayoutEntry&) {
+        const SpanLayoutRule* rule = record.span_layout_rule();
+        if (rule == nullptr) {
+          return;
+        }
+        append_fixture_placement_plan(&out, state, rule->start);
+        append_fixture_placement_plan(&out, state, rule->end);
       });
   return out;
 }
 
 EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreState& state,
-                                                                  const EndpointDownOffsetByPort* down_offsets) {
+                                                                  const FixturePlacementPlanByPort* fixture_plan) {
   EditResult<VisualModelInstanceCache> out{};
-  EndpointDownOffsetByPort cached_down_offsets{};
-  const EndpointDownOffsetByPort* effective_down_offsets = down_offsets;
-  if (effective_down_offsets == nullptr) {
-    EditResult<EndpointDownOffsetByPort> from_cache = endpoint_down_offsets_from_cache(state);
+  FixturePlacementPlanByPort cached_fixture_plan{};
+  const FixturePlacementPlanByPort* effective_fixture_plan = fixture_plan;
+  if (effective_fixture_plan == nullptr) {
+    EditResult<FixturePlacementPlanByPort> from_cache = fixture_placement_plan_from_cache(state);
     if (!from_cache.ok) {
       out.error = from_cache.error;
       return out;
     }
-    cached_down_offsets = std::move(from_cache.value);
-    effective_down_offsets = &cached_down_offsets;
+    cached_fixture_plan = std::move(from_cache.value);
+    effective_fixture_plan = &cached_fixture_plan;
   }
   const CoreView view = state.view();
 
@@ -587,10 +611,13 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
     bool has_row_down_offset = false;
     for (const RowFixtureContext::Member& member : row.members) {
       height_m += WorldPointToLocal(frame, view.ports().find(member.port_id)->world_position).z;
-      const double member_down_offset_m =
-          effective_down_offsets == nullptr || !effective_down_offsets->contains(member.port_id)
-              ? 0.0
-              : effective_down_offsets->at(member.port_id);
+      double member_down_offset_m = 0.0;
+      if (effective_fixture_plan != nullptr) {
+        const auto plan_it = effective_fixture_plan->find(member.port_id);
+        if (plan_it != effective_fixture_plan->end()) {
+          member_down_offset_m = plan_it->second.down_offset_m;
+        }
+      }
       if (has_row_down_offset && std::abs(row_down_offset_m - member_down_offset_m) > 1e-9) {
         out.error = "model assembly unsupported: row fixture resolves conflicting lowered endpoint offsets";
         return out;
@@ -636,19 +663,27 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
     const PoleFrame frame = BuildPoleFrame(context.value.pole->world_transform,
                                            context.value.layout_yaw_deg);
     const double height_m = WorldPointToLocal(frame, port->world_position).z;
-    const EditResult<ResolvedEndpointPlacement> placement =
-        resolve_endpoint_placement(
-            state, *port,
-            effective_down_offsets == nullptr || !effective_down_offsets->contains(port->id)
-                ? 0.0
-                : effective_down_offsets->at(port->id));
-    if (!placement.ok) {
-      out.error = placement.error;
-      return out;
+    ResolvedEndpointPlacement placement{};
+    bool has_plan = false;
+    if (effective_fixture_plan != nullptr) {
+      const auto plan_it = effective_fixture_plan->find(port->id);
+      if (plan_it != effective_fixture_plan->end()) {
+        placement.fixture_root = plan_it->second.endpoint_fixture_root;
+        placement.wire_endpoint = plan_it->second.wire_endpoint;
+        has_plan = true;
+      }
+    }
+    if (!has_plan) {
+      const EditResult<ResolvedEndpointPlacement> resolved = resolve_endpoint_placement(state, *port, 0.0);
+      if (!resolved.ok) {
+        out.error = resolved.error;
+        return out;
+      }
+      placement = resolved.value;
     }
     std::string error{};
     append_instances(state, *context.value.pole, height_m, *context.value.assembly,
-                     placement.value.fixture_root, {},
+                     placement.fixture_root, {},
                      "port:" + std::to_string(port->id), &out.value, &error);
     if (!error.empty()) {
       out.error = std::move(error);
@@ -665,14 +700,14 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
 }
 
 EditResult<VisualModelInstanceCache> materialize_model_assemblies(
-    const CoreState& state, const std::vector<SpanLayoutEntry>& layouts) {
-  EditResult<EndpointDownOffsetByPort> down_offsets = endpoint_down_offsets_from_layouts(layouts);
-  if (!down_offsets.ok) {
+    const CoreState& state, const std::vector<SpanLayoutRule>& rules) {
+  EditResult<FixturePlacementPlanByPort> fixture_plan = fixture_placement_plan_from_rules(state, rules);
+  if (!fixture_plan.ok) {
     EditResult<VisualModelInstanceCache> out{};
-    out.error = down_offsets.error;
+    out.error = fixture_plan.error;
     return out;
   }
-  return materialize_model_assemblies(state, &down_offsets.value);
+  return materialize_model_assemblies(state, &fixture_plan.value);
 }
 
 } // namespace wire::core::generation::backbone

@@ -67,8 +67,15 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
   hydrate_grouped_endpoint(&rule.start, current_layout.has_layout() ? &current_layout.entry->start : nullptr);
   hydrate_grouped_endpoint(&rule.end, current_layout.has_layout() ? &current_layout.entry->end : nullptr);
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+      generation::backbone::fixture_placement_plan_from_rules(*this, {rule});
+  if (!fixture_plan.ok) {
+    out.error = fixture_plan.error;
+    return out;
+  }
   const auto endpoint_resolver = [&](const EndpointLayoutRule& endpoint) {
-    return generation::backbone::resolve_span_layout_endpoint(*this, authoritative_.edit_state, endpoint);
+    return generation::backbone::resolve_span_layout_endpoint(
+        *this, authoritative_.edit_state, endpoint, &fixture_plan.value);
   };
   EditResult<SpanLayoutEntry> layout = generation::backbone::derive_span_layout(
       rule, endpoint_resolver, (runtime == nullptr) ? 0 : runtime->data_version);

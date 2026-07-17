@@ -85,6 +85,27 @@ function defaultBundlePlacements(): BundlePlacement[] {
   ];
 }
 
+function uniqueRounded(values: number[]): number[] {
+  return [...new Set(values.map((value) => Math.round(value * 1000) / 1000))];
+}
+
+function hvEdgeBodies(state: WireStateHandle) {
+  return visualParts(state).filter((part) =>
+    part.info.kind === 0 && part.info.bundleTemplateId === 101
+  );
+}
+
+function assertSeparatedStarts(parts: ReturnType<typeof visualParts>, minDistance: number) {
+  for (let index = 0; index < parts.length; index += 1) {
+    for (let other = index + 1; other < parts.length; other += 1) {
+      const dx = parts[index].samples[0] - parts[other].samples[0];
+      const dy = parts[index].samples[1] - parts[other].samples[1];
+      const dz = parts[index].samples[2] - parts[other].samples[2];
+      expect(Math.hypot(dx, dy, dz)).toBeGreaterThan(minDistance);
+    }
+  }
+}
+
 describe("wire wasm smoke", () => {
   let state: WireStateHandle;
   let createState: () => WireStateHandle;
@@ -383,6 +404,7 @@ describe("wire wasm smoke", () => {
     );
     expect(base.ok, base.error).toBe(true);
     expect(base.generatedSpanCount).toBe(16);
+    const baseHvSpanIds = new Set(hvEdgeBodies(runState).map((part) => part.info.sourceSpanId));
 
     const poleB = runState.pole(1);
     const bd = runState.generatePlacements(
@@ -396,9 +418,13 @@ describe("wire wasm smoke", () => {
     );
     expect(bd.ok, bd.error).toBe(true);
     expect(bd.generatedSpanCount).toBe(8);
-    expect(visualParts(runState).filter((part) =>
-      part.info.kind === 0 && part.info.bundleTemplateId === 101
-    )).toHaveLength(9);
+    const afterBdHvParts = hvEdgeBodies(runState);
+    expect(afterBdHvParts).toHaveLength(9);
+    const bdHvParts = afterBdHvParts.filter((part) => !baseHvSpanIds.has(part.info.sourceSpanId));
+    expect(bdHvParts).toHaveLength(3);
+    expect(uniqueRounded(bdHvParts.map((part) => part.info.laneIndex))).toHaveLength(3);
+    assertSeparatedStarts(bdHvParts, 0.1);
+    const bdHvSpanIds = new Set(afterBdHvParts.map((part) => part.info.sourceSpanId));
 
     const eb = runState.generatePlacements(
       new Float64Array([20, 0, 0, poleB.positionX, poleB.positionY, poleB.positionZ]),
@@ -411,9 +437,12 @@ describe("wire wasm smoke", () => {
     );
     expect(eb.ok, eb.error).toBe(true);
     expect(eb.generatedSpanCount).toBe(8);
-    expect(visualParts(runState).filter((part) =>
-      part.info.kind === 0 && part.info.bundleTemplateId === 101
-    )).toHaveLength(12);
+    const completedHvParts = hvEdgeBodies(runState);
+    expect(completedHvParts).toHaveLength(12);
+    const ebHvParts = completedHvParts.filter((part) => !bdHvSpanIds.has(part.info.sourceSpanId));
+    expect(ebHvParts).toHaveLength(3);
+    expect(uniqueRounded(ebHvParts.map((part) => part.info.laneIndex))).toHaveLength(3);
+    assertSeparatedStarts(ebHvParts, 0.1);
     runState.delete();
   });
 

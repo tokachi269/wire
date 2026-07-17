@@ -124,6 +124,16 @@ describe("scene part reuse", () => {
     expect(scene.partMeshes.get("edge:1:lane:0").mesh).not.toBe(first);
     expect(scene.partMeshes.get("edge:2:lane:0").mesh).toBe(second);
 
+    const rebuiltFirst = scene.partMeshes.get("edge:1:lane:0").mesh;
+    snapshot.parts[0].samples = new Float64Array([0, 3, 0, 10, 3, 0]);
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.contentSyncStats).toEqual({
+      total: 2, reused: 1, rebuilt: 1, removed: 0,
+      modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
+    });
+    expect(scene.partMeshes.get("edge:1:lane:0").mesh).not.toBe(rebuiltFirst);
+    expect(scene.partMeshes.get("edge:2:lane:0").mesh).toBe(second);
+
     snapshot.parts.splice(1, 1);
     expect(scene.syncContent(snapshot)).toBe(true);
     expect(scene.contentSyncStats).toEqual({

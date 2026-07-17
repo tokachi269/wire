@@ -554,6 +554,7 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
     };
     std::unordered_set<ObjectId> route_edge_ids{};
     for (const SavedBackboneEdge* route_edge : edges) route_edge_ids.insert(route_edge->edge_id);
+    const std::size_t context_route_offset = saved_routes.size() + saved.edges.size() + 1;
     for (const SavedBackboneEdge& candidate : saved.edges) {
       if (route_edge_ids.contains(candidate.edge_id) ||
           (!node_index.contains(candidate.node_a) && !node_index.contains(candidate.node_b))) continue;
@@ -567,7 +568,7 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       link.id = static_cast<int>(graph.links.size());
       link.a = a;
       link.b = b;
-      link.route = candidate.route;
+      link.route = context_route_offset + static_cast<std::size_t>(link.id);
       link.order = candidate.order;
       link.dir = candidate.dir;
       link.saved = candidate.edge_id;

@@ -679,6 +679,21 @@ bool has_saved_pair_row_for_edge(const CoreState& state, ObjectId node_id, Objec
   return false;
 }
 
+bool has_saved_pair_row_for_edges(const CoreState& state, ObjectId node_id, ObjectId edge_a, ObjectId edge_b) {
+  if (node_id == kInvalidObjectId || edge_a == kInvalidObjectId || edge_b == kInvalidObjectId) {
+    return false;
+  }
+  const ObjectId lo = std::min(edge_a, edge_b);
+  const ObjectId hi = std::max(edge_a, edge_b);
+  for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (binding.row_key.node_id == node_id && !binding.row_key.source_is_open &&
+        binding.row_key.source_edge_a == lo && binding.row_key.source_edge_b == hi) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool has_saved_pair_row_at_node(const CoreState& state, ObjectId node_id) {
   if (node_id == kInvalidObjectId) {
     return false;
@@ -862,13 +877,32 @@ EditResult<ObjectId> resolve_promoted_open_port_binding(const CoreState& state, 
 
 std::vector<Vec3d> row_height_offsets(const pairs& ps) {
   std::vector<Vec3d> offsets(ps.rows.size(), Vec3d{});
+  std::vector<bool> active_rows(ps.rows.size(), false);
+  for (const link& edge : ps.links) {
+    if (!edge.is_new) {
+      continue;
+    }
+    if (edge.arow < active_rows.size()) {
+      active_rows[edge.arow] = true;
+    }
+    if (edge.brow < active_rows.size()) {
+      active_rows[edge.brow] = true;
+    }
+  }
   std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
   for (const row& r : ps.rows) {
     rows_by_node[r.node].push_back(r.id);
   }
   for (auto& item : rows_by_node) {
     std::vector<std::size_t>& rows = item.second;
-    std::sort(rows.begin(), rows.end());
+    std::sort(rows.begin(), rows.end(), [&](std::size_t lhs, std::size_t rhs) {
+      const bool lhs_active = lhs < active_rows.size() && active_rows[lhs];
+      const bool rhs_active = rhs < active_rows.size() && active_rows[rhs];
+      if (lhs_active != rhs_active) {
+        return lhs_active;
+      }
+      return lhs < rhs;
+    });
     const double center = (static_cast<double>(rows.size()) - 1.0) * 0.5;
     for (std::size_t order = 0; order < rows.size(); ++order) {
       const std::size_t row_id = rows[order];
@@ -1122,6 +1156,11 @@ bool is_promoted_open_continuation(const CoreState& state, const node& n, const 
   return context.saved != kInvalidObjectId && n.saved != kInvalidObjectId &&
          has_saved_open_row_for_edge(state, n.saved, context.saved) &&
          interior_angle_deg(a, b) > 1e-6;
+}
+
+bool is_saved_pair_continuation(const CoreState& state, const node& n, const link& a, const link& b) {
+  return n.saved != kInvalidObjectId && a.saved != kInvalidObjectId && b.saved != kInvalidObjectId &&
+         has_saved_pair_row_for_edges(state, n.saved, a.saved, b.saved);
 }
 
 bool moved_more_than_epsilon(const Vec3d& lhs, const Vec3d& rhs) {
@@ -1693,9 +1732,7 @@ EditResult<bool> pipeline::prepare() {
       const bool has_open_and_pair =
           has_saved_open_row_at_node(state_, n.saved) && has_saved_pair_row_at_node(state_, n.saved);
       const bool preserve_open_direction =
-          has_open_and_pair &&
-          (has_saved_open_row_for_edge(state_, n.saved, saved->edge_id) ||
-           has_saved_pair_row_for_edge(state_, n.saved, saved->edge_id));
+          has_open_and_pair && has_saved_pair_row_for_edge(state_, n.saved, saved->edge_id);
       // A route endpoint with exactly one saved incident edge is a continuation candidate.
       // Orient that context edge toward the route start or away from the route end so pairs
       // can decide continuity without changing saved edge direction or identity.
@@ -1707,7 +1744,7 @@ EditResult<bool> pipeline::prepare() {
       edge.id = g_.links.size();
       edge.a = a;
       edge.b = b;
-      edge.route = saved->route + 1;
+      edge.route = route_node_count + g_.links.size() + 1;
       edge.order = saved->order;
       edge.dir = saved->dir;
       if (reversed_context) {
@@ -1906,8 +1943,9 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     std::sort(outgoing.begin(), outgoing.end(), link_less);
     auto is_continuation = [&](const link& a, const link& b) {
       const bool same_route = a.route == b.route && a.order + 1 == b.order;
+      const bool saved_pair = is_saved_pair_continuation(state_, n, a, b);
       const bool terminal_extension = is_promoted_open_continuation(state_, n, a, b);
-      return same_route || terminal_extension;
+      return same_route || saved_pair || terminal_extension;
     };
 
     for (std::size_t right : outgoing) {
@@ -1971,8 +2009,9 @@ EditResult<pairs> pipeline::make(const graph& made) const {
         out.value.jumpers.push_back(jumper{n.id, left_row, right_row, interior_angle, node_forward});
         continue;
       }
-      const bool promoted_open_pair = is_promoted_open_continuation(state_, n, a, b);
-      Vec3d pair_axis = promoted_open_pair
+      const bool canonical_saved_pair = is_saved_pair_continuation(state_, n, a, b) ||
+                                        is_promoted_open_continuation(state_, n, a, b);
+      Vec3d pair_axis = canonical_saved_pair
                             ? canonical_pair_axis(out.value.links[left], out.value.links[matched], n.id)
                             : out.value.links[left].dir + out.value.links[matched].dir;
       if (!NormalizeXY(&pair_axis)) {

@@ -1137,6 +1137,30 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental cross completion canonicalizes saved pair rows like one-shot generation",
                          "Invariant", false,
                          C771_backbone_incremental_cross_completion_matches_one_shot_rows);
+  test_registry::AddTest(tests, "C772_backbone_incremental_pair_promotion_rejects_ambiguous_open_candidates",
+                         "incremental pair promotion rejects multiple saved open candidates before mutation",
+                         "Boundary", false,
+                         C772_backbone_incremental_pair_promotion_rejects_ambiguous_open_candidates);
+  test_registry::AddTest(tests, "C773_backbone_incremental_sharp_completion_keeps_open_jumper_rows",
+                         "incremental sharp completion keeps open rows and jumper contract instead of pair promotion",
+                         "Invariant", false,
+                         C773_backbone_incremental_sharp_completion_keeps_open_jumper_rows);
+  test_registry::AddTest(tests, "C774_backbone_incremental_scope_mismatch_does_not_share_ports",
+                         "incremental pair promotion does not share ports across incompatible bundle scope",
+                         "Invariant", false,
+                         C774_backbone_incremental_scope_mismatch_does_not_share_ports);
+  test_registry::AddTest(tests, "C775_backbone_incremental_canonical_pair_survives_save_load",
+                         "incremental canonical pair rows survive authoritative save/load",
+                         "Invariant", false,
+                         C775_backbone_incremental_canonical_pair_survives_save_load);
+  test_registry::AddTest(tests, "C776_backbone_incremental_canonical_pair_survives_regenerate",
+                         "incremental canonical pair rows survive backbone regenerate",
+                         "Invariant", false,
+                         C776_backbone_incremental_canonical_pair_survives_regenerate);
+  test_registry::AddTest(tests, "C777_backbone_incremental_reverse_completion_uses_same_pair_key",
+                         "incremental reverse input direction converges to the same canonical pair key",
+                         "Invariant", false,
+                         C777_backbone_incremental_reverse_completion_uses_same_pair_key);
 }
 
 

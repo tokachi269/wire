@@ -379,5 +379,11 @@ bool C767_default_hv_emits_one_support_path_per_phase_span();
 bool C769_bundle_placements_duplicate_template_as_independent_bundles();
 bool C770_backbone_bundle_placement_update_preserves_cross_row_height();
 bool C771_backbone_incremental_cross_completion_matches_one_shot_rows();
+bool C772_backbone_incremental_pair_promotion_rejects_ambiguous_open_candidates();
+bool C773_backbone_incremental_sharp_completion_keeps_open_jumper_rows();
+bool C774_backbone_incremental_scope_mismatch_does_not_share_ports();
+bool C775_backbone_incremental_canonical_pair_survives_save_load();
+bool C776_backbone_incremental_canonical_pair_survives_regenerate();
+bool C777_backbone_incremental_reverse_completion_uses_same_pair_key();
 
 } // namespace backbone_tests

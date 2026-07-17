@@ -12,8 +12,16 @@ struct ResolvedEndpointPlacement {
   Vec3d wire_endpoint{};
 };
 
+struct RowFixturePlacementPlan {
+  bool available = false;
+  double placement_height_m = 0.0;
+  Transformd root{};
+  Vec3d rigid_offset_world{};
+};
+
 struct FixturePlacementPlan {
   double down_offset_m = 0.0;
+  RowFixturePlacementPlan row_fixture{};
   Transformd endpoint_fixture_root{};
   Vec3d wire_endpoint{};
 };

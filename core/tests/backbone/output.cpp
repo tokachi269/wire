@@ -104,9 +104,11 @@ bool C509_backbone_support_group_avoids_visual_terms() {
 bool C510_backbone_layout_consumes_group_offset() {
   const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "span_layout_types.hpp";
   const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "derive_span_layout.cpp";
+  const std::filesystem::path plan_header = repo_root() / "core" / "src" / "generation" / "backbone" / "model_assembly.hpp";
   std::string h;
   std::string cpp;
-  if (!file_text(header, &h) || !file_text(source, &cpp)) {
+  std::string plan_h;
+  if (!file_text(header, &h) || !file_text(source, &cpp) || !file_text(plan_header, &plan_h)) {
     return false;
   }
   const std::size_t fn_pos = h.find("inline void ApplyEndpointLayoutRule");
@@ -117,7 +119,10 @@ bool C510_backbone_layout_consumes_group_offset() {
   const std::string body = h.substr(fn_pos, next_pos - fn_pos);
   return contains_text(body, "rule.endpoint_offset_z_m") &&
          !contains_text(body, "dst.endpoint_world.z += endpoint_offset") &&
-         contains_text(cpp, "resolve_model_assembly_wire_socket(state, *port, down_offset_m)") &&
+         contains_text(cpp, "const FixturePlacementPlanByPort* fixture_plan") &&
+         contains_text(cpp, "plan_it->second.wire_endpoint") &&
+         contains_text(cpp, "endpoint_down_offset(rule)") &&
+         contains_text(plan_h, "RowFixturePlacementPlan row_fixture") &&
          !contains_text(body, "kLowerOffsetM");
 }
 
@@ -2705,9 +2710,7 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
               return instance.model_key == "hv_insulator" &&
                      instance.stable_key.rfind(fixture_prefix, 0) == 0;
             });
-        if (fixture == state.view().visual_model_instances().instances.end()) {
-          return false;
-        }
+        if (fixture == state.view().visual_model_instances().instances.end()) return false;
         const wire::core::Vec3d local_socket = endpoint_part.sockets.front().local_position;
         const wire::core::Vec3d visible_socket =
             fixture->world_transform.position +
@@ -2810,23 +2813,17 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
     return false;
   }
   const double preserved_cross_offset = *port_height_before - *base_height_before;
-  if (std::abs(preserved_cross_offset) < 0.1) {
-    return false;
-  }
+  if (std::abs(preserved_cross_offset) < 0.1) return false;
 
   const double next_height = *base_height_before + kHeightDelta;
   const auto updated = state.UpdateBackboneBundlePlacement(
       bundle_id, true, next_height, bundle->lateral_m, bundle->phase_spacing_m);
-  if (!updated.ok || !updated.value) {
-    return false;
-  }
+  if (!updated.ok || !updated.value) return false;
 
   const wire::core::Bundle* after_bundle = state.view().bundles().find(bundle_id);
   const std::optional<double> port_height_after = average_port_height();
   const std::optional<double> row_height_after = row_model_height();
-  if (after_bundle == nullptr || !port_height_after.has_value() || !row_height_after.has_value()) {
-    return false;
-  }
+  if (after_bundle == nullptr || !port_height_after.has_value() || !row_height_after.has_value()) return false;
 
   return almost_equal((*port_height_after - after_bundle->height_m), preserved_cross_offset, 1e-9) &&
          almost_equal(*port_height_after - *port_height_before, kHeightDelta, 1e-9) &&

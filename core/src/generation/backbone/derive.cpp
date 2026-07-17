@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <string>
+#include <vector>
 
 namespace wire::core {
 
@@ -27,26 +28,8 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
     return out;
   }
   SpanLayoutRule rule = *rule_view.rule;
-  const SpanLayoutView current_layout = runtime_.cache_state.span_layout_cache.layout_view(span_id);
-  auto hydrate_from_layout_endpoint = [](EndpointLayoutRule* endpoint, const LayoutEndpoint& source) {
-    if (endpoint == nullptr || !UsesAuthoritativeGroupedLoweredSupport(source)) {
-      return false;
-    }
-    CopyLayoutSemantic(endpoint->semantic, source);
-    endpoint->side = source.side;
-    endpoint->origin = source.origin;
-    endpoint->order_decision_policy = source.order_decision_policy;
-    endpoint->order_decision_choice = source.order_decision_choice;
-    endpoint->order_decision_choice_reason = source.order_decision_choice_reason;
-    endpoint->chosen_side = source.chosen_side;
-    endpoint->used_junction_pair_side_assignment = source.used_junction_pair_side_assignment;
-    return true;
-  };
-  auto hydrate_grouped_endpoint = [&](EndpointLayoutRule* endpoint, const LayoutEndpoint* current_endpoint) {
+  auto hydrate_grouped_endpoint = [&](EndpointLayoutRule* endpoint) {
     if (endpoint == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint->semantic)) {
-      return;
-    }
-    if (current_endpoint != nullptr && hydrate_from_layout_endpoint(endpoint, *current_endpoint)) {
       return;
     }
     const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint->semantic);
@@ -64,11 +47,28 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
     endpoint->chosen_side = group.chosen_side;
     endpoint->used_junction_pair_side_assignment = group.used_junction_pair_side_assignment;
   };
-  hydrate_grouped_endpoint(&rule.start, current_layout.has_layout() ? &current_layout.entry->start : nullptr);
-  hydrate_grouped_endpoint(&rule.end, current_layout.has_layout() ? &current_layout.entry->end : nullptr);
+  hydrate_grouped_endpoint(&rule.start);
+  hydrate_grouped_endpoint(&rule.end);
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  std::vector<SpanLayoutRule> plan_rules{};
+  plan_rules.reserve(runtime_.cache_state.span_layout_cache.records_by_span.size());
+  bool found_plan_rule = false;
+  for (const auto& [cached_span_id, record] : runtime_.cache_state.span_layout_cache.records_by_span) {
+    const SpanLayoutRule* cached_rule = record.span_layout_rule();
+    if (cached_rule == nullptr) {
+      continue;
+    }
+    SpanLayoutRule plan_rule = cached_span_id == span_id ? rule : *cached_rule;
+    hydrate_grouped_endpoint(&plan_rule.start);
+    hydrate_grouped_endpoint(&plan_rule.end);
+    found_plan_rule = found_plan_rule || cached_span_id == span_id;
+    plan_rules.push_back(std::move(plan_rule));
+  }
+  if (!found_plan_rule) {
+    plan_rules.push_back(rule);
+  }
   EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
-      generation::backbone::fixture_placement_plan_from_rules(*this, {rule});
+      generation::backbone::fixture_placement_plan_from_rules(*this, plan_rules);
   if (!fixture_plan.ok) {
     out.error = fixture_plan.error;
     return out;
@@ -203,41 +203,102 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     }
   }
   if (plan.kind == UpdateKind::kReposition) {
-    SupportGroupCache rebuilt_groups{};
-    auto group_for = [&](const LoweredSupportGroupKey& key) -> std::pair<SupportGroupDecision*, LoweredSupportGroupPlacement*> {
-      return {&rebuilt_groups.decision.by_key[key], &rebuilt_groups.placement.by_key[key]};
+    auto rebuild_groups_from_rules = [&]() -> EditResult<SupportGroupCache> {
+      EditResult<SupportGroupCache> rebuilt{};
+      std::vector<SpanLayoutRule> rules{};
+      rules.reserve(runtime_.cache_state.span_layout_cache.records_by_span.size());
+      auto hydrate_endpoint_from_decision = [&](EndpointLayoutRule* endpoint) {
+        if (endpoint == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint->semantic)) {
+          return;
+        }
+        const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint->semantic);
+        const auto group_it = runtime_.cache_state.span_layout_cache.support_groups.decision.by_key.find(key);
+        if (group_it == runtime_.cache_state.span_layout_cache.support_groups.decision.by_key.end()) {
+          return;
+        }
+        const SupportGroupDecision& group = group_it->second;
+        CopyLayoutSemantic(endpoint->semantic, group);
+        endpoint->side = group.side;
+        endpoint->origin = group.origin;
+        endpoint->order_decision_policy = group.order_decision_policy;
+        endpoint->order_decision_choice = group.order_decision_choice;
+        endpoint->order_decision_choice_reason = group.order_decision_choice_reason;
+        endpoint->chosen_side = group.chosen_side;
+        endpoint->used_junction_pair_side_assignment = group.used_junction_pair_side_assignment;
+      };
+      for (const auto& [span_id, record] : runtime_.cache_state.span_layout_cache.records_by_span) {
+        static_cast<void>(span_id);
+        const SpanLayoutRule* cached_rule = record.span_layout_rule();
+        if (cached_rule == nullptr) {
+          continue;
+        }
+        SpanLayoutRule rule = *cached_rule;
+        hydrate_endpoint_from_decision(&rule.start);
+        hydrate_endpoint_from_decision(&rule.end);
+        rules.push_back(std::move(rule));
+      }
+      EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+          generation::backbone::fixture_placement_plan_from_rules(*this, rules);
+      if (!fixture_plan.ok) {
+        rebuilt.error = fixture_plan.error;
+        return rebuilt;
+      }
+      auto group_for = [&](const LoweredSupportGroupKey& key) ->
+          std::pair<SupportGroupDecision*, LoweredSupportGroupPlacement*> {
+        return {&rebuilt.value.decision.by_key[key], &rebuilt.value.placement.by_key[key]};
+      };
+      auto collect_group = [&](const LayoutEndpoint& endpoint) {
+        if (!UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
+          return;
+        }
+        const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
+        auto [decision, placement] = group_for(key);
+        CopyLayoutSemantic(*decision, endpoint);
+        decision->side = endpoint.side;
+        decision->origin = endpoint.origin;
+        decision->order_decision_policy = endpoint.order_decision_policy;
+        decision->order_decision_choice = endpoint.order_decision_choice;
+        decision->order_decision_choice_reason = endpoint.order_decision_choice_reason;
+        decision->chosen_side = endpoint.chosen_side;
+        decision->used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
+        if (placement->attachment_worlds.empty()) {
+          placement->grouped_port_count = 0;
+        }
+        placement->grouped_port_count += 1;
+        placement->down_offset_m = std::max(placement->down_offset_m, endpoint.branch_down_offset_m);
+        if (placement->attachment_worlds.empty()) {
+          placement->mount_world = endpoint.support_world;
+          placement->tip_world = endpoint.endpoint_world;
+        }
+        placement->attachment_worlds.push_back(endpoint.endpoint_world);
+      };
+      const auto endpoint_resolver = [&](const EndpointLayoutRule& endpoint) {
+        return generation::backbone::resolve_span_layout_endpoint(
+            *this, authoritative_.edit_state, endpoint, &fixture_plan.value);
+      };
+      for (const SpanLayoutRule& rule : rules) {
+        const SpanRuntimeState* runtime = find_span_runtime_state(rule.span_id);
+        EditResult<SpanLayoutEntry> layout = generation::backbone::derive_span_layout(
+            rule, endpoint_resolver, (runtime == nullptr) ? 0 : runtime->data_version);
+        if (!layout.ok) {
+          rebuilt.error = layout.error;
+          return rebuilt;
+        }
+        collect_group(layout.value.start);
+        collect_group(layout.value.end);
+      }
+      rebuilt.ok = true;
+      return rebuilt;
     };
-    auto collect_group = [&](const LayoutEndpoint& endpoint) {
-      if (!UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
-        return;
-      }
-      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
-      auto [decision, placement] = group_for(key);
-      CopyLayoutSemantic(*decision, endpoint);
-      decision->side = endpoint.side;
-      decision->origin = endpoint.origin;
-      decision->order_decision_policy = endpoint.order_decision_policy;
-      decision->order_decision_choice = endpoint.order_decision_choice;
-      decision->order_decision_choice_reason = endpoint.order_decision_choice_reason;
-      decision->chosen_side = endpoint.chosen_side;
-      decision->used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
-      if (placement->attachment_worlds.empty()) {
-        placement->grouped_port_count = 0;
-      }
-      placement->grouped_port_count += 1;
-      placement->down_offset_m = std::max(placement->down_offset_m, endpoint.branch_down_offset_m);
-      if (placement->attachment_worlds.empty()) {
-        placement->mount_world = endpoint.support_world;
-        placement->tip_world = endpoint.endpoint_world;
-      }
-      placement->attachment_worlds.push_back(endpoint.endpoint_world);
-    };
-    runtime_.cache_state.span_layout_cache.for_each_layout_record(
-        [&](ObjectId, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {
-          collect_group(layout.start);
-          collect_group(layout.end);
-        });
-    runtime_.cache_state.span_layout_cache.support_groups = std::move(rebuilt_groups);
+    EditResult<SupportGroupCache> rebuilt_groups = rebuild_groups_from_rules();
+    if (!rebuilt_groups.ok) {
+      timing.total_ms =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+      debug_.last_update_timing = timing;
+      out.error = rebuilt_groups.error;
+      return out;
+    }
+    runtime_.cache_state.span_layout_cache.support_groups = std::move(rebuilt_groups.value);
   }
   if (plan.kind == UpdateKind::kReposition || plan.kind == UpdateKind::kReshape) {
     cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}, plan.affected.spans));

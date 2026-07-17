@@ -49,6 +49,11 @@ struct RowFixtureContext {
   std::vector<Member> members{};
 };
 
+struct RowFixtureContexts {
+  std::vector<RowFixtureContext> rows{};
+  std::vector<ObjectId> endpoint_ports{};
+};
+
 Matrix3 matrix_from_euler(const Vec3d& euler_deg) {
   const Vec3d x = RotateEulerXYZDeg({1.0, 0.0, 0.0}, euler_deg);
   const Vec3d y = RotateEulerXYZDeg({0.0, 1.0, 0.0}, euler_deg);
@@ -352,11 +357,109 @@ std::string row_key_text(const SavedBackboneRowKey& row_key) {
   return out.str();
 }
 
+EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
+  EditResult<RowFixtureContexts> out{};
+  const CoreView view = state.view();
+  for (const SavedBackbonePortBinding& binding : view.backbone().port_bindings) {
+    const Port* port = view.ports().find(binding.port_id);
+    const Pole* pole = port == nullptr ? nullptr : view.poles().find(port->owner_pole_id);
+    const auto bundle_it = view.bundle_templates().find(binding.bundle_template_id);
+    if (port == nullptr || pole == nullptr || bundle_it == view.bundle_templates().end()) {
+      continue;
+    }
+    if (std::find(out.value.endpoint_ports.begin(), out.value.endpoint_ports.end(), port->id) ==
+        out.value.endpoint_ports.end()) {
+      out.value.endpoint_ports.push_back(port->id);
+    }
+    if (bundle_it->second.row_fixture_assembly_id == kInvalidModelAssemblyTemplateId) {
+      continue;
+    }
+    const SavedBackboneEdgeBundle* edge_bundle =
+        view.backbone_edge_bundle(binding.edge_bundle_id);
+    const SavedBackboneEdge* edge =
+        edge_bundle == nullptr ? nullptr : view.backbone_edge(edge_bundle->edge_id);
+    const Bundle* bundle =
+        edge_bundle == nullptr ? nullptr : view.bundles().find(edge_bundle->bundle_id);
+    if (edge_bundle == nullptr || edge == nullptr || bundle == nullptr) {
+      out.error = "model assembly unsupported: row source bundle is missing";
+      return out;
+    }
+    auto row_it = std::find_if(out.value.rows.begin(), out.value.rows.end(), [&](const RowFixtureContext& row) {
+      return row.pole->id == pole->id && row.row_key == binding.row_key &&
+             row.bundle_id == edge_bundle->bundle_id;
+    });
+    if (row_it == out.value.rows.end()) {
+      out.value.rows.push_back({pole, binding.row_key, edge_bundle->bundle_id, binding.bundle_template_id,
+                                bundle_it->second.row_fixture_assembly_id, binding.layout_yaw_deg,
+                                {{port->id, binding.lane_index, binding.placement_band_id,
+                                  edge->lateral_offset_m, bundle->placement_explicit,
+                                  bundle->lateral_m,
+                                  bundle->phase_spacing_m}}});
+    } else {
+      if (row_it->assembly_id != bundle_it->second.row_fixture_assembly_id ||
+          std::abs(row_it->layout_yaw_deg - binding.layout_yaw_deg) > 1e-9) {
+        out.error = "model assembly unsupported: saved row resolves inconsistent fixture data";
+        return out;
+      }
+      const auto member_it = std::find_if(
+          row_it->members.begin(), row_it->members.end(),
+          [&](const RowFixtureContext::Member& member) { return member.port_id == port->id; });
+      if (member_it == row_it->members.end()) {
+        row_it->members.push_back({port->id, binding.lane_index, binding.placement_band_id,
+                                   edge->lateral_offset_m, bundle->placement_explicit,
+                                   bundle->lateral_m,
+                                   bundle->phase_spacing_m});
+      }
+    }
+  }
+  std::sort(out.value.endpoint_ports.begin(), out.value.endpoint_ports.end());
+  out.ok = true;
+  return out;
+}
+
+EditResult<RowFixturePlacementPlan> row_fixture_placement_plan(
+    const CoreState& state, const RowFixtureContext& row,
+    const FixturePlacementPlanByPort& fixture_plan) {
+  EditResult<RowFixturePlacementPlan> out{};
+  const CoreView view = state.view();
+  if (row.members.empty()) {
+    out.error = "model assembly unsupported: row fixture has no members";
+    return out;
+  }
+  const PoleFrame frame = BuildPoleFrame(row.pole->world_transform, row.layout_yaw_deg);
+  double height_m = 0.0;
+  for (const RowFixtureContext::Member& member : row.members) {
+    const Port* port = view.ports().find(member.port_id);
+    if (port == nullptr) {
+      out.error = "model assembly unsupported: row fixture port is missing";
+      return out;
+    }
+    const auto plan_it = fixture_plan.find(member.port_id);
+    const double member_down_offset_m =
+        plan_it == fixture_plan.end() ? 0.0 : plan_it->second.down_offset_m;
+    height_m += WorldPointToLocal(frame, port->world_position).z - member_down_offset_m;
+  }
+  height_m /= static_cast<double>(row.members.size());
+  const EditResult<double> lateral = row_lateral_position(state, row);
+  if (!lateral.ok) {
+    out.error = lateral.error;
+    return out;
+  }
+  out.value.available = true;
+  out.value.placement_height_m = height_m;
+  out.value.root = transform_from_frame(frame, LocalPointToWorld(frame, {0.0, 0.0, height_m}));
+  out.value.rigid_offset_world = ScaleVec(frame.lateral, lateral.value);
+  out.ok = true;
+  return out;
+}
+
 } // namespace
 
-EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState& state,
-                                                                  const Port& port,
-                                                                  double down_offset_m) {
+namespace {
+
+EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(
+    const CoreState& state, const Port& port, double down_offset_m,
+    const RowFixturePlacementPlan* row_fixture) {
   EditResult<ResolvedEndpointPlacement> out{};
   out.value.fixture_root.position = port.world_position;
   out.value.wire_endpoint = port.world_position;
@@ -387,8 +490,14 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
       out.error = "model assembly unsupported: row endpoint mount socket does not resolve";
       return out;
     }
+    const Transformd& row_root =
+        row_fixture != nullptr && row_fixture->available ? row_fixture->root : fixture_root;
+    const double row_height =
+        row_fixture != nullptr && row_fixture->available ? row_fixture->placement_height_m : placement_height_m;
+    const Vec3d row_offset =
+        row_fixture != nullptr && row_fixture->available ? row_fixture->rigid_offset_world : Vec3d{};
     const EditResult<Transformd> mount_world = resolve_model_part_world_transform(
-        state, *context.value.pole, frame, placement_height_m, fixture_root, {}, *mount_part);
+        state, *context.value.pole, frame, row_height, row_root, row_offset, *mount_part);
     if (!mount_world.ok) {
       out.error = mount_world.error;
       return out;
@@ -417,6 +526,26 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
   }
   out.ok = true;
   return out;
+}
+
+} // namespace
+
+EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState& state,
+                                                                  const Port& port,
+                                                                  double down_offset_m) {
+  EditResult<FixturePlacementPlanByPort> plan = fixture_placement_plan_from_cache(state);
+  if (plan.ok) {
+    const auto plan_it = plan.value.find(port.id);
+    if (plan_it != plan.value.end() &&
+        std::abs(plan_it->second.down_offset_m - std::max(0.0, down_offset_m)) <= 1e-9) {
+      EditResult<ResolvedEndpointPlacement> out{};
+      out.value.fixture_root = plan_it->second.endpoint_fixture_root;
+      out.value.wire_endpoint = plan_it->second.wire_endpoint;
+      out.ok = true;
+      return out;
+    }
+  }
+  return resolve_endpoint_placement(state, port, down_offset_m, nullptr);
 }
 
 EditResult<Vec3d> resolve_model_assembly_wire_socket(const CoreState& state, const Port& port,
@@ -453,30 +582,69 @@ void append_fixture_placement_plan(EditResult<FixturePlacementPlanByPort>* out,
   if (out == nullptr || !out->ok || endpoint.port_id == kInvalidObjectId) {
     return;
   }
-  const Port* port = state.view().ports().find(endpoint.port_id);
-  if (port == nullptr) {
-    out->ok = false;
-    out->error = "model assembly unsupported: endpoint fixture plan port is missing";
-    return;
-  }
+  static_cast<void>(state);
   const double down_offset = endpoint_down_offset(endpoint);
-  EditResult<ResolvedEndpointPlacement> placement = resolve_endpoint_placement(state, *port, down_offset);
-  if (!placement.ok) {
-    out->ok = false;
-    out->error = placement.error;
-    return;
-  }
   FixturePlacementPlan plan{};
   plan.down_offset_m = down_offset;
-  plan.endpoint_fixture_root = placement.value.fixture_root;
-  plan.wire_endpoint = placement.value.wire_endpoint;
   const auto [it, inserted] = out->value.emplace(endpoint.port_id, plan);
-  if (!inserted && (std::abs(it->second.down_offset_m - plan.down_offset_m) > 1e-9 ||
-                    Length(it->second.endpoint_fixture_root.position -
-                           plan.endpoint_fixture_root.position) > 1e-9 ||
-                    Length(it->second.wire_endpoint - plan.wire_endpoint) > 1e-9)) {
+  if (!inserted && std::abs(it->second.down_offset_m - plan.down_offset_m) > 1e-9) {
     out->ok = false;
-    out->error = "model assembly unsupported: shared port resolves multiple fixture placements";
+    out->error = "model assembly unsupported: shared port resolves multiple lowered fixture heights";
+  }
+}
+
+void attach_row_fixture_placement_plans(EditResult<FixturePlacementPlanByPort>* out,
+                                        const CoreState& state) {
+  if (out == nullptr || !out->ok) {
+    return;
+  }
+  EditResult<RowFixtureContexts> contexts = row_fixture_contexts(state);
+  if (!contexts.ok) {
+    out->ok = false;
+    out->error = contexts.error;
+    return;
+  }
+  for (const RowFixtureContext& row : contexts.value.rows) {
+    EditResult<RowFixturePlacementPlan> row_plan =
+        row_fixture_placement_plan(state, row, out->value);
+    if (!row_plan.ok) {
+      out->ok = false;
+      out->error = row_plan.error;
+      return;
+    }
+    for (const RowFixtureContext::Member& member : row.members) {
+      const auto plan_it = out->value.find(member.port_id);
+      if (plan_it != out->value.end()) {
+        plan_it->second.row_fixture = row_plan.value;
+      }
+    }
+  }
+}
+
+void resolve_endpoint_fixture_placements(EditResult<FixturePlacementPlanByPort>* out,
+                                         const CoreState& state) {
+  if (out == nullptr || !out->ok) {
+    return;
+  }
+  const CoreView view = state.view();
+  for (auto& [port_id, plan] : out->value) {
+    const Port* port = view.ports().find(port_id);
+    if (port == nullptr) {
+      out->ok = false;
+      out->error = "model assembly unsupported: endpoint fixture plan port is missing";
+      return;
+    }
+    const RowFixturePlacementPlan* row_fixture =
+        plan.row_fixture.available ? &plan.row_fixture : nullptr;
+    EditResult<ResolvedEndpointPlacement> placement =
+        resolve_endpoint_placement(state, *port, plan.down_offset_m, row_fixture);
+    if (!placement.ok) {
+      out->ok = false;
+      out->error = placement.error;
+      return;
+    }
+    plan.endpoint_fixture_root = placement.value.fixture_root;
+    plan.wire_endpoint = placement.value.wire_endpoint;
   }
 }
 
@@ -490,6 +658,8 @@ EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_rules(
     append_fixture_placement_plan(&out, state, rule.start);
     append_fixture_placement_plan(&out, state, rule.end);
   }
+  attach_row_fixture_placement_plans(&out, state);
+  resolve_endpoint_fixture_placements(&out, state);
   return out;
 }
 
@@ -505,6 +675,8 @@ EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache(const C
         append_fixture_placement_plan(&out, state, rule->start);
         append_fixture_placement_plan(&out, state, rule->end);
       });
+  attach_row_fixture_placement_plans(&out, state);
+  resolve_endpoint_fixture_placements(&out, state);
   return out;
 }
 
@@ -545,98 +717,43 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
     }
   }
 
-  std::vector<RowFixtureContext> rows{};
-  std::vector<ObjectId> endpoint_ports{};
-  for (const SavedBackbonePortBinding& binding : view.backbone().port_bindings) {
-    const Port* port = view.ports().find(binding.port_id);
-    const Pole* pole = port == nullptr ? nullptr : view.poles().find(port->owner_pole_id);
-    const auto bundle_it = view.bundle_templates().find(binding.bundle_template_id);
-    if (port == nullptr || pole == nullptr || bundle_it == view.bundle_templates().end()) {
-      continue;
-    }
-    if (std::find(endpoint_ports.begin(), endpoint_ports.end(), port->id) == endpoint_ports.end()) {
-      endpoint_ports.push_back(port->id);
-    }
-    if (bundle_it->second.row_fixture_assembly_id == kInvalidModelAssemblyTemplateId) {
-      continue;
-    }
-    const SavedBackboneEdgeBundle* edge_bundle =
-        view.backbone_edge_bundle(binding.edge_bundle_id);
-    const SavedBackboneEdge* edge =
-        edge_bundle == nullptr ? nullptr : view.backbone_edge(edge_bundle->edge_id);
-    const Bundle* bundle =
-        edge_bundle == nullptr ? nullptr : view.bundles().find(edge_bundle->bundle_id);
-    if (edge_bundle == nullptr || edge == nullptr || bundle == nullptr) {
-      out.error = "model assembly unsupported: row source bundle is missing";
-      return out;
-    }
-    auto row_it = std::find_if(rows.begin(), rows.end(), [&](const RowFixtureContext& row) {
-      return row.pole->id == pole->id && row.row_key == binding.row_key &&
-             row.bundle_id == edge_bundle->bundle_id;
-    });
-    if (row_it == rows.end()) {
-      rows.push_back({pole, binding.row_key, edge_bundle->bundle_id, binding.bundle_template_id,
-                      bundle_it->second.row_fixture_assembly_id, binding.layout_yaw_deg,
-                      {{port->id, binding.lane_index, binding.placement_band_id,
-                        edge->lateral_offset_m, bundle->placement_explicit,
-                        bundle->lateral_m,
-                        bundle->phase_spacing_m}}});
-    } else {
-      if (row_it->assembly_id != bundle_it->second.row_fixture_assembly_id ||
-          std::abs(row_it->layout_yaw_deg - binding.layout_yaw_deg) > 1e-9) {
-        out.error = "model assembly unsupported: saved row resolves inconsistent fixture data";
-        return out;
-      }
-      const auto member_it = std::find_if(
-          row_it->members.begin(), row_it->members.end(),
-          [&](const RowFixtureContext::Member& member) { return member.port_id == port->id; });
-      if (member_it == row_it->members.end()) {
-        row_it->members.push_back({port->id, binding.lane_index, binding.placement_band_id,
-                                   edge->lateral_offset_m, bundle->placement_explicit,
-                                   bundle->lateral_m,
-                                   bundle->phase_spacing_m});
-      }
-    }
+  EditResult<RowFixtureContexts> contexts = row_fixture_contexts(state);
+  if (!contexts.ok) {
+    out.error = contexts.error;
+    return out;
   }
 
-  for (const RowFixtureContext& row : rows) {
+  for (const RowFixtureContext& row : contexts.value.rows) {
     const auto assembly_it = view.model_assembly_templates().find(row.assembly_id);
     if (assembly_it == view.model_assembly_templates().end() || row.members.empty()) {
       out.error = "model assembly unsupported: row fixture assembly is missing";
       return out;
     }
-    const PoleFrame frame = BuildPoleFrame(row.pole->world_transform, row.layout_yaw_deg);
-    double height_m = 0.0;
-    double row_down_offset_m = 0.0;
-    bool has_row_down_offset = false;
-    for (const RowFixtureContext::Member& member : row.members) {
-      height_m += WorldPointToLocal(frame, view.ports().find(member.port_id)->world_position).z;
-      double member_down_offset_m = 0.0;
-      if (effective_fixture_plan != nullptr) {
+    const RowFixturePlacementPlan* row_plan = nullptr;
+    if (effective_fixture_plan != nullptr) {
+      for (const RowFixtureContext::Member& member : row.members) {
         const auto plan_it = effective_fixture_plan->find(member.port_id);
-        if (plan_it != effective_fixture_plan->end()) {
-          member_down_offset_m = plan_it->second.down_offset_m;
+        if (plan_it != effective_fixture_plan->end() && plan_it->second.row_fixture.available) {
+          row_plan = &plan_it->second.row_fixture;
+          break;
         }
       }
-      if (has_row_down_offset && std::abs(row_down_offset_m - member_down_offset_m) > 1e-9) {
-        out.error = "model assembly unsupported: row fixture resolves conflicting lowered endpoint offsets";
+    }
+    RowFixturePlacementPlan fallback_plan{};
+    if (row_plan == nullptr) {
+      FixturePlacementPlanByPort empty_plan{};
+      EditResult<RowFixturePlacementPlan> resolved = row_fixture_placement_plan(state, row, empty_plan);
+      if (!resolved.ok) {
+        out.error = resolved.error;
         return out;
       }
-      row_down_offset_m = member_down_offset_m;
-      has_row_down_offset = true;
+      fallback_plan = resolved.value;
+      row_plan = &fallback_plan;
     }
-    height_m /= static_cast<double>(row.members.size());
-    height_m -= row_down_offset_m;
-    const EditResult<double> lateral = row_lateral_position(state, row);
-    if (!lateral.ok) {
-      out.error = lateral.error;
-      return out;
-    }
-    const Transformd root = transform_from_frame(frame, LocalPointToWorld(frame, {0.0, 0.0, height_m}));
     std::string error{};
     append_instances(
-        state, *row.pole, height_m, assembly_it->second, root,
-        ScaleVec(frame.lateral, lateral.value),
+        state, *row.pole, row_plan->placement_height_m, assembly_it->second, row_plan->root,
+        row_plan->rigid_offset_world,
         "row:" + std::to_string(row.pole->id) + ":" + row_key_text(row.row_key) + ":" +
             std::to_string(row.bundle_id),
         &out.value, &error);
@@ -646,8 +763,7 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
     }
   }
 
-  std::sort(endpoint_ports.begin(), endpoint_ports.end());
-  for (ObjectId port_id : endpoint_ports) {
+  for (ObjectId port_id : contexts.value.endpoint_ports) {
     const Port* port = view.ports().find(port_id);
     if (port == nullptr) {
       continue;

@@ -178,6 +178,7 @@ private:
                                       PortLayer port_layer, int placement_band_id, double layout_yaw_deg,
                                       ObjectId port_id);
   EditResult<bool> promote_backbone_open_port_binding(const SavedBackboneRowKey& pair_key,
+                                                      ObjectId open_edge_id,
                                                       std::size_t lane_index,
                                                       BundleTemplateId bundle_template_id, PortKind port_kind,
                                                       PortLayer port_layer, int placement_band_id,

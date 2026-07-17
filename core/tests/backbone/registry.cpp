@@ -1161,6 +1161,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental reverse input direction converges to the same canonical pair key",
                          "Invariant", false,
                          C777_backbone_incremental_reverse_completion_uses_same_pair_key);
+  test_registry::AddTest(tests, "C778_backbone_incremental_multi_bundle_completion_promotes_each_scope_once",
+                         "incremental multi-bundle completion promotes each compatible scope once",
+                         "Invariant", false,
+                         C778_backbone_incremental_multi_bundle_completion_promotes_each_scope_once);
 }
 
 

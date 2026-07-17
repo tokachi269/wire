@@ -385,5 +385,6 @@ bool C774_backbone_incremental_scope_mismatch_does_not_share_ports();
 bool C775_backbone_incremental_canonical_pair_survives_save_load();
 bool C776_backbone_incremental_canonical_pair_survives_regenerate();
 bool C777_backbone_incremental_reverse_completion_uses_same_pair_key();
+bool C778_backbone_incremental_multi_bundle_completion_promotes_each_scope_once();
 
 } // namespace backbone_tests

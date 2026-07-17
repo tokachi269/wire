@@ -521,6 +521,8 @@ ObjectId resolve_existing_bundle(const CoreState& state, const graph& made, cons
   return saw_existing_edge ? resolved : kInvalidObjectId;
 }
 
+bool has_saved_open_row_for_edge(const CoreState& state, ObjectId node_id, ObjectId edge_id);
+
 SavedBackboneRowKey key_for(const pairs& ps, const trow& row, const std::vector<ObjectId>& node_id_by_local,
                             const std::vector<SavedBackboneEdgeRef>& edge_by_link) {
   SavedBackboneRowKey key{};
@@ -549,6 +551,29 @@ SavedBackboneRowKey key_for(const pairs& ps, const trow& row, const std::vector<
   key.source_edge_a = std::min(a, b);
   key.source_edge_b = std::max(a, b);
   return key;
+}
+
+ObjectId promoted_open_edge_for_row(const CoreState& state, const pairs& ps, const trow& row,
+                                    const std::vector<ObjectId>& node_id_by_local,
+                                    const std::vector<SavedBackboneEdgeRef>& edge_by_link) {
+  if (row.source.is_open || row.source.id >= ps.joins.size() || row.node >= node_id_by_local.size()) {
+    return kInvalidObjectId;
+  }
+  const pair& join = ps.joins[row.source.id];
+  const link* left = join.left < ps.links.size() ? &ps.links[join.left] : nullptr;
+  const link* right = join.right < ps.links.size() ? &ps.links[join.right] : nullptr;
+  if (left == nullptr || right == nullptr || left->is_new == right->is_new) {
+    return kInvalidObjectId;
+  }
+  const link* existing = left->is_new ? right : left;
+  if (existing->saved == kInvalidObjectId || !has_saved_open_row_for_edge(state, node_id_by_local[row.node], existing->saved)) {
+    return kInvalidObjectId;
+  }
+  const std::size_t created_link = left->is_new ? join.left : join.right;
+  if (created_link >= edge_by_link.size() || edge_by_link[created_link].edge_id == kInvalidObjectId) {
+    return kInvalidObjectId;
+  }
+  return existing->saved;
 }
 
 SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& made, const link& edge) {
@@ -813,34 +838,6 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
     found = port->id;
   }
   out.value = found;
-  if (found != kInvalidObjectId || row_key.source_is_open ||
-      row_key.source_edge_b == kInvalidObjectId) {
-    return out;
-  }
-
-  ObjectId promoted_open_port = kInvalidObjectId;
-  for (ObjectId edge_id : {row_key.source_edge_a, row_key.source_edge_b}) {
-    SavedBackboneRowKey open_key{};
-    open_key.node_id = row_key.node_id;
-    open_key.source_is_open = true;
-    open_key.source_edge_a = edge_id;
-    for (const SavedBackbonePortBinding* binding : state.view().backbone_port_bindings_for_row(open_key, lane_index)) {
-      if (binding == nullptr || !compatible_port_scope(*binding, scope)) {
-        continue;
-      }
-      const Port* port = state.view().ports().find(binding->port_id);
-      if (port == nullptr || port->owner_pole_id != pole_id || port->kind != scope.kind || port->layer != scope.layer) {
-        continue;
-      }
-      if (promoted_open_port != kInvalidObjectId && promoted_open_port != port->id) {
-        out.error = "backbone unsupported: ambiguous promoted open row binding";
-        out.ok = false;
-        return out;
-      }
-      promoted_open_port = port->id;
-    }
-  }
-  out.value = promoted_open_port;
   return out;
 }
 
@@ -2986,8 +2983,10 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
       const port_scope scope{bundle->bundle_template_id, made.bundles[span.bundle], port->kind,
                              port->layer, placement_band_id};
       const double layout_yaw_deg = PortLayoutYawDeg(made.rows[row_index].axis);
+      const ObjectId promoted_open_edge =
+          promoted_open_edge_for_row(state_, ps, made.rows[row_index], node_id_by_local, edge_by_link);
       EditResult<bool> promoted =
-          state_.promote_backbone_open_port_binding(row_key, span.lane, bundle->bundle_template_id,
+          state_.promote_backbone_open_port_binding(row_key, promoted_open_edge, span.lane, bundle->bundle_template_id,
                                                     port->kind, port->layer, placement_band_id,
                                                     layout_yaw_deg, port->id);
       if (!promoted.ok) {

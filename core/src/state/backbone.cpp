@@ -269,14 +269,14 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
 }
 
 EditResult<bool> CoreState::promote_backbone_open_port_binding(
-    const SavedBackboneRowKey& pair_key, std::size_t lane_index,
+    const SavedBackboneRowKey& pair_key, ObjectId open_edge_id, std::size_t lane_index,
     BundleTemplateId bundle_template_id, PortKind port_kind, PortLayer port_layer,
     int placement_band_id, double layout_yaw_deg, ObjectId port_id) {
   EditResult<bool> out{};
   out.value = false;
   if (pair_key.source_is_open || pair_key.node_id == kInvalidObjectId ||
       pair_key.source_edge_a == kInvalidObjectId || pair_key.source_edge_b == kInvalidObjectId ||
-      port_id == kInvalidObjectId) {
+      open_edge_id == kInvalidObjectId || port_id == kInvalidObjectId) {
     out.ok = true;
     return out;
   }
@@ -288,8 +288,7 @@ EditResult<bool> CoreState::promote_backbone_open_port_binding(
         binding.port_layer != port_layer || binding.placement_band_id != placement_band_id) {
       continue;
     }
-    if (!is_open_row_for_edge(binding.row_key, pair_key.node_id, pair_key.source_edge_a) &&
-        !is_open_row_for_edge(binding.row_key, pair_key.node_id, pair_key.source_edge_b)) {
+    if (!is_open_row_for_edge(binding.row_key, pair_key.node_id, open_edge_id)) {
       continue;
     }
     if (match_index != static_cast<std::size_t>(-1)) {

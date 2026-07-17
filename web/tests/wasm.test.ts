@@ -85,6 +85,10 @@ function defaultBundlePlacements(): BundlePlacement[] {
   ];
 }
 
+function hvBundlePlacement(): BundlePlacement[] {
+  return [defaultBundlePlacements()[0]];
+}
+
 function uniqueRounded(values: number[]): number[] {
   return [...new Set(values.map((value) => Math.round(value * 1000) / 1000))];
 }
@@ -95,14 +99,81 @@ function hvEdgeBodies(state: WireStateHandle) {
   );
 }
 
-function assertSeparatedStarts(parts: ReturnType<typeof visualParts>, minDistance: number) {
-  for (let index = 0; index < parts.length; index += 1) {
-    for (let other = index + 1; other < parts.length; other += 1) {
-      const dx = parts[index].samples[0] - parts[other].samples[0];
-      const dy = parts[index].samples[1] - parts[other].samples[1];
-      const dz = parts[index].samples[2] - parts[other].samples[2];
-      expect(Math.hypot(dx, dy, dz)).toBeGreaterThan(minDistance);
+function startPoint(part: ReturnType<typeof visualParts>[number]): [number, number, number] {
+  return [part.samples[0], part.samples[1], part.samples[2]];
+}
+
+function endPoint(part: ReturnType<typeof visualParts>[number]): [number, number, number] {
+  const offset = part.samples.length - 3;
+  return [part.samples[offset], part.samples[offset + 1], part.samples[offset + 2]];
+}
+
+function distance(a: [number, number, number], b: [number, number, number]): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+function assertSeparatedPoints(points: Array<[number, number, number]>, minDistance: number) {
+  for (let index = 0; index < points.length; index += 1) {
+    for (let other = index + 1; other < points.length; other += 1) {
+      expect(distance(points[index], points[other])).toBeGreaterThan(minDistance);
     }
+  }
+}
+
+function assertStraightHvSpacing(parts: ReturnType<typeof visualParts>) {
+  expect(parts).toHaveLength(3);
+  const sorted = [...parts].sort((a, b) => a.info.laneIndex - b.info.laneIndex);
+  expect(sorted.map((part) => part.info.laneIndex)).toEqual([0, 1, 2]);
+  expect(new Set(sorted.map((part) => part.info.partKey)).size).toBe(3);
+  expect(new Set(sorted.map((part) => part.info.sourceSpanId)).size).toBe(3);
+  expect(sorted.map((part) => Number(startPoint(part)[1].toFixed(3)))).toEqual([-0.65, -0.2, 0.25]);
+  expect(sorted.map((part) => Number(endPoint(part)[1].toFixed(3)))).toEqual([-0.65, -0.2, 0.25]);
+  expect(Number((startPoint(sorted[1])[1] - startPoint(sorted[0])[1]).toFixed(3))).toBe(0.45);
+  expect(Number((startPoint(sorted[2])[1] - startPoint(sorted[1])[1]).toFixed(3))).toBe(0.45);
+  expect(Number((endPoint(sorted[1])[1] - endPoint(sorted[0])[1]).toFixed(3))).toBe(0.45);
+  expect(Number((endPoint(sorted[2])[1] - endPoint(sorted[1])[1]).toFixed(3))).toBe(0.45);
+}
+
+function assertHvSeparatedByEdge(state: WireStateHandle) {
+  const groups = new Map<string, ReturnType<typeof visualParts>>();
+  for (const part of hvEdgeBodies(state)) {
+    const existing = groups.get(part.info.sourceEdgeId) ?? [];
+    existing.push(part);
+    groups.set(part.info.sourceEdgeId, existing);
+  }
+  expect(groups.size).toBeGreaterThan(0);
+  for (const group of groups.values()) {
+    expect(group).toHaveLength(3);
+    expect(new Set(group.map((part) => part.info.laneIndex))).toEqual(new Set([0, 1, 2]));
+    expect(new Set(group.map((part) => part.info.partKey)).size).toBe(3);
+    expect(new Set(group.map((part) => part.info.sourceSpanId)).size).toBe(3);
+    assertSeparatedPoints(group.map(startPoint), 0.1);
+    assertSeparatedPoints(group.map(endPoint), 0.1);
+  }
+}
+
+function scenePartSnapshot(state: WireStateHandle) {
+  return new Map(visualParts(state).map((part) => [
+    part.info.partKey,
+    {
+      version: part.info.sourceVersion,
+      samples: [...part.samples]
+    }
+  ]));
+}
+
+function sameSamples(a: number[], b: number[]): boolean {
+  return a.length === b.length && a.every((value, index) => Math.abs(value - b[index]) <= 1e-9);
+}
+
+function expectSamplesChangedOnlyWithVersionChange(
+  before: ReturnType<typeof scenePartSnapshot>,
+  after: ReturnType<typeof scenePartSnapshot>
+) {
+  for (const [key, previous] of before) {
+    const next = after.get(key);
+    if (next === undefined || sameSamples(previous.samples, next.samples)) continue;
+    expect(next.version, key).not.toBe(previous.version);
   }
 }
 
@@ -390,7 +461,42 @@ describe("wire wasm smoke", () => {
     expect(result.generatedSpanCount).toBeGreaterThanOrEqual(4);
   });
 
-  it("keeps HV spans when completing a T with viewer default placements", () => {
+  it("separates fresh straight HV phases by the requested lane spacing", () => {
+    const runState = createState();
+    const result = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0]),
+      hvBundlePlacement(),
+      0,
+      1,
+      0,
+      0,
+      []
+    );
+    expect(result.ok, result.error).toBe(true);
+    expect(result.generatedSpanCount).toBe(3);
+    assertStraightHvSpacing(hvEdgeBodies(runState));
+    runState.delete();
+  });
+
+  it("separates fresh viewer default HV phases before any branch completion", () => {
+    const runState = createState();
+    const result = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0]),
+      defaultBundlePlacements(),
+      0,
+      1,
+      0,
+      0,
+      []
+    );
+    expect(result.ok, result.error).toBe(true);
+    expect(result.generatedSpanCount).toBe(8);
+    assertStraightHvSpacing(hvEdgeBodies(runState));
+    assertHvSeparatedByEdge(runState);
+    runState.delete();
+  });
+
+  it("keeps every HV edge separated when completing a T and cross with viewer default placements", () => {
     const runState = createState();
     const placements = defaultBundlePlacements();
     const base = runState.generatePlacements(
@@ -404,7 +510,9 @@ describe("wire wasm smoke", () => {
     );
     expect(base.ok, base.error).toBe(true);
     expect(base.generatedSpanCount).toBe(16);
+    assertHvSeparatedByEdge(runState);
     const baseHvSpanIds = new Set(hvEdgeBodies(runState).map((part) => part.info.sourceSpanId));
+    const baseSnapshot = scenePartSnapshot(runState);
 
     const poleB = runState.pole(1);
     const bd = runState.generatePlacements(
@@ -423,8 +531,10 @@ describe("wire wasm smoke", () => {
     const bdHvParts = afterBdHvParts.filter((part) => !baseHvSpanIds.has(part.info.sourceSpanId));
     expect(bdHvParts).toHaveLength(3);
     expect(uniqueRounded(bdHvParts.map((part) => part.info.laneIndex))).toHaveLength(3);
-    assertSeparatedStarts(bdHvParts, 0.1);
+    assertHvSeparatedByEdge(runState);
     const bdHvSpanIds = new Set(afterBdHvParts.map((part) => part.info.sourceSpanId));
+    const bdSnapshot = scenePartSnapshot(runState);
+    expectSamplesChangedOnlyWithVersionChange(baseSnapshot, bdSnapshot);
 
     const eb = runState.generatePlacements(
       new Float64Array([20, 0, 0, poleB.positionX, poleB.positionY, poleB.positionZ]),
@@ -442,7 +552,8 @@ describe("wire wasm smoke", () => {
     const ebHvParts = completedHvParts.filter((part) => !bdHvSpanIds.has(part.info.sourceSpanId));
     expect(ebHvParts).toHaveLength(3);
     expect(uniqueRounded(ebHvParts.map((part) => part.info.laneIndex))).toHaveLength(3);
-    assertSeparatedStarts(ebHvParts, 0.1);
+    assertHvSeparatedByEdge(runState);
+    expectSamplesChangedOnlyWithVersionChange(bdSnapshot, scenePartSnapshot(runState));
     runState.delete();
   });
 

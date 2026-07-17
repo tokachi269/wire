@@ -9,6 +9,8 @@ import {
 } from "../src/render/scene";
 import { modelAssetCache } from "../src/render/modelAssets";
 import { createViewerSnapshot } from "../src/store/viewer";
+import { loadWireModule } from "../src/bridge/wasm";
+import type { BundlePlacement } from "../src/model";
 
 function rotateCoreXyz(value: THREE.Vector3, xDeg: number, yDeg: number, zDeg: number): THREE.Vector3 {
   const radians = [xDeg, yDeg, zDeg].map(THREE.MathUtils.degToRad);
@@ -124,16 +126,6 @@ describe("scene part reuse", () => {
     expect(scene.partMeshes.get("edge:1:lane:0").mesh).not.toBe(first);
     expect(scene.partMeshes.get("edge:2:lane:0").mesh).toBe(second);
 
-    const rebuiltFirst = scene.partMeshes.get("edge:1:lane:0").mesh;
-    snapshot.parts[0].samples = new Float64Array([0, 3, 0, 10, 3, 0]);
-    expect(scene.syncContent(snapshot)).toBe(true);
-    expect(scene.contentSyncStats).toEqual({
-      total: 2, reused: 1, rebuilt: 1, removed: 0,
-      modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
-    });
-    expect(scene.partMeshes.get("edge:1:lane:0").mesh).not.toBe(rebuiltFirst);
-    expect(scene.partMeshes.get("edge:2:lane:0").mesh).toBe(second);
-
     snapshot.parts.splice(1, 1);
     expect(scene.syncContent(snapshot)).toBe(true);
     expect(scene.contentSyncStats).toEqual({
@@ -188,6 +180,70 @@ describe("scene part reuse", () => {
     snapshot.parts[1].info.sourceVersion = "2";
     expect(scene.syncContent(snapshot)).toBe(true);
     expect(scene.partMeshes.get("support-a").mesh.material).toBe(supportB);
+  });
+});
+
+function defaultHvPlacement(): BundlePlacement[] {
+  return [{
+    id: 1,
+    bundleTemplateId: 101,
+    count: 3,
+    explicit: true,
+    height: 9.2,
+    offset: -0.2,
+    spacing: 0.45
+  }];
+}
+
+describe("scene geometry from wasm", () => {
+  it("creates three distinct HV meshes on the first sync from a fresh wasm snapshot", async () => {
+    const module = await loadWireModule();
+    const state = new module.WireState();
+    const generated = state.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0]),
+      defaultHvPlacement(),
+      0,
+      1,
+      0,
+      0,
+      []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const visual = state.visualScene();
+    const sceneSamples = new Float64Array(visual.samples);
+    const snapshot = createViewerSnapshot();
+    snapshot.parts = visual.parts.map((info) => ({
+      info,
+      samples: sceneSamples.subarray(info.sampleOffset, info.sampleOffset + info.sampleCount * 3)
+    }));
+
+    const scene = Object.create(WireScene.prototype) as any;
+    scene.content = new THREE.Group();
+    scene.partMeshes = new Map();
+    scene.modelObjects = new Map();
+    scene.pendingModelKeys = new Set();
+    scene.poleMeshes = new Map();
+    scene.supportWireMaterial = null;
+
+    expect(scene.syncContent(snapshot)).toBe(true);
+    const hvKeys = snapshot.parts
+      .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 101)
+      .map((part) => part.info.partKey);
+    expect(hvKeys).toHaveLength(3);
+    expect(new Set(hvKeys).size).toBe(3);
+
+    const centers = hvKeys.map((key) => {
+      const mesh = scene.partMeshes.get(key).mesh as THREE.Mesh;
+      mesh.geometry.computeBoundingBox();
+      const center = new THREE.Vector3();
+      mesh.geometry.boundingBox!.getCenter(center);
+      return center;
+    });
+    expect(new Set(centers.map((center) => center.y.toFixed(3)))).toEqual(
+      new Set(["-0.650", "-0.200", "0.250"])
+    );
+    state.delete();
   });
 });
 

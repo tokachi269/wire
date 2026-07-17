@@ -596,18 +596,6 @@ export class WireScene {
     return `${points};${specs}`;
   }
 
-  private partSampleSignature(samples: Float64Array): string {
-    let hash = 2166136261;
-    for (const value of samples) {
-      const scaled = Math.round(value * 1000000);
-      hash ^= scaled & 0xffff;
-      hash = Math.imul(hash, 16777619) >>> 0;
-      hash ^= (scaled >> 16) & 0xffff;
-      hash = Math.imul(hash, 16777619) >>> 0;
-    }
-    return `${samples.length}:${hash.toString(36)}`;
-  }
-
   private syncContent(snapshot: ViewerSnapshot): boolean {
     let changed = false;
     let reused = 0;
@@ -621,8 +609,7 @@ export class WireScene {
         part.info.sourceVersion,
         part.info.wireRadius,
         part.info.colorRgba,
-        part.info.sampleCount,
-        this.partSampleSignature(part.samples)
+        part.info.sampleCount
       ].join(":");
       const previous = this.partMeshes.get(key);
       if (previous?.version === version) {

@@ -544,6 +544,17 @@ std::uint64_t span_source_version(const CoreState& state, ObjectId span_id) {
   return runtime == nullptr ? 0 : runtime->data_version;
 }
 
+std::uint64_t quantized_source_value(double value) {
+  return static_cast<std::uint64_t>(std::llround(value * 1'000'000'000.0));
+}
+
+std::uint64_t body_source_version(std::uint64_t span_version, double start_u, double end_u) {
+  std::uint64_t version = hash_combine(0, span_version);
+  version = hash_combine(version, quantized_source_value(start_u));
+  version = hash_combine(version, quantized_source_value(end_u));
+  return version == 0 ? 1 : version;
+}
+
 layout merged_visual_curve_layouts(const CoreState& state, const layout& made) {
   layout merged{};
   merged.entries = made.entries;
@@ -1086,7 +1097,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       if (const SpanRuntimeState* runtime =
               state.view().find_span_runtime_state(entry.key.logical_span_id);
           runtime != nullptr) {
-        body.source_version = runtime->data_version;
+        body.source_version = body_source_version(runtime->data_version, start_u, end_u);
       }
       out.parts.push_back(std::move(body));
     }

@@ -1177,6 +1177,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental extension from a completed cross preserves existing spans",
                          "Invariant", false,
                          C781_backbone_incremental_cross_extension_preserves_existing_spans);
+  test_registry::AddTest(tests, "C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_are_ambiguous",
+                         "incremental sharp extension adds an open row instead of choosing among ambiguous sharp candidates",
+                         "Invariant", false,
+                         C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_are_ambiguous);
 }
 
 

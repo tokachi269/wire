@@ -1172,6 +1172,10 @@ bool is_saved_pair_continuation(const CoreState& state, const node& n, const lin
          has_saved_pair_row_for_edges(state, n.saved, a.saved, b.saved);
 }
 
+bool is_sharp_corner_continuation(const link& incoming, const link& outgoing) {
+  return interior_angle_deg(incoming, outgoing) <= kSharpCornerInteriorAngleMaxDeg + 1e-6;
+}
+
 bool moved_more_than_epsilon(const Vec3d& lhs, const Vec3d& rhs) {
   const Vec3d d = lhs - rhs;
   return d.x * d.x + d.y * d.y + d.z * d.z > 1e-18;
@@ -1959,16 +1963,18 @@ EditResult<pairs> pipeline::make(const graph& made) const {
 
     for (std::size_t right : outgoing) {
       int candidates = 0;
+      int sharp_candidates = 0;
       int promoted_candidates = 0;
       for (std::size_t left : incoming) {
         const link& a = out.value.links[left];
         const link& b = out.value.links[right];
         if (is_continuation(a, b)) {
           ++candidates;
+          sharp_candidates += is_sharp_corner_continuation(a, b) ? 1 : 0;
           promoted_candidates += is_promoted_open_continuation(state_, n, a, b) ? 1 : 0;
         }
       }
-      if (candidates > 1) {
+      if (candidates > 1 && sharp_candidates != 1 && sharp_candidates != candidates) {
         return unsupported_pairs(promoted_candidates > 1 ? "ambiguous promoted open edge"
                                                          : "route continuity is ambiguous");
       }
@@ -1978,6 +1984,22 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       if (bused[left]) {
         continue;
       }
+      int candidate_count = 0;
+      int sharp_candidate_count = 0;
+      for (std::size_t right : outgoing) {
+        if (aused[right]) {
+          continue;
+        }
+        const link& a = out.value.links[left];
+        const link& b = out.value.links[right];
+        if (!is_continuation(a, b)) {
+          continue;
+        }
+        ++candidate_count;
+        sharp_candidate_count += is_sharp_corner_continuation(a, b) ? 1 : 0;
+      }
+      const bool all_candidates_are_sharp =
+          candidate_count > 1 && sharp_candidate_count == candidate_count;
       std::size_t matched = bad;
       for (std::size_t right : outgoing) {
         if (aused[right]) {
@@ -1987,6 +2009,19 @@ EditResult<pairs> pipeline::make(const graph& made) const {
         const link& b = out.value.links[right];
         if (!is_continuation(a, b)) {
           continue;
+        }
+        const bool current_sharp = is_sharp_corner_continuation(a, b);
+        if (all_candidates_are_sharp && current_sharp) {
+          continue;
+        }
+        if (matched != bad) {
+          const bool matched_sharp = is_sharp_corner_continuation(a, out.value.links[matched]);
+          if (current_sharp != matched_sharp) {
+            if (current_sharp) {
+              matched = right;
+            }
+            continue;
+          }
         }
         if (matched != bad) {
           const link& previous = out.value.links[matched];

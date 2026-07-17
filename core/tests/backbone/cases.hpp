@@ -389,5 +389,6 @@ bool C778_backbone_incremental_multi_bundle_completion_promotes_each_scope_once(
 bool C779_backbone_incremental_same_template_multi_placement_uses_placement_key();
 bool C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key();
 bool C781_backbone_incremental_cross_extension_preserves_existing_spans();
+bool C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_are_ambiguous();
 
 } // namespace backbone_tests

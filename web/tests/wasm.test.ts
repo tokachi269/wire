@@ -145,6 +145,30 @@ function assertThreeYSpacing(points: Array<[number, number, number]>, spacing: n
   expect(Number((ys[2] - ys[1]).toFixed(3))).toBe(spacing);
 }
 
+function assertModelHvInsulatorsSeparatedByPole(state: WireStateHandle) {
+  const ports = new Map<string, { ownerPoleId: string }>();
+  for (let index = 0; index < state.portCount(); index += 1) {
+    const port = state.port(index);
+    ports.set(port.id, { ownerPoleId: port.ownerPoleId });
+  }
+  const groups = new Map<string, Array<[number, number, number]>>();
+  for (const model of state.visualScene().models) {
+    if (model.modelKey !== "hv_insulator") continue;
+    const match = /^port:([^:]+):/.exec(model.stableKey);
+    expect(match, model.stableKey).not.toBeNull();
+    const port = ports.get(match![1]);
+    expect(port, model.stableKey).toBeDefined();
+    const group = groups.get(port!.ownerPoleId) ?? [];
+    group.push(modelPosition(model));
+    groups.set(port!.ownerPoleId, group);
+  }
+  expect(groups.size).toBeGreaterThan(0);
+  for (const points of groups.values()) {
+    expect(points.length % 3).toBe(0);
+    assertSeparatedPoints(points, 0.05);
+  }
+}
+
 function assertHvSeparatedByEdge(state: WireStateHandle) {
   const groups = new Map<string, ReturnType<typeof visualParts>>();
   for (const part of hvEdgeBodies(state)) {
@@ -535,6 +559,8 @@ describe("wire wasm smoke", () => {
 
   it("keeps every HV edge separated when completing a T and cross with viewer default placements", () => {
     const runState = createState();
+    const configured = runState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
     const placements = defaultBundlePlacements();
     const base = runState.generatePlacements(
       new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
@@ -548,6 +574,7 @@ describe("wire wasm smoke", () => {
     expect(base.ok, base.error).toBe(true);
     expect(base.generatedSpanCount).toBe(16);
     assertHvSeparatedByEdge(runState);
+    assertModelHvInsulatorsSeparatedByPole(runState);
     const baseHvSpanIds = new Set(hvEdgeBodies(runState).map((part) => part.info.sourceSpanId));
     const baseSnapshot = scenePartSnapshot(runState);
 
@@ -569,6 +596,7 @@ describe("wire wasm smoke", () => {
     expect(bdHvParts).toHaveLength(3);
     expect(uniqueRounded(bdHvParts.map((part) => part.info.laneIndex))).toHaveLength(3);
     assertHvSeparatedByEdge(runState);
+    assertModelHvInsulatorsSeparatedByPole(runState);
     const bdHvSpanIds = new Set(afterBdHvParts.map((part) => part.info.sourceSpanId));
     const bdSnapshot = scenePartSnapshot(runState);
     expectSamplesChangedOnlyWithVersionChange(baseSnapshot, bdSnapshot);
@@ -590,6 +618,7 @@ describe("wire wasm smoke", () => {
     expect(ebHvParts).toHaveLength(3);
     expect(uniqueRounded(ebHvParts.map((part) => part.info.laneIndex))).toHaveLength(3);
     assertHvSeparatedByEdge(runState);
+    assertModelHvInsulatorsSeparatedByPole(runState);
     expectSamplesChangedOnlyWithVersionChange(bdSnapshot, scenePartSnapshot(runState));
     runState.delete();
   });

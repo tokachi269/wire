@@ -630,6 +630,67 @@ bool same_scope(const CoreState& state, const SavedBackbonePortBinding& binding,
   return edge_bundle != nullptr && edge_bundle->bundle_id == scope.bundle_id;
 }
 
+bool compatible_port_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
+  return binding.bundle_template_id == scope.bundle && binding.port_kind == scope.kind &&
+         binding.port_layer == scope.layer && binding.placement_band_id == scope.placement_band_id;
+}
+
+bool is_open_row_for_edge(const SavedBackboneRowKey& row_key, ObjectId node_id, ObjectId edge_id) {
+  return row_key.node_id == node_id && row_key.source_is_open && row_key.source_edge_a == edge_id &&
+         row_key.source_edge_b == kInvalidObjectId;
+}
+
+bool has_saved_open_row_for_edge(const CoreState& state, ObjectId node_id, ObjectId edge_id) {
+  if (node_id == kInvalidObjectId || edge_id == kInvalidObjectId) {
+    return false;
+  }
+  for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (is_open_row_for_edge(binding.row_key, node_id, edge_id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool has_saved_open_row_at_node(const CoreState& state, ObjectId node_id) {
+  if (node_id == kInvalidObjectId) {
+    return false;
+  }
+  for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (binding.row_key.node_id == node_id && binding.row_key.source_is_open) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool has_saved_pair_row_for_edge(const CoreState& state, ObjectId node_id, ObjectId edge_id) {
+  if (node_id == kInvalidObjectId || edge_id == kInvalidObjectId) {
+    return false;
+  }
+  for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (binding.row_key.node_id != node_id || binding.row_key.source_is_open) {
+      continue;
+    }
+    if (binding.row_key.source_edge_a == edge_id || binding.row_key.source_edge_b == edge_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool has_saved_pair_row_at_node(const CoreState& state, ObjectId node_id) {
+  if (node_id == kInvalidObjectId) {
+    return false;
+  }
+  for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (binding.row_key.node_id == node_id && !binding.row_key.source_is_open) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool makes_pole(const node& item) {
   return item.support == SupportKind::kPole && item.is_new;
 }
@@ -737,6 +798,65 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
     found = port->id;
   }
   out.value = found;
+  if (found != kInvalidObjectId || row_key.source_is_open ||
+      row_key.source_edge_b == kInvalidObjectId) {
+    return out;
+  }
+
+  ObjectId promoted_open_port = kInvalidObjectId;
+  for (ObjectId edge_id : {row_key.source_edge_a, row_key.source_edge_b}) {
+    SavedBackboneRowKey open_key{};
+    open_key.node_id = row_key.node_id;
+    open_key.source_is_open = true;
+    open_key.source_edge_a = edge_id;
+    for (const SavedBackbonePortBinding* binding : state.view().backbone_port_bindings_for_row(open_key, lane_index)) {
+      if (binding == nullptr || !compatible_port_scope(*binding, scope)) {
+        continue;
+      }
+      const Port* port = state.view().ports().find(binding->port_id);
+      if (port == nullptr || port->owner_pole_id != pole_id || port->kind != scope.kind || port->layer != scope.layer) {
+        continue;
+      }
+      if (promoted_open_port != kInvalidObjectId && promoted_open_port != port->id) {
+        out.error = "backbone unsupported: ambiguous promoted open row binding";
+        out.ok = false;
+        return out;
+      }
+      promoted_open_port = port->id;
+    }
+  }
+  out.value = promoted_open_port;
+  return out;
+}
+
+EditResult<ObjectId> resolve_promoted_open_port_binding(const CoreState& state, ObjectId pole_id,
+                                                        ObjectId node_id, ObjectId edge_id,
+                                                        std::size_t lane_index, port_scope scope) {
+  EditResult<ObjectId> out{};
+  out.value = kInvalidObjectId;
+  out.ok = true;
+  if (pole_id == kInvalidObjectId || node_id == kInvalidObjectId || edge_id == kInvalidObjectId) {
+    return out;
+  }
+  SavedBackboneRowKey open_key{};
+  open_key.node_id = node_id;
+  open_key.source_is_open = true;
+  open_key.source_edge_a = edge_id;
+  for (const SavedBackbonePortBinding* binding : state.view().backbone_port_bindings_for_row(open_key, lane_index)) {
+    if (binding == nullptr || !compatible_port_scope(*binding, scope)) {
+      continue;
+    }
+    const Port* port = state.view().ports().find(binding->port_id);
+    if (port == nullptr || port->owner_pole_id != pole_id || port->kind != scope.kind || port->layer != scope.layer) {
+      continue;
+    }
+    if (out.value != kInvalidObjectId && out.value != port->id) {
+      out.error = "backbone unsupported: ambiguous promoted open row binding";
+      out.ok = false;
+      return out;
+    }
+    out.value = port->id;
+  }
   return out;
 }
 
@@ -968,6 +1088,40 @@ std::size_t add_pair(pairs* out, std::size_t node_id, std::size_t left, std::siz
 double interior_angle_deg(const link& incoming, const link& outgoing) {
   const double dot = std::clamp(Dot(ScaleVec(incoming.dir, -1.0), outgoing.dir), -1.0, 1.0);
   return std::acos(dot) * kRadiansToDegrees;
+}
+
+Vec3d away_from_node(const link& edge, std::size_t node_id) {
+  if (edge.a == node_id) {
+    return edge.dir;
+  }
+  if (edge.b == node_id) {
+    return ScaleVec(edge.dir, -1.0);
+  }
+  return {};
+}
+
+std::uint64_t canonical_edge_order_key(const link& edge) {
+  if (edge.saved != kInvalidObjectId) {
+    return static_cast<std::uint64_t>(edge.saved);
+  }
+  return (std::uint64_t{1} << 63) + static_cast<std::uint64_t>(edge.id);
+}
+
+Vec3d canonical_pair_axis(const link& a, const link& b, std::size_t node_id) {
+  const bool a_low = canonical_edge_order_key(a) < canonical_edge_order_key(b);
+  const Vec3d low = away_from_node(a_low ? a : b, node_id);
+  const Vec3d high = away_from_node(a_low ? b : a, node_id);
+  return high - low;
+}
+
+bool is_promoted_open_continuation(const CoreState& state, const node& n, const link& a, const link& b) {
+  if (!n.on_route || a.route == b.route || (a.route != 0 && b.route != 0) || a.is_new == b.is_new) {
+    return false;
+  }
+  const link& context = a.is_new ? b : a;
+  return context.saved != kInvalidObjectId && n.saved != kInvalidObjectId &&
+         has_saved_open_row_for_edge(state, n.saved, context.saved) &&
+         interior_angle_deg(a, b) > 1e-6;
 }
 
 bool moved_more_than_epsilon(const Vec3d& lhs, const Vec3d& rhs) {
@@ -1536,10 +1690,16 @@ EditResult<bool> pipeline::prepare() {
         continue;
       }
       bool reversed_context = false;
+      const bool has_open_and_pair =
+          has_saved_open_row_at_node(state_, n.saved) && has_saved_pair_row_at_node(state_, n.saved);
+      const bool preserve_open_direction =
+          has_open_and_pair &&
+          (has_saved_open_row_for_edge(state_, n.saved, saved->edge_id) ||
+           has_saved_pair_row_for_edge(state_, n.saved, saved->edge_id));
       // A route endpoint with exactly one saved incident edge is a continuation candidate.
       // Orient that context edge toward the route start or away from the route end so pairs
       // can decide continuity without changing saved edge direction or identity.
-      if ((i == 0 && b != n.id) || (i + 1 == route_node_count && a != n.id)) {
+      if (!preserve_open_direction && ((i == 0 && b != n.id) || (i + 1 == route_node_count && a != n.id))) {
         std::swap(a, b);
         reversed_context = true;
       }
@@ -1744,12 +1904,9 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     };
     std::sort(incoming.begin(), incoming.end(), link_less);
     std::sort(outgoing.begin(), outgoing.end(), link_less);
-    const bool degree_two = incoming.size() + outgoing.size() == 2;
     auto is_continuation = [&](const link& a, const link& b) {
       const bool same_route = a.route == b.route && a.order + 1 == b.order;
-      const bool terminal_extension =
-          degree_two && n.on_route && a.route != b.route && (a.route == 0 || b.route == 0) &&
-          interior_angle_deg(a, b) > 1e-6;
+      const bool terminal_extension = is_promoted_open_continuation(state_, n, a, b);
       return same_route || terminal_extension;
     };
 
@@ -1814,7 +1971,10 @@ EditResult<pairs> pipeline::make(const graph& made) const {
         out.value.jumpers.push_back(jumper{n.id, left_row, right_row, interior_angle, node_forward});
         continue;
       }
-      Vec3d pair_axis = out.value.links[left].dir + out.value.links[matched].dir;
+      const bool promoted_open_pair = is_promoted_open_continuation(state_, n, a, b);
+      Vec3d pair_axis = promoted_open_pair
+                            ? canonical_pair_axis(out.value.links[left], out.value.links[matched], n.id)
+                            : out.value.links[left].dir + out.value.links[matched].dir;
       if (!NormalizeXY(&pair_axis)) {
         return unsupported_pairs("zero length pair tangent sum");
       }
@@ -2542,6 +2702,32 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           out.error = resolved.error;
           return out;
         }
+        if (resolved.value == kInvalidObjectId && !tr.source.is_open && tr.source.id < ps.joins.size()) {
+          const pair& join = ps.joins[tr.source.id];
+          const link* left = join.left < ps.links.size() ? &ps.links[join.left] : nullptr;
+          const link* right = join.right < ps.links.size() ? &ps.links[join.right] : nullptr;
+          const link* existing = nullptr;
+          const link* created = nullptr;
+          if (left != nullptr && right != nullptr) {
+            if (!left->is_new && right->is_new) {
+              existing = left;
+              created = right;
+            } else if (left->is_new && !right->is_new) {
+              existing = right;
+              created = left;
+            }
+          }
+          if (existing != nullptr && created != nullptr && existing->saved != kInvalidObjectId &&
+              tr.node < node_id_by_local.size()) {
+            resolved = resolve_promoted_open_port_binding(
+                state_, tr.pole, node_id_by_local[tr.node], existing->saved,
+                static_cast<std::size_t>(lane), scope);
+            if (!resolved.ok) {
+              out.error = resolved.error;
+              return out;
+            }
+          }
+        }
         if (resolved.value != kInvalidObjectId) {
           Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
           if (existing_port == nullptr) {
@@ -2753,15 +2939,26 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
         out.error = "backbone graph: port missing for binding";
         return false;
       }
+      const int placement_band_id =
+          span.bundle < made.rows[row_index].placement_band_ids.size() &&
+                  span.lane < made.rows[row_index].placement_band_ids[span.bundle].size()
+              ? made.rows[row_index].placement_band_ids[span.bundle][span.lane]
+              : 0;
+      const port_scope scope{bundle->bundle_template_id, made.bundles[span.bundle], port->kind,
+                             port->layer, placement_band_id};
+      const double layout_yaw_deg = PortLayoutYawDeg(made.rows[row_index].axis);
+      EditResult<bool> promoted =
+          state_.promote_backbone_open_port_binding(row_key, span.lane, bundle->bundle_template_id,
+                                                    port->kind, port->layer, placement_band_id,
+                                                    layout_yaw_deg, port->id);
+      if (!promoted.ok) {
+        out.error = promoted.error;
+        return false;
+      }
       EditResult<bool> bound =
           state_.bind_backbone_port(edge_bundle_id, row_key, span.lane, bundle->bundle_template_id, port->kind,
-                                    port->layer,
-                                    span.bundle < made.rows[row_index].placement_band_ids.size() &&
-                                            span.lane < made.rows[row_index].placement_band_ids[span.bundle].size()
-                                        ? made.rows[row_index].placement_band_ids[span.bundle][span.lane]
-                                        : 0,
-                                    PortLayoutYawDeg(made.rows[row_index].axis),
-                                    port->id);
+                                    port->layer, placement_band_id,
+                                    layout_yaw_deg, port->id);
       if (!bound.ok) {
         out.error = bound.error;
         return false;

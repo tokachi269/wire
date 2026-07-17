@@ -15,6 +15,11 @@ namespace wire::core {
 
 namespace {
 
+bool is_open_row_for_edge(const SavedBackboneRowKey& row_key, ObjectId node_id, ObjectId edge_id) {
+  return row_key.node_id == node_id && row_key.source_is_open && row_key.source_edge_a == edge_id &&
+         row_key.source_edge_b == kInvalidObjectId;
+}
+
 } // namespace
 
 ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, SupportKind support_kind,
@@ -258,6 +263,48 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
   authoritative_.backbone.port_bindings.push_back(binding);
   runtime_.backbone_index.edge_bundle_ports[edge_bundle_id].push_back(index);
   runtime_.backbone_index.port_bindings_by_port[port_id].push_back(index);
+  out.value = true;
+  out.ok = true;
+  return out;
+}
+
+EditResult<bool> CoreState::promote_backbone_open_port_binding(
+    const SavedBackboneRowKey& pair_key, std::size_t lane_index,
+    BundleTemplateId bundle_template_id, PortKind port_kind, PortLayer port_layer,
+    int placement_band_id, double layout_yaw_deg, ObjectId port_id) {
+  EditResult<bool> out{};
+  out.value = false;
+  if (pair_key.source_is_open || pair_key.node_id == kInvalidObjectId ||
+      pair_key.source_edge_a == kInvalidObjectId || pair_key.source_edge_b == kInvalidObjectId ||
+      port_id == kInvalidObjectId) {
+    out.ok = true;
+    return out;
+  }
+  std::size_t match_index = static_cast<std::size_t>(-1);
+  for (std::size_t i = 0; i < authoritative_.backbone.port_bindings.size(); ++i) {
+    SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[i];
+    if (binding.port_id != port_id || binding.lane_index != lane_index ||
+        binding.bundle_template_id != bundle_template_id || binding.port_kind != port_kind ||
+        binding.port_layer != port_layer || binding.placement_band_id != placement_band_id) {
+      continue;
+    }
+    if (!is_open_row_for_edge(binding.row_key, pair_key.node_id, pair_key.source_edge_a) &&
+        !is_open_row_for_edge(binding.row_key, pair_key.node_id, pair_key.source_edge_b)) {
+      continue;
+    }
+    if (match_index != static_cast<std::size_t>(-1)) {
+      out.error = "backbone unsupported: ambiguous promoted open row binding";
+      return out;
+    }
+    match_index = i;
+  }
+  if (match_index == static_cast<std::size_t>(-1)) {
+    out.ok = true;
+    return out;
+  }
+  SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[match_index];
+  binding.row_key = pair_key;
+  binding.layout_yaw_deg = NormalizeYawDeg(layout_yaw_deg);
   out.value = true;
   out.ok = true;
   return out;

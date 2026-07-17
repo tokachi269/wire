@@ -378,5 +378,6 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change();
 bool C767_default_hv_emits_one_support_path_per_phase_span();
 bool C769_bundle_placements_duplicate_template_as_independent_bundles();
 bool C770_backbone_bundle_placement_update_preserves_cross_row_height();
+bool C771_backbone_incremental_cross_completion_matches_one_shot_rows();
 
 } // namespace backbone_tests

@@ -1133,6 +1133,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Bundle placement height updates preserve crossing row height and move row fixtures",
                          "Invariant", false,
                          C770_backbone_bundle_placement_update_preserves_cross_row_height);
+  test_registry::AddTest(tests, "C771_backbone_incremental_cross_completion_matches_one_shot_rows",
+                         "incremental cross completion canonicalizes saved pair rows like one-shot generation",
+                         "Invariant", false,
+                         C771_backbone_incremental_cross_completion_matches_one_shot_rows);
 }
 
 

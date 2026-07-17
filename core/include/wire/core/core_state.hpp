@@ -177,6 +177,11 @@ private:
                                       std::size_t lane_index, BundleTemplateId bundle_template_id, PortKind port_kind,
                                       PortLayer port_layer, int placement_band_id, double layout_yaw_deg,
                                       ObjectId port_id);
+  EditResult<bool> promote_backbone_open_port_binding(const SavedBackboneRowKey& pair_key,
+                                                      std::size_t lane_index,
+                                                      BundleTemplateId bundle_template_id, PortKind port_kind,
+                                                      PortLayer port_layer, int placement_band_id,
+                                                      double layout_yaw_deg, ObjectId port_id);
   enum class BackboneRegenerateCause : std::uint8_t {
     kBundleCount,
     kBundleTopology,

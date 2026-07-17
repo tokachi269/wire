@@ -369,6 +369,7 @@ struct Bundle {
   double height_m = 0.0;
   double lateral_m = 0.0;
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+  std::uint64_t placement_key = 0;
 };
 
 // Entity-layer connection edge.

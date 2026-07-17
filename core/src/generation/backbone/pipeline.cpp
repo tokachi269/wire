@@ -135,6 +135,13 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
     out.ok = true;
     return out;
   }
+  EditResult<std::vector<PromotionPlanEntry>> promotions =
+      timed(timing, &GenerationTiming::preflight_ms, [&] { return plan_promotions(ps.value); });
+  if (!promotions.ok) {
+    out.error = promotions.error;
+    return out;
+  }
+  promotion_plan_ = std::move(promotions.value);
 
   EditResult<groups> placement =
       timed(timing, &GenerationTiming::support_groups_ms, [&] { return make(ps.value, intents.value); });
@@ -300,6 +307,7 @@ struct spec_view {
 struct port_scope {
   BundleTemplateId bundle = kInvalidBundleTemplateId;
   ObjectId bundle_id = kInvalidObjectId;
+  std::uint64_t placement_key = 0;
   PortKind kind = PortKind::kGeneric;
   PortLayer layer = PortLayer::kUnknown;
   int placement_band_id = 0;
@@ -505,6 +513,10 @@ ObjectId resolve_existing_bundle(const CoreState& state, const graph& made, cons
       if (bundle == nullptr || bundle->bundle_template_id != spec.bundle_template_id) {
         continue;
       }
+      if (spec.placement_key != 0 && bundle->placement_key != 0 &&
+          bundle->placement_key != spec.placement_key) {
+        continue;
+      }
       if (edge_bundle_match != kInvalidObjectId && edge_bundle_match != bundle->id) {
         return kInvalidObjectId;
       }
@@ -553,29 +565,6 @@ SavedBackboneRowKey key_for(const pairs& ps, const trow& row, const std::vector<
   return key;
 }
 
-ObjectId promoted_open_edge_for_row(const CoreState& state, const pairs& ps, const trow& row,
-                                    const std::vector<ObjectId>& node_id_by_local,
-                                    const std::vector<SavedBackboneEdgeRef>& edge_by_link) {
-  if (row.source.is_open || row.source.id >= ps.joins.size() || row.node >= node_id_by_local.size()) {
-    return kInvalidObjectId;
-  }
-  const pair& join = ps.joins[row.source.id];
-  const link* left = join.left < ps.links.size() ? &ps.links[join.left] : nullptr;
-  const link* right = join.right < ps.links.size() ? &ps.links[join.right] : nullptr;
-  if (left == nullptr || right == nullptr || left->is_new == right->is_new) {
-    return kInvalidObjectId;
-  }
-  const link* existing = left->is_new ? right : left;
-  if (existing->saved == kInvalidObjectId || !has_saved_open_row_for_edge(state, node_id_by_local[row.node], existing->saved)) {
-    return kInvalidObjectId;
-  }
-  const std::size_t created_link = left->is_new ? join.left : join.right;
-  if (created_link >= edge_by_link.size() || edge_by_link[created_link].edge_id == kInvalidObjectId) {
-    return kInvalidObjectId;
-  }
-  return existing->saved;
-}
-
 SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& made, const link& edge) {
   SavedBackboneEdgeRef out{};
   (void)made;
@@ -610,6 +599,10 @@ ObjectId source_edge_bundle_for(const CoreState& state, ObjectId edge_id,
     const SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(edge_bundle_id);
     const Bundle* bundle = edge_bundle == nullptr ? nullptr : state.view().bundles().find(edge_bundle->bundle_id);
     if (bundle == nullptr || bundle->bundle_template_id != bundle_spec.bundle_template_id) {
+      continue;
+    }
+    if (bundle_spec.placement_key != 0 && bundle->placement_key != 0 &&
+        bundle->placement_key != bundle_spec.placement_key) {
       continue;
     }
     if (matched != kInvalidObjectId) {
@@ -649,15 +642,16 @@ bool same_scope(const CoreState& state, const SavedBackbonePortBinding& binding,
     return false;
   }
   if (scope.bundle_id == kInvalidObjectId) {
-    return true;
+    if (scope.placement_key == 0) {
+      return true;
+    }
+    const SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(binding.edge_bundle_id);
+    const Bundle* bundle = edge_bundle == nullptr ? nullptr : state.view().bundles().find(edge_bundle->bundle_id);
+    return bundle != nullptr &&
+           (bundle->placement_key == 0 || bundle->placement_key == scope.placement_key);
   }
   const SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(binding.edge_bundle_id);
   return edge_bundle != nullptr && edge_bundle->bundle_id == scope.bundle_id;
-}
-
-bool compatible_port_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
-  return binding.bundle_template_id == scope.bundle && binding.port_kind == scope.kind &&
-         binding.port_layer == scope.layer && binding.placement_band_id == scope.placement_band_id;
 }
 
 bool is_open_row_for_edge(const SavedBackboneRowKey& row_key, ObjectId node_id, ObjectId edge_id) {
@@ -838,37 +832,6 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
     found = port->id;
   }
   out.value = found;
-  return out;
-}
-
-EditResult<ObjectId> resolve_promoted_open_port_binding(const CoreState& state, ObjectId pole_id,
-                                                        ObjectId node_id, ObjectId edge_id,
-                                                        std::size_t lane_index, port_scope scope) {
-  EditResult<ObjectId> out{};
-  out.value = kInvalidObjectId;
-  out.ok = true;
-  if (pole_id == kInvalidObjectId || node_id == kInvalidObjectId || edge_id == kInvalidObjectId) {
-    return out;
-  }
-  SavedBackboneRowKey open_key{};
-  open_key.node_id = node_id;
-  open_key.source_is_open = true;
-  open_key.source_edge_a = edge_id;
-  for (const SavedBackbonePortBinding* binding : state.view().backbone_port_bindings_for_row(open_key, lane_index)) {
-    if (binding == nullptr || !compatible_port_scope(*binding, scope)) {
-      continue;
-    }
-    const Port* port = state.view().ports().find(binding->port_id);
-    if (port == nullptr || port->owner_pole_id != pole_id || port->kind != scope.kind || port->layer != scope.layer) {
-      continue;
-    }
-    if (out.value != kInvalidObjectId && out.value != port->id) {
-      out.error = "backbone unsupported: ambiguous promoted open row binding";
-      out.ok = false;
-      return out;
-    }
-    out.value = port->id;
-  }
   return out;
 }
 
@@ -1947,15 +1910,18 @@ EditResult<pairs> pipeline::make(const graph& made) const {
 
     for (std::size_t right : outgoing) {
       int candidates = 0;
+      int promoted_candidates = 0;
       for (std::size_t left : incoming) {
         const link& a = out.value.links[left];
         const link& b = out.value.links[right];
         if (is_continuation(a, b)) {
           ++candidates;
+          promoted_candidates += is_promoted_open_continuation(state_, n, a, b) ? 1 : 0;
         }
       }
       if (candidates > 1) {
-        return unsupported_pairs("route continuity is ambiguous");
+        return unsupported_pairs(promoted_candidates > 1 ? "ambiguous promoted open edge"
+                                                         : "route continuity is ambiguous");
       }
     }
 
@@ -1974,7 +1940,11 @@ EditResult<pairs> pipeline::make(const graph& made) const {
           continue;
         }
         if (matched != bad) {
-          return unsupported_pairs("route continuity is ambiguous");
+          const link& previous = out.value.links[matched];
+          const bool promoted = is_promoted_open_continuation(state_, n, a, b) ||
+                                is_promoted_open_continuation(state_, n, a, previous);
+          return unsupported_pairs(promoted ? "ambiguous promoted open edge"
+                                            : "route continuity is ambiguous");
         }
         matched = right;
       }
@@ -2176,6 +2146,7 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
       for (int lane = 0; lane < v.value.count; ++lane) {
         const PortPlacementBand& band = bands[static_cast<std::size_t>(lane)];
         const port_scope scope{bundle_spec.bundle_template_id, bundle_spec.existing_bundle_id,
+                               bundle_spec.placement_key,
                                PortKindForCategory(v.value.tmpl->category),
                                PortLayerForSpanLayer(v.value.layer), band.band_id};
         if (ownerless && g_.nodes[r.node].has_source_edge) {
@@ -2245,6 +2216,146 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
   }
   EditResult<bool> out{};
   out.value = true;
+  out.ok = true;
+  return out;
+}
+
+EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(const pairs& ps) const {
+  EditResult<std::vector<PromotionPlanEntry>> out{};
+
+  std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
+  for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
+    node_id_by_local[i] = g_.nodes[i].saved;
+  }
+
+  auto edge_bundle_for_spec = [&](ObjectId edge_id, const BackboneBundleSpec& spec,
+                                  ObjectId* bundle_id) -> EditResult<ObjectId> {
+    EditResult<ObjectId> found{};
+    found.value = kInvalidObjectId;
+    found.ok = true;
+    if (bundle_id != nullptr) {
+      *bundle_id = kInvalidObjectId;
+    }
+    const auto bundles_it = state_.view().backbone_index().edge_bundles.find(edge_id);
+    if (bundles_it == state_.view().backbone_index().edge_bundles.end()) {
+      return found;
+    }
+    for (ObjectId edge_bundle_id : bundles_it->second) {
+      const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
+      const Bundle* bundle = edge_bundle == nullptr ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
+      if (bundle == nullptr || bundle->bundle_template_id != spec.bundle_template_id) {
+        continue;
+      }
+      if (spec.placement_key != 0 && bundle->placement_key != 0 &&
+          bundle->placement_key != spec.placement_key) {
+        continue;
+      }
+      if (found.value != kInvalidObjectId) {
+        found.ok = false;
+        found.error = "backbone unsupported: ambiguous promoted bundle placement";
+        return found;
+      }
+      found.value = edge_bundle_id;
+      if (bundle_id != nullptr) {
+        *bundle_id = bundle->id;
+      }
+    }
+    return found;
+  };
+
+  auto binding_for = [&](const SavedBackboneRowKey& open_key, ObjectId edge_bundle_id,
+                         std::size_t lane_index) -> EditResult<const SavedBackbonePortBinding*> {
+    EditResult<const SavedBackbonePortBinding*> found{};
+    found.value = nullptr;
+    found.ok = true;
+    for (const SavedBackbonePortBinding* binding :
+         state_.view().backbone_port_bindings_for_row(open_key, lane_index)) {
+      if (binding == nullptr || binding->edge_bundle_id != edge_bundle_id) {
+        continue;
+      }
+      if (found.value != nullptr) {
+        found.ok = false;
+        found.error = "backbone unsupported: ambiguous promoted open row binding";
+        return found;
+      }
+      found.value = binding;
+    }
+    return found;
+  };
+
+  for (const row& r : ps.rows) {
+    if (r.source.is_open || r.source.id >= ps.joins.size() || r.node >= node_id_by_local.size()) {
+      continue;
+    }
+    const pair& join = ps.joins[r.source.id];
+    const link* left = join.left < ps.links.size() ? &ps.links[join.left] : nullptr;
+    const link* right = join.right < ps.links.size() ? &ps.links[join.right] : nullptr;
+    if (left == nullptr || right == nullptr || left->is_new == right->is_new) {
+      continue;
+    }
+    const link* existing = left->is_new ? right : left;
+    if (existing->saved == kInvalidObjectId ||
+        !has_saved_open_row_for_edge(state_, node_id_by_local[r.node], existing->saved)) {
+      continue;
+    }
+
+    SavedBackboneRowKey open_key{};
+    open_key.node_id = node_id_by_local[r.node];
+    open_key.source_is_open = true;
+    open_key.source_edge_a = existing->saved;
+
+    for (std::size_t spec_index : active_bundle_indices_) {
+      if (spec_index >= spec_.bundles.size()) {
+        out.error = "backbone unsupported: active bundle index is invalid";
+        return out;
+      }
+      const BackboneBundleSpec& spec = spec_.bundles[spec_index];
+      EditResult<spec_view> v = view_for(state_, spec);
+      if (!v.ok) {
+        out.error = v.error;
+        return out;
+      }
+      ObjectId bundle_id = kInvalidObjectId;
+      EditResult<ObjectId> edge_bundle = edge_bundle_for_spec(existing->saved, spec, &bundle_id);
+      if (!edge_bundle.ok) {
+        out.error = edge_bundle.error;
+        return out;
+      }
+      if (edge_bundle.value == kInvalidObjectId || bundle_id == kInvalidObjectId) {
+        continue;
+      }
+      for (int lane = 0; lane < v.value.count; ++lane) {
+        EditResult<const SavedBackbonePortBinding*> binding =
+            binding_for(open_key, edge_bundle.value, static_cast<std::size_t>(lane));
+        if (!binding.ok) {
+          out.error = binding.error;
+          return out;
+        }
+        if (binding.value == nullptr) {
+          continue;
+        }
+        PromotionPlanEntry entry{};
+        entry.row = r.id;
+        entry.spec_index = spec_index;
+        entry.lane_index = static_cast<std::size_t>(lane);
+        entry.old_open_row_key = open_key;
+        entry.existing_edge_bundle_id = edge_bundle.value;
+        entry.existing_bundle_id = bundle_id;
+        entry.placement_key = spec.placement_key;
+        entry.port_id = binding.value->port_id;
+        const auto duplicate = std::find_if(out.value.begin(), out.value.end(), [&](const PromotionPlanEntry& item) {
+          return item.row == entry.row && item.spec_index == entry.spec_index &&
+                 item.lane_index == entry.lane_index;
+        });
+        if (duplicate != out.value.end()) {
+          out.error = "backbone unsupported: duplicate promoted pair placement";
+          return out;
+        }
+        out.value.push_back(entry);
+      }
+    }
+  }
+
   out.ok = true;
   return out;
 }
@@ -2589,6 +2700,22 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
       out.error = v.error;
       return out;
     }
+    ObjectId promoted_bundle = kInvalidObjectId;
+    for (const PromotionPlanEntry& entry : promotion_plan_) {
+      if (entry.spec_index != spec_index) {
+        continue;
+      }
+      if (promoted_bundle != kInvalidObjectId && promoted_bundle != entry.existing_bundle_id) {
+        out.error = "backbone unsupported: promoted placement maps to multiple bundles";
+        return out;
+      }
+      promoted_bundle = entry.existing_bundle_id;
+    }
+    if (promoted_bundle != kInvalidObjectId) {
+      made->bundles.push_back(promoted_bundle);
+      made->bundle_specs.push_back(spec_index);
+      continue;
+    }
     const ObjectId resolved = resolve_existing_bundle(state_, g_, spec);
     if (resolved != kInvalidObjectId) {
       made->bundles.push_back(resolved);
@@ -2597,7 +2724,7 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
     }
     EditResult<ObjectId> bundle = state_.AddBundle(
         v.value.count, v.value.spacing_m, v.value.tmpl->id, spec.placement_explicit,
-        spec.height_m, spec.lateral_m, spec.spacing_m);
+        spec.height_m, spec.lateral_m, spec.spacing_m, spec.placement_key);
     if (!bundle.ok) {
       out.error = bundle.error;
       return out;
@@ -2697,6 +2824,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         const PortPlacementBand& band = bands[static_cast<std::size_t>(lane)];
         tr.placement_band_ids[bundle_index][static_cast<std::size_t>(lane)] = band.band_id;
         const port_scope scope{spec_.bundles[spec_index].bundle_template_id, made->bundles[bundle_index],
+                               spec_.bundles[spec_index].placement_key,
                                PortKindForCategory(v.value.tmpl->category),
                                PortLayerForSpanLayer(v.value.layer), band.band_id};
         const Vec3d row_offset = (r.id < row_offsets.size()) ? row_offsets[r.id] : Vec3d{};
@@ -2732,36 +2860,22 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
                                 spec_.constraints.lateral_offset_m, row_offset);
         }
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
-        EditResult<ObjectId> resolved =
-            resolve_port_binding(state_, tr.pole, row_key, static_cast<std::size_t>(lane), scope);
-        if (!resolved.ok) {
-          out.error = resolved.error;
-          return out;
-        }
-        if (resolved.value == kInvalidObjectId && !tr.source.is_open && tr.source.id < ps.joins.size()) {
-          const pair& join = ps.joins[tr.source.id];
-          const link* left = join.left < ps.links.size() ? &ps.links[join.left] : nullptr;
-          const link* right = join.right < ps.links.size() ? &ps.links[join.right] : nullptr;
-          const link* existing = nullptr;
-          const link* created = nullptr;
-          if (left != nullptr && right != nullptr) {
-            if (!left->is_new && right->is_new) {
-              existing = left;
-              created = right;
-            } else if (left->is_new && !right->is_new) {
-              existing = right;
-              created = left;
-            }
+        ObjectId planned_port = kInvalidObjectId;
+        for (const PromotionPlanEntry& entry : promotion_plan_) {
+          if (entry.row == r.id && entry.spec_index == spec_index &&
+              entry.lane_index == static_cast<std::size_t>(lane)) {
+            planned_port = entry.port_id;
+            break;
           }
-          if (existing != nullptr && created != nullptr && existing->saved != kInvalidObjectId &&
-              tr.node < node_id_by_local.size()) {
-            resolved = resolve_promoted_open_port_binding(
-                state_, tr.pole, node_id_by_local[tr.node], existing->saved,
-                static_cast<std::size_t>(lane), scope);
-            if (!resolved.ok) {
-              out.error = resolved.error;
-              return out;
-            }
+        }
+        EditResult<ObjectId> resolved{};
+        resolved.ok = true;
+        resolved.value = planned_port;
+        if (resolved.value == kInvalidObjectId) {
+          resolved = resolve_port_binding(state_, tr.pole, row_key, static_cast<std::size_t>(lane), scope);
+          if (!resolved.ok) {
+            out.error = resolved.error;
+            return out;
           }
         }
         if (resolved.value != kInvalidObjectId) {
@@ -2980,18 +3094,23 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
                   span.lane < made.rows[row_index].placement_band_ids[span.bundle].size()
               ? made.rows[row_index].placement_band_ids[span.bundle][span.lane]
               : 0;
-      const port_scope scope{bundle->bundle_template_id, made.bundles[span.bundle], port->kind,
+      const port_scope scope{bundle->bundle_template_id, made.bundles[span.bundle], bundle->placement_key, port->kind,
                              port->layer, placement_band_id};
       const double layout_yaw_deg = PortLayoutYawDeg(made.rows[row_index].axis);
-      const ObjectId promoted_open_edge =
-          promoted_open_edge_for_row(state_, ps, made.rows[row_index], node_id_by_local, edge_by_link);
-      EditResult<bool> promoted =
-          state_.promote_backbone_open_port_binding(row_key, promoted_open_edge, span.lane, bundle->bundle_template_id,
-                                                    port->kind, port->layer, placement_band_id,
-                                                    layout_yaw_deg, port->id);
-      if (!promoted.ok) {
-        out.error = promoted.error;
-        return false;
+      const std::size_t spec_index =
+          span.bundle < made.bundle_specs.size() ? made.bundle_specs[span.bundle] : bad;
+      for (const PromotionPlanEntry& entry : promotion_plan_) {
+        if (entry.row != row_index || entry.spec_index != spec_index || entry.lane_index != span.lane) {
+          continue;
+        }
+        EditResult<bool> promoted = state_.promote_backbone_open_port_binding_exact(
+            entry.existing_edge_bundle_id, entry.old_open_row_key, entry.lane_index,
+            row_key, layout_yaw_deg, entry.port_id);
+        if (!promoted.ok) {
+          out.error = promoted.error;
+          return false;
+        }
+        break;
       }
       EditResult<bool> bound =
           state_.bind_backbone_port(edge_bundle_id, row_key, span.lane, bundle->bundle_template_id, port->kind,

@@ -1539,7 +1539,7 @@ bool C655_backbone_node_patch_grouping_uses_band_identity() {
          contains_text(key_body, "a.band_id == b.band_id") &&
          contains_text(key_body, "a.pole_type_id == b.pole_type_id") &&
          contains_text(cpp, "same_bundle || shared_port || same_endpoint_point") &&
-         contains_text(cpp, "explicit_fallback_candidates") &&
+         !contains_text(cpp, "explicit_fallback_candidates") &&
          contains_text(cpp, "multiple overlapping connectivity-owned patch pairs");
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -44,7 +45,8 @@ public:
                                  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId,
                                  bool placement_explicit = false,
                                  double height_m = 0.0, double lateral_m = 0.0,
-                                 double spacing_override_m = 0.0);
+                                 double spacing_override_m = 0.0,
+                                 std::uint64_t placement_key = 0);
   EditResult<ObjectId> AddSpan(ObjectId port_a_id, ObjectId port_b_id, SpanKind kind = SpanKind::kGeneric,
                                SpanLayer layer = SpanLayer::kUnknown, ObjectId bundle_id = kInvalidObjectId,
                                ObjectId anchor_a_id = kInvalidObjectId, ObjectId anchor_b_id = kInvalidObjectId);
@@ -177,12 +179,12 @@ private:
                                       std::size_t lane_index, BundleTemplateId bundle_template_id, PortKind port_kind,
                                       PortLayer port_layer, int placement_band_id, double layout_yaw_deg,
                                       ObjectId port_id);
-  EditResult<bool> promote_backbone_open_port_binding(const SavedBackboneRowKey& pair_key,
-                                                      ObjectId open_edge_id,
-                                                      std::size_t lane_index,
-                                                      BundleTemplateId bundle_template_id, PortKind port_kind,
-                                                      PortLayer port_layer, int placement_band_id,
-                                                      double layout_yaw_deg, ObjectId port_id);
+  EditResult<bool> promote_backbone_open_port_binding_exact(ObjectId edge_bundle_id,
+                                                            const SavedBackboneRowKey& old_open_key,
+                                                            std::size_t lane_index,
+                                                            const SavedBackboneRowKey& pair_key,
+                                                            double layout_yaw_deg,
+                                                            ObjectId port_id);
   enum class BackboneRegenerateCause : std::uint8_t {
     kBundleCount,
     kBundleTopology,

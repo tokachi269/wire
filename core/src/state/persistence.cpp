@@ -426,11 +426,12 @@ bool archive_bundle(Archive& archive, const std::string& prefix, Value& value) {
          archive.compatible_field(prefix, "placement_explicit", value.placement_explicit, false) &&
          archive.compatible_field(prefix, "height_m", value.height_m, 0.0) &&
          archive.compatible_field(prefix, "lateral_m", value.lateral_m, 0.0) &&
-         archive.field(prefix, "bundle_template_id", value.bundle_template_id);
+         archive.field(prefix, "bundle_template_id", value.bundle_template_id) &&
+         archive.compatible_field(prefix, "placement_key", value.placement_key, static_cast<std::uint64_t>(0));
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(Bundle) == 104, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(Bundle) == 112, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

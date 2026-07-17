@@ -268,31 +268,28 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
   return out;
 }
 
-EditResult<bool> CoreState::promote_backbone_open_port_binding(
-    const SavedBackboneRowKey& pair_key, ObjectId open_edge_id, std::size_t lane_index,
-    BundleTemplateId bundle_template_id, PortKind port_kind, PortLayer port_layer,
-    int placement_band_id, double layout_yaw_deg, ObjectId port_id) {
+EditResult<bool> CoreState::promote_backbone_open_port_binding_exact(
+    ObjectId edge_bundle_id, const SavedBackboneRowKey& old_open_key, std::size_t lane_index,
+    const SavedBackboneRowKey& pair_key, double layout_yaw_deg, ObjectId port_id) {
   EditResult<bool> out{};
   out.value = false;
-  if (pair_key.source_is_open || pair_key.node_id == kInvalidObjectId ||
+  if (edge_bundle_id == kInvalidObjectId || old_open_key.node_id == kInvalidObjectId ||
+      !old_open_key.source_is_open || old_open_key.source_edge_a == kInvalidObjectId ||
+      pair_key.source_is_open || pair_key.node_id == kInvalidObjectId ||
       pair_key.source_edge_a == kInvalidObjectId || pair_key.source_edge_b == kInvalidObjectId ||
-      open_edge_id == kInvalidObjectId || port_id == kInvalidObjectId) {
+      port_id == kInvalidObjectId) {
     out.ok = true;
     return out;
   }
   std::size_t match_index = static_cast<std::size_t>(-1);
   for (std::size_t i = 0; i < authoritative_.backbone.port_bindings.size(); ++i) {
-    SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[i];
-    if (binding.port_id != port_id || binding.lane_index != lane_index ||
-        binding.bundle_template_id != bundle_template_id || binding.port_kind != port_kind ||
-        binding.port_layer != port_layer || binding.placement_band_id != placement_band_id) {
-      continue;
-    }
-    if (!is_open_row_for_edge(binding.row_key, pair_key.node_id, open_edge_id)) {
+    const SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[i];
+    if (binding.edge_bundle_id != edge_bundle_id || binding.row_key != old_open_key ||
+        binding.lane_index != lane_index || binding.port_id != port_id) {
       continue;
     }
     if (match_index != static_cast<std::size_t>(-1)) {
-      out.error = "backbone unsupported: ambiguous promoted open row binding";
+      out.error = "backbone unsupported: ambiguous exact promoted open row binding";
       return out;
     }
     match_index = i;

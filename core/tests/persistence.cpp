@@ -480,8 +480,8 @@ bool C768_legacy_state_preserves_implicit_helix_support() {
       ".span_visual_assembly.support_path_enabled=";
   static constexpr std::string_view kBundlePrefix =
       "authoritative.edit_state.bundles.";
-  static constexpr std::array<std::string_view, 4> kBundleFields = {
-      ".spacing_override_m=", ".placement_explicit=", ".height_m=", ".lateral_m="};
+  static constexpr std::array<std::string_view, 5> kBundleFields = {
+      ".spacing_override_m=", ".placement_explicit=", ".height_m=", ".lateral_m=", ".placement_key="};
   std::string legacy{};
   legacy.reserve(saved.size());
   std::size_t removed = 0;
@@ -522,7 +522,8 @@ bool C768_legacy_state_preserves_implicit_helix_support() {
   }
   for (const wire::core::Bundle& bundle : loaded.view().bundles().items()) {
     if (bundle.spacing_override_m != 0.0 || bundle.placement_explicit ||
-        bundle.height_m != 0.0 || bundle.lateral_m != 0.0) return false;
+        bundle.height_m != 0.0 || bundle.lateral_m != 0.0 ||
+        bundle.placement_key != 0) return false;
   }
 
   std::string migrated{};

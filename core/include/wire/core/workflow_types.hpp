@@ -325,6 +325,8 @@ struct PickResult {
 
 struct BackboneBundleSpec {
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+  // Stable identity of the request placement entry. Zero means legacy/unspecified.
+  std::uint64_t placement_key = 0;
   SpanLayer layer = SpanLayer::kUnknown;
   // Used only for variable-count templates. Fixed templates reject count input.
   int count = 0;

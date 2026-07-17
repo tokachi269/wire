@@ -1165,6 +1165,14 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental multi-bundle completion promotes each compatible scope once",
                          "Invariant", false,
                          C778_backbone_incremental_multi_bundle_completion_promotes_each_scope_once);
+  test_registry::AddTest(tests, "C779_backbone_incremental_same_template_multi_placement_uses_placement_key",
+                         "incremental same-template multi-placement completion uses placement identity",
+                         "Invariant", false,
+                         C779_backbone_incremental_same_template_multi_placement_uses_placement_key);
+  test_registry::AddTest(tests, "C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key",
+                         "incremental duplicate placement values are matched by placement identity, not order",
+                         "Invariant", false,
+                         C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key);
 }
 
 

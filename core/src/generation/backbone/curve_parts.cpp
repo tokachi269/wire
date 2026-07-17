@@ -921,7 +921,6 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       continue;
     }
     const std::vector<std::size_t>& group = group_it->second;
-    std::vector<std::pair<std::size_t, std::size_t>> explicit_fallback_candidates{};
     std::vector<std::pair<std::size_t, std::size_t>> explicit_candidates{};
     std::vector<std::pair<std::size_t, std::size_t>> shared_port_candidates{};
     for (std::size_t a = 0; a < group.size(); ++a) {
@@ -939,7 +938,6 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
                                  endpoint_a.bundle_id == endpoint_b.bundle_id;
         const bool same_endpoint_point = Length(endpoint_a.point - endpoint_b.point) <= kCurveEps;
         if (explicit_pair) {
-          explicit_fallback_candidates.push_back({a, b});
           if (same_bundle || shared_port || same_endpoint_point) {
             explicit_candidates.push_back({a, b});
           }
@@ -949,9 +947,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       }
     }
     const std::vector<std::pair<std::size_t, std::size_t>>& candidates =
-        !explicit_candidates.empty() ? explicit_candidates
-                                     : (!explicit_fallback_candidates.empty() ? explicit_fallback_candidates
-                                                                              : shared_port_candidates);
+        !explicit_candidates.empty() ? explicit_candidates : shared_port_candidates;
     if (candidates.empty()) {
       out.diagnostics.push_back(
           {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,

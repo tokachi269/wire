@@ -1010,7 +1010,7 @@ bool C772_backbone_incremental_pair_promotion_rejects_ambiguous_open_candidates(
   completion.path.polyline = {{20.0, 0.0, 0.0}, pole_b->world_transform.position};
   completion.path.node_specs = {pole_spec(1, b)};
   const auto out = state.GenerateFromBackboneSpec(completion);
-  return !out.ok && contains_text(out.error, "ambiguous") &&
+  return !out.ok && contains_text(out.error, "ambiguous promoted open edge") &&
          state.view().poles().size() == pole_count &&
          state.view().spans().size() == span_count &&
          state.view().backbone().edges.size() == edge_count &&
@@ -1159,6 +1159,243 @@ bool C778_backbone_incremental_multi_bundle_completion_promotes_each_scope_once(
          has_row_key(snapshot.row_keys, false, bd_edge, be_edge) &&
          bd_ports == unique_generated_ports_on_pole(state, bd_spans, b) &&
          eb_out.value.generated_span_ids.size() == bd_spans.size() &&
+         curve_endpoints_match_layout(state);
+}
+
+bool C779_backbone_incremental_same_template_multi_placement_uses_placement_key() {
+  auto web_default_req = [](wire::core::CoreState& state) {
+    wire::core::BackboneSpec req = poly3_req(state);
+    req.bundles.clear();
+    auto add = [&](wire::core::BundleKind kind, std::uint64_t placement_key, int count,
+                   double height_m) {
+      const wire::core::BundleTemplateId template_id = wire::core::DefaultBundleTemplateId(kind);
+      const auto template_it = state.view().bundle_templates().find(template_id);
+      if (template_it == state.view().bundle_templates().end()) {
+        return;
+      }
+      wire::core::BackboneBundleSpec bundle{};
+      bundle.bundle_template_id = template_id;
+      bundle.placement_key = placement_key;
+      bundle.layer = template_it->second.default_layer;
+      bundle.count = count;
+      bundle.placement_explicit = true;
+      bundle.height_m = height_m;
+      bundle.lateral_m = kind == wire::core::BundleKind::kHighVoltage ? -0.2 : 0.0;
+      bundle.spacing_m = template_it->second.default_spacing_m;
+      req.bundles.push_back(bundle);
+    };
+    add(wire::core::BundleKind::kHighVoltage, 1, 3, 9.2);
+    add(wire::core::BundleKind::kLowVoltage, 2, 1, 7.7);
+    add(wire::core::BundleKind::kLowVoltage, 3, 1, 7.35);
+    add(wire::core::BundleKind::kLowVoltage, 4, 1, 7.0);
+    add(wire::core::BundleKind::kCommunication, 5, 1, 5.5);
+    add(wire::core::BundleKind::kOptical, 6, 1, 5.3);
+    return req;
+  };
+  auto edge_bundle_for_key = [](const wire::core::CoreState& state, wire::core::ObjectId edge_id,
+                                std::uint64_t placement_key) {
+    const auto bundles_it = state.view().backbone_index().edge_bundles.find(edge_id);
+    if (bundles_it == state.view().backbone_index().edge_bundles.end()) {
+      return wire::core::kInvalidObjectId;
+    }
+    for (wire::core::ObjectId edge_bundle_id : bundles_it->second) {
+      const wire::core::SavedBackboneEdgeBundle* edge_bundle =
+          state.view().backbone_edge_bundle(edge_bundle_id);
+      const wire::core::Bundle* bundle =
+          edge_bundle == nullptr ? nullptr : state.view().bundles().find(edge_bundle->bundle_id);
+      if (bundle != nullptr && bundle->placement_key == placement_key) {
+        return edge_bundle_id;
+      }
+    }
+    return wire::core::kInvalidObjectId;
+  };
+  auto port_for_edge_bundle_at_node = [](const wire::core::CoreState& state, wire::core::ObjectId edge_bundle_id,
+                                         wire::core::ObjectId node_id) {
+    wire::core::ObjectId found = wire::core::kInvalidObjectId;
+    for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id || binding.row_key.node_id != node_id) continue;
+      if (found != wire::core::kInvalidObjectId && found != binding.port_id) {
+        return wire::core::kInvalidObjectId;
+      }
+      found = binding.port_id;
+    }
+    return found;
+  };
+
+  wire::core::CoreState state;
+  const auto abc = state.GenerateFromBackboneSpec(web_default_req(state));
+  if (!abc.ok || abc.value.generated_pole_ids.size() != 3) return false;
+  const wire::core::ObjectId b = abc.value.generated_pole_ids[1];
+  const wire::core::Pole* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) return false;
+
+  wire::core::BackboneSpec bd = web_default_req(state);
+  bd.path.polyline = {pole_b->world_transform.position, {12.0, -8.0, 0.0}};
+  bd.path.node_specs = {pole_spec(0, b)};
+  const auto bd_out = state.GenerateFromBackboneSpec(bd);
+  if (!bd_out.ok || bd_out.value.generated_pole_ids.size() != 1 || bd_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId d = bd_out.value.generated_pole_ids.front();
+  const wire::core::SavedBackboneNode* node_b_before = state.view().backbone_node_for_pole(b);
+  const wire::core::SavedBackboneNode* node_d_before = state.view().backbone_node_for_pole(d);
+  if (node_b_before == nullptr || node_d_before == nullptr) return false;
+  const wire::core::ObjectId bd_edge_before = edge_between(state, node_b_before->node_id, node_d_before->node_id);
+  if (bd_edge_before == wire::core::kInvalidObjectId) return false;
+
+  std::vector<std::pair<std::uint64_t, wire::core::ObjectId>> bd_bundle_ids{};
+  std::vector<std::pair<std::uint64_t, wire::core::ObjectId>> bd_ports{};
+  for (std::uint64_t key : {2ULL, 3ULL, 4ULL}) {
+    const wire::core::ObjectId edge_bundle_id = edge_bundle_for_key(state, bd_edge_before, key);
+    const wire::core::SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(edge_bundle_id);
+    if (edge_bundle == nullptr) return false;
+    const wire::core::ObjectId port_id =
+        port_for_edge_bundle_at_node(state, edge_bundle_id, node_b_before->node_id);
+    if (port_id == wire::core::kInvalidObjectId) return false;
+    bd_bundle_ids.push_back({key, edge_bundle->bundle_id});
+    bd_ports.push_back({key, port_id});
+  }
+
+  wire::core::BackboneSpec eb = web_default_req(state);
+  eb.path.polyline = {{20.0, 0.0, 0.0}, pole_b->world_transform.position};
+  eb.path.node_specs = {pole_spec(1, b)};
+  const auto eb_out = state.GenerateFromBackboneSpec(eb);
+  if (!eb_out.ok || eb_out.value.generated_pole_ids.size() != 1 || eb_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::ObjectId e = eb_out.value.generated_pole_ids.front();
+  const wire::core::SavedBackboneNode* node_b = state.view().backbone_node_for_pole(b);
+  const wire::core::SavedBackboneNode* node_d = state.view().backbone_node_for_pole(d);
+  const wire::core::SavedBackboneNode* node_e = state.view().backbone_node_for_pole(e);
+  if (node_b == nullptr || node_d == nullptr || node_e == nullptr) return false;
+  const wire::core::ObjectId bd_edge = edge_between(state, node_b->node_id, node_d->node_id);
+  const wire::core::ObjectId be_edge = edge_between(state, node_b->node_id, node_e->node_id);
+  if (bd_edge == wire::core::kInvalidObjectId || be_edge == wire::core::kInvalidObjectId) return false;
+
+  for (const auto& [key, bd_bundle_id] : bd_bundle_ids) {
+    const wire::core::ObjectId be_edge_bundle_id = edge_bundle_for_key(state, be_edge, key);
+    const wire::core::SavedBackboneEdgeBundle* be_edge_bundle = state.view().backbone_edge_bundle(be_edge_bundle_id);
+    if (be_edge_bundle == nullptr || be_edge_bundle->bundle_id != bd_bundle_id) {
+      return false;
+    }
+    const auto bd_port_it = std::find_if(bd_ports.begin(), bd_ports.end(), [&](const auto& item) {
+      return item.first == key;
+    });
+    if (bd_port_it == bd_ports.end() ||
+        port_for_edge_bundle_at_node(state, be_edge_bundle_id, node_b->node_id) != bd_port_it->second) {
+      return false;
+    }
+  }
+
+  const JunctionRowSnapshot snapshot = junction_snapshot(state, b);
+  wire::core::CoreState one_shot;
+  const auto one_abc = one_shot.GenerateFromBackboneSpec(web_default_req(one_shot));
+  if (!one_abc.ok || one_abc.value.generated_pole_ids.size() != 3) return false;
+  const wire::core::ObjectId one_b = one_abc.value.generated_pole_ids[1];
+  const wire::core::Pole* one_pole_b = one_shot.view().poles().find(one_b);
+  if (one_pole_b == nullptr) return false;
+  wire::core::BackboneSpec one_cross = web_default_req(one_shot);
+  one_cross.path.polyline = {{12.0, -8.0, 0.0}, one_pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  one_cross.path.node_specs = {pole_spec(1, one_b)};
+  const auto one_out = one_shot.GenerateFromBackboneSpec(one_cross);
+  if (!one_out.ok) return false;
+  const JunctionRowSnapshot expected = junction_snapshot(one_shot, one_b);
+
+  return snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
+         has_row_key(snapshot.row_keys, false, bd_edge, be_edge) &&
+         eb_out.value.generated_span_ids.size() == bd_out.value.generated_span_ids.size() &&
+         snapshots_match(expected, snapshot) &&
+         curve_endpoints_match_layout(state);
+}
+
+bool C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key() {
+  auto duplicate_req = [](wire::core::CoreState& state, bool reversed) {
+    wire::core::BackboneSpec req = poly3_req(state);
+    req.bundles.clear();
+    const wire::core::BundleTemplateId template_id =
+        wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
+    const auto template_it = state.view().bundle_templates().find(template_id);
+    if (template_it == state.view().bundle_templates().end()) {
+      return req;
+    }
+    auto make = [&](std::uint64_t key) {
+      wire::core::BackboneBundleSpec bundle{};
+      bundle.bundle_template_id = template_id;
+      bundle.placement_key = key;
+      bundle.layer = template_it->second.default_layer;
+      bundle.count = 1;
+      bundle.placement_explicit = true;
+      bundle.height_m = 7.35;
+      bundle.lateral_m = 0.0;
+      bundle.spacing_m = template_it->second.default_spacing_m;
+      return bundle;
+    };
+    if (reversed) {
+      req.bundles = {make(12), make(11)};
+    } else {
+      req.bundles = {make(11), make(12)};
+    }
+    return req;
+  };
+  auto bundle_id_for_key_on_edge = [](const wire::core::CoreState& state, wire::core::ObjectId edge_id,
+                                      std::uint64_t key) {
+    const auto bundles_it = state.view().backbone_index().edge_bundles.find(edge_id);
+    if (bundles_it == state.view().backbone_index().edge_bundles.end()) {
+      return wire::core::kInvalidObjectId;
+    }
+    for (wire::core::ObjectId edge_bundle_id : bundles_it->second) {
+      const wire::core::SavedBackboneEdgeBundle* edge_bundle =
+          state.view().backbone_edge_bundle(edge_bundle_id);
+      const wire::core::Bundle* bundle =
+          edge_bundle == nullptr ? nullptr : state.view().bundles().find(edge_bundle->bundle_id);
+      if (bundle != nullptr && bundle->placement_key == key) {
+        return bundle->id;
+      }
+    }
+    return wire::core::kInvalidObjectId;
+  };
+
+  wire::core::CoreState state;
+  const auto abc = state.GenerateFromBackboneSpec(duplicate_req(state, false));
+  if (!abc.ok || abc.value.generated_pole_ids.size() != 3) return false;
+  const wire::core::ObjectId b = abc.value.generated_pole_ids[1];
+  const wire::core::Pole* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) return false;
+
+  wire::core::BackboneSpec bd = duplicate_req(state, false);
+  bd.path.polyline = {pole_b->world_transform.position, {12.0, -8.0, 0.0}};
+  bd.path.node_specs = {pole_spec(0, b)};
+  const auto bd_out = state.GenerateFromBackboneSpec(bd);
+  if (!bd_out.ok || bd_out.value.generated_pole_ids.size() != 1) return false;
+  const wire::core::ObjectId d = bd_out.value.generated_pole_ids.front();
+  const wire::core::SavedBackboneNode* node_b_before = state.view().backbone_node_for_pole(b);
+  const wire::core::SavedBackboneNode* node_d_before = state.view().backbone_node_for_pole(d);
+  if (node_b_before == nullptr || node_d_before == nullptr) return false;
+  const wire::core::ObjectId bd_edge_before = edge_between(state, node_b_before->node_id, node_d_before->node_id);
+  if (bd_edge_before == wire::core::kInvalidObjectId) return false;
+  const wire::core::ObjectId key_11_bundle = bundle_id_for_key_on_edge(state, bd_edge_before, 11);
+  const wire::core::ObjectId key_12_bundle = bundle_id_for_key_on_edge(state, bd_edge_before, 12);
+  if (key_11_bundle == wire::core::kInvalidObjectId || key_12_bundle == wire::core::kInvalidObjectId ||
+      key_11_bundle == key_12_bundle) {
+    return false;
+  }
+
+  wire::core::BackboneSpec eb = duplicate_req(state, true);
+  eb.path.polyline = {{20.0, 0.0, 0.0}, pole_b->world_transform.position};
+  eb.path.node_specs = {pole_spec(1, b)};
+  const auto eb_out = state.GenerateFromBackboneSpec(eb);
+  if (!eb_out.ok || eb_out.value.generated_pole_ids.size() != 1) return false;
+  const wire::core::ObjectId e = eb_out.value.generated_pole_ids.front();
+  const wire::core::SavedBackboneNode* node_b = state.view().backbone_node_for_pole(b);
+  const wire::core::SavedBackboneNode* node_e = state.view().backbone_node_for_pole(e);
+  if (node_b == nullptr || node_e == nullptr) return false;
+  const wire::core::ObjectId be_edge = edge_between(state, node_b->node_id, node_e->node_id);
+  if (be_edge == wire::core::kInvalidObjectId) return false;
+  const JunctionRowSnapshot snapshot = junction_snapshot(state, b);
+  return bundle_id_for_key_on_edge(state, be_edge, 11) == key_11_bundle &&
+         bundle_id_for_key_on_edge(state, be_edge, 12) == key_12_bundle &&
+         snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
          curve_endpoints_match_layout(state);
 }
 

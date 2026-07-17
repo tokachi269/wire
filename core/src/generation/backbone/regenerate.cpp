@@ -366,6 +366,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     }
     BackboneBundleSpec bundle_spec{};
     bundle_spec.bundle_template_id = scoped_bundle->bundle_template_id;
+    bundle_spec.placement_key = scoped_bundle->placement_key;
     bundle_spec.existing_bundle_id = scoped_bundle->id;
     bundle_spec.layer = scoped_bundle->bundle_template_id == bundle_template_id ? next_template.default_layer
                                                                                   : template_it->second.default_layer;
@@ -594,6 +595,7 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       }
       BackboneBundleSpec bundle_spec{};
       bundle_spec.bundle_template_id = bundle->bundle_template_id;
+      bundle_spec.placement_key = bundle->placement_key;
       bundle_spec.existing_bundle_id = bundle->id;
       bundle_spec.layer = template_it->second.default_layer;
       bundle_spec.placement_explicit = bundle->placement_explicit;

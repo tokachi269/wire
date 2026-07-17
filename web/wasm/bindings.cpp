@@ -304,6 +304,10 @@ public:
       }
       BackboneBundleSpec bundle{};
       bundle.bundle_template_id = id;
+      const val placement_id = placement["id"];
+      if (!placement_id.isUndefined() && !placement_id.isNull()) {
+        bundle.placement_key = placement_id.as<std::uint64_t>();
+      }
       bundle.layer = template_it->second.default_layer;
       bundle.count = placement["count"].as<int>();
       bundle.placement_explicit = placement["explicit"].as<bool>();

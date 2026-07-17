@@ -391,7 +391,8 @@ EditResult<ObjectId> CoreState::AddAnchor(ObjectId owner_pole_id, const Vec3d& w
 EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spacing_m,
                                           BundleTemplateId bundle_template_id,
                                           bool placement_explicit, double height_m, double lateral_m,
-                                          double spacing_override_m) {
+                                          double spacing_override_m,
+                                          std::uint64_t placement_key) {
   EditResult<ObjectId> result;
   if (conductor_count <= 0) {
     result.error = "conductor count must be > 0";
@@ -417,6 +418,7 @@ EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spac
   bundle.height_m = height_m;
   bundle.lateral_m = lateral_m;
   bundle.bundle_template_id = bundle_template_id;
+  bundle.placement_key = placement_key;
   authoritative_.edit_state.bundles.insert(bundle);
 
   result.ok = true;

@@ -1079,6 +1079,55 @@ std::size_t add_pair(pairs* out, std::size_t node_id, std::size_t left, std::siz
   return row_id;
 }
 
+void flip_open_row_axis(pairs* out, std::size_t row_id) {
+  if (out == nullptr || row_id >= out->rows.size()) {
+    return;
+  }
+  row& item = out->rows[row_id];
+  if (!item.source.is_open) {
+    return;
+  }
+  item.axis = ScaleVec(item.axis, -1.0);
+  if (item.source.id < out->opens.size()) {
+    out->opens[item.source.id].axis = item.axis;
+  }
+}
+
+void align_open_row_axis_to_pair(pairs* out, std::size_t open_row_id, std::size_t pair_row_id,
+                                 const Vec3d& edge_lateral_axis) {
+  if (out == nullptr || open_row_id >= out->rows.size() || pair_row_id >= out->rows.size()) {
+    return;
+  }
+  const row& open_row = out->rows[open_row_id];
+  const row& pair_row = out->rows[pair_row_id];
+  if (!open_row.source.is_open || pair_row.source.is_open) {
+    return;
+  }
+  const double open_dot = Dot(open_row.axis, edge_lateral_axis);
+  const double pair_dot = Dot(pair_row.axis, edge_lateral_axis);
+  if (std::abs(open_dot) <= 1e-9 || std::abs(pair_dot) <= 1e-9 || open_dot * pair_dot >= 0.0) {
+    return;
+  }
+  flip_open_row_axis(out, open_row_id);
+}
+
+void align_terminal_open_rows_to_pairs(pairs* out) {
+  if (out == nullptr) {
+    return;
+  }
+  for (const link& edge : out->links) {
+    if (edge.arow >= out->rows.size() || edge.brow >= out->rows.size()) {
+      continue;
+    }
+    const Vec3d edge_lateral_axis = ComputeLateralAxis(edge.dir);
+    if (out->rows[edge.arow].source.is_open && !out->rows[edge.brow].source.is_open) {
+      align_open_row_axis_to_pair(out, edge.arow, edge.brow, edge_lateral_axis);
+    } else if (!out->rows[edge.arow].source.is_open && out->rows[edge.brow].source.is_open) {
+      align_open_row_axis_to_pair(out, edge.brow, edge.arow, edge_lateral_axis);
+    }
+  }
+}
+
 double interior_angle_deg(const link& incoming, const link& outgoing) {
   const double dot = std::clamp(Dot(ScaleVec(incoming.dir, -1.0), outgoing.dir), -1.0, 1.0);
   return std::acos(dot) * kRadiansToDegrees;
@@ -2023,6 +2072,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       return unsupported_pairs("link row is unresolved");
     }
   }
+  align_terminal_open_rows_to_pairs(&out.value);
   out.ok = true;
   return out;
 }

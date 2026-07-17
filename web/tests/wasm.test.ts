@@ -169,6 +169,27 @@ function assertModelHvInsulatorsSeparatedByPole(state: WireStateHandle) {
   }
 }
 
+function projectionLaneOrder(
+  group: ReturnType<typeof visualParts>,
+  point: (part: ReturnType<typeof visualParts>[number]) => [number, number, number]
+): number[] {
+  const sorted = [...group].sort((a, b) => a.info.laneIndex - b.info.laneIndex);
+  const centerStart = startPoint(sorted[1]);
+  const centerEnd = endPoint(sorted[1]);
+  const dx = centerEnd[0] - centerStart[0];
+  const dy = centerEnd[1] - centerStart[1];
+  const length = Math.hypot(dx, dy);
+  expect(length).toBeGreaterThan(1e-9);
+  const lateral: [number, number, number] = [-dy / length, dx / length, 0];
+  return sorted
+    .map((part) => ({
+      lane: part.info.laneIndex,
+      projection: point(part)[0] * lateral[0] + point(part)[1] * lateral[1]
+    }))
+    .sort((a, b) => a.projection - b.projection)
+    .map((item) => item.lane);
+}
+
 function assertHvSeparatedByEdge(state: WireStateHandle) {
   const groups = new Map<string, ReturnType<typeof visualParts>>();
   for (const part of hvEdgeBodies(state)) {
@@ -184,6 +205,7 @@ function assertHvSeparatedByEdge(state: WireStateHandle) {
     expect(new Set(group.map((part) => part.info.sourceSpanId)).size).toBe(3);
     assertSeparatedPoints(group.map(startPoint), 0.1);
     assertSeparatedPoints(group.map(endPoint), 0.1);
+    expect(projectionLaneOrder(group, startPoint)).toEqual(projectionLaneOrder(group, endPoint));
   }
 }
 

@@ -1173,6 +1173,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental duplicate placement values are matched by placement identity, not order",
                          "Invariant", false,
                          C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key);
+  test_registry::AddTest(tests, "C781_backbone_incremental_cross_extension_preserves_existing_spans",
+                         "incremental extension from a completed cross preserves existing spans",
+                         "Invariant", false,
+                         C781_backbone_incremental_cross_extension_preserves_existing_spans);
 }
 
 

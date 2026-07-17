@@ -1151,7 +1151,7 @@ void pipeline::retire_untouched(route* route) {
     }
   }
   for (const link& edge : route->ps.links) {
-    if (edge.saved == kInvalidObjectId) {
+    if (!edge.is_new || edge.saved == kInvalidObjectId) {
       continue;
     }
     for (ObjectId bundle_id : route->made.bundles) {

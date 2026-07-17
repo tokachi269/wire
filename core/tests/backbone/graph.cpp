@@ -1305,6 +1305,10 @@ bool C779_backbone_incremental_same_template_multi_placement_uses_placement_key(
   return snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
          has_row_key(snapshot.row_keys, false, bd_edge, be_edge) &&
          eb_out.value.generated_span_ids.size() == bd_out.value.generated_span_ids.size() &&
+         std::all_of(bd_out.value.generated_span_ids.begin(), bd_out.value.generated_span_ids.end(),
+                     [&](wire::core::ObjectId span_id) {
+                       return state.view().spans().find(span_id) != nullptr;
+                     }) &&
          snapshots_match(expected, snapshot) &&
          curve_endpoints_match_layout(state);
 }
@@ -1396,7 +1400,41 @@ bool C780_backbone_incremental_duplicate_values_are_order_independent_by_placeme
   return bundle_id_for_key_on_edge(state, be_edge, 11) == key_11_bundle &&
          bundle_id_for_key_on_edge(state, be_edge, 12) == key_12_bundle &&
          snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
+         std::all_of(bd_out.value.generated_span_ids.begin(), bd_out.value.generated_span_ids.end(),
+                     [&](wire::core::ObjectId span_id) {
+                       return state.view().spans().find(span_id) != nullptr;
+                     }) &&
          curve_endpoints_match_layout(state);
+}
+
+bool C781_backbone_incremental_cross_extension_preserves_existing_spans() {
+  IncrementalCrossFixture fixture{};
+  if (!make_incremental_cross(&fixture) || !fixture.completion.ok || !canonical_cross_at_b(fixture)) {
+    return false;
+  }
+  const std::vector<wire::core::ObjectId> original_spans = fixture.bd_spans;
+  std::vector<wire::core::ObjectId> cross_spans = fixture.completion.value.generated_span_ids;
+  cross_spans.insert(cross_spans.end(), original_spans.begin(), original_spans.end());
+  for (wire::core::ObjectId span_id : cross_spans) {
+    if (fixture.state.view().spans().find(span_id) == nullptr) return false;
+  }
+
+  const wire::core::Pole* pole_b = fixture.state.view().poles().find(fixture.pole_b);
+  if (pole_b == nullptr) return false;
+  wire::core::BackboneSpec bf = line_req(fixture.state);
+  bf.path.polyline = {pole_b->world_transform.position, {4.0, -8.0, 0.0}};
+  bf.path.node_specs = {pole_spec(0, fixture.pole_b)};
+  const auto out = fixture.state.GenerateFromBackboneSpec(bf);
+  if (!out.ok || out.value.generated_pole_ids.size() != 1 || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : cross_spans) {
+    if (fixture.state.view().spans().find(span_id) == nullptr) return false;
+  }
+  const JunctionRowSnapshot snapshot = junction_snapshot(fixture.state, fixture.pole_b);
+  return snapshot.pair_rows >= 2 && snapshot.open_rows >= 1 &&
+         fixture.bd_ports == unique_generated_ports_on_pole(fixture.state, fixture.bd_spans, fixture.pole_b) &&
+         curve_endpoints_match_layout(fixture.state);
 }
 
 bool C460_backbone_context_links_are_not_emitted() {

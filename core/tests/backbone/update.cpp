@@ -1675,7 +1675,7 @@ bool C728_backbone_pipeline_has_no_run_mode_flags() {
     return false;
   }
   std::string body{};
-  if (!function_body(source, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+  if (!function_body(source, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, const intent& intents, ChangeSet* changes)",
                      &body)) {
     return false;
   }

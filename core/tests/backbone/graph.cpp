@@ -2793,7 +2793,7 @@ bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
   std::string cpp;
   std::string emit_ports_body;
   if (!file_text(source, &cpp) ||
-      !function_body(cpp, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+      !function_body(cpp, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, const intent& intents, ChangeSet* changes)",
                      &emit_ports_body)) {
     return false;
   }

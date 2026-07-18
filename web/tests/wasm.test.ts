@@ -32,12 +32,17 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       version: 1,
       parts: [{
         partId: 1, modelKey: "hv_crossarm", descriptorName: "crossarm", descriptorVersion: 1,
-        fitMode: 0, localTransform: identityTransform(), sockets: []
+        fitMode: 0, localTransform: identityTransform(), sockets: [{
+          name: "endpoint_mount",
+          positionX: 0, positionY: 0, positionZ: 0.12,
+          directionX: 0, directionY: 0, directionZ: 1
+        }]
       }, {
         partId: 2, modelKey: "pole_belt", descriptorName: "belt", descriptorVersion: 1,
         fitMode: 2, localTransform: identityTransform(), sockets: []
       }],
-      wireSocket: null
+      wireSocket: null,
+      endpointMountSocket: { partId: 1, socketName: "endpoint_mount" }
     }, {
       id: 9903,
       version: 1,
@@ -442,11 +447,7 @@ describe("wire wasm smoke", () => {
     const row = upgraded.assemblies.find((assembly) => assembly.id === 9902)!;
     row.version = 2;
     row.parts[0].localTransform.positionX = 0.17;
-    row.parts[0].sockets.push({
-      name: "endpoint_mount",
-      positionX: 0, positionY: 0, positionZ: 0.04,
-      directionX: 0, directionY: 0, directionZ: 1
-    });
+    row.parts[0].sockets[0].positionZ = 0.04;
     row.endpointMountSocket = { partId: 1, socketName: "endpoint_mount" };
 
     const restored = createState();
@@ -650,6 +651,62 @@ describe("wire wasm smoke", () => {
     assertHvSeparatedByEdge(runState);
     assertModelHvInsulatorsSeparatedByPole(runState);
     expectSamplesChangedOnlyWithVersionChange(bdSnapshot, scenePartSnapshot(runState));
+    runState.delete();
+  });
+
+  it("keeps a repro T branch HV support slot at the requested port height", () => {
+    const runState = createState();
+    const configured = runState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+    const placements = defaultBundlePlacements();
+    const base = runState.generatePlacements(
+      new Float64Array([
+        17.397, 23.190, 0,
+        10.065, -2.878, 0,
+        23.238, -21.868, 0
+      ]),
+      placements,
+      0,
+      1,
+      0,
+      0,
+      []
+    );
+    expect(base.ok, base.error).toBe(true);
+    const baseHvSpanIds = new Set(hvEdgeBodies(runState).map((part) => part.info.sourceSpanId));
+
+    const poleB = runState.pole(1);
+    const branch = runState.generatePlacements(
+      new Float64Array([
+        -5.477, 4.187, 0,
+        poleB.positionX, poleB.positionY, poleB.positionZ
+      ]),
+      placements,
+      0,
+      1,
+      0,
+      0,
+      [{ pointIndex: 1, supportKind: 0, nodeId: poleB.id }]
+    );
+    expect(branch.ok, branch.error).toBe(true);
+    expect(branch.generatedSpanCount).toBe(8);
+    const afterBranchHvParts = hvEdgeBodies(runState);
+    expect(afterBranchHvParts).toHaveLength(9);
+    const newBranchHvParts = afterBranchHvParts.filter((part) => !baseHvSpanIds.has(part.info.sourceSpanId));
+    expect(newBranchHvParts).toHaveLength(3);
+    expect(uniqueRounded(newBranchHvParts.map((part) => part.info.laneIndex))).toEqual([0, 1, 2]);
+
+    const bHvPorts = Array.from({ length: runState.portCount() }, (_, index) => runState.port(index))
+      .filter((port) => port.ownerPoleId === poleB.id && port.category === 0);
+    expect(bHvPorts).toHaveLength(9);
+    expect(new Set(bHvPorts.map((port) => Number(port.z.toFixed(3))))).toEqual(new Set([9.2]));
+
+    const bHvRows = runState.visualScene().models
+      .filter((model) => model.modelKey === "hv_crossarm" && model.stableKey.startsWith(`row:${poleB.id}:`));
+    expect(bHvRows.map((model) => Number(model.positionZ.toFixed(3))).sort((a, b) => a - b))
+      .toEqual([8.925, 9.2]);
+    assertHvSeparatedByEdge(runState);
+    assertModelHvInsulatorsSeparatedByPole(runState);
     runState.delete();
   });
 

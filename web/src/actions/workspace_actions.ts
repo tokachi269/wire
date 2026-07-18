@@ -96,6 +96,7 @@ export class WorkspaceActions {
       this.ctx.store.setError("Workspace reset is unavailable before initialization");
       return;
     }
+    const beforeReset = this.ctx.readSnapshot();
     this.ctx.pausePersistence();
     await this.ctx.clearWorkspaceCache();
     const result = this.ctx.loadFactoryCoreState();
@@ -104,7 +105,11 @@ export class WorkspaceActions {
       this.ctx.store.setError(`Workspace reset failed: ${result.error}`);
       return;
     }
-    this.ctx.store.replace(createViewerSnapshot());
+    this.ctx.store.replace({
+      ...createViewerSnapshot(),
+      showLeftPanel: beforeReset.showLeftPanel,
+      showRightPanel: beforeReset.showRightPanel
+    });
     this.initialize();
     await this.restoreWorkspace();
     this.ctx.refreshScene();

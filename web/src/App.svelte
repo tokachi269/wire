@@ -192,13 +192,11 @@
       <h1>Viewer</h1>
     </div>
     <div class="header-actions">
-      <button class="secondary panel-toggle" class:active={snapshot.showLeftPanel} type="button"
-        onclick={() => actions.setDrawOption("showLeftPanel", !snapshot.showLeftPanel)}>
-        Outliner
+      <button class="secondary mini-action" type="button" onclick={() => actions.undoPathPoint()}>
+        Undo
       </button>
-      <button class="secondary panel-toggle" class:active={snapshot.showRightPanel} type="button"
-        onclick={() => actions.setDrawOption("showRightPanel", !snapshot.showRightPanel)}>
-        Inspector
+      <button class="secondary mini-action" type="button" onclick={() => actions.clearPath()}>
+        Clear
       </button>
       <button class="secondary" type="button" onclick={() => actions.exportReproCapture()}>
         Repro capture
@@ -216,6 +214,25 @@
     class="workspace"
     style={`--left-width:${snapshot.workspaceLeftWidth}px;--right-width:${snapshot.workspaceWidth}px`}
   >
+    <button
+      class="side-tab left-tab"
+      class:active={snapshot.showLeftPanel}
+      type="button"
+      aria-label={snapshot.showLeftPanel ? "Hide Outliner" : "Show Outliner"}
+      onclick={() => actions.setDrawOption("showLeftPanel", !snapshot.showLeftPanel)}
+    >
+      Outliner
+    </button>
+    <button
+      class="side-tab right-tab"
+      class:active={snapshot.showRightPanel}
+      type="button"
+      aria-label={snapshot.showRightPanel ? "Hide Inspector" : "Show Inspector"}
+      onclick={() => actions.setDrawOption("showRightPanel", !snapshot.showRightPanel)}
+    >
+      Inspector
+    </button>
+
     {#if snapshot.showLeftPanel}
       <div class="left-region">
         <Outliner {actions} {snapshot} />
@@ -239,7 +256,10 @@
       ></button>
       <div class="right-region">
         <div class="draw-panel">
-          <p class="panel-label">DRAW PATH</p>
+          <div class="draw-panel-head">
+            <p class="panel-label">DRAW PATH</p>
+            <strong class="point-count">{snapshot.pathPoints.length} points</strong>
+          </div>
           <label>
             Pole template
             <select
@@ -312,15 +332,6 @@
               onchange={(event) => actions.setDrawOption("drawPlaneZ", Number(event.currentTarget.value))} />
           </label>
           <p class="hint">LMB: add point / RMB: undo point / Enter: generate / Esc: cancel</p>
-          <strong class="point-count">{snapshot.pathPoints.length} points</strong>
-          <div class="path-actions">
-            <button class="secondary" type="button" onclick={() => actions.undoPathPoint()}>
-              Undo Point
-            </button>
-            <button class="secondary" type="button" onclick={() => actions.clearPath()}>
-              Clear
-            </button>
-          </div>
         </div>
         <SelectionInspector {actions} {snapshot} />
         <Settings {actions} {snapshot} />

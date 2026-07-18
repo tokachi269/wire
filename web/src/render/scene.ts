@@ -29,6 +29,8 @@ export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
 const SUPPORT_PATH_SUPPLEMENTAL_KIND = 1;
+const BACKBONE_NODE_SNAP_PX = 24;
+const BACKBONE_EDGE_SNAP_PX = 16;
 
 export function setPoleRotation(
   object: THREE.Object3D,
@@ -351,7 +353,7 @@ export class WireScene {
     const ray = new THREE.Raycaster();
     ray.params.Line = { threshold: 0.35 };
     ray.setFromCamera(pointer, this.camera);
-    const backboneHit = this.pickBackbonePoint(ray);
+    const backboneHit = this.pickBackbonePoint(event.clientX, event.clientY, ray);
     if (backboneHit !== null) {
       this.onGroundClick(backboneHit.point, backboneHit.pick);
       return;
@@ -390,14 +392,14 @@ export class WireScene {
     return null;
   }
 
-  private pickBackbonePoint(ray: THREE.Raycaster): { point: WorldPoint; pick: PathPickInfo } | null {
+  private pickBackbonePoint(
+    clientX: number,
+    clientY: number,
+    ray?: THREE.Raycaster
+  ): { point: WorldPoint; pick: PathPickInfo } | null {
     if (this.snapshot?.showBackboneOverlay !== true) return null;
-    const hits = ray.intersectObjects(this.backbone.children, true)
-      .filter((hit) => hit.object.userData.pickableBackbone);
-    const hit = hits[0];
-    if (hit === undefined) return null;
-    const data = hit.object.userData;
-    const displayPoint: WorldPoint = [hit.point.x, hit.point.y, BACKBONE_DISPLAY_PLANE_Z];
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    const pointerPx = new THREE.Vector2(clientX - bounds.left, clientY - bounds.top);
     const makePick = (point: WorldPoint, hitKind: number, hitId: string): PathPickInfo => ({
       hitKind,
       hitId,
@@ -414,6 +416,85 @@ export class WireScene {
       segmentEndpointBY: 0,
       segmentEndpointBZ: 0
     });
+
+    let bestNode: { distance: number; point: WorldPoint; pick: PathPickInfo } | null = null;
+    for (const node of this.snapshot.supportNodes) {
+      const displayPoint = new THREE.Vector3(node.x, node.y, BACKBONE_DISPLAY_PLANE_Z);
+      const screenPoint = this.projectToCanvas(displayPoint, bounds);
+      if (screenPoint === null) continue;
+      const distance = screenPoint.distanceTo(pointerPx);
+      if (distance <= BACKBONE_NODE_SNAP_PX && (bestNode === null || distance < bestNode.distance)) {
+        const point: WorldPoint = [node.x, node.y, node.z];
+        bestNode = {
+          distance,
+          point,
+          pick: makePick(point, 1, node.kind === 0 && node.poleId !== "0" ? node.poleId : node.id)
+        };
+      }
+    }
+    if (bestNode !== null) {
+      return { point: bestNode.point, pick: bestNode.pick };
+    }
+
+    const nodeById = new Map(this.snapshot.supportNodes.map((node) => [node.id, node]));
+    let bestEdge: { distance: number; point: WorldPoint; pick: PathPickInfo } | null = null;
+    for (const edge of this.snapshot.backboneEdges) {
+      const nodeA = nodeById.get(edge.nodeAId);
+      const nodeB = nodeById.get(edge.nodeBId);
+      if (nodeA === undefined || nodeB === undefined) continue;
+      const screenA = this.projectToCanvas(new THREE.Vector3(nodeA.x, nodeA.y, BACKBONE_DISPLAY_PLANE_Z), bounds);
+      const screenB = this.projectToCanvas(new THREE.Vector3(nodeB.x, nodeB.y, BACKBONE_DISPLAY_PLANE_Z), bounds);
+      if (screenA === null || screenB === null) continue;
+      const dx = screenB.x - screenA.x;
+      const dy = screenB.y - screenA.y;
+      const length2 = dx * dx + dy * dy;
+      const t = length2 > 0
+        ? THREE.MathUtils.clamp(
+            ((pointerPx.x - screenA.x) * dx + (pointerPx.y - screenA.y) * dy) / length2,
+            0,
+            1
+          )
+        : 0;
+      const closest = new THREE.Vector2(screenA.x + dx * t, screenA.y + dy * t);
+      const distance = closest.distanceTo(pointerPx);
+      if (distance > BACKBONE_EDGE_SNAP_PX || (bestEdge !== null && distance >= bestEdge.distance)) {
+        continue;
+      }
+      const endpointA: WorldPoint = [nodeA.x, nodeA.y, nodeA.z];
+      const endpointB: WorldPoint = [nodeB.x, nodeB.y, nodeB.z];
+      const point: WorldPoint = [
+        endpointA[0] + (endpointB[0] - endpointA[0]) * t,
+        endpointA[1] + (endpointB[1] - endpointA[1]) * t,
+        endpointA[2] + (endpointB[2] - endpointA[2]) * t
+      ];
+      bestEdge = {
+        distance,
+        point,
+        pick: {
+          ...makePick(point, 2, "0"),
+          hasSegmentEndpoints: true,
+          segmentNodeAId: edge.nodeAId,
+          segmentNodeBId: edge.nodeBId,
+          segmentEndpointAX: endpointA[0],
+          segmentEndpointAY: endpointA[1],
+          segmentEndpointAZ: endpointA[2],
+          segmentEndpointBX: endpointB[0],
+          segmentEndpointBY: endpointB[1],
+          segmentEndpointBZ: endpointB[2]
+        }
+      };
+    }
+    if (bestEdge !== null) {
+      return { point: bestEdge.point, pick: bestEdge.pick };
+    }
+
+    if (ray === undefined) return null;
+    const hits = ray.intersectObjects(this.backbone.children, true)
+      .filter((hit) => hit.object.userData.pickableBackbone);
+    const hit = hits[0];
+    if (hit === undefined) return null;
+    const data = hit.object.userData;
+    const displayPoint: WorldPoint = [hit.point.x, hit.point.y, BACKBONE_DISPLAY_PLANE_Z];
     if (data.pickKind === "node") {
       const point = (data.worldPoint as WorldPoint | undefined) ?? displayPoint;
       return {
@@ -442,6 +523,15 @@ export class WireScene {
       };
     }
     return null;
+  }
+
+  private projectToCanvas(point: THREE.Vector3, bounds: DOMRect): THREE.Vector2 | null {
+    const projected = point.clone().project(this.camera);
+    if (projected.z < -1 || projected.z > 1) return null;
+    return new THREE.Vector2(
+      ((projected.x + 1) * 0.5) * bounds.width,
+      ((1 - projected.y) * 0.5) * bounds.height
+    );
   }
 
   private closestBackbonePointXY(point: WorldPoint, endpointA: WorldPoint, endpointB: WorldPoint): WorldPoint {
@@ -936,7 +1026,7 @@ export class WireScene {
     const ray = new THREE.Raycaster();
     ray.params.Line = { threshold: 0.35 };
     ray.setFromCamera(pointer, this.camera);
-    const hit = this.pickBackbonePoint(ray);
+    const hit = this.pickBackbonePoint(event.clientX, event.clientY, ray);
     if (hit === null) return;
 
     const point = new THREE.Vector3(hit.point[0], hit.point[1], hit.point[2] + 0.08);
@@ -952,17 +1042,6 @@ export class WireScene {
     ring.renderOrder = 60;
     this.snapPreview.add(ring);
 
-    const dot = new THREE.Mesh(
-      new THREE.SphereGeometry(0.08, 10, 8),
-      new THREE.MeshBasicMaterial({
-        color: 0xffd36f,
-        depthTest: false,
-        depthWrite: false
-      })
-    );
-    dot.position.copy(point);
-    dot.renderOrder = 61;
-    this.snapPreview.add(dot);
   }
 
   private clearSnapPreview(): void {

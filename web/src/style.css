@@ -75,6 +75,12 @@ button:hover {
   gap: 0.65rem;
 }
 
+.mini-action {
+  min-width: 42px;
+  padding: 0.28rem 0.45rem;
+  font-size: 0.68rem;
+}
+
 main {
   position: relative;
   width: 100%;
@@ -141,6 +147,44 @@ h1 {
   backdrop-filter: blur(8px);
 }
 
+.side-tab {
+  position: absolute;
+  z-index: 18;
+  top: 94px;
+  width: 24px;
+  min-width: 24px;
+  height: 92px;
+  padding: 0;
+  border-color: rgba(83, 96, 102, 0.9);
+  border-radius: 3px;
+  background: rgba(35, 42, 45, 0.9);
+  color: #cdd6d4;
+  font: 600 0.66rem "IBM Plex Sans", sans-serif;
+  line-height: 1;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  backdrop-filter: blur(8px);
+}
+
+.side-tab:hover,
+.side-tab.active {
+  background: #315b84;
+  border-color: #5f9de3;
+  color: #f5f8fb;
+}
+
+.side-tab:active {
+  transform: none;
+}
+
+.left-tab {
+  left: 0;
+}
+
+.right-tab {
+  right: 0;
+}
+
 .left-region {
   left: 6px;
   width: var(--left-width);
@@ -198,6 +242,24 @@ h1 {
   border: 1px solid var(--line);
   background: var(--panel-raised);
   padding: 0.65rem;
+}
+
+.draw-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.draw-panel-head .panel-label {
+  margin: 0;
+}
+
+.draw-panel-head .point-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--sidebar-small-size);
 }
 
 .draw-panel .check {
@@ -308,17 +370,6 @@ select {
   margin: 0.65rem 0 0.25rem;
   color: var(--muted);
   font-size: var(--sidebar-meta-size);
-}
-
-.point-count {
-  display: block;
-  margin-bottom: 0.55rem;
-  font-size: var(--sidebar-control-size);
-}
-
-.path-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
 }
 
 .viewport canvas {
@@ -767,6 +818,11 @@ summary {
 
   .resize-handle {
     display: none;
+  }
+
+  .side-tab {
+    top: 52px;
+    height: 76px;
   }
 
   .viewport {

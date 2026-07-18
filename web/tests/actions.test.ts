@@ -85,7 +85,7 @@ describe("workspace cache", () => {
     expect(secondCoreState).toBe("fresh-core");
     expect(current(secondStore)).toEqual(expect.objectContaining({
       cameraFov: 48,
-      showRightPanel: true,
+      showRightPanel: false,
       pathPoints: []
     }));
     expect(await cache.read()).toEqual(expect.objectContaining({

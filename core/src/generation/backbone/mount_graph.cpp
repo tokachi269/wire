@@ -113,8 +113,8 @@ EditResult<Transformd> resolve_node_impl(const std::vector<MountGraphNode>& node
   }
   stack->push_back(node_id);
   Transformd parent{};
-  if (node->parent.kind == MountRefKind::kRoot) {
-    parent = node->parent.root_transform;
+  if (node->parent.kind == MountRefKind::kPoleFrame || node->parent.kind == MountRefKind::kSpanAnchor) {
+    parent = node->parent.anchor_transform;
   } else if (node->parent.kind == MountRefKind::kInstanceSocket) {
     EditResult<Transformd> socket =
         resolve_socket_impl(nodes, node->parent.parent_node, node->parent.socket_name, stack);

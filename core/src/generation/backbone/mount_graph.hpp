@@ -10,7 +10,8 @@
 namespace wire::core::generation::backbone {
 
 enum class MountRefKind : std::uint8_t {
-  kRoot,
+  kPoleFrame,
+  kSpanAnchor,
   kInstanceSocket,
 };
 
@@ -20,8 +21,8 @@ struct MountGraphSocket {
 };
 
 struct MountGraphRef {
-  MountRefKind kind = MountRefKind::kRoot;
-  Transformd root_transform{};
+  MountRefKind kind = MountRefKind::kPoleFrame;
+  Transformd anchor_transform{};
   std::size_t parent_node = static_cast<std::size_t>(-1);
   std::string socket_name{};
 };

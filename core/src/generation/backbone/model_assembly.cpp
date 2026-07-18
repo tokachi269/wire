@@ -276,8 +276,8 @@ EditResult<Vec3d> resolve_part_socket_world(const Transformd& part_world,
                                             const ModelAssemblySocket& socket) {
   MountGraphNode node{};
   node.node = 0;
-  node.parent.kind = MountRefKind::kRoot;
-  node.parent.root_transform = part_world;
+  node.parent.kind = MountRefKind::kPoleFrame;
+  node.parent.anchor_transform = part_world;
   MountGraphSocket graph_socket{};
   graph_socket.name = socket.name;
   graph_socket.local_transform.position = socket.local_position;

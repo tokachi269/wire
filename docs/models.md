@@ -91,31 +91,55 @@ asset / descriptor / viewer は kind から template を一意に推測しない
 beltのfitは単一transformで表せる円形柱近似に限定する。非円形断面や幅方向の変形が必要なら、
 このfit modeを拡大解釈せず別scenarioとして設計する。
 
-## pole側modelのowner
+## model配置のownerと親参照
 
 ```text
 Pole                         -> pole visual assembly(body、電線非関連装飾)
-Pole + SavedBackboneRowKey   -> row fixture assembly(crossarm、belt)
-Port                         -> endpoint fixture assembly(insulator、clamp相当)
+SavedBackboneRowKey          -> PlacementRule::at_row の row fixture assembly(crossarm、belt)
+Port                         -> PlacementRule::at_endpoint の endpoint fixture assembly(insulator、clamp相当)
+Span anchor                  -> PlacementRule::interval の span上 assembly(テスト用。既定templateでは未使用)
 Attachment                   -> span途中のinline model
 ```
 
 Coreのmodel contractには用途名を持ち込まない。assemblyはpart、local transform、限定fit mode、
-任意のwire socketだけを持つ。wire socket無しassemblyは表示だけで、curve endpointを変更しない。
+名前付きsocketだけを持つ。socket無しassemblyは表示だけで、curve endpointを変更しない。
 
 model assemblyのworld materializationはbackboneのlayout endpoint resolverが所有し、初回生成とpost-editで
 同じ経路を使う。`VisualModelInstance`はderived cacheであり、Pole、row、PortやSavedBackboneGraphへ
 model instance identityを追加しない。
 
-row fixtureは任意の`endpoint_mount_socket`を公開できる。このsocketのworld位置とrow rootの差分だけを
-各Portのendpoint fixture rootへ加え、腕金の柱表面取付位置を碍子へ伝える。endpoint fixtureの回転は
-従来どおりPoleFrame/layout yawが所有し、row partのGLB軸補正rotationやscaleを親子継承しない。
-endpoint fixture表示とlayoutのwire endpointは同じ`resolve_endpoint_placement`結果を使用する。
+配置されるinstanceの親参照は次の3種だけに限定する。
 
-v1のwire socketはcurve endpointの位置を決める。socketのlocal directionはdescriptor/assemblyへ保持するが、
+```text
+MountRef::pole_frame      PoleFrame/layout yaw等から作ったroot frame
+MountRef::span_anchor     curve上の純関数anchor frame
+MountRef::instance_socket 親instance ID + socket名
+```
+
+world transformはmount graphの解決関数が親チェーンを辿って合成する。深さは固定しない。
+socket欠落や循環はunsupportedとして明示し、近傍geometryやmodel名から補完しない。
+row/endpointの現行2配置もこの機構へ載せる。row fixtureは`pole_frame`、endpoint fixtureは
+row側の`endpoint_mount_socket`がある場合は`instance_socket`、無い場合は`pole_frame`を親にする。
+wire endpointはendpoint fixtureの`wire_socket`から得るが、layoutが決めた接続点へsocketが一致するよう
+fixture rootを解く。socket local offsetでPort高さやbranch down policyを再決定しない。
+
+templateの配置指定はbit flagではなく`PlacementRule`のリストとする。
+
+```text
+PlacementRule::at_row       既存のrow fixture相当
+PlacementRule::at_endpoint  既存のendpoint fixture相当
+PlacementRule::interval     spacing/phaseでspan上にanchor frame列を作る純関数
+```
+
+外部APIの`rowFixtureAssemblyId` / `endpointFixtureAssemblyId`は互換入力として残すが、
+意味解釈はadapter 1箇所で`PlacementRule`へ変換する。model materializationは旧fieldを直接読まない。
+`interval`は現時点では機構証明用で、既定templateには載せない。姿勢は配置規則の種類ではなく
+`world_up` / `align_tangent` のorientation policyとして直交させる。
+
+v1のwire socketはcurve endpointの位置を決める。socketのdirectionはdescriptor/assemblyへ保持するが、
 現行のcurve tangent authorityにはしない。挿し込み型fixtureもadapterが測定長とwire socketを渡し、
-Coreは用途名やGLB軸を知らず同じPort endpoint placementで配置する。方向をG1拘束へ使う場合は、continuity policyとnode patchの契約を
-含めて別scenarioとして設計する。
+Coreは用途名やGLB軸を知らず同じMountRef/PlacementRule経路で配置する。方向をG1拘束へ使う場合は、
+continuity policyとnode patchの契約を含めて別scenarioとして設計する。
 
 ## 表面占有(重なり回避)
 

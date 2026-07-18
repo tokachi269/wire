@@ -1877,8 +1877,8 @@ bool C803_model_mount_graph_resolves_depth_four_chain() {
 
   std::vector<MountGraphNode> nodes{};
   nodes.push_back(node(0, {1.0, 0.0, 0.0}, "out", {0.0, 2.0, 0.0}));
-  nodes[0].parent.kind = MountRefKind::kRoot;
-  nodes[0].parent.root_transform.position = {10.0, 0.0, 1.0};
+  nodes[0].parent.kind = MountRefKind::kPoleFrame;
+  nodes[0].parent.anchor_transform.position = {10.0, 0.0, 1.0};
   nodes.push_back(node(1, {0.0, 3.0, 0.0}, "out", {0.0, 0.0, 4.0}));
   nodes[1].parent.kind = MountRefKind::kInstanceSocket;
   nodes[1].parent.parent_node = 0;
@@ -1897,6 +1897,16 @@ bool C803_model_mount_graph_resolves_depth_four_chain() {
   if (!resolved_node.ok || !resolved_socket.ok ||
       !almost_equal(resolved_node.value.position, Vec3d{16.0, 11.0, 12.0}, 1e-12) ||
       !almost_equal(resolved_socket.value.position, Vec3d{24.0, 11.0, 12.0}, 1e-12)) {
+    return false;
+  }
+
+  MountGraphNode span_anchor = node(4, {0.25, 0.0, 0.0}, "wire", {0.0, 0.5, 0.0});
+  span_anchor.parent.kind = MountRefKind::kSpanAnchor;
+  span_anchor.parent.anchor_transform.position = {20.0, 30.0, 40.0};
+  nodes.push_back(span_anchor);
+  const auto resolved_span_anchor = resolve_mount_socket(nodes, 4, "wire");
+  if (!resolved_span_anchor.ok ||
+      !almost_equal(resolved_span_anchor.value.position, Vec3d{20.25, 30.5, 40.0}, 1e-12)) {
     return false;
   }
 
@@ -1943,17 +1953,34 @@ bool C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors() {
 
   const std::filesystem::path model_assembly =
       repo_root() / "core" / "src" / "generation" / "backbone" / "model_assembly.cpp";
+  const std::filesystem::path mount_header =
+      repo_root() / "core" / "src" / "generation" / "backbone" / "mount_graph.hpp";
   const std::filesystem::path rule_source =
       repo_root() / "core" / "src" / "generation" / "backbone" / "model_placement_rules.cpp";
+  const std::filesystem::path models_doc = repo_root() / "docs" / "models.md";
   std::string model_text{};
+  std::string mount_text{};
   std::string rule_text{};
-  if (!file_text(model_assembly, &model_text) || !file_text(rule_source, &rule_text)) {
+  std::string doc_text{};
+  if (!file_text(model_assembly, &model_text) ||
+      !file_text(mount_header, &mount_text) ||
+      !file_text(rule_source, &rule_text) ||
+      !file_text(models_doc, &doc_text)) {
     return false;
   }
   return !contains_text(model_text, "row_fixture_assembly_id") &&
          !contains_text(model_text, "endpoint_fixture_assembly_id") &&
+         contains_text(mount_text, "kPoleFrame") &&
+         contains_text(mount_text, "kSpanAnchor") &&
+         contains_text(mount_text, "kInstanceSocket") &&
          contains_text(rule_text, "placement_rules_from_bundle_template") &&
-         contains_text(rule_text, "interval_anchor_frames");
+         contains_text(rule_text, "interval_anchor_frames") &&
+         contains_text(doc_text, "MountRef::pole_frame") &&
+         contains_text(doc_text, "MountRef::span_anchor") &&
+         contains_text(doc_text, "MountRef::instance_socket") &&
+         contains_text(doc_text, "PlacementRule") &&
+         contains_text(doc_text, "bit flag") &&
+         !contains_text(doc_text, "two-stage hardcode");
 }
 
 bool C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key() {

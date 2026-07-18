@@ -683,9 +683,11 @@ EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache(const C
 }
 
 EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreState& state,
-                                                                  const FixturePlacementPlanByPort* fixture_plan) {
+                                                                  const FixturePlacementPlanByPort* fixture_plan,
+                                                                  bool use_cache_fallback) {
   EditResult<VisualModelInstanceCache> out{};
   FixturePlacementPlanByPort cached_fixture_plan{};
+  FixturePlacementPlanByPort merged_fixture_plan{};
   const FixturePlacementPlanByPort* effective_fixture_plan = fixture_plan;
   if (effective_fixture_plan == nullptr) {
     EditResult<FixturePlacementPlanByPort> from_cache = fixture_placement_plan_from_cache(state);
@@ -695,6 +697,17 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
     }
     cached_fixture_plan = std::move(from_cache.value);
     effective_fixture_plan = &cached_fixture_plan;
+  } else if (use_cache_fallback) {
+    EditResult<FixturePlacementPlanByPort> from_cache = fixture_placement_plan_from_cache(state);
+    if (!from_cache.ok) {
+      out.error = from_cache.error;
+      return out;
+    }
+    merged_fixture_plan = std::move(from_cache.value);
+    for (const auto& [port_id, plan] : *fixture_plan) {
+      merged_fixture_plan[port_id] = plan;
+    }
+    effective_fixture_plan = &merged_fixture_plan;
   }
   const CoreView view = state.view();
 
@@ -792,7 +805,7 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
       }
     }
     if (!has_plan) {
-      const EditResult<ResolvedEndpointPlacement> resolved = resolve_endpoint_placement(state, *port, 0.0);
+      const EditResult<ResolvedEndpointPlacement> resolved = resolve_endpoint_placement(state, *port, 0.0, nullptr);
       if (!resolved.ok) {
         out.error = resolved.error;
         return out;

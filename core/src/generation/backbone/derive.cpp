@@ -173,6 +173,111 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     out.error = "backbone unsupported: route-local regenerate is not implemented";
     return out;
   }
+
+  std::vector<SpanLayoutRule> reposition_rules{};
+  generation::backbone::FixturePlacementPlanByPort reposition_fixture_plan{};
+  const auto hydrate_endpoint_from_decision = [&](EndpointLayoutRule* endpoint) {
+    if (endpoint == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint->semantic)) {
+      return;
+    }
+    const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint->semantic);
+    const auto group_it = runtime_.cache_state.span_layout_cache.support_groups.decision.by_key.find(key);
+    if (group_it == runtime_.cache_state.span_layout_cache.support_groups.decision.by_key.end()) {
+      return;
+    }
+    const SupportGroupDecision& group = group_it->second;
+    CopyLayoutSemantic(endpoint->semantic, group);
+    endpoint->side = group.side;
+    endpoint->origin = group.origin;
+    endpoint->order_decision_policy = group.order_decision_policy;
+    endpoint->order_decision_choice = group.order_decision_choice;
+    endpoint->order_decision_choice_reason = group.order_decision_choice_reason;
+    endpoint->chosen_side = group.chosen_side;
+    endpoint->used_junction_pair_side_assignment = group.used_junction_pair_side_assignment;
+  };
+  const auto build_reposition_context = [&]() -> EditResult<bool> {
+    EditResult<bool> built{};
+    reposition_rules.reserve(runtime_.cache_state.span_layout_cache.records_by_span.size());
+    for (const auto& [span_id, record] : runtime_.cache_state.span_layout_cache.records_by_span) {
+      static_cast<void>(span_id);
+      const SpanLayoutRule* cached_rule = record.span_layout_rule();
+      if (cached_rule == nullptr) {
+        continue;
+      }
+      SpanLayoutRule rule = *cached_rule;
+      hydrate_endpoint_from_decision(&rule.start);
+      hydrate_endpoint_from_decision(&rule.end);
+      reposition_rules.push_back(std::move(rule));
+    }
+    EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+        generation::backbone::fixture_placement_plan_from_rules(*this, reposition_rules);
+    if (!fixture_plan.ok) {
+      built.error = fixture_plan.error;
+      return built;
+    }
+    reposition_fixture_plan = std::move(fixture_plan.value);
+    built.value = true;
+    built.ok = true;
+    return built;
+  };
+  if (plan.kind == UpdateKind::kReposition) {
+    EditResult<bool> context = build_reposition_context();
+    if (!context.ok) {
+      timing.total_ms =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+      debug_.last_update_timing = timing;
+      out.error = context.error;
+      return out;
+    }
+  }
+
+  const auto derive_reposition_span = [&](ObjectId span_id) -> EditResult<bool> {
+    EditResult<bool> derived{};
+    const Span* span = authoritative_.edit_state.spans.find(span_id);
+    if (span == nullptr) {
+      derived.error = "backbone derive: span not found";
+      return derived;
+    }
+    const SpanLayoutRule* rule = nullptr;
+    for (const SpanLayoutRule& candidate : reposition_rules) {
+      if (candidate.span_id == span_id) {
+        rule = &candidate;
+        break;
+      }
+    }
+    if (rule == nullptr) {
+      derived.error = "backbone derive: span layout rule not found";
+      return derived;
+    }
+    const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+    const auto endpoint_resolver = [&](const EndpointLayoutRule& endpoint) {
+      return generation::backbone::resolve_span_layout_endpoint(
+          *this, authoritative_.edit_state, endpoint, &reposition_fixture_plan);
+    };
+    EditResult<SpanLayoutEntry> layout = generation::backbone::derive_span_layout(
+        *rule, endpoint_resolver, (runtime == nullptr) ? 0 : runtime->data_version);
+    if (!layout.ok) {
+      derived.error = layout.error;
+      return derived;
+    }
+    EditResult<DetailCurve> curve = generation::backbone::make_curve(*this, span_id, layout.value);
+    if (!curve.ok) {
+      derived.error = curve.error;
+      return derived;
+    }
+    BoundsCacheEntry bounds = generation::backbone::bounds(curve.value, layout.value.source_version);
+    SpanVisualCacheEntry visual = generation::backbone::visual(authoritative_.visual_settings, layout.value);
+    SpanRenderCacheEntry render = generation::backbone::render(*this, span_id, curve.value);
+    cache_span_layout(std::move(layout.value));
+    cache_span_curve(span_id, std::move(curve.value));
+    cache_span_bounds(span_id, std::move(bounds));
+    cache_span_visual(span_id, std::move(visual));
+    cache_span_render(span_id, std::move(render));
+    derived.value = true;
+    derived.ok = true;
+    return derived;
+  };
+
   for (ObjectId span_id : plan.affected.spans) {
     if (span_id == kInvalidObjectId) {
       continue;
@@ -181,7 +286,7 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     const auto derive_started = std::chrono::steady_clock::now();
     switch (plan.kind) {
     case UpdateKind::kReposition:
-      derived = DeriveGeneratedSpanOutputs(span_id);
+      derived = derive_reposition_span(span_id);
       break;
     case UpdateKind::kReshape:
       derived = derive_generated_span_shape_outputs(span_id);
@@ -205,44 +310,6 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
   if (plan.kind == UpdateKind::kReposition) {
     auto rebuild_groups_from_rules = [&]() -> EditResult<SupportGroupCache> {
       EditResult<SupportGroupCache> rebuilt{};
-      std::vector<SpanLayoutRule> rules{};
-      rules.reserve(runtime_.cache_state.span_layout_cache.records_by_span.size());
-      auto hydrate_endpoint_from_decision = [&](EndpointLayoutRule* endpoint) {
-        if (endpoint == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint->semantic)) {
-          return;
-        }
-        const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint->semantic);
-        const auto group_it = runtime_.cache_state.span_layout_cache.support_groups.decision.by_key.find(key);
-        if (group_it == runtime_.cache_state.span_layout_cache.support_groups.decision.by_key.end()) {
-          return;
-        }
-        const SupportGroupDecision& group = group_it->second;
-        CopyLayoutSemantic(endpoint->semantic, group);
-        endpoint->side = group.side;
-        endpoint->origin = group.origin;
-        endpoint->order_decision_policy = group.order_decision_policy;
-        endpoint->order_decision_choice = group.order_decision_choice;
-        endpoint->order_decision_choice_reason = group.order_decision_choice_reason;
-        endpoint->chosen_side = group.chosen_side;
-        endpoint->used_junction_pair_side_assignment = group.used_junction_pair_side_assignment;
-      };
-      for (const auto& [span_id, record] : runtime_.cache_state.span_layout_cache.records_by_span) {
-        static_cast<void>(span_id);
-        const SpanLayoutRule* cached_rule = record.span_layout_rule();
-        if (cached_rule == nullptr) {
-          continue;
-        }
-        SpanLayoutRule rule = *cached_rule;
-        hydrate_endpoint_from_decision(&rule.start);
-        hydrate_endpoint_from_decision(&rule.end);
-        rules.push_back(std::move(rule));
-      }
-      EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
-          generation::backbone::fixture_placement_plan_from_rules(*this, rules);
-      if (!fixture_plan.ok) {
-        rebuilt.error = fixture_plan.error;
-        return rebuilt;
-      }
       auto group_for = [&](const LoweredSupportGroupKey& key) ->
           std::pair<SupportGroupDecision*, LoweredSupportGroupPlacement*> {
         return {&rebuilt.value.decision.by_key[key], &rebuilt.value.placement.by_key[key]};
@@ -274,9 +341,9 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
       };
       const auto endpoint_resolver = [&](const EndpointLayoutRule& endpoint) {
         return generation::backbone::resolve_span_layout_endpoint(
-            *this, authoritative_.edit_state, endpoint, &fixture_plan.value);
+            *this, authoritative_.edit_state, endpoint, &reposition_fixture_plan);
       };
-      for (const SpanLayoutRule& rule : rules) {
+      for (const SpanLayoutRule& rule : reposition_rules) {
         const SpanRuntimeState* runtime = find_span_runtime_state(rule.span_id);
         EditResult<SpanLayoutEntry> layout = generation::backbone::derive_span_layout(
             rule, endpoint_resolver, (runtime == nullptr) ? 0 : runtime->data_version);
@@ -304,7 +371,9 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}, plan.affected.spans));
   }
   EditResult<VisualModelInstanceCache> model_instances =
-      generation::backbone::materialize_model_assemblies(*this);
+      plan.kind == UpdateKind::kReposition
+          ? generation::backbone::materialize_model_assemblies(*this, &reposition_fixture_plan, false)
+          : generation::backbone::materialize_model_assemblies(*this);
   if (!model_instances.ok) {
     timing.total_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();

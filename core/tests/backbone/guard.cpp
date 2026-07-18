@@ -1809,4 +1809,40 @@ bool C677_backbone_corner_scale_has_one_definition() {
   return scale_definitions == 1 && side_definitions == 1;
 }
 
+bool C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization() {
+  std::string derive_source{};
+  std::string model_source{};
+  std::string execute_body{};
+  std::string materialize_body{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/derive.cpp", &derive_source) ||
+      !file_text(repo_root() / "core/src/generation/backbone/model_assembly.cpp", &model_source) ||
+      !function_body(derive_source, "EditResult<bool> CoreState::execute_update_plan", &execute_body) ||
+      !function_body(model_source, "EditResult<VisualModelInstanceCache> materialize_model_assemblies", &materialize_body)) {
+    return false;
+  }
+  const std::size_t reposition_case = execute_body.find("case UpdateKind::kReposition:");
+  const std::size_t reshape_case = execute_body.find("case UpdateKind::kReshape:");
+  if (reposition_case == std::string::npos || reshape_case == std::string::npos ||
+      reposition_case >= reshape_case) {
+    return false;
+  }
+  auto count = [](const std::string& haystack, const std::string& needle) {
+    std::size_t total = 0;
+    for (std::size_t pos = haystack.find(needle); pos != std::string::npos;
+         pos = haystack.find(needle, pos + needle.size())) {
+      ++total;
+    }
+    return total;
+  };
+  const std::string reposition_case_body =
+      execute_body.substr(reposition_case, reshape_case - reposition_case);
+  return contains_text(execute_body, "build_reposition_context") &&
+         count(execute_body, "fixture_placement_plan_from_rules") == 1 &&
+         !contains_text(reposition_case_body, "DeriveGeneratedSpanOutputs(") &&
+         contains_text(materialize_body, "use_cache_fallback") &&
+         contains_text(materialize_body, "merged_fixture_plan") &&
+         contains_text(materialize_body, "resolve_endpoint_placement(state, *port, 0.0, nullptr)") &&
+         !contains_text(materialize_body, "resolve_endpoint_placement(state, *port, 0.0);");
+}
+
 } // namespace backbone_tests

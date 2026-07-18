@@ -1181,6 +1181,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental sharp extension adds an open row instead of choosing among ambiguous sharp candidates",
                          "Invariant", false,
                          C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_are_ambiguous);
+  test_registry::AddTest(tests, "C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization",
+                         "fixture placement plan is built once per reposition operation and not per endpoint materialization",
+                         "Boundary", false,
+                         C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization);
 }
 
 

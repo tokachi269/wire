@@ -96,6 +96,14 @@ export class WireScene {
   private readonly backbone = new THREE.Group();
   private readonly guide = new THREE.Group();
   private readonly snapPreview = new THREE.Group();
+  private readonly snapPreviewRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.28, 0.018, 8, 32),
+    new THREE.MeshBasicMaterial({
+      color: 0xffb13b,
+      depthTest: false,
+      depthWrite: false
+    })
+  );
   private readonly groundGrid = new THREE.GridHelper(80, 40, 0x587288, 0x72889a);
   private readonly unsubscribe: () => void;
   private frame = 0;
@@ -143,6 +151,9 @@ export class WireScene {
     this.scene.add(this.content);
     this.scene.add(this.guide);
     this.scene.add(this.snapPreview);
+    this.snapPreviewRing.renderOrder = 60;
+    this.snapPreview.add(this.snapPreviewRing);
+    this.snapPreview.visible = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -353,7 +364,7 @@ export class WireScene {
     const ray = new THREE.Raycaster();
     ray.params.Line = { threshold: 0.35 };
     ray.setFromCamera(pointer, this.camera);
-    const backboneHit = this.pickBackbonePoint(event.clientX, event.clientY, ray);
+    const backboneHit = this.pickBackbonePoint(event.clientX, event.clientY);
     if (backboneHit !== null) {
       this.onGroundClick(backboneHit.point, backboneHit.pick);
       return;
@@ -394,8 +405,7 @@ export class WireScene {
 
   private pickBackbonePoint(
     clientX: number,
-    clientY: number,
-    ray?: THREE.Raycaster
+    clientY: number
   ): { point: WorldPoint; pick: PathPickInfo } | null {
     if (this.snapshot?.showBackboneOverlay !== true) return null;
     const bounds = this.renderer.domElement.getBoundingClientRect();
@@ -488,40 +498,6 @@ export class WireScene {
       return { point: bestEdge.point, pick: bestEdge.pick };
     }
 
-    if (ray === undefined) return null;
-    const hits = ray.intersectObjects(this.backbone.children, true)
-      .filter((hit) => hit.object.userData.pickableBackbone);
-    const hit = hits[0];
-    if (hit === undefined) return null;
-    const data = hit.object.userData;
-    const displayPoint: WorldPoint = [hit.point.x, hit.point.y, BACKBONE_DISPLAY_PLANE_Z];
-    if (data.pickKind === "node") {
-      const point = (data.worldPoint as WorldPoint | undefined) ?? displayPoint;
-      return {
-        point,
-        pick: makePick(point, 1, data.hitId ?? "0")
-      };
-    }
-    if (data.pickKind === "edge") {
-      const endpointA = data.endpointA as WorldPoint;
-      const endpointB = data.endpointB as WorldPoint;
-      const point = this.closestBackbonePointXY(displayPoint, endpointA, endpointB);
-      return {
-        point,
-        pick: {
-          ...makePick(point, 2, data.hitId ?? "0"),
-          hasSegmentEndpoints: true,
-          segmentNodeAId: data.nodeAId ?? "0",
-          segmentNodeBId: data.nodeBId ?? "0",
-          segmentEndpointAX: endpointA[0],
-          segmentEndpointAY: endpointA[1],
-          segmentEndpointAZ: endpointA[2],
-          segmentEndpointBX: endpointB[0],
-          segmentEndpointBY: endpointB[1],
-          segmentEndpointBZ: endpointB[2]
-        }
-      };
-    }
     return null;
   }
 
@@ -532,25 +508,6 @@ export class WireScene {
       ((projected.x + 1) * 0.5) * bounds.width,
       ((1 - projected.y) * 0.5) * bounds.height
     );
-  }
-
-  private closestBackbonePointXY(point: WorldPoint, endpointA: WorldPoint, endpointB: WorldPoint): WorldPoint {
-    const dx = endpointB[0] - endpointA[0];
-    const dy = endpointB[1] - endpointA[1];
-    const dz = endpointB[2] - endpointA[2];
-    const length2 = dx * dx + dy * dy;
-    const t = length2 > 0
-      ? THREE.MathUtils.clamp(
-          ((point[0] - endpointA[0]) * dx + (point[1] - endpointA[1]) * dy) / length2,
-          0,
-          1
-        )
-      : 0;
-    return [
-      endpointA[0] + dx * t,
-      endpointA[1] + dy * t,
-      endpointA[2] + dz * t
-    ];
   }
 
   private animate = (time: number): void => {
@@ -1018,34 +975,16 @@ export class WireScene {
 
   private updateSnapPreview(event: PointerEvent): void {
     this.clearSnapPreview();
-    const bounds = this.renderer.domElement.getBoundingClientRect();
-    const pointer = new THREE.Vector2(
-      ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
-      -((event.clientY - bounds.top) / bounds.height) * 2 + 1
-    );
-    const ray = new THREE.Raycaster();
-    ray.params.Line = { threshold: 0.35 };
-    ray.setFromCamera(pointer, this.camera);
-    const hit = this.pickBackbonePoint(event.clientX, event.clientY, ray);
+    const hit = this.pickBackbonePoint(event.clientX, event.clientY);
     if (hit === null) return;
 
     const point = new THREE.Vector3(hit.point[0], hit.point[1], hit.point[2] + 0.08);
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(0.28, 0.018, 8, 32),
-      new THREE.MeshBasicMaterial({
-        color: 0xffb13b,
-        depthTest: false,
-        depthWrite: false
-      })
-    );
-    ring.position.copy(point);
-    ring.renderOrder = 60;
-    this.snapPreview.add(ring);
-
+    this.snapPreviewRing.position.copy(point);
+    this.snapPreview.visible = true;
   }
 
   private clearSnapPreview(): void {
-    this.disposeGroup(this.snapPreview);
+    this.snapPreview.visible = false;
   }
 
   private buildBackboneOverlay(snapshot: ViewerSnapshot): void {

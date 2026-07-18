@@ -1922,4 +1922,39 @@ bool C787_web_bundle_template_category_has_no_layer_fallback() {
          !contains_text(app, "bundleTemplateCategory");
 }
 
+bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
+  std::string model_assembly{};
+  std::string curve_parts{};
+  std::string scene{};
+  std::string model_assets{};
+  std::string models_doc{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/model_assembly.cpp",
+                 &model_assembly) ||
+      !file_text(repo_root() / "core/src/generation/backbone/curve_parts.cpp",
+                 &curve_parts) ||
+      !file_text(repo_root() / "web/src/render/scene.ts", &scene) ||
+      !file_text(repo_root() / "web/src/render/modelAssets.ts", &model_assets) ||
+      !file_text(repo_root() / "docs/models.md", &models_doc)) {
+    return false;
+  }
+  return contains_text(model_assembly, "ModelFitMode::kPoleRadial") &&
+         contains_text(model_assembly, "pole_radius_at_height_m(pole, placement_height_m)") &&
+         contains_text(model_assembly, "row_reference_world") &&
+         contains_text(model_assembly, "fixture_root.position = final_anchor + mount_delta_world") &&
+         !contains_text(model_assembly, "Box3") &&
+         !contains_text(model_assembly, "bounds") &&
+         !contains_text(model_assembly, "mesh") &&
+         !contains_text(curve_parts, "endpoint_mount_socket") &&
+         !contains_text(curve_parts, "wire_socket") &&
+         !contains_text(scene, "endpointMountSocket") &&
+         !contains_text(scene, "wireSocket") &&
+         contains_text(model_assets,
+                       "radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.totalLengthM)") &&
+         contains_text(model_assets, "beltTransform.scaleX = 1 / beltInnerRadius") &&
+         contains_text(model_assets, "beltTransform.scaleY = 1 / beltInnerRadius") &&
+         contains_text(models_doc, "core") &&
+         contains_text(models_doc, "mesh") &&
+         contains_text(models_doc, "`pole_radius_at_height_m`");
+}
+
 } // namespace backbone_tests

@@ -1526,8 +1526,11 @@ bool C647_backbone_node_patch_uses_incident_cable_appearance() {
 
 bool C655_backbone_node_patch_grouping_uses_band_identity() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "curve_parts.cpp";
+  const std::filesystem::path pipeline_source =
+      repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
-  if (!file_text(source, &cpp)) {
+  std::string pipeline;
+  if (!file_text(source, &cpp) || !file_text(pipeline_source, &pipeline)) {
     return false;
   }
   std::string key_body;
@@ -1544,6 +1547,9 @@ bool C655_backbone_node_patch_grouping_uses_band_identity() {
          !contains_text(cpp, "shared_port") &&
          !contains_text(cpp, "same_endpoint_point") &&
          !contains_text(cpp, "explicit_fallback_candidates") &&
+         contains_text(pipeline, "edge_bundle_by_link_bundle") &&
+         !contains_text(pipeline, "pair_bindings") &&
+         !contains_text(pipeline, "binding_bundle_id") &&
          contains_text(cpp, "multiple overlapping connectivity-owned patch pairs");
 }
 

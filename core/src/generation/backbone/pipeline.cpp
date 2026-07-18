@@ -1,6 +1,7 @@
 #include "pipeline.hpp"
 
 #include "../../collection_utils.hpp"
+#include "../../support/instrumentation.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
@@ -3554,6 +3555,7 @@ void pipeline::save(const rules& made) {
 }
 
 void pipeline::save(layout made) {
+  instrumentation::count_group_cache_refresh();
   struct cached_group {
     LoweredSupportGroupKey key{};
     SupportGroupDecision decision{};

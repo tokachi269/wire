@@ -6,6 +6,7 @@
 #include "derive_span_layout.hpp"
 #include "model_assembly.hpp"
 #include "out.hpp"
+#include "../../support/instrumentation.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -283,6 +284,7 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
       continue;
     }
     EditResult<bool> derived{};
+    instrumentation::count_affected_span_derive();
     const auto derive_started = std::chrono::steady_clock::now();
     switch (plan.kind) {
     case UpdateKind::kReposition:
@@ -308,6 +310,7 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     }
   }
   if (plan.kind == UpdateKind::kReposition) {
+    instrumentation::count_group_cache_refresh();
     auto rebuild_groups_from_rules = [&]() -> EditResult<SupportGroupCache> {
       EditResult<SupportGroupCache> rebuilt{};
       auto group_for = [&](const LoweredSupportGroupKey& key) ->

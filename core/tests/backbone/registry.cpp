@@ -1209,6 +1209,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,
                          C788_model_assembly_keeps_belt_and_socket_authority_in_materialization);
+  test_registry::AddTest(tests, "C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters",
+                         "large route addition builds one fixture plan and materializes models once",
+                         "Boundary", false,
+                         C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters);
 }
 
 

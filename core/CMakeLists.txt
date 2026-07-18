@@ -31,6 +31,7 @@ add_library(
   src/geometry/style_context.cpp
   src/geometry/variation.cpp
   src/geometry/curve_support.cpp
+  src/support/instrumentation.cpp
   src/state/span_runtime.cpp
   src/state/persistence.cpp
 )
@@ -54,6 +55,12 @@ if(WIRE_ENABLE_PCH)
 endif()
 
 if(BUILD_TESTING)
+  target_compile_definitions(
+    wire_core
+    PRIVATE
+    WIRE_TEST_INSTRUMENTATION=1
+  )
+
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
   add_custom_target(

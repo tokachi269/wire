@@ -7,6 +7,8 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
+#include "../../src/support/instrumentation.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -2140,6 +2142,35 @@ bool C790_backbone_duplicate_support_point_requires_node_reference() {
          contains_text(rejected.error, "existing support requires an explicit node reference") &&
          state.next_id() == next_id_before &&
          same_counts(snapshot_counts(state), counts_before);
+}
+
+bool C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters() {
+  wire::core::CoreState state;
+  for (int route = 0; route < 12; ++route) {
+    wire::core::BackboneSpec req = line_req(state);
+    const double y = static_cast<double>(route) * 4.0;
+    req.path.polyline = {{0.0, y, 0.0}, {12.0, y, 0.0}};
+    const auto out = state.GenerateFromBackboneSpec(req);
+    if (!out.ok) {
+      return false;
+    }
+  }
+
+  wire::core::instrumentation::reset();
+  wire::core::BackboneSpec add = line_req(state);
+  add.path.polyline = {{0.0, 60.0, 0.0}, {12.0, 60.0, 0.0}};
+  const auto out = state.GenerateFromBackboneSpec(add);
+  const wire::core::instrumentation::Counters counters =
+      wire::core::instrumentation::snapshot();
+
+  return out.ok &&
+         counters.fixture_rule_merge_count == 1 &&
+         counters.fixture_plan_build_count == 1 &&
+         counters.model_materialization_count == 1 &&
+         counters.endpoint_placement_fallback_count == 0 &&
+         counters.row_fixture_fallback_count == 0 &&
+         counters.affected_span_derive_count == 0 &&
+         counters.support_group_rebuild_count == 1;
 }
 
 bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {

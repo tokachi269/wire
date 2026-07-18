@@ -397,5 +397,6 @@ bool C785_backbone_incremental_hv_promotion_preserves_existing_row_frame();
 bool C786_hash_mix_has_one_production_definition();
 bool C787_web_bundle_template_category_has_no_layer_fallback();
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization();
+bool C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters();
 
 } // namespace backbone_tests

@@ -2,6 +2,8 @@
 
 #include "emit_shared.hpp"
 
+#include "../../support/instrumentation.hpp"
+
 #include "wire/core/coord_utils.hpp"
 #include "wire/core/core_view.hpp"
 
@@ -496,6 +498,9 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(
         row_fixture != nullptr && row_fixture->available ? row_fixture->placement_height_m : placement_height_m;
     const Vec3d row_offset =
         row_fixture != nullptr && row_fixture->available ? row_fixture->rigid_offset_world : Vec3d{};
+    if (row_fixture == nullptr || !row_fixture->available) {
+      instrumentation::count_row_fixture_fallback();
+    }
     const EditResult<Transformd> mount_world = resolve_model_part_world_transform(
         state, *context.value.pole, frame, row_height, row_root, row_offset, *mount_part);
     if (!mount_world.ok) {
@@ -547,6 +552,7 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
       return out;
     }
   }
+  instrumentation::count_endpoint_placement_fallback();
   return resolve_endpoint_placement(state, port, down_offset_m, nullptr);
 }
 
@@ -654,6 +660,7 @@ void resolve_endpoint_fixture_placements(EditResult<FixturePlacementPlanByPort>*
 
 EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_rules(
     const CoreState& state, const std::vector<SpanLayoutRule>& rules) {
+  instrumentation::count_fixture_plan_build();
   EditResult<FixturePlacementPlanByPort> out{};
   out.ok = true;
   for (const SpanLayoutRule& rule : rules) {
@@ -666,6 +673,7 @@ EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_rules(
 }
 
 EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache(const CoreState& state) {
+  instrumentation::count_fixture_plan_build();
   EditResult<FixturePlacementPlanByPort> out{};
   out.ok = true;
   state.view().cache_state().span_layout_cache.for_each_layout_record(
@@ -684,6 +692,7 @@ EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache(const C
 
 EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache_with_rules(
     const CoreState& state, const std::vector<SpanLayoutRule>& rules) {
+  instrumentation::count_fixture_rule_merge();
   std::unordered_map<ObjectId, SpanLayoutRule> rule_by_span{};
   state.view().cache_state().span_layout_cache.for_each_layout_record(
       [&](ObjectId span_id, const SpanLayoutCacheRecord& record, const SpanLayoutEntry&) {
@@ -711,6 +720,7 @@ EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache_with_ru
 
 EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     const CoreState& state, const FixturePlacementPlanByPort& fixture_plan) {
+  instrumentation::count_model_emit();
   EditResult<VisualModelInstanceCache> out{};
   const CoreView view = state.view();
 

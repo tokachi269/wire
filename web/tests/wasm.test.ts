@@ -780,7 +780,7 @@ describe("wire wasm smoke", () => {
       hitId: "0",
       hitX: poleB.positionX + 0.12,
       hitY: poleB.positionY - 0.10,
-      hitZ: poleB.positionZ,
+      hitZ: 9.2,
       hasSegmentEndpoints: true,
       segmentNodeAId: poleBNode!.id,
       segmentNodeBId: otherNode!.id,

@@ -444,6 +444,11 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     const Vec3d d = a - b;
     return d.x * d.x + d.y * d.y + d.z * d.z;
   };
+  auto sqr_dist_xy = [](const Vec3d& a, const Vec3d& b) {
+    const double dx = a.x - b.x;
+    const double dy = a.y - b.y;
+    return dx * dx + dy * dy;
+  };
   auto segment_t_xy = [](const Vec3d& p, const Vec3d& a, const Vec3d& b) {
     const double abx = b.x - a.x;
     const double aby = b.y - a.y;
@@ -716,8 +721,8 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
   if (has_endpoints && options.snap_radius_world > 0.0) {
     const double snap_r2 = options.snap_radius_world * options.snap_radius_world;
-    const double da2 = sqr_dist(pick.hit_pos_world, endpoint_a);
-    const double db2 = sqr_dist(pick.hit_pos_world, endpoint_b);
+    const double da2 = sqr_dist_xy(pick.hit_pos_world, endpoint_a);
+    const double db2 = sqr_dist_xy(pick.hit_pos_world, endpoint_b);
     if ((da2 <= snap_r2 && node_a_id != kInvalidObjectId) || (db2 <= snap_r2 && node_b_id != kInvalidObjectId)) {
       const bool use_a = (da2 <= db2);
       ObjectId resolved_node_id = use_a ? node_a_id : node_b_id;

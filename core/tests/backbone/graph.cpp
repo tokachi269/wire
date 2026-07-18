@@ -3446,10 +3446,50 @@ bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering() 
   const wire::core::ObjectId junction = first.value.generated_pole_ids[1];
   const wire::core::Pole* pole = state.view().poles().find(junction);
   if (pole == nullptr) return false;
+  const wire::core::SavedBackboneNode* junction_node = state.view().backbone_node_for_pole(junction);
+  if (junction_node == nullptr) return false;
+  const wire::core::SavedBackboneEdge* incident = nullptr;
+  for (const wire::core::SavedBackboneEdge& edge : state.view().backbone().edges) {
+    if (edge.node_a == junction_node->node_id || edge.node_b == junction_node->node_id) {
+      incident = &edge;
+      break;
+    }
+  }
+  if (incident == nullptr) return false;
+  const wire::core::ObjectId peer_node_id =
+      incident->node_a == junction_node->node_id ? incident->node_b : incident->node_a;
+  const wire::core::SavedBackboneNode* peer_node = state.view().backbone_node(peer_node_id);
+  if (peer_node == nullptr) return false;
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {pole->world_transform.position.x + 0.12,
+                        pole->world_transform.position.y - 0.10,
+                        9.2};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = junction_node->node_id;
+  pick.segment_node_b_id = peer_node->node_id;
+  pick.segment_endpoint_a_world = junction_node->position;
+  pick.segment_endpoint_b_world = peer_node->position;
+  wire::core::ResolveBranchPickOptions pick_options{};
+  pick_options.selected_bundle_template_ids = {
+      wire::core::kDefaultHighVoltageBundleTemplateId,
+      wire::core::kDefaultLowVoltageBundleTemplateId,
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication),
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kOptical),
+  };
+  const auto resolved = state.ResolveBranchPick(pick, pick_options);
+  if (!resolved.ok ||
+      resolved.value.support_kind != wire::core::SupportKind::kPole ||
+      resolved.value.resolved_node_id != junction ||
+      !resolved.value.snapped_from_segment_endpoint) {
+    return false;
+  }
 
   wire::core::BackboneSpec branch = viewer_default_req(state);
-  branch.path.polyline = {pole->world_transform.position, {12.0, -8.0, 0.0}};
-  branch.path.node_specs = {pole_spec(0, junction)};
+  branch.path.polyline = {resolved.value.position, {12.0, -8.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, resolved.value.resolved_node_id)};
   const auto out = state.GenerateFromBackboneSpec(branch);
   if (!out.ok || out.value.generated_pole_ids.size() != 1 ||
       out.value.generated_span_ids.size() != 8) {

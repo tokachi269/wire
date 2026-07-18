@@ -12,10 +12,12 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <tuple>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 using namespace helpers;
@@ -2057,6 +2059,62 @@ bool C478_backbone_row_separation_is_deterministic() {
     }
   }
   return true;
+}
+
+bool C789_backbone_multi_route_same_band_rows_keep_spacing() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId junction = first.value.generated_pole_ids[1];
+  const wire::core::Pole* pole = state.view().poles().find(junction);
+  const auto pole_type_it =
+      pole == nullptr ? state.view().pole_types().end() : state.view().pole_types().find(pole->pole_type_id);
+  if (pole == nullptr || pole_type_it == state.view().pole_types().end()) {
+    return false;
+  }
+
+  std::vector<std::pair<wire::core::ObjectId, wire::core::Vec3d>> before_ports{};
+  for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    const wire::core::Port* port = state.view().ports().find(binding.port_id);
+    if (port != nullptr && port->owner_pole_id == junction &&
+        binding.bundle_template_id == wire::core::kDefaultHighVoltageBundleTemplateId) {
+      before_ports.push_back({port->id, port->world_position});
+    }
+  }
+  if (before_ports.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = hv_branch_req(state, junction, pole->world_transform.position);
+  const auto second = state.GenerateFromBackboneSpec(branch);
+  if (!second.ok || second.value.generated_span_ids.size() != 3) {
+    return false;
+  }
+
+  double min_same_band_distance = std::numeric_limits<double>::infinity();
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    for (wire::core::ObjectId port_id : {span->port_a_id, span->port_b_id}) {
+      const wire::core::Port* new_port = state.view().ports().find(port_id);
+      if (new_port == nullptr || new_port->owner_pole_id != junction) {
+        continue;
+      }
+      for (const auto& existing_port : before_ports) {
+        if (existing_port.first == new_port->id) {
+          continue;
+        }
+        min_same_band_distance = std::min(min_same_band_distance,
+                                          std::sqrt(dist2(existing_port.second, new_port->world_position)));
+      }
+    }
+  }
+
+  return std::isfinite(min_same_band_distance) && min_same_band_distance + 1e-9 >= 0.35;
 }
 
 bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {

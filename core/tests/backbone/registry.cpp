@@ -980,6 +980,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "zero offset uses each lane band center without cross-bundle drift",
                          "Invariant", false,
                          C749_backbone_zero_offset_keeps_bundle_centers_on_band_center);
+  test_registry::AddTest(tests, "C789_backbone_multi_route_same_band_rows_keep_spacing",
+                         "multi-route same-band rows keep generated port spacing",
+                         "Invariant", false,
+                         C789_backbone_multi_route_same_band_rows_keep_spacing);
   test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,

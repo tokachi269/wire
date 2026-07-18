@@ -351,6 +351,7 @@ bool C746_backbone_generation_trial_copy_stays_under_cost_gate();
 bool C747_backbone_range_count_policy_validates_without_regenerate();
 bool C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation();
 bool C749_backbone_zero_offset_keeps_bundle_centers_on_band_center();
+bool C789_backbone_multi_route_same_band_rows_keep_spacing();
 bool C717_backbone_layout_settings_regenerate_matches_fresh();
 bool C727_backbone_pipeline_execution_entry_is_build_input();
 bool C728_backbone_pipeline_has_no_run_mode_flags();

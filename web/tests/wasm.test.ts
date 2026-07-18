@@ -739,6 +739,115 @@ describe("wire wasm smoke", () => {
     runState.delete();
   });
 
+  it("keeps HV when resolving a pole snap through the UI hit payload and excludes HV for midair branch", () => {
+    const runState = createState();
+    const configured = runState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+    const placements = defaultBundlePlacements();
+    const selectedBundleTemplateIds = [101, 102, 104, 105];
+    const base = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
+      placements,
+      0,
+      1,
+      0,
+      9.5,
+      []
+    );
+    expect(base.ok, base.error).toBe(true);
+    const poleB = runState.pole(1);
+    const beforePoleHvSpanIds = new Set(hvEdgeBodies(runState).map((part) => part.info.sourceSpanId));
+
+    const resolvedPole = runState.resolveBranchPick({
+      hitKind: 1,
+      hitId: poleB.id,
+      hitX: poleB.positionX,
+      hitY: poleB.positionY,
+      hitZ: poleB.positionZ,
+      hasSegmentEndpoints: false,
+      segmentNodeAId: "0",
+      segmentNodeBId: "0",
+      segmentEndpointAX: 0,
+      segmentEndpointAY: 0,
+      segmentEndpointAZ: 0,
+      segmentEndpointBX: 0,
+      segmentEndpointBY: 0,
+      segmentEndpointBZ: 0
+    }, selectedBundleTemplateIds);
+    expect(resolvedPole.ok, resolvedPole.error).toBe(true);
+
+    const poleBranch = runState.generatePlacements(
+      new Float64Array([
+        -5, 4, 0,
+        resolvedPole.positionX, resolvedPole.positionY, resolvedPole.positionZ
+      ]),
+      placements,
+      0,
+      1,
+      0,
+      9.5,
+      [{ pointIndex: 1, supportKind: resolvedPole.supportKind, nodeId: resolvedPole.nodeId }]
+    );
+    expect(poleBranch.ok, poleBranch.error).toBe(true);
+    const newPoleHvParts = hvEdgeBodies(runState)
+      .filter((part) => !beforePoleHvSpanIds.has(part.info.sourceSpanId));
+    expect(newPoleHvParts).toHaveLength(3);
+    expect(uniqueRounded(newPoleHvParts.map((part) => part.info.laneIndex))).toEqual([0, 1, 2]);
+
+    const midairState = createState();
+    const midairConfigured = midairState.configureModelAssemblies(modelBootstrap());
+    expect(midairConfigured.ok, midairConfigured.error).toBe(true);
+    const midairBase = midairState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
+      placements,
+      0,
+      1,
+      0,
+      9.5,
+      []
+    );
+    expect(midairBase.ok, midairBase.error).toBe(true);
+    const edge = midairState.backboneEdge(0);
+    const nodeA = midairState.supportNode(0);
+    const nodeB = midairState.supportNode(1);
+    const beforeMidairHvSpanIds = new Set(hvEdgeBodies(midairState).map((part) => part.info.sourceSpanId));
+    const resolvedMidair = midairState.resolveBranchPick({
+      hitKind: 2,
+      hitId: "0",
+      hitX: (nodeA.x + nodeB.x) * 0.5,
+      hitY: (nodeA.y + nodeB.y) * 0.5,
+      hitZ: (nodeA.z + nodeB.z) * 0.5,
+      hasSegmentEndpoints: true,
+      segmentNodeAId: edge.nodeAId,
+      segmentNodeBId: edge.nodeBId,
+      segmentEndpointAX: nodeA.x,
+      segmentEndpointAY: nodeA.y,
+      segmentEndpointAZ: nodeA.z,
+      segmentEndpointBX: nodeB.x,
+      segmentEndpointBY: nodeB.y,
+      segmentEndpointBZ: nodeB.z
+    }, selectedBundleTemplateIds);
+    expect(resolvedMidair.ok, resolvedMidair.error).toBe(true);
+    const midairBranch = midairState.generatePlacements(
+      new Float64Array([
+        resolvedMidair.positionX, resolvedMidair.positionY, resolvedMidair.positionZ,
+        6, 5, 0
+      ]),
+      placements,
+      0,
+      1,
+      0,
+      9.5,
+      [{ pointIndex: 0, supportKind: resolvedMidair.supportKind, nodeId: resolvedMidair.nodeId }]
+    );
+    expect(midairBranch.ok, midairBranch.error).toBe(true);
+    const newMidairHvParts = hvEdgeBodies(midairState)
+      .filter((part) => !beforeMidairHvSpanIds.has(part.info.sourceSpanId));
+    expect(newMidairHvParts).toHaveLength(0);
+    midairState.delete();
+    runState.delete();
+  });
+
   it("roundtrips visual parts through authoritative save and load", () => {
     const savedState = createState();
     const generated = savedState.generate(

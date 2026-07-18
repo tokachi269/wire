@@ -1953,6 +1953,13 @@ bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
   if (pole_b == nullptr) {
     return false;
   }
+  std::unordered_set<wire::core::ObjectId> b_ports_before{};
+  for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    const wire::core::Port* port = state.view().ports().find(binding.port_id);
+    if (port != nullptr && port->owner_pole_id == b) {
+      b_ports_before.insert(port->id);
+    }
+  }
   wire::core::BackboneSpec branch = line_req(state);
   branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
   branch.path.node_specs = {pole_spec(0, b)};
@@ -1960,13 +1967,35 @@ bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
   if (!second.ok) {
     return false;
   }
+  std::unordered_set<wire::core::ObjectId> b_ports_after{};
+  std::vector<double> levels{};
+  for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    const wire::core::Port* port = state.view().ports().find(binding.port_id);
+    if (port == nullptr || port->owner_pole_id != b) {
+      continue;
+    }
+    b_ports_after.insert(port->id);
+    if (std::none_of(levels.begin(), levels.end(),
+                     [&](double z) { return std::abs(z - port->world_position.z) <= 1e-9; })) {
+      levels.push_back(port->world_position.z);
+    }
+  }
+  std::sort(levels.begin(), levels.end());
   const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
-  if (!file_text(source, &cpp)) {
+  std::string emit_ports_body;
+  if (!file_text(source, &cpp) ||
+      !function_body(cpp, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+                     &emit_ports_body)) {
     return false;
   }
-  return !second.value.generated_span_ids.empty() && contains_text(cpp, "row_height_offsets(ps)") &&
-         contains_text(cpp, "if (r.id >= active_rows.size() || !active_rows[r.id])");
+  return !second.value.generated_span_ids.empty() &&
+         b_ports_after.size() == b_ports_before.size() + second.value.generated_span_ids.size() &&
+         levels.size() == 2 &&
+         std::abs((levels[1] - levels[0]) - 0.5) <= 1e-9 &&
+         contains_text(emit_ports_body, "row_height_offsets(ps)") &&
+         contains_text(emit_ports_body, "canonical row reflow requires moving manual ports") &&
+         !contains_text(emit_ports_body, "if (r.id >= active_rows.size() || !active_rows[r.id])");
 }
 
 bool C481_backbone_pass_through_mode_is_accepted_in_limited_scope() {

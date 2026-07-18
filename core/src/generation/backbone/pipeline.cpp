@@ -86,6 +86,28 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
     out.error = derived.error;
     return out;
   }
+  std::vector<ObjectId> touched_existing_spans{};
+  const auto was_created = [&](ObjectId id) {
+    return std::find(made.value.change_set.created_ids.begin(),
+                     made.value.change_set.created_ids.end(), id) !=
+           made.value.change_set.created_ids.end();
+  };
+  for (ObjectId id : made.value.change_set.updated_ids) {
+    if (state_.view().spans().find(id) == nullptr || was_created(id)) {
+      continue;
+    }
+    CoreState::add_unique_id(touched_existing_spans, id);
+  }
+  if (!touched_existing_spans.empty()) {
+    UpdatePlan update{};
+    update.kind = UpdateKind::kReposition;
+    update.affected.spans = std::move(touched_existing_spans);
+    EditResult<bool> updated = state_.execute_update_plan(update);
+    if (!updated.ok) {
+      out.error = updated.error;
+      return out;
+    }
+  }
   if (input.retire_untouched) retire_untouched(&made.value);
   write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made));
   if (timing != nullptr) {
@@ -2866,13 +2888,11 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
     tr.source = r.source;
     tr.axis = r.axis;
     tr.pole = made->poles[r.node];
-    if (r.id >= active_rows.size() || !active_rows[r.id]) {
-      continue;
-    }
+    const bool row_active = r.id < active_rows.size() && active_rows[r.id];
     const bool ownerless = g_.nodes[r.node].support == SupportKind::kMidair ||
                            g_.nodes[r.node].support == SupportKind::kExternal ||
                            g_.nodes[r.node].support == SupportKind::kGround;
-    if (!ownerless && tr.pole == kInvalidObjectId) {
+    if (row_active && !ownerless && tr.pole == kInvalidObjectId) {
       out.error = "backbone topology: active row pole missing";
       return out;
     }
@@ -2929,7 +2949,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         } else {
           const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
           if (pole == nullptr) {
-            out.error = "backbone topology: active row pole missing";
+            out.error = "backbone topology: row pole missing";
             return out;
           }
           const double lane_offset = uses_lane_bands
@@ -2969,13 +2989,35 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             out.error = "backbone topology: resolved port missing";
             return out;
           }
-          if (existing_port->position_mode != PortPositionMode::kManual && !existing_port->user_edited_position &&
-              moved_more_than_epsilon(existing_port->world_position, p)) {
+          const bool moved = moved_more_than_epsilon(existing_port->world_position, p);
+          bool height_reflow_required = moved;
+          if (!ownerless) {
+            const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
+            if (pole == nullptr) {
+              out.error = "backbone topology: row pole missing";
+              return out;
+            }
+            const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
+            height_reflow_required =
+                std::abs(WorldPointToLocal(frame, existing_port->world_position).z -
+                         WorldPointToLocal(frame, p).z) > 1e-9;
+          }
+          if (moved && (existing_port->position_mode == PortPositionMode::kManual ||
+                        existing_port->user_edited_position) && height_reflow_required) {
+            out.error = "backbone unsupported: canonical row reflow requires moving manual ports";
+            return out;
+          }
+          if (moved && existing_port->position_mode != PortPositionMode::kManual &&
+              !existing_port->user_edited_position) {
             existing_port->world_position = p;
             ApplyPortBandTemplateFields(existing_port, band);
             CoreState::add_unique_id(changes->updated_ids, existing_port->id);
+            state_.touch_connected_spans_from_port(existing_port->id, changes);
           }
           tr.ports[bundle_index].push_back(resolved.value);
+          continue;
+        }
+        if (!row_active) {
           continue;
         }
         EditResult<ObjectId> port =

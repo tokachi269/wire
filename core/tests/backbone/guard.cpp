@@ -202,14 +202,16 @@ bool C396_backbone_existing_pole_does_not_read_existing_spans() {
                          std::find(second_out.change_set.deleted_ids.begin(), second_out.change_set.deleted_ids.end(), span_id) !=
                              second_out.change_set.deleted_ids.end();
     if (!rules.has_rule() || !layout.has_layout() || curve == nullptr || bounds == nullptr || visual == nullptr ||
-        render == nullptr || runtime == nullptr || changed || !same_rule(*rules.rule, before[i].rule) ||
-        !same_layout(*layout.entry, before[i].layout) || curve->source_version != before[i].curve.source_version ||
-        !same_points(curve->detail.sample_points, before[i].curve.detail.sample_points) ||
-        bounds->source_version != before[i].bounds.source_version ||
-        !almost_equal(bounds->whole.min, before[i].bounds.whole.min, 1e-12) ||
-        !almost_equal(bounds->whole.max, before[i].bounds.whole.max, 1e-12) ||
-        bounds->segments.size() != before[i].bounds.segments.size() || visual->source_version != before[i].visual.source_version ||
-        render->source_version != before[i].render.source_version || runtime->data_version != before[i].runtime_version) {
+        render == nullptr || runtime == nullptr || !changed || !same_rule(*rules.rule, before[i].rule) ||
+        same_layout(*layout.entry, before[i].layout) ||
+        curve->source_version != runtime->data_version ||
+        bounds->source_version != runtime->data_version ||
+        visual->source_version != runtime->data_version ||
+        render->source_version != runtime->data_version ||
+        runtime->data_version == before[i].runtime_version ||
+        curve->detail.sample_points.size() < 2 ||
+        !almost_equal(curve->detail.sample_points.front(), layout.entry->start.endpoint_world, 1e-9) ||
+        !almost_equal(curve->detail.sample_points.back(), layout.entry->end.endpoint_world, 1e-9)) {
       return false;
     }
   }

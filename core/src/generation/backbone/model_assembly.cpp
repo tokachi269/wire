@@ -437,8 +437,11 @@ EditResult<RowFixturePlacementPlan> row_fixture_placement_plan(
       return out;
     }
     const auto plan_it = fixture_plan.find(member.port_id);
-    const double member_down_offset_m =
-        plan_it == fixture_plan.end() ? 0.0 : plan_it->second.down_offset_m;
+    if (plan_it == fixture_plan.end()) {
+      out.error = "model assembly internal: row fixture placement plan member is missing";
+      return out;
+    }
+    const double member_down_offset_m = plan_it->second.down_offset_m;
     height_m += WorldPointToLocal(frame, port->world_position).z - member_down_offset_m;
   }
   height_m /= static_cast<double>(row.members.size());

@@ -1841,10 +1841,12 @@ bool C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materiali
   std::string model_source{};
   std::string execute_body{};
   std::string materialize_body{};
+  std::string row_fixture_body{};
   if (!file_text(repo_root() / "core/src/generation/backbone/derive.cpp", &derive_source) ||
       !file_text(repo_root() / "core/src/generation/backbone/model_assembly.cpp", &model_source) ||
       !function_body(derive_source, "EditResult<bool> CoreState::execute_update_plan", &execute_body) ||
-      !function_body(model_source, "EditResult<VisualModelInstanceCache> materialize_model_assemblies", &materialize_body)) {
+      !function_body(model_source, "EditResult<VisualModelInstanceCache> materialize_model_assemblies", &materialize_body) ||
+      !function_body(model_source, "EditResult<RowFixturePlacementPlan> row_fixture_placement_plan", &row_fixture_body)) {
     return false;
   }
   const std::size_t reposition_case = execute_body.find("case UpdateKind::kReposition:");
@@ -1869,6 +1871,8 @@ bool C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materiali
          !contains_text(materialize_body, "use_cache_fallback") &&
          !contains_text(materialize_body, "merged_fixture_plan") &&
          !contains_text(materialize_body, "empty_plan") &&
+         !contains_text(row_fixture_body, "plan_it == fixture_plan.end() ? 0.0") &&
+         contains_text(row_fixture_body, "row fixture placement plan member is missing") &&
          !contains_text(materialize_body, "resolve_endpoint_placement(state, *port, 0.0, nullptr)");
 }
 

@@ -370,10 +370,23 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
   if (plan.kind == UpdateKind::kReposition || plan.kind == UpdateKind::kReshape) {
     cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}, plan.affected.spans));
   }
+  generation::backbone::FixturePlacementPlanByPort model_fixture_plan{};
+  if (plan.kind == UpdateKind::kReposition) {
+    model_fixture_plan = std::move(reposition_fixture_plan);
+  } else {
+    EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+        generation::backbone::fixture_placement_plan_from_cache(*this);
+    if (!fixture_plan.ok) {
+      timing.total_ms =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+      debug_.last_update_timing = timing;
+      out.error = fixture_plan.error;
+      return out;
+    }
+    model_fixture_plan = std::move(fixture_plan.value);
+  }
   EditResult<VisualModelInstanceCache> model_instances =
-      plan.kind == UpdateKind::kReposition
-          ? generation::backbone::materialize_model_assemblies(*this, &reposition_fixture_plan, false)
-          : generation::backbone::materialize_model_assemblies(*this);
+      generation::backbone::materialize_model_assemblies(*this, model_fixture_plan);
   if (!model_instances.ok) {
     timing.total_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();

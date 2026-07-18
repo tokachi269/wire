@@ -3467,7 +3467,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
   EditResult<layout> out{};
   const EditState& edit = state_.view().edit_state();
   EditResult<FixturePlacementPlanByPort> fixture_plan =
-      fixture_placement_plan_from_rules(state_, made.data.spans);
+      fixture_placement_plan_from_cache_with_rules(state_, made.data.spans);
   if (!fixture_plan.ok) {
     out.error = fixture_plan.error;
     return out;
@@ -3489,7 +3489,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
     out.value.entries.push_back(std::move(entry.value));
   }
   EditResult<VisualModelInstanceCache> model_instances =
-      materialize_model_assemblies(state_, &fixture_plan.value);
+      materialize_model_assemblies(state_, fixture_plan.value);
   if (!model_instances.ok) {
     out.error = model_instances.error;
     return out;

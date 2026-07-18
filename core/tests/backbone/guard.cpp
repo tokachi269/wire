@@ -1866,10 +1866,10 @@ bool C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materiali
   return contains_text(execute_body, "build_reposition_context") &&
          count(execute_body, "fixture_placement_plan_from_rules") == 1 &&
          !contains_text(reposition_case_body, "DeriveGeneratedSpanOutputs(") &&
-         contains_text(materialize_body, "use_cache_fallback") &&
-         contains_text(materialize_body, "merged_fixture_plan") &&
-         contains_text(materialize_body, "resolve_endpoint_placement(state, *port, 0.0, nullptr)") &&
-         !contains_text(materialize_body, "resolve_endpoint_placement(state, *port, 0.0);");
+         !contains_text(materialize_body, "use_cache_fallback") &&
+         !contains_text(materialize_body, "merged_fixture_plan") &&
+         !contains_text(materialize_body, "empty_plan") &&
+         !contains_text(materialize_body, "resolve_endpoint_placement(state, *port, 0.0, nullptr)");
 }
 
 bool C786_hash_mix_has_one_production_definition() {

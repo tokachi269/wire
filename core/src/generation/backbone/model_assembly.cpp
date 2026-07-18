@@ -682,33 +682,36 @@ EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache(const C
   return out;
 }
 
-EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreState& state,
-                                                                  const FixturePlacementPlanByPort* fixture_plan,
-                                                                  bool use_cache_fallback) {
-  EditResult<VisualModelInstanceCache> out{};
-  FixturePlacementPlanByPort cached_fixture_plan{};
-  FixturePlacementPlanByPort merged_fixture_plan{};
-  const FixturePlacementPlanByPort* effective_fixture_plan = fixture_plan;
-  if (effective_fixture_plan == nullptr) {
-    EditResult<FixturePlacementPlanByPort> from_cache = fixture_placement_plan_from_cache(state);
-    if (!from_cache.ok) {
-      out.error = from_cache.error;
-      return out;
+EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache_with_rules(
+    const CoreState& state, const std::vector<SpanLayoutRule>& rules) {
+  std::unordered_map<ObjectId, SpanLayoutRule> rule_by_span{};
+  state.view().cache_state().span_layout_cache.for_each_layout_record(
+      [&](ObjectId span_id, const SpanLayoutCacheRecord& record, const SpanLayoutEntry&) {
+        const SpanLayoutRule* cached_rule = record.span_layout_rule();
+        if (cached_rule != nullptr) {
+          rule_by_span[span_id] = *cached_rule;
+        }
+      });
+  for (const SpanLayoutRule& rule : rules) {
+    if (rule.span_id != kInvalidObjectId) {
+      rule_by_span[rule.span_id] = rule;
     }
-    cached_fixture_plan = std::move(from_cache.value);
-    effective_fixture_plan = &cached_fixture_plan;
-  } else if (use_cache_fallback) {
-    EditResult<FixturePlacementPlanByPort> from_cache = fixture_placement_plan_from_cache(state);
-    if (!from_cache.ok) {
-      out.error = from_cache.error;
-      return out;
-    }
-    merged_fixture_plan = std::move(from_cache.value);
-    for (const auto& [port_id, plan] : *fixture_plan) {
-      merged_fixture_plan[port_id] = plan;
-    }
-    effective_fixture_plan = &merged_fixture_plan;
   }
+  std::vector<SpanLayoutRule> merged_rules{};
+  merged_rules.reserve(rule_by_span.size());
+  for (auto& [span_id, rule] : rule_by_span) {
+    static_cast<void>(span_id);
+    merged_rules.push_back(std::move(rule));
+  }
+  std::sort(merged_rules.begin(), merged_rules.end(), [](const SpanLayoutRule& a, const SpanLayoutRule& b) {
+    return a.span_id < b.span_id;
+  });
+  return fixture_placement_plan_from_rules(state, merged_rules);
+}
+
+EditResult<VisualModelInstanceCache> materialize_model_assemblies(
+    const CoreState& state, const FixturePlacementPlanByPort& fixture_plan) {
+  EditResult<VisualModelInstanceCache> out{};
   const CoreView view = state.view();
 
   for (const Pole& pole : view.poles().items()) {
@@ -745,25 +748,16 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
       return out;
     }
     const RowFixturePlacementPlan* row_plan = nullptr;
-    if (effective_fixture_plan != nullptr) {
-      for (const RowFixtureContext::Member& member : row.members) {
-        const auto plan_it = effective_fixture_plan->find(member.port_id);
-        if (plan_it != effective_fixture_plan->end() && plan_it->second.row_fixture.available) {
-          row_plan = &plan_it->second.row_fixture;
-          break;
-        }
+    for (const RowFixtureContext::Member& member : row.members) {
+      const auto plan_it = fixture_plan.find(member.port_id);
+      if (plan_it != fixture_plan.end() && plan_it->second.row_fixture.available) {
+        row_plan = &plan_it->second.row_fixture;
+        break;
       }
     }
-    RowFixturePlacementPlan fallback_plan{};
     if (row_plan == nullptr) {
-      FixturePlacementPlanByPort empty_plan{};
-      EditResult<RowFixturePlacementPlan> resolved = row_fixture_placement_plan(state, row, empty_plan);
-      if (!resolved.ok) {
-        out.error = resolved.error;
-        return out;
-      }
-      fallback_plan = resolved.value;
-      row_plan = &fallback_plan;
+      out.error = "model assembly internal: row fixture placement plan is missing";
+      return out;
     }
     std::string error{};
     append_instances(
@@ -795,23 +789,13 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
                                            context.value.layout_yaw_deg);
     const double height_m = WorldPointToLocal(frame, port->world_position).z;
     ResolvedEndpointPlacement placement{};
-    bool has_plan = false;
-    if (effective_fixture_plan != nullptr) {
-      const auto plan_it = effective_fixture_plan->find(port->id);
-      if (plan_it != effective_fixture_plan->end()) {
-        placement.fixture_root = plan_it->second.endpoint_fixture_root;
-        placement.wire_endpoint = plan_it->second.wire_endpoint;
-        has_plan = true;
-      }
+    const auto plan_it = fixture_plan.find(port->id);
+    if (plan_it == fixture_plan.end()) {
+      out.error = "model assembly internal: endpoint fixture placement plan is missing";
+      return out;
     }
-    if (!has_plan) {
-      const EditResult<ResolvedEndpointPlacement> resolved = resolve_endpoint_placement(state, *port, 0.0, nullptr);
-      if (!resolved.ok) {
-        out.error = resolved.error;
-        return out;
-      }
-      placement = resolved.value;
-    }
+    placement.fixture_root = plan_it->second.endpoint_fixture_root;
+    placement.wire_endpoint = plan_it->second.wire_endpoint;
     std::string error{};
     append_instances(state, *context.value.pole, height_m, *context.value.assembly,
                      placement.fixture_root, {},
@@ -832,13 +816,14 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(const CoreStat
 
 EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     const CoreState& state, const std::vector<SpanLayoutRule>& rules) {
-  EditResult<FixturePlacementPlanByPort> fixture_plan = fixture_placement_plan_from_rules(state, rules);
+  EditResult<FixturePlacementPlanByPort> fixture_plan =
+      fixture_placement_plan_from_cache_with_rules(state, rules);
   if (!fixture_plan.ok) {
     EditResult<VisualModelInstanceCache> out{};
     out.error = fixture_plan.error;
     return out;
   }
-  return materialize_model_assemblies(state, &fixture_plan.value);
+  return materialize_model_assemblies(state, fixture_plan.value);
 }
 
 } // namespace wire::core::generation::backbone

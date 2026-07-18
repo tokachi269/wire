@@ -45,14 +45,16 @@ using FixturePlacementPlanByPort = std::unordered_map<ObjectId, FixturePlacement
 [[nodiscard]] EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_rules(
     const CoreState& state, const std::vector<SpanLayoutRule>& rules);
 
+[[nodiscard]] EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache_with_rules(
+    const CoreState& state, const std::vector<SpanLayoutRule>& rules);
+
 [[nodiscard]] EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache(
     const CoreState& state);
 
 // Produces generic model instances from Pole, saved row, and Port ownership.
 // The result is derived runtime output and never creates topology objects.
 [[nodiscard]] EditResult<VisualModelInstanceCache> materialize_model_assemblies(
-    const CoreState& state, const FixturePlacementPlanByPort* fixture_plan = nullptr,
-    bool use_cache_fallback = true);
+    const CoreState& state, const FixturePlacementPlanByPort& fixture_plan);
 
 [[nodiscard]] EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     const CoreState& state, const std::vector<SpanLayoutRule>& rules);

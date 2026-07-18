@@ -2038,8 +2038,14 @@ EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
     trial.cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(
         trial, {}, affected_span_ids));
   }
+  EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+      generation::backbone::fixture_placement_plan_from_cache(trial);
+  if (!fixture_plan.ok) {
+    result.error = fixture_plan.error;
+    return result;
+  }
   EditResult<VisualModelInstanceCache> model_instances =
-      generation::backbone::materialize_model_assemblies(trial);
+      generation::backbone::materialize_model_assemblies(trial, fixture_plan.value);
   if (!model_instances.ok) {
     result.error = model_instances.error;
     return result;

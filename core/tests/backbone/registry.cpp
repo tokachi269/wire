@@ -1217,6 +1217,14 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental row insertion preserves existing row and uses an empty stable slot",
                          "Invariant", false,
                          C792_backbone_incremental_new_row_uses_empty_stable_slot);
+  test_registry::AddTest(tests, "C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry",
+                         "incremental HV promotion preserves model fixture geometry and lane patch order",
+                         "Invariant", false,
+                         C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry);
+  test_registry::AddTest(tests, "C796_backbone_incremental_row_spacing_is_exact_by_row_scope",
+                         "incremental row spacing is exact across mixed bundle placements and pair promotion",
+                         "Invariant", false,
+                         C796_backbone_incremental_row_spacing_is_exact_by_row_scope);
   test_registry::AddTest(tests, "C793_backbone_derive_uses_canonical_rule_order_and_lookup",
                          "derive builds fixture rules in canonical span order and resolves affected spans by lookup",
                          "Boundary", false,

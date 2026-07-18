@@ -1968,9 +1968,15 @@ bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
                        "radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.totalLengthM)") &&
          contains_text(model_assets, "beltTransform.scaleX = 1 / beltInnerRadius") &&
          contains_text(model_assets, "beltTransform.scaleY = 1 / beltInnerRadius") &&
-         contains_text(models_doc, "core") &&
-         contains_text(models_doc, "mesh") &&
-         contains_text(models_doc, "`pole_radius_at_height_m`");
+         contains_text(models_doc, "source authoring radius") &&
+         contains_text(models_doc, "belt_mount_anchor_center") &&
+         contains_text(models_doc, "target pole radius / source authoring radius") &&
+         contains_text(models_doc, "core_does_not_use_mesh_lower_h_or_bbox") &&
+         contains_text(models_doc, "no_belt_clearance_field") &&
+         contains_text(models_doc, "no_belt_vertex_deformation") &&
+         !contains_text(models_doc, "local anchor") &&
+         !contains_text(models_doc, "model bottom") &&
+         !contains_text(models_doc, "pole_radius_at_height(-2m)");
 }
 
 } // namespace backbone_tests

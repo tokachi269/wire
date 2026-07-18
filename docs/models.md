@@ -55,16 +55,17 @@ asset / descriptor / viewer は kind から template を一意に推測しない
 - 精度が要る高さだけoverrideで補正する。
 - v1のmesh beltは円形poleに限定し、配置高さの`pole_radius_at_height_m`へ径方向scaleする。
   非円形断面や幅方向の完全なテーパー追従は対応済みとしない。
-- belt modelはpole modelのmesh下端半径に合わせてauthoringする。現行pole meshは全長12m・地上10mのため、
-  mesh下端はpole-local `h=-2m`であり、ground `h=0`とは区別する。adapterはpole primitive生成設定の
-  `top diameter + total length / taper ratio`からその基準内周半径を固定し、ring断面を内周半径1.0へ正規化する。
-- beltのlocal anchorはモデル最下面とする。Coreが配置高さで求めたpole半径をbelt最下面へ合わせ、
-  belt幅内のテーパーはasset自身の断面をそのまま使う。モデル中央を半径評価位置として再解釈しない。
-  Coreはbelt anchorのpole-local高さで半径を一度だけ評価し、最終scaleが
-  `pole_radius_at_height(h) / pole_radius_at_height(-2m)`に一致するように同一scaleをring断面の2軸へ適用する。
+- belt modelはadapterが渡すsource authoring radiusに合う寸法でauthoringする。現行assetではその値が
+  pole mesh下端径に由来していても、Coreはmesh下端、bbox、`h=-2m`を取付基準として読まない。
+  adapterはdescriptorの`radialReference`としてsource authoring radiusを固定し、ring断面をその半径へ正規化する。
+- beltのlocal mount anchorはcenterとする。Coreは配置高さでtarget pole radiusを
+  `pole_radius_at_height_m`から求め、最終radial scaleが
+  `target pole radius / source authoring radius`に一致するように同一scaleをring断面の2軸へ適用する。
   belt幅方向のscaleは常に1.0とする。
+- Contract tags: `belt_mount_anchor_center`, `core_does_not_use_mesh_lower_h_or_bbox`,
+  `belt_radial_scale_target_over_source`, `no_belt_clearance_field`, `no_belt_vertex_deformation`.
 - この近似ではbelt幅内のtaperをasset形状に委ね、板厚の径方向成分も半径比に応じて伸縮する。
-  下端・上端半径、頂点単位の径方向変形、専用shader、高さ別belt assetは持たない。
+  clearance field、下端・上端半径、頂点単位の径方向変形、専用shader、高さ別belt assetは持たない。
 
 ## 電柱本体の長さ
 

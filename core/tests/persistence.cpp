@@ -27,7 +27,7 @@ bool C750_authoritative_save_is_deterministic_and_changes_after_edit() {
   std::string repeated_save{};
   if (!make_roundtrip_source(&state, &first_save, nullptr)) return false;
   const auto saved = state.SerializeAuthoritative(&repeated_save);
-  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v1\n", 0) != 0 ||
+  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v2\n", 0) != 0 ||
       first_save != repeated_save) {
     return false;
   }
@@ -437,7 +437,7 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   wire::core::CoreState valid_probe;
   if (!valid_probe.DeserializeAuthoritative(saved).ok) return false;
   const std::vector<std::string> invalid = {
-      "wire_state_v2\n",
+      "wire_state_v3\n",
       saved + "unknown.key=1\n",
       saved.substr(0, saved.find_last_of('\n', saved.size() - 2) + 1)};
   for (const std::string& text : invalid) {
@@ -446,6 +446,54 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
     if (loaded.ok || !state.SerializeAuthoritative(&after).ok || after != saved) return false;
   }
   return true;
+}
+
+bool C799_authoritative_v1_load_migrates_row_continuity_to_v2() {
+  wire::core::CoreState source;
+  const auto generated = source.GenerateFromBackboneSpec(backbone_tests::hv_poly3_req(source));
+  if (!generated.ok || generated.value.generated_pole_ids.size() != 3) return false;
+  std::string saved_v2{};
+  if (!source.SerializeAuthoritative(&saved_v2).ok ||
+      saved_v2.rfind("wire_state_v2\n", 0) != 0 ||
+      saved_v2.find("authoritative.backbone.row_continuities.count=") == std::string::npos) {
+    return false;
+  }
+
+  std::string legacy = "wire_state_v1\n" + saved_v2.substr(std::string("wire_state_v2\n").size());
+  std::string stripped{};
+  stripped.reserve(legacy.size());
+  for (std::size_t line_begin = 0; line_begin < legacy.size();) {
+    const std::size_t line_end = legacy.find('\n', line_begin);
+    if (line_end == std::string::npos) return false;
+    const std::string_view line(legacy.data() + line_begin, line_end - line_begin);
+    if (!line.starts_with("authoritative.backbone.row_continuities.")) {
+      stripped.append(line);
+      stripped.push_back('\n');
+    }
+    line_begin = line_end + 1;
+  }
+  if (stripped.find("authoritative.backbone.row_continuities.count=") != std::string::npos) {
+    return false;
+  }
+
+  wire::core::CoreState loaded;
+  if (!loaded.DeserializeAuthoritative(stripped).ok) return false;
+  const wire::core::SavedBackboneNode* junction =
+      loaded.view().backbone_node_for_pole(generated.value.generated_pole_ids[1]);
+  if (junction == nullptr ||
+      loaded.view().backbone_row_continuities_for_node(junction->node_id).size() != 3) {
+    return false;
+  }
+  std::string migrated_v2{};
+  if (!loaded.SerializeAuthoritative(&migrated_v2).ok ||
+      migrated_v2.rfind("wire_state_v2\n", 0) != 0 ||
+      migrated_v2.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
+    return false;
+  }
+  wire::core::CoreState reloaded;
+  if (!reloaded.DeserializeAuthoritative(migrated_v2).ok) return false;
+  std::string resaved{};
+  return reloaded.SerializeAuthoritative(&resaved).ok && resaved == migrated_v2;
 }
 
 bool C756_persistence_has_no_type_specific_write_read_wrappers() {
@@ -608,6 +656,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C754_authoritative_load_rejects_invalid_text_without_mutation",
                          "authoritative load rejects version, unknown-key, and truncation errors without mutation",
                          "Boundary", true, C754_authoritative_load_rejects_invalid_text_without_mutation);
+  test_registry::AddTest(tests, "C799_authoritative_v1_load_migrates_row_continuity_to_v2",
+                         "authoritative v1 load migrates row continuity and resaves as v2",
+                         "Boundary", false,
+                         C799_authoritative_v1_load_migrates_row_continuity_to_v2);
   test_registry::AddTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
                          "persistence derives write and read from type archive visitors",
                          "Boundary", false, C756_persistence_has_no_type_specific_write_read_wrappers);

@@ -17,7 +17,7 @@ namespace {
 
 class StateWriter {
 public:
-  StateWriter() { text_ = "wire_state_v1\n"; }
+  StateWriter() { text_ = "wire_state_v2\n"; }
 
   void value(const std::string& key, bool input) { line(key, input ? "1" : "0"); }
 
@@ -70,8 +70,16 @@ private:
 class StateReader {
 public:
   bool parse(const std::string& text) {
-    static constexpr std::string_view kHeader = "wire_state_v1\n";
-    if (!text.starts_with(kHeader)) {
+    static constexpr std::string_view kHeaderV1 = "wire_state_v1\n";
+    static constexpr std::string_view kHeaderV2 = "wire_state_v2\n";
+    std::size_t header_size = 0;
+    if (text.starts_with(kHeaderV2)) {
+      version_ = 2;
+      header_size = kHeaderV2.size();
+    } else if (text.starts_with(kHeaderV1)) {
+      version_ = 1;
+      header_size = kHeaderV1.size();
+    } else {
       error_ = "authoritative deserialization: unsupported or missing version";
       return false;
     }
@@ -79,7 +87,7 @@ public:
       error_ = "authoritative deserialization: truncated final line";
       return false;
     }
-    std::size_t line_begin = kHeader.size();
+    std::size_t line_begin = header_size;
     while (line_begin < text.size()) {
       const std::size_t line_end = text.find('\n', line_begin);
       const std::string_view line(text.data() + line_begin, line_end - line_begin);
@@ -206,6 +214,8 @@ public:
 
   [[nodiscard]] const std::string& error() const { return error_; }
 
+  [[nodiscard]] int version() const { return version_; }
+
 private:
   const std::string* take(const std::string& key) {
     const auto it = values_.find(key);
@@ -232,6 +242,7 @@ private:
   std::unordered_map<std::string, std::string> values_{};
   std::string taken_{};
   std::string error_{};
+  int version_ = 0;
 };
 
 std::string child(const std::string& prefix, std::string_view field) {
@@ -595,6 +606,95 @@ bool archive_saved_row_continuity(Archive& archive, const std::string& prefix, V
 static_assert(sizeof(SavedBackboneRowContinuityEndpoint) == 16, "field added: update archive visitor and full-fat persistence fixture");
 static_assert(sizeof(SavedBackboneRowContinuity) == 40, "field added: update archive visitor and full-fat persistence fixture");
 #endif
+
+ObjectId migrated_edge_bundle_bundle_id(const SavedBackboneGraph& graph, ObjectId edge_bundle_id) {
+  const auto found = std::find_if(graph.edge_bundles.begin(), graph.edge_bundles.end(),
+                                  [&](const SavedBackboneEdgeBundle& edge_bundle) {
+                                    return edge_bundle.edge_bundle_id == edge_bundle_id;
+                                  });
+  return found == graph.edge_bundles.end() ? kInvalidObjectId : found->bundle_id;
+}
+
+void append_migrated_row_continuity(SavedBackboneGraph* graph,
+                                    ObjectId node_id,
+                                    ObjectId edge_bundle_a,
+                                    std::size_t lane_a,
+                                    ObjectId edge_bundle_b,
+                                    std::size_t lane_b) {
+  if (graph == nullptr || node_id == kInvalidObjectId ||
+      edge_bundle_a == kInvalidObjectId || edge_bundle_b == kInvalidObjectId ||
+      edge_bundle_a == edge_bundle_b) {
+    return;
+  }
+  for (const SavedBackboneRowContinuity& existing : graph->row_continuities) {
+    const bool forward = existing.node_id == node_id &&
+                         existing.a.edge_bundle_id == edge_bundle_a &&
+                         existing.a.lane_index == lane_a &&
+                         existing.b.edge_bundle_id == edge_bundle_b &&
+                         existing.b.lane_index == lane_b;
+    const bool reverse = existing.node_id == node_id &&
+                         existing.a.edge_bundle_id == edge_bundle_b &&
+                         existing.a.lane_index == lane_b &&
+                         existing.b.edge_bundle_id == edge_bundle_a &&
+                         existing.b.lane_index == lane_a;
+    if (forward || reverse) {
+      return;
+    }
+  }
+  SavedBackboneRowContinuity continuity{};
+  continuity.node_id = node_id;
+  continuity.a.edge_bundle_id = edge_bundle_a;
+  continuity.a.lane_index = lane_a;
+  continuity.b.edge_bundle_id = edge_bundle_b;
+  continuity.b.lane_index = lane_b;
+  graph->row_continuities.push_back(continuity);
+}
+
+void migrate_v1_row_continuities(SavedBackboneGraph* graph) {
+  if (graph == nullptr) {
+    return;
+  }
+  std::vector<const SavedBackbonePortBinding*> pair_bindings{};
+  pair_bindings.reserve(graph->port_bindings.size());
+  for (const SavedBackbonePortBinding& binding : graph->port_bindings) {
+    if (!binding.row_key.source_is_open &&
+        binding.row_key.node_id != kInvalidObjectId &&
+        binding.row_key.source_edge_a != kInvalidObjectId &&
+        binding.row_key.source_edge_b != kInvalidObjectId &&
+        migrated_edge_bundle_bundle_id(*graph, binding.edge_bundle_id) != kInvalidObjectId) {
+      pair_bindings.push_back(&binding);
+    }
+  }
+  std::sort(pair_bindings.begin(), pair_bindings.end(),
+            [&](const SavedBackbonePortBinding* a, const SavedBackbonePortBinding* b) {
+              return std::make_tuple(a->row_key.node_id, a->row_key.source_edge_a, a->row_key.source_edge_b,
+                                     a->lane_index, migrated_edge_bundle_bundle_id(*graph, a->edge_bundle_id),
+                                     a->edge_bundle_id) <
+                     std::make_tuple(b->row_key.node_id, b->row_key.source_edge_a, b->row_key.source_edge_b,
+                                     b->lane_index, migrated_edge_bundle_bundle_id(*graph, b->edge_bundle_id),
+                                     b->edge_bundle_id);
+            });
+  for (std::size_t first = 0; first < pair_bindings.size();) {
+    std::size_t last = first + 1;
+    while (last < pair_bindings.size() &&
+           pair_bindings[last]->row_key == pair_bindings[first]->row_key &&
+           pair_bindings[last]->lane_index == pair_bindings[first]->lane_index &&
+           migrated_edge_bundle_bundle_id(*graph, pair_bindings[last]->edge_bundle_id) ==
+               migrated_edge_bundle_bundle_id(*graph, pair_bindings[first]->edge_bundle_id)) {
+      ++last;
+    }
+    if (last - first == 2 &&
+        pair_bindings[first]->edge_bundle_id != pair_bindings[first + 1]->edge_bundle_id) {
+      append_migrated_row_continuity(graph,
+                                     pair_bindings[first]->row_key.node_id,
+                                     pair_bindings[first]->edge_bundle_id,
+                                     pair_bindings[first]->lane_index,
+                                     pair_bindings[first + 1]->edge_bundle_id,
+                                     pair_bindings[first + 1]->lane_index);
+    }
+    first = last;
+  }
+}
 
 template <typename T, typename Id, typename Write>
 void write_id_vector(StateWriter& writer, const std::string& prefix, const std::vector<T>& values, Id id, Write write) {
@@ -1238,12 +1338,16 @@ bool read_backbone(StateReader& reader, SavedBackboneGraph* graph) {
                                     graph->span_bindings[i])) return false;
   }
   std::size_t continuity_count = 0;
-  if (!reader.count("authoritative.backbone.row_continuities.count", &continuity_count)) return false;
-  graph->row_continuities.resize(continuity_count);
-  for (std::size_t i = 0; i < continuity_count; ++i) {
-    ReadFieldArchive archive(reader);
-    if (!archive_saved_row_continuity(archive, indexed("authoritative.backbone.row_continuities", i),
-                                      graph->row_continuities[i])) return false;
+  if (reader.version() >= 2) {
+    if (!reader.count("authoritative.backbone.row_continuities.count", &continuity_count)) return false;
+    graph->row_continuities.resize(continuity_count);
+    for (std::size_t i = 0; i < continuity_count; ++i) {
+      ReadFieldArchive archive(reader);
+      if (!archive_saved_row_continuity(archive, indexed("authoritative.backbone.row_continuities", i),
+                                        graph->row_continuities[i])) return false;
+    }
+  } else {
+    migrate_v1_row_continuities(graph);
   }
   return true;
 }

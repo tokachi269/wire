@@ -93,7 +93,8 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
            made.value.change_set.created_ids.end();
   };
   for (ObjectId id : made.value.change_set.updated_ids) {
-    if (state_.view().spans().find(id) == nullptr || was_created(id)) {
+    if (state_.view().spans().find(id) == nullptr || was_created(id) ||
+        !state_.span_layout_rules(id).has_rule()) {
       continue;
     }
     CoreState::add_unique_id(touched_existing_spans, id);
@@ -1179,6 +1180,41 @@ Vec3d canonical_pair_axis(const link& a, const link& b, std::size_t node_id) {
   return high - low;
 }
 
+Vec3d row_axis_from_layout_yaw(double layout_yaw_deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double yaw_rad = layout_yaw_deg * (kPi / 180.0);
+  return {-std::sin(yaw_rad), std::cos(yaw_rad), 0.0};
+}
+
+EditResult<Vec3d> saved_open_row_axis_for_edge(const CoreState& state, ObjectId node_id, ObjectId edge_id) {
+  EditResult<Vec3d> out{};
+  bool found = false;
+  Vec3d axis{};
+  for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (!is_open_row_for_edge(binding.row_key, node_id, edge_id)) {
+      continue;
+    }
+    Vec3d candidate = row_axis_from_layout_yaw(binding.layout_yaw_deg);
+    if (!NormalizeXY(&candidate)) {
+      out.error = "backbone unsupported: promoted open row axis is invalid";
+      return out;
+    }
+    if (found && Dot(axis, candidate) < 1.0 - 1e-9) {
+      out.error = "backbone unsupported: ambiguous promoted open row axis";
+      return out;
+    }
+    axis = candidate;
+    found = true;
+  }
+  if (!found) {
+    out.error = "backbone unsupported: promoted open row axis is missing";
+    return out;
+  }
+  out.value = axis;
+  out.ok = true;
+  return out;
+}
+
 bool is_promoted_open_continuation(const CoreState& state, const node& n, const link& a, const link& b) {
   if (!n.on_route || a.route == b.route || (a.route != 0 && b.route != 0) || a.is_new == b.is_new) {
     return false;
@@ -2082,12 +2118,23 @@ EditResult<pairs> pipeline::make(const graph& made) const {
         out.value.jumpers.push_back(jumper{n.id, left_row, right_row, interior_angle, node_forward});
         continue;
       }
-      const bool canonical_saved_pair = is_saved_pair_continuation(state_, n, a, b) ||
-                                        is_promoted_open_continuation(state_, n, a, b);
-      Vec3d pair_axis = canonical_saved_pair
-                            ? canonical_pair_axis(out.value.links[left], out.value.links[matched], n.id)
-                            : out.value.links[left].dir + out.value.links[matched].dir;
-      if (!NormalizeXY(&pair_axis)) {
+      const bool promoted_pair = is_promoted_open_continuation(state_, n, a, b);
+      const bool canonical_saved_pair = is_saved_pair_continuation(state_, n, a, b) || promoted_pair;
+      Vec3d row_axis{};
+      if (promoted_pair) {
+        const link& existing_edge = a.is_new ? b : a;
+        EditResult<Vec3d> existing_axis = saved_open_row_axis_for_edge(state_, n.saved, existing_edge.saved);
+        if (!existing_axis.ok) {
+          return unsupported_pairs(existing_axis.error);
+        }
+        row_axis = existing_axis.value;
+      } else {
+        const Vec3d pair_axis = canonical_saved_pair
+                                    ? canonical_pair_axis(out.value.links[left], out.value.links[matched], n.id)
+                                    : out.value.links[left].dir + out.value.links[matched].dir;
+        row_axis = ComputeLateralAxis(pair_axis);
+      }
+      if (!NormalizeXY(&row_axis)) {
         return unsupported_pairs("zero length pair tangent sum");
       }
       bused[left] = true;
@@ -2095,7 +2142,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       if (out.value.links[left].brow != bad || out.value.links[matched].arow != bad) {
         return unsupported_pairs("incident already used");
       }
-      const std::size_t row_id = add_pair(&out.value, n.id, left, matched, ComputeLateralAxis(pair_axis));
+      const std::size_t row_id = add_pair(&out.value, n.id, left, matched, row_axis);
       out.value.links[left].brow = row_id;
       out.value.links[matched].arow = row_id;
     }
@@ -2973,6 +3020,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             break;
           }
         }
+        const bool promoted_port = planned_port != kInvalidObjectId;
         EditResult<ObjectId> resolved{};
         resolved.ok = true;
         resolved.value = planned_port;
@@ -3002,12 +3050,12 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
                 std::abs(WorldPointToLocal(frame, existing_port->world_position).z -
                          WorldPointToLocal(frame, p).z) > 1e-9;
           }
-          if (moved && (existing_port->position_mode == PortPositionMode::kManual ||
+          if (!promoted_port && moved && (existing_port->position_mode == PortPositionMode::kManual ||
                         existing_port->user_edited_position) && height_reflow_required) {
             out.error = "backbone unsupported: canonical row reflow requires moving manual ports";
             return out;
           }
-          if (moved && existing_port->position_mode != PortPositionMode::kManual &&
+          if (!promoted_port && moved && existing_port->position_mode != PortPositionMode::kManual &&
               !existing_port->user_edited_position) {
             existing_port->world_position = p;
             ApplyPortBandTemplateFields(existing_port, band);

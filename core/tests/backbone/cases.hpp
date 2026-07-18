@@ -391,5 +391,6 @@ bool C780_backbone_incremental_duplicate_values_are_order_independent_by_placeme
 bool C781_backbone_incremental_cross_extension_preserves_existing_spans();
 bool C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_are_ambiguous();
 bool C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization();
+bool C785_backbone_incremental_hv_promotion_preserves_existing_row_frame();
 
 } // namespace backbone_tests

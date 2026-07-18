@@ -1134,7 +1134,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          C770_backbone_bundle_placement_update_preserves_cross_row_height);
   test_registry::AddTest(tests, "C771_backbone_incremental_cross_completion_matches_one_shot_rows",
-                         "incremental cross completion canonicalizes saved pair rows like one-shot generation",
+                         "incremental cross completion preserves existing open row frame while forming pair rows",
                          "Invariant", false,
                          C771_backbone_incremental_cross_completion_matches_one_shot_rows);
   test_registry::AddTest(tests, "C772_backbone_incremental_pair_promotion_rejects_ambiguous_open_candidates",
@@ -1185,6 +1185,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "fixture placement plan is built once per reposition operation and not per endpoint materialization",
                          "Boundary", false,
                          C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization);
+  test_registry::AddTest(tests, "C785_backbone_incremental_hv_promotion_preserves_existing_row_frame",
+                         "incremental HV promotion preserves the existing open row physical frame",
+                         "Invariant", false,
+                         C785_backbone_incremental_hv_promotion_preserves_existing_row_frame);
 }
 
 

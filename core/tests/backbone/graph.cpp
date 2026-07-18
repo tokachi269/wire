@@ -2117,6 +2117,31 @@ bool C789_backbone_multi_route_same_band_rows_keep_spacing() {
   return std::isfinite(min_same_band_distance) && min_same_band_distance + 1e-9 >= 0.35;
 }
 
+bool C790_backbone_duplicate_support_point_requires_node_reference() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(line_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  const wire::core::ObjectId next_id_before = state.next_id();
+  const CoreCounts counts_before = snapshot_counts(state);
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const wire::core::Pole* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+
+  wire::core::BackboneSpec duplicate = line_req(state);
+  duplicate.path.polyline = {pole_b->world_transform.position, {12.0, 8.0, 0.0}};
+  duplicate.path.node_specs.clear();
+  const auto rejected = state.GenerateFromBackboneSpec(duplicate);
+
+  return !rejected.ok &&
+         contains_text(rejected.error, "existing support requires an explicit node reference") &&
+         state.next_id() == next_id_before &&
+         same_counts(snapshot_counts(state), counts_before);
+}
+
 bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));

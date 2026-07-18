@@ -984,6 +984,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "multi-route same-band rows keep generated port spacing",
                          "Invariant", false,
                          C789_backbone_multi_route_same_band_rows_keep_spacing);
+  test_registry::AddTest(tests, "C790_backbone_duplicate_support_point_requires_node_reference",
+                         "duplicate support point requires an explicit node reference",
+                         "Boundary", true,
+                         C790_backbone_duplicate_support_point_requires_node_reference);
   test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,

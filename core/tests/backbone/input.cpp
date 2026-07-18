@@ -505,7 +505,7 @@ bool C595_backbone_avoid_point_at_explicit_existing_support_is_noop() {
   }
 
   wire::core::BackboneSpec req = line_req(state);
-  req.path.polyline = {{12.0, -8.0, 0.0}, middle->world_transform.position, {12.0, 8.0, 0.0}};
+  req.path.polyline = {{12.0, -8.0, 0.0}, middle->world_transform.position, {20.0, 0.0, 0.0}};
   wire::core::BackboneInputSpec::NodeSpec existing{};
   existing.point_index = 1;
   existing.support_kind = wire::core::SupportKind::kPole;

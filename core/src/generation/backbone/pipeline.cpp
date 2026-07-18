@@ -1439,6 +1439,17 @@ EditResult<bool> pipeline::prepare() {
     }
     spec_by_point.swap(reversed);
   }
+  for (std::size_t guide_index = 0; guide_index < guide.size(); ++guide_index) {
+    if (spec_by_point.find(guide_index) != spec_by_point.end()) {
+      continue;
+    }
+    for (const SavedBackboneNode& saved : state_.view().backbone().nodes) {
+      if (DistanceSquared(guide[guide_index], saved.position) <= 1e-18) {
+        out.error = "backbone unsupported: existing support requires an explicit node reference";
+        return out;
+      }
+    }
+  }
   std::vector<Vec3d> pts{};
   std::vector<std::size_t> guide_by_local{};
   std::vector<SupportKind> support_by_local{};

@@ -185,7 +185,12 @@ bool test_generate_from_guide_keeps_manual_boundaries_stable() {
     return false;
   }
 
-  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {40.0, 0.0, 0.0}};
+  req.path.polyline = {{20.0, 0.0, 0.0}, {40.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec mid_spec{};
+  mid_spec.point_index = 0;
+  mid_spec.support_kind = wire::core::SupportKind::kPole;
+  mid_spec.node_id = mid_id;
+  req.path.node_specs = {mid_spec};
   const auto second = state.GenerateFromBackboneSpec(req);
   if (!second.ok) {
     return false;

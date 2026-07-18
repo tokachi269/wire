@@ -750,7 +750,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                   resolved_kind == SupportKind::kPole;
                                          });
       if (saved_it != authoritative_.backbone.nodes.end()) {
-        resolved_node_id = saved_it->pole_id;
+        resolved_node_id = saved_it->node_id;
         resolved_position = saved_it->position;
       }
       result.value.resolution = PickBranchResolutionKind::kNode;

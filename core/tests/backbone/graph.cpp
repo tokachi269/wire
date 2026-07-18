@@ -3586,7 +3586,7 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
   const auto resolved = state.ResolveBranchPick(pick, pick_options);
   if (!resolved.ok ||
       resolved.value.support_kind != wire::core::SupportKind::kPole ||
-      resolved.value.resolved_node_id != junction ||
+      resolved.value.resolved_node_id != junction_node->node_id ||
       !resolved.value.snapped_from_segment_endpoint) {
     return false;
   }

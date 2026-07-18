@@ -906,6 +906,9 @@ describe("wire wasm smoke", () => {
     }, selectedBundleTemplateIds);
     expect(resolvedPole.ok, resolvedPole.error).toBe(true);
     expect(resolvedPole.supportKind).toBe(0);
+    expect(resolvedPole.nodeId).toBe(poleBNode!.id);
+    expect(Array.from({ length: runState.supportNodeCount() }, (_, index) => runState.supportNode(index).id))
+      .toContain(resolvedPole.nodeId);
 
     const poleBranch = runState.generatePlacements(
       new Float64Array([

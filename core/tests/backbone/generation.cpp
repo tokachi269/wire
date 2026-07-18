@@ -874,19 +874,36 @@ bool C408_backbone_existing_pole_uses_actual_pole_type_height() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const double request_z = band_height(state, req.pole_type_id, wire::core::BundleKind::kLowVoltage);
-  wire::core::PoleTypeId existing_type = wire::core::kInvalidPoleTypeId;
-  double existing_z = -1.0;
+  wire::core::PoleTypeDefinition existing_definition{};
+  bool found_existing_definition = false;
   for (const auto& item : state.view().pole_types()) {
-    const double z = band_height(state, item.first, wire::core::BundleKind::kLowVoltage);
-    if (z >= 0.0 && !almost_equal(z, request_z, 1e-9)) {
-      existing_type = item.first;
-      existing_z = z;
-      break;
+    if (item.first == req.pole_type_id) {
+      continue;
     }
+    existing_definition = item.second;
+    found_existing_definition = true;
+    break;
   }
-  if (existing_type == wire::core::kInvalidPoleTypeId || existing_z < 0.0) {
+  if (!found_existing_definition) {
     return false;
   }
+  double existing_z = -1.0;
+  for (auto& band : existing_definition.port_bands) {
+    if (band.enabled && band.category == wire::core::ConnectionCategory::kLowVoltage) {
+      band.height_center_m += 0.65;
+      band.height_min_m += 0.65;
+      band.height_max_m += 0.65;
+      existing_z = band.height_center_m;
+    }
+  }
+  if (existing_z < 0.0 || almost_equal(existing_z, request_z, 1e-9)) {
+    return false;
+  }
+  const auto update_type = state.UpdatePoleTypeDefinition(existing_definition);
+  if (!update_type.ok || !update_type.value) {
+    return false;
+  }
+  const wire::core::PoleTypeId existing_type = existing_definition.id;
   wire::core::BackboneSpec first = line_req(state);
   first.pole_type_id = existing_type;
   const auto first_out = state.GenerateFromBackboneSpec(first);

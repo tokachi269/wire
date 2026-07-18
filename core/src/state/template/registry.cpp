@@ -60,25 +60,31 @@ void CoreState::register_default_pole_types() {
   dist.description = "Default distribution pole";
   dist.default_height_m = 10.0;
   dist.port_bands = {
-      make_band(100, ConnectionCategory::kHighVoltage, -0.6, 9.2, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 30,
-                0.40, false, 0.22, 0.12, BandOverflowPolicy::kTrySiblingBand),
+      make_band(100, ConnectionCategory::kHighVoltage, -0.75, 9.2, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 30,
+                0.40, false, 0.08, 0.06, BandOverflowPolicy::kTrySiblingBand),
       make_band(101, ConnectionCategory::kHighVoltage, 0.0, 9.2, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 29,
-                0.40, false, 0.18, 0.12, BandOverflowPolicy::kTrySiblingBand),
-      make_band(102, ConnectionCategory::kHighVoltage, 0.6, 9.2, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 28,
-                0.40, false, 0.22, 0.12, BandOverflowPolicy::kTrySiblingBand),
-      make_band(200, ConnectionCategory::kLowVoltage, -0.4, 6.8, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 20,
-                0.28, true, 0.35, 0.10, BandOverflowPolicy::kConstrainedFallback),
-      make_band(201, ConnectionCategory::kLowVoltage, 0.4, 6.8, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 19, 0.28,
-                true, 0.35, 0.10, BandOverflowPolicy::kConstrainedFallback),
-      make_band(202, ConnectionCategory::kLowVoltage, 0.0, 6.6, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 18,
-                0.25, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(300, ConnectionCategory::kCommunication, -0.8, 7.8, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 15,
-                0.25, true, 0.20, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(301, ConnectionCategory::kOptical, 0.8, 7.8, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 14, 0.25,
-                true, 0.20, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(400, ConnectionCategory::kDrop, 0.0, 4.2, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 10, 0.18, true,
-                0.15, 0.10, BandOverflowPolicy::kConstrainedFallback),
+                0.40, false, 0.08, 0.06, BandOverflowPolicy::kTrySiblingBand),
+      make_band(102, ConnectionCategory::kHighVoltage, 0.75, 9.2, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 28,
+                0.40, false, 0.08, 0.06, BandOverflowPolicy::kTrySiblingBand),
+      make_band(200, ConnectionCategory::kLowVoltage, -0.45, 7.4, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 20,
+                0.28, true, 0.07, 0.06, BandOverflowPolicy::kConstrainedFallback),
+      make_band(201, ConnectionCategory::kLowVoltage, 0.0, 7.4, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 19, 0.28,
+                true, 0.07, 0.06, BandOverflowPolicy::kConstrainedFallback),
+      make_band(202, ConnectionCategory::kLowVoltage, 0.45, 7.4, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 18,
+                0.25, true, 0.07, 0.06, BandOverflowPolicy::kConstrainedFallback),
+      make_band(300, ConnectionCategory::kCommunication, -0.55, 5.3, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 15,
+                0.25, true, 0.0, 0.5, BandOverflowPolicy::kConstrainedFallback),
+      make_band(301, ConnectionCategory::kOptical, -0.35, 5.3, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 14, 0.25,
+                true, 0.20, 0.5, BandOverflowPolicy::kConstrainedFallback),
+      make_band(400, ConnectionCategory::kDrop, 0.0, 5.5, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 10, 0.18, true,
+                0.15, 1.0, BandOverflowPolicy::kConstrainedFallback),
   };
+  for (PortPlacementBand& band : dist.port_bands) {
+    if (band.category == ConnectionCategory::kCommunication || band.category == ConnectionCategory::kOptical) {
+      band.lateral_min_m = -0.55;
+      band.lateral_max_m = 0.55;
+    }
+  }
   dist.anchor_slots = {
       {500, AnchorSupportKind::kGround, {0.0, 0.0, 0.5}, 10, true},
   };
@@ -88,33 +94,39 @@ void CoreState::register_default_pole_types() {
   comm.id = kCommunicationPoleType;
   comm.name = "CommunicationPole";
   comm.description = "Communication-first pole";
-  comm.default_height_m = 11.35;
+  comm.default_height_m = 10.0;
   comm.port_bands = {
-      make_band(600, ConnectionCategory::kCommunication, 0.0, 11.35, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 34,
-                0.26, false, 0.12, 0.10, BandOverflowPolicy::kConstrainedFallback),
-      make_band(610, ConnectionCategory::kHighVoltage, -0.6, 9.20, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 33,
-                0.40, false, 0.22, 0.12, BandOverflowPolicy::kTrySiblingBand),
+      make_band(600, ConnectionCategory::kCommunication, -0.55, 5.3, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 34,
+                0.26, false, 0.0, 0.5, BandOverflowPolicy::kConstrainedFallback),
+      make_band(610, ConnectionCategory::kHighVoltage, -0.75, 9.20, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 33,
+                0.40, false, 0.08, 0.06, BandOverflowPolicy::kTrySiblingBand),
       make_band(611, ConnectionCategory::kHighVoltage, 0.0, 9.20, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 32,
-                0.40, false, 0.18, 0.12, BandOverflowPolicy::kTrySiblingBand),
-      make_band(612, ConnectionCategory::kHighVoltage, 0.6, 9.20, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 31,
-                0.40, false, 0.22, 0.12, BandOverflowPolicy::kTrySiblingBand),
-      make_band(800, ConnectionCategory::kLowVoltage, -0.4, 8.03, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 30,
-                0.22, true, 0.16, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(802, ConnectionCategory::kLowVoltage, 0.0, 8.03, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 29,
-                0.22, true, 0.16, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(803, ConnectionCategory::kLowVoltage, 0.4, 8.03, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 28,
-                0.22, true, 0.16, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(700, ConnectionCategory::kOptical, 0.04, 6.60, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 27,
-                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(701, ConnectionCategory::kOptical, 0.04, 6.60, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 26,
-                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(620, ConnectionCategory::kCommunication, 0.22, 6.25, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 25,
-                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(621, ConnectionCategory::kCommunication, 0.22, 6.25, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 24,
-                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(801, ConnectionCategory::kDrop, 0.0, 4.20, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 9, 0.18, true,
-                0.15, 0.10, BandOverflowPolicy::kConstrainedFallback),
+                0.40, false, 0.08, 0.06, BandOverflowPolicy::kTrySiblingBand),
+      make_band(612, ConnectionCategory::kHighVoltage, 0.75, 9.20, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 31,
+                0.40, false, 0.08, 0.06, BandOverflowPolicy::kTrySiblingBand),
+      make_band(800, ConnectionCategory::kLowVoltage, -0.45, 7.4, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 30,
+                0.24, true, 0.07, 0.06, BandOverflowPolicy::kConstrainedFallback),
+      make_band(802, ConnectionCategory::kLowVoltage, 0.0, 7.4, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 29,
+                0.24, true, 0.07, 0.06, BandOverflowPolicy::kConstrainedFallback),
+      make_band(803, ConnectionCategory::kLowVoltage, 0.45, 7.4, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 28,
+                0.24, true, 0.07, 0.06, BandOverflowPolicy::kConstrainedFallback),
+      make_band(700, ConnectionCategory::kOptical, -0.35, 5.3, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 27,
+                0.24, true, 0.20, 0.5, BandOverflowPolicy::kConstrainedFallback),
+      make_band(701, ConnectionCategory::kOptical, 0.35, 5.3, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 26,
+                0.24, true, 0.20, 0.5, BandOverflowPolicy::kConstrainedFallback),
+      make_band(620, ConnectionCategory::kCommunication, -0.18, 5.3, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 25,
+                0.24, true, 0.0, 0.5, BandOverflowPolicy::kConstrainedFallback),
+      make_band(621, ConnectionCategory::kCommunication, 0.18, 5.3, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 24,
+                0.24, true, 0.0, 0.5, BandOverflowPolicy::kConstrainedFallback),
+      make_band(801, ConnectionCategory::kDrop, 0.0, 5.5, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 9, 0.18, true,
+                0.15, 1.0, BandOverflowPolicy::kConstrainedFallback),
   };
+  for (PortPlacementBand& band : comm.port_bands) {
+    if (band.category == ConnectionCategory::kCommunication || band.category == ConnectionCategory::kOptical) {
+      band.lateral_min_m = -0.55;
+      band.lateral_max_m = 0.55;
+    }
+  }
   comm.anchor_slots = {
       {900, AnchorSupportKind::kGround, {0.0, 0.0, 0.5}, 10, true},
   };
@@ -287,7 +299,7 @@ void CoreState::register_default_cable_templates() {
   CableTemplate hv{};
   hv.id = kHighVoltageCableTemplate;
   hv.name = "HV_BARE";
-  hv.outer_diameter_m = 0.030;
+  hv.outer_diameter_m = 0.024;
   hv.default_grouped_support_fanout_spacing_m = 0.75;
   hv.bend_stiffness = 1.4;
   hv.min_bend_radius_m = 0.8;
@@ -332,7 +344,7 @@ void CoreState::register_default_cable_templates() {
   CableTemplate comm{};
   comm.id = kCommunicationCableTemplate;
   comm.name = "COMM_MULTI";
-  comm.outer_diameter_m = 0.014;
+  comm.outer_diameter_m = 0.016;
   comm.default_grouped_support_fanout_spacing_m = 0.20;
   comm.bend_stiffness = 0.6;
   comm.min_bend_radius_m = 0.18;

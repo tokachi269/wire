@@ -23,126 +23,7 @@ import { createViewerSnapshot } from "../store/viewer";
 import type { WorkspacePreferences } from "../store/workspace";
 import { WorkspaceCache } from "../store/workspace";
 import { bundleTemplateCategory } from "../labels";
-
-const JAPAN_DISTRIBUTION_PRIMITIVE = {
-  poleVisibleHeightM: 10.0,
-  highVoltageZ: 9.2,
-  lowVoltageZ: 7.4,
-  communicationZMin: 4.8,
-  communicationZMax: 5.8,
-  serviceDropZMin: 4.5,
-  serviceDropZMax: 6.5,
-  highVoltageX: [-0.75, 0.0, 0.75],
-  lowVoltageX: [-0.45, 0.0, 0.45],
-  communicationX: [-0.55, -0.18, 0.18, 0.55],
-  opticalX: [-0.35, 0.35],
-  cableDiameterM: {
-    HV_BARE: 0.024,
-    LV_INSULATED: 0.020,
-    COMM_MULTI: 0.016,
-    OPTICAL_FIBER: 0.012,
-    DROP_SERVICE: 0.016
-  }
-} as const;
-
-function patchedCableTemplate(template: CableTemplateInfo): CableTemplateInfo {
-  const diameter = JAPAN_DISTRIBUTION_PRIMITIVE.cableDiameterM[
-    template.name as keyof typeof JAPAN_DISTRIBUTION_PRIMITIVE.cableDiameterM
-  ];
-  if (diameter === undefined) {
-    return template;
-  }
-  return {
-    ...template,
-    outerDiameter: diameter
-  };
-}
-
-function patchedPoleTemplate(template: PoleTemplateInfo): PoleTemplateInfo {
-  if (template.name !== "DistributionPole" && template.name !== "CommunicationPole") {
-    return template;
-  }
-  const nextByCategory = new Map<number, number>();
-  const nextPosition = (
-    category: number,
-    positions: readonly number[],
-    fallback: number
-  ) => positions[nextByCategory.get(category) ?? 0] ?? fallback;
-  const consumePosition = (category: number) => {
-    nextByCategory.set(category, (nextByCategory.get(category) ?? 0) + 1);
-  };
-
-  return {
-    ...template,
-    defaultHeight: JAPAN_DISTRIBUTION_PRIMITIVE.poleVisibleHeightM,
-    portBands: template.portBands.map((band) => {
-      if (band.category === 0) {
-        const lateral = nextPosition(0, JAPAN_DISTRIBUTION_PRIMITIVE.highVoltageX, band.lateralCenter);
-        consumePosition(0);
-        return {
-          ...band,
-          lateralCenter: lateral,
-          lateralMin: lateral - 0.08,
-          lateralMax: lateral + 0.08,
-          heightCenter: JAPAN_DISTRIBUTION_PRIMITIVE.highVoltageZ,
-          heightMin: JAPAN_DISTRIBUTION_PRIMITIVE.highVoltageZ - 0.06,
-          heightMax: JAPAN_DISTRIBUTION_PRIMITIVE.highVoltageZ + 0.06,
-          minSpacing: Math.max(band.minSpacing, 0.36)
-        };
-      }
-      if (band.category === 1) {
-        const lateral = nextPosition(1, JAPAN_DISTRIBUTION_PRIMITIVE.lowVoltageX, band.lateralCenter);
-        consumePosition(1);
-        return {
-          ...band,
-          lateralCenter: lateral,
-          lateralMin: lateral - 0.07,
-          lateralMax: lateral + 0.07,
-          heightCenter: JAPAN_DISTRIBUTION_PRIMITIVE.lowVoltageZ,
-          heightMin: JAPAN_DISTRIBUTION_PRIMITIVE.lowVoltageZ - 0.06,
-          heightMax: JAPAN_DISTRIBUTION_PRIMITIVE.lowVoltageZ + 0.06,
-          minSpacing: Math.max(band.minSpacing, 0.24)
-        };
-      }
-      if (band.category === 2 || band.category === 3) {
-        const positions = band.category === 2
-          ? JAPAN_DISTRIBUTION_PRIMITIVE.communicationX
-          : JAPAN_DISTRIBUTION_PRIMITIVE.opticalX;
-        const lateral = nextPosition(band.category, positions, band.lateralCenter);
-        consumePosition(band.category);
-        const heightCenter =
-          (JAPAN_DISTRIBUTION_PRIMITIVE.communicationZMin +
-            JAPAN_DISTRIBUTION_PRIMITIVE.communicationZMax) / 2;
-        return {
-          ...band,
-          lateralCenter: lateral,
-          lateralMin: JAPAN_DISTRIBUTION_PRIMITIVE.communicationX[0],
-          lateralMax: JAPAN_DISTRIBUTION_PRIMITIVE.communicationX[3],
-          heightCenter,
-          heightMin: JAPAN_DISTRIBUTION_PRIMITIVE.communicationZMin,
-          heightMax: JAPAN_DISTRIBUTION_PRIMITIVE.communicationZMax,
-          minSpacing: Math.max(band.minSpacing, 0.20)
-        };
-      }
-      if (band.category === 4) {
-        const heightCenter =
-          (JAPAN_DISTRIBUTION_PRIMITIVE.serviceDropZMin +
-            JAPAN_DISTRIBUTION_PRIMITIVE.serviceDropZMax) / 2;
-        return {
-          ...band,
-          heightCenter,
-          heightMin: JAPAN_DISTRIBUTION_PRIMITIVE.serviceDropZMin,
-          heightMax: JAPAN_DISTRIBUTION_PRIMITIVE.serviceDropZMax
-        };
-      }
-      return band;
-    })
-  };
-}
-
-function shallowEqual<T extends object>(a: T, b: T): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
+import { DEFAULT_BUNDLE_PRESET } from "../profile/defaultBundlePreset";
 
 function targetTemplateLayerForCategory(category: number): number {
   if (category === 0) return 2;
@@ -175,20 +56,12 @@ function defaultBundlePlacements(
   templates: BundleTemplateInfo[],
   poleTemplate: PoleTemplateInfo | undefined
 ): BundlePlacement[] {
-  const preset = [
-    { bundleTemplateId: 101, count: 3, height: 9.2, offset: -0.2 },
-    { bundleTemplateId: 102, count: 1, height: 7.7, offset: 0 },
-    { bundleTemplateId: 102, count: 1, height: 7.35, offset: 0 },
-    { bundleTemplateId: 102, count: 1, height: 7.0, offset: 0 },
-    { bundleTemplateId: 104, count: 1, height: 5.5, offset: 0 },
-    { bundleTemplateId: 105, count: 1, height: 5.3, offset: 0 }
-  ];
-  return preset.flatMap((row, index) => {
+  return DEFAULT_BUNDLE_PRESET.flatMap((row) => {
     const template = templates.find((item) => item.id === row.bundleTemplateId);
     if (template === undefined) return [];
     const fallback = bundlePlacementDefault(template, poleTemplate);
     return [{
-      id: index + 1,
+      id: row.id,
       bundleTemplateId: template.id,
       count: row.count,
       explicit: true,
@@ -227,38 +100,8 @@ export class ViewerActions {
 
   initialize(): void {
     const bundleTemplates = this.bridge.bundleTemplates();
-    let cableTemplates = this.bridge.cableTemplates();
-    let poleTemplates = this.bridge.poleTemplates();
-    const geometry = this.bridge.geometrySettings();
-    if (!geometry.sagEnabled) {
-      geometry.sagEnabled = true;
-      const result = this.bridge.updateGeometrySettings(geometry);
-      if (!result.ok) {
-        this.store.setError(result.error);
-      }
-    }
-    cableTemplates = cableTemplates.map((template) => {
-      const patched = patchedCableTemplate(template);
-      if (!shallowEqual(template, patched)) {
-        const result = this.bridge.updateCableTemplate(patched, []);
-        if (!result.ok) {
-          this.store.setError(result.error);
-          return template;
-        }
-      }
-      return patched;
-    });
-    poleTemplates = poleTemplates.map((template) => {
-      const patched = patchedPoleTemplate(template);
-      if (!shallowEqual(template, patched)) {
-        const result = this.bridge.updatePoleTemplate(patched);
-        if (!result.ok) {
-          this.store.setError(result.error);
-          return template;
-        }
-      }
-      return patched;
-    });
+    const cableTemplates = this.bridge.cableTemplates();
+    const poleTemplates = this.bridge.poleTemplates();
     const defaultBundleId =
       bundleTemplates.find((template) => bundleTemplateCategory(template) === 0)?.id ??
       bundleTemplates[0]?.id ??

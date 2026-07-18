@@ -121,6 +121,11 @@
       "forbidden_tokens": ["../render/", "viewer/"]
     },
     {
+      "name": "web_profile",
+      "patterns": ["web/src/profile/*.ts"],
+      "forbidden_tokens": ["../bridge/", "../actions/", "../render/", "wire/core", "viewer/"]
+    },
+    {
       "name": "web_render",
       "patterns": ["web/src/render/*.ts"],
       "forbidden_tokens": ["../bridge/", "../actions/", "wire/core", "viewer/"]

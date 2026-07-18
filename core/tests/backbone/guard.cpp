@@ -1162,6 +1162,11 @@ bool C718_viewer_hit_world_height_is_not_source_edge_branch_authority() {
 
 bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {
   wire::core::CoreState state;
+  wire::core::GeometrySettings initial_geometry = state.view().geometry_settings();
+  initial_geometry.sag_enabled = false;
+  if (!state.UpdateGeometrySettings(initial_geometry).ok) {
+    return false;
+  }
   const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
   if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
     return false;
@@ -1538,6 +1543,11 @@ bool C725_source_layout_settings_update_keeps_branch_projection_current() {
 
 bool C726_source_edge_branch_projection_does_not_require_prior_curve_cache() {
   wire::core::CoreState state;
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = false;
+  if (!state.UpdateGeometrySettings(geometry).ok) {
+    return false;
+  }
   const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
   if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
     return false;

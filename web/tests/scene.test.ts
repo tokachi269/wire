@@ -279,9 +279,12 @@ describe("scene geometry from wasm", () => {
       mesh.geometry.boundingBox!.getCenter(center);
       return center;
     });
-    expect(new Set(centers.map((center) => center.y.toFixed(3)))).toEqual(
-      new Set(["-0.650", "-0.200", "0.250"])
-    );
+    const centerYs = centers.map((center) => center.y).sort((a, b) => a - b);
+    expect(centerYs[0]).toBeCloseTo(-0.65, 2);
+    expect(centerYs[1]).toBeCloseTo(-0.20, 2);
+    expect(centerYs[2]).toBeCloseTo(0.25, 2);
+    expect(centerYs[1] - centerYs[0]).toBeCloseTo(0.45, 2);
+    expect(centerYs[2] - centerYs[1]).toBeCloseTo(0.45, 2);
     const insulatorYs = snapshot.models
       .filter((model) => model.modelKey === "hv_insulator")
       .map((model) => model.positionY.toFixed(3));

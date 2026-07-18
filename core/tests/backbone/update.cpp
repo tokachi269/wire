@@ -733,6 +733,11 @@ bool C619_backbone_reposition_updates_only_affected_spans() {
 
 bool C621_backbone_sag_reshape_updates_geom_only() {
   wire::core::CoreState state;
+  wire::core::GeometrySettings initial_settings = state.view().geometry_settings();
+  initial_settings.sag_enabled = false;
+  if (!state.UpdateGeometrySettings(initial_settings).ok) {
+    return false;
+  }
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
     return false;
@@ -2174,6 +2179,11 @@ bool C676_backbone_noop_move_preserves_port_positions_exactly() {
 
 bool C622_backbone_stage_timing_is_diagnostic_only() {
   wire::core::CoreState state;
+  wire::core::GeometrySettings initial_settings = state.view().geometry_settings();
+  initial_settings.sag_enabled = false;
+  if (!state.UpdateGeometrySettings(initial_settings).ok) {
+    return false;
+  }
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
     return false;

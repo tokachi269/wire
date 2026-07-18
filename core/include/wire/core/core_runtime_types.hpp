@@ -31,7 +31,7 @@ struct AttachmentDebugLineEffect {
 struct GeometrySettings {
   // Persisted generation settings. Derived caches are rebuilt from these.
   int curve_samples = 24;
-  bool sag_enabled = false;
+  bool sag_enabled = true;
   double sag_factor = 0.03;
   // Pole skin clearance used to avoid center-line overlap with pole body.
   double pole_clearance_m = 0.05;

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { ViewerActions } from "../src/actions/viewer";
 import type { SceneData, WireBridge } from "../src/bridge/wire";
 import type {
@@ -474,7 +475,7 @@ describe("P1 action contracts", () => {
     expect(snapshot.selectedPoleTemplateId).toBe(9);
   });
 
-  it("applies the Japan distribution primitive placement set on startup", () => {
+  it("does not mutate authoritative Core templates on startup", () => {
     const cableUpdates: CableTemplateInfo[] = [];
     const poleUpdates: PoleTemplateInfo[] = [];
     const store = new ViewerStore();
@@ -514,34 +515,14 @@ describe("P1 action contracts", () => {
 
     actions.initialize();
 
-    expect(cableUpdates.map((template) => [template.name, template.outerDiameter])).toEqual([
-      ["HV_BARE", 0.024],
-      ["LV_INSULATED", 0.020],
-      ["COMM_MULTI", 0.016],
-      ["OPTICAL_FIBER", 0.012]
-    ]);
-    expect(poleUpdates).toHaveLength(1);
-    expect(poleUpdates[0].defaultHeight).toBe(10);
-    expect(poleUpdates[0].portBands.filter((band) => band.category === 0).map((band) => band.lateralCenter)).toEqual([
-      -0.75,
-      0,
-      0.75
-    ]);
-    expect(poleUpdates[0].portBands.find((band) => band.category === 1)?.heightCenter).toBe(7.4);
-    expect(poleUpdates[0].portBands.find((band) => band.category === 2)).toEqual(
-      expect.objectContaining({ heightMin: 4.8, heightMax: 5.8 })
-    );
-    expect(poleUpdates[0].portBands.find((band) => band.category === 3)).toEqual(
-      expect.objectContaining({ heightMin: 4.8, heightMax: 5.8 })
-    );
-    expect(poleUpdates[0].portBands.find((band) => band.category === 4)).toEqual(
-      expect.objectContaining({ heightMin: 4.5, heightMax: 6.5 })
-    );
+    expect(cableUpdates).toEqual([]);
+    expect(poleUpdates).toEqual([]);
   });
-  it("enables sag on startup like the desktop viewer", () => {
+
+  it("does not mutate authoritative geometry settings on startup", () => {
     let geometry = {
       curveSamples: 8,
-      sagEnabled: false,
+      sagEnabled: true,
       sagFactor: 0.03,
       poleClearance: 0.05
     };
@@ -560,8 +541,23 @@ describe("P1 action contracts", () => {
 
     actions.initialize();
 
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ sagEnabled: true }));
+    expect(update).not.toHaveBeenCalled();
     expect(current(store).geometry.sagEnabled).toBe(true);
+  });
+
+  it("keeps startup free of authoritative update calls in source", () => {
+    const source = readFileSync(new URL("../src/actions/viewer.ts", import.meta.url), "utf8");
+    const start = source.indexOf("  initialize(): void {");
+    const end = source.indexOf("  async restoreWorkspace()", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const initializeSource = source.slice(start, end);
+    expect(initializeSource).not.toContain("updateCableTemplate(");
+    expect(initializeSource).not.toContain("updatePoleTemplate(");
+    expect(initializeSource).not.toContain("updateGeometrySettings(");
+    expect(source).not.toContain("patchedCableTemplate");
+    expect(source).not.toContain("patchedPoleTemplate");
+    expect(source).not.toContain("JAPAN_DISTRIBUTION_PRIMITIVE");
   });
 
 

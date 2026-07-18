@@ -242,7 +242,7 @@ private:
   [[nodiscard]] EditResult<topo> emit(const pairs& ps, const intent& intents);
   [[nodiscard]] EditResult<bool> emit_poles(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_bundles(topo* made, ChangeSet* changes);
-  [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps, const intent& intents, ChangeSet* changes);
+  [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_spans(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] rules make(const topo& made, const pairs& ps, const groups& placement) const;
   [[nodiscard]] EditResult<layout> make(const rules& made) const;

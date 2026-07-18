@@ -2524,7 +2524,7 @@ bool C792_backbone_incremental_new_row_uses_empty_stable_slot() {
   return std::abs(new_height - existing_height) + 1e-9 >= 0.5;
 }
 
-bool C796_backbone_incremental_row_spacing_is_exact_by_row_scope() {
+bool C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed() {
   auto explicit_bundle = [](const wire::core::CoreState& state,
                             wire::core::BundleKind kind,
                             std::uint64_t placement_key,
@@ -2639,6 +2639,9 @@ bool C796_backbone_incremental_row_spacing_is_exact_by_row_scope() {
       key_ports.push_back(port->id);
     }
     const double delta = *local_height - bundle->height_m;
+    if (!almost_equal(delta, 0.0, 1e-9)) {
+      return false;
+    }
     if (!existing_row_delta.has_value()) {
       existing_row_delta = delta;
     } else if (!almost_equal(*existing_row_delta, delta, 1e-9)) {
@@ -2708,6 +2711,9 @@ bool C796_backbone_incremental_row_spacing_is_exact_by_row_scope() {
       return false;
     }
     const double delta = *local_height - bundle->height_m;
+    if (!almost_equal(delta, 0.0, 1e-9)) {
+      return false;
+    }
     if (!new_row_delta.has_value()) {
       new_row_delta = delta;
     } else if (!almost_equal(*new_row_delta, delta, 1e-9)) {
@@ -2717,7 +2723,7 @@ bool C796_backbone_incremental_row_spacing_is_exact_by_row_scope() {
     new_ports_by_key[bundle->placement_key].push_back(binding.port_id);
   }
   if (!new_open_row.has_value() || !new_row_delta.has_value() ||
-      std::abs(*new_row_delta - *existing_row_delta) + 1e-9 < 0.5 ||
+      !almost_equal(*new_row_delta, *existing_row_delta, 1e-9) ||
       new_ports_by_key[3101].size() != 3 ||
       new_ports_by_key[3201].size() != 1 ||
       new_ports_by_key[3202].size() != 1 ||
@@ -2793,7 +2799,7 @@ bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
   std::string cpp;
   std::string emit_ports_body;
   if (!file_text(source, &cpp) ||
-      !function_body(cpp, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, const intent& intents, ChangeSet* changes)",
+      !function_body(cpp, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
                      &emit_ports_body)) {
     return false;
   }

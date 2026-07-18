@@ -104,6 +104,33 @@ function hvEdgeBodies(state: WireStateHandle) {
   );
 }
 
+function connectedPortHeightsByCategoryAtPole(state: WireStateHandle, poleId: string): Map<number, number[]> {
+  const connectedPortIds = new Set<string>();
+  for (let index = 0; index < state.spanCount(); index += 1) {
+    const span = state.span(index);
+    connectedPortIds.add(span.portAId);
+    connectedPortIds.add(span.portBId);
+  }
+  return Array.from({ length: state.portCount() }, (_, index) => state.port(index))
+    .filter((port) => port.ownerPoleId === poleId && connectedPortIds.has(port.id))
+    .reduce((groups, port) => {
+      const key = port.category;
+      const values = groups.get(key) ?? [];
+      values.push(Number(port.z.toFixed(3)));
+      groups.set(key, values);
+      return groups;
+    }, new Map<number, number[]>());
+}
+
+function expectDefaultPlacementHeightsAtPole(state: WireStateHandle, poleId: string) {
+  const portsByCategory = connectedPortHeightsByCategoryAtPole(state, poleId);
+  expect(new Set(portsByCategory.get(0))).toEqual(new Set([9.2]));
+  const nonHvHeights = [...portsByCategory.entries()]
+    .filter(([category]) => category !== 0)
+    .flatMap(([, values]) => values);
+  expect(new Set(nonHvHeights)).toEqual(new Set([7.7, 7.35, 7.0, 5.5, 5.3]));
+}
+
 function startPoint(part: ReturnType<typeof visualParts>[number]): [number, number, number] {
   return [part.samples[0], part.samples[1], part.samples[2]];
 }
@@ -673,6 +700,7 @@ describe("wire wasm smoke", () => {
       []
     );
     expect(base.ok, base.error).toBe(true);
+    expectDefaultPlacementHeightsAtPole(runState, runState.pole(1).id);
     const baseHvSpanIds = new Set(hvEdgeBodies(runState).map((part) => part.info.sourceSpanId));
 
     const poleB = runState.pole(1);
@@ -700,6 +728,7 @@ describe("wire wasm smoke", () => {
       .filter((port) => port.ownerPoleId === poleB.id && port.category === 0);
     expect(bHvPorts).toHaveLength(9);
     expect(new Set(bHvPorts.map((port) => Number(port.z.toFixed(3))))).toEqual(new Set([9.2]));
+    expectDefaultPlacementHeightsAtPole(runState, poleB.id);
 
     const bHvRows = runState.visualScene().models
       .filter((model) => model.modelKey === "hv_crossarm" && model.stableKey.startsWith(`row:${poleB.id}:`));

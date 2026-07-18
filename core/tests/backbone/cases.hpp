@@ -402,6 +402,6 @@ bool C792_backbone_incremental_new_row_uses_empty_stable_slot();
 bool C793_backbone_derive_uses_canonical_rule_order_and_lookup();
 bool C794_web_viewer_action_context_keeps_mutable_state_private();
 bool C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry();
-bool C796_backbone_incremental_row_spacing_is_exact_by_row_scope();
+bool C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed();
 
 } // namespace backbone_tests

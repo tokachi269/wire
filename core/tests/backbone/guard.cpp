@@ -1640,7 +1640,7 @@ bool C720_source_edge_pipeline_front_half_does_not_read_curve_projection() {
   std::string check_body;
   std::string emit_ports_body;
   if (!function_body(text, "EditResult<bool> pipeline::check(const pairs& ps) const", &check_body) ||
-      !function_body(text, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, const intent& intents, ChangeSet* changes)",
+      !function_body(text, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
                      &emit_ports_body)) {
     return false;
   }

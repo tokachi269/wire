@@ -2859,7 +2859,7 @@ EditResult<topo> pipeline::emit(const pairs& ps, const intent& intents) {
     return true;
   };
   if (!step(emit_poles(&made, ps, &out.change_set)) || !step(emit_bundles(&made, &out.change_set)) ||
-      !step(emit_ports(&made, ps, intents, &out.change_set)) || !step(emit_spans(&made, ps, &out.change_set))) {
+      !step(emit_ports(&made, ps, &out.change_set)) || !step(emit_spans(&made, ps, &out.change_set))) {
     return out;
   }
   out.value = std::move(made);
@@ -3006,7 +3006,7 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
   return out;
 }
 
-EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, const intent& intents, ChangeSet* changes) {
+EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
     out.error = "backbone topology: output missing";
@@ -3033,28 +3033,6 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, const intent&
     }
     if (edge.brow < active_rows.size()) {
       active_rows[edge.brow] = true;
-    }
-  }
-  std::vector<std::vector<bool>> fixed_height_row_bundles(
-      ps.rows.size(), std::vector<bool>(made->bundles.size(), false));
-  for (const row_intent& item : intents.rows) {
-    if (!item.lower_required || item.row >= ps.rows.size() || !ps.rows[item.row].source.is_open ||
-        item.bundle >= active_bundle_indices_.size()) {
-      continue;
-    }
-    const std::size_t spec_index = active_bundle_indices_[item.bundle];
-    if (spec_index >= spec_.bundles.size()) {
-      continue;
-    }
-    const BundleTemplateId template_id = spec_.bundles[spec_index].bundle_template_id;
-    const auto template_it = state_.view().bundle_templates().find(template_id);
-    if (template_it == state_.view().bundle_templates().end()) {
-      continue;
-    }
-    const BundleTemplate& tmpl = template_it->second;
-    if (tmpl.kind == BundleKind::kHighVoltage &&
-        (tmpl.row_fixture_assembly_id != kInvalidObjectId || tmpl.endpoint_fixture_assembly_id != kInvalidObjectId)) {
-      fixed_height_row_bundles[item.row][item.bundle] = true;
     }
   }
   const std::vector<Vec3d> row_offsets = row_height_offsets(ps);
@@ -3115,12 +3093,8 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, const intent&
                                spec_.bundles[spec_index].placement_key,
                                PortKindForCategory(v.value.tmpl->category),
                                PortLayerForSpanLayer(v.value.layer), band.band_id};
-        const bool fixed_height_bundle =
-            r.id < fixed_height_row_bundles.size() &&
-            bundle_index < fixed_height_row_bundles[r.id].size() &&
-            fixed_height_row_bundles[r.id][bundle_index];
         const Vec3d row_offset =
-            (fixed_height_bundle || r.id >= row_offsets.size()) ? Vec3d{} : row_offsets[r.id];
+            (bundle_spec.placement_explicit || r.id >= row_offsets.size()) ? Vec3d{} : row_offsets[r.id];
         Vec3d p{};
         if (ownerless) {
           if (g_.nodes[r.node].has_source_edge) {
@@ -3217,7 +3191,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, const intent&
           }
           const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
           Vec3d local = WorldPointToLocal(frame, p);
-          if (!fixed_height_bundle) {
+          if (!bundle_spec.placement_explicit) {
             local.z = row_slot_plan.height_for(r.id, made->bundles[bundle_index], tr.pole,
                                                scope.bundle, scope.placement_key,
                                                scope.placement_band_id, local.z);

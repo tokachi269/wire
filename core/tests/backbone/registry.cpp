@@ -1221,10 +1221,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental HV promotion preserves model fixture geometry and lane patch order",
                          "Invariant", false,
                          C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry);
-  test_registry::AddTest(tests, "C796_backbone_incremental_row_spacing_is_exact_by_row_scope",
-                         "incremental row spacing is exact across mixed bundle placements and pair promotion",
+  test_registry::AddTest(tests, "C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed",
+                         "incremental explicit placement height is not row-reflowed",
                          "Invariant", false,
-                         C796_backbone_incremental_row_spacing_is_exact_by_row_scope);
+                         C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed);
   test_registry::AddTest(tests, "C793_backbone_derive_uses_canonical_rule_order_and_lookup",
                          "derive builds fixture rules in canonical span order and resolves affected spans by lookup",
                          "Boundary", false,

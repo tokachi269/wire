@@ -2400,12 +2400,22 @@ bool C790_backbone_duplicate_support_point_requires_node_reference() {
   wire::core::BackboneSpec duplicate = line_req(state);
   duplicate.path.polyline = {pole_b->world_transform.position, {12.0, 8.0, 0.0}};
   duplicate.path.node_specs.clear();
+  wire::core::instrumentation::reset();
   const auto rejected = state.GenerateFromBackboneSpec(duplicate);
+  const wire::core::instrumentation::Counters counters =
+      wire::core::instrumentation::snapshot();
 
   return !rejected.ok &&
          contains_text(rejected.error, "existing support requires an explicit node reference") &&
          state.next_id() == next_id_before &&
-         same_counts(snapshot_counts(state), counts_before);
+         same_counts(snapshot_counts(state), counts_before) &&
+         counters.pair_build_count == 0 &&
+         counters.stable_row_slot_lookup_count == 0 &&
+         counters.fixture_rule_merge_count == 0 &&
+         counters.last_fixture_rule_count == 0 &&
+         counters.fixture_plan_build_count == 0 &&
+         counters.model_materialization_count == 0 &&
+         counters.support_group_rebuild_count == 0;
 }
 
 bool C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters() {
@@ -2429,6 +2439,7 @@ bool C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters() {
 
   return out.ok &&
          counters.fixture_rule_merge_count == 1 &&
+         counters.last_fixture_rule_count == 13 &&
          counters.fixture_plan_build_count == 1 &&
          counters.model_materialization_count == 1 &&
          counters.endpoint_placement_fallback_count == 0 &&

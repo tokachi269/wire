@@ -993,6 +993,7 @@ public:
   double height_for(std::size_t row_id, ObjectId bundle_id, ObjectId pole_id,
                     BundleTemplateId bundle_template_id, std::uint64_t placement_key, int placement_band_id,
                     double requested_height_m) {
+    instrumentation::count_stable_row_slot_lookup();
     if (pole_id == kInvalidObjectId) {
       return requested_height_m;
     }
@@ -2086,6 +2087,7 @@ EditResult<bool> pipeline::check() const {
 }
 
 EditResult<pairs> pipeline::make(const graph& made) const {
+  instrumentation::count_pair_build();
   if (made.nodes.size() < 2 || made.links.empty()) {
     return unsupported_pairs("path needs at least two points");
   }

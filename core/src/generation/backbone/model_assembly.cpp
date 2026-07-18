@@ -664,6 +664,7 @@ void resolve_endpoint_fixture_placements(EditResult<FixturePlacementPlanByPort>*
 EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_rules(
     const CoreState& state, const std::vector<SpanLayoutRule>& rules) {
   instrumentation::count_fixture_plan_build();
+  instrumentation::set_fixture_rule_count(rules.size());
   EditResult<FixturePlacementPlanByPort> out{};
   out.ok = true;
   for (const SpanLayoutRule& rule : rules) {

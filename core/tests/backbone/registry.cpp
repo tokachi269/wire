@@ -1213,6 +1213,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "large route addition builds one fixture plan and materializes models once",
                          "Boundary", false,
                          C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters);
+  test_registry::AddTest(tests, "C792_backbone_incremental_new_row_uses_empty_stable_slot",
+                         "incremental row insertion preserves existing row and uses an empty stable slot",
+                         "Invariant", false,
+                         C792_backbone_incremental_new_row_uses_empty_stable_slot);
 }
 
 

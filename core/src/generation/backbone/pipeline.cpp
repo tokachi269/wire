@@ -1,6 +1,7 @@
 #include "pipeline.hpp"
 
 #include "../../collection_utils.hpp"
+#include "../../support/hash_mix.hpp"
 #include "../../support/instrumentation.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
@@ -929,6 +930,104 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
   }
   return true;
 }
+
+struct stable_row_occupancy_key {
+  ObjectId pole_id = kInvalidObjectId;
+  BundleTemplateId bundle_template_id = 0;
+  std::uint64_t placement_key = 0;
+  int placement_band_id = 0;
+
+  bool operator==(const stable_row_occupancy_key& other) const {
+    return pole_id == other.pole_id && bundle_template_id == other.bundle_template_id &&
+           placement_key == other.placement_key && placement_band_id == other.placement_band_id;
+  }
+};
+
+struct stable_row_plan_key {
+  std::size_t row_id = 0;
+  ObjectId bundle_id = kInvalidObjectId;
+  stable_row_occupancy_key occupancy{};
+
+  bool operator==(const stable_row_plan_key& other) const {
+    return row_id == other.row_id && bundle_id == other.bundle_id && occupancy == other.occupancy;
+  }
+};
+
+struct stable_row_key_hash {
+  std::size_t operator()(const stable_row_occupancy_key& key) const {
+    std::uint64_t seed = support::hash_combine(0, static_cast<std::uint64_t>(key.pole_id));
+    seed = support::hash_combine(seed, static_cast<std::uint64_t>(key.bundle_template_id));
+    seed = support::hash_combine(seed, key.placement_key);
+    seed = support::hash_combine(seed, static_cast<std::uint64_t>(key.placement_band_id));
+    return static_cast<std::size_t>(seed);
+  }
+
+  std::size_t operator()(const stable_row_plan_key& key) const {
+    std::uint64_t seed = support::hash_combine(0, static_cast<std::uint64_t>(key.row_id));
+    seed = support::hash_combine(seed, static_cast<std::uint64_t>(key.bundle_id));
+    seed = support::hash_combine(seed, static_cast<std::uint64_t>((*this)(key.occupancy)));
+    return static_cast<std::size_t>(seed);
+  }
+};
+
+class stable_row_slot_plan {
+public:
+  explicit stable_row_slot_plan(const CoreState& state) {
+    for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+      const Port* port = state.view().ports().find(binding.port_id);
+      if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
+        continue;
+      }
+      std::uint64_t placement_key = 0;
+      if (const SavedBackboneEdgeBundle* edge_bundle =
+              state.view().backbone_edge_bundle(binding.edge_bundle_id)) {
+        if (const Bundle* bundle = state.view().bundles().find(edge_bundle->bundle_id)) {
+          placement_key = bundle->placement_key;
+        }
+      }
+      occupied_[{port->owner_pole_id, binding.bundle_template_id, placement_key,
+                 binding.placement_band_id}].push_back(port->world_position.z);
+    }
+  }
+
+  double height_for(std::size_t row_id, ObjectId bundle_id, ObjectId pole_id,
+                    BundleTemplateId bundle_template_id, std::uint64_t placement_key, int placement_band_id,
+                    double requested_height_m) {
+    if (pole_id == kInvalidObjectId) {
+      return requested_height_m;
+    }
+    const stable_row_occupancy_key occupancy{pole_id, bundle_template_id, placement_key,
+                                             placement_band_id};
+    const stable_row_plan_key plan_key{row_id, bundle_id, occupancy};
+    const auto planned_it = planned_.find(plan_key);
+    if (planned_it != planned_.end()) {
+      return planned_it->second;
+    }
+    std::vector<double>& heights = occupied_[occupancy];
+    const auto available = [&](double candidate) {
+      return std::all_of(heights.begin(), heights.end(), [&](double height) {
+      return std::abs(candidate - height) + 1e-9 >= kRowHeightSeparationM;
+    });
+    };
+    double selected = requested_height_m;
+    if (!available(selected)) {
+      for (std::size_t order = 0; order < 16; ++order) {
+        const double slot = static_cast<double>((order / 2) + 1) * kRowHeightSeparationM;
+        const double candidate = requested_height_m + ((order % 2 == 0) ? -slot : slot);
+        if (available(candidate)) {
+          selected = candidate;
+          break;
+        }
+      }
+    }
+    planned_[plan_key] = selected;
+    return selected;
+  }
+
+private:
+  std::unordered_map<stable_row_occupancy_key, std::vector<double>, stable_row_key_hash> occupied_{};
+  std::unordered_map<stable_row_plan_key, double, stable_row_key_hash> planned_{};
+};
 
 struct segment_insert {
   double t = 0.0;
@@ -2935,6 +3034,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
     }
   }
   const std::vector<Vec3d> row_offsets = row_height_offsets(ps);
+  stable_row_slot_plan row_slot_plan{state_};
   made->rows.resize(ps.rows.size());
   for (const row& r : ps.rows) {
     if (r.node >= made->poles.size() || r.node >= g_.nodes.size()) {
@@ -3079,6 +3179,19 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         }
         if (!row_active) {
           continue;
+        }
+        if (!ownerless) {
+          const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
+          if (pole == nullptr) {
+            out.error = "backbone topology: row pole missing";
+            return out;
+          }
+          const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
+          Vec3d local = WorldPointToLocal(frame, p);
+          local.z = row_slot_plan.height_for(r.id, made->bundles[bundle_index], tr.pole,
+                                             scope.bundle, scope.placement_key,
+                                             scope.placement_band_id, local.z);
+          p = LocalPointToWorld(frame, local);
         }
         EditResult<ObjectId> port =
             state_.AddPort(ownerless ? kInvalidObjectId : made->poles[r.node], p, scope.kind, scope.layer);

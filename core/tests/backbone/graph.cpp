@@ -2173,6 +2173,82 @@ bool C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters() {
          counters.support_group_rebuild_count == 1;
 }
 
+bool C792_backbone_incremental_new_row_uses_empty_stable_slot() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId junction = first.value.generated_pole_ids[1];
+  const wire::core::Pole* pole = state.view().poles().find(junction);
+  if (pole == nullptr) {
+    return false;
+  }
+
+  std::vector<std::pair<wire::core::ObjectId, wire::core::Vec3d>> existing_ports{};
+  for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    const wire::core::Port* port = state.view().ports().find(binding.port_id);
+    if (port != nullptr && port->owner_pole_id == junction &&
+        binding.bundle_template_id == wire::core::kDefaultHighVoltageBundleTemplateId &&
+        std::none_of(existing_ports.begin(), existing_ports.end(), [&](const auto& item) {
+          return item.first == port->id;
+        })) {
+      existing_ports.push_back({port->id, port->world_position});
+    }
+  }
+  if (existing_ports.size() != 3) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = hv_branch_req(state, junction, pole->world_transform.position);
+  const auto second = state.GenerateFromBackboneSpec(branch);
+  if (!second.ok || second.value.generated_span_ids.size() != 3) {
+    return false;
+  }
+
+  double existing_height = 0.0;
+  for (const auto& item : existing_ports) {
+    const wire::core::Port* port = state.view().ports().find(item.first);
+    if (port == nullptr || !almost_equal(port->world_position, item.second, 1e-9)) {
+      return false;
+    }
+    existing_height += port->world_position.z;
+  }
+  existing_height /= static_cast<double>(existing_ports.size());
+
+  std::vector<wire::core::ObjectId> new_junction_ports{};
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    for (wire::core::ObjectId port_id : {span->port_a_id, span->port_b_id}) {
+      const wire::core::Port* port = state.view().ports().find(port_id);
+      if (port != nullptr && port->owner_pole_id == junction &&
+          std::none_of(existing_ports.begin(), existing_ports.end(), [&](const auto& item) {
+            return item.first == port_id;
+          }) &&
+          std::find(new_junction_ports.begin(), new_junction_ports.end(), port_id) == new_junction_ports.end()) {
+        new_junction_ports.push_back(port_id);
+      }
+    }
+  }
+  if (new_junction_ports.size() != 3) {
+    return false;
+  }
+  double new_height = 0.0;
+  for (wire::core::ObjectId port_id : new_junction_ports) {
+    const wire::core::Port* port = state.view().ports().find(port_id);
+    if (port == nullptr) {
+      return false;
+    }
+    new_height += port->world_position.z;
+  }
+  new_height /= static_cast<double>(new_junction_ports.size());
+
+  return std::abs(new_height - existing_height) + 1e-9 >= 0.5;
+}
+
 bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));

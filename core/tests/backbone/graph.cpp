@@ -3368,7 +3368,7 @@ bool C797_backbone_row_continuity_records_route_and_promotion_lanes() {
          has_row_continuity(cross.state, cross_b->node_id, bd_bundle, 0, be_bundle, 0);
 }
 
-bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering() {
+bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_end) {
   auto explicit_bundle = [](const wire::core::CoreState& state,
                             wire::core::BundleKind kind,
                             std::uint64_t placement_key,
@@ -3488,8 +3488,11 @@ bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering() 
   }
 
   wire::core::BackboneSpec branch = viewer_default_req(state);
-  branch.path.polyline = {resolved.value.position, {12.0, -8.0, 0.0}};
-  branch.path.node_specs = {pole_spec(0, resolved.value.resolved_node_id)};
+  const wire::core::Vec3d new_point{12.0, -8.0, 0.0};
+  branch.path.polyline = anchor_at_end
+      ? std::vector<wire::core::Vec3d>{new_point, resolved.value.position}
+      : std::vector<wire::core::Vec3d>{resolved.value.position, new_point};
+  branch.path.node_specs = {pole_spec(anchor_at_end ? 1 : 0, resolved.value.resolved_node_id)};
   const auto out = state.GenerateFromBackboneSpec(branch);
   if (!out.ok || out.value.generated_pole_ids.size() != 1 ||
       out.value.generated_span_ids.size() != 8) {
@@ -3533,6 +3536,14 @@ bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering() 
   }
 
   return curve_endpoints_match_layout(state);
+}
+
+bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering() {
+  return viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(false);
+}
+
+bool C802_backbone_viewer_default_reverse_t_branch_keeps_hv_and_only_flagged_lowering() {
+  return viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(true);
 }
 
 bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {

@@ -2035,8 +2035,13 @@ EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
     }
   }
   if (!affected_span_ids.empty()) {
-    trial.cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(
-        trial, {}, affected_span_ids));
+    EditResult<VisualCurvePartCache> visual_curves =
+        generation::backbone::make_visual_curve_parts(trial, {}, affected_span_ids);
+    if (!visual_curves.ok) {
+      result.error = visual_curves.error;
+      return result;
+    }
+    trial.cache_visual_curve_parts(std::move(visual_curves.value));
   }
   EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
       generation::backbone::fixture_placement_plan_from_cache(trial);

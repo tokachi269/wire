@@ -127,7 +127,7 @@ describe("model asset cache", () => {
     expect(lowVoltage.parts[0].localTransform.rotationZ).toBe(180);
     expect(lowVoltage.parts[0].localTransform.positionY).toBeCloseTo(clampLong.size.z * 0.5, 12);
     expect(lowVoltage.parts[0].sockets[0].positionY).toBeCloseTo(0, 12);
-    expect(lowVoltage.parts[0].sockets[0].positionZ).toBeCloseTo(clampLong.size.y * 0.5, 12);
+    expect(lowVoltage.parts[0].sockets[0].positionZ).toBeCloseTo(0, 12);
     expect(lowVoltage.wireSocket).toEqual({ partId: 1, socketName: "wire" });
   });
 });

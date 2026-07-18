@@ -60,6 +60,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
   g_ = std::move(input.made);
   active_bundle_indices_ = std::move(input.active_bundle_indices);
   local_by_input_ = std::move(input.local_by_input);
+  write_row_continuity_ = input.write_row_continuity;
 
   EditResult<GenerateBundleFromPathResult> out{};
   GenerationTiming* timing = input.timing == nullptr ? &out.value.timing : input.timing;
@@ -131,11 +132,13 @@ pipeline::build_input pipeline::build_input_from_spec() const {
 }
 
 pipeline::build_input pipeline::build_input_from_saved_scope(
-    graph made_graph, std::vector<std::size_t> active_bundle_indices, bool retire_untouched) const {
+    graph made_graph, std::vector<std::size_t> active_bundle_indices, bool retire_untouched,
+    bool write_row_continuity) const {
   build_input input{};
   input.made = std::move(made_graph);
   input.active_bundle_indices = std::move(active_bundle_indices);
   input.retire_untouched = retire_untouched;
+  input.write_row_continuity = write_row_continuity;
   return input;
 }
 
@@ -3392,7 +3395,49 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
       (void)refresh_edge_bundle_by_link_bundle(link_id, bundle_index);
     }
   }
-
+  auto edge_bundle_lane_port_binding_count_at_node =
+      [&](ObjectId edge_bundle_id, std::size_t lane, ObjectId node_id) {
+    std::size_t count = 0;
+    for (const SavedBackbonePortBinding& binding : state_.view().backbone().port_bindings) {
+      if (binding.edge_bundle_id == edge_bundle_id && binding.lane_index == lane &&
+          binding.row_key.node_id == node_id) {
+        ++count;
+      }
+    }
+    return count;
+  };
+  auto edge_bundle_lane_binding_matches_span_at_node =
+      [&](ObjectId edge_bundle_id, std::size_t lane, ObjectId node_id) {
+    ObjectId bound_port_id = kInvalidObjectId;
+    for (const SavedBackbonePortBinding& binding : state_.view().backbone().port_bindings) {
+      if (binding.edge_bundle_id == edge_bundle_id && binding.lane_index == lane &&
+          binding.row_key.node_id == node_id) {
+        if (bound_port_id != kInvalidObjectId) {
+          return false;
+        }
+        bound_port_id = binding.port_id;
+      }
+    }
+    if (bound_port_id == kInvalidObjectId) {
+      return false;
+    }
+    for (const SavedBackboneSpanBinding& binding : state_.view().backbone().span_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id || binding.lane_index != lane) {
+        continue;
+      }
+      const Span* span = state_.view().spans().find(binding.span_id);
+      if (span != nullptr && (span->port_a_id == bound_port_id || span->port_b_id == bound_port_id)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  auto edge_bundle_incident_to_node = [&](ObjectId edge_bundle_id, ObjectId node_id) {
+    const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
+    const auto* edge =
+        edge_bundle == nullptr ? nullptr : state_.view().backbone_edge(edge_bundle->edge_id);
+    return edge != nullptr && (edge->node_a == node_id || edge->node_b == node_id);
+  };
   for (const tspan& span : made.spans) {
     if (!span.is_new) {
       continue;
@@ -3473,32 +3518,80 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     }
   }
 
-  for (const trow& row : made.rows) {
-    if (row.source.is_open || row.source.id >= ps.joins.size() || row.node >= node_id_by_local.size()) {
-      continue;
-    }
-    const pair& joined = ps.joins[row.source.id];
-    if (joined.left >= ps.links.size() || joined.right >= ps.links.size()) {
-      continue;
-    }
-    const ObjectId node_id = node_id_by_local[row.node];
-    if (node_id == kInvalidObjectId) {
-      continue;
-    }
-    for (std::size_t bundle_index = 0; bundle_index < row.ports.size() && bundle_index < made.bundles.size();
-         ++bundle_index) {
-      const ObjectId left_edge_bundle_id = refresh_edge_bundle_by_link_bundle(joined.left, bundle_index);
-      const ObjectId right_edge_bundle_id = refresh_edge_bundle_by_link_bundle(joined.right, bundle_index);
-      if (left_edge_bundle_id == kInvalidObjectId || right_edge_bundle_id == kInvalidObjectId ||
-          left_edge_bundle_id == right_edge_bundle_id) {
+  if (write_row_continuity_) {
+    for (std::size_t row_index = 0; row_index < made.rows.size(); ++row_index) {
+      const trow& row = made.rows[row_index];
+      if (row.source.is_open || row.source.id >= ps.joins.size() || row.node >= node_id_by_local.size()) {
         continue;
       }
-      for (std::size_t lane = 0; lane < row.ports[bundle_index].size(); ++lane) {
-        EditResult<bool> continuity = state_.bind_backbone_row_continuity(
-            node_id, left_edge_bundle_id, lane, right_edge_bundle_id, lane);
-        if (!continuity.ok) {
-          out.error = continuity.error;
-          return out;
+      const pair& joined = ps.joins[row.source.id];
+      if (joined.left >= ps.links.size() || joined.right >= ps.links.size()) {
+        continue;
+      }
+      const link& left_link = ps.links[joined.left];
+      const link& right_link = ps.links[joined.right];
+      const bool route_continuation =
+          left_link.route == right_link.route &&
+          ((left_link.order + 1 == right_link.order && left_link.b == right_link.a) ||
+           (right_link.order + 1 == left_link.order && right_link.b == left_link.a));
+      const bool saved_or_promoted_continuation =
+          row.node < g_.nodes.size() &&
+          (is_saved_pair_continuation(state_, g_.nodes[row.node], left_link, right_link) ||
+           is_saved_pair_continuation(state_, g_.nodes[row.node], right_link, left_link) ||
+           is_promoted_open_continuation(state_, g_.nodes[row.node], left_link, right_link) ||
+           is_promoted_open_continuation(state_, g_.nodes[row.node], right_link, left_link));
+      const bool row_can_write_continuity = route_continuation || saved_or_promoted_continuation;
+      auto link_is_pole_to_pole = [&](const link& item) {
+        return item.a < g_.nodes.size() && item.b < g_.nodes.size() &&
+               g_.nodes[item.a].support == SupportKind::kPole &&
+               g_.nodes[item.b].support == SupportKind::kPole;
+      };
+      const bool row_can_write_planned_promotion =
+          !row_can_write_continuity &&
+          link_is_pole_to_pole(left_link) && link_is_pole_to_pole(right_link) &&
+          std::any_of(promotion_plan_.begin(), promotion_plan_.end(), [&](const PromotionPlanEntry& entry) {
+            return entry.row == row_index;
+          });
+      if (!row_can_write_continuity && !row_can_write_planned_promotion) {
+        continue;
+      }
+      const ObjectId node_id = node_id_by_local[row.node];
+      if (node_id == kInvalidObjectId) {
+        continue;
+      }
+      for (std::size_t bundle_index = 0; bundle_index < row.ports.size() && bundle_index < made.bundles.size();
+           ++bundle_index) {
+        const ObjectId left_edge_bundle_id = refresh_edge_bundle_by_link_bundle(joined.left, bundle_index);
+        const ObjectId right_edge_bundle_id = refresh_edge_bundle_by_link_bundle(joined.right, bundle_index);
+        if (left_edge_bundle_id == kInvalidObjectId || right_edge_bundle_id == kInvalidObjectId ||
+            left_edge_bundle_id == right_edge_bundle_id) {
+          continue;
+        }
+        for (std::size_t lane = 0; lane < row.ports[bundle_index].size(); ++lane) {
+          const bool planned_promotion_for_lane =
+              row_can_write_planned_promotion &&
+              std::any_of(promotion_plan_.begin(), promotion_plan_.end(), [&](const PromotionPlanEntry& entry) {
+                return entry.row == row_index && entry.lane_index == lane &&
+                       (entry.existing_edge_bundle_id == left_edge_bundle_id ||
+                        entry.existing_edge_bundle_id == right_edge_bundle_id);
+              });
+          if (!row_can_write_continuity && !planned_promotion_for_lane) {
+            continue;
+          }
+          if (!edge_bundle_incident_to_node(left_edge_bundle_id, node_id) ||
+              !edge_bundle_incident_to_node(right_edge_bundle_id, node_id) ||
+              edge_bundle_lane_port_binding_count_at_node(left_edge_bundle_id, lane, node_id) != 1 ||
+              edge_bundle_lane_port_binding_count_at_node(right_edge_bundle_id, lane, node_id) != 1 ||
+              !edge_bundle_lane_binding_matches_span_at_node(left_edge_bundle_id, lane, node_id) ||
+              !edge_bundle_lane_binding_matches_span_at_node(right_edge_bundle_id, lane, node_id)) {
+            continue;
+          }
+          EditResult<bool> continuity = state_.bind_backbone_row_continuity(
+              node_id, left_edge_bundle_id, lane, right_edge_bundle_id, lane);
+          if (!continuity.ok) {
+            out.error = continuity.error;
+            return out;
+          }
         }
       }
     }
@@ -3720,8 +3813,13 @@ EditResult<geom> pipeline::make(const layout& made) const {
   for (const SpanLayoutEntry& entry : made.entries) {
     visual_scope_span_ids.push_back(entry.span_id);
   }
-  out.value.visual_curves =
+  EditResult<VisualCurvePartCache> visual_curves =
       make_visual_curve_parts(state_, made, visual_scope_span_ids, &out.value.curves);
+  if (!visual_curves.ok) {
+    out.error = visual_curves.error;
+    return out;
+  }
+  out.value.visual_curves = std::move(visual_curves.value);
   out.ok = true;
   return out;
 }

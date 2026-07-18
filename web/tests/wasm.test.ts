@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import * as THREE from "three";
 import { loadWireModule, type WireStateHandle } from "../src/bridge/wasm";
 import type { BundlePlacement, ModelAssemblyBootstrapInput, ModelTransformInput } from "../src/model";
+import {
+  buildDefaultModelBootstrap,
+  ModelAssetCache
+} from "../src/render/modelAssets";
 
 function visualParts(state: WireStateHandle) {
   const scene = state.visualScene();
@@ -77,6 +82,25 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
       { bundleTemplateId: 104, rowAssemblyId: 0, endpointAssemblyId: 9904 }
     ]
   };
+}
+
+async function productionLikeModelBootstrap(): Promise<ModelAssemblyBootstrapInput> {
+  const load = async () => {
+    const geometry = new THREE.BoxGeometry(0.1, 0.2, 0.4);
+    const source = new THREE.Group();
+    source.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()));
+    return source;
+  };
+  const cache = new ModelAssetCache(load);
+  const [pole, crossarm, belt, insulator, clamp, clampLong] = await Promise.all([
+    cache.load("poleBody"),
+    cache.load("crossarmHv"),
+    cache.load("belt"),
+    cache.load("hvInsulator"),
+    cache.load("communicationClamp"),
+    cache.load("communicationClampLong")
+  ]);
+  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp, clampLong);
 }
 
 function defaultBundlePlacements(): BundlePlacement[] {
@@ -238,6 +262,23 @@ function assertHvSeparatedByEdge(state: WireStateHandle) {
     assertSeparatedPoints(group.map(startPoint), 0.1);
     assertSeparatedPoints(group.map(endPoint), 0.1);
     expect(projectionLaneOrder(group, startPoint)).toEqual(projectionLaneOrder(group, endPoint));
+  }
+}
+
+function assertNonFlaggedEndpointModelsAtPortHeight(state: WireStateHandle) {
+  const ports = new Map<string, { z: number }>();
+  for (let index = 0; index < state.portCount(); index += 1) {
+    const port = state.port(index);
+    ports.set(port.id, { z: port.z });
+  }
+  for (const model of state.visualScene().models) {
+    if (model.modelKey === "hv_insulator") continue;
+    const match = /^port:([^:]+):/.exec(model.stableKey);
+    if (match === null) continue;
+    const port = ports.get(match[1]);
+    expect(port, model.stableKey).toBeDefined();
+    expect(Number(model.positionZ.toFixed(6)), model.stableKey)
+      .toBe(Number(port!.z.toFixed(6)));
   }
 }
 
@@ -743,6 +784,49 @@ describe("wire wasm smoke", () => {
       .toEqual([8.925, 9.2]);
     assertHvSeparatedByEdge(runState);
     assertModelHvInsulatorsSeparatedByPole(runState);
+    runState.delete();
+  });
+
+  it("keeps production-bootstrap non-branch-down edge endpoints at port height on reverse T branch", async () => {
+    const runState = createState();
+    const configured = runState.configureModelAssemblies(await productionLikeModelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+    const placements = defaultBundlePlacements();
+    const base = runState.generatePlacements(
+      new Float64Array([
+        17.397, 23.190, 0,
+        10.065, -2.878, 0,
+        23.238, -21.868, 0
+      ]),
+      placements,
+      0,
+      1,
+      0,
+      0,
+      []
+    );
+    expect(base.ok, base.error).toBe(true);
+    expectDefaultPlacementHeightsAtPole(runState, runState.pole(1).id);
+    assertNonFlaggedEndpointModelsAtPortHeight(runState);
+
+    const poleB = runState.pole(1);
+    const branch = runState.generatePlacements(
+      new Float64Array([
+        -5.477, 4.187, 0,
+        poleB.positionX, poleB.positionY, poleB.positionZ
+      ]),
+      placements,
+      0,
+      1,
+      0,
+      0,
+      [{ pointIndex: 1, supportKind: 0, nodeId: poleB.id }]
+    );
+    expect(branch.ok, branch.error).toBe(true);
+    expect(branch.generatedSpanCount).toBe(8);
+    expectDefaultPlacementHeightsAtPole(runState, poleB.id);
+    assertHvSeparatedByEdge(runState);
+    assertNonFlaggedEndpointModelsAtPortHeight(runState);
     runState.delete();
   });
 

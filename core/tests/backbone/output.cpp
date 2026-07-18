@@ -231,9 +231,12 @@ bool C740_visual_curve_part_stats_count_full_curve_builds() {
   injected.sample_points[middle].z += 0.123;
   const wire::core::Vec3d expected = injected.sample_points[middle];
   built.data.push_back({span_id, std::move(injected)});
-  const wire::core::VisualCurvePartCache supplied =
+  const wire::core::EditResult<wire::core::VisualCurvePartCache> supplied =
       wire::core::generation::backbone::make_visual_curve_parts(state, made, {span_id}, &built);
-  for (const wire::core::VisualCurvePart& part : supplied.parts) {
+  if (!supplied.ok) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& part : supplied.value.parts) {
     if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.source_span_id == span_id &&
         part.section_key.is_base() &&
         std::find_if(part.samples.begin(), part.samples.end(), [&](const wire::core::Vec3d& point) {
@@ -289,13 +292,17 @@ bool C741_scoped_visual_curve_rebuild_matches_full_rebuild() {
     return false;
   }
   const wire::core::VisualCurvePartCache scoped = state.visual_curve_parts();
-  const wire::core::VisualCurvePartCache full = wire::core::generation::backbone::make_visual_curve_parts(state, {});
+  const wire::core::EditResult<wire::core::VisualCurvePartCache> full =
+      wire::core::generation::backbone::make_visual_curve_parts(state, {});
+  if (!full.ok) {
+    return false;
+  }
   const std::size_t rebuilt_support_count = static_cast<std::size_t>(std::count_if(
       scoped.parts.begin(), scoped.parts.end(), [](const wire::core::VisualCurvePart& part) {
         return part.supplemental_kind == wire::core::VisualSupplementalKind::kSupportPath;
       }));
   return scoped.stats.curve_builds == scoped.stats.sections + rebuilt_support_count &&
-         visual_part_snapshot(scoped) == visual_part_snapshot(full);
+         visual_part_snapshot(scoped) == visual_part_snapshot(full.value);
 }
 
 bool C515_backbone_rejects_existing_pole_without_saved_graph() {
@@ -1550,7 +1557,11 @@ bool C655_backbone_node_patch_grouping_uses_band_identity() {
          contains_text(pipeline, "edge_bundle_by_link_bundle") &&
          !contains_text(pipeline, "pair_bindings") &&
          !contains_text(pipeline, "binding_bundle_id") &&
-         contains_text(cpp, "multiple overlapping connectivity-owned patch pairs");
+         contains_text(cpp, "backbone internal: row continuity endpoint is missing") &&
+         contains_text(cpp, "backbone internal: patch endpoint tangent missing") &&
+         !contains_text(cpp, "\"row continuity endpoint is missing\"") &&
+         !contains_text(cpp, "\"patch endpoint tangent missing\"") &&
+         !contains_text(cpp, "\"multiple overlapping connectivity-owned patch pairs\"");
 }
 
 bool C656_backbone_node_patch_does_not_mix_base_and_extra_sections() {

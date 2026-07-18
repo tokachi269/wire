@@ -393,6 +393,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   if (pole_type_override != nullptr) {
     trial.authoritative_.pole_types[pole_type_override->id] = *pole_type_override;
   }
+  trial.remove_backbone_row_continuities_for_lanes(target.edge_bundle_ids,
+                                                   static_cast<std::size_t>(next_template.fixed_count));
   generation::backbone::pipeline trial_pipeline(trial, spec);
   EditResult<GenerateBundleFromPathResult> replay = trial_pipeline.build(
       trial_pipeline.build_input_from_saved_scope(std::move(made_graph), std::move(active_bundle_indices)));
@@ -416,7 +418,13 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     append_unique(change_set->deleted_ids, replay.change_set.deleted_ids);
   }
   // TODO: pass a scoped span set after regenerate stops rebuilding through the trial-state boundary.
-  trial.cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(trial, {}));
+  EditResult<VisualCurvePartCache> visual_curves =
+      generation::backbone::make_visual_curve_parts(trial, {});
+  if (!visual_curves.ok) {
+    result.error = visual_curves.error;
+    return result;
+  }
+  trial.cache_visual_curve_parts(std::move(visual_curves.value));
 
   identity_ = trial.identity_;
   authoritative_ = trial.authoritative_;
@@ -614,14 +622,20 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
     }
     generation::backbone::pipeline pipeline(*this, spec);
     const auto replay = pipeline.build(
-        pipeline.build_input_from_saved_scope(std::move(graph), std::move(active_bundle_indices), false));
+        pipeline.build_input_from_saved_scope(std::move(graph), std::move(active_bundle_indices), false, false));
     if (!replay.ok) {
       result.error = replay.error;
       return result;
     }
   }
 
-  cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}));
+  EditResult<VisualCurvePartCache> visual_curves =
+      generation::backbone::make_visual_curve_parts(*this, {});
+  if (!visual_curves.ok) {
+    result.error = visual_curves.error;
+    return result;
+  }
+  cache_visual_curve_parts(std::move(visual_curves.value));
   result.ok = true;
   result.value = true;
   return result;

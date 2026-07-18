@@ -274,7 +274,7 @@ function insertionFixture(asset: LoadedModelAsset): {
   transform.rotationZ = 180;
   const socketInsetRatio = asset.kind === "communicationClampLong" ? 0.5 : 0;
   const socketLocalY = -length * (0.5 - socketInsetRatio);
-  const socketLocalZ = asset.kind === "communicationClampLong" ? asset.size.y * 0.5 : 0;
+  const socketLocalZ = 0;
   return {
     transform,
     wireSocket: {

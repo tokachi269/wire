@@ -1563,6 +1563,47 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
     trial.runtime_.backbone_index.edge_bundle_ports[binding.edge_bundle_id].push_back(i);
     trial.runtime_.backbone_index.port_bindings_by_port[binding.port_id].push_back(i);
   }
+  auto saved_node_exists = [&](ObjectId node_id) {
+    return std::any_of(graph.nodes.begin(), graph.nodes.end(),
+                       [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
+  };
+  auto graph_edge_by_id = [&](ObjectId edge_id) -> const SavedBackboneEdge* {
+    const auto found = std::find_if(graph.edges.begin(), graph.edges.end(),
+                                    [&](const SavedBackboneEdge& edge) { return edge.edge_id == edge_id; });
+    return found == graph.edges.end() ? nullptr : &*found;
+  };
+  auto saved_edge_bundle_for = [&](ObjectId edge_bundle_id) -> const SavedBackboneEdgeBundle* {
+    const auto found = std::find_if(graph.edge_bundles.begin(), graph.edge_bundles.end(),
+                                    [&](const SavedBackboneEdgeBundle& edge_bundle) {
+                                      return edge_bundle.edge_bundle_id == edge_bundle_id;
+                                    });
+    return found == graph.edge_bundles.end() ? nullptr : &*found;
+  };
+  auto edge_bundle_incident_to_node = [&](ObjectId edge_bundle_id, ObjectId node_id) {
+    const SavedBackboneEdgeBundle* edge_bundle = saved_edge_bundle_for(edge_bundle_id);
+    const SavedBackboneEdge* edge =
+        edge_bundle == nullptr ? nullptr : graph_edge_by_id(edge_bundle->edge_id);
+    return edge != nullptr && (edge->node_a == node_id || edge->node_b == node_id);
+  };
+  auto edge_bundle_has_lane = [&](ObjectId edge_bundle_id, std::size_t lane) {
+    for (const SavedBackboneSpanBinding& binding : graph.span_bindings) {
+      if (binding.edge_bundle_id == edge_bundle_id && binding.lane_index == lane) {
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+    if (!saved_node_exists(continuity.node_id) ||
+        !edge_bundle_incident_to_node(continuity.a.edge_bundle_id, continuity.node_id) ||
+        !edge_bundle_incident_to_node(continuity.b.edge_bundle_id, continuity.node_id) ||
+        continuity.a.edge_bundle_id == continuity.b.edge_bundle_id ||
+        !edge_bundle_has_lane(continuity.a.edge_bundle_id, continuity.a.lane_index) ||
+        !edge_bundle_has_lane(continuity.b.edge_bundle_id, continuity.b.lane_index)) {
+      result.error = "backbone internal: row continuity endpoint is missing";
+      return result;
+    }
+  }
 
   const CoreStateIdentityStorage persisted_identity = trial.identity_;
   const CoreStateAuthoritativeStorage persisted_authoritative = trial.authoritative_;

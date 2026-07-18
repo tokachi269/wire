@@ -408,7 +408,16 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     runtime_.cache_state.span_layout_cache.support_groups = std::move(rebuilt_groups.value);
   }
   if (plan.kind == UpdateKind::kReposition || plan.kind == UpdateKind::kReshape) {
-    cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}, plan.affected.spans));
+    EditResult<VisualCurvePartCache> visual_curves =
+        generation::backbone::make_visual_curve_parts(*this, {}, plan.affected.spans);
+    if (!visual_curves.ok) {
+      timing.total_ms =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+      debug_.last_update_timing = timing;
+      out.error = visual_curves.error;
+      return out;
+    }
+    cache_visual_curve_parts(std::move(visual_curves.value));
   }
   generation::backbone::FixturePlacementPlanByPort model_fixture_plan{};
   if (plan.kind == UpdateKind::kReposition) {

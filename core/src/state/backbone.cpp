@@ -353,6 +353,20 @@ EditResult<bool> CoreState::bind_backbone_row_continuity(ObjectId node_id,
   return out;
 }
 
+void CoreState::remove_backbone_row_continuities_for_lanes(const std::vector<ObjectId>& edge_bundle_ids,
+                                                           std::size_t first_retired_lane) {
+  auto retires = [&](const SavedBackboneRowContinuityEndpoint& endpoint) {
+    return endpoint.lane_index >= first_retired_lane &&
+           std::find(edge_bundle_ids.begin(), edge_bundle_ids.end(), endpoint.edge_bundle_id) != edge_bundle_ids.end();
+  };
+  auto& row_continuities = authoritative_.backbone.row_continuities;
+  row_continuities.erase(std::remove_if(row_continuities.begin(), row_continuities.end(),
+                                        [&](const SavedBackboneRowContinuity& continuity) {
+                                          return retires(continuity.a) || retires(continuity.b);
+                                        }),
+                         row_continuities.end());
+}
+
 PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
   PoleDetailInfo detail{};
   detail.pole = authoritative_.edit_state.poles.find(pole_id);

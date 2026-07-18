@@ -421,10 +421,10 @@ std::vector<Vec3d> trimmed_source_curve_samples(const DetailCurve& curve, double
 }
 
 ObjectId saved_node_id_for_endpoint(const CoreState& state, ObjectId endpoint_node_id) {
-  if (const SavedBackboneNode* node = state.view().backbone_node(endpoint_node_id); node != nullptr) {
+  if (const SavedBackboneNode* node = state.view().backbone_node_for_pole(endpoint_node_id); node != nullptr) {
     return node->node_id;
   }
-  if (const SavedBackboneNode* node = state.view().backbone_node_for_pole(endpoint_node_id); node != nullptr) {
+  if (const SavedBackboneNode* node = state.view().backbone_node(endpoint_node_id); node != nullptr) {
     return node->node_id;
   }
   return endpoint_node_id;
@@ -733,11 +733,13 @@ VisualCurvePartCache merge_scoped_visual_curve_parts(const CoreState& state, Vis
 
 } // namespace
 
-VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layout& made,
-                                             const std::vector<ObjectId>& scope_span_ids,
-                                             const curve* built_curves) {
+EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state, const layout& made,
+                                                         const std::vector<ObjectId>& scope_span_ids,
+                                                         const curve* built_curves) {
+  EditResult<VisualCurvePartCache> result{};
   const layout merged_layout = merged_visual_curve_layouts(state, made);
   const std::unordered_set<ObjectId> scoped_spans = scoped_visual_spans(state, scope_span_ids);
+  const std::unordered_set<ObjectId> scoped_nodes = saved_nodes_for_spans(state, scoped_spans);
   const layout placed = filter_layouts_to_spans(merged_layout, scoped_spans);
   std::unordered_map<ObjectId, const DetailCurve*> built_curve_by_span{};
   if (built_curves != nullptr) {
@@ -747,6 +749,9 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
   }
   VisualCurvePartCache out{};
+  auto fail = [&](std::string message) {
+    result.error = std::move(message);
+  };
   std::vector<visual_cable_section> sections{};
   sections.reserve(placed.entries.size());
   for (const SpanLayoutEntry& entry : placed.entries) {
@@ -881,7 +886,9 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
 
     curve_endpoint_ref start{};
     start.section_key = entry.key;
-    start.node_id = saved_node_id_for_endpoint(state, section.start_node_id);
+    start.node_id = section.start_row_key.node_id != kInvalidObjectId
+        ? section.start_row_key.node_id
+        : saved_node_id_for_endpoint(state, section.start_node_id);
     start.edge_id = edge_bundle->edge_id;
     start.edge_bundle_id = edge_bundle->edge_bundle_id;
     start.bundle_id = span->bundle_id;
@@ -901,7 +908,9 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     endpoints.push_back(start);
 
     curve_endpoint_ref end = start;
-    end.node_id = saved_node_id_for_endpoint(state, section.end_node_id);
+    end.node_id = section.end_row_key.node_id != kInvalidObjectId
+        ? section.end_row_key.node_id
+        : saved_node_id_for_endpoint(state, section.end_node_id);
     end.port_id = section.end_port_id;
     end.jumper_peer_port_id = section.end_jumper_peer_port_id;
     end.pole_type_id = entry.endpoint_b_pole_type_id;
@@ -936,21 +945,68 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     endpoints_by_continuity_key[continuity_endpoint_key{
         endpoint.node_id, endpoint.edge_bundle_id, endpoint.lane_index}].push_back(endpoint_index);
   }
+  auto has_any_endpoint = [&](ObjectId edge_bundle_id, std::size_t lane) {
+    return std::any_of(endpoints_by_continuity_key.begin(), endpoints_by_continuity_key.end(), [&](const auto& item) {
+      return item.first.edge_bundle_id == edge_bundle_id && item.first.lane_index == lane;
+    });
+  };
+  auto continuity_endpoint_outside_scope = [&](ObjectId edge_bundle_id, std::size_t lane) {
+    if (scoped_spans.empty()) {
+      return false;
+    }
+    const SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(edge_bundle_id);
+    if (edge_bundle == nullptr) {
+      return false;
+    }
+    return !has_any_endpoint(edge_bundle_id, lane);
+  };
 
   std::unordered_map<curve_patch_key, std::vector<std::pair<std::size_t, std::size_t>>,
                      curve_patch_key_hash, curve_patch_key_equal>
       continuity_pairs_by_patch_key{};
   continuity_pairs_by_patch_key.reserve(state.view().backbone().row_continuities.size());
   for (const SavedBackboneRowContinuity& continuity : state.view().backbone().row_continuities) {
+    if (!scoped_spans.empty() && !scoped_nodes.contains(continuity.node_id)) {
+      continue;
+    }
     const auto a_it = endpoints_by_continuity_key.find(
         continuity_endpoint_key{continuity.node_id, continuity.a.edge_bundle_id, continuity.a.lane_index});
     const auto b_it = endpoints_by_continuity_key.find(
         continuity_endpoint_key{continuity.node_id, continuity.b.edge_bundle_id, continuity.b.lane_index});
     if (a_it == endpoints_by_continuity_key.end() || b_it == endpoints_by_continuity_key.end()) {
-      out.diagnostics.push_back(
-          {continuity.node_id, kInvalidObjectId, kInvalidBundleTemplateId, 0,
-           "row continuity endpoint is missing"});
-      continue;
+      if (!scoped_spans.empty()) {
+        continue;
+      }
+      const bool a_outside = a_it == endpoints_by_continuity_key.end() &&
+                             continuity_endpoint_outside_scope(continuity.a.edge_bundle_id,
+                                                               continuity.a.lane_index);
+      const bool b_outside = b_it == endpoints_by_continuity_key.end() &&
+                             continuity_endpoint_outside_scope(continuity.b.edge_bundle_id,
+                                                               continuity.b.lane_index);
+      if (a_outside || b_outside) {
+        continue;
+      }
+      const SavedBackboneEdgeBundle* a_bundle = state.view().backbone_edge_bundle(continuity.a.edge_bundle_id);
+      const SavedBackboneEdgeBundle* b_bundle = state.view().backbone_edge_bundle(continuity.b.edge_bundle_id);
+      std::string endpoint_nodes{};
+      for (const auto& item : endpoints_by_continuity_key) {
+        if ((item.first.edge_bundle_id == continuity.a.edge_bundle_id &&
+             item.first.lane_index == continuity.a.lane_index) ||
+            (item.first.edge_bundle_id == continuity.b.edge_bundle_id &&
+             item.first.lane_index == continuity.b.lane_index)) {
+          endpoint_nodes += " key=" + std::to_string(item.first.node_id) + "/" +
+                            std::to_string(item.first.edge_bundle_id) + "/" +
+                            std::to_string(item.first.lane_index);
+        }
+      }
+      fail("backbone internal: row continuity endpoint is missing node=" +
+           std::to_string(continuity.node_id) + " a=" + std::to_string(continuity.a.edge_bundle_id) +
+           "/" + std::to_string(continuity.a.lane_index) + "/spans=" +
+           std::to_string(a_bundle == nullptr ? 0 : a_bundle->span_ids.size()) + " b=" +
+           std::to_string(continuity.b.edge_bundle_id) + "/" + std::to_string(continuity.b.lane_index) +
+           "/spans=" + std::to_string(b_bundle == nullptr ? 0 : b_bundle->span_ids.size()) +
+           endpoint_nodes);
+      return result;
     }
     for (std::size_t endpoint_a_index : a_it->second) {
       for (std::size_t endpoint_b_index : b_it->second) {
@@ -984,10 +1040,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       }
     }
     if (ambiguous) {
-      out.diagnostics.push_back(
-          {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
-           "multiple overlapping connectivity-owned patch pairs"});
-      continue;
+      fail("backbone internal: multiple overlapping connectivity-owned patch pairs");
+      return result;
     }
 
     for (const auto& candidate : candidates) {
@@ -998,27 +1052,21 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       const curve_endpoint_ref& patch_b =
           section_key_less(raw_patch_a.section_key, raw_patch_b.section_key) ? raw_patch_b : raw_patch_a;
       if (!patch_a.has_curve_tangent || !patch_b.has_curve_tangent) {
-        out.diagnostics.push_back(
-            {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
-             "patch endpoint tangent missing"});
-        continue;
+        fail("backbone internal: patch endpoint tangent missing");
+        return result;
       }
       if (patch_a.jumper_peer_port_id != kInvalidObjectId ||
           patch_b.jumper_peer_port_id != kInvalidObjectId) {
-        out.diagnostics.push_back(
-            {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
-             "explicit jumper owns this connection"});
-        continue;
+        fail("backbone internal: row continuity overlaps explicit jumper");
+        return result;
       }
       const double a_len =
           std::min(kNodePatchHorizontalLengthM, patch_a.span_length_m * kNodePatchMaxSpanFraction);
       const double b_len =
           std::min(kNodePatchHorizontalLengthM, patch_b.span_length_m * kNodePatchMaxSpanFraction);
       if (a_len <= kCurveEps || b_len <= kCurveEps) {
-        out.diagnostics.push_back(
-            {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
-             "patch boundary length is zero"});
-        continue;
+        fail("backbone internal: patch boundary length is zero");
+        return result;
       }
 
       curve_boundary a_boundary = boundary_from_source_curve(
@@ -1125,7 +1173,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     curve_boundary b_boundary{};
     if (!boundary_for(boundaries, boundary_index, spec.a.section_key, spec.a.is_start, &a_boundary) ||
         !boundary_for(boundaries, boundary_index, spec.b.section_key, spec.b.is_start, &b_boundary)) {
-      continue;
+      fail("backbone internal: patch boundary is missing");
+      return result;
     }
     const Vec3d incoming = ScaleVec(a_boundary.tangent, -1.0);
     const Vec3d outgoing = b_boundary.tangent;
@@ -1212,10 +1261,14 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
   }
   if (!scoped_spans.empty()) {
-    return merge_scoped_visual_curve_parts(state, std::move(out), scoped_spans);
+    result.value = merge_scoped_visual_curve_parts(state, std::move(out), scoped_spans);
+    result.ok = true;
+    return result;
   }
   sort_visual_parts(&out);
-  return out;
+  result.value = std::move(out);
+  result.ok = true;
+  return result;
 }
 
 } // namespace wire::core::generation::backbone

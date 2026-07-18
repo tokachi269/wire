@@ -179,27 +179,39 @@ bool same_derived(const DerivedSnapshot& a, const DerivedSnapshot& b) {
       a.visual.diagnostics.size() != b.visual.diagnostics.size() ||
       a.visual.population_diagnostics.size() != b.visual.population_diagnostics.size() ||
       a.visual.stats.curve_builds != b.visual.stats.curve_builds ||
-      a.visual.stats.sections != b.visual.stats.sections) return false;
+      a.visual.stats.sections != b.visual.stats.sections) {
+    return false;
+  }
   for (std::size_t i = 0; i < a.spans.size(); ++i) {
     if (a.spans[i].span_id != b.spans[i].span_id || !same_layout(a.spans[i].layout, b.spans[i].layout) ||
         a.spans[i].curve_samples.size() != b.spans[i].curve_samples.size() ||
         !same_aabb(a.spans[i].bounds, b.spans[i].bounds) ||
-        a.spans[i].bound_segments.size() != b.spans[i].bound_segments.size()) return false;
+        a.spans[i].bound_segments.size() != b.spans[i].bound_segments.size()) {
+      return false;
+    }
     for (std::size_t j = 0; j < a.spans[i].curve_samples.size(); ++j) {
-      if (!same_vec3(a.spans[i].curve_samples[j], b.spans[i].curve_samples[j])) return false;
+      if (!same_vec3(a.spans[i].curve_samples[j], b.spans[i].curve_samples[j])) {
+        return false;
+      }
     }
     for (std::size_t j = 0; j < a.spans[i].bound_segments.size(); ++j) {
-      if (!same_aabb(a.spans[i].bound_segments[j], b.spans[i].bound_segments[j])) return false;
+      if (!same_aabb(a.spans[i].bound_segments[j], b.spans[i].bound_segments[j])) {
+        return false;
+      }
     }
   }
   for (std::size_t i = 0; i < a.visual.parts.size(); ++i) {
-    if (!same_visual_part(a.visual.parts[i], b.visual.parts[i])) return false;
+    if (!same_visual_part(a.visual.parts[i], b.visual.parts[i])) {
+      return false;
+    }
   }
   for (std::size_t i = 0; i < a.visual.diagnostics.size(); ++i) {
     const auto& x = a.visual.diagnostics[i];
     const auto& y = b.visual.diagnostics[i];
     if (x.source_node_id != y.source_node_id || x.source_span_id != y.source_span_id ||
-        x.bundle_template_id != y.bundle_template_id || x.lane_index != y.lane_index || x.reason != y.reason) return false;
+        x.bundle_template_id != y.bundle_template_id || x.lane_index != y.lane_index || x.reason != y.reason) {
+      return false;
+    }
   }
   for (std::size_t i = 0; i < a.visual.population_diagnostics.size(); ++i) {
     const auto& x = a.visual.population_diagnostics[i];
@@ -207,7 +219,9 @@ bool same_derived(const DerivedSnapshot& a, const DerivedSnapshot& b) {
     if (x.logical_span_id != y.logical_span_id || x.edge_bundle_id != y.edge_bundle_id ||
         x.rule_id != y.rule_id || x.extra_count_requested != y.extra_count_requested ||
         x.extra_count_accepted != y.extra_count_accepted || x.omitted_count != y.omitted_count ||
-        x.reason != y.reason) return false;
+        x.reason != y.reason) {
+      return false;
+    }
   }
   return true;
 }
@@ -386,11 +400,13 @@ bool C751_authoritative_load_roundtrip_rederives_bit_exact_outputs() {
   if (!first_load.DeserializeAuthoritative(saved).ok) return false;
   DerivedSnapshot before{};
   std::string canonical{};
-  if (!snapshot_derived(first_load, &before) || !first_load.SerializeAuthoritative(&canonical).ok) return false;
+  if (!snapshot_derived(first_load, &before)) return false;
+  if (!first_load.SerializeAuthoritative(&canonical).ok) return false;
   wire::core::CoreState second_load;
   DerivedSnapshot after{};
-  return second_load.DeserializeAuthoritative(canonical).ok && snapshot_derived(second_load, &after) &&
-         same_derived(before, after);
+  if (!second_load.DeserializeAuthoritative(canonical).ok) return false;
+  if (!snapshot_derived(second_load, &after)) return false;
+  return same_derived(before, after);
 }
 
 bool C752_authoritative_load_resave_is_byte_identical() {
@@ -494,6 +510,29 @@ bool C799_authoritative_v1_load_migrates_row_continuity_to_v2() {
   if (!reloaded.DeserializeAuthoritative(migrated_v2).ok) return false;
   std::string resaved{};
   return reloaded.SerializeAuthoritative(&resaved).ok && resaved == migrated_v2;
+}
+
+bool C801_authoritative_v2_rejects_broken_row_continuity_reference() {
+  wire::core::CoreState source;
+  const auto generated = source.GenerateFromBackboneSpec(backbone_tests::hv_poly3_req(source));
+  if (!generated.ok || generated.value.generated_pole_ids.size() != 3) return false;
+  std::string saved{};
+  if (!source.SerializeAuthoritative(&saved).ok ||
+      saved.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
+    return false;
+  }
+  const std::string field = "authoritative.backbone.row_continuities.0.a.edge_bundle_id=";
+  const std::size_t field_pos = saved.find(field);
+  if (field_pos == std::string::npos) return false;
+  const std::size_t value_begin = field_pos + field.size();
+  const std::size_t value_end = saved.find('\n', value_begin);
+  if (value_end == std::string::npos) return false;
+  std::string broken = saved;
+  broken.replace(value_begin, value_end - value_begin, "999999999999");
+
+  wire::core::CoreState loaded;
+  const auto out = loaded.DeserializeAuthoritative(broken);
+  return !out.ok && out.error.find("backbone internal: row continuity endpoint is missing") != std::string::npos;
 }
 
 bool C756_persistence_has_no_type_specific_write_read_wrappers() {
@@ -660,6 +699,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "authoritative v1 load migrates row continuity and resaves as v2",
                          "Boundary", false,
                          C799_authoritative_v1_load_migrates_row_continuity_to_v2);
+  test_registry::AddTest(tests, "C801_authoritative_v2_rejects_broken_row_continuity_reference",
+                         "authoritative v2 load rejects broken row continuity references",
+                         "Boundary", true,
+                         C801_authoritative_v2_rejects_broken_row_continuity_reference);
   test_registry::AddTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
                          "persistence derives write and read from type archive visitors",
                          "Boundary", false, C756_persistence_has_no_type_specific_write_read_wrappers);

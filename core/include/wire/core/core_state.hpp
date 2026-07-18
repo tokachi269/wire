@@ -192,6 +192,8 @@ private:
                                                 std::size_t lane_a,
                                                 ObjectId edge_bundle_b,
                                                 std::size_t lane_b);
+  void remove_backbone_row_continuities_for_lanes(const std::vector<ObjectId>& edge_bundle_ids,
+                                                  std::size_t first_retired_lane);
   enum class BackboneRegenerateCause : std::uint8_t {
     kBundleCount,
     kBundleTopology,

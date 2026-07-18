@@ -78,6 +78,12 @@ struct curve_patch_spec {
   Vec3d attachment_point{};
 };
 
+struct continuity_endpoint_key {
+  ObjectId node_id = kInvalidObjectId;
+  ObjectId edge_bundle_id = kInvalidObjectId;
+  std::size_t lane_index = 0;
+};
+
 struct visual_cable_section {
   CableSectionLayout layout{};
   ObjectId start_node_id = kInvalidObjectId;
@@ -272,14 +278,21 @@ struct curve_boundary_key_equal {
   }
 };
 
-bool row_pairs_edges(const SavedBackboneRowKey& row_key, ObjectId edge_a, ObjectId edge_b) {
-  if (row_key.source_is_open || row_key.source_edge_a == kInvalidObjectId ||
-      row_key.source_edge_b == kInvalidObjectId) {
-    return false;
+struct continuity_endpoint_key_hash {
+  std::size_t operator()(const continuity_endpoint_key& key) const {
+    std::uint64_t hash = hash_combine(0, static_cast<std::uint64_t>(key.node_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.edge_bundle_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.lane_index));
+    return static_cast<std::size_t>(hash);
   }
-  return std::min(row_key.source_edge_a, row_key.source_edge_b) == std::min(edge_a, edge_b) &&
-         std::max(row_key.source_edge_a, row_key.source_edge_b) == std::max(edge_a, edge_b);
-}
+};
+
+struct continuity_endpoint_key_equal {
+  bool operator()(const continuity_endpoint_key& a, const continuity_endpoint_key& b) const {
+    return a.node_id == b.node_id && a.edge_bundle_id == b.edge_bundle_id &&
+           a.lane_index == b.lane_index;
+  }
+};
 
 AABBd curve_part_bounds(const std::vector<Vec3d>& pts) {
   AABBd out{};
@@ -906,58 +919,61 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
 
   std::vector<curve_patch_key> patch_key_order{};
   std::unordered_set<curve_patch_key, curve_patch_key_hash, curve_patch_key_equal> seen_patch_keys{};
-  std::unordered_map<curve_patch_key, std::vector<std::size_t>, curve_patch_key_hash, curve_patch_key_equal>
-      endpoints_by_patch_key{};
   patch_key_order.reserve(endpoints.size());
-  endpoints_by_patch_key.reserve(endpoints.size());
   for (std::size_t endpoint_index = 0; endpoint_index < endpoints.size(); ++endpoint_index) {
     const curve_patch_key key = patch_key_for(endpoints[endpoint_index]);
     if (seen_patch_keys.insert(key).second) {
       patch_key_order.push_back(key);
     }
-    endpoints_by_patch_key[key].push_back(endpoint_index);
   }
 
-  for (const curve_patch_key& key : patch_key_order) {
-    const auto group_it = endpoints_by_patch_key.find(key);
-    if (group_it == endpoints_by_patch_key.end()) {
+  std::unordered_map<continuity_endpoint_key, std::vector<std::size_t>,
+                     continuity_endpoint_key_hash, continuity_endpoint_key_equal>
+      endpoints_by_continuity_key{};
+  endpoints_by_continuity_key.reserve(endpoints.size());
+  for (std::size_t endpoint_index = 0; endpoint_index < endpoints.size(); ++endpoint_index) {
+    const curve_endpoint_ref& endpoint = endpoints[endpoint_index];
+    endpoints_by_continuity_key[continuity_endpoint_key{
+        endpoint.node_id, endpoint.edge_bundle_id, endpoint.lane_index}].push_back(endpoint_index);
+  }
+
+  std::unordered_map<curve_patch_key, std::vector<std::pair<std::size_t, std::size_t>>,
+                     curve_patch_key_hash, curve_patch_key_equal>
+      continuity_pairs_by_patch_key{};
+  continuity_pairs_by_patch_key.reserve(state.view().backbone().row_continuities.size());
+  for (const SavedBackboneRowContinuity& continuity : state.view().backbone().row_continuities) {
+    const auto a_it = endpoints_by_continuity_key.find(
+        continuity_endpoint_key{continuity.node_id, continuity.a.edge_bundle_id, continuity.a.lane_index});
+    const auto b_it = endpoints_by_continuity_key.find(
+        continuity_endpoint_key{continuity.node_id, continuity.b.edge_bundle_id, continuity.b.lane_index});
+    if (a_it == endpoints_by_continuity_key.end() || b_it == endpoints_by_continuity_key.end()) {
+      out.diagnostics.push_back(
+          {continuity.node_id, kInvalidObjectId, kInvalidBundleTemplateId, 0,
+           "row continuity endpoint is missing"});
       continue;
     }
-    const std::vector<std::size_t>& group = group_it->second;
-    std::vector<std::pair<std::size_t, std::size_t>> explicit_candidates{};
-    std::vector<std::pair<std::size_t, std::size_t>> shared_port_candidates{};
-    for (std::size_t a = 0; a < group.size(); ++a) {
-      for (std::size_t b = a + 1; b < group.size(); ++b) {
-        const curve_endpoint_ref& endpoint_a = endpoints[group[a]];
-        const curve_endpoint_ref& endpoint_b = endpoints[group[b]];
+    for (std::size_t endpoint_a_index : a_it->second) {
+      for (std::size_t endpoint_b_index : b_it->second) {
+        const curve_endpoint_ref& endpoint_a = endpoints[endpoint_a_index];
+        const curve_endpoint_ref& endpoint_b = endpoints[endpoint_b_index];
         if (endpoint_a.edge_id == endpoint_b.edge_id) {
           continue;
         }
-        const bool shared_port =
-            endpoint_a.port_id != kInvalidObjectId && endpoint_a.port_id == endpoint_b.port_id;
-        const bool explicit_pair = row_pairs_edges(endpoint_a.row_key, endpoint_a.edge_id, endpoint_b.edge_id) ||
-                                   row_pairs_edges(endpoint_b.row_key, endpoint_a.edge_id, endpoint_b.edge_id);
-        const bool same_bundle = endpoint_a.bundle_id != kInvalidObjectId &&
-                                 endpoint_a.bundle_id == endpoint_b.bundle_id;
-        const bool same_endpoint_point = Length(endpoint_a.point - endpoint_b.point) <= kCurveEps;
-        if (explicit_pair) {
-          if (same_bundle || shared_port || same_endpoint_point) {
-            explicit_candidates.push_back({a, b});
-          }
-        } else if (shared_port) {
-          shared_port_candidates.push_back({a, b});
+        const curve_patch_key key = patch_key_for(endpoint_a);
+        if (!same_key(key, patch_key_for(endpoint_b))) {
+          continue;
         }
+        continuity_pairs_by_patch_key[key].push_back({endpoint_a_index, endpoint_b_index});
       }
     }
-    const std::vector<std::pair<std::size_t, std::size_t>>& candidates =
-        !explicit_candidates.empty() ? explicit_candidates : shared_port_candidates;
-    if (candidates.empty()) {
-      out.diagnostics.push_back(
-          {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
-           group.size() < 2 ? "terminal node has no patch peer"
-                             : "no connectivity-owned patch pair"});
+  }
+
+  for (const curve_patch_key& key : patch_key_order) {
+    const auto candidates_it = continuity_pairs_by_patch_key.find(key);
+    if (candidates_it == continuity_pairs_by_patch_key.end() || candidates_it->second.empty()) {
       continue;
     }
+    const std::vector<std::pair<std::size_t, std::size_t>>& candidates = candidates_it->second;
     std::unordered_set<std::size_t> used_group_endpoints{};
     bool ambiguous = false;
     for (const auto& candidate : candidates) {
@@ -975,8 +991,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
 
     for (const auto& candidate : candidates) {
-      const curve_endpoint_ref& raw_patch_a = endpoints[group[candidate.first]];
-      const curve_endpoint_ref& raw_patch_b = endpoints[group[candidate.second]];
+      const curve_endpoint_ref& raw_patch_a = endpoints[candidate.first];
+      const curve_endpoint_ref& raw_patch_b = endpoints[candidate.second];
       const curve_endpoint_ref& patch_a =
           section_key_less(raw_patch_a.section_key, raw_patch_b.section_key) ? raw_patch_a : raw_patch_b;
       const curve_endpoint_ref& patch_b =

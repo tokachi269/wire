@@ -1538,7 +1538,11 @@ bool C655_backbone_node_patch_grouping_uses_band_identity() {
          contains_text(cpp, "placement_band_id") && !contains_text(cpp, "band_id_for_port") &&
          contains_text(key_body, "a.band_id == b.band_id") &&
          contains_text(key_body, "a.pole_type_id == b.pole_type_id") &&
-         contains_text(cpp, "same_bundle || shared_port || same_endpoint_point") &&
+         contains_text(cpp, "state.view().backbone().row_continuities") &&
+         contains_text(cpp, "continuity_pairs_by_patch_key") &&
+         !contains_text(cpp, "same_bundle") &&
+         !contains_text(cpp, "shared_port") &&
+         !contains_text(cpp, "same_endpoint_point") &&
          !contains_text(cpp, "explicit_fallback_candidates") &&
          contains_text(cpp, "multiple overlapping connectivity-owned patch pairs");
 }

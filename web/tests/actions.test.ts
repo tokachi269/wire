@@ -437,6 +437,13 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       insulatorRadius: 0.07,
       insulatorLength: 0.16
     }),
+    resolveDefaultBundlePlacement: () => ({
+      ok: true,
+      error: "",
+      height: 7.4,
+      offset: 0,
+      spacing: bundleTemplate.defaultSpacing
+    }),
     updateCableTemplate: () => ({ ok: true, error: "" }),
     updateBackboneBundlePlacement: () => ({ ok: true, error: "" }),
     updatePoleTemplate: () => ({ ok: true, error: "" }),

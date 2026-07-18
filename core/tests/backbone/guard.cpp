@@ -1904,22 +1904,38 @@ bool C786_hash_mix_has_one_production_definition() {
 }
 
 bool C787_web_bundle_template_category_has_no_layer_fallback() {
-  std::string labels{};
   std::string model{};
-  std::string actions{};
-  std::string app{};
-  if (!file_text(repo_root() / "web/src/labels.ts", &labels) ||
-      !file_text(repo_root() / "web/src/model.ts", &model) ||
-      !file_text(repo_root() / "web/src/actions/viewer.ts", &actions) ||
-      !file_text(repo_root() / "web/src/App.svelte", &app)) {
+  if (!file_text(repo_root() / "web/src/model.ts", &model) ||
+      contains_text(model, "category?: number") ||
+      !contains_text(model, "category: number")) {
     return false;
   }
-  return !contains_text(labels, "categoryFromSpanLayer") &&
-         !contains_text(labels, "bundleTemplateCategory") &&
-         !contains_text(model, "category?: number") &&
-         contains_text(model, "category: number") &&
-         !contains_text(actions, "bundleTemplateCategory") &&
-         !contains_text(app, "bundleTemplateCategory");
+  const std::filesystem::path source_root = repo_root() / "web/src";
+  const std::vector<std::string> banned = {
+      "categoryFromSpanLayer",
+      "bundleTemplateCategory",
+      "targetTemplateLayerForCategory",
+      "band.category === category && band.layer",
+  };
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(source_root)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    const auto extension = entry.path().extension().string();
+    if (extension != ".ts" && extension != ".svelte") {
+      continue;
+    }
+    std::string text{};
+    if (!file_text(entry.path(), &text)) {
+      return false;
+    }
+    for (const std::string& token : banned) {
+      if (contains_text(text, token)) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {

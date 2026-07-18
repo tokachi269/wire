@@ -8,6 +8,7 @@ add_library(
   src/state/inspection.cpp
   src/state/endpoint_refresh_service.cpp
   src/state/port_placement.cpp
+  src/state/default_bundle_placement.cpp
   src/state/override_resolution.cpp
   src/state/template/update.cpp
   src/generation/backbone/curve_parts.cpp

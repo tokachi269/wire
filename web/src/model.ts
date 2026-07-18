@@ -236,6 +236,12 @@ export interface BundlePlacement {
   spacing: number;
 }
 
+export interface DefaultBundlePlacementInfo extends OperationResult {
+  height: number;
+  offset: number;
+  spacing: number;
+}
+
 export interface SpanVisualAssemblyInfo {
   supportPathEnabled: boolean;
   helixEnabled: boolean;

@@ -752,6 +752,16 @@ public:
     return result_value(updated.ok, updated.error);
   }
 
+  val resolve_default_bundle_placement(int bundle_template_id, int pole_type_id, int count) const {
+    const auto resolved = state_->ResolveDefaultBundlePlacement(
+        ::bundle_template_id(bundle_template_id), static_cast<PoleTypeId>(pole_type_id), count);
+    val output = result_value(resolved.ok, resolved.error);
+    output.set("height", resolved.ok ? resolved.value.height_m : 0.0);
+    output.set("offset", resolved.ok ? resolved.value.lateral_m : 0.0);
+    output.set("spacing", resolved.ok ? resolved.value.spacing_m : 0.0);
+    return output;
+  }
+
   val update_backbone_bundle_placement(const std::string& bundle_id, const val& placement) {
     const ObjectId id = static_cast<ObjectId>(std::stoull(bundle_id));
     const auto updated = state_->UpdateBackboneBundlePlacement(
@@ -1120,6 +1130,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("updateBundleTemplate", &WireState::update_bundle_template)
       .function("updateBackboneBundlePlacement", &WireState::update_backbone_bundle_placement)
       .function("applyRelatedPoleType", &WireState::apply_related_pole_type)
+      .function("resolveDefaultBundlePlacement", &WireState::resolve_default_bundle_placement)
       .function("cableTemplateCount", &WireState::cable_template_count)
       .function("cableTemplate", &WireState::cable_template)
       .function("updateCableTemplate", &WireState::update_cable_template)

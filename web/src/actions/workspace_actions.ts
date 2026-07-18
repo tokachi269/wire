@@ -4,6 +4,7 @@ import {
   defaultBundlePlacements,
   placementUsesTransientZeroDefaults
 } from "./draw_defaults";
+import { DEFAULT_BUNDLE_PRESET } from "../profile/defaultBundlePreset";
 import { createViewerSnapshot } from "../store/viewer";
 import type { WorkspacePreferences } from "../store/workspace";
 
@@ -14,8 +15,9 @@ export class WorkspaceActions {
     const bundleTemplates = this.ctx.bridge.bundleTemplates();
     const cableTemplates = this.ctx.bridge.cableTemplates();
     const poleTemplates = this.ctx.bridge.poleTemplates();
+    const presetBundleTemplateId = DEFAULT_BUNDLE_PRESET[0]?.bundleTemplateId;
     const defaultBundleId =
-      bundleTemplates.find((template) => template.category === 0)?.id ??
+      bundleTemplates.find((template) => template.id === presetBundleTemplateId)?.id ??
       bundleTemplates[0]?.id ??
       null;
     const defaultCableId =
@@ -34,10 +36,7 @@ export class WorkspaceActions {
       drawBundlePlacements:
         current.drawBundlePlacements.length > 0
           ? current.drawBundlePlacements
-          : defaultBundlePlacements(
-              bundleTemplates,
-              poleTemplates.find((template) => template.id === defaultPoleId)
-            ),
+          : defaultBundlePlacements(bundleTemplates),
       cableTemplates,
       selectedCableTemplateId:
         current.selectedCableTemplateId ?? defaultCableId,
@@ -137,21 +136,33 @@ export class WorkspaceActions {
   }
 
   private restoreWorkspacePreferences(preferences: WorkspacePreferences): void {
+    let defaultPlacementError = "";
+    const resolveDefault = this.ctx.bridge.resolveDefaultBundlePlacement.bind(this.ctx.bridge);
     this.ctx.store.update((current) => {
       const legacyIds = preferences.selectedDrawBundleTemplateIds ?? [];
       const placements = preferences.drawBundlePlacements ?? legacyIds.map((bundleTemplateId, index) => {
         const template = current.bundleTemplates.find((item) => item.id === bundleTemplateId);
+        const count = preferences.drawBundleCounts?.[bundleTemplateId] ?? template?.defaultCount ?? 1;
         return {
           id: index + 1,
           bundleTemplateId,
-          count: preferences.drawBundleCounts?.[bundleTemplateId] ?? template?.defaultCount ?? 1,
+          count,
           explicit: true,
           ...(template === undefined
             ? { height: 0, offset: 0, spacing: 0.2 }
-            : bundlePlacementDefault(
-                template,
-                current.poleTemplates.find((item) => item.id === current.selectedPoleTemplateId)
-              ))
+            : (() => {
+                try {
+                  return bundlePlacementDefault(
+                    template,
+                    current.selectedPoleTemplateId,
+                    count,
+                    resolveDefault
+                  );
+                } catch (error) {
+                  defaultPlacementError = error instanceof Error ? error.message : String(error);
+                  return { height: 0, offset: 0, spacing: template.defaultSpacing };
+                }
+              })())
         };
       });
       const transientZeroDefaults = preferences.drawBundlePlacements !== undefined &&
@@ -166,10 +177,19 @@ export class WorkspaceActions {
         );
         const defaults = template === undefined
           ? { height: 0, offset: 0, spacing: placement.spacing }
-          : bundlePlacementDefault(
-              template,
-              current.poleTemplates.find((item) => item.id === current.selectedPoleTemplateId)
-            );
+          : (() => {
+              try {
+                return bundlePlacementDefault(
+                  template,
+                  current.selectedPoleTemplateId,
+                  placement.count,
+                  resolveDefault
+                );
+              } catch (error) {
+                defaultPlacementError = error instanceof Error ? error.message : String(error);
+                return { height: 0, offset: 0, spacing: placement.spacing };
+              }
+            })();
         return {
           id: placement.id,
           bundleTemplateId: placement.bundleTemplateId,
@@ -201,6 +221,9 @@ export class WorkspaceActions {
         pathPointSpecs: []
       };
     });
+    if (defaultPlacementError.length > 0) {
+      this.ctx.store.setError(`Workspace placement defaults failed: ${defaultPlacementError}`);
+    }
   }
 
   private startWorkspacePersistence(): void {

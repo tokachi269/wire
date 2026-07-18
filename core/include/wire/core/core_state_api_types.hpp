@@ -63,6 +63,12 @@ struct GenerateBundleFromPathResult {
   GenerationTiming timing{};
 };
 
+struct DefaultBundlePlacementResult {
+  double height_m = 0.0;
+  double lateral_m = 0.0;
+  double spacing_m = 0.0;
+};
+
 struct BackboneFrontier {
   ObjectId pole_id = kInvalidObjectId;
   ObjectId span_id = kInvalidObjectId;

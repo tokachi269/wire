@@ -8,6 +8,7 @@ import type {
   BundlePlacement,
   BundleTemplateInfo,
   CableTemplateInfo,
+  DefaultBundlePlacementInfo,
   EditResult,
   GenerationTiming,
   GeometrySettings,
@@ -135,6 +136,14 @@ export class WireBridge {
 
   updateBundleTemplate(template: BundleTemplateInfo): OperationResult {
     return this.state.updateBundleTemplate(template);
+  }
+
+  resolveDefaultBundlePlacement(
+    bundleTemplateId: number,
+    poleTypeId: number,
+    count: number
+  ): DefaultBundlePlacementInfo {
+    return this.state.resolveDefaultBundlePlacement(bundleTemplateId, poleTypeId, count);
   }
 
   updateBackboneBundlePlacement(

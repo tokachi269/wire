@@ -3,6 +3,7 @@ import type {
   BundleTemplateInfo,
   CableTemplateInfo,
   BackboneEdgeInfo,
+  DefaultBundlePlacementInfo,
   EditResult,
   GenerationTiming,
   GeometrySettings,
@@ -72,6 +73,11 @@ export interface WireStateHandle {
   bundleTemplateCount(): number;
   bundleTemplate(index: number): BundleTemplateInfo;
   updateBundleTemplate(template: BundleTemplateInfo): OperationResult;
+  resolveDefaultBundlePlacement(
+    bundleTemplateId: number,
+    poleTypeId: number,
+    count: number
+  ): DefaultBundlePlacementInfo;
   updateBackboneBundlePlacement(bundleId: string, placement: BundlePlacement): OperationResult;
   applyRelatedPoleType(bundleTemplateId: number): OperationResult;
   cableTemplateCount(): number;

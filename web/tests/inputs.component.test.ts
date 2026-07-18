@@ -226,8 +226,8 @@ describe("viewer numeric inputs", () => {
   it("keeps generated backbone visible after generation", async () => {
     const mounted = await mountViewer();
     mounted.actions.setDrawOption("showBackboneOverlay", false);
-    mounted.actions.addPathPoint([0, 0, 0]);
-    mounted.actions.addPathPoint([8, 0, 0]);
+    mounted.actions.addPathPoint([0, 8, 0]);
+    mounted.actions.addPathPoint([8, 8, 0]);
     mounted.actions.generatePath();
 
     const snapshot = current(mounted.store);

@@ -290,6 +290,14 @@ describe("wire wasm smoke", () => {
     target.delete();
   });
 
+  it("resolves default Bundle placement through Core", () => {
+    const placement = state.resolveDefaultBundlePlacement(101, 1, 3);
+    expect(placement.ok, placement.error).toBe(true);
+    expect(placement.height).toBeCloseTo(9.2, 6);
+    expect(placement.offset).toBeCloseTo(0.0, 6);
+    expect(placement.spacing).toBeCloseTo(0.45, 6);
+  });
+
   afterAll(() => {
     state.delete();
   });

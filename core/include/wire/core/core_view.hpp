@@ -43,6 +43,8 @@ public:
       ObjectId edge_bundle_id) const;
   [[nodiscard]] std::vector<const SavedBackbonePortBinding*> backbone_port_bindings_for_row(
       const SavedBackboneRowKey& row_key, std::size_t lane_index) const;
+  [[nodiscard]] std::vector<const SavedBackboneRowContinuity*> backbone_row_continuities_for_node(
+      ObjectId node_id) const;
   [[nodiscard]] std::optional<Vec3d> source_edge_projection_world(
       ObjectId edge_id, ObjectId from_node_id, BundleTemplateId bundle_template_id, std::size_t lane_index, double t) const;
   [[nodiscard]] const GeometrySettings& geometry_settings() const;

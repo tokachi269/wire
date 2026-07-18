@@ -187,6 +187,11 @@ private:
                                                             const SavedBackboneRowKey& pair_key,
                                                             double layout_yaw_deg,
                                                             ObjectId port_id);
+  EditResult<bool> bind_backbone_row_continuity(ObjectId node_id,
+                                                ObjectId edge_bundle_a,
+                                                std::size_t lane_a,
+                                                ObjectId edge_bundle_b,
+                                                std::size_t lane_b);
   enum class BackboneRegenerateCause : std::uint8_t {
     kBundleCount,
     kBundleTopology,

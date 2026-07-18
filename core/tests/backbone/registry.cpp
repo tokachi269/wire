@@ -1225,6 +1225,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental explicit placement height is not row-reflowed",
                          "Invariant", false,
                          C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed);
+  test_registry::AddTest(tests, "C797_backbone_row_continuity_records_route_and_promotion_lanes",
+                         "row continuity table records each lane through routes and pair promotion",
+                         "Boundary", false,
+                         C797_backbone_row_continuity_records_route_and_promotion_lanes);
   test_registry::AddTest(tests, "C793_backbone_derive_uses_canonical_rule_order_and_lookup",
                          "derive builds fixture rules in canonical span order and resolves affected spans by lookup",
                          "Boundary", false,

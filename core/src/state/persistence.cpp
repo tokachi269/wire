@@ -578,6 +578,24 @@ bool archive_saved_span_binding(Archive& archive, const std::string& prefix, Val
 static_assert(sizeof(SavedBackboneSpanBinding) == 24, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
+template <typename Archive, typename Value>
+bool archive_saved_row_continuity_endpoint(Archive& archive, const std::string& prefix, Value& value) {
+  return archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) &&
+         archive.field(prefix, "lane_index", value.lane_index);
+}
+
+template <typename Archive, typename Value>
+bool archive_saved_row_continuity(Archive& archive, const std::string& prefix, Value& value) {
+  return archive.field(prefix, "node_id", value.node_id) &&
+         archive_saved_row_continuity_endpoint(archive, child(prefix, "a"), value.a) &&
+         archive_saved_row_continuity_endpoint(archive, child(prefix, "b"), value.b);
+}
+
+#ifdef _MSC_VER
+static_assert(sizeof(SavedBackboneRowContinuityEndpoint) == 16, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(SavedBackboneRowContinuity) == 40, "field added: update archive visitor and full-fat persistence fixture");
+#endif
+
 template <typename T, typename Id, typename Write>
 void write_id_vector(StateWriter& writer, const std::string& prefix, const std::vector<T>& values, Id id, Write write) {
   std::vector<const T*> ordered{};
@@ -635,6 +653,15 @@ void write_backbone_as(StateWriter& writer, const SavedBackboneGraph& graph) {
                                 std::tie(b.edge_bundle_id, b.lane_index, b.span_id);
                        }, [](auto& out, const auto& prefix, const SavedBackboneSpanBinding& value) {
                          FieldArchive a(out); (void)archive_saved_span_binding(a, prefix, value);
+                       });
+  write_ordered_vector(writer, "authoritative.backbone.row_continuities", graph.row_continuities,
+                       [](const SavedBackboneRowContinuity& a, const SavedBackboneRowContinuity& b) {
+                         return std::tie(a.node_id, a.a.edge_bundle_id, a.a.lane_index,
+                                         a.b.edge_bundle_id, a.b.lane_index) <
+                                std::tie(b.node_id, b.a.edge_bundle_id, b.a.lane_index,
+                                         b.b.edge_bundle_id, b.b.lane_index);
+                       }, [](auto& out, const auto& prefix, const SavedBackboneRowContinuity& value) {
+                         FieldArchive a(out); (void)archive_saved_row_continuity(a, prefix, value);
                        });
 }
 
@@ -1209,6 +1236,14 @@ bool read_backbone(StateReader& reader, SavedBackboneGraph* graph) {
     ReadFieldArchive archive(reader);
     if (!archive_saved_span_binding(archive, indexed("authoritative.backbone.span_bindings", i),
                                     graph->span_bindings[i])) return false;
+  }
+  std::size_t continuity_count = 0;
+  if (!reader.count("authoritative.backbone.row_continuities.count", &continuity_count)) return false;
+  graph->row_continuities.resize(continuity_count);
+  for (std::size_t i = 0; i < continuity_count; ++i) {
+    ReadFieldArchive archive(reader);
+    if (!archive_saved_row_continuity(archive, indexed("authoritative.backbone.row_continuities", i),
+                                      graph->row_continuities[i])) return false;
   }
   return true;
 }

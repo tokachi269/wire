@@ -101,6 +101,16 @@ std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_fo
   }
   return out;
 }
+std::vector<const SavedBackboneRowContinuity*> CoreView::backbone_row_continuities_for_node(
+    ObjectId node_id) const {
+  std::vector<const SavedBackboneRowContinuity*> out{};
+  for (const SavedBackboneRowContinuity& continuity : state_.authoritative_.backbone.row_continuities) {
+    if (continuity.node_id == node_id) {
+      out.push_back(&continuity);
+    }
+  }
+  return out;
+}
 std::optional<Vec3d> CoreView::source_edge_projection_world(
     ObjectId edge_id, ObjectId from_node_id, BundleTemplateId bundle_template_id, std::size_t lane_index, double t) const {
   const SavedBackboneEdge* edge = backbone_edge(edge_id);

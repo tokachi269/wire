@@ -723,6 +723,62 @@ wire::core::ObjectId edge_between(const wire::core::CoreState& state,
   return it == state.view().backbone_index().edge_by_nodes.end() ? wire::core::kInvalidObjectId : it->second;
 }
 
+wire::core::ObjectId edge_bundle_for_edge_and_lane(const wire::core::CoreState& state,
+                                                   wire::core::ObjectId edge_id,
+                                                   std::size_t lane_index) {
+  const auto edge_bundles_it = state.view().backbone_index().edge_bundles.find(edge_id);
+  if (edge_bundles_it == state.view().backbone_index().edge_bundles.end()) {
+    return wire::core::kInvalidObjectId;
+  }
+  wire::core::ObjectId matched = wire::core::kInvalidObjectId;
+  for (wire::core::ObjectId edge_bundle_id : edge_bundles_it->second) {
+    const auto span_bindings_it = state.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
+    if (span_bindings_it == state.view().backbone_index().edge_bundle_span_bindings.end()) {
+      continue;
+    }
+    for (std::size_t index : span_bindings_it->second) {
+      if (index >= state.view().backbone().span_bindings.size()) {
+        continue;
+      }
+      const wire::core::SavedBackboneSpanBinding& binding = state.view().backbone().span_bindings[index];
+      if (binding.lane_index != lane_index) {
+        continue;
+      }
+      if (matched != wire::core::kInvalidObjectId && matched != edge_bundle_id) {
+        return wire::core::kInvalidObjectId;
+      }
+      matched = edge_bundle_id;
+    }
+  }
+  return matched;
+}
+
+bool has_row_continuity(const wire::core::CoreState& state,
+                        wire::core::ObjectId node_id,
+                        wire::core::ObjectId edge_bundle_a,
+                        std::size_t lane_a,
+                        wire::core::ObjectId edge_bundle_b,
+                        std::size_t lane_b) {
+  for (const wire::core::SavedBackboneRowContinuity* continuity :
+       state.view().backbone_row_continuities_for_node(node_id)) {
+    if (continuity == nullptr) {
+      continue;
+    }
+    const bool forward = continuity->a.edge_bundle_id == edge_bundle_a &&
+                         continuity->a.lane_index == lane_a &&
+                         continuity->b.edge_bundle_id == edge_bundle_b &&
+                         continuity->b.lane_index == lane_b;
+    const bool reverse = continuity->a.edge_bundle_id == edge_bundle_b &&
+                         continuity->a.lane_index == lane_b &&
+                         continuity->b.edge_bundle_id == edge_bundle_a &&
+                         continuity->b.lane_index == lane_a;
+    if (forward || reverse) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool has_row_key(const std::vector<std::tuple<bool, wire::core::ObjectId, wire::core::ObjectId>>& rows,
                  bool is_open,
                  wire::core::ObjectId a,
@@ -3176,6 +3232,98 @@ bool C500_backbone_context_link_requires_saved_edge_ref() {
   }
   return contains_text(ref_body, "edge.saved == kInvalidObjectId") && !contains_text(ref_body, "saved_edge_for") &&
          contains_text(save_body, "context link saved edge missing");
+}
+
+bool C797_backbone_row_continuity_records_route_and_promotion_lanes() {
+  auto hv_req = [](wire::core::CoreState& state, bool polyline3) {
+    wire::core::BackboneSpec req = polyline3 ? poly3_req(state) : line_req(state);
+    req.bundles.clear();
+    add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+    return req;
+  };
+  auto expect_hv_lane_continuity = [](const wire::core::CoreState& state,
+                                      wire::core::ObjectId node_id,
+                                      wire::core::ObjectId edge_a,
+                                      wire::core::ObjectId edge_b) {
+    for (std::size_t lane = 0; lane < 3; ++lane) {
+      const wire::core::ObjectId edge_bundle_a = edge_bundle_for_edge_and_lane(state, edge_a, lane);
+      const wire::core::ObjectId edge_bundle_b = edge_bundle_for_edge_and_lane(state, edge_b, lane);
+      if (edge_bundle_a == wire::core::kInvalidObjectId ||
+          edge_bundle_b == wire::core::kInvalidObjectId ||
+          !has_row_continuity(state, node_id, edge_bundle_a, lane, edge_bundle_b, lane)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  wire::core::CoreState straight;
+  const auto straight_out = straight.GenerateFromBackboneSpec(hv_req(straight, false));
+  if (!straight_out.ok || straight_out.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  for (wire::core::ObjectId pole_id : straight_out.value.generated_pole_ids) {
+    const wire::core::SavedBackboneNode* node = straight.view().backbone_node_for_pole(pole_id);
+    if (node == nullptr || !straight.view().backbone_row_continuities_for_node(node->node_id).empty()) {
+      return false;
+    }
+  }
+
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(hv_req(state, true));
+  if (!out.ok || out.value.generated_pole_ids.size() != 3) return false;
+  const wire::core::SavedBackboneNode* node_a =
+      state.view().backbone_node_for_pole(out.value.generated_pole_ids[0]);
+  const wire::core::SavedBackboneNode* node_b =
+      state.view().backbone_node_for_pole(out.value.generated_pole_ids[1]);
+  const wire::core::SavedBackboneNode* node_c =
+      state.view().backbone_node_for_pole(out.value.generated_pole_ids[2]);
+  if (node_a == nullptr || node_b == nullptr || node_c == nullptr) {
+    return false;
+  }
+  const wire::core::ObjectId ab_edge = edge_between(state, node_a->node_id, node_b->node_id);
+  const wire::core::ObjectId bc_edge = edge_between(state, node_b->node_id, node_c->node_id);
+  const wire::core::ObjectId node_b_id = node_b->node_id;
+  if (ab_edge == wire::core::kInvalidObjectId || bc_edge == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  if (!state.view().backbone_row_continuities_for_node(node_a->node_id).empty() ||
+      !state.view().backbone_row_continuities_for_node(node_c->node_id).empty()) {
+    return false;
+  }
+  if (!expect_hv_lane_continuity(state, node_b_id, ab_edge, bc_edge)) {
+    return false;
+  }
+
+  const wire::core::Pole* pole_b = state.view().poles().find(out.value.generated_pole_ids[1]);
+  if (pole_b == nullptr) return false;
+  wire::core::BackboneSpec branch = hv_req(state, false);
+  branch.path.polyline = {pole_b->world_transform.position, {12.0, -8.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, out.value.generated_pole_ids[1])};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_pole_ids.size() != 1 ||
+      !expect_hv_lane_continuity(state, node_b_id, ab_edge, bc_edge)) {
+    return false;
+  }
+
+  IncrementalCrossFixture cross{};
+  if (!make_incremental_cross(&cross) ||
+      !cross.completion.ok || !canonical_cross_at_b(cross)) {
+    return false;
+  }
+  const wire::core::SavedBackboneNode* cross_b = cross.state.view().backbone_node_for_pole(cross.pole_b);
+  const wire::core::SavedBackboneNode* cross_d = cross.state.view().backbone_node_for_pole(cross.pole_d);
+  const wire::core::SavedBackboneNode* cross_e = cross.state.view().backbone_node_for_pole(cross.pole_e);
+  if (cross_b == nullptr || cross_d == nullptr || cross_e == nullptr) {
+    return false;
+  }
+  const wire::core::ObjectId cross_bd = edge_between(cross.state, cross_b->node_id, cross_d->node_id);
+  const wire::core::ObjectId cross_be = edge_between(cross.state, cross_b->node_id, cross_e->node_id);
+  const wire::core::ObjectId bd_bundle = edge_bundle_for_edge_and_lane(cross.state, cross_bd, 0);
+  const wire::core::ObjectId be_bundle = edge_bundle_for_edge_and_lane(cross.state, cross_be, 0);
+  return bd_bundle != wire::core::kInvalidObjectId &&
+         be_bundle != wire::core::kInvalidObjectId &&
+         has_row_continuity(cross.state, cross_b->node_id, bd_bundle, 0, be_bundle, 0);
 }
 
 } // namespace backbone_tests

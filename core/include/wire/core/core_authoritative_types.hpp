@@ -79,12 +79,24 @@ struct SavedBackboneSpanBinding {
   ObjectId span_id = kInvalidObjectId;
 };
 
+struct SavedBackboneRowContinuityEndpoint {
+  ObjectId edge_bundle_id = kInvalidObjectId;
+  std::size_t lane_index = 0;
+};
+
+struct SavedBackboneRowContinuity {
+  ObjectId node_id = kInvalidObjectId;
+  SavedBackboneRowContinuityEndpoint a{};
+  SavedBackboneRowContinuityEndpoint b{};
+};
+
 struct SavedBackboneGraph {
   std::vector<SavedBackboneNode> nodes{};
   std::vector<SavedBackboneEdge> edges{};
   std::vector<SavedBackboneEdgeBundle> edge_bundles{};
   std::vector<SavedBackbonePortBinding> port_bindings{};
   std::vector<SavedBackboneSpanBinding> span_bindings{};
+  std::vector<SavedBackboneRowContinuity> row_continuities{};
 };
 
 struct EditState {

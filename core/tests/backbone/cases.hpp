@@ -403,5 +403,6 @@ bool C793_backbone_derive_uses_canonical_rule_order_and_lookup();
 bool C794_web_viewer_action_context_keeps_mutable_state_private();
 bool C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry();
 bool C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed();
+bool C797_backbone_row_continuity_records_route_and_promotion_lanes();
 
 } // namespace backbone_tests

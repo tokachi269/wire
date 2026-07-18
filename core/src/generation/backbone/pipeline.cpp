@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstddef>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -3438,6 +3439,53 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     if (!bind_port(span.arow) || !bind_port(span.brow)) {
       return out;
     }
+  }
+
+  std::vector<const SavedBackbonePortBinding*> pair_bindings{};
+  pair_bindings.reserve(state_.view().backbone().port_bindings.size());
+  auto binding_bundle_id = [&](const SavedBackbonePortBinding* binding) {
+    const SavedBackboneEdgeBundle* edge_bundle =
+        binding == nullptr ? nullptr : state_.view().backbone_edge_bundle(binding->edge_bundle_id);
+    return edge_bundle == nullptr ? kInvalidObjectId : edge_bundle->bundle_id;
+  };
+  for (const SavedBackbonePortBinding& binding : state_.view().backbone().port_bindings) {
+    if (!binding.row_key.source_is_open && binding.row_key.node_id != kInvalidObjectId &&
+        binding.row_key.source_edge_a != kInvalidObjectId &&
+        binding.row_key.source_edge_b != kInvalidObjectId &&
+        binding.port_id != kInvalidObjectId &&
+        binding_bundle_id(&binding) != kInvalidObjectId) {
+      pair_bindings.push_back(&binding);
+    }
+  }
+  std::sort(pair_bindings.begin(), pair_bindings.end(),
+            [&](const SavedBackbonePortBinding* a, const SavedBackbonePortBinding* b) {
+              return std::make_tuple(a->row_key.node_id, a->row_key.source_edge_a, a->row_key.source_edge_b,
+                                     a->lane_index, binding_bundle_id(a), a->edge_bundle_id) <
+                     std::make_tuple(b->row_key.node_id, b->row_key.source_edge_a, b->row_key.source_edge_b,
+                                     b->lane_index, binding_bundle_id(b), b->edge_bundle_id);
+            });
+  for (std::size_t first = 0; first < pair_bindings.size();) {
+    std::size_t last = first + 1;
+    while (last < pair_bindings.size() &&
+           pair_bindings[last]->row_key == pair_bindings[first]->row_key &&
+           pair_bindings[last]->lane_index == pair_bindings[first]->lane_index &&
+           binding_bundle_id(pair_bindings[last]) == binding_bundle_id(pair_bindings[first])) {
+      ++last;
+    }
+    if (last - first == 2 &&
+        pair_bindings[first]->edge_bundle_id != pair_bindings[first + 1]->edge_bundle_id) {
+      EditResult<bool> continuity = state_.bind_backbone_row_continuity(
+          pair_bindings[first]->row_key.node_id,
+          pair_bindings[first]->edge_bundle_id,
+          pair_bindings[first]->lane_index,
+          pair_bindings[first + 1]->edge_bundle_id,
+          pair_bindings[first + 1]->lane_index);
+      if (!continuity.ok) {
+        out.error = continuity.error;
+        return out;
+      }
+    }
+    first = last;
   }
 
   out.value = true;

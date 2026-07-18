@@ -306,6 +306,53 @@ EditResult<bool> CoreState::promote_backbone_open_port_binding_exact(
   return out;
 }
 
+EditResult<bool> CoreState::bind_backbone_row_continuity(ObjectId node_id,
+                                                         ObjectId edge_bundle_a,
+                                                         std::size_t lane_a,
+                                                         ObjectId edge_bundle_b,
+                                                         std::size_t lane_b) {
+  EditResult<bool> out{};
+  if (node_id == kInvalidObjectId || edge_bundle_a == kInvalidObjectId ||
+      edge_bundle_b == kInvalidObjectId || edge_bundle_a == edge_bundle_b) {
+    out.error = "invalid backbone row continuity";
+    return out;
+  }
+  if (view().backbone_node(node_id) == nullptr ||
+      view().backbone_edge_bundle(edge_bundle_a) == nullptr ||
+      view().backbone_edge_bundle(edge_bundle_b) == nullptr) {
+    out.error = "invalid backbone row continuity";
+    return out;
+  }
+  for (const SavedBackboneRowContinuity& continuity : authoritative_.backbone.row_continuities) {
+    if (continuity.node_id != node_id) {
+      continue;
+    }
+    const bool forward = continuity.a.edge_bundle_id == edge_bundle_a &&
+                         continuity.a.lane_index == lane_a &&
+                         continuity.b.edge_bundle_id == edge_bundle_b &&
+                         continuity.b.lane_index == lane_b;
+    const bool reverse = continuity.a.edge_bundle_id == edge_bundle_b &&
+                         continuity.a.lane_index == lane_b &&
+                         continuity.b.edge_bundle_id == edge_bundle_a &&
+                         continuity.b.lane_index == lane_a;
+    if (forward || reverse) {
+      out.value = true;
+      out.ok = true;
+      return out;
+    }
+  }
+  SavedBackboneRowContinuity continuity{};
+  continuity.node_id = node_id;
+  continuity.a.edge_bundle_id = edge_bundle_a;
+  continuity.a.lane_index = lane_a;
+  continuity.b.edge_bundle_id = edge_bundle_b;
+  continuity.b.lane_index = lane_b;
+  authoritative_.backbone.row_continuities.push_back(continuity);
+  out.value = true;
+  out.ok = true;
+  return out;
+}
+
 PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
   PoleDetailInfo detail{};
   detail.pole = authoritative_.edit_state.poles.find(pole_id);

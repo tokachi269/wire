@@ -3326,4 +3326,105 @@ bool C797_backbone_row_continuity_records_route_and_promotion_lanes() {
          has_row_continuity(cross.state, cross_b->node_id, bd_bundle, 0, be_bundle, 0);
 }
 
+bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering() {
+  auto explicit_bundle = [](const wire::core::CoreState& state,
+                            wire::core::BundleKind kind,
+                            std::uint64_t placement_key,
+                            int count,
+                            double height_m,
+                            double lateral_m,
+                            double spacing_m) {
+    const wire::core::BundleTemplateId template_id =
+        wire::core::DefaultBundleTemplateId(kind);
+    const wire::core::BundleTemplate& tmpl = state.view().bundle_templates().at(template_id);
+    wire::core::BackboneBundleSpec bundle{};
+    bundle.bundle_template_id = template_id;
+    bundle.placement_key = placement_key;
+    bundle.layer = tmpl.default_layer;
+    bundle.count = count;
+    bundle.placement_explicit = true;
+    bundle.height_m = height_m;
+    bundle.lateral_m = lateral_m;
+    bundle.spacing_m = spacing_m;
+    return bundle;
+  };
+  auto viewer_default_req = [&](wire::core::CoreState& state) {
+    wire::core::BackboneSpec req = poly3_req(state);
+    req.bundles.clear();
+    req.bundles.push_back(
+        explicit_bundle(state, wire::core::BundleKind::kHighVoltage, 1, 3, 9.2, -0.2, 0.45));
+    req.bundles.push_back(
+        explicit_bundle(state, wire::core::BundleKind::kLowVoltage, 2, 1, 7.7, 0.0, 0.2));
+    req.bundles.push_back(
+        explicit_bundle(state, wire::core::BundleKind::kLowVoltage, 3, 1, 7.35, 0.0, 0.2));
+    req.bundles.push_back(
+        explicit_bundle(state, wire::core::BundleKind::kLowVoltage, 4, 1, 7.0, 0.0, 0.2));
+    req.bundles.push_back(
+        explicit_bundle(state, wire::core::BundleKind::kCommunication, 5, 1, 5.5, 0.0, 0.2));
+    req.bundles.push_back(
+        explicit_bundle(state, wire::core::BundleKind::kOptical, 6, 1, 5.3, 0.0, 0.2));
+    return req;
+  };
+  auto span_template = [](const wire::core::CoreState& state, wire::core::ObjectId span_id) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    const wire::core::Bundle* bundle = span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
+    return bundle == nullptr ? wire::core::kInvalidBundleTemplateId : bundle->bundle_template_id;
+  };
+  auto endpoint_stays_at_port = [](const wire::core::CoreState& state,
+                                   const wire::core::LayoutEndpoint& endpoint) {
+    const wire::core::Port* port = state.view().ports().find(endpoint.port_id);
+    return port != nullptr &&
+           !endpoint.default_lower_required &&
+           !endpoint.lower_required &&
+           endpoint.branch_down_offset_m <= 1e-9 &&
+           almost_equal(endpoint.support_world.z, port->world_position.z, 1e-9) &&
+           almost_equal(endpoint.endpoint_world.z, port->world_position.z, 1e-9);
+  };
+
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(viewer_default_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3 ||
+      first.value.generated_span_ids.size() != 16) {
+    return false;
+  }
+  const wire::core::ObjectId junction = first.value.generated_pole_ids[1];
+  const wire::core::Pole* pole = state.view().poles().find(junction);
+  if (pole == nullptr) return false;
+
+  wire::core::BackboneSpec branch = viewer_default_req(state);
+  branch.path.polyline = {pole->world_transform.position, {12.0, -8.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, junction)};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.generated_pole_ids.size() != 1 ||
+      out.value.generated_span_ids.size() != 8) {
+    return false;
+  }
+
+  std::unordered_map<wire::core::BundleTemplateId, std::size_t> generated_by_template{};
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    ++generated_by_template[span_template(state, span_id)];
+  }
+  if (generated_by_template[wire::core::kDefaultHighVoltageBundleTemplateId] != 3 ||
+      generated_by_template[wire::core::kDefaultLowVoltageBundleTemplateId] != 3 ||
+      generated_by_template[wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)] != 1 ||
+      generated_by_template[wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kOptical)] != 1) {
+    return false;
+  }
+
+  for (const wire::core::Span& span : state.view().spans().items()) {
+    const wire::core::Bundle* bundle = state.view().bundles().find(span.bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id == wire::core::kDefaultHighVoltageBundleTemplateId) {
+      continue;
+    }
+    const wire::core::SpanLayoutView layout = state.span_layout(span.id);
+    if (!layout.has_layout() ||
+        !endpoint_stays_at_port(state, layout.entry->start) ||
+        !endpoint_stays_at_port(state, layout.entry->end)) {
+      return false;
+    }
+  }
+
+  return curve_endpoints_match_layout(state);
+}
+
 } // namespace backbone_tests

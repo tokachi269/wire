@@ -1229,6 +1229,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "row continuity table records each lane through routes and pair promotion",
                          "Boundary", false,
                          C797_backbone_row_continuity_records_route_and_promotion_lanes);
+  test_registry::AddTest(tests, "C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering",
+                         "viewer default T branch keeps HV spans and only branch-down-enabled templates lower",
+                         "Invariant", false,
+                         C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering);
   test_registry::AddTest(tests, "C793_backbone_derive_uses_canonical_rule_order_and_lookup",
                          "derive builds fixture rules in canonical span order and resolves affected spans by lookup",
                          "Boundary", false,

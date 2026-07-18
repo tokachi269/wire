@@ -97,13 +97,7 @@ export class TemplateActions {
         this.ctx.store.setError("bundle template is not selected");
         return;
       }
-      this.ctx.store.update((current) => ({
-        ...current,
-        interaction: { controlId, param, startValue }
-      }));
-      this.ctx.interactionFrames = [];
-      this.ctx.interactionActive = true;
-      this.ctx.activeCancel = () => {
+      this.ctx.beginInteraction(controlId, param, startValue, () => {
         this.ctx.store.update((current) => ({
           ...current,
           bundleTemplates: current.bundleTemplates.map((candidate) =>
@@ -114,7 +108,7 @@ export class TemplateActions {
         const rollback = this.ctx.bridge.updateBundleTemplate(original);
         if (rollback.ok) this.ctx.refreshScene();
         else this.ctx.store.setError(rollback.error);
-      };
+      });
     }
     this.ctx.store.update((current) => ({
       ...current,
@@ -122,9 +116,7 @@ export class TemplateActions {
         candidate.id === template.id ? template : candidate
       )
     }));
-    this.ctx.clearPendingPreview();
-    this.ctx.pendingPreview = setTimeout(() => {
-      this.ctx.pendingPreview = null;
+    this.ctx.schedulePreview(() => {
       const current = this.ctx.selectedBundleTemplate();
       const result =
         current === null
@@ -189,13 +181,7 @@ export class TemplateActions {
         this.ctx.store.setError("pole template is not selected");
         return;
       }
-      this.ctx.store.update((current) => ({
-        ...current,
-        interaction: { controlId, param, startValue }
-      }));
-      this.ctx.interactionFrames = [];
-      this.ctx.interactionActive = true;
-      this.ctx.activeCancel = () => {
+      this.ctx.beginInteraction(controlId, param, startValue, () => {
         this.ctx.store.update((current) => ({
           ...current,
           poleTemplates: current.poleTemplates.map((candidate) =>
@@ -206,7 +192,7 @@ export class TemplateActions {
         const rollback = this.ctx.bridge.updatePoleTemplate(original);
         if (rollback.ok) this.ctx.refreshScene();
         else this.ctx.store.setError(rollback.error);
-      };
+      });
     }
     this.ctx.store.update((current) => ({
       ...current,
@@ -214,9 +200,7 @@ export class TemplateActions {
         candidate.id === template.id ? template : candidate
       )
     }));
-    this.ctx.clearPendingPreview();
-    this.ctx.pendingPreview = setTimeout(() => {
-      this.ctx.pendingPreview = null;
+    this.ctx.schedulePreview(() => {
       const current = this.ctx.selectedPoleTemplate();
       const result =
         current === null

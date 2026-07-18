@@ -47,11 +47,11 @@ export class WorkspaceActions {
       layout: this.ctx.bridge.layoutSettings(),
       visual: this.ctx.bridge.visualSettings()
     }));
-    this.ctx.factoryCoreState = this.ctx.bridge.saveState();
+    this.ctx.saveFactoryCoreState();
   }
 
   async restoreWorkspace(): Promise<void> {
-    const cached = await (this.ctx.workspaceCache?.read() ?? Promise.resolve(null));
+    const cached = await this.ctx.readWorkspaceCache();
     if (cached !== null) {
       const result = this.ctx.bridge.loadState(cached.coreState);
       if (result.ok) {
@@ -66,12 +66,12 @@ export class WorkspaceActions {
         }));
         this.ctx.refreshScene();
       } else {
-        this.ctx.persistencePaused = true;
+        this.ctx.pausePersistence();
         this.ctx.store.setError(`Workspace restore failed: ${result.error}`);
         return;
       }
     }
-    this.ctx.persistencePaused = false;
+    this.ctx.resumePersistence();
     this.startWorkspacePersistence();
   }
 
@@ -92,16 +92,15 @@ export class WorkspaceActions {
   }
 
   async resetWorkspace(): Promise<void> {
-    if (this.ctx.factoryCoreState.length === 0) {
+    if (!this.ctx.hasFactoryCoreState()) {
       this.ctx.store.setError("Workspace reset is unavailable before initialization");
       return;
     }
-    this.ctx.persistencePaused = true;
-    this.ctx.clearWorkspaceSaveTimer();
-    await this.ctx.workspaceCache?.clear();
-    const result = this.ctx.bridge.loadState(this.ctx.factoryCoreState);
+    this.ctx.pausePersistence();
+    await this.ctx.clearWorkspaceCache();
+    const result = this.ctx.loadFactoryCoreState();
     if (!result.ok) {
-      this.ctx.persistencePaused = false;
+      this.ctx.resumePersistence();
       this.ctx.store.setError(`Workspace reset failed: ${result.error}`);
       return;
     }
@@ -117,22 +116,19 @@ export class WorkspaceActions {
   }
 
   async flushWorkspaceCache(): Promise<void> {
-    if (this.ctx.workspaceCache === null || this.ctx.persistencePaused) return;
-    this.ctx.clearWorkspaceSaveTimer();
+    if (!this.ctx.hasWorkspaceCache() || this.ctx.isPersistencePaused()) return;
     try {
-      await this.ctx.workspaceCache.write(this.ctx.bridge.saveState(), this.ctx.readSnapshot());
+      await this.ctx.writeWorkspaceCache();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.ctx.persistencePaused = true;
+      this.ctx.pausePersistence();
       this.ctx.store.setError(`Workspace cache failed: ${message}`);
     }
   }
 
   dispose(): void {
     void this.flushWorkspaceCache();
-    this.ctx.workspaceSubscription?.();
-    this.ctx.workspaceSubscription = null;
-    this.ctx.clearWorkspaceSaveTimer();
+    this.ctx.disposeWorkspacePersistence();
   }
 
   private restoreWorkspacePreferences(preferences: WorkspacePreferences): void {
@@ -227,12 +223,10 @@ export class WorkspaceActions {
   }
 
   private startWorkspacePersistence(): void {
-    if (this.ctx.workspaceCache === null || this.ctx.workspaceSubscription !== null) return;
-    this.ctx.workspaceSubscription = this.ctx.store.value.subscribe(() => {
-      if (this.ctx.persistencePaused) return;
-      this.ctx.clearWorkspaceSaveTimer();
-      this.ctx.workspaceSaveTimer = setTimeout(() => {
-        this.ctx.workspaceSaveTimer = null;
+    if (!this.ctx.hasWorkspaceCache() || this.ctx.hasWorkspacePersistence()) return;
+    this.ctx.subscribeWorkspacePersistence(() => {
+      if (this.ctx.isPersistencePaused()) return;
+      this.ctx.scheduleWorkspaceSave(() => {
         void this.flushWorkspaceCache();
       }, 250);
     });

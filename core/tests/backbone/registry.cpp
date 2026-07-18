@@ -1221,6 +1221,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "derive builds fixture rules in canonical span order and resolves affected spans by lookup",
                          "Boundary", false,
                          C793_backbone_derive_uses_canonical_rule_order_and_lookup);
+  test_registry::AddTest(tests, "C794_web_viewer_action_context_keeps_mutable_state_private",
+                         "viewer action context keeps timers, cancel, interaction, persistence, and factory state private",
+                         "Boundary", false,
+                         C794_web_viewer_action_context_keeps_mutable_state_private);
 }
 
 

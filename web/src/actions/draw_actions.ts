@@ -200,8 +200,7 @@ export class DrawActions {
     this.ctx.reproTrace.recordGeneration(before, points, result, this.ctx.readSnapshot());
     const sceneUpdateMs = performance.now() - sceneStart;
     const viewerUpdateMs = performance.now() - generateStart;
-    const sceneStats = this.ctx.pendingSceneSyncStats;
-    this.ctx.pendingSceneSyncStats = null;
+    const sceneStats = this.ctx.consumeSceneContentSyncStats();
     const sceneDiagnostic = sceneStats === null
       ? ""
       : ` | scene parts total=${sceneStats.total} reused=${sceneStats.reused}` +

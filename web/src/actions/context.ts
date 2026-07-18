@@ -11,17 +11,17 @@ import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorkspaceCache } from "../store/workspace";
 
 export class ViewerActionContext {
-  pendingPreview: ReturnType<typeof setTimeout> | null = null;
-  activeCancel: (() => void) | null = null;
-  interactionFrames: number[] = [];
-  interactionActive = false;
-  suppressNextCommit = false;
+  private pendingPreview: ReturnType<typeof setTimeout> | null = null;
+  private activeCancel: (() => void) | null = null;
+  private interactionFrames: number[] = [];
+  private interactionActive = false;
+  private suppressNextCommit = false;
   readonly reproTrace = new ReproTrace();
-  factoryCoreState = "";
-  workspaceSaveTimer: ReturnType<typeof setTimeout> | null = null;
-  workspaceSubscription: (() => void) | null = null;
-  persistencePaused = true;
-  pendingSceneSyncStats: SceneContentSyncStats | null = null;
+  private factoryCoreState = "";
+  private workspaceSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private workspaceSubscription: (() => void) | null = null;
+  private persistencePaused = true;
+  private pendingSceneSyncStats: SceneContentSyncStats | null = null;
 
   constructor(
     readonly bridge: WireBridge,
@@ -103,6 +103,99 @@ export class ViewerActionContext {
     );
   }
 
+  saveFactoryCoreState(): void {
+    this.factoryCoreState = this.bridge.saveState();
+  }
+
+  hasFactoryCoreState(): boolean {
+    return this.factoryCoreState.length > 0;
+  }
+
+  loadFactoryCoreState(): OperationResult {
+    return this.bridge.loadState(this.factoryCoreState);
+  }
+
+  async readWorkspaceCache(): Promise<Awaited<ReturnType<WorkspaceCache["read"]>> | null> {
+    return this.workspaceCache?.read() ?? null;
+  }
+
+  async clearWorkspaceCache(): Promise<void> {
+    await this.workspaceCache?.clear();
+  }
+
+  async writeWorkspaceCache(): Promise<void> {
+    if (this.workspaceCache === null) return;
+    await this.workspaceCache.write(this.bridge.saveState(), this.readSnapshot());
+  }
+
+  hasWorkspaceCache(): boolean {
+    return this.workspaceCache !== null;
+  }
+
+  pausePersistence(): void {
+    this.persistencePaused = true;
+  }
+
+  resumePersistence(): void {
+    this.persistencePaused = false;
+  }
+
+  isPersistencePaused(): boolean {
+    return this.persistencePaused;
+  }
+
+  subscribeWorkspacePersistence(callback: () => void): void {
+    if (this.workspaceSubscription !== null) return;
+    this.workspaceSubscription = this.store.value.subscribe(callback);
+  }
+
+  disposeWorkspacePersistence(): void {
+    this.workspaceSubscription?.();
+    this.workspaceSubscription = null;
+    this.clearWorkspaceSaveTimer();
+  }
+
+  hasWorkspacePersistence(): boolean {
+    return this.workspaceSubscription !== null;
+  }
+
+  scheduleWorkspaceSave(callback: () => void, delayMs: number): void {
+    this.clearWorkspaceSaveTimer();
+    this.workspaceSaveTimer = setTimeout(() => {
+      this.workspaceSaveTimer = null;
+      callback();
+    }, delayMs);
+  }
+
+  beginInteraction(
+    controlId: string,
+    param: string,
+    startValue: number | boolean,
+    cancel: () => void
+  ): void {
+    this.store.update((current) => ({
+      ...current,
+      interaction: { controlId, param, startValue }
+    }));
+    this.interactionFrames = [];
+    this.interactionActive = true;
+    this.activeCancel = cancel;
+  }
+
+  schedulePreview(callback: () => void, intervalMs: number): void {
+    this.clearPendingPreview();
+    this.pendingPreview = setTimeout(() => {
+      this.pendingPreview = null;
+      callback();
+    }, intervalMs);
+  }
+
+  consumeSceneContentSyncStats(): SceneContentSyncStats | null {
+    const stats = this.pendingSceneSyncStats;
+    this.pendingSceneSyncStats = null;
+    return stats;
+  }
+
   previewSetting<T>(
     controlId: string,
     param: string,
@@ -118,13 +211,7 @@ export class ViewerActionContext {
       if (typeof startValue !== "number" && typeof startValue !== "boolean") {
         throw new Error("interaction value must be numeric or boolean");
       }
-      this.store.update((current) => ({
-        ...current,
-        interaction: { controlId, param, startValue }
-      }));
-      this.interactionFrames = [];
-      this.interactionActive = true;
-      this.activeCancel = () => {
+      this.beginInteraction(controlId, param, startValue, () => {
         this.store.update((current) => write(current, startValue));
         const result = apply();
         if (result.ok) {
@@ -133,12 +220,10 @@ export class ViewerActionContext {
           this.store.setError(result.error);
         }
         this.store.update((current) => ({ ...current, interaction: null }));
-      };
+      });
     }
     this.store.update((current) => write(current, value));
-    this.clearPendingPreview();
-    this.pendingPreview = setTimeout(() => {
-      this.pendingPreview = null;
+    this.schedulePreview(() => {
       const result = apply();
       if (!result.ok) {
         const error = result.error;
@@ -220,7 +305,7 @@ export class ViewerActionContext {
     this.pendingSceneSyncStats = stats;
   }
 
-  clearWorkspaceSaveTimer(): void {
+  private clearWorkspaceSaveTimer(): void {
     if (this.workspaceSaveTimer !== null) {
       clearTimeout(this.workspaceSaveTimer);
       this.workspaceSaveTimer = null;

@@ -1995,4 +1995,61 @@ bool C793_backbone_derive_uses_canonical_rule_order_and_lookup() {
          contains_text(update_body, "endpoint.port_id <= representative_it->second");
 }
 
+bool C794_web_viewer_action_context_keeps_mutable_state_private() {
+  std::string context{};
+  if (!file_text(repo_root() / "web/src/actions/context.ts", &context)) {
+    return false;
+  }
+  const std::array<std::string, 10> private_fields{
+      "private pendingPreview",
+      "private activeCancel",
+      "private interactionFrames",
+      "private interactionActive",
+      "private suppressNextCommit",
+      "private factoryCoreState",
+      "private workspaceSaveTimer",
+      "private workspaceSubscription",
+      "private persistencePaused",
+      "private pendingSceneSyncStats"};
+  for (const std::string& field : private_fields) {
+    if (!contains_text(context, field)) {
+      return false;
+    }
+  }
+  std::string action_sources{};
+  for (const std::filesystem::directory_entry& entry :
+       std::filesystem::directory_iterator(repo_root() / "web/src/actions")) {
+    if (!entry.is_regular_file() || entry.path().filename() == "context.ts" ||
+        entry.path().extension() != ".ts") {
+      continue;
+    }
+    std::string text{};
+    if (!file_text(entry.path(), &text)) {
+      return false;
+    }
+    action_sources += text;
+  }
+  const std::array<std::string, 11> forbidden_accesses{
+      "ctx.pendingPreview",
+      "ctx.activeCancel",
+      "ctx.interactionFrames",
+      "ctx.interactionActive",
+      "ctx.suppressNextCommit",
+      "ctx.factoryCoreState",
+      "ctx.workspaceSaveTimer",
+      "ctx.workspaceSubscription",
+      "ctx.persistencePaused",
+      "ctx.pendingSceneSyncStats",
+      "ctx.clearWorkspaceSaveTimer"};
+  for (const std::string& access : forbidden_accesses) {
+    if (contains_text(action_sources, access)) {
+      return false;
+    }
+  }
+  return contains_text(context, "beginInteraction(") &&
+         contains_text(context, "schedulePreview(") &&
+         contains_text(context, "scheduleWorkspaceSave(") &&
+         contains_text(context, "consumeSceneContentSyncStats()");
+}
+
 } // namespace backbone_tests

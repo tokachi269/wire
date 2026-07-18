@@ -1979,4 +1979,20 @@ bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
          !contains_text(models_doc, "pole_radius_at_height(-2m)");
 }
 
+bool C793_backbone_derive_uses_canonical_rule_order_and_lookup() {
+  std::string cpp{};
+  std::string direct_body{};
+  std::string update_body{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/derive.cpp", &cpp) ||
+      !function_body(cpp, "EditResult<bool> CoreState::DeriveGeneratedSpanOutputs", &direct_body) ||
+      !function_body(cpp, "EditResult<bool> CoreState::execute_update_plan", &update_body)) {
+    return false;
+  }
+  return contains_text(direct_body, "std::sort(cached_span_ids.begin(), cached_span_ids.end())") &&
+         contains_text(update_body, "std::sort(cached_span_ids.begin(), cached_span_ids.end())") &&
+         contains_text(update_body, "reposition_rules_by_span.emplace(rule.span_id, &rule)") &&
+         contains_text(update_body, "reposition_rules_by_span.find(span_id)") &&
+         contains_text(update_body, "endpoint.port_id <= representative_it->second");
+}
+
 } // namespace backbone_tests

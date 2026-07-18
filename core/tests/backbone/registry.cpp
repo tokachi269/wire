@@ -1217,6 +1217,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental row insertion preserves existing row and uses an empty stable slot",
                          "Invariant", false,
                          C792_backbone_incremental_new_row_uses_empty_stable_slot);
+  test_registry::AddTest(tests, "C793_backbone_derive_uses_canonical_rule_order_and_lookup",
+                         "derive builds fixture rules in canonical span order and resolves affected spans by lookup",
+                         "Boundary", false,
+                         C793_backbone_derive_uses_canonical_rule_order_and_lookup);
 }
 
 

@@ -20,6 +20,7 @@ add_library(
   src/generation/backbone/regenerate.cpp
   src/generation/backbone/span_visual_assembly.cpp
   src/generation/backbone/mount_graph.cpp
+  src/generation/backbone/model_placement_rules.cpp
   src/generation/backbone/model_assembly.cpp
   src/generation/backbone/pipeline.cpp
   src/generation/generate_from_backbone.cpp

@@ -8,6 +8,7 @@
 #include "wire/core/coord_utils.hpp"
 
 #include "../../src/generation/backbone/mount_graph.hpp"
+#include "../../src/generation/backbone/model_placement_rules.hpp"
 #include "../../src/support/instrumentation.hpp"
 
 #include <algorithm>
@@ -1906,6 +1907,53 @@ bool C803_model_mount_graph_resolves_depth_four_chain() {
   nodes[0].parent.parent_node = 3;
   nodes[0].parent.socket_name = "tip";
   return !resolve_mount_node(nodes, 0).ok;
+}
+
+bool C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors() {
+  using wire::core::BundleTemplate;
+  using wire::core::Vec3d;
+  using wire::core::generation::backbone::ModelPlacementOrientationPolicy;
+  using wire::core::generation::backbone::ModelPlacementRuleKind;
+  using wire::core::generation::backbone::interval_anchor_frames;
+  using wire::core::generation::backbone::placement_rules_from_bundle_template;
+
+  BundleTemplate bundle{};
+  bundle.row_fixture_assembly_id = 901;
+  bundle.endpoint_fixture_assembly_id = 902;
+  const auto rules = placement_rules_from_bundle_template(bundle);
+  if (rules.size() != 2 ||
+      rules[0].kind != ModelPlacementRuleKind::kAtRow ||
+      rules[0].assembly_id != 901 ||
+      rules[1].kind != ModelPlacementRuleKind::kAtEndpoint ||
+      rules[1].assembly_id != 902) {
+    return false;
+  }
+
+  const std::vector<wire::core::generation::backbone::SpanAnchorFrame> anchors =
+      interval_anchor_frames({0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, 3.0, 1.0,
+                             ModelPlacementOrientationPolicy::kAlignTangent);
+  if (anchors.size() != 4 ||
+      !almost_equal(anchors[0].transform.position, Vec3d{1.0, 0.0, 0.0}, 1e-12) ||
+      !almost_equal(anchors[1].transform.position, Vec3d{4.0, 0.0, 0.0}, 1e-12) ||
+      !almost_equal(anchors[2].transform.position, Vec3d{7.0, 0.0, 0.0}, 1e-12) ||
+      !almost_equal(anchors[3].transform.position, Vec3d{10.0, 0.0, 0.0}, 1e-12) ||
+      std::abs(anchors[0].transform.rotation_euler_deg.z) > 1e-12) {
+    return false;
+  }
+
+  const std::filesystem::path model_assembly =
+      repo_root() / "core" / "src" / "generation" / "backbone" / "model_assembly.cpp";
+  const std::filesystem::path rule_source =
+      repo_root() / "core" / "src" / "generation" / "backbone" / "model_placement_rules.cpp";
+  std::string model_text{};
+  std::string rule_text{};
+  if (!file_text(model_assembly, &model_text) || !file_text(rule_source, &rule_text)) {
+    return false;
+  }
+  return !contains_text(model_text, "row_fixture_assembly_id") &&
+         !contains_text(model_text, "endpoint_fixture_assembly_id") &&
+         contains_text(rule_text, "placement_rules_from_bundle_template") &&
+         contains_text(rule_text, "interval_anchor_frames");
 }
 
 bool C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key() {

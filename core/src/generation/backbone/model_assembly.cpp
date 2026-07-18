@@ -2,6 +2,7 @@
 
 #include "emit_shared.hpp"
 #include "mount_graph.hpp"
+#include "model_placement_rules.hpp"
 
 #include "../../support/instrumentation.hpp"
 
@@ -173,8 +174,15 @@ EditResult<PortFixtureContext> port_fixture_context(const CoreState& state, cons
       out.error = "model assembly unsupported: Port binding bundle template is missing";
       return out;
     }
-    const ModelAssemblyTemplateId candidate = bundle_it->second.endpoint_fixture_assembly_id;
-    const ModelAssemblyTemplateId row_candidate = bundle_it->second.row_fixture_assembly_id;
+    ModelAssemblyTemplateId candidate = kInvalidModelAssemblyTemplateId;
+    ModelAssemblyTemplateId row_candidate = kInvalidModelAssemblyTemplateId;
+    for (const ModelPlacementRule& rule : placement_rules_from_bundle_template(bundle_it->second)) {
+      if (rule.kind == ModelPlacementRuleKind::kAtEndpoint) {
+        candidate = rule.assembly_id;
+      } else if (rule.kind == ModelPlacementRuleKind::kAtRow) {
+        row_candidate = rule.assembly_id;
+      }
+    }
     if (assembly_id.has_value() && candidate != *assembly_id) {
       out.error = "model assembly unsupported: shared Port resolves different endpoint assemblies";
       return out;
@@ -367,7 +375,14 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
         out.value.endpoint_ports.end()) {
       out.value.endpoint_ports.push_back(port->id);
     }
-    if (bundle_it->second.row_fixture_assembly_id == kInvalidModelAssemblyTemplateId) {
+    ModelAssemblyTemplateId row_assembly_id = kInvalidModelAssemblyTemplateId;
+    for (const ModelPlacementRule& rule : placement_rules_from_bundle_template(bundle_it->second)) {
+      if (rule.kind == ModelPlacementRuleKind::kAtRow) {
+        row_assembly_id = rule.assembly_id;
+        break;
+      }
+    }
+    if (row_assembly_id == kInvalidModelAssemblyTemplateId) {
       continue;
     }
     const SavedBackboneEdgeBundle* edge_bundle =
@@ -386,13 +401,13 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
     });
     if (row_it == out.value.rows.end()) {
       out.value.rows.push_back({pole, binding.row_key, edge_bundle->bundle_id, binding.bundle_template_id,
-                                bundle_it->second.row_fixture_assembly_id, binding.layout_yaw_deg,
+                                row_assembly_id, binding.layout_yaw_deg,
                                 {{port->id, binding.lane_index, binding.placement_band_id,
                                   edge->lateral_offset_m, bundle->placement_explicit,
                                   bundle->lateral_m,
                                   bundle->phase_spacing_m}}});
     } else {
-      if (row_it->assembly_id != bundle_it->second.row_fixture_assembly_id ||
+      if (row_it->assembly_id != row_assembly_id ||
           std::abs(row_it->layout_yaw_deg - binding.layout_yaw_deg) > 1e-9) {
         out.error = "model assembly unsupported: saved row resolves inconsistent fixture data";
         return out;

@@ -54,9 +54,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\prepare_clang_uml_comp
 ```powershell
 Set-Location web
 npm install
+npm run wasm:build
 npm test
 npm run build
 ```
+
+`npm test` は wasm 成果物を前提に実行し、結果報告では skip が 0 であることを確認する。
 
 個別に wasm だけを再構築する場合:
 

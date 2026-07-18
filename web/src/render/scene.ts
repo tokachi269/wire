@@ -32,6 +32,29 @@ const SUPPORT_PATH_SUPPLEMENTAL_KIND = 1;
 const BACKBONE_NODE_SNAP_PX = 24;
 const BACKBONE_EDGE_SNAP_PX = 16;
 
+export function makeBackbonePick(point: WorldPoint, hitKind: number, hitId: string): PathPickInfo {
+  return {
+    hitKind,
+    hitId,
+    hitX: point[0],
+    hitY: point[1],
+    hitZ: point[2],
+    hasSegmentEndpoints: false,
+    segmentNodeAId: "0",
+    segmentNodeBId: "0",
+    segmentEndpointAX: 0,
+    segmentEndpointAY: 0,
+    segmentEndpointAZ: 0,
+    segmentEndpointBX: 0,
+    segmentEndpointBY: 0,
+    segmentEndpointBZ: 0
+  };
+}
+
+export function backboneNodeHitId(node: SupportNodeInfo): string {
+  return node.id;
+}
+
 export function setPoleRotation(
   object: THREE.Object3D,
   rotationXDeg: number,
@@ -410,23 +433,6 @@ export class WireScene {
     if (this.snapshot?.showBackboneOverlay !== true) return null;
     const bounds = this.renderer.domElement.getBoundingClientRect();
     const pointerPx = new THREE.Vector2(clientX - bounds.left, clientY - bounds.top);
-    const makePick = (point: WorldPoint, hitKind: number, hitId: string): PathPickInfo => ({
-      hitKind,
-      hitId,
-      hitX: point[0],
-      hitY: point[1],
-      hitZ: point[2],
-      hasSegmentEndpoints: false,
-      segmentNodeAId: "0",
-      segmentNodeBId: "0",
-      segmentEndpointAX: 0,
-      segmentEndpointAY: 0,
-      segmentEndpointAZ: 0,
-      segmentEndpointBX: 0,
-      segmentEndpointBY: 0,
-      segmentEndpointBZ: 0
-    });
-
     let bestNode: { distance: number; point: WorldPoint; pick: PathPickInfo } | null = null;
     for (const node of this.snapshot.supportNodes) {
       const displayPoint = new THREE.Vector3(node.x, node.y, BACKBONE_DISPLAY_PLANE_Z);
@@ -438,7 +444,7 @@ export class WireScene {
         bestNode = {
           distance,
           point,
-          pick: makePick(point, 1, node.kind === 0 && node.poleId !== "0" ? node.poleId : node.id)
+          pick: makeBackbonePick(point, 1, backboneNodeHitId(node))
         };
       }
     }
@@ -481,7 +487,7 @@ export class WireScene {
         distance,
         point,
         pick: {
-          ...makePick(point, 2, "0"),
+          ...makeBackbonePick(point, 2, "0"),
           hasSegmentEndpoints: true,
           segmentNodeAId: edge.nodeAId,
           segmentNodeBId: edge.nodeBId,
@@ -1047,7 +1053,7 @@ export class WireScene {
       marker.userData = {
         pickableBackbone: true,
         pickKind: "node",
-        hitId: node.kind === 0 && node.poleId !== "0" ? node.poleId : node.id,
+        hitId: backboneNodeHitId(node),
         worldPoint: [node.x, node.y, node.z]
       };
       this.backbone.add(marker);

@@ -276,6 +276,13 @@ describe("wire wasm smoke", () => {
     state = new module.WireState();
   });
 
+  it("loads the generated wasm module", () => {
+    expect(createState).toBeTypeOf("function");
+    const loaded = createState();
+    expect(loaded.poleCount()).toBe(0);
+    loaded.delete();
+  });
+
   it("bootstraps one straight communication fixture per Port", () => {
     const modelState = createState();
     const configured = modelState.configureModelAssemblies(modelBootstrap());

@@ -666,9 +666,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C598_backbone_selected_saved_building_node_pick_generates_selected_bundle_only",
                          "backbone selected saved building node picks generate selected bundles only", "Boundary", false,
                          C598_backbone_selected_saved_building_node_pick_generates_selected_bundle_only);
-  test_registry::AddTest(tests, "C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only",
-                         "backbone selected existing pole pick generates selected bundle only", "Boundary", false,
-                         C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only);
+  test_registry::AddTest(tests, "C600_backbone_pole_id_pick_resolves_to_saved_node_without_selected_policy",
+                         "backbone pole-id pick resolves to saved node without selected policy", "Boundary", false,
+                         C600_backbone_pole_id_pick_resolves_to_saved_node_without_selected_policy);
   test_registry::AddTest(tests, "C601_backbone_context_only_bundle_policy_does_not_filter_new_route",
                          "backbone context-only selected bundle policy does not filter new route bundles",
                          "Boundary", false, C601_backbone_context_only_bundle_policy_does_not_filter_new_route);
@@ -865,9 +865,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates",
                          "source guard keeps supported backbone updates out of the unsupported hold list",
                          "Boundary", false, C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates);
-  test_registry::AddTest(tests, "C737_backbone_overlay_edge_endpoint_snap_returns_pole_node_spec_id",
-                         "backbone overlay edge endpoint snap returns a node id usable by GenerateFromBackboneSpec",
-                         "Boundary", false, C737_backbone_overlay_edge_endpoint_snap_returns_pole_node_spec_id);
+  test_registry::AddTest(tests, "C737_backbone_overlay_edge_endpoint_snap_returns_saved_node_spec_id",
+                         "backbone overlay edge endpoint snap returns a saved node id usable by GenerateFromBackboneSpec",
+                         "Boundary", false, C737_backbone_overlay_edge_endpoint_snap_returns_saved_node_spec_id);
   test_registry::AddTest(tests, "C691_cable_run_id_connects_through_sections",
                          "cable run id connects through base edge bodies and their node patch",
                          "Invariant", false, C691_cable_run_id_connects_through_sections);

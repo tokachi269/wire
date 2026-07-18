@@ -5,12 +5,14 @@ import {
   SampledWireCurve,
   WireScene,
   WIRE_RADIAL_SEGMENTS,
+  backboneNodeHitId,
+  makeBackbonePick,
   setPoleRotation
 } from "../src/render/scene";
 import { modelAssetCache } from "../src/render/modelAssets";
 import { createViewerSnapshot } from "../src/store/viewer";
 import { WireBridge } from "../src/bridge/wire";
-import type { BundlePlacement, ModelAssemblyBootstrapInput, ModelTransformInput } from "../src/model";
+import type { BundlePlacement, ModelAssemblyBootstrapInput, ModelTransformInput, SupportNodeInfo } from "../src/model";
 
 function rotateCoreXyz(value: THREE.Vector3, xDeg: number, yDeg: number, zDeg: number): THREE.Vector3 {
   const radians = [xDeg, yDeg, zDeg].map(THREE.MathUtils.degToRad);
@@ -50,6 +52,22 @@ describe("sampled wire curve", () => {
 
     expect(curve.getPoint(0.5).toArray()).toEqual([5, 0, 0]);
     expect(curve.getPoint(0.75).toArray()).toEqual([5, 2.5, 0]);
+  });
+});
+
+describe("backbone pick payload", () => {
+  it("uses the support node id for pole snap picks instead of the pole id", () => {
+    const node: SupportNodeInfo = {
+      id: "node-10",
+      kind: 0,
+      poleId: "pole-2",
+      x: 1,
+      y: 2,
+      z: 3
+    };
+    const pick = makeBackbonePick([node.x, node.y, node.z], 1, backboneNodeHitId(node));
+    expect(pick.hitKind).toBe(1);
+    expect(pick.hitId).toBe("node-10");
   });
 });
 

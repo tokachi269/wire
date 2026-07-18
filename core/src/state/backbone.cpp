@@ -511,14 +511,15 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     return has_endpoints;
   };
 
-  auto selected_bundle_modes = [&]() {
+  auto selected_bundle_modes = [&](bool apply_midair_policy) {
     std::vector<SupportNodeBundleMode> modes{};
     modes.reserve(selected_templates.size());
     for (const SelectedTemplatePolicy& selected : selected_templates) {
       SupportNodeBundleMode mode{};
       mode.bundle_template_id = selected.id;
-      mode.mode = (!options.enforce_midair_template_policy || selected.allow_midair_path) ? BundleNodeMode::kPassThrough
-                                                                                           : BundleNodeMode::kNotPresent;
+      mode.mode = (!apply_midair_policy || !options.enforce_midair_template_policy || selected.allow_midair_path)
+                      ? BundleNodeMode::kPassThrough
+                      : BundleNodeMode::kNotPresent;
       modes.push_back(mode);
     }
     std::sort(modes.begin(), modes.end(), [](const SupportNodeBundleMode& a, const SupportNodeBundleMode& b) {
@@ -550,7 +551,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       node.pole_id = kInvalidObjectId;
       node.path_point_index = -1;
       node.has_tangent_hint = false;
-      node.bundle_modes = selected_bundle_modes();
+      node.bundle_modes = selected_bundle_modes(true);
       debug_.pending_support_nodes.push_back(node);
       std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
                 [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
@@ -577,65 +578,69 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       return result;
     }
     result.value.resolution = PickBranchResolutionKind::kNode;
-    result.value.resolved_node_id = pick.hit_id;
     result.value.position = pick.hit_pos_world;
     result.value.support_kind = SupportKind::kPole;
-    (void)resolve_node_info(pick.hit_id, &result.value.support_kind, &result.value.position);
-    const auto picked_saved_node =
+    const auto saved_by_node_id =
         std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
                      [&](const SavedBackboneNode& node) { return node.node_id == pick.hit_id; });
-    if (picked_saved_node != authoritative_.backbone.nodes.end() &&
-        picked_saved_node->pole_id != kInvalidObjectId &&
-        picked_saved_node->support_kind == SupportKind::kPole) {
-      result.value.resolved_node_id = picked_saved_node->pole_id;
-      result.value.position = picked_saved_node->position;
-    }
-    if (!selected_templates.empty()) {
-      const auto saved_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
-                                         [&](const SavedBackboneNode& node) {
-                                           return node.node_id == pick.hit_id &&
-                                                  node.pole_id == kInvalidObjectId &&
-                                                  node.support_kind == result.value.support_kind;
-                                         });
-      if (saved_it != authoritative_.backbone.nodes.end()) {
+    if (saved_by_node_id != authoritative_.backbone.nodes.end()) {
+      result.value.resolved_node_id = saved_by_node_id->node_id;
+      result.value.support_kind = saved_by_node_id->support_kind;
+      result.value.position = saved_by_node_id->position;
+      if (!selected_templates.empty() && saved_by_node_id->pole_id == kInvalidObjectId) {
         SupportNode node{};
         node.node_id = debug_.next_virtual_support_node_id++;
-        node.support_kind = saved_it->support_kind;
-        node.position = saved_it->position;
+        node.support_kind = saved_by_node_id->support_kind;
+        node.position = saved_by_node_id->position;
         node.pole_id = kInvalidObjectId;
-        node.saved_backbone_node_id = saved_it->node_id;
+        node.saved_backbone_node_id = saved_by_node_id->node_id;
         node.path_point_index = -1;
-        node.bundle_modes = selected_bundle_modes();
+        node.bundle_modes = selected_bundle_modes(true);
         debug_.pending_support_nodes.push_back(node);
         std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
                   [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
         result.value.resolved_node_id = node.node_id;
         result.value.position = node.position;
       }
-      if (result.value.support_kind == SupportKind::kPole) {
-        const Pole* pole = authoritative_.edit_state.poles.find(pick.hit_id);
-        if (pole != nullptr) {
-          SupportNode node{};
-          node.node_id = debug_.next_virtual_support_node_id++;
-          node.support_kind = SupportKind::kPole;
-          node.position = pole->world_transform.position;
-          node.pole_id = pole->id;
-          const auto saved_pole_it =
-              std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
-                           [&](const SavedBackboneNode& saved) { return saved.pole_id == pole->id; });
-          if (saved_pole_it != authoritative_.backbone.nodes.end()) {
-            node.saved_backbone_node_id = saved_pole_it->node_id;
-          }
-          node.path_point_index = -1;
-          node.bundle_modes = selected_bundle_modes();
-          debug_.pending_support_nodes.push_back(node);
-          std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
-                    [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
-          result.value.resolved_node_id = node.node_id;
-          result.value.position = node.position;
-        }
+      result.ok = true;
+      return result;
+    }
+
+    const Pole* pole = authoritative_.edit_state.poles.find(pick.hit_id);
+    if (pole != nullptr) {
+      const auto saved_pole_it =
+          std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
+                       [&](const SavedBackboneNode& saved) {
+                         return saved.pole_id == pole->id && saved.support_kind == SupportKind::kPole;
+                       });
+      if (saved_pole_it != authoritative_.backbone.nodes.end()) {
+        result.value.resolved_node_id = saved_pole_it->node_id;
+        result.value.support_kind = SupportKind::kPole;
+        result.value.position = saved_pole_it->position;
+        result.ok = true;
+        return result;
+      }
+      if (!selected_templates.empty() || options.create_midair_node_set) {
+        SupportNode node{};
+        node.node_id = debug_.next_virtual_support_node_id++;
+        node.support_kind = SupportKind::kPole;
+        node.position = pole->world_transform.position;
+        node.pole_id = pole->id;
+        node.path_point_index = -1;
+        node.bundle_modes = selected_bundle_modes(false);
+        debug_.pending_support_nodes.push_back(node);
+        std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
+                  [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
+        result.value.resolved_node_id = node.node_id;
+        result.value.support_kind = SupportKind::kPole;
+        result.value.position = node.position;
+        result.ok = true;
+        return result;
       }
     }
+
+    result.value.resolved_node_id = pick.hit_id;
+    (void)resolve_node_info(pick.hit_id, &result.value.support_kind, &result.value.position);
     result.ok = true;
     return result;
   }

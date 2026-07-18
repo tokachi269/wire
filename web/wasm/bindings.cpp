@@ -547,16 +547,16 @@ public:
     return output;
   }
 
-  [[nodiscard]] std::size_t support_node_count() {
-    support_nodes_ = state_->SavedBackboneResult().nodes;
-    return support_nodes_.size();
+  [[nodiscard]] std::size_t support_node_count() const {
+    return state_->SavedBackboneResult().nodes.size();
   }
 
   [[nodiscard]] val support_node(std::size_t index) const {
-    if (index >= support_nodes_.size()) {
+    const std::vector<wire::core::SupportNode> nodes = state_->SavedBackboneResult().nodes;
+    if (index >= nodes.size()) {
       throw std::out_of_range("support node index is out of range");
     }
-    const auto& node = support_nodes_[index];
+    const auto& node = nodes[index];
     val output = val::object();
     output.set("id", std::to_string(node.node_id));
     output.set("kind", static_cast<int>(node.support_kind));
@@ -567,16 +567,16 @@ public:
     return output;
   }
 
-  [[nodiscard]] std::size_t backbone_edge_count() {
-    backbone_edges_ = state_->SavedBackboneEdges();
-    return backbone_edges_.size();
+  [[nodiscard]] std::size_t backbone_edge_count() const {
+    return state_->SavedBackboneEdges().size();
   }
 
   [[nodiscard]] val backbone_edge(std::size_t index) const {
-    if (index >= backbone_edges_.size()) {
+    const std::vector<wire::core::BackboneEdge> edges = state_->SavedBackboneEdges();
+    if (index >= edges.size()) {
       throw std::out_of_range("backbone edge index is out of range");
     }
-    const auto& edge = backbone_edges_[index];
+    const auto& edge = edges[index];
     val output = val::object();
     output.set("nodeAId", std::to_string(edge.node_a));
     output.set("nodeBId", std::to_string(edge.node_b));
@@ -1097,8 +1097,6 @@ public:
 private:
   std::unique_ptr<CoreState> state_;
   std::vector<double> sample_buffer_{};
-  std::vector<wire::core::SupportNode> support_nodes_{};
-  std::vector<wire::core::BackboneEdge> backbone_edges_{};
 };
 
 } // namespace

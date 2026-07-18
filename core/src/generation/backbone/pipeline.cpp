@@ -1796,10 +1796,18 @@ EditResult<bool> pipeline::prepare() {
       }
       const SupportNode* pending_pole = state_.view().pending_support_node(spec_it->second->node_id);
       ObjectId pole_id = spec_it->second->node_id;
+      ObjectId saved_node_id = kInvalidObjectId;
       if (pending_pole != nullptr && pending_pole->support_kind == SupportKind::kPole &&
           pending_pole->pole_id != kInvalidObjectId) {
         pole_id = pending_pole->pole_id;
         n.bundle_modes = pending_pole->bundle_modes;
+        saved_node_id = pending_pole->saved_backbone_node_id;
+      } else if (const SavedBackboneNode* saved_pole_node =
+                     state_.view().backbone_node(spec_it->second->node_id);
+                 saved_pole_node != nullptr && saved_pole_node->support_kind == SupportKind::kPole &&
+                 saved_pole_node->pole_id != kInvalidObjectId) {
+        pole_id = saved_pole_node->pole_id;
+        saved_node_id = saved_pole_node->node_id;
       }
       const Pole* pole = state_.view().poles().find(pole_id);
       if (pole == nullptr) {
@@ -1808,8 +1816,8 @@ EditResult<bool> pipeline::prepare() {
       }
       n.pole = pole->id;
       n.pos = pole->world_transform.position;
-      if (pending_pole != nullptr && pending_pole->saved_backbone_node_id != kInvalidObjectId) {
-        n.saved = pending_pole->saved_backbone_node_id;
+      if (saved_node_id != kInvalidObjectId) {
+        n.saved = saved_node_id;
       } else if (const SavedBackboneNode* saved = state_.view().backbone_node_for_pole(pole->id); saved != nullptr) {
         n.saved = saved->node_id;
       } else {

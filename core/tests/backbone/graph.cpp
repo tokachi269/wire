@@ -7,6 +7,7 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
+#include "../../src/generation/backbone/mount_graph.hpp"
 #include "../../src/support/instrumentation.hpp"
 
 #include <algorithm>
@@ -1850,6 +1851,61 @@ bool C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry() {
     }
   }
   return curve_endpoints_match_layout(state);
+}
+
+bool C803_model_mount_graph_resolves_depth_four_chain() {
+  using wire::core::Transformd;
+  using wire::core::Vec3d;
+  using wire::core::generation::backbone::MountGraphNode;
+  using wire::core::generation::backbone::MountGraphSocket;
+  using wire::core::generation::backbone::MountRefKind;
+  using wire::core::generation::backbone::resolve_mount_node;
+  using wire::core::generation::backbone::resolve_mount_socket;
+
+  auto node = [](std::size_t id, Vec3d local_position, std::string socket_name,
+                 Vec3d socket_position) {
+    MountGraphNode out{};
+    out.node = id;
+    out.local_transform.position = local_position;
+    MountGraphSocket socket{};
+    socket.name = std::move(socket_name);
+    socket.local_transform.position = socket_position;
+    out.sockets.push_back(std::move(socket));
+    return out;
+  };
+
+  std::vector<MountGraphNode> nodes{};
+  nodes.push_back(node(0, {1.0, 0.0, 0.0}, "out", {0.0, 2.0, 0.0}));
+  nodes[0].parent.kind = MountRefKind::kRoot;
+  nodes[0].parent.root_transform.position = {10.0, 0.0, 1.0};
+  nodes.push_back(node(1, {0.0, 3.0, 0.0}, "out", {0.0, 0.0, 4.0}));
+  nodes[1].parent.kind = MountRefKind::kInstanceSocket;
+  nodes[1].parent.parent_node = 0;
+  nodes[1].parent.socket_name = "out";
+  nodes.push_back(node(2, {5.0, 0.0, 0.0}, "out", {0.0, 6.0, 0.0}));
+  nodes[2].parent.kind = MountRefKind::kInstanceSocket;
+  nodes[2].parent.parent_node = 1;
+  nodes[2].parent.socket_name = "out";
+  nodes.push_back(node(3, {0.0, 0.0, 7.0}, "tip", {8.0, 0.0, 0.0}));
+  nodes[3].parent.kind = MountRefKind::kInstanceSocket;
+  nodes[3].parent.parent_node = 2;
+  nodes[3].parent.socket_name = "out";
+
+  const auto resolved_node = resolve_mount_node(nodes, 3);
+  const auto resolved_socket = resolve_mount_socket(nodes, 3, "tip");
+  if (!resolved_node.ok || !resolved_socket.ok ||
+      !almost_equal(resolved_node.value.position, Vec3d{16.0, 11.0, 12.0}, 1e-12) ||
+      !almost_equal(resolved_socket.value.position, Vec3d{24.0, 11.0, 12.0}, 1e-12)) {
+    return false;
+  }
+
+  if (resolve_mount_socket(nodes, 2, "missing").ok) {
+    return false;
+  }
+  nodes[0].parent.kind = MountRefKind::kInstanceSocket;
+  nodes[0].parent.parent_node = 3;
+  nodes[0].parent.socket_name = "tip";
+  return !resolve_mount_node(nodes, 0).ok;
 }
 
 bool C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key() {

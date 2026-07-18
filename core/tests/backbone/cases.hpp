@@ -407,5 +407,6 @@ bool C797_backbone_row_continuity_records_route_and_promotion_lanes();
 bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering();
 bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross();
 bool C802_backbone_viewer_default_reverse_t_branch_keeps_hv_and_only_flagged_lowering();
+bool C803_model_mount_graph_resolves_depth_four_chain();
 
 } // namespace backbone_tests

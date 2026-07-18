@@ -1,6 +1,7 @@
 #include "model_assembly.hpp"
 
 #include "emit_shared.hpp"
+#include "mount_graph.hpp"
 
 #include "../../support/instrumentation.hpp"
 
@@ -109,34 +110,6 @@ Transformd transform_from_frame(const PoleFrame& frame, const Vec3d& position) {
   out.position = position;
   out.rotation_euler_deg = euler_from_matrix(matrix_from_frame(frame));
   return out;
-}
-
-Transformd compose(const Transformd& parent, const Transformd& local) {
-  const Matrix3 parent_rotation = matrix_from_euler(parent.rotation_euler_deg);
-  const Matrix3 local_rotation = matrix_from_euler(local.rotation_euler_deg);
-  const Vec3d scaled_local_position{
-      local.position.x * parent.scale.x,
-      local.position.y * parent.scale.y,
-      local.position.z * parent.scale.z,
-  };
-  Transformd out{};
-  out.position = parent.position + multiply(parent_rotation, scaled_local_position);
-  out.rotation_euler_deg = euler_from_matrix(multiply(parent_rotation, local_rotation));
-  out.scale = {
-      parent.scale.x * local.scale.x,
-      parent.scale.y * local.scale.y,
-      parent.scale.z * local.scale.z,
-  };
-  return out;
-}
-
-Vec3d transform_point(const Transformd& transform, const Vec3d& local) {
-  const Vec3d scaled{
-      local.x * transform.scale.x,
-      local.y * transform.scale.y,
-      local.z * transform.scale.z,
-  };
-  return transform.position + multiply(matrix_from_euler(transform.rotation_euler_deg), scaled);
 }
 
 void hash_bytes(std::uint64_t* hash, const void* data, std::size_t size) {
@@ -267,7 +240,7 @@ EditResult<Transformd> resolve_model_part_world_transform(const CoreState& state
   } else {
     part_root.position = part_root.position + owner_offset_world;
   }
-  out.value = compose(part_root, fitted);
+  out.value = compose_mount_transform(part_root, fitted);
   out.ok = true;
   return out;
 }
@@ -289,6 +262,27 @@ const ModelAssemblySocket* socket_for(const ModelAssemblyTemplate& assembly,
     }
   }
   return nullptr;
+}
+
+EditResult<Vec3d> resolve_part_socket_world(const Transformd& part_world,
+                                            const ModelAssemblySocket& socket) {
+  MountGraphNode node{};
+  node.node = 0;
+  node.parent.kind = MountRefKind::kRoot;
+  node.parent.root_transform = part_world;
+  MountGraphSocket graph_socket{};
+  graph_socket.name = socket.name;
+  graph_socket.local_transform.position = socket.local_position;
+  node.sockets.push_back(std::move(graph_socket));
+  const EditResult<Transformd> socket_world = resolve_mount_socket({node}, 0, socket.name);
+  EditResult<Vec3d> out{};
+  if (!socket_world.ok) {
+    out.error = socket_world.error;
+    return out;
+  }
+  out.value = socket_world.value.position;
+  out.ok = true;
+  return out;
 }
 
 void append_instances(const CoreState& state, const Pole& pole, double placement_height_m,
@@ -511,8 +505,12 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(
       return out;
     }
     const Vec3d row_reference_world = row_root.position + row_offset;
-    const Vec3d mount_delta_world =
-        transform_point(mount_world.value, mount->local_position) - row_reference_world;
+    const EditResult<Vec3d> mount_socket_world = resolve_part_socket_world(mount_world.value, *mount);
+    if (!mount_socket_world.ok) {
+      out.error = mount_socket_world.error;
+      return out;
+    }
+    const Vec3d mount_delta_world = mount_socket_world.value - row_reference_world;
     fixture_root.position = final_anchor + mount_delta_world;
   }
   out.value.fixture_root = fixture_root;
@@ -532,7 +530,12 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(
       out.error = world.error;
       return out;
     }
-    out.value.wire_endpoint = transform_point(world.value, socket->local_position);
+    const EditResult<Vec3d> socket_world = resolve_part_socket_world(world.value, *socket);
+    if (!socket_world.ok) {
+      out.error = socket_world.error;
+      return out;
+    }
+    out.value.wire_endpoint = socket_world.value;
   }
   out.ok = true;
   return out;

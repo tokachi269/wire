@@ -282,6 +282,34 @@ function assertNonFlaggedEndpointModelsAtPortHeight(state: WireStateHandle) {
   }
 }
 
+function assertNonFlaggedSpanLayoutsAtPortHeight(state: WireStateHandle) {
+  const ports = new Map<string, { z: number }>();
+  for (let index = 0; index < state.portCount(); index += 1) {
+    const port = state.port(index);
+    ports.set(port.id, { z: port.z });
+  }
+  for (let index = 0; index < state.spanCount(); index += 1) {
+    const span = state.span(index);
+    const part = visualParts(state).find((candidate) =>
+      candidate.info.kind === 0 && candidate.info.sourceSpanId === span.id
+    );
+    if (part === undefined || part.info.bundleTemplateId === 101) continue;
+    const layout = state.spanLayout(span.id);
+    expect(layout.ok, layout.error).toBe(true);
+    expect(layout.start).not.toBeNull();
+    expect(layout.end).not.toBeNull();
+    for (const endpoint of [layout.start!, layout.end!]) {
+      const port = ports.get(endpoint.portId);
+      expect(port, span.id).toBeDefined();
+      expect(endpoint.defaultLowerRequired, span.id).toBe(false);
+      expect(endpoint.lowerRequired, span.id).toBe(false);
+      expect(endpoint.branchDownOffset, span.id).toBeLessThanOrEqual(1e-9);
+      expect(Number(endpoint.supportZ.toFixed(6)), span.id).toBe(Number(port!.z.toFixed(6)));
+      expect(Number(endpoint.endpointZ.toFixed(6)), span.id).toBe(Number(port!.z.toFixed(6)));
+    }
+  }
+}
+
 function scenePartSnapshot(state: WireStateHandle) {
   return new Map(visualParts(state).map((part) => [
     part.info.partKey,
@@ -827,6 +855,7 @@ describe("wire wasm smoke", () => {
     expectDefaultPlacementHeightsAtPole(runState, poleB.id);
     assertHvSeparatedByEdge(runState);
     assertNonFlaggedEndpointModelsAtPortHeight(runState);
+    assertNonFlaggedSpanLayoutsAtPortHeight(runState);
     runState.delete();
   });
 

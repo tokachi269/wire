@@ -16,6 +16,7 @@ import type {
   PortInfo,
   ResolvedPathPointInfo,
   SpanInfo,
+  SpanLayoutInfo,
   SupportNodeInfo,
   VisualPartInfo,
   VisualModelInstanceInfo,
@@ -63,6 +64,7 @@ export interface WireStateHandle {
   port(index: number): PortInfo;
   spanCount(): number;
   span(index: number): SpanInfo;
+  spanLayout(spanId: string): SpanLayoutInfo;
   supportNodeCount(): number;
   supportNode(index: number): SupportNodeInfo;
   backboneEdgeCount(): number;

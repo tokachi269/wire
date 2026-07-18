@@ -513,8 +513,9 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(
     const Vec3d mount_delta_world = mount_socket_world.value - row_reference_world;
     fixture_root.position = final_anchor + mount_delta_world;
   }
+  const Vec3d target_wire_endpoint = fixture_root.position;
   out.value.fixture_root = fixture_root;
-  out.value.wire_endpoint = fixture_root.position;
+  out.value.wire_endpoint = target_wire_endpoint;
 
   if (context.value.assembly != nullptr) {
     const ModelAssemblyPart* socket_part = nullptr;
@@ -535,7 +536,9 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(
       out.error = socket_world.error;
       return out;
     }
-    out.value.wire_endpoint = socket_world.value;
+    fixture_root.position = fixture_root.position + (target_wire_endpoint - socket_world.value);
+    out.value.fixture_root = fixture_root;
+    out.value.wire_endpoint = target_wire_endpoint;
   }
   out.ok = true;
   return out;

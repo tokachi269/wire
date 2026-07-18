@@ -547,6 +547,30 @@ public:
     return output;
   }
 
+  [[nodiscard]] val span_layout(const std::string& span_id_text) const {
+    const ObjectId span_id = span_id_text.empty() || span_id_text == "0"
+                                 ? wire::core::kInvalidObjectId
+                                 : static_cast<ObjectId>(std::stoull(span_id_text));
+    const wire::core::SpanLayoutView layout = state_->span_layout(span_id);
+    if (!layout.has_layout()) {
+      return result_value(false, "span layout is missing");
+    }
+    auto endpoint_value = [](const wire::core::LayoutEndpoint& endpoint) {
+      val output = val::object();
+      output.set("portId", std::to_string(endpoint.port_id));
+      output.set("supportZ", endpoint.support_world.z);
+      output.set("endpointZ", endpoint.endpoint_world.z);
+      output.set("defaultLowerRequired", endpoint.default_lower_required);
+      output.set("lowerRequired", endpoint.lower_required);
+      output.set("branchDownOffset", endpoint.branch_down_offset_m);
+      return output;
+    };
+    val output = result_value(true, {});
+    output.set("start", endpoint_value(layout.entry->start));
+    output.set("end", endpoint_value(layout.entry->end));
+    return output;
+  }
+
   [[nodiscard]] std::size_t support_node_count() const {
     return state_->SavedBackboneResult().nodes.size();
   }
@@ -1116,6 +1140,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("port", &WireState::port)
       .function("spanCount", &WireState::span_count)
       .function("span", &WireState::span)
+      .function("spanLayout", &WireState::span_layout)
       .function("supportNodeCount", &WireState::support_node_count)
       .function("supportNode", &WireState::support_node)
       .function("backboneEdgeCount", &WireState::backbone_edge_count)

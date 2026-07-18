@@ -160,6 +160,20 @@ export interface SpanInfo {
   portBId: string;
 }
 
+export interface SpanLayoutEndpointInfo {
+  portId: string;
+  supportZ: number;
+  endpointZ: number;
+  defaultLowerRequired: boolean;
+  lowerRequired: boolean;
+  branchDownOffset: number;
+}
+
+export interface SpanLayoutInfo extends OperationResult {
+  start: SpanLayoutEndpointInfo | null;
+  end: SpanLayoutEndpointInfo | null;
+}
+
 export interface SupportNodeInfo {
   id: string;
   kind: number;

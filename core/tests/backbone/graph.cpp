@@ -779,6 +779,48 @@ bool has_row_continuity(const wire::core::CoreState& state,
   return false;
 }
 
+bool edge_bundle_lane_exists(const wire::core::CoreState& state,
+                             wire::core::ObjectId edge_bundle_id,
+                             std::size_t lane_index) {
+  if (state.view().backbone_edge_bundle(edge_bundle_id) == nullptr) {
+    return false;
+  }
+  const auto spans_it = state.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
+  if (spans_it == state.view().backbone_index().edge_bundle_span_bindings.end()) {
+    return false;
+  }
+  for (std::size_t index : spans_it->second) {
+    if (index >= state.view().backbone().span_bindings.size()) {
+      continue;
+    }
+    if (state.view().backbone().span_bindings[index].lane_index == lane_index) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool row_continuity_graph_lint_passes(const wire::core::CoreState& state) {
+  std::vector<std::tuple<wire::core::ObjectId, wire::core::ObjectId, std::size_t>> endpoints{};
+  for (const wire::core::SavedBackboneRowContinuity& continuity : state.view().backbone().row_continuities) {
+    if (state.view().backbone_node(continuity.node_id) == nullptr ||
+        !edge_bundle_lane_exists(state, continuity.a.edge_bundle_id, continuity.a.lane_index) ||
+        !edge_bundle_lane_exists(state, continuity.b.edge_bundle_id, continuity.b.lane_index) ||
+        continuity.a.edge_bundle_id == continuity.b.edge_bundle_id) {
+      return false;
+    }
+    for (const auto& endpoint : {
+             std::make_tuple(continuity.node_id, continuity.a.edge_bundle_id, continuity.a.lane_index),
+             std::make_tuple(continuity.node_id, continuity.b.edge_bundle_id, continuity.b.lane_index)}) {
+      if (std::find(endpoints.begin(), endpoints.end(), endpoint) != endpoints.end()) {
+        return false;
+      }
+      endpoints.push_back(endpoint);
+    }
+  }
+  return true;
+}
+
 bool has_row_key(const std::vector<std::tuple<bool, wire::core::ObjectId, wire::core::ObjectId>>& rows,
                  bool is_open,
                  wire::core::ObjectId a,
@@ -3380,6 +3422,20 @@ bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering() 
            almost_equal(endpoint.support_world.z, port->world_position.z, 1e-9) &&
            almost_equal(endpoint.endpoint_world.z, port->world_position.z, 1e-9);
   };
+  auto endpoint_follows_template_policy = [&](const wire::core::CoreState& state,
+                                              const wire::core::LayoutEndpoint& endpoint,
+                                              bool expect_lowered) {
+    const wire::core::Port* port = state.view().ports().find(endpoint.port_id);
+    if (port == nullptr) return false;
+    if (!expect_lowered) {
+      return endpoint_stays_at_port(state, endpoint);
+    }
+    return endpoint.default_lower_required &&
+           endpoint.lower_required &&
+           endpoint.branch_down_offset_m > 1e-9 &&
+           almost_equal(endpoint.support_world.z, port->world_position.z - endpoint.branch_down_offset_m, 1e-9) &&
+           almost_equal(endpoint.endpoint_world.z, endpoint.support_world.z, 1e-9);
+  };
 
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(viewer_default_req(state));
@@ -3411,20 +3467,58 @@ bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering() 
     return false;
   }
 
+  const std::unordered_set<wire::core::ObjectId> branch_span_ids(
+      out.value.generated_span_ids.begin(), out.value.generated_span_ids.end());
   for (const wire::core::Span& span : state.view().spans().items()) {
     const wire::core::Bundle* bundle = state.view().bundles().find(span.bundle_id);
-    if (bundle == nullptr || bundle->bundle_template_id == wire::core::kDefaultHighVoltageBundleTemplateId) {
-      continue;
-    }
+    const auto template_it = bundle == nullptr
+        ? state.view().bundle_templates().end()
+        : state.view().bundle_templates().find(bundle->bundle_template_id);
+    if (bundle == nullptr || template_it == state.view().bundle_templates().end()) return false;
     const wire::core::SpanLayoutView layout = state.span_layout(span.id);
-    if (!layout.has_layout() ||
-        !endpoint_stays_at_port(state, layout.entry->start) ||
-        !endpoint_stays_at_port(state, layout.entry->end)) {
+    if (!layout.has_layout()) {
+      return false;
+    }
+    const bool flagged = branch_span_ids.contains(span.id) &&
+                         template_it->second.enable_branch_down_offset &&
+                         template_it->second.branch_endpoint_offset_m < -1e-9;
+    const wire::core::Port* start_port = state.view().ports().find(layout.entry->start.port_id);
+    const wire::core::Port* end_port = state.view().ports().find(layout.entry->end.port_id);
+    const bool start_at_junction = start_port != nullptr && start_port->owner_pole_id == junction;
+    const bool end_at_junction = end_port != nullptr && end_port->owner_pole_id == junction;
+    if (!endpoint_follows_template_policy(state, layout.entry->start, flagged && start_at_junction) ||
+        !endpoint_follows_template_policy(state, layout.entry->end, flagged && end_at_junction)) {
       return false;
     }
   }
 
   return curve_endpoints_match_layout(state);
+}
+
+bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {
+  {
+    wire::core::CoreState state;
+    const auto out = state.GenerateFromBackboneSpec(line_req(state));
+    if (!out.ok || !row_continuity_graph_lint_passes(state)) return false;
+  }
+  {
+    wire::core::CoreState state;
+    const auto out = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+    if (!out.ok || !row_continuity_graph_lint_passes(state)) return false;
+  }
+  {
+    wire::core::CoreState state;
+    const auto spans = lowering_branch_spans(state);
+    if (spans.empty() || !row_continuity_graph_lint_passes(state)) return false;
+  }
+  {
+    IncrementalCrossFixture cross{};
+    if (!make_incremental_cross(&cross) || !cross.completion.ok ||
+        !row_continuity_graph_lint_passes(cross.state)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace backbone_tests

@@ -765,23 +765,34 @@ describe("wire wasm smoke", () => {
     const poleB = runState.pole(1);
     const beforePoleHvSpanIds = new Set(hvEdgeBodies(runState).map((part) => part.info.sourceSpanId));
 
+    const poleBNode = Array.from({ length: runState.supportNodeCount() }, (_, index) => runState.supportNode(index))
+      .find((node) => node.poleId === poleB.id);
+    expect(poleBNode).toBeDefined();
+    const poleBEdge = Array.from({ length: runState.backboneEdgeCount() }, (_, index) => runState.backboneEdge(index))
+      .find((edge) => edge.nodeAId === poleBNode!.id || edge.nodeBId === poleBNode!.id);
+    expect(poleBEdge).toBeDefined();
+    const otherNodeId = poleBEdge!.nodeAId === poleBNode!.id ? poleBEdge!.nodeBId : poleBEdge!.nodeAId;
+    const otherNode = Array.from({ length: runState.supportNodeCount() }, (_, index) => runState.supportNode(index))
+      .find((node) => node.id === otherNodeId);
+    expect(otherNode).toBeDefined();
     const resolvedPole = runState.resolveBranchPick({
-      hitKind: 1,
-      hitId: poleB.id,
-      hitX: poleB.positionX,
-      hitY: poleB.positionY,
+      hitKind: 2,
+      hitId: "0",
+      hitX: poleB.positionX + 0.12,
+      hitY: poleB.positionY - 0.10,
       hitZ: poleB.positionZ,
-      hasSegmentEndpoints: false,
-      segmentNodeAId: "0",
-      segmentNodeBId: "0",
-      segmentEndpointAX: 0,
-      segmentEndpointAY: 0,
-      segmentEndpointAZ: 0,
-      segmentEndpointBX: 0,
-      segmentEndpointBY: 0,
-      segmentEndpointBZ: 0
+      hasSegmentEndpoints: true,
+      segmentNodeAId: poleBNode!.id,
+      segmentNodeBId: otherNode!.id,
+      segmentEndpointAX: poleBNode!.x,
+      segmentEndpointAY: poleBNode!.y,
+      segmentEndpointAZ: poleBNode!.z,
+      segmentEndpointBX: otherNode!.x,
+      segmentEndpointBY: otherNode!.y,
+      segmentEndpointBZ: otherNode!.z
     }, selectedBundleTemplateIds);
     expect(resolvedPole.ok, resolvedPole.error).toBe(true);
+    expect(resolvedPole.supportKind).toBe(0);
 
     const poleBranch = runState.generatePlacements(
       new Float64Array([

@@ -1189,6 +1189,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental HV promotion preserves the existing open row physical frame",
                          "Invariant", false,
                          C785_backbone_incremental_hv_promotion_preserves_existing_row_frame);
+  test_registry::AddTest(tests, "C786_hash_mix_has_one_production_definition",
+                         "hash mix helpers have one shared production definition",
+                         "Boundary", false,
+                         C786_hash_mix_has_one_production_definition);
 }
 
 

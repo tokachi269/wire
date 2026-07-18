@@ -3,6 +3,7 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
+#include "../../support/hash_mix.hpp"
 #include "out.hpp"
 #include "population.hpp"
 #include "span_visual_assembly.hpp"
@@ -112,16 +113,7 @@ bool cable_section_less_for_run(const CableSectionKey& a, const CableSectionKey&
   return a.instance_index < b.instance_index;
 }
 
-std::uint64_t splitmix64(std::uint64_t x) {
-  x += 0x9E3779B97F4A7C15ull;
-  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
-  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
-  return x ^ (x >> 31);
-}
-
-std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
-  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
-}
+using support::hash_combine;
 
 CableRunId run_id_from_canonical_section(const CableSectionKey& key) {
   std::uint64_t hash = hash_combine(0, static_cast<std::uint64_t>(key.edge_bundle_id));

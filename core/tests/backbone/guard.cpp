@@ -1872,4 +1872,35 @@ bool C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materiali
          !contains_text(materialize_body, "resolve_endpoint_placement(state, *port, 0.0);");
 }
 
+bool C786_hash_mix_has_one_production_definition() {
+  std::size_t splitmix_definitions = 0;
+  std::size_t combine_definitions = 0;
+  const std::filesystem::path root = repo_root() / "core/src";
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    const std::string ext = entry.path().extension().string();
+    if (ext != ".cpp" && ext != ".hpp") {
+      continue;
+    }
+    std::string source{};
+    if (!file_text(entry.path(), &source)) {
+      return false;
+    }
+    for (std::size_t pos = source.find("splitmix64(std::uint64_t");
+         pos != std::string::npos;
+         pos = source.find("splitmix64(std::uint64_t", pos + 1)) {
+      ++splitmix_definitions;
+    }
+    for (std::size_t pos = source.find("hash_combine(std::uint64_t");
+         pos != std::string::npos;
+         pos = source.find("hash_combine(std::uint64_t", pos + 1)) {
+      ++combine_definitions;
+    }
+  }
+  return splitmix_definitions == 1 && combine_definitions == 1 &&
+         std::filesystem::exists(root / "support/hash_mix.hpp");
+}
+
 } // namespace backbone_tests

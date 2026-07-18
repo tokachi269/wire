@@ -3,6 +3,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "../support/hash_mix.hpp"
 #include "detail_curve_input_resolution.hpp"
 #include "curve_support.hpp"
 
@@ -16,16 +17,7 @@ constexpr double kZeroLengthEps = 1e-9;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kTwoPi = 2.0 * kPi;
 
-std::uint64_t splitmix64(std::uint64_t x) {
-  x += 0x9E3779B97F4A7C15ull;
-  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
-  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
-  return x ^ (x >> 31);
-}
-
-std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
-  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
-}
+using support::hash_combine;
 
 double unit_noise_from_u64(std::uint64_t value) {
   return static_cast<double>(value >> 11) * (1.0 / static_cast<double>(1ull << 53));

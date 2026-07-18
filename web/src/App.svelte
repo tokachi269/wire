@@ -6,7 +6,7 @@
   import Outliner from "./panels/Outliner.svelte";
   import SelectionInspector from "./panels/SelectionInspector.svelte";
   import { buildInfo } from "./buildInfo";
-  import { bundleTemplateCategory, categoryShort } from "./labels";
+  import { categoryShort } from "./labels";
   import type { GenerationTiming } from "./model";
   import {
     createViewerSnapshot,
@@ -259,12 +259,12 @@
             </div>
             {#each snapshot.drawBundlePlacements as placement (placement.id)}
               {@const template = snapshot.bundleTemplates.find((item) => item.id === placement.bundleTemplateId)}
-              {#if template !== undefined && bundleTemplateCategory(template) !== 4}
+              {#if template !== undefined && template.category !== 4}
                 {@const siblings = snapshot.drawBundlePlacements.filter((item) => item.bundleTemplateId === template.id)}
                 {@const index = siblings.findIndex((item) => item.id === placement.id)}
                 <div class="bundle-placement">
                   <span class="bundle-placement-name">
-                    <strong>{categoryShort(bundleTemplateCategory(template))}{siblings.length > 1 ? ` ${index + 1}` : ""}</strong>
+                    <strong>{categoryShort(template.category)}{siblings.length > 1 ? ` ${index + 1}` : ""}</strong>
                     <button class="bundle-placement-add" type="button"
                       aria-label={`Duplicate ${template.name}`} title="Duplicate bundle placement"
                       onclick={() => actions.duplicateDrawBundlePlacement(placement.id)}>+</button>

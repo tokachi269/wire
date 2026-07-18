@@ -22,7 +22,6 @@ import type {
 import { createViewerSnapshot } from "../store/viewer";
 import type { WorkspacePreferences } from "../store/workspace";
 import { WorkspaceCache } from "../store/workspace";
-import { bundleTemplateCategory } from "../labels";
 import { DEFAULT_BUNDLE_PRESET } from "../profile/defaultBundlePreset";
 
 function targetTemplateLayerForCategory(category: number): number {
@@ -35,7 +34,7 @@ function bundlePlacementDefault(
   template: BundleTemplateInfo,
   poleTemplate: PoleTemplateInfo | undefined
 ): Pick<BundlePlacement, "height" | "offset" | "spacing"> {
-  const category = bundleTemplateCategory(template);
+  const category = template.category;
   const targetLayer = targetTemplateLayerForCategory(category);
   const laneCount = template.fixedCount ? template.fixedCountValue : template.defaultCount;
   const candidates = (poleTemplate?.portBands ?? [])
@@ -103,7 +102,7 @@ export class ViewerActions {
     const cableTemplates = this.bridge.cableTemplates();
     const poleTemplates = this.bridge.poleTemplates();
     const defaultBundleId =
-      bundleTemplates.find((template) => bundleTemplateCategory(template) === 0)?.id ??
+      bundleTemplates.find((template) => template.category === 0)?.id ??
       bundleTemplates[0]?.id ??
       null;
     const defaultCableId =

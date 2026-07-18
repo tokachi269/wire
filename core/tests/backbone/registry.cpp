@@ -1193,6 +1193,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "hash mix helpers have one shared production definition",
                          "Boundary", false,
                          C786_hash_mix_has_one_production_definition);
+  test_registry::AddTest(tests, "C787_web_bundle_template_category_has_no_layer_fallback",
+                         "web bundle template category is read from the marshalled template payload",
+                         "Boundary", false,
+                         C787_web_bundle_template_category_has_no_layer_fallback);
 }
 
 

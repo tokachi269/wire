@@ -314,7 +314,7 @@ describe("viewer actions", () => {
       ],
       bundleTemplates: [
         {
-          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, defaultSpacing: 0.2, fixedCount: true,
+          id: 102, kind: 0, category: 1, name: "DEFAULT_SINGLE", defaultCount: 1, defaultSpacing: 0.2, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMidairNode: true, allowMidairBranch: true,
@@ -350,6 +350,7 @@ describe("viewer actions", () => {
 const bundleTemplate: BundleTemplateInfo = {
   id: 102,
   kind: 0,
+  category: 1,
   name: "DEFAULT_SINGLE",
   defaultCount: 1,
   defaultSpacing: 0.2,

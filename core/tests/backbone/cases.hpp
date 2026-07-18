@@ -393,5 +393,6 @@ bool C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_a
 bool C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization();
 bool C785_backbone_incremental_hv_promotion_preserves_existing_row_frame();
 bool C786_hash_mix_has_one_production_definition();
+bool C787_web_bundle_template_category_has_no_layer_fallback();
 
 } // namespace backbone_tests

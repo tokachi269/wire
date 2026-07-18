@@ -1903,4 +1903,23 @@ bool C786_hash_mix_has_one_production_definition() {
          std::filesystem::exists(root / "support/hash_mix.hpp");
 }
 
+bool C787_web_bundle_template_category_has_no_layer_fallback() {
+  std::string labels{};
+  std::string model{};
+  std::string actions{};
+  std::string app{};
+  if (!file_text(repo_root() / "web/src/labels.ts", &labels) ||
+      !file_text(repo_root() / "web/src/model.ts", &model) ||
+      !file_text(repo_root() / "web/src/actions/viewer.ts", &actions) ||
+      !file_text(repo_root() / "web/src/App.svelte", &app)) {
+    return false;
+  }
+  return !contains_text(labels, "categoryFromSpanLayer") &&
+         !contains_text(labels, "bundleTemplateCategory") &&
+         !contains_text(model, "category?: number") &&
+         contains_text(model, "category: number") &&
+         !contains_text(actions, "bundleTemplateCategory") &&
+         !contains_text(app, "bundleTemplateCategory");
+}
+
 } // namespace backbone_tests

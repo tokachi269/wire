@@ -205,7 +205,7 @@ export interface ResolvedPathPointInfo {
 export interface BundleTemplateInfo {
   id: number;
   kind: number;
-  category?: number;
+  category: number;
   name: string;
   defaultCount: number;
   defaultSpacing: number;

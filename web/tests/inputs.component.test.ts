@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import App from "../src/App.svelte";
 import { ViewerActions } from "../src/actions/viewer";
 import { WireBridge } from "../src/bridge/wire";
-import { bundleTemplateCategory } from "../src/labels";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 
 describe("viewer numeric inputs", () => {
@@ -31,10 +30,10 @@ describe("viewer numeric inputs", () => {
         )
       }))
       .filter((entry) => entry.template !== undefined &&
-        bundleTemplateCategory(entry.template) !== 4);
+        entry.template.category !== 4);
 
-    expect(visible.map((entry) => bundleTemplateCategory(entry.template!))).not.toContain(4);
-    expect(bundleTemplateCategory(visible[0].template!)).toBe(0);
+    expect(visible.map((entry) => entry.template!.category)).not.toContain(4);
+    expect(visible[0].template!.category).toBe(0);
     expect(visible.map((entry) => entry.placement.height)).toEqual(
       [...visible.map((entry) => entry.placement.height)].sort((a, b) => b - a)
     );
@@ -71,7 +70,7 @@ describe("viewer numeric inputs", () => {
   it("duplicates a Bundle placement and generates independent support and helix output", async () => {
     const mounted = await mountViewer(false);
     const optical = current(mounted.store).bundleTemplates.find((template) =>
-      bundleTemplateCategory(template) === 3
+      template.category === 3
     );
     const source = current(mounted.store).drawBundlePlacements.find(
       (placement) => placement.bundleTemplateId === optical?.id

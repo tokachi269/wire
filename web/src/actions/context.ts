@@ -115,6 +115,10 @@ export class ViewerActionContext {
     return this.bridge.loadState(this.factoryCoreState);
   }
 
+  currentCoreState(): string {
+    return this.bridge.saveState();
+  }
+
   async readWorkspaceCache(): Promise<Awaited<ReturnType<WorkspaceCache["read"]>> | null> {
     return this.workspaceCache?.read() ?? null;
   }
@@ -125,7 +129,7 @@ export class ViewerActionContext {
 
   async writeWorkspaceCache(): Promise<void> {
     if (this.workspaceCache === null) return;
-    await this.workspaceCache.write(this.bridge.saveState(), this.readSnapshot());
+    await this.workspaceCache.write(this.currentCoreState(), this.readSnapshot());
   }
 
   hasWorkspaceCache(): boolean {

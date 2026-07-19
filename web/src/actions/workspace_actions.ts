@@ -6,7 +6,12 @@ import {
 } from "./draw_defaults";
 import { DEFAULT_BUNDLE_PRESET } from "../profile/defaultBundlePreset";
 import { createViewerSnapshot } from "../store/viewer";
-import type { WorkspacePreferences } from "../store/workspace";
+import {
+  createWorkspaceDocument,
+  parseWorkspaceDocument,
+  serializeWorkspaceDocument,
+  type WorkspacePreferences
+} from "../store/workspace";
 
 export class WorkspaceActions {
   constructor(private readonly ctx: ViewerActionContext) {}
@@ -89,6 +94,51 @@ export class WorkspaceActions {
       ...current,
       logs: [...current.logs, "repro trace downloaded"]
     }));
+  }
+
+  async exportWorkspaceText(): Promise<string> {
+    const document = createWorkspaceDocument(this.ctx.currentCoreState(), this.ctx.readSnapshot());
+    return serializeWorkspaceDocument(document);
+  }
+
+  async exportWorkspaceFile(): Promise<void> {
+    const text = await this.exportWorkspaceText();
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `wire-workspace-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    this.ctx.store.update((current) => ({
+      ...current,
+      logs: [...current.logs, "workspace downloaded"]
+    }));
+  }
+
+  async importWorkspaceText(text: string): Promise<void> {
+    const document = await parseWorkspaceDocument(text);
+    if (document === null) {
+      this.ctx.store.setError("Workspace import failed: invalid workspace document");
+      return;
+    }
+    const result = this.ctx.bridge.loadState(document.coreState);
+    if (!result.ok) {
+      this.ctx.store.setError(`Workspace import failed: ${result.error}`);
+      return;
+    }
+    this.ctx.refreshCatalogs();
+    this.restoreWorkspacePreferences(document.viewer);
+    this.ctx.store.update((current) => ({
+      ...current,
+      geometry: this.ctx.bridge.geometrySettings(),
+      layout: this.ctx.bridge.layoutSettings(),
+      visual: this.ctx.bridge.visualSettings(),
+      error: ""
+    }));
+    this.ctx.refreshScene();
+    await this.flushWorkspaceCache();
   }
 
   async resetWorkspace(): Promise<void> {

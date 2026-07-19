@@ -76,6 +76,23 @@ export interface WorkspaceDocument {
   viewer: WorkspacePreferences;
 }
 
+export function createWorkspaceDocument(coreState: string, snapshot: ViewerSnapshot): WorkspaceDocument {
+  return {
+    version: WORKSPACE_VERSION,
+    coreState,
+    viewer: captureWorkspacePreferences(snapshot)
+  };
+}
+
+export async function serializeWorkspaceDocument(document: WorkspaceDocument): Promise<string> {
+  return encodeWorkspaceText(JSON.stringify(document));
+}
+
+export async function parseWorkspaceDocument(text: string): Promise<WorkspaceDocument | null> {
+  const value: unknown = JSON.parse(await decodeWorkspaceText(text));
+  return isWorkspaceDocument(value) ? value : null;
+}
+
 export function captureWorkspacePreferences(
   snapshot: ViewerSnapshot
 ): WorkspacePreferences {
@@ -121,12 +138,12 @@ export class WorkspaceCache {
     }
     if (text === null) return null;
     try {
-      const value: unknown = JSON.parse(await decodeWorkspaceText(text));
-      if (!isWorkspaceDocument(value)) {
+      const document = await parseWorkspaceDocument(text);
+      if (document === null) {
         void this.clear();
         return null;
       }
-      return value;
+      return document;
     } catch {
       void this.clear();
       return null;
@@ -135,13 +152,9 @@ export class WorkspaceCache {
 
   write(coreState: string, snapshot: ViewerSnapshot): Promise<void> {
     if (coreState.length === 0) return Promise.resolve();
-    const document: WorkspaceDocument = {
-      version: WORKSPACE_VERSION,
-      coreState,
-      viewer: captureWorkspacePreferences(snapshot)
-    };
+    const document = createWorkspaceDocument(coreState, snapshot);
     return this.enqueue(async () => {
-      const text = await encodeWorkspaceText(JSON.stringify(document));
+      const text = await serializeWorkspaceDocument(document);
       await this.storage.set(WORKSPACE_CACHE_KEY, text);
     });
   }

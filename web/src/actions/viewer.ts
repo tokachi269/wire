@@ -121,6 +121,18 @@ export class ViewerActions {
     this.workspace.exportReproCapture();
   }
 
+  exportWorkspaceText(): Promise<string> {
+    return this.workspace.exportWorkspaceText();
+  }
+
+  exportWorkspaceFile(): Promise<void> {
+    return this.workspace.exportWorkspaceFile();
+  }
+
+  importWorkspaceText(text: string): Promise<void> {
+    return this.workspace.importWorkspaceText(text);
+  }
+
   resetWorkspace(): Promise<void> {
     return this.workspace.resetWorkspace();
   }

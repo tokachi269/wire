@@ -151,6 +151,50 @@ describe("workspace cache", () => {
 
     expect((await cache.read())?.coreState).toBe("plain-core-state");
   });
+
+  it("exports compressed workspace text and imports compressed or legacy plain documents", async () => {
+    const sourceStore = new ViewerStore();
+    const sourceActions = new ViewerActions(
+      actionBridge({
+        saveState: () => "workspace-core-state"
+      }),
+      sourceStore
+    );
+    sourceActions.initialize();
+    sourceActions.setDrawOption("cameraFov", 66);
+
+    const exported = await sourceActions.exportWorkspaceText();
+    expect(exported.startsWith("{")).toBe(false);
+    expect(JSON.parse(await decodeWorkspaceText(exported)).coreState).toBe("workspace-core-state");
+
+    let loadedState = "";
+    const targetStore = new ViewerStore();
+    const targetActions = new ViewerActions(
+      actionBridge({
+        loadState: (text: string) => {
+          loadedState = text;
+          return { ok: true, error: "" };
+        }
+      }),
+      targetStore
+    );
+    targetActions.initialize();
+    await targetActions.importWorkspaceText(exported);
+    expect(loadedState).toBe("workspace-core-state");
+    expect(current(targetStore).cameraFov).toBe(66);
+
+    const legacyPlain = JSON.stringify({
+      version: 1,
+      coreState: "plain-file-core",
+      viewer: {
+        ...current(sourceStore),
+        cameraFov: 71
+      }
+    });
+    await targetActions.importWorkspaceText(legacyPlain);
+    expect(loadedState).toBe("plain-file-core");
+    expect(current(targetStore).cameraFov).toBe(71);
+  });
 });
 
 function timing(totalMs: number): GenerationTiming {

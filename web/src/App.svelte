@@ -201,6 +201,9 @@
       <button class="secondary" type="button" onclick={() => actions.exportReproCapture()}>
         Repro capture
       </button>
+      <button class="secondary mini-action" type="button" onclick={() => void actions.exportWorkspaceFile()}>
+        Export
+      </button>
       <button class="secondary" type="button" onclick={() => actions.resetWorkspace()}>
         Reset
       </button>

@@ -3575,6 +3575,9 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
   };
   auto viewer_default_req = [&](wire::core::CoreState& state) {
     wire::core::BackboneSpec req = poly3_req(state);
+    req.pole_type_id = 2;
+    req.pole_placement.enable_tilt = true;
+    req.pole_placement.max_tilt_deg = 12.0;
     req.bundles.clear();
     req.bundles.push_back(
         explicit_bundle(state, wire::core::BundleKind::kHighVoltage, 1, 3, 9.2, -0.2, 0.45));
@@ -3613,11 +3616,17 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
     if (!expect_lowered) {
       return endpoint_stays_at_port(state, endpoint);
     }
+    const wire::core::Pole* pole = state.view().poles().find(port->owner_pole_id);
+    if (pole == nullptr) return false;
+    const double layout_yaw = state.effective_port_layout_yaw_deg(*pole, port->id, port->category);
+    const wire::core::PoleFrame frame = wire::core::BuildPoleFrame(pole->world_transform, layout_yaw);
+    const wire::core::Vec3d port_local = wire::core::WorldPointToLocal(frame, port->world_position);
+    const wire::core::Vec3d endpoint_local = wire::core::WorldPointToLocal(frame, endpoint.endpoint_world);
     return endpoint.default_lower_required &&
            endpoint.lower_required &&
            endpoint.branch_down_offset_m > 1e-9 &&
-           almost_equal(endpoint.support_world.z, port->world_position.z - endpoint.branch_down_offset_m, 1e-9) &&
-           almost_equal(endpoint.endpoint_world.z, endpoint.support_world.z, 1e-9);
+           almost_equal(endpoint_local.z, port_local.z - endpoint.branch_down_offset_m, 1e-9) &&
+           almost_equal(endpoint.endpoint_world, endpoint.support_world, 1e-9);
   };
 
   wire::core::CoreState state;
@@ -3627,6 +3636,10 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
     return false;
   }
   const wire::core::ObjectId junction = first.value.generated_pole_ids[1];
+  std::unordered_map<wire::core::ObjectId, wire::core::Vec3d> port_positions_before{};
+  for (const wire::core::Port& port : state.view().ports().items()) {
+    port_positions_before.emplace(port.id, port.world_position);
+  }
   const wire::core::Pole* pole = state.view().poles().find(junction);
   if (pole == nullptr) return false;
   const wire::core::SavedBackboneNode* junction_node = state.view().backbone_node_for_pole(junction);
@@ -3714,6 +3727,12 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
     const bool end_at_junction = end_port != nullptr && end_port->owner_pole_id == junction;
     if (!endpoint_follows_template_policy(state, layout.entry->start, flagged && start_at_junction) ||
         !endpoint_follows_template_policy(state, layout.entry->end, flagged && end_at_junction)) {
+      return false;
+    }
+  }
+  for (const auto& [port_id, before_position] : port_positions_before) {
+    const wire::core::Port* after_port = state.view().ports().find(port_id);
+    if (after_port == nullptr || !almost_equal(after_port->world_position, before_position, 1e-9)) {
       return false;
     }
   }

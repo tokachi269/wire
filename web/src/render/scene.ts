@@ -30,6 +30,7 @@ export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
 const SUPPORT_PATH_SUPPLEMENTAL_KIND = 1;
 const BACKBONE_NODE_SNAP_PX = 24;
+const BACKBONE_ENDPOINT_SNAP_PX = 40;
 const BACKBONE_EDGE_SNAP_PX = 16;
 
 export function makeBackbonePick(point: WorldPoint, hitKind: number, hitId: string): PathPickInfo {
@@ -461,6 +462,17 @@ export class WireScene {
       const screenA = this.projectToCanvas(new THREE.Vector3(nodeA.x, nodeA.y, BACKBONE_DISPLAY_PLANE_Z), bounds);
       const screenB = this.projectToCanvas(new THREE.Vector3(nodeB.x, nodeB.y, BACKBONE_DISPLAY_PLANE_Z), bounds);
       if (screenA === null || screenB === null) continue;
+      const distanceA = screenA.distanceTo(pointerPx);
+      const distanceB = screenB.distanceTo(pointerPx);
+      if (distanceA <= BACKBONE_ENDPOINT_SNAP_PX || distanceB <= BACKBONE_ENDPOINT_SNAP_PX) {
+        const useA = distanceA <= distanceB;
+        const node = useA ? nodeA : nodeB;
+        const point: WorldPoint = [node.x, node.y, node.z];
+        return {
+          point,
+          pick: makeBackbonePick(point, 1, backboneNodeHitId(node))
+        };
+      }
       const dx = screenB.x - screenA.x;
       const dy = screenB.y - screenA.y;
       const length2 = dx * dx + dy * dy;

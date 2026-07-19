@@ -86,6 +86,7 @@ pole表面へ直接取り付けるportや部品は、中心軸原点を変えず
 表面位置を導出する。表面位置を既定offsetへ混ぜず、laneごとに後処理してbundle重心をずらしてはならない。
 
 pair row axisは`pairs make(graph)`だけが決める。
+route/orderはactive route link内だけの導出補助であり、contextとして読まれた保存済みedgeの継続はsaved pair/row continuity recordを正本にする。
 通常cornerでは前後linkの単位接線和から二等分方向を作り、その直交方向をrow axisにする。
 径間長の差でrow axisを回さず、各incident spanのlane順が反転しない範囲に保つ。
 鋭角cornerは共有pair rowにせず、各incident edgeに直交する2つのopen rowと明示jumper relationへ分ける。

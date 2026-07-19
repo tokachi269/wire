@@ -1412,6 +1412,58 @@ bool C775_backbone_incremental_canonical_pair_survives_save_load() {
   return snapshots_match(before, after) && curve_endpoints_match_layout(loaded);
 }
 
+bool C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore() {
+  wire::core::CoreState source;
+  wire::core::BackboneSpec base = poly3_req(source);
+  base.bundles.clear();
+  add_backbone_bundle(base, wire::core::BundleKind::kHighVoltage);
+  add_backbone_bundle(base, wire::core::BundleKind::kLowVoltage);
+  const auto abc = source.GenerateFromBackboneSpec(base);
+  if (!abc.ok || abc.value.generated_pole_ids.size() != 3 ||
+      abc.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId pole_b = abc.value.generated_pole_ids[1];
+  const wire::core::Pole* b = source.view().poles().find(pole_b);
+  const wire::core::SavedBackboneNode* node_b = source.view().backbone_node_for_pole(pole_b);
+  if (b == nullptr || node_b == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = base;
+  branch.path.polyline = {{12.0, -8.0, 0.0}, b->world_transform.position};
+  branch.path.node_specs = {pole_spec(1, pole_b)};
+  const auto bd = source.GenerateFromBackboneSpec(branch);
+  if (!bd.ok || bd.value.generated_pole_ids.size() != 1 ||
+      bd.value.generated_span_ids.size() != 4) {
+    return false;
+  }
+  const JunctionRowSnapshot before = junction_snapshot(source, pole_b);
+  if (before.pair_rows != 1 || before.open_rows != 1 ||
+      !row_continuity_graph_lint_passes(source) ||
+      !curve_endpoints_match_layout(source)) {
+    return false;
+  }
+  const std::size_t before_span_count = source.view().spans().size();
+  const std::size_t before_part_count = source.view().visual_curve_parts().parts.size();
+  std::string saved{};
+  const auto serialized = source.SerializeAuthoritative(&saved);
+  if (!serialized.ok) {
+    return false;
+  }
+
+  wire::core::CoreState loaded;
+  const auto deserialized = loaded.DeserializeAuthoritative(saved);
+  if (!deserialized.ok) {
+    return false;
+  }
+  const JunctionRowSnapshot after = junction_snapshot(loaded, pole_b);
+  return loaded.view().spans().size() == before_span_count &&
+         loaded.view().visual_curve_parts().parts.size() == before_part_count &&
+         snapshots_match(before, after) &&
+         row_continuity_graph_lint_passes(loaded) &&
+         curve_endpoints_match_layout(loaded);
+}
+
 bool C776_backbone_incremental_canonical_pair_survives_regenerate() {
   IncrementalCrossFixture fixture{};
   if (!make_incremental_cross(&fixture) || !fixture.completion.ok || !canonical_cross_at_b(fixture)) {

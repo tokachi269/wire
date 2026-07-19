@@ -1344,6 +1344,10 @@ bool moved_more_than_epsilon(const Vec3d& lhs, const Vec3d& rhs) {
   return d.x * d.x + d.y * d.y + d.z * d.z > 1e-18;
 }
 
+bool participates_in_route_order_continuity(const link& edge) {
+  return edge.is_new;
+}
+
 } // namespace
 
 void pipeline::retire_untouched(route* route) {
@@ -2137,11 +2141,42 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     };
     std::sort(incoming.begin(), incoming.end(), link_less);
     std::sort(outgoing.begin(), outgoing.end(), link_less);
-    auto is_continuation = [&](const link& a, const link& b) {
-      const bool same_route = a.route == b.route && a.order + 1 == b.order;
-      const bool saved_pair = is_saved_pair_continuation(state_, n, a, b);
-      const bool terminal_extension = is_promoted_open_continuation(state_, n, a, b);
-      return same_route || saved_pair || terminal_extension;
+    auto is_route_order_continuation = [&](const link& a, const link& b) {
+      return participates_in_route_order_continuity(a) &&
+             participates_in_route_order_continuity(b) &&
+             a.route == b.route && a.order + 1 == b.order;
+    };
+    auto is_canonical_continuation = [&](const link& a, const link& b) {
+      return is_route_order_continuation(a, b) || is_saved_pair_continuation(state_, n, a, b);
+    };
+    auto has_canonical_for_right = [&](std::size_t right) {
+      const link& b = out.value.links[right];
+      for (std::size_t left : incoming) {
+        if (is_canonical_continuation(out.value.links[left], b)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    auto has_canonical_for_left = [&](std::size_t left) {
+      const link& a = out.value.links[left];
+      for (std::size_t right : outgoing) {
+        if (is_canonical_continuation(a, out.value.links[right])) {
+          return true;
+        }
+      }
+      return false;
+    };
+    auto is_continuation = [&](std::size_t left, std::size_t right) {
+      const link& a = out.value.links[left];
+      const link& b = out.value.links[right];
+      if (is_canonical_continuation(a, b)) {
+        return true;
+      }
+      if (has_canonical_for_left(left) || has_canonical_for_right(right)) {
+        return false;
+      }
+      return is_promoted_open_continuation(state_, n, a, b);
     };
 
     for (std::size_t right : outgoing) {
@@ -2151,7 +2186,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       for (std::size_t left : incoming) {
         const link& a = out.value.links[left];
         const link& b = out.value.links[right];
-        if (is_continuation(a, b)) {
+        if (is_continuation(left, right)) {
           ++candidates;
           sharp_candidates += is_sharp_corner_continuation(a, b) ? 1 : 0;
           promoted_candidates += is_promoted_open_continuation(state_, n, a, b) ? 1 : 0;
@@ -2173,11 +2208,11 @@ EditResult<pairs> pipeline::make(const graph& made) const {
         if (aused[right]) {
           continue;
         }
-        const link& a = out.value.links[left];
-        const link& b = out.value.links[right];
-        if (!is_continuation(a, b)) {
+        if (!is_continuation(left, right)) {
           continue;
         }
+        const link& a = out.value.links[left];
+        const link& b = out.value.links[right];
         ++candidate_count;
         sharp_candidate_count += is_sharp_corner_continuation(a, b) ? 1 : 0;
       }
@@ -2190,7 +2225,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
         }
         const link& a = out.value.links[left];
         const link& b = out.value.links[right];
-        if (!is_continuation(a, b)) {
+        if (!is_continuation(left, right)) {
           continue;
         }
         const bool current_sharp = is_sharp_corner_continuation(a, b);

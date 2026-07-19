@@ -1245,6 +1245,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "model placement rules adapt legacy fixture fields and expose interval anchors",
                          "Boundary", false,
                          C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors);
+  test_registry::AddTest(tests, "C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore",
+                         "generation-scoped route order does not create ambiguous saved T branch restore",
+                         "Invariant", false,
+                         C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore);
   test_registry::AddTest(tests, "C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross",
                          "row continuity graph lint covers route branch and cross outputs",
                          "Boundary", false,

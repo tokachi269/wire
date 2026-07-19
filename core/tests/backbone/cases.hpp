@@ -409,5 +409,6 @@ bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross();
 bool C802_backbone_viewer_default_reverse_t_branch_keeps_hv_and_only_flagged_lowering();
 bool C803_model_mount_graph_resolves_depth_four_chain();
 bool C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors();
+bool C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore();
 
 } // namespace backbone_tests

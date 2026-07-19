@@ -479,7 +479,7 @@ bool C442_backbone_edge_forward_uses_saved_ref() {
     return false;
   }
   std::string body;
-  if (!function_body(cpp, "EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps)", &body)) {
+  if (!function_body(cpp, "EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,", &body)) {
     return false;
   }
   return contains_text(body, "std::vector<SavedBackboneEdgeRef>") && contains_text(body, "stored.node_a") &&
@@ -1188,6 +1188,64 @@ bool canonical_cross_at_b(const IncrementalCrossFixture& fixture) {
   return bd != wire::core::kInvalidObjectId && be != wire::core::kInvalidObjectId &&
          snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
          has_row_key(snapshot.row_keys, false, bd, be);
+}
+
+std::vector<double> hv_row_down_offsets_at_pole(const wire::core::CoreState& state,
+                                                wire::core::ObjectId pole_id) {
+  std::vector<std::pair<wire::core::SavedBackboneRowKey, double>> rows{};
+  const wire::core::SavedBackboneNode* node = state.view().backbone_node_for_pole(pole_id);
+  if (node == nullptr) {
+    return {};
+  }
+  const wire::core::BundleTemplateId hv_template_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
+  for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (binding.row_key.node_id != node->node_id ||
+        binding.bundle_template_id != hv_template_id ||
+        binding.lane_index != 0) {
+      continue;
+    }
+    const auto existing = std::find_if(rows.begin(), rows.end(), [&](const auto& item) {
+      return item.first == binding.row_key;
+    });
+    if (existing != rows.end()) {
+      continue;
+    }
+    bool found = false;
+    double down_offset_m = 0.0;
+    for (const wire::core::Span& span : state.view().spans().items()) {
+      const wire::core::SpanLayoutView layout = state.span_layout(span.id);
+      if (!layout.has_layout()) {
+        continue;
+      }
+      const wire::core::LayoutEndpoint* endpoint = nullptr;
+      if (layout.entry->start.port_id == binding.port_id) {
+        endpoint = &layout.entry->start;
+      } else if (layout.entry->end.port_id == binding.port_id) {
+        endpoint = &layout.entry->end;
+      }
+      if (endpoint == nullptr) {
+        continue;
+      }
+      if (found && !almost_equal(down_offset_m, endpoint->branch_down_offset_m, 1e-9)) {
+        return {};
+      }
+      found = true;
+      down_offset_m = endpoint->branch_down_offset_m;
+    }
+    if (!found) {
+      return {};
+    }
+    rows.push_back({binding.row_key, down_offset_m});
+  }
+  std::vector<double> offsets{};
+  offsets.reserve(rows.size());
+  for (const auto& [row_key, offset] : rows) {
+    static_cast<void>(row_key);
+    offsets.push_back(offset);
+  }
+  std::sort(offsets.begin(), offsets.end());
+  return offsets;
 }
 
 } // namespace
@@ -3452,7 +3510,7 @@ bool C500_backbone_context_link_requires_saved_edge_ref() {
   std::string ref_body;
   std::string save_body;
   if (!function_body(cpp, "SavedBackboneEdgeRef ref_for_existing_edge", &ref_body) ||
-      !function_body(cpp, "EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps)", &save_body)) {
+      !function_body(cpp, "EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,", &save_body)) {
     return false;
   }
   return contains_text(ref_body, "edge.saved == kInvalidObjectId") && !contains_text(ref_body, "saved_edge_for") &&
@@ -3817,6 +3875,118 @@ bool C808_backbone_branch_lowering_uses_template_flag_not_hv_category() {
     }
   }
   return hv_spans == 3 && lv_spans == 1 && curve_endpoints_match_layout(state);
+}
+
+bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
+  wire::core::CoreState state;
+  const wire::core::BundleTemplate& hv =
+      state.view().bundle_templates().at(
+          wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage));
+  const double step = std::max(0.0, -hv.branch_endpoint_offset_m);
+  if (!hv.enable_branch_down_offset || step <= 0.0) {
+    return false;
+  }
+  const auto expected = [&](const wire::core::CoreState& current,
+                            wire::core::ObjectId pole_id,
+                            std::initializer_list<double> levels) {
+    const std::vector<double> actual = hv_row_down_offsets_at_pole(current, pole_id);
+    if (actual.size() != levels.size()) {
+      return false;
+    }
+    std::size_t index = 0;
+    for (double level : levels) {
+      if (!almost_equal(actual[index], level * step, 1e-9)) {
+        return false;
+      }
+      ++index;
+    }
+    return true;
+  };
+  const auto use_explicit_hv_placement = [](wire::core::BackboneSpec* request) {
+    if (request == nullptr || request->bundles.size() != 1) {
+      return false;
+    }
+    wire::core::BackboneBundleSpec& bundle = request->bundles.front();
+    bundle.placement_key = 1;
+    bundle.placement_explicit = true;
+    bundle.count = 3;
+    bundle.height_m = 9.2;
+    bundle.lateral_m = -0.2;
+    bundle.spacing_m = 0.45;
+    return true;
+  };
+  const auto add_hv_edge = [&](wire::core::ObjectId junction,
+                               const wire::core::Vec3d& point,
+                               bool junction_at_end) {
+    const wire::core::Pole* pole = state.view().poles().find(junction);
+    if (pole == nullptr) {
+      return false;
+    }
+    wire::core::BackboneSpec request = line_req(state);
+    request.bundles.clear();
+    add_backbone_bundle(request, wire::core::BundleKind::kHighVoltage);
+    if (!use_explicit_hv_placement(&request)) {
+      return false;
+    }
+    request.path.polyline = junction_at_end
+                                ? std::vector<wire::core::Vec3d>{point, pole->world_transform.position}
+                                : std::vector<wire::core::Vec3d>{pole->world_transform.position, point};
+    request.path.node_specs = {pole_spec(junction_at_end ? 1 : 0, junction)};
+    const auto result = state.GenerateFromBackboneSpec(request);
+    return result.ok && result.value.generated_pole_ids.size() == 1;
+  };
+
+  wire::core::BackboneSpec base_request = hv_poly3_req(state);
+  if (!use_explicit_hv_placement(&base_request)) {
+    return false;
+  }
+  const auto base = state.GenerateFromBackboneSpec(base_request);
+  if (!base.ok || base.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId junction = base.value.generated_pole_ids[1];
+  if (!expected(state, junction, {0.0}) ||
+      !add_hv_edge(junction, {20.0, -8.0, 0.0}, false) ||
+      !expected(state, junction, {0.0, 1.0}) ||
+      !add_hv_edge(junction, {4.0, 8.0, 0.0}, true) ||
+      !expected(state, junction, {0.0, 1.0}) ||
+      !add_hv_edge(junction, {20.0, 8.0, 0.0}, false) ||
+      !expected(state, junction, {0.0, 1.0, 2.0}) ||
+      !add_hv_edge(junction, {4.0, -8.0, 0.0}, true) ||
+      !expected(state, junction, {0.0, 1.0, 2.0})) {
+    return false;
+  }
+
+  std::string saved{};
+  if (!state.SerializeAuthoritative(&saved).ok) {
+    return false;
+  }
+  wire::core::CoreState loaded;
+  const auto loaded_result = loaded.DeserializeAuthoritative(saved);
+  if (!loaded_result.ok) {
+    return false;
+  }
+  if (!expected(loaded, junction, {0.0, 1.0, 2.0})) {
+    return false;
+  }
+  std::string legacy{};
+  for (std::size_t line_begin = 0; line_begin < saved.size();) {
+    const std::size_t line_end = saved.find('\n', line_begin);
+    if (line_end == std::string::npos) {
+      return false;
+    }
+    const std::string_view line(saved.data() + line_begin,
+                                line_end - line_begin);
+    if (line.find(".support_level=") == std::string_view::npos &&
+        line.find(".support_group_id=") == std::string_view::npos) {
+      legacy.append(line);
+      legacy.push_back('\n');
+    }
+    line_begin = line_end + 1;
+  }
+  wire::core::CoreState legacy_loaded;
+  return legacy_loaded.DeserializeAuthoritative(legacy).ok &&
+         expected(legacy_loaded, junction, {0.0, 1.0, 2.0});
 }
 
 bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {

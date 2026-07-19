@@ -102,6 +102,8 @@ struct row_intent {
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   bool lower_required = false;
   intent_reason reason = intent_reason::none;
+  int support_level = 0;
+  int support_group_id = -1;
   double endpoint_offset_m = 0.0;
 };
 
@@ -254,7 +256,8 @@ private:
   void save(layout made);
   void save(geom made);
   void save(draw made);
-  [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps);
+  [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps,
+                                            const groups& placement);
   [[nodiscard]] std::size_t local(std::size_t input_point) const;
 
   CoreState& state_;

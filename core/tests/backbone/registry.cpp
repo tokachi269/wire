@@ -1241,6 +1241,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "T branch lowering follows BundleTemplate flag rather than HV category",
                          "Invariant", false,
                          C808_backbone_branch_lowering_uses_template_flag_not_hv_category);
+  test_registry::AddTest(tests, "C809_backbone_incremental_rows_use_one_support_level_per_pair",
+                         "incremental rows allocate one stable support level per pair or open row",
+                         "Invariant", false,
+                         C809_backbone_incremental_rows_use_one_support_level_per_pair);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

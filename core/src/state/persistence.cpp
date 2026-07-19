@@ -9,6 +9,7 @@
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -584,12 +585,15 @@ template <typename Archive, typename Value>
 bool archive_saved_port_binding(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) && archive_row_key(archive, child(prefix, "row_key"), value.row_key) &&
          archive.field(prefix, "lane_index", value.lane_index) && archive.field(prefix, "bundle_template_id", value.bundle_template_id) && archive.field(prefix, "port_kind", value.port_kind) &&
-         archive.field(prefix, "port_layer", value.port_layer) && archive.field(prefix, "placement_band_id", value.placement_band_id) && archive.field(prefix, "layout_yaw_deg", value.layout_yaw_deg) &&
+         archive.field(prefix, "port_layer", value.port_layer) && archive.field(prefix, "placement_band_id", value.placement_band_id) &&
+         archive.compatible_field(prefix, "support_level", value.support_level, -1) &&
+         archive.compatible_field(prefix, "support_group_id", value.support_group_id, -2) &&
+         archive.field(prefix, "layout_yaw_deg", value.layout_yaw_deg) &&
          archive.field(prefix, "port_id", value.port_id);
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(SavedBackbonePortBinding) == 80, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(SavedBackbonePortBinding) == 88, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -1417,6 +1421,189 @@ bool read_identity(StateReader& reader, CoreStateIdentityStorage* identity) {
   return true;
 }
 
+bool normalize_saved_support_levels(CoreStateAuthoritativeStorage* authoritative) {
+  if (authoritative == nullptr) {
+    return false;
+  }
+  SavedBackboneGraph& graph = authoritative->backbone;
+  struct record {
+    std::size_t binding_index = 0;
+    ObjectId node_id = kInvalidObjectId;
+    BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+    std::uint64_t placement_key = 0;
+    SavedBackboneRowKey row_key{};
+  };
+  std::unordered_map<ObjectId, ObjectId> bundle_by_edge_bundle{};
+  bundle_by_edge_bundle.reserve(graph.edge_bundles.size());
+  for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    bundle_by_edge_bundle.emplace(edge_bundle.edge_bundle_id, edge_bundle.bundle_id);
+  }
+  std::vector<record> records{};
+  records.reserve(graph.port_bindings.size());
+  for (std::size_t index = 0; index < graph.port_bindings.size(); ++index) {
+    const SavedBackbonePortBinding& binding = graph.port_bindings[index];
+    const auto bundle_id_it = bundle_by_edge_bundle.find(binding.edge_bundle_id);
+    if (bundle_id_it == bundle_by_edge_bundle.end()) {
+      return false;
+    }
+    const Bundle* bundle = authoritative->edit_state.bundles.find(bundle_id_it->second);
+    if (bundle == nullptr) {
+      return false;
+    }
+    records.push_back(
+        {index, binding.row_key.node_id, binding.bundle_template_id,
+         bundle->placement_key, binding.row_key});
+  }
+  const auto row_tuple = [](const record& value) {
+    return std::make_tuple(
+        value.node_id, value.bundle_template_id, value.placement_key,
+        value.row_key.source_is_open, value.row_key.source_edge_a,
+        value.row_key.source_edge_b);
+  };
+  std::sort(records.begin(), records.end(),
+            [&](const record& lhs, const record& rhs) {
+              return row_tuple(lhs) < row_tuple(rhs);
+            });
+  auto same_scope = [](const record& lhs, const record& rhs) {
+    return lhs.node_id == rhs.node_id &&
+           lhs.bundle_template_id == rhs.bundle_template_id &&
+           lhs.placement_key == rhs.placement_key;
+  };
+  auto same_row = [&](const record& lhs, const record& rhs) {
+    return same_scope(lhs, rhs) && lhs.row_key == rhs.row_key;
+  };
+  for (std::size_t scope_begin = 0; scope_begin < records.size();) {
+    std::size_t scope_end = scope_begin + 1;
+    while (scope_end < records.size() &&
+           same_scope(records[scope_begin], records[scope_end])) {
+      ++scope_end;
+    }
+    const auto template_it = authoritative->bundle_templates.find(
+        records[scope_begin].bundle_template_id);
+    if (template_it == authoritative->bundle_templates.end()) {
+      return false;
+    }
+    if (!template_it->second.enable_branch_down_offset) {
+      for (std::size_t i = scope_begin; i < scope_end; ++i) {
+        SavedBackbonePortBinding& binding =
+            graph.port_bindings[records[i].binding_index];
+        if (binding.support_level < 0) {
+          binding.support_level = 0;
+        } else if (binding.support_level != 0) {
+          return false;
+        }
+      }
+      scope_begin = scope_end;
+      continue;
+    }
+    bool has_missing = false;
+    bool has_saved = false;
+    for (std::size_t i = scope_begin; i < scope_end; ++i) {
+      const int level =
+          graph.port_bindings[records[i].binding_index].support_level;
+      has_missing = has_missing || level < 0;
+      has_saved = has_saved || level >= 0;
+    }
+    if (has_missing && has_saved) {
+      return false;
+    }
+    std::vector<int> row_levels{};
+    for (std::size_t row_begin = scope_begin; row_begin < scope_end;) {
+      std::size_t row_end = row_begin + 1;
+      while (row_end < scope_end &&
+             same_row(records[row_begin], records[row_end])) {
+        ++row_end;
+      }
+      const int level =
+          has_missing
+              ? static_cast<int>(row_levels.size())
+              : graph.port_bindings[records[row_begin].binding_index].support_level;
+      if (level < 0) {
+        return false;
+      }
+      for (std::size_t i = row_begin; i < row_end; ++i) {
+        SavedBackbonePortBinding& binding =
+            graph.port_bindings[records[i].binding_index];
+        if (!has_missing && binding.support_level != level) {
+          return false;
+        }
+        binding.support_level = level;
+      }
+      if (std::find(row_levels.begin(), row_levels.end(), level) !=
+          row_levels.end()) {
+        return false;
+      }
+      row_levels.push_back(level);
+      row_begin = row_end;
+    }
+    std::sort(row_levels.begin(), row_levels.end());
+    for (std::size_t level = 0; level < row_levels.size(); ++level) {
+      if (row_levels[level] != static_cast<int>(level)) {
+        return false;
+      }
+    }
+    scope_begin = scope_end;
+  }
+
+  struct missing_group_row {
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    ObjectId node_id = kInvalidObjectId;
+    int support_level = 0;
+  };
+  std::vector<missing_group_row> missing_group_rows{};
+  std::unordered_map<ObjectId, std::unordered_set<int>> used_group_ids_by_node{};
+  std::unordered_map<ObjectId, int> next_group_id_by_node{};
+  for (std::size_t row_begin = 0; row_begin < records.size();) {
+    std::size_t row_end = row_begin + 1;
+    while (row_end < records.size() &&
+           same_row(records[row_begin], records[row_end])) {
+      ++row_end;
+    }
+    const int support_level =
+        graph.port_bindings[records[row_begin].binding_index].support_level;
+    const int first_group_id =
+        graph.port_bindings[records[row_begin].binding_index].support_group_id;
+    const bool group_missing = first_group_id == -2;
+    for (std::size_t i = row_begin; i < row_end; ++i) {
+      const int group_id =
+          graph.port_bindings[records[i].binding_index].support_group_id;
+      if ((group_id == -2) != group_missing ||
+          (!group_missing && group_id != first_group_id)) {
+        return false;
+      }
+    }
+    if (group_missing) {
+      missing_group_rows.push_back(
+          {row_begin, row_end, records[row_begin].node_id, support_level});
+    } else if ((support_level == 0 && first_group_id != -1) ||
+               (support_level > 0 && first_group_id < 0)) {
+      return false;
+    } else if (support_level > 0) {
+      auto& used = used_group_ids_by_node[records[row_begin].node_id];
+      if (!used.insert(first_group_id).second) {
+        return false;
+      }
+      next_group_id_by_node[records[row_begin].node_id] =
+          std::max(next_group_id_by_node[records[row_begin].node_id],
+                   first_group_id + 1);
+    }
+    row_begin = row_end;
+  }
+  for (const missing_group_row& row : missing_group_rows) {
+    const int group_id =
+        row.support_level == 0 ? -1 : next_group_id_by_node[row.node_id]++;
+    if (group_id >= 0) {
+      used_group_ids_by_node[row.node_id].insert(group_id);
+    }
+    for (std::size_t i = row.begin; i < row.end; ++i) {
+      graph.port_bindings[records[i].binding_index].support_group_id =
+          group_id;
+    }
+  }
+  return true;
+}
+
 bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* authoritative) {
   if (!(read_edit_state(reader, &authoritative->edit_state) &&
          read_backbone(reader, &authoritative->backbone) &&
@@ -1461,7 +1648,7 @@ bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* auth
       !archive_geometry_settings(fields, "authoritative.geometry_settings", authoritative->geometry_settings) ||
       !archive_visual_settings(fields, "authoritative.visual_settings", authoritative->visual_settings) ||
       !archive_variation_settings(fields, "authoritative.variation_settings", authoritative->variation_settings)) return false;
-  return true;
+  return normalize_saved_support_levels(authoritative);
 }
 
 } // namespace

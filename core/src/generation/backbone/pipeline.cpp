@@ -184,7 +184,8 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
     return out;
   }
   EditResult<bool> graph_saved =
-      timed(timing, &GenerationTiming::save_graph_ms, [&] { return save_graph(made.value, ps.value); });
+      timed(timing, &GenerationTiming::save_graph_ms,
+            [&] { return save_graph(made.value, ps.value, placement.value); });
   if (!graph_saved.ok) {
     out.error = graph_saved.error;
     return out;
@@ -2670,6 +2671,19 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
 
 EditResult<intent> pipeline::make(const pairs& ps) const {
   EditResult<intent> out{};
+  struct saved_row_support {
+    SavedBackboneRowKey row_key{};
+    int support_level = 0;
+    int support_group_id = -1;
+  };
+  std::unordered_map<ObjectId, int> next_support_group_id_by_node{};
+  for (const SavedBackbonePortBinding& binding :
+       state_.view().backbone().port_bindings) {
+    if (binding.support_group_id >= 0) {
+      int& next = next_support_group_id_by_node[binding.row_key.node_id];
+      next = std::max(next, binding.support_group_id + 1);
+    }
+  }
   std::vector<const BundleTemplate*> bundle_templates(active_bundle_indices_.size(), nullptr);
   for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
     const std::size_t spec_index = active_bundle_indices_[bundle];
@@ -2685,13 +2699,19 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     }
     bundle_templates[bundle] = v.value.tmpl;
   }
-  auto add_row_intent = [&](std::size_t row_id, std::size_t bundle, intent_reason reason) {
+  auto add_row_intent = [&](std::size_t row_id, std::size_t bundle,
+                            intent_reason reason, std::size_t support_level,
+                            int support_group_id) {
     const BundleTemplate* tmpl =
         bundle < bundle_templates.size() ? bundle_templates[bundle] : nullptr;
-    const double endpoint_offset = tmpl == nullptr ? 0.0 : tmpl->branch_endpoint_offset_m;
+    const double endpoint_offset =
+        tmpl == nullptr ? 0.0
+                        : tmpl->branch_endpoint_offset_m * static_cast<double>(support_level);
     for (row_intent& item : out.value.rows) {
       if (item.row == row_id && item.bundle == bundle) {
         item.lower_required = true;
+        item.support_level = static_cast<int>(support_level);
+        item.support_group_id = support_group_id;
         item.endpoint_offset_m = endpoint_offset;
         if (item.reason == intent_reason::none) {
           item.reason = reason;
@@ -2700,7 +2720,9 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       }
     }
     out.value.rows.push_back(
-        row_intent{row_id, bundle, CurvePassMode::kPassThrough, true, reason, endpoint_offset});
+        row_intent{row_id, bundle, CurvePassMode::kPassThrough, true, reason,
+                   static_cast<int>(support_level), support_group_id,
+                   endpoint_offset});
   };
   for (const BackboneSpec::NodeBundleModeSpec& mode : spec_.node_bundle_modes) {
     if (mode.mode != BundleNodeMode::kPassThrough) {
@@ -2760,37 +2782,73 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     }
     return links;
   };
-  auto saved_edge_has_bundle = [&](ObjectId edge_id, BundleTemplateId bundle_template_id) {
-    const auto bundles_it = state_.view().backbone_index().edge_bundles.find(edge_id);
-    if (bundles_it == state_.view().backbone_index().edge_bundles.end()) {
-      return false;
-    }
-    for (ObjectId edge_bundle_id : bundles_it->second) {
-      const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
-      const Bundle* bundle =
-          edge_bundle == nullptr ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
-      if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
-        return true;
-      }
-    }
-    return false;
-  };
-  auto row_has_bundle = [&](const row& r, BundleTemplateId bundle_template_id) {
-    for (std::size_t link_id : row_links(r)) {
-      if (link_id >= ps.links.size()) {
+  auto saved_rows_for_scope = [&](ObjectId node_id, BundleTemplateId bundle_template_id,
+                                  std::uint64_t placement_key) {
+    EditResult<std::vector<saved_row_support>> out{};
+    for (const SavedBackbonePortBinding& binding : state_.view().backbone().port_bindings) {
+      if (binding.row_key.node_id != node_id ||
+          binding.bundle_template_id != bundle_template_id) {
         continue;
       }
-      const link& edge = ps.links[link_id];
-      if (edge.is_new || (edge.saved != kInvalidObjectId && saved_edge_has_bundle(edge.saved, bundle_template_id))) {
-        return true;
+      const SavedBackboneEdgeBundle* edge_bundle =
+          state_.view().backbone_edge_bundle(binding.edge_bundle_id);
+      const Bundle* bundle =
+          edge_bundle == nullptr ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
+      if (bundle == nullptr ||
+          (placement_key != 0 && bundle->placement_key != 0 &&
+           bundle->placement_key != placement_key)) {
+        continue;
+      }
+      if (binding.support_level < 0) {
+        out.error = "backbone unsupported: saved row support level is missing";
+        return out;
+      }
+      if ((binding.support_level == 0 && binding.support_group_id != -1) ||
+          (binding.support_level > 0 && binding.support_group_id < 0)) {
+        out.error = "backbone unsupported: saved row support group is invalid";
+        return out;
+      }
+      const auto existing =
+          std::find_if(out.value.begin(), out.value.end(), [&](const auto& item) {
+            return item.row_key == binding.row_key;
+          });
+      if (existing == out.value.end()) {
+        out.value.push_back(
+            {binding.row_key, binding.support_level, binding.support_group_id});
+      } else if (existing->support_level != binding.support_level ||
+                 existing->support_group_id != binding.support_group_id) {
+        out.error = "backbone unsupported: saved row support assignment is inconsistent";
+        return out;
       }
     }
-    return false;
+    std::vector<bool> used(out.value.size(), false);
+    for (const saved_row_support& row : out.value) {
+      const int level = row.support_level;
+      if (level < 0 || static_cast<std::size_t>(level) >= used.size() ||
+          used[static_cast<std::size_t>(level)]) {
+        out.error = "backbone unsupported: saved row support assignment is not contiguous";
+        return out;
+      }
+      used[static_cast<std::size_t>(level)] = true;
+    }
+    out.ok = true;
+    return out;
   };
 
   std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
+  std::vector<bool> referenced(ps.rows.size(), false);
+  for (const link& edge : ps.links) {
+    if (edge.arow < referenced.size()) {
+      referenced[edge.arow] = true;
+    }
+    if (edge.brow < referenced.size()) {
+      referenced[edge.brow] = true;
+    }
+  }
   for (const row& r : ps.rows) {
-    rows_by_node[r.node].push_back(r.id);
+    if (r.id < referenced.size() && referenced[r.id]) {
+      rows_by_node[r.node].push_back(r.id);
+    }
   }
   std::vector<bool> active(ps.rows.size(), false);
   for (const link& edge : ps.links) {
@@ -2834,15 +2892,65 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       if (tmpl == nullptr || !tmpl->enable_branch_down_offset || tmpl->branch_endpoint_offset_m == 0.0) {
         continue;
       }
-      bool peer_has_bundle = false;
-      for (std::size_t peer_row : item.second) {
-        if (peer_row == selected_row || peer_row >= ps.rows.size()) {
+      const std::size_t spec_index = active_bundle_indices_[bundle];
+      if (spec_index >= spec_.bundles.size()) {
+        out.error = "backbone unsupported: active bundle index is invalid";
+        return out;
+      }
+      const BackboneBundleSpec& bundle_spec = spec_.bundles[spec_index];
+      const ObjectId node_id =
+          ps.rows[selected_row].node < g_.nodes.size()
+              ? g_.nodes[ps.rows[selected_row].node].saved
+              : kInvalidObjectId;
+      EditResult<std::vector<saved_row_support>> existing_rows =
+          saved_rows_for_scope(node_id, tmpl->id, bundle_spec.placement_key);
+      if (!existing_rows.ok) {
+        out.error = existing_rows.error;
+        return out;
+      }
+      int selected_existing_level = -1;
+      int selected_existing_group_id = -1;
+      for (std::size_t link_id : row_links(ps.rows[selected_row])) {
+        if (link_id >= ps.links.size() || ps.links[link_id].saved == kInvalidObjectId) {
           continue;
         }
-        peer_has_bundle = peer_has_bundle || row_has_bundle(ps.rows[peer_row], tmpl->id);
+        const ObjectId saved_edge_id = ps.links[link_id].saved;
+        existing_rows.value.erase(
+            std::remove_if(existing_rows.value.begin(), existing_rows.value.end(),
+                           [&](const auto& item) {
+                             const SavedBackboneRowKey& key = item.row_key;
+                             if (key.source_edge_a != saved_edge_id &&
+                                 key.source_edge_b != saved_edge_id) {
+                               return false;
+                             }
+                             if (selected_existing_level >= 0 &&
+                                 (selected_existing_level != item.support_level ||
+                                  selected_existing_group_id !=
+                                      item.support_group_id)) {
+                               out.error =
+                                   "backbone unsupported: selected row support assignment is ambiguous";
+                               return false;
+                             }
+                             selected_existing_level = item.support_level;
+                             selected_existing_group_id = item.support_group_id;
+                             return true;
+                           }),
+            existing_rows.value.end());
+        if (!out.error.empty()) {
+          return out;
+        }
       }
-      if (peer_has_bundle) {
-        add_row_intent(selected_row, bundle, intent_reason::conflicting_rows);
+      const std::size_t support_level =
+          selected_existing_level >= 0
+              ? static_cast<std::size_t>(selected_existing_level)
+              : existing_rows.value.size();
+      if (support_level != 0) {
+        const int support_group_id =
+            selected_existing_level >= 0
+                ? selected_existing_group_id
+                : next_support_group_id_by_node[node_id]++;
+        add_row_intent(selected_row, bundle, intent_reason::conflicting_rows,
+                       support_level, support_group_id);
       }
     }
   }
@@ -2852,18 +2960,6 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
 
 EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const {
   EditResult<groups> out{};
-  std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
-  for (const row& r : ps.rows) {
-    rows_by_node[r.node].push_back(r.id);
-  }
-  std::unordered_map<std::size_t, int> order_by_row{};
-  for (auto& item : rows_by_node) {
-    std::vector<std::size_t>& rows = item.second;
-    std::sort(rows.begin(), rows.end());
-    for (std::size_t order = 0; order < rows.size(); ++order) {
-      order_by_row[rows[order]] = static_cast<int>(order);
-    }
-  }
   for (const row_intent& item : intents.rows) {
     if (!item.lower_required) {
       continue;
@@ -2873,11 +2969,15 @@ EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const 
       return out;
     }
     group placed{};
-    placed.id = out.value.items.size();
+    if (item.support_group_id < 0) {
+      out.error = "backbone unsupported: support group id is missing";
+      return out;
+    }
+    placed.id = static_cast<std::size_t>(item.support_group_id);
     placed.node = ps.rows[item.row].node;
     placed.row_members.push_back(group_member{item.row, item.bundle});
     placed.group_axis = ps.rows[item.row].axis;
-    placed.vertical_order = order_by_row.contains(item.row) ? order_by_row[item.row] : 0;
+    placed.vertical_order = item.support_level;
     if (item.endpoint_offset_m == 0.0) {
       out.error = "backbone unsupported: support group offset policy is missing";
       return out;
@@ -3326,7 +3426,8 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
   return out;
 }
 
-EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
+EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
+                                      const groups& placement) {
   EditResult<bool> out{};
   std::vector<int> path_index_by_local(g_.nodes.size(), -1);
   for (std::size_t input_index = 0; input_index < local_by_input_.size(); ++input_index) {
@@ -3467,6 +3568,18 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
         edge_bundle == nullptr ? nullptr : state_.view().backbone_edge(edge_bundle->edge_id);
     return edge != nullptr && (edge->node_a == node_id || edge->node_b == node_id);
   };
+  auto support_for = [&](std::size_t row_index, std::size_t bundle_index) {
+    for (const group& item : placement.items) {
+      if (std::any_of(item.row_members.begin(), item.row_members.end(),
+                      [&](const group_member& member) {
+                        return member.row == row_index && member.bundle == bundle_index;
+                      })) {
+        return std::pair<int, int>{item.vertical_order,
+                                   static_cast<int>(item.id)};
+      }
+    }
+    return std::pair<int, int>{0, -1};
+  };
   for (const tspan& span : made.spans) {
     if (!span.is_new) {
       continue;
@@ -3532,9 +3645,12 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
         }
         break;
       }
+      const auto [support_level, support_group_id] =
+          support_for(row_index, span.bundle);
       EditResult<bool> bound =
           state_.bind_backbone_port(edge_bundle_id, row_key, span.lane, bundle->bundle_template_id, port->kind,
                                     port->layer, placement_band_id,
+                                    support_level, support_group_id,
                                     layout_yaw_deg, port->id);
       if (!bound.ok) {
         out.error = bound.error;
@@ -3886,6 +4002,7 @@ void pipeline::save(layout made) {
     }
     cached_group item{};
     item.key = key;
+    item.placement.grouped_port_count = 0;
     groups.push_back(std::move(item));
     return groups.back();
   };

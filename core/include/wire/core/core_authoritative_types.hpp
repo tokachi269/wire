@@ -69,6 +69,8 @@ struct SavedBackbonePortBinding {
   PortKind port_kind = PortKind::kGeneric;
   PortLayer port_layer = PortLayer::kUnknown;
   int placement_band_id = 0;
+  int support_level = 0;
+  int support_group_id = -1;
   double layout_yaw_deg = 0.0;
   ObjectId port_id = kInvalidObjectId;
 };

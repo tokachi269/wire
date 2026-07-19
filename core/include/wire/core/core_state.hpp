@@ -179,7 +179,9 @@ private:
   EditResult<bool> bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id);
   EditResult<bool> bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
                                       std::size_t lane_index, BundleTemplateId bundle_template_id, PortKind port_kind,
-                                      PortLayer port_layer, int placement_band_id, double layout_yaw_deg,
+                                      PortLayer port_layer, int placement_band_id, int support_level,
+                                      int support_group_id,
+                                      double layout_yaw_deg,
                                       ObjectId port_id);
   EditResult<bool> promote_backbone_open_port_binding_exact(ObjectId edge_bundle_id,
                                                             const SavedBackboneRowKey& old_open_key,

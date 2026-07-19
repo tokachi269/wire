@@ -184,12 +184,12 @@ void validate_projected_span_layout_endpoint(ValidationResult* result, const Cor
     } else if (endpoint.lower_required && !endpoint.lowering_blocked_by_policy) {
       if (endpoint.branch_down_offset_m <= 1e-9) {
         result->issues.push_back({ValidationSeverity::kError, "LoweredEndpointOffsetMissing",
-                                  "Lowered non-through endpoint must carry a positive one-step down offset", span_id});
+                                  "Lowered non-through endpoint must carry a positive down offset", span_id});
       } else {
         const double expected_z = template_z - endpoint.branch_down_offset_m;
         if (!almost_equal_validation(endpoint.support_world.z, expected_z)) {
-          result->issues.push_back({ValidationSeverity::kError, "LoweredEndpointHeightNotTwoState",
-                                    "Lowered non-through endpoint height must equal template height minus one-step down offset",
+          result->issues.push_back({ValidationSeverity::kError, "LoweredEndpointHeightMismatch",
+                                    "Lowered non-through endpoint height must equal template height minus its down offset",
                                     span_id});
         }
       }
@@ -301,7 +301,11 @@ void validate_grouped_support_layout(ValidationResult* result, const EditState& 
   }
   if (endpoint.branch_down_offset_m <= 1e-9 || !almost_equal_validation(endpoint.branch_down_offset_m, group.down_offset_m)) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupOffsetMismatch",
-                              "Grouped-lowered endpoint must carry the authoritative one-step down offset", span_id});
+                              "Grouped-lowered endpoint must carry the authoritative down offset"
+                              " (endpoint=" + std::to_string(endpoint.branch_down_offset_m) +
+                              ", group=" + std::to_string(group.down_offset_m) +
+                              ", group_id=" + std::to_string(key.support_group_id) + ")",
+                              span_id});
   }
   if (!almost_equal_validation(endpoint.automatic_branch_down_offset_m, group.down_offset_m) ||
       !variation_sample_equal(endpoint.down_offset_variation, group.down_offset_variation)) {

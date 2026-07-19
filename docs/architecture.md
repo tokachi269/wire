@@ -98,8 +98,13 @@ pole facingはこのcorner decisionの`node_forward`を消費し、角度や二�
 ### row conflict と endpoint offset
 
 通常のroute bendはlowering対象ではない。
-同一nodeのrow conflictで重なりを避ける必要がある場合だけ、`BundleTemplate::enable_branch_down_offset` と
-`branch_endpoint_offset_m`を使い、対象bundleのjunction側fixture placementを一度だけ下げる。
+同一nodeのrow conflictでは、pairまたはopenの1 rowを1 support levelとして扱う。level 0は基準位置、
+level 1以降は`abs(BundleTemplate::branch_endpoint_offset_m) * level`だけ順に下げる。
+1 levelへ複数rowを載せず、open rowがpairへ昇格しても同じlevelを維持する。
+この多段配置は`BundleTemplate::enable_branch_down_offset`が有効なbundle placementだけに適用し、
+無効なplacementはrow数に関係なくlevel 0を維持する。
+`SavedBackbonePortBinding`はrowごとの`support_level`と`support_group_id`を保存し、
+save/loadやincremental generationで同じ配置判断を再利用する。
 段変更後の最終wire socketを`support_world`と`endpoint_world`の両方に使い、port位置は論理anchorとして保持する。
 LV/HVなどのcategory名自体はlowering条件にしない。
 

@@ -1872,7 +1872,8 @@ bool C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materiali
          !contains_text(materialize_body, "merged_fixture_plan") &&
          !contains_text(materialize_body, "empty_plan") &&
          !contains_text(row_fixture_body, "plan_it == fixture_plan.end() ? 0.0") &&
-         contains_text(row_fixture_body, "row fixture placement plan member is missing") &&
+         contains_text(row_fixture_body, "placed_member_count") &&
+         contains_text(row_fixture_body, "if (plan_it == fixture_plan.end())") &&
          !contains_text(materialize_body, "resolve_endpoint_placement(state, *port, 0.0, nullptr)");
 }
 

@@ -198,6 +198,33 @@ function assertModelHvInsulatorsSeparatedByPole(state: WireStateHandle) {
   }
 }
 
+function expectBootstrapInsulatorSocketsOnStraightHvEndpoints(
+  hvParts: ReturnType<typeof visualParts>,
+  models: ReturnType<WireStateHandle["visualScene"]>["models"]
+) {
+  const sortedParts = [...hvParts].sort((a, b) => a.info.laneIndex - b.info.laneIndex);
+  const crossarms = models
+    .filter((model) => model.modelKey === "hv_crossarm")
+    .sort((a, b) => a.positionX - b.positionX);
+  expect(crossarms).toHaveLength(2);
+  const assertPole = (poleX: number, partsPoint: typeof startPoint) => {
+    const crossarm = crossarms.find((model) => Math.abs(model.positionX - poleX) < 1e-6);
+    expect(crossarm).toBeDefined();
+    const insulators = models
+      .filter((model) => model.modelKey === "hv_insulator" && Math.abs(model.positionX - poleX) < 1e-6)
+      .sort((a, b) => a.positionY - b.positionY);
+    expect(insulators).toHaveLength(3);
+    for (let index = 0; index < sortedParts.length; index += 1) {
+      const endpoint = partsPoint(sortedParts[index]);
+      const insulator = insulators[index];
+      expect(Number((insulator.positionZ + 0.18).toFixed(6))).toBe(Number(endpoint[2].toFixed(6)));
+      expect(distance(modelPosition(insulator), modelPosition(crossarm!))).toBeGreaterThan(0.17);
+    }
+  };
+  assertPole(0, startPoint);
+  assertPole(12, endPoint);
+}
+
 function projectionLaneOrder(
   group: ReturnType<typeof visualParts>,
   point: (part: ReturnType<typeof visualParts>[number]) => [number, number, number]
@@ -529,14 +556,21 @@ describe("wire wasm smoke", () => {
     const newModels = restored.visualScene().models;
     expect(new Set(newModels.map((model) => model.stableKey)))
       .toEqual(new Set(oldModels.map((model) => model.stableKey)));
+    const oldCrossarm = oldModels.find((model) => model.modelKey === "hv_crossarm")!;
+    const newCrossarm = newModels.find((model) => model.stableKey === oldCrossarm.stableKey)!;
+    expect(newCrossarm.contentVersion).not.toBe(oldCrossarm.contentVersion);
+    expect(Math.hypot(
+      newCrossarm.positionX - oldCrossarm.positionX,
+      newCrossarm.positionY - oldCrossarm.positionY,
+      newCrossarm.positionZ - oldCrossarm.positionZ
+    )).toBeGreaterThan(0.17);
     const oldInsulator = oldModels.find((model) => model.modelKey === "hv_insulator")!;
     const newInsulator = newModels.find((model) => model.stableKey === oldInsulator.stableKey)!;
-    expect(newInsulator.contentVersion).not.toBe(oldInsulator.contentVersion);
     expect(Math.hypot(
       newInsulator.positionX - oldInsulator.positionX,
       newInsulator.positionY - oldInsulator.positionY,
       newInsulator.positionZ - oldInsulator.positionZ
-    )).toBeGreaterThan(0.17);
+    )).toBeLessThan(1e-9);
     oldState.delete();
     restored.delete();
   });
@@ -640,6 +674,7 @@ describe("wire wasm smoke", () => {
     assertThreeYSpacing(insulators.slice(3, 6).map(modelPosition), 0.45);
     assertThreeYSpacing(hvParts.map(startPoint), 0.45);
     assertThreeYSpacing(hvParts.map(endPoint), 0.45);
+    expectBootstrapInsulatorSocketsOnStraightHvEndpoints(hvParts, models);
     runState.delete();
   });
 
@@ -725,6 +760,52 @@ describe("wire wasm smoke", () => {
     assertModelHvInsulatorsSeparatedByPole(runState);
     expectSamplesChangedOnlyWithVersionChange(bdSnapshot, scenePartSnapshot(runState));
     runState.delete();
+  });
+
+  it("restores a model-aware T branch with viewer default placements", () => {
+    const runState = createState();
+    const bootstrap = modelBootstrap();
+    const configured = runState.configureModelAssemblies(bootstrap);
+    expect(configured.ok, configured.error).toBe(true);
+    const hvTemplate = runState.bundleTemplate(0);
+    expect(hvTemplate.id).toBe(101);
+    expect(hvTemplate.enableBranchDownOffset).toBe(true);
+    expect(hvTemplate.branchEndpointOffset).toBe(-0.55);
+    const placements = defaultBundlePlacements();
+    const base = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
+      placements,
+      0,
+      2,
+      0,
+      12,
+      []
+    );
+    expect(base.ok, base.error).toBe(true);
+
+    const poleB = runState.pole(1);
+    const branch = runState.generatePlacements(
+      new Float64Array([-5, 4, 0, poleB.positionX, poleB.positionY, poleB.positionZ]),
+      placements,
+      0,
+      2,
+      0,
+      12,
+      [{ pointIndex: 1, supportKind: 0, nodeId: poleB.id }]
+    );
+    expect(branch.ok, branch.error).toBe(true);
+    expect(branch.generatedSpanCount).toBe(8);
+
+    const restored = createState();
+    const loaded = restored.loadStateWithModels(runState.saveState(), bootstrap);
+    expect(loaded.ok, loaded.error).toBe(true);
+    expect(restored.visualScene().models.some((model) => model.modelKey === "hv_crossarm")).toBe(true);
+    expect(restored.visualScene().models.some((model) => model.modelKey === "hv_insulator")).toBe(true);
+    assertHvSeparatedByEdge(restored);
+    assertModelHvInsulatorsSeparatedByPole(restored);
+    assertNonFlaggedSpanLayoutsAtPortHeight(restored);
+    runState.delete();
+    restored.delete();
   });
 
   it("keeps a repro T branch HV support slot at the requested port height", () => {

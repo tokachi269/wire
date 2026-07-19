@@ -2454,8 +2454,10 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
        state.view().visual_model_instances().instances) {
     const auto before_version = model_versions.find(instance.stable_key);
     if (before_version == model_versions.end()) return false;
-    if ((instance.model_key == "hv_crossarm" || instance.model_key == "hv_insulator") &&
+    if (instance.model_key == "hv_crossarm" &&
         before_version->second == instance.content_version) return false;
+    if (instance.model_key == "hv_insulator" &&
+        before_version->second != instance.content_version) return false;
   }
 
   std::unordered_map<std::string, wire::core::Vec3d> fixture_positions{};

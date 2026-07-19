@@ -439,6 +439,7 @@ EditResult<RowFixturePlacementPlan> row_fixture_placement_plan(
   }
   const PoleFrame frame = BuildPoleFrame(row.pole->world_transform, row.layout_yaw_deg);
   double height_m = 0.0;
+  int placed_member_count = 0;
   for (const RowFixtureContext::Member& member : row.members) {
     const Port* port = view.ports().find(member.port_id);
     if (port == nullptr) {
@@ -447,13 +448,17 @@ EditResult<RowFixturePlacementPlan> row_fixture_placement_plan(
     }
     const auto plan_it = fixture_plan.find(member.port_id);
     if (plan_it == fixture_plan.end()) {
-      out.error = "model assembly internal: row fixture placement plan member is missing";
-      return out;
+      continue;
     }
     const double member_down_offset_m = plan_it->second.down_offset_m;
     height_m += WorldPointToLocal(frame, port->world_position).z - member_down_offset_m;
+    placed_member_count += 1;
   }
-  height_m /= static_cast<double>(row.members.size());
+  if (placed_member_count == 0) {
+    out.ok = true;
+    return out;
+  }
+  height_m /= static_cast<double>(placed_member_count);
   const EditResult<double> lateral = row_lateral_position(state, row);
   if (!lateral.ok) {
     out.error = lateral.error;
@@ -528,7 +533,7 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(
     const Vec3d mount_delta_world = mount_socket_world.value - row_reference_world;
     fixture_root.position = final_anchor + mount_delta_world;
   }
-  const Vec3d target_wire_endpoint = fixture_root.position;
+  const Vec3d target_wire_endpoint = final_anchor;
   out.value.fixture_root = fixture_root;
   out.value.wire_endpoint = target_wire_endpoint;
 
@@ -791,8 +796,7 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
       }
     }
     if (row_plan == nullptr) {
-      out.error = "model assembly internal: row fixture placement plan is missing";
-      return out;
+      continue;
     }
     std::string error{};
     append_instances(
@@ -826,8 +830,7 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     ResolvedEndpointPlacement placement{};
     const auto plan_it = fixture_plan.find(port->id);
     if (plan_it == fixture_plan.end()) {
-      out.error = "model assembly internal: endpoint fixture placement plan is missing";
-      return out;
+      continue;
     }
     placement.fixture_root = plan_it->second.endpoint_fixture_root;
     placement.wire_endpoint = plan_it->second.wire_endpoint;

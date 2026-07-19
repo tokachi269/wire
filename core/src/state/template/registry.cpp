@@ -170,7 +170,7 @@ void CoreState::register_default_bundle_templates() {
   hv.allow_midair_node = true;
   hv.allow_midair_branch = false;
   hv.enable_branch_down_offset = true;
-  hv.branch_endpoint_offset_m = -0.275;
+  hv.branch_endpoint_offset_m = -0.55;
   hv.order_decision_policy = OrderDecisionPolicyKind::kPermutableHomogeneous;
   hv.row_layout_axis_mode = RowLayoutAxisMode::kSupportAxis;
   hv.span_visual_assembly.support_path_enabled = true;

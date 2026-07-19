@@ -58,7 +58,29 @@ void CoreState::cache_support_group(SupportGroupDecision decision, LoweredSuppor
     return;
   }
   runtime_.cache_state.span_layout_cache.support_groups.decision.by_key[key] = std::move(decision);
-  runtime_.cache_state.span_layout_cache.support_groups.placement.by_key[key] = std::move(placement);
+  const LoweredSupportGroupPlacement incoming = placement;
+  auto [it, inserted] =
+      runtime_.cache_state.span_layout_cache.support_groups.placement.by_key.emplace(key, std::move(placement));
+  if (inserted) {
+    return;
+  }
+  LoweredSupportGroupPlacement& existing = it->second;
+  if (existing.attachment_worlds.empty()) {
+    existing.mount_world = incoming.mount_world;
+    existing.tip_world = incoming.tip_world;
+  }
+  existing.down_offset_m = std::max(existing.down_offset_m, incoming.down_offset_m);
+  existing.grouped_port_count = std::max(existing.grouped_port_count, static_cast<int>(existing.attachment_worlds.size()));
+  for (const Vec3d& attachment_world : incoming.attachment_worlds) {
+    const auto duplicate = std::find_if(existing.attachment_worlds.begin(), existing.attachment_worlds.end(),
+                                        [&](const Vec3d& item) {
+                                          return Length(item - attachment_world) <= 1e-9;
+                                        });
+    if (duplicate == existing.attachment_worlds.end()) {
+      existing.attachment_worlds.push_back(attachment_world);
+    }
+  }
+  existing.grouped_port_count = static_cast<int>(existing.attachment_worlds.size());
 }
 
 EditResult<bool> CoreState::bind_backbone_node_bundle_modes(

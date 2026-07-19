@@ -31,7 +31,7 @@ struct ValidationResult {
 };
 
 struct ResolveBranchPickOptions {
-  std::vector<BundleKind> selected_bundle_template_ids{};
+  std::vector<BundleTemplateId> selected_bundle_template_ids{};
   double snap_radius_world = 0.6;
   bool create_midair_node = true;
   bool create_midair_node_set = false;
@@ -39,6 +39,7 @@ struct ResolveBranchPickOptions {
 };
 
 struct GenerationTiming {
+  double state_copy_ms = 0.0;
   double prepare_ms = 0.0;
   double check_ms = 0.0;
   double pairs_ms = 0.0;
@@ -60,6 +61,12 @@ struct GenerateBundleFromPathResult {
   std::vector<ObjectId> generated_span_ids{};
   std::vector<ObjectId> generated_pole_ids{};
   GenerationTiming timing{};
+};
+
+struct DefaultBundlePlacementResult {
+  double height_m = 0.0;
+  double lateral_m = 0.0;
+  double spacing_m = 0.0;
 };
 
 struct BackboneFrontier {

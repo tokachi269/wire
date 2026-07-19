@@ -38,13 +38,14 @@ wire::core::BackboneSpec poly3_req(wire::core::CoreState& state) {
 wire::core::ObjectId span_for_bundle(const wire::core::CoreState& state,
                                      const std::vector<wire::core::ObjectId>& span_ids,
                                      wire::core::BundleKind bundle_template_id) {
+  const wire::core::BundleTemplateId template_id = wire::core::DefaultBundleTemplateId(bundle_template_id);
   for (wire::core::ObjectId span_id : span_ids) {
     const auto* span = state.view().spans().find(span_id);
     if (span == nullptr) {
       continue;
     }
     const auto* bundle = state.view().bundles().find(span->bundle_id);
-    if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
+    if (bundle != nullptr && bundle->bundle_template_id == template_id) {
       return span_id;
     }
   }
@@ -52,7 +53,7 @@ wire::core::ObjectId span_for_bundle(const wire::core::CoreState& state,
 }
 
 int bundle_count(const wire::core::CoreState& state, wire::core::BundleKind id) {
-  const auto it = state.view().bundle_templates().find(id);
+  const auto it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(id));
   if (it == state.view().bundle_templates().end()) {
     return 0;
   }
@@ -63,7 +64,11 @@ int bundle_count(const wire::core::CoreState& state, wire::core::BundleKind id) 
 int req_bundle_count(const wire::core::CoreState& state, const wire::core::BackboneSpec& req) {
   int total = 0;
   for (const wire::core::BackboneBundleSpec& bundle : req.bundles) {
-    total += bundle_count(state, bundle.bundle_template_id);
+    const auto it = state.view().bundle_templates().find(bundle.bundle_template_id);
+    if (it != state.view().bundle_templates().end()) {
+      const wire::core::BundleTemplate& t = it->second;
+      total += (t.count_rule == wire::core::BundleCountRuleKind::kFixed) ? t.fixed_count : t.default_count;
+    }
   }
   return total;
 }
@@ -86,7 +91,7 @@ int layer_rank(wire::core::SpanLayer layer) {
 double band_height(const wire::core::CoreState& state, wire::core::PoleTypeId pole_type_id,
                    wire::core::BundleKind bundle_kind) {
   const auto type_it = state.view().pole_types().find(pole_type_id);
-  const auto bundle_it = state.view().bundle_templates().find(bundle_kind);
+  const auto bundle_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(bundle_kind));
   if (type_it == state.view().pole_types().end() || bundle_it == state.view().bundle_templates().end()) {
     return -1.0;
   }
@@ -365,7 +370,7 @@ std::vector<wire::core::Vec3d> node_mode_points(bool with_mode) {
   if (with_mode) {
     wire::core::BackboneSpec::NodeBundleModeSpec mode{};
     mode.point_index = 0;
-    mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+    mode.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
     mode.mode = wire::core::BundleNodeMode::kNotPresent;
     req.node_bundle_modes.push_back(mode);
   }
@@ -522,7 +527,7 @@ wire::core::BackboneSpec pass_branch_req(wire::core::CoreState& state, wire::cor
   branch.path.node_specs = {pole_spec(0, pole_id)};
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
   mode.point_index = 0;
-  mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  mode.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   mode.mode = wire::core::BundleNodeMode::kPassThrough;
   branch.node_bundle_modes = {mode};
   return branch;
@@ -540,7 +545,7 @@ wire::core::BackboneSpec hv_branch_req(wire::core::CoreState& state, wire::core:
   wire::core::BackboneSpec branch = pass_branch_req(state, pole_id, pole_pos);
   branch.bundles.clear();
   add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
-  branch.node_bundle_modes.front().bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  branch.node_bundle_modes.front().bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
   return branch;
 }
 
@@ -562,7 +567,7 @@ wire::core::BackboneSpec pass_poly3_req(wire::core::CoreState& state) {
   wire::core::BackboneSpec req = poly3_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
   mode.point_index = 1;
-  mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  mode.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   mode.mode = wire::core::BundleNodeMode::kPassThrough;
   req.node_bundle_modes = {mode};
   return req;
@@ -658,6 +663,61 @@ std::vector<wire::core::Vec3d> junction_v1_points() {
                    static_cast<double>(static_cast<int>(binding.port_layer))});
   }
   return out;
+}
+
+std::vector<SpanOutputSnapshot> snapshot_span_outputs(const wire::core::CoreState& state,
+                                                       const std::vector<wire::core::ObjectId>& span_ids) {
+  std::vector<SpanOutputSnapshot> out{};
+  out.reserve(span_ids.size());
+  for (wire::core::ObjectId span_id : span_ids) {
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span_id);
+    const wire::core::SpanRuntimeState* runtime = state.view().find_span_runtime_state(span_id);
+    if (!layout.has_layout() || curve == nullptr || bounds == nullptr || runtime == nullptr) {
+      return {};
+    }
+    out.push_back({span_id,
+                   runtime->data_version,
+                   layout.entry->source_version,
+                   layout.entry->start.support_world,
+                   layout.entry->start.endpoint_world,
+                   layout.entry->end.support_world,
+                   layout.entry->end.endpoint_world,
+                   curve->source_version,
+                   curve->detail.sample_points,
+                   bounds->source_version,
+                   bounds->whole});
+  }
+  return out;
+}
+
+bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
+                                const wire::core::CoreState& state) {
+  for (const SpanOutputSnapshot& expected : before) {
+    const wire::core::SpanLayoutView layout = state.span_layout(expected.span_id);
+    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(expected.span_id);
+    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(expected.span_id);
+    const wire::core::SpanRuntimeState* runtime = state.view().find_span_runtime_state(expected.span_id);
+    if (!layout.has_layout() || curve == nullptr || bounds == nullptr || runtime == nullptr ||
+        runtime->data_version != expected.data_version || layout.entry->source_version != expected.layout_source_version ||
+        !almost_equal(layout.entry->start.support_world, expected.layout_start_support, 1e-12) ||
+        !almost_equal(layout.entry->start.endpoint_world, expected.layout_start_endpoint, 1e-12) ||
+        !almost_equal(layout.entry->end.support_world, expected.layout_end_support, 1e-12) ||
+        !almost_equal(layout.entry->end.endpoint_world, expected.layout_end_endpoint, 1e-12) ||
+        curve->source_version != expected.curve_source_version || bounds->source_version != expected.bounds_source_version ||
+        !almost_equal(bounds->whole.min, expected.bounds.min, 1e-12) ||
+        !almost_equal(bounds->whole.max, expected.bounds.max, 1e-12) ||
+        curve->detail.sample_points.size() != expected.curve_samples.size()) {
+      return false;
+    }
+    for (std::size_t i = 0; i < expected.curve_samples.size(); ++i) {
+      if (!almost_equal(curve->detail.sample_points[i], expected.curve_samples[i], 1e-12)) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 } // namespace backbone_tests

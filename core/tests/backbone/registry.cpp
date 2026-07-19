@@ -99,9 +99,9 @@ void register_tests(test_registry::TestRegistry& tests) {
                          C408_backbone_existing_pole_uses_actual_pole_type_height);
   test_registry::AddTest(tests, "C409_backbone_rejects_missing_port_band", "backbone rejects missing port bands", "Boundary",
                          true, C409_backbone_rejects_missing_port_band);
-  test_registry::AddTest(tests, "C410_backbone_height_does_not_affect_pairs",
-                         "backbone height selection does not affect pairs", "Boundary", false,
-                         C410_backbone_height_does_not_affect_pairs);
+  test_registry::AddTest(tests, "C410_placement_height_does_not_affect_pairs",
+                         "placement height selection does not affect pairs", "Boundary", false,
+                         C410_placement_height_does_not_affect_pairs);
   test_registry::AddTest(tests, "C411_backbone_lateral_offset_moves_ports_along_row_axis",
                          "backbone lateral offset moves generated output along row axis", "Invariant", false,
                          C411_backbone_lateral_offset_moves_ports_along_row_axis);
@@ -136,7 +136,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone topology rows carry pair row source", "Boundary", false,
                          C421_backbone_topo_row_carries_source);
   test_registry::AddTest(tests, "C422_backbone_rules_consume_topo_and_groups",
-                         "backbone rules consume topology and groups without pairs", "Boundary", false,
+                         "backbone rules consume topology, placement, and explicit jumper relations", "Boundary", false,
                          C422_backbone_rules_consume_topo_and_groups);
   test_registry::AddTest(tests, "C423_backbone_tspan_carries_endpoint_rows",
                          "backbone topology spans carry endpoint row indices", "Boundary", false,
@@ -408,9 +408,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C512_backbone_draw_does_not_read_topology",
                          "backbone draw does not read topology", "Boundary", false,
                          C512_backbone_draw_does_not_read_topology);
-  test_registry::AddTest(tests, "C513_backbone_support_visual_placeholder_from_layout",
-                         "backbone support visual placeholder comes from layout", "Boundary", false,
-                         C513_backbone_support_visual_placeholder_from_layout);
+  test_registry::AddTest(tests, "C513_backbone_lowered_layout_does_not_emit_support_arm_placeholder",
+                         "backbone lowered layout no longer emits a support-arm placeholder", "Boundary", false,
+                         C513_backbone_lowered_layout_does_not_emit_support_arm_placeholder);
   test_registry::AddTest(tests, "C514_backbone_draw_save_is_direct",
                          "backbone draw save is direct", "Boundary", false,
                          C514_backbone_draw_save_is_direct);
@@ -423,12 +423,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C517_backbone_migration_gate_does_not_infer_from_outputs",
                          "backbone migration gate does not infer from outputs", "Boundary", false,
                          C517_backbone_migration_gate_does_not_infer_from_outputs);
-  test_registry::AddTest(tests, "C518_backbone_lowered_layout_keeps_support_world_at_port_height",
-                         "backbone lowered layout keeps support world at port height", "Boundary", false,
-                         C518_backbone_lowered_layout_keeps_support_world_at_port_height);
-  test_registry::AddTest(tests, "C519_backbone_draw_placeholder_uses_layout_points",
-                         "backbone draw placeholder uses layout points", "Boundary", false,
-                         C519_backbone_draw_placeholder_uses_layout_points);
+  test_registry::AddTest(tests, "C518_backbone_lowered_layout_places_support_and_endpoint_at_final_height",
+                         "backbone lowered layout places support and endpoint at the final fixture height", "Boundary", false,
+                         C518_backbone_lowered_layout_places_support_and_endpoint_at_final_height);
+  test_registry::AddTest(tests, "C519_backbone_draw_does_not_emit_lowering_placeholder",
+                         "backbone draw does not emit a lowering placeholder after fixture placement consumes lowering", "Boundary", false,
+                         C519_backbone_draw_does_not_emit_lowering_placeholder);
   test_registry::AddTest(tests, "C520_backbone_duplicate_span_binding_preflight_before_emit",
                          "backbone duplicate span binding preflight runs before emit", "Boundary", false,
                          C520_backbone_duplicate_span_binding_preflight_before_emit);
@@ -573,21 +573,21 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C567_backbone_segment_pick_midair_uses_source_span_height",
                          "backbone segment-pick midair branches use source span height", "Boundary", false,
                          C567_backbone_segment_pick_midair_uses_source_span_height);
-  test_registry::AddTest(tests, "C568_backbone_source_edge_midair_branch_uses_saved_attachment_height",
-                         "backbone source-edge midair branches use saved attachment height", "Boundary", false,
-                         C568_backbone_source_edge_midair_branch_uses_saved_attachment_height);
+  test_registry::AddTest(tests, "C568_backbone_source_edge_midair_branch_uses_source_curve_projection",
+                         "backbone source-edge midair branches use current source curve projection", "Boundary", false,
+                         C568_backbone_source_edge_midair_branch_uses_source_curve_projection);
   test_registry::AddTest(tests, "C569_backbone_render_uses_cable_template_appearance",
                          "backbone render cache uses cable template appearance", "Boundary", false,
                          C569_backbone_render_uses_cable_template_appearance);
-  test_registry::AddTest(tests, "C570_backbone_support_visual_uses_visual_settings_radius",
-                         "backbone support visual placeholder uses visual settings radius", "Boundary", false,
-                         C570_backbone_support_visual_uses_visual_settings_radius);
-  test_registry::AddTest(tests, "C571_backbone_support_visual_respects_enable_setting",
-                         "backbone support visual placeholder respects enable_support_structures", "Boundary", false,
-                         C571_backbone_support_visual_respects_enable_setting);
-  test_registry::AddTest(tests, "C572_backbone_support_visual_radius_setting_is_mutable",
-                         "backbone support visual placeholder uses updated support arm radius", "Boundary", false,
-                         C572_backbone_support_visual_radius_setting_is_mutable);
+  test_registry::AddTest(tests, "C570_backbone_lowering_does_not_emit_support_arm_visual",
+                         "backbone lowering does not emit a support-arm visual placeholder", "Boundary", false,
+                         C570_backbone_lowering_does_not_emit_support_arm_visual);
+  test_registry::AddTest(tests, "C571_backbone_lowering_survives_insulator_visual_disable",
+                         "backbone lowering stays resolved when insulator visuals are disabled", "Boundary", false,
+                         C571_backbone_lowering_survives_insulator_visual_disable);
+  test_registry::AddTest(tests, "C572_backbone_support_arm_radius_setting_does_not_restore_placeholder",
+                         "backbone support-arm radius setting does not restore the obsolete placeholder", "Boundary", false,
+                         C572_backbone_support_arm_radius_setting_does_not_restore_placeholder);
   test_registry::AddTest(tests, "C573_backbone_saved_context_node_carries_support_metadata",
                          "backbone saved context nodes carry support metadata", "Boundary", false,
                          C573_backbone_saved_context_node_carries_support_metadata);
@@ -645,15 +645,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C590_backbone_inactive_pass_through_bundle_rejected_before_noop",
                          "backbone rejects pass-through modes for bundles made inactive by selected policy", "Boundary",
                          false, C590_backbone_inactive_pass_through_bundle_rejected_before_noop);
-  test_registry::AddTest(tests, "C591_backbone_saved_selected_midair_continuation_keeps_bundle_policy",
-                         "backbone saved selected midair continuation keeps bundle policy", "Boundary", false,
-                         C591_backbone_saved_selected_midair_continuation_keeps_bundle_policy);
-  test_registry::AddTest(tests, "C592_backbone_saved_selected_midair_reverse_continuation_keeps_bundle_policy",
-                         "backbone saved selected midair reverse continuation keeps bundle policy", "Boundary", false,
-                         C592_backbone_saved_selected_midair_reverse_continuation_keeps_bundle_policy);
-  test_registry::AddTest(tests, "C593_backbone_saved_selected_midair_rejects_inactive_pass_through",
-                         "backbone saved selected midair rejects inactive pass-through", "Boundary", false,
-                         C593_backbone_saved_selected_midair_rejects_inactive_pass_through);
+  test_registry::AddTest(tests, "C591_backbone_saved_selected_midair_continuation_uses_request_bundles",
+                         "backbone saved selected midair continuation uses request bundles", "Boundary", false,
+                         C591_backbone_saved_selected_midair_continuation_uses_request_bundles);
+  test_registry::AddTest(tests, "C592_backbone_saved_selected_midair_reverse_continuation_uses_request_bundles",
+                         "backbone saved selected midair reverse continuation uses request bundles", "Boundary", false,
+                         C592_backbone_saved_selected_midair_reverse_continuation_uses_request_bundles);
+  test_registry::AddTest(tests, "C593_backbone_saved_selected_midair_allows_request_pass_through",
+                         "backbone saved selected midair allows request pass-through", "Boundary", false,
+                         C593_backbone_saved_selected_midair_allows_request_pass_through);
   test_registry::AddTest(tests, "C595_backbone_avoid_point_at_explicit_existing_support_is_noop",
                          "backbone treats an avoid point exactly at an explicit existing support as no-op", "Boundary",
                          false, C595_backbone_avoid_point_at_explicit_existing_support_is_noop);
@@ -666,14 +666,14 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C598_backbone_selected_saved_building_node_pick_generates_selected_bundle_only",
                          "backbone selected saved building node picks generate selected bundles only", "Boundary", false,
                          C598_backbone_selected_saved_building_node_pick_generates_selected_bundle_only);
-  test_registry::AddTest(tests, "C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only",
-                         "backbone selected existing pole pick generates selected bundle only", "Boundary", false,
-                         C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only);
+  test_registry::AddTest(tests, "C600_backbone_pole_id_pick_resolves_to_saved_node_without_selected_policy",
+                         "backbone pole-id pick resolves to saved node without selected policy", "Boundary", false,
+                         C600_backbone_pole_id_pick_resolves_to_saved_node_without_selected_policy);
   test_registry::AddTest(tests, "C601_backbone_context_only_bundle_policy_does_not_filter_new_route",
                          "backbone context-only selected bundle policy does not filter new route bundles",
                          "Boundary", false, C601_backbone_context_only_bundle_policy_does_not_filter_new_route);
   test_registry::AddTest(tests, "C602_backbone_context_only_pole_band_does_not_filter_new_route",
-                         "backbone context-only pole bands do not filter new route bundles",
+                         "backbone rejects missing saved bands without affecting unrelated route generation",
                          "Boundary", false, C602_backbone_context_only_pole_band_does_not_filter_new_route);
   test_registry::AddTest(tests, "C603_backbone_context_node_does_not_affect_generated_endpoint_yaw",
                          "backbone context nodes do not affect generated endpoint pole yaw",
@@ -715,7 +715,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone update planning uses the four coarse update kinds", "Boundary", false,
                          C614_backbone_update_plan_uses_coarse_kinds);
   test_registry::AddTest(tests, "C615_backbone_regenerate_plan_is_not_local_fallback",
-                         "backbone regenerate update plans do not run a local fallback", "Boundary", true,
+                         "backbone migration update plans do not run a local fallback", "Boundary", true,
                          C615_backbone_regenerate_plan_is_not_local_fallback);
   test_registry::AddTest(tests, "C616_backbone_reposition_keeps_saved_graph_identity",
                          "backbone reposition updates keep saved graph identity", "Boundary", false,
@@ -739,7 +739,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone reports generation and update stage timing without changing decisions", "Boundary", false,
                          C622_backbone_stage_timing_is_diagnostic_only);
   test_registry::AddTest(tests, "C623_backbone_layout_settings_reject_before_mutation",
-                         "backbone layout settings reject before mutation when regeneration is required", "Boundary", true,
+                         "backbone layout settings regenerate derived outputs", "Boundary", false,
                          C623_backbone_layout_settings_reject_before_mutation);
   test_registry::AddTest(tests, "C624_backbone_variation_settings_reject_before_mutation",
                          "backbone variation settings reject before mutation while unsupported", "Boundary", true,
@@ -753,12 +753,19 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C627_backbone_legacy_topology_apis_are_removed",
                          "retired topology APIs are absent from the public surface", "Boundary", false,
                          C627_backbone_legacy_topology_apis_are_removed);
-  test_registry::AddTest(tests, "C628_backbone_active_pole_type_update_rejects_unchanged",
-                         "active backbone pole type updates reject before mutation", "Boundary", true,
-                         C628_backbone_active_pole_type_update_rejects_unchanged);
+  test_registry::AddTest(tests, "C628_backbone_active_pole_type_update_repositions",
+                         "active backbone pole type placement updates derive outputs",
+                         "Boundary", true,
+                         C628_backbone_active_pole_type_update_repositions);
   test_registry::AddTest(tests, "C634_backbone_terminal_nodes_create_no_node_patch_curve",
                          "terminal backbone nodes do not create node patch curves", "Boundary", false,
                          C634_backbone_terminal_nodes_create_no_node_patch_curve);
+  test_registry::AddTest(tests, "C760_backbone_terminal_edge_body_ends_at_port",
+                         "terminal edge body reaches its resolved port endpoints", "Invariant", false,
+                         C760_backbone_terminal_edge_body_ends_at_port);
+  test_registry::AddTest(tests, "C761_default_optical_bundle_emits_helix",
+                         "default optical helix follows member placement height while communication remains plain",
+                         "Invariant", false, C761_default_optical_bundle_emits_helix);
   test_registry::AddTest(tests, "C635_backbone_simple_continuous_node_creates_node_patch_curve",
                          "simple continuous backbone nodes create one local node patch curve", "Boundary", false,
                          C635_backbone_simple_continuous_node_creates_node_patch_curve);
@@ -766,7 +773,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone edge bodies stop at node patch boundaries", "Boundary", false,
                          C636_backbone_edge_body_stops_at_node_patch_boundaries);
   test_registry::AddTest(tests, "C637_backbone_node_patch_edge_body_boundary_tangents_are_g1",
-                         "backbone node patch and edge body boundary tangents are G1-compatible", "Boundary", false,
+                         "backbone edge bodies preserve the formal sag curve up to G1 node-patch boundaries", "Boundary", false,
                          C637_backbone_node_patch_edge_body_boundary_tangents_are_g1);
   test_registry::AddTest(tests, "C638_backbone_visual_curve_parts_are_finite",
                          "backbone visual curve part samples are finite", "Boundary", false,
@@ -780,6 +787,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C641_backbone_pole_tilt_refreshes_visual_curve_parts",
                          "backbone pole tilt refreshes visual curve parts from moved endpoints", "Boundary", false,
                          C641_backbone_pole_tilt_refreshes_visual_curve_parts);
+  test_registry::AddTest(tests, "C659_backbone_draw_time_tilt_materializes_ports_before_spans",
+                         "backbone draw-time tilt materializes ports and spans from tilted support frame",
+                         "Boundary", false, C659_backbone_draw_time_tilt_materializes_ports_before_spans);
   test_registry::AddTest(tests, "C642_backbone_edge_body_uses_formal_sag_curve",
                          "backbone edge body shares formal sag samples and non-horizontal support tangents",
                          "Boundary", false, C642_backbone_edge_body_uses_formal_sag_curve);
@@ -798,6 +808,467 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C647_backbone_node_patch_uses_incident_cable_appearance",
                          "backbone node patch uses the same cable appearance as incident edge bodies", "Boundary",
                          false, C647_backbone_node_patch_uses_incident_cable_appearance);
+  test_registry::AddTest(tests, "C655_backbone_node_patch_grouping_uses_band_identity",
+                         "backbone node patch grouping includes local band identity", "Boundary", false,
+                         C655_backbone_node_patch_grouping_uses_band_identity);
+  test_registry::AddTest(tests, "C656_backbone_node_patch_does_not_mix_base_and_extra_sections",
+                         "backbone node patch does not connect base and populated span sections", "Boundary", false,
+                         C656_backbone_node_patch_does_not_mix_base_and_extra_sections);
+  test_registry::AddTest(tests, "C657_backbone_node_patch_does_not_mix_extra_instance_indices",
+                         "backbone node patch does not connect different populated section instances", "Boundary",
+                         false, C657_backbone_node_patch_does_not_mix_extra_instance_indices);
+  test_registry::AddTest(tests, "C648_population_same_seed_is_stable",
+                         "cable population is stable for the same explicit seed", "Invariant", false,
+                         C648_population_same_seed_is_stable);
+  test_registry::AddTest(tests, "C649_population_span_identity_does_not_change_placement",
+                         "cable population placement is continuous across logical spans", "Invariant", false,
+                         C649_population_span_identity_does_not_change_placement);
+  test_registry::AddTest(tests, "C650_population_reserve_blocks_candidates",
+                         "cable population reserves block candidate pairs", "Invariant", false,
+                         C650_population_reserve_blocks_candidates);
+  test_registry::AddTest(tests, "C651_population_spacing_rejects_overlap",
+                         "cable population spacing rejects overlapping candidates", "Invariant", false,
+                         C651_population_spacing_rejects_overlap);
+  test_registry::AddTest(tests, "C652_population_endpoint_failure_omits_pair",
+                         "cable population endpoint failure omits the whole pair", "Boundary", true,
+                         C652_population_endpoint_failure_omits_pair);
+  test_registry::AddTest(tests, "C653_population_rejects_duplicate_band_identity",
+                         "cable population rejects duplicate local band identity", "Boundary", true,
+                         C653_population_rejects_duplicate_band_identity);
+  test_registry::AddTest(tests, "C654_population_does_not_mutate_logical_topology",
+                         "cable population changes visual output only", "Boundary", false,
+                         C654_population_does_not_mutate_logical_topology);
+  test_registry::AddTest(tests, "C686_population_rule_on_bundle_template_adds_visual_only_sections",
+                         "bundle template population rules add derived visual sections without topology mutation",
+                         "Boundary", false, C686_population_rule_on_bundle_template_adds_visual_only_sections);
+  test_registry::AddTest(tests, "C687_population_rule_update_is_reshape_not_regenerate",
+                         "bundle template population rule edits are reshape updates instead of regenerate",
+                         "Boundary", false, C687_population_rule_update_is_reshape_not_regenerate);
+  test_registry::AddTest(tests, "C730_same_kind_bundle_templates_can_coexist",
+                         "bundle template identity is separate from BundleKind category",
+                         "Invariant", false, C730_same_kind_bundle_templates_can_coexist);
+  test_registry::AddTest(tests, "C731_backbone_spec_references_duplicate_kind_templates",
+                         "backbone spec can generate two templates with the same BundleKind",
+                         "Invariant", false, C731_backbone_spec_references_duplicate_kind_templates);
+  test_registry::AddTest(tests, "C732_population_rule_owner_is_bundle_template_id",
+                         "population rules are owned by BundleTemplateId, not BundleKind",
+                         "Invariant", false, C732_population_rule_owner_is_bundle_template_id);
+  test_registry::AddTest(tests, "C733_regenerate_scope_uses_bundle_template_id",
+                         "bundle template regenerate scope matches BundleTemplateId only",
+                         "Invariant", false, C733_regenerate_scope_uses_bundle_template_id);
+  test_registry::AddTest(tests, "C734_cable_template_lookup_is_not_kind_based",
+                         "duplicate-kind bundle templates use their own cable template",
+                         "Invariant", false, C734_cable_template_lookup_is_not_kind_based);
+  test_registry::AddTest(tests, "C735_bundle_template_id_source_guard",
+                         "source guard rejects BundleKind as bundle template identity",
+                         "Boundary", false, C735_bundle_template_id_source_guard);
+  test_registry::AddTest(tests, "C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates",
+                         "source guard keeps supported backbone updates out of the unsupported hold list",
+                         "Boundary", false, C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates);
+  test_registry::AddTest(tests, "C737_backbone_overlay_edge_endpoint_snap_returns_saved_node_spec_id",
+                         "backbone overlay edge endpoint snap returns a saved node id usable by GenerateFromBackboneSpec",
+                         "Boundary", false, C737_backbone_overlay_edge_endpoint_snap_returns_saved_node_spec_id);
+  test_registry::AddTest(tests, "C691_cable_run_id_connects_through_sections",
+                         "cable run id connects through base edge bodies and their node patch",
+                         "Invariant", false, C691_cable_run_id_connects_through_sections);
+  test_registry::AddTest(tests, "C692_cable_run_id_connects_terminal_extension",
+                         "cable run id connects an existing terminal span to the extension span",
+                         "Invariant", false, C692_cable_run_id_connects_terminal_extension);
+  test_registry::AddTest(tests, "C693_cable_run_id_keeps_branch_and_dead_end_separate",
+                         "cable run id keeps branch spans and sharp dead-end sides separate",
+                         "Invariant", false, C693_cable_run_id_keeps_branch_and_dead_end_separate);
+  test_registry::AddTest(tests, "C694_cable_run_id_connects_population_instances",
+                         "cable run id connects each population instance across through spans without merging base",
+                         "Invariant", false, C694_cable_run_id_connects_population_instances);
+  test_registry::AddTest(tests, "C695_cable_run_id_is_deterministic",
+                         "cable run id assignment is deterministic for identical fresh states",
+                         "Invariant", false, C695_cable_run_id_is_deterministic);
+  test_registry::AddTest(tests, "C696_cable_run_id_is_visual_derived_only",
+                         "cable run id is derived in curve parts and not stored in authoritative backbone state",
+                         "Boundary", false, C696_cable_run_id_is_visual_derived_only);
+  test_registry::AddTest(tests, "C697_backbone_edge_saves_lateral_offset_echo",
+                         "backbone saved edge echoes lateral offset generation input",
+                         "Invariant", false, C697_backbone_edge_saves_lateral_offset_echo);
+  test_registry::AddTest(tests, "C660_backbone_regenerate_fixed_count_increase_updates_downstream_only",
+                         "backbone regenerate fixed count increase updates downstream without graph identity changes",
+                         "Boundary", false,
+                         C660_backbone_bundle_fixed_count_migration_updates_downstream_only);
+  test_registry::AddTest(tests, "C661_backbone_pair_row_axis_uses_unit_tangent_bisector",
+                         "backbone pair row axis uses unit tangent bisector instead of chord length",
+                         "Invariant", false, C661_backbone_pair_row_axis_uses_unit_tangent_bisector);
+  test_registry::AddTest(tests, "C662_backbone_pair_row_axis_does_not_flip_lane_order",
+                         "backbone pair row axis remains inside the incident span no-flip wedge",
+                         "Invariant", false, C662_backbone_pair_row_axis_does_not_flip_lane_order);
+  test_registry::AddTest(tests, "C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers",
+                         "backbone sharp corners use per-edge dead-end rows and derived jumper curves",
+                         "Invariant", false, C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers);
+  test_registry::AddTest(tests, "C664_backbone_sharp_pole_facing_consumes_pair_decision",
+                         "backbone sharp pole facing consumes the connectivity-owned corner decision",
+                         "Boundary", false, C664_backbone_sharp_pole_facing_consumes_pair_decision);
+  test_registry::AddTest(tests, "C665_backbone_midair_attachment_uses_derived_curve",
+                         "backbone midair attachment evaluates the saved span curve instead of its chord",
+                         "Boundary", false, C665_backbone_midair_attachment_uses_derived_curve);
+  test_registry::AddTest(tests, "C666_backbone_terminal_extension_creates_connectivity_patch",
+                         "backbone terminal extension connects separate generation rows through saved pair identity",
+                         "Boundary", false, C666_backbone_terminal_extension_creates_connectivity_patch);
+  test_registry::AddTest(tests, "C667_backbone_branch_preserves_through_patch",
+                         "backbone branch addition preserves the connectivity-owned through patch",
+                         "Boundary", false, C667_backbone_branch_preserves_through_patch);
+  test_registry::AddTest(tests, "C668_backbone_regenerate_fixed_count_increase_preserves_lateral_offset",
+                         "backbone regenerate fixed count increase preserves saved lateral offset",
+                         "Boundary", false,
+                         C668_backbone_bundle_count_migration_rejects_unreconstructable_lateral_offset);
+  test_registry::AddTest(tests, "C669_backbone_regenerate_multi_bundle_decrease_matches_fresh",
+                         "backbone regenerate multi-bundle count decrease matches fresh generation",
+                         "Invariant", false, C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset);
+  test_registry::AddTest(tests, "C670_backbone_regenerate_pair_rows_match_fresh",
+                         "backbone regenerate pair rows match fresh generation",
+                         "Invariant", false, C670_backbone_bundle_count_migration_rejects_pair_rows);
+  test_registry::AddTest(tests, "C671_backbone_regenerate_reuses_pipeline_stages",
+                         "backbone regenerate reuses pipeline stages instead of local emit copies",
+                         "Boundary", false, C671_backbone_bundle_count_migration_reuses_pipeline_stages);
+  test_registry::AddTest(tests, "C672_backbone_regenerate_preserves_manual_ports_on_surviving_lanes",
+                         "backbone regenerate preserves manual ports on surviving lanes",
+                         "Invariant", false, C672_backbone_regenerate_preserves_manual_ports_on_surviving_lanes);
+  test_registry::AddTest(tests, "C673_backbone_regenerate_preserves_surviving_attachment",
+                         "backbone regenerate preserves attachments on surviving spans",
+                         "Invariant", false, C673_backbone_bundle_count_migration_rejects_user_attachments);
+  test_registry::AddTest(tests, "C698_backbone_regenerate_fixed_count_decrease_retires_lanes",
+                         "backbone regenerate fixed count decrease retires removed lanes",
+                         "Invariant", false, C698_backbone_regenerate_fixed_count_decrease_retires_lanes);
+  test_registry::AddTest(tests, "C699_backbone_regenerate_fixed_count_decrease_preserves_lateral_offset",
+                         "backbone regenerate fixed count decrease preserves saved lateral offset",
+                         "Invariant", false,
+                         C699_backbone_regenerate_fixed_count_decrease_preserves_lateral_offset);
+  test_registry::AddTest(tests, "C700_backbone_regenerate_fixed_count_decrease_rejects_retired_attachment",
+                         "backbone regenerate fixed count decrease rejects attachments on retired lanes",
+                         "Boundary", false,
+                         C700_backbone_regenerate_fixed_count_decrease_rejects_retired_attachment);
+  test_registry::AddTest(tests, "C701_backbone_regenerate_source_does_not_infer_topology_from_outputs",
+                         "backbone regenerate source does not infer topology from derived outputs",
+                         "Boundary", false,
+                         C701_backbone_regenerate_source_does_not_infer_topology_from_outputs);
+  test_registry::AddTest(tests, "C702_backbone_regenerate_fixed_count_roundtrip_matches_fresh",
+                         "backbone regenerate fixed count roundtrip matches fresh count one",
+                         "Invariant", false,
+                         C702_backbone_regenerate_fixed_count_roundtrip_matches_fresh);
+  test_registry::AddTest(tests, "C742_backbone_bundle_count_decrease_allows_metadata_change",
+                         "backbone fixed count decrease permits a simultaneous metadata rename",
+                         "Invariant", false,
+                         C742_backbone_bundle_count_decrease_allows_metadata_change);
+  test_registry::AddTest(tests, "C743_backbone_bundle_template_change_classification_has_one_field_owner",
+                         "bundle template fields are compared only by the change classifier",
+                         "Boundary", false,
+                         C743_backbone_bundle_template_change_classification_has_one_field_owner);
+  test_registry::AddTest(tests, "C744_backbone_span_layout_group_keys_have_one_definition",
+                         "span layout group-key collection has one shared definition",
+                         "Boundary", false,
+                         C744_backbone_span_layout_group_keys_have_one_definition);
+  test_registry::AddTest(tests, "C746_backbone_generation_trial_copy_stays_under_cost_gate",
+                         "generation trial copy stays within the 66-pole cost gate",
+                         "Invariant", false,
+                         C746_backbone_generation_trial_copy_stays_under_cost_gate);
+  test_registry::AddTest(tests, "C747_backbone_range_count_policy_validates_without_regenerate",
+                         "range count policy validates existing bundles without regenerating outputs",
+                         "Invariant", false,
+                         C747_backbone_range_count_policy_validates_without_regenerate);
+  test_registry::AddTest(tests, "C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation",
+                         "bundle policy changes regenerate their scope and reject fresh-invalid policy before mutation",
+                         "Invariant", false,
+                         C748_backbone_bundle_policy_regenerates_scope_or_rejects_before_mutation);
+  test_registry::AddTest(tests, "C749_backbone_zero_offset_keeps_bundle_centers_on_band_center",
+                         "zero offset uses each lane band center without cross-bundle drift",
+                         "Invariant", false,
+                         C749_backbone_zero_offset_keeps_bundle_centers_on_band_center);
+  test_registry::AddTest(tests, "C789_backbone_multi_route_same_band_rows_keep_spacing",
+                         "multi-route same-band rows keep generated port spacing",
+                         "Invariant", false,
+                         C789_backbone_multi_route_same_band_rows_keep_spacing);
+  test_registry::AddTest(tests, "C790_backbone_duplicate_support_point_requires_node_reference",
+                         "duplicate support point requires an explicit node reference",
+                         "Boundary", true,
+                         C790_backbone_duplicate_support_point_requires_node_reference);
+  test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
+                         "backbone regenerate removes bundle count migration symbols from core src",
+                         "Boundary", false,
+                         C703_backbone_regenerate_removes_migration_symbols);
+  test_registry::AddTest(tests, "C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution",
+                         "backbone regenerate uses per API entrypoint instead of update plan execution",
+                         "Boundary", false,
+                         C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution);
+  test_registry::AddTest(tests, "C705_backbone_edge_bundle_order_matches_bundle_spec_order",
+                         "backbone saved edge bundle order matches request bundle spec order",
+                         "Invariant", false,
+                         C705_backbone_edge_bundle_order_matches_bundle_spec_order);
+  test_registry::AddTest(tests, "C706_backbone_regenerate_multi_bundle_count_change_matches_fresh",
+                         "backbone regenerate multi-bundle count change matches fresh generation",
+                         "Invariant", false,
+                         C706_backbone_regenerate_multi_bundle_count_change_matches_fresh);
+  test_registry::AddTest(tests, "C707_backbone_saved_route_continuity_is_row_continuity",
+                         "backbone saved route continuity is row continuity",
+                         "Invariant", false,
+                         C707_backbone_saved_route_continuity_is_row_continuity);
+  test_registry::AddTest(tests, "C708_backbone_regenerate_polyline_decrease_matches_fresh",
+                         "backbone regenerate polyline count decrease matches fresh generation",
+                         "Invariant", false,
+                         C708_backbone_regenerate_polyline_decrease_matches_fresh);
+  test_registry::AddTest(tests, "C709_backbone_regenerate_polyline_increase_matches_fresh",
+                         "backbone regenerate polyline count increase matches fresh generation",
+                         "Invariant", false,
+                         C709_backbone_regenerate_polyline_increase_matches_fresh);
+  test_registry::AddTest(tests, "C710_backbone_regenerate_polyline_multi_bundle_matches_fresh",
+                         "backbone regenerate polyline multi-bundle count change matches fresh generation",
+                         "Invariant", false,
+                         C710_backbone_regenerate_polyline_multi_bundle_matches_fresh);
+  test_registry::AddTest(tests, "C711_backbone_regenerate_decrease_preserves_surviving_attachment",
+                         "backbone regenerate count decrease preserves attachments on surviving spans",
+                         "Invariant", false,
+                         C711_backbone_regenerate_decrease_preserves_surviving_attachment);
+  test_registry::AddTest(tests, "C712_backbone_regenerate_cable_decision_matches_fresh",
+                         "backbone cable decision updates regenerate and match fresh output",
+                         "Invariant", false,
+                         C712_backbone_regenerate_cable_decision_matches_fresh);
+  test_registry::AddTest(tests, "C738_cable_default_endpoint_attachment_change_reconciles_auto_endpoints",
+                         "cable default endpoint attachment changes reconcile generated endpoints without touching user or outside spans",
+                         "Invariant", false,
+                         C738_cable_default_endpoint_attachment_change_reconciles_auto_endpoints);
+  test_registry::AddTest(tests, "C713_backbone_regenerate_pole_type_structure_matches_fresh",
+                         "backbone pole type structural updates regenerate and match fresh output",
+                         "Invariant", false,
+                         C713_backbone_regenerate_pole_type_structure_matches_fresh);
+  test_registry::AddTest(tests, "C714_backbone_regenerate_rejects_retired_manual_port",
+                         "backbone regenerate rejects manual ports on retired lanes",
+                         "Boundary", false,
+                         C714_backbone_regenerate_rejects_retired_manual_port);
+  test_registry::AddTest(tests, "C715_backbone_span_branch_down_override_regenerates",
+                         "backbone span branch-down override regenerates span layout and curve",
+                         "Invariant", false, C715_backbone_span_branch_down_override_regenerates);
+  test_registry::AddTest(tests, "C716_backbone_span_socket_override_regenerates",
+                         "backbone span endpoint socket override regenerates span layout",
+                         "Invariant", false, C716_backbone_span_socket_override_regenerates);
+  test_registry::AddTest(tests, "C739_span_override_keeps_unrelated_route_outputs_unchanged",
+                         "span override regenerate keeps unrelated route outputs unchanged",
+                         "Invariant", false, C739_span_override_keeps_unrelated_route_outputs_unchanged);
+  test_registry::AddTest(tests, "C740_visual_curve_part_stats_count_full_curve_builds",
+                         "visual curve part stats count only final full curve builds",
+                         "Invariant", false, C740_visual_curve_part_stats_count_full_curve_builds);
+  test_registry::AddTest(tests, "C741_scoped_visual_curve_rebuild_matches_full_rebuild",
+                         "scoped visual curve rebuild matches full rebuild",
+                         "Invariant", false, C741_scoped_visual_curve_rebuild_matches_full_rebuild);
+  test_registry::AddTest(tests, "C717_backbone_layout_settings_regenerate_matches_fresh",
+                         "backbone layout settings regenerate and match fresh generation",
+                         "Invariant", false, C717_backbone_layout_settings_regenerate_matches_fresh);
+  test_registry::AddTest(tests, "C727_backbone_pipeline_execution_entry_is_build_input",
+                         "pipeline execution entry is build(build_input) only",
+                         "Boundary", false, C727_backbone_pipeline_execution_entry_is_build_input);
+  test_registry::AddTest(tests, "C728_backbone_pipeline_has_no_run_mode_flags",
+                         "backbone pipeline has no run mode or skip flags",
+                         "Boundary", false, C728_backbone_pipeline_has_no_run_mode_flags);
+  test_registry::AddTest(tests, "C729_backbone_regenerate_source_does_not_handbuild_outputs",
+                         "backbone regenerate source does not handbuild pipeline outputs",
+                         "Boundary", false, C729_backbone_regenerate_source_does_not_handbuild_outputs);
+  test_registry::AddTest(tests, "C718_viewer_hit_world_height_is_not_source_edge_branch_authority",
+                         "viewer hit world height is not source-edge branch authority",
+                         "Boundary", false, C718_viewer_hit_world_height_is_not_source_edge_branch_authority);
+  test_registry::AddTest(tests, "C719_source_edge_branch_endpoint_follows_current_curve_projection",
+                         "source-edge branch endpoint follows current curve projection",
+                         "Invariant", false, C719_source_edge_branch_endpoint_follows_current_curve_projection);
+  test_registry::AddTest(tests, "C720_source_edge_pipeline_front_half_does_not_read_curve_projection",
+                         "source-edge pipeline front half does not read curve projection",
+                         "Boundary", false, C720_source_edge_pipeline_front_half_does_not_read_curve_projection);
+  test_registry::AddTest(tests, "C721_source_edge_identity_survives_projection_update",
+                         "source-edge identity survives projection update",
+                         "Invariant", false, C721_source_edge_identity_survives_projection_update);
+  test_registry::AddTest(tests, "C722_unresolved_source_edge_reference_fails_before_mutation",
+                         "unresolved source-edge reference fails before mutation",
+                         "Boundary", true, C722_unresolved_source_edge_reference_fails_before_mutation);
+  test_registry::AddTest(tests, "C723_source_edge_branch_does_not_change_source_sag",
+                         "source-edge branch does not change source sag",
+                         "Invariant", false, C723_source_edge_branch_does_not_change_source_sag);
+  test_registry::AddTest(tests, "C724_source_template_sag_change_updates_branch_projection",
+                         "source template sag change updates branch projection",
+                         "Invariant", false, C724_source_template_sag_change_updates_branch_projection);
+  test_registry::AddTest(tests, "C725_source_layout_settings_update_keeps_branch_projection_current",
+                         "source layout settings update keeps branch projection current",
+                         "Invariant", false, C725_source_layout_settings_update_keeps_branch_projection_current);
+  test_registry::AddTest(tests, "C726_source_edge_branch_projection_does_not_require_prior_curve_cache",
+                         "source-edge branch projection does not require prior curve cache",
+                         "Boundary", false, C726_source_edge_branch_projection_does_not_require_prior_curve_cache);
+  test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
+                         "backbone and post-edit port band selection use saved binding or one shared selector",
+                         "Boundary", false, C674_backbone_port_band_selection_has_one_owner);
+  test_registry::AddTest(tests, "C675_backbone_layout_yaw_does_not_read_debug_records",
+                         "production port layout yaw reads saved binding instead of debug records",
+                         "Boundary", false, C675_backbone_layout_yaw_does_not_read_debug_records);
+  test_registry::AddTest(tests, "C676_backbone_noop_move_preserves_port_positions_exactly",
+                         "no-op pole movement preserves generated backbone port positions exactly",
+                         "Invariant", false, C676_backbone_noop_move_preserves_port_positions_exactly);
+  test_registry::AddTest(tests, "C677_backbone_corner_scale_has_one_definition",
+                         "corner side scale and inner turn side each have one production definition",
+                         "Boundary", false, C677_backbone_corner_scale_has_one_definition);
+  test_registry::AddTest(tests, "C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies",
+                         "sharp-corner jumper boundaries are G1 with incident edge bodies",
+                         "Invariant", false, C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies);
+  test_registry::AddTest(tests, "C758_span_visual_assembly_emits_support_and_helix",
+                         "enabled span visual assembly emits one support path and helix per logical span",
+                         "Invariant", false, C758_span_visual_assembly_emits_support_and_helix);
+  test_registry::AddTest(tests, "C759_span_visual_assembly_has_one_geometry_owner",
+                         "span visual assembly geometry has one derived-output owner",
+                         "Boundary", false, C759_span_visual_assembly_has_one_geometry_owner);
+  test_registry::AddTest(tests, "C745_legacy_wrap_family_is_absent",
+                         "legacy population wrap and cable-template coil families are absent from production surfaces",
+                         "Boundary", false, C745_legacy_wrap_family_is_absent);
+  test_registry::AddTest(tests, "C764_straight_hv_model_assemblies_own_fixture_and_wire_placement",
+                         "straight HV model assemblies materialize once per Pole, row, and Port and own wire sockets",
+                         "Invariant", false, C764_straight_hv_model_assemblies_own_fixture_and_wire_placement);
+  test_registry::AddTest(tests, "C765_branch_lowering_places_final_model_socket_on_curve_endpoint",
+                         "branch lowering places the final model socket on the curve endpoint and keeps one fixture per bound Port",
+                         "Invariant", false,
+                         C765_branch_lowering_places_final_model_socket_on_curve_endpoint);
+  test_registry::AddTest(tests, "C766_row_fixture_and_wire_follow_port_band_lateral_change",
+                         "row mount, endpoint fixture, and connected curve share placement and follow band lateral change while the belt stays on the pole axis",
+                         "Invariant", false,
+                         C766_row_fixture_and_wire_follow_port_band_lateral_change);
+  test_registry::AddTest(tests, "C767_default_hv_emits_one_support_path_per_phase_span",
+                         "default HV and LV support paths use the shared primary-curve path and reach resolved endpoints",
+                         "Invariant", false,
+                         C767_default_hv_emits_one_support_path_per_phase_span);
+  test_registry::AddTest(tests, "C769_bundle_placements_duplicate_template_as_independent_bundles",
+                         "duplicate Bundle placements keep independent identity and move their complete visual output",
+                         "Invariant", false,
+                         C769_bundle_placements_duplicate_template_as_independent_bundles);
+  test_registry::AddTest(tests, "C770_backbone_bundle_placement_update_preserves_cross_row_height",
+                         "Bundle placement height updates preserve crossing row height and move row fixtures",
+                         "Invariant", false,
+                         C770_backbone_bundle_placement_update_preserves_cross_row_height);
+  test_registry::AddTest(tests, "C771_backbone_incremental_cross_completion_matches_one_shot_rows",
+                         "incremental cross completion preserves existing open row frame while forming pair rows",
+                         "Invariant", false,
+                         C771_backbone_incremental_cross_completion_matches_one_shot_rows);
+  test_registry::AddTest(tests, "C772_backbone_incremental_pair_promotion_rejects_ambiguous_open_candidates",
+                         "incremental pair promotion rejects multiple saved open candidates before mutation",
+                         "Boundary", false,
+                         C772_backbone_incremental_pair_promotion_rejects_ambiguous_open_candidates);
+  test_registry::AddTest(tests, "C773_backbone_incremental_sharp_completion_keeps_open_jumper_rows",
+                         "incremental sharp completion keeps open rows and jumper contract instead of pair promotion",
+                         "Invariant", false,
+                         C773_backbone_incremental_sharp_completion_keeps_open_jumper_rows);
+  test_registry::AddTest(tests, "C774_backbone_incremental_scope_mismatch_does_not_share_ports",
+                         "incremental pair promotion does not share ports across incompatible bundle scope",
+                         "Invariant", false,
+                         C774_backbone_incremental_scope_mismatch_does_not_share_ports);
+  test_registry::AddTest(tests, "C775_backbone_incremental_canonical_pair_survives_save_load",
+                         "incremental canonical pair rows survive authoritative save/load",
+                         "Invariant", false,
+                         C775_backbone_incremental_canonical_pair_survives_save_load);
+  test_registry::AddTest(tests, "C776_backbone_incremental_canonical_pair_survives_regenerate",
+                         "incremental canonical pair rows survive backbone regenerate",
+                         "Invariant", false,
+                         C776_backbone_incremental_canonical_pair_survives_regenerate);
+  test_registry::AddTest(tests, "C777_backbone_incremental_reverse_completion_uses_same_pair_key",
+                         "incremental reverse input direction converges to the same canonical pair key",
+                         "Invariant", false,
+                         C777_backbone_incremental_reverse_completion_uses_same_pair_key);
+  test_registry::AddTest(tests, "C778_backbone_incremental_multi_bundle_completion_promotes_each_scope_once",
+                         "incremental multi-bundle completion promotes each compatible scope once",
+                         "Invariant", false,
+                         C778_backbone_incremental_multi_bundle_completion_promotes_each_scope_once);
+  test_registry::AddTest(tests, "C779_backbone_incremental_same_template_multi_placement_uses_placement_key",
+                         "incremental same-template multi-placement completion uses placement identity",
+                         "Invariant", false,
+                         C779_backbone_incremental_same_template_multi_placement_uses_placement_key);
+  test_registry::AddTest(tests, "C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key",
+                         "incremental duplicate placement values are matched by placement identity, not order",
+                         "Invariant", false,
+                         C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key);
+  test_registry::AddTest(tests, "C781_backbone_incremental_cross_extension_preserves_existing_spans",
+                         "incremental extension from a completed cross preserves existing spans",
+                         "Invariant", false,
+                         C781_backbone_incremental_cross_extension_preserves_existing_spans);
+  test_registry::AddTest(tests, "C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_are_ambiguous",
+                         "incremental sharp extension adds an open row instead of choosing among ambiguous sharp candidates",
+                         "Invariant", false,
+                         C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_are_ambiguous);
+  test_registry::AddTest(tests, "C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization",
+                         "fixture placement plan is built once per reposition operation and not per endpoint materialization",
+                         "Boundary", false,
+                         C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization);
+  test_registry::AddTest(tests, "C785_backbone_incremental_hv_promotion_preserves_existing_row_frame",
+                         "incremental HV promotion preserves the existing open row physical frame",
+                         "Invariant", false,
+                         C785_backbone_incremental_hv_promotion_preserves_existing_row_frame);
+  test_registry::AddTest(tests, "C786_hash_mix_has_one_production_definition",
+                         "hash mix helpers have one shared production definition",
+                         "Boundary", false,
+                         C786_hash_mix_has_one_production_definition);
+  test_registry::AddTest(tests, "C787_web_bundle_template_category_has_no_layer_fallback",
+                         "web bundle template category is read from the marshalled template payload",
+                         "Boundary", false,
+                         C787_web_bundle_template_category_has_no_layer_fallback);
+  test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
+                         "model assembly owns belt radial fit and endpoint socket placement decisions",
+                         "Boundary", false,
+                         C788_model_assembly_keeps_belt_and_socket_authority_in_materialization);
+  test_registry::AddTest(tests, "C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters",
+                         "large route addition builds one fixture plan and materializes models once",
+                         "Boundary", false,
+                         C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters);
+  test_registry::AddTest(tests, "C792_backbone_incremental_new_row_uses_empty_stable_slot",
+                         "incremental row insertion preserves existing row and uses an empty stable slot",
+                         "Invariant", false,
+                         C792_backbone_incremental_new_row_uses_empty_stable_slot);
+  test_registry::AddTest(tests, "C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry",
+                         "incremental HV promotion preserves model fixture geometry and lane patch order",
+                         "Invariant", false,
+                         C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry);
+  test_registry::AddTest(tests, "C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed",
+                         "incremental explicit placement height is not row-reflowed",
+                         "Invariant", false,
+                         C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed);
+  test_registry::AddTest(tests, "C797_backbone_row_continuity_records_route_and_promotion_lanes",
+                         "row continuity table records each lane through routes and pair promotion",
+                         "Boundary", false,
+                         C797_backbone_row_continuity_records_route_and_promotion_lanes);
+  test_registry::AddTest(tests, "C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering",
+                         "viewer default T branch keeps HV spans and only branch-down-enabled templates lower",
+                         "Invariant", false,
+                         C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering);
+  test_registry::AddTest(tests, "C802_backbone_viewer_default_reverse_t_branch_keeps_hv_and_only_flagged_lowering",
+                         "viewer default reverse T branch keeps HV spans and only branch-down-enabled templates lower",
+                         "Invariant", false,
+                         C802_backbone_viewer_default_reverse_t_branch_keeps_hv_and_only_flagged_lowering);
+  test_registry::AddTest(tests, "C808_backbone_branch_lowering_uses_template_flag_not_hv_category",
+                         "T branch lowering follows BundleTemplate flag rather than HV category",
+                         "Invariant", false,
+                         C808_backbone_branch_lowering_uses_template_flag_not_hv_category);
+  test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
+                         "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
+                         "Invariant", false,
+                         C803_model_mount_graph_resolves_depth_four_chain);
+  test_registry::AddTest(tests, "C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors",
+                         "model placement rules adapt legacy fixture fields and expose interval anchors",
+                         "Boundary", false,
+                         C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors);
+  test_registry::AddTest(tests, "C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore",
+                         "generation-scoped route order does not create ambiguous saved T branch restore",
+                         "Invariant", false,
+                         C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore);
+  test_registry::AddTest(tests, "C807_backbone_pipeline_does_not_infer_continuity_from_route_order",
+                         "backbone continuity is not inferred from route/order fields",
+                         "Boundary", false,
+                         C807_backbone_pipeline_does_not_infer_continuity_from_route_order);
+  test_registry::AddTest(tests, "C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross",
+                         "row continuity graph lint covers route branch and cross outputs",
+                         "Boundary", false,
+                         C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross);
+  test_registry::AddTest(tests, "C793_backbone_derive_uses_canonical_rule_order_and_lookup",
+                         "derive builds fixture rules in canonical span order and resolves affected spans by lookup",
+                         "Boundary", false,
+                         C793_backbone_derive_uses_canonical_rule_order_and_lookup);
+  test_registry::AddTest(tests, "C794_web_viewer_action_context_keeps_mutable_state_private",
+                         "viewer action context keeps timers, cancel, interaction, persistence, and factory state private",
+                         "Boundary", false,
+                         C794_web_viewer_action_context_keeps_mutable_state_private);
 }
 
 

@@ -5,19 +5,117 @@
 
 #include "wire/core/core_test_hook.hpp"
 #include "wire/core/core_view.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 using namespace helpers;
 
 namespace backbone_tests {
+
+namespace {
+
+wire::core::Vec3d normalize_xy(wire::core::Vec3d value) {
+  value.z = 0.0;
+  const double len = std::sqrt(value.x * value.x + value.y * value.y);
+  if (len <= 1e-12) {
+    return {};
+  }
+  return {value.x / len, value.y / len, 0.0};
+}
+
+wire::core::Vec3d lateral_xy(const wire::core::Vec3d& value) {
+  const wire::core::Vec3d dir = normalize_xy(value);
+  return {-dir.y, dir.x, 0.0};
+}
+
+double abs_dot_xy(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  return std::abs(a.x * b.x + a.y * b.y);
+}
+
+double dot_xy(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  return a.x * b.x + a.y * b.y;
+}
+
+bool prepare_two_lane_low_voltage(wire::core::CoreState& state) {
+  const auto it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
+  if (it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate tpl = it->second;
+  tpl.count_rule = wire::core::BundleCountRuleKind::kFixed;
+  tpl.fixed_count = 2;
+  tpl.default_count = 2;
+  tpl.min_count = std::min(tpl.min_count, 2);
+  tpl.max_count = std::max(tpl.max_count, 2);
+  return state.UpdateBundleTemplate(tpl).ok;
+}
+
+const wire::core::SavedBackboneSpanBinding* saved_span_binding(const wire::core::CoreState& state,
+                                                                wire::core::ObjectId span_id) {
+  const auto it = state.view().backbone_index().span_bindings_by_span.find(span_id);
+  if (it == state.view().backbone_index().span_bindings_by_span.end() || it->second.size() != 1 ||
+      it->second.front() >= state.view().backbone().span_bindings.size()) {
+    return nullptr;
+  }
+  return &state.view().backbone().span_bindings[it->second.front()];
+}
+
+bool two_lane_edge_bundles_do_not_twist(const wire::core::CoreState& state,
+                                        const std::vector<wire::core::ObjectId>& span_ids) {
+  std::unordered_map<wire::core::ObjectId, std::array<wire::core::ObjectId, 2>> spans_by_edge_bundle{};
+  for (wire::core::ObjectId span_id : span_ids) {
+    const wire::core::SavedBackboneSpanBinding* binding = saved_span_binding(state, span_id);
+    if (binding == nullptr || binding->lane_index >= 2) {
+      return false;
+    }
+    spans_by_edge_bundle[binding->edge_bundle_id][binding->lane_index] = span_id;
+  }
+  for (const auto& [edge_bundle_id, lanes] : spans_by_edge_bundle) {
+    (void)edge_bundle_id;
+    const wire::core::Span* lane0 = state.view().spans().find(lanes[0]);
+    const wire::core::Span* lane1 = state.view().spans().find(lanes[1]);
+    if (lane0 == nullptr || lane1 == nullptr) {
+      return false;
+    }
+    const wire::core::Port* a0 = state.view().ports().find(lane0->port_a_id);
+    const wire::core::Port* a1 = state.view().ports().find(lane1->port_a_id);
+    const wire::core::Port* b0 = state.view().ports().find(lane0->port_b_id);
+    const wire::core::Port* b1 = state.view().ports().find(lane1->port_b_id);
+    if (a0 == nullptr || a1 == nullptr || b0 == nullptr || b1 == nullptr) {
+      return false;
+    }
+    const wire::core::Vec3d axis_a = normalize_xy(a1->world_position - a0->world_position);
+    const wire::core::Vec3d axis_b = normalize_xy(b1->world_position - b0->world_position);
+    if (dot_xy(axis_a, axis_b) <= 0.0) {
+      return false;
+    }
+  }
+  return !spans_by_edge_bundle.empty();
+}
+
+wire::core::ObjectId pole_at(const wire::core::CoreState& state,
+                             const std::vector<wire::core::ObjectId>& pole_ids,
+                             const wire::core::Vec3d& position) {
+  for (wire::core::ObjectId pole_id : pole_ids) {
+    const wire::core::Pole* pole = state.view().poles().find(pole_id);
+    if (pole != nullptr && almost_equal(pole->world_transform.position, position, 1e-9)) {
+      return pole_id;
+    }
+  }
+  return wire::core::kInvalidObjectId;
+}
+
+} // namespace
 
 bool C368_backbone_smoke_line() {
   wire::core::CoreState state;
@@ -659,13 +757,13 @@ bool C407_backbone_multiple_bundle_heights_are_band_based() {
     if (bundle == nullptr) {
       return false;
     }
-    if (bundle->bundle_template_id == wire::core::BundleKind::kLowVoltage) {
+    if (bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) {
       saw_lv = true;
       if (!span_ports_match_z(state, span_id, lv_z)) {
         return false;
       }
     }
-    if (bundle->bundle_template_id == wire::core::BundleKind::kCommunication) {
+    if (bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
       saw_comm = true;
       if (!span_ports_match_z(state, span_id, comm_z)) {
         return false;
@@ -675,23 +773,137 @@ bool C407_backbone_multiple_bundle_heights_are_band_based() {
   return saw_lv && saw_comm;
 }
 
+bool C749_backbone_zero_offset_keeps_bundle_centers_on_band_center() {
+  wire::core::CoreState single;
+  const auto single_generated = single.GenerateFromBackboneSpec(line_req(single));
+  if (!single_generated.ok || single_generated.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId single_lv_span =
+      span_for_bundle(single, single_generated.value.generated_span_ids, wire::core::BundleKind::kLowVoltage);
+  if (single_lv_span == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> single_ports =
+      generated_ports_on_pole(single, {single_lv_span}, single_generated.value.generated_pole_ids.front());
+
+  wire::core::CoreState combined;
+  wire::core::BackboneSpec combined_request = line_req(combined);
+  add_backbone_bundle(combined_request, wire::core::BundleKind::kCommunication);
+  const auto combined_generated = combined.GenerateFromBackboneSpec(combined_request);
+  if (!combined_generated.ok || combined_generated.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId combined_lv_span =
+      span_for_bundle(combined, combined_generated.value.generated_span_ids, wire::core::BundleKind::kLowVoltage);
+  if (combined_lv_span == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> combined_ports =
+      generated_ports_on_pole(combined, {combined_lv_span}, combined_generated.value.generated_pole_ids.front());
+  if (single_ports.size() != combined_ports.size() || single_ports.empty()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < single_ports.size(); ++index) {
+    if (!almost_equal(single_ports[index].x, combined_ports[index].x, 1e-12) ||
+        !almost_equal(single_ports[index].y, combined_ports[index].y, 1e-12) ||
+        !almost_equal(single_ports[index].z, combined_ports[index].z, 1e-12)) {
+      return false;
+    }
+  }
+
+  wire::core::CoreState hv_state;
+  wire::core::BackboneSpec hv_request = line_req(hv_state);
+  hv_request.bundles.clear();
+  add_backbone_bundle(hv_request, wire::core::BundleKind::kHighVoltage);
+  const auto hv_generated = hv_state.GenerateFromBackboneSpec(hv_request);
+  if (!hv_generated.ok || hv_generated.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId pole_id = hv_generated.value.generated_pole_ids.front();
+  const wire::core::Pole* pole = hv_state.view().poles().find(pole_id);
+  const auto pole_type_it = pole == nullptr ? hv_state.view().pole_types().end()
+                                            : hv_state.view().pole_types().find(pole->pole_type_id);
+  if (pole == nullptr || pole_type_it == hv_state.view().pole_types().end()) {
+    return false;
+  }
+  std::vector<const wire::core::PortPlacementBand*> expected_bands{};
+  for (const wire::core::PortPlacementBand& band : pole_type_it->second.port_bands) {
+    if (band.enabled && band.category == wire::core::ConnectionCategory::kHighVoltage && band.layer == 2) {
+      expected_bands.push_back(&band);
+    }
+  }
+  std::sort(expected_bands.begin(), expected_bands.end(), [](const auto* a, const auto* b) {
+    if (!almost_equal(a->lateral_center_m, b->lateral_center_m, 1e-12)) {
+      return a->lateral_center_m < b->lateral_center_m;
+    }
+    return a->band_id < b->band_id;
+  });
+  if (expected_bands.size() != 3) {
+    return false;
+  }
+  std::vector<const wire::core::SavedBackbonePortBinding*> bindings{};
+  for (const wire::core::SavedBackbonePortBinding& binding : hv_state.view().backbone().port_bindings) {
+    const wire::core::Port* port = hv_state.view().ports().find(binding.port_id);
+    if (port != nullptr && port->owner_pole_id == pole_id &&
+        binding.bundle_template_id == wire::core::kDefaultHighVoltageBundleTemplateId) {
+      bindings.push_back(&binding);
+    }
+  }
+  std::sort(bindings.begin(), bindings.end(), [](const auto* a, const auto* b) {
+    return a->lane_index < b->lane_index;
+  });
+  if (bindings.size() != expected_bands.size()) {
+    return false;
+  }
+  for (std::size_t lane = 0; lane < bindings.size(); ++lane) {
+    const wire::core::Port* port = hv_state.view().ports().find(bindings[lane]->port_id);
+    if (port == nullptr || bindings[lane]->placement_band_id != expected_bands[lane]->band_id) {
+      return false;
+    }
+    const wire::core::PoleFrame frame = wire::core::BuildPoleFrame(pole->world_transform, bindings[lane]->layout_yaw_deg);
+    const wire::core::Vec3d local = wire::core::WorldPointToLocal(frame, port->world_position);
+    if (!almost_equal(local.y, expected_bands[lane]->lateral_center_m, 1e-9)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C408_backbone_existing_pole_uses_actual_pole_type_height() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const double request_z = band_height(state, req.pole_type_id, wire::core::BundleKind::kLowVoltage);
-  wire::core::PoleTypeId existing_type = wire::core::kInvalidPoleTypeId;
-  double existing_z = -1.0;
+  wire::core::PoleTypeDefinition existing_definition{};
+  bool found_existing_definition = false;
   for (const auto& item : state.view().pole_types()) {
-    const double z = band_height(state, item.first, wire::core::BundleKind::kLowVoltage);
-    if (z >= 0.0 && !almost_equal(z, request_z, 1e-9)) {
-      existing_type = item.first;
-      existing_z = z;
-      break;
+    if (item.first == req.pole_type_id) {
+      continue;
     }
+    existing_definition = item.second;
+    found_existing_definition = true;
+    break;
   }
-  if (existing_type == wire::core::kInvalidPoleTypeId || existing_z < 0.0) {
+  if (!found_existing_definition) {
     return false;
   }
+  double existing_z = -1.0;
+  for (auto& band : existing_definition.port_bands) {
+    if (band.enabled && band.category == wire::core::ConnectionCategory::kLowVoltage) {
+      band.height_center_m += 0.65;
+      band.height_min_m += 0.65;
+      band.height_max_m += 0.65;
+      existing_z = band.height_center_m;
+    }
+  }
+  if (existing_z < 0.0 || almost_equal(existing_z, request_z, 1e-9)) {
+    return false;
+  }
+  const auto update_type = state.UpdatePoleTypeDefinition(existing_definition);
+  if (!update_type.ok || !update_type.value) {
+    return false;
+  }
+  const wire::core::PoleTypeId existing_type = existing_definition.id;
   wire::core::BackboneSpec first = line_req(state);
   first.pole_type_id = existing_type;
   const auto first_out = state.GenerateFromBackboneSpec(first);
@@ -794,6 +1006,164 @@ bool C412_backbone_lateral_offset_sign_is_deterministic() {
   return true;
 }
 
+bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector() {
+  wire::core::CoreState state;
+  if (!prepare_two_lane_low_voltage(state)) {
+    return false;
+  }
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {20.0, 2.0, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  const wire::core::ObjectId corner_pole = pole_at(state, generated.value.generated_pole_ids, {20.0, 0.0, 0.0});
+  if (!generated.ok || corner_pole == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> ports =
+      generated_ports_on_pole(state, generated.value.generated_span_ids, corner_pole);
+  if (ports.size() != 2) {
+    return false;
+  }
+  const wire::core::Vec3d actual = normalize_xy(ports[1] - ports[0]);
+  const wire::core::Vec3d incoming = normalize_xy(req.path.polyline[1] - req.path.polyline[0]);
+  const wire::core::Vec3d outgoing = normalize_xy(req.path.polyline[2] - req.path.polyline[1]);
+  const wire::core::Vec3d expected = lateral_xy(incoming + outgoing);
+  const wire::core::Vec3d old_chord_axis = lateral_xy(req.path.polyline[2] - req.path.polyline[0]);
+  return abs_dot_xy(actual, expected) > 0.999 && abs_dot_xy(actual, old_chord_axis) < 0.95;
+}
+
+bool C662_backbone_pair_row_axis_does_not_flip_lane_order() {
+  wire::core::CoreState state;
+  if (!prepare_two_lane_low_voltage(state)) {
+    return false;
+  }
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {20.0, 2.0, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  const wire::core::ObjectId corner_pole = pole_at(state, generated.value.generated_pole_ids, {20.0, 0.0, 0.0});
+  if (!generated.ok || corner_pole == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> ports =
+      generated_ports_on_pole(state, generated.value.generated_span_ids, corner_pole);
+  if (ports.size() != 2) {
+    return false;
+  }
+  wire::core::Vec3d row_axis = normalize_xy(ports[1] - ports[0]);
+  const wire::core::Vec3d incoming = normalize_xy(req.path.polyline[1] - req.path.polyline[0]);
+  const wire::core::Vec3d outgoing = normalize_xy(req.path.polyline[2] - req.path.polyline[1]);
+  const wire::core::Vec3d expected = lateral_xy(incoming + outgoing);
+  if (dot_xy(row_axis, expected) < 0.0) {
+    row_axis = {-row_axis.x, -row_axis.y, -row_axis.z};
+  }
+  return dot_xy(row_axis, lateral_xy(incoming)) > 0.0 &&
+         dot_xy(row_axis, lateral_xy(outgoing)) > 0.0 &&
+         two_lane_edge_bundles_do_not_twist(state, generated.value.generated_span_ids);
+}
+
+bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
+  wire::core::CoreState state;
+  if (!prepare_two_lane_low_voltage(state)) {
+    return false;
+  }
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 8.660254037844386, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  const wire::core::ObjectId corner_pole = pole_at(state, generated.value.generated_pole_ids, {10.0, 0.0, 0.0});
+  const wire::core::SavedBackboneNode* corner_node = state.view().backbone_node_for_pole(corner_pole);
+  if (!generated.ok || generated.value.generated_span_ids.size() != 4 ||
+      state.view().backbone().edges.size() != 2 || corner_node == nullptr) {
+    return false;
+  }
+
+  std::unordered_map<wire::core::ObjectId, std::vector<wire::core::Vec3d>> rows{};
+  std::unordered_set<wire::core::ObjectId> corner_ports{};
+  for (wire::core::ObjectId span_id : generated.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    for (wire::core::ObjectId port_id : {span->port_a_id, span->port_b_id}) {
+      const wire::core::Port* port = state.view().ports().find(port_id);
+      if (port == nullptr || port->owner_pole_id != corner_pole || !corner_ports.insert(port_id).second) {
+        continue;
+      }
+      const wire::core::SavedBackbonePortBinding* binding = state.view().backbone_port_binding_for_port(port_id);
+      if (binding == nullptr || !binding->row_key.source_is_open ||
+          binding->row_key.node_id != corner_node->node_id ||
+          binding->row_key.source_edge_b != wire::core::kInvalidObjectId ||
+          std::abs(port->side_scale_applied - 1.0) > 1e-9) {
+        return false;
+      }
+      rows[binding->row_key.source_edge_a].push_back(port->world_position);
+    }
+  }
+  if (corner_ports.size() != 4 || rows.size() != 2) {
+    return false;
+  }
+  for (const auto& [edge_id, ports] : rows) {
+    const wire::core::SavedBackboneEdge* edge = state.view().backbone_edge(edge_id);
+    if (edge == nullptr || ports.size() != 2) {
+      return false;
+    }
+    const wire::core::Vec3d row_axis = normalize_xy(ports[1] - ports[0]);
+    const double alignment = abs_dot_xy(row_axis, lateral_xy(edge->dir));
+    const double spacing = std::sqrt((ports[1].x - ports[0].x) * (ports[1].x - ports[0].x) +
+                                     (ports[1].y - ports[0].y) * (ports[1].y - ports[0].y) +
+                                     (ports[1].z - ports[0].z) * (ports[1].z - ports[0].z));
+    if (alignment < 0.999 || spacing < 0.19) {
+      return false;
+    }
+  }
+
+  std::size_t jumper_count = 0;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.source_node_id != corner_node->node_id) {
+      continue;
+    }
+    if (part.kind == wire::core::VisualCurvePartKind::kNodePatch) {
+      return false;
+    }
+    if (part.kind == wire::core::VisualCurvePartKind::kJumper) {
+      if (part.incident_edge_ids.size() != 2 || part.samples.size() < 2 ||
+          !std::isfinite(part.bounds.min.x) || !std::isfinite(part.bounds.max.z)) {
+        return false;
+      }
+      ++jumper_count;
+    }
+  }
+  return jumper_count == 2 &&
+         two_lane_edge_bundles_do_not_twist(state, generated.value.generated_span_ids);
+}
+
+bool C664_backbone_sharp_pole_facing_consumes_pair_decision() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 8.660254037844386, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  const wire::core::ObjectId corner_pole_id =
+      pole_at(state, generated.value.generated_pole_ids, {10.0, 0.0, 0.0});
+  const wire::core::Pole* corner_pole = state.view().poles().find(corner_pole_id);
+  if (!generated.ok || corner_pole == nullptr) {
+    return false;
+  }
+  const double yaw_rad = corner_pole->world_transform.rotation_euler_deg.z *
+                         (3.14159265358979323846 / 180.0);
+  const wire::core::Vec3d actual{std::cos(yaw_rad), std::sin(yaw_rad), 0.0};
+  const wire::core::Vec3d expected = normalize_xy((req.path.polyline[0] - req.path.polyline[1]) +
+                                                  (req.path.polyline[2] - req.path.polyline[1]));
+  if (abs_dot_xy(actual, expected) < 0.999) {
+    return false;
+  }
+
+  std::string source;
+  std::string body;
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
+  return file_text(file, &source) &&
+         function_body(source, "EditResult<bool> pipeline::emit_poles(topo* made, const pairs& ps", &body) &&
+         contains_text(body, "ps.jumpers") && contains_text(body, "node_forward") &&
+         !contains_text(body, "acos") && !contains_text(body, "kSharpCornerInteriorAngleMaxDeg");
+}
+
 bool C414_backbone_simple_avoid_detour_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
@@ -847,7 +1217,7 @@ bool C417_backbone_node_mode_pass_through_without_target_rejected() {
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
   mode.point_index = 0;
-  mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  mode.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   mode.mode = wire::core::BundleNodeMode::kPassThrough;
   req.node_bundle_modes.push_back(mode);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -859,7 +1229,7 @@ bool C418_backbone_node_mode_unknown_bundle_rejected() {
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
   mode.point_index = 0;
-  mode.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  mode.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
   mode.mode = wire::core::BundleNodeMode::kNotPresent;
   req.node_bundle_modes.push_back(mode);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -871,7 +1241,7 @@ bool C419_backbone_node_mode_point_index_rejected() {
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
   mode.point_index = req.path.polyline.size();
-  mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  mode.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   mode.mode = wire::core::BundleNodeMode::kNotPresent;
   req.node_bundle_modes.push_back(mode);
   const auto out = state.GenerateFromBackboneSpec(req);

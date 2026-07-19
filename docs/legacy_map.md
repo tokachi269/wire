@@ -7,8 +7,13 @@
 
 | family | 状態 | normal path | 消す条件 |
 |---|---|---|---|
-| `UpdatePoleTypeDefinition` | active backbone poleが使用中ならmutation前`unsupported`。非backbone poleだけなら更新可能 | post-edit API | active objectのtemplate migrationが必要になった時だけ、SavedGraph identityを維持する新operationを設計する |
+| `UpdatePoleTypeDefinition` | active backbone pole使用中でもplacement-only差分は`kReposition`で反映。構造差分は対象 pole の incident edge を統一 regenerate し、SavedGraph identityを維持して port/span/rules/layout/geom/draw を再導出する。存続 lane の manual port は保持し、退役 lane の manual port は拒否する | post-edit API | manual port 退役拒否を緩和する場合だけ別 scenario として扱う |
+| `UpdateCableTemplate` | backbone span の continuity policy と default endpoint attachment差分は統一 regenerate で route scope を再生成し、curve decision と `AttachmentOrigin::kDefaultEndpoint` を編集後 cable template に合わせる。non-backbone span を含む decision差分は mutation前 unsupported | post-edit API | non-backbone decision更新の実用scenarioが必要になった時だけ拡張する |
+| `UpdateBundleTemplate` | fixed count増減と classifier の`kTopology` policy差分は統一 regenerate で row-continuity component scopeをreconcileし、row key/lane一致bindingを再利用、不一致bindingを退役+再生成する。range化(`count_rule` fixed/range、min/max/default)は全既存bundleの`conductor_count`が新policy内なら出力を再生成せず受理し、外ならmutation前に拒否する。multi-bundle は saved edge_bundles 順で group offset を再構成し、pair row は saved row continuity から再確定する。存続spanのattachmentは保持し、退役spanのuser attachmentは拒否する。`population_rules` 差分はtemplate-owned derived outputとして`kReshape`で反映する | post-edit API | fresh生成が拒否する新policy、またはnon-backbone spanを含むscopeを扱うscenarioが必要になった時だけ拡張する |
+| `SetSpanEndpointSocketOverride` / `SetSpanBranchDownOffsetOverride` | backbone span でも `override_state` を正本として trial に書き、対象 span の edge を統一 regenerate して layout/geom/draw を再導出する | post-edit API | override の対象範囲を span-local 以外へ広げる場合だけ別 scenario として扱う |
+| `UpdateLayoutSettings` | backbone span が存在しても、layout settings を trial に書いて全 route/bundle scope を統一 regenerate し、保存済み topology identity を維持して layout/geom/draw を再導出する | post-edit API | layout settings が新しい生成入力を持つ場合は同じ scope 収集に追加する |
 | `pending_support_nodes` | 未保存pickを次のrequestへ渡すtransient input | DrawPath input | 保存済みnodeと混同しない限り維持 |
+| M4 trial削除 | 撤回済み。preflight を増やしても trial は削除せず、同等の failure 保証を持つ代替 transaction 方式へ置換できた場合だけ退役する | transaction 契約 | MutationPlan / journal / copy-on-write 等で全 stage failure 時の本 state 不変を保証できたとき |
 
 ## 隔離
 
@@ -23,11 +28,13 @@
 
 - recalc directory、dirty queue、`ProcessDirtyQueues`
 - `DirtyBits`、`regeneration_required`、`TemplateDependencyState`
+- `migrate_backbone_bundle_fixed_count_increase`、`bundle_count_migration.cpp`
 - support-layout authority / seed / projection / materialization
 - grouped span generation、旧backbone pipeline
 - span/layout/curve/port位置からのtopology復元
 - capture replayとlegacy recalc UI
 - span-derived backbone public query
+- global cable population config / enable flag / seed
 - `AddConnectionByPole`、`AddDropFromPole`、`AddDropFromSpan`、`SplitSpan`のpublic API、実装、専用型
 - road/building固有のcore identity型
 - `SegmentLaneAssignment`、`last_generation_lane_assignments`、旧generation test suite

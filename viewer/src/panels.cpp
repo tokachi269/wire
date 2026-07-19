@@ -637,6 +637,7 @@ void LoadBundleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui
   ui_state.bundle_template_branch_policy = static_cast<int>(it->second.branch_policy);
   ui_state.bundle_template_continuity_policy = static_cast<int>(it->second.continuity_policy);
   ui_state.bundle_template_grouped_support_fanout_spacing = it->second.grouped_support_fanout_spacing_m;
+  ui_state.bundle_template_span_visual_assembly = it->second.span_visual_assembly;
   LoadCableTemplateState(view, ui_state, it->second.cable_template_id);
   if (it->second.related_pole_type_id != wire::core::kInvalidPoleTypeId) {
     LoadPoleTemplateState(view, ui_state, it->second.related_pole_type_id);
@@ -1432,12 +1433,6 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("cornerTurnSign: %.0f", pole->context.corner_turn_sign);
     ImGui::Text("sideScale: %.3f", pole->context.side_scale);
     ImGui::Text("angleCorrectionApplied: %s", pole->context.angle_correction_applied ? "true" : "false");
-    ImGui::Text("sharpOrientationApplied: %s", pole->context.sharp_orientation_applied ? "true" : "false");
-    ImGui::Text("sharpTheta: %.2f", pole->context.sharp_theta_deg);
-    ImGui::Text("sharpBisector: %.3f %.3f %.3f", pole->context.sharp_bisector_dir.x, pole->context.sharp_bisector_dir.y,
-                pole->context.sharp_bisector_dir.z);
-    ImGui::Text("sharpSideDir: %.3f %.3f %.3f", pole->context.sharp_side_dir.x, pole->context.sharp_side_dir.y,
-                pole->context.sharp_side_dir.z);
     ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
     if (const auto pole_view = view.inspect_pole(pole->id); pole_view.has_value()) {
       const auto override_view = view.inspect_overrides({wire::core::EntityKind::kPole, pole->id});
@@ -2116,10 +2111,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   }
   if (!ui_state.visual_settings_loaded) {
     const auto& vs = view.visual_settings();
-    ui_state.visual_enable_support_structures = vs.enable_support_structures;
     ui_state.visual_enable_insulators = vs.enable_insulators;
-    ui_state.visual_support_center_threshold = vs.support_center_threshold_m;
-    ui_state.visual_support_arm_extra = vs.support_arm_extra_m;
     ui_state.visual_insulator_radius = vs.insulator_radius_m;
     ui_state.visual_insulator_length = vs.insulator_length_m;
     ui_state.visual_settings_loaded = true;
@@ -2510,6 +2502,18 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Checkbox("Bundle Allow Midair Branch", &ui_state.bundle_template_allow_midair_branch);
       ImGui::InputDouble("Bundle Grouped Fanout Spacing", &ui_state.bundle_template_grouped_support_fanout_spacing,
                          0.01, 0.05, "%.3f");
+      auto& assembly = ui_state.bundle_template_span_visual_assembly;
+      ImGui::Checkbox("Assembly Helix Enabled", &assembly.helix_enabled);
+      ImGui::InputDouble("Assembly Helix Radius", &assembly.helix_radius_m, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Helix Clearance", &assembly.helix_clearance_m, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Helix Turns Per Meter", &assembly.helix_turns_per_meter, 0.01, 0.05, "%.3f");
+      ImGui::InputInt("Assembly Helix Samples Per Turn", &assembly.helix_samples_per_turn);
+      ImGui::InputDouble("Assembly Endpoint Trim", &assembly.endpoint_trim_m, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Wander Ratio", &assembly.member_wander_ratio, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Wander Wavelength", &assembly.member_wander_wavelength_m, 0.1, 0.5, "%.3f");
+      ImGui::InputDouble("Assembly Wander Phase", &assembly.member_wander_phase_bias, 0.1, 0.5, "%.3f");
+      ImGui::InputDouble("Assembly Twist Turns Per Meter", &assembly.member_twist_turns_per_meter, 0.01, 0.05, "%.3f");
+      ImGui::InputDouble("Assembly Twist Phase", &assembly.member_twist_phase, 0.1, 0.5, "%.3f");
       const auto selected_support_style =
           static_cast<wire::core::BundleSupportStyleHint>(ui_state.bundle_template_support_style);
       if (ImGui::BeginCombo("Bundle Support Style", BundleSupportStyleLabel(selected_support_style))) {
@@ -2569,6 +2573,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         tpl.support_style = static_cast<wire::core::BundleSupportStyleHint>(ui_state.bundle_template_support_style);
         tpl.branch_policy = static_cast<wire::core::BundleBranchPolicyHint>(ui_state.bundle_template_branch_policy);
         tpl.grouped_support_fanout_spacing_m = ui_state.bundle_template_grouped_support_fanout_spacing;
+        tpl.span_visual_assembly = ui_state.bundle_template_span_visual_assembly;
         tpl.continuity_policy =
             static_cast<wire::core::CableContinuityPolicyHint>(ui_state.bundle_template_continuity_policy);
         const auto apply = viewer_core_state::UpdateBundleTemplate(state, tpl);
@@ -2842,19 +2847,13 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::TextUnformatted("No pole templates");
     }
     ImGui::Separator();
-    ImGui::Checkbox("Enable Support Structures", &ui_state.visual_enable_support_structures);
     ImGui::Checkbox("Enable Insulators", &ui_state.visual_enable_insulators);
     ImGui::Checkbox("Solid Support Render", &ui_state.viewer_enable_solid_support_render);
-    ImGui::InputDouble("Support Center Threshold", &ui_state.visual_support_center_threshold, 0.005, 0.01, "%.3f");
-    ImGui::InputDouble("Support Arm Extra", &ui_state.visual_support_arm_extra, 0.01, 0.05, "%.3f");
     ImGui::InputDouble("Insulator Radius", &ui_state.visual_insulator_radius, 0.005, 0.01, "%.3f");
     ImGui::InputDouble("Insulator Length", &ui_state.visual_insulator_length, 0.005, 0.01, "%.3f");
     if (ImGui::Button("Apply Visual Cache Settings")) {
       wire::core::VisualSettings settings{};
-      settings.enable_support_structures = ui_state.visual_enable_support_structures;
       settings.enable_insulators = ui_state.visual_enable_insulators;
-      settings.support_center_threshold_m = ui_state.visual_support_center_threshold;
-      settings.support_arm_extra_m = ui_state.visual_support_arm_extra;
       settings.insulator_radius_m = ui_state.visual_insulator_radius;
       settings.insulator_length_m = ui_state.visual_insulator_length;
       const auto apply = viewer_core_state::UpdateVisualSettings(state, settings, true);

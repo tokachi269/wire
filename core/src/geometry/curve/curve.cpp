@@ -60,16 +60,104 @@ void align_frame(const Vec3d& preferred_lateral, CableCurveSample* sample) {
   sample->binormal = ScaleVec(sample->binormal, -1.0);
 }
 
+Vec3d hermite(const Vec3d& p0, const Vec3d& m0, const Vec3d& p1, const Vec3d& m1, double t) {
+  const double t2 = t * t;
+  const double t3 = t2 * t;
+  const double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+  const double h10 = t3 - 2.0 * t2 + t;
+  const double h01 = -2.0 * t3 + 3.0 * t2;
+  const double h11 = t3 - t2;
+  return {
+      p0.x * h00 + m0.x * h10 + p1.x * h01 + m1.x * h11,
+      p0.y * h00 + m0.y * h10 + p1.y * h01 + m1.y * h11,
+      p0.z * h00 + m0.z * h10 + p1.z * h01 + m1.z * h11,
+  };
+}
+
+Vec3d hermite_derivative(const Vec3d& p0, const Vec3d& m0, const Vec3d& p1, const Vec3d& m1, double t) {
+  const double t2 = t * t;
+  const double h00 = 6.0 * t2 - 6.0 * t;
+  const double h10 = 3.0 * t2 - 4.0 * t + 1.0;
+  const double h01 = -6.0 * t2 + 6.0 * t;
+  const double h11 = 3.0 * t2 - 2.0 * t;
+  return {
+      p0.x * h00 + m0.x * h10 + p1.x * h01 + m1.x * h11,
+      p0.y * h00 + m0.y * h10 + p1.y * h01 + m1.y * h11,
+      p0.z * h00 + m0.z * h10 + p1.z * h01 + m1.z * h11,
+  };
+}
+
+bool uses_endpoint_tangents(const CableCurveInput& input) {
+  return input.has_start_tangent_hint || input.has_end_tangent_hint;
+}
+
+// Sag enters the hinted (hermite) path through the endpoint tangents. The un-hinted side of a
+// partially hinted span must keep the same support tangent as the plain parabolic path; a chord
+// fallback or a zero-derivative sag offset would flatten the arrival at that support.
+Vec3d endpoint_unit_tangent(const CableCurveInput& input, const Vec3d& gravity, const Vec3d& chord,
+                            const Vec3d& chord_dir, bool at_start) {
+  const bool has_hint = at_start ? input.has_start_tangent_hint : input.has_end_tangent_hint;
+  const Vec3d& hint = at_start ? input.start_tangent_hint : input.end_tangent_hint;
+  if (has_hint) {
+    return normalized_or(hint, chord_dir);
+  }
+  const Vec3d derivative =
+      chord + ScaleVec(gravity, std::max(0.0, input.sag_m) * (at_start ? 4.0 : -4.0));
+  return normalized_or(derivative, chord_dir);
+}
+
 Vec3d position_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
   const Vec3d chord = input.end - input.start;
+  if (uses_endpoint_tangents(input)) {
+    const double chord_length = Length(chord);
+    const Vec3d chord_dir = normalized_or(chord, input.canonical_dir);
+    const Vec3d start_tangent =
+        ScaleVec(endpoint_unit_tangent(input, gravity, chord, chord_dir, true), chord_length);
+    const Vec3d end_tangent =
+        ScaleVec(endpoint_unit_tangent(input, gravity, chord, chord_dir, false), chord_length);
+    return hermite(input.start, start_tangent, input.end, end_tangent, t);
+  }
   return input.start + ScaleVec(chord, t) +
          ScaleVec(gravity, std::max(0.0, input.sag_m) * 4.0 * t * (1.0 - t));
 }
 
 Vec3d tangent_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
+  const Vec3d chord = input.end - input.start;
+  if (uses_endpoint_tangents(input)) {
+    const double chord_length = Length(chord);
+    const Vec3d chord_dir = normalized_or(chord, input.canonical_dir);
+    const Vec3d start_tangent =
+        ScaleVec(endpoint_unit_tangent(input, gravity, chord, chord_dir, true), chord_length);
+    const Vec3d end_tangent =
+        ScaleVec(endpoint_unit_tangent(input, gravity, chord, chord_dir, false), chord_length);
+    const Vec3d derivative =
+        hermite_derivative(input.start, start_tangent, input.end, end_tangent, t);
+    return normalized_or(derivative, chord);
+  }
   const Vec3d derivative =
-      (input.end - input.start) + ScaleVec(gravity, std::max(0.0, input.sag_m) * 4.0 * (1.0 - 2.0 * t));
-  return normalized_or(derivative, input.end - input.start);
+      chord + ScaleVec(gravity, std::max(0.0, input.sag_m) * 4.0 * (1.0 - 2.0 * t));
+  return normalized_or(derivative, chord);
+}
+
+EditResult<bool> validate_input(const CableCurveInput& input) {
+  EditResult<bool> result{};
+  if (input.method != CurveMethod::kParabolicSag) {
+    result.error = "cable curve method is unsupported";
+    return result;
+  }
+  if (input.family != CurveFamily::kMainSpan) {
+    result.error = "cable curve family is unsupported";
+    return result;
+  }
+  if (!finite(input.start) || !finite(input.end) || !finite(input.gravity_dir) ||
+      !finite(input.canonical_dir) || !std::isfinite(input.sag_m) || input.sag_m < 0.0 ||
+      !std::isfinite(input.radius_m) || input.radius_m < 0.0) {
+    result.error = "cable curve input is invalid";
+    return result;
+  }
+  result.ok = true;
+  result.value = true;
+  return result;
 }
 
 void expand_bounds(const Vec3d& point, double radius, AABBd* bounds) {
@@ -99,20 +187,25 @@ std::size_t ResolveSegmentCount(const CableCurveInput& input) {
   return std::clamp(std::max({minimum, length_segments, sag_segments}), minimum, maximum);
 }
 
+EditResult<CableEndpointTangents> EvaluateEndpointTangents(const CableCurveInput& input) {
+  EditResult<CableEndpointTangents> result{};
+  const EditResult<bool> valid = validate_input(input);
+  if (!valid.ok) {
+    result.error = valid.error;
+    return result;
+  }
+  const Vec3d gravity = normalized_or(input.gravity_dir, {0.0, 0.0, -1.0});
+  result.value.start_tangent = tangent_at(input, gravity, 0.0);
+  result.value.end_tangent = tangent_at(input, gravity, 1.0);
+  result.ok = true;
+  return result;
+}
+
 EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
   EditResult<CableCurveOutput> result{};
-  if (input.method != CurveMethod::kParabolicSag) {
-    result.error = "cable curve method is unsupported";
-    return result;
-  }
-  if (input.family != CurveFamily::kMainSpan) {
-    result.error = "cable curve family is unsupported";
-    return result;
-  }
-  if (!finite(input.start) || !finite(input.end) || !finite(input.gravity_dir) ||
-      !finite(input.canonical_dir) || !std::isfinite(input.sag_m) || input.sag_m < 0.0 ||
-      !std::isfinite(input.radius_m) || input.radius_m < 0.0) {
-    result.error = "cable curve input is invalid";
+  const EditResult<bool> valid = validate_input(input);
+  if (!valid.ok) {
+    result.error = valid.error;
     return result;
   }
 
@@ -169,13 +262,23 @@ DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& 
   }
   const Vec3d gravity = normalized_or(input.gravity_dir, {0.0, 0.0, -1.0});
   const Vec3d chord = input.end - input.start;
+  const bool tangent_aware = uses_endpoint_tangents(input);
+  const Vec3d chord_dir = normalized_or(chord, input.canonical_dir);
+  const double chord_length = Length(chord);
+  const Vec3d start_tangent = endpoint_unit_tangent(input, gravity, chord, chord_dir, true);
+  const Vec3d end_tangent = endpoint_unit_tangent(input, gravity, chord, chord_dir, false);
   const Vec3d sag_control_offset = ScaleVec(gravity, std::max(0.0, input.sag_m) * (4.0 / 3.0));
   detail.start_constraint.point = input.start;
   detail.start_constraint.tangent_dir = output.samples.front().tangent;
   detail.end_constraint.point = input.end;
   detail.end_constraint.tangent_dir = output.samples.back().tangent;
-  detail.control_points = {input.start, input.start + ScaleVec(chord, 1.0 / 3.0) + sag_control_offset,
-                           input.start + ScaleVec(chord, 2.0 / 3.0) + sag_control_offset, input.end};
+  if (tangent_aware) {
+    detail.control_points = {input.start, input.start + ScaleVec(start_tangent, chord_length / 3.0),
+                             input.end - ScaleVec(end_tangent, chord_length / 3.0), input.end};
+  } else {
+    detail.control_points = {input.start, input.start + ScaleVec(chord, 1.0 / 3.0) + sag_control_offset,
+                             input.start + ScaleVec(chord, 2.0 / 3.0) + sag_control_offset, input.end};
+  }
   detail.segments.push_back({detail.control_points, 0.0, 1.0});
   detail.sag_amplitude_m = std::max(0.0, input.sag_m);
   detail.sag_application = DetailCurveSagApplication::kBakedIntoControlCurve;

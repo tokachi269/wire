@@ -7,13 +7,21 @@ add_library(
   src/state/core_view.cpp
   src/state/inspection.cpp
   src/state/endpoint_refresh_service.cpp
+  src/state/port_placement.cpp
+  src/state/default_bundle_placement.cpp
   src/state/override_resolution.cpp
   src/state/template/update.cpp
-  src/pole_orientation_utils.cpp
-  src/generation/pole_facing/pole_facing_rules.cpp
   src/generation/backbone/curve_parts.cpp
   src/generation/backbone/derive.cpp
+  src/generation/backbone/derive_span_layout.cpp
+  src/generation/backbone/emit_shared.cpp
   src/generation/backbone/out.cpp
+  src/generation/backbone/population.cpp
+  src/generation/backbone/regenerate.cpp
+  src/generation/backbone/span_visual_assembly.cpp
+  src/generation/backbone/mount_graph.cpp
+  src/generation/backbone/model_placement_rules.cpp
+  src/generation/backbone/model_assembly.cpp
   src/generation/backbone/pipeline.cpp
   src/generation/generate_from_backbone.cpp
   src/state/backbone.cpp
@@ -25,7 +33,9 @@ add_library(
   src/geometry/style_context.cpp
   src/geometry/variation.cpp
   src/geometry/curve_support.cpp
+  src/support/instrumentation.cpp
   src/state/span_runtime.cpp
+  src/state/persistence.cpp
 )
 
 option(WIRE_ENABLE_PCH "Enable precompiled headers for core targets" ON)
@@ -47,6 +57,12 @@ if(WIRE_ENABLE_PCH)
 endif()
 
 if(BUILD_TESTING)
+  target_compile_definitions(
+    wire_core
+    PRIVATE
+    WIRE_TEST_INSTRUMENTATION=1
+  )
+
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
   add_custom_target(
@@ -77,12 +93,14 @@ if(BUILD_TESTING)
     tests/pick.cpp
     tests/workflow.cpp
     tests/api_surface.cpp
+    tests/persistence.cpp
     tests/backbone/fixtures.cpp
     tests/backbone/generation.cpp
     tests/backbone/graph.cpp
     tests/backbone/guard.cpp
     tests/backbone/input.cpp
     tests/backbone/output.cpp
+    tests/backbone/population.cpp
     tests/backbone/update.cpp
     tests/backbone/registry.cpp
   )

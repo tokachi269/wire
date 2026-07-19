@@ -3,6 +3,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "../support/hash_mix.hpp"
 #include "detail_curve_input_resolution.hpp"
 #include "curve_support.hpp"
 
@@ -16,16 +17,7 @@ constexpr double kZeroLengthEps = 1e-9;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kTwoPi = 2.0 * kPi;
 
-std::uint64_t splitmix64(std::uint64_t x) {
-  x += 0x9E3779B97F4A7C15ull;
-  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
-  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
-  return x ^ (x >> 31);
-}
-
-std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
-  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
-}
+using support::hash_combine;
 
 double unit_noise_from_u64(std::uint64_t value) {
   return static_cast<double>(value >> 11) * (1.0 / static_cast<double>(1ull << 53));
@@ -218,8 +210,10 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
       return points;
     }
 
-    const double layout_yaw_a = state.effective_port_layout_yaw_deg(*pole_a, port_a->category);
-    const double layout_yaw_b = state.effective_port_layout_yaw_deg(*pole_b, port_b->category);
+    const double layout_yaw_a =
+        state.effective_port_layout_yaw_deg(*pole_a, port_a->id, port_a->category);
+    const double layout_yaw_b =
+        state.effective_port_layout_yaw_deg(*pole_b, port_b->id, port_b->category);
     const double lateral_a =
         pole_band_chord_lateral_m(state, span, true, *pole_a, layout_yaw_a, *port_a, band_a->lateral_center_m);
     const double lateral_b =
@@ -241,19 +235,13 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
   }
   const double visible_length_m = end_s - start_s;
   int sample_count = 2;
-  if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kCoiledCable) {
-    sample_count =
-        std::max(16, static_cast<int>(std::ceil(visible_length_m * path.coil_turns_per_meter *
-                                                std::max(4, path.coil_samples_per_turn))));
+  if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
+      path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
+      path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
+    const double sample_step_m = std::max(0.25, path.wobble_wavelength_m / 8.0);
+    sample_count = std::max(8, static_cast<int>(std::ceil(visible_length_m / sample_step_m)));
   } else {
-    if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
-        path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
-        path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
-      const double sample_step_m = std::max(0.25, path.wobble_wavelength_m / 8.0);
-      sample_count = std::max(8, static_cast<int>(std::ceil(visible_length_m / sample_step_m)));
-    } else {
-      sample_count = std::max(2, static_cast<int>(std::ceil(visible_length_m / 1.0)));
-    }
+    sample_count = std::max(2, static_cast<int>(std::ceil(visible_length_m / 1.0)));
   }
 
   const std::uint64_t variation_flow_key = variation_flow_key_for_span(state.view().find_span_runtime_state(span.id), span);
@@ -289,14 +277,7 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
     }
 
     Vec3d point = base + ScaleVec(lateral, path.lateral_offset_m) + ScaleVec(up, path.vertical_offset_m);
-    if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kCoiledCable) {
-      point = point +
-              ScaleVec(lateral, supplemental_wobble_offset_m(path, t, s - start_s, wobble_phase, amplitude_scale,
-                                                             wavelength_scale));
-      const double phase = kTwoPi * path.coil_turns_per_meter * (s - start_s);
-      point = point + ScaleVec(lateral, std::cos(phase) * path.coil_radius_m) +
-              ScaleVec(up, std::sin(phase) * path.coil_radius_m);
-    } else if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
+    if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
                path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
                path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
       point = point +
@@ -317,6 +298,40 @@ CurveLengthInterval cable_supplemental_replaced_interval(const CableSupplemental
 }
 
 } // namespace
+
+std::optional<std::pair<Vec3d, Vec3d>> resolve_pole_band_chord_endpoints(
+    const CoreState& state, const Span& span, int pole_band_id) {
+  const Port* port_a = state.view().edit_state().ports.find(span.port_a_id);
+  const Port* port_b = state.view().edit_state().ports.find(span.port_b_id);
+  if (port_a == nullptr || port_b == nullptr || port_a->owner_pole_id == kInvalidObjectId ||
+      port_b->owner_pole_id == kInvalidObjectId) return std::nullopt;
+  const Pole* pole_a = state.view().edit_state().poles.find(port_a->owner_pole_id);
+  const Pole* pole_b = state.view().edit_state().poles.find(port_b->owner_pole_id);
+  if (pole_a == nullptr || pole_b == nullptr) return std::nullopt;
+  const auto type_a = state.view().pole_types().find(pole_a->pole_type_id);
+  const auto type_b = state.view().pole_types().find(pole_b->pole_type_id);
+  if (type_a == state.view().pole_types().end() || type_b == state.view().pole_types().end()) return std::nullopt;
+  const auto band_id_for_port = [&](const Port& port) {
+    if (pole_band_id != 0) return pole_band_id;
+    const SavedBackbonePortBinding* binding = state.view().backbone_port_binding_for_port(port.id);
+    return binding == nullptr ? 0 : binding->placement_band_id;
+  };
+  const auto find_band = [&](const PoleTypeDefinition& type, int band_id) -> const PortPlacementBand* {
+    const auto it = std::find_if(type.port_bands.begin(), type.port_bands.end(),
+                                 [&](const PortPlacementBand& band) { return band.band_id == band_id; });
+    return it == type.port_bands.end() ? nullptr : &*it;
+  };
+  const PortPlacementBand* band_a = find_band(type_a->second, band_id_for_port(*port_a));
+  const PortPlacementBand* band_b = find_band(type_b->second, band_id_for_port(*port_b));
+  if (band_a == nullptr || band_b == nullptr) return std::nullopt;
+  const double yaw_a = state.effective_port_layout_yaw_deg(*pole_a, port_a->id, port_a->category);
+  const double yaw_b = state.effective_port_layout_yaw_deg(*pole_b, port_b->id, port_b->category);
+  const double lateral_a = pole_band_chord_lateral_m(state, span, true, *pole_a, yaw_a, *port_a, band_a->lateral_center_m);
+  const double lateral_b = pole_band_chord_lateral_m(state, span, false, *pole_b, yaw_b, *port_b, band_b->lateral_center_m);
+  return std::pair<Vec3d, Vec3d>{
+      LocalPointToWorld(BuildPoleFrame(pole_a->world_transform, yaw_a), {0.0, lateral_a, band_a->height_center_m}),
+      LocalPointToWorld(BuildPoleFrame(pole_b->world_transform, yaw_b), {0.0, lateral_b, band_b->height_center_m})};
+}
 
 void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId span_id, DetailCurve* curve) {
   if (curve == nullptr || curve->Length() <= kZeroLengthEps) {
@@ -369,6 +384,12 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
       }
 
       if (attachment_template->line_interaction_mode == AttachmentLineInteractionMode::kHideSegment) {
+        hidden.push_back({start_s, end_s});
+        continue;
+      }
+
+      if (attachment_template->line_interaction_mode == AttachmentLineInteractionMode::kReplaceWithInternalPath &&
+          internal_path == nullptr) {
         hidden.push_back({start_s, end_s});
         continue;
       }
@@ -448,25 +469,6 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
             supplemental_paths.push_back(std::move(supplemental));
           }
         }
-      }
-    }
-    if (bundle_template != nullptr && bundle_template->support_wire_pole_band_id > 0) {
-      CableSupplementalPathTemplate support_wire{};
-      support_wire.anchor_mode = CableSupplementalPathTemplate::AnchorMode::kPoleBandChord;
-      support_wire.profile_kind = CableSupplementalPathTemplate::ProfileKind::kStraightCable;
-      support_wire.interaction_mode = AttachmentLineInteractionMode::kAddInternalPath;
-      support_wire.pole_band_id = bundle_template->support_wire_pole_band_id;
-      const std::vector<Vec3d> path_points =
-          build_cable_supplemental_points(support_wire, state, *span, *curve,
-                                          static_cast<std::uint32_t>((cable_template == nullptr)
-                                                                         ? 0
-                                                                         : cable_template->supplemental_paths.size()));
-      if (path_points.size() >= 2) {
-        DetailSupplementalPath supplemental{};
-        supplemental.attachment_template_id = kInvalidAttachmentTemplateId;
-        supplemental.interaction_mode = support_wire.interaction_mode;
-        supplemental.points = path_points;
-        supplemental_paths.push_back(std::move(supplemental));
       }
     }
   }

@@ -55,6 +55,10 @@ const VisualCurvePartCache& CoreState::visual_curve_parts() const {
   return runtime_.cache_state.visual_curve_part_cache;
 }
 
+const VisualModelInstanceCache& CoreState::visual_model_instances() const {
+  return runtime_.cache_state.visual_model_instance_cache;
+}
+
 const SpanRuntimeState* CoreState::find_span_runtime_state(ObjectId span_id) const {
   auto it = runtime_.span_runtime_states.find(span_id);
   if (it == runtime_.span_runtime_states.end()) {
@@ -325,6 +329,28 @@ EditResult<UpdatePlan> CoreState::make_update_plan(UpdateRequest request) const 
     return out;
   }
 
+  const std::vector<ObjectId> source_edges = plan.affected.edges;
+  bool added_source_projection_dependent = false;
+  for (const SavedBackboneSpanBinding& binding : authoritative_.backbone.span_bindings) {
+    const SpanLayoutRulesView rules = runtime_.cache_state.span_layout_cache.rules_view(binding.span_id);
+    if (!rules.has_rule()) {
+      continue;
+    }
+    const auto depends_on_source_edge = [&](const EndpointLayoutRule& endpoint) {
+      return endpoint.source_projection.valid() &&
+             std::find(source_edges.begin(), source_edges.end(), endpoint.source_projection.source_edge_id) !=
+                 source_edges.end();
+    };
+    if (depends_on_source_edge(rules.rule->start) || depends_on_source_edge(rules.rule->end)) {
+      const std::size_t before = plan.affected.spans.size();
+      add_unique(&plan.affected.spans, binding.span_id);
+      added_source_projection_dependent = added_source_projection_dependent || plan.affected.spans.size() != before;
+    }
+  }
+  if (added_source_projection_dependent && plan.kind == UpdateKind::kReshape) {
+    plan.kind = UpdateKind::kReposition;
+  }
+
   std::sort(plan.affected.poles.begin(), plan.affected.poles.end());
   std::sort(plan.affected.ports.begin(), plan.affected.ports.end());
   std::sort(plan.affected.spans.begin(), plan.affected.spans.end());
@@ -401,6 +427,10 @@ void CoreState::cache_span_render(ObjectId span_id, SpanRenderCacheEntry render)
 
 void CoreState::cache_visual_curve_parts(VisualCurvePartCache visual_curves) {
   runtime_.cache_state.visual_curve_part_cache = std::move(visual_curves);
+}
+
+void CoreState::cache_visual_model_instances(VisualModelInstanceCache model_instances) {
+  runtime_.cache_state.visual_model_instance_cache = std::move(model_instances);
 }
 
 void CoreState::cache_span_rules(const SpanLayoutRules& rules) {

@@ -18,7 +18,7 @@
 
 namespace wire::core {
 
-// Layout boundary types consumed by geometry and inspection.
+// Derived span-layout boundary types consumed by geometry and inspection.
 enum class LayoutOriginKind : std::uint8_t {
   kMainSupport = 0,
   kBranchSupport = 1,
@@ -132,9 +132,25 @@ inline void CopyLayoutSemantic(LayoutSemantic& dst, const LayoutSemantic& src) {
   dst.chosen_side_sign = src.chosen_side_sign;
 }
 
+struct SourceEdgeProjectionRef {
+  ObjectId source_edge_id = kInvalidObjectId;
+  ObjectId source_edge_bundle_id = kInvalidObjectId;
+  ObjectId from_node_id = kInvalidObjectId;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+  std::size_t lane_index = 0;
+  double t = 0.0;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return source_edge_id != kInvalidObjectId && source_edge_bundle_id != kInvalidObjectId &&
+           from_node_id != kInvalidObjectId;
+  }
+};
+
 struct LayoutEndpoint : LayoutSemantic {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
+  ObjectId jumper_peer_port_id = kInvalidObjectId;
+  SourceEdgeProjectionRef source_projection{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -143,10 +159,6 @@ struct LayoutEndpoint : LayoutSemantic {
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
   SlotSide side = SlotSide::kCenter;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
-  bool has_visual_arm_geometry = false;
-  Vec3d visual_arm_mount_world{};
-  Vec3d visual_arm_tip_world{};
-  Vec3d visual_insulator_base_world{};
   Vec3d support_world{};
   Vec3d endpoint_world{};
   Vec3d departure_dir{};
@@ -185,6 +197,8 @@ struct SupportGroupDecision : LayoutSemantic {
 struct EndpointLayoutRule {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
+  ObjectId jumper_peer_port_id = kInvalidObjectId;
+  SourceEdgeProjectionRef source_projection{};
   LayoutSemantic semantic{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -219,6 +233,10 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   CopyLayoutSemantic(dst, rule.semantic);
   dst.endpoint_node_id = rule.endpoint_node_id;
   dst.port_id = rule.port_id;
+  dst.jumper_peer_port_id = rule.jumper_peer_port_id;
+  dst.source_projection = rule.source_projection;
+  dst.attachment_request = rule.attachment_request;
+  dst.resolved_socket_id = rule.resolved_socket_id;
   dst.flow_kind = rule.flow_kind;
   dst.origin = rule.origin;
   dst.endpoint_source = rule.endpoint_source;
@@ -246,13 +264,15 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   dst.support_world = port_world_position;
   dst.endpoint_world = port_world_position;
   if (rule.default_lower_required || rule.semantic.lower_required) {
-    const double endpoint_offset =
-        rule.endpoint_offset_z_m != 0.0 ? rule.endpoint_offset_z_m : rule.automatic_endpoint_offset_z_m;
-    dst.endpoint_world.z += endpoint_offset;
+    const double endpoint_offset = rule.endpoint_offset_z_m != 0.0 ? rule.endpoint_offset_z_m
+                                                                   : rule.automatic_endpoint_offset_z_m;
     dst.endpoint_offset_z_m = endpoint_offset;
-    dst.automatic_endpoint_offset_z_m = endpoint_offset;
-    dst.branch_down_offset_m = std::max(0.0, -endpoint_offset);
-    dst.automatic_branch_down_offset_m = std::max(0.0, -endpoint_offset);
+    dst.automatic_endpoint_offset_z_m = rule.automatic_endpoint_offset_z_m;
+    dst.branch_down_offset_m = rule.branch_down_offset_m != 0.0 ? rule.branch_down_offset_m
+                                                                : std::max(0.0, -endpoint_offset);
+    dst.automatic_branch_down_offset_m = rule.automatic_branch_down_offset_m != 0.0
+                                             ? rule.automatic_branch_down_offset_m
+                                             : std::max(0.0, -rule.automatic_endpoint_offset_z_m);
   }
   dst.departure_dir = {1.0, 0.0, 0.0};
 }

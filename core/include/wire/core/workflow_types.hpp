@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,7 @@
 
 namespace wire::core {
 
+// Workflow and template input types used by generation and editing commands.
 // Workflow input path spec.
 struct BackboneInputSpec {
   std::vector<Vec3d> polyline{};
@@ -33,6 +35,9 @@ struct BackbonePolePlacementOptions {
   // Do not force manual poles from guide by default; users pin explicitly.
   bool pin_endpoints = false;
   bool pin_vertices = false;
+  // Applies instance tilt before generated ports/bands are materialized.
+  bool enable_tilt = false;
+  double max_tilt_deg = 0.0;
   // Session-scoped regeneration can restrict pole reuse to the target session.
   bool restrict_reuse_to_session = false;
   std::uint64_t reuse_session_id = 0;
@@ -75,6 +80,71 @@ struct AttachmentTemplate {
   std::uint64_t version = 1;
 };
 
+enum class ModelFitMode : std::uint8_t {
+  kRigid = 0,
+  kPoleHeight = 1,
+  // Circular-pole radial approximation at the assembly placement height.
+  kPoleRadial = 2,
+  // Place the part root on the pole surface toward the endpoint fixture root.
+  kPoleSurface = 3,
+};
+
+struct ModelAssemblySocket {
+  std::string name{};
+  Vec3d local_position{};
+  Vec3d local_direction{1.0, 0.0, 0.0};
+
+  bool operator==(const ModelAssemblySocket& other) const {
+    return name == other.name && local_position.x == other.local_position.x &&
+           local_position.y == other.local_position.y && local_position.z == other.local_position.z &&
+           local_direction.x == other.local_direction.x && local_direction.y == other.local_direction.y &&
+           local_direction.z == other.local_direction.z;
+  }
+};
+
+struct ModelAssemblyPart {
+  std::uint32_t part_id = 0;
+  std::string model_key{};
+  std::uint64_t descriptor_version = 1;
+  Transformd local_transform{};
+  ModelFitMode fit_mode = ModelFitMode::kRigid;
+  std::vector<ModelAssemblySocket> sockets{};
+
+  bool operator==(const ModelAssemblyPart& other) const {
+    return part_id == other.part_id && model_key == other.model_key &&
+           descriptor_version == other.descriptor_version &&
+           local_transform.position.x == other.local_transform.position.x &&
+           local_transform.position.y == other.local_transform.position.y &&
+           local_transform.position.z == other.local_transform.position.z &&
+           local_transform.rotation_euler_deg.x == other.local_transform.rotation_euler_deg.x &&
+           local_transform.rotation_euler_deg.y == other.local_transform.rotation_euler_deg.y &&
+           local_transform.rotation_euler_deg.z == other.local_transform.rotation_euler_deg.z &&
+           local_transform.scale.x == other.local_transform.scale.x &&
+           local_transform.scale.y == other.local_transform.scale.y &&
+           local_transform.scale.z == other.local_transform.scale.z && fit_mode == other.fit_mode &&
+           sockets == other.sockets;
+  }
+};
+
+struct AssemblySocketRef {
+  std::uint32_t part_id = 0;
+  std::string socket_name{};
+
+  bool operator==(const AssemblySocketRef&) const = default;
+};
+
+struct ModelAssemblyTemplate {
+  ModelAssemblyTemplateId id = kInvalidModelAssemblyTemplateId;
+  std::vector<ModelAssemblyPart> parts{};
+  std::optional<AssemblySocketRef> wire_socket{};
+  // Optional row-fixture point from which endpoint fixtures inherit position.
+  // Rotation remains owned by the Port PoleFrame/layout yaw.
+  std::optional<AssemblySocketRef> endpoint_mount_socket{};
+  std::uint64_t version = 1;
+
+  bool operator==(const ModelAssemblyTemplate&) const = default;
+};
+
 struct CableSupplementalPathTemplate {
   enum class AnchorMode : std::uint8_t {
     kCurveOffset = 0,
@@ -84,7 +154,6 @@ struct CableSupplementalPathTemplate {
   enum class ProfileKind : std::uint8_t {
     kNone = 0,
     kStraightCable = 1,
-    kCoiledCable = 2,
   };
 
   AnchorMode anchor_mode = AnchorMode::kCurveOffset;
@@ -98,9 +167,6 @@ struct CableSupplementalPathTemplate {
   double wobble_wavelength_m = 0.0;
   double wobble_phase_bias = 0.0;
   double endpoint_envelope_ratio = 0.0;
-  double coil_radius_m = 0.0;
-  double coil_turns_per_meter = 0.0;
-  int coil_samples_per_turn = 12;
 };
 
 enum class BundleCountRuleKind : std::uint8_t {
@@ -118,8 +184,6 @@ struct CableTemplate {
   double min_bend_radius_m = 0.2;
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
   std::uint32_t color_rgba = 0xFFFFFFFFu;
-  bool requires_insulator = false;
-  double insulator_attachment_height_m = 0.0;
   double sag_factor = 0.03;
   double slack_factor = 0.0;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
@@ -135,9 +199,50 @@ enum class RowLayoutAxisMode : std::uint8_t {
   kSupportAxis = 1,
 };
 
+constexpr BundleTemplateId kDefaultHighVoltageBundleTemplateId = 101;
+constexpr BundleTemplateId kDefaultLowVoltageBundleTemplateId = 102;
+constexpr BundleTemplateId kDefaultDropBundleTemplateId = 103;
+constexpr BundleTemplateId kDefaultCommunicationBundleTemplateId = 104;
+constexpr BundleTemplateId kDefaultOpticalBundleTemplateId = 105;
+constexpr CableTemplateId kDefaultSupportWireCableTemplateId = 6;
+
+[[nodiscard]] constexpr BundleTemplateId DefaultBundleTemplateId(BundleKind kind) noexcept {
+  switch (kind) {
+  case BundleKind::kHighVoltage:
+    return kDefaultHighVoltageBundleTemplateId;
+  case BundleKind::kLowVoltage:
+    return kDefaultLowVoltageBundleTemplateId;
+  case BundleKind::kDrop:
+    return kDefaultDropBundleTemplateId;
+  case BundleKind::kCommunication:
+    return kDefaultCommunicationBundleTemplateId;
+  case BundleKind::kOptical:
+    return kDefaultOpticalBundleTemplateId;
+  case BundleKind::kOpticalWithSupport:
+    return kInvalidBundleTemplateId;
+  }
+  return kInvalidBundleTemplateId;
+}
+
+struct SpanVisualAssemblyTemplate {
+  bool support_path_enabled = false;
+  bool helix_enabled = false;
+  double helix_radius_m = 0.0;
+  double helix_clearance_m = 0.0;
+  double helix_turns_per_meter = 0.0;
+  int helix_samples_per_turn = 16;
+  double endpoint_trim_m = 0.0;
+  double member_wander_ratio = 0.0;
+  double member_wander_wavelength_m = 0.0;
+  double member_wander_phase_bias = 0.0;
+  double member_twist_turns_per_meter = 0.0;
+  double member_twist_phase = 0.0;
+};
+
 struct BundleTemplate {
   // Bundle/system rule set. Topology policy lives here, not on CableTemplate.
-  BundleKind id = BundleKind::kLowVoltage;
+  BundleTemplateId id = kInvalidBundleTemplateId;
+  BundleKind kind = BundleKind::kLowVoltage;
   std::string name{};
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   CableTemplateId cable_template_id = kInvalidCableTemplateId;
@@ -163,6 +268,10 @@ struct BundleTemplate {
   BundleBranchPolicyHint branch_policy = BundleBranchPolicyHint::kAuto;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
   int support_wire_pole_band_id = 0;
+  ModelAssemblyTemplateId row_fixture_assembly_id = kInvalidModelAssemblyTemplateId;
+  ModelAssemblyTemplateId endpoint_fixture_assembly_id = kInvalidModelAssemblyTemplateId;
+  SpanVisualAssemblyTemplate span_visual_assembly{};
+  std::vector<CablePopulationRule> population_rules{};
   std::uint64_t version = 1;
 };
 
@@ -173,7 +282,7 @@ enum class BundleNodeMode : std::uint8_t {
 };
 
 struct SupportNodeBundleMode {
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   BundleNodeMode mode = BundleNodeMode::kNotPresent;
 };
 
@@ -215,10 +324,21 @@ struct PickResult {
 };
 
 struct BackboneBundleSpec {
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+  // Stable identity of the request placement entry. Zero means legacy/unspecified.
+  std::uint64_t placement_key = 0;
   SpanLayer layer = SpanLayer::kUnknown;
   // Used only for variable-count templates. Fixed templates reject count input.
   int count = 0;
+  // Explicit pole-local Bundle placement. Band selection still owns fixture semantics.
+  bool placement_explicit = false;
+  double height_m = 0.0;
+  double lateral_m = 0.0;
+  double spacing_m = 0.0;
+  // Source Bundle identity for source-edge attachment projection.
+  ObjectId source_bundle_id = kInvalidObjectId;
+  // Existing Bundle identity used only by saved-scope regeneration.
+  ObjectId existing_bundle_id = kInvalidObjectId;
 };
 
 struct BackboneSpec {
@@ -229,7 +349,7 @@ struct BackboneSpec {
   // Optional per-node per-bundle connection mode hints.
   struct NodeBundleModeSpec {
     std::size_t point_index = std::numeric_limits<std::size_t>::max();
-    BundleKind bundle_template_id = BundleKind::kLowVoltage;
+    BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
     BundleNodeMode mode = BundleNodeMode::kNotPresent;
   };
   std::vector<NodeBundleModeSpec> node_bundle_modes{};
@@ -274,7 +394,7 @@ struct ContextProfile {
 // Stable style keys should be derived from route/segment/lane semantics, not transient object ids.
 struct StyleRouteKey {
   std::uint64_t family_id = 0;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
 };
@@ -570,7 +690,7 @@ struct BackboneLoweringPolicy {
 struct BackboneEdgeOrientation {
   ObjectId node_a_id = kInvalidObjectId;
   ObjectId node_b_id = kInvalidObjectId;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::uint64_t variation_flow_key = 0;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;

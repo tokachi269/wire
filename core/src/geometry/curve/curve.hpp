@@ -33,6 +33,8 @@ struct CableCurveInput {
   Vec3d end{};
   Vec3d start_tangent_hint{};
   Vec3d end_tangent_hint{};
+  bool has_start_tangent_hint = false;
+  bool has_end_tangent_hint = false;
   Vec3d gravity_dir{0.0, 0.0, -1.0};
   Vec3d canonical_dir{1.0, 0.0, 0.0};
   double sag_m = 0.0;
@@ -57,7 +59,13 @@ struct CableCurveOutput {
   AABBd bounds{};
 };
 
+struct CableEndpointTangents {
+  Vec3d start_tangent{};
+  Vec3d end_tangent{};
+};
+
 [[nodiscard]] std::size_t ResolveSegmentCount(const CableCurveInput& input);
+[[nodiscard]] EditResult<CableEndpointTangents> EvaluateEndpointTangents(const CableCurveInput& input);
 [[nodiscard]] EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input);
 [[nodiscard]] DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& output);
 

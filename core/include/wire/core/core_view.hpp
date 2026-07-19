@@ -43,8 +43,10 @@ public:
       ObjectId edge_bundle_id) const;
   [[nodiscard]] std::vector<const SavedBackbonePortBinding*> backbone_port_bindings_for_row(
       const SavedBackboneRowKey& row_key, std::size_t lane_index) const;
-  [[nodiscard]] std::optional<Vec3d> backbone_attachment_world(
-      ObjectId edge_id, ObjectId from_node_id, BundleKind bundle_template_id, std::size_t lane_index, double t) const;
+  [[nodiscard]] std::vector<const SavedBackboneRowContinuity*> backbone_row_continuities_for_node(
+      ObjectId node_id) const;
+  [[nodiscard]] std::optional<Vec3d> source_edge_projection_world(
+      ObjectId edge_id, ObjectId from_node_id, BundleTemplateId bundle_template_id, std::size_t lane_index, double t) const;
   [[nodiscard]] const GeometrySettings& geometry_settings() const;
   [[nodiscard]] const VisualSettings& visual_settings() const;
   [[nodiscard]] const VariationSettings& variation_settings() const;
@@ -54,13 +56,15 @@ public:
   [[nodiscard]] const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const;
   [[nodiscard]] const std::unordered_map<ObjectId, PoleOrientationDebugRecord>& pole_orientation_debug_records() const;
   [[nodiscard]] const std::vector<BackboneEdgeOrientation>& last_generation_edge_orientations() const;
+  [[nodiscard]] const GenerationTiming& last_generation_timing() const;
   [[nodiscard]] const CacheState& cache_state() const;
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const;
   [[nodiscard]] int count_port_bands(PoleTypeId pole_type_id, ConnectionCategory category) const;
   [[nodiscard]] double port_category_base_z_for_pole(const Pole& pole, ConnectionCategory category) const;
   [[nodiscard]] const std::unordered_map<CableTemplateId, CableTemplate>& cable_templates() const;
-  [[nodiscard]] const std::unordered_map<BundleKind, BundleTemplate>& bundle_templates() const;
+  [[nodiscard]] const std::unordered_map<BundleTemplateId, BundleTemplate>& bundle_templates() const;
   [[nodiscard]] const std::unordered_map<AttachmentTemplateId, AttachmentTemplate>& attachment_templates() const;
+  [[nodiscard]] const std::unordered_map<ModelAssemblyTemplateId, ModelAssemblyTemplate>& model_assembly_templates() const;
   [[nodiscard]] const std::vector<PortResolutionDebugRecord>& port_resolution_debug_records() const;
   [[nodiscard]] const UpdateTiming& last_update_timing() const;
   [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const;
@@ -74,6 +78,7 @@ public:
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
   [[nodiscard]] const VisualCurvePartCache& visual_curve_parts() const;
+  [[nodiscard]] const VisualModelInstanceCache& visual_model_instances() const;
   [[nodiscard]] BackboneFrontier pole_frontier(ObjectId pole_id) const;
   [[nodiscard]] BackboneFrontier span_frontier(ObjectId span_id) const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
@@ -86,7 +91,7 @@ public:
   [[nodiscard]] std::optional<JunctionInspectionView> inspect_junction(ObjectId node_id) const;
   [[nodiscard]] std::optional<TemplateInspectionView> inspect_pole_template(PoleTypeId pole_type_id) const;
   [[nodiscard]] std::optional<TemplateInspectionView> inspect_cable_template(CableTemplateId cable_template_id) const;
-  [[nodiscard]] std::optional<TemplateInspectionView> inspect_bundle_template(BundleKind bundle_template_id) const;
+  [[nodiscard]] std::optional<TemplateInspectionView> inspect_bundle_template(BundleTemplateId bundle_template_id) const;
   [[nodiscard]] std::optional<TemplateInspectionView>
   inspect_attachment_template(AttachmentTemplateId attachment_template_id) const;
   [[nodiscard]] std::optional<OverrideInspectionView> inspect_overrides(EntityRef target) const;

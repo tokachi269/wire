@@ -1,4 +1,5 @@
 #include "internal_services.hpp"
+#include "port_placement.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
@@ -11,44 +12,6 @@ namespace {
 
 Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& local) {
   return LocalPointToWorld(BuildPoleFrame(tf, yaw_deg), local);
-}
-
-double apply_corner_side_scale(double local_y, SlotSide slot_side, double turn_sign, double side_scale) {
-  if (slot_side == SlotSide::kCenter) {
-    return local_y;
-  }
-  const double inner_scale = 1.0 + (side_scale - 1.0) * 0.35;
-  SlotSide inner_side = SlotSide::kCenter;
-  if (turn_sign > 1e-9) {
-    inner_side = SlotSide::kLeft;
-  } else if (turn_sign < -1e-9) {
-    inner_side = SlotSide::kRight;
-  }
-  if (inner_side == SlotSide::kCenter) {
-    return local_y * side_scale;
-  }
-  if (slot_side == inner_side) {
-    return local_y * inner_scale;
-  }
-  return local_y * side_scale;
-}
-
-const PortPlacementBand* find_port_band(const PoleTypeDefinition* pole_type, const Port& port) {
-  if (pole_type == nullptr) {
-    return nullptr;
-  }
-  const PortPlacementBand* best = nullptr;
-  for (const PortPlacementBand& band : pole_type->port_bands) {
-    if (!band.enabled || band.category != port.category || band.layer != port.template_layer ||
-        band.side != port.template_side || band.role != port.template_role) {
-      continue;
-    }
-    if (best == nullptr || band.priority > best->priority ||
-        (band.priority == best->priority && band.band_id < best->band_id)) {
-      best = &band;
-    }
-  }
-  return best;
 }
 
 const AnchorSlotTemplate* find_anchor_hint(const PoleTypeDefinition* pole_type, const Anchor& anchor,
@@ -118,11 +81,11 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     if (port == nullptr || port->position_mode == PortPositionMode::kManual) {
       continue;
     }
-    const double layout_yaw = state.effective_port_layout_yaw_deg(*pole, port->category);
+    const double layout_yaw = state.effective_port_layout_yaw_deg(*pole, port->id, port->category);
     const double previous_layout_yaw =
         (previous_pole == nullptr)
             ? effective_yaw
-            : state.effective_port_layout_yaw_deg(*previous_pole, port->category,
+            : state.effective_port_layout_yaw_deg(*previous_pole, port->id, port->category,
                                                   previous_row_layout_yaw_override);
     Vec3d new_world = port->world_position;
     bool apply_angle_correction = false;
@@ -130,7 +93,8 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     PortPlacementSourceKind refresh_source = port->placement_source;
     if (port->placement_source == PortPlacementSourceKind::kPlacementBand ||
         port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained) {
-      const PortPlacementBand* band = find_port_band(pole_type, *port);
+      const PortPlacementBand* band =
+          pole_type == nullptr ? nullptr : FindPortPlacementBandForPort(state, *pole_type, *port);
       if (band != nullptr) {
         const Vec3d reference_local =
             (previous_pole != nullptr)
@@ -149,7 +113,8 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
                                  pole->context.kind == PoleContextKind::kCorner && band->side != SlotSide::kCenter;
         if (apply_angle_correction) {
           adjusted_local.y =
-              apply_corner_side_scale(adjusted_local.y, band->side, pole->context.corner_turn_sign, pole->context.side_scale);
+              state_internal::apply_corner_side_scale(
+                  adjusted_local.y, band->side, pole->context.corner_turn_sign, pole->context.side_scale);
           if (std::abs(reference_local.y) > 1e-9) {
             applied_scale = std::abs(adjusted_local.y / reference_local.y);
           }

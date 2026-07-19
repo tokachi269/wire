@@ -19,6 +19,8 @@ viewerは不足したtopologyやplacementを推測しない。
 3. [merge readiness](docs/merge_readiness.md)
 4. [testing](docs/testing.md)
 5. [command cheatsheet](docs/command_cheatsheet.md)
+6. [cable instance / section](docs/cable_instance_section.md)
+7. [models](docs/models.md)
 
 ## Quick check
 

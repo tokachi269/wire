@@ -36,12 +36,13 @@ const SavedBackboneEdge* CoreView::backbone_edge(ObjectId edge_id) const {
   return it == state_.authoritative_.backbone.edges.end() ? nullptr : &*it;
 }
 const SavedBackboneEdgeBundle* CoreView::backbone_edge_bundle(ObjectId edge_bundle_id) const {
-  const auto it = std::find_if(state_.authoritative_.backbone.edge_bundles.begin(),
-                               state_.authoritative_.backbone.edge_bundles.end(),
-                               [&](const SavedBackboneEdgeBundle& item) {
-                                 return item.edge_bundle_id == edge_bundle_id;
-                               });
-  return it == state_.authoritative_.backbone.edge_bundles.end() ? nullptr : &*it;
+  const auto position = state_.runtime_.backbone_index.edge_bundle_positions.find(edge_bundle_id);
+  if (position == state_.runtime_.backbone_index.edge_bundle_positions.end() ||
+      position->second >= state_.authoritative_.backbone.edge_bundles.size()) {
+    return nullptr;
+  }
+  const SavedBackboneEdgeBundle& item = state_.authoritative_.backbone.edge_bundles[position->second];
+  return item.edge_bundle_id == edge_bundle_id ? &item : nullptr;
 }
 const SavedBackboneNode* CoreView::backbone_node_for_pole(ObjectId pole_id) const {
   const auto it = state_.runtime_.backbone_index.pole_node.find(pole_id);
@@ -100,8 +101,18 @@ std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_fo
   }
   return out;
 }
-std::optional<Vec3d> CoreView::backbone_attachment_world(
-    ObjectId edge_id, ObjectId from_node_id, BundleKind bundle_template_id, std::size_t lane_index, double t) const {
+std::vector<const SavedBackboneRowContinuity*> CoreView::backbone_row_continuities_for_node(
+    ObjectId node_id) const {
+  std::vector<const SavedBackboneRowContinuity*> out{};
+  for (const SavedBackboneRowContinuity& continuity : state_.authoritative_.backbone.row_continuities) {
+    if (continuity.node_id == node_id) {
+      out.push_back(&continuity);
+    }
+  }
+  return out;
+}
+std::optional<Vec3d> CoreView::source_edge_projection_world(
+    ObjectId edge_id, ObjectId from_node_id, BundleTemplateId bundle_template_id, std::size_t lane_index, double t) const {
   const SavedBackboneEdge* edge = backbone_edge(edge_id);
   if (edge == nullptr || (from_node_id != edge->node_a && from_node_id != edge->node_b)) {
     return std::nullopt;
@@ -145,18 +156,39 @@ std::optional<Vec3d> CoreView::backbone_attachment_world(
   if (binding_a == nullptr || binding_b == nullptr) {
     return std::nullopt;
   }
-  const Port* port_a = ports().find(binding_a->port_id);
-  const Port* port_b = ports().find(binding_b->port_id);
-  if (port_a == nullptr || port_b == nullptr) {
+  const auto span_bindings_it =
+      state_.runtime_.backbone_index.edge_bundle_span_bindings.find(matched->edge_bundle_id);
+  if (span_bindings_it == state_.runtime_.backbone_index.edge_bundle_span_bindings.end()) {
+    return std::nullopt;
+  }
+  const SavedBackboneSpanBinding* span_binding = nullptr;
+  for (std::size_t index : span_bindings_it->second) {
+    if (index >= state_.authoritative_.backbone.span_bindings.size()) {
+      return std::nullopt;
+    }
+    const SavedBackboneSpanBinding& candidate = state_.authoritative_.backbone.span_bindings[index];
+    if (candidate.lane_index != lane_index) {
+      continue;
+    }
+    if (span_binding != nullptr) {
+      return std::nullopt;
+    }
+    span_binding = &candidate;
+  }
+  if (span_binding == nullptr) {
+    return std::nullopt;
+  }
+  const CurveCacheEntry* curve = find_curve_cache(span_binding->span_id);
+  if (curve == nullptr || curve->detail.sample_points.size() < 2) {
     return std::nullopt;
   }
 
   const double u = from_node_id == edge->node_a ? std::clamp(t, 0.0, 1.0) : 1.0 - std::clamp(t, 0.0, 1.0);
-  return port_a->world_position + ScaleVec(port_b->world_position - port_a->world_position, u);
+  return curve->detail.EvaluatePosition(u);
 }
-const GeometrySettings& CoreView::geometry_settings() const { return state_.runtime_.cache_state.geometry_settings; }
-const VisualSettings& CoreView::visual_settings() const { return state_.runtime_.cache_state.visual_settings; }
-const VariationSettings& CoreView::variation_settings() const { return state_.runtime_.cache_state.variation_settings; }
+const GeometrySettings& CoreView::geometry_settings() const { return state_.authoritative_.geometry_settings; }
+const VisualSettings& CoreView::visual_settings() const { return state_.authoritative_.visual_settings; }
+const VariationSettings& CoreView::variation_settings() const { return state_.authoritative_.variation_settings; }
 const ContextProfile& CoreView::context_profile() const { return state_.authoritative_.context_profile; }
 const LayoutSettings& CoreView::layout_settings() const { return state_.authoritative_.layout_settings; }
 const PathDirectionEvaluationDebug& CoreView::last_path_direction_debug() const { return state_.debug_.last_path_direction_debug; }
@@ -169,6 +201,7 @@ const std::unordered_map<ObjectId, PoleOrientationDebugRecord>& CoreView::pole_o
 const std::vector<BackboneEdgeOrientation>& CoreView::last_generation_edge_orientations() const {
   return state_.debug_.last_generation_edge_orientations;
 }
+const GenerationTiming& CoreView::last_generation_timing() const { return state_.debug_.last_generation_timing; }
 const UpdateTiming& CoreView::last_update_timing() const { return state_.debug_.last_update_timing; }
 const CacheState& CoreView::cache_state() const { return state_.runtime_.cache_state; }
 const std::unordered_map<PoleTypeId, PoleTypeDefinition>& CoreView::pole_types() const { return state_.authoritative_.pole_types; }
@@ -213,11 +246,14 @@ double CoreView::port_category_base_z_for_pole(const Pole& pole, ConnectionCateg
 const std::unordered_map<CableTemplateId, CableTemplate>& CoreView::cable_templates() const {
   return state_.authoritative_.cable_templates;
 }
-const std::unordered_map<BundleKind, BundleTemplate>& CoreView::bundle_templates() const {
+const std::unordered_map<BundleTemplateId, BundleTemplate>& CoreView::bundle_templates() const {
   return state_.authoritative_.bundle_templates;
 }
 const std::unordered_map<AttachmentTemplateId, AttachmentTemplate>& CoreView::attachment_templates() const {
   return state_.authoritative_.attachment_templates;
+}
+const std::unordered_map<ModelAssemblyTemplateId, ModelAssemblyTemplate>& CoreView::model_assembly_templates() const {
+  return state_.authoritative_.model_assembly_templates;
 }
 const std::vector<PortResolutionDebugRecord>& CoreView::port_resolution_debug_records() const {
   return state_.debug_.port_resolution_debug_records;
@@ -252,6 +288,10 @@ const SpanRenderCacheEntry* CoreView::find_span_render_cache(ObjectId span_id) c
 }
 const VisualCurvePartCache& CoreView::visual_curve_parts() const {
   return state_.visual_curve_parts();
+}
+
+const VisualModelInstanceCache& CoreView::visual_model_instances() const {
+  return state_.visual_model_instances();
 }
 
 namespace {

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
@@ -15,6 +16,9 @@
 
 namespace wire::core {
 
+// Runtime/cache types used by CoreState and CoreView. These are derived state, not source input.
+using CableRunId = std::uint64_t;
+
 struct AttachmentDebugLineEffect {
   ObjectId attachment_id = kInvalidObjectId;
   AttachmentTemplateId template_id = kInvalidAttachmentTemplateId;
@@ -26,8 +30,8 @@ struct AttachmentDebugLineEffect {
 
 struct GeometrySettings {
   // Persisted generation settings. Derived caches are rebuilt from these.
-  int curve_samples = 8;
-  bool sag_enabled = false;
+  int curve_samples = 24;
+  bool sag_enabled = true;
   double sag_factor = 0.03;
   // Pole skin clearance used to avoid center-line overlap with pole body.
   double pole_clearance_m = 0.05;
@@ -54,13 +58,12 @@ struct BoundsCache {
 };
 
 enum class VisualPartKind : std::uint8_t {
-  kSupportArm = 0,
-  kInsulator = 1,
-  kFitting = 2,
+  kInsulator = 0,
+  kFitting = 1,
 };
 
 struct VisualPart {
-  VisualPartKind kind = VisualPartKind::kSupportArm;
+  VisualPartKind kind = VisualPartKind::kInsulator;
   Vec3d a{};
   Vec3d b{};
   double radius_m = 0.02;
@@ -95,6 +98,13 @@ enum class VisualCurvePartKind : std::uint8_t {
   kNodePatch = 1,
   kLead = 2,
   kJumper = 3,
+  kSupplemental = 4,
+};
+
+enum class VisualSupplementalKind : std::uint8_t {
+  kNone = 0,
+  kSupportPath = 1,
+  kHelix = 2,
 };
 
 enum class NodePatchClassification : std::uint8_t {
@@ -110,14 +120,53 @@ enum class VisualCurveSagMethod : std::uint8_t {
   kParabolic = 1,
 };
 
+struct CableSectionKey {
+  ObjectId logical_span_id = kInvalidObjectId;
+  ObjectId edge_bundle_id = kInvalidObjectId;
+  std::uint64_t rule_owner_id = 0;
+  CableSectionRuleId rule_id = 0;
+  std::size_t instance_index = 0;
+
+  [[nodiscard]] bool is_base() const { return rule_owner_id == 0 && rule_id == 0 && instance_index == 0; }
+};
+
+struct CableSectionLayout {
+  CableSectionKey key{};
+  Vec3d endpoint_a{};
+  Vec3d endpoint_b{};
+  PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
+  PoleTypeId endpoint_b_pole_type_id = kInvalidPoleTypeId;
+  int endpoint_a_band_id = 0;
+  int endpoint_b_band_id = 0;
+};
+
+struct CablePopulationDiagnostic {
+  ObjectId logical_span_id = kInvalidObjectId;
+  ObjectId edge_bundle_id = kInvalidObjectId;
+  CableSectionRuleId rule_id = 0;
+  int extra_count_requested = 0;
+  int extra_count_accepted = 0;
+  int omitted_count = 0;
+  std::string reason{};
+};
+
+struct VisualCurveDiagnostic {
+  ObjectId source_node_id = kInvalidObjectId;
+  ObjectId source_span_id = kInvalidObjectId;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+  std::size_t lane_index = 0;
+  std::string reason{};
+};
+
 struct VisualCurvePart {
   VisualCurvePartKind kind = VisualCurvePartKind::kEdgeBody;
+  VisualSupplementalKind supplemental_kind = VisualSupplementalKind::kNone;
   NodePatchClassification node_patch_classification = NodePatchClassification::kNone;
   ObjectId source_node_id = kInvalidObjectId;
   ObjectId source_edge_id = kInvalidObjectId;
   ObjectId source_span_id = kInvalidObjectId;
   ObjectId source_bundle_id = kInvalidObjectId;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::size_t lane_index = 0;
   std::vector<ObjectId> incident_edge_ids{};
   Vec3d boundary_a{};
@@ -131,6 +180,13 @@ struct VisualCurvePart {
   std::size_t section_count = 1;
   VisualCurveSagMethod sag_method = VisualCurveSagMethod::kNone;
   double sag_m = 0.0;
+  bool has_section_key = false;
+  CableSectionKey section_key{};
+  CableRunId cable_run_id = 0;
+  PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
+  PoleTypeId endpoint_b_pole_type_id = kInvalidPoleTypeId;
+  int endpoint_a_band_id = 0;
+  int endpoint_b_band_id = 0;
   double wire_radius_m = 0.015;
   std::uint32_t color_rgba = 0xFFFFFFFFu;
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
@@ -140,40 +196,69 @@ struct VisualCurvePart {
   std::uint64_t source_version = 0;
 };
 
+struct VisualCurvePartStats {
+  // Derived-cache diagnostics only; not authoritative topology or geometry state.
+  std::size_t curve_builds = 0;
+  std::size_t sections = 0;
+};
+
 struct VisualCurvePartCache {
   std::vector<VisualCurvePart> parts{};
+  std::vector<VisualCurveDiagnostic> diagnostics{};
+  std::vector<CablePopulationDiagnostic> population_diagnostics{};
+  VisualCurvePartStats stats{};
+};
+
+struct VisualModelInstance {
+  std::string stable_key{};
+  std::string model_key{};
+  std::uint64_t content_version = 0;
+  Transformd world_transform{};
+
+  bool operator==(const VisualModelInstance& other) const {
+    return stable_key == other.stable_key && model_key == other.model_key &&
+           content_version == other.content_version &&
+           world_transform.position.x == other.world_transform.position.x &&
+           world_transform.position.y == other.world_transform.position.y &&
+           world_transform.position.z == other.world_transform.position.z &&
+           world_transform.rotation_euler_deg.x == other.world_transform.rotation_euler_deg.x &&
+           world_transform.rotation_euler_deg.y == other.world_transform.rotation_euler_deg.y &&
+           world_transform.rotation_euler_deg.z == other.world_transform.rotation_euler_deg.z &&
+           world_transform.scale.x == other.world_transform.scale.x &&
+           world_transform.scale.y == other.world_transform.scale.y &&
+           world_transform.scale.z == other.world_transform.scale.z;
+  }
+};
+
+struct VisualModelInstanceCache {
+  std::vector<VisualModelInstance> instances{};
 };
 
 struct VisualSettings {
-  bool enable_support_structures = true;
   bool enable_insulators = true;
-  double support_center_threshold_m = 0.03;
-  double support_arm_extra_m = 0.20;
-  double support_arm_radius_m = 0.03;
   double insulator_radius_m = 0.07;
   double insulator_length_m = 0.16;
 };
 
 struct CacheState {
   // Derived cache layer. Not treated as authoritative topology state.
-  GeometrySettings geometry_settings{};
   CurveCache curve_cache{};
   BoundsCache bounds_cache{};
-  VisualSettings visual_settings{};
-  VariationSettings variation_settings{};
   SpanLayoutCache span_layout_cache{};
   VisualCache visual_cache{};
   RenderCache render_cache{};
   VisualCurvePartCache visual_curve_part_cache{};
+  VisualModelInstanceCache visual_model_instance_cache{};
 };
 
 inline constexpr double kDefaultCornerThresholdDeg = 70.0;
+inline constexpr double kMaxCornerSideScale = 1.7;
 
 struct LayoutSettings {
   bool angle_correction_enabled = true;
   double corner_threshold_deg = kDefaultCornerThresholdDeg;
   double min_side_scale = 1.0;
-  double max_side_scale = 1.8;
+  double max_side_scale = kMaxCornerSideScale;
 };
 
 struct ConnectionIndex {
@@ -202,10 +287,29 @@ struct BackboneEdgeKeyHash {
   }
 };
 
+struct BackboneEdgeBundleKey {
+  ObjectId edge_id = kInvalidObjectId;
+  ObjectId bundle_id = kInvalidObjectId;
+  bool operator==(const BackboneEdgeBundleKey& other) const {
+    return edge_id == other.edge_id && bundle_id == other.bundle_id;
+  }
+};
+
+struct BackboneEdgeBundleKeyHash {
+  std::size_t operator()(const BackboneEdgeBundleKey& key) const {
+    const std::size_t h1 = std::hash<ObjectId>{}(key.edge_id);
+    const std::size_t h2 = std::hash<ObjectId>{}(key.bundle_id);
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+  }
+};
+
 struct BackboneIndex {
   std::unordered_map<ObjectId, std::vector<ObjectId>> node_edges;
   std::unordered_map<BackboneEdgeKey, ObjectId, BackboneEdgeKeyHash> edge_by_nodes;
   std::unordered_map<ObjectId, std::vector<ObjectId>> edge_bundles;
+  std::unordered_map<BackboneEdgeBundleKey, ObjectId, BackboneEdgeBundleKeyHash>
+      edge_bundle_by_edge_and_bundle;
+  std::unordered_map<ObjectId, std::size_t> edge_bundle_positions;
   std::unordered_map<ObjectId, std::vector<ObjectId>> bundle_edge;
   std::unordered_map<ObjectId, std::vector<ObjectId>> edge_bundle_spans;
   std::unordered_map<ObjectId, ObjectId> span_edge_bundle;

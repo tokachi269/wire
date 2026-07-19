@@ -13,8 +13,12 @@ using PoleTypeId = std::uint32_t;
 constexpr PoleTypeId kInvalidPoleTypeId = 0;
 using CableTemplateId = std::uint32_t;
 constexpr CableTemplateId kInvalidCableTemplateId = 0;
+using BundleTemplateId = std::uint32_t;
+constexpr BundleTemplateId kInvalidBundleTemplateId = 0;
 using AttachmentTemplateId = std::uint32_t;
 constexpr AttachmentTemplateId kInvalidAttachmentTemplateId = 0;
+using ModelAssemblyTemplateId = std::uint32_t;
+constexpr ModelAssemblyTemplateId kInvalidModelAssemblyTemplateId = 0;
 enum class ConnectionCategory : std::uint8_t {
   kHighVoltage = 0,
   kLowVoltage = 1,
@@ -140,6 +144,34 @@ enum class BundleKind : std::uint8_t {
   kOpticalWithSupport = 5,
 };
 
+using CableSectionRuleId = std::uint64_t;
+using PlacementReserveId = std::uint64_t;
+
+struct PlacementReserve {
+  PlacementReserveId reserve_id = 0;
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  int band_id = 0;
+  double lateral_min_m = 0.0;
+  double lateral_max_m = 0.0;
+  double height_min_m = 0.0;
+  double height_max_m = 0.0;
+};
+
+struct CablePopulationRule {
+  CableSectionRuleId rule_id = 0;
+  std::uint64_t explicit_seed = 1;
+  int priority = 0;
+  int min_extra_count = 0;
+  int max_extra_count = 0;
+  double min_spacing_m = 0.05;
+  double lateral_min_m = -1.0;
+  double lateral_max_m = 1.0;
+  double height_min_m = 0.0;
+  double height_max_m = 20.0;
+  double randomness = 0.25;
+  std::vector<PlacementReserve> reserves{};
+};
+
 enum class CableMaterialStyleKind : std::uint8_t {
   kGeneric = 0,
   kBareConductor = 1,
@@ -254,6 +286,11 @@ struct PoleTypeDefinition {
   std::string name{};
   std::string description{};
   double default_height_m = 10.0;
+  // Completed local profile supplied by the visual-model adapter.
+  // Zero/zero keeps the headless fallback profile for non-model consumers.
+  double radius_base_m = 0.0;
+  double radius_top_m = 0.0;
+  ModelAssemblyTemplateId pole_visual_assembly_id = kInvalidModelAssemblyTemplateId;
   std::vector<PortPlacementBand> port_bands{};
   std::vector<AnchorSlotTemplate> anchor_slots{};
 };
@@ -264,11 +301,6 @@ struct PoleContextInfo {
   double corner_turn_sign = 0.0; // -1:right turn, +1:left turn, 0:undefined/straight
   double side_scale = 1.0;
   bool angle_correction_applied = false;
-  // Sharp-corner (theta <= threshold) orientation diagnostics.
-  bool sharp_orientation_applied = false;
-  double sharp_theta_deg = 0.0;
-  Vec3d sharp_bisector_dir{};
-  Vec3d sharp_side_dir{};
 };
 
 // Entity-layer support object.
@@ -331,7 +363,13 @@ struct Bundle {
   std::string display_id{};
   int conductor_count = 1;
   double phase_spacing_m = 0.3;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  // Zero follows BundleTemplate::default_spacing_m during template regeneration.
+  double spacing_override_m = 0.0;
+  bool placement_explicit = false;
+  double height_m = 0.0;
+  double lateral_m = 0.0;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+  std::uint64_t placement_key = 0;
 };
 
 // Entity-layer connection edge.
@@ -357,6 +395,11 @@ struct Span {
   GenerationMeta generation{};
 };
 
+enum class AttachmentOrigin : std::uint8_t {
+  kUser = 0,
+  kDefaultEndpoint = 1,
+};
+
 // Entity-layer span attachment.
 struct Attachment {
   ObjectId id = kInvalidObjectId;
@@ -366,6 +409,7 @@ struct Attachment {
   double t = 0.0;
   AttachmentKind kind = AttachmentKind::kGeneric;
   double display_offset_m = 0.0;
+  AttachmentOrigin origin = AttachmentOrigin::kUser;
 };
 
 // Backbone route edge (NodeId refers to SupportNode id).

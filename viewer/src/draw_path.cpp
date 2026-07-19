@@ -124,6 +124,8 @@ const char* VisualCurvePartKindLabelLocal(wire::core::VisualCurvePartKind kind) 
     return "lead";
   case wire::core::VisualCurvePartKind::kJumper:
     return "jumper";
+  case wire::core::VisualCurvePartKind::kSupplemental:
+    return "supplemental";
   default:
     return "unknown";
   }
@@ -742,6 +744,8 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     request.interval_m = ui_state.draw_interval_m;
   }
   request.pole_type_id = type_ids[ui_state.road_pole_type_index];
+  request.pole_placement.enable_tilt = ui_state.tilt_all_max_deg > 0.0;
+  request.pole_placement.max_tilt_deg = ui_state.tilt_all_max_deg;
   request.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
   for (wire::core::BundleKind kind : selected_templates) {
     const auto it = view.bundle_templates().find(kind);
@@ -1245,13 +1249,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
           ofs << "result.backbone.node[" << i << "].support_axis=" << pole_view->support_axis_dir.x << ","
               << pole_view->support_axis_dir.y << "," << pole_view->support_axis_dir.z << "\n";
         }
-        ofs << "result.backbone.node[" << i
-            << "].sharp_orientation_applied=" << (pole->context.sharp_orientation_applied ? 1 : 0) << "\n";
-        ofs << "result.backbone.node[" << i << "].sharp_theta_deg=" << pole->context.sharp_theta_deg << "\n";
-        ofs << "result.backbone.node[" << i << "].sharp_bisector_dir=" << pole->context.sharp_bisector_dir.x << ","
-            << pole->context.sharp_bisector_dir.y << "," << pole->context.sharp_bisector_dir.z << "\n";
-        ofs << "result.backbone.node[" << i << "].sharp_side_dir=" << pole->context.sharp_side_dir.x << ","
-            << pole->context.sharp_side_dir.y << "," << pole->context.sharp_side_dir.z << "\n";
       }
     }
   }
@@ -1358,6 +1355,24 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".wire_radius_m=" << part.wire_radius_m << "\n";
     ofs << prefix << ".color_rgba=" << part.color_rgba << "\n";
     ofs << prefix << ".material_style=" << static_cast<int>(part.material_style) << "\n";
+    ofs << prefix << ".has_cable_instance_key=" << (part.has_cable_instance_key ? 1 : 0) << "\n";
+    if (part.has_cable_instance_key) {
+      ofs << prefix << ".section.logical_span_id="
+          << static_cast<unsigned long long>(part.cable_instance_key.logical_span_id) << "\n";
+      ofs << prefix << ".section.edge_bundle_id="
+          << static_cast<unsigned long long>(part.cable_instance_key.edge_bundle_id) << "\n";
+      ofs << prefix << ".section.rule_owner_id="
+          << static_cast<unsigned long long>(part.cable_instance_key.rule_owner_id) << "\n";
+      ofs << prefix << ".section.rule_id="
+          << static_cast<unsigned long long>(part.cable_instance_key.rule_id) << "\n";
+      ofs << prefix << ".section.instance_index=" << part.cable_instance_key.instance_index << "\n";
+      ofs << prefix << ".physical.endpoint_a_pole_type_id="
+          << static_cast<unsigned long long>(part.endpoint_a_pole_type_id) << "\n";
+      ofs << prefix << ".physical.endpoint_b_pole_type_id="
+          << static_cast<unsigned long long>(part.endpoint_b_pole_type_id) << "\n";
+      ofs << prefix << ".physical.endpoint_a_band_id=" << part.endpoint_a_band_id << "\n";
+      ofs << prefix << ".physical.endpoint_b_band_id=" << part.endpoint_b_band_id << "\n";
+    }
     ofs << prefix << ".section_count=" << part.section_count << "\n";
     ofs << prefix << ".has_attachment_point=" << (part.has_attachment_point ? 1 : 0) << "\n";
     ofs << prefix << ".passes_attachment_point=" << (part.passes_attachment_point ? 1 : 0) << "\n";
@@ -1383,6 +1398,30 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << prefix << ".incident_edge[" << edge_index
           << "]=" << static_cast<unsigned long long>(part.incident_edge_ids[edge_index]) << "\n";
     }
+  }
+  const auto& curve_diagnostics = view.visual_curve_parts().diagnostics;
+  ofs << "result.visual_curve_diagnostic_count=" << curve_diagnostics.size() << "\n";
+  for (std::size_t i = 0; i < curve_diagnostics.size(); ++i) {
+    const wire::core::VisualCurveDiagnostic& diagnostic = curve_diagnostics[i];
+    const std::string prefix = std::format("result.visual_curve_diagnostic[{}]", i);
+    ofs << prefix << ".source_node_id=" << static_cast<unsigned long long>(diagnostic.source_node_id) << "\n";
+    ofs << prefix << ".source_span_id=" << static_cast<unsigned long long>(diagnostic.source_span_id) << "\n";
+    ofs << prefix << ".bundle_template_id=" << static_cast<int>(diagnostic.bundle_template_id) << "\n";
+    ofs << prefix << ".lane_index=" << diagnostic.lane_index << "\n";
+    ofs << prefix << ".reason=" << diagnostic.reason << "\n";
+  }
+  const auto& population_diagnostics = view.visual_curve_parts().population_diagnostics;
+  ofs << "result.cable_population.diagnostic_count=" << population_diagnostics.size() << "\n";
+  for (std::size_t i = 0; i < population_diagnostics.size(); ++i) {
+    const auto& diagnostic = population_diagnostics[i];
+    const std::string prefix = std::format("result.cable_population.diagnostic[{}]", i);
+    ofs << prefix << ".logical_span_id=" << static_cast<unsigned long long>(diagnostic.logical_span_id) << "\n";
+    ofs << prefix << ".edge_bundle_id=" << static_cast<unsigned long long>(diagnostic.edge_bundle_id) << "\n";
+    ofs << prefix << ".rule_id=" << static_cast<unsigned long long>(diagnostic.rule_id) << "\n";
+    ofs << prefix << ".requested=" << diagnostic.extra_count_requested << "\n";
+    ofs << prefix << ".accepted=" << diagnostic.extra_count_accepted << "\n";
+    ofs << prefix << ".omitted=" << diagnostic.omitted_count << "\n";
+    ofs << prefix << ".reason=" << diagnostic.reason << "\n";
   }
 
   std::map<std::pair<wire::core::ObjectId, int>, wire::core::LoweredSupportGroupKey> layout_lowered_support_keys{};
@@ -1421,12 +1460,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".tilt_magnitude_deg=" << pole.tilt_magnitude_deg << "\n";
     ofs << prefix << ".placement_mode=" << EnumOrdinal(pole.placement_mode) << "\n";
     ofs << prefix << ".context_kind=" << EnumOrdinal(pole.context.kind) << "\n";
-    ofs << prefix << ".sharp_orientation_applied=" << (pole.context.sharp_orientation_applied ? 1 : 0) << "\n";
-    ofs << prefix << ".sharp_theta_deg=" << pole.context.sharp_theta_deg << "\n";
-    ofs << prefix << ".sharp_bisector_dir=" << pole.context.sharp_bisector_dir.x << ","
-        << pole.context.sharp_bisector_dir.y << "," << pole.context.sharp_bisector_dir.z << "\n";
-    ofs << prefix << ".sharp_side_dir=" << pole.context.sharp_side_dir.x << "," << pole.context.sharp_side_dir.y
-        << "," << pole.context.sharp_side_dir.z << "\n";
     if (const auto pole_view = view.inspect_pole(pole.id); pole_view.has_value()) {
       ofs << prefix << ".layout_yaw_deg=" << pole_view->layout_yaw_deg << "\n";
       ofs << prefix << ".support_axis_rule=" << static_cast<int>(pole_view->support_axis_rule) << "\n";

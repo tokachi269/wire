@@ -4,7 +4,11 @@
 #include "../src/state/internal_services.hpp"
 #include "helpers.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <iostream>
+#include <limits>
+#include <vector>
 
 namespace {
 
@@ -16,6 +20,7 @@ using wire::core::ChangeSet;
 using wire::core::ConnectionCategory;
 using wire::core::CoreState;
 using wire::core::CoreStateTestHook;
+using wire::core::kDefaultHighVoltageBundleTemplateId;
 using wire::core::ObjectId;
 using wire::core::PlacementMode;
 using wire::core::PoleKind;
@@ -198,7 +203,7 @@ bool test_move_pole_updates_only_target_pole_owned_endpoints() {
          !contains_id(move.change_set.updated_ids, anchor_b);
 }
 
-bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
+bool test_update_bundle_template_regenerates_branch_down_offset_policy() {
   CoreState state;
   const auto fixture = helpers::make_backbone_fixture(
       state, {{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}}, {BundleKind::kHighVoltage});
@@ -207,21 +212,23 @@ bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
   if (hv_span == nullptr) {
     return false;
   }
+  const ObjectId hv_span_id = hv_span->id;
   const wire::core::Bundle* hv_bundle = state.view().bundles().find(hv_span->bundle_id);
-  const wire::core::BundleTemplate* hv_template = state.view().bundle_templates().contains(BundleKind::kHighVoltage)
-                                                      ? &state.view().bundle_templates().at(BundleKind::kHighVoltage)
+  const wire::core::BundleTemplate* hv_template =
+      state.view().bundle_templates().contains(kDefaultHighVoltageBundleTemplateId)
+          ? &state.view().bundle_templates().at(kDefaultHighVoltageBundleTemplateId)
                                                       : nullptr;
   if (hv_bundle == nullptr || hv_template == nullptr) {
     return false;
   }
 
   wire::core::BundleTemplate edited = *hv_template;
-  const bool original_policy = hv_template->enable_branch_down_offset;
   edited.enable_branch_down_offset = !edited.enable_branch_down_offset;
   const auto update = state.UpdateBundleTemplate(edited);
-  const auto current = state.view().bundle_templates().find(BundleKind::kHighVoltage);
-  return !update.ok && current != state.view().bundle_templates().end() &&
-         current->second.enable_branch_down_offset == original_policy;
+  const auto current = state.view().bundle_templates().find(kDefaultHighVoltageBundleTemplateId);
+  return update.ok && update.value && current != state.view().bundle_templates().end() &&
+         current->second.enable_branch_down_offset == edited.enable_branch_down_offset &&
+         state.view().spans().find(hv_span_id) != nullptr;
 }
 
 bool test_update_cable_template_rejects_manual_span_render_change() {
@@ -264,7 +271,7 @@ bool test_update_cable_template_rejects_manual_span_geometry_change() {
          current->second.sag_factor == original_sag;
 }
 
-bool test_update_cable_template_rejects_decision_change() {
+bool test_update_cable_template_decision_change_regenerates_backbone() {
   CoreState state;
   ObjectId span_id = wire::core::kInvalidObjectId;
   wire::core::CableTemplateId cable_id = wire::core::kInvalidCableTemplateId;
@@ -276,15 +283,15 @@ bool test_update_cable_template_rejects_decision_change() {
     return false;
   }
   wire::core::CableTemplate edited = cable_it->second;
-  const auto original_policy = cable_it->second.continuity_policy;
   edited.continuity_policy = (edited.continuity_policy == wire::core::CableContinuityPolicyHint::kPreferG1)
                                  ? wire::core::CableContinuityPolicyHint::kPreferG2
                                  : wire::core::CableContinuityPolicyHint::kPreferG1;
   const auto update = state.UpdateCableTemplate(edited);
   const auto current = state.view().cable_templates().find(cable_id);
-  return !update.ok && update.error.find("unsupported") != std::string::npos &&
-         current != state.view().cable_templates().end() &&
-         current->second.continuity_policy == original_policy;
+  const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+  return update.ok && update.value && current != state.view().cable_templates().end() &&
+         current->second.continuity_policy == edited.continuity_policy && curve != nullptr &&
+         curve->detail.quality.requested_policy == edited.continuity_policy;
 }
 
 void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
@@ -297,10 +304,10 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C200_CoreStateService_TemplateMutation_BranchDownOffsetPolicyIsTopology",
                          "bundle template branch-down-offset policy changes force regeneration instead of being ignored or treated as visual-only",
                          "Invariant", false,
-                         &test_update_bundle_template_rejects_branch_down_offset_before_mutation);
-  test_registry::AddTest(tests, "C357_CoreStateService_CableTemplatePolicyChangeMarksDecision",
-                         "decision-bearing cable template changes reject before mutation",
-                         "Invariant", true, &test_update_cable_template_rejects_decision_change);
+                         &test_update_bundle_template_regenerates_branch_down_offset_policy);
+  test_registry::AddTest(tests, "C357_CoreStateService_CableTemplatePolicyChangeRegenerates",
+                         "decision-bearing cable template changes regenerate backbone outputs",
+                         "Invariant", false, &test_update_cable_template_decision_change_regenerates_backbone);
 }
 
 WIRE_REGISTER_TEST_SUITE(RegisterStateServiceTests);

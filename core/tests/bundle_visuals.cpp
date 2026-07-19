@@ -39,7 +39,8 @@ bool test_bundle_query_spans_by_bundle() {
   const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
   const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId port_b = state.AddPort(pole_b, {8.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const auto add_bundle = state.AddBundle(2, 0.2, wire::core::BundleKind::kLowVoltage);
+  const auto add_bundle =
+      state.AddBundle(2, 0.2, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (!add_bundle.ok) {
     return false;
   }

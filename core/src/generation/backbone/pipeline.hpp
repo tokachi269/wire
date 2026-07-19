@@ -68,6 +68,14 @@ struct open {
   Vec3d axis{};
 };
 
+struct jumper {
+  std::size_t node = bad;
+  std::size_t row_a = bad;
+  std::size_t row_b = bad;
+  double interior_angle_deg = 0.0;
+  Vec3d node_forward{};
+};
+
 struct row {
   std::size_t id = bad;
   std::size_t node = bad;
@@ -79,6 +87,7 @@ struct pairs {
   std::vector<link> links{};
   std::vector<pair> joins{};
   std::vector<open> opens{};
+  std::vector<jumper> jumpers{};
   std::vector<row> rows{};
 };
 
@@ -125,6 +134,7 @@ struct trow {
   Vec3d axis{};
   ObjectId pole = kInvalidObjectId;
   std::vector<std::vector<ObjectId>> ports{};
+  std::vector<std::vector<int>> placement_band_ids{};
 };
 
 struct tspan {
@@ -134,6 +144,7 @@ struct tspan {
   std::size_t lane = bad;
   std::size_t arow = bad;
   std::size_t brow = bad;
+  bool is_new = true;
 };
 
 struct topo {
@@ -151,6 +162,7 @@ struct rules {
 
 struct layout {
   std::vector<SpanLayoutEntry> entries{};
+  VisualModelInstanceCache model_instances{};
 };
 
 struct curve {
@@ -176,26 +188,70 @@ class pipeline {
 public:
   pipeline(CoreState& state, const BackboneSpec& spec) : state_(state), spec_(spec) {}
 
+  struct build_input {
+  private:
+    build_input() = default;
+    friend class pipeline;
+
+  public:
+    graph made{};
+    std::vector<std::size_t> active_bundle_indices{};
+    std::vector<std::size_t> local_by_input{};
+    GenerationTiming* timing = nullptr;
+    bool retire_untouched = true;
+    bool write_row_continuity = true;
+  };
+
   [[nodiscard]] EditResult<bool> prepare();
   [[nodiscard]] EditResult<bool> check() const;
-  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build();
+  [[nodiscard]] build_input build_input_from_spec() const;
+  [[nodiscard]] build_input build_input_from_saved_scope(
+      graph made, std::vector<std::size_t> active_bundle_indices, bool retire_untouched = true,
+      bool write_row_continuity = true) const;
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build(build_input input);
 
 private:
+  struct PromotionPlanEntry {
+    std::size_t row = bad;
+    std::size_t spec_index = bad;
+    std::size_t lane_index = bad;
+    SavedBackboneRowKey old_open_row_key{};
+    ObjectId existing_edge_bundle_id = kInvalidObjectId;
+    ObjectId existing_bundle_id = kInvalidObjectId;
+    std::uint64_t placement_key = 0;
+    ObjectId port_id = kInvalidObjectId;
+  };
+
+  struct route {
+    bool active = false;
+    ChangeSet change_set{};
+    pairs ps{};
+    groups placement{};
+    topo made{};
+    std::vector<ObjectId> scope_edge_bundle_ids{};
+    std::vector<ObjectId> touched_span_ids{};
+    std::vector<ObjectId> touched_port_ids{};
+  };
+
+  [[nodiscard]] EditResult<route> emit_route(GenerationTiming*);
+  [[nodiscard]] EditResult<bool> save_derived(const route&, GenerationTiming*);
+  void retire_untouched(route* made);
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;
   [[nodiscard]] EditResult<intent> make(const pairs& ps) const;
   [[nodiscard]] EditResult<groups> make(const pairs& ps, const intent& intents) const;
   [[nodiscard]] EditResult<bool> check(const pairs& ps) const;
-  [[nodiscard]] EditResult<topo> emit(const pairs& ps);
-  [[nodiscard]] EditResult<bool> emit_poles(topo* made, ChangeSet* changes);
+  [[nodiscard]] EditResult<std::vector<PromotionPlanEntry>> plan_promotions(const pairs& ps) const;
+  [[nodiscard]] EditResult<topo> emit(const pairs& ps, const intent& intents);
+  [[nodiscard]] EditResult<bool> emit_poles(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_bundles(topo* made, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_spans(topo* made, const pairs& ps, ChangeSet* changes);
-  [[nodiscard]] rules make(const topo& made, const groups& placement) const;
+  [[nodiscard]] rules make(const topo& made, const pairs& ps, const groups& placement) const;
   [[nodiscard]] EditResult<layout> make(const rules& made) const;
   [[nodiscard]] EditResult<geom> make(const layout& made) const;
   [[nodiscard]] draw make(const layout& placed, const geom& shaped) const;
   void save(const rules& made);
-  void save(const layout& made);
+  void save(layout made);
   void save(geom made);
   void save(draw made);
   [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps);
@@ -203,10 +259,11 @@ private:
 
   CoreState& state_;
   const BackboneSpec& spec_;
-  bool ready_ = false;
   graph g_{};
   std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};
+  std::vector<PromotionPlanEntry> promotion_plan_{};
+  bool write_row_continuity_ = true;
 };
 
 } // namespace wire::core::generation::backbone

@@ -72,11 +72,8 @@ struct ViewerUiState {
   double geometry_sag_factor = 0.03;
   double geometry_pole_clearance = 0.05;
   bool visual_settings_loaded = false;
-  bool visual_enable_support_structures = true;
   bool visual_enable_insulators = true;
   bool viewer_enable_solid_support_render = true;
-  double visual_support_center_threshold = 0.03;
-  double visual_support_arm_extra = 0.20;
   double visual_insulator_radius = 0.07;
   double visual_insulator_length = 0.16;
   bool cable_template_loaded = false;
@@ -110,6 +107,7 @@ struct ViewerUiState {
   int bundle_template_branch_policy = static_cast<int>(wire::core::BundleBranchPolicyHint::kAuto);
   int bundle_template_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
   double bundle_template_grouped_support_fanout_spacing = 0.2;
+  wire::core::SpanVisualAssemblyTemplate bundle_template_span_visual_assembly{};
   bool pole_template_loaded = false;
   wire::core::PoleTypeId selected_pole_template_id = wire::core::kInvalidPoleTypeId;
   wire::core::PoleTypeDefinition pole_template_edit{};
@@ -149,7 +147,7 @@ struct ViewerUiState {
   bool layout_angle_correction_enabled = true;
   double layout_corner_threshold_deg = wire::core::kDefaultCornerThresholdDeg;
   double layout_min_side_scale = 1.0;
-  double layout_max_side_scale = 1.8;
+  double layout_max_side_scale = wire::core::kMaxCornerSideScale;
   std::string last_repro_capture_path{};
   std::vector<ObjectId> preferred_visible_span_ids{};
   int preferred_visible_span_count = 0;

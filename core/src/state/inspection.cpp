@@ -789,9 +789,6 @@ std::optional<TemplateInspectionView> CoreView::inspect_cable_template(CableTemp
   result.properties.push_back({"stiffness", std::to_string(tpl.bend_stiffness), PropertyAccessKind::kEditable});
   result.properties.push_back(
       {"min_bend_radius_m", std::to_string(tpl.min_bend_radius_m), PropertyAccessKind::kEditable});
-  result.properties.push_back({"requires_insulator", BoolText(tpl.requires_insulator), PropertyAccessKind::kEditable});
-  result.properties.push_back(
-      {"insulator_attachment_height_m", std::to_string(tpl.insulator_attachment_height_m), PropertyAccessKind::kEditable});
   result.properties.push_back({"sag_factor", std::to_string(tpl.sag_factor), PropertyAccessKind::kEditable});
   result.properties.push_back({"slack_factor", std::to_string(tpl.slack_factor), PropertyAccessKind::kEditable});
   result.properties.push_back({"default_grouped_support_fanout_spacing_m",
@@ -803,8 +800,6 @@ std::optional<TemplateInspectionView> CoreView::inspect_cable_template(CableTemp
       return "None";
     case CableSupplementalPathTemplate::ProfileKind::kStraightCable:
       return "StraightCable";
-    case CableSupplementalPathTemplate::ProfileKind::kCoiledCable:
-      return "CoiledCable";
     default:
       return "Unknown";
     }
@@ -825,7 +820,7 @@ std::optional<TemplateInspectionView> CoreView::inspect_cable_template(CableTemp
   return result;
 }
 
-std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleKind bundle_template_id) const {
+std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleTemplateId bundle_template_id) const {
   const auto it = bundle_templates().find(bundle_template_id);
   if (it == bundle_templates().end()) {
     return std::nullopt;
@@ -852,6 +847,15 @@ std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleKi
                                PropertyAccessKind::kEditable});
   result.properties.push_back(
       {"support_wire_pole_band_id", std::to_string(tpl.support_wire_pole_band_id), PropertyAccessKind::kEditable});
+  result.properties.push_back({"span_visual_assembly.support_path_enabled",
+                               BoolText(tpl.span_visual_assembly.support_path_enabled),
+                               PropertyAccessKind::kEditable});
+  result.properties.push_back({"span_visual_assembly.helix_enabled", BoolText(tpl.span_visual_assembly.helix_enabled), PropertyAccessKind::kEditable});
+  result.properties.push_back({"span_visual_assembly.helix_radius_m", std::to_string(tpl.span_visual_assembly.helix_radius_m), PropertyAccessKind::kEditable});
+  result.properties.push_back({"span_visual_assembly.helix_clearance_m", std::to_string(tpl.span_visual_assembly.helix_clearance_m), PropertyAccessKind::kEditable});
+  result.properties.push_back({"span_visual_assembly.helix_turns_per_meter", std::to_string(tpl.span_visual_assembly.helix_turns_per_meter), PropertyAccessKind::kEditable});
+  result.properties.push_back({"span_visual_assembly.member_wander_ratio", std::to_string(tpl.span_visual_assembly.member_wander_ratio), PropertyAccessKind::kEditable});
+  result.properties.push_back({"span_visual_assembly.member_twist_turns_per_meter", std::to_string(tpl.span_visual_assembly.member_twist_turns_per_meter), PropertyAccessKind::kEditable});
   result.properties.push_back({"cable_template_id", std::to_string(static_cast<unsigned long long>(tpl.cable_template_id)),
                                PropertyAccessKind::kEditable});
   result.properties.push_back(

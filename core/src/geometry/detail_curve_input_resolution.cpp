@@ -3,6 +3,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "../support/hash_mix.hpp"
 #include "curve_support.hpp"
 
 #include <algorithm>
@@ -12,16 +13,7 @@ namespace wire::core {
 
 namespace {
 
-std::uint64_t splitmix64(std::uint64_t x) {
-  x += 0x9E3779B97F4A7C15ull;
-  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
-  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
-  return x ^ (x >> 31);
-}
-
-std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
-  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
-}
+using support::hash_combine;
 
 std::uint64_t fallback_variation_flow_key_for_span(const Span& span) {
   std::uint64_t key = hash_combine(span.generation.generation_session_id, static_cast<std::uint64_t>(span.bundle_id));
@@ -95,7 +87,7 @@ ResolvedStyleContext resolve_style_context_for_span(const CoreState& state, cons
 
   StyleRouteKey route_key{};
   route_key.family_id = variation_flow_key;
-  route_key.bundle_template_id = (bundle != nullptr) ? bundle->bundle_template_id : BundleKind::kLowVoltage;
+  route_key.bundle_template_id = (bundle != nullptr) ? bundle->bundle_template_id : kInvalidBundleTemplateId;
   route_key.category = (bundle_template != nullptr) ? bundle_template->category : category_from_span_layer(span.layer);
   route_key.flow_kind = flow_kind;
 
@@ -183,11 +175,6 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
       (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
   inputs.bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;
   inputs.min_bend_radius_hint_m = (cable_template == nullptr) ? 0.0 : cable_template->min_bend_radius_m;
-  inputs.endpoint_vertical_attachment_offset_m =
-      (cable_template != nullptr && cable_template->requires_insulator)
-          ? std::max(0.0, cable_template->insulator_attachment_height_m)
-          : 0.0;
-
   const SpanRuntimeState* runtime = view.find_span_runtime_state(span.id);
   inputs.variation_flow_key = variation_flow_key_for_span(runtime, span);
   VariationContext sag_variation_context{};

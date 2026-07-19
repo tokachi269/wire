@@ -242,7 +242,7 @@ bool C589_backbone_selected_bundle_policy_blocks_unselected_bundle() {
   pick.hit_id = source_span;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) return false;
   wire::core::BackboneSpec branch = line_req(state);
@@ -258,7 +258,7 @@ bool C589_backbone_selected_bundle_policy_blocks_unselected_bundle() {
   const auto out = state.GenerateFromBackboneSpec(branch);
   if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty()) return false;
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+  return bundle != nullptr && bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
 }
 
 bool C590_backbone_inactive_pass_through_bundle_rejected_before_noop() {
@@ -270,7 +270,7 @@ bool C590_backbone_inactive_pass_through_bundle_rejected_before_noop() {
   pick.hit_id = base_out.value.generated_span_ids.front();
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) return false;
   wire::core::BackboneSpec branch = line_req(state);
@@ -289,7 +289,7 @@ bool C590_backbone_inactive_pass_through_bundle_rejected_before_noop() {
   return !out.ok && contains_text(out.error, "inactive");
 }
 
-bool C591_backbone_saved_selected_midair_continuation_keeps_bundle_policy() {
+bool C591_backbone_saved_selected_midair_continuation_uses_request_bundles() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   add_backbone_bundle(base, wire::core::BundleKind::kCommunication);
@@ -307,7 +307,7 @@ bool C591_backbone_saved_selected_midair_continuation_keeps_bundle_policy() {
   pick.hit_id = source_span;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -327,7 +327,7 @@ bool C591_backbone_saved_selected_midair_continuation_keeps_bundle_policy() {
     return false;
   }
   const auto* first_bundle = state.view().bundles().find(first_branch.value.bundle_ids.front());
-  if (first_bundle == nullptr || first_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+  if (first_bundle == nullptr || first_bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
     return false;
   }
   const auto saved_midair = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
@@ -347,14 +347,21 @@ bool C591_backbone_saved_selected_midair_continuation_keeps_bundle_policy() {
   existing.node_id = saved_midair->node_id;
   second.path.node_specs = {existing};
   const auto out = state.GenerateFromBackboneSpec(second);
-  if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty()) {
+  if (!out.ok || out.value.bundle_ids.size() != 2 || out.value.generated_span_ids.empty()) {
     return false;
   }
-  const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+  std::unordered_set<wire::core::BundleTemplateId> generated{};
+  for (wire::core::ObjectId bundle_id : out.value.bundle_ids) {
+    const auto* bundle = state.view().bundles().find(bundle_id);
+    if (bundle != nullptr) {
+      generated.insert(bundle->bundle_template_id);
+    }
+  }
+  return generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) &&
+         generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
 }
 
-bool C592_backbone_saved_selected_midair_reverse_continuation_keeps_bundle_policy() {
+bool C592_backbone_saved_selected_midair_reverse_continuation_uses_request_bundles() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   add_backbone_bundle(base, wire::core::BundleKind::kCommunication);
@@ -372,7 +379,7 @@ bool C592_backbone_saved_selected_midair_reverse_continuation_keeps_bundle_polic
   pick.hit_id = source_span;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -408,14 +415,21 @@ bool C592_backbone_saved_selected_midair_reverse_continuation_keeps_bundle_polic
   existing.node_id = saved_midair->node_id;
   second.path.node_specs = {existing};
   const auto out = state.GenerateFromBackboneSpec(second);
-  if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty()) {
+  if (!out.ok || out.value.bundle_ids.size() != 2 || out.value.generated_span_ids.empty()) {
     return false;
   }
-  const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+  std::unordered_set<wire::core::BundleTemplateId> generated{};
+  for (wire::core::ObjectId bundle_id : out.value.bundle_ids) {
+    const auto* bundle = state.view().bundles().find(bundle_id);
+    if (bundle != nullptr) {
+      generated.insert(bundle->bundle_template_id);
+    }
+  }
+  return generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) &&
+         generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
 }
 
-bool C593_backbone_saved_selected_midair_rejects_inactive_pass_through() {
+bool C593_backbone_saved_selected_midair_allows_request_pass_through() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   add_backbone_bundle(base, wire::core::BundleKind::kCommunication);
@@ -434,7 +448,7 @@ bool C593_backbone_saved_selected_midair_rejects_inactive_pass_through() {
   pick.hit_id = source_span->id;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -475,7 +489,7 @@ bool C593_backbone_saved_selected_midair_rejects_inactive_pass_through() {
   mode.mode = wire::core::BundleNodeMode::kPassThrough;
   second.node_bundle_modes = {mode};
   const auto out = state.GenerateFromBackboneSpec(second);
-  return !out.ok && contains_text(out.error, "inactive");
+  return out.ok && !out.value.generated_span_ids.empty();
 }
 
 bool C595_backbone_avoid_point_at_explicit_existing_support_is_noop() {
@@ -491,7 +505,7 @@ bool C595_backbone_avoid_point_at_explicit_existing_support_is_noop() {
   }
 
   wire::core::BackboneSpec req = line_req(state);
-  req.path.polyline = {{12.0, -8.0, 0.0}, middle->world_transform.position, {12.0, 8.0, 0.0}};
+  req.path.polyline = {{12.0, -8.0, 0.0}, middle->world_transform.position, {20.0, 0.0, 0.0}};
   wire::core::BackboneInputSpec::NodeSpec existing{};
   existing.point_index = 1;
   existing.support_kind = wire::core::SupportKind::kPole;
@@ -555,7 +569,7 @@ bool C581_backbone_inactive_bundle_missing_band_is_ignored() {
   pick.hit_id = base_out.value.generated_span_ids.front();
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage, wire::core::BundleKind::kHighVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -737,15 +751,16 @@ bool C547_backbone_fixed_bundle_exact_count_is_supported() {
       tmpl_it->second.count_rule != wire::core::BundleCountRuleKind::kFixed || tmpl_it->second.fixed_count <= 0) {
     return false;
   }
-  req.bundles.front().count = tmpl_it->second.fixed_count;
+  const int fixed_count = tmpl_it->second.fixed_count;
+  req.bundles.front().count = fixed_count;
   const auto out = state.GenerateFromBackboneSpec(req);
-  if (!out.ok || out.value.generated_span_ids.size() != static_cast<std::size_t>(tmpl_it->second.fixed_count)) {
+  if (!out.ok || out.value.generated_span_ids.size() != static_cast<std::size_t>(fixed_count)) {
     return false;
   }
 
   wire::core::CoreState rejected;
   wire::core::BackboneSpec bad = line_req(rejected);
-  bad.bundles.front().count = tmpl_it->second.fixed_count + 1;
+  bad.bundles.front().count = fixed_count + 1;
   const std::size_t pole_count = rejected.view().poles().size();
   const std::size_t span_count = rejected.view().spans().size();
   const auto bad_out = rejected.GenerateFromBackboneSpec(bad);
@@ -823,18 +838,19 @@ bool C551_backbone_missing_pole_type_resolves_from_bundle_templates() {
   req.pole_type_id = wire::core::kInvalidPoleTypeId;
   req.bundles.clear();
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
-  const auto tmpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kCommunication);
+  const auto tmpl_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
   if (tmpl_it == state.view().bundle_templates().end() ||
       tmpl_it->second.related_pole_type_id == wire::core::kInvalidPoleTypeId) {
     return false;
   }
+  const wire::core::PoleTypeId related_pole_type_id = tmpl_it->second.related_pole_type_id;
   const auto out = state.GenerateFromBackboneSpec(req);
   if (!out.ok || out.value.generated_pole_ids.size() != 2 || out.value.generated_span_ids.empty()) {
     return false;
   }
   for (wire::core::ObjectId pole_id : out.value.generated_pole_ids) {
     const auto* pole = state.view().poles().find(pole_id);
-    if (pole == nullptr || pole->pole_type_id != tmpl_it->second.related_pole_type_id) {
+    if (pole == nullptr || pole->pole_type_id != related_pole_type_id) {
       return false;
     }
   }
@@ -1180,7 +1196,7 @@ bool C597_backbone_selected_building_pick_generates_selected_bundle_only() {
   pick.hit_id = wire::core::kInvalidObjectId;
   pick.hit_pos_world = {12.0, 0.0, 6.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kExternal) {
     return false;
@@ -1201,7 +1217,7 @@ bool C597_backbone_selected_building_pick_generates_selected_bundle_only() {
     return false;
   }
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
     return false;
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
@@ -1210,7 +1226,7 @@ bool C597_backbone_selected_building_pick_generates_selected_bundle_only() {
       return false;
     }
     const auto* span_bundle = state.view().bundles().find(span->bundle_id);
-    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
       return false;
     }
   }
@@ -1243,7 +1259,7 @@ bool C598_backbone_selected_saved_building_node_pick_generates_selected_bundle_o
   pick.hit_id = saved_building->node_id;
   pick.hit_pos_world = saved_building->position;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
       resolved.value.support_kind != wire::core::SupportKind::kExternal) {
@@ -1265,7 +1281,7 @@ bool C598_backbone_selected_saved_building_node_pick_generates_selected_bundle_o
     return false;
   }
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+  return bundle != nullptr && bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
 }
 
 bool C599_backbone_selected_saved_building_node_policy_persists_after_branch() {
@@ -1297,7 +1313,7 @@ bool C599_backbone_selected_saved_building_node_policy_persists_after_branch() {
   pick.hit_id = saved_id;
   pick.hit_pos_world = saved_pos;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -1321,7 +1337,7 @@ bool C599_backbone_selected_saved_building_node_policy_persists_after_branch() {
   if (saved_after_branch == nullptr ||
       std::none_of(saved_after_branch->bundle_modes.begin(), saved_after_branch->bundle_modes.end(),
                    [](const wire::core::SupportNodeBundleMode& mode) {
-                     return mode.bundle_template_id == wire::core::BundleKind::kCommunication;
+                     return mode.bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
                    })) {
     return false;
   }
@@ -1338,10 +1354,10 @@ bool C599_backbone_selected_saved_building_node_policy_persists_after_branch() {
     return false;
   }
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+  return bundle != nullptr && bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
 }
 
-bool C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only() {
+bool C600_backbone_pole_id_pick_resolves_to_saved_node_without_selected_policy() {
   wire::core::CoreState state;
   const auto base = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!base.ok || base.value.generated_pole_ids.size() != 3) {
@@ -1357,9 +1373,13 @@ bool C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only() 
   pick.hit_id = b;
   pick.hit_pos_world = pole->world_transform.position;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const auto* saved_pole = state.view().backbone_node_for_pole(b);
+  if (saved_pole == nullptr || resolved.value.resolved_node_id != saved_pole->node_id) {
     return false;
   }
 
@@ -1374,21 +1394,31 @@ bool C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only() 
   node.node_id = resolved.value.resolved_node_id;
   branch.path.node_specs = {node};
   const auto out = state.GenerateFromBackboneSpec(branch);
-  if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty()) {
+  if (!out.ok || out.value.bundle_ids.size() != 2 || out.value.generated_span_ids.empty()) {
     return false;
   }
-  const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+  std::unordered_set<wire::core::BundleTemplateId> generated_templates{};
+  for (wire::core::ObjectId bundle_id : out.value.bundle_ids) {
+    const auto* bundle = state.view().bundles().find(bundle_id);
+    if (bundle == nullptr) {
+      return false;
+    }
+    generated_templates.insert(bundle->bundle_template_id);
+  }
+  if (generated_templates.find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) ==
+          generated_templates.end() ||
+      generated_templates.find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) ==
+          generated_templates.end()) {
     return false;
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
     const auto* span = state.view().spans().find(span_id);
     const auto* span_bundle = span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
-    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+    if (span_bundle == nullptr ||
+        generated_templates.find(span_bundle->bundle_template_id) == generated_templates.end()) {
       return false;
     }
   }
-  const auto* saved_pole = state.view().backbone_node_for_pole(b);
   return saved_pole != nullptr && saved_pole->bundle_modes.empty();
 }
 
@@ -1767,7 +1797,7 @@ bool C564_backbone_selected_bundle_segment_pick_feeds_transient_midair_node() {
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   pick.has_segment_endpoints = false;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolution != wire::core::PickBranchResolutionKind::kMidair ||
       resolved.value.support_kind != wire::core::SupportKind::kMidair ||
@@ -1833,7 +1863,7 @@ bool C565_backbone_mixed_selected_midair_branch_generates_allowed_bundles_only()
   pick.hit_id = base_out.value.generated_span_ids.front();
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage, wire::core::BundleKind::kHighVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -1855,7 +1885,7 @@ bool C565_backbone_mixed_selected_midair_branch_generates_allowed_bundles_only()
     return false;
   }
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kLowVoltage) {
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) {
     return false;
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
@@ -1864,7 +1894,7 @@ bool C565_backbone_mixed_selected_midair_branch_generates_allowed_bundles_only()
       return false;
     }
     const auto* span_bundle = state.view().bundles().find(span->bundle_id);
-    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kLowVoltage) {
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) {
       return false;
     }
   }
@@ -1884,7 +1914,7 @@ bool C566_backbone_disallowed_selected_midair_branch_is_noop() {
   pick.hit_id = base_out.value.generated_span_ids.front();
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage, wire::core::BundleKind::kHighVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -1951,31 +1981,36 @@ bool C569_backbone_render_uses_cable_template_appearance() {
   return true;
 }
 
-bool C570_backbone_support_visual_uses_visual_settings_radius() {
+bool C570_backbone_lowering_does_not_emit_support_arm_visual() {
   wire::core::CoreState state;
   const std::vector<wire::core::ObjectId> spans = lowering_branch_spans(state);
   if (spans.empty()) {
     return false;
   }
-  const double expected = state.view().visual_settings().support_arm_radius_m;
+  bool saw_lowered_endpoint = false;
   for (wire::core::ObjectId span_id : spans) {
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
     const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
-    if (visual == nullptr) {
+    if (!layout.has_layout() || visual == nullptr) {
       return false;
     }
-    for (const wire::core::VisualPart& part : visual->parts) {
-      if (part.kind == wire::core::VisualPartKind::kSupportArm) {
-        return almost_equal(part.radius_m, expected, 1e-12);
-      }
+    const auto lowered = [](const wire::core::LayoutEndpoint& endpoint) {
+      return (endpoint.default_lower_required || endpoint.lower_required) &&
+             endpoint.branch_down_offset_m > 1e-9 &&
+             almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9);
+    };
+    saw_lowered_endpoint = saw_lowered_endpoint || lowered(layout.entry->start) || lowered(layout.entry->end);
+    if (!visual->parts.empty()) {
+      return false;
     }
   }
-  return false;
+  return saw_lowered_endpoint;
 }
 
-bool C571_backbone_support_visual_respects_enable_setting() {
+bool C571_backbone_lowering_survives_insulator_visual_disable() {
   wire::core::CoreState state;
   wire::core::VisualSettings settings = state.view().visual_settings();
-  settings.enable_support_structures = false;
+  settings.enable_insulators = false;
   const auto updated = state.UpdateVisualSettings(settings, false);
   if (!updated.ok) {
     return false;
@@ -1996,43 +2031,31 @@ bool C571_backbone_support_visual_respects_enable_setting() {
     }
     const auto lowered = [](const wire::core::LayoutEndpoint& endpoint) {
       return (endpoint.default_lower_required || endpoint.lower_required) &&
-             !almost_equal(endpoint.support_world.z, endpoint.endpoint_world.z, 1e-9);
+             endpoint.branch_down_offset_m > 1e-9 &&
+             almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9);
     };
     saw_lowered_endpoint = saw_lowered_endpoint || lowered(layout.entry->start) || lowered(layout.entry->end);
-    for (const wire::core::VisualPart& part : visual->parts) {
-      if (part.kind == wire::core::VisualPartKind::kSupportArm) {
-        return false;
-      }
+    if (!visual->parts.empty()) {
+      return false;
     }
   }
   return saw_lowered_endpoint;
 }
 
-bool C572_backbone_support_visual_radius_setting_is_mutable() {
-  wire::core::CoreState state;
-  wire::core::VisualSettings settings = state.view().visual_settings();
-  settings.support_arm_radius_m = 0.123;
-  const auto updated = state.UpdateVisualSettings(settings, false);
-  if (!updated.ok || !updated.value) {
+bool C572_backbone_support_arm_radius_setting_does_not_restore_placeholder() {
+  const std::filesystem::path core_header = repo_root() / "core" / "include" / "wire" / "core" / "core_runtime_types.hpp";
+  const std::filesystem::path wasm_bindings = repo_root() / "web" / "wasm" / "bindings.cpp";
+  const std::filesystem::path web_model = repo_root() / "web" / "src" / "model.ts";
+  std::string core;
+  std::string wasm;
+  std::string web;
+  if (!file_text(core_header, &core) || !file_text(wasm_bindings, &wasm) || !file_text(web_model, &web)) {
     return false;
   }
-
-  const std::vector<wire::core::ObjectId> spans = lowering_branch_spans(state);
-  if (spans.empty()) {
-    return false;
-  }
-  for (wire::core::ObjectId span_id : spans) {
-    const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
-    if (visual == nullptr) {
-      return false;
-    }
-    for (const wire::core::VisualPart& part : visual->parts) {
-      if (part.kind == wire::core::VisualPartKind::kSupportArm) {
-        return almost_equal(part.radius_m, settings.support_arm_radius_m, 1e-12);
-      }
-    }
-  }
-  return false;
+  return !contains_text(core, "support_arm_radius_m") && !contains_text(core, "support_arm_extra_m") &&
+         !contains_text(core, "enable_support_structures") && !contains_text(core, "kSupportArm") &&
+         !contains_text(wasm, "supportArm") && !contains_text(wasm, "enableSupportStructures") &&
+         !contains_text(web, "supportArm") && !contains_text(web, "enableSupportStructures");
 }
 
 bool C609_backbone_ordinary_bend_does_not_lower() {
@@ -2063,6 +2086,19 @@ bool C609_backbone_ordinary_bend_does_not_lower() {
 
 bool C610_backbone_conflict_lowers_eligible_bundle_endpoint_only() {
   wire::core::CoreState state;
+  const wire::core::BundleTemplateId hv_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
+  const wire::core::BundleTemplateId lv_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
+  wire::core::BundleTemplate hv_template = state.view().bundle_templates().at(hv_id);
+  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(lv_id);
+  hv_template.enable_branch_down_offset = false;
+  hv_template.branch_endpoint_offset_m = 0.0;
+  lv_template.enable_branch_down_offset = true;
+  lv_template.branch_endpoint_offset_m = -0.215;
+  if (!state.UpdateBundleTemplate(hv_template).ok || !state.UpdateBundleTemplate(lv_template).ok) {
+    return false;
+  }
   wire::core::BackboneSpec base = poly3_req(state);
   base.bundles.clear();
   add_backbone_bundle(base, wire::core::BundleKind::kLowVoltage);
@@ -2086,13 +2122,16 @@ bool C610_backbone_conflict_lowers_eligible_bundle_endpoint_only() {
   if (!out.ok || out.value.generated_span_ids.size() != 6) {
     return false;
   }
-  const auto hv_template = state.view().bundle_templates().find(wire::core::BundleKind::kHighVoltage);
-  if (hv_template == state.view().bundle_templates().end() || !hv_template->second.enable_branch_down_offset ||
-      hv_template->second.branch_endpoint_offset_m >= 0.0) {
+  const auto updated_lv = state.view().bundle_templates().find(lv_id);
+  const auto updated_hv = state.view().bundle_templates().find(hv_id);
+  if (updated_lv == state.view().bundle_templates().end() || updated_hv == state.view().bundle_templates().end() ||
+      !updated_lv->second.enable_branch_down_offset || updated_lv->second.branch_endpoint_offset_m >= 0.0 ||
+      updated_hv->second.enable_branch_down_offset) {
     return false;
   }
 
-  int lowered_hv = 0;
+  int lowered_lv = 0;
+  int seen_hv = 0;
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
     const wire::core::Span* span = state.view().spans().find(span_id);
     const wire::core::SpanLayoutView layout = state.span_layout(span_id);
@@ -2100,24 +2139,25 @@ bool C610_backbone_conflict_lowers_eligible_bundle_endpoint_only() {
     if (bundle == nullptr || !layout.has_layout()) {
       return false;
     }
-    const bool eligible = bundle->bundle_template_id == wire::core::BundleKind::kHighVoltage;
+    const bool eligible = bundle->bundle_template_id == lv_id;
     const auto endpoint_ok = [&](const wire::core::LayoutEndpoint& endpoint) {
       const bool at_junction = endpoint.endpoint_node_id == junction;
       const bool lowered = endpoint.default_lower_required || endpoint.lower_required;
       if (eligible && at_junction) {
         return lowered &&
-               almost_equal(endpoint.endpoint_offset_z_m, hv_template->second.branch_endpoint_offset_m, 1e-9) &&
-               almost_equal(endpoint.endpoint_world.z,
-                            endpoint.support_world.z + hv_template->second.branch_endpoint_offset_m, 1e-9);
+               almost_equal(endpoint.endpoint_offset_z_m, updated_lv->second.branch_endpoint_offset_m, 1e-9) &&
+               almost_equal(endpoint.endpoint_world, endpoint.support_world, 1e-9) &&
+               endpoint.branch_down_offset_m > 0.1;
       }
       return !lowered && almost_equal(endpoint.endpoint_world, endpoint.support_world, 1e-9);
     };
     if (!endpoint_ok(layout.entry->start) || !endpoint_ok(layout.entry->end)) {
       return false;
     }
-    lowered_hv += eligible ? 1 : 0;
+    lowered_lv += eligible ? 1 : 0;
+    seen_hv += bundle->bundle_template_id == hv_id ? 1 : 0;
   }
-  return lowered_hv == 3;
+  return lowered_lv == 1 && seen_hv == 3;
 }
 
 bool C573_backbone_saved_context_node_carries_support_metadata() {
@@ -2191,7 +2231,7 @@ bool C575_backbone_stale_segment_pick_midair_duplicate_rejected_unchanged() {
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   pick.has_segment_endpoints = false;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -2291,7 +2331,7 @@ bool C578_backbone_segment_pick_midair_pass_through_supported() {
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   pick.has_segment_endpoints = false;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -2350,6 +2390,164 @@ bool C559_backbone_positive_avoid_clear_of_route_is_noop() {
         !almost_equal(samples[i].z, base_samples[i].z, 1e-9)) {
       return false;
     }
+  }
+  return true;
+}
+
+bool C737_backbone_overlay_edge_endpoint_snap_returns_saved_node_spec_id() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.empty() || state.view().backbone().edges.empty()) {
+    return false;
+  }
+
+  wire::core::PickResult source_pick{};
+  source_pick.hit_kind = wire::core::PickHitKind::kSegment;
+  source_pick.hit_id = base_out.value.generated_span_ids.front();
+  source_pick.hit_pos_world = {6.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions source_resolve{};
+  source_resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto source_resolved = state.ResolveBranchPick(source_pick, source_resolve);
+  if (!source_resolved.ok || source_resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {source_resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec branch_node{};
+  branch_node.point_index = 0;
+  branch_node.support_kind = source_resolved.value.support_kind;
+  branch_node.node_id = source_resolved.value.resolved_node_id;
+  branch.path.node_specs = {branch_node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+  const wire::core::SavedBackboneNode* node_a = state.view().backbone_node(source_edge.node_a);
+  const wire::core::SavedBackboneNode* node_b = state.view().backbone_node(source_edge.node_b);
+  if (node_a == nullptr || node_b == nullptr || node_a->pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const wire::core::ObjectId endpoint_pole_id = node_a->pole_id;
+
+  wire::core::PickResult endpoint_pick{};
+  endpoint_pick.hit_kind = wire::core::PickHitKind::kNode;
+  endpoint_pick.hit_id = node_a->node_id;
+  endpoint_pick.hit_pos_world = node_a->position;
+  wire::core::ResolveBranchPickOptions endpoint_resolve{};
+  endpoint_resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto endpoint_resolved = state.ResolveBranchPick(endpoint_pick, endpoint_resolve);
+  if (!endpoint_resolved.ok || endpoint_resolved.value.support_kind != wire::core::SupportKind::kPole ||
+      endpoint_resolved.value.resolved_node_id != node_a->node_id ||
+      endpoint_resolved.value.snapped_from_segment_endpoint) {
+    return false;
+  }
+
+  wire::core::BackboneSpec extension = line_req(state);
+  extension.path.polyline = {endpoint_resolved.value.position, {-6.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec endpoint_node{};
+  endpoint_node.point_index = 0;
+  endpoint_node.support_kind = endpoint_resolved.value.support_kind;
+  endpoint_node.node_id = endpoint_resolved.value.resolved_node_id;
+  extension.path.node_specs = {endpoint_node};
+  const auto extension_out = state.GenerateFromBackboneSpec(extension);
+  if (!extension_out.ok || extension_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::ObjectId cross_pole_id = endpoint_pole_id;
+  const wire::core::SavedBackboneNode* cross_pole_node = state.view().backbone_node_for_pole(cross_pole_id);
+  const auto* cross_pole = state.view().poles().find(cross_pole_id);
+  if (cross_pole_node == nullptr || cross_pole == nullptr) {
+    return false;
+  }
+
+  wire::core::BackboneSpec cross = line_req(state);
+  cross.path.polyline = {cross_pole->world_transform.position, {12.0, 8.0, 0.0}};
+  cross.path.node_specs = {pole_spec(0, cross_pole_id)};
+  const auto cross_out = state.GenerateFromBackboneSpec(cross);
+  if (!cross_out.ok || cross_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::ObjectId source_span_id = cross_out.value.generated_span_ids.front();
+  const auto* source_span = state.view().spans().find(source_span_id);
+  if (source_span == nullptr) {
+    return false;
+  }
+  const auto* port_a = state.view().ports().find(source_span->port_a_id);
+  const auto* port_b = state.view().ports().find(source_span->port_b_id);
+  if (port_a == nullptr || port_b == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d source_mid{
+      port_a->world_position.x * 0.5 + port_b->world_position.x * 0.5,
+      port_a->world_position.y * 0.5 + port_b->world_position.y * 0.5,
+      port_a->world_position.z * 0.5 + port_b->world_position.z * 0.5};
+
+  wire::core::PickResult mid_pick{};
+  mid_pick.hit_kind = wire::core::PickHitKind::kSegment;
+  mid_pick.hit_id = source_span_id;
+  mid_pick.hit_pos_world = source_mid;
+  wire::core::ResolveBranchPickOptions mid_resolve{};
+  mid_resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto mid_resolved = state.ResolveBranchPick(mid_pick, mid_resolve);
+  if (!mid_resolved.ok || mid_resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      mid_resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec mid_branch = line_req(state);
+  mid_branch.path.polyline = {mid_resolved.value.position, {18.0, 4.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec mid_node{};
+  mid_node.point_index = 0;
+  mid_node.support_kind = mid_resolved.value.support_kind;
+  mid_node.node_id = mid_resolved.value.resolved_node_id;
+  mid_branch.path.node_specs = {mid_node};
+  const auto mid_out = state.GenerateFromBackboneSpec(mid_branch);
+  if (!mid_out.ok || mid_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const auto* original_span = state.view().spans().find(base_out.value.generated_span_ids.front());
+  if (original_span == nullptr) {
+    return false;
+  }
+  const auto* original_a = state.view().ports().find(original_span->port_a_id);
+  const auto* original_b = state.view().ports().find(original_span->port_b_id);
+  if (original_a == nullptr || original_b == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d original_mid{
+      original_a->world_position.x * 0.5 + original_b->world_position.x * 0.5,
+      original_a->world_position.y * 0.5 + original_b->world_position.y * 0.5,
+      original_a->world_position.z * 0.5 + original_b->world_position.z * 0.5};
+
+  wire::core::PickResult original_mid_pick{};
+  original_mid_pick.hit_kind = wire::core::PickHitKind::kSegment;
+  original_mid_pick.hit_id = original_span->id;
+  original_mid_pick.hit_pos_world = original_mid;
+  wire::core::ResolveBranchPickOptions original_mid_resolve{};
+  original_mid_resolve.selected_bundle_template_ids = {
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto original_mid_resolved = state.ResolveBranchPick(original_mid_pick, original_mid_resolve);
+  if (!original_mid_resolved.ok ||
+      original_mid_resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      original_mid_resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec original_mid_branch = line_req(state);
+  original_mid_branch.path.polyline = {original_mid_resolved.value.position, {6.0, -5.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec original_mid_node{};
+  original_mid_node.point_index = 0;
+  original_mid_node.support_kind = original_mid_resolved.value.support_kind;
+  original_mid_node.node_id = original_mid_resolved.value.resolved_node_id;
+  original_mid_branch.path.node_specs = {original_mid_node};
+  const auto original_mid_out = state.GenerateFromBackboneSpec(original_mid_branch);
+  if (!original_mid_out.ok || original_mid_out.value.generated_span_ids.empty()) {
+    return false;
   }
   return true;
 }

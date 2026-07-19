@@ -29,6 +29,7 @@ struct SavedBackboneEdge {
   std::size_t route = 0;
   std::size_t order = 0;
   Vec3d dir{};
+  double lateral_offset_m = 0.0;
 };
 
 struct SavedBackboneEdgeRef {
@@ -64,9 +65,11 @@ struct SavedBackbonePortBinding {
   ObjectId edge_bundle_id = kInvalidObjectId;
   SavedBackboneRowKey row_key{};
   std::size_t lane_index = 0;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   PortKind port_kind = PortKind::kGeneric;
   PortLayer port_layer = PortLayer::kUnknown;
+  int placement_band_id = 0;
+  double layout_yaw_deg = 0.0;
   ObjectId port_id = kInvalidObjectId;
 };
 
@@ -76,12 +79,24 @@ struct SavedBackboneSpanBinding {
   ObjectId span_id = kInvalidObjectId;
 };
 
+struct SavedBackboneRowContinuityEndpoint {
+  ObjectId edge_bundle_id = kInvalidObjectId;
+  std::size_t lane_index = 0;
+};
+
+struct SavedBackboneRowContinuity {
+  ObjectId node_id = kInvalidObjectId;
+  SavedBackboneRowContinuityEndpoint a{};
+  SavedBackboneRowContinuityEndpoint b{};
+};
+
 struct SavedBackboneGraph {
   std::vector<SavedBackboneNode> nodes{};
   std::vector<SavedBackboneEdge> edges{};
   std::vector<SavedBackboneEdgeBundle> edge_bundles{};
   std::vector<SavedBackbonePortBinding> port_bindings{};
   std::vector<SavedBackboneSpanBinding> span_bindings{};
+  std::vector<SavedBackboneRowContinuity> row_continuities{};
 };
 
 struct EditState {

@@ -96,7 +96,7 @@ DistrictStyle resolve_district_style(const ContextProfile& profile, std::uint64_
   style.clutter = clamp01(profile.clutter + centered_from_seed(combine_u64(district_seed, 2)) * 0.08);
   style.regularity = clamp01(profile.regularity + centered_from_seed(combine_u64(district_seed, 3)) * 0.08);
   style.service_mix = clamp01(profile.service_mix + centered_from_seed(combine_u64(district_seed, 4)) * 0.08);
-  const StyleRouteKey seed_route{0, BundleKind::kLowVoltage, ConnectionCategory::kLowVoltage, BackboneFlowKind::kMain};
+  const StyleRouteKey seed_route{0, kInvalidBundleTemplateId, ConnectionCategory::kLowVoltage, BackboneFlowKind::kMain};
   style.cable_family = cable_family_for_route(profile, seed_route, style.service_mix);
   style.attachment_family =
       attachment_family_for_route(seed_route, style.clutter, style.regularity);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -41,7 +42,11 @@ public:
                                  AnchorSupportKind support_kind = AnchorSupportKind::kGeneric,
                                  double support_strength = 1.0);
   EditResult<ObjectId> AddBundle(int conductor_count, double phase_spacing_m,
-                                 BundleKind kind = BundleKind::kLowVoltage);
+                                 BundleTemplateId bundle_template_id = kInvalidBundleTemplateId,
+                                 bool placement_explicit = false,
+                                 double height_m = 0.0, double lateral_m = 0.0,
+                                 double spacing_override_m = 0.0,
+                                 std::uint64_t placement_key = 0);
   EditResult<ObjectId> AddSpan(ObjectId port_a_id, ObjectId port_b_id, SpanKind kind = SpanKind::kGeneric,
                                SpanLayer layer = SpanLayer::kUnknown, ObjectId bundle_id = kInvalidObjectId,
                                ObjectId anchor_a_id = kInvalidObjectId, ObjectId anchor_b_id = kInvalidObjectId);
@@ -66,6 +71,8 @@ public:
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick);
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick,
                                                         const ResolveBranchPickOptions& options);
+  [[nodiscard]] EditResult<DefaultBundlePlacementResult>
+  ResolveDefaultBundlePlacement(BundleTemplateId bundle_template_id, PoleTypeId pole_type_id, int count) const;
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   EditResult<ObjectId> SetPoleManualYawOverride(ObjectId pole_id, double manual_yaw_deg);
@@ -90,10 +97,18 @@ public:
                                        const std::vector<ObjectId>& preferred_visible_span_ids);
   EditResult<bool> UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
-  EditResult<bool> ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind bundle_template_id);
+  EditResult<bool> UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
+                                                 double height_m, double lateral_m, double spacing_m);
+  // Registers one adapter-built assembly before any template references it.
+  // Existing ids are rejected; versioned adapter reload uses UpdateModelAssemblyTemplate.
+  EditResult<bool> RegisterModelAssemblyTemplate(const ModelAssemblyTemplate& model_assembly_template);
+  EditResult<bool> UpdateModelAssemblyTemplate(const ModelAssemblyTemplate& model_assembly_template);
+  EditResult<bool> ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemplateId bundle_template_id);
   EditResult<bool> UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
                                             bool mark_dependent_spans_dirty = true);
   EditResult<bool> ResetAllSpanReferenceLengths(bool mark_all_spans_dirty = true);
+  [[nodiscard]] EditResult<bool> SerializeAuthoritative(std::string* out) const;
+  EditResult<bool> DeserializeAuthoritative(const std::string& text);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
   [[nodiscard]] SpanLayoutView span_layout(ObjectId span_id) const;
@@ -102,10 +117,12 @@ public:
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
   [[nodiscard]] const VisualCurvePartCache& visual_curve_parts() const;
+  [[nodiscard]] const VisualModelInstanceCache& visual_model_instances() const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
   [[nodiscard]] ValidationResult ValidateFast() const;
   [[nodiscard]] double effective_pole_layout_yaw_deg(const Pole& pole) const;
-  [[nodiscard]] double effective_port_layout_yaw_deg(const Pole& pole, ConnectionCategory category,
+  [[nodiscard]] double effective_port_layout_yaw_deg(const Pole& pole, ObjectId port_id,
+                                                     ConnectionCategory category,
                                                      const PortLayoutYawOverride* row_layout_yaw_override = nullptr) const;
 
   [[nodiscard]] ObjectId next_id() const { return identity_.id_generator.peek(); }
@@ -143,6 +160,7 @@ private:
   void cache_span_visual(ObjectId span_id, SpanVisualCacheEntry visual);
   void cache_span_render(ObjectId span_id, SpanRenderCacheEntry render);
   void cache_visual_curve_parts(VisualCurvePartCache visual_curves);
+  void cache_visual_model_instances(VisualModelInstanceCache model_instances);
   void cache_support_group(SupportGroupDecision decision, LoweredSupportGroupPlacement placement);
   ObjectId save_backbone_node(ObjectId pole_id, const Vec3d& position,
                               SupportKind support_kind = SupportKind::kPole,
@@ -155,13 +173,46 @@ private:
                                                    const std::vector<SupportNodeBundleMode>& bundle_modes);
   EditResult<bool> bind_backbone_node_path_point_index(ObjectId node_id, int path_point_index);
   SavedBackboneEdgeRef save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route, std::size_t order,
-                                          const Vec3d& dir);
+                                          const Vec3d& dir, double lateral_offset_m);
   ObjectId bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, bool edge_forward, std::size_t route,
                                 std::size_t order, const Vec3d& dir);
   EditResult<bool> bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id);
   EditResult<bool> bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
-                                      std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
-                                      PortLayer port_layer, ObjectId port_id);
+                                      std::size_t lane_index, BundleTemplateId bundle_template_id, PortKind port_kind,
+                                      PortLayer port_layer, int placement_band_id, double layout_yaw_deg,
+                                      ObjectId port_id);
+  EditResult<bool> promote_backbone_open_port_binding_exact(ObjectId edge_bundle_id,
+                                                            const SavedBackboneRowKey& old_open_key,
+                                                            std::size_t lane_index,
+                                                            const SavedBackboneRowKey& pair_key,
+                                                            double layout_yaw_deg,
+                                                            ObjectId port_id);
+  EditResult<bool> bind_backbone_row_continuity(ObjectId node_id,
+                                                ObjectId edge_bundle_a,
+                                                std::size_t lane_a,
+                                                ObjectId edge_bundle_b,
+                                                std::size_t lane_b);
+  void remove_backbone_row_continuities_for_lanes(const std::vector<ObjectId>& edge_bundle_ids,
+                                                  std::size_t first_retired_lane);
+  enum class BackboneRegenerateCause : std::uint8_t {
+    kBundleCount,
+    kBundleTopology,
+    kCableDecision,
+    kPoleType,
+    kSpanOverride,
+    kLayoutSettings,
+  };
+  EditResult<bool> regenerate_backbone_edge_bundles(BundleTemplateId bundle_template_id,
+                                                    const BundleTemplate& previous_template,
+                                                    const BundleTemplate& next_template,
+                                                    ChangeSet* change_set,
+                                                    const CableTemplate* cable_template_override = nullptr,
+                                                    const std::vector<ObjectId>* scoped_edge_bundle_ids = nullptr,
+                                                    const PoleTypeDefinition* pole_type_override = nullptr,
+                                                    BackboneRegenerateCause cause = BackboneRegenerateCause::kBundleCount);
+  EditResult<bool> regenerate_backbone_span_override(ObjectId span_id, ChangeSet* change_set);
+  EditResult<bool> rebuild_loaded_outputs();
+  [[nodiscard]] bool authoritative_equals(const CoreState& other) const;
   void cache_span_rules(const SpanLayoutRules& rules);
   void remove_span_from_caches(ObjectId span_id);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
@@ -187,7 +238,7 @@ private:
   void register_default_attachment_templates();
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
   [[nodiscard]] const CableTemplate* find_cable_template(CableTemplateId cable_template_id) const;
-  [[nodiscard]] const BundleTemplate* find_bundle_template(BundleKind bundle_template_id) const;
+  [[nodiscard]] const BundleTemplate* find_bundle_template(BundleTemplateId bundle_template_id) const;
   [[nodiscard]] std::vector<PortPlacementBand> sorted_port_bands(const PoleTypeDefinition& pole_type,
                                                                  ConnectionCategory category) const;
   [[nodiscard]] bool is_port_band_used(ObjectId pole_id, const PortPlacementBand& band) const;
@@ -207,6 +258,8 @@ private:
   static void apply_port_position_mode(Port& port, PortPositionMode mode, PortPlacementSourceKind source_hint);
   [[nodiscard]] double pole_radius_at_height_m(const Pole& pole, double local_z_m) const;
   [[nodiscard]] Vec3d apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local, SlotSide side) const;
+  EditResult<bool> apply_pole_tilt_from_pull(ObjectId pole_id, double max_tilt_deg, const Vec3d& pull_world_dir,
+                                             std::size_t incident_span_count, ChangeSet* change_set);
   void finalize_pole_transform_update(ObjectId pole_id, const Pole& old_pole, ChangeSet* change_set);
   std::string next_display_id(std::string_view prefix);
   void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr,

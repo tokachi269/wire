@@ -459,6 +459,60 @@ bool test_span_layout_debug_panel_reads_neutral_outputs() {
          source.find("span_frontier(") != std::string::npos;
 }
 
+bool test_population_rule_produces_viewer_curve_parts() {
+  wire::core::CoreState state;
+  auto bundle_template = state.view().bundle_templates().at(wire::core::BundleKind::kCommunication);
+  wire::core::CablePopulationRule rule{};
+  rule.rule_id = 1;
+  rule.explicit_seed = 42;
+  rule.min_extra_count = 3;
+  rule.max_extra_count = 3;
+  rule.min_spacing_m = 0.04;
+  rule.lateral_min_m = -2.0;
+  rule.lateral_max_m = 2.0;
+  rule.height_min_m = 0.0;
+  rule.height_max_m = 20.0;
+  rule.randomness = 0.5;
+  bundle_template.population_rules.push_back(rule);
+  const auto configured = state.UpdateBundleTemplate(bundle_template);
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state, wire::core::BundleKind::kCommunication));
+  if (!configured.ok || !generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = generated.value.generated_span_ids.front();
+  const wire::core::SpanRenderCacheEntry* render = state.find_span_render_cache(span_id);
+  if (render == nullptr) {
+    return false;
+  }
+  std::size_t physical_count = 0;
+  bool has_original_edge_body = false;
+  wire::core::Vec3d original_endpoint{};
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.source_span_id == span_id) {
+      has_original_edge_body = true;
+      original_endpoint = part.boundary_a;
+      break;
+    }
+  }
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kEdgeBody ||
+        !part.has_cable_instance_key || part.cable_instance_key.is_base()) {
+      continue;
+    }
+    if (part.source_span_id != span_id || part.samples.size() < 2 ||
+        !almost_equal(part.wire_radius_m, render->wire_radius_m) || part.color_rgba != render->color_rgba) {
+      return false;
+    }
+    if (almost_equal(part.boundary_a.x, original_endpoint.x) &&
+        almost_equal(part.boundary_a.y, original_endpoint.y) &&
+        almost_equal(part.boundary_a.z, original_endpoint.z)) {
+      return false;
+    }
+    ++physical_count;
+  }
+  return has_original_edge_body && physical_count == 3;
+}
+
 void register_backbone_scene_tests(viewer_test_registry::TestRegistry& tests) {
   viewer_test_registry::AddTest(tests, "V16", "backbone viewer scene: simple LV/HV/Communication line has display outputs",
                                 test_backbone_viewer_simple_all_templates_have_display_outputs);
@@ -478,6 +532,8 @@ void register_backbone_scene_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_span_layout_debug_panel_reads_neutral_outputs);
   viewer_test_registry::AddTest(tests, "V24", "backbone viewer scene: sag uses curved geom and render output",
                                 test_backbone_viewer_sag_uses_curved_geom_output);
+  viewer_test_registry::AddTest(tests, "V25", "backbone viewer scene: population rule adds physical curve parts",
+                                test_population_rule_produces_viewer_curve_parts);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_backbone_scene_tests);

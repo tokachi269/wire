@@ -1,7 +1,13 @@
 #include "wire/core/core_state.hpp"
+#include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "../collection_utils.hpp"
 #include "internal_services.hpp"
+#include "port_placement.hpp"
 #include "../generation/support_policy.hpp"
+#include "../generation/backbone/curve_parts.hpp"
+#include "../generation/backbone/emit_shared.hpp"
+#include "../generation/backbone/model_assembly.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -39,6 +45,25 @@ double deterministic_pole_tilt_factor(ObjectId pole_id) {
   return unit_random_from_u64(mix_u64(static_cast<std::uint64_t>(pole_id) ^ 0x54D3C92F7A6B1E29ull));
 }
 
+void append_unique_ids(std::vector<ObjectId>* target, const std::vector<ObjectId>& source) {
+  if (target == nullptr) return;
+  for (ObjectId id : source) {
+    if (id == kInvalidObjectId) continue;
+    if (std::find(target->begin(), target->end(), id) == target->end()) {
+      target->push_back(id);
+    }
+  }
+}
+
+void append_plan(UpdatePlan* target, const UpdatePlan& source) {
+  if (target == nullptr) return;
+  append_unique_ids(&target->affected.poles, source.affected.poles);
+  append_unique_ids(&target->affected.ports, source.affected.ports);
+  append_unique_ids(&target->affected.spans, source.affected.spans);
+  append_unique_ids(&target->affected.edges, source.affected.edges);
+  target->plan_ms += source.plan_ms;
+}
+
 double deterministic_pole_tilt_azimuth_deg(ObjectId pole_id) {
   return unit_random_from_u64(mix_u64(static_cast<std::uint64_t>(pole_id) ^ 0xA1937465C4FB2D81ull)) * 360.0;
 }
@@ -59,6 +84,36 @@ Vec3d tilt_euler_xy_from_local_polar_deg(double tilt_deg, double local_azimuth_d
   const double cos_x = std::max(1e-9, std::cos(tilt_x_rad));
   const double tilt_y_rad = std::asin(std::clamp(hx / cos_x, -1.0, 1.0));
   return {tilt_x_rad * (180.0 / kPi), tilt_y_rad * (180.0 / kPi), 0.0};
+}
+
+struct PoleTiltResolution {
+  double magnitude_deg = 0.0;
+  Vec3d rotation_euler_xy_deg{};
+};
+
+PoleTiltResolution resolve_pole_tilt_from_pull(ObjectId pole_id, double max_tilt_deg, double layout_yaw_deg,
+                                               const Vec3d& pull_world_dir, std::size_t incident_span_count) {
+  const double clamped_max_tilt_deg = std::clamp(max_tilt_deg, 0.0, 45.0);
+  const double random_tilt_factor = deterministic_pole_tilt_factor(pole_id);
+  const Vec3d random_world_dir = unit_xy_from_azimuth_deg(deterministic_pole_tilt_azimuth_deg(pole_id));
+  Vec3d resolved_pull = pull_world_dir;
+  resolved_pull.z = 0.0;
+  Vec3d tilt_world_dir = random_world_dir;
+  double pull_strength = 0.0;
+  if (incident_span_count > 0) {
+    pull_strength = std::clamp(Length(resolved_pull) / static_cast<double>(incident_span_count), 0.0, 1.0);
+  }
+  if (NormalizeXY(&resolved_pull)) {
+    const double pull_bias = 0.60 + 0.25 * pull_strength;
+    tilt_world_dir = ScaleVec(resolved_pull, pull_bias) + ScaleVec(random_world_dir, 1.0 - pull_bias);
+    if (!NormalizeXY(&tilt_world_dir)) {
+      tilt_world_dir = resolved_pull;
+    }
+  }
+  const double applied_tilt_scale = (incident_span_count > 0) ? (0.20 + 0.80 * pull_strength) : 1.0;
+  const double applied_tilt_deg = clamped_max_tilt_deg * random_tilt_factor * applied_tilt_scale;
+  const double local_azimuth_deg = NormalizeYawDeg(YawDegFromXY(tilt_world_dir) - layout_yaw_deg);
+  return {applied_tilt_deg, tilt_euler_xy_from_local_polar_deg(applied_tilt_deg, local_azimuth_deg)};
 }
 
 ConnectionCategory port_layer_to_category(PortLayer layer) {
@@ -140,39 +195,7 @@ int role_score_for_context(SlotRole role, ConnectionContext context) {
   }
 }
 
-SlotSide inner_side_for_turn(double turn_sign) {
-  if (turn_sign > 1e-9) {
-    return SlotSide::kLeft;
-  }
-  if (turn_sign < -1e-9) {
-    return SlotSide::kRight;
-  }
-  return SlotSide::kCenter;
-}
-
-double apply_corner_side_scale(double local_y, SlotSide slot_side, double turn_sign, double side_scale) {
-  if (slot_side == SlotSide::kCenter) {
-    return local_y;
-  }
-  // Always widen non-center lanes for clearance; keep outer side wider than inner side.
-  const double inner_scale = 1.0 + (side_scale - 1.0) * 0.35;
-  const SlotSide inner_side = inner_side_for_turn(turn_sign);
-  if (inner_side == SlotSide::kCenter) {
-    return local_y * side_scale;
-  }
-  if (slot_side == inner_side) {
-    return local_y * inner_scale;
-  }
-  return local_y * side_scale;
-}
-
-template <typename TValue> void append_unique(std::vector<TValue>& dst, const std::vector<TValue>& src) {
-  for (const TValue& value : src) {
-    if (std::find(dst.begin(), dst.end(), value) == dst.end()) {
-      dst.push_back(value);
-    }
-  }
-}
+using detail::append_unique;
 
 void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.created_ids, src.created_ids);
@@ -204,7 +227,10 @@ bool anchor_slot_equals(const AnchorSlotTemplate& a, const AnchorSlotTemplate& b
 
 bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefinition& b) {
   if (a.id != b.id || a.name != b.name || a.description != b.description ||
-      std::abs(a.default_height_m - b.default_height_m) > 1e-12 || a.port_bands.size() != b.port_bands.size() ||
+      std::abs(a.default_height_m - b.default_height_m) > 1e-12 ||
+      std::abs(a.radius_base_m - b.radius_base_m) > 1e-12 ||
+      std::abs(a.radius_top_m - b.radius_top_m) > 1e-12 ||
+      a.pole_visual_assembly_id != b.pole_visual_assembly_id || a.port_bands.size() != b.port_bands.size() ||
       a.anchor_slots.size() != b.anchor_slots.size()) {
     return false;
   }
@@ -215,6 +241,41 @@ bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefi
   }
   for (std::size_t i = 0; i < a.anchor_slots.size(); ++i) {
     if (!anchor_slot_equals(a.anchor_slots[i], b.anchor_slots[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool vec3_equals(const Vec3d& a, const Vec3d& b) {
+  return std::abs(a.x - b.x) <= 1e-12 && std::abs(a.y - b.y) <= 1e-12 &&
+         std::abs(a.z - b.z) <= 1e-12;
+}
+
+bool frame_equals(const Frame3d& a, const Frame3d& b) {
+  return vec3_equals(a.origin, b.origin) && vec3_equals(a.forward, b.forward) &&
+         vec3_equals(a.right, b.right) && vec3_equals(a.up, b.up);
+}
+
+bool port_band_placement_only_change(const PortPlacementBand& a, const PortPlacementBand& b) {
+  return a.band_id == b.band_id && a.category == b.category && frame_equals(a.local_direction, b.local_direction) &&
+         a.layer == b.layer && a.side == b.side && a.role == b.role && a.priority == b.priority &&
+         std::abs(a.min_spacing_m - b.min_spacing_m) <= 1e-12 && a.allow_multiple == b.allow_multiple &&
+         a.overflow_policy == b.overflow_policy && a.enabled == b.enabled;
+}
+
+bool pole_type_placement_only_change(const PoleTypeDefinition& before, const PoleTypeDefinition& after) {
+  if (before.id != after.id || before.port_bands.size() != after.port_bands.size() ||
+      before.anchor_slots.size() != after.anchor_slots.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < before.anchor_slots.size(); ++i) {
+    if (!anchor_slot_equals(before.anchor_slots[i], after.anchor_slots[i])) {
+      return false;
+    }
+  }
+  for (std::size_t i = 0; i < before.port_bands.size(); ++i) {
+    if (!port_band_placement_only_change(before.port_bands[i], after.port_bands[i])) {
       return false;
     }
   }
@@ -327,7 +388,11 @@ EditResult<ObjectId> CoreState::AddAnchor(ObjectId owner_pole_id, const Vec3d& w
   return result;
 }
 
-EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spacing_m, BundleKind kind) {
+EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spacing_m,
+                                          BundleTemplateId bundle_template_id,
+                                          bool placement_explicit, double height_m, double lateral_m,
+                                          double spacing_override_m,
+                                          std::uint64_t placement_key) {
   EditResult<ObjectId> result;
   if (conductor_count <= 0) {
     result.error = "conductor count must be > 0";
@@ -337,13 +402,23 @@ EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spac
     result.error = "phase spacing must be > 0";
     return result;
   }
+  if (!std::isfinite(height_m) || !std::isfinite(lateral_m) ||
+      !std::isfinite(spacing_override_m) || spacing_override_m < 0.0) {
+    result.error = "bundle placement offsets must be finite";
+    return result;
+  }
 
   Bundle bundle{};
   bundle.id = identity_.id_generator.next();
   bundle.display_id = next_display_id("B");
   bundle.conductor_count = conductor_count;
   bundle.phase_spacing_m = phase_spacing_m;
-  bundle.bundle_template_id = kind;
+  bundle.spacing_override_m = spacing_override_m;
+  bundle.placement_explicit = placement_explicit;
+  bundle.height_m = height_m;
+  bundle.lateral_m = lateral_m;
+  bundle.bundle_template_id = bundle_template_id;
+  bundle.placement_key = placement_key;
   authoritative_.edit_state.bundles.insert(bundle);
 
   result.ok = true;
@@ -396,7 +471,6 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   span.reference_length_m = Length(port_b->world_position - port_a->world_position);
   authoritative_.edit_state.spans.insert(span);
 
-  touch_topology_related_spans_for_ports({port_a_id, port_b_id}, span.id, &result.change_set);
   add_span_to_index(span);
   initialize_span_runtime_state(span.id);
   touch_span(span.id, true);
@@ -493,6 +567,36 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
   return result;
 }
 
+EditResult<bool> CoreState::apply_pole_tilt_from_pull(ObjectId pole_id, double max_tilt_deg,
+                                                      const Vec3d& pull_world_dir,
+                                                      std::size_t incident_span_count, ChangeSet* change_set) {
+  EditResult<bool> result{};
+  Pole* pole = authoritative_.edit_state.poles.find(pole_id);
+  if (pole == nullptr) {
+    result.error = "pole not found";
+    return result;
+  }
+  const PoleTiltResolution resolved =
+      resolve_pole_tilt_from_pull(pole_id, max_tilt_deg, effective_pole_layout_yaw_deg(*pole), pull_world_dir,
+                                  incident_span_count);
+  if (std::abs(pole->tilt_magnitude_deg - resolved.magnitude_deg) <= 1e-9 &&
+      std::abs(pole->world_transform.rotation_euler_deg.x - resolved.rotation_euler_xy_deg.x) <= 1e-9 &&
+      std::abs(pole->world_transform.rotation_euler_deg.y - resolved.rotation_euler_xy_deg.y) <= 1e-9) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+  pole->tilt_magnitude_deg = resolved.magnitude_deg;
+  pole->world_transform.rotation_euler_deg.x = resolved.rotation_euler_xy_deg.x;
+  pole->world_transform.rotation_euler_deg.y = resolved.rotation_euler_xy_deg.y;
+  if (change_set != nullptr) {
+    add_unique_id(change_set->updated_ids, pole_id);
+  }
+  result.ok = true;
+  result.value = true;
+  return result;
+}
+
 EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double max_tilt_deg) {
   EditResult<bool> result;
   std::vector<ObjectId> targets = pole_ids;
@@ -502,7 +606,6 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
       targets.push_back(pole.id);
     }
   }
-  const double clamped_max_tilt_deg = std::clamp(max_tilt_deg, 0.0, 45.0);
   bool changed = false;
   std::vector<ObjectId> changed_poles{};
   for (ObjectId pole_id : targets) {
@@ -513,12 +616,11 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
       return result;
     }
     const Pole old_pole = *pole;
-    const double random_tilt_factor = deterministic_pole_tilt_factor(pole_id);
-    const Vec3d random_world_dir = unit_xy_from_azimuth_deg(deterministic_pole_tilt_azimuth_deg(pole_id));
     Vec3d pull_world_dir{};
     std::unordered_set<ObjectId> seen_spans{};
     std::size_t incident_span_count = 0;
-    if (const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id); ports_it != runtime_.relation_index.ports_by_pole.end()) {
+    if (const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id);
+        ports_it != runtime_.relation_index.ports_by_pole.end()) {
       for (ObjectId port_id : ports_it->second) {
         const auto spans_it = runtime_.connection_index.spans_by_port.find(port_id);
         if (spans_it == runtime_.connection_index.spans_by_port.end()) {
@@ -532,8 +634,8 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
           if (span == nullptr) {
             continue;
           }
-          const ObjectId other_port_id =
-              (span->port_a_id == port_id) ? span->port_b_id : (span->port_b_id == port_id ? span->port_a_id : kInvalidObjectId);
+          const ObjectId other_port_id = (span->port_a_id == port_id) ? span->port_b_id
+                                      : (span->port_b_id == port_id ? span->port_a_id : kInvalidObjectId);
           if (other_port_id == kInvalidObjectId) {
             continue;
           }
@@ -541,7 +643,14 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
           if (other_port == nullptr) {
             continue;
           }
-          Vec3d span_dir = other_port->world_position - pole->world_transform.position;
+          Vec3d other_world = other_port->world_position;
+          if (other_port->owner_pole_id != kInvalidObjectId) {
+            if (const Pole* other_pole = authoritative_.edit_state.poles.find(other_port->owner_pole_id);
+                other_pole != nullptr) {
+              other_world = other_pole->world_transform.position;
+            }
+          }
+          Vec3d span_dir = other_world - pole->world_transform.position;
           span_dir.z = 0.0;
           if (!NormalizeXY(&span_dir)) {
             continue;
@@ -551,35 +660,18 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
         }
       }
     }
-    Vec3d tilt_world_dir = random_world_dir;
-    double pull_strength = 0.0;
-    if (incident_span_count > 0) {
-      pull_strength = std::clamp(Length(pull_world_dir) / static_cast<double>(incident_span_count), 0.0, 1.0);
+    const auto applied = apply_pole_tilt_from_pull(pole_id, max_tilt_deg, pull_world_dir, incident_span_count,
+                                                   &result.change_set);
+    if (!applied.ok) {
+      result.error = applied.error;
+      result.ok = false;
+      return result;
     }
-    if (NormalizeXY(&pull_world_dir)) {
-      const double pull_bias = 0.60 + 0.25 * pull_strength;
-      tilt_world_dir =
-          ScaleVec(pull_world_dir, pull_bias) + ScaleVec(random_world_dir, 1.0 - pull_bias);
-      if (!NormalizeXY(&tilt_world_dir)) {
-        tilt_world_dir = pull_world_dir;
-      }
-    }
-    const double applied_tilt_scale =
-        (incident_span_count > 0) ? (0.20 + 0.80 * pull_strength) : 1.0;
-    const double applied_tilt_deg = clamped_max_tilt_deg * random_tilt_factor * applied_tilt_scale;
-    const double layout_yaw_deg = effective_pole_layout_yaw_deg(*pole);
-    const double local_azimuth_deg = NormalizeYawDeg(YawDegFromXY(tilt_world_dir) - layout_yaw_deg);
-    const Vec3d tilt_euler_deg = tilt_euler_xy_from_local_polar_deg(applied_tilt_deg, local_azimuth_deg);
-    if (std::abs(pole->tilt_magnitude_deg - applied_tilt_deg) <= 1e-9 &&
-        std::abs(pole->world_transform.rotation_euler_deg.x - tilt_euler_deg.x) <= 1e-9 &&
-        std::abs(pole->world_transform.rotation_euler_deg.y - tilt_euler_deg.y) <= 1e-9) {
+    if (!applied.value) {
       continue;
     }
-    pole->tilt_magnitude_deg = applied_tilt_deg;
-    pole->world_transform.rotation_euler_deg.x = tilt_euler_deg.x;
-    pole->world_transform.rotation_euler_deg.y = tilt_euler_deg.y;
-    finalize_pole_transform_update(pole->id, old_pole, &result.change_set);
-    add_unique_id(changed_poles, pole->id);
+    finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
+    add_unique_id(changed_poles, pole_id);
     changed = true;
   }
   UpdatePlan combined_plan{};
@@ -667,28 +759,26 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
     return result;
   }
 
-  apply_port_position_mode(*port, PortPositionMode::kAuto, port->placement_source);
+  const SavedBackbonePortBinding* backbone_binding = view().backbone_port_binding_for_port(port_id);
+  const Pole* owner = port->owner_pole_id == kInvalidObjectId
+                          ? nullptr
+                          : authoritative_.edit_state.poles.find(port->owner_pole_id);
+  const PoleTypeDefinition* owner_type =
+      owner == nullptr ? nullptr : find_pole_type(owner->pole_type_id);
+  const PortPlacementBand* resolved_band =
+      owner_type == nullptr ? nullptr : state_internal::FindPortPlacementBandForPort(*this, *owner_type, *port);
+  if (backbone_binding != nullptr && resolved_band == nullptr) {
+    result.error = "backbone unsupported: saved placement band is missing from pole type";
+    return result;
+  }
 
   bool recomputed = false;
-  if (port->owner_pole_id != kInvalidObjectId && port->generated_from_template) {
-    const Pole* pole = authoritative_.edit_state.poles.find(port->owner_pole_id);
-    if (pole != nullptr) {
-      const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
-      if (pole_type != nullptr) {
-        const PortPlacementBand* band_ptr = nullptr;
-        for (const PortPlacementBand& band : pole_type->port_bands) {
-          if (!band.enabled || band.category != port->category || band.layer != port->template_layer ||
-              band.side != port->template_side || band.role != port->template_role) {
-            continue;
-          }
-          if (band_ptr == nullptr || band.priority > band_ptr->priority ||
-              (band.priority == band_ptr->priority && band.band_id < band_ptr->band_id)) {
-            band_ptr = &band;
-          }
-        }
-        if (band_ptr != nullptr) {
+  if (owner != nullptr && resolved_band != nullptr &&
+      (port->generated_from_template || backbone_binding != nullptr)) {
+    const PortPlacementBand* band_ptr = resolved_band;
           const PoleFrame frame =
-              BuildPoleFrame(pole->world_transform, effective_port_layout_yaw_deg(*pole, port->category));
+              BuildPoleFrame(owner->world_transform,
+                             effective_port_layout_yaw_deg(*owner, port->id, port->category));
           const Vec3d current_local = WorldPointToLocal(frame, port->world_position);
           Vec3d adjusted_local{
               0.0,
@@ -696,28 +786,27 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
               std::clamp(current_local.z, band_ptr->height_min_m, band_ptr->height_max_m),
           };
           const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
-                                              pole->context.kind == PoleContextKind::kCorner &&
+                                              owner->context.kind == PoleContextKind::kCorner &&
                                               band_ptr->side != SlotSide::kCenter;
           double applied_scale = 1.0;
           if (apply_angle_correction) {
-            adjusted_local.y = apply_corner_side_scale(adjusted_local.y, band_ptr->side, pole->context.corner_turn_sign,
-                                                       pole->context.side_scale);
+            adjusted_local.y = state_internal::apply_corner_side_scale(
+                adjusted_local.y, band_ptr->side, owner->context.corner_turn_sign, owner->context.side_scale);
             if (std::abs(current_local.y) > 1e-9) {
               applied_scale = std::abs(adjusted_local.y / current_local.y);
             }
           }
-          adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band_ptr->side);
+          adjusted_local = apply_pole_clearance_to_local(*owner, adjusted_local, band_ptr->side);
           port->world_position =
-              local_to_world_on_pole(pole->world_transform, effective_port_layout_yaw_deg(*pole, port->category),
+              local_to_world_on_pole(owner->world_transform,
+                                     effective_port_layout_yaw_deg(*owner, port->id, port->category),
                                      adjusted_local);
           port->angle_correction_applied = apply_angle_correction;
           port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
           apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
           recomputed = true;
-        }
-      }
-    }
   }
+  apply_port_position_mode(*port, PortPositionMode::kAuto, port->placement_source);
   if (!recomputed && port->placement_source == PortPlacementSourceKind::kManualEdit) {
     apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
   }
@@ -762,6 +851,9 @@ EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) 
     return result;
   }
   PoleOrientationOverride next = authoritative_.override_state.pole_orientation_by_pole[pole_id];
+  if (!next.base_yaw_deg.has_value()) {
+    next.base_yaw_deg = pole->world_transform.rotation_euler_deg.z;
+  }
   if (next.flip_180.has_value() && *next.flip_180 == flip_180) {
     result.ok = true;
     result.value = pole_id;
@@ -791,6 +883,9 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
   }
 
   PoleOrientationOverride next = authoritative_.override_state.pole_orientation_by_pole[pole_id];
+  if (!next.base_yaw_deg.has_value()) {
+    next.base_yaw_deg = pole->world_transform.rotation_euler_deg.z;
+  }
   if (next.manual_yaw_deg.has_value() && std::abs(*next.manual_yaw_deg - manual_yaw_deg) <= 1e-9) {
     result.ok = true;
     result.value = pole_id;
@@ -826,20 +921,18 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
     return result;
   }
 
-  const bool had_override = authoritative_.override_state.pole_orientation_by_pole.erase(pole_id) > 0;
-  if (!had_override) {
+  const auto override_it = authoritative_.override_state.pole_orientation_by_pole.find(pole_id);
+  if (override_it == authoritative_.override_state.pole_orientation_by_pole.end()) {
     result.ok = true;
     result.value = pole_id;
     return result;
   }
 
+  const PoleOrientationOverride previous_override = override_it->second;
+  authoritative_.override_state.pole_orientation_by_pole.erase(override_it);
   const Pole old_pole = *pole;
-  if (const auto it = debug_.pole_orientation_debug_records.find(pole_id); it != debug_.pole_orientation_debug_records.end()) {
-    const Vec3d forward = it->second.adopted_forward;
-    if ((forward.x * forward.x + forward.y * forward.y + forward.z * forward.z) > 1e-12) {
-      pole->world_transform.rotation_euler_deg.z =
-          YawDegFromXY(forward);
-    }
+  if (previous_override.base_yaw_deg.has_value()) {
+    pole->world_transform.rotation_euler_deg.z = *previous_override.base_yaw_deg;
   }
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
   const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
@@ -865,13 +958,33 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
     result.error = "span not found";
     return result;
   }
-  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "backbone unsupported: endpoint socket override requires regeneration";
-    return result;
+  SpanEndpointOverride next{};
+  if (const auto existing = authoritative_.override_state.span_endpoint_by_span.find(span_id);
+      existing != authoritative_.override_state.span_endpoint_by_span.end()) {
+    next = existing->second;
   }
-  SpanEndpointOverride next = authoritative_.override_state.span_endpoint_by_span[span_id];
   std::optional<int>& slot = is_start_endpoint ? next.socket_a_id : next.socket_b_id;
   if (slot.has_value() && *slot == socket_id) {
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    slot = socket_id;
+    CoreState trial = *this;
+    trial.authoritative_.override_state.span_endpoint_by_span[span_id] = next;
+    ChangeSet regenerated_changes{};
+    const auto regenerated = trial.regenerate_backbone_span_override(span_id, &regenerated_changes);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, span_id);
     result.ok = true;
     result.value = span_id;
     return result;
@@ -892,24 +1005,45 @@ EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id
     result.error = "span not found";
     return result;
   }
-  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "backbone unsupported: endpoint socket override requires regeneration";
-    return result;
-  }
   auto it = authoritative_.override_state.span_endpoint_by_span.find(span_id);
-  bool changed = false;
-  if (it != authoritative_.override_state.span_endpoint_by_span.end()) {
-    std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
-    changed = slot.has_value();
-    slot.reset();
-    if (!it->second.socket_a_id.has_value() && !it->second.socket_b_id.has_value()) {
-      authoritative_.override_state.span_endpoint_by_span.erase(it);
-    }
-  }
+  const bool changed = it != authoritative_.override_state.span_endpoint_by_span.end() &&
+                       (is_start_endpoint ? it->second.socket_a_id.has_value()
+                                          : it->second.socket_b_id.has_value());
   if (!changed) {
     result.ok = true;
     result.value = span_id;
     return result;
+  }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    CoreState trial = *this;
+    auto trial_it = trial.authoritative_.override_state.span_endpoint_by_span.find(span_id);
+    if (trial_it != trial.authoritative_.override_state.span_endpoint_by_span.end()) {
+      std::optional<int>& trial_slot = is_start_endpoint ? trial_it->second.socket_a_id : trial_it->second.socket_b_id;
+      trial_slot.reset();
+      if (!trial_it->second.socket_a_id.has_value() && !trial_it->second.socket_b_id.has_value()) {
+        trial.authoritative_.override_state.span_endpoint_by_span.erase(trial_it);
+      }
+    }
+    ChangeSet regenerated_changes{};
+    const auto regenerated = trial.regenerate_backbone_span_override(span_id, &regenerated_changes);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, span_id);
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
+  slot.reset();
+  if (!it->second.socket_a_id.has_value() && !it->second.socket_b_id.has_value()) {
+    authoritative_.override_state.span_endpoint_by_span.erase(it);
   }
   touch_span(span_id, true);
   add_unique_id(result.change_set.updated_ids, span_id);
@@ -925,16 +1059,36 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
     result.error = "span not found";
     return result;
   }
-  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "backbone unsupported: branch down override requires regeneration";
-    return result;
-  }
   if (!std::isfinite(branch_down_offset_m) || branch_down_offset_m < 0.0) {
     result.error = "branch down offset override must be finite and >= 0";
     return result;
   }
-  SpanSupportOverride next = authoritative_.override_state.span_support_by_span[span_id];
+  SpanSupportOverride next{};
+  if (const auto existing = authoritative_.override_state.span_support_by_span.find(span_id);
+      existing != authoritative_.override_state.span_support_by_span.end()) {
+    next = existing->second;
+  }
   if (next.branch_down_offset_m.has_value() && std::abs(*next.branch_down_offset_m - branch_down_offset_m) <= 1e-9) {
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    next.branch_down_offset_m = branch_down_offset_m;
+    CoreState trial = *this;
+    trial.authoritative_.override_state.span_support_by_span[span_id] = next;
+    ChangeSet regenerated_changes{};
+    const auto regenerated = trial.regenerate_backbone_span_override(span_id, &regenerated_changes);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, span_id);
     result.ok = true;
     result.value = span_id;
     return result;
@@ -965,15 +1119,32 @@ EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_
     result.error = "span not found";
     return result;
   }
-  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "backbone unsupported: branch down override requires regeneration";
-    return result;
-  }
-  if (authoritative_.override_state.span_support_by_span.erase(span_id) == 0) {
+  if (authoritative_.override_state.span_support_by_span.find(span_id) ==
+      authoritative_.override_state.span_support_by_span.end()) {
     result.ok = true;
     result.value = span_id;
     return result;
   }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    CoreState trial = *this;
+    trial.authoritative_.override_state.span_support_by_span.erase(span_id);
+    ChangeSet regenerated_changes{};
+    const auto regenerated = trial.regenerate_backbone_span_override(span_id, &regenerated_changes);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, span_id);
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  authoritative_.override_state.span_support_by_span.erase(span_id);
   touch_span(span_id, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kSpan, span_id});
@@ -1124,6 +1295,19 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     result.error = "pole type not found";
     return result;
   }
+  if (const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id);
+      ports_it != runtime_.relation_index.ports_by_pole.end()) {
+    for (ObjectId port_id : ports_it->second) {
+      const Port* port = authoritative_.edit_state.ports.find(port_id);
+      if (port == nullptr || state_internal::FindPortPlacementBandForPort(*this, *pole_type, *port) != nullptr) {
+        continue;
+      }
+      if (view().backbone_port_binding_for_port(port_id) != nullptr) {
+        result.error = "backbone unsupported: saved placement band is missing from target pole type";
+        return result;
+      }
+    }
+  }
 
   pole->pole_type_id = pole_type_id;
   result.change_set.updated_ids.push_back(pole_id);
@@ -1140,7 +1324,8 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     double applied_scale = 1.0;
     if (apply_angle_correction) {
       adjusted_local.y =
-          apply_corner_side_scale(adjusted_local.y, band.side, pole->context.corner_turn_sign, pole->context.side_scale);
+          state_internal::apply_corner_side_scale(
+              adjusted_local.y, band.side, pole->context.corner_turn_sign, pole->context.side_scale);
       if (std::abs(band.lateral_center_m) > 1e-9) {
         applied_scale = std::abs(adjusted_local.y / band.lateral_center_m);
       }
@@ -1166,17 +1351,8 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
         continue;
       }
 
-      const PortPlacementBand* band_ptr = nullptr;
-      for (const PortPlacementBand& band : pole_type->port_bands) {
-        if (!band.enabled || band.category != existing_port->category || band.layer != existing_port->template_layer ||
-            band.side != existing_port->template_side || band.role != existing_port->template_role) {
-          continue;
-        }
-        if (band_ptr == nullptr || band.priority > band_ptr->priority ||
-            (band.priority == band_ptr->priority && band.band_id < band_ptr->band_id)) {
-          band_ptr = &band;
-        }
-      }
+      const PortPlacementBand* band_ptr =
+          state_internal::FindPortPlacementBandForPort(*this, *pole_type, *existing_port);
       if (band_ptr == nullptr) {
         continue;
       }
@@ -1186,7 +1362,8 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       const Vec3d adjusted_local = recompute_band_local(*band_ptr, &applied_scale, &apply_angle_correction);
       const Vec3d world_position =
           local_to_world_on_pole(pole->world_transform,
-                                 effective_port_layout_yaw_deg(*pole, existing_port->category), adjusted_local);
+                                 effective_port_layout_yaw_deg(*pole, existing_port->id, existing_port->category),
+                                 adjusted_local);
       if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
           existing_port->angle_correction_applied != apply_angle_correction ||
           std::abs(existing_port->side_scale_applied - applied_scale) > 1e-12) {
@@ -1220,7 +1397,9 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     bool apply_angle_correction = false;
     const Vec3d adjusted_local = recompute_band_local(band, &applied_scale, &apply_angle_correction);
     const Vec3d world_position =
-        local_to_world_on_pole(pole->world_transform, effective_port_layout_yaw_deg(*pole, band.category), adjusted_local);
+        local_to_world_on_pole(pole->world_transform,
+                               effective_port_layout_yaw_deg(*pole, kInvalidObjectId, band.category),
+                               adjusted_local);
     EditResult<ObjectId> add_port_result = AddPort(pole_id, world_position, category_to_port_kind(band.category),
                                                    category_to_port_layer(band.category), band.local_direction);
     if (!add_port_result.ok) {
@@ -1297,20 +1476,32 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
   }
   normalized.pole_clearance_m = std::max(0.0, normalized.pole_clearance_m);
 
-  const bool changed = normalized.curve_samples != runtime_.cache_state.geometry_settings.curve_samples ||
-                       normalized.sag_enabled != runtime_.cache_state.geometry_settings.sag_enabled ||
-                       std::abs(normalized.sag_factor - runtime_.cache_state.geometry_settings.sag_factor) > 1e-12 ||
-                       std::abs(normalized.pole_clearance_m - runtime_.cache_state.geometry_settings.pole_clearance_m) > 1e-12;
+  const bool changed = normalized.curve_samples != authoritative_.geometry_settings.curve_samples ||
+                       normalized.sag_enabled != authoritative_.geometry_settings.sag_enabled ||
+                       std::abs(normalized.sag_factor - authoritative_.geometry_settings.sag_factor) > 1e-12 ||
+                       std::abs(normalized.pole_clearance_m - authoritative_.geometry_settings.pole_clearance_m) > 1e-12;
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
-    plan = make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kAllSpans, kInvalidObjectId});
+    bool has_source_projection_endpoint = false;
+    for (const SavedBackboneSpanBinding& binding : authoritative_.backbone.span_bindings) {
+      const SpanLayoutRulesView rules = span_layout_rules(binding.span_id);
+      if (!rules.has_rule()) {
+        continue;
+      }
+      if (rules.rule->start.source_projection.valid() || rules.rule->end.source_projection.valid()) {
+        has_source_projection_endpoint = true;
+        break;
+      }
+    }
+    plan = make_update_plan({has_source_projection_endpoint ? UpdateKind::kReposition : UpdateKind::kReshape,
+                             UpdateTargetKind::kAllSpans, kInvalidObjectId});
     if (!plan.ok) {
       result.error = plan.error;
       return result;
     }
   }
-  runtime_.cache_state.geometry_settings = normalized;
+  authoritative_.geometry_settings = normalized;
   result.ok = true;
   result.value = changed;
 
@@ -1330,41 +1521,144 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
   EditResult<bool> result;
   LayoutSettings normalized = settings;
   normalized.corner_threshold_deg = std::clamp(normalized.corner_threshold_deg, 0.0, 179.0);
-  normalized.min_side_scale = std::clamp(normalized.min_side_scale, 0.5, 4.0);
-  normalized.max_side_scale = std::clamp(normalized.max_side_scale, normalized.min_side_scale, 6.0);
+  normalized.min_side_scale = std::clamp(normalized.min_side_scale, 0.5, kMaxCornerSideScale);
+  normalized.max_side_scale =
+      std::clamp(normalized.max_side_scale, normalized.min_side_scale, kMaxCornerSideScale);
 
   const bool changed = normalized.angle_correction_enabled != authoritative_.layout_settings.angle_correction_enabled ||
                        std::abs(normalized.corner_threshold_deg - authoritative_.layout_settings.corner_threshold_deg) > 1e-9 ||
                        std::abs(normalized.min_side_scale - authoritative_.layout_settings.min_side_scale) > 1e-9 ||
                        std::abs(normalized.max_side_scale - authoritative_.layout_settings.max_side_scale) > 1e-9;
 
-  if (changed && !authoritative_.backbone.span_bindings.empty()) {
-    result.error = "backbone unsupported: layout settings require regeneration";
+  if (!changed) {
+    result.ok = true;
+    result.value = false;
     return result;
   }
+
+  if (!authoritative_.backbone.span_bindings.empty()) {
+    struct LayoutRegenerateScope {
+      BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+      ObjectId bundle_id = kInvalidObjectId;
+      std::vector<ObjectId> edge_bundle_ids{};
+    };
+
+    const SavedBackboneGraph& graph = view().backbone();
+    auto vector_has_id = [](const std::vector<ObjectId>& ids, ObjectId id) {
+      return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+    auto edge_bundle_by_id = [&](ObjectId edge_bundle_id) -> const SavedBackboneEdgeBundle* {
+      for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+        if (edge_bundle.edge_bundle_id == edge_bundle_id) {
+          return &edge_bundle;
+        }
+      }
+      return nullptr;
+    };
+    std::unordered_map<ObjectId, std::vector<ObjectId>> continuity_neighbors{};
+    auto add_neighbor = [&](ObjectId a, ObjectId b) {
+      if (a == kInvalidObjectId || b == kInvalidObjectId || a == b) return;
+      std::vector<ObjectId>& values = continuity_neighbors[a];
+      if (!vector_has_id(values, b)) {
+        values.push_back(b);
+      }
+    };
+    for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+      add_neighbor(continuity.a.edge_bundle_id, continuity.b.edge_bundle_id);
+      add_neighbor(continuity.b.edge_bundle_id, continuity.a.edge_bundle_id);
+    }
+
+    std::vector<LayoutRegenerateScope> scopes{};
+    std::vector<ObjectId> covered_edge_bundle_ids{};
+    for (const SavedBackboneEdgeBundle& seed_edge_bundle : graph.edge_bundles) {
+      if (vector_has_id(covered_edge_bundle_ids, seed_edge_bundle.edge_bundle_id)) {
+        continue;
+      }
+      const Bundle* seed_bundle = view().bundles().find(seed_edge_bundle.bundle_id);
+      if (seed_bundle == nullptr) {
+        result.error = "backbone regenerate: layout settings scope is incomplete";
+        return result;
+      }
+      LayoutRegenerateScope scope{};
+      scope.bundle_template_id = seed_bundle->bundle_template_id;
+      scope.bundle_id = seed_edge_bundle.bundle_id;
+      std::vector<ObjectId> pending{seed_edge_bundle.edge_bundle_id};
+      for (std::size_t i = 0; i < pending.size(); ++i) {
+        const ObjectId current_id = pending[i];
+        const SavedBackboneEdgeBundle* current = edge_bundle_by_id(current_id);
+        const Bundle* current_bundle = current == nullptr ? nullptr : view().bundles().find(current->bundle_id);
+        if (current == nullptr || current_bundle == nullptr ||
+            current->bundle_id != scope.bundle_id ||
+            current_bundle->bundle_template_id != scope.bundle_template_id) {
+          continue;
+        }
+        if (!vector_has_id(scope.edge_bundle_ids, current_id)) {
+          scope.edge_bundle_ids.push_back(current_id);
+        }
+        if (!vector_has_id(covered_edge_bundle_ids, current_id)) {
+          covered_edge_bundle_ids.push_back(current_id);
+        }
+        const auto neighbors_it = continuity_neighbors.find(current_id);
+        if (neighbors_it == continuity_neighbors.end()) {
+          continue;
+        }
+        for (ObjectId neighbor_id : neighbors_it->second) {
+          if (!vector_has_id(pending, neighbor_id)) {
+            pending.push_back(neighbor_id);
+          }
+        }
+      }
+      if (scope.edge_bundle_ids.empty()) {
+        result.error = "backbone regenerate: layout settings scope has no edge bundles";
+        return result;
+      }
+      scopes.push_back(std::move(scope));
+    }
+
+    CoreState trial = *this;
+    trial.authoritative_.layout_settings = normalized;
+    ChangeSet regenerated_changes{};
+    for (const LayoutRegenerateScope& scope : scopes) {
+      const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
+      if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
+        result.error = "bundle template not found";
+        return result;
+      }
+      const BundleTemplate previous = bundle_template_it->second;
+      const auto regenerated = trial.regenerate_backbone_edge_bundles(scope.bundle_template_id, previous, previous,
+                                                                      &regenerated_changes, nullptr,
+                                                                      &scope.edge_bundle_ids, nullptr,
+                                                                      BackboneRegenerateCause::kLayoutSettings);
+      if (!regenerated.ok) {
+        result.error = regenerated.error;
+        return result;
+      }
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    result.ok = true;
+    result.value = true;
+    return result;
+  }
+
   authoritative_.layout_settings = normalized;
   result.ok = true;
-  result.value = changed;
+  result.value = true;
   return result;
 }
 
 EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings, bool mark_all_spans_dirty) {
   EditResult<bool> result;
   VisualSettings normalized = settings;
-  normalized.support_center_threshold_m = std::max(0.0, normalized.support_center_threshold_m);
-  normalized.support_arm_extra_m = std::max(0.0, normalized.support_arm_extra_m);
-  normalized.support_arm_radius_m = std::max(0.0, normalized.support_arm_radius_m);
   normalized.insulator_radius_m = std::max(0.0, normalized.insulator_radius_m);
   normalized.insulator_length_m = std::max(0.0, normalized.insulator_length_m);
 
-  const bool changed = normalized.enable_support_structures != runtime_.cache_state.visual_settings.enable_support_structures ||
-                       normalized.enable_insulators != runtime_.cache_state.visual_settings.enable_insulators ||
-                       std::abs(normalized.support_center_threshold_m -
-                                runtime_.cache_state.visual_settings.support_center_threshold_m) > 1e-12 ||
-                       std::abs(normalized.support_arm_extra_m - runtime_.cache_state.visual_settings.support_arm_extra_m) > 1e-12 ||
-                       std::abs(normalized.support_arm_radius_m - runtime_.cache_state.visual_settings.support_arm_radius_m) > 1e-12 ||
-                       std::abs(normalized.insulator_radius_m - runtime_.cache_state.visual_settings.insulator_radius_m) > 1e-12 ||
-                       std::abs(normalized.insulator_length_m - runtime_.cache_state.visual_settings.insulator_length_m) > 1e-12;
+  const bool changed = normalized.enable_insulators != authoritative_.visual_settings.enable_insulators ||
+                       std::abs(normalized.insulator_radius_m - authoritative_.visual_settings.insulator_radius_m) > 1e-12 ||
+                       std::abs(normalized.insulator_length_m - authoritative_.visual_settings.insulator_length_m) > 1e-12;
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
@@ -1374,7 +1668,7 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
       return result;
     }
   }
-  runtime_.cache_state.visual_settings = normalized;
+  authoritative_.visual_settings = normalized;
   result.ok = true;
   result.value = changed;
   if (changed) {
@@ -1401,7 +1695,7 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
   normalized.sag_variation_scale = std::max(0.0, normalized.sag_variation_scale);
   normalized.branch_down_offset_variation_scale = std::max(0.0, normalized.branch_down_offset_variation_scale);
 
-  const VariationSettings& current = runtime_.cache_state.variation_settings;
+  const VariationSettings& current = authoritative_.variation_settings;
   const bool changed =
       normalized.enabled != current.enabled || normalized.global_seed != current.global_seed ||
       std::abs(normalized.world_cell_size_m - current.world_cell_size_m) > 1e-12 ||
@@ -1416,7 +1710,7 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
     result.error = "backbone unsupported: variation settings are not consumed by generated outputs";
     return result;
   }
-  runtime_.cache_state.variation_settings = normalized;
+  authoritative_.variation_settings = normalized;
   result.ok = true;
   result.value = changed;
   return result;
@@ -1466,7 +1760,272 @@ EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_te
   return state_internal::TemplateMutationService::UpdateBundleTemplate(*this, bundle_template);
 }
 
-EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind bundle_template_id) {
+EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
+                                                          double height_m, double lateral_m, double spacing_m) {
+  EditResult<bool> result;
+  const Bundle* bundle = authoritative_.edit_state.bundles.find(bundle_id);
+  if (bundle == nullptr) {
+    result.error = "bundle not found";
+    return result;
+  }
+  if (!std::isfinite(height_m) || !std::isfinite(lateral_m) || !std::isfinite(spacing_m) || spacing_m <= 0.0) {
+    result.error = "bundle placement is invalid";
+    return result;
+  }
+  if (bundle->placement_explicit == placement_explicit &&
+      std::abs(bundle->height_m - height_m) <= 1e-12 &&
+      std::abs(bundle->lateral_m - lateral_m) <= 1e-12 &&
+      std::abs(bundle->phase_spacing_m - spacing_m) <= 1e-12 &&
+      std::abs(bundle->spacing_override_m - spacing_m) <= 1e-12) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+
+  std::vector<ObjectId> edge_bundle_ids{};
+  for (const SavedBackboneEdgeBundle& edge_bundle : authoritative_.backbone.edge_bundles) {
+    if (edge_bundle.bundle_id == bundle_id) {
+      add_unique_id(edge_bundle_ids, edge_bundle.edge_bundle_id);
+    }
+  }
+  if (edge_bundle_ids.empty()) {
+    result.error = "bundle placement update requires a generated backbone bundle";
+    return result;
+  }
+
+  CoreState trial = *this;
+  ChangeSet change_set{};
+  Bundle* trial_bundle = trial.authoritative_.edit_state.bundles.find(bundle_id);
+  if (trial_bundle == nullptr) {
+    result.error = "bundle not found";
+    return result;
+  }
+  const Bundle previous_bundle = *trial_bundle;
+  trial_bundle->placement_explicit = placement_explicit;
+  trial_bundle->height_m = height_m;
+  trial_bundle->lateral_m = lateral_m;
+  trial_bundle->phase_spacing_m = spacing_m;
+  trial_bundle->spacing_override_m = spacing_m;
+  add_unique_id(change_set.updated_ids, bundle_id);
+
+  struct PlannedPortPosition {
+    ObjectId port_id = kInvalidObjectId;
+    Vec3d position{};
+  };
+  std::vector<PlannedPortPosition> planned_port_positions{};
+  std::unordered_set<ObjectId> planned_port_ids{};
+  std::vector<ObjectId> changed_port_ids{};
+  for (ObjectId edge_bundle_id : edge_bundle_ids) {
+    const SavedBackboneEdgeBundle* edge_bundle = trial.view().backbone_edge_bundle(edge_bundle_id);
+    const SavedBackboneEdge* edge =
+        edge_bundle == nullptr ? nullptr : trial.view().backbone_edge(edge_bundle->edge_id);
+    if (edge_bundle == nullptr || edge == nullptr) {
+      result.error = "bundle placement update: saved edge bundle is missing";
+      return result;
+    }
+    const auto port_bindings = trial.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id);
+    if (port_bindings.empty()) {
+      result.error = "bundle placement update: saved port bindings are missing";
+      return result;
+    }
+    const bool uses_lane_bands = !placement_explicit && std::adjacent_find(
+        port_bindings.begin(), port_bindings.end(), [](const auto* a, const auto* b) {
+          return a != nullptr && b != nullptr && a->placement_band_id != b->placement_band_id;
+        }) != port_bindings.end();
+    for (const SavedBackbonePortBinding* binding : port_bindings) {
+      if (binding == nullptr) continue;
+      if (planned_port_ids.find(binding->port_id) != planned_port_ids.end()) {
+        continue;
+      }
+      Port* port = trial.authoritative_.edit_state.ports.find(binding->port_id);
+      const Pole* pole = port == nullptr ? nullptr : trial.authoritative_.edit_state.poles.find(port->owner_pole_id);
+      const PoleTypeDefinition* pole_type = pole == nullptr ? nullptr : trial.find_pole_type(pole->pole_type_id);
+      const PortPlacementBand* band =
+          pole_type == nullptr ? nullptr : state_internal::FindPortPlacementBandById(*pole_type, binding->placement_band_id);
+      if (port == nullptr || pole == nullptr || band == nullptr) {
+        result.error = "bundle placement update: saved port placement is missing";
+        return result;
+      }
+      const PoleFrame frame = BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
+      const Vec3d current_local = WorldPointToLocal(frame, port->world_position);
+      const double previous_base_height =
+          previous_bundle.placement_explicit ? previous_bundle.height_m : band->height_center_m;
+      const double preserved_row_height_offset = current_local.z - previous_base_height;
+      PortPlacementBand placement_band = *band;
+      if (placement_explicit) {
+        placement_band.height_center_m = height_m;
+        placement_band.lateral_center_m = lateral_m;
+      }
+      const double lane_offset = uses_lane_bands
+                                     ? 0.0
+                                     : generation::backbone::LaneOffset(
+                                           binding->lane_index, trial_bundle->conductor_count, spacing_m);
+      const Vec3d next_position = generation::backbone::PortWorldPositionForLayoutYaw(
+          *pole, binding->layout_yaw_deg, placement_band, lane_offset, edge->lateral_offset_m,
+          preserved_row_height_offset);
+      if ((port->position_mode == PortPositionMode::kManual || port->user_edited_position) &&
+          Length(port->world_position - next_position) > 1e-12) {
+        result.error = "bundle placement update unsupported: manual port would move";
+        return result;
+      }
+      planned_port_ids.insert(port->id);
+      planned_port_positions.push_back({port->id, next_position});
+    }
+  }
+
+  for (const PlannedPortPosition& planned : planned_port_positions) {
+    Port* port = trial.authoritative_.edit_state.ports.find(planned.port_id);
+    if (port == nullptr) {
+      result.error = "bundle placement update: planned port is missing";
+      return result;
+    }
+    if (Length(port->world_position - planned.position) > 1e-12) {
+      port->world_position = planned.position;
+      add_unique_id(changed_port_ids, port->id);
+      add_unique_id(change_set.updated_ids, port->id);
+    }
+  }
+
+  UpdatePlan combined_plan{};
+  combined_plan.kind = UpdateKind::kReposition;
+  for (ObjectId port_id : changed_port_ids) {
+    trial.touch_connected_spans_from_port(port_id, &change_set);
+    const auto plan = trial.make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPort, port_id});
+    if (!plan.ok) {
+      result.error = plan.error;
+      return result;
+    }
+    append_plan(&combined_plan, plan.value);
+  }
+  if (!changed_port_ids.empty()) {
+    const auto updated = trial.execute_update_plan(combined_plan);
+    if (!updated.ok) {
+      result.error = updated.error;
+      return result;
+    }
+  }
+
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      result.error = "bundle placement update validation failed: " + issue.code + ": " + issue.message;
+      return result;
+    }
+  }
+
+  *this = std::move(trial);
+  result.change_set = std::move(change_set);
+  result.ok = true;
+  result.value = true;
+  return result;
+}
+
+EditResult<bool> CoreState::RegisterModelAssemblyTemplate(
+    const ModelAssemblyTemplate& model_assembly_template) {
+  EditResult<bool> result{};
+  if (model_assembly_template.id == kInvalidModelAssemblyTemplateId) {
+    result.error = "model assembly registration requires a valid id";
+    return result;
+  }
+  if (authoritative_.model_assembly_templates.contains(model_assembly_template.id)) {
+    result.error = "model assembly template already exists";
+    return result;
+  }
+
+  CoreState trial = *this;
+  trial.authoritative_.model_assembly_templates.emplace(model_assembly_template.id,
+                                                        model_assembly_template);
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity != ValidationSeverity::kError) {
+      continue;
+    }
+    result.error = "model assembly registration: " + issue.code + ": " + issue.message;
+    return result;
+  }
+
+  authoritative_.model_assembly_templates.emplace(model_assembly_template.id,
+                                                   model_assembly_template);
+  result.ok = true;
+  result.value = true;
+  return result;
+}
+
+EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
+    const ModelAssemblyTemplate& model_assembly_template) {
+  EditResult<bool> result{};
+  const auto existing = authoritative_.model_assembly_templates.find(model_assembly_template.id);
+  if (existing == authoritative_.model_assembly_templates.end()) {
+    result.error = "model assembly template not found";
+    return result;
+  }
+  if (model_assembly_template.version <= existing->second.version) {
+    result.error = "model assembly update requires a newer version";
+    return result;
+  }
+
+  CoreState trial = *this;
+  trial.authoritative_.model_assembly_templates[model_assembly_template.id] =
+      model_assembly_template;
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      result.error = "model assembly update: " + issue.code + ": " + issue.message;
+      return result;
+    }
+  }
+
+  std::vector<ObjectId> affected_span_ids{};
+  for (const Bundle& bundle : trial.authoritative_.edit_state.bundles.items()) {
+    const auto bundle_template = trial.authoritative_.bundle_templates.find(
+        bundle.bundle_template_id);
+    if (bundle_template == trial.authoritative_.bundle_templates.end() ||
+        (bundle_template->second.row_fixture_assembly_id != model_assembly_template.id &&
+         bundle_template->second.endpoint_fixture_assembly_id != model_assembly_template.id)) {
+      continue;
+    }
+    const auto spans = trial.runtime_.relation_index.spans_by_bundle.find(bundle.id);
+    if (spans == trial.runtime_.relation_index.spans_by_bundle.end()) continue;
+    for (ObjectId span_id : spans->second) add_unique_id(affected_span_ids, span_id);
+  }
+  std::sort(affected_span_ids.begin(), affected_span_ids.end());
+  for (ObjectId span_id : affected_span_ids) {
+    const EditResult<bool> derived = trial.derive_generated_span_shape_outputs(span_id);
+    if (!derived.ok) {
+      result.error = derived.error;
+      return result;
+    }
+  }
+  if (!affected_span_ids.empty()) {
+    EditResult<VisualCurvePartCache> visual_curves =
+        generation::backbone::make_visual_curve_parts(trial, {}, affected_span_ids);
+    if (!visual_curves.ok) {
+      result.error = visual_curves.error;
+      return result;
+    }
+    trial.cache_visual_curve_parts(std::move(visual_curves.value));
+  }
+  EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+      generation::backbone::fixture_placement_plan_from_cache(trial);
+  if (!fixture_plan.ok) {
+    result.error = fixture_plan.error;
+    return result;
+  }
+  EditResult<VisualModelInstanceCache> model_instances =
+      generation::backbone::materialize_model_assemblies(trial, fixture_plan.value);
+  if (!model_instances.ok) {
+    result.error = model_instances.error;
+    return result;
+  }
+  trial.cache_visual_model_instances(std::move(model_instances.value));
+  *this = std::move(trial);
+  result.ok = true;
+  result.value = true;
+  result.change_set.updated_ids = std::move(affected_span_ids);
+  return result;
+}
+
+EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemplateId bundle_template_id) {
   EditResult<bool> result;
   const BundleTemplate* bundle_template = find_bundle_template(bundle_template_id);
   if (bundle_template == nullptr) {
@@ -1507,16 +2066,166 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind
       }
     }
   }
-  for (ObjectId pole_id : target_pole_ids) {
+  std::vector<ObjectId> ordered_target_pole_ids(target_pole_ids.begin(), target_pole_ids.end());
+  std::sort(ordered_target_pole_ids.begin(), ordered_target_pole_ids.end());
+
+  std::vector<ObjectId> active_backbone_pole_ids{};
+  for (ObjectId pole_id : ordered_target_pole_ids) {
     if (runtime_.backbone_index.pole_node.contains(pole_id)) {
-      result.error = "backbone unsupported: applying related pole type requires regeneration";
+      active_backbone_pole_ids.push_back(pole_id);
+    }
+  }
+
+  if (!active_backbone_pole_ids.empty()) {
+    struct RelatedPoleRegenerateScope {
+      BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+      ObjectId bundle_id = kInvalidObjectId;
+      std::vector<ObjectId> edge_bundle_ids{};
+    };
+
+    std::vector<RelatedPoleRegenerateScope> scopes{};
+    const SavedBackboneGraph& graph = view().backbone();
+    auto vector_has_id = [](const std::vector<ObjectId>& ids, ObjectId id) {
+      return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+    auto edge_bundle_by_id = [&](ObjectId edge_bundle_id) -> const SavedBackboneEdgeBundle* {
+      for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+        if (edge_bundle.edge_bundle_id == edge_bundle_id) {
+          return &edge_bundle;
+        }
+      }
+      return nullptr;
+    };
+    std::unordered_map<ObjectId, std::vector<ObjectId>> continuity_neighbors{};
+    auto add_neighbor = [&](ObjectId a, ObjectId b) {
+      if (a == kInvalidObjectId || b == kInvalidObjectId || a == b) return;
+      std::vector<ObjectId>& values = continuity_neighbors[a];
+      if (!vector_has_id(values, b)) {
+        values.push_back(b);
+      }
+    };
+    for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+      add_neighbor(continuity.a.edge_bundle_id, continuity.b.edge_bundle_id);
+      add_neighbor(continuity.b.edge_bundle_id, continuity.a.edge_bundle_id);
+    }
+    std::vector<ObjectId> covered_edge_bundle_ids{};
+    auto component_for = [&](ObjectId seed_edge_bundle_id, BundleTemplateId scoped_template_id, ObjectId bundle_id) {
+      std::vector<ObjectId> component{};
+      std::vector<ObjectId> pending{seed_edge_bundle_id};
+      for (std::size_t i = 0; i < pending.size(); ++i) {
+        const ObjectId current_id = pending[i];
+        if (vector_has_id(component, current_id)) {
+          continue;
+        }
+        const SavedBackboneEdgeBundle* current = edge_bundle_by_id(current_id);
+        const Bundle* bundle = current == nullptr ? nullptr : view().bundles().find(current->bundle_id);
+        if (current == nullptr || bundle == nullptr || current->bundle_id != bundle_id ||
+            bundle->bundle_template_id != scoped_template_id) {
+          continue;
+        }
+        component.push_back(current_id);
+        const auto neighbors_it = continuity_neighbors.find(current_id);
+        if (neighbors_it == continuity_neighbors.end()) {
+          continue;
+        }
+        for (ObjectId neighbor_id : neighbors_it->second) {
+          if (!vector_has_id(pending, neighbor_id)) {
+            pending.push_back(neighbor_id);
+          }
+        }
+      }
+      return component;
+    };
+
+    for (ObjectId pole_id : active_backbone_pole_ids) {
+      const BackboneFrontier frontier = view().pole_frontier(pole_id);
+      for (ObjectId edge_bundle_id : frontier.edge_bundle_ids) {
+        if (vector_has_id(covered_edge_bundle_ids, edge_bundle_id)) {
+          continue;
+        }
+        const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
+        const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
+        if (edge_bundle == nullptr || bundle == nullptr) {
+          result.error = "backbone regenerate: related pole type scope is incomplete";
+          return result;
+        }
+        RelatedPoleRegenerateScope scope{};
+        scope.bundle_template_id = bundle->bundle_template_id;
+        scope.bundle_id = edge_bundle->bundle_id;
+        scope.edge_bundle_ids = component_for(edge_bundle_id, scope.bundle_template_id, scope.bundle_id);
+        if (scope.edge_bundle_ids.empty()) {
+          result.error = "backbone regenerate: related pole type scope has no edge bundles";
+          return result;
+        }
+        for (ObjectId scoped_edge_bundle_id : scope.edge_bundle_ids) {
+          add_unique_id(covered_edge_bundle_ids, scoped_edge_bundle_id);
+        }
+        scopes.push_back(std::move(scope));
+      }
+    }
+
+    const PoleTypeDefinition* related_type = find_pole_type(bundle_template->related_pole_type_id);
+    if (related_type == nullptr) {
+      result.error = "related pole type not found";
       return result;
     }
+
+    CoreState trial = *this;
+    ChangeSet trial_changes{};
+    for (ObjectId pole_id : ordered_target_pole_ids) {
+      if (std::find(active_backbone_pole_ids.begin(), active_backbone_pole_ids.end(), pole_id) !=
+          active_backbone_pole_ids.end()) {
+        Pole* pole = trial.authoritative_.edit_state.poles.find(pole_id);
+        if (pole == nullptr) {
+          result.error = "pole not found";
+          return result;
+        }
+        pole->pole_type_id = bundle_template->related_pole_type_id;
+        if (std::abs(pole->height_m - related_type->default_height_m) > 1e-12) {
+          pole->height_m = related_type->default_height_m;
+        }
+        add_unique_id(trial_changes.updated_ids, pole_id);
+        continue;
+      }
+      const auto apply = trial.ApplyPoleType(pole_id, bundle_template->related_pole_type_id);
+      if (!apply.ok) {
+        result.error = apply.error;
+        return result;
+      }
+      append_change_set(trial_changes, apply.change_set);
+    }
+
+    ChangeSet regenerated_changes{};
+    for (const RelatedPoleRegenerateScope& scope : scopes) {
+      const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
+      if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
+        result.error = "bundle template not found";
+        return result;
+      }
+      const BundleTemplate previous = bundle_template_it->second;
+      auto regenerated = trial.regenerate_backbone_edge_bundles(scope.bundle_template_id, previous, previous,
+                                                                &regenerated_changes, nullptr,
+                                                                &scope.edge_bundle_ids, related_type);
+      if (!regenerated.ok) {
+        result.error = regenerated.error;
+        return result;
+      }
+    }
+
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    append_change_set(result.change_set, trial_changes);
+    append_change_set(result.change_set, regenerated_changes);
+    result.ok = true;
+    result.value = true;
+    return result;
   }
 
   result.ok = true;
   result.value = false;
-  for (ObjectId pole_id : target_pole_ids) {
+  for (ObjectId pole_id : ordered_target_pole_ids) {
     const auto apply = ApplyPoleType(pole_id, bundle_template->related_pole_type_id);
     if (!apply.ok) {
       result.ok = false;
@@ -1558,36 +2267,62 @@ EditResult<bool> CoreState::ensure_default_endpoint_attachments_for_span(ObjectI
     return result;
   }
   const CableTemplate* cable_template = find_cable_template(bundle_template->cable_template_id);
-  if (cable_template == nullptr || cable_template->default_endpoint_attachment_template_id == kInvalidAttachmentTemplateId) {
-    result.ok = true;
-    result.value = false;
+  if (cable_template == nullptr) {
+    result.error = "cable template not found";
     return result;
   }
-  const AttachmentTemplate* attachment_template =
-      find_attachment_template(cable_template->default_endpoint_attachment_template_id);
-  if (attachment_template == nullptr) {
+  const AttachmentTemplateId desired_template_id = cable_template->default_endpoint_attachment_template_id;
+  const AttachmentTemplate* attachment_template = desired_template_id == kInvalidAttachmentTemplateId
+                                                     ? nullptr
+                                                     : find_attachment_template(desired_template_id);
+  if (desired_template_id != kInvalidAttachmentTemplateId && attachment_template == nullptr) {
     result.error = "default endpoint attachment template not found";
     return result;
   }
 
-  Span* span_edit = authoritative_.edit_state.spans.find(span_id);
-  if (span_edit == nullptr) {
-    result.error = "span not found";
-    return result;
-  }
-
   auto ensure_endpoint_attachment = [&](bool is_start_endpoint, double t) -> bool {
+    Span* span_edit = authoritative_.edit_state.spans.find(span_id);
+    if (span_edit == nullptr) {
+      result.error = "span not found";
+      return false;
+    }
     ObjectId& attachment_slot = is_start_endpoint ? span_edit->endpoint_attachment_a_id : span_edit->endpoint_attachment_b_id;
     if (attachment_slot != kInvalidObjectId) {
+      const Attachment* existing = authoritative_.edit_state.attachments.find(attachment_slot);
+      if (existing == nullptr) {
+        result.error = "endpoint attachment not found";
+        return false;
+      }
+      if (existing->origin == AttachmentOrigin::kUser || existing->template_id == desired_template_id) {
+        return true;
+      }
+      const ObjectId old_attachment_id = existing->id;
+      authoritative_.edit_state.attachments.remove(old_attachment_id);
+      index_remove(runtime_.relation_index.attachments_by_span, span_id, old_attachment_id);
+      attachment_slot = kInvalidObjectId;
+      touch_span(span_id, true);
+      add_unique_id(result.change_set.deleted_ids, old_attachment_id);
+      add_unique_id(result.change_set.updated_ids, span_id);
+      result.value = true;
+    }
+    if (desired_template_id == kInvalidAttachmentTemplateId) {
       return true;
     }
     const auto add_attachment =
-        AddAttachment(span_id, t, attachment_template->kind, 0.0, cable_template->default_endpoint_attachment_template_id);
+        AddAttachment(span_id, t, attachment_template->kind, 0.0, desired_template_id);
     if (!add_attachment.ok) {
       result.error = add_attachment.error;
       return false;
     }
-    attachment_slot = add_attachment.value;
+    Attachment* added = authoritative_.edit_state.attachments.find(add_attachment.value);
+    Span* updated_span = authoritative_.edit_state.spans.find(span_id);
+    if (added == nullptr || updated_span == nullptr) {
+      result.error = "default endpoint attachment creation failed";
+      return false;
+    }
+    added->origin = AttachmentOrigin::kDefaultEndpoint;
+    ObjectId& updated_slot = is_start_endpoint ? updated_span->endpoint_attachment_a_id : updated_span->endpoint_attachment_b_id;
+    updated_slot = add_attachment.value;
     append_change_set(result.change_set, add_attachment.change_set);
     add_unique_id(result.change_set.updated_ids, span_id);
     result.value = true;
@@ -1605,29 +2340,307 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     result.error = "pole type not found";
     return result;
   }
+  if (pole_type.pole_visual_assembly_id != kInvalidModelAssemblyTemplateId) {
+    const auto assembly_it = authoritative_.model_assembly_templates.find(
+        pole_type.pole_visual_assembly_id);
+    if (assembly_it == authoritative_.model_assembly_templates.end()) {
+      result.error = "pole type references unknown model assembly";
+      return result;
+    }
+    if (assembly_it->second.wire_socket.has_value()) {
+      result.error = "pole visual assembly must not own a wire socket";
+      return result;
+    }
+  }
   if (pole_type_definition_equals(it->second, pole_type)) {
     result.ok = true;
     result.value = false;
     return result;
   }
+
+  const PoleTypeDefinition before = it->second;
+  std::vector<ObjectId> pole_ids{};
+  std::vector<ObjectId> active_backbone_pole_ids{};
+  pole_ids.reserve(authoritative_.edit_state.poles.size());
   for (const Pole& pole : authoritative_.edit_state.poles.items()) {
-    if (pole.pole_type_id == pole_type.id && runtime_.backbone_index.pole_node.contains(pole.id)) {
-      result.error = "backbone unsupported: active pole type changes require regeneration";
-      return result;
+    if (pole.pole_type_id != pole_type.id) {
+      continue;
+    }
+    pole_ids.push_back(pole.id);
+    if (runtime_.backbone_index.pole_node.contains(pole.id)) {
+      active_backbone_pole_ids.push_back(pole.id);
     }
   }
+
+  if (!active_backbone_pole_ids.empty() && !pole_type_placement_only_change(before, pole_type)) {
+    struct PoleTypeRegenerateScope {
+      BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+      ObjectId bundle_id = kInvalidObjectId;
+      std::vector<ObjectId> edge_bundle_ids{};
+    };
+
+    std::vector<PoleTypeRegenerateScope> scopes{};
+    const SavedBackboneGraph& graph = view().backbone();
+    auto vector_has_id = [](const std::vector<ObjectId>& ids, ObjectId id) {
+      return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+    auto edge_bundle_by_id = [&](ObjectId edge_bundle_id) -> const SavedBackboneEdgeBundle* {
+      for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+        if (edge_bundle.edge_bundle_id == edge_bundle_id) {
+          return &edge_bundle;
+        }
+      }
+      return nullptr;
+    };
+    std::unordered_map<ObjectId, std::vector<ObjectId>> continuity_neighbors{};
+    auto add_neighbor = [&](ObjectId a, ObjectId b) {
+      if (a == kInvalidObjectId || b == kInvalidObjectId || a == b) return;
+      std::vector<ObjectId>& values = continuity_neighbors[a];
+      if (!vector_has_id(values, b)) {
+        values.push_back(b);
+      }
+    };
+    for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+      add_neighbor(continuity.a.edge_bundle_id, continuity.b.edge_bundle_id);
+      add_neighbor(continuity.b.edge_bundle_id, continuity.a.edge_bundle_id);
+    }
+    std::vector<ObjectId> covered_edge_bundle_ids{};
+    auto component_for = [&](ObjectId seed_edge_bundle_id, BundleTemplateId bundle_template_id, ObjectId bundle_id) {
+      std::vector<ObjectId> component{};
+      std::vector<ObjectId> pending{seed_edge_bundle_id};
+      for (std::size_t i = 0; i < pending.size(); ++i) {
+        const ObjectId current_id = pending[i];
+        if (vector_has_id(component, current_id)) {
+          continue;
+        }
+        const SavedBackboneEdgeBundle* current = edge_bundle_by_id(current_id);
+        const Bundle* bundle = current == nullptr ? nullptr : view().bundles().find(current->bundle_id);
+        if (current == nullptr || bundle == nullptr || current->bundle_id != bundle_id ||
+            bundle->bundle_template_id != bundle_template_id) {
+          continue;
+        }
+        component.push_back(current_id);
+        const auto neighbors_it = continuity_neighbors.find(current_id);
+        if (neighbors_it == continuity_neighbors.end()) {
+          continue;
+        }
+        for (ObjectId neighbor_id : neighbors_it->second) {
+          if (!vector_has_id(pending, neighbor_id)) {
+            pending.push_back(neighbor_id);
+          }
+        }
+      }
+      return component;
+    };
+
+    for (ObjectId pole_id : active_backbone_pole_ids) {
+      const BackboneFrontier frontier = view().pole_frontier(pole_id);
+      for (ObjectId edge_bundle_id : frontier.edge_bundle_ids) {
+        if (vector_has_id(covered_edge_bundle_ids, edge_bundle_id)) {
+          continue;
+        }
+        const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
+        const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
+        if (edge_bundle == nullptr || bundle == nullptr) {
+          result.error = "backbone regenerate: pole type scope is incomplete";
+          return result;
+        }
+        PoleTypeRegenerateScope scope{};
+        scope.bundle_template_id = bundle->bundle_template_id;
+        scope.bundle_id = edge_bundle->bundle_id;
+        scope.edge_bundle_ids = component_for(edge_bundle_id, scope.bundle_template_id, scope.bundle_id);
+        if (scope.edge_bundle_ids.empty()) {
+          result.error = "backbone regenerate: pole type scope has no edge bundles";
+          return result;
+        }
+        for (ObjectId scoped_edge_bundle_id : scope.edge_bundle_ids) {
+          add_unique_id(covered_edge_bundle_ids, scoped_edge_bundle_id);
+        }
+        scopes.push_back(std::move(scope));
+      }
+    }
+
+    CoreState trial = *this;
+    trial.authoritative_.pole_types[pole_type.id] = pole_type;
+    for (ObjectId pole_id : pole_ids) {
+      Pole* pole = trial.authoritative_.edit_state.poles.find(pole_id);
+      if (pole == nullptr) {
+        result.error = "pole not found";
+        return result;
+      }
+      if (std::abs(pole->height_m - pole_type.default_height_m) > 1e-12) {
+        pole->height_m = pole_type.default_height_m;
+        add_unique_id(result.change_set.updated_ids, pole_id);
+      }
+      if (std::find(active_backbone_pole_ids.begin(), active_backbone_pole_ids.end(), pole_id) ==
+          active_backbone_pole_ids.end()) {
+        const auto apply = trial.ApplyPoleType(pole_id, pole_type.id);
+        if (!apply.ok) {
+          result.error = apply.error;
+          return result;
+        }
+        append_change_set(result.change_set, apply.change_set);
+      }
+    }
+
+    ChangeSet regenerated_changes{};
+    for (const PoleTypeRegenerateScope& scope : scopes) {
+      const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
+      if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
+        result.error = "bundle template not found";
+        return result;
+      }
+      const BundleTemplate previous = bundle_template_it->second;
+      auto regenerated = trial.regenerate_backbone_edge_bundles(scope.bundle_template_id, previous, previous,
+                                                                &regenerated_changes, nullptr,
+                                                                &scope.edge_bundle_ids, &pole_type);
+      if (!regenerated.ok) {
+        result.error = regenerated.error;
+        return result;
+      }
+    }
+
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    append_change_set(result.change_set, regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, pole_type.id);
+    result.ok = true;
+    result.value = true;
+    return result;
+  }
+
+  UpdatePlan active_plan{};
+  active_plan.kind = UpdateKind::kReposition;
+  if (!active_backbone_pole_ids.empty()) {
+    for (ObjectId pole_id : active_backbone_pole_ids) {
+      EditResult<UpdatePlan> plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
+      if (!plan.ok) {
+        result.error = plan.error;
+        return result;
+      }
+      append_unique(active_plan.affected.poles, plan.value.affected.poles);
+      append_unique(active_plan.affected.ports, plan.value.affected.ports);
+      append_unique(active_plan.affected.spans, plan.value.affected.spans);
+      append_unique(active_plan.affected.edges, plan.value.affected.edges);
+    }
+    for (ObjectId pole_id : active_backbone_pole_ids) {
+      const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id);
+      if (ports_it == runtime_.relation_index.ports_by_pole.end()) {
+        continue;
+      }
+      for (ObjectId port_id : ports_it->second) {
+        const Port* port = authoritative_.edit_state.ports.find(port_id);
+        if (port == nullptr || view().backbone_port_binding_for_port(port_id) == nullptr) {
+          continue;
+        }
+        if (state_internal::FindPortPlacementBandForPort(*this, pole_type, *port) == nullptr) {
+          result.error = "backbone unsupported: active pole saved placement band no longer exists";
+          return result;
+        }
+      }
+    }
+  }
+
   it->second = pole_type;
   result.ok = true;
   result.value = true;
 
-  std::vector<ObjectId> pole_ids{};
-  pole_ids.reserve(authoritative_.edit_state.poles.size());
-  for (const Pole& pole : authoritative_.edit_state.poles.items()) {
-    if (pole.pole_type_id == pole_type.id) {
-      pole_ids.push_back(pole.id);
+  auto apply_active_backbone_placement = [&](ObjectId pole_id) -> EditResult<bool> {
+    EditResult<bool> applied{};
+    Pole* pole = authoritative_.edit_state.poles.find(pole_id);
+    if (pole == nullptr) {
+      applied.error = "pole not found";
+      return applied;
     }
-  }
+    if (std::abs(pole->height_m - pole_type.default_height_m) > 1e-12) {
+      pole->height_m = pole_type.default_height_m;
+      add_unique_id(result.change_set.updated_ids, pole_id);
+      applied.value = true;
+    }
+    const auto owned_port_ids_it = runtime_.relation_index.ports_by_pole.find(pole_id);
+    if (owned_port_ids_it != runtime_.relation_index.ports_by_pole.end()) {
+      for (ObjectId port_id : owned_port_ids_it->second) {
+        Port* existing_port = authoritative_.edit_state.ports.find(port_id);
+        const bool backbone_bound_port = runtime_.backbone_index.port_bindings_by_port.contains(port_id);
+        if (existing_port == nullptr || (!existing_port->generated_from_template && !backbone_bound_port) ||
+            existing_port->position_mode == PortPositionMode::kManual) {
+          continue;
+        }
+        const PortPlacementBand* band_ptr =
+            state_internal::FindPortPlacementBandForPort(*this, pole_type, *existing_port);
+        if (band_ptr == nullptr) {
+          applied.error = "backbone unsupported: active pole port band no longer resolves";
+          return applied;
+        }
+        const PortPlacementBand* previous_band_ptr =
+            state_internal::FindPortPlacementBandById(before, band_ptr->band_id);
+        if (previous_band_ptr == nullptr) {
+          applied.error = "backbone unsupported: active pole previous port band no longer resolves";
+          return applied;
+        }
+        if (port_band_equals(*previous_band_ptr, *band_ptr)) {
+          continue;
+        }
+
+        const double layout_yaw =
+            effective_port_layout_yaw_deg(*pole, existing_port->id, existing_port->category);
+        const Vec3d current_local =
+            WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw),
+                              existing_port->world_position);
+        Vec3d adjusted_local{
+            0.0,
+            current_local.y +
+                (band_ptr->lateral_center_m - previous_band_ptr->lateral_center_m),
+            current_local.z +
+                (band_ptr->height_center_m - previous_band_ptr->height_center_m),
+        };
+        const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
+                                            pole->context.kind == PoleContextKind::kCorner &&
+                                            band_ptr->side != SlotSide::kCenter;
+        double applied_scale = 1.0;
+        if (apply_angle_correction) {
+          adjusted_local.y = state_internal::apply_corner_side_scale(
+              adjusted_local.y, band_ptr->side, pole->context.corner_turn_sign, pole->context.side_scale);
+          if (std::abs(band_ptr->lateral_center_m) > 1e-9) {
+            applied_scale = std::abs(adjusted_local.y / band_ptr->lateral_center_m);
+          }
+        }
+        adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band_ptr->side);
+        const Vec3d world_position =
+            local_to_world_on_pole(pole->world_transform,
+                                   layout_yaw,
+                                   adjusted_local);
+        if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
+            existing_port->angle_correction_applied != apply_angle_correction ||
+            std::abs(existing_port->side_scale_applied - applied_scale) > 1e-12) {
+          existing_port->world_position = world_position;
+          existing_port->angle_correction_applied = apply_angle_correction;
+          existing_port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
+          apply_port_position_mode(*existing_port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
+          add_unique_id(result.change_set.updated_ids, existing_port->id);
+          touch_connected_spans_from_port(existing_port->id, &result.change_set);
+          applied.value = true;
+        }
+      }
+    }
+    applied.ok = true;
+    return applied;
+  };
+
   for (ObjectId pole_id : pole_ids) {
+    if (std::find(active_backbone_pole_ids.begin(), active_backbone_pole_ids.end(), pole_id) !=
+        active_backbone_pole_ids.end()) {
+      const auto apply = apply_active_backbone_placement(pole_id);
+      if (!apply.ok) {
+        result.ok = false;
+        result.error = apply.error;
+        return result;
+      }
+      result.value = result.value || apply.value;
+      continue;
+    }
     const auto apply = ApplyPoleType(pole_id, pole_type.id);
     if (!apply.ok) {
       result.ok = false;
@@ -1636,6 +2649,15 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     }
     append_change_set(result.change_set, apply.change_set);
     add_unique_id(result.change_set.updated_ids, pole_id);
+  }
+  if (!active_backbone_pole_ids.empty() && !active_plan.affected.spans.empty()) {
+    const auto derived = execute_update_plan(active_plan);
+    if (!derived.ok) {
+      result.ok = false;
+      result.error = derived.error;
+      return result;
+    }
+    append_unique(result.change_set.updated_ids, active_plan.affected.spans);
   }
   return result;
 }
@@ -1683,7 +2705,8 @@ double CoreState::effective_pole_layout_yaw_deg(const Pole& pole) const {
   return effective_pole_yaw_deg(pole);
 }
 
-double CoreState::effective_port_layout_yaw_deg(const Pole& pole, ConnectionCategory category,
+double CoreState::effective_port_layout_yaw_deg(const Pole& pole, ObjectId port_id,
+                                                ConnectionCategory category,
                                                 const PortLayoutYawOverride* row_layout_yaw_override) const {
   if (has_pole_orientation_override(pole.id)) {
     return effective_pole_yaw_deg(pole);
@@ -1691,17 +2714,9 @@ double CoreState::effective_port_layout_yaw_deg(const Pole& pole, ConnectionCate
   if (row_layout_yaw_override != nullptr && row_layout_yaw_override->category == category) {
     return NormalizeYawDeg(row_layout_yaw_override->yaw_deg);
   }
-  if (const auto it = debug_.pole_orientation_debug_records.find(pole.id); it != debug_.pole_orientation_debug_records.end()) {
-    const bool uses_support_axis_layout =
-        it->second.row_layout_axis_mode == RowLayoutAxisMode::kSupportAxis &&
-        it->second.row_layout_axis_category == category;
-    if (!uses_support_axis_layout) {
-      return effective_pole_yaw_deg(pole);
-    }
-    Vec3d support_axis = it->second.adopted_support_axis;
-    if (Normalize(&support_axis)) {
-      return NormalizeYawDeg(YawDegFromXY(support_axis) - 90.0);
-    }
+  if (const SavedBackbonePortBinding* binding = view().backbone_port_binding_for_port(port_id);
+      binding != nullptr) {
+    return NormalizeYawDeg(binding->layout_yaw_deg);
   }
   return effective_pole_yaw_deg(pole);
 }
@@ -1803,21 +2818,31 @@ void CoreState::apply_port_position_mode(Port& port, PortPositionMode mode, Port
 
 double CoreState::pole_radius_at_height_m(const Pole& pole, double local_z_m) const {
   double base_radius = 0.16;
-  switch (pole.kind) {
-  case PoleKind::kWood:
-    base_radius = 0.18;
-    break;
-  case PoleKind::kConcrete:
-    base_radius = 0.22;
-    break;
-  case PoleKind::kSteel:
-    base_radius = 0.14;
-    break;
-  default:
-    base_radius = 0.16;
-    break;
+  double top_radius = 0.0;
+  const PoleTypeDefinition* pole_type = find_pole_type(pole.pole_type_id);
+  if (pole_type != nullptr && pole_type->radius_base_m > 0.0 && pole_type->radius_top_m > 0.0) {
+    base_radius = pole_type->radius_base_m;
+    top_radius = pole_type->radius_top_m;
   }
-  const double top_radius = std::max(0.06, base_radius * 0.55);
+  if (top_radius <= 0.0) {
+    switch (pole.kind) {
+    case PoleKind::kWood:
+      base_radius = 0.18;
+      break;
+    case PoleKind::kConcrete:
+      base_radius = 0.22;
+      break;
+    case PoleKind::kSteel:
+      base_radius = 0.14;
+      break;
+    default:
+      base_radius = 0.16;
+      break;
+    }
+  }
+  if (top_radius <= 0.0) {
+    top_radius = std::max(0.06, base_radius * 0.55);
+  }
   const double h = std::max(0.1, pole.height_m);
   const double t = std::clamp(local_z_m / h, 0.0, 1.0);
   return base_radius + (top_radius - base_radius) * t;
@@ -1825,7 +2850,7 @@ double CoreState::pole_radius_at_height_m(const Pole& pole, double local_z_m) co
 
 Vec3d CoreState::apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local, SlotSide side) const {
   Vec3d adjusted = local;
-  const double min_offset = pole_radius_at_height_m(pole, std::max(0.0, adjusted.z)) + runtime_.cache_state.geometry_settings.pole_clearance_m;
+  const double min_offset = pole_radius_at_height_m(pole, std::max(0.0, adjusted.z)) + authoritative_.geometry_settings.pole_clearance_m;
   double sign = (adjusted.y >= 0.0) ? 1.0 : -1.0;
   if (side == SlotSide::kLeft) {
     sign = -1.0;

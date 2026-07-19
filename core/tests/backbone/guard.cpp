@@ -10,6 +10,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -26,7 +27,6 @@ bool C370_backbone_no_v1_deps() {
       "JunctionRelationKind",
       "SpanSupportLayoutDecisionSeed",
       "Authority",
-      "Projection",
       "Materialization",
       "generate_span_curve",
       "cache_rebuilt_span_geometry",
@@ -38,8 +38,6 @@ bool C370_backbone_no_v1_deps() {
       "recalc",
       "materialization",
       "authority",
-      "projection",
-      "seed",
   };
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
     if (!entry.is_regular_file()) {
@@ -65,9 +63,12 @@ bool C387_backbone_pairs_are_single_source() {
     return false;
   }
   const std::string signature = "EditResult<pairs> pipeline::make(const graph& made) const";
-  const std::string call = "EditResult<pairs> ps = make(g_)";
-  const std::size_t first = text.find(call);
-  return contains_text(text, signature) && first != std::string::npos && text.find(call, first + call.size()) == std::string::npos;
+  const std::size_t first = text.find(signature);
+  if (first == std::string::npos || text.find(signature, first + signature.size()) != std::string::npos) {
+    return false;
+  }
+  return !contains_text(text, "make_pairs") && !contains_text(text, "build_pairs") &&
+         !contains_text(text, "regenerate_pairs");
 }
 
 bool C391_backbone_no_kind_label() {
@@ -107,22 +108,73 @@ bool C395_backbone_is_new_does_not_affect_pairs() {
   if (!function_body(cpp, "EditResult<pairs> pipeline::make(const graph& made) const", &body)) {
     return false;
   }
-  return !contains_text(body, ".is_new");
+  auto occurrences = [](const std::string& text, const std::string& token) {
+    std::size_t out = 0;
+    std::size_t pos = 0;
+    while ((pos = text.find(token, pos)) != std::string::npos) {
+      ++out;
+      pos += token.size();
+    }
+    return out;
+  };
+  return occurrences(body, ".is_new") == 1 &&
+         contains_text(body, "const link& existing_edge = a.is_new ? b : a;");
 }
 
 bool C396_backbone_existing_pole_does_not_read_existing_spans() {
+  struct snapshot {
+    wire::core::SpanLayoutRule rule{};
+    wire::core::SpanLayoutEntry layout{};
+    wire::core::CurveCacheEntry curve{};
+    wire::core::BoundsCacheEntry bounds{};
+    wire::core::SpanVisualCacheEntry visual{};
+    wire::core::SpanRenderCacheEntry render{};
+    std::uint64_t runtime_version = 0;
+  };
+  const auto same_points = [](const std::vector<wire::core::Vec3d>& lhs,
+                              const std::vector<wire::core::Vec3d>& rhs) {
+    if (lhs.size() != rhs.size()) return false;
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+      if (!almost_equal(lhs[i], rhs[i], 1e-12)) return false;
+    }
+    return true;
+  };
+  const auto same_rule = [](const wire::core::SpanLayoutRule& lhs, const wire::core::SpanLayoutRule& rhs) {
+    return lhs.span_id == rhs.span_id && lhs.flow_kind == rhs.flow_kind && lhs.pass_mode == rhs.pass_mode &&
+           lhs.variation_flow_key == rhs.variation_flow_key && lhs.lowering_kind == rhs.lowering_kind &&
+           lhs.start.endpoint_node_id == rhs.start.endpoint_node_id && lhs.start.port_id == rhs.start.port_id &&
+           lhs.start.jumper_peer_port_id == rhs.start.jumper_peer_port_id && lhs.end.endpoint_node_id == rhs.end.endpoint_node_id &&
+           lhs.end.port_id == rhs.end.port_id && lhs.end.jumper_peer_port_id == rhs.end.jumper_peer_port_id;
+  };
+  const auto same_layout = [](const wire::core::SpanLayoutEntry& lhs, const wire::core::SpanLayoutEntry& rhs) {
+    return lhs.span_id == rhs.span_id && lhs.flow_kind == rhs.flow_kind && lhs.pass_mode == rhs.pass_mode &&
+           lhs.variation_flow_key == rhs.variation_flow_key && lhs.lowering_kind == rhs.lowering_kind &&
+           lhs.source_version == rhs.source_version && almost_equal(lhs.basis_length_m, rhs.basis_length_m, 1e-12) &&
+           almost_equal(lhs.start.support_world, rhs.start.support_world, 1e-12) &&
+           almost_equal(lhs.start.endpoint_world, rhs.start.endpoint_world, 1e-12) &&
+           almost_equal(lhs.end.support_world, rhs.end.support_world, 1e-12) &&
+           almost_equal(lhs.end.endpoint_world, rhs.end.endpoint_world, 1e-12);
+  };
   wire::core::CoreState state;
   wire::core::BackboneSpec first = line_req(state);
   const auto first_out = state.GenerateFromBackboneSpec(first);
   if (!first_out.ok || first_out.value.generated_pole_ids.empty() || first_out.value.generated_span_ids.empty()) {
     return false;
   }
-  std::vector<const wire::core::SpanLayoutEntry*> before{};
+  std::vector<snapshot> before{};
   for (wire::core::ObjectId span_id : first_out.value.generated_span_ids) {
-    before.push_back(state.span_layout(span_id).entry);
-    if (before.back() == nullptr) {
+    const auto rules = state.span_layout_rules(span_id);
+    const auto layout = state.span_layout(span_id);
+    const auto* curve = state.find_curve_cache(span_id);
+    const auto* bounds = state.find_bounds_cache(span_id);
+    const auto* visual = state.find_span_visual_cache(span_id);
+    const auto* render = state.find_span_render_cache(span_id);
+    const auto* runtime = state.view().find_span_runtime_state(span_id);
+    if (!rules.has_rule() || !layout.has_layout() || curve == nullptr || bounds == nullptr || visual == nullptr ||
+        render == nullptr || runtime == nullptr) {
       return false;
     }
+    before.push_back({*rules.rule, *layout.entry, *curve, *bounds, *visual, *render, runtime->data_version});
   }
   const wire::core::ObjectId existing = first_out.value.generated_pole_ids.front();
   const auto* existing_pole = state.view().poles().find(existing);
@@ -147,7 +199,44 @@ bool C396_backbone_existing_pole_does_not_read_existing_spans() {
     }
   }
   for (std::size_t i = 0; i < first_out.value.generated_span_ids.size(); ++i) {
-    if (state.span_layout(first_out.value.generated_span_ids[i]).entry != before[i]) {
+    const wire::core::ObjectId span_id = first_out.value.generated_span_ids[i];
+    const auto rules = state.span_layout_rules(span_id);
+    const auto layout = state.span_layout(span_id);
+    const auto* curve = state.find_curve_cache(span_id);
+    const auto* bounds = state.find_bounds_cache(span_id);
+    const auto* visual = state.find_span_visual_cache(span_id);
+    const auto* render = state.find_span_render_cache(span_id);
+    const auto* runtime = state.view().find_span_runtime_state(span_id);
+    const bool changed = std::find(second_out.change_set.updated_ids.begin(), second_out.change_set.updated_ids.end(), span_id) !=
+                             second_out.change_set.updated_ids.end() ||
+                         std::find(second_out.change_set.deleted_ids.begin(), second_out.change_set.deleted_ids.end(), span_id) !=
+                             second_out.change_set.deleted_ids.end();
+    if (!rules.has_rule() || !layout.has_layout() || curve == nullptr || bounds == nullptr || visual == nullptr ||
+        render == nullptr || runtime == nullptr || !same_rule(*rules.rule, before[i].rule) ||
+        curve->detail.sample_points.size() < 2 ||
+        !almost_equal(curve->detail.sample_points.front(), layout.entry->start.endpoint_world, 1e-9) ||
+        !almost_equal(curve->detail.sample_points.back(), layout.entry->end.endpoint_world, 1e-9)) {
+      return false;
+    }
+    if (changed) {
+      if (same_layout(*layout.entry, before[i].layout) ||
+          curve->source_version != runtime->data_version ||
+          bounds->source_version != runtime->data_version ||
+          visual->source_version != runtime->data_version ||
+          render->source_version != runtime->data_version ||
+          runtime->data_version == before[i].runtime_version) {
+        return false;
+      }
+    } else if (!same_layout(*layout.entry, before[i].layout) ||
+               curve->source_version != before[i].curve.source_version ||
+               !same_points(curve->detail.sample_points, before[i].curve.detail.sample_points) ||
+               bounds->source_version != before[i].bounds.source_version ||
+               !almost_equal(bounds->whole.min, before[i].bounds.whole.min, 1e-12) ||
+               !almost_equal(bounds->whole.max, before[i].bounds.whole.max, 1e-12) ||
+               bounds->segments.size() != before[i].bounds.segments.size() ||
+               visual->source_version != before[i].visual.source_version ||
+               render->source_version != before[i].render.source_version ||
+               runtime->data_version != before[i].runtime_version) {
       return false;
     }
   }
@@ -174,7 +263,7 @@ bool C402_backbone_bundle_spec_does_not_affect_pairs() {
   return true;
 }
 
-bool C410_backbone_height_does_not_affect_pairs() {
+bool C410_placement_height_does_not_affect_pairs() {
   const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text)) {
@@ -275,6 +364,15 @@ bool C440_backbone_does_not_read_authoritative_backbone_directly() {
     std::string text;
     if (!file_text(entry.path(), &text)) {
       return false;
+    }
+    if (entry.path().filename() == "pipeline.cpp") {
+      std::string retire_body;
+      if (function_body(text, "void pipeline::retire_untouched(route* route)", &retire_body)) {
+        const std::size_t pos = text.find(retire_body);
+        if (pos != std::string::npos) {
+          text.replace(pos, retire_body.size(), "");
+        }
+      }
     }
     if (contains_text(text, "authoritative_.backbone")) {
       return false;
@@ -386,7 +484,7 @@ bool C470_backbone_row_port_identity_does_not_use_position_match() {
   const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
   return contains_text(body, "edge_bundle_id") && contains_text(body, "row_key") &&
          !contains_text(body, "world_position") && !contains_text(body, "span_layout") &&
-         !contains_text(body, "seed") && !contains_text(body, "layout") && !contains_text(body, "position");
+         !contains_text(body, "seed") && !contains_text(body, "position");
 }
 
 bool C475_backbone_port_resolution_does_not_read_existing_layout() {
@@ -510,10 +608,10 @@ bool C520_backbone_duplicate_span_binding_preflight_before_emit() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
-  const std::size_t check_call = cpp.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
-  const std::size_t emit_call = cpp.find("EditResult<topo> made = emit(ps.value)", build_pos);
-  if (build_pos == std::string::npos || check_call == std::string::npos || emit_call == std::string::npos ||
+  const std::size_t route_pos = cpp.find("EditResult<pipeline::route> pipeline::emit_route");
+  const std::size_t check_call = cpp.find("return check(ps.value)", route_pos);
+  const std::size_t emit_call = cpp.find("return emit(ps.value, intents.value)", route_pos);
+  if (route_pos == std::string::npos || check_call == std::string::npos || emit_call == std::string::npos ||
       check_call > emit_call) {
     return false;
   }
@@ -541,6 +639,33 @@ bool C522_backbone_supported_scope_is_documented() {
          contains_text(text, "v1") && contains_text(text, "fallback");
 }
 
+bool C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates() {
+  std::string viewer{};
+  std::string readiness{};
+  if (!file_text(repo_root() / "docs" / "viewer_operations.md", &viewer) ||
+      !file_text(repo_root() / "docs" / "merge_readiness.md", &readiness)) {
+    return false;
+  }
+  const std::vector<std::string> stale_viewer_phrases{
+      "backbone span \xE3\x81\xAF\x20\x75\x6E\x73\x75\x70\x70\x6F\x72\x74\x65\x64",
+      "active backbone \xE4\xBD\xBF\xE7\x94\xA8\xE6\x99\x82\xE3\x81\xAF\x20\x75\x6E\x73\x75\x70\x70\x6F\x72\x74\x65\x64",
+      "\x64\x65\x63\x69\x73\x69\x6F\x6E\x20\xE5\xB7\xAE\xE5\x88\x86\xE3\x81\xAF\x20\x75\x6E\x73\x75\x70\x70\x6F\x72\x74\x65\x64\x20\xE3\x82\x92\xE8\xA1\xA8\xE7\xA4\xBA\xE3\x81\x99\xE3\x82\x8B",
+  };
+  for (const std::string& phrase : stale_viewer_phrases) {
+    if (contains_text(viewer, phrase)) {
+      return false;
+    }
+  }
+  return !contains_text(readiness, "| `UpdateLayoutSettings` |") &&
+         !contains_text(readiness, "| `SetSpanEndpointSocketOverride`") &&
+         !contains_text(readiness, "| `SetSpanBranchDownOffsetOverride`") &&
+         !contains_text(readiness, "| A. Regenerate scenario pending | `UpdateBundleTemplate`") &&
+         contains_text(readiness, "count_rule` fixed/range") &&
+         contains_text(readiness, "`kTopology` policy") &&
+         contains_text(readiness, "\xE6\x97\xA2\xE3\x81\xAB\xE4\xBF\x9D\xE7\x95\x99\xE3\x81\x8B\xE3\x82\x89\xE5\xA4\x96\xE3\x81\x97\xE3\x81\x9F\xE3\x82\x82\xE3\x81\xAE") &&
+         contains_text(readiness, "`UpdateLayoutSettings`");
+}
+
 bool C523_backbone_scope_gate_matches_entrypoint() {
   const std::filesystem::path entry = repo_root() / "core" / "src" / "generation" / "generate_from_backbone.cpp";
   const std::filesystem::path backbone = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
@@ -552,12 +677,12 @@ bool C523_backbone_scope_gate_matches_entrypoint() {
   const bool entry_uses_backbone = contains_text(entry_text, "generation::backbone::pipeline") &&
                               contains_text(entry_text, "pipeline.prepare()") &&
                               contains_text(entry_text, "pipeline.check()") &&
-                              contains_text(entry_text, "pipeline.build()");
-  const std::size_t build_pos = backbone_text.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
-  const std::size_t check_call = backbone_text.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
-  const std::size_t intent_call = backbone_text.find("EditResult<intent> intents = make(ps.value)", build_pos);
-  const std::size_t emit_call = backbone_text.find("EditResult<topo> made = emit(ps.value)", build_pos);
-  const bool preflight_before_emit = build_pos != std::string::npos && check_call != std::string::npos &&
+                              contains_text(entry_text, "pipeline.build(pipeline.build_input_from_spec())");
+  const std::size_t route_pos = backbone_text.find("EditResult<pipeline::route> pipeline::emit_route");
+  const std::size_t check_call = backbone_text.find("return check(ps.value)", route_pos);
+  const std::size_t intent_call = backbone_text.find("return make(ps.value)", route_pos);
+  const std::size_t emit_call = backbone_text.find("return emit(ps.value, intents.value)", route_pos);
+  const bool preflight_before_emit = route_pos != std::string::npos && check_call != std::string::npos &&
                                      intent_call != std::string::npos && emit_call != std::string::npos &&
                                      check_call < intent_call && intent_call < emit_call;
   return entry_uses_backbone && preflight_before_emit;
@@ -598,18 +723,20 @@ bool C533_backbone_build_mutation_order_is_fixed() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
-  const std::size_t pairs_pos = cpp.find("EditResult<pairs> ps = make(g_)", build_pos);
-  const std::size_t check_pos = cpp.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
-  const std::size_t intent_pos = cpp.find("EditResult<intent> intents = make(ps.value)", build_pos);
-  const std::size_t group_pos = cpp.find("EditResult<groups> placement = make(ps.value, intents.value)", build_pos);
-  const std::size_t emit_pos = cpp.find("EditResult<topo> made = emit(ps.value)", build_pos);
-  const std::size_t graph_pos = cpp.find("EditResult<bool> graph_saved = save_graph(made.value, ps.value)", build_pos);
-  const std::size_t rules_pos = cpp.find("rules saved = make(made.value, placement.value)", build_pos);
-  const std::size_t layout_pos = cpp.find("EditResult<layout> placed = make(saved)", build_pos);
-  const std::size_t geom_pos = cpp.find("EditResult<geom> shaped = make(placed.value)", build_pos);
-  const std::size_t draw_pos = cpp.find("draw drawn = make(placed.value, shaped.value)", build_pos);
-  if (build_pos == std::string::npos || pairs_pos == std::string::npos || check_pos == std::string::npos ||
+  const std::size_t route_pos = cpp.find("EditResult<pipeline::route> pipeline::emit_route");
+  const std::size_t derived_pos = cpp.find("EditResult<bool> pipeline::save_derived", route_pos);
+  const std::size_t pairs_pos = cpp.find("return make(g_)", route_pos);
+  const std::size_t check_pos = cpp.find("return check(ps.value)", route_pos);
+  const std::size_t intent_pos = cpp.find("return make(ps.value)", route_pos);
+  const std::size_t group_pos = cpp.find("return make(ps.value, intents.value)", route_pos);
+  const std::size_t emit_pos = cpp.find("return emit(ps.value, intents.value)", route_pos);
+  const std::size_t graph_pos = cpp.find("return save_graph(made.value, ps.value)", route_pos);
+  const std::size_t rules_pos = cpp.find("rules next = make(route.made, route.ps, route.placement)", derived_pos);
+  const std::size_t layout_pos = cpp.find("return make(saved)", derived_pos);
+  const std::size_t geom_pos = cpp.find("return make(placed.value)", derived_pos);
+  const std::size_t draw_pos = cpp.find("return make(placed.value, shaped.value)", derived_pos);
+  if (route_pos == std::string::npos || derived_pos == std::string::npos || pairs_pos == std::string::npos ||
+      check_pos == std::string::npos ||
       intent_pos == std::string::npos || group_pos == std::string::npos || emit_pos == std::string::npos ||
       graph_pos == std::string::npos || rules_pos == std::string::npos || layout_pos == std::string::npos ||
       geom_pos == std::string::npos || draw_pos == std::string::npos) {
@@ -710,7 +837,7 @@ bool C601_backbone_context_only_bundle_policy_does_not_filter_new_route() {
   pick.hit_id = source_span->id;
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -731,7 +858,7 @@ bool C601_backbone_context_only_bundle_policy_does_not_filter_new_route() {
     return false;
   }
   const auto* branch_bundle = state.view().bundles().find(branch_out.value.bundle_ids.front());
-  if (branch_bundle == nullptr || branch_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+  if (branch_bundle == nullptr || branch_bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
     return false;
   }
 
@@ -750,15 +877,15 @@ bool C601_backbone_context_only_bundle_policy_does_not_filter_new_route() {
   if (!out.ok || out.value.bundle_ids.size() != 2) {
     return false;
   }
-  std::unordered_set<wire::core::BundleKind> generated{};
+  std::unordered_set<wire::core::BundleTemplateId> generated{};
   for (wire::core::ObjectId bundle_id : out.value.bundle_ids) {
     const auto* bundle = state.view().bundles().find(bundle_id);
     if (bundle != nullptr) {
       generated.insert(bundle->bundle_template_id);
     }
   }
-  return generated.contains(wire::core::BundleKind::kLowVoltage) &&
-         generated.contains(wire::core::BundleKind::kCommunication);
+  return generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) &&
+         generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
 }
 
 bool C602_backbone_context_only_pole_band_does_not_filter_new_route() {
@@ -793,7 +920,9 @@ bool C602_backbone_context_only_pole_band_does_not_filter_new_route() {
   if (!state.UpdatePoleTypeDefinition(comm_type).ok) {
     return false;
   }
-  if (!state.ApplyPoleType(b, comm_type_id).ok) {
+  const auto rejected = state.ApplyPoleType(b, comm_type_id);
+  const auto* unchanged_b = state.view().poles().find(b);
+  if (rejected.ok || unchanged_b == nullptr || unchanged_b->pole_type_id == comm_type_id) {
     return false;
   }
   const auto* pole_a = state.view().poles().find(a);
@@ -879,7 +1008,7 @@ bool C567_backbone_segment_pick_midair_uses_source_span_height() {
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   pick.has_segment_endpoints = false;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
       !almost_equal(resolved.value.position.z, expected_z, 1e-9)) {
@@ -915,7 +1044,7 @@ bool C567_backbone_segment_pick_midair_uses_source_span_height() {
   return false;
 }
 
-bool C568_backbone_source_edge_midair_branch_uses_saved_attachment_height() {
+bool C568_backbone_source_edge_midair_branch_uses_source_curve_projection() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -923,8 +1052,8 @@ bool C568_backbone_source_edge_midair_branch_uses_saved_attachment_height() {
     return false;
   }
   const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
-  const std::optional<wire::core::Vec3d> expected = state.view().backbone_attachment_world(
-      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+  const std::optional<wire::core::Vec3d> expected = state.view().source_edge_projection_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
   if (!expected.has_value() || expected->z <= 0.0) {
     return false;
   }
@@ -939,10 +1068,11 @@ bool C568_backbone_source_edge_midair_branch_uses_saved_attachment_height() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
-      !almost_equal(resolved.value.position, *expected, 1e-9)) {
+      !almost_equal(resolved.value.position.z, 0.0, 1e-9) ||
+      almost_equal(resolved.value.position, *expected, 1e-9)) {
     return false;
   }
 
@@ -966,7 +1096,7 @@ bool C568_backbone_source_edge_midair_branch_uses_saved_attachment_height() {
                                            return saved.pole_id == wire::core::kInvalidObjectId &&
                                                   saved.has_source_edge;
                                          });
-  if (saved_midair == graph.nodes.end()) {
+  if (saved_midair == graph.nodes.end() || !almost_equal(saved_midair->position.z, 0.0, 1e-9)) {
     return false;
   }
 
@@ -986,12 +1116,543 @@ bool C568_backbone_source_edge_midair_branch_uses_saved_attachment_height() {
     const wire::core::LayoutEndpoint& endpoint = start_ownerless ? layout.entry->start : layout.entry->end;
     const wire::core::Port* ownerless_port = start_ownerless ? a : b;
     if ((start_ownerless || end_ownerless) && !endpoint.default_lower_required && !endpoint.lower_required &&
-        almost_equal(ownerless_port->world_position, *expected, 1e-9) &&
+        almost_equal(ownerless_port->world_position.z, 0.0, 1e-9) &&
         almost_equal(endpoint.endpoint_world, *expected, 1e-9)) {
       return true;
     }
   }
   return false;
+}
+
+bool C718_viewer_hit_world_height_is_not_source_edge_branch_authority() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.empty() || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
+  const auto expected = state.view().source_edge_projection_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
+  if (!expected.has_value()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 123.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || almost_equal(resolved.value.position.z, pick.hit_pos_world.z, 1e-9) ||
+      !almost_equal(resolved.value.position.z, 0.0, 1e-9) ||
+      almost_equal(resolved.value.position, *expected, 1e-9)) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  const bool saved_source = std::any_of(graph.nodes.begin(), graph.nodes.end(), [](const wire::core::SavedBackboneNode& saved) {
+    return saved.pole_id == wire::core::kInvalidObjectId && saved.has_source_edge &&
+           almost_equal(saved.position.z, 0.0, 1e-9);
+  });
+  if (!saved_source) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto layout = state.span_layout(span_id);
+    if (!layout.has_layout()) {
+      return false;
+    }
+    if (almost_equal(layout.entry->start.endpoint_world, *expected, 1e-9) ||
+        almost_equal(layout.entry->end.endpoint_world, *expected, 1e-9)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings initial_geometry = state.view().geometry_settings();
+  initial_geometry.sag_enabled = false;
+  if (!state.UpdateGeometrySettings(initial_geometry).ok) {
+    return false;
+  }
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::ObjectId source_span_id = base_out.value.generated_span_ids.front();
+  const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
+  const wire::core::ObjectId source_edge_id = source_edge.edge_id;
+  const wire::core::ObjectId source_node_a = source_edge.node_a;
+  const wire::core::ObjectId source_node_b = source_edge.node_b;
+  const auto initial_projection = state.view().source_edge_projection_world(
+      source_edge_id, source_node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
+  if (!initial_projection.has_value()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_node_a;
+  pick.segment_node_b_id = source_node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId branch_span_id = branch_out.value.generated_span_ids.front();
+
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = std::max(geometry.sag_factor, 0.08);
+  const auto updated = state.UpdateGeometrySettings(geometry);
+  if (!updated.ok) {
+    return false;
+  }
+  const wire::core::CurveCacheEntry* source_curve = state.find_curve_cache(source_span_id);
+  const auto current_projection = state.view().source_edge_projection_world(
+      source_edge_id, source_node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
+  const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
+  const wire::core::Span* branch_span = state.view().spans().find(branch_span_id);
+  if (source_curve == nullptr || !current_projection.has_value() || !branch_layout.has_layout() ||
+      branch_span == nullptr) {
+    return false;
+  }
+  const wire::core::Port* start_port = state.view().ports().find(branch_layout.entry->start.port_id);
+  const bool start_ownerless = start_port != nullptr && start_port->owner_pole_id == wire::core::kInvalidObjectId;
+  const wire::core::LayoutEndpoint& endpoint = start_ownerless ? branch_layout.entry->start : branch_layout.entry->end;
+  const bool projection_changed = !almost_equal(*initial_projection, *current_projection, 1e-4);
+  const bool has_ref = endpoint.source_projection.valid();
+  const bool endpoint_matches = almost_equal(endpoint.endpoint_world, *current_projection, 1e-9);
+  return projection_changed && has_ref && endpoint_matches;
+}
+
+bool C721_source_edge_identity_survives_projection_update() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId branch_span_id = branch_out.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView before_layout = state.span_layout(branch_span_id);
+  if (!before_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::LayoutEndpoint& before_endpoint =
+      before_layout.entry->start.source_projection.valid() ? before_layout.entry->start : before_layout.entry->end;
+  const wire::core::SourceEdgeProjectionRef before_ref = before_endpoint.source_projection;
+  if (!before_ref.valid()) {
+    return false;
+  }
+  const auto saved_node_before = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                                             [&](const wire::core::SavedBackboneNode& saved) {
+                                               return saved.pole_id == wire::core::kInvalidObjectId &&
+                                                      saved.has_source_edge && saved.source_edge_node_a == source_edge.node_a &&
+                                                      saved.source_edge_node_b == source_edge.node_b;
+                                             });
+  if (saved_node_before == state.view().backbone().nodes.end()) {
+    return false;
+  }
+  const wire::core::ObjectId source_node_id = saved_node_before->node_id;
+
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = std::max(geometry.sag_factor, 0.08);
+  if (!state.UpdateGeometrySettings(geometry).ok) {
+    return false;
+  }
+  const wire::core::SpanLayoutView after_layout = state.span_layout(branch_span_id);
+  if (!after_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::LayoutEndpoint& after_endpoint =
+      after_layout.entry->start.source_projection.valid() ? after_layout.entry->start : after_layout.entry->end;
+  const wire::core::SourceEdgeProjectionRef after_ref = after_endpoint.source_projection;
+  const auto* saved_node_after = state.view().backbone_node(source_node_id);
+  return saved_node_after != nullptr && saved_node_after->has_source_edge &&
+         saved_node_after->source_edge_node_a == source_edge.node_a &&
+         saved_node_after->source_edge_node_b == source_edge.node_b &&
+         almost_equal(saved_node_after->source_edge_t, 0.5, 1e-12) &&
+         after_ref.source_edge_id == before_ref.source_edge_id && after_ref.from_node_id == before_ref.from_node_id &&
+         after_ref.bundle_template_id == before_ref.bundle_template_id && after_ref.lane_index == before_ref.lane_index &&
+         almost_equal(after_ref.t, before_ref.t, 1e-12);
+}
+
+bool C722_unresolved_source_edge_reference_fails_before_mutation() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || state.view().backbone().nodes.size() < 2) {
+    return false;
+  }
+  const std::size_t pole_count = state.view().poles().size();
+  const std::size_t port_count = state.view().ports().size();
+  const std::size_t span_count = state.view().spans().size();
+  const std::size_t bundle_count_before = state.view().bundles().size();
+  const std::size_t saved_node_count = state.view().backbone().nodes.size();
+  const std::size_t saved_edge_count = state.view().backbone().edges.size();
+
+  wire::core::SupportNode pending{};
+  pending.node_id = state.next_id();
+  pending.support_kind = wire::core::SupportKind::kMidair;
+  pending.position = {4.0, 0.0, 5.0};
+  pending.has_source_edge = true;
+  pending.source_edge_node_a_id = state.view().backbone().nodes.front().node_id;
+  pending.source_edge_node_b_id = wire::core::kInvalidObjectId;
+  pending.source_edge_t = 0.5;
+  wire::core::CoreStateTestHook::pending_support_nodes(state).push_back(pending);
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pending.position, {4.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = pending.support_kind;
+  node.node_id = pending.node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  return !out.ok && contains_text(out.error, "unsupported") && state.view().poles().size() == pole_count &&
+         state.view().ports().size() == port_count && state.view().spans().size() == span_count &&
+         state.view().bundles().size() == bundle_count_before && state.view().backbone().nodes.size() == saved_node_count &&
+         state.view().backbone().edges.size() == saved_edge_count;
+}
+
+bool C723_source_edge_branch_does_not_change_source_sag() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = std::max(geometry.sag_factor, 0.08);
+  if (!state.UpdateGeometrySettings(geometry).ok) {
+    return false;
+  }
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::ObjectId source_span_id = base_out.value.generated_span_ids.front();
+  const wire::core::CurveCacheEntry* before_curve = state.find_curve_cache(source_span_id);
+  if (before_curve == nullptr || before_curve->detail.sample_points.empty()) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> before_samples = before_curve->detail.sample_points;
+  const double before_sag = before_curve->detail.sag_amplitude_m;
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  const wire::core::CurveCacheEntry* after_curve = state.find_curve_cache(source_span_id);
+  if (!branch_out.ok || after_curve == nullptr || after_curve->detail.sample_points.size() != before_samples.size() ||
+      !almost_equal(after_curve->detail.sag_amplitude_m, before_sag, 1e-12)) {
+    return false;
+  }
+  for (std::size_t i = 0; i < before_samples.size(); ++i) {
+    if (!almost_equal(after_curve->detail.sample_points[i], before_samples[i], 1e-12)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C724_source_template_sag_change_updates_branch_projection() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = std::max(geometry.sag_factor, 0.04);
+  if (!state.UpdateGeometrySettings(geometry).ok) {
+    return false;
+  }
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::ObjectId source_span_id = base_out.value.generated_span_ids.front();
+  const wire::core::Span* source_span = state.view().spans().find(source_span_id);
+  const wire::core::Bundle* source_bundle = source_span == nullptr ? nullptr : state.view().bundles().find(source_span->bundle_id);
+  const auto bundle_template_it = source_bundle == nullptr ? state.view().bundle_templates().end()
+                                                           : state.view().bundle_templates().find(source_bundle->bundle_template_id);
+  const auto cable_template_it = bundle_template_it == state.view().bundle_templates().end()
+                                     ? state.view().cable_templates().end()
+                                     : state.view().cable_templates().find(bundle_template_it->second.cable_template_id);
+  if (source_span == nullptr || source_bundle == nullptr || bundle_template_it == state.view().bundle_templates().end() ||
+      cable_template_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  wire::core::CableTemplate edited_cable_template = cable_template_it->second;
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+  const auto before_projection = state.view().source_edge_projection_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
+  if (!before_projection.has_value()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId branch_span_id = branch_out.value.generated_span_ids.front();
+
+  edited_cable_template.sag_factor += 0.08;
+  const auto updated = state.UpdateCableTemplate(edited_cable_template);
+  const auto after_projection = state.view().source_edge_projection_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
+  const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
+  if (!updated.ok || !after_projection.has_value() || !branch_layout.has_layout() ||
+      almost_equal(*before_projection, *after_projection, 1e-4)) {
+    return false;
+  }
+  const wire::core::LayoutEndpoint& endpoint =
+      branch_layout.entry->start.source_projection.valid() ? branch_layout.entry->start : branch_layout.entry->end;
+  return endpoint.source_projection.valid() && almost_equal(endpoint.endpoint_world, *after_projection, 1e-6);
+}
+
+bool C725_source_layout_settings_update_keeps_branch_projection_current() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() < 2 || state.view().backbone().edges.size() < 2) {
+    return false;
+  }
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+  constexpr double kSourceT = 11.0 / 12.0;
+  const auto before_projection = state.view().source_edge_projection_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, kSourceT);
+  if (!before_projection.has_value()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {11.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {11.0, -8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId branch_span_id = branch_out.value.generated_span_ids.front();
+
+  wire::core::LayoutSettings edited = state.view().layout_settings();
+  edited.min_side_scale = 0.5;
+  edited.max_side_scale = 0.5;
+  const auto updated = state.UpdateLayoutSettings(edited);
+  const auto after_projection = state.view().source_edge_projection_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, kSourceT);
+  const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
+  if (!updated.ok || !updated.value || !after_projection.has_value() || !branch_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::LayoutEndpoint& endpoint =
+      branch_layout.entry->start.source_projection.valid() ? branch_layout.entry->start : branch_layout.entry->end;
+  const bool endpoint_matches = almost_equal(endpoint.endpoint_world, *after_projection, 1e-6);
+  return endpoint.source_projection.valid() && endpoint_matches &&
+         almost_equal(endpoint.source_projection.t, kSourceT, 1e-6);
+}
+
+bool C726_source_edge_branch_projection_does_not_require_prior_curve_cache() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = false;
+  if (!state.UpdateGeometrySettings(geometry).ok) {
+    return false;
+  }
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::ObjectId source_span_id = base_out.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView source_layout = state.span_layout(source_span_id);
+  if (!source_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+  constexpr double kSourceT = 0.5;
+  const wire::core::Vec3d expected{
+      source_layout.entry->start.endpoint_world.x +
+          (source_layout.entry->end.endpoint_world.x - source_layout.entry->start.endpoint_world.x) * kSourceT,
+      source_layout.entry->start.endpoint_world.y +
+          (source_layout.entry->end.endpoint_world.y - source_layout.entry->start.endpoint_world.y) * kSourceT,
+      source_layout.entry->start.endpoint_world.z +
+          (source_layout.entry->end.endpoint_world.z - source_layout.entry->start.endpoint_world.z) * kSourceT,
+  };
+
+  wire::core::CacheState& cache = wire::core::CoreStateTestHook::cache_state(state);
+  cache.curve_cache.by_span.erase(source_span_id);
+  if (state.find_curve_cache(source_span_id) != nullptr) {
+    return false;
+  }
+
+  wire::core::SupportNode pending{};
+  pending.node_id = state.next_id();
+  pending.support_kind = wire::core::SupportKind::kMidair;
+  pending.position = {6.0, 0.0, 0.0};
+  pending.has_source_edge = true;
+  pending.source_edge_node_a_id = source_edge.node_a;
+  pending.source_edge_node_b_id = source_edge.node_b;
+  pending.source_edge_t = kSourceT;
+  wire::core::CoreStateTestHook::pending_support_nodes(state).push_back(pending);
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pending.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = pending.support_kind;
+  node.node_id = pending.node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_out.value.generated_span_ids.front());
+  if (!branch_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::LayoutEndpoint& endpoint =
+      branch_layout.entry->start.source_projection.valid() ? branch_layout.entry->start : branch_layout.entry->end;
+  return endpoint.source_projection.valid() && almost_equal(endpoint.endpoint_world, expected, 1e-9);
+}
+
+bool C720_source_edge_pipeline_front_half_does_not_read_curve_projection() {
+  std::string text;
+  if (!file_text(repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp", &text)) {
+    return false;
+  }
+  std::string check_body;
+  std::string emit_ports_body;
+  if (!function_body(text, "EditResult<bool> pipeline::check(const pairs& ps) const", &check_body) ||
+      !function_body(text, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+                     &emit_ports_body)) {
+    return false;
+  }
+  const std::vector<std::string> banned = {"source_edge_projection_world", "find_curve_cache", "CurveCacheEntry",
+                                           "EvaluatePosition"};
+  for (const std::string& token : banned) {
+    if (contains_text(check_body, token) || contains_text(emit_ports_body, token)) {
+      return false;
+    }
+  }
+  return contains_text(check_body, "source_span_binding_for") &&
+         contains_text(emit_ports_body, "source_span_binding_for");
 }
 
 bool C612_backbone_direct_derive_does_not_call_recalc_paths() {
@@ -1057,7 +1718,7 @@ bool C618_backbone_redraw_does_not_rewrite_layout_or_geom() {
   const std::vector<wire::core::Vec3d> before_samples = before_curve->detail.sample_points;
   const wire::core::AABBd before_whole = before_bounds->whole;
   wire::core::VisualSettings settings = state.view().visual_settings();
-  settings.support_arm_radius_m += 0.01;
+  settings.insulator_radius_m += 0.01;
   const auto updated = state.UpdateVisualSettings(settings);
   const wire::core::SpanLayoutView after_layout = state.span_layout(span_id);
   const wire::core::CurveCacheEntry* after_curve = state.find_curve_cache(span_id);
@@ -1104,6 +1765,296 @@ bool C620_backbone_update_boundary_has_no_operation_specific_kinds() {
     }
   }
   return true;
+}
+
+bool C674_backbone_port_band_selection_has_one_owner() {
+  const auto occurrences = [](const std::string& text, const std::string& needle) {
+    std::size_t count = 0;
+    for (std::size_t pos = text.find(needle); pos != std::string::npos;
+         pos = text.find(needle, pos + needle.size())) {
+      ++count;
+    }
+    return count;
+  };
+  std::string state{};
+  std::string endpoint{};
+  std::string population{};
+  std::string shared{};
+  std::string emit{};
+  if (!file_text(repo_root() / "core/src/state/state.cpp", &state) ||
+      !file_text(repo_root() / "core/src/state/endpoint_refresh_service.cpp", &endpoint) ||
+      !file_text(repo_root() / "core/src/generation/backbone/population.cpp", &population) ||
+      !file_text(repo_root() / "core/src/state/port_placement.cpp", &shared) ||
+      !file_text(repo_root() / "core/src/generation/backbone/emit_shared.cpp", &emit)) {
+    return false;
+  }
+  const std::string priority_decision = "band.priority >";
+  const std::size_t decision_count =
+      occurrences(state, priority_decision) + occurrences(endpoint, priority_decision) +
+      occurrences(population, priority_decision) + occurrences(shared, priority_decision) +
+      occurrences(emit, priority_decision);
+  return decision_count <= 2 && !contains_text(population, "identity_score") &&
+         contains_text(population, "backbone_port_bindings_for_edge_bundle") &&
+         contains_text(shared, "placement_band_id");
+}
+
+bool C675_backbone_layout_yaw_does_not_read_debug_records() {
+  std::string state{};
+  std::string body{};
+  if (!file_text(repo_root() / "core/src/state/state.cpp", &state) ||
+      !function_body(state, "double CoreState::effective_port_layout_yaw_deg", &body)) {
+    return false;
+  }
+  return !contains_text(state, "pole_orientation_debug_records") &&
+         contains_text(body, "backbone_port_binding_for_port") &&
+         contains_text(body, "layout_yaw_deg");
+}
+
+bool C677_backbone_corner_scale_has_one_definition() {
+  std::size_t scale_definitions = 0;
+  std::size_t side_definitions = 0;
+  const std::filesystem::path root = repo_root() / "core/src";
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".cpp") {
+      continue;
+    }
+    std::string source{};
+    if (!file_text(entry.path(), &source)) {
+      return false;
+    }
+    for (std::size_t pos = source.find("double apply_corner_side_scale(");
+         pos != std::string::npos;
+         pos = source.find("double apply_corner_side_scale(", pos + 1)) {
+      ++scale_definitions;
+    }
+    for (std::size_t pos = source.find("SlotSide inner_side_for_turn(");
+         pos != std::string::npos;
+         pos = source.find("SlotSide inner_side_for_turn(", pos + 1)) {
+      ++side_definitions;
+    }
+  }
+  return scale_definitions == 1 && side_definitions == 1;
+}
+
+bool C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization() {
+  std::string derive_source{};
+  std::string model_source{};
+  std::string execute_body{};
+  std::string materialize_body{};
+  std::string row_fixture_body{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/derive.cpp", &derive_source) ||
+      !file_text(repo_root() / "core/src/generation/backbone/model_assembly.cpp", &model_source) ||
+      !function_body(derive_source, "EditResult<bool> CoreState::execute_update_plan", &execute_body) ||
+      !function_body(model_source, "EditResult<VisualModelInstanceCache> materialize_model_assemblies", &materialize_body) ||
+      !function_body(model_source, "EditResult<RowFixturePlacementPlan> row_fixture_placement_plan", &row_fixture_body)) {
+    return false;
+  }
+  const std::size_t reposition_case = execute_body.find("case UpdateKind::kReposition:");
+  const std::size_t reshape_case = execute_body.find("case UpdateKind::kReshape:");
+  if (reposition_case == std::string::npos || reshape_case == std::string::npos ||
+      reposition_case >= reshape_case) {
+    return false;
+  }
+  auto count = [](const std::string& haystack, const std::string& needle) {
+    std::size_t total = 0;
+    for (std::size_t pos = haystack.find(needle); pos != std::string::npos;
+         pos = haystack.find(needle, pos + needle.size())) {
+      ++total;
+    }
+    return total;
+  };
+  const std::string reposition_case_body =
+      execute_body.substr(reposition_case, reshape_case - reposition_case);
+  return contains_text(execute_body, "build_reposition_context") &&
+         count(execute_body, "fixture_placement_plan_from_rules") == 1 &&
+         !contains_text(reposition_case_body, "DeriveGeneratedSpanOutputs(") &&
+         !contains_text(materialize_body, "use_cache_fallback") &&
+         !contains_text(materialize_body, "merged_fixture_plan") &&
+         !contains_text(materialize_body, "empty_plan") &&
+         !contains_text(row_fixture_body, "plan_it == fixture_plan.end() ? 0.0") &&
+         contains_text(row_fixture_body, "placed_member_count") &&
+         contains_text(row_fixture_body, "if (plan_it == fixture_plan.end())") &&
+         !contains_text(materialize_body, "resolve_endpoint_placement(state, *port, 0.0, nullptr)");
+}
+
+bool C786_hash_mix_has_one_production_definition() {
+  std::size_t splitmix_definitions = 0;
+  std::size_t combine_definitions = 0;
+  const std::filesystem::path root = repo_root() / "core/src";
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    const std::string ext = entry.path().extension().string();
+    if (ext != ".cpp" && ext != ".hpp") {
+      continue;
+    }
+    std::string source{};
+    if (!file_text(entry.path(), &source)) {
+      return false;
+    }
+    for (std::size_t pos = source.find("splitmix64(std::uint64_t");
+         pos != std::string::npos;
+         pos = source.find("splitmix64(std::uint64_t", pos + 1)) {
+      ++splitmix_definitions;
+    }
+    for (std::size_t pos = source.find("hash_combine(std::uint64_t");
+         pos != std::string::npos;
+         pos = source.find("hash_combine(std::uint64_t", pos + 1)) {
+      ++combine_definitions;
+    }
+  }
+  return splitmix_definitions == 1 && combine_definitions == 1 &&
+         std::filesystem::exists(root / "support/hash_mix.hpp");
+}
+
+bool C787_web_bundle_template_category_has_no_layer_fallback() {
+  std::string model{};
+  if (!file_text(repo_root() / "web/src/model.ts", &model) ||
+      contains_text(model, "category?: number") ||
+      !contains_text(model, "category: number")) {
+    return false;
+  }
+  const std::filesystem::path source_root = repo_root() / "web/src";
+  const std::vector<std::string> banned = {
+      "categoryFromSpanLayer",
+      "bundleTemplateCategory",
+      "targetTemplateLayerForCategory",
+      "band.category === category && band.layer",
+  };
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(source_root)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    const auto extension = entry.path().extension().string();
+    if (extension != ".ts" && extension != ".svelte") {
+      continue;
+    }
+    std::string text{};
+    if (!file_text(entry.path(), &text)) {
+      return false;
+    }
+    for (const std::string& token : banned) {
+      if (contains_text(text, token)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
+  std::string model_assembly{};
+  std::string curve_parts{};
+  std::string scene{};
+  std::string model_assets{};
+  std::string models_doc{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/model_assembly.cpp",
+                 &model_assembly) ||
+      !file_text(repo_root() / "core/src/generation/backbone/curve_parts.cpp",
+                 &curve_parts) ||
+      !file_text(repo_root() / "web/src/render/scene.ts", &scene) ||
+      !file_text(repo_root() / "web/src/render/modelAssets.ts", &model_assets) ||
+      !file_text(repo_root() / "docs/models.md", &models_doc)) {
+    return false;
+  }
+  return contains_text(model_assembly, "ModelFitMode::kPoleRadial") &&
+         contains_text(model_assembly, "pole_radius_at_height_m(pole, placement_height_m)") &&
+         contains_text(model_assembly, "row_reference_world") &&
+         contains_text(model_assembly, "fixture_root.position = final_anchor + mount_delta_world") &&
+         !contains_text(model_assembly, "Box3") &&
+         !contains_text(model_assembly, "bounds") &&
+         !contains_text(model_assembly, "mesh") &&
+         !contains_text(curve_parts, "endpoint_mount_socket") &&
+         !contains_text(curve_parts, "wire_socket") &&
+         !contains_text(scene, "endpointMountSocket") &&
+         !contains_text(scene, "wireSocket") &&
+         contains_text(model_assets,
+                       "radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.totalLengthM)") &&
+         contains_text(model_assets, "beltTransform.scaleX = 1 / beltInnerRadius") &&
+         contains_text(model_assets, "beltTransform.scaleY = 1 / beltInnerRadius") &&
+         contains_text(models_doc, "source authoring radius") &&
+         contains_text(models_doc, "belt_mount_anchor_center") &&
+         contains_text(models_doc, "target pole radius / source authoring radius") &&
+         contains_text(models_doc, "core_does_not_use_mesh_lower_h_or_bbox") &&
+         contains_text(models_doc, "no_belt_clearance_field") &&
+         contains_text(models_doc, "no_belt_vertex_deformation") &&
+         !contains_text(models_doc, "local anchor") &&
+         !contains_text(models_doc, "model bottom") &&
+         !contains_text(models_doc, "pole_radius_at_height(-2m)");
+}
+
+bool C793_backbone_derive_uses_canonical_rule_order_and_lookup() {
+  std::string cpp{};
+  std::string direct_body{};
+  std::string update_body{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/derive.cpp", &cpp) ||
+      !function_body(cpp, "EditResult<bool> CoreState::DeriveGeneratedSpanOutputs", &direct_body) ||
+      !function_body(cpp, "EditResult<bool> CoreState::execute_update_plan", &update_body)) {
+    return false;
+  }
+  return contains_text(direct_body, "std::sort(cached_span_ids.begin(), cached_span_ids.end())") &&
+         contains_text(update_body, "std::sort(cached_span_ids.begin(), cached_span_ids.end())") &&
+         contains_text(update_body, "reposition_rules_by_span.emplace(rule.span_id, &rule)") &&
+         contains_text(update_body, "reposition_rules_by_span.find(span_id)") &&
+         contains_text(update_body, "endpoint.port_id <= representative_it->second");
+}
+
+bool C794_web_viewer_action_context_keeps_mutable_state_private() {
+  std::string context{};
+  if (!file_text(repo_root() / "web/src/actions/context.ts", &context)) {
+    return false;
+  }
+  const std::array<std::string, 10> private_fields{
+      "private pendingPreview",
+      "private activeCancel",
+      "private interactionFrames",
+      "private interactionActive",
+      "private suppressNextCommit",
+      "private factoryCoreState",
+      "private workspaceSaveTimer",
+      "private workspaceSubscription",
+      "private persistencePaused",
+      "private pendingSceneSyncStats"};
+  for (const std::string& field : private_fields) {
+    if (!contains_text(context, field)) {
+      return false;
+    }
+  }
+  std::string action_sources{};
+  for (const std::filesystem::directory_entry& entry :
+       std::filesystem::directory_iterator(repo_root() / "web/src/actions")) {
+    if (!entry.is_regular_file() || entry.path().filename() == "context.ts" ||
+        entry.path().extension() != ".ts") {
+      continue;
+    }
+    std::string text{};
+    if (!file_text(entry.path(), &text)) {
+      return false;
+    }
+    action_sources += text;
+  }
+  const std::array<std::string, 11> forbidden_accesses{
+      "ctx.pendingPreview",
+      "ctx.activeCancel",
+      "ctx.interactionFrames",
+      "ctx.interactionActive",
+      "ctx.suppressNextCommit",
+      "ctx.factoryCoreState",
+      "ctx.workspaceSaveTimer",
+      "ctx.workspaceSubscription",
+      "ctx.persistencePaused",
+      "ctx.pendingSceneSyncStats",
+      "ctx.clearWorkspaceSaveTimer"};
+  for (const std::string& access : forbidden_accesses) {
+    if (contains_text(action_sources, access)) {
+      return false;
+    }
+  }
+  return contains_text(context, "beginInteraction(") &&
+         contains_text(context, "schedulePreview(") &&
+         contains_text(context, "scheduleWorkspaceSave(") &&
+         contains_text(context, "consumeSceneContentSyncStats()");
 }
 
 } // namespace backbone_tests

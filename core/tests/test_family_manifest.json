@@ -41,6 +41,13 @@
       "notes": "Derived outputs remain consumers of saved decisions."
     },
     {
+      "name": "backbone_population",
+      "status": "keep",
+      "owner": "Topology-neutral cable population",
+      "sources": ["core/tests/backbone/population.cpp"],
+      "notes": "Pure placement identity, pairing, constraints, and no-topology-mutation contracts."
+    },
+    {
       "name": "backbone_update",
       "status": "keep",
       "owner": "Coarse UpdateKind and direct derive contracts",
@@ -109,6 +116,13 @@
       "owner": "Public API and type boundary",
       "sources": ["core/tests/api_surface.cpp"],
       "notes": "Private backbone scratch types must not leak."
+    },
+    {
+      "name": "state_persistence",
+      "status": "keep",
+      "owner": "Authoritative state serialization, transactional load, and roundtrip equivalence",
+      "sources": ["core/tests/persistence.cpp"],
+      "notes": "Runtime and debug outputs are rebuilt rather than serialized."
     },
     {
       "name": "viewer_behavior",

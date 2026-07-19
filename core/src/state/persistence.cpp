@@ -269,6 +269,10 @@ public:
   bool compatible_field(const std::string& prefix, std::string_view name, const T& input, const T&) {
     return field(prefix, name, input);
   }
+  template <typename T>
+  bool legacy_field(const std::string&, std::string_view, const T&, const T&) {
+    return true;
+  }
 
   bool string_value(const std::string& key, const std::string& input) {
     writer_.string_value(key, input);
@@ -309,6 +313,10 @@ public:
       return true;
     }
     return value(key, output);
+  }
+  template <typename T>
+  bool legacy_field(const std::string& prefix, std::string_view name, T& output, const T& legacy_default) {
+    return compatible_field(prefix, name, output, legacy_default);
   }
 
   bool string_value(const std::string& key, std::string& output) {
@@ -531,8 +539,10 @@ static_assert(sizeof(SavedBackboneNode) == 120, "field added: update archive vis
 
 template <typename Archive, typename Value>
 bool archive_saved_edge(Archive& archive, const std::string& prefix, Value& value) {
-  return archive.field(prefix, "edge_id", value.edge_id) && archive.field(prefix, "node_a", value.node_a) && archive.field(prefix, "node_b", value.node_b) && archive.field(prefix, "route", value.route) &&
-         archive.field(prefix, "order", value.order) && archive_vec3(archive, child(prefix, "dir"), value.dir) &&
+  return archive.field(prefix, "edge_id", value.edge_id) && archive.field(prefix, "node_a", value.node_a) && archive.field(prefix, "node_b", value.node_b) &&
+         archive.legacy_field(prefix, "route", value.route, std::size_t{0}) &&
+         archive.legacy_field(prefix, "order", value.order, std::size_t{0}) &&
+         archive_vec3(archive, child(prefix, "dir"), value.dir) &&
          archive.field(prefix, "lateral_offset_m", value.lateral_offset_m);
 }
 
@@ -543,7 +553,9 @@ static_assert(sizeof(SavedBackboneEdge) == 72, "field added: update archive visi
 template <typename Archive, typename Value>
 bool archive_saved_edge_bundle(Archive& archive, const std::string& prefix, Value& value) {
   if (!archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) || !archive.field(prefix, "edge_id", value.edge_id) || !archive.field(prefix, "bundle_id", value.bundle_id) ||
-      !archive.field(prefix, "edge_forward", value.edge_forward) || !archive.field(prefix, "route", value.route) || !archive.field(prefix, "order", value.order) ||
+      !archive.field(prefix, "edge_forward", value.edge_forward) ||
+      !archive.legacy_field(prefix, "route", value.route, std::size_t{0}) ||
+      !archive.legacy_field(prefix, "order", value.order, std::size_t{0}) ||
       !archive_vec3(archive, child(prefix, "dir"), value.dir)) return false;
   std::size_t count = value.span_ids.size();
   if (!archive.count(child(prefix, "span_ids.count"), count)) return false;
@@ -1179,6 +1191,10 @@ public:
   template <typename T>
   bool compatible_field(const std::string& prefix, std::string_view name, const T& input, const T&) {
     return field(prefix, name, input);
+  }
+  template <typename T>
+  bool legacy_field(const std::string&, std::string_view, const T&, const T&) {
+    return true;
   }
   bool string_value(const std::string& key, const std::string& input) {
     fields_.string_value(key, input);

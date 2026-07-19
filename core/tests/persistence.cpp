@@ -11,6 +11,7 @@
 #include <bit>
 #include <cstdint>
 #include <filesystem>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -535,6 +536,27 @@ bool C801_authoritative_v2_rejects_broken_row_continuity_reference() {
   return !out.ok && out.error.find("backbone internal: row continuity endpoint is missing") != std::string::npos;
 }
 
+bool C806_authoritative_v2_does_not_persist_backbone_route_order() {
+  wire::core::CoreState source;
+  std::string saved{};
+  DerivedSnapshot ignored{};
+  if (!make_roundtrip_source(&source, &saved, &ignored)) return false;
+
+  std::istringstream lines(saved);
+  std::string line{};
+  while (std::getline(lines, line)) {
+    const bool backbone_edge =
+        line.rfind("authoritative.backbone.edges.", 0) == 0 ||
+        line.rfind("authoritative.backbone.edge_bundles.", 0) == 0;
+    if (backbone_edge &&
+        (line.find(".route=") != std::string::npos ||
+         line.find(".order=") != std::string::npos)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C756_persistence_has_no_type_specific_write_read_wrappers() {
   const std::filesystem::path source = backbone_tests::repo_root() / "core" / "src" / "state" / "persistence.cpp";
   std::string text{};
@@ -703,6 +725,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "authoritative v2 load rejects broken row continuity references",
                          "Boundary", true,
                          C801_authoritative_v2_rejects_broken_row_continuity_reference);
+  test_registry::AddTest(tests, "C806_authoritative_v2_does_not_persist_backbone_route_order",
+                         "authoritative v2 does not persist backbone route/order helpers",
+                         "Boundary", false,
+                         C806_authoritative_v2_does_not_persist_backbone_route_order);
   test_registry::AddTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
                          "persistence derives write and read from type archive visitors",
                          "Boundary", false, C756_persistence_has_no_type_specific_write_read_wrappers);

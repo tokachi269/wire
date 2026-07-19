@@ -54,6 +54,181 @@ struct RegenerateTarget {
   std::vector<ObjectId> retired_ports{};
 };
 
+struct ContinuityNeighbor {
+  ObjectId edge_id = kInvalidObjectId;
+  ObjectId via_node_id = kInvalidObjectId;
+};
+
+struct LoadedRouteEdge {
+  const SavedBackboneEdge* edge = nullptr;
+  ObjectId from_node_id = kInvalidObjectId;
+  ObjectId to_node_id = kInvalidObjectId;
+  Vec3d dir{};
+};
+
+ObjectId other_edge_node(const SavedBackboneEdge& edge, ObjectId node_id) {
+  if (edge.node_a == node_id) return edge.node_b;
+  if (edge.node_b == node_id) return edge.node_a;
+  return kInvalidObjectId;
+}
+
+Vec3d oriented_edge_dir(const SavedBackboneEdge& edge, ObjectId from_node_id, ObjectId to_node_id) {
+  if (edge.node_a == from_node_id && edge.node_b == to_node_id) return edge.dir;
+  if (edge.node_b == from_node_id && edge.node_a == to_node_id) return ScaleVec(edge.dir, -1.0);
+  return edge.dir;
+}
+
+void add_continuity_neighbor(
+    std::unordered_map<ObjectId, std::vector<ContinuityNeighbor>>* adjacency,
+    ObjectId edge_id,
+    ObjectId neighbor_edge_id,
+    ObjectId via_node_id) {
+  if (adjacency == nullptr || edge_id == kInvalidObjectId ||
+      neighbor_edge_id == kInvalidObjectId || edge_id == neighbor_edge_id ||
+      via_node_id == kInvalidObjectId) {
+    return;
+  }
+  std::vector<ContinuityNeighbor>& neighbors = (*adjacency)[edge_id];
+  const auto duplicate = std::find_if(neighbors.begin(), neighbors.end(), [&](const ContinuityNeighbor& item) {
+    return item.edge_id == neighbor_edge_id && item.via_node_id == via_node_id;
+  });
+  if (duplicate == neighbors.end()) {
+    neighbors.push_back(ContinuityNeighbor{neighbor_edge_id, via_node_id});
+  }
+}
+
+EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes_from_saved_graph(
+    const SavedBackboneGraph& graph) {
+  EditResult<std::vector<std::vector<LoadedRouteEdge>>> result{};
+  std::unordered_map<ObjectId, const SavedBackboneEdge*> edge_by_id{};
+  std::unordered_map<ObjectId, const SavedBackboneEdgeBundle*> edge_bundle_by_id{};
+  for (const SavedBackboneEdge& edge : graph.edges) {
+    edge_by_id[edge.edge_id] = &edge;
+  }
+  for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    edge_bundle_by_id[edge_bundle.edge_bundle_id] = &edge_bundle;
+  }
+
+  std::unordered_map<ObjectId, std::vector<ContinuityNeighbor>> adjacency{};
+  for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+    const auto a_it = edge_bundle_by_id.find(continuity.a.edge_bundle_id);
+    const auto b_it = edge_bundle_by_id.find(continuity.b.edge_bundle_id);
+    if (a_it == edge_bundle_by_id.end() || b_it == edge_bundle_by_id.end()) {
+      result.error = "authoritative deserialization: row continuity edge bundle is missing";
+      return result;
+    }
+    add_continuity_neighbor(&adjacency, a_it->second->edge_id, b_it->second->edge_id, continuity.node_id);
+    add_continuity_neighbor(&adjacency, b_it->second->edge_id, a_it->second->edge_id, continuity.node_id);
+  }
+
+  std::vector<ObjectId> remaining{};
+  remaining.reserve(graph.edges.size());
+  for (const SavedBackboneEdge& edge : graph.edges) {
+    remaining.push_back(edge.edge_id);
+  }
+  auto remove_remaining = [&](ObjectId edge_id) {
+    remaining.erase(std::remove(remaining.begin(), remaining.end(), edge_id), remaining.end());
+  };
+  auto degree = [&](ObjectId edge_id) {
+    const auto it = adjacency.find(edge_id);
+    return it == adjacency.end() ? std::size_t{0} : it->second.size();
+  };
+  auto choose_start = [&]() {
+    ObjectId selected = kInvalidObjectId;
+    for (ObjectId edge_id : remaining) {
+      if (selected == kInvalidObjectId ||
+          (degree(edge_id) <= 1 && (degree(selected) > 1 || edge_id < selected)) ||
+          (degree(edge_id) == degree(selected) && edge_id < selected)) {
+        selected = edge_id;
+      }
+    }
+    return selected;
+  };
+
+  while (!remaining.empty()) {
+    const ObjectId start_id = choose_start();
+    const auto start_it = edge_by_id.find(start_id);
+    if (start_it == edge_by_id.end()) {
+      result.error = "authoritative deserialization: saved route edge is missing";
+      return result;
+    }
+    std::vector<const SavedBackboneEdge*> edges{};
+    std::vector<ObjectId> shared_nodes{};
+    ObjectId previous_edge_id = kInvalidObjectId;
+    ObjectId current_edge_id = start_id;
+    for (;;) {
+      const auto current_it = edge_by_id.find(current_edge_id);
+      if (current_it == edge_by_id.end()) {
+        result.error = "authoritative deserialization: saved route edge is missing";
+        return result;
+      }
+      if (std::find(remaining.begin(), remaining.end(), current_edge_id) == remaining.end()) {
+        result.error = "authoritative deserialization: saved route continuity cycle is ambiguous";
+        return result;
+      }
+      edges.push_back(current_it->second);
+      remove_remaining(current_edge_id);
+
+      std::vector<ContinuityNeighbor> next_candidates{};
+      const auto neighbors_it = adjacency.find(current_edge_id);
+      if (neighbors_it != adjacency.end()) {
+        for (const ContinuityNeighbor& neighbor : neighbors_it->second) {
+          if (neighbor.edge_id != previous_edge_id) {
+            next_candidates.push_back(neighbor);
+          }
+        }
+      }
+      if (next_candidates.empty()) {
+        break;
+      }
+      if (next_candidates.size() > 1) {
+        result.error = "authoritative deserialization: saved route continuity is ambiguous";
+        return result;
+      }
+      shared_nodes.push_back(next_candidates.front().via_node_id);
+      previous_edge_id = current_edge_id;
+      current_edge_id = next_candidates.front().edge_id;
+    }
+
+    std::vector<LoadedRouteEdge> route{};
+    route.reserve(edges.size());
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+      const SavedBackboneEdge& edge = *edges[i];
+      ObjectId from_node_id = kInvalidObjectId;
+      ObjectId to_node_id = kInvalidObjectId;
+      if (edges.size() == 1) {
+        from_node_id = edge.node_a;
+        to_node_id = edge.node_b;
+      } else if (i == 0) {
+        to_node_id = shared_nodes.front();
+        from_node_id = other_edge_node(edge, to_node_id);
+      } else if (i + 1 == edges.size()) {
+        from_node_id = shared_nodes[i - 1];
+        to_node_id = other_edge_node(edge, from_node_id);
+      } else {
+        from_node_id = shared_nodes[i - 1];
+        to_node_id = shared_nodes[i];
+      }
+      if (from_node_id == kInvalidObjectId || to_node_id == kInvalidObjectId ||
+          from_node_id == to_node_id) {
+        result.error = "authoritative deserialization: saved route continuity endpoint is invalid";
+        return result;
+      }
+      route.push_back(LoadedRouteEdge{&edge, from_node_id, to_node_id,
+                                      oriented_edge_dir(edge, from_node_id, to_node_id)});
+    }
+    result.value.push_back(std::move(route));
+  }
+
+  std::sort(result.value.begin(), result.value.end(), [](const auto& a, const auto& b) {
+    const ObjectId a_id = a.empty() || a.front().edge == nullptr ? kInvalidObjectId : a.front().edge->edge_id;
+    const ObjectId b_id = b.empty() || b.front().edge == nullptr ? kInvalidObjectId : b.front().edge->edge_id;
+    return a_id < b_id;
+  });
+  result.ok = true;
+  return result;
+}
+
 bool port_is_retired_only(const CoreState& state, ObjectId port_id,
                           const std::vector<ObjectId>& retired_spans,
                           const std::vector<ObjectId>& edge_bundle_ids,
@@ -463,43 +638,22 @@ EditResult<bool> CoreState::regenerate_backbone_span_override(ObjectId span_id, 
 EditResult<bool> CoreState::rebuild_loaded_outputs() {
   EditResult<bool> result{};
   const SavedBackboneGraph saved = view().backbone();
-  std::vector<std::vector<const SavedBackboneEdge*>> saved_routes{};
-  std::vector<const SavedBackboneEdge*> remaining{};
-  remaining.reserve(saved.edges.size());
-  for (const SavedBackboneEdge& edge : saved.edges) remaining.push_back(&edge);
-  while (!remaining.empty()) {
-    const auto start = std::min_element(remaining.begin(), remaining.end(),
-        [](const SavedBackboneEdge* a, const SavedBackboneEdge* b) {
-          const bool a_start = a->order == 0;
-          const bool b_start = b->order == 0;
-          return a_start != b_start ? a_start : a->edge_id < b->edge_id;
-        });
-    if (start == remaining.end() || (*start)->order != 0) {
-      result.error = "authoritative deserialization: saved route has no order-zero edge";
-      return result;
-    }
-    std::vector<const SavedBackboneEdge*> edges{*start};
-    remaining.erase(start);
-    while (true) {
-      const SavedBackboneEdge* previous = edges.back();
-      const auto next = std::find_if(remaining.begin(), remaining.end(),
-          [&](const SavedBackboneEdge* candidate) {
-            return candidate->route == previous->route && candidate->order == previous->order + 1 &&
-                   candidate->node_a == previous->node_b;
-          });
-      if (next == remaining.end()) break;
-      edges.push_back(*next);
-      remaining.erase(next);
-    }
-    saved_routes.push_back(std::move(edges));
+  EditResult<std::vector<std::vector<LoadedRouteEdge>>> saved_routes =
+      continuity_routes_from_saved_graph(saved);
+  if (!saved_routes.ok) {
+    result.error = saved_routes.error;
+    return result;
   }
 
-  for (const std::vector<const SavedBackboneEdge*>& edges : saved_routes) {
+  for (const std::vector<LoadedRouteEdge>& edges : saved_routes.value) {
+    if (edges.empty()) {
+      continue;
+    }
 
     generation::backbone::graph graph{};
     for (std::size_t i = 0; i <= edges.size(); ++i) {
-      const ObjectId node_id = i == 0 ? edges.front()->node_a : edges[i - 1]->node_b;
-      if (i > 0 && i < edges.size() && edges[i]->node_a != node_id) {
+      const ObjectId node_id = i == 0 ? edges.front().from_node_id : edges[i - 1].to_node_id;
+      if (i > 0 && i < edges.size() && edges[i].from_node_id != node_id) {
         result.error = "authoritative deserialization: saved route is not contiguous";
         return result;
       }
@@ -528,10 +682,10 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       link.id = static_cast<int>(i);
       link.a = static_cast<int>(i);
       link.b = static_cast<int>(i + 1);
-      link.route = edges[i]->route;
-      link.order = edges[i]->order;
-      link.dir = edges[i]->dir;
-      link.saved = edges[i]->edge_id;
+      link.route = 0;
+      link.order = i;
+      link.dir = edges[i].dir;
+      link.saved = edges[i].edge->edge_id;
       link.is_new = true;
       graph.links.push_back(std::move(link));
     }
@@ -562,8 +716,8 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       return graph.nodes.back().id;
     };
     std::unordered_set<ObjectId> route_edge_ids{};
-    for (const SavedBackboneEdge* route_edge : edges) route_edge_ids.insert(route_edge->edge_id);
-    const std::size_t context_route_offset = saved_routes.size() + saved.edges.size() + 1;
+    for (const LoadedRouteEdge& route_edge : edges) route_edge_ids.insert(route_edge.edge->edge_id);
+    const std::size_t context_route_offset = saved_routes.value.size() + saved.edges.size() + 1;
     for (const SavedBackboneEdge& candidate : saved.edges) {
       if (route_edge_ids.contains(candidate.edge_id) ||
           (!node_index.contains(candidate.node_a) && !node_index.contains(candidate.node_b))) continue;
@@ -587,10 +741,10 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
 
     BackboneSpec spec{};
     spec.pole_type_id = kInvalidPoleTypeId;
-    spec.constraints.lateral_offset_m = edges.front()->lateral_offset_m;
+    spec.constraints.lateral_offset_m = edges.front().edge->lateral_offset_m;
     std::vector<std::size_t> active_bundle_indices{};
     for (const SavedBackboneEdgeBundle& edge_bundle : saved.edge_bundles) {
-      if (edge_bundle.edge_id != edges.front()->edge_id) continue;
+      if (edge_bundle.edge_id != edges.front().edge->edge_id) continue;
       const Bundle* bundle = authoritative_.edit_state.bundles.find(edge_bundle.bundle_id);
       if (bundle == nullptr) {
         result.error = "authoritative deserialization: saved edge bundle is missing its bundle";

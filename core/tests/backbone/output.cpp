@@ -1982,7 +1982,7 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
   endpoint_part.part_id = 1;
   endpoint_part.model_key = "hv_insulator";
   endpoint_part.descriptor_version = 11;
-  endpoint_part.sockets.push_back({"wire", {0.0, 0.0, -0.25}, {1.0, 0.0, 0.0}});
+  endpoint_part.sockets.push_back({"wire", {0.0, 0.0, 0.18}, {1.0, 0.0, 0.0}});
   endpoint_assembly.parts.push_back(endpoint_part);
   endpoint_assembly.wire_socket = wire::core::AssemblySocketRef{1, "wire"};
   if (!state.RegisterModelAssemblyTemplate(pole_assembly).ok ||
@@ -2273,8 +2273,7 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
   row_part.part_id = 1;
   row_part.model_key = "hv_crossarm";
   row_part.descriptor_version = 12;
-  row_part.local_transform.position = {0.02, 0.0, 0.0};
-  row_part.fit_mode = wire::core::ModelFitMode::kPoleSurface;
+  row_part.fit_mode = wire::core::ModelFitMode::kRigid;
   row_part.sockets.push_back({"endpoint_mount", {0.0, 0.0, 0.04}, {0.0, 0.0, 1.0}});
   row_assembly.parts.push_back(row_part);
   row_assembly.endpoint_mount_socket =
@@ -2341,6 +2340,14 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
                local_socket.y * fixture->world_transform.scale.y,
                local_socket.z * fixture->world_transform.scale.z},
               fixture->world_transform.rotation_euler_deg);
+      const wire::core::PoleFrame frame =
+          wire::core::BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
+      const wire::core::Vec3d final_anchor =
+          port->world_position - wire::core::ScaleVec(frame.up, endpoint.branch_down_offset_m);
+      const wire::core::Vec3d expected_fixture_root =
+          final_anchor + wire::core::ScaleVec(frame.up, row_part.sockets.front().local_position.z);
+      const wire::core::Vec3d expected_wire_socket =
+          expected_fixture_root + wire::core::ScaleVec(frame.up, endpoint_part.sockets.front().local_position.z);
       visible_sockets_by_pole[port->owner_pole_id].push_back(visible_socket);
       const auto [offset_it, inserted] =
           port_down_offsets.emplace(endpoint.port_id, endpoint.branch_down_offset_m);
@@ -2349,6 +2356,9 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
       }
       if (endpoint.default_lower_required) {
         if (endpoint.branch_down_offset_m <= 0.1 ||
+            !almost_equal(fixture->world_transform.position, expected_fixture_root, 1e-9) ||
+            !almost_equal(visible_socket, expected_wire_socket, 1e-9) ||
+            almost_equal(endpoint.endpoint_world, port->world_position, 1e-9) ||
             !almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9) ||
             !almost_equal(endpoint.endpoint_world, visible_socket, 1e-9) ||
             !almost_equal(*endpoint_and_curve.second, visible_socket, 1e-9)) {
@@ -2363,7 +2373,10 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
                          port->world_position.z - endpoint.branch_down_offset_m * 0.5;
             });
         saw_lowered_socket = true;
-      } else if (!almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9) ||
+      } else if (!almost_equal(fixture->world_transform.position, expected_fixture_root, 1e-9) ||
+                 !almost_equal(visible_socket, expected_wire_socket, 1e-9) ||
+                 almost_equal(endpoint.endpoint_world, port->world_position, 1e-9) ||
+                 !almost_equal(endpoint.support_world, endpoint.endpoint_world, 1e-9) ||
                  !almost_equal(endpoint.endpoint_world, visible_socket, 1e-9)) {
         return false;
       }
@@ -2454,10 +2467,8 @@ bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
        state.view().visual_model_instances().instances) {
     const auto before_version = model_versions.find(instance.stable_key);
     if (before_version == model_versions.end()) return false;
-    if (instance.model_key == "hv_crossarm" &&
+    if ((instance.model_key == "hv_crossarm" || instance.model_key == "hv_insulator") &&
         before_version->second == instance.content_version) return false;
-    if (instance.model_key == "hv_insulator" &&
-        before_version->second != instance.content_version) return false;
   }
 
   std::unordered_map<std::string, wire::core::Vec3d> fixture_positions{};

@@ -218,7 +218,8 @@ function expectBootstrapInsulatorSocketsOnStraightHvEndpoints(
       const endpoint = partsPoint(sortedParts[index]);
       const insulator = insulators[index];
       expect(Number((insulator.positionZ + 0.18).toFixed(6))).toBe(Number(endpoint[2].toFixed(6)));
-      expect(distance(modelPosition(insulator), modelPosition(crossarm!))).toBeGreaterThan(0.17);
+      expect(Number((insulator.positionZ - crossarm!.positionZ).toFixed(6))).toBe(0.12);
+      expect(distance(modelPosition(insulator), modelPosition(crossarm!))).toBeGreaterThan(0.05);
     }
   };
   assertPole(0, startPoint);
@@ -301,8 +302,7 @@ function assertNonFlaggedSpanLayoutsAtPortHeight(state: WireStateHandle) {
       expect(endpoint.defaultLowerRequired, span.id).toBe(false);
       expect(endpoint.lowerRequired, span.id).toBe(false);
       expect(endpoint.branchDownOffset, span.id).toBeLessThanOrEqual(1e-9);
-      expect(Number(endpoint.supportZ.toFixed(6)), span.id).toBe(Number(port!.z.toFixed(6)));
-      expect(Number(endpoint.endpointZ.toFixed(6)), span.id).toBe(Number(port!.z.toFixed(6)));
+      expect(Number(endpoint.supportZ.toFixed(6)), span.id).toBe(Number(endpoint.endpointZ.toFixed(6)));
     }
   }
 }
@@ -566,11 +566,12 @@ describe("wire wasm smoke", () => {
     )).toBeGreaterThan(0.17);
     const oldInsulator = oldModels.find((model) => model.modelKey === "hv_insulator")!;
     const newInsulator = newModels.find((model) => model.stableKey === oldInsulator.stableKey)!;
+    expect(newInsulator.contentVersion).not.toBe(oldInsulator.contentVersion);
     expect(Math.hypot(
       newInsulator.positionX - oldInsulator.positionX,
       newInsulator.positionY - oldInsulator.positionY,
       newInsulator.positionZ - oldInsulator.positionZ
-    )).toBeLessThan(1e-9);
+    )).toBeGreaterThan(0.05);
     oldState.delete();
     restored.delete();
   });

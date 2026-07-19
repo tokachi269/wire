@@ -2,6 +2,8 @@
 
 このドキュメントは、現在の backbone 生成本流の契約をまとめる。
 現在の実装は移行中に `bb2` と呼んでいたが、production code と現行testは `backbone` を正とする。
+操作前の状態と操作の組合せごとの期待遷移は
+`backbone_operation_semantics.md`を正本とする。未定義セルは実装で補完しない。
 
 ## 全体構造
 

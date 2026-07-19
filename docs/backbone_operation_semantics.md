@@ -80,6 +80,12 @@ endpoint fixtureはPort単位ではなく派生した`(row, lane)`単位で生�
 2 fixtureを生成する。角度変更ではPort identityとcontinuityを維持し、row、fixture、
 NodePatch、jumperだけを再導出する。
 
+`SavedBackboneRowKey`は`(node_id, edge_id)`だけを保存し、1つのedge endpointを識別する。
+pair/openの表現、peer edge、row axisは保存しない。接続済みpeerは
+`SavedBackboneRowContinuity`から解決し、現在のincident edge幾何と既存のcorner規則を
+1つの派生処理へ渡して、共有rowまたは2 open rowを決める。通常角のrow axisは従来どおり
+2 edgeの単位接線二等分線から決め、鋭角の各row axisは各edge方向から決める。
+
 5本のincident edgeは、2接続pairと未接続1本なら3 support levelを使う。
 1 levelは1接続pairまたは1未接続openを収容する。鋭角pairの2 open rowは
 同じlevelを使うが、fixtureを潰さないため別support groupを持つ。
@@ -88,7 +94,9 @@ NodePatch、jumperだけを再導出する。
 
 共有Portを含む既存`wire_state_v2`はload時にedge endpoint別Portへ移行する。
 片側endpointへ決定的に新しいObjectIdを割り当て、そのedge bundleのPort bindingと
-Span endpoint参照を同じIDへ書き換える。高さ、edge ID、Bundle ID、container順から
+Span endpoint参照を同じIDへ書き換える。pair row keyは、各bindingが所有する
+edge bundleのedge IDを使う`(node_id, edge_id)`へ分割する。高さ、edge IDの大小、
+Bundle ID、container順から
 接続相手を推測せず、既存のrow continuityとbindingだけを使う。
 
 分割対象または書き換えるendpointを一意に特定できないsaveは、部分適用せず
@@ -99,7 +107,7 @@ curve endpointの意味値を一致させ、load後の再saveは新形式へ正�
 
 | ID | 決定 | 必須検証 |
 |---|---|---|
-| `D1` | Portは常にedge endpoint別identityとし、通常角の共有row/fixtureだけを導出する | 通常角2 Portのworld位置bit一致、laneあたりfixture 1個、角度変更時のPort ID不変、v2共有Port migration前後の派生出力等価 |
+| `D1` | Portと`SavedBackboneRowKey(node_id, edge_id)`は常にedge endpoint別identityとし、pair/open、peer edge、row/fixtureはcontinuityと現在幾何から導出する | 通常角2 Portのworld位置bit一致、laneあたりfixture 1個、角度変更時のPort/RowKey不変、NodePatch↔jumper切替、v2共有Port/pair key migration前後の派生出力等価 |
 
 ## 未定義セル
 

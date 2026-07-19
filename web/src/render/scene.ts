@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type {
   PathPickInfo,
+  PoleInfo,
   SceneContentSyncStats,
   SupportNodeInfo,
   VisualModelInstanceInfo
@@ -65,6 +66,24 @@ export function makeBackbonePick(point: WorldPoint, hitKind: number, hitId: stri
 
 export function backboneNodeHitId(node: SupportNodeInfo): string {
   return node.id;
+}
+
+export function poleAxisEndpoints(pole: PoleInfo): [THREE.Vector3, THREE.Vector3] {
+  const root = new THREE.Object3D();
+  setPoleRotation(root, pole.rotationX, pole.rotationY, pole.rotationZ);
+  const base = new THREE.Vector3(pole.positionX, pole.positionY, pole.positionZ);
+  const top = new THREE.Vector3(0, 0, pole.height * pole.scaleZ).applyEuler(root.rotation).add(base);
+  return [base, top];
+}
+
+export function distanceToScreenSegmentPx(point: THREE.Vector2, a: THREE.Vector2, b: THREE.Vector2): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length2 = dx * dx + dy * dy;
+  const t = length2 > 0
+    ? THREE.MathUtils.clamp(((point.x - a.x) * dx + (point.y - a.y) * dy) / length2, 0, 1)
+    : 0;
+  return point.distanceTo(new THREE.Vector2(a.x + dx * t, a.y + dy * t));
 }
 
 export function setPoleRotation(
@@ -555,12 +574,21 @@ export class WireScene {
     if (this.snapshot?.showBackboneOverlay !== true) return null;
     const bounds = this.renderer.domElement.getBoundingClientRect();
     const pointerPx = new THREE.Vector2(clientX - bounds.left, clientY - bounds.top);
+    const poleById = new Map(this.snapshot.poles.map((pole) => [pole.id, pole]));
     let bestNode: { distance: number; point: WorldPoint; pick: PathPickInfo } | null = null;
     for (const node of this.snapshot.supportNodes) {
       const displayPoint = new THREE.Vector3(node.x, node.y, BACKBONE_DISPLAY_PLANE_Z);
       const screenPoint = this.projectToCanvas(displayPoint, bounds);
-      if (screenPoint === null) continue;
-      const distance = screenPoint.distanceTo(pointerPx);
+      let distance = screenPoint === null ? Number.POSITIVE_INFINITY : screenPoint.distanceTo(pointerPx);
+      const pole = node.poleId === "0" ? undefined : poleById.get(node.poleId);
+      if (pole !== undefined) {
+        const [base, top] = poleAxisEndpoints(pole);
+        const screenBase = this.projectToCanvas(base, bounds);
+        const screenTop = this.projectToCanvas(top, bounds);
+        if (screenBase !== null && screenTop !== null) {
+          distance = Math.min(distance, distanceToScreenSegmentPx(pointerPx, screenBase, screenTop));
+        }
+      }
       if (distance <= BACKBONE_NODE_SNAP_PX && (bestNode === null || distance < bestNode.distance)) {
         const point: WorldPoint = [node.x, node.y, node.z];
         bestNode = {

@@ -6,14 +6,22 @@ import {
   WireScene,
   WIRE_RADIAL_SEGMENTS,
   backboneNodeHitId,
+  distanceToScreenSegmentPx,
   makeSampledTubeGeometry,
   makeBackbonePick,
+  poleAxisEndpoints,
   setPoleRotation
 } from "../src/render/scene";
 import { modelAssetCache } from "../src/render/modelAssets";
 import { createViewerSnapshot } from "../src/store/viewer";
 import { WireBridge } from "../src/bridge/wire";
-import type { BundlePlacement, ModelAssemblyBootstrapInput, ModelTransformInput, SupportNodeInfo } from "../src/model";
+import type {
+  BundlePlacement,
+  ModelAssemblyBootstrapInput,
+  ModelTransformInput,
+  PoleInfo,
+  SupportNodeInfo
+} from "../src/model";
 
 function rotateCoreXyz(value: THREE.Vector3, xDeg: number, yDeg: number, zDeg: number): THREE.Vector3 {
   const radians = [xDeg, yDeg, zDeg].map(THREE.MathUtils.degToRad);
@@ -82,6 +90,59 @@ describe("backbone pick payload", () => {
     const pick = makeBackbonePick([node.x, node.y, node.z], 1, backboneNodeHitId(node));
     expect(pick.hitKind).toBe(1);
     expect(pick.hitId).toBe("node-10");
+  });
+
+  it("snaps pole-body screen hits to the support node instead of falling through to midair", () => {
+    const pole: PoleInfo = {
+      id: "pole-2",
+      poleTypeId: 1,
+      height: 100,
+      positionX: 0,
+      positionY: 0,
+      positionZ: 0,
+      rotationX: 0,
+      rotationY: 0,
+      rotationZ: 0,
+      scaleX: 1,
+      scaleY: 1,
+      scaleZ: 1
+    };
+    const node: SupportNodeInfo = {
+      id: "node-10",
+      kind: 0,
+      poleId: pole.id,
+      x: 0,
+      y: 0,
+      z: 0
+    };
+    const [axisBase, axisTop] = poleAxisEndpoints(pole);
+    expect(axisBase.toArray()).toEqual([0, 0, 0]);
+    expect(axisTop.toArray()).toEqual([0, 0, 100]);
+    expect(distanceToScreenSegmentPx(
+      new THREE.Vector2(0, -92),
+      new THREE.Vector2(axisBase.x, -axisBase.z),
+      new THREE.Vector2(axisTop.x, -axisTop.z)
+    )).toBe(0);
+
+    const scene = Object.create(WireScene.prototype) as any;
+    scene.snapshot = {
+      ...createViewerSnapshot(),
+      showBackboneOverlay: true,
+      poles: [pole],
+      supportNodes: [node],
+      backboneEdges: []
+    };
+    scene.renderer = {
+      domElement: {
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 200, height: 200 })
+      }
+    };
+    scene.projectToCanvas = (point: THREE.Vector3) => new THREE.Vector2(point.x, -point.z);
+
+    const hit = scene.pickBackbonePoint(0, -92);
+    expect(hit).not.toBeNull();
+    expect(hit.pick.hitKind).toBe(1);
+    expect(hit.pick.hitId).toBe(node.id);
   });
 });
 

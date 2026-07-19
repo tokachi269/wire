@@ -1237,6 +1237,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "viewer default reverse T branch keeps HV spans and only branch-down-enabled templates lower",
                          "Invariant", false,
                          C802_backbone_viewer_default_reverse_t_branch_keeps_hv_and_only_flagged_lowering);
+  test_registry::AddTest(tests, "C808_backbone_branch_lowering_uses_template_flag_not_hv_category",
+                         "T branch lowering follows BundleTemplate flag rather than HV category",
+                         "Invariant", false,
+                         C808_backbone_branch_lowering_uses_template_flag_not_hv_category);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

@@ -1161,8 +1161,7 @@ bool has_current_route_pair_at(const graph& made, std::size_t node_id) {
       outgoing = &edge;
     }
   }
-  return incoming != nullptr && outgoing != nullptr && incoming->route == outgoing->route &&
-         incoming->order + 1 == outgoing->order;
+  return incoming != nullptr && outgoing != nullptr && incoming->b == node_id && outgoing->a == node_id;
 }
 
 std::size_t current_route_incident_count_at(const graph& made, std::size_t node_id) {
@@ -1321,7 +1320,7 @@ EditResult<Vec3d> saved_open_row_axis_for_edge(const CoreState& state, ObjectId 
 }
 
 bool is_promoted_open_continuation(const CoreState& state, const node& n, const link& a, const link& b) {
-  if (!n.on_route || a.route == b.route || (a.route != 0 && b.route != 0) || a.is_new == b.is_new) {
+  if (!n.on_route || a.is_new == b.is_new) {
     return false;
   }
   const link& context = a.is_new ? b : a;

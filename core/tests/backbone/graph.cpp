@@ -3748,6 +3748,77 @@ bool C802_backbone_viewer_default_reverse_t_branch_keeps_hv_and_only_flagged_low
   return viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(true);
 }
 
+bool C808_backbone_branch_lowering_uses_template_flag_not_hv_category() {
+  wire::core::CoreState state;
+  const wire::core::BundleTemplateId hv_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
+  const wire::core::BundleTemplateId lv_id =
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
+  wire::core::BundleTemplate hv = state.view().bundle_templates().at(hv_id);
+  hv.enable_branch_down_offset = false;
+  hv.branch_endpoint_offset_m = -0.275;
+  wire::core::BundleTemplate lv = state.view().bundle_templates().at(lv_id);
+  lv.enable_branch_down_offset = true;
+  lv.branch_endpoint_offset_m = -0.325;
+  if (!state.UpdateBundleTemplate(hv).ok || !state.UpdateBundleTemplate(lv).ok) {
+    return false;
+  }
+
+  wire::core::BackboneSpec base = poly3_req(state);
+  add_backbone_bundle(base, wire::core::BundleKind::kHighVoltage);
+  const auto first = state.GenerateFromBackboneSpec(base);
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId junction = first.value.generated_pole_ids[1];
+  const wire::core::Pole* pole = state.view().poles().find(junction);
+  const wire::core::SavedBackboneNode* node = state.view().backbone_node_for_pole(junction);
+  if (pole == nullptr || node == nullptr) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  branch.path.polyline = {pole->world_transform.position, {20.0, -8.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, node->node_id)};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.generated_span_ids.size() != 4) {
+    return false;
+  }
+
+  std::size_t hv_spans = 0;
+  std::size_t lv_spans = 0;
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    const wire::core::Bundle* bundle = span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
+    if (span == nullptr || bundle == nullptr) {
+      return false;
+    }
+    const bool is_hv = bundle->bundle_template_id == hv_id;
+    const bool is_lv = bundle->bundle_template_id == lv_id;
+    if (!is_hv && !is_lv) {
+      return false;
+    }
+    hv_spans += is_hv ? 1U : 0U;
+    lv_spans += is_lv ? 1U : 0U;
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    if (!layout.has_layout()) {
+      return false;
+    }
+    const wire::core::Port* start_port = state.view().ports().find(layout.entry->start.port_id);
+    const wire::core::Port* end_port = state.view().ports().find(layout.entry->end.port_id);
+    const bool start_at_junction = start_port != nullptr && start_port->owner_pole_id == junction;
+    const bool end_at_junction = end_port != nullptr && end_port->owner_pole_id == junction;
+    const wire::core::LayoutEndpoint& endpoint =
+        start_at_junction ? layout.entry->start : layout.entry->end;
+    if ((!start_at_junction && !end_at_junction) || (is_hv && endpoint.default_lower_required) ||
+        (is_lv && (!endpoint.default_lower_required || endpoint.branch_down_offset_m <= 0.1))) {
+      return false;
+    }
+  }
+  return hv_spans == 3 && lv_spans == 1 && curve_endpoints_match_layout(state);
+}
+
 bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {
   {
     wire::core::CoreState state;
@@ -3791,6 +3862,10 @@ bool C807_backbone_pipeline_does_not_infer_continuity_from_route_order() {
          !contains_text(cpp, "is_route_order_continuation") &&
          !contains_text(cpp, "route_continuation =") &&
          !contains_text(cpp, "left_link.route == right_link.route") &&
+         !contains_text(cpp, "incoming->route == outgoing->route") &&
+         !contains_text(cpp, "incoming->order + 1 == outgoing->order") &&
+         !contains_text(cpp, "a.route == b.route") &&
+         !contains_text(cpp, "a.route != 0 && b.route != 0") &&
          !contains_text(regenerate, "candidate.route != route_id") &&
          !contains_text(regenerate, "candidate.order == anchor.order + 1") &&
          !contains_text(regenerate, "edge->route != route_id") &&

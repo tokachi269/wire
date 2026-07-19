@@ -34,6 +34,12 @@ interface ModelMeshSource {
   material: THREE.Material | THREE.Material[];
   localMatrix: THREE.Matrix4;
 }
+
+interface SampledTubeBuffers {
+  positions: Float32Array;
+  normals: Float32Array;
+  indices: Uint16Array | Uint32Array;
+}
 const BACKBONE_NODE_SNAP_PX = 24;
 const BACKBONE_ENDPOINT_SNAP_PX = 40;
 const BACKBONE_EDGE_SNAP_PX = 16;
@@ -121,12 +127,29 @@ export function makeSampledTubeGeometry(samples: Float64Array, radius: number): 
   const geometry = new THREE.BufferGeometry();
   if (pointCount < 2) return geometry;
 
+  const buffers = makeSampledTubeBuffers(pointCount);
+  writeSampledTubeBuffers(samples, radius, buffers);
+  geometry.setAttribute("position", new THREE.BufferAttribute(buffers.positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(buffers.normals, 3));
+  geometry.setIndex(new THREE.BufferAttribute(buffers.indices, 1));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function makeSampledTubeBuffers(pointCount: number): SampledTubeBuffers {
   const radialSegments = WIRE_RADIAL_SEGMENTS;
-  const positions = new Float32Array(pointCount * radialSegments * 3);
-  const normals = new Float32Array(pointCount * radialSegments * 3);
   const vertexCount = pointCount * radialSegments;
   const IndexArray = vertexCount <= 0xffff ? Uint16Array : Uint32Array;
-  const indices = new IndexArray((pointCount - 1) * radialSegments * 6);
+  return {
+    positions: new Float32Array(vertexCount * 3),
+    normals: new Float32Array(vertexCount * 3),
+    indices: new IndexArray((pointCount - 1) * radialSegments * 6)
+  };
+}
+
+function writeSampledTubeBuffers(samples: Float64Array, radius: number, buffers: SampledTubeBuffers): void {
+  const pointCount = Math.floor(samples.length / 3);
+  const radialSegments = WIRE_RADIAL_SEGMENTS;
   const centers: THREE.Vector3[] = [];
   for (let index = 0; index < pointCount; index += 1) {
     centers.push(new THREE.Vector3(
@@ -175,12 +198,12 @@ export function makeSampledTubeGeometry(samples: Float64Array, radius: number): 
         .addScaledVector(binormal, Math.sin(angle))
         .normalize();
       const vertexOffset = (pointIndex * radialSegments + radialIndex) * 3;
-      positions[vertexOffset] = center.x + radial.x * radius;
-      positions[vertexOffset + 1] = center.y + radial.y * radius;
-      positions[vertexOffset + 2] = center.z + radial.z * radius;
-      normals[vertexOffset] = radial.x;
-      normals[vertexOffset + 1] = radial.y;
-      normals[vertexOffset + 2] = radial.z;
+      buffers.positions[vertexOffset] = center.x + radial.x * radius;
+      buffers.positions[vertexOffset + 1] = center.y + radial.y * radius;
+      buffers.positions[vertexOffset + 2] = center.z + radial.z * radius;
+      buffers.normals[vertexOffset] = radial.x;
+      buffers.normals[vertexOffset + 1] = radial.y;
+      buffers.normals[vertexOffset + 2] = radial.z;
     }
   }
 
@@ -190,20 +213,14 @@ export function makeSampledTubeGeometry(samples: Float64Array, radius: number): 
     const nextRow = (pointIndex + 1) * radialSegments;
     for (let radialIndex = 0; radialIndex < radialSegments; radialIndex += 1) {
       const nextRadial = (radialIndex + 1) % radialSegments;
-      indices[indexOffset++] = row + radialIndex;
-      indices[indexOffset++] = nextRow + radialIndex;
-      indices[indexOffset++] = row + nextRadial;
-      indices[indexOffset++] = row + nextRadial;
-      indices[indexOffset++] = nextRow + radialIndex;
-      indices[indexOffset++] = nextRow + nextRadial;
+      buffers.indices[indexOffset++] = row + radialIndex;
+      buffers.indices[indexOffset++] = nextRow + radialIndex;
+      buffers.indices[indexOffset++] = row + nextRadial;
+      buffers.indices[indexOffset++] = row + nextRadial;
+      buffers.indices[indexOffset++] = nextRow + radialIndex;
+      buffers.indices[indexOffset++] = nextRow + nextRadial;
     }
   }
-
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  geometry.computeBoundingSphere();
-  return geometry;
 }
 
 export class WireScene {
@@ -233,7 +250,11 @@ export class WireScene {
   private backboneSignature = "";
   private guideSignature = "";
   private cameraFov: number | null = null;
-  private readonly partMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
+  private readonly partMeshes = new Map<string, {
+    mesh: THREE.Mesh;
+    version: string;
+    materialKey: string;
+  }>();
   private supportWireMaterial: THREE.MeshStandardMaterial | null = null;
   private readonly modelObjects = new Map<string, {
     modelKey: string;
@@ -781,25 +802,39 @@ export class WireScene {
         reused += 1;
         continue;
       }
-      if (previous !== undefined) {
-        this.disposeContentMesh(previous.mesh);
-        this.partMeshes.delete(key);
-      }
       if (part.samples.length < 6) {
+        if (previous !== undefined) {
+          this.disposeContentMesh(previous.mesh);
+          this.partMeshes.delete(key);
+        }
         changed = true;
         continue;
       }
 
       const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
+      const materialKey = `${part.info.supplementalKind}:${part.info.colorRgba}`;
+      if (previous !== undefined && this.updateSampledTubeGeometry(previous.mesh.geometry, part.samples, radius)) {
+        if (previous.materialKey !== materialKey) {
+          this.disposeMeshMaterial(previous.mesh);
+          previous.mesh.material = this.makePartMaterial(part);
+          previous.materialKey = materialKey;
+        }
+        previous.version = version;
+        rebuilt += 1;
+        changed = true;
+        continue;
+      }
+      if (previous !== undefined) {
+        this.disposeContentMesh(previous.mesh);
+        this.partMeshes.delete(key);
+      }
       const geometry = makeSampledTubeGeometry(part.samples, radius);
-      const material = part.info.supplementalKind === SUPPORT_PATH_SUPPLEMENTAL_KIND
-        ? this.getSupportWireMaterial()
-        : this.makeWireMaterial(part.info.colorRgba);
+      const material = this.makePartMaterial(part);
       const mesh = new THREE.Mesh(geometry, material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.content.add(mesh);
-      this.partMeshes.set(key, { mesh, version });
+      this.partMeshes.set(key, { mesh, version, materialKey });
       rebuilt += 1;
       changed = true;
     }
@@ -938,6 +973,43 @@ export class WireScene {
     return changed;
   }
 
+  private makePartMaterial(part: ViewerSnapshot["parts"][number]): THREE.Material {
+    return part.info.supplementalKind === SUPPORT_PATH_SUPPLEMENTAL_KIND
+      ? this.getSupportWireMaterial()
+      : this.makeWireMaterial(part.info.colorRgba);
+  }
+
+  private updateSampledTubeGeometry(geometry: THREE.BufferGeometry, samples: Float64Array, radius: number): boolean {
+    const position = geometry.getAttribute("position");
+    const normal = geometry.getAttribute("normal");
+    const index = geometry.getIndex();
+    if (!(position instanceof THREE.BufferAttribute) ||
+        !(normal instanceof THREE.BufferAttribute) ||
+        !(index instanceof THREE.BufferAttribute) ||
+        !(position.array instanceof Float32Array) ||
+        !(normal.array instanceof Float32Array) ||
+        !(index.array instanceof Uint16Array || index.array instanceof Uint32Array)) {
+      return false;
+    }
+    const pointCount = Math.floor(samples.length / 3);
+    if (position.count !== pointCount * WIRE_RADIAL_SEGMENTS ||
+        normal.count !== pointCount * WIRE_RADIAL_SEGMENTS ||
+        index.count !== (pointCount - 1) * WIRE_RADIAL_SEGMENTS * 6) {
+      return false;
+    }
+    writeSampledTubeBuffers(samples, radius, {
+      positions: position.array,
+      normals: normal.array,
+      indices: index.array
+    });
+    position.needsUpdate = true;
+    normal.needsUpdate = true;
+    index.needsUpdate = true;
+    geometry.computeBoundingSphere();
+    geometry.computeBoundingBox();
+    return true;
+  }
+
   private makeWireMaterial(colorRgba: number): THREE.MeshStandardMaterial {
     const appearance = colorFromRgba(colorRgba);
     return new THREE.MeshStandardMaterial({
@@ -962,11 +1034,15 @@ export class WireScene {
 
   private disposeContentMesh(mesh: THREE.Mesh): void {
     mesh.geometry.dispose();
+    this.disposeMeshMaterial(mesh);
+    this.content.remove(mesh);
+  }
+
+  private disposeMeshMaterial(mesh: THREE.Mesh): void {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of materials) {
       if (material !== this.supportWireMaterial) material.dispose();
     }
-    this.content.remove(mesh);
   }
 
   private makeModelBatch(asset: LoadedModelAsset, capacity: number): {

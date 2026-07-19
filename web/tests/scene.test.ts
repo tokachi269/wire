@@ -150,14 +150,21 @@ describe("scene part reuse", () => {
     });
     expect(scene.partMeshes.get("edge:1:lane:0").mesh).toBe(first);
 
+    const firstGeometry = first.geometry;
     snapshot.parts[0].info.sourceVersion = "11";
+    snapshot.parts[0].samples = new Float64Array([0, 2, 0, 10, 2, 0]);
     expect(scene.syncContent(snapshot)).toBe(true);
     expect(scene.contentSyncStats).toEqual({
       total: 2, reused: 1, rebuilt: 1, removed: 0,
       modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
     });
-    expect(scene.partMeshes.get("edge:1:lane:0").mesh).not.toBe(first);
+    expect(scene.partMeshes.get("edge:1:lane:0").mesh).toBe(first);
+    expect(scene.partMeshes.get("edge:1:lane:0").mesh.geometry).toBe(firstGeometry);
     expect(scene.partMeshes.get("edge:2:lane:0").mesh).toBe(second);
+    first.geometry.computeBoundingBox();
+    const center = new THREE.Vector3();
+    first.geometry.boundingBox!.getCenter(center);
+    expect(center.y).toBeCloseTo(2, 2);
 
     snapshot.parts.splice(1, 1);
     expect(scene.syncContent(snapshot)).toBe(true);

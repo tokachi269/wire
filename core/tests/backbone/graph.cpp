@@ -914,6 +914,22 @@ bool same_port_binding_snapshot(const std::vector<PortBindingSnapshot>& a,
   return true;
 }
 
+bool same_port_binding_geometry(const std::vector<PortBindingSnapshot>& a,
+                                const std::vector<PortBindingSnapshot>& b,
+                                bool require_distinct_ids) {
+  if (a.size() != b.size()) return false;
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    if (a[i].lane != b[i].lane ||
+        !almost_equal(a[i].position, b[i].position, 1e-9) ||
+        std::abs(wire::core::NormalizeYawDeg(
+            a[i].layout_yaw_deg - b[i].layout_yaw_deg)) > 1e-9 ||
+        (require_distinct_ids && a[i].port_id == b[i].port_id)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool same_transform(const wire::core::Transformd& a, const wire::core::Transformd& b) {
   return almost_equal(a.position, b.position, 1e-9) &&
          almost_equal(a.rotation_euler_deg, b.rotation_euler_deg, 1e-9) &&
@@ -956,13 +972,18 @@ bool register_hv_fixture_models(wire::core::CoreState* state,
   return state->UpdateBundleTemplate(hv).ok;
 }
 
+wire::core::Vec3d hv_visible_socket(const wire::core::Transformd& fixture);
+std::optional<wire::core::Vec3d> layout_endpoint_for_port(
+    const wire::core::CoreState& state, wire::core::ObjectId port_id);
+
 std::optional<wire::core::Transformd> endpoint_fixture_transform(
     const wire::core::CoreState& state, wire::core::ObjectId port_id) {
-  const std::string prefix = "port:" + std::to_string(port_id) + ":";
+  const auto endpoint = layout_endpoint_for_port(state, port_id);
+  if (!endpoint.has_value()) return std::nullopt;
   for (const wire::core::VisualModelInstance& instance :
        state.view().visual_model_instances().instances) {
     if (instance.model_key == "hv_insulator" &&
-        instance.stable_key.rfind(prefix, 0) == 0) {
+        almost_equal(hv_visible_socket(instance.world_transform), *endpoint, 1e-9)) {
       return instance.world_transform;
     }
   }
@@ -1729,9 +1750,20 @@ bool C779_backbone_incremental_same_template_multi_placement_uses_placement_key(
     const auto bd_port_it = std::find_if(bd_ports.begin(), bd_ports.end(), [&](const auto& item) {
       return item.first == key;
     });
-    if (bd_port_it == bd_ports.end() ||
-        port_for_edge_bundle_at_node(state, be_edge_bundle_id, node_b->node_id) != bd_port_it->second) {
+    const std::vector<wire::core::ObjectId> be_ports =
+        port_for_edge_bundle_at_node(state, be_edge_bundle_id, node_b->node_id);
+    if (bd_port_it == bd_ports.end() || be_ports.size() != bd_port_it->second.size()) {
       return false;
+    }
+    for (std::size_t lane = 0; lane < be_ports.size(); ++lane) {
+      const wire::core::Port* old_port =
+          state.view().ports().find(bd_port_it->second[lane]);
+      const wire::core::Port* new_port = state.view().ports().find(be_ports[lane]);
+      if (old_port == nullptr || new_port == nullptr ||
+          old_port->id == new_port->id ||
+          !almost_equal(old_port->world_position, new_port->world_position, 1e-9)) {
+        return false;
+      }
     }
   }
 
@@ -1810,7 +1842,7 @@ bool C785_backbone_incremental_hv_promotion_preserves_existing_row_frame() {
   return snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
          has_row_key(snapshot.row_keys, false, bd_edge, be_edge) &&
          same_port_binding_snapshot(before, bd_after) &&
-         same_port_binding_snapshot(before, be_after) &&
+         same_port_binding_geometry(before, be_after, true) &&
          curve_endpoints_match_layout(state);
 }
 
@@ -1903,7 +1935,7 @@ bool C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry() {
   const std::vector<PortBindingSnapshot> be_after =
       port_binding_snapshot(state, be_edge_bundle, node_b->node_id);
   if (!same_port_binding_snapshot(before, bd_after) ||
-      !same_port_binding_snapshot(before, be_after)) {
+      !same_port_binding_geometry(before, be_after, true)) {
     return false;
   }
 
@@ -2448,26 +2480,19 @@ bool C471_backbone_resolves_existing_port_by_binding() {
       middle_ports.push_back(c->id);
     }
   }
-  for (wire::core::ObjectId port_id : middle_ports) {
-    if (std::count(middle_ports.begin(), middle_ports.end(), port_id) < 2) {
-      continue;
-    }
-    const wire::core::Port* port = state.view().ports().find(port_id);
-    const std::vector<const wire::core::SavedBackbonePortBinding*> bindings =
-        state.view().backbone_port_bindings_for_port(port_id);
-    if (port == nullptr || bindings.size() < 2) {
-      return false;
-    }
-    for (const wire::core::SavedBackbonePortBinding* binding : bindings) {
-      if (binding == nullptr || binding->bundle_template_id != bindings.front()->bundle_template_id ||
-          binding->port_kind != port->kind || binding->port_layer != port->layer ||
-          binding->port_kind != bindings.front()->port_kind || binding->port_layer != bindings.front()->port_layer) {
-        return false;
-      }
-    }
-    return true;
-  }
-  return false;
+  if (middle_ports.size() != 2 || middle_ports[0] == middle_ports[1]) return false;
+  const wire::core::Port* a = state.view().ports().find(middle_ports[0]);
+  const wire::core::Port* b_port = state.view().ports().find(middle_ports[1]);
+  const auto a_bindings = state.view().backbone_port_bindings_for_port(middle_ports[0]);
+  const auto b_bindings = state.view().backbone_port_bindings_for_port(middle_ports[1]);
+  return a != nullptr && b_port != nullptr &&
+         a->world_position.x == b_port->world_position.x &&
+         a->world_position.y == b_port->world_position.y &&
+         a->world_position.z == b_port->world_position.z &&
+         a_bindings.size() == 1 && b_bindings.size() == 1 &&
+         a_bindings.front()->bundle_template_id == b_bindings.front()->bundle_template_id &&
+         a_bindings.front()->port_kind == b_bindings.front()->port_kind &&
+         a_bindings.front()->port_layer == b_bindings.front()->port_layer;
 }
 
 bool C487_backbone_port_resolution_requires_bundle_compatible_scope() {
@@ -2567,12 +2592,13 @@ bool C473_backbone_resolved_port_used_by_new_span_endpoint() {
       middle_ports.push_back(c->id);
     }
   }
-  for (wire::core::ObjectId port_id : middle_ports) {
-    if (std::count(middle_ports.begin(), middle_ports.end(), port_id) >= 2) {
-      return true;
-    }
-  }
-  return false;
+  if (middle_ports.size() != 2 || middle_ports[0] == middle_ports[1]) return false;
+  const wire::core::Port* a = state.view().ports().find(middle_ports[0]);
+  const wire::core::Port* b_port = state.view().ports().find(middle_ports[1]);
+  return a != nullptr && b_port != nullptr &&
+         a->world_position.x == b_port->world_position.x &&
+         a->world_position.y == b_port->world_position.y &&
+         a->world_position.z == b_port->world_position.z;
 }
 
 bool C474_backbone_port_resolution_rejects_ambiguous_binding() {
@@ -2810,7 +2836,7 @@ bool C792_backbone_incremental_new_row_uses_empty_stable_slot() {
       existing_ports.push_back({port->id, port->world_position});
     }
   }
-  if (existing_ports.size() != 3) {
+  if (existing_ports.size() != 6) {
     return false;
   }
 
@@ -2987,8 +3013,8 @@ bool C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed() {
       return false;
     }
   }
-  if (!existing_row_delta.has_value() || existing_by_key[3101].size() != 3 ||
-      existing_by_key[3201].size() != 1 || existing_by_key[3202].size() != 1) {
+  if (!existing_row_delta.has_value() || existing_by_key[3101].size() != 6 ||
+      existing_by_key[3201].size() != 2 || existing_by_key[3202].size() != 2) {
     return false;
   }
 
@@ -3091,7 +3117,7 @@ bool C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed() {
     }
     ++continued_bindings;
   }
-  return continued_bindings >= bd_local_height_by_port.size() * 2 &&
+  return continued_bindings >= bd_local_height_by_port.size() &&
          curve_endpoints_match_layout(pair_state);
 }
 
@@ -3277,26 +3303,23 @@ bool C488_backbone_port_resolution_accepts_same_compatible_binding() {
     return false;
   }
   const wire::core::ObjectId b = out.value.generated_pole_ids[1];
-  for (const wire::core::Port& port : state.view().ports().items()) {
-    if (port.owner_pole_id != b) {
-      continue;
-    }
-    const std::vector<const wire::core::SavedBackbonePortBinding*> bindings =
-        state.view().backbone_port_bindings_for_port(port.id);
-    if (bindings.size() < 2) {
-      continue;
-    }
-    const wire::core::SavedBackbonePortBinding* first = bindings.front();
-    for (const wire::core::SavedBackbonePortBinding* binding : bindings) {
-      if (binding == nullptr || binding->bundle_template_id != first->bundle_template_id ||
-          binding->port_kind != first->port_kind || binding->port_layer != first->port_layer ||
-          binding->port_kind != port.kind || binding->port_layer != port.layer) {
-        return false;
-      }
-    }
-    return true;
+  std::vector<const wire::core::SavedBackbonePortBinding*> middle{};
+  for (const auto& binding : state.view().backbone().port_bindings) {
+    const wire::core::Port* port = state.view().ports().find(binding.port_id);
+    if (port != nullptr && port->owner_pole_id == b) middle.push_back(&binding);
   }
-  return false;
+  if (middle.size() != 2 || middle[0]->port_id == middle[1]->port_id) return false;
+  const wire::core::Port* a = state.view().ports().find(middle[0]->port_id);
+  const wire::core::Port* c = state.view().ports().find(middle[1]->port_id);
+  return a != nullptr && c != nullptr &&
+         state.view().backbone_port_bindings_for_port(a->id).size() == 1 &&
+         state.view().backbone_port_bindings_for_port(c->id).size() == 1 &&
+         middle[0]->bundle_template_id == middle[1]->bundle_template_id &&
+         middle[0]->port_kind == middle[1]->port_kind &&
+         middle[0]->port_layer == middle[1]->port_layer &&
+         a->world_position.x == c->world_position.x &&
+         a->world_position.y == c->world_position.y &&
+         a->world_position.z == c->world_position.z;
 }
 
 bool C489_backbone_port_binding_index_invariant() {
@@ -3305,24 +3328,17 @@ bool C489_backbone_port_binding_index_invariant() {
   if (!out.ok) {
     return false;
   }
-  bool saw_multiple = false;
+  bool saw_binding = false;
   for (const wire::core::Port& port : state.view().ports().items()) {
     const std::vector<const wire::core::SavedBackbonePortBinding*> bindings =
         state.view().backbone_port_bindings_for_port(port.id);
-    if (bindings.size() < 2) {
-      continue;
-    }
-    saw_multiple = true;
-    const wire::core::SavedBackbonePortBinding* first = bindings.front();
-    for (const wire::core::SavedBackbonePortBinding* binding : bindings) {
-      if (binding == nullptr || binding->bundle_template_id != first->bundle_template_id ||
-          binding->port_kind != first->port_kind || binding->port_layer != first->port_layer ||
-          binding->port_kind != port.kind || binding->port_layer != port.layer) {
-        return false;
-      }
-    }
+    if (bindings.empty()) continue;
+    saw_binding = true;
+    if (bindings.size() != 1 || bindings.front() == nullptr ||
+        bindings.front()->port_kind != port.kind ||
+        bindings.front()->port_layer != port.layer) return false;
   }
-  return saw_multiple;
+  return saw_binding;
 }
 
 bool C490_backbone_duplicate_same_edge_bundle_lane_rejected() {

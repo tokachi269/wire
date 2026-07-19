@@ -16,6 +16,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace wire::core::generation::backbone {
@@ -43,6 +44,7 @@ struct RowFixtureContext {
   double layout_yaw_deg = 0.0;
   struct Member {
     ObjectId port_id = kInvalidObjectId;
+    std::vector<ObjectId> port_ids{};
     std::size_t lane_index = 0;
     int placement_band_id = 0;
     double edge_lateral_offset_m = 0.0;
@@ -54,8 +56,14 @@ struct RowFixtureContext {
 };
 
 struct RowFixtureContexts {
+  struct Endpoint {
+    ObjectId port_id = kInvalidObjectId;
+    SavedBackboneRowKey row_key{};
+    ObjectId bundle_id = kInvalidObjectId;
+    std::size_t lane_index = 0;
+  };
   std::vector<RowFixtureContext> rows{};
-  std::vector<ObjectId> endpoint_ports{};
+  std::vector<Endpoint> endpoints{};
 };
 
 Matrix3 matrix_from_euler(const Vec3d& euler_deg) {
@@ -371,9 +379,27 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
     if (port == nullptr || pole == nullptr || bundle_it == view.bundle_templates().end()) {
       continue;
     }
-    if (std::find(out.value.endpoint_ports.begin(), out.value.endpoint_ports.end(), port->id) ==
-        out.value.endpoint_ports.end()) {
-      out.value.endpoint_ports.push_back(port->id);
+    const SavedBackboneEdgeBundle* edge_bundle =
+        view.backbone_edge_bundle(binding.edge_bundle_id);
+    const SavedBackboneEdge* edge =
+        edge_bundle == nullptr ? nullptr : view.backbone_edge(edge_bundle->edge_id);
+    const Bundle* bundle =
+        edge_bundle == nullptr ? nullptr : view.bundles().find(edge_bundle->bundle_id);
+    if (edge_bundle == nullptr || edge == nullptr || bundle == nullptr) {
+      out.error = "model assembly unsupported: row source bundle is missing";
+      return out;
+    }
+    const bool endpoint_exists = std::any_of(
+        out.value.endpoints.begin(), out.value.endpoints.end(),
+        [&](const RowFixtureContexts::Endpoint& endpoint) {
+          return !binding.row_key.source_is_open &&
+                 endpoint.row_key == binding.row_key &&
+                 endpoint.bundle_id == edge_bundle->bundle_id &&
+                 endpoint.lane_index == binding.lane_index;
+        });
+    if (!endpoint_exists) {
+      out.value.endpoints.push_back(
+          {port->id, binding.row_key, edge_bundle->bundle_id, binding.lane_index});
     }
     ModelAssemblyTemplateId row_assembly_id = kInvalidModelAssemblyTemplateId;
     for (const ModelPlacementRule& rule : placement_rules_from_bundle_template(bundle_it->second)) {
@@ -385,16 +411,6 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
     if (row_assembly_id == kInvalidModelAssemblyTemplateId) {
       continue;
     }
-    const SavedBackboneEdgeBundle* edge_bundle =
-        view.backbone_edge_bundle(binding.edge_bundle_id);
-    const SavedBackboneEdge* edge =
-        edge_bundle == nullptr ? nullptr : view.backbone_edge(edge_bundle->edge_id);
-    const Bundle* bundle =
-        edge_bundle == nullptr ? nullptr : view.bundles().find(edge_bundle->bundle_id);
-    if (edge_bundle == nullptr || edge == nullptr || bundle == nullptr) {
-      out.error = "model assembly unsupported: row source bundle is missing";
-      return out;
-    }
     auto row_it = std::find_if(out.value.rows.begin(), out.value.rows.end(), [&](const RowFixtureContext& row) {
       return row.pole->id == pole->id && row.row_key == binding.row_key &&
              row.bundle_id == edge_bundle->bundle_id;
@@ -402,7 +418,7 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
     if (row_it == out.value.rows.end()) {
       out.value.rows.push_back({pole, binding.row_key, edge_bundle->bundle_id, binding.bundle_template_id,
                                 row_assembly_id, binding.layout_yaw_deg,
-                                {{port->id, binding.lane_index, binding.placement_band_id,
+                                {{port->id, {port->id}, binding.lane_index, binding.placement_band_id,
                                   edge->lateral_offset_m, bundle->placement_explicit,
                                   bundle->lateral_m,
                                   bundle->phase_spacing_m}}});
@@ -414,16 +430,30 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
       }
       const auto member_it = std::find_if(
           row_it->members.begin(), row_it->members.end(),
-          [&](const RowFixtureContext::Member& member) { return member.port_id == port->id; });
+          [&](const RowFixtureContext::Member& member) {
+            return member.lane_index == binding.lane_index;
+          });
       if (member_it == row_it->members.end()) {
-        row_it->members.push_back({port->id, binding.lane_index, binding.placement_band_id,
+        row_it->members.push_back({port->id, {port->id}, binding.lane_index, binding.placement_band_id,
                                    edge->lateral_offset_m, bundle->placement_explicit,
                                    bundle->lateral_m,
                                    bundle->phase_spacing_m});
+      } else if (std::find(member_it->port_ids.begin(), member_it->port_ids.end(),
+                           port->id) == member_it->port_ids.end()) {
+        member_it->port_ids.push_back(port->id);
       }
     }
   }
-  std::sort(out.value.endpoint_ports.begin(), out.value.endpoint_ports.end());
+  std::sort(out.value.endpoints.begin(), out.value.endpoints.end(),
+            [](const RowFixtureContexts::Endpoint& a,
+               const RowFixtureContexts::Endpoint& b) {
+              return std::tie(a.row_key.node_id, a.row_key.source_is_open,
+                              a.row_key.source_edge_a, a.row_key.source_edge_b,
+                              a.bundle_id, a.lane_index, a.port_id) <
+                     std::tie(b.row_key.node_id, b.row_key.source_is_open,
+                              b.row_key.source_edge_a, b.row_key.source_edge_b,
+                              b.bundle_id, b.lane_index, b.port_id);
+            });
   out.ok = true;
   return out;
 }
@@ -451,6 +481,15 @@ EditResult<RowFixturePlacementPlan> row_fixture_placement_plan(
       continue;
     }
     const double member_down_offset_m = plan_it->second.down_offset_m;
+    for (ObjectId port_id : member.port_ids) {
+      const auto peer_plan = fixture_plan.find(port_id);
+      if (peer_plan != fixture_plan.end() &&
+          std::abs(peer_plan->second.down_offset_m - member_down_offset_m) > 1e-9) {
+        out.error =
+            "model assembly unsupported: derived row lane resolves multiple lowered fixture heights";
+        return out;
+      }
+    }
     height_m += WorldPointToLocal(frame, port->world_position).z - member_down_offset_m;
     placed_member_count += 1;
   }
@@ -647,9 +686,11 @@ void attach_row_fixture_placement_plans(EditResult<FixturePlacementPlanByPort>* 
       return;
     }
     for (const RowFixtureContext::Member& member : row.members) {
-      const auto plan_it = out->value.find(member.port_id);
-      if (plan_it != out->value.end()) {
-        plan_it->second.row_fixture = row_plan.value;
+      for (ObjectId port_id : member.port_ids) {
+        const auto plan_it = out->value.find(port_id);
+        if (plan_it != out->value.end()) {
+          plan_it->second.row_fixture = row_plan.value;
+        }
       }
     }
   }
@@ -808,7 +849,8 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     }
   }
 
-  for (ObjectId port_id : contexts.value.endpoint_ports) {
+  for (const RowFixtureContexts::Endpoint& endpoint : contexts.value.endpoints) {
+    const ObjectId port_id = endpoint.port_id;
     const Port* port = view.ports().find(port_id);
     if (port == nullptr) {
       continue;
@@ -834,7 +876,8 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     std::string error{};
     append_instances(state, *context.value.pole, height_m, *context.value.assembly,
                      placement.fixture_root, {},
-                     "port:" + std::to_string(port->id), &out.value, &error);
+                     "port:" + std::to_string(port->id),
+                     &out.value, &error);
     if (!error.empty()) {
       out.error = std::move(error);
       return out;

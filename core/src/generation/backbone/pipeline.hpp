@@ -130,12 +130,17 @@ struct groups {
 };
 
 struct trow {
+  struct endpoint {
+    std::size_t link = bad;
+    std::vector<std::vector<ObjectId>> ports{};
+  };
+
   std::size_t row = bad;
   std::size_t node = bad;
   src source{};
   Vec3d axis{};
   ObjectId pole = kInvalidObjectId;
-  std::vector<std::vector<ObjectId>> ports{};
+  std::vector<endpoint> endpoints{};
   std::vector<std::vector<int>> placement_band_ids{};
 };
 

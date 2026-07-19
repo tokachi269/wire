@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
@@ -1711,6 +1712,158 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   trial.authoritative_ = std::move(loaded_authoritative);
   trial.runtime_ = {};
   trial.debug_ = {};
+
+  auto migrate_shared_pair_ports = [&]() -> bool {
+    SavedBackboneGraph& graph = trial.authoritative_.backbone;
+    std::unordered_map<ObjectId, std::vector<std::size_t>> bindings_by_port{};
+    for (std::size_t index = 0; index < graph.port_bindings.size(); ++index) {
+      bindings_by_port[graph.port_bindings[index].port_id].push_back(index);
+    }
+    auto edge_bundle_for = [&](ObjectId edge_bundle_id)
+        -> const SavedBackboneEdgeBundle* {
+      const auto found = std::find_if(
+          graph.edge_bundles.begin(), graph.edge_bundles.end(),
+          [&](const SavedBackboneEdgeBundle& value) {
+            return value.edge_bundle_id == edge_bundle_id;
+          });
+      return found == graph.edge_bundles.end() ? nullptr : &*found;
+    };
+    auto saved_node_for = [&](ObjectId node_id) -> const SavedBackboneNode* {
+      const auto found = std::find_if(
+          graph.nodes.begin(), graph.nodes.end(),
+          [&](const SavedBackboneNode& value) { return value.node_id == node_id; });
+      return found == graph.nodes.end() ? nullptr : &*found;
+    };
+    auto spans_for = [&](ObjectId edge_bundle_id, std::size_t lane_index) {
+      std::vector<ObjectId> span_ids{};
+      for (const SavedBackboneSpanBinding& binding : graph.span_bindings) {
+        if (binding.edge_bundle_id == edge_bundle_id &&
+            binding.lane_index == lane_index) {
+          span_ids.push_back(binding.span_id);
+        }
+      }
+      return span_ids;
+    };
+    auto has_continuity = [&](const SavedBackbonePortBinding& a,
+                              const SavedBackbonePortBinding& b) {
+      return std::any_of(
+          graph.row_continuities.begin(), graph.row_continuities.end(),
+          [&](const SavedBackboneRowContinuity& continuity) {
+            if (continuity.node_id != a.row_key.node_id) {
+              return false;
+            }
+            const auto matches = [](const SavedBackboneRowContinuityEndpoint& endpoint,
+                                    const SavedBackbonePortBinding& binding) {
+              return endpoint.edge_bundle_id == binding.edge_bundle_id &&
+                     endpoint.lane_index == binding.lane_index;
+            };
+            return (matches(continuity.a, a) && matches(continuity.b, b)) ||
+                   (matches(continuity.a, b) && matches(continuity.b, a));
+          });
+    };
+
+    for (auto& [port_id, binding_indices] : bindings_by_port) {
+      if (binding_indices.size() == 1) {
+        continue;
+      }
+      if (binding_indices.size() != 2) {
+        result.error =
+            "authoritative migration unsupported: shared port has ambiguous endpoint bindings";
+        return false;
+      }
+      std::sort(binding_indices.begin(), binding_indices.end(),
+                [&](std::size_t a, std::size_t b) {
+                  return graph.port_bindings[a].edge_bundle_id <
+                         graph.port_bindings[b].edge_bundle_id;
+                });
+      SavedBackbonePortBinding& keep =
+          graph.port_bindings[binding_indices[0]];
+      SavedBackbonePortBinding& split =
+          graph.port_bindings[binding_indices[1]];
+      const bool same_scope =
+          keep.row_key == split.row_key && !keep.row_key.source_is_open &&
+          keep.lane_index == split.lane_index &&
+          keep.bundle_template_id == split.bundle_template_id &&
+          keep.port_kind == split.port_kind &&
+          keep.port_layer == split.port_layer &&
+          keep.placement_band_id == split.placement_band_id &&
+          keep.support_level == split.support_level &&
+          keep.support_group_id == split.support_group_id &&
+          std::bit_cast<std::uint64_t>(keep.layout_yaw_deg) ==
+              std::bit_cast<std::uint64_t>(split.layout_yaw_deg) &&
+          keep.edge_bundle_id != split.edge_bundle_id;
+      const SavedBackboneEdgeBundle* keep_edge_bundle =
+          edge_bundle_for(keep.edge_bundle_id);
+      const SavedBackboneEdgeBundle* split_edge_bundle =
+          edge_bundle_for(split.edge_bundle_id);
+      const SavedBackboneNode* node = saved_node_for(keep.row_key.node_id);
+      const Port* source_port =
+          trial.authoritative_.edit_state.ports.find(port_id);
+      const std::vector<ObjectId> split_spans =
+          spans_for(split.edge_bundle_id, split.lane_index);
+      if (!same_scope || keep_edge_bundle == nullptr ||
+          split_edge_bundle == nullptr || node == nullptr ||
+          source_port == nullptr ||
+          keep.row_key.source_edge_a !=
+              std::min(keep_edge_bundle->edge_id, split_edge_bundle->edge_id) ||
+          keep.row_key.source_edge_b !=
+              std::max(keep_edge_bundle->edge_id, split_edge_bundle->edge_id) ||
+          !has_continuity(keep, split) || split_spans.size() != 1) {
+        result.error =
+            "authoritative migration unsupported: shared pair port cannot be split exactly";
+        return false;
+      }
+      Span* split_span =
+          trial.authoritative_.edit_state.spans.find(split_spans.front());
+      if (split_span == nullptr) {
+        result.error =
+            "authoritative migration unsupported: shared pair span is missing";
+        return false;
+      }
+      const bool replace_a =
+          split_span->port_a_id == port_id &&
+          split_span->endpoint_node_a_id == node->pole_id;
+      const bool replace_b =
+          split_span->port_b_id == port_id &&
+          split_span->endpoint_node_b_id == node->pole_id;
+      if (replace_a == replace_b) {
+        result.error =
+            "authoritative migration unsupported: shared pair span endpoint is ambiguous";
+        return false;
+      }
+
+      const Port source = *source_port;
+      EditResult<ObjectId> added =
+          trial.AddPort(source.owner_pole_id, source.world_position, source.kind,
+                        source.layer, source.direction);
+      if (!added.ok) {
+        result.error = "authoritative migration unsupported: " + added.error;
+        return false;
+      }
+      Port* created =
+          trial.authoritative_.edit_state.ports.find(added.value);
+      if (created == nullptr) {
+        result.error =
+            "authoritative migration unsupported: split port was not created";
+        return false;
+      }
+      const ObjectId new_port_id = created->id;
+      const std::string new_display_id = created->display_id;
+      *created = source;
+      created->id = new_port_id;
+      created->display_id = new_display_id;
+      split.port_id = new_port_id;
+      if (replace_a) {
+        split_span->port_a_id = new_port_id;
+      } else {
+        split_span->port_b_id = new_port_id;
+      }
+    }
+    return true;
+  };
+  if (!migrate_shared_pair_ports()) {
+    return result;
+  }
 
   for (const Port& port : trial.authoritative_.edit_state.ports.items()) {
     index_add(trial.runtime_.relation_index.ports_by_pole, port.owner_pole_id, port.id);

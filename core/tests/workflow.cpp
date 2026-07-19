@@ -140,7 +140,15 @@ bool test_generate_simple_line_reuses_intermediate_ports() {
     if (used_ports.size() != 2) {
       return false;
     }
-    if (used_ports[0] != used_ports[1]) {
+    const auto* first_port = state.view().edit_state().ports.find(used_ports[0]);
+    const auto* second_port = state.view().edit_state().ports.find(used_ports[1]);
+    if (used_ports[0] == used_ports[1] || first_port == nullptr ||
+        second_port == nullptr ||
+        first_port->world_position.x != second_port->world_position.x ||
+        first_port->world_position.y != second_port->world_position.y ||
+        first_port->world_position.z != second_port->world_position.z ||
+        state.view().backbone_port_bindings_for_port(used_ports[0]).size() != 1 ||
+        state.view().backbone_port_bindings_for_port(used_ports[1]).size() != 1) {
       return false;
     }
   }
@@ -216,7 +224,7 @@ bool test_style_context_resolver_is_deterministic_and_route_correlated() {
 void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C20_Phase46_GenerateSimpleLine_FailShortPolyline", "Simple line short polyline fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_short_polyline);
   test_registry::AddTest(tests, "C22_AddSpan_FailMissingPorts", "AddSpan invalid port failure leaves state recoverable", "Exact", true, test_add_span_missing_ports_fails_and_recovers);
-  test_registry::AddTest(tests, "C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports);
+  test_registry::AddTest(tests, "C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate edge endpoint ports share one derived through position", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports);
   test_registry::AddTest(tests, "C29_Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", "Exact", false, test_display_id_is_per_prefix_sequence);
   test_registry::AddTest(tests, "C304_StyleContext_DeterministicRouteCorrelated",
                          "Style context resolver stays deterministic per semantic key and shares route-level style across sibling objects",

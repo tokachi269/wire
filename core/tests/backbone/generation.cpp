@@ -1020,10 +1020,17 @@ bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector() {
   }
   const std::vector<wire::core::Vec3d> ports =
       generated_ports_on_pole(state, generated.value.generated_span_ids, corner_pole);
-  if (ports.size() != 2) {
+  std::vector<wire::core::Vec3d> unique_ports{};
+  for (const auto& port : ports) {
+    if (std::none_of(unique_ports.begin(), unique_ports.end(),
+                     [&](const auto& item) { return almost_equal(item, port, 1e-12); })) {
+      unique_ports.push_back(port);
+    }
+  }
+  if (ports.size() != 4 || unique_ports.size() != 2) {
     return false;
   }
-  const wire::core::Vec3d actual = normalize_xy(ports[1] - ports[0]);
+  const wire::core::Vec3d actual = normalize_xy(unique_ports[1] - unique_ports[0]);
   const wire::core::Vec3d incoming = normalize_xy(req.path.polyline[1] - req.path.polyline[0]);
   const wire::core::Vec3d outgoing = normalize_xy(req.path.polyline[2] - req.path.polyline[1]);
   const wire::core::Vec3d expected = lateral_xy(incoming + outgoing);
@@ -1045,10 +1052,17 @@ bool C662_backbone_pair_row_axis_does_not_flip_lane_order() {
   }
   const std::vector<wire::core::Vec3d> ports =
       generated_ports_on_pole(state, generated.value.generated_span_ids, corner_pole);
-  if (ports.size() != 2) {
+  std::vector<wire::core::Vec3d> unique_ports{};
+  for (const auto& port : ports) {
+    if (std::none_of(unique_ports.begin(), unique_ports.end(),
+                     [&](const auto& item) { return almost_equal(item, port, 1e-12); })) {
+      unique_ports.push_back(port);
+    }
+  }
+  if (ports.size() != 4 || unique_ports.size() != 2) {
     return false;
   }
-  wire::core::Vec3d row_axis = normalize_xy(ports[1] - ports[0]);
+  wire::core::Vec3d row_axis = normalize_xy(unique_ports[1] - unique_ports[0]);
   const wire::core::Vec3d incoming = normalize_xy(req.path.polyline[1] - req.path.polyline[0]);
   const wire::core::Vec3d outgoing = normalize_xy(req.path.polyline[2] - req.path.polyline[1]);
   const wire::core::Vec3d expected = lateral_xy(incoming + outgoing);

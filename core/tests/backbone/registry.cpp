@@ -283,13 +283,13 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone row-port identity does not use position matching", "Boundary", false,
                          C470_backbone_row_port_identity_does_not_use_position_match);
   test_registry::AddTest(tests, "C471_backbone_resolves_existing_port_by_binding",
-                         "backbone resolves existing ports by saved row-port binding", "Boundary", false,
+                         "backbone keeps pair endpoint ports distinct and binding-owned", "Boundary", false,
                          C471_backbone_resolves_existing_port_by_binding);
   test_registry::AddTest(tests, "C472_backbone_port_resolution_requires_saved_binding",
                          "backbone does not resolve ports without saved binding", "Boundary", false,
                          C472_backbone_port_resolution_requires_saved_binding);
   test_registry::AddTest(tests, "C473_backbone_resolved_port_used_by_new_span_endpoint",
-                         "backbone new spans use resolved port endpoints", "Boundary", false,
+                         "backbone adjacent spans use distinct bit-equal endpoint ports", "Boundary", false,
                          C473_backbone_resolved_port_used_by_new_span_endpoint);
   test_registry::AddTest(tests, "C474_backbone_port_resolution_rejects_ambiguous_binding",
                          "backbone port resolution rejects ambiguous row-port bindings", "Boundary", false,
@@ -334,10 +334,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone port resolution requires bundle-compatible scope", "Boundary", false,
                          C487_backbone_port_resolution_requires_bundle_compatible_scope);
   test_registry::AddTest(tests, "C488_backbone_port_resolution_accepts_same_compatible_binding",
-                         "backbone accepts multiple same-compatible port bindings", "Boundary", false,
+                         "backbone compatible pair bindings use distinct bit-equal ports", "Boundary", false,
                          C488_backbone_port_resolution_accepts_same_compatible_binding);
   test_registry::AddTest(tests, "C489_backbone_port_binding_index_invariant",
-                         "backbone port binding index exposes all compatible bindings", "Boundary", false,
+                         "backbone port binding index maps each generated port to one endpoint", "Boundary", false,
                          C489_backbone_port_binding_index_invariant);
   test_registry::AddTest(tests, "C490_backbone_duplicate_same_edge_bundle_lane_rejected",
                          "backbone duplicate same edge bundle lane requests do not duplicate", "Boundary", false,
@@ -1119,10 +1119,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "legacy population wrap and cable-template coil families are absent from production surfaces",
                          "Boundary", false, C745_legacy_wrap_family_is_absent);
   test_registry::AddTest(tests, "C764_straight_hv_model_assemblies_own_fixture_and_wire_placement",
-                         "straight HV model assemblies materialize once per Pole, row, and Port and own wire sockets",
+                         "straight HV model assemblies materialize once per derived row lane and own wire sockets",
                          "Invariant", false, C764_straight_hv_model_assemblies_own_fixture_and_wire_placement);
   test_registry::AddTest(tests, "C765_branch_lowering_places_final_model_socket_on_curve_endpoint",
-                         "branch lowering places the final model socket on the curve endpoint and keeps one fixture per bound Port",
+                         "branch lowering places the final model socket on the curve endpoint and keeps one fixture per derived row lane",
                          "Invariant", false,
                          C765_branch_lowering_places_final_model_socket_on_curve_endpoint);
   test_registry::AddTest(tests, "C766_row_fixture_and_wire_follow_port_band_lateral_change",
@@ -1245,6 +1245,18 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental rows allocate one stable support level per pair or open row",
                          "Invariant", false,
                          C809_backbone_incremental_rows_use_one_support_level_per_pair);
+  test_registry::AddTest(tests, "C810_backbone_normal_pair_uses_edge_ports_and_derived_fixture",
+                         "normal pair keeps edge endpoint ports distinct while deriving one row fixture",
+                         "Invariant", false,
+                         C810_backbone_normal_pair_uses_edge_ports_and_derived_fixture);
+  test_registry::AddTest(tests, "C811_authoritative_v2_migrates_shared_pair_ports_without_visual_change",
+                         "v2 shared pair ports migrate without changing derived geometry",
+                         "Invariant", false,
+                         C811_authoritative_v2_migrates_shared_pair_ports_without_visual_change);
+  test_registry::AddTest(tests, "C812_authoritative_v2_rejects_ambiguous_shared_port_migration",
+                         "v2 shared ports without exact continuity reject before mutation",
+                         "Boundary", true,
+                         C812_authoritative_v2_rejects_ambiguous_shared_port_migration);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

@@ -595,6 +595,31 @@ SavedBackboneRowKey key_for(const pairs& ps, const trow& row, const std::vector<
   return key;
 }
 
+const std::vector<std::vector<ObjectId>>* ports_for_link(const trow& row,
+                                                         std::size_t link_id) {
+  const auto found = std::find_if(
+      row.endpoints.begin(), row.endpoints.end(),
+      [&](const trow::endpoint& endpoint) { return endpoint.link == link_id; });
+  return found == row.endpoints.end() ? nullptr : &found->ports;
+}
+
+ObjectId port_for_link(const trow& row, std::size_t link_id,
+                       std::size_t bundle_index, std::size_t lane_index) {
+  const auto* ports = ports_for_link(row, link_id);
+  if (ports == nullptr || bundle_index >= ports->size() ||
+      lane_index >= (*ports)[bundle_index].size()) {
+    return kInvalidObjectId;
+  }
+  return (*ports)[bundle_index][lane_index];
+}
+
+ObjectId first_endpoint_port(const trow& row, std::size_t bundle_index,
+                             std::size_t lane_index) {
+  return row.endpoints.empty()
+             ? kInvalidObjectId
+             : port_for_link(row, row.endpoints.front().link, bundle_index, lane_index);
+}
+
 SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& made, const link& edge) {
   SavedBackboneEdgeRef out{};
   (void)made;
@@ -833,18 +858,24 @@ EditResult<bool> check_port_bands(const CoreState& state, const graph& made, con
   return out;
 }
 
-EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_id, const SavedBackboneRowKey& row_key,
+EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_id,
+                                          ObjectId edge_bundle_id,
+                                          const SavedBackboneRowKey& row_key,
                                           std::size_t lane_index, port_scope scope) {
   EditResult<ObjectId> out{};
   out.value = kInvalidObjectId;
   out.ok = true;
-  if (pole_id == kInvalidObjectId || row_key.node_id == kInvalidObjectId ||
+  if (edge_bundle_id == kInvalidObjectId || pole_id == kInvalidObjectId ||
+      row_key.node_id == kInvalidObjectId ||
       row_key.source_edge_a == kInvalidObjectId) {
     return out;
   }
   ObjectId found = kInvalidObjectId;
   for (const SavedBackbonePortBinding* binding : state.view().backbone_port_bindings_for_row(row_key, lane_index)) {
     if (binding == nullptr) {
+      continue;
+    }
+    if (binding->edge_bundle_id != edge_bundle_id) {
       continue;
     }
     if (!same_scope(state, *binding, scope)) {
@@ -1361,13 +1392,13 @@ void pipeline::retire_untouched(route* route) {
   };
   for (const tspan& span : route->made.spans) {
     add_id(route->touched_span_ids, span.id);
-    if (span.arow < route->made.rows.size() && span.bundle < route->made.rows[span.arow].ports.size() &&
-        span.lane < route->made.rows[span.arow].ports[span.bundle].size()) {
-      add_id(route->touched_port_ids, route->made.rows[span.arow].ports[span.bundle][span.lane]);
+    if (span.arow < route->made.rows.size()) {
+      add_id(route->touched_port_ids,
+             port_for_link(route->made.rows[span.arow], span.link, span.bundle, span.lane));
     }
-    if (span.brow < route->made.rows.size() && span.bundle < route->made.rows[span.brow].ports.size() &&
-        span.lane < route->made.rows[span.brow].ports[span.bundle].size()) {
-      add_id(route->touched_port_ids, route->made.rows[span.brow].ports[span.bundle][span.lane]);
+    if (span.brow < route->made.rows.size()) {
+      add_id(route->touched_port_ids,
+             port_for_link(route->made.rows[span.brow], span.link, span.bundle, span.lane));
     }
   }
   for (const link& edge : route->ps.links) {
@@ -2445,32 +2476,13 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
         }
         bands = std::move(resolved_bands.value);
       }
-      trow preflight_row{};
-      preflight_row.row = r.id;
-      preflight_row.node = r.node;
-      preflight_row.source = r.source;
-      preflight_row.axis = r.axis;
-      preflight_row.pole = pole_id;
-      const SavedBackboneRowKey row_key = key_for(ps, preflight_row, node_id_by_local, edge_by_link);
       for (int lane = 0; lane < v.value.count; ++lane) {
-        const PortPlacementBand& band = bands[static_cast<std::size_t>(lane)];
-        const port_scope scope{bundle_spec.bundle_template_id, bundle_spec.existing_bundle_id,
-                               bundle_spec.placement_key,
-                               PortKindForCategory(v.value.tmpl->category),
-                               PortLayerForSpanLayer(v.value.layer), band.band_id};
         if (ownerless && g_.nodes[r.node].has_source_edge) {
           const SourceEdgeProjectionRef ref = source_projection_for(
               state_, g_.nodes[r.node], bundle_spec, static_cast<std::size_t>(lane));
           if (source_span_binding_for(state_, ref) == nullptr) {
             return unsupported("source edge attachment is missing");
           }
-        }
-        EditResult<ObjectId> resolved =
-            resolve_port_binding(state_, pole_id, row_key, static_cast<std::size_t>(lane), scope);
-        if (!resolved.ok) {
-          EditResult<bool> failed{};
-          failed.error = resolved.error;
-          return failed;
         }
       }
     }
@@ -3198,7 +3210,27 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       out.error = "backbone topology: active row pole missing";
       return out;
     }
-    tr.ports.resize(made->bundles.size());
+    auto add_endpoint = [&](std::size_t link_id) {
+      if (link_id == bad ||
+          std::any_of(tr.endpoints.begin(), tr.endpoints.end(),
+                      [&](const trow::endpoint& endpoint) { return endpoint.link == link_id; })) {
+        return;
+      }
+      trow::endpoint endpoint{};
+      endpoint.link = link_id;
+      endpoint.ports.resize(made->bundles.size());
+      tr.endpoints.push_back(std::move(endpoint));
+    };
+    if (r.source.is_open && r.source.id < ps.opens.size()) {
+      add_endpoint(ps.opens[r.source.id].link);
+    } else if (!r.source.is_open && r.source.id < ps.joins.size()) {
+      add_endpoint(ps.joins[r.source.id].left);
+      add_endpoint(ps.joins[r.source.id].right);
+    }
+    if (tr.endpoints.empty()) {
+      out.error = "backbone topology: row endpoint missing";
+      return out;
+    }
     tr.placement_band_ids.resize(made->bundles.size());
     for (std::size_t bundle_index = 0; bundle_index < made->bundles.size(); ++bundle_index) {
       if (bundle_index >= made->bundle_specs.size()) {
@@ -3212,7 +3244,9 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         out.error = v.error;
         return out;
       }
-      tr.ports[bundle_index].reserve(static_cast<std::size_t>(v.value.count));
+      for (trow::endpoint& endpoint : tr.endpoints) {
+        endpoint.ports[bundle_index].reserve(static_cast<std::size_t>(v.value.count));
+      }
       std::vector<PortPlacementBand> bands(static_cast<std::size_t>(v.value.count));
       if (!ownerless) {
         EditResult<std::vector<PortPlacementBand>> resolved_bands = bands_for(state_, tr.pole, v.value);
@@ -3276,55 +3310,29 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             break;
           }
         }
-        const bool promoted_port = planned_port != kInvalidObjectId;
-        EditResult<ObjectId> resolved{};
-        resolved.ok = true;
-        resolved.value = planned_port;
-        if (resolved.value == kInvalidObjectId) {
-          resolved = resolve_port_binding(state_, tr.pole, row_key, static_cast<std::size_t>(lane), scope);
-          if (!resolved.ok) {
-            out.error = resolved.error;
-            return out;
-          }
-        }
-        if (resolved.value != kInvalidObjectId) {
-          Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
-          if (existing_port == nullptr) {
-            out.error = "backbone topology: resolved port missing";
-            return out;
-          }
-          const bool moved = moved_more_than_epsilon(existing_port->world_position, p);
-          bool height_reflow_required = moved;
-          if (!ownerless) {
-            const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
-            if (pole == nullptr) {
-              out.error = "backbone topology: row pole missing";
+        bool has_existing_endpoint = planned_port != kInvalidObjectId;
+        if (!has_existing_endpoint) {
+          for (const trow::endpoint& endpoint : tr.endpoints) {
+            const link* endpoint_link =
+                endpoint.link < ps.links.size() ? &ps.links[endpoint.link] : nullptr;
+            const ObjectId edge_bundle_id =
+                endpoint_link == nullptr
+                    ? kInvalidObjectId
+                    : edge_bundle_for(state_, g_, *endpoint_link,
+                                      made->bundles[bundle_index]);
+            const EditResult<ObjectId> existing =
+                resolve_port_binding(state_, tr.pole, edge_bundle_id, row_key,
+                                     static_cast<std::size_t>(lane), scope);
+            if (!existing.ok) {
+              out.error = existing.error;
               return out;
             }
-            const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
-            height_reflow_required =
-                std::abs(WorldPointToLocal(frame, existing_port->world_position).z -
-                         WorldPointToLocal(frame, p).z) > 1e-9;
+            has_existing_endpoint =
+                has_existing_endpoint ||
+                existing.value != kInvalidObjectId;
           }
-          if (!promoted_port && moved && (existing_port->position_mode == PortPositionMode::kManual ||
-                        existing_port->user_edited_position) && height_reflow_required) {
-            out.error = "backbone unsupported: canonical row reflow requires moving manual ports";
-            return out;
-          }
-          if (!promoted_port && moved && existing_port->position_mode != PortPositionMode::kManual &&
-              !existing_port->user_edited_position) {
-            existing_port->world_position = p;
-            ApplyPortBandTemplateFields(existing_port, band);
-            CoreState::add_unique_id(changes->updated_ids, existing_port->id);
-            state_.touch_connected_spans_from_port(existing_port->id, changes);
-          }
-          tr.ports[bundle_index].push_back(resolved.value);
-          continue;
         }
-        if (!row_active) {
-          continue;
-        }
-        if (!ownerless) {
+        if (!ownerless && !has_existing_endpoint) {
           const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
           if (pole == nullptr) {
             out.error = "backbone topology: row pole missing";
@@ -3339,16 +3347,92 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           }
           p = LocalPointToWorld(frame, local);
         }
-        EditResult<ObjectId> port =
-            state_.AddPort(ownerless ? kInvalidObjectId : made->poles[r.node], p, scope.kind, scope.layer);
-        if (!port.ok) {
-          out.error = port.error;
-          return out;
+        if (planned_port != kInvalidObjectId) {
+          const Port* existing = state_.view().ports().find(planned_port);
+          if (existing == nullptr) {
+            out.error = "backbone topology: promoted port missing";
+            return out;
+          }
+          p = existing->world_position;
         }
-        Port* created_port = state_.edit_state_access().ports.find(port.value);
-        ApplyPortBandTemplateFields(created_port, band);
-        add(*changes, port.change_set);
-        tr.ports[bundle_index].push_back(port.value);
+        for (trow::endpoint& endpoint : tr.endpoints) {
+          const link* endpoint_link =
+              endpoint.link < ps.links.size() ? &ps.links[endpoint.link] : nullptr;
+          const ObjectId edge_bundle_id =
+              endpoint_link == nullptr
+                  ? kInvalidObjectId
+                  : edge_bundle_for(state_, g_, *endpoint_link, made->bundles[bundle_index]);
+          const bool promoted_endpoint =
+              planned_port != kInvalidObjectId &&
+              std::any_of(promotion_plan_.begin(), promotion_plan_.end(),
+                          [&](const PromotionPlanEntry& entry) {
+                            return entry.row == r.id && entry.spec_index == spec_index &&
+                                   entry.lane_index == static_cast<std::size_t>(lane) &&
+                                   entry.existing_edge_bundle_id == edge_bundle_id;
+                          });
+          EditResult<ObjectId> resolved{};
+          resolved.ok = true;
+          resolved.value = promoted_endpoint ? planned_port : kInvalidObjectId;
+          if (resolved.value == kInvalidObjectId) {
+            resolved = resolve_port_binding(state_, tr.pole, edge_bundle_id, row_key,
+                                            static_cast<std::size_t>(lane), scope);
+            if (!resolved.ok) {
+              out.error = resolved.error;
+              return out;
+            }
+          }
+          if (resolved.value != kInvalidObjectId) {
+            Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
+            if (existing_port == nullptr) {
+              out.error = "backbone topology: resolved port missing";
+              return out;
+            }
+            const bool moved = moved_more_than_epsilon(existing_port->world_position, p);
+            bool height_reflow_required = moved;
+            if (!ownerless) {
+              const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
+              if (pole == nullptr) {
+                out.error = "backbone topology: row pole missing";
+                return out;
+              }
+              const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
+              height_reflow_required =
+                  std::abs(WorldPointToLocal(frame, existing_port->world_position).z -
+                           WorldPointToLocal(frame, p).z) > 1e-9;
+            }
+            if (!promoted_endpoint && moved &&
+                (existing_port->position_mode == PortPositionMode::kManual ||
+                 existing_port->user_edited_position) &&
+                height_reflow_required) {
+              out.error = "backbone unsupported: canonical row reflow requires moving manual ports";
+              return out;
+            }
+            if (!promoted_endpoint && moved &&
+                existing_port->position_mode != PortPositionMode::kManual &&
+                !existing_port->user_edited_position) {
+              existing_port->world_position = p;
+              ApplyPortBandTemplateFields(existing_port, band);
+              CoreState::add_unique_id(changes->updated_ids, existing_port->id);
+              state_.touch_connected_spans_from_port(existing_port->id, changes);
+            }
+            endpoint.ports[bundle_index].push_back(resolved.value);
+            continue;
+          }
+          if (!row_active) {
+            continue;
+          }
+          EditResult<ObjectId> port =
+              state_.AddPort(ownerless ? kInvalidObjectId : made->poles[r.node], p,
+                             scope.kind, scope.layer);
+          if (!port.ok) {
+            out.error = port.error;
+            return out;
+          }
+          Port* created_port = state_.edit_state_access().ports.find(port.value);
+          ApplyPortBandTemplateFields(created_port, band);
+          add(*changes, port.change_set);
+          endpoint.ports[bundle_index].push_back(port.value);
+        }
       }
     }
   }
@@ -3384,10 +3468,13 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         return out;
       }
       for (int lane = 0; lane < v.value.count; ++lane) {
-        if (made->rows[edge.arow].ports.size() <= bundle_index ||
-            made->rows[edge.brow].ports.size() <= bundle_index ||
-            made->rows[edge.arow].ports[bundle_index].size() <= static_cast<std::size_t>(lane) ||
-            made->rows[edge.brow].ports[bundle_index].size() <= static_cast<std::size_t>(lane)) {
+        const ObjectId port_a =
+            port_for_link(made->rows[edge.arow], edge.id, bundle_index,
+                          static_cast<std::size_t>(lane));
+        const ObjectId port_b =
+            port_for_link(made->rows[edge.brow], edge.id, bundle_index,
+                          static_cast<std::size_t>(lane));
+        if (port_a == kInvalidObjectId || port_b == kInvalidObjectId) {
           out.error = "backbone topology: span port missing";
           return out;
         }
@@ -3400,8 +3487,7 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
           continue;
         }
         EditResult<ObjectId> span = state_.AddSpan(
-            made->rows[edge.arow].ports[bundle_index][static_cast<std::size_t>(lane)],
-            made->rows[edge.brow].ports[bundle_index][static_cast<std::size_t>(lane)],
+            port_a, port_b,
             SpanKindForCategory(v.value.tmpl->category),
             v.value.layer, made->bundles[bundle_index]);
         if (!span.ok) {
@@ -3606,8 +3692,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
       return out;
     }
     auto bind_port = [&](std::size_t row_index) -> bool {
-      if (row_index >= made.rows.size() || span.bundle >= made.rows[row_index].ports.size() ||
-          span.lane >= made.rows[row_index].ports[span.bundle].size()) {
+      if (row_index >= made.rows.size()) {
         out.error = "backbone graph: port binding row missing";
         return false;
       }
@@ -3617,7 +3702,9 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         out.error = "backbone graph: bundle missing for port binding";
         return false;
       }
-      const Port* port = state_.view().ports().find(made.rows[row_index].ports[span.bundle][span.lane]);
+      const ObjectId port_id =
+          port_for_link(made.rows[row_index], span.link, span.bundle, span.lane);
+      const Port* port = state_.view().ports().find(port_id);
       if (port == nullptr) {
         out.error = "backbone graph: port missing for binding";
         return false;
@@ -3703,7 +3790,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
       if (node_id == kInvalidObjectId) {
         continue;
       }
-      for (std::size_t bundle_index = 0; bundle_index < row.ports.size() && bundle_index < made.bundles.size();
+      for (std::size_t bundle_index = 0; bundle_index < made.bundles.size();
            ++bundle_index) {
         const ObjectId left_edge_bundle_id = refresh_edge_bundle_by_link_bundle(joined.left, bundle_index);
         const ObjectId right_edge_bundle_id = refresh_edge_bundle_by_link_bundle(joined.right, bundle_index);
@@ -3711,7 +3798,12 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
             left_edge_bundle_id == right_edge_bundle_id) {
           continue;
         }
-        for (std::size_t lane = 0; lane < row.ports[bundle_index].size(); ++lane) {
+        const auto* row_ports =
+            row.endpoints.empty() ? nullptr : &row.endpoints.front().ports;
+        if (row_ports == nullptr || bundle_index >= row_ports->size()) {
+          continue;
+        }
+        for (std::size_t lane = 0; lane < (*row_ports)[bundle_index].size(); ++lane) {
           const bool planned_promotion_for_lane =
               row_can_write_planned_promotion &&
               std::any_of(promotion_plan_.begin(), promotion_plan_.end(), [&](const PromotionPlanEntry& entry) {
@@ -3790,8 +3882,10 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       }
       return e;
     };
-    rule.start = endpoint(arow, arow.ports[span.bundle][span.lane]);
-    rule.end = endpoint(brow, brow.ports[span.bundle][span.lane]);
+    rule.start = endpoint(
+        arow, port_for_link(arow, span.link, span.bundle, span.lane));
+    rule.end = endpoint(
+        brow, port_for_link(brow, span.link, span.bundle, span.lane));
     auto apply_jumper = [&](std::size_t row_id, EndpointLayoutRule* endpoint) {
       if (endpoint == nullptr) {
         return;
@@ -3805,11 +3899,11 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
         } else {
           continue;
         }
-        if (peer_row >= made.rows.size() || span.bundle >= made.rows[peer_row].ports.size() ||
-            span.lane >= made.rows[peer_row].ports[span.bundle].size()) {
+        if (peer_row >= made.rows.size()) {
           continue;
         }
-        endpoint->jumper_peer_port_id = made.rows[peer_row].ports[span.bundle][span.lane];
+        endpoint->jumper_peer_port_id =
+            first_endpoint_port(made.rows[peer_row], span.bundle, span.lane);
         return;
       }
     };

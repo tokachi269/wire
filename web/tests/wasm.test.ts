@@ -853,7 +853,7 @@ describe("wire wasm smoke", () => {
 
     const bHvPorts = Array.from({ length: runState.portCount() }, (_, index) => runState.port(index))
       .filter((port) => port.ownerPoleId === poleB.id && port.category === 0);
-    expect(bHvPorts).toHaveLength(9);
+    expect(bHvPorts).toHaveLength(12);
 
     const bHvRows = runState.visualScene().models
       .filter((model) => model.modelKey === "hv_crossarm" && model.stableKey.startsWith(`row:${poleB.id}:`));

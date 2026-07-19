@@ -60,7 +60,11 @@ E. Docs stale only: `docs/viewer_operations.md` に残っていた backbone span
 
 ## 残blocker
 
-source上の既知blockerはない。必須check、実画面の最終確認、mainとの差分・競合確認は必要である。
+| ID | 操作 | 現状 | 解除条件 |
+|---|---|---|---|
+| J2 | `MovePole`で接続済みpairの角度が通常/鋭角閾値を跨ぐ | endpoint Port identityとcontinuityは維持されるが、repositionは保存済みlayout ruleを再利用するため、row/fixtureとNodePatch/jumperの表現切替を再導出しない | `SavedBackboneRowContinuity`と現在幾何から通常/鋭角表現を再導出し、Port ID不変のままfixture 1↔2、NodePatch↔jumperを切り替えるfail-first testを通す |
+
+J2がsource上の既知blockerである。必須check、実画面の最終確認、mainとの差分・競合確認も必要である。
 
 ## merge可能条件
 

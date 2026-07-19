@@ -116,6 +116,96 @@ export class SampledWireCurve extends THREE.Curve<THREE.Vector3> {
   }
 }
 
+export function makeSampledTubeGeometry(samples: Float64Array, radius: number): THREE.BufferGeometry {
+  const pointCount = Math.floor(samples.length / 3);
+  const geometry = new THREE.BufferGeometry();
+  if (pointCount < 2) return geometry;
+
+  const radialSegments = WIRE_RADIAL_SEGMENTS;
+  const positions = new Float32Array(pointCount * radialSegments * 3);
+  const normals = new Float32Array(pointCount * radialSegments * 3);
+  const vertexCount = pointCount * radialSegments;
+  const IndexArray = vertexCount <= 0xffff ? Uint16Array : Uint32Array;
+  const indices = new IndexArray((pointCount - 1) * radialSegments * 6);
+  const centers: THREE.Vector3[] = [];
+  for (let index = 0; index < pointCount; index += 1) {
+    centers.push(new THREE.Vector3(
+      samples[index * 3],
+      samples[index * 3 + 1],
+      samples[index * 3 + 2]
+    ));
+  }
+
+  const tangentAt = (index: number): THREE.Vector3 => {
+    const prev = centers[Math.max(0, index - 1)];
+    const next = centers[Math.min(pointCount - 1, index + 1)];
+    const tangent = next.clone().sub(prev);
+    if (tangent.lengthSq() <= 1e-18 && index + 1 < pointCount) {
+      tangent.copy(centers[index + 1]).sub(centers[index]);
+    }
+    if (tangent.lengthSq() <= 1e-18 && index > 0) {
+      tangent.copy(centers[index]).sub(centers[index - 1]);
+    }
+    return tangent.lengthSq() <= 1e-18
+      ? new THREE.Vector3(1, 0, 0)
+      : tangent.normalize();
+  };
+
+  let tangent = tangentAt(0);
+  const reference = Math.abs(tangent.z) < 0.9
+    ? new THREE.Vector3(0, 0, 1)
+    : new THREE.Vector3(0, 1, 0);
+  let normal = reference.clone().cross(tangent).normalize();
+  let binormal = tangent.clone().cross(normal).normalize();
+  const nextTangent = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const radial = new THREE.Vector3();
+  for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+    if (pointIndex > 0) {
+      nextTangent.copy(tangentAt(pointIndex));
+      rotation.setFromUnitVectors(tangent, nextTangent);
+      normal.applyQuaternion(rotation).normalize();
+      binormal.copy(nextTangent).cross(normal).normalize();
+      tangent = nextTangent.clone();
+    }
+    const center = centers[pointIndex];
+    for (let radialIndex = 0; radialIndex < radialSegments; radialIndex += 1) {
+      const angle = (radialIndex / radialSegments) * Math.PI * 2;
+      radial.copy(normal).multiplyScalar(Math.cos(angle))
+        .addScaledVector(binormal, Math.sin(angle))
+        .normalize();
+      const vertexOffset = (pointIndex * radialSegments + radialIndex) * 3;
+      positions[vertexOffset] = center.x + radial.x * radius;
+      positions[vertexOffset + 1] = center.y + radial.y * radius;
+      positions[vertexOffset + 2] = center.z + radial.z * radius;
+      normals[vertexOffset] = radial.x;
+      normals[vertexOffset + 1] = radial.y;
+      normals[vertexOffset + 2] = radial.z;
+    }
+  }
+
+  let indexOffset = 0;
+  for (let pointIndex = 0; pointIndex + 1 < pointCount; pointIndex += 1) {
+    const row = pointIndex * radialSegments;
+    const nextRow = (pointIndex + 1) * radialSegments;
+    for (let radialIndex = 0; radialIndex < radialSegments; radialIndex += 1) {
+      const nextRadial = (radialIndex + 1) % radialSegments;
+      indices[indexOffset++] = row + radialIndex;
+      indices[indexOffset++] = nextRow + radialIndex;
+      indices[indexOffset++] = row + nextRadial;
+      indices[indexOffset++] = row + nextRadial;
+      indices[indexOffset++] = nextRow + radialIndex;
+      indices[indexOffset++] = nextRow + nextRadial;
+    }
+  }
+
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 export class WireScene {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(48, 1, 0.05, 2000);
@@ -695,23 +785,13 @@ export class WireScene {
         this.disposeContentMesh(previous.mesh);
         this.partMeshes.delete(key);
       }
-      const points: THREE.Vector3[] = [];
-      for (let index = 0; index + 2 < part.samples.length; index += 3) {
-        points.push(new THREE.Vector3(
-          part.samples[index],
-          part.samples[index + 1],
-          part.samples[index + 2]
-        ));
-      }
-      if (points.length < 2) {
+      if (part.samples.length < 6) {
         changed = true;
         continue;
       }
 
-      const curve = new SampledWireCurve(points);
       const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
-      const segments = Math.max(4, points.length - 1);
-      const geometry = new THREE.TubeGeometry(curve, segments, radius, WIRE_RADIAL_SEGMENTS, false);
+      const geometry = makeSampledTubeGeometry(part.samples, radius);
       const material = part.info.supplementalKind === SUPPORT_PATH_SUPPLEMENTAL_KIND
         ? this.getSupportWireMaterial()
         : this.makeWireMaterial(part.info.colorRgba);

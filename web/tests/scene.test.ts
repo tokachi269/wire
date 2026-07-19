@@ -6,6 +6,7 @@ import {
   WireScene,
   WIRE_RADIAL_SEGMENTS,
   backboneNodeHitId,
+  makeSampledTubeGeometry,
   makeBackbonePick,
   setPoleRotation
 } from "../src/render/scene";
@@ -52,6 +53,19 @@ describe("sampled wire curve", () => {
 
     expect(curve.getPoint(0.5).toArray()).toEqual([5, 0, 0]);
     expect(curve.getPoint(0.75).toArray()).toEqual([5, 2.5, 0]);
+  });
+
+  it("builds one tube ring per core sample without resampling", () => {
+    const samples = new Float64Array([
+      0, 0, 0,
+      1, 0, 0,
+      2, 1, 0,
+      3, 1, 1
+    ]);
+    const geometry = makeSampledTubeGeometry(samples, 0.02);
+    expect(geometry.getAttribute("position").count).toBe(4 * WIRE_RADIAL_SEGMENTS);
+    expect(geometry.getAttribute("normal").count).toBe(4 * WIRE_RADIAL_SEGMENTS);
+    expect(geometry.getIndex()?.count).toBe(3 * WIRE_RADIAL_SEGMENTS * 6);
   });
 });
 

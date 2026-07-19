@@ -232,6 +232,8 @@ export interface BundleTemplateInfo {
   defaultLayer: number;
   allowMidairNode: boolean;
   allowMidairBranch: boolean;
+  enableBranchDownOffset: boolean;
+  branchEndpointOffset: number;
   supportWirePoleBandId: number;
   rowFixtureAssemblyId: number;
   endpointFixtureAssemblyId: number;

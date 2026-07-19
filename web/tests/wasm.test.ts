@@ -244,12 +244,26 @@ function assertNonFlaggedSpanLayoutsAtPortHeight(state: WireStateHandle) {
     const port = state.port(index);
     ports.set(port.id, { z: port.z });
   }
+  const templates = new Map<number, { enableBranchDownOffset: boolean; branchEndpointOffset: number }>();
+  for (let index = 0; index < state.bundleTemplateCount(); index += 1) {
+    const template = state.bundleTemplate(index);
+    templates.set(template.id, {
+      enableBranchDownOffset: template.enableBranchDownOffset,
+      branchEndpointOffset: template.branchEndpointOffset
+    });
+  }
   for (let index = 0; index < state.spanCount(); index += 1) {
     const span = state.span(index);
     const part = visualParts(state).find((candidate) =>
       candidate.info.kind === 0 && candidate.info.sourceSpanId === span.id
     );
-    if (part === undefined || part.info.bundleTemplateId === 101) continue;
+    if (part === undefined) continue;
+    const template = templates.get(part.info.bundleTemplateId);
+    const branchDownEnabled =
+      template !== undefined &&
+      template.enableBranchDownOffset &&
+      template.branchEndpointOffset < -1e-9;
+    if (branchDownEnabled) continue;
     const layout = state.spanLayout(span.id);
     expect(layout.ok, layout.error).toBe(true);
     expect(layout.start).not.toBeNull();
@@ -575,7 +589,7 @@ describe("wire wasm smoke", () => {
       new Float64Array([0, 10, 0, 20, 10, 0]),
       [102, 101, 104, 105],
       0,
-      1,
+      2,
       [0, 0, 0, 0],
       0,
       0,
@@ -592,7 +606,7 @@ describe("wire wasm smoke", () => {
       new Float64Array([0, 0, 0, 12, 0, 0]),
       hvBundlePlacement(),
       0,
-      1,
+      2,
       0,
       0,
       []
@@ -611,7 +625,7 @@ describe("wire wasm smoke", () => {
       new Float64Array([0, 0, 0, 12, 0, 0]),
       hvBundlePlacement(),
       0,
-      1,
+      2,
       0,
       0,
       []
@@ -635,7 +649,7 @@ describe("wire wasm smoke", () => {
       new Float64Array([0, 0, 0, 12, 0, 0]),
       defaultBundlePlacements(),
       0,
-      1,
+      2,
       0,
       0,
       []
@@ -656,7 +670,7 @@ describe("wire wasm smoke", () => {
       new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
       placements,
       0,
-      1,
+      2,
       0,
       0,
       []
@@ -726,7 +740,7 @@ describe("wire wasm smoke", () => {
       ]),
       placements,
       0,
-      1,
+      2,
       0,
       12,
       []
@@ -742,7 +756,7 @@ describe("wire wasm smoke", () => {
       ]),
       placements,
       0,
-      1,
+      2,
       0,
       12,
       [{ pointIndex: 1, supportKind: 0, nodeId: poleB.id }]
@@ -809,6 +823,77 @@ describe("wire wasm smoke", () => {
     runState.delete();
   });
 
+  it("uses branch-down template flags, not HV category, on the production viewer pole type", async () => {
+    const runState = createState();
+    const configured = runState.configureModelAssemblies(await productionLikeModelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+    const hvTemplate = runState.bundleTemplate(0);
+    const lvTemplate = runState.bundleTemplate(1);
+    expect(hvTemplate.id).toBe(101);
+    expect(lvTemplate.id).toBe(102);
+    expect(runState.updateBundleTemplate({
+      ...hvTemplate,
+      enableBranchDownOffset: false,
+      branchEndpointOffset: -0.275
+    }).ok).toBe(true);
+    expect(runState.updateBundleTemplate({
+      ...lvTemplate,
+      enableBranchDownOffset: true,
+      branchEndpointOffset: -0.325
+    }).ok).toBe(true);
+    const placements = [
+      defaultBundlePlacements()[0],
+      defaultBundlePlacements()[1]
+    ];
+    const base = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
+      placements,
+      0,
+      2,
+      0,
+      12,
+      []
+    );
+    expect(base.ok, base.error).toBe(true);
+    const baseHvSpanIds = new Set(hvEdgeBodies(runState).map((part) => part.info.sourceSpanId));
+    const poleB = runState.pole(1);
+    const branch = runState.generatePlacements(
+      new Float64Array([-5, 4, 0, poleB.positionX, poleB.positionY, poleB.positionZ]),
+      placements,
+      0,
+      2,
+      0,
+      12,
+      [{ pointIndex: 1, supportKind: 0, nodeId: poleB.id }]
+    );
+    expect(branch.ok, branch.error).toBe(true);
+    expect(branch.generatedSpanCount).toBe(4);
+    const newHvParts = hvEdgeBodies(runState)
+      .filter((part) => !baseHvSpanIds.has(part.info.sourceSpanId));
+    expect(newHvParts).toHaveLength(3);
+    for (let index = 0; index < runState.spanCount(); index += 1) {
+      const span = runState.span(index);
+      const part = visualParts(runState).find((candidate) =>
+        candidate.info.kind === 0 && candidate.info.sourceSpanId === span.id
+      );
+      if (part === undefined) continue;
+      const layout = runState.spanLayout(span.id);
+      expect(layout.ok, layout.error).toBe(true);
+      const endpoints = [layout.start!, layout.end!];
+      if (part.info.bundleTemplateId === 101) {
+        for (const endpoint of endpoints) {
+          expect(endpoint.defaultLowerRequired, span.id).toBe(false);
+          expect(endpoint.lowerRequired, span.id).toBe(false);
+          expect(endpoint.branchDownOffset, span.id).toBeLessThanOrEqual(1e-9);
+        }
+      } else if (part.info.bundleTemplateId === 102 && endpoints.some((endpoint) => endpoint.defaultLowerRequired)) {
+        expect(endpoints.some((endpoint) => endpoint.branchDownOffset > 0.1)).toBe(true);
+      }
+    }
+    assertHvSeparatedByEdge(runState);
+    runState.delete();
+  });
+
   it("keeps HV when resolving a pole snap through the UI hit payload and excludes HV for midair branch", () => {
     const runState = createState();
     const configured = runState.configureModelAssemblies(modelBootstrap());
@@ -819,7 +904,7 @@ describe("wire wasm smoke", () => {
       new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
       placements,
       0,
-      1,
+      2,
       0,
       9.5,
       []
@@ -867,7 +952,7 @@ describe("wire wasm smoke", () => {
       ]),
       placements,
       0,
-      1,
+      2,
       0,
       9.5,
       [{ pointIndex: 1, supportKind: resolvedPole.supportKind, nodeId: resolvedPole.nodeId }]
@@ -885,7 +970,7 @@ describe("wire wasm smoke", () => {
       new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
       placements,
       0,
-      1,
+      2,
       0,
       9.5,
       []
@@ -919,7 +1004,7 @@ describe("wire wasm smoke", () => {
       ]),
       placements,
       0,
-      1,
+      2,
       0,
       9.5,
       [{ pointIndex: 0, supportKind: resolvedMidair.supportKind, nodeId: resolvedMidair.nodeId }]

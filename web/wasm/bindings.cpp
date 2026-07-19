@@ -663,6 +663,8 @@ public:
     output.set("defaultLayer", static_cast<int>(bundle_template.default_layer));
     output.set("allowMidairNode", bundle_template.allow_midair_node);
     output.set("allowMidairBranch", bundle_template.allow_midair_branch);
+    output.set("enableBranchDownOffset", bundle_template.enable_branch_down_offset);
+    output.set("branchEndpointOffset", bundle_template.branch_endpoint_offset_m);
     output.set("supportWirePoleBandId", bundle_template.support_wire_pole_band_id);
     output.set("rowFixtureAssemblyId", bundle_template.row_fixture_assembly_id);
     output.set("endpointFixtureAssemblyId", bundle_template.endpoint_fixture_assembly_id);
@@ -717,6 +719,8 @@ public:
     bundle_template.default_layer = static_cast<SpanLayer>(property<int>(input, "defaultLayer"));
     bundle_template.allow_midair_node = property<bool>(input, "allowMidairNode");
     bundle_template.allow_midair_branch = property<bool>(input, "allowMidairBranch");
+    bundle_template.enable_branch_down_offset = property<bool>(input, "enableBranchDownOffset");
+    bundle_template.branch_endpoint_offset_m = property<double>(input, "branchEndpointOffset");
     bundle_template.support_wire_pole_band_id = property<int>(input, "supportWirePoleBandId");
     bundle_template.row_fixture_assembly_id =
         property<wire::core::ModelAssemblyTemplateId>(input, "rowFixtureAssemblyId");

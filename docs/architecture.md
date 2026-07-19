@@ -86,7 +86,7 @@ pole表面へ直接取り付けるportや部品は、中心軸原点を変えず
 表面位置を導出する。表面位置を既定offsetへ混ぜず、laneごとに後処理してbundle重心をずらしてはならない。
 
 pair row axisは`pairs make(graph)`だけが決める。
-route/orderはactive route link内だけの導出補助であり、contextとして読まれた保存済みedgeの継続はsaved pair/row continuity recordを正本にする。
+生成中routeの隣接はgraph linkの接続nodeで決め、保存済みedgeの継続はsaved pair/row continuity recordを正本にする。route/orderは永続化しない導出補助であり、pair/open/row continuityの判定入力にしない。
 通常cornerでは前後linkの単位接線和から二等分方向を作り、その直交方向をrow axisにする。
 径間長の差でrow axisを回さず、各incident spanのlane順が反転しない範囲に保つ。
 鋭角cornerは共有pair rowにせず、各incident edgeに直交する2つのopen rowと明示jumper relationへ分ける。
@@ -188,7 +188,7 @@ preflight を増やしたことを理由に本 state 直接変更へ戻すこと
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
 現対応は `UpdateBundleTemplate` の fixed count 増減と `kTopology` policy 差分、`UpdateCableTemplate` の backbone continuity policy / default endpoint attachment decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
-group offset を再構成する。3点以上routeのpair rowは、saved edge の route/order と saved node から
+group offset を再構成する。3点以上routeのpair rowは、saved row continuity と saved node から
 pipeline graph を復元して再確定する。
 row key / lane が一致する binding は再利用し、不一致の binding は retire + emit で reconcile する。存続する user attachment は span id とともに保持し、退役spanに user attachment があれば mutation 前に `unsupported` で拒否する。`AttachmentOrigin::kDefaultEndpoint` は trial 内で退役できる。`UpdateCableTemplate` の continuity policy と default endpoint attachment は route scope ごとに同じ入口を通し、既存spanのcurve decisionとauto endpoint attachmentを編集後 template へreconcileする。non-backbone span を含む decision 差分は未対応として拒否する。
 

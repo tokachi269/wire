@@ -3774,4 +3774,15 @@ bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {
   return true;
 }
 
+bool C807_backbone_pipeline_does_not_infer_continuity_from_route_order() {
+  std::string cpp{};
+  if (!file_text(repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp", &cpp)) {
+    return false;
+  }
+  return !contains_text(cpp, "participates_in_route_order_continuity") &&
+         !contains_text(cpp, "is_route_order_continuation") &&
+         !contains_text(cpp, "route_continuation =") &&
+         !contains_text(cpp, "left_link.route == right_link.route");
+}
+
 } // namespace backbone_tests

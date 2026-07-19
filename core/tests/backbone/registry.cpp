@@ -1249,6 +1249,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "generation-scoped route order does not create ambiguous saved T branch restore",
                          "Invariant", false,
                          C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore);
+  test_registry::AddTest(tests, "C807_backbone_pipeline_does_not_infer_continuity_from_route_order",
+                         "pipeline continuity is not inferred from route/order fields",
+                         "Boundary", false,
+                         C807_backbone_pipeline_does_not_infer_continuity_from_route_order);
   test_registry::AddTest(tests, "C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross",
                          "row continuity graph lint covers route branch and cross outputs",
                          "Boundary", false,

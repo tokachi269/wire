@@ -1344,8 +1344,8 @@ bool moved_more_than_epsilon(const Vec3d& lhs, const Vec3d& rhs) {
   return d.x * d.x + d.y * d.y + d.z * d.z > 1e-18;
 }
 
-bool participates_in_route_order_continuity(const link& edge) {
-  return edge.is_new;
+bool is_current_path_continuation(const link& incoming, const link& outgoing) {
+  return incoming.is_new && outgoing.is_new && incoming.b == outgoing.a;
 }
 
 } // namespace
@@ -2141,13 +2141,8 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     };
     std::sort(incoming.begin(), incoming.end(), link_less);
     std::sort(outgoing.begin(), outgoing.end(), link_less);
-    auto is_route_order_continuation = [&](const link& a, const link& b) {
-      return participates_in_route_order_continuity(a) &&
-             participates_in_route_order_continuity(b) &&
-             a.route == b.route && a.order + 1 == b.order;
-    };
     auto is_canonical_continuation = [&](const link& a, const link& b) {
-      return is_route_order_continuation(a, b) || is_saved_pair_continuation(state_, n, a, b);
+      return is_current_path_continuation(a, b) || is_saved_pair_continuation(state_, n, a, b);
     };
     auto has_canonical_for_right = [&](std::size_t right) {
       const link& b = out.value.links[right];
@@ -3565,17 +3560,16 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
       }
       const link& left_link = ps.links[joined.left];
       const link& right_link = ps.links[joined.right];
-      const bool route_continuation =
-          left_link.route == right_link.route &&
-          ((left_link.order + 1 == right_link.order && left_link.b == right_link.a) ||
-           (right_link.order + 1 == left_link.order && right_link.b == left_link.a));
+      const bool current_path_join =
+          is_current_path_continuation(left_link, right_link) ||
+          is_current_path_continuation(right_link, left_link);
       const bool saved_or_promoted_continuation =
           row.node < g_.nodes.size() &&
           (is_saved_pair_continuation(state_, g_.nodes[row.node], left_link, right_link) ||
            is_saved_pair_continuation(state_, g_.nodes[row.node], right_link, left_link) ||
            is_promoted_open_continuation(state_, g_.nodes[row.node], left_link, right_link) ||
            is_promoted_open_continuation(state_, g_.nodes[row.node], right_link, left_link));
-      const bool row_can_write_continuity = route_continuation || saved_or_promoted_continuation;
+      const bool row_can_write_continuity = current_path_join || saved_or_promoted_continuation;
       auto link_is_pole_to_pole = [&](const link& item) {
         return item.a < g_.nodes.size() && item.b < g_.nodes.size() &&
                g_.nodes[item.a].support == SupportKind::kPole &&

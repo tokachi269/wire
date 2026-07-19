@@ -3779,10 +3779,24 @@ bool C807_backbone_pipeline_does_not_infer_continuity_from_route_order() {
   if (!file_text(repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp", &cpp)) {
     return false;
   }
+  std::string regenerate{};
+  std::string state{};
+  std::string update{};
+  if (!file_text(repo_root() / "core" / "src" / "generation" / "backbone" / "regenerate.cpp", &regenerate) ||
+      !file_text(repo_root() / "core" / "src" / "state" / "state.cpp", &state) ||
+      !file_text(repo_root() / "core" / "src" / "state" / "template" / "update.cpp", &update)) {
+    return false;
+  }
   return !contains_text(cpp, "participates_in_route_order_continuity") &&
          !contains_text(cpp, "is_route_order_continuation") &&
          !contains_text(cpp, "route_continuation =") &&
-         !contains_text(cpp, "left_link.route == right_link.route");
+         !contains_text(cpp, "left_link.route == right_link.route") &&
+         !contains_text(regenerate, "candidate.route != route_id") &&
+         !contains_text(regenerate, "candidate.order == anchor.order + 1") &&
+         !contains_text(regenerate, "edge->route != route_id") &&
+         !contains_text(state, "candidate.route != seed.route") &&
+         !contains_text(state, "candidate.order == anchor.order + 1") &&
+         !contains_text(update, "scope.route == edge->route");
 }
 
 } // namespace backbone_tests

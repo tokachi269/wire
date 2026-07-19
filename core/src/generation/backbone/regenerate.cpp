@@ -339,61 +339,36 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   if (edge == nullptr) {
     return fail("backbone regenerate: edge missing");
   }
-  const std::size_t route_id = edge->route;
-  std::vector<const SavedBackboneEdge*> route_edges{edge};
-  auto find_adjacent_edge = [&](const SavedBackboneEdge& anchor, bool forward,
-                                bool* ambiguous) -> const SavedBackboneEdge* {
-    const SavedBackboneEdge* match = nullptr;
-    if (ambiguous != nullptr) {
-      *ambiguous = false;
-    }
-    for (const SavedBackboneEdge& candidate : graph.edges) {
-      if (candidate.edge_id == anchor.edge_id || candidate.route != route_id) {
-        continue;
-      }
-      const bool adjacent = forward ? (candidate.order == anchor.order + 1 && candidate.node_a == anchor.node_b)
-                                    : (anchor.order == candidate.order + 1 && candidate.node_b == anchor.node_a);
-      if (!adjacent) {
-        continue;
-      }
-      if (match != nullptr) {
-        if (ambiguous != nullptr) {
-          *ambiguous = true;
-        }
-        return nullptr;
-      }
-      match = &candidate;
-    }
-    return match;
-  };
-  for (;;) {
-    bool ambiguous = false;
-    const SavedBackboneEdge* previous = find_adjacent_edge(*route_edges.front(), false, &ambiguous);
-    if (ambiguous) {
-      return fail("backbone unsupported: regenerate route adjacency is ambiguous");
-    }
-    if (previous == nullptr) {
-      break;
-    }
-    route_edges.insert(route_edges.begin(), previous);
+  const EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes =
+      continuity_routes_from_saved_graph(graph);
+  if (!continuity_routes.ok) {
+    return fail(continuity_routes.error);
   }
-  for (;;) {
-    bool ambiguous = false;
-    const SavedBackboneEdge* next = find_adjacent_edge(*route_edges.back(), true, &ambiguous);
-    if (ambiguous) {
-      return fail("backbone unsupported: regenerate route adjacency is ambiguous");
-    }
-    if (next == nullptr) {
+  const std::vector<LoadedRouteEdge>* route_edges = nullptr;
+  for (const std::vector<LoadedRouteEdge>& route : continuity_routes.value) {
+    const bool contains_seed = std::any_of(route.begin(), route.end(), [&](const LoadedRouteEdge& item) {
+      return item.edge != nullptr && item.edge->edge_id == edge->edge_id;
+    });
+    if (contains_seed) {
+      route_edges = &route;
       break;
     }
-    route_edges.push_back(next);
+  }
+  if (route_edges == nullptr || route_edges->empty()) {
+    return fail("backbone regenerate: row continuity route missing");
   }
   for (ObjectId affected_edge_bundle_id : affected_edge_bundle_ids) {
     const SavedBackboneEdgeBundle* affected_edge_bundle = saved_edge_bundle_by_id(graph, affected_edge_bundle_id);
     const SavedBackboneEdge* affected_edge =
         affected_edge_bundle == nullptr ? nullptr : saved_edge_by_id(graph, affected_edge_bundle->edge_id);
-    if (affected_edge_bundle == nullptr || affected_edge == nullptr || affected_edge->route != route_id) {
-      return fail("backbone unsupported: regenerate supports one saved route at a time");
+    if (affected_edge_bundle == nullptr || affected_edge == nullptr) {
+      return fail("backbone regenerate: scoped edge bundle is incomplete");
+    }
+    const bool in_route = std::any_of(route_edges->begin(), route_edges->end(), [&](const LoadedRouteEdge& item) {
+      return item.edge != nullptr && item.edge->edge_id == affected_edge->edge_id;
+    });
+    if (!in_route) {
+      return fail("backbone unsupported: regenerate supports one row-continuity component at a time");
     }
     if (affected_edge_bundle->bundle_id != target.bundle_id) {
       return fail("backbone unsupported: regenerate requires one route-local bundle instance");
@@ -402,14 +377,14 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   target.edge_id = edge->edge_id;
   target.edge = edge;
   std::vector<const SavedBackboneNode*> route_nodes{};
-  for (std::size_t edge_index = 0; edge_index < route_edges.size(); ++edge_index) {
-    const SavedBackboneEdge& route_edge = *route_edges[edge_index];
+  for (std::size_t edge_index = 0; edge_index < route_edges->size(); ++edge_index) {
+    const LoadedRouteEdge& route_edge = (*route_edges)[edge_index];
     if (edge_index == 0) {
-      route_nodes.push_back(saved_node_by_id(graph, route_edge.node_a));
-    } else if (route_edges[edge_index - 1]->node_b != route_edge.node_a) {
+      route_nodes.push_back(saved_node_by_id(graph, route_edge.from_node_id));
+    } else if ((*route_edges)[edge_index - 1].to_node_id != route_edge.from_node_id) {
       return fail("backbone unsupported: regenerate requires contiguous saved route edges");
     }
-    route_nodes.push_back(saved_node_by_id(graph, route_edge.node_b));
+    route_nodes.push_back(saved_node_by_id(graph, route_edge.to_node_id));
   }
   for (const SavedBackboneNode* node : route_nodes) {
     if (node == nullptr || (node->pole_id == kInvalidObjectId && !node->has_source_edge)) {
@@ -509,16 +484,19 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     made_node.bundle_modes = saved_node.bundle_modes;
     made_graph.nodes.push_back(std::move(made_node));
   }
-  for (std::size_t edge_index = 0; edge_index < route_edges.size(); ++edge_index) {
-    const SavedBackboneEdge& saved_edge = *route_edges[edge_index];
+  for (std::size_t edge_index = 0; edge_index < route_edges->size(); ++edge_index) {
+    const LoadedRouteEdge& route_edge = (*route_edges)[edge_index];
+    if (route_edge.edge == nullptr) {
+      return fail("backbone regenerate: route edge is missing");
+    }
     generation::backbone::link made_link{};
     made_link.id = static_cast<int>(edge_index);
     made_link.a = static_cast<int>(edge_index);
     made_link.b = static_cast<int>(edge_index + 1);
-    made_link.route = saved_edge.route;
-    made_link.order = saved_edge.order;
-    made_link.dir = saved_edge.dir;
-    made_link.saved = saved_edge.edge_id;
+    made_link.route = 0;
+    made_link.order = edge_index;
+    made_link.dir = route_edge.dir;
+    made_link.saved = route_edge.edge->edge_id;
     made_link.is_new = true;
     made_graph.links.push_back(std::move(made_link));
   }
@@ -528,7 +506,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   spec.constraints.lateral_offset_m = edge->lateral_offset_m;
   std::vector<std::size_t> active_bundle_indices{};
   for (const SavedBackboneEdgeBundle& scoped_edge_bundle : graph.edge_bundles) {
-    if (scoped_edge_bundle.edge_id != route_edges.front()->edge_id) {
+    if (scoped_edge_bundle.edge_id != route_edges->front().edge->edge_id) {
       continue;
     }
     const Bundle* scoped_bundle = view().bundles().find(scoped_edge_bundle.bundle_id);
@@ -732,7 +710,7 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       link.a = a;
       link.b = b;
       link.route = context_route_offset + static_cast<std::size_t>(link.id);
-      link.order = candidate.order;
+      link.order = static_cast<std::size_t>(link.id);
       link.dir = candidate.dir;
       link.saved = candidate.edge_id;
       link.is_new = false;

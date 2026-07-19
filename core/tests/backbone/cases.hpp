@@ -330,7 +330,7 @@ bool C703_backbone_regenerate_removes_migration_symbols();
 bool C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution();
 bool C705_backbone_edge_bundle_order_matches_bundle_spec_order();
 bool C706_backbone_regenerate_multi_bundle_count_change_matches_fresh();
-bool C707_backbone_saved_edges_reconstruct_route_order();
+bool C707_backbone_saved_route_continuity_is_row_continuity();
 bool C708_backbone_regenerate_polyline_decrease_matches_fresh();
 bool C709_backbone_regenerate_polyline_increase_matches_fresh();
 bool C710_backbone_regenerate_polyline_multi_bundle_matches_fresh();

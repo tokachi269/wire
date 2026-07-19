@@ -1004,10 +1004,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate multi-bundle count change matches fresh generation",
                          "Invariant", false,
                          C706_backbone_regenerate_multi_bundle_count_change_matches_fresh);
-  test_registry::AddTest(tests, "C707_backbone_saved_edges_reconstruct_route_order",
-                         "backbone saved edges reconstruct route order",
+  test_registry::AddTest(tests, "C707_backbone_saved_route_continuity_is_row_continuity",
+                         "backbone saved route continuity is row continuity",
                          "Invariant", false,
-                         C707_backbone_saved_edges_reconstruct_route_order);
+                         C707_backbone_saved_route_continuity_is_row_continuity);
   test_registry::AddTest(tests, "C708_backbone_regenerate_polyline_decrease_matches_fresh",
                          "backbone regenerate polyline count decrease matches fresh generation",
                          "Invariant", false,
@@ -1250,7 +1250,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore);
   test_registry::AddTest(tests, "C807_backbone_pipeline_does_not_infer_continuity_from_route_order",
-                         "pipeline continuity is not inferred from route/order fields",
+                         "backbone continuity is not inferred from route/order fields",
                          "Boundary", false,
                          C807_backbone_pipeline_does_not_infer_continuity_from_route_order);
   test_registry::AddTest(tests, "C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross",

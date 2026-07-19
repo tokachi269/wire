@@ -203,7 +203,7 @@ backbone span の endpoint socket / branch-down override は `override_state` �
 API は本 state を直接書かず、trial state に override を入れて対象 span の edge を統一 regenerate する。
 layout rule は override 解決を消費し、socket は endpoint source / resolved socket、branch-down は endpoint offset と curve に反映する。
 
-`UpdateLayoutSettings` は layout settings を trial state に入れ、保存済み edge の route/order/node 連続 component と bundle instance ごとの scope を統一 regenerate する。
+`UpdateLayoutSettings` は layout settings を trial state に入れ、row continuity で接続された edge_bundle component と bundle instance ごとの scope を統一 regenerate する。
 route番号だけでは別 generation の edge が混ざるため、scope 復元は同一 route 番号に加えて隣接 node と order の連続性を要求する。
 
 `DeriveGeneratedSpanOutputs()` は、保存済み rules / layout source / `SavedBackboneGraph` binding から

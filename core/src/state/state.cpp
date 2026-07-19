@@ -1544,75 +1544,29 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
     };
 
     const SavedBackboneGraph& graph = view().backbone();
-    auto edge_by_id = [&](ObjectId edge_id) -> const SavedBackboneEdge* {
-      for (const SavedBackboneEdge& edge : graph.edges) {
-        if (edge.edge_id == edge_id) {
-          return &edge;
+    auto vector_has_id = [](const std::vector<ObjectId>& ids, ObjectId id) {
+      return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+    auto edge_bundle_by_id = [&](ObjectId edge_bundle_id) -> const SavedBackboneEdgeBundle* {
+      for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+        if (edge_bundle.edge_bundle_id == edge_bundle_id) {
+          return &edge_bundle;
         }
       }
       return nullptr;
     };
-    auto edge_id_in = [](const std::vector<const SavedBackboneEdge*>& edges, ObjectId edge_id) {
-      return std::any_of(edges.begin(), edges.end(), [&](const SavedBackboneEdge* edge) {
-        return edge != nullptr && edge->edge_id == edge_id;
-      });
-    };
-    auto vector_has_id = [](const std::vector<ObjectId>& ids, ObjectId id) {
-      return std::find(ids.begin(), ids.end(), id) != ids.end();
-    };
-    auto component_edges = [&](const SavedBackboneEdge& seed) {
-      std::vector<const SavedBackboneEdge*> edges{&seed};
-      auto find_adjacent = [&](const SavedBackboneEdge& anchor, bool forward,
-                               bool* ambiguous) -> const SavedBackboneEdge* {
-        const SavedBackboneEdge* match = nullptr;
-        if (ambiguous != nullptr) {
-          *ambiguous = false;
-        }
-        for (const SavedBackboneEdge& candidate : graph.edges) {
-          if (candidate.edge_id == anchor.edge_id || candidate.route != seed.route) {
-            continue;
-          }
-          const bool adjacent = forward ? (candidate.order == anchor.order + 1 && candidate.node_a == anchor.node_b)
-                                        : (anchor.order == candidate.order + 1 && candidate.node_b == anchor.node_a);
-          if (!adjacent) {
-            continue;
-          }
-          if (match != nullptr) {
-            if (ambiguous != nullptr) {
-              *ambiguous = true;
-            }
-            return nullptr;
-          }
-          match = &candidate;
-        }
-        return match;
-      };
-      for (;;) {
-        bool ambiguous = false;
-        const SavedBackboneEdge* previous = find_adjacent(*edges.front(), false, &ambiguous);
-        if (ambiguous) {
-          result.error = "backbone unsupported: layout settings route adjacency is ambiguous";
-          return std::vector<const SavedBackboneEdge*>{};
-        }
-        if (previous == nullptr) {
-          break;
-        }
-        edges.insert(edges.begin(), previous);
+    std::unordered_map<ObjectId, std::vector<ObjectId>> continuity_neighbors{};
+    auto add_neighbor = [&](ObjectId a, ObjectId b) {
+      if (a == kInvalidObjectId || b == kInvalidObjectId || a == b) return;
+      std::vector<ObjectId>& values = continuity_neighbors[a];
+      if (!vector_has_id(values, b)) {
+        values.push_back(b);
       }
-      for (;;) {
-        bool ambiguous = false;
-        const SavedBackboneEdge* next = find_adjacent(*edges.back(), true, &ambiguous);
-        if (ambiguous) {
-          result.error = "backbone unsupported: layout settings route adjacency is ambiguous";
-          return std::vector<const SavedBackboneEdge*>{};
-        }
-        if (next == nullptr) {
-          break;
-        }
-        edges.push_back(next);
-      }
-      return edges;
     };
+    for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+      add_neighbor(continuity.a.edge_bundle_id, continuity.b.edge_bundle_id);
+      add_neighbor(continuity.b.edge_bundle_id, continuity.a.edge_bundle_id);
+    }
 
     std::vector<LayoutRegenerateScope> scopes{};
     std::vector<ObjectId> covered_edge_bundle_ids{};
@@ -1620,29 +1574,37 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
       if (vector_has_id(covered_edge_bundle_ids, seed_edge_bundle.edge_bundle_id)) {
         continue;
       }
-      const SavedBackboneEdge* seed_edge = edge_by_id(seed_edge_bundle.edge_id);
       const Bundle* seed_bundle = view().bundles().find(seed_edge_bundle.bundle_id);
-      if (seed_edge == nullptr || seed_bundle == nullptr) {
+      if (seed_bundle == nullptr) {
         result.error = "backbone regenerate: layout settings scope is incomplete";
-        return result;
-      }
-      std::vector<const SavedBackboneEdge*> edges = component_edges(*seed_edge);
-      if (!result.error.empty()) {
         return result;
       }
       LayoutRegenerateScope scope{};
       scope.bundle_template_id = seed_bundle->bundle_template_id;
       scope.bundle_id = seed_edge_bundle.bundle_id;
-      for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
-        const Bundle* bundle = view().bundles().find(edge_bundle.bundle_id);
-        if (bundle != nullptr && edge_bundle.bundle_id == scope.bundle_id &&
-            bundle->bundle_template_id == scope.bundle_template_id &&
-            edge_id_in(edges, edge_bundle.edge_id)) {
-          if (!vector_has_id(scope.edge_bundle_ids, edge_bundle.edge_bundle_id)) {
-            scope.edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
-          }
-          if (!vector_has_id(covered_edge_bundle_ids, edge_bundle.edge_bundle_id)) {
-            covered_edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+      std::vector<ObjectId> pending{seed_edge_bundle.edge_bundle_id};
+      for (std::size_t i = 0; i < pending.size(); ++i) {
+        const ObjectId current_id = pending[i];
+        const SavedBackboneEdgeBundle* current = edge_bundle_by_id(current_id);
+        const Bundle* current_bundle = current == nullptr ? nullptr : view().bundles().find(current->bundle_id);
+        if (current == nullptr || current_bundle == nullptr ||
+            current->bundle_id != scope.bundle_id ||
+            current_bundle->bundle_template_id != scope.bundle_template_id) {
+          continue;
+        }
+        if (!vector_has_id(scope.edge_bundle_ids, current_id)) {
+          scope.edge_bundle_ids.push_back(current_id);
+        }
+        if (!vector_has_id(covered_edge_bundle_ids, current_id)) {
+          covered_edge_bundle_ids.push_back(current_id);
+        }
+        const auto neighbors_it = continuity_neighbors.find(current_id);
+        if (neighbors_it == continuity_neighbors.end()) {
+          continue;
+        }
+        for (ObjectId neighbor_id : neighbors_it->second) {
+          if (!vector_has_id(pending, neighbor_id)) {
+            pending.push_back(neighbor_id);
           }
         }
       }
@@ -2117,51 +2079,88 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemp
   if (!active_backbone_pole_ids.empty()) {
     struct RelatedPoleRegenerateScope {
       BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
-      std::size_t route = 0;
       ObjectId bundle_id = kInvalidObjectId;
       std::vector<ObjectId> edge_bundle_ids{};
     };
 
     std::vector<RelatedPoleRegenerateScope> scopes{};
-    auto add_scope_seed = [&](BundleTemplateId scoped_template_id, std::size_t route, ObjectId bundle_id) {
-      const auto existing = std::find_if(scopes.begin(), scopes.end(), [&](const RelatedPoleRegenerateScope& scope) {
-        return scope.bundle_template_id == scoped_template_id && scope.route == route && scope.bundle_id == bundle_id;
-      });
-      if (existing == scopes.end()) {
-        RelatedPoleRegenerateScope scope{};
-        scope.bundle_template_id = scoped_template_id;
-        scope.route = route;
-        scope.bundle_id = bundle_id;
-        scopes.push_back(std::move(scope));
+    const SavedBackboneGraph& graph = view().backbone();
+    auto vector_has_id = [](const std::vector<ObjectId>& ids, ObjectId id) {
+      return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+    auto edge_bundle_by_id = [&](ObjectId edge_bundle_id) -> const SavedBackboneEdgeBundle* {
+      for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+        if (edge_bundle.edge_bundle_id == edge_bundle_id) {
+          return &edge_bundle;
+        }
       }
+      return nullptr;
+    };
+    std::unordered_map<ObjectId, std::vector<ObjectId>> continuity_neighbors{};
+    auto add_neighbor = [&](ObjectId a, ObjectId b) {
+      if (a == kInvalidObjectId || b == kInvalidObjectId || a == b) return;
+      std::vector<ObjectId>& values = continuity_neighbors[a];
+      if (!vector_has_id(values, b)) {
+        values.push_back(b);
+      }
+    };
+    for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+      add_neighbor(continuity.a.edge_bundle_id, continuity.b.edge_bundle_id);
+      add_neighbor(continuity.b.edge_bundle_id, continuity.a.edge_bundle_id);
+    }
+    std::vector<ObjectId> covered_edge_bundle_ids{};
+    auto component_for = [&](ObjectId seed_edge_bundle_id, BundleTemplateId scoped_template_id, ObjectId bundle_id) {
+      std::vector<ObjectId> component{};
+      std::vector<ObjectId> pending{seed_edge_bundle_id};
+      for (std::size_t i = 0; i < pending.size(); ++i) {
+        const ObjectId current_id = pending[i];
+        if (vector_has_id(component, current_id)) {
+          continue;
+        }
+        const SavedBackboneEdgeBundle* current = edge_bundle_by_id(current_id);
+        const Bundle* bundle = current == nullptr ? nullptr : view().bundles().find(current->bundle_id);
+        if (current == nullptr || bundle == nullptr || current->bundle_id != bundle_id ||
+            bundle->bundle_template_id != scoped_template_id) {
+          continue;
+        }
+        component.push_back(current_id);
+        const auto neighbors_it = continuity_neighbors.find(current_id);
+        if (neighbors_it == continuity_neighbors.end()) {
+          continue;
+        }
+        for (ObjectId neighbor_id : neighbors_it->second) {
+          if (!vector_has_id(pending, neighbor_id)) {
+            pending.push_back(neighbor_id);
+          }
+        }
+      }
+      return component;
     };
 
     for (ObjectId pole_id : active_backbone_pole_ids) {
       const BackboneFrontier frontier = view().pole_frontier(pole_id);
       for (ObjectId edge_bundle_id : frontier.edge_bundle_ids) {
+        if (vector_has_id(covered_edge_bundle_ids, edge_bundle_id)) {
+          continue;
+        }
         const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
-        const SavedBackboneEdge* edge = edge_bundle == nullptr ? nullptr : view().backbone_edge(edge_bundle->edge_id);
         const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
-        if (edge_bundle == nullptr || edge == nullptr || bundle == nullptr) {
+        if (edge_bundle == nullptr || bundle == nullptr) {
           result.error = "backbone regenerate: related pole type scope is incomplete";
           return result;
         }
-        add_scope_seed(bundle->bundle_template_id, edge->route, edge_bundle->bundle_id);
-      }
-    }
-
-    for (RelatedPoleRegenerateScope& scope : scopes) {
-      for (const SavedBackboneEdgeBundle& edge_bundle : view().backbone().edge_bundles) {
-        const SavedBackboneEdge* edge = view().backbone_edge(edge_bundle.edge_id);
-        const Bundle* bundle = view().bundles().find(edge_bundle.bundle_id);
-        if (edge != nullptr && bundle != nullptr && edge->route == scope.route &&
-            edge_bundle.bundle_id == scope.bundle_id && bundle->bundle_template_id == scope.bundle_template_id) {
-          add_unique_id(scope.edge_bundle_ids, edge_bundle.edge_bundle_id);
+        RelatedPoleRegenerateScope scope{};
+        scope.bundle_template_id = bundle->bundle_template_id;
+        scope.bundle_id = edge_bundle->bundle_id;
+        scope.edge_bundle_ids = component_for(edge_bundle_id, scope.bundle_template_id, scope.bundle_id);
+        if (scope.edge_bundle_ids.empty()) {
+          result.error = "backbone regenerate: related pole type scope has no edge bundles";
+          return result;
         }
-      }
-      if (scope.edge_bundle_ids.empty()) {
-        result.error = "backbone regenerate: related pole type scope has no edge bundles";
-        return result;
+        for (ObjectId scoped_edge_bundle_id : scope.edge_bundle_ids) {
+          add_unique_id(covered_edge_bundle_ids, scoped_edge_bundle_id);
+        }
+        scopes.push_back(std::move(scope));
       }
     }
 
@@ -2376,51 +2375,88 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
   if (!active_backbone_pole_ids.empty() && !pole_type_placement_only_change(before, pole_type)) {
     struct PoleTypeRegenerateScope {
       BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
-      std::size_t route = 0;
       ObjectId bundle_id = kInvalidObjectId;
       std::vector<ObjectId> edge_bundle_ids{};
     };
 
     std::vector<PoleTypeRegenerateScope> scopes{};
-    auto add_scope_seed = [&](BundleTemplateId bundle_template_id, std::size_t route, ObjectId bundle_id) {
-      const auto existing = std::find_if(scopes.begin(), scopes.end(), [&](const PoleTypeRegenerateScope& scope) {
-        return scope.bundle_template_id == bundle_template_id && scope.route == route && scope.bundle_id == bundle_id;
-      });
-      if (existing == scopes.end()) {
-        PoleTypeRegenerateScope scope{};
-        scope.bundle_template_id = bundle_template_id;
-        scope.route = route;
-        scope.bundle_id = bundle_id;
-        scopes.push_back(std::move(scope));
+    const SavedBackboneGraph& graph = view().backbone();
+    auto vector_has_id = [](const std::vector<ObjectId>& ids, ObjectId id) {
+      return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+    auto edge_bundle_by_id = [&](ObjectId edge_bundle_id) -> const SavedBackboneEdgeBundle* {
+      for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+        if (edge_bundle.edge_bundle_id == edge_bundle_id) {
+          return &edge_bundle;
+        }
       }
+      return nullptr;
+    };
+    std::unordered_map<ObjectId, std::vector<ObjectId>> continuity_neighbors{};
+    auto add_neighbor = [&](ObjectId a, ObjectId b) {
+      if (a == kInvalidObjectId || b == kInvalidObjectId || a == b) return;
+      std::vector<ObjectId>& values = continuity_neighbors[a];
+      if (!vector_has_id(values, b)) {
+        values.push_back(b);
+      }
+    };
+    for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+      add_neighbor(continuity.a.edge_bundle_id, continuity.b.edge_bundle_id);
+      add_neighbor(continuity.b.edge_bundle_id, continuity.a.edge_bundle_id);
+    }
+    std::vector<ObjectId> covered_edge_bundle_ids{};
+    auto component_for = [&](ObjectId seed_edge_bundle_id, BundleTemplateId bundle_template_id, ObjectId bundle_id) {
+      std::vector<ObjectId> component{};
+      std::vector<ObjectId> pending{seed_edge_bundle_id};
+      for (std::size_t i = 0; i < pending.size(); ++i) {
+        const ObjectId current_id = pending[i];
+        if (vector_has_id(component, current_id)) {
+          continue;
+        }
+        const SavedBackboneEdgeBundle* current = edge_bundle_by_id(current_id);
+        const Bundle* bundle = current == nullptr ? nullptr : view().bundles().find(current->bundle_id);
+        if (current == nullptr || bundle == nullptr || current->bundle_id != bundle_id ||
+            bundle->bundle_template_id != bundle_template_id) {
+          continue;
+        }
+        component.push_back(current_id);
+        const auto neighbors_it = continuity_neighbors.find(current_id);
+        if (neighbors_it == continuity_neighbors.end()) {
+          continue;
+        }
+        for (ObjectId neighbor_id : neighbors_it->second) {
+          if (!vector_has_id(pending, neighbor_id)) {
+            pending.push_back(neighbor_id);
+          }
+        }
+      }
+      return component;
     };
 
     for (ObjectId pole_id : active_backbone_pole_ids) {
       const BackboneFrontier frontier = view().pole_frontier(pole_id);
       for (ObjectId edge_bundle_id : frontier.edge_bundle_ids) {
+        if (vector_has_id(covered_edge_bundle_ids, edge_bundle_id)) {
+          continue;
+        }
         const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
-        const SavedBackboneEdge* edge = edge_bundle == nullptr ? nullptr : view().backbone_edge(edge_bundle->edge_id);
         const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
-        if (edge_bundle == nullptr || edge == nullptr || bundle == nullptr) {
+        if (edge_bundle == nullptr || bundle == nullptr) {
           result.error = "backbone regenerate: pole type scope is incomplete";
           return result;
         }
-        add_scope_seed(bundle->bundle_template_id, edge->route, edge_bundle->bundle_id);
-      }
-    }
-
-    for (PoleTypeRegenerateScope& scope : scopes) {
-      for (const SavedBackboneEdgeBundle& edge_bundle : view().backbone().edge_bundles) {
-        const SavedBackboneEdge* edge = view().backbone_edge(edge_bundle.edge_id);
-        const Bundle* bundle = view().bundles().find(edge_bundle.bundle_id);
-        if (edge != nullptr && bundle != nullptr && edge->route == scope.route &&
-            edge_bundle.bundle_id == scope.bundle_id && bundle->bundle_template_id == scope.bundle_template_id) {
-          add_unique_id(scope.edge_bundle_ids, edge_bundle.edge_bundle_id);
+        PoleTypeRegenerateScope scope{};
+        scope.bundle_template_id = bundle->bundle_template_id;
+        scope.bundle_id = edge_bundle->bundle_id;
+        scope.edge_bundle_ids = component_for(edge_bundle_id, scope.bundle_template_id, scope.bundle_id);
+        if (scope.edge_bundle_ids.empty()) {
+          result.error = "backbone regenerate: pole type scope has no edge bundles";
+          return result;
         }
-      }
-      if (scope.edge_bundle_ids.empty()) {
-        result.error = "backbone regenerate: pole type scope has no edge bundles";
-        return result;
+        for (ObjectId scoped_edge_bundle_id : scope.edge_bundle_ids) {
+          add_unique_id(covered_edge_bundle_ids, scoped_edge_bundle_id);
+        }
+        scopes.push_back(std::move(scope));
       }
     }
 

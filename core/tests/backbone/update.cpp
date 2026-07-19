@@ -1771,15 +1771,32 @@ bool C706_backbone_regenerate_multi_bundle_count_change_matches_fresh() {
                                     span_curve_signatures_for_edge_bundle(fresh, fresh_comm));
 }
 
-bool C707_backbone_saved_edges_reconstruct_route_order() {
+bool C707_backbone_saved_route_continuity_is_row_continuity() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!generated.ok || state.view().backbone().edges.size() != 2) {
     return false;
   }
-  const std::vector<wire::core::SavedBackboneEdge>& edges = state.view().backbone().edges;
-  return edges[0].route == edges[1].route && edges[0].order == 0 && edges[1].order == 1 &&
-         edges[0].node_b == edges[1].node_a;
+  const std::vector<wire::core::ObjectId> edge_bundle_ids =
+      edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage);
+  if (edge_bundle_ids.size() != 2) {
+    return false;
+  }
+  const wire::core::ObjectId a = edge_bundle_ids[0];
+  const wire::core::ObjectId b = edge_bundle_ids[1];
+  return std::any_of(state.view().backbone().row_continuities.begin(),
+                     state.view().backbone().row_continuities.end(),
+                     [&](const wire::core::SavedBackboneRowContinuity& continuity) {
+                       const bool forward = continuity.a.edge_bundle_id == a &&
+                                            continuity.b.edge_bundle_id == b &&
+                                            continuity.a.lane_index == 0 &&
+                                            continuity.b.lane_index == 0;
+                       const bool reverse = continuity.a.edge_bundle_id == b &&
+                                            continuity.b.edge_bundle_id == a &&
+                                            continuity.a.lane_index == 0 &&
+                                            continuity.b.lane_index == 0;
+                       return forward || reverse;
+                     });
 }
 
 bool C708_backbone_regenerate_polyline_decrease_matches_fresh() {

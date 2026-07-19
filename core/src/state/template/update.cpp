@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace wire::core::state_internal {
@@ -19,19 +21,68 @@ using wire::core::detail::append_unique;
 
 struct CableDecisionRegenerateScope {
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
-  std::size_t route = 0;
+  ObjectId bundle_id = kInvalidObjectId;
   std::vector<ObjectId> edge_bundle_ids{};
 };
 
 struct BundleRegenerateScope {
-  std::size_t route = 0;
+  ObjectId bundle_id = kInvalidObjectId;
   std::vector<ObjectId> edge_bundle_ids{};
 };
 
-const SavedBackboneEdge* saved_edge_by_id(const SavedBackboneGraph& graph, ObjectId edge_id) {
-  const auto it = std::find_if(graph.edges.begin(), graph.edges.end(),
-                               [&](const SavedBackboneEdge& edge) { return edge.edge_id == edge_id; });
-  return it == graph.edges.end() ? nullptr : &*it;
+const SavedBackboneEdgeBundle* saved_edge_bundle_by_id(const SavedBackboneGraph& graph, ObjectId edge_bundle_id) {
+  const auto it = std::find_if(graph.edge_bundles.begin(), graph.edge_bundles.end(),
+                               [&](const SavedBackboneEdgeBundle& edge_bundle) {
+                                 return edge_bundle.edge_bundle_id == edge_bundle_id;
+                               });
+  return it == graph.edge_bundles.end() ? nullptr : &*it;
+}
+
+std::unordered_map<ObjectId, std::vector<ObjectId>> row_continuity_neighbors(const SavedBackboneGraph& graph) {
+  std::unordered_map<ObjectId, std::vector<ObjectId>> neighbors{};
+  auto add_neighbor = [&](ObjectId a, ObjectId b) {
+    if (a == kInvalidObjectId || b == kInvalidObjectId || a == b) return;
+    std::vector<ObjectId>& values = neighbors[a];
+    if (std::find(values.begin(), values.end(), b) == values.end()) {
+      values.push_back(b);
+    }
+  };
+  for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+    add_neighbor(continuity.a.edge_bundle_id, continuity.b.edge_bundle_id);
+    add_neighbor(continuity.b.edge_bundle_id, continuity.a.edge_bundle_id);
+  }
+  return neighbors;
+}
+
+std::vector<ObjectId> edge_bundle_component(
+    const SavedBackboneGraph& graph,
+    const std::unordered_map<ObjectId, std::vector<ObjectId>>& neighbors,
+    ObjectId seed_edge_bundle_id,
+    ObjectId bundle_id,
+    const std::function<bool(const SavedBackboneEdgeBundle&)>& accepts) {
+  std::vector<ObjectId> component{};
+  std::vector<ObjectId> pending{seed_edge_bundle_id};
+  for (std::size_t i = 0; i < pending.size(); ++i) {
+    const ObjectId current_id = pending[i];
+    if (std::find(component.begin(), component.end(), current_id) != component.end()) {
+      continue;
+    }
+    const SavedBackboneEdgeBundle* current = saved_edge_bundle_by_id(graph, current_id);
+    if (current == nullptr || current->bundle_id != bundle_id || !accepts(*current)) {
+      continue;
+    }
+    component.push_back(current_id);
+    const auto neighbors_it = neighbors.find(current_id);
+    if (neighbors_it == neighbors.end()) {
+      continue;
+    }
+    for (ObjectId neighbor_id : neighbors_it->second) {
+      if (std::find(pending.begin(), pending.end(), neighbor_id) == pending.end()) {
+        pending.push_back(neighbor_id);
+      }
+    }
+  }
+  return component;
 }
 
 bool collect_cable_decision_regenerate_scopes(const CoreState& state,
@@ -39,7 +90,12 @@ bool collect_cable_decision_regenerate_scopes(const CoreState& state,
                                               std::vector<CableDecisionRegenerateScope>* scopes,
                                               std::string* error) {
   const SavedBackboneGraph& graph = state.view().backbone();
+  const std::unordered_map<ObjectId, std::vector<ObjectId>> neighbors = row_continuity_neighbors(graph);
+  std::vector<ObjectId> covered{};
   for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    if (std::find(covered.begin(), covered.end(), edge_bundle.edge_bundle_id) != covered.end()) {
+      continue;
+    }
     const Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
     const auto bundle_template_it = bundle == nullptr ? state.view().bundle_templates().end()
                                                    : state.view().bundle_templates().find(bundle->bundle_template_id);
@@ -47,27 +103,32 @@ bool collect_cable_decision_regenerate_scopes(const CoreState& state,
         bundle_template_it->second.cable_template_id != cable_template_id) {
       continue;
     }
-    const SavedBackboneEdge* edge = saved_edge_by_id(graph, edge_bundle.edge_id);
-    if (edge == nullptr) {
+    CableDecisionRegenerateScope scope{};
+    scope.bundle_template_id = bundle->bundle_template_id;
+    scope.bundle_id = edge_bundle.bundle_id;
+    scope.edge_bundle_ids = edge_bundle_component(
+        graph, neighbors, edge_bundle.edge_bundle_id, edge_bundle.bundle_id,
+        [&](const SavedBackboneEdgeBundle& candidate) {
+          const Bundle* candidate_bundle = state.view().bundles().find(candidate.bundle_id);
+          const auto candidate_template_it =
+              candidate_bundle == nullptr ? state.view().bundle_templates().end()
+                                          : state.view().bundle_templates().find(candidate_bundle->bundle_template_id);
+          return candidate_template_it != state.view().bundle_templates().end() &&
+                 candidate_bundle->bundle_template_id == scope.bundle_template_id &&
+                 candidate_template_it->second.cable_template_id == cable_template_id;
+        });
+    if (scope.edge_bundle_ids.empty()) {
       if (error != nullptr) {
-        *error = "backbone regenerate: edge missing";
+        *error = "backbone regenerate: cable decision scope has no edge bundles";
       }
       return false;
     }
-    auto scope_it = std::find_if(scopes->begin(), scopes->end(),
-                                 [&](const CableDecisionRegenerateScope& scope) {
-                                   return scope.bundle_template_id == bundle->bundle_template_id &&
-                                          scope.route == edge->route;
-                                 });
-    if (scope_it == scopes->end()) {
-      CableDecisionRegenerateScope scope{};
-      scope.bundle_template_id = bundle->bundle_template_id;
-      scope.route = edge->route;
-      scope.edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
-      scopes->push_back(std::move(scope));
-    } else {
-      scope_it->edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+    for (ObjectId edge_bundle_id : scope.edge_bundle_ids) {
+      if (std::find(covered.begin(), covered.end(), edge_bundle_id) == covered.end()) {
+        covered.push_back(edge_bundle_id);
+      }
     }
+    scopes->push_back(std::move(scope));
   }
   return true;
 }
@@ -75,28 +136,36 @@ bool collect_cable_decision_regenerate_scopes(const CoreState& state,
 bool collect_bundle_regenerate_scopes(const CoreState& state, BundleTemplateId bundle_template_id,
                                       std::vector<BundleRegenerateScope>* scopes, std::string* error) {
   const SavedBackboneGraph& graph = state.view().backbone();
+  const std::unordered_map<ObjectId, std::vector<ObjectId>> neighbors = row_continuity_neighbors(graph);
+  std::vector<ObjectId> covered{};
   for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    if (std::find(covered.begin(), covered.end(), edge_bundle.edge_bundle_id) != covered.end()) {
+      continue;
+    }
     const Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
     if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id) {
       continue;
     }
-    const SavedBackboneEdge* edge = saved_edge_by_id(graph, edge_bundle.edge_id);
-    if (edge == nullptr) {
+    BundleRegenerateScope scope{};
+    scope.bundle_id = edge_bundle.bundle_id;
+    scope.edge_bundle_ids = edge_bundle_component(
+        graph, neighbors, edge_bundle.edge_bundle_id, edge_bundle.bundle_id,
+        [&](const SavedBackboneEdgeBundle& candidate) {
+          const Bundle* candidate_bundle = state.view().bundles().find(candidate.bundle_id);
+          return candidate_bundle != nullptr && candidate_bundle->bundle_template_id == bundle_template_id;
+        });
+    if (scope.edge_bundle_ids.empty()) {
       if (error != nullptr) {
-        *error = "backbone regenerate: edge missing";
+        *error = "backbone regenerate: bundle scope has no edge bundles";
       }
       return false;
     }
-    auto scope_it = std::find_if(scopes->begin(), scopes->end(),
-                                 [&](const BundleRegenerateScope& scope) { return scope.route == edge->route; });
-    if (scope_it == scopes->end()) {
-      BundleRegenerateScope scope{};
-      scope.route = edge->route;
-      scope.edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
-      scopes->push_back(std::move(scope));
-    } else {
-      scope_it->edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+    for (ObjectId edge_bundle_id : scope.edge_bundle_ids) {
+      if (std::find(covered.begin(), covered.end(), edge_bundle_id) == covered.end()) {
+        covered.push_back(edge_bundle_id);
+      }
     }
+    scopes->push_back(std::move(scope));
   }
   return true;
 }

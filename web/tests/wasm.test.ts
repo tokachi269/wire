@@ -128,33 +128,6 @@ function hvEdgeBodies(state: WireStateHandle) {
   );
 }
 
-function connectedPortHeightsByCategoryAtPole(state: WireStateHandle, poleId: string): Map<number, number[]> {
-  const connectedPortIds = new Set<string>();
-  for (let index = 0; index < state.spanCount(); index += 1) {
-    const span = state.span(index);
-    connectedPortIds.add(span.portAId);
-    connectedPortIds.add(span.portBId);
-  }
-  return Array.from({ length: state.portCount() }, (_, index) => state.port(index))
-    .filter((port) => port.ownerPoleId === poleId && connectedPortIds.has(port.id))
-    .reduce((groups, port) => {
-      const key = port.category;
-      const values = groups.get(key) ?? [];
-      values.push(Number(port.z.toFixed(3)));
-      groups.set(key, values);
-      return groups;
-    }, new Map<number, number[]>());
-}
-
-function expectDefaultPlacementHeightsAtPole(state: WireStateHandle, poleId: string) {
-  const portsByCategory = connectedPortHeightsByCategoryAtPole(state, poleId);
-  expect(new Set(portsByCategory.get(0))).toEqual(new Set([9.2]));
-  const nonHvHeights = [...portsByCategory.entries()]
-    .filter(([category]) => category !== 0)
-    .flatMap(([, values]) => values);
-  expect(new Set(nonHvHeights)).toEqual(new Set([7.7, 7.35, 7.0, 5.5, 5.3]));
-}
-
 function startPoint(part: ReturnType<typeof visualParts>[number]): [number, number, number] {
   return [part.samples[0], part.samples[1], part.samples[2]];
 }
@@ -262,23 +235,6 @@ function assertHvSeparatedByEdge(state: WireStateHandle) {
     assertSeparatedPoints(group.map(startPoint), 0.1);
     assertSeparatedPoints(group.map(endPoint), 0.1);
     expect(projectionLaneOrder(group, startPoint)).toEqual(projectionLaneOrder(group, endPoint));
-  }
-}
-
-function assertNonFlaggedEndpointModelsAtPortHeight(state: WireStateHandle) {
-  const ports = new Map<string, { z: number }>();
-  for (let index = 0; index < state.portCount(); index += 1) {
-    const port = state.port(index);
-    ports.set(port.id, { z: port.z });
-  }
-  for (const model of state.visualScene().models) {
-    if (model.modelKey === "hv_insulator") continue;
-    const match = /^port:([^:]+):/.exec(model.stableKey);
-    if (match === null) continue;
-    const port = ports.get(match[1]);
-    expect(port, model.stableKey).toBeDefined();
-    expect(Number(model.positionZ.toFixed(6)), model.stableKey)
-      .toBe(Number(port!.z.toFixed(6)));
   }
 }
 

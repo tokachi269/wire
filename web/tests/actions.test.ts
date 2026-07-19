@@ -10,7 +10,7 @@ import type {
   PoleTemplateInfo
 } from "../src/model";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
-import { WorkspaceCache } from "../src/store/workspace";
+import { decodeWorkspaceText, WorkspaceCache, WORKSPACE_CACHE_KEY } from "../src/store/workspace";
 
 function current(store: ViewerStore): ViewerSnapshot {
   let snapshot: ViewerSnapshot | undefined;
@@ -121,6 +121,35 @@ describe("workspace cache", () => {
     expect((await cache.read())?.coreState).toBe("future-core-state");
     expect(current(store).error).toContain("loaded state failed validation: Example");
     actions.dispose();
+  });
+
+  it("stores compressed workspace text and reads legacy plain JSON", async () => {
+    const values = new Map<string, string>();
+    const cache = new WorkspaceCache({
+      get: async (key: string) => values.get(key) ?? null,
+      set: async (key: string, value: string) => { values.set(key, value); },
+      remove: async (key: string) => { values.delete(key); }
+    });
+    const store = new ViewerStore();
+    const coreState = `wire_state_v2\n${"edge_bundle ".repeat(128)}`;
+
+    await cache.write(coreState, current(store));
+
+    const stored = values.get(WORKSPACE_CACHE_KEY);
+    expect(stored).toBeDefined();
+    expect(stored?.startsWith("{")).toBe(false);
+    const decoded = await decodeWorkspaceText(stored!);
+    expect(JSON.parse(decoded).coreState).toBe(coreState);
+    expect((await cache.read())?.coreState).toBe(coreState);
+
+    const legacy = JSON.stringify({
+      version: 1,
+      coreState: "plain-core-state",
+      viewer: current(store)
+    });
+    values.set(WORKSPACE_CACHE_KEY, legacy);
+
+    expect((await cache.read())?.coreState).toBe("plain-core-state");
   });
 });
 

@@ -6,6 +6,7 @@ import type { BundlePlacement } from "../model";
 
 export const WORKSPACE_CACHE_KEY = "wire.workspace.v1";
 const WORKSPACE_VERSION = 1;
+const COMPRESSED_WORKSPACE_PREFIX = "wire.workspace.deflate.v1:";
 
 export interface WorkspaceStorage {
   get(key: string): Promise<string | null>;
@@ -120,7 +121,7 @@ export class WorkspaceCache {
     }
     if (text === null) return null;
     try {
-      const value: unknown = JSON.parse(text);
+      const value: unknown = JSON.parse(await decodeWorkspaceText(text));
       if (!isWorkspaceDocument(value)) {
         void this.clear();
         return null;
@@ -139,7 +140,10 @@ export class WorkspaceCache {
       coreState,
       viewer: captureWorkspacePreferences(snapshot)
     };
-    return this.enqueue(() => this.storage.set(WORKSPACE_CACHE_KEY, JSON.stringify(document)));
+    return this.enqueue(async () => {
+      const text = await encodeWorkspaceText(JSON.stringify(document));
+      await this.storage.set(WORKSPACE_CACHE_KEY, text);
+    });
   }
 
   clear(): Promise<void> {
@@ -151,6 +155,53 @@ export class WorkspaceCache {
     this.pending = next.catch(() => undefined);
     return next;
   }
+}
+
+export async function encodeWorkspaceText(text: string): Promise<string> {
+  if (text.length === 0 || typeof CompressionStream === "undefined") {
+    return text;
+  }
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("deflate"));
+  const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+  return `${COMPRESSED_WORKSPACE_PREFIX}${bytesToBase64(compressed)}`;
+}
+
+export async function decodeWorkspaceText(text: string): Promise<string> {
+  if (!text.startsWith(COMPRESSED_WORKSPACE_PREFIX)) {
+    return text;
+  }
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("workspace deflate is not supported by this browser");
+  }
+  const payload = text.slice(COMPRESSED_WORKSPACE_PREFIX.length);
+  const bytes = base64ToBytes(payload);
+  const stream = new Blob([ownedArrayBuffer(bytes)]).stream().pipeThrough(new DecompressionStream("deflate"));
+  return await new Response(stream).text();
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(text: string): Uint8Array {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }
 
 function openWorkspaceDatabase(): Promise<IDBDatabase> {

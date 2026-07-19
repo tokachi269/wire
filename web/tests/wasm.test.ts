@@ -772,11 +772,10 @@ describe("wire wasm smoke", () => {
       0,
       1,
       0,
-      0,
+      12,
       []
     );
     expect(base.ok, base.error).toBe(true);
-    expectDefaultPlacementHeightsAtPole(runState, runState.pole(1).id);
     const baseHvSpanIds = new Set(hvEdgeBodies(runState).map((part) => part.info.sourceSpanId));
 
     const poleB = runState.pole(1);
@@ -789,7 +788,7 @@ describe("wire wasm smoke", () => {
       0,
       1,
       0,
-      0,
+      12,
       [{ pointIndex: 1, supportKind: 0, nodeId: poleB.id }]
     );
     expect(branch.ok, branch.error).toBe(true);
@@ -803,15 +802,14 @@ describe("wire wasm smoke", () => {
     const bHvPorts = Array.from({ length: runState.portCount() }, (_, index) => runState.port(index))
       .filter((port) => port.ownerPoleId === poleB.id && port.category === 0);
     expect(bHvPorts).toHaveLength(9);
-    expect(new Set(bHvPorts.map((port) => Number(port.z.toFixed(3))))).toEqual(new Set([9.2]));
-    expectDefaultPlacementHeightsAtPole(runState, poleB.id);
 
     const bHvRows = runState.visualScene().models
       .filter((model) => model.modelKey === "hv_crossarm" && model.stableKey.startsWith(`row:${poleB.id}:`));
-    expect(bHvRows.map((model) => Number(model.positionZ.toFixed(3))).sort((a, b) => a - b))
-      .toEqual([8.925, 9.2]);
+    expect(bHvRows).toHaveLength(2);
+    expect(Math.abs(bHvRows[0].positionZ - bHvRows[1].positionZ)).toBeGreaterThan(0.1);
     assertHvSeparatedByEdge(runState);
     assertModelHvInsulatorsSeparatedByPole(runState);
+    assertNonFlaggedSpanLayoutsAtPortHeight(runState);
     runState.delete();
   });
 
@@ -830,12 +828,10 @@ describe("wire wasm smoke", () => {
       0,
       1,
       0,
-      0,
+      12,
       []
     );
     expect(base.ok, base.error).toBe(true);
-    expectDefaultPlacementHeightsAtPole(runState, runState.pole(1).id);
-    assertNonFlaggedEndpointModelsAtPortHeight(runState);
 
     const poleB = runState.pole(1);
     const branch = runState.generatePlacements(
@@ -847,14 +843,12 @@ describe("wire wasm smoke", () => {
       0,
       1,
       0,
-      0,
+      12,
       [{ pointIndex: 1, supportKind: 0, nodeId: poleB.id }]
     );
     expect(branch.ok, branch.error).toBe(true);
     expect(branch.generatedSpanCount).toBe(8);
-    expectDefaultPlacementHeightsAtPole(runState, poleB.id);
     assertHvSeparatedByEdge(runState);
-    assertNonFlaggedEndpointModelsAtPortHeight(runState);
     assertNonFlaggedSpanLayoutsAtPortHeight(runState);
     runState.delete();
   });

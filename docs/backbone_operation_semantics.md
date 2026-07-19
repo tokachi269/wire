@@ -40,7 +40,7 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 |---|---|---|---|---|---|---|---|
 | 新規edgeを1本追加 | `O` | `C` | `O` | `O` | `C` | `O` | template policyに従い`O`または`U` |
 | 同一操作で2 edgeを追加 | `C` | `O` | `C` | `C` | `O` | `O` | `D3` |
-| poleを移動して角度を変更 | `-` | `K` | `D1` | `D1` | `D1` | `D1` | `D3` |
+| poleを移動して角度を変更 | `-` | `K` | `K` | `K` | `K` | `K` | `D3` |
 | placement設定を更新 | `-` | `K` | `K` | `K` | `K` | `K` | `K` |
 | save/load | `K` | `K` | `K` | `K` | `K` | `K` | `K` |
 | regenerate | `K` | `K` | `K` | `K` | `K` | `K` | `K` |
@@ -70,15 +70,41 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 | 未接続 | edge固有open row。NodePatch/jumperなし |
 
 角度は表現だけを変え、`SavedBackboneRowContinuity`の相手を変更しない。
+generated Portは常にedge endpointごとに別identityを持つ。通常角pairでもPortを
+共有せず、共有するのは派生row/fixtureだけとする。通常角pairの2 Portのworld位置は、
+同じrow layout決定から導出して浮動小数bitまで一致させる。2つの独立計算結果を
+後段で近づけたり、一方を他方へコピーして補正したりしない。
+
+endpoint fixtureはPort単位ではなく派生した`(row, lane)`単位で生成する。
+通常角pairでは2 Portに対して1 fixture、鋭角pairでは2つの派生open rowに対して
+2 fixtureを生成する。角度変更ではPort identityとcontinuityを維持し、row、fixture、
+NodePatch、jumperだけを再導出する。
+
 5本のincident edgeは、2接続pairと未接続1本なら3 support levelを使う。
 1 levelは1接続pairまたは1未接続openを収容する。鋭角pairの2 open rowは
 同じlevelを使うが、fixtureを潰さないため別support groupを持つ。
+
+### 既存saveの移行
+
+共有Portを含む既存`wire_state_v2`はload時にedge endpoint別Portへ移行する。
+片側endpointへ決定的に新しいObjectIdを割り当て、そのedge bundleのPort bindingと
+Span endpoint参照を同じIDへ書き換える。高さ、edge ID、Bundle ID、container順から
+接続相手を推測せず、既存のrow continuityとbindingだけを使う。
+
+分割対象または書き換えるendpointを一意に特定できないsaveは、部分適用せず
+明示errorで停止する。移行前後でNodePatch、jumper、fixture、layout endpoint、
+curve endpointの意味値を一致させ、load後の再saveは新形式へ正規化する。
+
+## 決定済みセル
+
+| ID | 決定 | 必須検証 |
+|---|---|---|
+| `D1` | Portは常にedge endpoint別identityとし、通常角の共有row/fixtureだけを導出する | 通常角2 Portのworld位置bit一致、laneあたりfixture 1個、角度変更時のPort ID不変、v2共有Port migration前後の派生出力等価 |
 
 ## 未定義セル
 
 | ID | 未決定事項 | 決めない場合の影響 |
 |---|---|---|
-| `D1` | 通常角の共有Portを、角度変更時にedge endpoint別Portへ分離し、戻したとき再共有するか。代替はgenerated Portを常にedge endpoint別に保持し、共有row/fixtureだけを派生する設計 | 現在は通常pairが1 Portを共有するため、continuityを維持したまま非ゼロ長jumperへ切り替えられない |
 | `D2` | 複数openから2本を明示指定するCore APIとUI操作 | `S5`の曖昧状態は自動解消しない |
 | `D3` | ownerless中間nodeで複数edgeを追加、明示接続、repositionする操作契約 | midair branchの複合junctionを安全に実装できない |
 

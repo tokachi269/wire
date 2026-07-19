@@ -8,7 +8,6 @@ import type {
 import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
 import {
-  cloneSharedAsset,
   type LoadedModelAsset,
   modelAssetCache
 } from "./modelAssets";
@@ -29,6 +28,12 @@ export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
 const SUPPORT_PATH_SUPPLEMENTAL_KIND = 1;
+
+interface ModelMeshSource {
+  geometry: THREE.BufferGeometry;
+  material: THREE.Material | THREE.Material[];
+  localMatrix: THREE.Matrix4;
+}
 const BACKBONE_NODE_SNAP_PX = 24;
 const BACKBONE_ENDPOINT_SNAP_PX = 40;
 const BACKBONE_EDGE_SNAP_PX = 16;
@@ -141,9 +146,13 @@ export class WireScene {
   private readonly partMeshes = new Map<string, { mesh: THREE.Mesh; version: string }>();
   private supportWireMaterial: THREE.MeshStandardMaterial | null = null;
   private readonly modelObjects = new Map<string, {
-    object: THREE.Object3D;
     modelKey: string;
     version: string;
+  }>();
+  private readonly modelBatches = new Map<string, {
+    meshes: THREE.InstancedMesh[];
+    capacity: number;
+    meshSources: ModelMeshSource[];
   }>();
   private readonly pendingModelKeys = new Set<string>();
   private readonly poleMeshes = new Map<string, {
@@ -363,10 +372,11 @@ export class WireScene {
     for (const item of this.partMeshes.values()) this.disposeContentMesh(item.mesh);
     this.supportWireMaterial?.dispose();
     this.supportWireMaterial = null;
-    for (const item of this.modelObjects.values()) this.content.remove(item.object);
+    for (const batch of this.modelBatches.values()) this.disposeModelBatch(batch);
     for (const item of this.poleMeshes.values()) this.disposePoleObject(item);
     this.partMeshes.clear();
     this.modelObjects.clear();
+    this.modelBatches.clear();
     this.poleMeshes.clear();
     this.disposeGroup(this.backbone);
     this.disposeGroup(this.guide);
@@ -727,18 +737,21 @@ export class WireScene {
     let modelRemoved = 0;
     const modeledPoleIds = new Set<string>();
     const nextModelKeys = new Set<string>();
+    const modelsByKey = new Map<string, VisualModelInstanceInfo[]>();
     for (const model of snapshot.models) {
       nextModelKeys.add(model.stableKey);
       if (model.stableKey.startsWith("pole:")) {
         const separator = model.stableKey.indexOf(":", 5);
         if (separator > 5) modeledPoleIds.add(model.stableKey.slice(5, separator));
       }
+      const group = modelsByKey.get(model.modelKey) ?? [];
+      group.push(model);
+      modelsByKey.set(model.modelKey, group);
       const previous = this.modelObjects.get(model.stableKey);
       if (previous?.modelKey === model.modelKey) {
         if (previous.version === model.contentVersion) {
           modelReused += 1;
         } else {
-          this.applyModelTransform(previous.object, model);
           previous.version = model.contentVersion;
           modelUpdated += 1;
           changed = true;
@@ -760,25 +773,39 @@ export class WireScene {
         continue;
       }
       if (previous !== undefined) {
-        this.content.remove(previous.object);
         this.modelObjects.delete(model.stableKey);
       }
-      const object = this.makeModelObject(asset, model);
-      this.content.add(object);
       this.modelObjects.set(model.stableKey, {
-        object,
         modelKey: model.modelKey,
         version: model.contentVersion
       });
       modelRebuilt += 1;
       changed = true;
     }
-    for (const [key, previous] of [...this.modelObjects]) {
+    for (const [key] of [...this.modelObjects]) {
       if (nextModelKeys.has(key)) continue;
-      this.content.remove(previous.object);
       this.modelObjects.delete(key);
       modelRemoved += 1;
       changed = true;
+    }
+    const liveModelKeys = new Set(modelsByKey.keys());
+    for (const [modelKey, batch] of [...this.modelBatches]) {
+      if (liveModelKeys.has(modelKey)) continue;
+      this.disposeModelBatch(batch);
+      this.modelBatches.delete(modelKey);
+      changed = true;
+    }
+    for (const [modelKey, models] of modelsByKey) {
+      const asset = modelAssetCache.loadedModel(modelKey);
+      if (asset === null) continue;
+      let batch = this.modelBatches.get(modelKey);
+      if (batch === undefined || batch.capacity !== models.length) {
+        if (batch !== undefined) this.disposeModelBatch(batch);
+        batch = this.makeModelBatch(asset, models.length);
+        this.modelBatches.set(modelKey, batch);
+        changed = true;
+      }
+      this.updateModelBatch(batch, models);
     }
 
     const nextPoleKeys = new Set<string>();
@@ -862,29 +889,81 @@ export class WireScene {
     this.content.remove(mesh);
   }
 
-  private makeModelObject(
-    asset: LoadedModelAsset,
-    model: VisualModelInstanceInfo
-  ): THREE.Object3D {
-    const root = new THREE.Group();
-    const source = cloneSharedAsset(asset);
-    source.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      object.castShadow = true;
-      object.receiveShadow = true;
+  private makeModelBatch(asset: LoadedModelAsset, capacity: number): {
+    meshes: THREE.InstancedMesh[];
+    capacity: number;
+    meshSources: ModelMeshSource[];
+  } {
+    const meshSources = this.modelMeshSources(asset);
+    const meshes = meshSources.map((source) => {
+      const mesh = new THREE.InstancedMesh(source.geometry, source.material, capacity);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.sourceKind = "model";
+      mesh.userData.modelKey = asset.modelKey;
+      this.content.add(mesh);
+      return mesh;
     });
-    root.add(source);
-    this.applyModelTransform(root, model);
-    root.userData.sourceKind = "model";
-    root.userData.sourceId = model.stableKey;
-    root.userData.modelKey = model.modelKey;
-    return root;
+    return { meshes, capacity, meshSources };
   }
 
-  private applyModelTransform(object: THREE.Object3D, model: VisualModelInstanceInfo): void {
-    object.position.set(model.positionX, model.positionY, model.positionZ);
-    setPoleRotation(object, model.rotationX, model.rotationY, model.rotationZ);
-    object.scale.set(model.scaleX, model.scaleY, model.scaleZ);
+  private modelMeshSources(asset: LoadedModelAsset): ModelMeshSource[] {
+    const sources: ModelMeshSource[] = [];
+    asset.source.updateMatrixWorld(true);
+    asset.source.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      object.updateMatrixWorld(true);
+      sources.push({
+        geometry: object.geometry,
+        material: object.material,
+        localMatrix: object.matrixWorld.clone()
+      });
+    });
+    return sources;
+  }
+
+  private updateModelBatch(
+    batch: {
+      meshes: THREE.InstancedMesh[];
+      capacity: number;
+      meshSources: ModelMeshSource[];
+    },
+    models: VisualModelInstanceInfo[]
+  ): void {
+    const rootMatrix = new THREE.Matrix4();
+    const modelMatrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    const euler = new THREE.Euler(0, 0, 0, "XYZ");
+    for (let index = 0; index < models.length; index += 1) {
+      const model = models[index];
+      position.set(model.positionX, model.positionY, model.positionZ);
+      euler.set(
+        THREE.MathUtils.degToRad(model.rotationX),
+        THREE.MathUtils.degToRad(model.rotationY),
+        THREE.MathUtils.degToRad(model.rotationZ),
+        "ZYX"
+      );
+      quaternion.setFromEuler(euler);
+      scale.set(model.scaleX, model.scaleY, model.scaleZ);
+      rootMatrix.compose(position, quaternion, scale);
+      for (let meshIndex = 0; meshIndex < batch.meshes.length; meshIndex += 1) {
+        modelMatrix.multiplyMatrices(rootMatrix, batch.meshSources[meshIndex].localMatrix);
+        batch.meshes[meshIndex].setMatrixAt(index, modelMatrix);
+      }
+    }
+    for (const mesh of batch.meshes) {
+      mesh.count = models.length;
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  private disposeModelBatch(batch: { meshes: THREE.InstancedMesh[] }): void {
+    for (const mesh of batch.meshes) {
+      this.content.remove(mesh);
+      mesh.dispose();
+    }
   }
 
   private makePolePrimitive(

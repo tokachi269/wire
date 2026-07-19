@@ -77,6 +77,7 @@ describe("scene part reuse", () => {
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
     scene.modelObjects = new Map();
+    scene.modelBatches = new Map();
     scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
     const snapshot = createViewerSnapshot();
@@ -157,6 +158,7 @@ describe("scene part reuse", () => {
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
     scene.modelObjects = new Map();
+    scene.modelBatches = new Map();
     scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
     scene.supportWireMaterial = null;
@@ -279,6 +281,7 @@ describe("scene geometry from wasm", () => {
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
     scene.modelObjects = new Map();
+    scene.modelBatches = new Map();
     scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
     scene.supportWireMaterial = null;
@@ -312,7 +315,7 @@ describe("scene geometry from wasm", () => {
 });
 
 describe("scene model reuse", () => {
-  it("reuses the Object3D for the same stable key and updates only its Core transform", () => {
+  it("reuses the model batch for the same stable key and updates only its Core transform", () => {
     const source = new THREE.Group();
     source.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial()));
     const bounds = new THREE.Box3(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5));
@@ -331,6 +334,7 @@ describe("scene model reuse", () => {
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
     scene.modelObjects = new Map();
+    scene.modelBatches = new Map();
     scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
     const snapshot = createViewerSnapshot();
@@ -350,11 +354,15 @@ describe("scene model reuse", () => {
     }];
 
     expect(scene.syncContent(snapshot)).toBe(true);
-    const first = scene.modelObjects.get("pole:1:9201:1").object;
-    expect(first.position.toArray()).toEqual([1, 2, 3]);
+    const firstBatch = scene.modelBatches.get("pole_body")!;
+    expect(firstBatch.meshes).toHaveLength(1);
+    const firstMesh = firstBatch.meshes[0] as THREE.InstancedMesh;
+    const matrix = new THREE.Matrix4();
+    firstMesh.getMatrixAt(0, matrix);
+    expect(new THREE.Vector3().setFromMatrixPosition(matrix).toArray()).toEqual([1, 2, 3]);
 
     expect(scene.syncContent(snapshot)).toBe(false);
-    expect(scene.modelObjects.get("pole:1:9201:1").object).toBe(first);
+    expect(scene.modelBatches.get("pole_body")!.meshes[0]).toBe(firstMesh);
 
     snapshot.models[0] = {
       ...snapshot.models[0],
@@ -362,14 +370,72 @@ describe("scene model reuse", () => {
       positionX: 8
     };
     expect(scene.syncContent(snapshot)).toBe(true);
-    expect(scene.modelObjects.get("pole:1:9201:1").object).toBe(first);
-    expect(first.position.x).toBe(8);
+    expect(scene.modelBatches.get("pole_body")!.meshes[0]).toBe(firstMesh);
+    firstMesh.getMatrixAt(0, matrix);
+    expect(new THREE.Vector3().setFromMatrixPosition(matrix).x).toBe(8);
     expect(scene.contentSyncStats.modelUpdated).toBe(1);
 
     snapshot.models = [];
     expect(scene.syncContent(snapshot)).toBe(true);
     expect(scene.modelObjects.size).toBe(0);
+    expect(scene.modelBatches.size).toBe(0);
     expect(scene.contentSyncStats.modelRemoved).toBe(1);
+    (modelAssetCache as any).loaded.delete("poleBody");
+  });
+
+  it("batches models with the same modelKey into one InstancedMesh without changing sync stats", () => {
+    const source = new THREE.Group();
+    source.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial()));
+    const bounds = new THREE.Box3(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5));
+    (modelAssetCache as any).loaded.set("poleBody", {
+      kind: "poleBody",
+      modelKey: "pole_body",
+      source,
+      bounds,
+      size: new THREE.Vector3(1, 1, 1),
+      mountAnchor: new THREE.Vector3(),
+      descriptorVersion: 1,
+      adapter: { modelKey: "pole_body", url: "test", mountRule: "center" }
+    });
+
+    const scene = Object.create(WireScene.prototype) as any;
+    scene.content = new THREE.Group();
+    scene.partMeshes = new Map();
+    scene.modelObjects = new Map();
+    scene.modelBatches = new Map();
+    scene.pendingModelKeys = new Set();
+    scene.poleMeshes = new Map();
+    const model = (stableKey: string, x: number) => ({
+      stableKey,
+      modelKey: "pole_body",
+      contentVersion: "1",
+      positionX: x,
+      positionY: 0,
+      positionZ: 0,
+      rotationX: 0,
+      rotationY: 0,
+      rotationZ: 0,
+      scaleX: 1,
+      scaleY: 1,
+      scaleZ: 1
+    });
+    const snapshot = createViewerSnapshot();
+    snapshot.models = [model("pole:1:9201:1", 1), model("pole:2:9201:1", 2)];
+
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.content.children).toHaveLength(1);
+    expect(scene.content.children[0]).toBeInstanceOf(THREE.InstancedMesh);
+    expect(scene.modelBatches.get("pole_body")!.capacity).toBe(2);
+    expect(scene.contentSyncStats).toEqual({
+      total: 0, reused: 0, rebuilt: 0, removed: 0,
+      modelTotal: 2, modelReused: 0, modelUpdated: 0, modelRebuilt: 2, modelRemoved: 0
+    });
+
+    expect(scene.syncContent(snapshot)).toBe(false);
+    expect(scene.contentSyncStats).toEqual({
+      total: 0, reused: 0, rebuilt: 0, removed: 0,
+      modelTotal: 2, modelReused: 2, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
+    });
     (modelAssetCache as any).loaded.delete("poleBody");
   });
 });

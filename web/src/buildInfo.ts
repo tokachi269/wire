@@ -9,6 +9,6 @@ export const buildInfo =
     ? {
         commit: "dev",
         builtAt: "dev",
-        packageVersion: "0.1.0"
+        packageVersion: "0.2.0"
       }
     : __WIRE_BUILD_INFO__;

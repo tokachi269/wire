@@ -1265,6 +1265,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "two new edges remain open when an existing compatible open makes pairing ambiguous",
                          "Invariant", false,
                          C814_backbone_same_operation_does_not_prefer_new_pair_over_existing_open);
+  test_registry::AddTest(tests, "C815_backbone_sharp_pair_height_is_operation_order_independent",
+                         "sharp pair support levels match between one-shot and incremental generation",
+                         "Invariant", false,
+                         C815_backbone_sharp_pair_height_is_operation_order_independent);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

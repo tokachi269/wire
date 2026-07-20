@@ -2904,6 +2904,16 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       active[edge.brow] = true;
     }
   }
+  for (const jumper& connection : ps.jumpers) {
+    if (connection.row_a >= active.size() ||
+        connection.row_b >= active.size()) {
+      continue;
+    }
+    if (active[connection.row_a] || active[connection.row_b]) {
+      active[connection.row_a] = true;
+      active[connection.row_b] = true;
+    }
+  }
   for (const auto& item : rows_by_node) {
     if (item.second.size() < 2) {
       continue;

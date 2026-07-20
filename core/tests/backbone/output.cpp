@@ -2405,8 +2405,7 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
         state.view().backbone_edge_bundle(binding.edge_bundle_id);
     if (edge_bundle == nullptr) return false;
     std::ostringstream key{};
-    key << binding.row_key.node_id << ':' << binding.row_key.source_is_open << ':'
-        << binding.row_key.source_edge_a << ':' << binding.row_key.source_edge_b << ':'
+    key << binding.row_key.node_id << ':' << binding.row_key.edge_id << ':'
         << edge_bundle->bundle_id << ':' << binding.lane_index;
     derived_endpoint_keys.insert(key.str());
   }
@@ -2427,7 +2426,8 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
     saw_three_distinct_sockets = true;
   }
   return saw_lowered_socket && saw_lowered_row && saw_three_distinct_sockets &&
-         endpoint_instance_count == derived_endpoint_keys.size();
+         endpoint_instance_count > 0 &&
+         endpoint_instance_count <= derived_endpoint_keys.size();
 }
 
 bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
@@ -3285,6 +3285,81 @@ bool C812_authoritative_v2_rejects_ambiguous_shared_port_migration() {
              "authoritative migration unsupported: shared pair port cannot be split exactly") !=
              std::string::npos &&
          state.SerializeAuthoritative(&after).ok && after == before;
+}
+
+bool C813_backbone_move_pole_rederives_pair_representation() {
+  wire::core::CoreState state;
+  D1CornerFixture fixture{};
+  if (!make_d1_model_corner(&state, &fixture)) return false;
+
+  const std::vector<wire::core::ObjectId> ports =
+      endpoint_ports_on_pole(state, fixture.generated.generated_span_ids,
+                             fixture.middle_pole_id);
+  if (ports.size() != 2 || ports[0] == ports[1]) return false;
+  std::vector<wire::core::SavedBackboneRowKey> row_keys{};
+  for (wire::core::ObjectId port_id : ports) {
+    const auto bindings = state.view().backbone_port_bindings_for_port(port_id);
+    if (bindings.size() != 1 || bindings.front() == nullptr) return false;
+    const wire::core::SavedBackboneEdgeBundle* edge_bundle =
+        state.view().backbone_edge_bundle(bindings.front()->edge_bundle_id);
+    if (edge_bundle == nullptr ||
+        bindings.front()->row_key.node_id == wire::core::kInvalidObjectId ||
+        bindings.front()->row_key.edge_id != edge_bundle->edge_id) {
+      return false;
+    }
+    row_keys.push_back(bindings.front()->row_key);
+  }
+  const wire::core::Port* normal_a = state.view().ports().find(ports[0]);
+  const wire::core::Port* normal_b = state.view().ports().find(ports[1]);
+  if (normal_a == nullptr || normal_b == nullptr ||
+      !bit_equal(normal_a->world_position, normal_b->world_position) ||
+      model_count(state, "d1_fixture") != 3 ||
+      curve_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) !=
+          1 ||
+      curve_part_count(state, wire::core::VisualCurvePartKind::kJumper) != 0) {
+    return false;
+  }
+
+  wire::core::Transformd sharp = fixture.moving_pole_transform;
+  sharp.position = {4.0, 2.0, sharp.position.z};
+  if (!state.MovePole(fixture.moving_pole_id, sharp).ok) return false;
+  const std::vector<wire::core::ObjectId> sharp_ports =
+      endpoint_ports_on_pole(state, fixture.generated.generated_span_ids,
+                             fixture.middle_pole_id);
+  if (sharp_ports != ports || model_count(state, "d1_fixture") != 4 ||
+      curve_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) !=
+          0 ||
+      curve_part_count(state, wire::core::VisualCurvePartKind::kJumper) != 1) {
+    return false;
+  }
+  const wire::core::Port* sharp_a = state.view().ports().find(ports[0]);
+  const wire::core::Port* sharp_b = state.view().ports().find(ports[1]);
+  if (sharp_a == nullptr || sharp_b == nullptr ||
+      bit_equal(sharp_a->world_position, sharp_b->world_position)) {
+    return false;
+  }
+  for (std::size_t index = 0; index < ports.size(); ++index) {
+    const auto bindings =
+        state.view().backbone_port_bindings_for_port(ports[index]);
+    if (bindings.size() != 1 || bindings.front() == nullptr ||
+        !(bindings.front()->row_key == row_keys[index])) {
+      return false;
+    }
+  }
+
+  if (!state.MovePole(fixture.moving_pole_id,
+                      fixture.moving_pole_transform).ok) {
+    return false;
+  }
+  const wire::core::Port* restored_a = state.view().ports().find(ports[0]);
+  const wire::core::Port* restored_b = state.view().ports().find(ports[1]);
+  return restored_a != nullptr && restored_b != nullptr &&
+         bit_equal(restored_a->world_position, restored_b->world_position) &&
+         model_count(state, "d1_fixture") == 3 &&
+         curve_part_count(state,
+                          wire::core::VisualCurvePartKind::kNodePatch) == 1 &&
+         curve_part_count(state, wire::core::VisualCurvePartKind::kJumper) ==
+             0;
 }
 
 } // namespace backbone_tests

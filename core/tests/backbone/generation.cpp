@@ -1102,13 +1102,13 @@ bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
         continue;
       }
       const wire::core::SavedBackbonePortBinding* binding = state.view().backbone_port_binding_for_port(port_id);
-      if (binding == nullptr || !binding->row_key.source_is_open ||
+      if (binding == nullptr ||
           binding->row_key.node_id != corner_node->node_id ||
-          binding->row_key.source_edge_b != wire::core::kInvalidObjectId ||
+          binding->row_key.edge_id == wire::core::kInvalidObjectId ||
           std::abs(port->side_scale_applied - 1.0) > 1e-9) {
         return false;
       }
-      rows[binding->row_key.source_edge_a].push_back(port->world_position);
+      rows[binding->row_key.edge_id].push_back(port->world_position);
     }
   }
   if (corner_ports.size() != 4 || rows.size() != 2) {

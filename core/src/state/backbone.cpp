@@ -13,15 +13,6 @@
 
 namespace wire::core {
 
-namespace {
-
-bool is_open_row_for_edge(const SavedBackboneRowKey& row_key, ObjectId node_id, ObjectId edge_id) {
-  return row_key.node_id == node_id && row_key.source_is_open && row_key.source_edge_a == edge_id &&
-         row_key.source_edge_b == kInvalidObjectId;
-}
-
-} // namespace
-
 ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, SupportKind support_kind,
                                        ObjectId source_edge_node_a, ObjectId source_edge_node_b,
                                        double source_edge_t, std::vector<SupportNodeBundleMode> bundle_modes) {
@@ -239,7 +230,7 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
                                                double layout_yaw_deg, ObjectId port_id) {
   EditResult<bool> out{};
   if (edge_bundle_id == kInvalidObjectId || port_id == kInvalidObjectId || row_key.node_id == kInvalidObjectId ||
-      row_key.source_edge_a == kInvalidObjectId || support_level < 0 ||
+      row_key.edge_id == kInvalidObjectId || support_level < 0 ||
       (support_level == 0 && support_group_id != -1) ||
       (support_level > 0 && support_group_id < 0)) {
     out.error = "invalid backbone port binding";
@@ -296,23 +287,21 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
   return out;
 }
 
-EditResult<bool> CoreState::promote_backbone_open_port_binding_exact(
-    ObjectId edge_bundle_id, const SavedBackboneRowKey& old_open_key, std::size_t lane_index,
-    const SavedBackboneRowKey& pair_key, double layout_yaw_deg, ObjectId port_id) {
+EditResult<bool> CoreState::update_backbone_port_binding_layout_exact(
+    ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
+    std::size_t lane_index, double layout_yaw_deg, ObjectId port_id) {
   EditResult<bool> out{};
   out.value = false;
-  if (edge_bundle_id == kInvalidObjectId || old_open_key.node_id == kInvalidObjectId ||
-      !old_open_key.source_is_open || old_open_key.source_edge_a == kInvalidObjectId ||
-      pair_key.source_is_open || pair_key.node_id == kInvalidObjectId ||
-      pair_key.source_edge_a == kInvalidObjectId || pair_key.source_edge_b == kInvalidObjectId ||
-      port_id == kInvalidObjectId) {
+  if (edge_bundle_id == kInvalidObjectId ||
+      row_key.node_id == kInvalidObjectId ||
+      row_key.edge_id == kInvalidObjectId || port_id == kInvalidObjectId) {
     out.ok = true;
     return out;
   }
   std::size_t match_index = static_cast<std::size_t>(-1);
   for (std::size_t i = 0; i < authoritative_.backbone.port_bindings.size(); ++i) {
     const SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[i];
-    if (binding.edge_bundle_id != edge_bundle_id || binding.row_key != old_open_key ||
+    if (binding.edge_bundle_id != edge_bundle_id || binding.row_key != row_key ||
         binding.lane_index != lane_index || binding.port_id != port_id) {
       continue;
     }
@@ -327,7 +316,6 @@ EditResult<bool> CoreState::promote_backbone_open_port_binding_exact(
     return out;
   }
   SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[match_index];
-  binding.row_key = pair_key;
   binding.layout_yaw_deg = NormalizeYawDeg(layout_yaw_deg);
   out.value = true;
   out.ok = true;

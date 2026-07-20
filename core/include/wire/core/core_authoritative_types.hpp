@@ -52,12 +52,9 @@ struct SavedBackboneEdgeBundle {
 
 struct SavedBackboneRowKey {
   ObjectId node_id = kInvalidObjectId;
-  bool source_is_open = false;
-  ObjectId source_edge_a = kInvalidObjectId;
-  ObjectId source_edge_b = kInvalidObjectId;
+  ObjectId edge_id = kInvalidObjectId;
   bool operator==(const SavedBackboneRowKey& other) const {
-    return node_id == other.node_id && source_is_open == other.source_is_open &&
-           source_edge_a == other.source_edge_a && source_edge_b == other.source_edge_b;
+    return node_id == other.node_id && edge_id == other.edge_id;
   }
 };
 

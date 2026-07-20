@@ -8,6 +8,7 @@
 #include "../generation/backbone/curve_parts.hpp"
 #include "../generation/backbone/emit_shared.hpp"
 #include "../generation/backbone/model_assembly.hpp"
+#include "../generation/backbone/row_representation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -551,6 +552,12 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
   pole->world_transform = new_world_transform;
   apply_pole_placement_mode(*pole, PlacementMode::kManual);
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
+  const EditResult<bool> refreshed =
+      refresh_backbone_rows_for_incident_edges(pole_id, &result.change_set);
+  if (!refreshed.ok) {
+    result.error = refreshed.error;
+    return result;
+  }
   const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
   if (!plan.ok) {
     result.error = plan.error;
@@ -1186,6 +1193,182 @@ void CoreState::finalize_pole_transform_update(ObjectId pole_id, const Pole& old
     add_unique_id(change_set->updated_ids, pole_id);
   }
   refresh_owned_endpoints_from_pole(pole_id, change_set, &old_pole);
+}
+
+EditResult<bool> CoreState::refresh_backbone_rows_for_incident_edges(
+    ObjectId pole_id, ChangeSet* change_set) {
+  EditResult<bool> out{};
+  out.ok = true;
+  out.value = false;
+  const SavedBackboneNode* moved_node = view().backbone_node_for_pole(pole_id);
+  if (moved_node == nullptr) {
+    return out;
+  }
+
+  std::unordered_set<ObjectId> changed_edges{};
+  std::unordered_set<ObjectId> affected_nodes{};
+  for (const SavedBackboneEdge& edge : authoritative_.backbone.edges) {
+    if (edge.node_a != moved_node->node_id && edge.node_b != moved_node->node_id) {
+      continue;
+    }
+    changed_edges.insert(edge.edge_id);
+    affected_nodes.insert(edge.node_a);
+    affected_nodes.insert(edge.node_b);
+  }
+  if (changed_edges.empty()) {
+    return out;
+  }
+
+  struct PlannedEndpoint {
+    std::size_t binding_index = 0;
+    generation::backbone::EndpointRowRepresentation representation{};
+    Vec3d logical_local{};
+    ObjectId bundle_id = kInvalidObjectId;
+  };
+  std::vector<PlannedEndpoint> planned{};
+  for (std::size_t index = 0;
+       index < authoritative_.backbone.port_bindings.size(); ++index) {
+    const SavedBackbonePortBinding& binding =
+        authoritative_.backbone.port_bindings[index];
+    if (affected_nodes.find(binding.row_key.node_id) == affected_nodes.end()) {
+      continue;
+    }
+    const SavedBackboneEdgeBundle* edge_bundle =
+        view().backbone_edge_bundle(binding.edge_bundle_id);
+    if (edge_bundle == nullptr) {
+      out.ok = false;
+      out.error = "backbone reposition: edge bundle is missing";
+      return out;
+    }
+    const EditResult<generation::backbone::EndpointRowRepresentation>
+        representation =
+            generation::backbone::DeriveEndpointRowRepresentation(*this,
+                                                                  binding);
+    if (!representation.ok) {
+      out.ok = false;
+      out.error = representation.error;
+      return out;
+    }
+    const bool directly_changed =
+        changed_edges.find(edge_bundle->edge_id) != changed_edges.end();
+    bool peer_changed = false;
+    if (representation.value.peer_edge_bundle_id != kInvalidObjectId) {
+      const SavedBackboneEdgeBundle* peer =
+          view().backbone_edge_bundle(
+              representation.value.peer_edge_bundle_id);
+      peer_changed =
+          peer != nullptr &&
+          changed_edges.find(peer->edge_id) != changed_edges.end();
+    }
+    if (!directly_changed && !peer_changed) {
+      continue;
+    }
+    Port* port = authoritative_.edit_state.ports.find(binding.port_id);
+    const Pole* owner =
+        port == nullptr
+            ? nullptr
+            : authoritative_.edit_state.poles.find(port->owner_pole_id);
+    if (port == nullptr || owner == nullptr) {
+      out.ok = false;
+      out.error = "backbone reposition: endpoint port is missing";
+      return out;
+    }
+    if (port->position_mode == PortPositionMode::kManual ||
+        port->user_edited_position) {
+      out.ok = false;
+      out.error =
+          "backbone reposition unsupported: derived row would move a manual port";
+      return out;
+    }
+    planned.push_back(
+        {index, representation.value,
+         WorldPointToLocal(BuildPoleFrame(owner->world_transform,
+                                          binding.layout_yaw_deg),
+                           port->world_position),
+         edge_bundle->bundle_id});
+  }
+
+  const auto group_key = [](const PlannedEndpoint& endpoint) {
+    return std::make_tuple(
+        endpoint.representation.row_key.node_id,
+        endpoint.representation.row_key.edge_a,
+        endpoint.representation.row_key.edge_b, endpoint.bundle_id,
+        endpoint.representation.layout_yaw_deg);
+  };
+  std::sort(planned.begin(), planned.end(),
+            [&](const PlannedEndpoint& lhs, const PlannedEndpoint& rhs) {
+              const SavedBackbonePortBinding& lhs_binding =
+                  authoritative_.backbone.port_bindings[lhs.binding_index];
+              const SavedBackbonePortBinding& rhs_binding =
+                  authoritative_.backbone.port_bindings[rhs.binding_index];
+              return std::tuple_cat(
+                         group_key(lhs),
+                         std::make_tuple(lhs_binding.lane_index,
+                                         lhs_binding.row_key.edge_id,
+                                         lhs_binding.port_id)) <
+                     std::tuple_cat(
+                         group_key(rhs),
+                         std::make_tuple(rhs_binding.lane_index,
+                                         rhs_binding.row_key.edge_id,
+                                         rhs_binding.port_id));
+            });
+
+  for (std::size_t begin = 0; begin < planned.size();) {
+    std::size_t end = begin + 1;
+    const SavedBackbonePortBinding& first_binding =
+        authoritative_.backbone.port_bindings[planned[begin].binding_index];
+    while (end < planned.size() &&
+           group_key(planned[end]) == group_key(planned[begin]) &&
+           authoritative_.backbone.port_bindings[planned[end].binding_index]
+                   .lane_index == first_binding.lane_index) {
+      ++end;
+    }
+    const Port* first_port =
+        authoritative_.edit_state.ports.find(first_binding.port_id);
+    const Pole* owner =
+        first_port == nullptr
+            ? nullptr
+            : authoritative_.edit_state.poles.find(first_port->owner_pole_id);
+    if (owner == nullptr) {
+      out.ok = false;
+      out.error = "backbone reposition: row owner is missing";
+      return out;
+    }
+    const Vec3d position = LocalPointToWorld(
+        BuildPoleFrame(owner->world_transform,
+                       planned[begin].representation.layout_yaw_deg),
+        planned[begin].logical_local);
+    for (std::size_t index = begin; index < end; ++index) {
+      SavedBackbonePortBinding& binding =
+          authoritative_.backbone.port_bindings[planned[index].binding_index];
+      Port* port = authoritative_.edit_state.ports.find(binding.port_id);
+      if (port == nullptr) {
+        out.ok = false;
+        out.error = "backbone reposition: planned port is missing";
+        return out;
+      }
+      const bool yaw_changed =
+          std::abs(NormalizeYawDeg(binding.layout_yaw_deg -
+                                   planned[index]
+                                       .representation.layout_yaw_deg)) >
+          1e-9;
+      const bool moved = Length(port->world_position - position) > 1e-12;
+      binding.layout_yaw_deg =
+          planned[index].representation.layout_yaw_deg;
+      if (moved) {
+        port->world_position = position;
+      }
+      if (moved || yaw_changed) {
+        out.value = true;
+        if (change_set != nullptr) {
+          add_unique_id(change_set->updated_ids, port->id);
+          touch_connected_spans_from_port(port->id, change_set);
+        }
+      }
+    }
+    begin = end;
+  }
+  return out;
 }
 
 void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole,

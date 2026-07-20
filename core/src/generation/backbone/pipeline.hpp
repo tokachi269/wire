@@ -222,7 +222,7 @@ private:
     std::size_t row = bad;
     std::size_t spec_index = bad;
     std::size_t lane_index = bad;
-    SavedBackboneRowKey old_open_row_key{};
+    SavedBackboneRowKey row_key{};
     ObjectId existing_edge_bundle_id = kInvalidObjectId;
     ObjectId existing_bundle_id = kInvalidObjectId;
     std::uint64_t placement_key = 0;

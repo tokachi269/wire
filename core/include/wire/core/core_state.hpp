@@ -183,12 +183,9 @@ private:
                                       int support_group_id,
                                       double layout_yaw_deg,
                                       ObjectId port_id);
-  EditResult<bool> promote_backbone_open_port_binding_exact(ObjectId edge_bundle_id,
-                                                            const SavedBackboneRowKey& old_open_key,
-                                                            std::size_t lane_index,
-                                                            const SavedBackboneRowKey& pair_key,
-                                                            double layout_yaw_deg,
-                                                            ObjectId port_id);
+  EditResult<bool> update_backbone_port_binding_layout_exact(
+      ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
+      std::size_t lane_index, double layout_yaw_deg, ObjectId port_id);
   EditResult<bool> bind_backbone_row_continuity(ObjectId node_id,
                                                 ObjectId edge_bundle_a,
                                                 std::size_t lane_a,
@@ -263,6 +260,8 @@ private:
   EditResult<bool> apply_pole_tilt_from_pull(ObjectId pole_id, double max_tilt_deg, const Vec3d& pull_world_dir,
                                              std::size_t incident_span_count, ChangeSet* change_set);
   void finalize_pole_transform_update(ObjectId pole_id, const Pole& old_pole, ChangeSet* change_set);
+  EditResult<bool> refresh_backbone_rows_for_incident_edges(ObjectId pole_id,
+                                                             ChangeSet* change_set);
   std::string next_display_id(std::string_view prefix);
   void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr,
                                          const PortLayoutYawOverride* previous_row_layout_yaw_override = nullptr);

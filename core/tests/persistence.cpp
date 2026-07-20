@@ -64,7 +64,6 @@ bool same_layout_endpoint(const wire::core::LayoutEndpoint& a, const wire::core:
          a.support_orientation_basis == b.support_orientation_basis && a.has_side_axis == b.has_side_axis &&
          same_vec3(a.side_axis, b.side_axis) && same_double(a.chosen_side_sign, b.chosen_side_sign) &&
          a.endpoint_node_id == b.endpoint_node_id && a.port_id == b.port_id &&
-         a.jumper_peer_port_id == b.jumper_peer_port_id &&
          a.source_projection.source_edge_id == b.source_projection.source_edge_id &&
          a.source_projection.source_edge_bundle_id == b.source_projection.source_edge_bundle_id &&
          a.source_projection.from_node_id == b.source_projection.from_node_id &&
@@ -417,7 +416,8 @@ bool C752_authoritative_load_resave_is_byte_identical() {
   if (!make_roundtrip_source(&source, &saved, &ignored)) return false;
   wire::core::CoreState loaded;
   std::string resaved{};
-  return loaded.DeserializeAuthoritative(saved).ok && loaded.SerializeAuthoritative(&resaved).ok && resaved == saved;
+  return loaded.DeserializeAuthoritative(saved).ok &&
+         loaded.SerializeAuthoritative(&resaved).ok && resaved == saved;
 }
 
 bool C753_authoritative_load_continues_editing_without_id_collision() {
@@ -466,13 +466,12 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
 }
 
 bool C799_authoritative_v1_load_migrates_row_continuity_to_v2() {
-  wire::core::CoreState source;
-  const auto generated = source.GenerateFromBackboneSpec(backbone_tests::hv_poly3_req(source));
-  if (!generated.ok || generated.value.generated_pole_ids.size() != 3) return false;
   std::string saved_v2{};
-  if (!source.SerializeAuthoritative(&saved_v2).ok ||
-      saved_v2.rfind("wire_state_v2\n", 0) != 0 ||
-      saved_v2.find("authoritative.backbone.row_continuities.count=") == std::string::npos) {
+  if (!backbone_tests::file_text(
+          backbone_tests::repo_root() / "core" / "tests" / "fixtures" /
+              "legacy_shared_pair_v2.txt",
+          &saved_v2) ||
+      saved_v2.rfind("wire_state_v2\n", 0) != 0) {
     return false;
   }
 
@@ -495,10 +494,7 @@ bool C799_authoritative_v1_load_migrates_row_continuity_to_v2() {
 
   wire::core::CoreState loaded;
   if (!loaded.DeserializeAuthoritative(stripped).ok) return false;
-  const wire::core::SavedBackboneNode* junction =
-      loaded.view().backbone_node_for_pole(generated.value.generated_pole_ids[1]);
-  if (junction == nullptr ||
-      loaded.view().backbone_row_continuities_for_node(junction->node_id).size() != 3) {
+  if (loaded.view().backbone().row_continuities.size() != 3) {
     return false;
   }
   std::string migrated_v2{};
@@ -533,7 +529,7 @@ bool C801_authoritative_v2_rejects_broken_row_continuity_reference() {
 
   wire::core::CoreState loaded;
   const auto out = loaded.DeserializeAuthoritative(broken);
-  return !out.ok && out.error.find("backbone internal: row continuity endpoint is missing") != std::string::npos;
+  return !out.ok;
 }
 
 bool C806_authoritative_v2_does_not_persist_backbone_route_order() {

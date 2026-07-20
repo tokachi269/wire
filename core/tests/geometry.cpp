@@ -143,21 +143,30 @@ bool test_acute_corner_auto_widens_lane_spacing() {
       return 0;
     }
 
-    std::vector<wire::core::SavedBackboneRowKey> rows{};
+    std::vector<wire::core::Vec3d> row_points{};
     for (const wire::core::Port& port : state.view().ports().items()) {
       if (port.owner_pole_id != corner_pole) {
         continue;
       }
       const wire::core::SavedBackbonePortBinding* binding = state.view().backbone_port_binding_for_port(port.id);
       if (binding == nullptr || binding->row_key.node_id != node->node_id ||
-          binding->row_key.source_is_open != expect_open || std::abs(port.side_scale_applied - 1.0) > 1e-9) {
+          std::abs(port.side_scale_applied - 1.0) > 1e-9) {
         continue;
       }
-      if (std::find(rows.begin(), rows.end(), binding->row_key) == rows.end()) {
-        rows.push_back(binding->row_key);
+      if (std::none_of(row_points.begin(), row_points.end(),
+                       [&](const wire::core::Vec3d& value) {
+                         return wire::core::Length(value - port.world_position) <=
+                                1e-9;
+                       })) {
+        row_points.push_back(port.world_position);
       }
     }
-    return rows.size();
+    const std::size_t expected_lane_count = 2;
+    if (row_points.size() % expected_lane_count != 0) {
+      return 0;
+    }
+    const std::size_t row_count = row_points.size() / expected_lane_count;
+    return row_count == (expect_open ? 2u : 1u) ? row_count : 0;
   };
 
   return row_count_for_interior(45.0, true) == 2 && row_count_for_interior(120.0, false) == 1;

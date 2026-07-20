@@ -55,7 +55,7 @@ member-wise move commitする。どの段階で失敗しても、本stateは変�
 処理順は次の通り。
 
 1. inputの`prepare`と`check`
-2. graphからpair/open/rowを確定
+2. graphから操作中endpointの候補関係と暫定rowを確定
 3. duplicate edge bundle/span bindingをpreflight
 4. intentとsupport groupを確定
 5. pole、bundle、port、spanを生成
@@ -63,7 +63,7 @@ member-wise move commitする。どの段階で失敗しても、本stateは変�
 7. rules、layout、geom、drawを保存
 
 context linkは判断入力であり、生成・保存対象ではない。
-T/cross/branchのkind enumは作らず、pair/open/rowの組合せで表す。
+T/cross/branchのkind enumは作らず、continuityと派生rowの組合せで表す。
 
 ### pole / port配置座標
 
@@ -87,12 +87,12 @@ lateral順に1つずつ使用する。既定HV 3相は左・中央・右bandを�
 pole表面へ直接取り付けるportや部品は、中心軸原点を変えず、その高さのsection半径とstandoff / clearanceから
 表面位置を導出する。表面位置を既定offsetへ混ぜず、laneごとに後処理してbundle重心をずらしてはならない。
 
-pair row axisは`pairs make(graph)`だけが決める。
-生成中routeの隣接はgraph linkの接続nodeで決め、保存済みedgeの継続はsaved pair/row continuity recordを正本にする。route/orderは永続化しない導出補助であり、pair/open/row continuityの判定入力にしない。
+接続相手は`SavedBackboneRowContinuity`だけが保持し、row表現は共通のendpoint row導出が現在幾何から決める。
+生成中routeの隣接も同じcontinuityへ記録する。route/orderは永続化しない導出補助であり、接続相手やpair/open表現の判定入力にしない。
 通常cornerでは前後linkの単位接線和から二等分方向を作り、その直交方向をrow axisにする。
 径間長の差でrow axisを回さず、各incident spanのlane順が反転しない範囲に保つ。
-鋭角cornerは共有pair rowにせず、各incident edgeに直交する2つのopen rowと明示jumper relationへ分ける。
-jumperはlayout ruleにpeer port identityを保存したderived visualであり、logical spanやSavedBackboneGraph edgeを増やさない。
+鋭角cornerはcontinuityを維持したまま、各incident edgeに直交する2つのdead-end rowとjumperへ派生する。
+jumperのpeer portはcontinuityから導出し、layout ruleやPortへ接続正本として保存しない。jumperはlogical spanやSavedBackboneGraph edgeを増やさない。
 この判定はbundle templateを読まず、connectivity段の局所幾何だけで決める。
 pole facingはこのcorner decisionの`node_forward`を消費し、角度や二等分線を再計算しない。
 旧angle correctionは緩角向けの補助に限定し、倍率上限は`kMaxCornerSideScale`(1.7)とする。
@@ -100,9 +100,9 @@ pole facingはこのcorner decisionの`node_forward`を消費し、角度や二�
 ### row conflict と endpoint offset
 
 通常のroute bendはlowering対象ではない。
-同一nodeのrow conflictでは、pairまたはopenの1 rowを1 support levelとして扱う。level 0は基準位置、
+同一nodeのrow conflictでは、接続pairまたは未接続openを1 support levelとして扱う。level 0は基準位置、
 level 1以降は`abs(BundleTemplate::branch_endpoint_offset_m) * level`だけ順に下げる。
-1 levelへ複数rowを載せず、open rowがpairへ昇格しても同じlevelを維持する。
+1 levelへ複数の論理接続を載せず、openがpairへ接続されても同じlevelを維持する。鋭角pairの2 fixture rowは同じlevelを使う。
 この多段配置は`BundleTemplate::enable_branch_down_offset`が有効なbundle placementだけに適用し、
 無効なplacementはrow数に関係なくlevel 0を維持する。
 `SavedBackbonePortBinding`はrowごとの`support_level`と`support_group_id`を保存し、
@@ -195,8 +195,8 @@ preflight を増やしたことを理由に本 state 直接変更へ戻すこと
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
 現対応は `UpdateBundleTemplate` の fixed count 増減と `kTopology` policy 差分、`UpdateCableTemplate` の backbone continuity policy / default endpoint attachment decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
-group offset を再構成する。3点以上routeのpair rowは、saved row continuity と saved node から
-pipeline graph を復元して再確定する。
+group offset を再構成する。3点以上routeの接続は saved row continuity と saved node から
+pipeline graph を復元し、row表現は現在幾何から再導出する。
 row key / lane が一致する binding は再利用し、不一致の binding は retire + emit で reconcile する。存続する user attachment は span id とともに保持し、退役spanに user attachment があれば mutation 前に `unsupported` で拒否する。`AttachmentOrigin::kDefaultEndpoint` は trial 内で退役できる。`UpdateCableTemplate` の continuity policy と default endpoint attachment は route scope ごとに同じ入口を通し、既存spanのcurve decisionとauto endpoint attachmentを編集後 template へreconcileする。non-backbone span を含む decision 差分は未対応として拒否する。
 
 `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中でもplacement-only差分なら
@@ -214,7 +214,8 @@ layout rule は override 解決を消費し、socket は endpoint source / resol
 scope 復元は saved row continuity component を正本とし、保存済み edge の route/order は判定入力にしない。
 
 `DeriveGeneratedSpanOutputs()` は、保存済み rules / layout source / `SavedBackboneGraph` binding から
-layout、geom、drawを再導出する入口である。topology、pair/open/row、port identityを再判断してはいけない。
+layout、geom、drawを再導出する入口である。topology、continuity、port identityを再判断してはいけない。
+row/fixture/patch/jumperは保存表現を読まず、continuityと現在幾何から再導出する。
 
 ## validationとinspection
 
@@ -251,8 +252,8 @@ sample polyline上でG1が崩れやすく、main spanから接続部へ不自然
 
 現在は派生debug/cacheとして`VisualCurvePart`を持ち、最小単位を`NodePatchCurve`と`EdgeBodyCurve`へ分ける。
 未接続のterminal endpointには`NodePatchCurve`を作らない。末端へ新しいedgeを延長した場合は、
-`pairs make(graph)`がdegree 2のsaved/new edgeをcontinuationとして確定し、そのpair rowをpatchが消費する。
-branch追加後もmulti-incident全体を丸めず、pair rowが明示するthrough 2-edgeだけを維持する。
+一意な未接続endpointが2つ揃った操作でcontinuityを記録し、通常角ならそのpairをpatchが消費する。
+branch追加後もmulti-incident全体を丸めず、continuityが明示するthrough 2-edgeだけを維持する。
 node / bundle template / lane / 保存済みplacement band単位でpatchを分離し、位置近似やband再探索で接続を推測しない。
 main cable patchはattachmentを通過せず、incoming/outgoing boundary間を
 turn内側で単調に結ぶ1区間filletとする。境界では`EdgeBodyCurve`のparabolic sag実接線とG1接続する。

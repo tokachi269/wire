@@ -6,6 +6,7 @@
 #include "../../support/hash_mix.hpp"
 #include "out.hpp"
 #include "population.hpp"
+#include "row_representation.hpp"
 #include "span_visual_assembly.hpp"
 #include "../../geometry/detail_curve_postprocess.hpp"
 
@@ -456,6 +457,44 @@ const SavedBackbonePortBinding* port_binding_for(const CoreState& state, ObjectI
   return found;
 }
 
+EditResult<ObjectId> derived_jumper_peer_port(
+    const CoreState& state, const SavedBackbonePortBinding& binding) {
+  EditResult<ObjectId> out{};
+  out.ok = true;
+  const EditResult<EndpointRowRepresentation> representation =
+      DeriveEndpointRowRepresentation(state, binding);
+  if (!representation.ok) {
+    out.ok = false;
+    out.error = representation.error;
+    return out;
+  }
+  if (!representation.value.sharp) {
+    return out;
+  }
+  for (const SavedBackbonePortBinding* candidate :
+       state.view().backbone_port_bindings_for_edge_bundle(
+           representation.value.peer_edge_bundle_id)) {
+    if (candidate == nullptr ||
+        candidate->lane_index != representation.value.peer_lane_index ||
+        candidate->row_key.node_id != binding.row_key.node_id) {
+      continue;
+    }
+    if (out.value != kInvalidObjectId &&
+        out.value != candidate->port_id) {
+      out.ok = false;
+      out.error =
+          "backbone internal: sharp endpoint peer port is ambiguous";
+      return out;
+    }
+    out.value = candidate->port_id;
+  }
+  if (out.value == kInvalidObjectId) {
+    out.ok = false;
+    out.error = "backbone internal: sharp endpoint peer port is missing";
+  }
+  return out;
+}
+
 void add_unique_incident(ObjectId edge_id, std::vector<ObjectId>* ids) {
   if (edge_id == kInvalidObjectId || ids == nullptr) {
     return;
@@ -791,8 +830,16 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     section.end_node_id = entry.end.endpoint_node_id;
     section.start_port_id = entry.start.port_id;
     section.end_port_id = entry.end.port_id;
-    section.start_jumper_peer_port_id = entry.start.jumper_peer_port_id;
-    section.end_jumper_peer_port_id = entry.end.jumper_peer_port_id;
+    const EditResult<ObjectId> start_peer =
+        derived_jumper_peer_port(state, *start_binding);
+    const EditResult<ObjectId> end_peer =
+        derived_jumper_peer_port(state, *end_binding);
+    if (!start_peer.ok || !end_peer.ok) {
+      fail(start_peer.ok ? end_peer.error : start_peer.error);
+      return result;
+    }
+    section.start_jumper_peer_port_id = start_peer.value;
+    section.end_jumper_peer_port_id = end_peer.value;
     section.start_row_key = start_binding->row_key;
     section.end_row_key = end_binding->row_key;
     sections.push_back(section);
@@ -974,6 +1021,12 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     const auto b_it = endpoints_by_continuity_key.find(
         continuity_endpoint_key{continuity.node_id, continuity.b.edge_bundle_id, continuity.b.lane_index});
     if (a_it == endpoints_by_continuity_key.end() || b_it == endpoints_by_continuity_key.end()) {
+      if (!has_any_endpoint(continuity.a.edge_bundle_id,
+                            continuity.a.lane_index) ||
+          !has_any_endpoint(continuity.b.edge_bundle_id,
+                            continuity.b.lane_index)) {
+        continue;
+      }
       if (!scoped_spans.empty()) {
         continue;
       }
@@ -1057,8 +1110,7 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       }
       if (patch_a.jumper_peer_port_id != kInvalidObjectId ||
           patch_b.jumper_peer_port_id != kInvalidObjectId) {
-        fail("backbone internal: row continuity overlaps explicit jumper");
-        return result;
+        continue;
       }
       const double a_len =
           std::min(kNodePatchHorizontalLengthM, patch_a.span_length_m * kNodePatchMaxSpanFraction);

@@ -3,6 +3,7 @@
 #include "emit_shared.hpp"
 #include "mount_graph.hpp"
 #include "model_placement_rules.hpp"
+#include "row_representation.hpp"
 
 #include "../../support/instrumentation.hpp"
 
@@ -37,7 +38,7 @@ struct PortFixtureContext {
 
 struct RowFixtureContext {
   const Pole* pole = nullptr;
-  SavedBackboneRowKey row_key{};
+  DerivedBackboneRowKey row_key{};
   ObjectId bundle_id = kInvalidObjectId;
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   ModelAssemblyTemplateId assembly_id = kInvalidModelAssemblyTemplateId;
@@ -58,7 +59,7 @@ struct RowFixtureContext {
 struct RowFixtureContexts {
   struct Endpoint {
     ObjectId port_id = kInvalidObjectId;
-    SavedBackboneRowKey row_key{};
+    DerivedBackboneRowKey row_key{};
     ObjectId bundle_id = kInvalidObjectId;
     std::size_t lane_index = 0;
   };
@@ -362,10 +363,9 @@ EditResult<double> row_lateral_position(const CoreState& state,
   return out;
 }
 
-std::string row_key_text(const SavedBackboneRowKey& row_key) {
+std::string row_key_text(const DerivedBackboneRowKey& row_key) {
   std::ostringstream out;
-  out << row_key.node_id << ":" << (row_key.source_is_open ? 1 : 0) << ":"
-      << row_key.source_edge_a << ":" << row_key.source_edge_b;
+  out << row_key.node_id << ":" << row_key.edge_a << ":" << row_key.edge_b;
   return out.str();
 }
 
@@ -389,17 +389,23 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
       out.error = "model assembly unsupported: row source bundle is missing";
       return out;
     }
+    const EditResult<EndpointRowRepresentation> representation =
+        DeriveEndpointRowRepresentation(state, binding);
+    if (!representation.ok) {
+      out.error = representation.error;
+      return out;
+    }
     const bool endpoint_exists = std::any_of(
         out.value.endpoints.begin(), out.value.endpoints.end(),
         [&](const RowFixtureContexts::Endpoint& endpoint) {
-          return !binding.row_key.source_is_open &&
-                 endpoint.row_key == binding.row_key &&
+          return endpoint.row_key == representation.value.row_key &&
                  endpoint.bundle_id == edge_bundle->bundle_id &&
                  endpoint.lane_index == binding.lane_index;
         });
     if (!endpoint_exists) {
       out.value.endpoints.push_back(
-          {port->id, binding.row_key, edge_bundle->bundle_id, binding.lane_index});
+          {port->id, representation.value.row_key, edge_bundle->bundle_id,
+           binding.lane_index});
     }
     ModelAssemblyTemplateId row_assembly_id = kInvalidModelAssemblyTemplateId;
     for (const ModelPlacementRule& rule : placement_rules_from_bundle_template(bundle_it->second)) {
@@ -412,19 +418,23 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
       continue;
     }
     auto row_it = std::find_if(out.value.rows.begin(), out.value.rows.end(), [&](const RowFixtureContext& row) {
-      return row.pole->id == pole->id && row.row_key == binding.row_key &&
+      return row.pole->id == pole->id &&
+             row.row_key == representation.value.row_key &&
              row.bundle_id == edge_bundle->bundle_id;
     });
     if (row_it == out.value.rows.end()) {
-      out.value.rows.push_back({pole, binding.row_key, edge_bundle->bundle_id, binding.bundle_template_id,
-                                row_assembly_id, binding.layout_yaw_deg,
+      out.value.rows.push_back({pole, representation.value.row_key,
+                                edge_bundle->bundle_id,
+                                binding.bundle_template_id, row_assembly_id,
+                                representation.value.layout_yaw_deg,
                                 {{port->id, {port->id}, binding.lane_index, binding.placement_band_id,
                                   edge->lateral_offset_m, bundle->placement_explicit,
                                   bundle->lateral_m,
                                   bundle->phase_spacing_m}}});
     } else {
       if (row_it->assembly_id != row_assembly_id ||
-          std::abs(row_it->layout_yaw_deg - binding.layout_yaw_deg) > 1e-9) {
+          std::abs(row_it->layout_yaw_deg -
+                   representation.value.layout_yaw_deg) > 1e-9) {
         out.error = "model assembly unsupported: saved row resolves inconsistent fixture data";
         return out;
       }
@@ -447,11 +457,11 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
   std::sort(out.value.endpoints.begin(), out.value.endpoints.end(),
             [](const RowFixtureContexts::Endpoint& a,
                const RowFixtureContexts::Endpoint& b) {
-              return std::tie(a.row_key.node_id, a.row_key.source_is_open,
-                              a.row_key.source_edge_a, a.row_key.source_edge_b,
+              return std::tie(a.row_key.node_id, a.row_key.edge_a,
+                              a.row_key.edge_b,
                               a.bundle_id, a.lane_index, a.port_id) <
-                     std::tie(b.row_key.node_id, b.row_key.source_is_open,
-                              b.row_key.source_edge_a, b.row_key.source_edge_b,
+                     std::tie(b.row_key.node_id, b.row_key.edge_a,
+                              b.row_key.edge_b,
                               b.bundle_id, b.lane_index, b.port_id);
             });
   out.ok = true;

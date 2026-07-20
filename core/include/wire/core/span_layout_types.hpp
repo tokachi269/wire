@@ -149,7 +149,6 @@ struct SourceEdgeProjectionRef {
 struct LayoutEndpoint : LayoutSemantic {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
-  ObjectId jumper_peer_port_id = kInvalidObjectId;
   SourceEdgeProjectionRef source_projection{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -197,7 +196,6 @@ struct SupportGroupDecision : LayoutSemantic {
 struct EndpointLayoutRule {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
-  ObjectId jumper_peer_port_id = kInvalidObjectId;
   SourceEdgeProjectionRef source_projection{};
   LayoutSemantic semantic{};
   EndpointAttachmentRequest attachment_request{};
@@ -233,7 +231,6 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   CopyLayoutSemantic(dst, rule.semantic);
   dst.endpoint_node_id = rule.endpoint_node_id;
   dst.port_id = rule.port_id;
-  dst.jumper_peer_port_id = rule.jumper_peer_port_id;
   dst.source_projection = rule.source_projection;
   dst.attachment_request = rule.attachment_request;
   dst.resolved_socket_id = rule.resolved_socket_id;

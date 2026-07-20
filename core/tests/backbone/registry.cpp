@@ -136,7 +136,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone topology rows carry pair row source", "Boundary", false,
                          C421_backbone_topo_row_carries_source);
   test_registry::AddTest(tests, "C422_backbone_rules_consume_topo_and_groups",
-                         "backbone rules consume topology, placement, and explicit jumper relations", "Boundary", false,
+                         "backbone rules consume topology and placement without re-deciding jumper relations", "Boundary", false,
                          C422_backbone_rules_consume_topo_and_groups);
   test_registry::AddTest(tests, "C423_backbone_tspan_carries_endpoint_rows",
                          "backbone topology spans carry endpoint row indices", "Boundary", false,
@@ -1145,14 +1145,14 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental cross completion preserves existing open row frame while forming pair rows",
                          "Invariant", false,
                          C771_backbone_incremental_cross_completion_matches_one_shot_rows);
-  test_registry::AddTest(tests, "C772_backbone_incremental_pair_promotion_rejects_ambiguous_open_candidates",
-                         "incremental pair promotion rejects multiple saved open candidates before mutation",
+  test_registry::AddTest(tests, "C772_backbone_incremental_pair_promotion_leaves_ambiguous_candidates_open",
+                         "incremental pairing leaves ambiguous candidates open without rejecting the edit",
                          "Boundary", false,
-                         C772_backbone_incremental_pair_promotion_rejects_ambiguous_open_candidates);
-  test_registry::AddTest(tests, "C773_backbone_incremental_sharp_completion_keeps_open_jumper_rows",
-                         "incremental sharp completion keeps open rows and jumper contract instead of pair promotion",
+                         C772_backbone_incremental_pair_promotion_leaves_ambiguous_candidates_open);
+  test_registry::AddTest(tests, "C773_backbone_incremental_sharp_completion_derives_jumper_from_continuity",
+                         "incremental sharp completion records continuity and derives separate rows plus jumper",
                          "Invariant", false,
-                         C773_backbone_incremental_sharp_completion_keeps_open_jumper_rows);
+                         C773_backbone_incremental_sharp_completion_derives_jumper_from_continuity);
   test_registry::AddTest(tests, "C774_backbone_incremental_scope_mismatch_does_not_share_ports",
                          "incremental pair promotion does not share ports across incompatible bundle scope",
                          "Invariant", false,
@@ -1257,6 +1257,14 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "v2 shared ports without exact continuity reject before mutation",
                          "Boundary", true,
                          C812_authoritative_v2_rejects_ambiguous_shared_port_migration);
+  test_registry::AddTest(tests, "C813_backbone_move_pole_rederives_pair_representation",
+                         "MovePole preserves endpoint identity while switching patch and jumper representation",
+                         "Invariant", false,
+                         C813_backbone_move_pole_rederives_pair_representation);
+  test_registry::AddTest(tests, "C814_backbone_same_operation_does_not_prefer_new_pair_over_existing_open",
+                         "two new edges remain open when an existing compatible open makes pairing ambiguous",
+                         "Invariant", false,
+                         C814_backbone_same_operation_does_not_prefer_new_pair_over_existing_open);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

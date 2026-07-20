@@ -574,12 +574,12 @@ static_assert(sizeof(SavedBackboneEdgeBundle) == 104, "field added: update archi
 
 template <typename Archive, typename Value>
 bool archive_row_key(Archive& archive, const std::string& prefix, Value& value) {
-  return archive.field(prefix, "node_id", value.node_id) && archive.field(prefix, "source_is_open", value.source_is_open) && archive.field(prefix, "source_edge_a", value.source_edge_a) &&
-         archive.field(prefix, "source_edge_b", value.source_edge_b);
+  return archive.field(prefix, "node_id", value.node_id) &&
+         archive.field(prefix, "edge_id", value.edge_id);
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(SavedBackboneRowKey) == 32, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(SavedBackboneRowKey) == 16, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -593,8 +593,46 @@ bool archive_saved_port_binding(Archive& archive, const std::string& prefix, Val
          archive.field(prefix, "port_id", value.port_id);
 }
 
+struct LegacySavedBackboneRowKey {
+  ObjectId node_id = kInvalidObjectId;
+  bool source_is_open = false;
+  ObjectId source_edge_a = kInvalidObjectId;
+  ObjectId source_edge_b = kInvalidObjectId;
+};
+
+bool read_legacy_saved_port_binding(StateReader& reader, const std::string& prefix,
+                                    SavedBackbonePortBinding* value,
+                                    LegacySavedBackboneRowKey* legacy_row_key) {
+  if (value == nullptr || legacy_row_key == nullptr) {
+    return false;
+  }
+  ReadFieldArchive archive(reader);
+  const std::string row_prefix = child(prefix, "row_key");
+  return archive.field(prefix, "edge_bundle_id", value->edge_bundle_id) &&
+         archive.field(row_prefix, "node_id", legacy_row_key->node_id) &&
+         archive.field(row_prefix, "source_is_open",
+                       legacy_row_key->source_is_open) &&
+         archive.field(row_prefix, "source_edge_a",
+                       legacy_row_key->source_edge_a) &&
+         archive.field(row_prefix, "source_edge_b",
+                       legacy_row_key->source_edge_b) &&
+         archive.field(prefix, "lane_index", value->lane_index) &&
+         archive.field(prefix, "bundle_template_id",
+                       value->bundle_template_id) &&
+         archive.field(prefix, "port_kind", value->port_kind) &&
+         archive.field(prefix, "port_layer", value->port_layer) &&
+         archive.field(prefix, "placement_band_id",
+                       value->placement_band_id) &&
+         archive.compatible_field(prefix, "support_level",
+                                  value->support_level, -1) &&
+         archive.compatible_field(prefix, "support_group_id",
+                                  value->support_group_id, -2) &&
+         archive.field(prefix, "layout_yaw_deg", value->layout_yaw_deg) &&
+         archive.field(prefix, "port_id", value->port_id);
+}
+
 #ifdef _MSC_VER
-static_assert(sizeof(SavedBackbonePortBinding) == 88, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(SavedBackbonePortBinding) == 72, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -667,47 +705,75 @@ void append_migrated_row_continuity(SavedBackboneGraph* graph,
   graph->row_continuities.push_back(continuity);
 }
 
-void migrate_v1_row_continuities(SavedBackboneGraph* graph) {
+void migrate_v1_row_continuities(
+    SavedBackboneGraph* graph,
+    const std::vector<std::optional<LegacySavedBackboneRowKey>>&
+        legacy_row_keys) {
   if (graph == nullptr) {
     return;
   }
-  std::vector<const SavedBackbonePortBinding*> pair_bindings{};
+  std::vector<std::size_t> pair_bindings{};
   pair_bindings.reserve(graph->port_bindings.size());
-  for (const SavedBackbonePortBinding& binding : graph->port_bindings) {
-    if (!binding.row_key.source_is_open &&
-        binding.row_key.node_id != kInvalidObjectId &&
-        binding.row_key.source_edge_a != kInvalidObjectId &&
-        binding.row_key.source_edge_b != kInvalidObjectId &&
+  for (std::size_t index = 0; index < graph->port_bindings.size() &&
+                              index < legacy_row_keys.size();
+       ++index) {
+    const SavedBackbonePortBinding& binding = graph->port_bindings[index];
+    const std::optional<LegacySavedBackboneRowKey>& legacy =
+        legacy_row_keys[index];
+    if (legacy.has_value() && !legacy->source_is_open &&
+        legacy->node_id != kInvalidObjectId &&
+        legacy->source_edge_a != kInvalidObjectId &&
+        legacy->source_edge_b != kInvalidObjectId &&
         migrated_edge_bundle_bundle_id(*graph, binding.edge_bundle_id) != kInvalidObjectId) {
-      pair_bindings.push_back(&binding);
+      pair_bindings.push_back(index);
     }
   }
   std::sort(pair_bindings.begin(), pair_bindings.end(),
-            [&](const SavedBackbonePortBinding* a, const SavedBackbonePortBinding* b) {
-              return std::make_tuple(a->row_key.node_id, a->row_key.source_edge_a, a->row_key.source_edge_b,
-                                     a->lane_index, migrated_edge_bundle_bundle_id(*graph, a->edge_bundle_id),
-                                     a->edge_bundle_id) <
-                     std::make_tuple(b->row_key.node_id, b->row_key.source_edge_a, b->row_key.source_edge_b,
-                                     b->lane_index, migrated_edge_bundle_bundle_id(*graph, b->edge_bundle_id),
-                                     b->edge_bundle_id);
+            [&](std::size_t a_index, std::size_t b_index) {
+              const SavedBackbonePortBinding& a = graph->port_bindings[a_index];
+              const SavedBackbonePortBinding& b = graph->port_bindings[b_index];
+              const LegacySavedBackboneRowKey& a_key = *legacy_row_keys[a_index];
+              const LegacySavedBackboneRowKey& b_key = *legacy_row_keys[b_index];
+              return std::make_tuple(a_key.node_id, a_key.source_edge_a,
+                                     a_key.source_edge_b, a.lane_index,
+                                     migrated_edge_bundle_bundle_id(*graph, a.edge_bundle_id),
+                                     a.edge_bundle_id) <
+                     std::make_tuple(b_key.node_id, b_key.source_edge_a,
+                                     b_key.source_edge_b, b.lane_index,
+                                     migrated_edge_bundle_bundle_id(*graph, b.edge_bundle_id),
+                                     b.edge_bundle_id);
             });
   for (std::size_t first = 0; first < pair_bindings.size();) {
     std::size_t last = first + 1;
+    const SavedBackbonePortBinding& first_binding =
+        graph->port_bindings[pair_bindings[first]];
+    const LegacySavedBackboneRowKey& first_key =
+        *legacy_row_keys[pair_bindings[first]];
     while (last < pair_bindings.size() &&
-           pair_bindings[last]->row_key == pair_bindings[first]->row_key &&
-           pair_bindings[last]->lane_index == pair_bindings[first]->lane_index &&
-           migrated_edge_bundle_bundle_id(*graph, pair_bindings[last]->edge_bundle_id) ==
-               migrated_edge_bundle_bundle_id(*graph, pair_bindings[first]->edge_bundle_id)) {
+           legacy_row_keys[pair_bindings[last]]->node_id == first_key.node_id &&
+           legacy_row_keys[pair_bindings[last]]->source_edge_a ==
+               first_key.source_edge_a &&
+           legacy_row_keys[pair_bindings[last]]->source_edge_b ==
+               first_key.source_edge_b &&
+           graph->port_bindings[pair_bindings[last]].lane_index ==
+               first_binding.lane_index &&
+           migrated_edge_bundle_bundle_id(
+               *graph,
+               graph->port_bindings[pair_bindings[last]].edge_bundle_id) ==
+               migrated_edge_bundle_bundle_id(*graph,
+                                               first_binding.edge_bundle_id)) {
       ++last;
     }
     if (last - first == 2 &&
-        pair_bindings[first]->edge_bundle_id != pair_bindings[first + 1]->edge_bundle_id) {
-      append_migrated_row_continuity(graph,
-                                     pair_bindings[first]->row_key.node_id,
-                                     pair_bindings[first]->edge_bundle_id,
-                                     pair_bindings[first]->lane_index,
-                                     pair_bindings[first + 1]->edge_bundle_id,
-                                     pair_bindings[first + 1]->lane_index);
+        graph->port_bindings[pair_bindings[first]].edge_bundle_id !=
+            graph->port_bindings[pair_bindings[first + 1]].edge_bundle_id) {
+      const SavedBackbonePortBinding& a =
+          graph->port_bindings[pair_bindings[first]];
+      const SavedBackbonePortBinding& b =
+          graph->port_bindings[pair_bindings[first + 1]];
+      append_migrated_row_continuity(graph, first_key.node_id,
+                                     a.edge_bundle_id, a.lane_index,
+                                     b.edge_bundle_id, b.lane_index);
     }
     first = last;
   }
@@ -757,10 +823,12 @@ void write_backbone_as(StateWriter& writer, const SavedBackboneGraph& graph) {
                   });
   write_ordered_vector(writer, "authoritative.backbone.port_bindings", graph.port_bindings,
                        [](const SavedBackbonePortBinding& a, const SavedBackbonePortBinding& b) {
-                         return std::tie(a.edge_bundle_id, a.row_key.node_id, a.row_key.source_is_open,
-                                         a.row_key.source_edge_a, a.row_key.source_edge_b, a.lane_index, a.port_id) <
-                                std::tie(b.edge_bundle_id, b.row_key.node_id, b.row_key.source_is_open,
-                                         b.row_key.source_edge_a, b.row_key.source_edge_b, b.lane_index, b.port_id);
+                         return std::tie(a.edge_bundle_id, a.row_key.node_id,
+                                         a.row_key.edge_id, a.lane_index,
+                                         a.port_id) <
+                                std::tie(b.edge_bundle_id, b.row_key.node_id,
+                                         b.row_key.edge_id, b.lane_index,
+                                         b.port_id);
                        }, [](auto& out, const auto& prefix, const SavedBackbonePortBinding& value) {
                          FieldArchive a(out); (void)archive_saved_port_binding(a, prefix, value);
                        });
@@ -1345,10 +1413,56 @@ bool read_backbone(StateReader& reader, SavedBackboneGraph* graph) {
   std::size_t port_count = 0;
   if (!reader.count("authoritative.backbone.port_bindings.count", &port_count)) return false;
   graph->port_bindings.resize(port_count);
+  std::vector<std::optional<LegacySavedBackboneRowKey>> legacy_row_keys(
+      port_count);
   for (std::size_t i = 0; i < port_count; ++i) {
-    ReadFieldArchive archive(reader);
-    if (!archive_saved_port_binding(archive, indexed("authoritative.backbone.port_bindings", i),
-                                    graph->port_bindings[i])) return false;
+    const std::string prefix =
+        indexed("authoritative.backbone.port_bindings", i);
+    if (reader.contains(child(child(prefix, "row_key"), "edge_id"))) {
+      ReadFieldArchive archive(reader);
+      if (!archive_saved_port_binding(archive, prefix,
+                                      graph->port_bindings[i])) {
+        return false;
+      }
+    } else {
+      LegacySavedBackboneRowKey legacy{};
+      if (!read_legacy_saved_port_binding(
+              reader, prefix, &graph->port_bindings[i], &legacy)) {
+        return false;
+      }
+      legacy_row_keys[i] = legacy;
+    }
+  }
+  for (std::size_t i = 0; i < legacy_row_keys.size(); ++i) {
+    if (!legacy_row_keys[i].has_value()) {
+      continue;
+    }
+    SavedBackbonePortBinding& binding = graph->port_bindings[i];
+    const auto edge_bundle = std::find_if(
+        graph->edge_bundles.begin(), graph->edge_bundles.end(),
+        [&](const SavedBackboneEdgeBundle& value) {
+          return value.edge_bundle_id == binding.edge_bundle_id;
+        });
+    const LegacySavedBackboneRowKey& legacy = *legacy_row_keys[i];
+    if (edge_bundle == graph->edge_bundles.end() ||
+        legacy.node_id == kInvalidObjectId ||
+        edge_bundle->edge_id == kInvalidObjectId) {
+      return false;
+    }
+    const bool valid_open =
+        legacy.source_is_open &&
+        legacy.source_edge_a == edge_bundle->edge_id &&
+        legacy.source_edge_b == kInvalidObjectId;
+    const bool valid_pair =
+        !legacy.source_is_open &&
+        legacy.source_edge_a != kInvalidObjectId &&
+        legacy.source_edge_b != kInvalidObjectId &&
+        (legacy.source_edge_a == edge_bundle->edge_id ||
+         legacy.source_edge_b == edge_bundle->edge_id);
+    if (!valid_open && !valid_pair) {
+      return false;
+    }
+    binding.row_key = {legacy.node_id, edge_bundle->edge_id};
   }
   std::size_t span_count = 0;
   if (!reader.count("authoritative.backbone.span_bindings.count", &span_count)) return false;
@@ -1368,7 +1482,7 @@ bool read_backbone(StateReader& reader, SavedBackboneGraph* graph) {
                                         graph->row_continuities[i])) return false;
     }
   } else {
-    migrate_v1_row_continuities(graph);
+    migrate_v1_row_continuities(graph, legacy_row_keys);
   }
   return true;
 }
@@ -1432,12 +1546,18 @@ bool normalize_saved_support_levels(CoreStateAuthoritativeStorage* authoritative
     ObjectId node_id = kInvalidObjectId;
     BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
     std::uint64_t placement_key = 0;
-    SavedBackboneRowKey row_key{};
+    ObjectId row_edge_bundle_a = kInvalidObjectId;
+    ObjectId row_edge_bundle_b = kInvalidObjectId;
   };
   std::unordered_map<ObjectId, ObjectId> bundle_by_edge_bundle{};
   bundle_by_edge_bundle.reserve(graph.edge_bundles.size());
   for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
     bundle_by_edge_bundle.emplace(edge_bundle.edge_bundle_id, edge_bundle.bundle_id);
+  }
+  std::unordered_map<ObjectId, std::vector<const SavedBackbonePortBinding*>>
+      bindings_by_port{};
+  for (const SavedBackbonePortBinding& binding : graph.port_bindings) {
+    bindings_by_port[binding.port_id].push_back(&binding);
   }
   std::vector<record> records{};
   records.reserve(graph.port_bindings.size());
@@ -1451,15 +1571,52 @@ bool normalize_saved_support_levels(CoreStateAuthoritativeStorage* authoritative
     if (bundle == nullptr) {
       return false;
     }
-    records.push_back(
-        {index, binding.row_key.node_id, binding.bundle_template_id,
-         bundle->placement_key, binding.row_key});
+    ObjectId row_a = binding.edge_bundle_id;
+    ObjectId row_b = kInvalidObjectId;
+    for (const SavedBackboneRowContinuity& continuity :
+         graph.row_continuities) {
+      if (continuity.node_id != binding.row_key.node_id) {
+        continue;
+      }
+      const bool is_a =
+          continuity.a.edge_bundle_id == binding.edge_bundle_id &&
+          continuity.a.lane_index == binding.lane_index;
+      const bool is_b =
+          continuity.b.edge_bundle_id == binding.edge_bundle_id &&
+          continuity.b.lane_index == binding.lane_index;
+      if (!is_a && !is_b) {
+        continue;
+      }
+      if (row_b != kInvalidObjectId) {
+        return false;
+      }
+      const ObjectId peer =
+          is_a ? continuity.b.edge_bundle_id : continuity.a.edge_bundle_id;
+      row_a = std::min(binding.edge_bundle_id, peer);
+      row_b = std::max(binding.edge_bundle_id, peer);
+    }
+    if (row_b == kInvalidObjectId) {
+      const auto shared = bindings_by_port.find(binding.port_id);
+      if (shared != bindings_by_port.end() && shared->second.size() == 2) {
+        const SavedBackbonePortBinding* other =
+            shared->second.front() == &binding ? shared->second.back()
+                                               : shared->second.front();
+        if (other != nullptr &&
+            other->row_key.node_id == binding.row_key.node_id &&
+            other->lane_index == binding.lane_index) {
+          row_a = std::min(binding.edge_bundle_id, other->edge_bundle_id);
+          row_b = std::max(binding.edge_bundle_id, other->edge_bundle_id);
+        }
+      }
+    }
+    records.push_back({index, binding.row_key.node_id,
+                       binding.bundle_template_id, bundle->placement_key,
+                       row_a, row_b});
   }
   const auto row_tuple = [](const record& value) {
     return std::make_tuple(
         value.node_id, value.bundle_template_id, value.placement_key,
-        value.row_key.source_is_open, value.row_key.source_edge_a,
-        value.row_key.source_edge_b);
+        value.row_edge_bundle_a, value.row_edge_bundle_b);
   };
   std::sort(records.begin(), records.end(),
             [&](const record& lhs, const record& rhs) {
@@ -1471,7 +1628,9 @@ bool normalize_saved_support_levels(CoreStateAuthoritativeStorage* authoritative
            lhs.placement_key == rhs.placement_key;
   };
   auto same_row = [&](const record& lhs, const record& rhs) {
-    return same_scope(lhs, rhs) && lhs.row_key == rhs.row_key;
+    return same_scope(lhs, rhs) &&
+           lhs.row_edge_bundle_a == rhs.row_edge_bundle_a &&
+           lhs.row_edge_bundle_b == rhs.row_edge_bundle_b;
   };
   for (std::size_t scope_begin = 0; scope_begin < records.size();) {
     std::size_t scope_end = scope_begin + 1;
@@ -1781,7 +1940,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
       SavedBackbonePortBinding& split =
           graph.port_bindings[binding_indices[1]];
       const bool same_scope =
-          keep.row_key == split.row_key && !keep.row_key.source_is_open &&
+          keep.row_key.node_id == split.row_key.node_id &&
           keep.lane_index == split.lane_index &&
           keep.bundle_template_id == split.bundle_template_id &&
           keep.port_kind == split.port_kind &&
@@ -1804,10 +1963,8 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
       if (!same_scope || keep_edge_bundle == nullptr ||
           split_edge_bundle == nullptr || node == nullptr ||
           source_port == nullptr ||
-          keep.row_key.source_edge_a !=
-              std::min(keep_edge_bundle->edge_id, split_edge_bundle->edge_id) ||
-          keep.row_key.source_edge_b !=
-              std::max(keep_edge_bundle->edge_id, split_edge_bundle->edge_id) ||
+          keep.row_key.edge_id != keep_edge_bundle->edge_id ||
+          split.row_key.edge_id != split_edge_bundle->edge_id ||
           !has_continuity(keep, split) || split_spans.size() != 1) {
         result.error =
             "authoritative migration unsupported: shared pair port cannot be split exactly";

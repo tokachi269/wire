@@ -2045,6 +2045,30 @@ bool C828_core_state_mutable_accessors_are_audited() {
   return true;
 }
 
+bool C829_core_policy_constants_are_classified() {
+  std::string audit{};
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/core_policy_constants.md", &audit),
+                   "docs/core_policy_constants.md is missing");
+  const std::vector<std::string> required_tokens = {
+      "Physical / numeric identity",
+      "Fixed contract",
+      "Visual policy",
+      "Tuning candidate",
+      "kNodePatchHorizontalLengthM",
+      "kPatchMetersPerSegment",
+      "kRowHeightSeparationM",
+      "kAvoidClearanceM",
+      "kDefaultCornerThresholdDeg",
+      "kMaxCornerSideScale",
+      "kG2EndpointOffsetMetersLimit",
+      "kCandidateAttempts",
+  };
+  for (const std::string& token : required_tokens) {
+    WIRE_TEST_EXPECT(contains_text(audit, token), "policy constant audit missing token: " + token);
+  }
+  return true;
+}
+
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
   std::string model_assembly{};
   std::string curve_parts{};

@@ -1241,6 +1241,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "CoreState mutable accessors are audited and minimized",
                          "Boundary", false,
                          C828_core_state_mutable_accessors_are_audited);
+  test_registry::AddTest(tests, "C829_core_policy_constants_are_classified",
+                         "core policy constants are classified without moving them",
+                         "Boundary", false,
+                         C829_core_policy_constants_are_classified);
   test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,

@@ -96,7 +96,7 @@ EditResult<std::vector<PortPlacementBand>> SelectPortPlacementBands(const PoleTy
   std::vector<PortPlacementBand> distinct{};
   for (const PortPlacementBand& candidate : candidates) {
     const bool same_position = std::any_of(distinct.begin(), distinct.end(), [&](const PortPlacementBand& selected) {
-      return std::abs(selected.lateral_center_m - candidate.lateral_center_m) <= kLengthSquaredToleranceM2;
+      return std::abs(selected.lateral_center_m - candidate.lateral_center_m) <= kStrictLengthToleranceM;
     });
     if (!same_position) {
       distinct.push_back(candidate);
@@ -107,7 +107,7 @@ EditResult<std::vector<PortPlacementBand>> SelectPortPlacementBands(const PoleTy
   }
   if (lane_count > 1 && distinct.size() == static_cast<std::size_t>(lane_count)) {
     std::sort(distinct.begin(), distinct.end(), [](const PortPlacementBand& a, const PortPlacementBand& b) {
-      if (std::abs(a.lateral_center_m - b.lateral_center_m) > kLengthSquaredToleranceM2) {
+      if (std::abs(a.lateral_center_m - b.lateral_center_m) > kStrictLengthToleranceM) {
         return a.lateral_center_m < b.lateral_center_m;
       }
       return a.band_id < b.band_id;

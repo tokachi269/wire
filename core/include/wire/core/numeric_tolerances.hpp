@@ -8,6 +8,9 @@ inline constexpr double kLengthSquaredToleranceM2 = 1e-12;
 // Length tolerance in meters for zero-length, positive-length, and distance comparisons.
 inline constexpr double kLengthToleranceM = 1e-9;
 
+// Strict length tolerance in meters for persisted/template coordinate equality.
+inline constexpr double kStrictLengthToleranceM = 1e-12;
+
 // Loose geometry tolerance in meters for merged intervals, band bounds, and visual fit margins.
 inline constexpr double kGeometryToleranceM = 1e-6;
 

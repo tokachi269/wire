@@ -14,9 +14,17 @@ export interface GenerationTiming {
   totalMs: number;
 }
 
+export enum EditErrorKind {
+  None = 0,
+  Validation = 1,
+  Unsupported = 2,
+  Internal = 3
+}
+
 export interface EditResult {
   ok: boolean;
   error: string;
+  errorKind?: EditErrorKind;
   generatedPoleCount: number;
   generatedSpanCount: number;
   generatedBundleIds?: string[];
@@ -27,6 +35,7 @@ export interface EditResult {
 export interface OperationResult {
   ok: boolean;
   error: string;
+  errorKind?: EditErrorKind;
 }
 
 export interface VisualPartInfo {

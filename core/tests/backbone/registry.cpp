@@ -21,6 +21,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C821_backbone_external_input_validation_lists_numeric_fields",
                          "backbone external input validation lists every numeric BackboneSpec field", "Boundary", false,
                          C821_backbone_external_input_validation_lists_numeric_fields);
+  test_registry::AddTest(tests, "C822_edit_result_error_kind_classifies_core_error_prefixes",
+                         "EditResult classifies validation, unsupported, and internal error prefixes", "Boundary", false,
+                         C822_edit_result_error_kind_classifies_core_error_prefixes);
   test_registry::AddTest(tests, "C372_backbone_rules_do_not_seed", "backbone saves rules without creating authority seed",
                          "Boundary", false, C372_backbone_rules_do_not_seed);
   test_registry::AddTest(tests, "C373_backbone_layout_saved_without_recalc", "backbone saves layout immediately from rules",

@@ -149,7 +149,8 @@ bool C371_backbone_rejects_unsupported() {
   wire::core::BackboneSpec empty = line_req(state);
   empty.bundles.clear();
   const auto empty_out = state.GenerateFromBackboneSpec(empty);
-  if (empty_out.ok || !contains_text(empty_out.error, "unsupported")) {
+  if (empty_out.ok || !contains_text(empty_out.error, "unsupported") ||
+      empty_out.error_kind != wire::core::EditErrorKind::kUnsupported) {
     return false;
   }
 
@@ -171,6 +172,7 @@ bool C819_backbone_rejects_nonfinite_path_point_before_mutation() {
   const CoreCounts before = snapshot_counts(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   return !out.ok && contains_text(out.error, "invalid input") &&
+         out.error_kind == wire::core::EditErrorKind::kValidation &&
          same_counts(before, snapshot_counts(state));
 }
 
@@ -183,6 +185,7 @@ bool C820_backbone_rejects_nonfinite_tilt_before_mutation() {
   const CoreCounts before = snapshot_counts(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   return !out.ok && contains_text(out.error, "invalid input") &&
+         out.error_kind == wire::core::EditErrorKind::kValidation &&
          same_counts(before, snapshot_counts(state));
 }
 
@@ -432,6 +435,26 @@ bool C381_backbone_m1_no_recalc_contract() {
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
   }
   return C370_backbone_no_v1_deps();
+}
+
+bool C822_edit_result_error_kind_classifies_core_error_prefixes() {
+  wire::core::EditResult<bool> validation{};
+  validation.error = "backbone invalid input: path.polyline";
+  wire::core::EditResult<bool> unsupported{};
+  unsupported.error = "backbone unsupported: empty bundles";
+  wire::core::EditResult<bool> internal{};
+  internal.error = "backbone internal: row continuity endpoint is missing";
+  wire::core::EditResult<bool> legacy{};
+  legacy.error = "authoritative deserialization: invalid field";
+  wire::core::EditResult<bool> ok{};
+  ok.ok = true;
+  ok.error = "backbone internal: ignored on success";
+
+  return validation.effective_error_kind() == wire::core::EditErrorKind::kValidation &&
+         unsupported.effective_error_kind() == wire::core::EditErrorKind::kUnsupported &&
+         internal.effective_error_kind() == wire::core::EditErrorKind::kInternal &&
+         legacy.effective_error_kind() == wire::core::EditErrorKind::kUnsupported &&
+         ok.effective_error_kind() == wire::core::EditErrorKind::kNone;
 }
 
 bool C382_backbone_geom_is_single_pipeline_layer() {

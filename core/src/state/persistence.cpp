@@ -1855,6 +1855,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   StateReader reader{};
   if (!reader.parse(text)) {
     result.error = reader.error();
+    result.classify_error();
     return result;
   }
 
@@ -1863,6 +1864,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   if (!read_identity(reader, &loaded_identity) || !read_authoritative(reader, &loaded_authoritative) ||
       !reader.finish()) {
     result.error = reader.error().empty() ? "authoritative deserialization: invalid field" : reader.error();
+    result.classify_error();
     return result;
   }
 
@@ -2020,6 +2022,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
     return true;
   };
   if (!migrate_shared_pair_ports()) {
+    result.classify_error();
     return result;
   }
 
@@ -2049,6 +2052,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
     const BackboneEdgeKey key{std::min(edge.node_a, edge.node_b), std::max(edge.node_a, edge.node_b)};
     if (!trial.runtime_.backbone_index.edge_by_nodes.emplace(key, edge.edge_id).second) {
       result.error = "authoritative deserialization: duplicate saved edge endpoints";
+      result.classify_error();
       return result;
     }
   }
@@ -2063,6 +2067,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
       index_add(trial.runtime_.backbone_index.edge_bundle_spans, edge_bundle.edge_bundle_id, span_id);
       if (!trial.runtime_.backbone_index.span_edge_bundle.emplace(span_id, edge_bundle.edge_bundle_id).second) {
         result.error = "authoritative deserialization: span belongs to multiple edge bundles";
+        result.classify_error();
         return result;
       }
     }
@@ -2115,6 +2120,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
         !edge_bundle_has_lane(continuity.a.edge_bundle_id, continuity.a.lane_index) ||
         !edge_bundle_has_lane(continuity.b.edge_bundle_id, continuity.b.lane_index)) {
       result.error = "backbone internal: row continuity endpoint is missing";
+      result.classify_error();
       return result;
     }
   }
@@ -2124,6 +2130,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   const auto rebuilt = trial.rebuild_loaded_outputs();
   if (!rebuilt.ok) {
     result.error = rebuilt.error;
+    result.error_kind = rebuilt.effective_error_kind();
     return result;
   }
   trial.identity_ = persisted_identity;
@@ -2186,6 +2193,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
         result.error += " (object " + std::to_string(issue->object_id) + ")";
       }
     }
+    result.classify_error();
     return result;
   }
 

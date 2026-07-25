@@ -23,6 +23,7 @@ using wire::core::BundleKind;
 using wire::core::BundleTemplateId;
 using wire::core::CoreState;
 using wire::core::CoreView;
+using wire::core::EditErrorKind;
 using wire::core::GenerationTiming;
 using wire::core::ObjectId;
 using wire::core::PickHitKind;
@@ -51,10 +52,16 @@ using wire::core::Vec3d;
   return result;
 }
 
-[[nodiscard]] val result_value(bool ok, const std::string& error) {
+[[nodiscard]] val result_value(bool ok,
+                               const std::string& error,
+                               EditErrorKind error_kind = EditErrorKind::kNone) {
   val result = val::object();
   result.set("ok", ok);
   result.set("error", error);
+  const EditErrorKind effective_kind =
+      ok ? EditErrorKind::kNone
+         : (error_kind == EditErrorKind::kNone ? wire::core::ClassifyEditError(error) : error_kind);
+  result.set("errorKind", static_cast<int>(effective_kind));
   return result;
 }
 

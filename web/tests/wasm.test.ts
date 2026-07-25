@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { loadWireModule, type WireStateHandle } from "../src/bridge/wasm";
-import type { BundlePlacement, ModelAssemblyBootstrapInput, ModelTransformInput } from "../src/model";
+import { EditErrorKind, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
 import {
   buildDefaultModelBootstrap,
   ModelAssetCache
@@ -347,6 +347,34 @@ describe("wire wasm smoke", () => {
     const loaded = createState();
     expect(loaded.poleCount()).toBe(0);
     loaded.delete();
+  });
+
+  it("returns machine-readable edit error kinds from wasm operations", () => {
+    const runState = createState();
+    const validation = runState.generatePlacements(
+      new Float64Array([Number.NaN, 0, 0, 12, 0, 0]),
+      hvBundlePlacement(),
+      0,
+      2,
+      0,
+      0,
+      []
+    );
+    expect(validation.ok).toBe(false);
+    expect(validation.errorKind).toBe(EditErrorKind.Validation);
+
+    const unsupported = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0]),
+      [],
+      0,
+      2,
+      0,
+      0,
+      []
+    );
+    expect(unsupported.ok).toBe(false);
+    expect(unsupported.errorKind).toBe(EditErrorKind.Unsupported);
+    runState.delete();
   });
 
   it("bootstraps one straight communication fixture per Port", () => {

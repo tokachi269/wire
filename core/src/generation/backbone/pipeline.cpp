@@ -54,6 +54,56 @@ void write_route_result(EditResult<GenerateBundleFromPathResult>* out, ChangeSet
   }
 }
 
+bool finite_vec3(const Vec3d& value) {
+  return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+EditResult<bool> validate_backbone_spec_external_input(const BackboneSpec& spec) {
+  EditResult<bool> out{};
+  auto fail = [&](const char* field) {
+    out.error = std::string("backbone invalid input: ") + field;
+    return out;
+  };
+
+  if (!std::isfinite(spec.interval_m) || spec.interval_m < 0.0) {
+    return fail("interval_m must be finite and >= 0");
+  }
+  for (const Vec3d& point : spec.path.polyline) {
+    if (!finite_vec3(point)) {
+      return fail("path polyline points must be finite");
+    }
+  }
+  for (const BackboneInputSpec::NodeSpec& node_spec : spec.path.node_specs) {
+    if (node_spec.has_tangent_hint && !finite_vec3(node_spec.tangent_hint)) {
+      return fail("node tangent hints must be finite");
+    }
+  }
+  if (!std::isfinite(spec.constraints.avoid_radius_m) || spec.constraints.avoid_radius_m < 0.0) {
+    return fail("avoid_radius_m must be finite and >= 0");
+  }
+  if (!std::isfinite(spec.constraints.lateral_offset_m)) {
+    return fail("lateral_offset_m must be finite");
+  }
+  for (const Vec3d& point : spec.constraints.avoid_points) {
+    if (!finite_vec3(point)) {
+      return fail("avoid points must be finite");
+    }
+  }
+  if (!std::isfinite(spec.pole_placement.max_tilt_deg) || spec.pole_placement.max_tilt_deg < 0.0) {
+    return fail("max_tilt_deg must be finite and >= 0");
+  }
+  for (const BackboneBundleSpec& bundle : spec.bundles) {
+    if (!std::isfinite(bundle.height_m) || !std::isfinite(bundle.lateral_m) ||
+        !std::isfinite(bundle.spacing_m) || bundle.spacing_m < 0.0) {
+      return fail("bundle placement values must be finite and spacing >= 0");
+    }
+  }
+
+  out.ok = true;
+  out.value = true;
+  return out;
+}
+
 } // namespace
 
 EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
@@ -1549,6 +1599,10 @@ EditResult<bool> pipeline::prepare() {
   g_ = {};
   active_bundle_indices_.clear();
   local_by_input_.clear();
+  EditResult<bool> external_input = validate_backbone_spec_external_input(spec_);
+  if (!external_input.ok) {
+    return external_input;
+  }
   const std::vector<Vec3d>& input = spec_.path.polyline;
   std::vector<Vec3d> guide = input;
   std::unordered_map<std::size_t, const BackboneInputSpec::NodeSpec*> spec_by_point{};

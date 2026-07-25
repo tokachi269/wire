@@ -66,6 +66,11 @@ member-wise move commitする。どの段階で失敗しても、本stateは変�
 
 `GenerateFromBackboneSpec()` は `core/src/generation/backbone` のpipelineだけを呼ぶ。
 未対応入力はv1へfallbackせず、mutation前に`unsupported`を返す。
+外部入力の数値検証はpipeline preflight先頭の `validate_backbone_spec_external_input` が所有する。
+対象は `BackboneSpec.path.polyline`、`NodeSpec.tangent_hint`、`interval_m`、`constraints.avoid_points`、
+`constraints.avoid_radius_m`、`constraints.lateral_offset_m`、`pole_placement.max_tilt_deg`、
+および各 `BackboneBundleSpec` の `height_m` / `lateral_m` / `spacing_m` である。
+NaN / inf、負のinterval、負のavoid radius、負のmax tilt、負のspacingは mutation 前に `invalid input` として拒否する。
 
 処理順は次の通り。
 

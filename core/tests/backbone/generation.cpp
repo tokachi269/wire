@@ -12,6 +12,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -160,6 +161,84 @@ bool C371_backbone_rejects_unsupported() {
   building.path.node_specs.push_back(node);
   const auto building_out = state.GenerateFromBackboneSpec(building);
   return !building_out.ok && contains_text(building_out.error, "unsupported");
+}
+
+bool C819_backbone_rejects_nonfinite_path_point_before_mutation() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline[0].x = std::numeric_limits<double>::quiet_NaN();
+
+  const CoreCounts before = snapshot_counts(state);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return !out.ok && contains_text(out.error, "invalid input") &&
+         same_counts(before, snapshot_counts(state));
+}
+
+bool C820_backbone_rejects_nonfinite_tilt_before_mutation() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.pole_placement.enable_tilt = true;
+  req.pole_placement.max_tilt_deg = std::numeric_limits<double>::infinity();
+
+  const CoreCounts before = snapshot_counts(state);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return !out.ok && contains_text(out.error, "invalid input") &&
+         same_counts(before, snapshot_counts(state));
+}
+
+bool C821_backbone_external_input_validation_lists_numeric_fields() {
+  const std::filesystem::path workflow = repo_root() / "core" / "include" / "wire" / "core" / "workflow_types.hpp";
+  const std::filesystem::path pipeline = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
+  std::string workflow_text{};
+  std::string pipeline_text{};
+  if (!file_text(workflow, &workflow_text) || !file_text(pipeline, &pipeline_text)) {
+    return false;
+  }
+  const std::size_t path_begin = workflow_text.find("struct BackboneInputSpec");
+  const std::size_t path_end = workflow_text.find("struct AttachmentSocketTemplate");
+  const std::size_t spec_begin = workflow_text.find("struct BackboneBundleSpec");
+  const std::size_t spec_end = workflow_text.find("struct JunctionIncident");
+  if (path_begin == std::string::npos || path_end == std::string::npos || path_begin >= path_end ||
+      spec_begin == std::string::npos || spec_end == std::string::npos || spec_begin >= spec_end) {
+    return false;
+  }
+  const std::string input_block =
+      workflow_text.substr(path_begin, path_end - path_begin) +
+      workflow_text.substr(spec_begin, spec_end - spec_begin);
+  const auto count_token = [&](const std::string& token) {
+    std::size_t count = 0;
+    std::size_t pos = 0;
+    while ((pos = input_block.find(token, pos)) != std::string::npos) {
+      ++count;
+      pos += token.size();
+    }
+    return count;
+  };
+  if (count_token("double ") != 7 || count_token("Vec3d ") != 1 ||
+      count_token("std::vector<Vec3d>") != 2) {
+    return false;
+  }
+  const std::size_t validator_begin = pipeline_text.find("validate_backbone_spec_external_input");
+  const std::size_t validator_end = pipeline_text.find("} // namespace", validator_begin);
+  if (validator_begin == std::string::npos || validator_end == std::string::npos ||
+      validator_begin >= validator_end) {
+    return false;
+  }
+  const std::string validator = pipeline_text.substr(validator_begin, validator_end - validator_begin);
+  const std::array<const char*, 10> required{
+      "interval_m",
+      "path.polyline",
+      "tangent_hint",
+      "avoid_radius_m",
+      "lateral_offset_m",
+      "avoid_points",
+      "max_tilt_deg",
+      "height_m",
+      "lateral_m",
+      "spacing_m",
+  };
+  return std::all_of(required.begin(), required.end(),
+                     [&](const char* token) { return contains_text(validator, token); });
 }
 
 bool C372_backbone_rules_do_not_seed() {

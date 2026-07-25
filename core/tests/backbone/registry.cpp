@@ -12,6 +12,15 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Boundary", false, C370_backbone_no_v1_deps);
   test_registry::AddTest(tests, "C371_backbone_rejects_unsupported", "backbone rejects unsupported milestone-1 inputs",
                          "Boundary", true, C371_backbone_rejects_unsupported);
+  test_registry::AddTest(tests, "C819_backbone_rejects_nonfinite_path_point_before_mutation",
+                         "backbone rejects non-finite path point input before mutation", "Boundary", true,
+                         C819_backbone_rejects_nonfinite_path_point_before_mutation);
+  test_registry::AddTest(tests, "C820_backbone_rejects_nonfinite_tilt_before_mutation",
+                         "backbone rejects non-finite pole tilt input before mutation", "Boundary", true,
+                         C820_backbone_rejects_nonfinite_tilt_before_mutation);
+  test_registry::AddTest(tests, "C821_backbone_external_input_validation_lists_numeric_fields",
+                         "backbone external input validation lists every numeric BackboneSpec field", "Boundary", false,
+                         C821_backbone_external_input_validation_lists_numeric_fields);
   test_registry::AddTest(tests, "C372_backbone_rules_do_not_seed", "backbone saves rules without creating authority seed",
                          "Boundary", false, C372_backbone_rules_do_not_seed);
   test_registry::AddTest(tests, "C373_backbone_layout_saved_without_recalc", "backbone saves layout immediately from rules",

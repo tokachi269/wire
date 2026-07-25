@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "../generation/support_policy.hpp"
 
 #include <algorithm>
@@ -47,9 +48,9 @@ bool endpoint_requires_pair_decision_for_validation(const LayoutEndpoint& endpoi
           endpoint.relation_kind == JunctionRelationKind::kCrossUnderpass);
 }
 
-bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std::abs(a - b) <= eps; }
+bool almost_equal_validation(double a, double b, double eps = kLengthToleranceM) { return std::abs(a - b) <= eps; }
 
-bool almost_equal_validation(const Vec3d& a, const Vec3d& b, double eps = 1e-9) {
+bool almost_equal_validation(const Vec3d& a, const Vec3d& b, double eps = kLengthToleranceM) {
   return almost_equal_validation(a.x, b.x, eps) && almost_equal_validation(a.y, b.y, eps) &&
          almost_equal_validation(a.z, b.z, eps);
 }
@@ -71,7 +72,7 @@ const AttachmentSocketTemplate* find_attachment_socket_for_validation(const Atta
 bool replacement_interval_for_validation(const Attachment& attachment, const AttachmentTemplate& attachment_template,
                                          double span_length_m, CurveLengthInterval* out) {
   if (out == nullptr || attachment_template.line_interaction_mode != AttachmentLineInteractionMode::kReplaceWithInternalPath ||
-      span_length_m <= 1e-9) {
+      span_length_m <= kLengthToleranceM) {
     return false;
   }
   const AttachmentSocketTemplate* socket_a = nullptr;
@@ -92,7 +93,7 @@ bool replacement_interval_for_validation(const Attachment& attachment, const Att
       std::clamp(center_s + std::min(socket_a->local_position.x, socket_b->local_position.x), 0.0, span_length_m);
   out->end_m =
       std::clamp(center_s + std::max(socket_a->local_position.x, socket_b->local_position.x), 0.0, span_length_m);
-  return out->end_m - out->start_m > 1e-9;
+  return out->end_m - out->start_m > kLengthToleranceM;
 }
 
 Vec3d safe_horizontal_normalized_validation(Vec3d v) {
@@ -109,14 +110,14 @@ Vec3d authoritative_support_axis_for_validation(const SupportGroupDecision& grou
   if (!Normalize(&axis) || !is_finite_xy_validation(axis)) {
     return {0.0, 0.0, 0.0};
   }
-  if (std::abs(group.chosen_side_sign) > 1e-9) {
+  if (std::abs(group.chosen_side_sign) > kLengthToleranceM) {
     axis = ScaleVec(axis, (group.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
   }
   return axis;
 }
 
 bool variation_sample_equal(const HierarchicalVariationSample& a, const HierarchicalVariationSample& b,
-                            double eps = 1e-9) {
+                            double eps = kLengthToleranceM) {
   return almost_equal_validation(a.world_bias, b.world_bias, eps) &&
          almost_equal_validation(a.flow_bias, b.flow_bias, eps) &&
          almost_equal_validation(a.pole_delta, b.pole_delta, eps) &&
@@ -125,7 +126,7 @@ bool variation_sample_equal(const HierarchicalVariationSample& a, const Hierarch
          a.pole_id == b.pole_id && a.secondary_pole_id == b.secondary_pole_id && a.local_key == b.local_key;
 }
 
-bool support_group_decision_equal(const SupportGroupDecision& a, const SupportGroupDecision& b, double eps = 1e-9) {
+bool support_group_decision_equal(const SupportGroupDecision& a, const SupportGroupDecision& b, double eps = kLengthToleranceM) {
   return a.owner_pole_id == b.owner_pole_id && a.continuity_class == b.continuity_class &&
          a.support_group_id == b.support_group_id && a.lower_required == b.lower_required &&
          a.lowering_blocked_by_policy == b.lowering_blocked_by_policy &&
@@ -175,14 +176,14 @@ void validate_projected_span_layout_endpoint(ValidationResult* result, const Cor
       endpoint.continuity_class == ContinuityCategoryClass::kBundleLike) {
     const double template_z = template_layer_base_z_for_validation(core, *endpoint_pole, endpoint_port->category);
     if (endpoint.relation_kind == JunctionRelationKind::kThroughMain) {
-      if (endpoint.lower_required || endpoint.branch_down_offset_m > 1e-9 ||
+      if (endpoint.lower_required || endpoint.branch_down_offset_m > kLengthToleranceM ||
           !almost_equal_validation(endpoint.support_world.z, template_z)) {
         result->issues.push_back({ValidationSeverity::kError, "ThroughMainHeightMismatch",
                                   "ThroughMain endpoint must stay at template height with no lowering offset",
                                   span_id});
       }
     } else if (endpoint.lower_required && !endpoint.lowering_blocked_by_policy) {
-      if (endpoint.branch_down_offset_m <= 1e-9) {
+      if (endpoint.branch_down_offset_m <= kLengthToleranceM) {
         result->issues.push_back({ValidationSeverity::kError, "LoweredEndpointOffsetMissing",
                                   "Lowered non-through endpoint must carry a positive down offset", span_id});
       } else {
@@ -194,7 +195,7 @@ void validate_projected_span_layout_endpoint(ValidationResult* result, const Cor
         }
       }
     } else if (endpoint.lowering_blocked_by_policy &&
-               (!almost_equal_validation(endpoint.support_world.z, template_z) || endpoint.branch_down_offset_m > 1e-9)) {
+               (!almost_equal_validation(endpoint.support_world.z, template_z) || endpoint.branch_down_offset_m > kLengthToleranceM)) {
       result->issues.push_back({ValidationSeverity::kError, "PolicyBlockedEndpointHeightMismatch",
                                 "Policy-blocked endpoint must stay at template height with no materialized lowering offset",
                                 span_id});
@@ -223,7 +224,7 @@ void validate_projected_span_layout_endpoint(ValidationResult* result, const Cor
       (endpoint.side_assignment_rule != SideAssignmentRuleKind::kThroughPairNormal ||
        endpoint.support_orientation_rule != SupportOrientationRuleKind::kThroughPairNormal ||
        !endpoint.used_junction_pair_side_assignment || !endpoint.has_side_axis ||
-       std::abs(endpoint.chosen_side_sign) <= 1e-9)) {
+       std::abs(endpoint.chosen_side_sign) <= kLengthToleranceM)) {
     result->issues.push_back({ValidationSeverity::kError, "SupportPairDecisionFallback",
                               "Pair-authoritative same-level endpoints must not fall back to endpoint-local support rules",
                               span_id});
@@ -299,7 +300,7 @@ void validate_grouped_support_layout(ValidationResult* result, const EditState& 
                               "Grouped-lowered endpoint support and endpoint points must be the final lowered fixture socket",
                               span_id});
   }
-  if (endpoint.branch_down_offset_m <= 1e-9 || !almost_equal_validation(endpoint.branch_down_offset_m, group.down_offset_m)) {
+  if (endpoint.branch_down_offset_m <= kLengthToleranceM || !almost_equal_validation(endpoint.branch_down_offset_m, group.down_offset_m)) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupOffsetMismatch",
                               "Grouped-lowered endpoint must carry the authoritative down offset"
                               " (endpoint=" + std::to_string(endpoint.branch_down_offset_m) +
@@ -436,7 +437,7 @@ ValidationResult CoreState::Validate() const {
       for (const ModelAssemblySocket& socket : part.sockets) {
         if (socket.name.empty() || !socket_names.insert(socket.name).second ||
             !finite_vec3(socket.local_position) || !finite_vec3(socket.local_direction) ||
-            Length(socket.local_direction) <= 1e-12) {
+            Length(socket.local_direction) <= kStrictLengthToleranceM) {
           result.issues.push_back({ValidationSeverity::kError, "ModelAssemblySocketInvalid",
                                    "Model assembly sockets require unique names and finite values", kInvalidObjectId});
         }
@@ -494,7 +495,7 @@ ValidationResult CoreState::Validate() const {
       result.issues.push_back(
           {ValidationSeverity::kError, "PoleContextInvalid", "Pole context has non-finite value", pole.id});
     }
-    if (pole.context.corner_turn_sign < -1.0 - 1e-9 || pole.context.corner_turn_sign > 1.0 + 1e-9) {
+    if (pole.context.corner_turn_sign < -1.0 - kLengthToleranceM || pole.context.corner_turn_sign > 1.0 + kLengthToleranceM) {
       result.issues.push_back({
           ValidationSeverity::kWarning,
           "PoleTurnSignOutOfRange",
@@ -502,8 +503,8 @@ ValidationResult CoreState::Validate() const {
           pole.id,
       });
     }
-    if (pole.context.side_scale < layout_settings.min_side_scale - 1e-9 ||
-        pole.context.side_scale > layout_settings.max_side_scale + 1e-9) {
+    if (pole.context.side_scale < layout_settings.min_side_scale - kLengthToleranceM ||
+        pole.context.side_scale > layout_settings.max_side_scale + kLengthToleranceM) {
       result.issues.push_back({ValidationSeverity::kWarning, "PoleSideScaleOutOfRange",
                                "Pole side_scale is out of configured range", pole.id});
     }
@@ -557,12 +558,12 @@ ValidationResult CoreState::Validate() const {
             }
             const bool same_template_band = band.category == port.category && band.layer == port.template_layer &&
                                             band.side == port.template_side && band.role == port.template_role;
-            const bool inside_band_range = local.y >= band.lateral_min_m - 1e-6 && local.y <= band.lateral_max_m + 1e-6 &&
-                                           local.z >= band.height_min_m - 1e-6 && local.z <= band.height_max_m + 1e-6;
+            const bool inside_band_range = local.y >= band.lateral_min_m - kGeometryToleranceM && local.y <= band.lateral_max_m + kGeometryToleranceM &&
+                                           local.z >= band.height_min_m - kGeometryToleranceM && local.z <= band.height_max_m + kGeometryToleranceM;
             const bool constrained_overflow_match =
                 band.overflow_policy == BandOverflowPolicy::kConstrainedFallback &&
-                local.y >= band.lateral_min_m - 1e-6 && local.y <= band.lateral_max_m + 1e-6 &&
-                local.z >= band.height_max_m - 1e-6;
+                local.y >= band.lateral_min_m - kGeometryToleranceM && local.y <= band.lateral_max_m + kGeometryToleranceM &&
+                local.z >= band.height_max_m - kGeometryToleranceM;
             if (same_template_band && (inside_band_range || constrained_overflow_match)) {
               matched_hint = true;
               break;
@@ -584,8 +585,8 @@ ValidationResult CoreState::Validate() const {
       result.issues.push_back(
           {ValidationSeverity::kError, "PortTransformInvalid", "Port position or side_scale is non-finite", port.id});
     }
-    if (port.side_scale_applied < layout_settings.min_side_scale - 1e-9 ||
-        port.side_scale_applied > layout_settings.max_side_scale + 1e-9) {
+    if (port.side_scale_applied < layout_settings.min_side_scale - kLengthToleranceM ||
+        port.side_scale_applied > layout_settings.max_side_scale + kLengthToleranceM) {
       result.issues.push_back({ValidationSeverity::kWarning, "PortSideScaleOutOfRange",
                                "Port side_scale_applied is out of range", port.id});
     }
@@ -746,7 +747,7 @@ ValidationResult CoreState::Validate() const {
                                                    "Pole-band chord supplemental path must name a pole band id",
                                                    kInvalidObjectId});
       }
-      if (supplemental.wobble_amplitude_m > 1e-9 && supplemental.wobble_wavelength_m <= 1e-6) {
+      if (supplemental.wobble_amplitude_m > kLengthToleranceM && supplemental.wobble_wavelength_m <= kGeometryToleranceM) {
         result.issues.emplace_back(
             ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalWavelengthMissing",
                             "Supplemental wobble requires positive wavelength when amplitude is non-zero",
@@ -789,13 +790,13 @@ ValidationResult CoreState::Validate() const {
                                  kInvalidObjectId});
       }
       if (path.profile_kind == AttachmentInternalPathTemplate::ProfileKind::kCoiledCable) {
-        if (!std::isfinite(path.coil_radius_m) || path.coil_radius_m <= 1e-6 || path.coil_turn_count < 1 ||
+        if (!std::isfinite(path.coil_radius_m) || path.coil_radius_m <= kGeometryToleranceM || path.coil_turn_count < 1 ||
             path.coil_samples_per_turn < 4) {
           result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplateCoilProfileInvalid",
                                    "Coiled attachment path profile requires finite positive radius, turn count >= 1, and samples per turn >= 4",
                                    kInvalidObjectId});
         }
-      } else if (path.coil_turn_count != 0 || std::abs(path.coil_radius_m) > 1e-12) {
+      } else if (path.coil_turn_count != 0 || std::abs(path.coil_radius_m) > kStrictLengthToleranceM) {
         result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplateCoilParamsUnused",
                                  "Only CoiledCable attachment path profiles may set coil parameters",
                                  kInvalidObjectId});
@@ -844,7 +845,7 @@ ValidationResult CoreState::Validate() const {
       return a.first.start_m < b.first.start_m;
     });
     for (std::size_t i = 1; i < intervals.size(); ++i) {
-      if (intervals[i].first.start_m < intervals[i - 1].first.end_m - 1e-6) {
+      if (intervals[i].first.start_m < intervals[i - 1].first.end_m - kGeometryToleranceM) {
         result.issues.push_back({ValidationSeverity::kError, "AttachmentReplacementIntervalOverlap",
                                  "Replacement attachment intervals on one span must not overlap",
                                  intervals[i].second});
@@ -988,7 +989,7 @@ ValidationResult CoreState::Validate() const {
                                  key.owner_pole_id});
       } else {
         const double alignment = support_axis.x * authoritative_axis.x + support_axis.y * authoritative_axis.y;
-        if (alignment < 1.0 - 1e-6) {
+        if (alignment < 1.0 - kGeometryToleranceM) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisReinterpreted",
                                  "Grouped lowered support mount/tip must stay aligned with the authoritative axis",
                                  key.owner_pole_id});

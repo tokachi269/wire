@@ -1955,24 +1955,31 @@ bool C825_core_silent_fallback_audit_is_recorded() {
 }
 
 bool C826_geometry_generation_tolerances_are_named() {
-  WIRE_TEST_EXPECT(std::filesystem::exists(repo_root() / "core/include/wire/core/numeric_tolerances.hpp"),
-                   "numeric_tolerances.hpp is missing");
+  WIRE_TEST_EXPECT(std::filesystem::exists(repo_root() / "core/include/wire/core/support/numeric_tolerances.hpp"),
+                   "support/numeric_tolerances.hpp is missing");
+  WIRE_TEST_EXPECT(!std::filesystem::exists(repo_root() / "core/include/wire/core/numeric_tolerances.hpp"),
+                   "old numeric_tolerances.hpp path remains");
   const std::vector<std::filesystem::path> paths = {
       repo_root() / "core/include/wire/core/coord_utils.hpp",
-      repo_root() / "core/src/geometry",
-      repo_root() / "core/src/generation/backbone",
+      repo_root() / "core/src",
   };
   const std::vector<std::string> banned = {
       "1e-6",
       "1e-9",
       "1e-10",
       "1e-12",
+      "kZeroLengthEps",
+      "kCurveEps",
+      "constexpr double kEps",
   };
   for (const std::filesystem::path& path : paths) {
     if (std::filesystem::is_regular_file(path)) {
       std::string text{};
       WIRE_TEST_EXPECT(file_text(path, &text), "failed to read tolerance source: " + path.string());
       for (const std::string& token : banned) {
+        if (path.filename().string() == "numeric_tolerances.hpp" && token.rfind("1e-", 0) == 0) {
+          continue;
+        }
         WIRE_TEST_EXPECT(!contains_text(text, token), "naked tolerance " + token + " remains in " + path.string());
       }
       continue;
@@ -1988,6 +1995,9 @@ bool C826_geometry_generation_tolerances_are_named() {
       std::string text{};
       WIRE_TEST_EXPECT(file_text(entry.path(), &text), "failed to read tolerance source: " + entry.path().string());
       for (const std::string& token : banned) {
+        if (entry.path().filename().string() == "numeric_tolerances.hpp" && token.rfind("1e-", 0) == 0) {
+          continue;
+        }
         WIRE_TEST_EXPECT(!contains_text(text, token),
                          "naked tolerance " + token + " remains in " + entry.path().string());
       }

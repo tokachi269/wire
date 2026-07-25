@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "../collection_utils.hpp"
 #include "internal_services.hpp"
 #include "port_placement.hpp"
@@ -26,7 +27,6 @@ namespace wire::core {
 
 namespace {
 
-constexpr double kZeroLengthEps = 1e-9;
 constexpr PoleTypeId kDistributionPoleType = 1;
 constexpr PoleTypeId kCommunicationPoleType = 2;
 
@@ -82,7 +82,7 @@ Vec3d tilt_euler_xy_from_local_polar_deg(double tilt_deg, double local_azimuth_d
   const double hx = std::sin(tilt_rad) * std::cos(azimuth_rad);
   const double hy = std::sin(tilt_rad) * std::sin(azimuth_rad);
   const double tilt_x_rad = -std::asin(std::clamp(hy, -1.0, 1.0));
-  const double cos_x = std::max(1e-9, std::cos(tilt_x_rad));
+  const double cos_x = std::max(kLengthToleranceM, std::cos(tilt_x_rad));
   const double tilt_y_rad = std::asin(std::clamp(hx / cos_x, -1.0, 1.0));
   return {tilt_x_rad * (180.0 / kPi), tilt_y_rad * (180.0 / kPi), 0.0};
 }
@@ -209,7 +209,7 @@ Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& 
 }
 
 bool port_band_equals(const PortPlacementBand& a, const PortPlacementBand& b) {
-  const auto same_double = [](double lhs, double rhs) { return std::abs(lhs - rhs) <= 1e-12; };
+  const auto same_double = [](double lhs, double rhs) { return std::abs(lhs - rhs) <= kStrictLengthToleranceM; };
   return a.band_id == b.band_id && a.category == b.category && a.layer == b.layer && a.side == b.side &&
          a.role == b.role && same_double(a.lateral_center_m, b.lateral_center_m) &&
          same_double(a.lateral_min_m, b.lateral_min_m) && same_double(a.lateral_max_m, b.lateral_max_m) &&
@@ -220,7 +220,7 @@ bool port_band_equals(const PortPlacementBand& a, const PortPlacementBand& b) {
 }
 
 bool anchor_slot_equals(const AnchorSlotTemplate& a, const AnchorSlotTemplate& b) {
-  const auto same_double = [](double lhs, double rhs) { return std::abs(lhs - rhs) <= 1e-12; };
+  const auto same_double = [](double lhs, double rhs) { return std::abs(lhs - rhs) <= kStrictLengthToleranceM; };
   return a.slot_id == b.slot_id && a.usage == b.usage && same_double(a.local_position.x, b.local_position.x) &&
          same_double(a.local_position.y, b.local_position.y) && same_double(a.local_position.z, b.local_position.z) &&
          a.priority == b.priority && a.enabled == b.enabled;
@@ -228,9 +228,9 @@ bool anchor_slot_equals(const AnchorSlotTemplate& a, const AnchorSlotTemplate& b
 
 bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefinition& b) {
   if (a.id != b.id || a.name != b.name || a.description != b.description ||
-      std::abs(a.default_height_m - b.default_height_m) > 1e-12 ||
-      std::abs(a.radius_base_m - b.radius_base_m) > 1e-12 ||
-      std::abs(a.radius_top_m - b.radius_top_m) > 1e-12 ||
+      std::abs(a.default_height_m - b.default_height_m) > kStrictLengthToleranceM ||
+      std::abs(a.radius_base_m - b.radius_base_m) > kStrictLengthToleranceM ||
+      std::abs(a.radius_top_m - b.radius_top_m) > kStrictLengthToleranceM ||
       a.pole_visual_assembly_id != b.pole_visual_assembly_id || a.port_bands.size() != b.port_bands.size() ||
       a.anchor_slots.size() != b.anchor_slots.size()) {
     return false;
@@ -249,8 +249,8 @@ bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefi
 }
 
 bool vec3_equals(const Vec3d& a, const Vec3d& b) {
-  return std::abs(a.x - b.x) <= 1e-12 && std::abs(a.y - b.y) <= 1e-12 &&
-         std::abs(a.z - b.z) <= 1e-12;
+  return std::abs(a.x - b.x) <= kStrictLengthToleranceM && std::abs(a.y - b.y) <= kStrictLengthToleranceM &&
+         std::abs(a.z - b.z) <= kStrictLengthToleranceM;
 }
 
 bool frame_equals(const Frame3d& a, const Frame3d& b) {
@@ -261,7 +261,7 @@ bool frame_equals(const Frame3d& a, const Frame3d& b) {
 bool port_band_placement_only_change(const PortPlacementBand& a, const PortPlacementBand& b) {
   return a.band_id == b.band_id && a.category == b.category && frame_equals(a.local_direction, b.local_direction) &&
          a.layer == b.layer && a.side == b.side && a.role == b.role && a.priority == b.priority &&
-         std::abs(a.min_spacing_m - b.min_spacing_m) <= 1e-12 && a.allow_multiple == b.allow_multiple &&
+         std::abs(a.min_spacing_m - b.min_spacing_m) <= kStrictLengthToleranceM && a.allow_multiple == b.allow_multiple &&
          a.overflow_policy == b.overflow_policy && a.enabled == b.enabled;
 }
 
@@ -586,9 +586,9 @@ EditResult<bool> CoreState::apply_pole_tilt_from_pull(ObjectId pole_id, double m
   const PoleTiltResolution resolved =
       resolve_pole_tilt_from_pull(pole_id, max_tilt_deg, effective_pole_layout_yaw_deg(*pole), pull_world_dir,
                                   incident_span_count);
-  if (std::abs(pole->tilt_magnitude_deg - resolved.magnitude_deg) <= 1e-9 &&
-      std::abs(pole->world_transform.rotation_euler_deg.x - resolved.rotation_euler_xy_deg.x) <= 1e-9 &&
-      std::abs(pole->world_transform.rotation_euler_deg.y - resolved.rotation_euler_xy_deg.y) <= 1e-9) {
+  if (std::abs(pole->tilt_magnitude_deg - resolved.magnitude_deg) <= kLengthToleranceM &&
+      std::abs(pole->world_transform.rotation_euler_deg.x - resolved.rotation_euler_xy_deg.x) <= kLengthToleranceM &&
+      std::abs(pole->world_transform.rotation_euler_deg.y - resolved.rotation_euler_xy_deg.y) <= kLengthToleranceM) {
     result.ok = true;
     result.value = false;
     return result;
@@ -799,7 +799,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
           if (apply_angle_correction) {
             adjusted_local.y = state_internal::apply_corner_side_scale(
                 adjusted_local.y, band_ptr->side, owner->context.corner_turn_sign, owner->context.side_scale);
-            if (std::abs(current_local.y) > 1e-9) {
+            if (std::abs(current_local.y) > kLengthToleranceM) {
               applied_scale = std::abs(adjusted_local.y / current_local.y);
             }
           }
@@ -893,7 +893,7 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
   if (!next.base_yaw_deg.has_value()) {
     next.base_yaw_deg = pole->world_transform.rotation_euler_deg.z;
   }
-  if (next.manual_yaw_deg.has_value() && std::abs(*next.manual_yaw_deg - manual_yaw_deg) <= 1e-9) {
+  if (next.manual_yaw_deg.has_value() && std::abs(*next.manual_yaw_deg - manual_yaw_deg) <= kLengthToleranceM) {
     result.ok = true;
     result.value = pole_id;
     return result;
@@ -1075,7 +1075,7 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
       existing != authoritative_.override_state.span_support_by_span.end()) {
     next = existing->second;
   }
-  if (next.branch_down_offset_m.has_value() && std::abs(*next.branch_down_offset_m - branch_down_offset_m) <= 1e-9) {
+  if (next.branch_down_offset_m.has_value() && std::abs(*next.branch_down_offset_m - branch_down_offset_m) <= kLengthToleranceM) {
     result.ok = true;
     result.value = span_id;
     return result;
@@ -1351,8 +1351,8 @@ EditResult<bool> CoreState::refresh_backbone_rows_for_incident_edges(
           std::abs(NormalizeYawDeg(binding.layout_yaw_deg -
                                    planned[index]
                                        .representation.layout_yaw_deg)) >
-          1e-9;
-      const bool moved = Length(port->world_position - position) > 1e-12;
+          kLengthToleranceM;
+      const bool moved = Length(port->world_position - position) > kStrictLengthToleranceM;
       binding.layout_yaw_deg =
           planned[index].representation.layout_yaw_deg;
       if (moved) {
@@ -1494,7 +1494,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
 
   pole->pole_type_id = pole_type_id;
   result.change_set.updated_ids.push_back(pole_id);
-  if (std::abs(pole->height_m - pole_type->default_height_m) > 1e-12) {
+  if (std::abs(pole->height_m - pole_type->default_height_m) > kStrictLengthToleranceM) {
     pole->height_m = pole_type->default_height_m;
     add_unique_id(result.change_set.updated_ids, pole_id);
   }
@@ -1509,7 +1509,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       adjusted_local.y =
           state_internal::apply_corner_side_scale(
               adjusted_local.y, band.side, pole->context.corner_turn_sign, pole->context.side_scale);
-      if (std::abs(band.lateral_center_m) > 1e-9) {
+      if (std::abs(band.lateral_center_m) > kLengthToleranceM) {
         applied_scale = std::abs(adjusted_local.y / band.lateral_center_m);
       }
     }
@@ -1547,9 +1547,9 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
           local_to_world_on_pole(pole->world_transform,
                                  effective_port_layout_yaw_deg(*pole, existing_port->id, existing_port->category),
                                  adjusted_local);
-      if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
+      if (LengthSquared(existing_port->world_position - world_position) > kStrictLengthToleranceM ||
           existing_port->angle_correction_applied != apply_angle_correction ||
-          std::abs(existing_port->side_scale_applied - applied_scale) > 1e-12) {
+          std::abs(existing_port->side_scale_applied - applied_scale) > kStrictLengthToleranceM) {
         existing_port->world_position = world_position;
         existing_port->angle_correction_applied = apply_angle_correction;
         existing_port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
@@ -1614,7 +1614,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       const Vec3d local = WorldPointToLocal(frame, anchor->world_position);
       const Vec3d diff = local - hint.local_position;
       const double dist2 = Dot(diff, diff);
-      if (dist2 <= 1e-6) {
+      if (dist2 <= kGeometryToleranceM) {
         return true;
       }
     }
@@ -1661,8 +1661,8 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
 
   const bool changed = normalized.curve_samples != authoritative_.geometry_settings.curve_samples ||
                        normalized.sag_enabled != authoritative_.geometry_settings.sag_enabled ||
-                       std::abs(normalized.sag_factor - authoritative_.geometry_settings.sag_factor) > 1e-12 ||
-                       std::abs(normalized.pole_clearance_m - authoritative_.geometry_settings.pole_clearance_m) > 1e-12;
+                       std::abs(normalized.sag_factor - authoritative_.geometry_settings.sag_factor) > kStrictLengthToleranceM ||
+                       std::abs(normalized.pole_clearance_m - authoritative_.geometry_settings.pole_clearance_m) > kStrictLengthToleranceM;
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
@@ -1709,9 +1709,9 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
       std::clamp(normalized.max_side_scale, normalized.min_side_scale, kMaxCornerSideScale);
 
   const bool changed = normalized.angle_correction_enabled != authoritative_.layout_settings.angle_correction_enabled ||
-                       std::abs(normalized.corner_threshold_deg - authoritative_.layout_settings.corner_threshold_deg) > 1e-9 ||
-                       std::abs(normalized.min_side_scale - authoritative_.layout_settings.min_side_scale) > 1e-9 ||
-                       std::abs(normalized.max_side_scale - authoritative_.layout_settings.max_side_scale) > 1e-9;
+                       std::abs(normalized.corner_threshold_deg - authoritative_.layout_settings.corner_threshold_deg) > kLengthToleranceM ||
+                       std::abs(normalized.min_side_scale - authoritative_.layout_settings.min_side_scale) > kLengthToleranceM ||
+                       std::abs(normalized.max_side_scale - authoritative_.layout_settings.max_side_scale) > kLengthToleranceM;
 
   if (!changed) {
     result.ok = true;
@@ -1840,8 +1840,8 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
   normalized.insulator_length_m = std::max(0.0, normalized.insulator_length_m);
 
   const bool changed = normalized.enable_insulators != authoritative_.visual_settings.enable_insulators ||
-                       std::abs(normalized.insulator_radius_m - authoritative_.visual_settings.insulator_radius_m) > 1e-12 ||
-                       std::abs(normalized.insulator_length_m - authoritative_.visual_settings.insulator_length_m) > 1e-12;
+                       std::abs(normalized.insulator_radius_m - authoritative_.visual_settings.insulator_radius_m) > kStrictLengthToleranceM ||
+                       std::abs(normalized.insulator_length_m - authoritative_.visual_settings.insulator_length_m) > kStrictLengthToleranceM;
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
@@ -1881,13 +1881,13 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
   const VariationSettings& current = authoritative_.variation_settings;
   const bool changed =
       normalized.enabled != current.enabled || normalized.global_seed != current.global_seed ||
-      std::abs(normalized.world_cell_size_m - current.world_cell_size_m) > 1e-12 ||
-      std::abs(normalized.world_bias_scale - current.world_bias_scale) > 1e-12 ||
-      std::abs(normalized.flow_bias_scale - current.flow_bias_scale) > 1e-12 ||
-      std::abs(normalized.pole_delta_scale - current.pole_delta_scale) > 1e-12 ||
-      std::abs(normalized.local_jitter_scale - current.local_jitter_scale) > 1e-12 ||
-      std::abs(normalized.sag_variation_scale - current.sag_variation_scale) > 1e-12 ||
-      std::abs(normalized.branch_down_offset_variation_scale - current.branch_down_offset_variation_scale) > 1e-12;
+      std::abs(normalized.world_cell_size_m - current.world_cell_size_m) > kStrictLengthToleranceM ||
+      std::abs(normalized.world_bias_scale - current.world_bias_scale) > kStrictLengthToleranceM ||
+      std::abs(normalized.flow_bias_scale - current.flow_bias_scale) > kStrictLengthToleranceM ||
+      std::abs(normalized.pole_delta_scale - current.pole_delta_scale) > kStrictLengthToleranceM ||
+      std::abs(normalized.local_jitter_scale - current.local_jitter_scale) > kStrictLengthToleranceM ||
+      std::abs(normalized.sag_variation_scale - current.sag_variation_scale) > kStrictLengthToleranceM ||
+      std::abs(normalized.branch_down_offset_variation_scale - current.branch_down_offset_variation_scale) > kStrictLengthToleranceM;
 
   if (changed && !authoritative_.backbone.span_bindings.empty()) {
     result.error = "backbone unsupported: variation settings are not consumed by generated outputs";
@@ -1909,10 +1909,10 @@ EditResult<bool> CoreState::UpdateContextProfile(const ContextProfile& profile, 
   normalized.style_seed = (normalized.style_seed == 0) ? 1 : normalized.style_seed;
 
   const ContextProfile& current = authoritative_.context_profile;
-  const bool changed = std::abs(normalized.age - current.age) > 1e-12 ||
-                       std::abs(normalized.clutter - current.clutter) > 1e-12 ||
-                       std::abs(normalized.regularity - current.regularity) > 1e-12 ||
-                       std::abs(normalized.service_mix - current.service_mix) > 1e-12 ||
+  const bool changed = std::abs(normalized.age - current.age) > kStrictLengthToleranceM ||
+                       std::abs(normalized.clutter - current.clutter) > kStrictLengthToleranceM ||
+                       std::abs(normalized.regularity - current.regularity) > kStrictLengthToleranceM ||
+                       std::abs(normalized.service_mix - current.service_mix) > kStrictLengthToleranceM ||
                        normalized.style_seed != current.style_seed;
 
   if (changed && !authoritative_.backbone.span_bindings.empty()) {
@@ -1956,10 +1956,10 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
     return result;
   }
   if (bundle->placement_explicit == placement_explicit &&
-      std::abs(bundle->height_m - height_m) <= 1e-12 &&
-      std::abs(bundle->lateral_m - lateral_m) <= 1e-12 &&
-      std::abs(bundle->phase_spacing_m - spacing_m) <= 1e-12 &&
-      std::abs(bundle->spacing_override_m - spacing_m) <= 1e-12) {
+      std::abs(bundle->height_m - height_m) <= kStrictLengthToleranceM &&
+      std::abs(bundle->lateral_m - lateral_m) <= kStrictLengthToleranceM &&
+      std::abs(bundle->phase_spacing_m - spacing_m) <= kStrictLengthToleranceM &&
+      std::abs(bundle->spacing_override_m - spacing_m) <= kStrictLengthToleranceM) {
     result.ok = true;
     result.value = false;
     return result;
@@ -2047,7 +2047,7 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
           *pole, binding->layout_yaw_deg, placement_band, lane_offset, edge->lateral_offset_m,
           preserved_row_height_offset);
       if ((port->position_mode == PortPositionMode::kManual || port->user_edited_position) &&
-          Length(port->world_position - next_position) > 1e-12) {
+          Length(port->world_position - next_position) > kStrictLengthToleranceM) {
         result.error = "backbone unsupported: bundle placement update unsupported: manual port would move";
         return result;
       }
@@ -2062,7 +2062,7 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
       result.error = "backbone internal: bundle placement update: planned port is missing";
       return result;
     }
-    if (Length(port->world_position - planned.position) > 1e-12) {
+    if (Length(port->world_position - planned.position) > kStrictLengthToleranceM) {
       port->world_position = planned.position;
       add_unique_id(changed_port_ids, port->id);
       add_unique_id(change_set.updated_ids, port->id);
@@ -2364,7 +2364,7 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemp
           return result;
         }
         pole->pole_type_id = bundle_template->related_pole_type_id;
-        if (std::abs(pole->height_m - related_type->default_height_m) > 1e-12) {
+        if (std::abs(pole->height_m - related_type->default_height_m) > kStrictLengthToleranceM) {
           pole->height_m = related_type->default_height_m;
         }
         add_unique_id(trial_changes.updated_ids, pole_id);
@@ -2651,7 +2651,7 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
         result.error = "core invalid input: pole not found";
         return result;
       }
-      if (std::abs(pole->height_m - pole_type.default_height_m) > 1e-12) {
+      if (std::abs(pole->height_m - pole_type.default_height_m) > kStrictLengthToleranceM) {
         pole->height_m = pole_type.default_height_m;
         add_unique_id(result.change_set.updated_ids, pole_id);
       }
@@ -2737,7 +2737,7 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
       applied.error = "core invalid input: pole not found";
       return applied;
     }
-    if (std::abs(pole->height_m - pole_type.default_height_m) > 1e-12) {
+    if (std::abs(pole->height_m - pole_type.default_height_m) > kStrictLengthToleranceM) {
       pole->height_m = pole_type.default_height_m;
       add_unique_id(result.change_set.updated_ids, pole_id);
       applied.value = true;
@@ -2786,7 +2786,7 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
         if (apply_angle_correction) {
           adjusted_local.y = state_internal::apply_corner_side_scale(
               adjusted_local.y, band_ptr->side, pole->context.corner_turn_sign, pole->context.side_scale);
-          if (std::abs(band_ptr->lateral_center_m) > 1e-9) {
+          if (std::abs(band_ptr->lateral_center_m) > kLengthToleranceM) {
             applied_scale = std::abs(adjusted_local.y / band_ptr->lateral_center_m);
           }
         }
@@ -2795,9 +2795,9 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
             local_to_world_on_pole(pole->world_transform,
                                    layout_yaw,
                                    adjusted_local);
-        if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
+        if (LengthSquared(existing_port->world_position - world_position) > kStrictLengthToleranceM ||
             existing_port->angle_correction_applied != apply_angle_correction ||
-            std::abs(existing_port->side_scale_applied - applied_scale) > 1e-12) {
+            std::abs(existing_port->side_scale_applied - applied_scale) > kStrictLengthToleranceM) {
           existing_port->world_position = world_position;
           existing_port->angle_correction_applied = apply_angle_correction;
           existing_port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
@@ -2927,10 +2927,10 @@ double CoreState::compute_side_scale(PoleContextKind context, double corner_angl
     return 1.0;
   }
   const double threshold = std::max(0.0, authoritative_.layout_settings.corner_threshold_deg);
-  if (corner_angle_deg <= threshold + 1e-9) {
+  if (corner_angle_deg <= threshold + kLengthToleranceM) {
     return 1.0;
   }
-  const double denom = std::max(1e-6, 180.0 - threshold);
+  const double denom = std::max(kGeometryToleranceM, 180.0 - threshold);
   const double normalized = std::clamp((corner_angle_deg - threshold) / denom, 0.0, 1.0);
   const double scale = authoritative_.layout_settings.min_side_scale +
                        (authoritative_.layout_settings.max_side_scale - authoritative_.layout_settings.min_side_scale) * normalized;
@@ -3050,7 +3050,7 @@ bool CoreState::has_zero_length(const Port& a, const Port& b) {
   const double dx = a.world_position.x - b.world_position.x;
   const double dy = a.world_position.y - b.world_position.y;
   const double dz = a.world_position.z - b.world_position.z;
-  return (dx * dx + dy * dy + dz * dz) <= (kZeroLengthEps * kZeroLengthEps);
+  return (dx * dx + dy * dy + dz * dz) <= (kLengthToleranceM * kLengthToleranceM);
 }
 
 std::unordered_map<ObjectId, std::vector<ObjectId>> CoreState::make_expected_port_index(const EditState& edit_state) {

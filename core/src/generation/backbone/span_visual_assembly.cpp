@@ -1,7 +1,7 @@
 #include "span_visual_assembly.hpp"
 
 #include "wire/core/core_view.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../../geometry/detail_curve_input_resolution.hpp"
 #include "../../geometry/detail_curve_postprocess.hpp"

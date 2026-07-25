@@ -2,7 +2,7 @@
 
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../support/hash_mix.hpp"
 #include "curve_support.hpp"

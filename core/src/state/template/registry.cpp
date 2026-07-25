@@ -1,5 +1,6 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -144,7 +145,7 @@ const PoleTypeDefinition* CoreState::find_pole_type(PoleTypeId pole_type_id) con
 void CoreState::register_default_bundle_templates() {
   auto grouped_support_fanout_spacing_for = [&](CableTemplateId cable_template_id, double fallback_spacing_m) {
     const CableTemplate* cable_template = find_cable_template(cable_template_id);
-    if (cable_template == nullptr || cable_template->default_grouped_support_fanout_spacing_m <= 1e-9) {
+    if (cable_template == nullptr || cable_template->default_grouped_support_fanout_spacing_m <= kLengthToleranceM) {
       return fallback_spacing_m;
     }
     return cable_template->default_grouped_support_fanout_spacing_m;

@@ -1,6 +1,7 @@
 #include "internal_services.hpp"
 #include "port_placement.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -115,7 +116,7 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
           adjusted_local.y =
               state_internal::apply_corner_side_scale(
                   adjusted_local.y, band->side, pole->context.corner_turn_sign, pole->context.side_scale);
-          if (std::abs(reference_local.y) > 1e-9) {
+          if (std::abs(reference_local.y) > kLengthToleranceM) {
             applied_scale = std::abs(adjusted_local.y / reference_local.y);
           }
         }
@@ -132,11 +133,11 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
       new_world = local_to_world_on_pole(pole->world_transform, layout_yaw, old_local);
     }
 
-    const bool moved = std::abs(new_world.x - port->world_position.x) > 1e-9 ||
-                       std::abs(new_world.y - port->world_position.y) > 1e-9 ||
-                       std::abs(new_world.z - port->world_position.z) > 1e-9;
+    const bool moved = std::abs(new_world.x - port->world_position.x) > kLengthToleranceM ||
+                       std::abs(new_world.y - port->world_position.y) > kLengthToleranceM ||
+                       std::abs(new_world.z - port->world_position.z) > kLengthToleranceM;
     const bool changed_scale =
-        std::abs(port->side_scale_applied - (apply_angle_correction ? applied_scale : 1.0)) > 1e-9;
+        std::abs(port->side_scale_applied - (apply_angle_correction ? applied_scale : 1.0)) > kLengthToleranceM;
     const bool changed_angle_flag = port->angle_correction_applied != apply_angle_correction;
     if (!moved && !changed_scale && !changed_angle_flag) {
       continue;
@@ -165,9 +166,9 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
       const Vec3d old_local = state.to_local_on_pole(*previous_pole, anchor->world_position);
       new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, old_local);
     }
-    const bool moved = std::abs(new_world.x - anchor->world_position.x) > 1e-9 ||
-                       std::abs(new_world.y - anchor->world_position.y) > 1e-9 ||
-                       std::abs(new_world.z - anchor->world_position.z) > 1e-9;
+    const bool moved = std::abs(new_world.x - anchor->world_position.x) > kLengthToleranceM ||
+                       std::abs(new_world.y - anchor->world_position.y) > kLengthToleranceM ||
+                       std::abs(new_world.z - anchor->world_position.z) > kLengthToleranceM;
     if (!moved) {
       continue;
     }

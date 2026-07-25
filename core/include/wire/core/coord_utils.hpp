@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "wire/core/types.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 
 namespace wire::core {
 

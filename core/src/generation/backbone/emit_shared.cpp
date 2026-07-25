@@ -1,7 +1,7 @@
 #include "emit_shared.hpp"
 
 #include "wire/core/coord_utils.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <cmath>

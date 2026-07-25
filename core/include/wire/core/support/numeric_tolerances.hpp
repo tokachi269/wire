@@ -5,6 +5,9 @@ namespace wire::core {
 // Squared length tolerance in m^2 for deciding that a vector/segment has no usable direction.
 inline constexpr double kLengthSquaredToleranceM2 = 1e-12;
 
+// Loose squared length tolerance in m^2 for legacy endpoint reuse gates.
+inline constexpr double kLooseLengthSquaredToleranceM2 = 1e-10;
+
 // Length tolerance in meters for zero-length, positive-length, and distance comparisons.
 inline constexpr double kLengthToleranceM = 1e-9;
 
@@ -22,6 +25,9 @@ inline constexpr double kStrictAngleToleranceDeg = 1e-9;
 
 // Unitless tolerance for dot products, normalized parameters, signs, and ratios.
 inline constexpr double kUnitlessTolerance = 1e-9;
+
+// Unitless orientation determinant tolerance for strict 2D segment intersection checks.
+inline constexpr double kIntersectionTolerance = 1e-9;
 
 // Loose unitless tolerance for progress, alignment, and near-zero blend weights.
 inline constexpr double kLooseUnitlessTolerance = 1e-6;

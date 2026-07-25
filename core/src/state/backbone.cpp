@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -65,7 +66,7 @@ void CoreState::cache_support_group(SupportGroupDecision decision, LoweredSuppor
   for (const Vec3d& attachment_world : incoming.attachment_worlds) {
     const auto duplicate = std::find_if(existing.attachment_worlds.begin(), existing.attachment_worlds.end(),
                                         [&](const Vec3d& item) {
-                                          return Length(item - attachment_world) <= 1e-9;
+                                          return Length(item - attachment_world) <= kLengthToleranceM;
                                         });
     if (duplicate == existing.attachment_worlds.end()) {
       existing.attachment_worlds.push_back(attachment_world);
@@ -268,7 +269,7 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
       if (binding.bundle_template_id != bundle_template_id || binding.port_kind != port_kind ||
           binding.port_layer != port_layer || binding.placement_band_id != placement_band_id ||
           binding.support_level != support_level || binding.support_group_id != support_group_id ||
-          std::abs(NormalizeYawDeg(binding.layout_yaw_deg - layout_yaw_deg)) > 1e-9) {
+          std::abs(NormalizeYawDeg(binding.layout_yaw_deg - layout_yaw_deg)) > kLengthToleranceM) {
         out.error = "backbone invalid input: incompatible backbone port binding";
         return out;
       }
@@ -492,7 +493,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     const double abx = b.x - a.x;
     const double aby = b.y - a.y;
     const double ab2 = abx * abx + aby * aby;
-    if (ab2 <= 1e-12) {
+    if (ab2 <= kStrictLengthToleranceM) {
       return 0.0;
     }
     const double apx = p.x - a.x;
@@ -799,7 +800,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     }
   }
 
-  constexpr double kReuseEps2 = 1e-10;
+  constexpr double kReuseEps2 = kLooseLengthSquaredToleranceM2;
   for (const SupportNode& node : session_.pending_support_nodes) {
     if (node.support_kind != SupportKind::kMidair) {
       continue;

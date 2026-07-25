@@ -2,7 +2,7 @@
 
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../support/hash_mix.hpp"
 #include "detail_curve_input_resolution.hpp"
@@ -14,7 +14,6 @@
 namespace wire::core {
 
 namespace {
-constexpr double kZeroLengthEps = kLengthToleranceM;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kTwoPi = 2.0 * kPi;
 
@@ -74,7 +73,7 @@ double pole_band_chord_lateral_m(const CoreState& state, const Span& span, bool 
 
 std::vector<CurveLengthInterval> merged_intervals(std::vector<CurveLengthInterval> intervals, double total_length_m) {
   std::vector<CurveLengthInterval> merged{};
-  if (intervals.empty() || total_length_m <= kZeroLengthEps) {
+  if (intervals.empty() || total_length_m <= kLengthToleranceM) {
     return merged;
   }
   for (CurveLengthInterval& interval : intervals) {
@@ -87,7 +86,7 @@ std::vector<CurveLengthInterval> merged_intervals(std::vector<CurveLengthInterva
   std::sort(intervals.begin(), intervals.end(),
             [](const CurveLengthInterval& a, const CurveLengthInterval& b) { return a.start_m < b.start_m; });
   for (const CurveLengthInterval& interval : intervals) {
-    if (interval.end_m - interval.start_m <= kZeroLengthEps) {
+    if (interval.end_m - interval.start_m <= kLengthToleranceM) {
       continue;
     }
     if (merged.empty() || interval.start_m > merged.back().end_m + kGeometryToleranceM) {
@@ -104,15 +103,15 @@ std::vector<CurveLengthInterval> visible_intervals_from_hidden(const std::vector
   std::vector<CurveLengthInterval> visible{};
   double cursor = 0.0;
   for (const CurveLengthInterval& interval : hidden_intervals) {
-    if (interval.start_m > cursor + kZeroLengthEps) {
+    if (interval.start_m > cursor + kLengthToleranceM) {
       visible.push_back({cursor, interval.start_m});
     }
     cursor = std::max(cursor, interval.end_m);
   }
-  if (cursor < total_length_m - kZeroLengthEps) {
+  if (cursor < total_length_m - kLengthToleranceM) {
     visible.push_back({cursor, total_length_m});
   }
-  if (visible.empty() && total_length_m > kZeroLengthEps && hidden_intervals.empty()) {
+  if (visible.empty() && total_length_m > kLengthToleranceM && hidden_intervals.empty()) {
     visible.push_back({0.0, total_length_m});
   }
   return visible;
@@ -167,7 +166,7 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
                                                    const CoreState& state, const Span& span, const DetailCurve& curve,
                                                    std::uint32_t path_ordinal) {
   std::vector<Vec3d> points{};
-  if (curve.Length() <= kZeroLengthEps || path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kNone) {
+  if (curve.Length() <= kLengthToleranceM || path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kNone) {
     return points;
   }
 
@@ -231,7 +230,7 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
   const double trim_m = std::max(0.0, path.endpoint_trim_m);
   const double start_s = std::clamp(trim_m, 0.0, curve.Length());
   const double end_s = std::clamp(curve.Length() - trim_m, 0.0, curve.Length());
-  if (end_s - start_s <= kZeroLengthEps) {
+  if (end_s - start_s <= kLengthToleranceM) {
     return points;
   }
   const double visible_length_m = end_s - start_s;
@@ -335,7 +334,7 @@ std::optional<std::pair<Vec3d, Vec3d>> resolve_pole_band_chord_endpoints(
 }
 
 void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId span_id, DetailCurve* curve) {
-  if (curve == nullptr || curve->Length() <= kZeroLengthEps) {
+  if (curve == nullptr || curve->Length() <= kLengthToleranceM) {
     return;
   }
 
@@ -380,7 +379,7 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
           std::clamp(center_s + std::min(socket_a->local_position.x, socket_b->local_position.x), 0.0, curve->Length());
       const double end_s =
           std::clamp(center_s + std::max(socket_a->local_position.x, socket_b->local_position.x), 0.0, curve->Length());
-      if (end_s - start_s <= kZeroLengthEps) {
+      if (end_s - start_s <= kLengthToleranceM) {
         continue;
       }
 
@@ -451,7 +450,7 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
         if (path_points.size() >= 2) {
           if (path.interaction_mode == AttachmentLineInteractionMode::kReplaceWithInternalPath) {
             const CurveLengthInterval replaced_interval = cable_supplemental_replaced_interval(path, *curve);
-            if (replaced_interval.end_m - replaced_interval.start_m > kZeroLengthEps) {
+            if (replaced_interval.end_m - replaced_interval.start_m > kLengthToleranceM) {
               hidden.push_back(replaced_interval);
               replaced.push_back(replaced_interval);
               DetailReplacementPath replacement{};
@@ -477,7 +476,7 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
   curve->hidden_intervals = merged_intervals(std::move(hidden), curve->Length());
   curve->replacement_intervals = merged_intervals(std::move(replaced), curve->Length());
   curve->visible_intervals = visible_intervals_from_hidden(curve->hidden_intervals, curve->Length());
-  if (curve->visible_intervals.empty() && curve->Length() > kZeroLengthEps) {
+  if (curve->visible_intervals.empty() && curve->Length() > kLengthToleranceM) {
     curve->visible_intervals.push_back({0.0, curve->Length()});
   }
   curve->replacement_paths = std::move(replacement_paths);

@@ -1,7 +1,7 @@
 #include "curve.hpp"
 
 #include "wire/core/coord_utils.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <array>
@@ -10,8 +10,6 @@
 
 namespace wire::core::geometry::curve {
 namespace {
-
-constexpr double kEpsilon = kLengthToleranceM;
 
 bool finite(const Vec3d& value) {
   return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
@@ -179,11 +177,11 @@ std::size_t ResolveSegmentCount(const CableCurveInput& input) {
   const std::size_t maximum = std::max(minimum, policy.max_segments);
   const double length = Length(input.end - input.start);
   const std::size_t length_segments =
-      policy.meters_per_segment > kEpsilon
+      policy.meters_per_segment > kLengthToleranceM
           ? static_cast<std::size_t>(std::ceil(length / policy.meters_per_segment))
           : minimum;
   const std::size_t sag_segments =
-      policy.sag_m_per_segment > kEpsilon
+      policy.sag_m_per_segment > kLengthToleranceM
           ? static_cast<std::size_t>(std::ceil(std::max(0.0, input.sag_m) / policy.sag_m_per_segment)) * 2
           : minimum;
   return std::clamp(std::max({minimum, length_segments, sag_segments}), minimum, maximum);
@@ -296,7 +294,7 @@ DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& 
     detail.arc_length_table.push_back({u, sample.arc_length_m});
     detail.distance_attributes.arc_length_m.push_back(static_cast<float>(sample.arc_length_m));
     detail.distance_attributes.arc_length_normalized.push_back(
-        static_cast<float>(output.length_m > kEpsilon ? sample.arc_length_m / output.length_m : 0.0));
+        static_cast<float>(output.length_m > kLengthToleranceM ? sample.arc_length_m / output.length_m : 0.0));
     if (index > 0) {
       detail.distance_attributes.segment_length_m.push_back(
           static_cast<float>(sample.arc_length_m - output.samples[index - 1].arc_length_m));

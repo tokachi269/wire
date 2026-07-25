@@ -1,7 +1,7 @@
 #include "curve_parts.hpp"
 
 #include "wire/core/core_view.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include "../../support/hash_mix.hpp"
@@ -22,7 +22,6 @@ namespace {
 
 constexpr double kNodePatchHorizontalLengthM = 0.35;
 constexpr double kNodePatchMaxSpanFraction = 0.25;
-constexpr double kCurveEps = kLengthToleranceM;
 constexpr double kPatchMetersPerSegment = 0.08;
 constexpr double kPatchRadiansPerSegment = 0.17453292519943295;
 
@@ -321,7 +320,7 @@ bool finite_point(const Vec3d& p) {
 Vec3d safe_unit(const Vec3d& value, const Vec3d& fallback) {
   // R5 fallback: legitimate degenerate patch tangent. Patch/jumper visual parts keep finite tangents at tiny boundaries.
   const double len = Length(value);
-  if (len <= kCurveEps) {
+  if (len <= kLengthToleranceM) {
     return fallback;
   }
   return ScaleVec(value, 1.0 / len);
@@ -411,13 +410,13 @@ std::vector<Vec3d> trimmed_source_curve_samples(const DetailCurve& curve, double
     const double denominator = static_cast<double>(curve.sample_points.size() - 1);
     for (std::size_t index = 1; index + 1 < curve.sample_points.size(); ++index) {
       const double u = static_cast<double>(index) / denominator;
-      if (u > start_u + kCurveEps && u < end_u - kCurveEps) {
+      if (u > start_u + kLengthToleranceM && u < end_u - kLengthToleranceM) {
         samples.push_back(curve.sample_points[index]);
       }
     }
   }
   const Vec3d end = curve.EvaluatePosition(end_u);
-  if (samples.empty() || Length(end - samples.back()) > kCurveEps) {
+  if (samples.empty() || Length(end - samples.back()) > kLengthToleranceM) {
     samples.push_back(end);
   }
   return samples;
@@ -523,7 +522,7 @@ Vec3d cubic_hermite(const Vec3d& p0, const Vec3d& m0, const Vec3d& p1, const Vec
 double cubic_control_distance(const Vec3d& a, const Vec3d& start_direction, const Vec3d& b,
                               const Vec3d& end_direction) {
   const double chord_len = Length(b - a);
-  if (chord_len <= kCurveEps) {
+  if (chord_len <= kLengthToleranceM) {
     return 0.0;
   }
   const Vec3d start_unit = safe_unit(start_direction, {1.0, 0.0, 0.0});
@@ -535,7 +534,7 @@ double cubic_control_distance(const Vec3d& a, const Vec3d& start_direction, cons
   // Cubic circular-arc approximation expressed from chord length and tangent turn angle.
   const double cos_quarter = std::cos(turn_angle * 0.25);
   const double denominator = 3.0 * cos_quarter * cos_quarter;
-  return denominator <= kCurveEps ? chord_len / 3.0 : chord_len / denominator;
+  return denominator <= kLengthToleranceM ? chord_len / 3.0 : chord_len / denominator;
 }
 
 std::size_t patch_segment_count(const Vec3d& a, const Vec3d& start_direction, const Vec3d& b,
@@ -1118,7 +1117,7 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
           std::min(kNodePatchHorizontalLengthM, patch_a.span_length_m * kNodePatchMaxSpanFraction);
       const double b_len =
           std::min(kNodePatchHorizontalLengthM, patch_b.span_length_m * kNodePatchMaxSpanFraction);
-      if (a_len <= kCurveEps || b_len <= kCurveEps) {
+      if (a_len <= kLengthToleranceM || b_len <= kLengthToleranceM) {
         fail("backbone internal: patch boundary length is zero");
         return result;
       }
@@ -1280,7 +1279,7 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
              candidate.bundle_template_id == endpoint.bundle_template_id &&
              candidate.lane_index == endpoint.lane_index;
     });
-    if (peer == endpoints.end() || Length(peer->point - endpoint.point) <= kCurveEps) {
+    if (peer == endpoints.end() || Length(peer->point - endpoint.point) <= kLengthToleranceM) {
       continue;
     }
 

@@ -4,6 +4,7 @@
 
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 
 
 #include <algorithm>
@@ -172,7 +173,7 @@ bool collect_bundle_regenerate_scopes(const CoreState& state, BundleTemplateId b
 
 bool attachment_socket_equals(const AttachmentSocketTemplate& a, const AttachmentSocketTemplate& b) {
   const auto same_vec = [](const Vec3d& lhs, const Vec3d& rhs) {
-    return std::abs(lhs.x - rhs.x) <= 1e-12 && std::abs(lhs.y - rhs.y) <= 1e-12 && std::abs(lhs.z - rhs.z) <= 1e-12;
+    return std::abs(lhs.x - rhs.x) <= kStrictLengthToleranceM && std::abs(lhs.y - rhs.y) <= kStrictLengthToleranceM && std::abs(lhs.z - rhs.z) <= kStrictLengthToleranceM;
   };
   return a.id == b.id && same_vec(a.local_position, b.local_position) && same_vec(a.tangent_dir, b.tangent_dir) &&
          a.has_normal == b.has_normal && same_vec(a.normal_dir, b.normal_dir) &&
@@ -182,14 +183,14 @@ bool attachment_socket_equals(const AttachmentSocketTemplate& a, const Attachmen
 bool attachment_internal_path_equals(const AttachmentInternalPathTemplate& a, const AttachmentInternalPathTemplate& b) {
   if (a.start_socket_id != b.start_socket_id || a.end_socket_id != b.end_socket_id ||
       a.profile_kind != b.profile_kind || a.local_points.size() != b.local_points.size() ||
-      std::abs(a.coil_radius_m - b.coil_radius_m) > 1e-12 || a.coil_turn_count != b.coil_turn_count ||
+      std::abs(a.coil_radius_m - b.coil_radius_m) > kStrictLengthToleranceM || a.coil_turn_count != b.coil_turn_count ||
       a.coil_samples_per_turn != b.coil_samples_per_turn) {
     return false;
   }
   for (std::size_t i = 0; i < a.local_points.size(); ++i) {
     const Vec3d& lhs = a.local_points[i];
     const Vec3d& rhs = b.local_points[i];
-    if (std::abs(lhs.x - rhs.x) > 1e-12 || std::abs(lhs.y - rhs.y) > 1e-12 || std::abs(lhs.z - rhs.z) > 1e-12) {
+    if (std::abs(lhs.x - rhs.x) > kStrictLengthToleranceM || std::abs(lhs.y - rhs.y) > kStrictLengthToleranceM || std::abs(lhs.z - rhs.z) > kStrictLengthToleranceM) {
       return false;
     }
   }
@@ -216,7 +217,7 @@ bool attachment_template_equals(const AttachmentTemplate& a, const AttachmentTem
 
 bool attachment_socket_geometry_equals(const AttachmentSocketTemplate& a, const AttachmentSocketTemplate& b) {
   const auto same_vec = [](const Vec3d& lhs, const Vec3d& rhs) {
-    return std::abs(lhs.x - rhs.x) <= 1e-12 && std::abs(lhs.y - rhs.y) <= 1e-12 && std::abs(lhs.z - rhs.z) <= 1e-12;
+    return std::abs(lhs.x - rhs.x) <= kStrictLengthToleranceM && std::abs(lhs.y - rhs.y) <= kStrictLengthToleranceM && std::abs(lhs.z - rhs.z) <= kStrictLengthToleranceM;
   };
   return same_vec(a.local_position, b.local_position) && same_vec(a.tangent_dir, b.tangent_dir) &&
          same_vec(a.normal_dir, b.normal_dir) && same_vec(a.binormal_dir, b.binormal_dir);
@@ -229,14 +230,14 @@ bool attachment_socket_identity_equals(const AttachmentSocketTemplate& a, const 
 bool attachment_internal_path_geometry_equals(const AttachmentInternalPathTemplate& a,
                                               const AttachmentInternalPathTemplate& b) {
   if (a.local_points.size() != b.local_points.size() ||
-      std::abs(a.coil_radius_m - b.coil_radius_m) > 1e-12 || a.coil_turn_count != b.coil_turn_count ||
+      std::abs(a.coil_radius_m - b.coil_radius_m) > kStrictLengthToleranceM || a.coil_turn_count != b.coil_turn_count ||
       a.coil_samples_per_turn != b.coil_samples_per_turn) {
     return false;
   }
   for (std::size_t i = 0; i < a.local_points.size(); ++i) {
     const Vec3d& lhs = a.local_points[i];
     const Vec3d& rhs = b.local_points[i];
-    if (std::abs(lhs.x - rhs.x) > 1e-12 || std::abs(lhs.y - rhs.y) > 1e-12 || std::abs(lhs.z - rhs.z) > 1e-12) {
+    if (std::abs(lhs.x - rhs.x) > kStrictLengthToleranceM || std::abs(lhs.y - rhs.y) > kStrictLengthToleranceM || std::abs(lhs.z - rhs.z) > kStrictLengthToleranceM) {
       return false;
     }
   }
@@ -300,28 +301,28 @@ AttachmentTemplateDiff classify_attachment_template_diff(const AttachmentTemplat
 
 bool cable_supplemental_path_equals(const CableSupplementalPathTemplate& a, const CableSupplementalPathTemplate& b) {
   return a.anchor_mode == b.anchor_mode && a.profile_kind == b.profile_kind && a.pole_band_id == b.pole_band_id &&
-         std::abs(a.endpoint_trim_m - b.endpoint_trim_m) <= 1e-12 &&
-         std::abs(a.lateral_offset_m - b.lateral_offset_m) <= 1e-12 &&
-         std::abs(a.vertical_offset_m - b.vertical_offset_m) <= 1e-12;
+         std::abs(a.endpoint_trim_m - b.endpoint_trim_m) <= kStrictLengthToleranceM &&
+         std::abs(a.lateral_offset_m - b.lateral_offset_m) <= kStrictLengthToleranceM &&
+         std::abs(a.vertical_offset_m - b.vertical_offset_m) <= kStrictLengthToleranceM;
 }
 
 bool placement_reserve_equals(const PlacementReserve& a, const PlacementReserve& b) {
   return a.reserve_id == b.reserve_id && a.pole_type_id == b.pole_type_id && a.band_id == b.band_id &&
-         std::abs(a.lateral_min_m - b.lateral_min_m) <= 1e-12 &&
-         std::abs(a.lateral_max_m - b.lateral_max_m) <= 1e-12 &&
-         std::abs(a.height_min_m - b.height_min_m) <= 1e-12 &&
-         std::abs(a.height_max_m - b.height_max_m) <= 1e-12;
+         std::abs(a.lateral_min_m - b.lateral_min_m) <= kStrictLengthToleranceM &&
+         std::abs(a.lateral_max_m - b.lateral_max_m) <= kStrictLengthToleranceM &&
+         std::abs(a.height_min_m - b.height_min_m) <= kStrictLengthToleranceM &&
+         std::abs(a.height_max_m - b.height_max_m) <= kStrictLengthToleranceM;
 }
 
 bool population_rule_equals(const CablePopulationRule& a, const CablePopulationRule& b) {
   if (a.rule_id != b.rule_id || a.explicit_seed != b.explicit_seed || a.priority != b.priority ||
       a.min_extra_count != b.min_extra_count || a.max_extra_count != b.max_extra_count ||
-      std::abs(a.min_spacing_m - b.min_spacing_m) > 1e-12 ||
-      std::abs(a.lateral_min_m - b.lateral_min_m) > 1e-12 ||
-      std::abs(a.lateral_max_m - b.lateral_max_m) > 1e-12 ||
-      std::abs(a.height_min_m - b.height_min_m) > 1e-12 ||
-      std::abs(a.height_max_m - b.height_max_m) > 1e-12 ||
-      std::abs(a.randomness - b.randomness) > 1e-12 || a.reserves.size() != b.reserves.size()) {
+      std::abs(a.min_spacing_m - b.min_spacing_m) > kStrictLengthToleranceM ||
+      std::abs(a.lateral_min_m - b.lateral_min_m) > kStrictLengthToleranceM ||
+      std::abs(a.lateral_max_m - b.lateral_max_m) > kStrictLengthToleranceM ||
+      std::abs(a.height_min_m - b.height_min_m) > kStrictLengthToleranceM ||
+      std::abs(a.height_max_m - b.height_max_m) > kStrictLengthToleranceM ||
+      std::abs(a.randomness - b.randomness) > kStrictLengthToleranceM || a.reserves.size() != b.reserves.size()) {
     return false;
   }
   for (std::size_t i = 0; i < a.reserves.size(); ++i) {
@@ -392,12 +393,12 @@ std::uint32_t classify_bundle_template_changes(const BundleTemplate& before,
   }
   if (before.category != after.category || before.default_layer != after.default_layer ||
       before.preserve_conductor_identity != after.preserve_conductor_identity ||
-      std::abs(before.default_spacing_m - after.default_spacing_m) > 1e-12 ||
-      std::abs(before.grouped_support_fanout_spacing_m - after.grouped_support_fanout_spacing_m) > 1e-12 ||
+      std::abs(before.default_spacing_m - after.default_spacing_m) > kStrictLengthToleranceM ||
+      std::abs(before.grouped_support_fanout_spacing_m - after.grouped_support_fanout_spacing_m) > kStrictLengthToleranceM ||
       before.allow_mirror != after.allow_mirror || before.allow_midair_node != after.allow_midair_node ||
       before.allow_midair_branch != after.allow_midair_branch ||
       before.enable_branch_down_offset != after.enable_branch_down_offset ||
-      std::abs(before.branch_endpoint_offset_m - after.branch_endpoint_offset_m) > 1e-12 ||
+      std::abs(before.branch_endpoint_offset_m - after.branch_endpoint_offset_m) > kStrictLengthToleranceM ||
       before.order_decision_policy != after.order_decision_policy ||
       before.row_layout_axis_mode != after.row_layout_axis_mode || before.support_style != after.support_style ||
       before.branch_policy != after.branch_policy || before.continuity_policy != after.continuity_policy) {
@@ -509,13 +510,13 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
   }
   const bool metadata_change = normalized.name != it->second.name;
   const bool geometry_change =
-      std::abs(normalized.outer_diameter_m - it->second.outer_diameter_m) > 1e-12 ||
+      std::abs(normalized.outer_diameter_m - it->second.outer_diameter_m) > kStrictLengthToleranceM ||
       std::abs(normalized.default_grouped_support_fanout_spacing_m -
-               it->second.default_grouped_support_fanout_spacing_m) > 1e-12 ||
-      std::abs(normalized.bend_stiffness - it->second.bend_stiffness) > 1e-12 ||
-      std::abs(normalized.min_bend_radius_m - it->second.min_bend_radius_m) > 1e-12 ||
-      std::abs(normalized.sag_factor - it->second.sag_factor) > 1e-12 ||
-      std::abs(normalized.slack_factor - it->second.slack_factor) > 1e-12 || supplemental_paths_changed;
+               it->second.default_grouped_support_fanout_spacing_m) > kStrictLengthToleranceM ||
+      std::abs(normalized.bend_stiffness - it->second.bend_stiffness) > kStrictLengthToleranceM ||
+      std::abs(normalized.min_bend_radius_m - it->second.min_bend_radius_m) > kStrictLengthToleranceM ||
+      std::abs(normalized.sag_factor - it->second.sag_factor) > kStrictLengthToleranceM ||
+      std::abs(normalized.slack_factor - it->second.slack_factor) > kStrictLengthToleranceM || supplemental_paths_changed;
   const bool render_change =
       normalized.material_style != it->second.material_style || normalized.color_rgba != it->second.color_rgba ||
       normalized.attachment_style != it->second.attachment_style;
@@ -730,7 +731,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     const CableTemplate* assembly_cable = state.find_cable_template(normalized.cable_template_id);
     const double minimum_radius =
         (assembly_cable == nullptr ? 0.0 : assembly_cable->outer_diameter_m) + assembly.helix_clearance_m;
-    if (assembly.helix_radius_m > 0.0 && assembly.helix_radius_m + 1e-9 < minimum_radius) {
+    if (assembly.helix_radius_m > 0.0 && assembly.helix_radius_m + kLengthToleranceM < minimum_radius) {
       result.error = "core invalid input: span visual assembly helix radius cannot contain the wire diameter";
       return result;
     }
@@ -748,7 +749,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     return result;
   }
   const CableTemplate* cable_template = state.find_cable_template(normalized.cable_template_id);
-  if (normalized.grouped_support_fanout_spacing_m <= 1e-9) {
+  if (normalized.grouped_support_fanout_spacing_m <= kLengthToleranceM) {
     normalized.grouped_support_fanout_spacing_m =
         (cable_template == nullptr) ? normalized.default_spacing_m : cable_template->default_grouped_support_fanout_spacing_m;
   }
@@ -981,7 +982,7 @@ EditResult<bool> TemplateMutationService::ResetAllSpanReferenceLengths(CoreState
       continue;
     }
     const double length = Length(b->world_position - a->world_position);
-    if (std::abs(span->reference_length_m - length) <= 1e-9) {
+    if (std::abs(span->reference_length_m - length) <= kLengthToleranceM) {
       continue;
     }
     span->reference_length_m = length;

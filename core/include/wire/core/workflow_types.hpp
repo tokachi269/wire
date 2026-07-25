@@ -1,3 +1,4 @@
+#include "wire/core/support/numeric_tolerances.hpp"
 #pragma once
 
 #include <cstdint>
@@ -593,10 +594,10 @@ struct EndpointContinuityDecision {
 }
 
 [[nodiscard]] inline LateralSideChoiceKind LateralSideChoiceFromSign(double sign) {
-  if (sign > 1e-9) {
+  if (sign > kLengthToleranceM) {
     return LateralSideChoiceKind::kRight;
   }
-  if (sign < -1e-9) {
+  if (sign < -kLengthToleranceM) {
     return LateralSideChoiceKind::kLeft;
   }
   return LateralSideChoiceKind::kCenter;

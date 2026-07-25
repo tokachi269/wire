@@ -1,5 +1,5 @@
 #include "wire/core/detail_curve.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
@@ -9,7 +9,6 @@ namespace wire::core {
 
 namespace {
 
-constexpr double kZeroLengthEps = kLengthToleranceM;
 constexpr double kNormalizedCatenarySteepness = 3.4;
 constexpr double kG2MinChordLengthM = 4.0;
 constexpr double kG2EndpointOffsetRatioLimit = 0.08;
@@ -217,14 +216,14 @@ Vec3d ResolveEndpointPoint(const CurveConstraint& constraint) {
 double SagShape(double u) {
   const double x = Clamp01(u) - 0.5;
   const double edge = std::cosh(kNormalizedCatenarySteepness * 0.5);
-  const double denom = std::max(kZeroLengthEps, edge - 1.0);
+  const double denom = std::max(kLengthToleranceM, edge - 1.0);
   return std::max(0.0, (edge - std::cosh(kNormalizedCatenarySteepness * x)) / denom);
 }
 
 double SagShapeDerivative(double u) {
   const double x = Clamp01(u) - 0.5;
   const double edge = std::cosh(kNormalizedCatenarySteepness * 0.5);
-  const double denom = std::max(kZeroLengthEps, edge - 1.0);
+  const double denom = std::max(kLengthToleranceM, edge - 1.0);
   return (-kNormalizedCatenarySteepness * std::sinh(kNormalizedCatenarySteepness * x)) / denom;
 }
 
@@ -312,7 +311,7 @@ std::vector<DetailCurveSegment> BuildCompositeHeightTransitionSegments(
       chord_length * (0.11 + 0.03 * height_transition_bias), chord_length * 0.24);
   const double lead_budget_m = chord_length * 0.62;
   if (start_lead_m + end_lead_m > lead_budget_m) {
-    const double scale = lead_budget_m / std::max(kZeroLengthEps, start_lead_m + end_lead_m);
+    const double scale = lead_budget_m / std::max(kLengthToleranceM, start_lead_m + end_lead_m);
     start_lead_m *= scale;
     end_lead_m *= scale;
   }
@@ -326,7 +325,7 @@ std::vector<DetailCurveSegment> BuildCompositeHeightTransitionSegments(
 
   const double lead_start_length_m = std::sqrt(std::max(0.0, LengthSquared(transition_start - start_point)));
   const double lead_end_length_m = std::sqrt(std::max(0.0, LengthSquared(end_point - transition_end)));
-  const double total_piece_length_m = std::max(kZeroLengthEps, lead_start_length_m + middle_length_m + lead_end_length_m);
+  const double total_piece_length_m = std::max(kLengthToleranceM, lead_start_length_m + middle_length_m + lead_end_length_m);
   const double u_break_a = lead_start_length_m / total_piece_length_m;
   const double u_break_b = (lead_start_length_m + middle_length_m) / total_piece_length_m;
 
@@ -358,7 +357,7 @@ DetailCurveSegmentSpan ResolveCurveSegmentSpan(const DetailCurve& curve, double 
   const double clamped = Clamp01(u);
   for (const DetailCurveSegment& segment : curve.segments) {
     if (clamped <= segment.u_end + kLengthToleranceM) {
-      const double global_span = std::max(kZeroLengthEps, segment.u_end - segment.u_start);
+      const double global_span = std::max(kLengthToleranceM, segment.u_end - segment.u_start);
       span.segment = &segment;
       span.global_span = global_span;
       span.local_u = Clamp01((clamped - segment.u_start) / global_span);
@@ -368,7 +367,7 @@ DetailCurveSegmentSpan ResolveCurveSegmentSpan(const DetailCurve& curve, double 
   const DetailCurveSegment& last = curve.segments.back();
   span.segment = &last;
   span.local_u = 1.0;
-  span.global_span = std::max(kZeroLengthEps, last.u_end - last.u_start);
+  span.global_span = std::max(kLengthToleranceM, last.u_end - last.u_start);
   return span;
 }
 
@@ -630,7 +629,7 @@ double RigidityScale(const CurveConstraint& constraint) {
 HandleLengthComponents ComputeHandleLength(double chord_length, const Vec3d& chord_dir, const CurveConstraint& constraint,
                                            const CurveShapePolicyDecision& policy, double continuity_scale) {
   HandleLengthComponents out{};
-  if (chord_length <= kZeroLengthEps) {
+  if (chord_length <= kLengthToleranceM) {
     return out;
   }
   switch (policy.kind) {
@@ -711,7 +710,7 @@ CurveQualityMetrics EvaluateCurveQuality(const std::array<Vec3d, 4>& cp, double 
   const Vec3d start = cp[0];
   Vec3d chord_dir = cp[3] - cp[0];
   const double chord_length = std::sqrt(LengthSquared(chord_dir));
-  if (chord_length <= kZeroLengthEps) {
+  if (chord_length <= kLengthToleranceM) {
     return metrics;
   }
   chord_dir = ScaleVec(chord_dir, 1.0 / chord_length);
@@ -775,7 +774,7 @@ ContinuityDecision DecideContinuity(const CurveConstraint& start_constraint, con
     return decision;
   }
 
-  if (chord_length <= kZeroLengthEps) {
+  if (chord_length <= kLengthToleranceM) {
     decision.reason = DetailCurveContinuityReason::kContextInsufficient;
     return decision;
   }
@@ -897,7 +896,7 @@ void PopulateLengthData(DetailCurve* curve) {
     curve->distance_attributes.arc_length_m.push_back(static_cast<float>(curve->total_length_m));
     curve->distance_attributes.segment_length_m.push_back(static_cast<float>(segment_length));
   }
-  const double total = std::max(curve->total_length_m, kZeroLengthEps);
+  const double total = std::max(curve->total_length_m, kLengthToleranceM);
   for (float arc_length : curve->distance_attributes.arc_length_m) {
     curve->distance_attributes.arc_length_normalized.push_back(static_cast<float>(arc_length / total));
   }
@@ -914,7 +913,7 @@ void PopulateLengthData(DetailCurve* curve) {
 Vec3d DetailCurve::EvaluatePosition(double u) const {
   Vec3d point = EvaluateCurveBasePosition(*this, u);
   if (sag_application == DetailCurveSagApplication::kSeparateProfile &&
-      std::abs(sag_amplitude_m) > kZeroLengthEps) {
+      std::abs(sag_amplitude_m) > kLengthToleranceM) {
     OffsetAlongWorldUp(&point, -sag_amplitude_m * SagShape(u));
   }
   return point;
@@ -923,7 +922,7 @@ Vec3d DetailCurve::EvaluatePosition(double u) const {
 Vec3d DetailCurve::EvaluateTangent(double u) const {
   Vec3d tangent = EvaluateCurveBaseDerivative(*this, u);
   if (sag_application == DetailCurveSagApplication::kSeparateProfile &&
-      std::abs(sag_amplitude_m) > kZeroLengthEps) {
+      std::abs(sag_amplitude_m) > kLengthToleranceM) {
     tangent = tangent + ScaleVec(WorldUp(), -sag_amplitude_m * SagShapeDerivative(u));
   }
   Normalize(&tangent);
@@ -947,7 +946,7 @@ double DetailCurve::LengthToU(double s) const {
   }
   const CurveLengthSample& b = *it;
   const CurveLengthSample& a = *(it - 1);
-  const double denom = std::max(kZeroLengthEps, b.arc_length_m - a.arc_length_m);
+  const double denom = std::max(kLengthToleranceM, b.arc_length_m - a.arc_length_m);
   const double t = (clamped - a.arc_length_m) / denom;
   return a.u + (b.u - a.u) * t;
 }

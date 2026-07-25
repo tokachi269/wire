@@ -1,6 +1,7 @@
 #include "port_placement.hpp"
 
 #include "wire/core/core_state.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "wire/core/core_view.hpp"
 
 namespace wire::core::state_internal {
@@ -37,10 +38,10 @@ const PortPlacementBand* FindPortPlacementBandForPort(
 }
 
 SlotSide inner_side_for_turn(double turn_sign) {
-  if (turn_sign > 1e-9) {
+  if (turn_sign > kLengthToleranceM) {
     return SlotSide::kLeft;
   }
-  if (turn_sign < -1e-9) {
+  if (turn_sign < -kLengthToleranceM) {
     return SlotSide::kRight;
   }
   return SlotSide::kCenter;

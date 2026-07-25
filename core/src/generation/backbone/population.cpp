@@ -1,7 +1,7 @@
 #include "population.hpp"
 
 #include "wire/core/core_view.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "../../state/port_placement.hpp"
 
 #include <algorithm>
@@ -12,7 +12,6 @@
 namespace wire::core::generation::backbone {
 namespace {
 
-constexpr double kEps = kLengthToleranceM;
 constexpr std::size_t kCandidateAttempts = 32;
 
 std::uint64_t mix64(std::uint64_t value) {
@@ -47,7 +46,7 @@ bool finite_range(double min_value, double max_value) {
 }
 
 bool inside(double value, double min_value, double max_value) {
-  return value >= min_value - kEps && value <= max_value + kEps;
+  return value >= min_value - kLengthToleranceM && value <= max_value + kLengthToleranceM;
 }
 
 bool blocked_by_reserve(const CablePopulationEndpoint& endpoint,
@@ -64,7 +63,7 @@ bool spacing_satisfied(const Vec3d& candidate, const std::vector<Vec3d>& occupie
   return std::all_of(occupied.begin(), occupied.end(), [&](const Vec3d& existing) {
     const double dy = candidate.y - existing.y;
     const double dz = candidate.z - existing.z;
-    return dy * dy + dz * dz + kEps >= required2;
+    return dy * dy + dz * dz + kLengthToleranceM >= required2;
   });
 }
 

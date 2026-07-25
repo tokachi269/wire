@@ -2,6 +2,7 @@
 
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "wire/core/style_context.hpp"
 #include "../geometry/detail_curve_input_resolution.hpp"
 
@@ -549,7 +550,7 @@ std::optional<PoleInspectionView> CoreView::inspect_pole(ObjectId pole_id) const
     result.has_forward = true;
     result.support_axis_dir = it->second.adopted_support_axis;
     const double support_axis_len2 = LengthSquared(result.support_axis_dir);
-    result.has_support_axis = support_axis_len2 > 1e-12;
+    result.has_support_axis = support_axis_len2 > kStrictLengthToleranceM;
     result.automatic_yaw_deg = YawDegFromXY(it->second.adopted_forward);
   }
 

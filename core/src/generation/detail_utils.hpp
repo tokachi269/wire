@@ -2,6 +2,7 @@
 
 #include "../collection_utils.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "wire/core/core_edit_types.hpp"
 
 #include <algorithm>
@@ -11,7 +12,6 @@
 namespace wire::core::generation::detail {
 
 constexpr double kPi = 3.14159265358979323846;
-constexpr double kZeroLengthEps = 1e-9;
 
 using wire::core::detail::append_unique;
 
@@ -49,15 +49,16 @@ inline bool segments_intersect_xy_strict_local(const Vec3d& a, const Vec3d& b, c
   if (!xy_bbox_overlap_local(a, b, c, d)) {
     return false;
   }
-  constexpr double kIntersectEps = 1e-9;
   const double o1 = orient2d_xy_local(a, b, c);
   const double o2 = orient2d_xy_local(a, b, d);
   const double o3 = orient2d_xy_local(c, d, a);
   const double o4 = orient2d_xy_local(c, d, b);
   const bool ab_straddle_cd =
-      ((o1 > kIntersectEps && o2 < -kIntersectEps) || (o1 < -kIntersectEps && o2 > kIntersectEps));
+      ((o1 > kIntersectionTolerance && o2 < -kIntersectionTolerance) ||
+       (o1 < -kIntersectionTolerance && o2 > kIntersectionTolerance));
   const bool cd_straddle_ab =
-      ((o3 > kIntersectEps && o4 < -kIntersectEps) || (o3 < -kIntersectEps && o4 > kIntersectEps));
+      ((o3 > kIntersectionTolerance && o4 < -kIntersectionTolerance) ||
+       (o3 < -kIntersectionTolerance && o4 > kIntersectionTolerance));
   return ab_straddle_cd && cd_straddle_ab;
 }
 
@@ -66,7 +67,7 @@ inline bool line_intersection_xy_local(const Vec3d& p, const Vec3d& r, const Vec
     return false;
   }
   const double denom = r.x * s.y - r.y * s.x;
-  if (std::abs(denom) <= 1e-9) {
+  if (std::abs(denom) <= kIntersectionTolerance) {
     return false;
   }
   const Vec3d qp = q - p;

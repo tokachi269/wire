@@ -8,7 +8,7 @@
 #include "../../support/instrumentation.hpp"
 
 #include "wire/core/coord_utils.hpp"
-#include "wire/core/numeric_tolerances.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "wire/core/core_view.hpp"
 
 #include <algorithm>

@@ -19,7 +19,7 @@
   "layers": [
     {
       "name": "public_api",
-      "patterns": ["core/include/wire/core/*.hpp"],
+      "patterns": ["core/include/wire/core/*.hpp", "core/include/wire/core/support/*.hpp"],
       "forbidden_tokens": ["core/src/"]
     },
     {

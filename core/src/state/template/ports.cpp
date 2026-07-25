@@ -1,5 +1,6 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/support/numeric_tolerances.hpp"
 #include "../../collection_utils.hpp"
 #include "../port_placement.hpp"
 
@@ -17,7 +18,6 @@ namespace wire::core {
 
 namespace {
 
-constexpr double kZeroLengthEps = 1e-9;
 ConnectionCategory port_layer_to_category(PortLayer layer) {
   switch (layer) {
   case PortLayer::kHighVoltage:
@@ -343,7 +343,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
         const Vec3d& local = occupied.second;
         const double distance = std::hypot(local.y - lateral_m, local.z - height_m);
         nearest_distance = std::min(nearest_distance, distance);
-        if (distance + 1e-9 < band.min_spacing_m) {
+        if (distance + kLengthToleranceM < band.min_spacing_m) {
           ++conflict_count;
         }
       }
@@ -660,7 +660,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
           adjusted_local.y =
               state_internal::apply_corner_side_scale(
                   adjusted_local.y, best_band->side, request.corner_turn_sign, debug.side_scale);
-          if (std::abs(best_solve.lateral_m) > 1e-9) {
+          if (std::abs(best_solve.lateral_m) > kLengthToleranceM) {
             applied_scale = std::abs(adjusted_local.y / best_solve.lateral_m);
           }
         }
@@ -671,9 +671,9 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
 
       if (best_port != nullptr) {
         const auto [selected_world, applied_scale] = realize_selected_world();
-        const bool moved = std::abs(best_port->world_position.x - selected_world.x) > 1e-9 ||
-                           std::abs(best_port->world_position.y - selected_world.y) > 1e-9 ||
-                           std::abs(best_port->world_position.z - selected_world.z) > 1e-9;
+        const bool moved = std::abs(best_port->world_position.x - selected_world.x) > kLengthToleranceM ||
+                           std::abs(best_port->world_position.y - selected_world.y) > kLengthToleranceM ||
+                           std::abs(best_port->world_position.z - selected_world.z) > kLengthToleranceM;
         if (moved) {
           best_port->world_position = selected_world;
           add_unique_id(result.change_set.updated_ids, best_port->id);

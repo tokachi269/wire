@@ -52,6 +52,8 @@ describe("workspace cache", () => {
     firstCoreState = "edited-core";
     firstActions.setDrawOption("cameraFov", 73);
     firstActions.setDrawOption("showRightPanel", false);
+    firstActions.setDrawOption("workspaceLeftWidth", 240);
+    firstActions.setDrawOption("workspaceWidth", 370);
     firstActions.addPathPoint([1, 2, 3]);
     await vi.advanceTimersByTimeAsync(251);
     firstActions.dispose();
@@ -76,6 +78,8 @@ describe("workspace cache", () => {
     expect(current(secondStore)).toEqual(expect.objectContaining({
       cameraFov: 73,
       showRightPanel: false,
+      workspaceLeftWidth: 240,
+      workspaceWidth: 370,
       pathPoints: []
     }));
     expect((await cache.read())?.viewer).not.toHaveProperty("pathPoints");
@@ -86,6 +90,8 @@ describe("workspace cache", () => {
     expect(current(secondStore)).toEqual(expect.objectContaining({
       cameraFov: 48,
       showRightPanel: false,
+      workspaceLeftWidth: 240,
+      workspaceWidth: 370,
       pathPoints: []
     }));
     expect(await cache.read()).toEqual(expect.objectContaining({

@@ -158,7 +158,9 @@ export class WorkspaceActions {
     this.ctx.store.replace({
       ...createViewerSnapshot(),
       showLeftPanel: beforeReset.showLeftPanel,
-      showRightPanel: beforeReset.showRightPanel
+      showRightPanel: beforeReset.showRightPanel,
+      workspaceLeftWidth: beforeReset.workspaceLeftWidth,
+      workspaceWidth: beforeReset.workspaceWidth
     });
     this.initialize();
     await this.restoreWorkspace();

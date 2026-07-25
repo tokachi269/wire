@@ -141,6 +141,7 @@ h1 {
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   border: 1px solid rgba(83, 96, 102, 0.82);
   border-radius: 3px;
   background: rgba(29, 35, 38, 0.86);
@@ -151,26 +152,31 @@ h1 {
   position: absolute;
   z-index: 18;
   top: 94px;
-  width: 24px;
-  min-width: 24px;
-  height: 92px;
+  width: 22px;
+  min-width: 22px;
+  height: 78px;
   padding: 0;
-  border-color: rgba(83, 96, 102, 0.9);
-  border-radius: 3px;
-  background: rgba(35, 42, 45, 0.9);
+  border-color: rgba(65, 76, 82, 0.95);
+  background: rgba(36, 43, 47, 0.96);
   color: #cdd6d4;
-  font: 600 0.66rem "IBM Plex Sans", sans-serif;
+  font: 600 0.62rem "IBM Plex Sans", sans-serif;
   line-height: 1;
   writing-mode: vertical-rl;
   text-orientation: mixed;
+  letter-spacing: 0;
   backdrop-filter: blur(8px);
 }
 
 .side-tab:hover,
 .side-tab.active {
-  background: #315b84;
-  border-color: #5f9de3;
+  background: rgba(45, 55, 60, 0.98);
+  border-color: rgba(89, 105, 114, 0.98);
   color: #f5f8fb;
+}
+
+.side-tab:focus-visible {
+  outline: 1px solid rgba(95, 157, 227, 0.72);
+  outline-offset: -3px;
 }
 
 .side-tab:active {
@@ -179,10 +185,22 @@ h1 {
 
 .left-tab {
   left: 0;
+  border-radius: 0 3px 3px 0;
 }
 
 .right-tab {
   right: 0;
+  border-radius: 3px 0 0 3px;
+}
+
+.left-tab.active {
+  left: calc(6px + var(--left-width));
+  border-left-color: transparent;
+}
+
+.right-tab.active {
+  right: calc(6px + var(--right-width));
+  border-right-color: transparent;
 }
 
 .left-region {
@@ -196,7 +214,7 @@ h1 {
   display: grid;
   align-content: start;
   gap: 6px;
-  padding: 6px;
+  padding: 6px 10px 6px 6px;
   font-size: var(--sidebar-control-size);
 }
 
@@ -239,6 +257,8 @@ h1 {
 }
 
 .draw-panel {
+  min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--line);
   background: var(--panel-raised);
   padding: 0.65rem;
@@ -288,7 +308,7 @@ h1 {
 .bundle-placement {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(74px, 1fr) repeat(3, 42px) 36px;
+  grid-template-columns: minmax(54px, 1fr) repeat(3, minmax(48px, 0.72fr)) 28px;
   align-items: center;
   gap: 3px;
   padding: 4px 0;
@@ -740,7 +760,8 @@ summary {
 }
 
 .settings .check {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.4rem;
 }
@@ -803,17 +824,17 @@ summary {
   }
 
   .left-region {
-    top: 46px;
+    top: 60px;
     bottom: auto;
     max-height: 42vh;
     width: min(var(--left-width), calc(100vw - 8px));
   }
 
   .right-region {
-    top: 46px;
+    top: 60px;
     bottom: 44px;
     width: min(var(--right-width), calc(100vw - 8px));
-    max-height: calc(100vh - 92px);
+    max-height: calc(100vh - 106px);
   }
 
   .resize-handle {
@@ -821,8 +842,16 @@ summary {
   }
 
   .side-tab {
-    top: 52px;
-    height: 76px;
+    top: 66px;
+    height: 68px;
+  }
+
+  .left-tab.active {
+    left: calc(6px + min(var(--left-width), calc(100vw - 8px)));
+  }
+
+  .right-tab.active {
+    right: calc(6px + min(var(--right-width), calc(100vw - 8px)));
   }
 
   .viewport {

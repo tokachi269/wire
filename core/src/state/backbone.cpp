@@ -80,7 +80,7 @@ EditResult<bool> CoreState::bind_backbone_node_bundle_modes(
   auto node_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
                               [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
   if (node_it == authoritative_.backbone.nodes.end()) {
-    out.error = "backbone graph: saved node missing for bundle policy";
+    out.error = "backbone internal: backbone graph: saved node missing for bundle policy";
     return out;
   }
   if (node_it->support_kind == SupportKind::kExternal) {
@@ -105,7 +105,7 @@ EditResult<bool> CoreState::bind_backbone_node_path_point_index(ObjectId node_id
   auto node_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
                               [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
   if (node_it == authoritative_.backbone.nodes.end()) {
-    out.error = "backbone graph: saved node missing for route index";
+    out.error = "backbone internal: backbone graph: saved node missing for route index";
     return out;
   }
   node_it->path_point_index = path_point_index;
@@ -184,18 +184,18 @@ ObjectId CoreState::bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, b
 EditResult<bool> CoreState::bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id) {
   EditResult<bool> out{};
   if (edge_bundle_id == kInvalidObjectId || span_id == kInvalidObjectId) {
-    out.error = "invalid backbone span binding";
+    out.error = "backbone invalid input: invalid backbone span binding";
     return out;
   }
   const auto position = runtime_.backbone_index.edge_bundle_positions.find(edge_bundle_id);
   if (position == runtime_.backbone_index.edge_bundle_positions.end() ||
       position->second >= authoritative_.backbone.edge_bundles.size()) {
-    out.error = "invalid backbone span binding";
+    out.error = "backbone invalid input: invalid backbone span binding";
     return out;
   }
   SavedBackboneEdgeBundle* found = &authoritative_.backbone.edge_bundles[position->second];
   if (found->edge_bundle_id != edge_bundle_id) {
-    out.error = "invalid backbone span binding";
+    out.error = "backbone invalid input: invalid backbone span binding";
     return out;
   }
   const auto existing = runtime_.backbone_index.edge_bundle_span_bindings.find(edge_bundle_id);
@@ -206,14 +206,14 @@ EditResult<bool> CoreState::bind_backbone_span(ObjectId edge_bundle_id, std::siz
       }
       const SavedBackboneSpanBinding& binding = authoritative_.backbone.span_bindings[index];
       if (binding.lane_index == lane_index) {
-        out.error = "duplicate backbone span binding";
+        out.error = "backbone invalid input: duplicate backbone span binding";
         return out;
       }
     }
   }
   const auto span_existing = runtime_.backbone_index.span_bindings_by_span.find(span_id);
   if (span_existing != runtime_.backbone_index.span_bindings_by_span.end() && !span_existing->second.empty()) {
-    out.error = "duplicate backbone span binding";
+    out.error = "backbone invalid input: duplicate backbone span binding";
     return out;
   }
   add_unique_id(found->span_ids, span_id);
@@ -242,7 +242,7 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
       row_key.edge_id == kInvalidObjectId || support_level < 0 ||
       (support_level == 0 && support_group_id != -1) ||
       (support_level > 0 && support_group_id < 0)) {
-    out.error = "invalid backbone port binding";
+    out.error = "backbone invalid input: invalid backbone port binding";
     return out;
   }
   const auto existing = runtime_.backbone_index.edge_bundle_ports.find(edge_bundle_id);
@@ -253,7 +253,7 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
       }
       const SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[index];
       if (binding.row_key == row_key && binding.lane_index == lane_index) {
-        out.error = "duplicate backbone port binding";
+        out.error = "backbone invalid input: duplicate backbone port binding";
         return out;
       }
     }
@@ -269,7 +269,7 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
           binding.port_layer != port_layer || binding.placement_band_id != placement_band_id ||
           binding.support_level != support_level || binding.support_group_id != support_group_id ||
           std::abs(NormalizeYawDeg(binding.layout_yaw_deg - layout_yaw_deg)) > 1e-9) {
-        out.error = "incompatible backbone port binding";
+        out.error = "backbone invalid input: incompatible backbone port binding";
         return out;
       }
     }
@@ -339,13 +339,13 @@ EditResult<bool> CoreState::bind_backbone_row_continuity(ObjectId node_id,
   EditResult<bool> out{};
   if (node_id == kInvalidObjectId || edge_bundle_a == kInvalidObjectId ||
       edge_bundle_b == kInvalidObjectId || edge_bundle_a == edge_bundle_b) {
-    out.error = "invalid backbone row continuity";
+    out.error = "backbone invalid input: invalid backbone row continuity";
     return out;
   }
   if (view().backbone_node(node_id) == nullptr ||
       view().backbone_edge_bundle(edge_bundle_a) == nullptr ||
       view().backbone_edge_bundle(edge_bundle_b) == nullptr) {
-    out.error = "invalid backbone row continuity";
+    out.error = "backbone invalid input: invalid backbone row continuity";
     return out;
   }
   for (const SavedBackboneRowContinuity& continuity : authoritative_.backbone.row_continuities) {
@@ -449,7 +449,7 @@ EditResult<ResolveBranchPickResult>
 CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOptions& options) {
   EditResult<ResolveBranchPickResult> result{};
   if (options.snap_radius_world < 0.0) {
-    result.error = "snap_radius_world must be >= 0";
+    result.error = "backbone invalid input: snap_radius_world must be >= 0";
     return result;
   }
 
@@ -469,7 +469,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   for (BundleTemplateId bundle_template_id : selected_template_ids) {
     const BundleTemplate* bundle_template = find_bundle_template(bundle_template_id);
     if (bundle_template == nullptr) {
-      result.error = "bundle template not found";
+      result.error = "core invalid input: bundle template not found";
       return result;
     }
     SelectedTemplatePolicy selected{};
@@ -626,7 +626,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                   return selected.allow_midair_path;
                                                 });
       if (!any_allow_midair) {
-        result.error = "no selected bundle template allows midair branch";
+        result.error = "backbone invalid input: no selected bundle template allows midair branch";
         return;
       }
     }
@@ -665,7 +665,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
 
   if (pick.hit_kind == PickHitKind::kNode) {
     if (pick.hit_id == kInvalidObjectId) {
-      result.error = "node pick must include a valid hit_id";
+      result.error = "backbone invalid input: node pick must include a valid hit_id";
       return result;
     }
     result.value.resolution = PickBranchResolutionKind::kNode;
@@ -737,7 +737,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
 
   if (pick.hit_kind != PickHitKind::kSegment) {
-    result.error = "pick hit kind is not supported for branch resolution";
+    result.error = "backbone invalid input: pick hit kind is not supported for branch resolution";
     return result;
   }
 
@@ -794,7 +794,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                 return selected.allow_midair_path;
                                               });
     if (!any_allow_midair) {
-      result.error = "no selected bundle template allows midair branch";
+      result.error = "backbone invalid input: no selected bundle template allows midair branch";
       return result;
     }
   }

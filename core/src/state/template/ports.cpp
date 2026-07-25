@@ -266,7 +266,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
   };
 
   if (pole == nullptr) {
-    result.error = "pole not found";
+    result.error = "core invalid input: pole not found";
     debug.result = result.error;
     push_debug();
     return result;

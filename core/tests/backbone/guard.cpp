@@ -2069,6 +2069,84 @@ bool C829_core_policy_constants_are_classified() {
   return true;
 }
 
+bool C830_edit_errors_require_registered_prefixes() {
+  const std::vector<std::string> prefixes = {
+      "backbone invalid input:",
+      "backbone unsupported:",
+      "backbone internal:",
+      "core invalid input:",
+      "core unsupported:",
+      "core internal:",
+      "authoritative invalid input:",
+      "authoritative unsupported:",
+      "authoritative internal:",
+      "cable curve invalid input:",
+      "cable curve unsupported:",
+      "cable curve internal:",
+      "model assembly invalid input:",
+      "model assembly unsupported:",
+      "model assembly internal:",
+      "model mount graph unsupported:",
+      "model mount graph internal:",
+      "cable population invalid input:",
+      "cable population unsupported:",
+      "cable population internal:",
+  };
+  wire::core::EditResult<bool> unknown{};
+  unknown.error = "missing prefix example";
+  WIRE_TEST_EXPECT(unknown.effective_error_kind() == wire::core::EditErrorKind::kInternal,
+                   "missing edit error prefix must be internal, not unsupported");
+
+  const std::filesystem::path root = repo_root() / "core/src";
+  const std::vector<std::string> markers = {
+      ".error = \"",
+      "->error = \"",
+      "*error = \"",
+      "failed.error = \"",
+      "applied.error = \"",
+      "derived.error = \"",
+  };
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    const std::string extension = entry.path().extension().string();
+    if (extension != ".cpp" && extension != ".hpp") {
+      continue;
+    }
+    std::string text{};
+    WIRE_TEST_EXPECT(file_text(entry.path(), &text), "failed to read error source: " + entry.path().string());
+    std::istringstream stream(text);
+    std::string line{};
+    std::size_t line_number = 0;
+    while (std::getline(stream, line)) {
+      ++line_number;
+      std::size_t marker_pos = std::string::npos;
+      for (const std::string& marker : markers) {
+        marker_pos = line.find(marker);
+        if (marker_pos != std::string::npos) {
+          marker_pos += marker.size();
+          break;
+        }
+      }
+      if (marker_pos == std::string::npos) {
+        continue;
+      }
+      const std::string literal = line.substr(marker_pos);
+      bool registered = false;
+      for (const std::string& prefix : prefixes) {
+        if (literal.rfind(prefix, 0) == 0) {
+          registered = true;
+          break;
+        }
+      }
+      WIRE_TEST_EXPECT(registered, "unregistered error prefix in " + entry.path().string() + ":" +
+                                       std::to_string(line_number) + " -> " + literal);
+    }
+  }
+  return true;
+}
+
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
   std::string model_assembly{};
   std::string curve_parts{};

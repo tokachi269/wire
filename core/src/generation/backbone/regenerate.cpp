@@ -114,7 +114,7 @@ EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes_from_sav
     const auto a_it = edge_bundle_by_id.find(continuity.a.edge_bundle_id);
     const auto b_it = edge_bundle_by_id.find(continuity.b.edge_bundle_id);
     if (a_it == edge_bundle_by_id.end() || b_it == edge_bundle_by_id.end()) {
-      result.error = "authoritative deserialization: row continuity edge bundle is missing";
+      result.error = "authoritative invalid input: authoritative deserialization: row continuity edge bundle is missing";
       return result;
     }
     add_continuity_neighbor(&adjacency, a_it->second->edge_id, b_it->second->edge_id, continuity.node_id);
@@ -149,7 +149,7 @@ EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes_from_sav
     const ObjectId start_id = choose_start();
     const auto start_it = edge_by_id.find(start_id);
     if (start_it == edge_by_id.end()) {
-      result.error = "authoritative deserialization: saved route edge is missing";
+      result.error = "authoritative invalid input: authoritative deserialization: saved route edge is missing";
       return result;
     }
     std::vector<const SavedBackboneEdge*> edges{};
@@ -159,11 +159,11 @@ EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes_from_sav
     for (;;) {
       const auto current_it = edge_by_id.find(current_edge_id);
       if (current_it == edge_by_id.end()) {
-        result.error = "authoritative deserialization: saved route edge is missing";
+        result.error = "authoritative invalid input: authoritative deserialization: saved route edge is missing";
         return result;
       }
       if (std::find(remaining.begin(), remaining.end(), current_edge_id) == remaining.end()) {
-        result.error = "authoritative deserialization: saved route continuity cycle is ambiguous";
+        result.error = "authoritative invalid input: authoritative deserialization: saved route continuity cycle is ambiguous";
         return result;
       }
       edges.push_back(current_it->second);
@@ -182,7 +182,7 @@ EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes_from_sav
         break;
       }
       if (next_candidates.size() > 1) {
-        result.error = "authoritative deserialization: saved route continuity is ambiguous";
+        result.error = "authoritative invalid input: authoritative deserialization: saved route continuity is ambiguous";
         return result;
       }
       shared_nodes.push_back(next_candidates.front().via_node_id);
@@ -211,7 +211,7 @@ EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes_from_sav
       }
       if (from_node_id == kInvalidObjectId || to_node_id == kInvalidObjectId ||
           from_node_id == to_node_id) {
-        result.error = "authoritative deserialization: saved route continuity endpoint is invalid";
+        result.error = "authoritative invalid input: authoritative deserialization: saved route continuity endpoint is invalid";
         return result;
       }
       route.push_back(LoadedRouteEdge{&edge, from_node_id, to_node_id,
@@ -593,18 +593,18 @@ EditResult<bool> CoreState::regenerate_backbone_span_override(ObjectId span_id, 
   EditResult<bool> result{};
   const auto backbone_it = runtime_.backbone_index.span_edge_bundle.find(span_id);
   if (backbone_it == runtime_.backbone_index.span_edge_bundle.end()) {
-    result.error = "backbone regenerate: span is not bound to an edge bundle";
+    result.error = "backbone unsupported: backbone regenerate: span is not bound to an edge bundle";
     return result;
   }
   const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(backbone_it->second);
   const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
   if (edge_bundle == nullptr || bundle == nullptr) {
-    result.error = "backbone regenerate: span override scope is incomplete";
+    result.error = "backbone unsupported: backbone regenerate: span override scope is incomplete";
     return result;
   }
   const auto bundle_template_it = authoritative_.bundle_templates.find(bundle->bundle_template_id);
   if (bundle_template_it == authoritative_.bundle_templates.end()) {
-    result.error = "bundle template not found";
+    result.error = "core invalid input: bundle template not found";
     return result;
   }
   const std::vector<ObjectId> scope{edge_bundle->edge_bundle_id};
@@ -632,12 +632,12 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
     for (std::size_t i = 0; i <= edges.size(); ++i) {
       const ObjectId node_id = i == 0 ? edges.front().from_node_id : edges[i - 1].to_node_id;
       if (i > 0 && i < edges.size() && edges[i].from_node_id != node_id) {
-        result.error = "authoritative deserialization: saved route is not contiguous";
+        result.error = "authoritative invalid input: authoritative deserialization: saved route is not contiguous";
         return result;
       }
       const SavedBackboneNode* saved_node = saved_node_by_id(saved, node_id);
       if (saved_node == nullptr) {
-        result.error = "authoritative deserialization: saved route node is missing";
+        result.error = "authoritative invalid input: authoritative deserialization: saved route node is missing";
         return result;
       }
       generation::backbone::node node{};
@@ -702,7 +702,7 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       const int a = append_context_node(candidate.node_a);
       const int b = append_context_node(candidate.node_b);
       if (a < 0 || b < 0) {
-        result.error = "authoritative deserialization: saved context node is missing";
+        result.error = "authoritative invalid input: authoritative deserialization: saved context node is missing";
         return result;
       }
       generation::backbone::link link{};
@@ -725,12 +725,12 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       if (edge_bundle.edge_id != edges.front().edge->edge_id) continue;
       const Bundle* bundle = authoritative_.edit_state.bundles.find(edge_bundle.bundle_id);
       if (bundle == nullptr) {
-        result.error = "authoritative deserialization: saved edge bundle is missing its bundle";
+        result.error = "authoritative invalid input: authoritative deserialization: saved edge bundle is missing its bundle";
         return result;
       }
       const auto template_it = authoritative_.bundle_templates.find(bundle->bundle_template_id);
       if (template_it == authoritative_.bundle_templates.end()) {
-        result.error = "authoritative deserialization: saved bundle template is missing";
+        result.error = "authoritative invalid input: authoritative deserialization: saved bundle template is missing";
         return result;
       }
       BackboneBundleSpec bundle_spec{};
@@ -749,7 +749,7 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       active_bundle_indices.push_back(spec.bundles.size() - 1);
     }
     if (spec.bundles.empty()) {
-      result.error = "authoritative deserialization: saved route has no bundles";
+      result.error = "authoritative invalid input: authoritative deserialization: saved route has no bundles";
       return result;
     }
     generation::backbone::pipeline pipeline(*this, spec);

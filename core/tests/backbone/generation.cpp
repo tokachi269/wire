@@ -445,8 +445,8 @@ bool C822_edit_result_error_kind_classifies_core_error_prefixes() {
   unsupported.error = "backbone unsupported: empty bundles";
   wire::core::EditResult<bool> internal{};
   internal.error = "backbone internal: row continuity endpoint is missing";
-  wire::core::EditResult<bool> legacy{};
-  legacy.error = "authoritative deserialization: invalid field";
+  wire::core::EditResult<bool> unknown{};
+  unknown.error = "missing prefix";
   wire::core::EditResult<bool> ok{};
   ok.ok = true;
   ok.error = "backbone internal: ignored on success";
@@ -454,7 +454,7 @@ bool C822_edit_result_error_kind_classifies_core_error_prefixes() {
   return validation.effective_error_kind() == wire::core::EditErrorKind::kValidation &&
          unsupported.effective_error_kind() == wire::core::EditErrorKind::kUnsupported &&
          internal.effective_error_kind() == wire::core::EditErrorKind::kInternal &&
-         legacy.effective_error_kind() == wire::core::EditErrorKind::kUnsupported &&
+         unknown.effective_error_kind() == wire::core::EditErrorKind::kInternal &&
          ok.effective_error_kind() == wire::core::EditErrorKind::kNone;
 }
 

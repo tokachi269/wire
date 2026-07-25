@@ -296,7 +296,7 @@ EditResult<ObjectId> CoreState::AddPole(const Transformd& world_transform, doubl
                                         PoleKind kind, PlacementMode placement_mode) {
   EditResult<ObjectId> result;
   if (height_m <= 0.0) {
-    result.error = "pole height must be > 0";
+    result.error = "core invalid input: pole height must be > 0";
     return result;
   }
 
@@ -326,7 +326,7 @@ EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& wor
                                         PortLayer layer, const Frame3d& direction) {
   EditResult<ObjectId> result;
   if (owner_pole_id != kInvalidObjectId && authoritative_.edit_state.poles.find(owner_pole_id) == nullptr) {
-    result.error = "owner pole does not exist";
+    result.error = "core invalid input: owner pole does not exist";
     return result;
   }
 
@@ -363,11 +363,11 @@ EditResult<ObjectId> CoreState::AddAnchor(ObjectId owner_pole_id, const Vec3d& w
                                           AnchorSupportKind support_kind, double support_strength) {
   EditResult<ObjectId> result;
   if (owner_pole_id != kInvalidObjectId && authoritative_.edit_state.poles.find(owner_pole_id) == nullptr) {
-    result.error = "owner pole does not exist";
+    result.error = "core invalid input: owner pole does not exist";
     return result;
   }
   if (support_strength <= 0.0) {
-    result.error = "support strength must be > 0";
+    result.error = "core invalid input: support strength must be > 0";
     return result;
   }
 
@@ -396,16 +396,16 @@ EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spac
                                           std::uint64_t placement_key) {
   EditResult<ObjectId> result;
   if (conductor_count <= 0) {
-    result.error = "conductor count must be > 0";
+    result.error = "core invalid input: conductor count must be > 0";
     return result;
   }
   if (phase_spacing_m <= 0.0) {
-    result.error = "phase spacing must be > 0";
+    result.error = "core invalid input: phase spacing must be > 0";
     return result;
   }
   if (!std::isfinite(height_m) || !std::isfinite(lateral_m) ||
       !std::isfinite(spacing_override_m) || spacing_override_m < 0.0) {
-    result.error = "bundle placement offsets must be finite";
+    result.error = "core invalid input: bundle placement offsets must be finite";
     return result;
   }
 
@@ -435,27 +435,27 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   const Port* port_a = authoritative_.edit_state.ports.find(port_a_id);
   const Port* port_b = authoritative_.edit_state.ports.find(port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
-    result.error = "span ports do not exist";
+    result.error = "core invalid input: span ports do not exist";
     return result;
   }
   if (port_a_id == port_b_id) {
-    result.error = "span endpoints must be different";
+    result.error = "core invalid input: span endpoints must be different";
     return result;
   }
   if (has_zero_length(*port_a, *port_b)) {
-    result.error = "zero-length span is not allowed";
+    result.error = "core invalid input: zero-length span is not allowed";
     return result;
   }
   if (bundle_id != kInvalidObjectId && authoritative_.edit_state.bundles.find(bundle_id) == nullptr) {
-    result.error = "bundle does not exist";
+    result.error = "core invalid input: bundle does not exist";
     return result;
   }
   if (anchor_a_id != kInvalidObjectId && authoritative_.edit_state.anchors.find(anchor_a_id) == nullptr) {
-    result.error = "anchor_a does not exist";
+    result.error = "core invalid input: anchor_a does not exist";
     return result;
   }
   if (anchor_b_id != kInvalidObjectId && authoritative_.edit_state.anchors.find(anchor_b_id) == nullptr) {
-    result.error = "anchor_b does not exist";
+    result.error = "core invalid input: anchor_b does not exist";
     return result;
   }
 
@@ -486,7 +486,7 @@ EditResult<bool> CoreState::set_span_endpoint_nodes(ObjectId span_id, ObjectId n
   EditResult<bool> result{};
   Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    result.error = "span does not exist";
+    result.error = "core invalid input: span does not exist";
     return result;
   }
   span->endpoint_node_a_id = node_a_id;
@@ -500,11 +500,11 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
                                               AttachmentTemplateId template_id) {
   EditResult<ObjectId> result;
   if (authoritative_.edit_state.spans.find(span_id) == nullptr) {
-    result.error = "span does not exist";
+    result.error = "core invalid input: span does not exist";
     return result;
   }
   if (t < 0.0 || t > 1.0) {
-    result.error = "attachment t must be in [0, 1]";
+    result.error = "core invalid input: attachment t must be in [0, 1]";
     return result;
   }
   if (template_id == kInvalidAttachmentTemplateId) {
@@ -516,7 +516,7 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
     }
   }
   if (find_attachment_template(template_id) == nullptr) {
-    result.error = "attachment template not found";
+    result.error = "core invalid input: attachment template not found";
     return result;
   }
 
@@ -544,7 +544,7 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
   EditResult<ObjectId> result;
   Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
-    result.error = "pole not found";
+    result.error = "core invalid input: pole not found";
     return result;
   }
 
@@ -580,7 +580,7 @@ EditResult<bool> CoreState::apply_pole_tilt_from_pull(ObjectId pole_id, double m
   EditResult<bool> result{};
   Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
-    result.error = "pole not found";
+    result.error = "core invalid input: pole not found";
     return result;
   }
   const PoleTiltResolution resolved =
@@ -618,7 +618,7 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
   for (ObjectId pole_id : targets) {
     Pole* pole = authoritative_.edit_state.poles.find(pole_id);
     if (pole == nullptr) {
-      result.error = "pole not found";
+      result.error = "core invalid input: pole not found";
       result.ok = false;
       return result;
     }
@@ -736,7 +736,7 @@ EditResult<ObjectId> CoreState::SetPortWorldPositionManual(ObjectId port_id, con
   EditResult<ObjectId> result;
   Port* port = authoritative_.edit_state.ports.find(port_id);
   if (port == nullptr) {
-    result.error = "port not found";
+    result.error = "core invalid input: port not found";
     return result;
   }
   port->world_position = new_world_position;
@@ -762,7 +762,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
   EditResult<ObjectId> result;
   Port* port = authoritative_.edit_state.ports.find(port_id);
   if (port == nullptr) {
-    result.error = "port not found";
+    result.error = "core invalid input: port not found";
     return result;
   }
 
@@ -839,7 +839,7 @@ EditResult<ObjectId> CoreState::MoveAnchor(ObjectId anchor_id, const Vec3d& new_
   EditResult<ObjectId> result;
   Anchor* anchor = authoritative_.edit_state.anchors.find(anchor_id);
   if (anchor == nullptr) {
-    result.error = "anchor not found";
+    result.error = "core invalid input: anchor not found";
     return result;
   }
   anchor->world_position = new_world_position;
@@ -854,7 +854,7 @@ EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) 
   EditResult<ObjectId> result;
   Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
-    result.error = "pole not found";
+    result.error = "core invalid input: pole not found";
     return result;
   }
   PoleOrientationOverride next = authoritative_.override_state.pole_orientation_by_pole[pole_id];
@@ -881,11 +881,11 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
   EditResult<ObjectId> result;
   Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
-    result.error = "pole not found";
+    result.error = "core invalid input: pole not found";
     return result;
   }
   if (!std::isfinite(manual_yaw_deg)) {
-    result.error = "manual yaw must be finite";
+    result.error = "core invalid input: manual yaw must be finite";
     return result;
   }
 
@@ -924,7 +924,7 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
   EditResult<ObjectId> result;
   Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
-    result.error = "pole not found";
+    result.error = "core invalid input: pole not found";
     return result;
   }
 
@@ -962,7 +962,7 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
   EditResult<ObjectId> result;
   Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    result.error = "span not found";
+    result.error = "core invalid input: span not found";
     return result;
   }
   SpanEndpointOverride next{};
@@ -1009,7 +1009,7 @@ EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id
   EditResult<ObjectId> result;
   Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    result.error = "span not found";
+    result.error = "core invalid input: span not found";
     return result;
   }
   auto it = authoritative_.override_state.span_endpoint_by_span.find(span_id);
@@ -1063,11 +1063,11 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
   EditResult<ObjectId> result;
   Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    result.error = "span not found";
+    result.error = "core invalid input: span not found";
     return result;
   }
   if (!std::isfinite(branch_down_offset_m) || branch_down_offset_m < 0.0) {
-    result.error = "branch down offset override must be finite and >= 0";
+    result.error = "core invalid input: branch down offset override must be finite and >= 0";
     return result;
   }
   SpanSupportOverride next{};
@@ -1123,7 +1123,7 @@ EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_
   EditResult<ObjectId> result;
   Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    result.error = "span not found";
+    result.error = "core invalid input: span not found";
     return result;
   }
   if (authoritative_.override_state.span_support_by_span.find(span_id) ==
@@ -1173,7 +1173,7 @@ EditResult<ObjectId> CoreState::SetPolePlacementMode(ObjectId pole_id, Placement
   EditResult<ObjectId> result;
   Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
-    result.error = "pole not found";
+    result.error = "core invalid input: pole not found";
     return result;
   }
   if (pole->placement_mode == mode) {
@@ -1237,7 +1237,7 @@ EditResult<bool> CoreState::refresh_backbone_rows_for_incident_edges(
         view().backbone_edge_bundle(binding.edge_bundle_id);
     if (edge_bundle == nullptr) {
       out.ok = false;
-      out.error = "backbone reposition: edge bundle is missing";
+      out.error = "backbone internal: backbone reposition: edge bundle is missing";
       return out;
     }
     const EditResult<generation::backbone::EndpointRowRepresentation>
@@ -1270,7 +1270,7 @@ EditResult<bool> CoreState::refresh_backbone_rows_for_incident_edges(
             : authoritative_.edit_state.poles.find(port->owner_pole_id);
     if (port == nullptr || owner == nullptr) {
       out.ok = false;
-      out.error = "backbone reposition: endpoint port is missing";
+      out.error = "backbone internal: backbone reposition: endpoint port is missing";
       return out;
     }
     if (port->position_mode == PortPositionMode::kManual ||
@@ -1331,7 +1331,7 @@ EditResult<bool> CoreState::refresh_backbone_rows_for_incident_edges(
             : authoritative_.edit_state.poles.find(first_port->owner_pole_id);
     if (owner == nullptr) {
       out.ok = false;
-      out.error = "backbone reposition: row owner is missing";
+      out.error = "backbone internal: backbone reposition: row owner is missing";
       return out;
     }
     const Vec3d position = LocalPointToWorld(
@@ -1344,7 +1344,7 @@ EditResult<bool> CoreState::refresh_backbone_rows_for_incident_edges(
       Port* port = authoritative_.edit_state.ports.find(binding.port_id);
       if (port == nullptr) {
         out.ok = false;
-        out.error = "backbone reposition: planned port is missing";
+        out.error = "backbone internal: backbone reposition: planned port is missing";
         return out;
       }
       const bool yaw_changed =
@@ -1381,7 +1381,7 @@ EditResult<ObjectId> CoreState::DeletePole(ObjectId pole_id) {
   EditResult<ObjectId> result;
   const Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
-    result.error = "pole not found";
+    result.error = "core invalid input: pole not found";
     return result;
   }
 
@@ -1397,14 +1397,14 @@ EditResult<ObjectId> CoreState::DeletePole(ObjectId pole_id) {
   for (ObjectId port_id : owned_ports) {
     const auto spans_it = runtime_.connection_index.spans_by_port.find(port_id);
     if (spans_it != runtime_.connection_index.spans_by_port.end() && !spans_it->second.empty()) {
-      result.error = "pole still has connected spans";
+      result.error = "core unsupported: pole still has connected spans";
       return result;
     }
   }
   for (ObjectId anchor_id : owned_anchors) {
     const auto spans_it = runtime_.connection_index.spans_by_anchor.find(anchor_id);
     if (spans_it != runtime_.connection_index.spans_by_anchor.end() && !spans_it->second.empty()) {
-      result.error = "pole still has connected anchors";
+      result.error = "core unsupported: pole still has connected anchors";
       return result;
     }
   }
@@ -1439,7 +1439,7 @@ EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
   EditResult<ObjectId> result;
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    result.error = "span not found";
+    result.error = "core invalid input: span not found";
     return result;
   }
 
@@ -1470,12 +1470,12 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
   EditResult<ObjectId> result;
   Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
-    result.error = "pole not found";
+    result.error = "core invalid input: pole not found";
     return result;
   }
   const PoleTypeDefinition* pole_type = find_pole_type(pole_type_id);
   if (pole_type == nullptr) {
-    result.error = "pole type not found";
+    result.error = "core invalid input: pole type not found";
     return result;
   }
   if (const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id);
@@ -1759,7 +1759,7 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
       }
       const Bundle* seed_bundle = view().bundles().find(seed_edge_bundle.bundle_id);
       if (seed_bundle == nullptr) {
-        result.error = "backbone regenerate: layout settings scope is incomplete";
+        result.error = "backbone unsupported: backbone regenerate: layout settings scope is incomplete";
         return result;
       }
       LayoutRegenerateScope scope{};
@@ -1792,7 +1792,7 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
         }
       }
       if (scope.edge_bundle_ids.empty()) {
-        result.error = "backbone regenerate: layout settings scope has no edge bundles";
+        result.error = "backbone unsupported: backbone regenerate: layout settings scope has no edge bundles";
         return result;
       }
       scopes.push_back(std::move(scope));
@@ -1804,7 +1804,7 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
     for (const LayoutRegenerateScope& scope : scopes) {
       const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
       if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
-        result.error = "bundle template not found";
+        result.error = "core invalid input: bundle template not found";
         return result;
       }
       const BundleTemplate previous = bundle_template_it->second;
@@ -1948,11 +1948,11 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
   EditResult<bool> result;
   const Bundle* bundle = authoritative_.edit_state.bundles.find(bundle_id);
   if (bundle == nullptr) {
-    result.error = "bundle not found";
+    result.error = "core invalid input: bundle not found";
     return result;
   }
   if (!std::isfinite(height_m) || !std::isfinite(lateral_m) || !std::isfinite(spacing_m) || spacing_m <= 0.0) {
-    result.error = "bundle placement is invalid";
+    result.error = "core invalid input: bundle placement is invalid";
     return result;
   }
   if (bundle->placement_explicit == placement_explicit &&
@@ -1972,7 +1972,7 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
     }
   }
   if (edge_bundle_ids.empty()) {
-    result.error = "bundle placement update requires a generated backbone bundle";
+    result.error = "core invalid input: bundle placement update requires a generated backbone bundle";
     return result;
   }
 
@@ -1980,7 +1980,7 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
   ChangeSet change_set{};
   Bundle* trial_bundle = trial.authoritative_.edit_state.bundles.find(bundle_id);
   if (trial_bundle == nullptr) {
-    result.error = "bundle not found";
+    result.error = "core invalid input: bundle not found";
     return result;
   }
   const Bundle previous_bundle = *trial_bundle;
@@ -2003,12 +2003,12 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
     const SavedBackboneEdge* edge =
         edge_bundle == nullptr ? nullptr : trial.view().backbone_edge(edge_bundle->edge_id);
     if (edge_bundle == nullptr || edge == nullptr) {
-      result.error = "bundle placement update: saved edge bundle is missing";
+      result.error = "backbone internal: bundle placement update: saved edge bundle is missing";
       return result;
     }
     const auto port_bindings = trial.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id);
     if (port_bindings.empty()) {
-      result.error = "bundle placement update: saved port bindings are missing";
+      result.error = "backbone internal: bundle placement update: saved port bindings are missing";
       return result;
     }
     const bool uses_lane_bands = !placement_explicit && std::adjacent_find(
@@ -2026,7 +2026,7 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
       const PortPlacementBand* band =
           pole_type == nullptr ? nullptr : state_internal::FindPortPlacementBandById(*pole_type, binding->placement_band_id);
       if (port == nullptr || pole == nullptr || band == nullptr) {
-        result.error = "bundle placement update: saved port placement is missing";
+        result.error = "backbone internal: bundle placement update: saved port placement is missing";
         return result;
       }
       const PoleFrame frame = BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
@@ -2048,7 +2048,7 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
           preserved_row_height_offset);
       if ((port->position_mode == PortPositionMode::kManual || port->user_edited_position) &&
           Length(port->world_position - next_position) > 1e-12) {
-        result.error = "bundle placement update unsupported: manual port would move";
+        result.error = "backbone unsupported: bundle placement update unsupported: manual port would move";
         return result;
       }
       planned_port_ids.insert(port->id);
@@ -2059,7 +2059,7 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
   for (const PlannedPortPosition& planned : planned_port_positions) {
     Port* port = trial.authoritative_.edit_state.ports.find(planned.port_id);
     if (port == nullptr) {
-      result.error = "bundle placement update: planned port is missing";
+      result.error = "backbone internal: bundle placement update: planned port is missing";
       return result;
     }
     if (Length(port->world_position - planned.position) > 1e-12) {
@@ -2091,7 +2091,7 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
   const ValidationResult validation = trial.Validate();
   for (const ValidationIssue& issue : validation.issues) {
     if (issue.severity == ValidationSeverity::kError) {
-      result.error = "bundle placement update validation failed: " + issue.code + ": " + issue.message;
+      result.error = "backbone invalid input: bundle placement update validation failed: " + issue.code + ": " + issue.message;
       return result;
     }
   }
@@ -2107,11 +2107,11 @@ EditResult<bool> CoreState::RegisterModelAssemblyTemplate(
     const ModelAssemblyTemplate& model_assembly_template) {
   EditResult<bool> result{};
   if (model_assembly_template.id == kInvalidModelAssemblyTemplateId) {
-    result.error = "model assembly registration requires a valid id";
+    result.error = "model assembly invalid input: model assembly registration requires a valid id";
     return result;
   }
   if (authoritative_.model_assembly_templates.contains(model_assembly_template.id)) {
-    result.error = "model assembly template already exists";
+    result.error = "model assembly invalid input: model assembly template already exists";
     return result;
   }
 
@@ -2123,7 +2123,7 @@ EditResult<bool> CoreState::RegisterModelAssemblyTemplate(
     if (issue.severity != ValidationSeverity::kError) {
       continue;
     }
-    result.error = "model assembly registration: " + issue.code + ": " + issue.message;
+    result.error = "model assembly invalid input: model assembly registration: " + issue.code + ": " + issue.message;
     return result;
   }
 
@@ -2139,11 +2139,11 @@ EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
   EditResult<bool> result{};
   const auto existing = authoritative_.model_assembly_templates.find(model_assembly_template.id);
   if (existing == authoritative_.model_assembly_templates.end()) {
-    result.error = "model assembly template not found";
+    result.error = "model assembly invalid input: model assembly template not found";
     return result;
   }
   if (model_assembly_template.version <= existing->second.version) {
-    result.error = "model assembly update requires a newer version";
+    result.error = "model assembly invalid input: model assembly update requires a newer version";
     return result;
   }
 
@@ -2153,7 +2153,7 @@ EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
   const ValidationResult validation = trial.Validate();
   for (const ValidationIssue& issue : validation.issues) {
     if (issue.severity == ValidationSeverity::kError) {
-      result.error = "model assembly update: " + issue.code + ": " + issue.message;
+      result.error = "model assembly invalid input: model assembly update: " + issue.code + ": " + issue.message;
       return result;
     }
   }
@@ -2212,7 +2212,7 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemp
   EditResult<bool> result;
   const BundleTemplate* bundle_template = find_bundle_template(bundle_template_id);
   if (bundle_template == nullptr) {
-    result.error = "bundle template not found";
+    result.error = "core invalid input: bundle template not found";
     return result;
   }
   if (bundle_template->related_pole_type_id == kInvalidPoleTypeId) {
@@ -2221,7 +2221,7 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemp
     return result;
   }
   if (find_pole_type(bundle_template->related_pole_type_id) == nullptr) {
-    result.error = "related pole type not found";
+    result.error = "core invalid input: related pole type not found";
     return result;
   }
 
@@ -2329,7 +2329,7 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemp
         const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
         const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
         if (edge_bundle == nullptr || bundle == nullptr) {
-          result.error = "backbone regenerate: related pole type scope is incomplete";
+          result.error = "backbone unsupported: backbone regenerate: related pole type scope is incomplete";
           return result;
         }
         RelatedPoleRegenerateScope scope{};
@@ -2337,7 +2337,7 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemp
         scope.bundle_id = edge_bundle->bundle_id;
         scope.edge_bundle_ids = component_for(edge_bundle_id, scope.bundle_template_id, scope.bundle_id);
         if (scope.edge_bundle_ids.empty()) {
-          result.error = "backbone regenerate: related pole type scope has no edge bundles";
+          result.error = "backbone unsupported: backbone regenerate: related pole type scope has no edge bundles";
           return result;
         }
         for (ObjectId scoped_edge_bundle_id : scope.edge_bundle_ids) {
@@ -2349,7 +2349,7 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemp
 
     const PoleTypeDefinition* related_type = find_pole_type(bundle_template->related_pole_type_id);
     if (related_type == nullptr) {
-      result.error = "related pole type not found";
+      result.error = "core invalid input: related pole type not found";
       return result;
     }
 
@@ -2360,7 +2360,7 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemp
           active_backbone_pole_ids.end()) {
         Pole* pole = trial.authoritative_.edit_state.poles.find(pole_id);
         if (pole == nullptr) {
-          result.error = "pole not found";
+          result.error = "core invalid input: pole not found";
           return result;
         }
         pole->pole_type_id = bundle_template->related_pole_type_id;
@@ -2382,7 +2382,7 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemp
     for (const RelatedPoleRegenerateScope& scope : scopes) {
       const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
       if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
-        result.error = "bundle template not found";
+        result.error = "core invalid input: bundle template not found";
         return result;
       }
       const BundleTemplate previous = bundle_template_it->second;
@@ -2435,7 +2435,7 @@ EditResult<bool> CoreState::ensure_default_endpoint_attachments_for_span(ObjectI
   EditResult<bool> result;
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    result.error = "span not found";
+    result.error = "core invalid input: span not found";
     return result;
   }
   const Bundle* bundle = authoritative_.edit_state.bundles.find(span->bundle_id);
@@ -2446,12 +2446,12 @@ EditResult<bool> CoreState::ensure_default_endpoint_attachments_for_span(ObjectI
   }
   const BundleTemplate* bundle_template = find_bundle_template(bundle->bundle_template_id);
   if (bundle_template == nullptr) {
-    result.error = "bundle template not found";
+    result.error = "core invalid input: bundle template not found";
     return result;
   }
   const CableTemplate* cable_template = find_cable_template(bundle_template->cable_template_id);
   if (cable_template == nullptr) {
-    result.error = "cable template not found";
+    result.error = "core invalid input: cable template not found";
     return result;
   }
   const AttachmentTemplateId desired_template_id = cable_template->default_endpoint_attachment_template_id;
@@ -2459,21 +2459,21 @@ EditResult<bool> CoreState::ensure_default_endpoint_attachments_for_span(ObjectI
                                                      ? nullptr
                                                      : find_attachment_template(desired_template_id);
   if (desired_template_id != kInvalidAttachmentTemplateId && attachment_template == nullptr) {
-    result.error = "default endpoint attachment template not found";
+    result.error = "core invalid input: default endpoint attachment template not found";
     return result;
   }
 
   auto ensure_endpoint_attachment = [&](bool is_start_endpoint, double t) -> bool {
     Span* span_edit = authoritative_.edit_state.spans.find(span_id);
     if (span_edit == nullptr) {
-      result.error = "span not found";
+      result.error = "core invalid input: span not found";
       return false;
     }
     ObjectId& attachment_slot = is_start_endpoint ? span_edit->endpoint_attachment_a_id : span_edit->endpoint_attachment_b_id;
     if (attachment_slot != kInvalidObjectId) {
       const Attachment* existing = authoritative_.edit_state.attachments.find(attachment_slot);
       if (existing == nullptr) {
-        result.error = "endpoint attachment not found";
+        result.error = "core invalid input: endpoint attachment not found";
         return false;
       }
       if (existing->origin == AttachmentOrigin::kUser || existing->template_id == desired_template_id) {
@@ -2500,7 +2500,7 @@ EditResult<bool> CoreState::ensure_default_endpoint_attachments_for_span(ObjectI
     Attachment* added = authoritative_.edit_state.attachments.find(add_attachment.value);
     Span* updated_span = authoritative_.edit_state.spans.find(span_id);
     if (added == nullptr || updated_span == nullptr) {
-      result.error = "default endpoint attachment creation failed";
+      result.error = "core invalid input: default endpoint attachment creation failed";
       return false;
     }
     added->origin = AttachmentOrigin::kDefaultEndpoint;
@@ -2520,18 +2520,18 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
   EditResult<bool> result;
   auto it = authoritative_.pole_types.find(pole_type.id);
   if (it == authoritative_.pole_types.end()) {
-    result.error = "pole type not found";
+    result.error = "core invalid input: pole type not found";
     return result;
   }
   if (pole_type.pole_visual_assembly_id != kInvalidModelAssemblyTemplateId) {
     const auto assembly_it = authoritative_.model_assembly_templates.find(
         pole_type.pole_visual_assembly_id);
     if (assembly_it == authoritative_.model_assembly_templates.end()) {
-      result.error = "pole type references unknown model assembly";
+      result.error = "model assembly invalid input: pole type references unknown model assembly";
       return result;
     }
     if (assembly_it->second.wire_socket.has_value()) {
-      result.error = "pole visual assembly must not own a wire socket";
+      result.error = "model assembly invalid input: pole visual assembly must not own a wire socket";
       return result;
     }
   }
@@ -2625,7 +2625,7 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
         const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
         const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
         if (edge_bundle == nullptr || bundle == nullptr) {
-          result.error = "backbone regenerate: pole type scope is incomplete";
+          result.error = "backbone unsupported: backbone regenerate: pole type scope is incomplete";
           return result;
         }
         PoleTypeRegenerateScope scope{};
@@ -2633,7 +2633,7 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
         scope.bundle_id = edge_bundle->bundle_id;
         scope.edge_bundle_ids = component_for(edge_bundle_id, scope.bundle_template_id, scope.bundle_id);
         if (scope.edge_bundle_ids.empty()) {
-          result.error = "backbone regenerate: pole type scope has no edge bundles";
+          result.error = "backbone unsupported: backbone regenerate: pole type scope has no edge bundles";
           return result;
         }
         for (ObjectId scoped_edge_bundle_id : scope.edge_bundle_ids) {
@@ -2648,7 +2648,7 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     for (ObjectId pole_id : pole_ids) {
       Pole* pole = trial.authoritative_.edit_state.poles.find(pole_id);
       if (pole == nullptr) {
-        result.error = "pole not found";
+        result.error = "core invalid input: pole not found";
         return result;
       }
       if (std::abs(pole->height_m - pole_type.default_height_m) > 1e-12) {
@@ -2670,7 +2670,7 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     for (const PoleTypeRegenerateScope& scope : scopes) {
       const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
       if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
-        result.error = "bundle template not found";
+        result.error = "core invalid input: bundle template not found";
         return result;
       }
       const BundleTemplate previous = bundle_template_it->second;
@@ -2734,7 +2734,7 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     EditResult<bool> applied{};
     Pole* pole = authoritative_.edit_state.poles.find(pole_id);
     if (pole == nullptr) {
-      applied.error = "pole not found";
+      applied.error = "core invalid input: pole not found";
       return applied;
     }
     if (std::abs(pole->height_m - pole_type.default_height_m) > 1e-12) {

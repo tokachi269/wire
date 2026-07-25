@@ -88,7 +88,7 @@ bool test_add_span_missing_ports_fails_and_recovers() {
   CoreState state;
   const CoreCounts before = snapshot_counts(state);
   const auto bad = state.AddSpan(111, 222, SpanKind::kDistribution, SpanLayer::kLowVoltage);
-  if (bad.ok || bad.error != "span ports do not exist") {
+  if (bad.ok || bad.error != "core invalid input: span ports do not exist") {
     return false;
   }
   if (!same_counts(before, snapshot_counts(state))) {

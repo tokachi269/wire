@@ -16,13 +16,13 @@ EditResult<Vec3d> resolve_span_layout_endpoint(const CoreState& state, const Edi
   EditResult<Vec3d> out{};
   const Port* port = edit_state.ports.find(rule.port_id);
   if (port == nullptr) {
-    out.error = "backbone layout: endpoint port not found";
+    out.error = "backbone internal: backbone layout: endpoint port not found";
     return out;
   }
   if (rule.source_projection.valid()) {
     const std::optional<Vec3d> projection = source_edge_projection_world(state, rule.source_projection);
     if (!projection.has_value()) {
-      out.error = "backbone layout: source edge projection missing";
+      out.error = "backbone internal: backbone layout: source edge projection missing";
       return out;
     }
     out.value = *projection;

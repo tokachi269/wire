@@ -12,12 +12,12 @@ CoreState::ResolveDefaultBundlePlacement(BundleTemplateId bundle_template_id, Po
   EditResult<DefaultBundlePlacementResult> result{};
   const BundleTemplate* bundle_template = find_bundle_template(bundle_template_id);
   if (bundle_template == nullptr) {
-    result.error = "bundle template is missing";
+    result.error = "core invalid input: bundle template is missing";
     return result;
   }
   const PoleTypeDefinition* pole_type = find_pole_type(pole_type_id);
   if (pole_type == nullptr) {
-    result.error = "pole template is missing";
+    result.error = "core invalid input: pole template is missing";
     return result;
   }
 

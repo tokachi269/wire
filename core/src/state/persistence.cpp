@@ -1816,7 +1816,7 @@ bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* auth
 EditResult<bool> CoreState::SerializeAuthoritative(std::string* out) const {
   EditResult<bool> result{};
   if (out == nullptr) {
-    result.error = "authoritative serialization: output is null";
+    result.error = "authoritative invalid input: authoritative serialization: output is null";
     return result;
   }
 
@@ -1997,7 +1997,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
           trial.AddPort(source.owner_pole_id, source.world_position, source.kind,
                         source.layer, source.direction);
       if (!added.ok) {
-        result.error = "authoritative migration unsupported: " + added.error;
+        result.error = "authoritative unsupported: authoritative migration unsupported: " + added.error;
         return false;
       }
       Port* created =
@@ -2051,7 +2051,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
     index_add(trial.runtime_.backbone_index.node_edges, edge.node_b, edge.edge_id);
     const BackboneEdgeKey key{std::min(edge.node_a, edge.node_b), std::max(edge.node_a, edge.node_b)};
     if (!trial.runtime_.backbone_index.edge_by_nodes.emplace(key, edge.edge_id).second) {
-      result.error = "authoritative deserialization: duplicate saved edge endpoints";
+      result.error = "authoritative invalid input: authoritative deserialization: duplicate saved edge endpoints";
       result.classify_error();
       return result;
     }
@@ -2066,7 +2066,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
     for (ObjectId span_id : edge_bundle.span_ids) {
       index_add(trial.runtime_.backbone_index.edge_bundle_spans, edge_bundle.edge_bundle_id, span_id);
       if (!trial.runtime_.backbone_index.span_edge_bundle.emplace(span_id, edge_bundle.edge_bundle_id).second) {
-        result.error = "authoritative deserialization: span belongs to multiple edge bundles";
+        result.error = "authoritative invalid input: authoritative deserialization: span belongs to multiple edge bundles";
         result.classify_error();
         return result;
       }
@@ -2182,7 +2182,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   }
   const ValidationResult validation = trial.Validate();
   if (!validation.ok()) {
-    result.error = "authoritative deserialization: loaded state failed validation";
+    result.error = "authoritative invalid input: authoritative deserialization: loaded state failed validation";
     const auto issue = std::find_if(validation.issues.begin(), validation.issues.end(),
                                     [](const ValidationIssue& candidate) {
                                       return candidate.severity == ValidationSeverity::kError;

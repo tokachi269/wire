@@ -119,7 +119,7 @@ bool collect_cable_decision_regenerate_scopes(const CoreState& state,
         });
     if (scope.edge_bundle_ids.empty()) {
       if (error != nullptr) {
-        *error = "backbone regenerate: cable decision scope has no edge bundles";
+        *error = "backbone unsupported: backbone regenerate: cable decision scope has no edge bundles";
       }
       return false;
     }
@@ -156,7 +156,7 @@ bool collect_bundle_regenerate_scopes(const CoreState& state, BundleTemplateId b
         });
     if (scope.edge_bundle_ids.empty()) {
       if (error != nullptr) {
-        *error = "backbone regenerate: bundle scope has no edge bundles";
+        *error = "backbone unsupported: backbone regenerate: bundle scope has no edge bundles";
       }
       return false;
     }
@@ -411,13 +411,13 @@ bool valid_bundle_count_policy(const BundleTemplate& bundle_template, std::strin
     if (bundle_template.fixed_count > 0) {
       return true;
     }
-    *error = "bundle fixed count must be positive";
+    *error = "core invalid input: bundle fixed count must be positive";
     return false;
   }
   if (bundle_template.min_count <= 0 || bundle_template.max_count < bundle_template.min_count ||
       bundle_template.default_count < bundle_template.min_count ||
       bundle_template.default_count > bundle_template.max_count) {
-    *error = "bundle count range is invalid";
+    *error = "core invalid input: bundle count range is invalid";
     return false;
   }
   return true;
@@ -435,7 +435,7 @@ bool validate_population_rules(const CoreState& state, const std::vector<CablePo
   std::unordered_set<CableSectionRuleId> rule_ids{};
   for (const CablePopulationRule& rule : rules) {
     if (rule.rule_id == 0 || !rule_ids.insert(rule.rule_id).second) {
-      *error = "cable population: rule ids must be nonzero and unique per bundle template";
+      *error = "cable population invalid input: cable population: rule ids must be nonzero and unique per bundle template";
       return false;
     }
     if (rule.min_extra_count < 0 || rule.max_extra_count < rule.min_extra_count ||
@@ -444,7 +444,7 @@ bool validate_population_rules(const CoreState& state, const std::vector<CablePo
         rule.lateral_min_m > rule.lateral_max_m || !std::isfinite(rule.height_min_m) ||
         !std::isfinite(rule.height_max_m) || rule.height_min_m > rule.height_max_m ||
         !std::isfinite(rule.randomness) || rule.randomness < 0.0 || rule.randomness > 1.0) {
-      *error = "cable population: invalid rule range";
+      *error = "cable population invalid input: cable population: invalid rule range";
       return false;
     }
     std::unordered_set<PlacementReserveId> reserve_ids{};
@@ -453,12 +453,12 @@ bool validate_population_rules(const CoreState& state, const std::vector<CablePo
           !std::isfinite(reserve.lateral_min_m) || !std::isfinite(reserve.lateral_max_m) ||
           reserve.lateral_min_m > reserve.lateral_max_m || !std::isfinite(reserve.height_min_m) ||
           !std::isfinite(reserve.height_max_m) || reserve.height_min_m > reserve.height_max_m) {
-        *error = "cable population: invalid placement reserve";
+        *error = "cable population invalid input: cable population: invalid placement reserve";
         return false;
       }
       const auto pole_type_it = state.view().pole_types().find(reserve.pole_type_id);
       if (pole_type_it == state.view().pole_types().end()) {
-        *error = "cable population: reserve references unknown pole type";
+        *error = "cable population invalid input: cable population: reserve references unknown pole type";
         return false;
       }
       const std::size_t matching_bands =
@@ -468,7 +468,7 @@ bool validate_population_rules(const CoreState& state, const std::vector<CablePo
                                                   return band.band_id == reserve.band_id;
                                                 }));
       if (matching_bands != 1) {
-        *error = "cable population: reserve band identity must resolve exactly once";
+        *error = "cable population invalid input: cable population: reserve band identity must resolve exactly once";
         return false;
       }
     }
@@ -483,7 +483,7 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
   EditResult<bool> result;
   auto it = state.authoritative_.cable_templates.find(cable_template.id);
   if (it == state.authoritative_.cable_templates.end()) {
-    result.error = "cable template not found";
+    result.error = "core invalid input: cable template not found";
     return result;
   }
 
@@ -593,7 +593,7 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
     for (const CableDecisionRegenerateScope& scope : scopes) {
       const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
       if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
-        result.error = "bundle template not found";
+        result.error = "core invalid input: bundle template not found";
         return result;
       }
       const BundleTemplate previous = bundle_template_it->second;
@@ -652,16 +652,16 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   EditResult<bool> result;
   auto it = state.authoritative_.bundle_templates.find(bundle_template.id);
   if (it == state.authoritative_.bundle_templates.end()) {
-    result.error = "bundle template not found";
+    result.error = "core invalid input: bundle template not found";
     return result;
   }
   if (state.find_cable_template(bundle_template.cable_template_id) == nullptr) {
-    result.error = "bundle template references unknown cable template";
+    result.error = "core invalid input: bundle template references unknown cable template";
     return result;
   }
   if (bundle_template.related_pole_type_id != kInvalidPoleTypeId &&
       state.find_pole_type(bundle_template.related_pole_type_id) == nullptr) {
-    result.error = "bundle template references unknown pole type";
+    result.error = "core invalid input: bundle template references unknown pole type";
     return result;
   }
   const auto assembly_for = [&](ModelAssemblyTemplateId assembly_id) -> const ModelAssemblyTemplate* {
@@ -674,22 +674,22 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   if (bundle_template.row_fixture_assembly_id != kInvalidModelAssemblyTemplateId) {
     const ModelAssemblyTemplate* row_assembly = assembly_for(bundle_template.row_fixture_assembly_id);
     if (row_assembly == nullptr) {
-      result.error = "bundle template references unknown row fixture assembly";
+      result.error = "core invalid input: bundle template references unknown row fixture assembly";
       return result;
     }
     if (row_assembly->wire_socket.has_value()) {
-      result.error = "row fixture assembly must not own a wire socket";
+      result.error = "core invalid input: row fixture assembly must not own a wire socket";
       return result;
     }
   }
   if (bundle_template.endpoint_fixture_assembly_id != kInvalidModelAssemblyTemplateId) {
     const ModelAssemblyTemplate* endpoint_assembly = assembly_for(bundle_template.endpoint_fixture_assembly_id);
     if (endpoint_assembly == nullptr) {
-      result.error = "bundle template references unknown endpoint fixture assembly";
+      result.error = "core invalid input: bundle template references unknown endpoint fixture assembly";
       return result;
     }
     if (!endpoint_assembly->wire_socket.has_value()) {
-      result.error = "endpoint fixture assembly requires a wire socket";
+      result.error = "core invalid input: endpoint fixture assembly requires a wire socket";
       return result;
     }
   }
@@ -707,12 +707,12 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       !std::isfinite(assembly.member_wander_phase_bias) ||
       !std::isfinite(assembly.member_twist_turns_per_meter) || !std::isfinite(assembly.member_twist_phase) ||
       (assembly.member_wander_ratio > 0.0 && assembly.member_wander_wavelength_m <= 0.0)) {
-    result.error = "span visual assembly settings are invalid";
+    result.error = "core invalid input: span visual assembly settings are invalid";
     return result;
   }
   if (assembly.helix_enabled &&
       (!assembly.support_path_enabled || assembly.helix_turns_per_meter <= 0.0)) {
-    result.error = "enabled span visual assembly requires a support path and positive helix turns";
+    result.error = "core invalid input: enabled span visual assembly requires a support path and positive helix turns";
     return result;
   }
   if (assembly.helix_enabled) {
@@ -723,7 +723,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
             return band.band_id == normalized.support_wire_pole_band_id && band.enabled;
           });
       if (!has_support_band) {
-        result.error = "enabled span visual assembly requires an enabled support band on the related pole type";
+        result.error = "core invalid input: enabled span visual assembly requires an enabled support band on the related pole type";
         return result;
       }
     }
@@ -731,7 +731,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     const double minimum_radius =
         (assembly_cable == nullptr ? 0.0 : assembly_cable->outer_diameter_m) + assembly.helix_clearance_m;
     if (assembly.helix_radius_m > 0.0 && assembly.helix_radius_m + 1e-9 < minimum_radius) {
-      result.error = "span visual assembly helix radius cannot contain the wire diameter";
+      result.error = "core invalid input: span visual assembly helix radius cannot contain the wire diameter";
       return result;
     }
   }
@@ -744,7 +744,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     return result;
   }
   if (!std::isfinite(normalized.branch_endpoint_offset_m)) {
-    result.error = "bundle branch endpoint offset must be finite";
+    result.error = "core invalid input: bundle branch endpoint offset must be finite";
     return result;
   }
   const CableTemplate* cable_template = state.find_cable_template(normalized.cable_template_id);
@@ -875,7 +875,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   }
   auto updated_template_it = state.authoritative_.bundle_templates.find(normalized.id);
   if (updated_template_it == state.authoritative_.bundle_templates.end()) {
-    result.error = "bundle template not found";
+    result.error = "core invalid input: bundle template not found";
     return result;
   }
   updated_template_it->second = normalized;
@@ -908,7 +908,7 @@ EditResult<bool> TemplateMutationService::UpdateAttachmentTemplate(CoreState& st
   EditResult<bool> result;
   auto it = state.authoritative_.attachment_templates.find(attachment_template.id);
   if (it == state.authoritative_.attachment_templates.end()) {
-    result.error = "attachment template not found";
+    result.error = "core invalid input: attachment template not found";
     return result;
   }
 

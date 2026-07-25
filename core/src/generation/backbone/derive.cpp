@@ -21,12 +21,12 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
   EditResult<bool> out{};
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    out.error = "backbone derive: span not found";
+    out.error = "backbone internal: backbone derive: span not found";
     return out;
   }
   const SpanLayoutRulesView rule_view = runtime_.cache_state.span_layout_cache.rules_view(span_id);
   if (!rule_view.has_rule()) {
-    out.error = "backbone derive: span layout rule not found";
+    out.error = "backbone internal: backbone derive: span layout rule not found";
     return out;
   }
   SpanLayoutRule rule = *rule_view.rule;
@@ -123,12 +123,12 @@ EditResult<bool> CoreState::derive_generated_span_shape_outputs(ObjectId span_id
   EditResult<bool> out{};
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    out.error = "backbone update: span not found";
+    out.error = "backbone internal: backbone update: span not found";
     return out;
   }
   const SpanLayoutView layout_view = runtime_.cache_state.span_layout_cache.layout_view(span_id);
   if (!layout_view.has_layout()) {
-    out.error = "backbone update: span layout not found";
+    out.error = "backbone internal: backbone update: span layout not found";
     return out;
   }
   const SpanLayoutEntry& layout = *layout_view.entry;
@@ -153,17 +153,17 @@ EditResult<bool> CoreState::derive_generated_span_draw_outputs(ObjectId span_id)
   EditResult<bool> out{};
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    out.error = "backbone update: span not found";
+    out.error = "backbone internal: backbone update: span not found";
     return out;
   }
   const SpanLayoutView layout_view = runtime_.cache_state.span_layout_cache.layout_view(span_id);
   if (!layout_view.has_layout()) {
-    out.error = "backbone update: span layout not found";
+    out.error = "backbone internal: backbone update: span layout not found";
     return out;
   }
   const CurveCacheEntry* curve = find_curve_cache(span_id);
   if (curve == nullptr) {
-    out.error = "backbone update: span curve not found";
+    out.error = "backbone internal: backbone update: span curve not found";
     return out;
   }
   SpanVisualCacheEntry visual = generation::backbone::visual(authoritative_.visual_settings, *layout_view.entry);
@@ -269,12 +269,12 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     EditResult<bool> derived{};
     const Span* span = authoritative_.edit_state.spans.find(span_id);
     if (span == nullptr) {
-      derived.error = "backbone derive: span not found";
+      derived.error = "backbone internal: backbone derive: span not found";
       return derived;
     }
     const auto rule_it = reposition_rules_by_span.find(span_id);
     if (rule_it == reposition_rules_by_span.end() || rule_it->second == nullptr) {
-      derived.error = "backbone derive: span layout rule not found";
+      derived.error = "backbone internal: backbone derive: span layout rule not found";
       return derived;
     }
     const SpanLayoutRule* rule = rule_it->second;

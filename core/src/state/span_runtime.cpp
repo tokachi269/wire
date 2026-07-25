@@ -325,7 +325,7 @@ EditResult<UpdatePlan> CoreState::make_update_plan(UpdateRequest request) const 
     }
     break;
   case UpdateTargetKind::kUnknown:
-    out.error = "backbone update: unknown target";
+    out.error = "backbone internal: backbone update: unknown target";
     return out;
   }
 
@@ -357,21 +357,21 @@ EditResult<UpdatePlan> CoreState::make_update_plan(UpdateRequest request) const 
   std::sort(plan.affected.edges.begin(), plan.affected.edges.end());
   for (ObjectId span_id : plan.affected.spans) {
     if (authoritative_.edit_state.spans.find(span_id) == nullptr) {
-      out.error = "backbone update: affected span not found";
+      out.error = "backbone internal: backbone update: affected span not found";
       return out;
     }
     if (plan.kind == UpdateKind::kReposition &&
         !runtime_.cache_state.span_layout_cache.rules_view(span_id).has_rule()) {
-      out.error = "backbone update: affected span rules not found";
+      out.error = "backbone internal: backbone update: affected span rules not found";
       return out;
     }
     if ((plan.kind == UpdateKind::kReshape || plan.kind == UpdateKind::kRedraw) &&
         !runtime_.cache_state.span_layout_cache.layout_view(span_id).has_layout()) {
-      out.error = "backbone update: affected span layout not found";
+      out.error = "backbone internal: backbone update: affected span layout not found";
       return out;
     }
     if (plan.kind == UpdateKind::kRedraw && find_curve_cache(span_id) == nullptr) {
-      out.error = "backbone update: affected span curve not found";
+      out.error = "backbone internal: backbone update: affected span curve not found";
       return out;
     }
   }

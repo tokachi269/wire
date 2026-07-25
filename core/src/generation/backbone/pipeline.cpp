@@ -2418,7 +2418,7 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
     edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);
     if (edge.saved != kInvalidObjectId && edge_by_link[edge.id].edge_id == kInvalidObjectId) {
       EditResult<bool> failed{};
-      failed.error = "backbone graph: context link saved edge missing";
+      failed.error = "backbone internal: backbone graph: context link saved edge missing";
       return failed;
     }
   }
@@ -3155,7 +3155,7 @@ EditResult<topo> pipeline::emit(const pairs& ps, const intent& intents) {
 EditResult<bool> pipeline::emit_poles(topo* made, const pairs& ps, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
-    out.error = "backbone topology: output missing";
+    out.error = "backbone internal: backbone topology: output missing";
     return out;
   }
   made->poles.reserve(g_.nodes.size());
@@ -3240,7 +3240,7 @@ EditResult<bool> pipeline::emit_poles(topo* made, const pairs& ps, ChangeSet* ch
 EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
-    out.error = "backbone topology: output missing";
+    out.error = "backbone internal: backbone topology: output missing";
     return out;
   }
   made->bundles.reserve(active_bundle_indices_.size());
@@ -3294,7 +3294,7 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
 EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
-    out.error = "backbone topology: output missing";
+    out.error = "backbone internal: backbone topology: output missing";
     return out;
   }
 
@@ -3325,7 +3325,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
   made->rows.resize(ps.rows.size());
   for (const row& r : ps.rows) {
     if (r.node >= made->poles.size() || r.node >= g_.nodes.size()) {
-      out.error = "backbone topology: row node missing";
+      out.error = "backbone internal: backbone topology: row node missing";
       return out;
     }
     trow& tr = made->rows[r.id];
@@ -3339,7 +3339,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
                            g_.nodes[r.node].support == SupportKind::kExternal ||
                            g_.nodes[r.node].support == SupportKind::kGround;
     if (row_active && !ownerless && tr.pole == kInvalidObjectId) {
-      out.error = "backbone topology: active row pole missing";
+      out.error = "backbone internal: backbone topology: active row pole missing";
       return out;
     }
     auto add_endpoint = [&](std::size_t link_id) {
@@ -3360,13 +3360,13 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       add_endpoint(ps.joins[r.source.id].right);
     }
     if (tr.endpoints.empty()) {
-      out.error = "backbone topology: row endpoint missing";
+      out.error = "backbone internal: backbone topology: row endpoint missing";
       return out;
     }
     tr.placement_band_ids.resize(made->bundles.size());
     for (std::size_t bundle_index = 0; bundle_index < made->bundles.size(); ++bundle_index) {
       if (bundle_index >= made->bundle_specs.size()) {
-        out.error = "backbone topology: bundle spec missing";
+        out.error = "backbone internal: backbone topology: bundle spec missing";
         return out;
       }
       const std::size_t spec_index = made->bundle_specs[bundle_index];
@@ -3418,7 +3418,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         } else {
           const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
           if (pole == nullptr) {
-            out.error = "backbone topology: row pole missing";
+            out.error = "backbone internal: backbone topology: row pole missing";
             return out;
           }
           const double lane_offset = uses_lane_bands
@@ -3468,7 +3468,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         if (!ownerless && !has_existing_endpoint) {
           const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
           if (pole == nullptr) {
-            out.error = "backbone topology: row pole missing";
+            out.error = "backbone internal: backbone topology: row pole missing";
             return out;
           }
           const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
@@ -3483,7 +3483,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         if (planned_port != kInvalidObjectId) {
           const Port* existing = state_.view().ports().find(planned_port);
           if (existing == nullptr) {
-            out.error = "backbone topology: promoted port missing";
+            out.error = "backbone internal: backbone topology: promoted port missing";
             return out;
           }
           p = existing->world_position;
@@ -3519,7 +3519,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           if (resolved.value != kInvalidObjectId) {
             Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
             if (existing_port == nullptr) {
-              out.error = "backbone topology: resolved port missing";
+              out.error = "backbone internal: backbone topology: resolved port missing";
               return out;
             }
             const bool moved = moved_more_than_epsilon(existing_port->world_position, p);
@@ -3527,7 +3527,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             if (!ownerless) {
               const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
               if (pole == nullptr) {
-                out.error = "backbone topology: row pole missing";
+                out.error = "backbone internal: backbone topology: row pole missing";
                 return out;
               }
               const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
@@ -3580,7 +3580,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
 EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
-    out.error = "backbone topology: output missing";
+    out.error = "backbone internal: backbone topology: output missing";
     return out;
   }
   for (const link& edge : ps.links) {
@@ -3588,12 +3588,12 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
       continue;
     }
     if (edge.arow >= made->rows.size() || edge.brow >= made->rows.size()) {
-      out.error = "backbone topology: span row missing";
+      out.error = "backbone internal: backbone topology: span row missing";
       return out;
     }
     for (std::size_t bundle_index = 0; bundle_index < made->bundles.size(); ++bundle_index) {
       if (bundle_index >= made->bundle_specs.size()) {
-        out.error = "backbone topology: bundle spec missing";
+        out.error = "backbone internal: backbone topology: bundle spec missing";
         return out;
       }
       const BackboneBundleSpec& bundle_spec = spec_.bundles[made->bundle_specs[bundle_index]];
@@ -3610,7 +3610,7 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
             port_for_link(made->rows[edge.brow], edge.id, bundle_index,
                           static_cast<std::size_t>(lane));
         if (port_a == kInvalidObjectId || port_b == kInvalidObjectId) {
-          out.error = "backbone topology: span port missing";
+          out.error = "backbone internal: backbone topology: span port missing";
           return out;
         }
         const ObjectId existing_edge_bundle_id = edge_bundle_for(state_, g_, edge, made->bundles[bundle_index]);
@@ -3707,14 +3707,14 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
       }
       edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);
       if (edge_by_link[edge.id].edge_id == kInvalidObjectId) {
-        out.error = "backbone graph: context link saved edge missing";
+        out.error = "backbone internal: backbone graph: context link saved edge missing";
         return out;
       }
       continue;
     }
     edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);
     if (edge_by_link[edge.id].edge_id == kInvalidObjectId) {
-      out.error = "backbone graph: context link saved edge missing";
+      out.error = "backbone internal: backbone graph: context link saved edge missing";
       return out;
     }
   }
@@ -3828,7 +3828,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
     auto bind_port = [&](std::size_t row_index) -> bool {
       if (row_index >= made.rows.size()) {
-        out.error = "backbone graph: port binding row missing";
+        out.error = "backbone internal: backbone graph: port binding row missing";
         return false;
       }
       const SavedBackboneRowKey row_key =
@@ -3836,14 +3836,14 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
                        edge_by_link);
       const Bundle* bundle = state_.view().bundles().find(made.bundles[span.bundle]);
       if (bundle == nullptr) {
-        out.error = "backbone graph: bundle missing for port binding";
+        out.error = "backbone internal: backbone graph: bundle missing for port binding";
         return false;
       }
       const ObjectId port_id =
           port_for_link(made.rows[row_index], span.link, span.bundle, span.lane);
       const Port* port = state_.view().ports().find(port_id);
       if (port == nullptr) {
-        out.error = "backbone graph: port missing for binding";
+        out.error = "backbone internal: backbone graph: port missing for binding";
         return false;
       }
       const int placement_band_id =
@@ -4150,7 +4150,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
   for (const SpanLayoutRule& rule : made.data.spans) {
     const Span* span = edit.spans.find(rule.span_id);
     if (span == nullptr) {
-      out.error = "backbone layout: span not found";
+      out.error = "backbone internal: backbone layout: span not found";
       return out;
     }
     EditResult<SpanLayoutEntry> entry = derive_span_layout(rule, endpoint_resolver, 0);

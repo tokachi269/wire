@@ -30,13 +30,33 @@ enum class EditErrorKind : std::uint8_t {
   if (error.empty()) {
     return EditErrorKind::kNone;
   }
-  if (starts_with(error, "backbone invalid input:")) {
+  if (starts_with(error, "backbone invalid input:") ||
+      starts_with(error, "core invalid input:") ||
+      starts_with(error, "authoritative invalid input:") ||
+      starts_with(error, "cable curve invalid input:") ||
+      starts_with(error, "model assembly invalid input:") ||
+      starts_with(error, "cable population invalid input:")) {
     return EditErrorKind::kValidation;
   }
-  if (starts_with(error, "backbone internal:")) {
+  if (starts_with(error, "backbone unsupported:") ||
+      starts_with(error, "core unsupported:") ||
+      starts_with(error, "authoritative unsupported:") ||
+      starts_with(error, "cable curve unsupported:") ||
+      starts_with(error, "model assembly unsupported:") ||
+      starts_with(error, "model mount graph unsupported:") ||
+      starts_with(error, "cable population unsupported:")) {
+    return EditErrorKind::kUnsupported;
+  }
+  if (starts_with(error, "backbone internal:") ||
+      starts_with(error, "core internal:") ||
+      starts_with(error, "authoritative internal:") ||
+      starts_with(error, "cable curve internal:") ||
+      starts_with(error, "model assembly internal:") ||
+      starts_with(error, "model mount graph internal:") ||
+      starts_with(error, "cable population internal:")) {
     return EditErrorKind::kInternal;
   }
-  return EditErrorKind::kUnsupported;
+  return EditErrorKind::kInternal;
 }
 
 template <typename TValue> struct EditResult {

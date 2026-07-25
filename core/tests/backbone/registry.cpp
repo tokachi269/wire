@@ -1245,6 +1245,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "core policy constants are classified without moving them",
                          "Boundary", false,
                          C829_core_policy_constants_are_classified);
+  test_registry::AddTest(tests, "C830_edit_errors_require_registered_prefixes",
+                         "core edit errors use registered machine-readable prefixes",
+                         "Boundary", false,
+                         C830_edit_errors_require_registered_prefixes);
   test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,

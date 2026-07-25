@@ -143,17 +143,17 @@ Vec3d tangent_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
 EditResult<bool> validate_input(const CableCurveInput& input) {
   EditResult<bool> result{};
   if (input.method != CurveMethod::kParabolicSag) {
-    result.error = "cable curve method is unsupported";
+    result.error = "cable curve unsupported: cable curve method is unsupported";
     return result;
   }
   if (input.family != CurveFamily::kMainSpan) {
-    result.error = "cable curve family is unsupported";
+    result.error = "cable curve unsupported: cable curve family is unsupported";
     return result;
   }
   if (!finite(input.start) || !finite(input.end) || !finite(input.gravity_dir) ||
       !finite(input.canonical_dir) || !std::isfinite(input.sag_m) || input.sag_m < 0.0 ||
       !std::isfinite(input.radius_m) || input.radius_m < 0.0) {
-    result.error = "cable curve input is invalid";
+    result.error = "cable curve invalid input: cable curve input is invalid";
     return result;
   }
   result.ok = true;
@@ -246,7 +246,7 @@ EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
   for (const CableCurveSample& sample : output.samples) {
     if (!finite(sample.position) || !finite(sample.tangent) || !finite(sample.normal) ||
         !finite(sample.binormal) || !std::isfinite(sample.arc_length_m)) {
-      result.error = "cable curve output is invalid";
+      result.error = "cable curve internal: cable curve output is invalid";
       result.value = {};
       return result;
     }

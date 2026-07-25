@@ -392,6 +392,11 @@ public:
     return output;
   }
 
+  [[nodiscard]] val clear_pending_support_nodes() {
+    const auto cleared = state_->ClearPendingSupportNodes();
+    return result_value(cleared.ok, cleared.error);
+  }
+
   [[nodiscard]] val last_generation_timing() const {
     return generation_timing_value(CoreView(*state_).last_generation_timing());
   }
@@ -1135,6 +1140,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("generate", &WireState::generate)
       .function("generatePlacements", &WireState::generate_placements)
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
+      .function("clearPendingSupportNodes", &WireState::clear_pending_support_nodes)
       .function("lastGenerationTiming", &WireState::last_generation_timing)
       .function("visualScene", &WireState::visual_scene)
       .function("configureModelAssemblies", &WireState::configure_model_assemblies)

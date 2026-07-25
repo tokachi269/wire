@@ -126,6 +126,10 @@ export class WireBridge {
     return this.state.resolveBranchPick(input, selectedBundleTemplateIds);
   }
 
+  clearPendingSupportNodes(): OperationResult {
+    return this.state.clearPendingSupportNodes();
+  }
+
   bundleTemplates(): BundleTemplateInfo[] {
     const templates: BundleTemplateInfo[] = [];
     for (let index = 0; index < this.state.bundleTemplateCount(); index += 1) {

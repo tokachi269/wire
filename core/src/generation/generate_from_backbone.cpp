@@ -1,10 +1,31 @@
 #include "wire/core/core_state.hpp"
+#include "wire/core/core_view.hpp"
 #include "backbone/pipeline.hpp"
 
 #include <chrono>
+#include <algorithm>
+#include <unordered_set>
 #include <utility>
 
 namespace wire::core {
+
+namespace {
+
+std::unordered_set<ObjectId> referenced_pending_node_ids(const BackboneSpec& spec,
+                                                         const CoreState& state) {
+  std::unordered_set<ObjectId> ids{};
+  for (const BackboneInputSpec::NodeSpec& node_spec : spec.path.node_specs) {
+    if (node_spec.node_id == kInvalidObjectId) {
+      continue;
+    }
+    if (state.view().pending_support_node(node_spec.node_id) != nullptr) {
+      ids.insert(node_spec.node_id);
+    }
+  }
+  return ids;
+}
+
+} // namespace
 
 EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   const auto total_started = std::chrono::steady_clock::now();
@@ -33,6 +54,16 @@ EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(con
   }
   EditResult<GenerateBundleFromPathResult> out = pipeline.build(pipeline.build_input_from_spec());
   if (out.ok) {
+    const std::unordered_set<ObjectId> consumed_pending =
+        referenced_pending_node_ids(spec, trial);
+    if (!consumed_pending.empty()) {
+      auto& pending = trial.session_.pending_support_nodes;
+      pending.erase(std::remove_if(pending.begin(), pending.end(),
+                                   [&](const SupportNode& node) {
+                                     return consumed_pending.contains(node.node_id);
+                                   }),
+                    pending.end());
+    }
     out.value.timing.state_copy_ms = state_copy_ms;
     out.value.timing.prepare_ms = prepare_ms;
     out.value.timing.check_ms = check_ms;
@@ -42,6 +73,7 @@ EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(con
     identity_ = std::move(trial.identity_);
     authoritative_ = std::move(trial.authoritative_);
     runtime_ = std::move(trial.runtime_);
+    session_ = std::move(trial.session_);
     debug_ = std::move(trial.debug_);
   }
   return out;

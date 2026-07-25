@@ -91,6 +91,15 @@ EditResult<bool> CoreState::bind_backbone_node_bundle_modes(
   return out;
 }
 
+EditResult<bool> CoreState::ClearPendingSupportNodes() {
+  EditResult<bool> out{};
+  const bool changed = !session_.pending_support_nodes.empty();
+  session_.pending_support_nodes.clear();
+  out.ok = true;
+  out.value = changed;
+  return out;
+}
+
 EditResult<bool> CoreState::bind_backbone_node_path_point_index(ObjectId node_id, int path_point_index) {
   EditResult<bool> out{};
   auto node_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
@@ -495,7 +504,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     if (out_kind == nullptr || out_position == nullptr) {
       return false;
     }
-    for (const SupportNode& node : debug_.pending_support_nodes) {
+    for (const SupportNode& node : session_.pending_support_nodes) {
       if (node.node_id != node_id) {
         continue;
       }
@@ -627,15 +636,15 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     result.value.support_kind = kind;
     if (!selected_templates.empty() || options.create_midair_node_set) {
       SupportNode node{};
-      node.node_id = debug_.next_virtual_support_node_id++;
+      node.node_id = session_.next_virtual_support_node_id++;
       node.support_kind = kind;
       node.position = pick.hit_pos_world;
       node.pole_id = kInvalidObjectId;
       node.path_point_index = -1;
       node.has_tangent_hint = false;
       node.bundle_modes = selected_bundle_modes(true);
-      debug_.pending_support_nodes.push_back(node);
-      std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
+      session_.pending_support_nodes.push_back(node);
+      std::sort(session_.pending_support_nodes.begin(), session_.pending_support_nodes.end(),
                 [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
       result.value.resolved_node_id = node.node_id;
     } else {
@@ -671,15 +680,15 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       result.value.position = saved_by_node_id->position;
       if (!selected_templates.empty() && saved_by_node_id->pole_id == kInvalidObjectId) {
         SupportNode node{};
-        node.node_id = debug_.next_virtual_support_node_id++;
+        node.node_id = session_.next_virtual_support_node_id++;
         node.support_kind = saved_by_node_id->support_kind;
         node.position = saved_by_node_id->position;
         node.pole_id = kInvalidObjectId;
         node.saved_backbone_node_id = saved_by_node_id->node_id;
         node.path_point_index = -1;
         node.bundle_modes = selected_bundle_modes(true);
-        debug_.pending_support_nodes.push_back(node);
-        std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
+        session_.pending_support_nodes.push_back(node);
+        std::sort(session_.pending_support_nodes.begin(), session_.pending_support_nodes.end(),
                   [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
         result.value.resolved_node_id = node.node_id;
         result.value.position = node.position;
@@ -704,14 +713,14 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       }
       if (!selected_templates.empty() || options.create_midair_node_set) {
         SupportNode node{};
-        node.node_id = debug_.next_virtual_support_node_id++;
+        node.node_id = session_.next_virtual_support_node_id++;
         node.support_kind = SupportKind::kPole;
         node.position = pole->world_transform.position;
         node.pole_id = pole->id;
         node.path_point_index = -1;
         node.bundle_modes = selected_bundle_modes(false);
-        debug_.pending_support_nodes.push_back(node);
-        std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
+        session_.pending_support_nodes.push_back(node);
+        std::sort(session_.pending_support_nodes.begin(), session_.pending_support_nodes.end(),
                   [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
         result.value.resolved_node_id = node.node_id;
         result.value.support_kind = SupportKind::kPole;
@@ -791,7 +800,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
 
   constexpr double kReuseEps2 = 1e-10;
-  for (const SupportNode& node : debug_.pending_support_nodes) {
+  for (const SupportNode& node : session_.pending_support_nodes) {
     if (node.support_kind != SupportKind::kMidair) {
       continue;
     }
@@ -799,7 +808,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       continue;
     }
     if (options.create_midair_node && has_endpoints) {
-      for (SupportNode& mutable_node : debug_.pending_support_nodes) {
+      for (SupportNode& mutable_node : session_.pending_support_nodes) {
         if (mutable_node.node_id != node.node_id) {
           continue;
         }
@@ -848,7 +857,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
 
   SupportNode midair{};
-  midair.node_id = debug_.next_virtual_support_node_id++;
+  midair.node_id = session_.next_virtual_support_node_id++;
   midair.support_kind = SupportKind::kMidair;
   midair.position = branch_position;
   midair.pole_id = kInvalidObjectId;
@@ -867,8 +876,8 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                                                          : BundleNodeMode::kNotPresent;
     midair.bundle_modes.push_back(mode);
   }
-  debug_.pending_support_nodes.push_back(midair);
-  std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
+  session_.pending_support_nodes.push_back(midair);
+  std::sort(session_.pending_support_nodes.begin(), session_.pending_support_nodes.end(),
             [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
 
   result.value.resolution = PickBranchResolutionKind::kMidair;

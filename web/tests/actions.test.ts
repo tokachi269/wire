@@ -530,6 +530,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     updateCableTemplate: () => ({ ok: true, error: "" }),
     updateBackboneBundlePlacement: () => ({ ok: true, error: "" }),
     updatePoleTemplate: () => ({ ok: true, error: "" }),
+    clearPendingSupportNodes: () => ({ ok: true, error: "" }),
     saveState: () => "factory-state",
     loadState: () => ({ ok: true, error: "" }),
     scene: () => emptyScene,
@@ -938,6 +939,34 @@ describe("P1 action contracts", () => {
     actions.addPathPoint([1, 2, 3]);
 
     expect(current(store).pathPoints).toEqual([[1, 2, 3]]);
+  });
+
+  it("clears pending support-node drafts when clearing the draw path", () => {
+    const clearPendingSupportNodes = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ clearPendingSupportNodes }), store);
+    actions.initialize();
+
+    actions.addPathPoint([1, 2, 3]);
+    actions.clearPath();
+
+    expect(clearPendingSupportNodes).toHaveBeenCalledTimes(1);
+    expect(current(store).pathPoints).toEqual([]);
+    expect(current(store).pathPointSpecs).toEqual([]);
+  });
+
+  it("keeps the draw path when pending support-node draft clear fails", () => {
+    const clearPendingSupportNodes = vi.fn(() => ({ ok: false, error: "clear failed" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ clearPendingSupportNodes }), store);
+    actions.initialize();
+
+    actions.addPathPoint([1, 2, 3]);
+    actions.clearPath();
+
+    expect(clearPendingSupportNodes).toHaveBeenCalledTimes(1);
+    expect(current(store).pathPoints).toEqual([[1, 2, 3]]);
+    expect(current(store).error).toBe("clear failed");
   });
 
   it("does not send stale generated bundle ids during route generation", () => {

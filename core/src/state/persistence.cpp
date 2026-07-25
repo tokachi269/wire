@@ -1870,6 +1870,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   trial.identity_ = std::move(loaded_identity);
   trial.authoritative_ = std::move(loaded_authoritative);
   trial.runtime_ = {};
+  trial.session_ = {};
   trial.debug_ = {};
 
   auto migrate_shared_pair_ports = [&]() -> bool {
@@ -2191,6 +2192,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   identity_ = std::move(trial.identity_);
   authoritative_ = std::move(trial.authoritative_);
   runtime_ = std::move(trial.runtime_);
+  session_ = std::move(trial.session_);
   debug_ = std::move(trial.debug_);
   result.ok = true;
   result.value = true;

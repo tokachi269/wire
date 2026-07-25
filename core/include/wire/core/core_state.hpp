@@ -67,10 +67,12 @@ public:
   EditResult<ObjectId> ApplyPoleType(ObjectId pole_id, PoleTypeId pole_type_id);
   // Canonical path-generation API.
   EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
-  // Interprets a viewer-side pick payload and updates support-node session state when needed.
+  // Interprets a viewer-side pick payload and creates volatile pending support nodes when needed.
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick);
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick,
                                                         const ResolveBranchPickOptions& options);
+  // Clears pending support-node drafts created by ResolveBranchPick for the current draw session.
+  EditResult<bool> ClearPendingSupportNodes();
   [[nodiscard]] EditResult<DefaultBundlePlacementResult>
   ResolveDefaultBundlePlacement(BundleTemplateId bundle_template_id, PoleTypeId pole_type_id, int count) const;
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
@@ -303,6 +305,7 @@ private:
   CoreStateIdentityStorage identity_{};
   CoreStateAuthoritativeStorage authoritative_{};
   CoreStateRuntimeStorage runtime_{};
+  CoreStateSessionStorage session_{};
   CoreStateDebugStorage debug_{};
 };
 

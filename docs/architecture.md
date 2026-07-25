@@ -36,6 +36,21 @@ BackboneSpec
 同じ意味を複数段で再判断せず、下流は上流の決定済み値だけを消費する。
 ユーザーが Update API で設定し derived 出力に影響する値は authoritative に置き、runtime cache に mirror を持たない。
 
+### session draft state
+
+`ResolveBranchPick()` が作る pending support node は、次の draw request へ pick 結果を渡すための
+session draft である。authoritative topology ではなく、保存対象ではない。
+
+pending support node の生存期間は次の通り。
+
+- `ResolveBranchPick()` は必要な場合だけ pending support node を作る。dry-run は作らない。
+- `GenerateFromBackboneSpec()` が pending node を参照して成功した場合、その pending node は消費済みとして削除する。
+- draw path の cancel / clear は `ClearPendingSupportNodes()` を呼び、未消費 pending を破棄する。
+- save / load は pending を保持しない。load 後に古い pending node id が request に残っていた場合、
+  preflight は mutation 前に `unknown node reference` として拒否する。
+
+生成失敗時は本stateへcommitしないため、pendingの消費も行わない。retryやclearは同じsession draft契約に従う。
+
 ## 永続化契約
 
 保存対象は identity と authoritative storage のみとし、runtime cache と debug storage は保存しない。

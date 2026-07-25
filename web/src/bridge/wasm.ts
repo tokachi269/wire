@@ -51,6 +51,7 @@ export interface WireStateHandle {
     input: PathPickInfo,
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo;
+  clearPendingSupportNodes(): OperationResult;
   lastGenerationTiming(): GenerationTiming;
   visualScene(): {
     parts: VisualPartInfo[];

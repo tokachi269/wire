@@ -58,6 +58,11 @@ export class DrawActions {
 
   clearPath(): void {
     const hadPoints = this.ctx.readSnapshot().pathPoints.length > 0;
+    const cleared = this.ctx.bridge.clearPendingSupportNodes();
+    if (!cleared.ok) {
+      this.ctx.store.setError(cleared.error);
+      return;
+    }
     this.ctx.store.update((current) => ({ ...current, pathPoints: [], pathPointSpecs: [], error: "" }));
     if (hadPoints) this.ctx.reproTrace.recordPathEdit("clear-path");
   }

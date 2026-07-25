@@ -28,7 +28,7 @@ struct CoreStateTestHook {
     return state.authoritative_.model_assembly_templates;
   }
   static std::vector<SupportNode>& pending_support_nodes(CoreState& state) {
-    return state.debug_.pending_support_nodes;
+    return state.session_.pending_support_nodes;
   }
   static std::vector<BackboneEdgeOrientation>& last_generation_edge_orientations(CoreState& state) {
     return state.debug_.last_generation_edge_orientations;

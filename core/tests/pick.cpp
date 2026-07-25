@@ -1,3 +1,4 @@
+#include <string>
 #include <vector>
 
 #include "registry.hpp"
@@ -161,6 +162,95 @@ bool test_branch_pick_hv_template_allows_midair_when_policy_not_enforced() {
          resolved.value.resolved_node_id != wire::core::kInvalidObjectId;
 }
 
+bool C817_Pick_StalePendingNodeReferenceRejectedAfterLoad() {
+  CoreState source;
+  ObjectId span_id{}, node_a{}, node_b{};
+  if (!make_pick_fixture(source, wire::core::BundleKind::kLowVoltage, &span_id, &node_a, &node_b)) return false;
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = span_id;
+  pick.hit_pos_world = {5.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = node_a;
+  pick.segment_node_b_id = node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {10.0, 0.0, 0.0};
+
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto resolved = source.ResolveBranchPick(pick, resolve);
+  std::string saved{};
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
+      !source.SerializeAuthoritative(&saved).ok) {
+    return false;
+  }
+
+  CoreState loaded;
+  if (!loaded.DeserializeAuthoritative(saved).ok ||
+      !wire::core::CoreStateTestHook::pending_support_nodes(loaded).empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {resolved.value.position, {5.0, 8.0, 0.0}};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = 1;
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const CoreCounts before = snapshot_counts(loaded);
+  const auto generated = loaded.GenerateFromBackboneSpec(branch);
+  return !generated.ok && regex_contains(generated.error, "unknown node reference") &&
+         same_counts(before, snapshot_counts(loaded));
+}
+
+bool C818_Pick_PendingSupportNodesAreClearedAndConsumed() {
+  CoreState state;
+  ObjectId span_id{}, node_a{}, node_b{};
+  if (!make_pick_fixture(state, wire::core::BundleKind::kLowVoltage, &span_id, &node_a, &node_b)) return false;
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = span_id;
+  pick.hit_pos_world = {5.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = node_a;
+  pick.segment_node_b_id = node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {10.0, 0.0, 0.0};
+
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto first = state.ResolveBranchPick(pick, resolve);
+  if (!first.ok || wire::core::CoreStateTestHook::pending_support_nodes(state).size() != 1) {
+    return false;
+  }
+  const auto cleared = state.ClearPendingSupportNodes();
+  if (!cleared.ok || !cleared.value ||
+      !wire::core::CoreStateTestHook::pending_support_nodes(state).empty()) {
+    return false;
+  }
+  const auto second = state.ResolveBranchPick(pick, resolve);
+  if (!second.ok || wire::core::CoreStateTestHook::pending_support_nodes(state).size() != 1) {
+    return false;
+  }
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {second.value.position, {5.0, 8.0, 0.0}};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = 1;
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = second.value.support_kind;
+  node.node_id = second.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto generated = state.GenerateFromBackboneSpec(branch);
+  return generated.ok && wire::core::CoreStateTestHook::pending_support_nodes(state).empty();
+}
+
 namespace {
 
 void register_pick_tests(test_registry::TestRegistry& tests) {
@@ -176,6 +266,12 @@ void register_pick_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C117_Pick_MidairPolicyBypassForPathInput",
                          "Path-input pick can resolve Midair without enforcing template branch policy", "Invariant", false,
                          test_branch_pick_hv_template_allows_midair_when_policy_not_enforced);
+  test_registry::AddTest(tests, "C817_Pick_StalePendingNodeReferenceRejectedAfterLoad",
+                         "stale pending node ids from a prior session are rejected before mutation", "Boundary", true,
+                         C817_Pick_StalePendingNodeReferenceRejectedAfterLoad);
+  test_registry::AddTest(tests, "C818_Pick_PendingSupportNodesAreClearedAndConsumed",
+                         "pending support node drafts clear on cancel and are consumed after generation", "Invariant", false,
+                         C818_Pick_PendingSupportNodesAreClearedAndConsumed);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_pick_tests);

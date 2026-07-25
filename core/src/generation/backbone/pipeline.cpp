@@ -1827,10 +1827,7 @@ EditResult<bool> pipeline::prepare() {
           continue;
         }
         if (saved == nullptr || saved->pole_id != kInvalidObjectId || saved->support_kind != n.support) {
-          out.error = (n.support == SupportKind::kMidair) ? "backbone unsupported: saved midair node not found"
-                      : (n.support == SupportKind::kExternal)
-                          ? "backbone unsupported: saved external node not found"
-                          : "backbone unsupported: saved ground node not found";
+          out.error = "backbone unsupported: unknown node reference";
           return out;
         }
       }
@@ -1855,7 +1852,7 @@ EditResult<bool> pipeline::prepare() {
       }
       const Pole* pole = state_.view().poles().find(pole_id);
       if (pole == nullptr) {
-        out.error = "backbone unsupported: node spec pole not found";
+        out.error = "backbone unsupported: unknown node reference";
         return out;
       }
       n.pole = pole->id;

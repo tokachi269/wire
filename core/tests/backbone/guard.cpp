@@ -1996,6 +1996,29 @@ bool C826_geometry_generation_tolerances_are_named() {
   return true;
 }
 
+bool C827_model_rotation_frame_contract_is_documented() {
+  std::string models{};
+  std::string coord_utils{};
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/models.md", &models), "docs/models.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "core/include/wire/core/coord_utils.hpp", &coord_utils),
+                   "coord_utils.hpp is missing");
+  const std::vector<std::string> doc_tokens = {
+      "rotation_euler_deg",
+      "RotateEulerXYZDeg",
+      "X -> Y -> Z",
+      "BuildPoleFrame",
+      "layout_yaw_deg",
+      "WorldForward",
+      "WorldLateral",
+      "WorldUp",
+  };
+  for (const std::string& token : doc_tokens) {
+    WIRE_TEST_EXPECT(contains_text(models, token), "model rotation docs missing token: " + token);
+  }
+  return contains_text(coord_utils, "RotateEulerXYZDeg") &&
+         contains_text(coord_utils, "BuildPoleFrame");
+}
+
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
   std::string model_assembly{};
   std::string curve_parts{};

@@ -1233,6 +1233,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "geometry and backbone generation tolerances use named constants",
                          "Boundary", false,
                          C826_geometry_generation_tolerances_are_named);
+  test_registry::AddTest(tests, "C827_model_rotation_frame_contract_is_documented",
+                         "model rotation and pole frame contract is documented",
+                         "Boundary", false,
+                         C827_model_rotation_frame_contract_is_documented);
   test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,

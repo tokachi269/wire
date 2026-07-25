@@ -123,6 +123,28 @@ row側の`endpoint_mount_socket`がある場合は`instance_socket`、無い場�
 wire endpointはendpoint fixtureの`wire_socket`から得るが、layoutが決めた接続点へsocketが一致するよう
 fixture rootを解く。socket local offsetでPort高さやbranch down policyを再決定しない。
 
+## 回転とpole local frame
+
+`rotation_euler_deg`は`RotateEulerXYZDeg`の実装順を正本とする。local pointへX回転、Y回転、Z回転を
+この順で適用する(`X -> Y -> Z`)。逆変換はZ、Y、Xの逆順で戻す。
+
+`BuildPoleFrame`は次の手順でpole local frameを作る。
+
+```text
+origin  = pole.world_transform.position
+forward = RotateEulerXYZDeg(WorldForward, rotation_euler_deg)
+lateral = RotateEulerXYZDeg(WorldLateral, rotation_euler_deg)
+up      = RotateEulerXYZDeg(WorldUp, rotation_euler_deg)
+```
+
+その後、`layout_yaw_deg - rotation_euler_deg.z`だけ、すでに傾いた`up`軸まわりに`forward`と`lateral`を
+回す。`up`はlayout yawでは変えない。つまりtiltはpole instanceの物理姿勢、layout yawは同じpole上の
+row/port配置軸をpole軸まわりに回す派生入力である。
+
+`WorldForward`はlocal X、`WorldLateral`はlocal Y、`WorldUp`はlocal Zの基準軸である。Port、row fixture、
+endpoint fixture、belt fitはこの`BuildPoleFrame`の`forward/lateral/up`を読む。adapter/viewer側で
+Euler順やlayout yaw合成を再解釈しない。
+
 templateの配置指定はbit flagではなく`PlacementRule`のリストとする。
 
 ```text

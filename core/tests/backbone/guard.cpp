@@ -1934,6 +1934,26 @@ bool C787_web_bundle_template_category_has_no_layer_fallback() {
   return true;
 }
 
+bool C825_core_silent_fallback_audit_is_recorded() {
+  std::string audit{};
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/core_silent_fallback_audit.md", &audit),
+                   "docs/core_silent_fallback_audit.md is missing");
+  const std::vector<std::string> required_tokens = {
+      "HorizontalNormalizedOr",
+      "model_assembly.cpp",
+      "span_visual_assembly.cpp",
+      "detail_curve.cpp",
+      "state/template/ports.cpp",
+      "Legitimate degenerate handling",
+      "Upstream inconsistency candidate",
+      "Deferred",
+  };
+  for (const std::string& token : required_tokens) {
+    WIRE_TEST_EXPECT(contains_text(audit, token), "silent fallback audit missing token: " + token);
+  }
+  return true;
+}
+
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
   std::string model_assembly{};
   std::string curve_parts{};

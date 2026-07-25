@@ -1225,6 +1225,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "web bundle template category is read from the marshalled template payload",
                          "Boundary", false,
                          C787_web_bundle_template_category_has_no_layer_fallback);
+  test_registry::AddTest(tests, "C825_core_silent_fallback_audit_is_recorded",
+                         "core silent fallback candidates are classified in the audit table",
+                         "Boundary", false,
+                         C825_core_silent_fallback_audit_is_recorded);
   test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,

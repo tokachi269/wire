@@ -9,6 +9,53 @@
 - Stage ルール: `Init / Pick / Decision / LanePrep / SupportLayout / Curve/Render / Commit / Refresh / Regenerate / Validate / Generate/Edit / General` の coarse 区分で、主に契約が切り替わる段を付ける。
 - 永続化 Boundary: `CoreStateAuthoritativeStorage` へ field を追加する変更は、serializer・deserializer・roundtrip test の更新を伴う。
 
+## Backbone Operation Semantics Coverage
+
+`docs/backbone_operation_semantics.md` の操作×状態表で `C` / `O` / `K` / `U` を含むセルは、ここで
+`BOS:<operation>:<state>` と登録済み Case ID を対応させる。`-` と `D#` セルは対象外。
+`tools/arch_lint.py` は表のセル集合とこの対応表を照合し、行または列を増やして coverage を足さない場合に失敗する。
+
+| Cell | Cases |
+|---|---|
+| BOS:add_one_edge:S0 | case:C809 |
+| BOS:add_one_edge:S1 | case:C771 case:C773 |
+| BOS:add_one_edge:S2 | case:C816 |
+| BOS:add_one_edge:S3 | case:C782 |
+| BOS:add_one_edge:S4 | case:C809 case:C816 |
+| BOS:add_one_edge:S5 | case:C772 case:C814 |
+| BOS:add_one_edge:SM | case:C564 case:C566 case:C589 |
+| BOS:add_two_edges:S0 | case:C388 case:C663 |
+| BOS:add_two_edges:S1 | case:C814 |
+| BOS:add_two_edges:S2 | case:C814 |
+| BOS:add_two_edges:S3 | case:C814 |
+| BOS:add_two_edges:S4 | case:C814 |
+| BOS:add_two_edges:S5 | case:C814 |
+| BOS:move_pole_angle:S1 | case:C813 |
+| BOS:move_pole_angle:S2 | case:C813 |
+| BOS:move_pole_angle:S3 | case:C813 |
+| BOS:move_pole_angle:S4 | case:C813 |
+| BOS:move_pole_angle:S5 | case:C813 |
+| BOS:update_placement:S1 | case:C796 |
+| BOS:update_placement:S2 | case:C770 case:C816 |
+| BOS:update_placement:S3 | case:C770 |
+| BOS:update_placement:S4 | case:C770 case:C796 |
+| BOS:update_placement:S5 | case:C796 |
+| BOS:update_placement:SM | case:C719 case:C724 case:C725 |
+| BOS:save_load:S0 | case:C751 |
+| BOS:save_load:S1 | case:C775 |
+| BOS:save_load:S2 | case:C751 case:C775 case:C811 |
+| BOS:save_load:S3 | case:C751 case:C773 case:C811 |
+| BOS:save_load:S4 | case:C805 |
+| BOS:save_load:S5 | case:C805 |
+| BOS:save_load:SM | case:C805 |
+| BOS:regenerate:S0 | case:C702 |
+| BOS:regenerate:S1 | case:C776 |
+| BOS:regenerate:S2 | case:C776 case:C813 |
+| BOS:regenerate:S3 | case:C776 case:C813 |
+| BOS:regenerate:S4 | case:C805 |
+| BOS:regenerate:S5 | case:C805 |
+| BOS:regenerate:SM | case:C719 case:C724 case:C725 |
+
 | Case ID | 分類 | Stage | 目的 | 前提 | 入力 | 期待結果 | 観測点 | 壊れた時に守りたいユーザ価値 |
 |---|---|---|---|---|---|---|---|---|
 | C750 | Invariant | Commit | authoritative save は version 付きで決定的かつ編集を反映する | 66 pole級 route を生成済み | SerializeAuthoritative x2 → 別route生成 → SerializeAuthoritative | Invariant: header は `wire_state_v1`、同一stateはbyte一致、編集後はbyte差分 | serialized text | 保存結果の非決定性と編集の取りこぼしを防ぐ |

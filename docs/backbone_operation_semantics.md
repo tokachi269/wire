@@ -38,13 +38,13 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 
 | 操作 | `S0` | `S1` | `S2` | `S3` | `S4` | `S5` | `SM` |
 |---|---|---|---|---|---|---|---|
-| 新規edgeを1本追加 | `O` | `C` | `O` | `O` | `C` | `O` | template policyに従い`O`または`U` |
-| 同一操作で2 edgeを追加 | `C` | `O` | `C` | `C` | `O` | `O` | `D3` |
-| poleを移動して角度を変更 | `-` | `K` | `K` | `K` | `K` | `K` | `D3` |
-| placement設定を更新 | `-` | `K` | `K` | `K` | `K` | `K` | `K` |
-| save/load | `K` | `K` | `K` | `K` | `K` | `K` | `K` |
-| regenerate | `K` | `K` | `K` | `K` | `K` | `K` | `K` |
-| 明示的に2 openを接続 | `-` | `-` | `-` | `-` | `-` | `D2` | `D2` |
+| `add_one_edge` 新規edgeを1本追加 | `O` | `C` | `O` | `O` | `C` | `O` | template policyに従い`O`または`U` |
+| `add_two_edges` 同一操作で2 edgeを追加 | `C` | `O` | `C` | `C` | `O` | `O` | `D3` |
+| `move_pole_angle` poleを移動して角度を変更 | `-` | `K` | `K` | `K` | `K` | `K` | `D3` |
+| `update_placement` placement設定を更新 | `-` | `K` | `K` | `K` | `K` | `K` | `K` |
+| `save_load` save/load | `K` | `K` | `K` | `K` | `K` | `K` | `K` |
+| `regenerate` regenerate | `K` | `K` | `K` | `K` | `K` | `K` | `K` |
+| `connect_two_open` 明示的に2 openを接続 | `-` | `-` | `-` | `-` | `-` | `D2` | `D2` |
 
 ### 接続候補の規則
 

@@ -37,6 +37,8 @@ C番号は履歴識別子として維持するが、C番号の増加を進捗指
 - geometry/validationからgeneration privateへの逆依存
 - recalc/support-layout familyの復活
 - road/rail/building/city domain identityのcore流入
+- `docs/backbone_operation_semantics.md` の操作×状態表と
+  `core/tests/spec_ledger.md` の `BOS:<operation>:<state>` coverage 対応漏れ
 
 source scanは安定した境界だけに使う。広い単語grepをtest semanticsの代わりにしない。
 
@@ -52,4 +54,3 @@ source scanは安定した境界だけに使う。広い単語grepをtest semant
 
 unsupported testはstate unchangedまで確認する。
 post-edit testはmarkerではなく、実際のlayout/geom/draw更新またはmutation前rejectを確認する。
-

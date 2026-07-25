@@ -22,6 +22,145 @@ def word_present(text: str, symbol: str) -> bool:
     return symbol in text
 
 
+def markdown_cells(line: str) -> list[str]:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return []
+    return [cell.strip() for cell in stripped.strip("|").split("|")]
+
+
+def is_separator_row(cells: list[str]) -> bool:
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells)
+
+
+def table_after_heading(text: str, heading: str) -> list[str]:
+    lines = text.splitlines()
+    try:
+        start = next(index for index, line in enumerate(lines) if line.strip() == heading)
+    except StopIteration:
+        return []
+    table: list[str] = []
+    in_table = False
+    for line in lines[start + 1:]:
+        if line.startswith("## ") and in_table:
+            break
+        cells = markdown_cells(line)
+        if cells:
+            table.append(line)
+            in_table = True
+            continue
+        if in_table and line.strip() == "":
+            break
+    return table
+
+
+def parse_backbone_semantics_cells(text: str) -> tuple[set[str], list[str]]:
+    errors: list[str] = []
+    table = table_after_heading(text, "## 操作×状態")
+    if len(table) < 2:
+        return set(), ["docs/backbone_operation_semantics.md: missing operation-state table"]
+    header = markdown_cells(table[0])
+    states = [match.group(1) for cell in header[1:] if (match := re.fullmatch(r"`([^`]+)`", cell))]
+    if len(states) != len(header) - 1:
+        errors.append("docs/backbone_operation_semantics.md: operation-state table state headers must be backtick ids")
+    required: set[str] = set()
+    for line in table[1:]:
+        cells = markdown_cells(line)
+        if not cells or is_separator_row(cells):
+            continue
+        if len(cells) != len(header):
+            errors.append(f"docs/backbone_operation_semantics.md: malformed operation-state row: {line.strip()}")
+            continue
+        op_match = re.search(r"`([^`]+)`", cells[0])
+        if op_match is None:
+            errors.append(f"docs/backbone_operation_semantics.md: operation row lacks backtick id: {cells[0]}")
+            continue
+        operation = op_match.group(1)
+        for state, value in zip(states, cells[1:]):
+            code_values = set(re.findall(r"`([^`]+)`", value))
+            bare = re.sub(r"`[^`]+`", "", value).strip()
+            if "-" in code_values or bare == "-":
+                continue
+            if any(re.fullmatch(r"D\d+", item) for item in code_values):
+                continue
+            if code_values.intersection({"C", "O", "K", "U"}) or "O" in value or "U" in value or "K" in value:
+                required.add(f"BOS:{operation}:{state}")
+    return required, errors
+
+
+def parse_backbone_semantics_coverage(text: str) -> tuple[dict[str, set[str]], set[str], list[str]]:
+    errors: list[str] = []
+    case_ids: set[str] = set()
+    coverage: dict[str, set[str]] = {}
+    case_row = re.compile(r"\|\s*(C\d+)\s*\|")
+    for line in text.splitlines():
+        if match := case_row.match(line):
+            case_ids.add(match.group(1))
+    table = table_after_heading(text, "## Backbone Operation Semantics Coverage")
+    if len(table) < 2:
+        return coverage, case_ids, ["core/tests/spec_ledger.md: missing Backbone Operation Semantics Coverage table"]
+    for line in table[1:]:
+        cells = markdown_cells(line)
+        if not cells or is_separator_row(cells):
+            continue
+        if len(cells) < 2:
+            errors.append(f"core/tests/spec_ledger.md: malformed semantics coverage row: {line.strip()}")
+            continue
+        cell_id = cells[0]
+        if not re.fullmatch(r"BOS:[a-z0-9_]+:[A-Z0-9]+", cell_id):
+            errors.append(f"core/tests/spec_ledger.md: invalid semantics coverage cell id: {cell_id}")
+            continue
+        if cell_id in coverage:
+            errors.append(f"core/tests/spec_ledger.md: duplicate semantics coverage cell: {cell_id}")
+            continue
+        cases = set(re.findall(r"C\d+", cells[1]))
+        if not cases:
+            errors.append(f"core/tests/spec_ledger.md: semantics coverage has no case ids: {cell_id}")
+        coverage[cell_id] = cases
+    return coverage, case_ids, errors
+
+
+def registered_core_case_ids(root: Path) -> set[str]:
+    ids: set[str] = set()
+    tests_root = root / "core" / "tests"
+    if not tests_root.exists():
+        return ids
+    for path in tests_root.rglob("*.cpp"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        ids.update(re.findall(r'AddTest\(\s*tests,\s*"(C\d+)_', text))
+    return ids
+
+
+def check_backbone_semantics_coverage(root: Path) -> list[str]:
+    docs_path = root / "docs" / "backbone_operation_semantics.md"
+    ledger_path = root / "core" / "tests" / "spec_ledger.md"
+    if not docs_path.exists() or not ledger_path.exists():
+        return ["backbone semantics coverage: docs or spec ledger file is missing"]
+    required, parse_errors = parse_backbone_semantics_cells(docs_path.read_text(encoding="utf-8"))
+    coverage, ledger_case_ids, coverage_errors = parse_backbone_semantics_coverage(
+        ledger_path.read_text(encoding="utf-8")
+    )
+    registered_ids = registered_core_case_ids(root)
+    errors = parse_errors + coverage_errors
+    covered = set(coverage.keys())
+    for cell in sorted(required - covered):
+        errors.append(f"core/tests/spec_ledger.md: missing semantics coverage for {cell}")
+    for cell in sorted(covered - required):
+        errors.append(f"core/tests/spec_ledger.md: semantics coverage for non-required cell {cell}")
+    for cell, cases in sorted(coverage.items()):
+        missing_ledger_cases = sorted(case for case in cases if case not in ledger_case_ids)
+        if missing_ledger_cases:
+            errors.append(
+                f"core/tests/spec_ledger.md: {cell} references cases absent from ledger {', '.join(missing_ledger_cases)}"
+            )
+        missing_registered_cases = sorted(case for case in cases if case not in registered_ids)
+        if missing_registered_cases:
+            errors.append(
+                f"core/tests/spec_ledger.md: {cell} references unregistered cases {', '.join(missing_registered_cases)}"
+            )
+    return errors
+
+
 def excluded(path: str, patterns: list[str]) -> bool:
     return any(
         matches(path, pattern)
@@ -90,6 +229,8 @@ def main() -> int:
             for symbol in domain_symbols:
                 if word_present(text, symbol):
                     errors.append(f"{source}: wire core forbids city-domain symbol {symbol!r}")
+
+    errors.extend(check_backbone_semantics_coverage(root))
 
     if errors:
         for error in errors:

@@ -28,6 +28,13 @@ testはv1 topology API、existing span geometry、position proximityから入力
 新しい登録test sourceが未分類、または複数familyへ分類された場合はlintを失敗させる。
 C番号は履歴識別子として維持するが、C番号の増加を進捗指標にしない。
 
+## failure diagnostics
+
+新規testは `WIRE_TEST_EXPECT(condition, reason)` で主要な前提と不変条件を検査する。
+既存testを触る場合は、その関数内の入口条件や複数手順の主要境界から理由付きへ移行する。
+全既存testの機械的一括移行は進捗ではない。複数手順のfailは、最初に壊れた操作名や期待した不変条件を
+reasonに残す。
+
 ## architecture guard
 
 `tools/arch_manifest.json`と`tools/arch_lint.py`は次を検出する。

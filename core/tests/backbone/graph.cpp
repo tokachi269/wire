@@ -1552,11 +1552,10 @@ bool C772_backbone_incremental_pair_promotion_leaves_ambiguous_candidates_open()
 
 bool C773_backbone_incremental_sharp_completion_derives_jumper_from_continuity() {
   IncrementalCrossFixture fixture{};
-  if (!make_incremental_cross(&fixture, true, wire::core::BundleKind::kLowVoltage,
-                              {12.0, -8.0, 0.0}, {13.0, -10.0, 0.0}) ||
-      !fixture.completion.ok) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(make_incremental_cross(&fixture, true, wire::core::BundleKind::kLowVoltage,
+                                          {12.0, -8.0, 0.0}, {13.0, -10.0, 0.0}),
+                   "incremental sharp fixture generation failed");
+  WIRE_TEST_EXPECT(fixture.completion.ok, fixture.completion.error);
   const wire::core::SavedBackboneNode* node_b = fixture.state.view().backbone_node_for_pole(fixture.pole_b);
   const wire::core::SavedBackboneNode* node_d = fixture.state.view().backbone_node_for_pole(fixture.pole_d);
   const wire::core::SavedBackboneNode* node_e = fixture.state.view().backbone_node_for_pole(fixture.pole_e);
@@ -1651,22 +1650,20 @@ bool C774_backbone_incremental_scope_mismatch_does_not_share_ports() {
 
 bool C775_backbone_incremental_canonical_pair_survives_save_load() {
   IncrementalCrossFixture source{};
-  if (!make_incremental_cross(&source) || !source.completion.ok || !canonical_cross_at_b(source)) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(make_incremental_cross(&source), "incremental cross fixture generation failed");
+  WIRE_TEST_EXPECT(source.completion.ok, source.completion.error);
+  WIRE_TEST_EXPECT(canonical_cross_at_b(source), "incremental cross was not canonical at B before save");
   const JunctionRowSnapshot before = junction_snapshot(source.state, source.pole_b);
   std::string saved{};
   const auto serialized = source.state.SerializeAuthoritative(&saved);
-  if (!serialized.ok) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(serialized.ok, serialized.error);
   wire::core::CoreState loaded;
   const auto deserialized = loaded.DeserializeAuthoritative(saved);
-  if (!deserialized.ok) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(deserialized.ok, deserialized.error);
   const JunctionRowSnapshot after = junction_snapshot(loaded, source.pole_b);
-  return snapshots_match(before, after) && curve_endpoints_match_layout(loaded);
+  WIRE_TEST_EXPECT(snapshots_match(before, after), "junction row snapshot changed after save/load");
+  WIRE_TEST_EXPECT(curve_endpoints_match_layout(loaded), "curve endpoints do not match layout after save/load");
+  return true;
 }
 
 bool C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore() {
@@ -3872,19 +3869,18 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
 
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(viewer_default_req(state));
-  if (!first.ok || first.value.generated_pole_ids.size() != 3 ||
-      first.value.generated_span_ids.size() != 16) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(first.ok, first.error);
+  WIRE_TEST_EXPECT(first.value.generated_pole_ids.size() == 3, "viewer default base did not generate 3 poles");
+  WIRE_TEST_EXPECT(first.value.generated_span_ids.size() == 16, "viewer default base did not generate 16 spans");
   const wire::core::ObjectId junction = first.value.generated_pole_ids[1];
   std::unordered_map<wire::core::ObjectId, wire::core::Vec3d> port_positions_before{};
   for (const wire::core::Port& port : state.view().ports().items()) {
     port_positions_before.emplace(port.id, port.world_position);
   }
   const wire::core::Pole* pole = state.view().poles().find(junction);
-  if (pole == nullptr) return false;
+  WIRE_TEST_EXPECT(pole != nullptr, "junction pole is missing");
   const wire::core::SavedBackboneNode* junction_node = state.view().backbone_node_for_pole(junction);
-  if (junction_node == nullptr) return false;
+  WIRE_TEST_EXPECT(junction_node != nullptr, "junction backbone node is missing");
   const wire::core::SavedBackboneEdge* incident = nullptr;
   for (const wire::core::SavedBackboneEdge& edge : state.view().backbone().edges) {
     if (edge.node_a == junction_node->node_id || edge.node_b == junction_node->node_id) {
@@ -3892,11 +3888,11 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
       break;
     }
   }
-  if (incident == nullptr) return false;
+  WIRE_TEST_EXPECT(incident != nullptr, "junction has no incident saved backbone edge");
   const wire::core::ObjectId peer_node_id =
       incident->node_a == junction_node->node_id ? incident->node_b : incident->node_a;
   const wire::core::SavedBackboneNode* peer_node = state.view().backbone_node(peer_node_id);
-  if (peer_node == nullptr) return false;
+  WIRE_TEST_EXPECT(peer_node != nullptr, "peer backbone node is missing");
 
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kSegment;
@@ -3917,12 +3913,13 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
       wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kOptical),
   };
   const auto resolved = state.ResolveBranchPick(pick, pick_options);
-  if (!resolved.ok ||
-      resolved.value.support_kind != wire::core::SupportKind::kPole ||
-      resolved.value.resolved_node_id != junction_node->node_id ||
-      !resolved.value.snapped_from_segment_endpoint) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(resolved.ok, resolved.error);
+  WIRE_TEST_EXPECT(resolved.value.support_kind == wire::core::SupportKind::kPole,
+                   "segment endpoint snap did not resolve to pole");
+  WIRE_TEST_EXPECT(resolved.value.resolved_node_id == junction_node->node_id,
+                   "segment endpoint snap resolved to the wrong backbone node");
+  WIRE_TEST_EXPECT(resolved.value.snapped_from_segment_endpoint,
+                   "segment endpoint snap flag was not set");
 
   wire::core::BackboneSpec branch = viewer_default_req(state);
   const wire::core::Vec3d new_point{12.0, -8.0, 0.0};
@@ -3931,10 +3928,9 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
       : std::vector<wire::core::Vec3d>{resolved.value.position, new_point};
   branch.path.node_specs = {pole_spec(anchor_at_end ? 1 : 0, resolved.value.resolved_node_id)};
   const auto out = state.GenerateFromBackboneSpec(branch);
-  if (!out.ok || out.value.generated_pole_ids.size() != 1 ||
-      out.value.generated_span_ids.size() != 8) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(out.ok, out.error);
+  WIRE_TEST_EXPECT(out.value.generated_pole_ids.size() == 1, "viewer default branch did not generate one pole");
+  WIRE_TEST_EXPECT(out.value.generated_span_ids.size() == 8, "viewer default branch did not generate 8 spans");
 
   std::unordered_map<wire::core::BundleTemplateId, std::size_t> generated_by_template{};
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
@@ -3944,6 +3940,7 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
       generated_by_template[wire::core::kDefaultLowVoltageBundleTemplateId] != 3 ||
       generated_by_template[wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)] != 1 ||
       generated_by_template[wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kOptical)] != 1) {
+    test_registry::SetFailureReason("viewer default branch generated wrong template span counts");
     return false;
   }
 
@@ -3954,11 +3951,10 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
     const auto template_it = bundle == nullptr
         ? state.view().bundle_templates().end()
         : state.view().bundle_templates().find(bundle->bundle_template_id);
-    if (bundle == nullptr || template_it == state.view().bundle_templates().end()) return false;
+    WIRE_TEST_EXPECT(bundle != nullptr && template_it != state.view().bundle_templates().end(),
+                     "span bundle/template is missing");
     const wire::core::SpanLayoutView layout = state.span_layout(span.id);
-    if (!layout.has_layout()) {
-      return false;
-    }
+    WIRE_TEST_EXPECT(layout.has_layout(), "span layout is missing");
     const bool flagged = branch_span_ids.contains(span.id) &&
                          template_it->second.enable_branch_down_offset &&
                          template_it->second.branch_endpoint_offset_m < -1e-9;
@@ -3968,17 +3964,20 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
     const bool end_at_junction = end_port != nullptr && end_port->owner_pole_id == junction;
     if (!endpoint_follows_template_policy(state, layout.entry->start, flagged && start_at_junction) ||
         !endpoint_follows_template_policy(state, layout.entry->end, flagged && end_at_junction)) {
+      test_registry::SetFailureReason("branch endpoint lowering did not follow template policy");
       return false;
     }
   }
   for (const auto& [port_id, before_position] : port_positions_before) {
     const wire::core::Port* after_port = state.view().ports().find(port_id);
     if (after_port == nullptr || !almost_equal(after_port->world_position, before_position, 1e-9)) {
+      test_registry::SetFailureReason("existing port position changed during T branch generation");
       return false;
     }
   }
 
-  return curve_endpoints_match_layout(state);
+  WIRE_TEST_EXPECT(curve_endpoints_match_layout(state), "curve endpoints do not match layout");
+  return true;
 }
 
 bool C798_backbone_viewer_default_t_branch_keeps_hv_and_only_flagged_lowering() {
@@ -4066,9 +4065,8 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
       state.view().bundle_templates().at(
           wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage));
   const double step = std::max(0.0, -hv.branch_endpoint_offset_m);
-  if (!hv.enable_branch_down_offset || step <= 0.0) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(hv.enable_branch_down_offset, "default HV branch-down offset flag is disabled");
+  WIRE_TEST_EXPECT(step > 0.0, "default HV branch-down offset step is not positive");
   const auto expected = [&](const wire::core::CoreState& current,
                             wire::core::ObjectId pole_id,
                             std::initializer_list<double> levels) {
@@ -4120,38 +4118,28 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
   };
 
   wire::core::BackboneSpec base_request = hv_poly3_req(state);
-  if (!use_explicit_hv_placement(&base_request)) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(use_explicit_hv_placement(&base_request), "failed to apply explicit HV placement to base request");
   const auto base = state.GenerateFromBackboneSpec(base_request);
-  if (!base.ok || base.value.generated_pole_ids.size() != 3) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(base.ok, base.error);
+  WIRE_TEST_EXPECT(base.value.generated_pole_ids.size() == 3, "base HV polyline did not generate 3 poles");
   const wire::core::ObjectId junction = base.value.generated_pole_ids[1];
-  if (!expected(state, junction, {0.0}) ||
-      !add_hv_edge(junction, {20.0, -8.0, 0.0}, false) ||
-      !expected(state, junction, {0.0, 1.0}) ||
-      !add_hv_edge(junction, {4.0, 8.0, 0.0}, true) ||
-      !expected(state, junction, {0.0, 1.0}) ||
-      !add_hv_edge(junction, {20.0, 8.0, 0.0}, false) ||
-      !expected(state, junction, {0.0, 1.0, 2.0}) ||
-      !add_hv_edge(junction, {4.0, -8.0, 0.0}, true) ||
-      !expected(state, junction, {0.0, 1.0, 2.0})) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(expected(state, junction, {0.0}), "base junction levels are not {0}");
+  WIRE_TEST_EXPECT(add_hv_edge(junction, {20.0, -8.0, 0.0}, false), "failed to add first HV branch edge");
+  WIRE_TEST_EXPECT(expected(state, junction, {0.0, 1.0}), "degree 3 junction levels are not {0,1}");
+  WIRE_TEST_EXPECT(add_hv_edge(junction, {4.0, 8.0, 0.0}, true), "failed to add opposite HV branch edge");
+  WIRE_TEST_EXPECT(expected(state, junction, {0.0, 1.0}), "degree 4 junction levels changed unexpectedly");
+  WIRE_TEST_EXPECT(add_hv_edge(junction, {20.0, 8.0, 0.0}, false), "failed to add third HV branch edge");
+  WIRE_TEST_EXPECT(expected(state, junction, {0.0, 1.0, 2.0}), "degree 5 junction levels are not {0,1,2}");
+  WIRE_TEST_EXPECT(add_hv_edge(junction, {4.0, -8.0, 0.0}, true), "failed to add fourth HV branch edge");
+  WIRE_TEST_EXPECT(expected(state, junction, {0.0, 1.0, 2.0}), "degree 6 junction levels changed unexpectedly");
 
   std::string saved{};
-  if (!state.SerializeAuthoritative(&saved).ok) {
-    return false;
-  }
+  const auto saved_out = state.SerializeAuthoritative(&saved);
+  WIRE_TEST_EXPECT(saved_out.ok, saved_out.error);
   wire::core::CoreState loaded;
   const auto loaded_result = loaded.DeserializeAuthoritative(saved);
-  if (!loaded_result.ok) {
-    return false;
-  }
-  if (!expected(loaded, junction, {0.0, 1.0, 2.0})) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(loaded_result.ok, loaded_result.error);
+  WIRE_TEST_EXPECT(expected(loaded, junction, {0.0, 1.0, 2.0}), "loaded junction levels are not {0,1,2}");
   std::string legacy{};
   for (std::size_t line_begin = 0; line_begin < saved.size();) {
     const std::size_t line_end = saved.find('\n', line_begin);
@@ -4168,8 +4156,11 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
     line_begin = line_end + 1;
   }
   wire::core::CoreState legacy_loaded;
-  return legacy_loaded.DeserializeAuthoritative(legacy).ok &&
-         expected(legacy_loaded, junction, {0.0, 1.0, 2.0});
+  const auto legacy_loaded_result = legacy_loaded.DeserializeAuthoritative(legacy);
+  WIRE_TEST_EXPECT(legacy_loaded_result.ok, legacy_loaded_result.error);
+  WIRE_TEST_EXPECT(expected(legacy_loaded, junction, {0.0, 1.0, 2.0}),
+                   "legacy loaded junction levels are not {0,1,2}");
+  return true;
 }
 
 bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {
@@ -4268,50 +4259,43 @@ bool C815_backbone_sharp_pair_height_is_operation_order_independent() {
   wire::core::CoreState one_shot;
   const auto one_base =
       one_shot.GenerateFromBackboneSpec(hv_poly3_req(one_shot));
-  if (!one_base.ok || one_base.value.generated_pole_ids.size() != 3) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(one_base.ok, one_base.error);
+  WIRE_TEST_EXPECT(one_base.value.generated_pole_ids.size() == 3, "one-shot base did not generate 3 poles");
   const wire::core::ObjectId one_b = one_base.value.generated_pole_ids[1];
   const wire::core::Pole* one_pole = one_shot.view().poles().find(one_b);
-  if (one_pole == nullptr) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(one_pole != nullptr, "one-shot junction pole is missing");
   wire::core::BackboneSpec one_pair = hv_request(one_shot);
   one_pair.path.polyline = {d, one_pole->world_transform.position, e};
   one_pair.path.node_specs = {pole_spec(1, one_b)};
   const auto one_added = one_shot.GenerateFromBackboneSpec(one_pair);
-  if (!one_added.ok || one_added.value.generated_pole_ids.size() != 2) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(one_added.ok, one_added.error);
+  WIRE_TEST_EXPECT(one_added.value.generated_pole_ids.size() == 2, "one-shot sharp pair did not generate 2 poles");
 
   wire::core::CoreState incremental;
   const auto incremental_base =
       incremental.GenerateFromBackboneSpec(hv_poly3_req(incremental));
-  if (!incremental_base.ok ||
-      incremental_base.value.generated_pole_ids.size() != 3) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(incremental_base.ok, incremental_base.error);
+  WIRE_TEST_EXPECT(incremental_base.value.generated_pole_ids.size() == 3,
+                   "incremental base did not generate 3 poles");
   const wire::core::ObjectId incremental_b =
       incremental_base.value.generated_pole_ids[1];
   const wire::core::Pole* incremental_pole =
       incremental.view().poles().find(incremental_b);
-  if (incremental_pole == nullptr) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(incremental_pole != nullptr, "incremental junction pole is missing");
   wire::core::BackboneSpec first = hv_request(incremental);
   first.path.polyline = {incremental_pole->world_transform.position, d};
   first.path.node_specs = {pole_spec(0, incremental_b)};
   const auto first_added = incremental.GenerateFromBackboneSpec(first);
-  if (!first_added.ok || first_added.value.generated_pole_ids.size() != 1) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(first_added.ok, first_added.error);
+  WIRE_TEST_EXPECT(first_added.value.generated_pole_ids.size() == 1,
+                   "incremental first sharp edge did not generate 1 pole");
   wire::core::BackboneSpec second = hv_request(incremental);
   second.path.polyline = {e, incremental_pole->world_transform.position};
   second.path.node_specs = {pole_spec(1, incremental_b)};
   const auto second_added = incremental.GenerateFromBackboneSpec(second);
-  if (!second_added.ok || second_added.value.generated_pole_ids.size() != 1) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(second_added.ok, second_added.error);
+  WIRE_TEST_EXPECT(second_added.value.generated_pole_ids.size() == 1,
+                   "incremental second sharp edge did not generate 1 pole");
 
   const auto one_levels = hv_endpoint_levels_at_pole(one_shot, one_b);
   const auto incremental_levels =
@@ -4324,10 +4308,13 @@ bool C815_backbone_sharp_pair_height_is_operation_order_independent() {
                 .branch_endpoint_offset_m);
   const std::vector<std::pair<int, double>> expected{
       {0, 0.0}, {0, 0.0}, {1, step}, {1, step}};
-  return step > 0.0 && one_levels == expected &&
-         incremental_levels == expected && one_levels == incremental_levels &&
-         curve_endpoints_match_layout(one_shot) &&
-         curve_endpoints_match_layout(incremental);
+  WIRE_TEST_EXPECT(step > 0.0, "HV branch-down step is not positive");
+  WIRE_TEST_EXPECT(one_levels == expected, "one-shot sharp endpoint levels do not match expected");
+  WIRE_TEST_EXPECT(incremental_levels == expected, "incremental sharp endpoint levels do not match expected");
+  WIRE_TEST_EXPECT(one_levels == incremental_levels, "one-shot and incremental sharp endpoint levels differ");
+  WIRE_TEST_EXPECT(curve_endpoints_match_layout(one_shot), "one-shot curve endpoints do not match layout");
+  WIRE_TEST_EXPECT(curve_endpoints_match_layout(incremental), "incremental curve endpoints do not match layout");
+  return true;
 }
 
 bool C816_backbone_incremental_normal_pair_keeps_allocated_support_level() {

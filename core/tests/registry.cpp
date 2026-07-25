@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_set>
+#include <utility>
 
 #ifndef WIRE_TEST_SPEC_LEDGER_PATH
 #define WIRE_TEST_SPEC_LEDGER_PATH "core/tests/spec_ledger.md"
@@ -18,6 +19,11 @@ namespace {
 std::vector<SuiteRegisterFn>& RegisteredSuites() {
   static std::vector<SuiteRegisterFn> suites;
   return suites;
+}
+
+std::string& CurrentFailureReason() {
+  static std::string reason;
+  return reason;
 }
 
 int CaseNumber(const char* case_id) {
@@ -78,6 +84,18 @@ void RegisterSuite(SuiteRegisterFn register_fn) {
 
 SuiteRegistration::SuiteRegistration(SuiteRegisterFn register_fn) {
   RegisterSuite(register_fn);
+}
+
+void ClearFailureReason() {
+  CurrentFailureReason().clear();
+}
+
+void SetFailureReason(std::string reason) {
+  CurrentFailureReason() = std::move(reason);
+}
+
+const std::string& FailureReason() {
+  return CurrentFailureReason();
 }
 
 TestRegistry BuildRegisteredTests() {

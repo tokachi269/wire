@@ -19,10 +19,14 @@ int main(int argc, char** argv) {
     if (!filter.empty() && std::string_view(test.case_id).find(filter) == std::string_view::npos) {
       continue;
     }
+    test_registry::ClearFailureReason();
     const bool passed = test.run();
     std::cout << (passed ? "[PASS] " : "[FAIL] ") << test.case_id << " [" << test.oracle << "]["
               << (test.abnormal ? "Abnormal" : "Normal") << "]"
               << " - " << test.intent << "\n";
+    if (!passed && !test_registry::FailureReason().empty()) {
+      std::cerr << "  reason: " << test_registry::FailureReason() << "\n";
+    }
     all_passed = all_passed && passed;
   }
 

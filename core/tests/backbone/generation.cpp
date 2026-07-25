@@ -457,6 +457,46 @@ bool C822_edit_result_error_kind_classifies_core_error_prefixes() {
          ok.effective_error_kind() == wire::core::EditErrorKind::kNone;
 }
 
+bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
+  std::string registry_hpp{};
+  std::string registry_cpp{};
+  std::string runner_cpp{};
+  std::string graph_cpp{};
+  std::string testing_doc{};
+  std::string agents{};
+  WIRE_TEST_EXPECT(file_text(repo_root() / "core" / "tests" / "registry.hpp", &registry_hpp),
+                   "registry.hpp is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "core" / "tests" / "registry.cpp", &registry_cpp),
+                   "registry.cpp is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "core" / "tests" / "runner.cpp", &runner_cpp),
+                   "runner.cpp is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "core" / "tests" / "backbone" / "graph.cpp", &graph_cpp),
+                   "graph.cpp is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs" / "testing.md", &testing_doc),
+                   "docs/testing.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "AGENTS.md", &agents), "AGENTS.md is missing");
+  const std::array<const char*, 5> migrated_functions{
+      "bool C773_backbone_incremental_sharp_completion_derives_jumper_from_continuity()",
+      "bool C775_backbone_incremental_canonical_pair_survives_save_load()",
+      "bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_end)",
+      "bool C809_backbone_incremental_rows_use_one_support_level_per_pair()",
+      "bool C815_backbone_sharp_pair_height_is_operation_order_independent()",
+  };
+  for (const char* signature : migrated_functions) {
+    std::string body{};
+    WIRE_TEST_EXPECT(function_body(graph_cpp, signature, &body), std::string("missing function body: ") + signature);
+    WIRE_TEST_EXPECT(contains_text(body, "WIRE_TEST_EXPECT"),
+                     std::string("function lacks WIRE_TEST_EXPECT: ") + signature);
+  }
+  WIRE_TEST_EXPECT(contains_text(registry_hpp, "WIRE_TEST_EXPECT"), "WIRE_TEST_EXPECT macro is missing");
+  WIRE_TEST_EXPECT(contains_text(registry_cpp, "SetFailureReason"), "SetFailureReason storage is missing");
+  WIRE_TEST_EXPECT(contains_text(runner_cpp, "reason: "), "runner does not print failure reason");
+  WIRE_TEST_EXPECT(contains_text(testing_doc, "WIRE_TEST_EXPECT(condition, reason)"),
+                   "docs/testing.md does not document failure diagnostics");
+  WIRE_TEST_EXPECT(contains_text(agents, "WIRE_TEST_EXPECT"), "AGENTS.md does not require diagnostic helper use");
+  return true;
+}
+
 bool C382_backbone_geom_is_single_pipeline_layer() {
   const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   bool has_geom = false;

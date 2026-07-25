@@ -1,6 +1,7 @@
 #include "mount_graph.hpp"
 
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -47,7 +48,7 @@ Vec3d euler_from_matrix(const Matrix3& matrix) {
   const double cos_y = std::cos(y);
   double x = 0.0;
   double z = 0.0;
-  if (std::abs(cos_y) > 1e-9) {
+  if (std::abs(cos_y) > kUnitlessTolerance) {
     x = std::atan2(matrix.m[2][1], matrix.m[2][2]);
     z = std::atan2(matrix.m[1][0], matrix.m[0][0]);
   } else {

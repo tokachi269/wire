@@ -1,6 +1,7 @@
 #include "out.hpp"
 
 #include "wire/core/core_view.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include "../../geometry/curve/curve.hpp"
@@ -73,7 +74,7 @@ curve_input_data make_curve_input_data(const CoreState& state, ObjectId span_id,
 
   const Vec3d chord = end - start;
   data.chord_length = Length(chord);
-  const Vec3d tangent = data.chord_length > 1e-9 ? ScaleVec(chord, 1.0 / data.chord_length) : Vec3d{1.0, 0.0, 0.0};
+  const Vec3d tangent = data.chord_length > kLengthToleranceM ? ScaleVec(chord, 1.0 / data.chord_length) : Vec3d{1.0, 0.0, 0.0};
   geometry::curve::CableCurveInput& input = data.input;
   input.start = start;
   input.end = end;
@@ -85,7 +86,7 @@ curve_input_data make_curve_input_data(const CoreState& state, ObjectId span_id,
   input.canonical_dir = tangent;
   const BackboneFrontier frontier = state.view().span_frontier(span_id);
   if (const SavedBackboneEdge* edge = state.view().backbone_edge(frontier.edge_id);
-      edge != nullptr && Length(edge->dir) > 1e-9) {
+      edge != nullptr && Length(edge->dir) > kLengthToleranceM) {
     input.canonical_dir = edge->dir;
   }
   input.sag_m = settings.sag_enabled ? sag_ratio * data.chord_length : 0.0;
@@ -297,7 +298,7 @@ SpanRenderCacheEntry render(const CoreState& state, ObjectId span_id, const Deta
     }
     out.arc_length_m_by_point.push_back(static_cast<float>(total));
   }
-  const double denom = total > 1e-9 ? total : 1.0;
+  const double denom = total > kLengthToleranceM ? total : 1.0;
   for (float value : out.arc_length_m_by_point) {
     out.arc_length_normalized_by_point.push_back(static_cast<float>(static_cast<double>(value) / denom));
   }

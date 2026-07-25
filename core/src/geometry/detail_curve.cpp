@@ -1,4 +1,5 @@
 #include "wire/core/detail_curve.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
@@ -8,7 +9,7 @@ namespace wire::core {
 
 namespace {
 
-constexpr double kZeroLengthEps = 1e-9;
+constexpr double kZeroLengthEps = kLengthToleranceM;
 constexpr double kNormalizedCatenarySteepness = 3.4;
 constexpr double kG2MinChordLengthM = 4.0;
 constexpr double kG2EndpointOffsetRatioLimit = 0.08;
@@ -85,7 +86,7 @@ double SmoothStep(double edge0, double edge1, double x) {
 }
 
 double CornerStrengthForAngle(double angle_deg) {
-  if (angle_deg <= 1e-6) {
+  if (angle_deg <= kAngleToleranceDeg) {
     return 0.0;
   }
   return 1.0 - Clamp01((angle_deg - 35.0) / 120.0);
@@ -135,7 +136,7 @@ Vec3d SuppressPlanarLateralComponent(const Vec3d& chord_dir, const Vec3d& tangen
 }
 
 Vec3d ApplyLateralSuppressionPolicy(const Vec3d& chord_dir, const Vec3d& tangent, double suppression) {
-  if (suppression <= 1e-6) {
+  if (suppression <= kLooseUnitlessTolerance) {
     return tangent;
   }
   const Vec3d suppressed = SuppressPlanarLateralComponent(chord_dir, tangent);
@@ -143,7 +144,7 @@ Vec3d ApplyLateralSuppressionPolicy(const Vec3d& chord_dir, const Vec3d& tangent
 }
 
 Vec3d ClampPlanarLateralRatio(const Vec3d& chord_dir, const Vec3d& tangent, double lateral_ratio_limit) {
-  if (lateral_ratio_limit <= 1e-6) {
+  if (lateral_ratio_limit <= kLooseUnitlessTolerance) {
     return tangent;
   }
   const Vec3d lateral_axis = ComputeLateralAxis(chord_dir);
@@ -177,10 +178,10 @@ void DampNearStraightTangents(const Vec3d& chord_dir, Vec3d* start_tangent, Vec3
   double weight = SmoothStep(0.94, 0.995, std::min(start_alignment, end_alignment));
   const double start_lateral = SignedLateralComponent(chord_dir, *start_tangent);
   const double end_lateral = SignedLateralComponent(chord_dir, *end_tangent);
-  if (start_lateral * end_lateral < -1e-6) {
+  if (start_lateral * end_lateral < -kLooseUnitlessTolerance) {
     weight = std::max(weight, 0.82);
   }
-  if (weight <= 1e-6) {
+  if (weight <= kLooseUnitlessTolerance) {
     return;
   }
   *start_tangent = BlendTowardChord(chord_dir, *start_tangent, weight);
@@ -192,7 +193,7 @@ void ApplyCornerPassTangentPolicy(const Vec3d& chord_dir, const CurveConstraint&
     return;
   }
   const double corner_strength = CornerStrengthForAngle(constraint.corner_angle_deg);
-  if (corner_strength <= 1e-6) {
+  if (corner_strength <= kLooseUnitlessTolerance) {
     return;
   }
   *tangent = chord_dir;
@@ -356,7 +357,7 @@ DetailCurveSegmentSpan ResolveCurveSegmentSpan(const DetailCurve& curve, double 
   }
   const double clamped = Clamp01(u);
   for (const DetailCurveSegment& segment : curve.segments) {
-    if (clamped <= segment.u_end + 1e-9) {
+    if (clamped <= segment.u_end + kLengthToleranceM) {
       const double global_span = std::max(kZeroLengthEps, segment.u_end - segment.u_start);
       span.segment = &segment;
       span.global_span = global_span;
@@ -724,7 +725,7 @@ CurveQualityMetrics EvaluateCurveQuality(const std::array<Vec3d, 4>& cp, double 
     Vec3d p = EvaluateBezier(cp, u);
     OffsetAlongWorldUp(&p, -sag_amplitude_m * SagShape(u));
     const double progress = ChordProjectionProgress(start, chord_dir, p);
-    if (i > 0 && progress + 1e-6 < last_progress) {
+    if (i > 0 && progress + kParameterTolerance < last_progress) {
       ++metrics.perspective.progress_regressions;
     }
     last_progress = progress;
@@ -732,7 +733,7 @@ CurveQualityMetrics EvaluateCurveQuality(const std::array<Vec3d, 4>& cp, double 
         std::max(metrics.perspective.max_spatial_deviation_m, MaxPerpendicularDeviation(start, chord_dir, p));
     const double lateral = Dot(p - start, lateral_axis);
     metrics.top.max_lateral_overshoot_m = std::max(metrics.top.max_lateral_overshoot_m, std::abs(lateral));
-    if (has_last_lateral && std::abs(lateral) > 1e-6 && std::abs(last_lateral) > 1e-6 &&
+    if (has_last_lateral && std::abs(lateral) > kGeometryToleranceM && std::abs(last_lateral) > kGeometryToleranceM &&
         ((lateral > 0.0) != (last_lateral > 0.0))) {
       ++metrics.top.lateral_sign_changes;
     }

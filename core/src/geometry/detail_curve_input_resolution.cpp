@@ -2,6 +2,7 @@
 
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../support/hash_mix.hpp"
 #include "curve_support.hpp"
@@ -162,7 +163,7 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
 
   ResolvedSpanCurveInputs inputs{};
   inputs.basis_length =
-      (use_reference_length && span.reference_length_m > 1e-9) ? span.reference_length_m : distance;
+      (use_reference_length && span.reference_length_m > kLengthToleranceM) ? span.reference_length_m : distance;
   if (existing_layout != nullptr) {
     inputs.flow_kind = existing_layout->flow_kind;
   } else {
@@ -187,7 +188,7 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
   const double sag_multiplier =
       std::max(0.0, 1.0 + inputs.sag_variation.final_value * view.variation_settings().sag_variation_scale);
   inputs.effective_sag_ratio =
-      (view.geometry_settings().sag_enabled && inputs.basis_length > 1e-9) ? (sag_ratio * sag_multiplier) : 0.0;
+      (view.geometry_settings().sag_enabled && inputs.basis_length > kLengthToleranceM) ? (sag_ratio * sag_multiplier) : 0.0;
   return inputs;
 }
 

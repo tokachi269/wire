@@ -1,6 +1,7 @@
 #include "curve.hpp"
 
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <array>
@@ -10,7 +11,7 @@
 namespace wire::core::geometry::curve {
 namespace {
 
-constexpr double kEpsilon = 1e-9;
+constexpr double kEpsilon = kLengthToleranceM;
 
 bool finite(const Vec3d& value) {
   return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);

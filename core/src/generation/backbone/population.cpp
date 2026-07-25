@@ -1,6 +1,7 @@
 #include "population.hpp"
 
 #include "wire/core/core_view.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "../../state/port_placement.hpp"
 
 #include <algorithm>
@@ -11,7 +12,7 @@
 namespace wire::core::generation::backbone {
 namespace {
 
-constexpr double kEps = 1e-9;
+constexpr double kEps = kLengthToleranceM;
 constexpr std::size_t kCandidateAttempts = 32;
 
 std::uint64_t mix64(std::uint64_t value) {

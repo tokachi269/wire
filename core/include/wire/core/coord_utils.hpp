@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "wire/core/types.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 
 namespace wire::core {
 
@@ -50,7 +51,7 @@ inline double DistanceSquaredXY(const Vec3d& a, const Vec3d& b) {
 inline double DistanceSquaredToSegment(const Vec3d& point, const Vec3d& a, const Vec3d& b) {
   const Vec3d ab = b - a;
   const double len2 = LengthSquared(ab);
-  if (len2 <= 1e-12) {
+  if (len2 <= kLengthSquaredToleranceM2) {
     return DistanceSquared(point, a);
   }
   const double t = std::clamp(Dot(point - a, ab) / len2, 0.0, 1.0);
@@ -62,7 +63,7 @@ inline bool Normalize(Vec3d* v) {
     return false;
   }
   const double len2 = LengthSquared(*v);
-  if (len2 <= 1e-12) {
+  if (len2 <= kLengthSquaredToleranceM2) {
     return false;
   }
   const double inv_len = 1.0 / std::sqrt(len2);

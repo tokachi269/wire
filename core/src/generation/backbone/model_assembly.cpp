@@ -8,6 +8,7 @@
 #include "../../support/instrumentation.hpp"
 
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "wire/core/core_view.hpp"
 
 #include <algorithm>
@@ -105,7 +106,7 @@ Vec3d euler_from_matrix(const Matrix3& matrix) {
   const double cos_y = std::cos(y);
   double x = 0.0;
   double z = 0.0;
-  if (std::abs(cos_y) > 1e-9) {
+  if (std::abs(cos_y) > kUnitlessTolerance) {
     x = std::atan2(matrix.m[2][1], matrix.m[2][2]);
     z = std::atan2(matrix.m[1][0], matrix.m[0][0]);
   } else {
@@ -200,7 +201,7 @@ EditResult<PortFixtureContext> port_fixture_context(const CoreState& state, cons
       out.error = "model assembly unsupported: shared Port resolves different row assemblies";
       return out;
     }
-    if (std::abs(binding->layout_yaw_deg - layout_yaw_deg) > 1e-9) {
+    if (std::abs(binding->layout_yaw_deg - layout_yaw_deg) > kStrictAngleToleranceDeg) {
       out.error = "model assembly unsupported: shared Port resolves different row frames";
       return out;
     }
@@ -241,7 +242,7 @@ EditResult<Transformd> resolve_model_part_world_transform(const CoreState& state
   Transformd part_root = owner_root;
   if (part.fit_mode == ModelFitMode::kPoleHeight) {
     const auto pole_type_it = state.view().pole_types().find(pole.pole_type_id);
-    if (pole_type_it == state.view().pole_types().end() || pole_type_it->second.default_height_m <= 1e-9) {
+    if (pole_type_it == state.view().pole_types().end() || pole_type_it->second.default_height_m <= kLengthToleranceM) {
       out.error = "model assembly unsupported: pole height fit requires a valid PoleType default height";
       return out;
     }
@@ -434,7 +435,7 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
     } else {
       if (row_it->assembly_id != row_assembly_id ||
           std::abs(row_it->layout_yaw_deg -
-                   representation.value.layout_yaw_deg) > 1e-9) {
+                   representation.value.layout_yaw_deg) > kStrictAngleToleranceDeg) {
         out.error = "model assembly unsupported: saved row resolves inconsistent fixture data";
         return out;
       }
@@ -494,7 +495,7 @@ EditResult<RowFixturePlacementPlan> row_fixture_placement_plan(
     for (ObjectId port_id : member.port_ids) {
       const auto peer_plan = fixture_plan.find(port_id);
       if (peer_plan != fixture_plan.end() &&
-          std::abs(peer_plan->second.down_offset_m - member_down_offset_m) > 1e-9) {
+          std::abs(peer_plan->second.down_offset_m - member_down_offset_m) > kLengthToleranceM) {
         out.error =
             "model assembly unsupported: derived row lane resolves multiple lowered fixture heights";
         return out;
@@ -619,7 +620,7 @@ EditResult<ResolvedEndpointPlacement> resolve_endpoint_placement(const CoreState
   if (plan.ok) {
     const auto plan_it = plan.value.find(port.id);
     if (plan_it != plan.value.end() &&
-        std::abs(plan_it->second.down_offset_m - std::max(0.0, down_offset_m)) <= 1e-9) {
+        std::abs(plan_it->second.down_offset_m - std::max(0.0, down_offset_m)) <= kLengthToleranceM) {
       EditResult<ResolvedEndpointPlacement> out{};
       out.value.fixture_root = plan_it->second.endpoint_fixture_root;
       out.value.wire_endpoint = plan_it->second.wire_endpoint;
@@ -670,7 +671,7 @@ void append_fixture_placement_plan(EditResult<FixturePlacementPlanByPort>* out,
   FixturePlacementPlan plan{};
   plan.down_offset_m = down_offset;
   const auto [it, inserted] = out->value.emplace(endpoint.port_id, plan);
-  if (!inserted && std::abs(it->second.down_offset_m - plan.down_offset_m) > 1e-9) {
+  if (!inserted && std::abs(it->second.down_offset_m - plan.down_offset_m) > kLengthToleranceM) {
     out->ok = false;
     out->error = "model assembly unsupported: shared port resolves multiple lowered fixture heights";
   }

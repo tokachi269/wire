@@ -2,6 +2,7 @@
 
 #include "emit_shared.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "wire/core/core_view.hpp"
 
 #include <algorithm>
@@ -59,7 +60,7 @@ Vec3d away_from_node(const SavedBackboneEdge& edge, ObjectId node_id,
 } // namespace
 
 bool IsSharpBackboneInteriorAngle(double interior_angle_deg) {
-  return interior_angle_deg <= kSharpCornerInteriorAngleMaxDeg + 1e-6;
+  return interior_angle_deg <= kSharpCornerInteriorAngleMaxDeg + kAngleToleranceDeg;
 }
 
 EditResult<EndpointRowRepresentation> DeriveEndpointRowRepresentation(

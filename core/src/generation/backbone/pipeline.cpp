@@ -4,6 +4,7 @@
 #include "../../support/hash_mix.hpp"
 #include "../../support/instrumentation.hpp"
 #include "wire/core/core_view.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include "curve_parts.hpp"
@@ -369,7 +370,7 @@ const SavedBackboneNode* saved_source_node_for(const CoreState& state, const Sup
         std::max(saved.source_edge_node_a, saved.source_edge_node_b) != hi) {
       continue;
     }
-    if (std::abs(saved.source_edge_t - node.source_edge_t) <= 1e-9) {
+    if (std::abs(saved.source_edge_t - node.source_edge_t) <= kUnitlessTolerance) {
       return &saved;
     }
   }
@@ -1100,7 +1101,7 @@ public:
     std::vector<double>& heights = occupied_[occupancy];
     const auto available = [&](double candidate) {
       return std::all_of(heights.begin(), heights.end(), [&](double height) {
-      return std::abs(candidate - height) + 1e-9 >= kRowHeightSeparationM;
+      return std::abs(candidate - height) + kLengthToleranceM >= kRowHeightSeparationM;
     });
     };
     double selected = requested_height_m;
@@ -1145,7 +1146,7 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
   }
   Vec3d ab = b - a;
   const double len2 = LengthSquared(ab);
-  if (len2 <= 1e-12) {
+  if (len2 <= kLengthSquaredToleranceM2) {
     out.error = "backbone unsupported: avoid routing source segment is zero length";
     return out;
   }
@@ -1158,7 +1159,7 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
   constexpr double kAvoidClearanceM = 0.5;
   for (const Vec3d& p : points) {
     const double t = Dot(p - a, ab) / len2;
-    if (t <= 1e-6 || t >= 1.0 - 1e-6 || DistanceSquaredToSegment(p, a, b) > radius * radius) {
+    if (t <= kParameterTolerance || t >= 1.0 - kParameterTolerance || DistanceSquaredToSegment(p, a, b) > radius * radius) {
       continue;
     }
     const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
@@ -1170,10 +1171,10 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
       return out;
     }
     double clearance = radius + kAvoidClearanceM;
-    clearance = std::min(clearance, std::min(before_m, after_m) - 1e-6);
+    clearance = std::min(clearance, std::min(before_m, after_m) - kGeometryToleranceM);
     auto required_detour = [&](double along_m) {
       const double denom2 = along_m * along_m - clearance * clearance;
-      return denom2 > 1e-12 ? (clearance * along_m) / std::sqrt(denom2) : along_m + radius + kAvoidClearanceM;
+      return denom2 > kLengthSquaredToleranceM2 ? (clearance * along_m) / std::sqrt(denom2) : along_m + radius + kAvoidClearanceM;
     };
     const double detour = std::max(required_detour(before_m), required_detour(after_m));
     if (inserts != nullptr) {
@@ -1321,7 +1322,7 @@ void align_open_row_axis_to_pair(pairs* out, std::size_t open_row_id, std::size_
   }
   const double open_dot = Dot(open_row.axis, edge_lateral_axis);
   const double pair_dot = Dot(pair_row.axis, edge_lateral_axis);
-  if (std::abs(open_dot) <= 1e-9 || std::abs(pair_dot) <= 1e-9 || open_dot * pair_dot >= 0.0) {
+  if (std::abs(open_dot) <= kUnitlessTolerance || std::abs(pair_dot) <= kUnitlessTolerance || open_dot * pair_dot >= 0.0) {
     return;
   }
   flip_open_row_axis(out, open_row_id);
@@ -1392,7 +1393,7 @@ EditResult<Vec3d> saved_open_row_axis_for_edge(const CoreState& state, ObjectId 
       out.error = "backbone unsupported: promoted open row axis is invalid";
       return out;
     }
-    if (found && Dot(axis, candidate) < 1.0 - 1e-9) {
+    if (found && Dot(axis, candidate) < 1.0 - kUnitlessTolerance) {
       out.error = "backbone unsupported: ambiguous promoted open row axis";
       return out;
     }
@@ -1416,7 +1417,7 @@ bool is_promoted_open_continuation(const CoreState& state, const node& n, const 
   return context.saved != kInvalidObjectId && n.saved != kInvalidObjectId &&
          !has_saved_pair_row_for_edge(state, n.saved, context.saved) &&
          has_saved_open_row_for_edge(state, n.saved, context.saved) &&
-         interior_angle_deg(a, b) > 1e-6;
+         interior_angle_deg(a, b) > kAngleToleranceDeg;
 }
 
 bool is_saved_pair_continuation(const CoreState& state, const node& n, const link& a, const link& b) {
@@ -1684,7 +1685,7 @@ EditResult<bool> pipeline::prepare() {
       }
       const SupportKind inserted_support = inserted_support_for_segment(i, i + 1);
       const Vec3d seg = b - a;
-      constexpr double kIntervalEps = 1e-9;
+      constexpr double kIntervalEps = kLengthToleranceM;
       const double len = Length(seg);
       std::vector<segment_insert> inserts{};
       if (spec_.interval_m > 0.0 && len > kIntervalEps) {
@@ -1705,7 +1706,7 @@ EditResult<bool> pipeline::prepare() {
         return out;
       }
       std::sort(inserts.begin(), inserts.end(), [](const segment_insert& lhs, const segment_insert& rhs) {
-        if (std::abs(lhs.t - rhs.t) > 1e-9) {
+        if (std::abs(lhs.t - rhs.t) > kUnitlessTolerance) {
           return lhs.t < rhs.t;
         }
         const auto len2 = [](const Vec3d& p) { return p.x * p.x + p.y * p.y + p.z * p.z; };
@@ -1718,7 +1719,7 @@ EditResult<bool> pipeline::prepare() {
         return d.x * d.x + d.y * d.y + d.z * d.z <= 1e-18;
       };
       for (const segment_insert& item : inserts) {
-        if (!unique_inserts.empty() && std::abs(unique_inserts.back().t - item.t) <= 1e-9 &&
+        if (!unique_inserts.empty() && std::abs(unique_inserts.back().t - item.t) <= kUnitlessTolerance &&
             unique_inserts.back().support == item.support) {
           if (item.detour && !unique_inserts.back().detour) {
             unique_inserts.back() = item;
@@ -2292,7 +2293,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       const link& a = out.value.links[left];
       const link& b = out.value.links[matched];
       const double interior_angle = interior_angle_deg(a, b);
-      if (interior_angle <= 1e-6) {
+      if (interior_angle <= kAngleToleranceDeg) {
         return unsupported_pairs("zero angle route reversal");
       }
       if (IsSharpBackboneInteriorAngle(interior_angle)) {
@@ -3532,7 +3533,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
               const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
               height_reflow_required =
                   std::abs(WorldPointToLocal(frame, existing_port->world_position).z -
-                           WorldPointToLocal(frame, p).z) > 1e-9;
+                           WorldPointToLocal(frame, p).z) > kLengthToleranceM;
             }
             if (!promoted_endpoint && moved &&
                 (existing_port->position_mode == PortPositionMode::kManual ||

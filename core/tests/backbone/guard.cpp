@@ -1954,6 +1954,48 @@ bool C825_core_silent_fallback_audit_is_recorded() {
   return true;
 }
 
+bool C826_geometry_generation_tolerances_are_named() {
+  WIRE_TEST_EXPECT(std::filesystem::exists(repo_root() / "core/include/wire/core/numeric_tolerances.hpp"),
+                   "numeric_tolerances.hpp is missing");
+  const std::vector<std::filesystem::path> paths = {
+      repo_root() / "core/include/wire/core/coord_utils.hpp",
+      repo_root() / "core/src/geometry",
+      repo_root() / "core/src/generation/backbone",
+  };
+  const std::vector<std::string> banned = {
+      "1e-6",
+      "1e-9",
+      "1e-10",
+      "1e-12",
+  };
+  for (const std::filesystem::path& path : paths) {
+    if (std::filesystem::is_regular_file(path)) {
+      std::string text{};
+      WIRE_TEST_EXPECT(file_text(path, &text), "failed to read tolerance source: " + path.string());
+      for (const std::string& token : banned) {
+        WIRE_TEST_EXPECT(!contains_text(text, token), "naked tolerance " + token + " remains in " + path.string());
+      }
+      continue;
+    }
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(path)) {
+      if (!entry.is_regular_file()) {
+        continue;
+      }
+      const std::string extension = entry.path().extension().string();
+      if (extension != ".cpp" && extension != ".hpp") {
+        continue;
+      }
+      std::string text{};
+      WIRE_TEST_EXPECT(file_text(entry.path(), &text), "failed to read tolerance source: " + entry.path().string());
+      for (const std::string& token : banned) {
+        WIRE_TEST_EXPECT(!contains_text(text, token),
+                         "naked tolerance " + token + " remains in " + entry.path().string());
+      }
+    }
+  }
+  return true;
+}
+
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
   std::string model_assembly{};
   std::string curve_parts{};

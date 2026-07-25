@@ -1,6 +1,7 @@
 #include "model_placement_rules.hpp"
 
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -41,12 +42,12 @@ std::vector<SpanAnchorFrame> interval_anchor_frames(const Vec3d& start,
   std::vector<SpanAnchorFrame> out{};
   const Vec3d delta = end - start;
   const double length = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
-  if (!std::isfinite(length) || length <= 1e-9 || !std::isfinite(spacing_m) || spacing_m <= 1e-9 ||
+  if (!std::isfinite(length) || length <= kLengthToleranceM || !std::isfinite(spacing_m) || spacing_m <= kLengthToleranceM ||
       !std::isfinite(phase_m)) {
     return out;
   }
   const double first = phase_m < 0.0 ? std::fmod(phase_m, spacing_m) + spacing_m : std::fmod(phase_m, spacing_m);
-  for (double distance = first; distance <= length + 1e-9; distance += spacing_m) {
+  for (double distance = first; distance <= length + kLengthToleranceM; distance += spacing_m) {
     SpanAnchorFrame frame{};
     frame.t = std::clamp(distance / length, 0.0, 1.0);
     frame.transform.position = start + ScaleVec(delta, frame.t);

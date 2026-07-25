@@ -1229,6 +1229,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "core silent fallback candidates are classified in the audit table",
                          "Boundary", false,
                          C825_core_silent_fallback_audit_is_recorded);
+  test_registry::AddTest(tests, "C826_geometry_generation_tolerances_are_named",
+                         "geometry and backbone generation tolerances use named constants",
+                         "Boundary", false,
+                         C826_geometry_generation_tolerances_are_named);
   test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,

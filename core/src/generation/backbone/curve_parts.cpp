@@ -1,6 +1,7 @@
 #include "curve_parts.hpp"
 
 #include "wire/core/core_view.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include "../../support/hash_mix.hpp"
@@ -21,7 +22,7 @@ namespace {
 
 constexpr double kNodePatchHorizontalLengthM = 0.35;
 constexpr double kNodePatchMaxSpanFraction = 0.25;
-constexpr double kCurveEps = 1e-9;
+constexpr double kCurveEps = kLengthToleranceM;
 constexpr double kPatchMetersPerSegment = 0.08;
 constexpr double kPatchRadiansPerSegment = 0.17453292519943295;
 

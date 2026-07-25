@@ -1,6 +1,7 @@
 #include "span_visual_assembly.hpp"
 
 #include "wire/core/core_view.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../../geometry/detail_curve_input_resolution.hpp"
 #include "../../geometry/detail_curve_postprocess.hpp"
@@ -30,7 +31,7 @@ std::uint64_t mix_seed(std::uint64_t value) {
 
 Vec3d unit_or(const Vec3d& value, const Vec3d& fallback) {
   const double length = Length(value);
-  return length > 1e-9 ? ScaleVec(value, 1.0 / length) : fallback;
+  return length > kLengthToleranceM ? ScaleVec(value, 1.0 / length) : fallback;
 }
 
 AABBd bounds_for(const std::vector<Vec3d>& points) {
@@ -61,7 +62,7 @@ path_sample sample_at_distance(const std::vector<Vec3d>& samples, double target)
     const Vec3d segment = samples[i] - samples[i - 1];
     const double length = Length(segment);
     if (target <= accumulated + length || i + 1 == samples.size()) {
-      const double fraction = length <= 1e-9 ? 0.0 : (target - accumulated) / length;
+      const double fraction = length <= kLengthToleranceM ? 0.0 : (target - accumulated) / length;
       return {samples[i - 1] + ScaleVec(segment, std::clamp(fraction, 0.0, 1.0)),
               unit_or(segment, {1.0, 0.0, 0.0}), target};
     }
@@ -85,7 +86,7 @@ double smoothstep(double value) {
 }
 
 double endpoint_envelope(double distance, double total, double trim) {
-  if (trim <= 1e-9) return 1.0;
+  if (trim <= kLengthToleranceM) return 1.0;
   return smoothstep(std::min(distance / trim, (total - distance) / trim));
 }
 
@@ -110,7 +111,7 @@ Vec3d place_below_support(const Vec3d& offset, const Vec3d& up, double minimum_d
 bool members_fit_radius(const VisualCurvePart& support, const std::vector<VisualCurvePart*>& members,
                         double clearance, double radius) {
   const double inset = top_inset(support, clearance);
-  if (radius + 1e-9 < inset) return false;
+  if (radius + kLengthToleranceM < inset) return false;
   for (const VisualCurvePart* member : members) {
     if (member->samples.empty()) continue;
     for (const double t : {0.0, 1.0}) {
@@ -121,7 +122,7 @@ bool members_fit_radius(const VisualCurvePart& support, const std::vector<Visual
       Vec3d offset = projected_offset(member->samples[t == 0.0 ? 0 : member->samples.size() - 1], anchor);
       offset = place_below_support(offset, up, required_member_radius(support, *member, clearance));
       const Vec3d axis = anchor.point - ScaleVec(up, radius - inset);
-      if (Length(anchor.point + offset - axis) + required_member_radius(support, *member, clearance) > radius + 1e-9) {
+      if (Length(anchor.point + offset - axis) + required_member_radius(support, *member, clearance) > radius + kLengthToleranceM) {
         return false;
       }
     }
@@ -237,7 +238,7 @@ void contain_members(const CoreState& state, const VisualCurvePart& support, con
       Vec3d radial = anchor.point + baseline - axis;
       const double limit = std::max(0.0, radius - required_member_radius(support, *member, settings.helix_clearance_m));
       const double radial_length = Length(radial);
-      if (radial_length > limit && radial_length > 1e-9) radial = ScaleVec(radial, limit / radial_length);
+      if (radial_length > limit && radial_length > kLengthToleranceM) radial = ScaleVec(radial, limit / radial_length);
       const double margin = std::max(0.0, limit - Length(radial));
       const double envelope = endpoint_envelope(member_distance, member_length, settings.endpoint_trim_m);
       if (settings.member_wander_ratio > 0.0 && margin > 0.0 && envelope > 0.0) {
@@ -247,7 +248,7 @@ void contain_members(const CoreState& state, const VisualCurvePart& support, con
         radial = radial + ScaleVec(lateral, std::cos(phase) * margin * settings.member_wander_ratio * envelope) +
             ScaleVec(up, std::sin(phase * 1.37) * margin * settings.member_wander_ratio * envelope);
         const double wandered = Length(radial);
-        if (wandered > limit && wandered > 1e-9) radial = ScaleVec(radial, limit / wandered);
+        if (wandered > limit && wandered > kLengthToleranceM) radial = ScaleVec(radial, limit / wandered);
       }
       const Vec3d contained = axis + radial;
       member->samples[index] = original[index] + ScaleVec(contained - original[index], envelope);
@@ -267,7 +268,7 @@ VisualCurvePart make_helix_part(const VisualCurvePart& support, const SpanVisual
   const double trim = std::min(settings.endpoint_trim_m, support_length * 0.5);
   const double visible = support_length - trim * 2.0;
   const int samples = std::max(4, static_cast<int>(std::ceil(visible * settings.helix_turns_per_meter * settings.helix_samples_per_turn)));
-  if (visible <= 1e-9 || samples < 2) return helix;
+  if (visible <= kLengthToleranceM || samples < 2) return helix;
   const double inset = top_inset(support, settings.helix_clearance_m);
   for (int i = 0; i <= samples; ++i) {
     const double distance = trim + visible * static_cast<double>(i) / static_cast<double>(samples);
@@ -400,7 +401,7 @@ void apply_span_visual_assemblies(const CoreState& state,
     }
     const double fitted_radius = auto_fit_radius(support, members, settings.helix_clearance_m);
     const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m : fitted_radius;
-    if (settings.helix_radius_m > 0.0 && settings.helix_radius_m + 1e-9 < fitted_radius) {
+    if (settings.helix_radius_m > 0.0 && settings.helix_radius_m + kLengthToleranceM < fitted_radius) {
       cache->diagnostics.push_back({kInvalidObjectId, logical_span_id, template_it->second.id,
                                     members.front()->lane_index, "span visual assembly radius clamped members"});
     }

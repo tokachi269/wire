@@ -2,6 +2,7 @@
 
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
+#include "wire/core/numeric_tolerances.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../support/hash_mix.hpp"
 #include "detail_curve_input_resolution.hpp"
@@ -13,7 +14,7 @@
 namespace wire::core {
 
 namespace {
-constexpr double kZeroLengthEps = 1e-9;
+constexpr double kZeroLengthEps = kLengthToleranceM;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kTwoPi = 2.0 * kPi;
 
@@ -25,7 +26,7 @@ double unit_noise_from_u64(std::uint64_t value) {
 
 double endpoint_envelope(double t, double endpoint_ratio) {
   const double ratio = std::clamp(endpoint_ratio, 0.0, 0.5);
-  if (ratio <= 1e-9) {
+  if (ratio <= kLengthToleranceM) {
     return 1.0;
   }
   if (t <= ratio) {
@@ -39,7 +40,7 @@ double endpoint_envelope(double t, double endpoint_ratio) {
 
 double supplemental_wobble_offset_m(const CableSupplementalPathTemplate& path, double t, double distance_from_start_m,
                                     double wobble_phase, double amplitude_scale, double wavelength_scale) {
-  if (path.wobble_amplitude_m <= 1e-9 || path.wobble_wavelength_m <= 1e-6) {
+  if (path.wobble_amplitude_m <= kLengthToleranceM || path.wobble_wavelength_m <= kGeometryToleranceM) {
     return 0.0;
   }
   const double effective_amplitude_m = std::max(0.0, path.wobble_amplitude_m * amplitude_scale);
@@ -89,7 +90,7 @@ std::vector<CurveLengthInterval> merged_intervals(std::vector<CurveLengthInterva
     if (interval.end_m - interval.start_m <= kZeroLengthEps) {
       continue;
     }
-    if (merged.empty() || interval.start_m > merged.back().end_m + 1e-6) {
+    if (merged.empty() || interval.start_m > merged.back().end_m + kGeometryToleranceM) {
       merged.push_back(interval);
     } else {
       merged.back().end_m = std::max(merged.back().end_m, interval.end_m);
@@ -237,7 +238,7 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
   int sample_count = 2;
   if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
       path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
-      path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
+      path.wobble_amplitude_m > kLengthToleranceM && path.wobble_wavelength_m > kGeometryToleranceM) {
     const double sample_step_m = std::max(0.25, path.wobble_wavelength_m / 8.0);
     sample_count = std::max(8, static_cast<int>(std::ceil(visible_length_m / sample_step_m)));
   } else {
@@ -279,7 +280,7 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
     Vec3d point = base + ScaleVec(lateral, path.lateral_offset_m) + ScaleVec(up, path.vertical_offset_m);
     if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
                path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
-               path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
+               path.wobble_amplitude_m > kLengthToleranceM && path.wobble_wavelength_m > kGeometryToleranceM) {
       point = point +
               ScaleVec(lateral, supplemental_wobble_offset_m(path, t, s - start_s, wobble_phase, amplitude_scale,
                                                              wavelength_scale));

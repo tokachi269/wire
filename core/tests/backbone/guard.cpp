@@ -2178,6 +2178,23 @@ bool C831_normalization_fallback_calls_are_classified_in_source() {
   return true;
 }
 
+bool C832_resolve_branch_pick_pure_split_is_merge_readiness_hold() {
+  std::string readiness{};
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/merge_readiness.md", &readiness),
+                   "docs/merge_readiness.md is missing");
+  const std::vector<std::string> required_tokens = {
+      "R2",
+      "ResolveBranchPick",
+      "pure",
+      "pending support node",
+      "bridge",
+  };
+  for (const std::string& token : required_tokens) {
+    WIRE_TEST_EXPECT(contains_text(readiness, token), "merge readiness missing R2 hold token: " + token);
+  }
+  return true;
+}
+
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
   std::string model_assembly{};
   std::string curve_parts{};

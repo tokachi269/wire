@@ -1253,6 +1253,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "normalization fallback call sites carry local classification comments",
                          "Boundary", false,
                          C831_normalization_fallback_calls_are_classified_in_source);
+  test_registry::AddTest(tests, "C832_resolve_branch_pick_pure_split_is_merge_readiness_hold",
+                         "ResolveBranchPick pure split remains an explicit merge readiness hold",
+                         "Boundary", false,
+                         C832_resolve_branch_pick_pure_split_is_merge_readiness_hold);
   test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,

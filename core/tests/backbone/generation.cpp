@@ -499,6 +499,27 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
 }
 
 bool C824_backbone_seeded_route_fuzz_preserves_common_invariants() {
+  std::size_t representative_invariant_checks = 0;
+  const std::filesystem::path tests_dir = repo_root() / "core/tests/backbone";
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(tests_dir)) {
+    if (!entry.is_regular_file() || entry.path().filename() == "fixtures.cpp") {
+      continue;
+    }
+    const std::string ext = entry.path().extension().string();
+    if (ext != ".cpp" && ext != ".hpp") {
+      continue;
+    }
+    std::string text{};
+    WIRE_TEST_EXPECT(file_text(entry.path(), &text), "failed to read invariant test source: " + entry.path().string());
+    std::size_t pos = 0;
+    while ((pos = text.find("backbone_common_invariants_pass(", pos)) != std::string::npos) {
+      ++representative_invariant_checks;
+      ++pos;
+    }
+  }
+  WIRE_TEST_EXPECT(representative_invariant_checks >= 10,
+                   "fewer than 10 representative tests call backbone_common_invariants_pass");
+
   const std::array<std::uint32_t, 8> seeds{11U, 29U, 47U, 83U, 131U, 197U, 251U, 307U};
   for (std::uint32_t seed : seeds) {
     std::mt19937 rng(seed);

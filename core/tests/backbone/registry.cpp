@@ -1269,6 +1269,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "sharp pair support levels match between one-shot and incremental generation",
                          "Invariant", false,
                          C815_backbone_sharp_pair_height_is_operation_order_independent);
+  test_registry::AddTest(tests, "C816_backbone_incremental_normal_pair_keeps_allocated_support_level",
+                         "incremental normal pair keeps the support level allocated to its two edges",
+                         "Invariant", false,
+                         C816_backbone_incremental_normal_pair_keeps_allocated_support_level);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

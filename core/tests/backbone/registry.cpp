@@ -1237,6 +1237,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "model rotation and pole frame contract is documented",
                          "Boundary", false,
                          C827_model_rotation_frame_contract_is_documented);
+  test_registry::AddTest(tests, "C828_core_state_mutable_accessors_are_audited",
+                         "CoreState mutable accessors are audited and minimized",
+                         "Boundary", false,
+                         C828_core_state_mutable_accessors_are_audited);
   test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,

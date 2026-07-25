@@ -2019,6 +2019,32 @@ bool C827_model_rotation_frame_contract_is_documented() {
          contains_text(coord_utils, "BuildPoleFrame");
 }
 
+bool C828_core_state_mutable_accessors_are_audited() {
+  std::string core_state{};
+  std::string audit{};
+  WIRE_TEST_EXPECT(file_text(repo_root() / "core/include/wire/core/core_state.hpp", &core_state),
+                   "core_state.hpp is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/core_state_mutable_access_audit.md", &audit),
+                   "core state mutable accessor audit is missing");
+  const std::vector<std::string> removed_tokens = {
+      "connection_index_access",
+      "relation_index_access",
+      "span_runtime_states_access",
+      "cache_state_access",
+      "next_generation_session_id_access",
+      "path_direction_debug_records_access",
+  };
+  for (const std::string& token : removed_tokens) {
+    WIRE_TEST_EXPECT(!contains_text(core_state, token), "unused mutable accessor remains: " + token);
+  }
+  WIRE_TEST_EXPECT(contains_text(core_state, "edit_state_access()"),
+                   "remaining production edit_state_access is not explicit");
+  WIRE_TEST_EXPECT(contains_text(audit, "edit_state_access"), "audit does not mention edit_state_access");
+  WIRE_TEST_EXPECT(contains_text(audit, "pipeline.cpp"), "audit does not mention pipeline.cpp");
+  WIRE_TEST_EXPECT(contains_text(audit, "CoreStateTestHook"), "audit does not mention CoreStateTestHook");
+  return true;
+}
+
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
   std::string model_assembly{};
   std::string curve_parts{};

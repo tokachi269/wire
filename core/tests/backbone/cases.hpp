@@ -405,6 +405,7 @@ bool C787_web_bundle_template_category_has_no_layer_fallback();
 bool C825_core_silent_fallback_audit_is_recorded();
 bool C826_geometry_generation_tolerances_are_named();
 bool C827_model_rotation_frame_contract_is_documented();
+bool C828_core_state_mutable_accessors_are_audited();
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization();
 bool C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters();
 bool C792_backbone_incremental_new_row_uses_empty_stable_slot();

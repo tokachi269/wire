@@ -269,22 +269,6 @@ private:
                                          const PortLayoutYawOverride* previous_row_layout_yaw_override = nullptr);
   [[nodiscard]] EditState& edit_state_access() { return authoritative_.edit_state; }
   [[nodiscard]] const EditState& edit_state_access() const { return authoritative_.edit_state; }
-  [[nodiscard]] ConnectionIndex& connection_index_access() { return runtime_.connection_index; }
-  [[nodiscard]] const ConnectionIndex& connection_index_access() const { return runtime_.connection_index; }
-  [[nodiscard]] RelationIndex& relation_index_access() { return runtime_.relation_index; }
-  [[nodiscard]] const RelationIndex& relation_index_access() const { return runtime_.relation_index; }
-  [[nodiscard]] std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states_access() {
-    return runtime_.span_runtime_states;
-  }
-  [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states_access() const {
-    return runtime_.span_runtime_states;
-  }
-  [[nodiscard]] CacheState& cache_state_access() { return runtime_.cache_state; }
-  [[nodiscard]] const CacheState& cache_state_access() const { return runtime_.cache_state; }
-  [[nodiscard]] std::uint64_t& next_generation_session_id_access() { return identity_.next_generation_session_id; }
-  [[nodiscard]] std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records_access() {
-    return debug_.path_direction_debug_records;
-  }
 
   [[nodiscard]] static bool has_zero_length(const Port& a, const Port& b);
   [[nodiscard]] ValidationResult Validate() const;

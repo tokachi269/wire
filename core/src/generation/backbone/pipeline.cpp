@@ -4069,6 +4069,7 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       endpoint->semantic.support_orientation_rule = SupportOrientationRuleKind::kChord;
       endpoint->semantic.support_orientation_basis = SupportOrientationBasisKind::kChordForward;
       endpoint->semantic.has_side_axis = true;
+      // R5 fallback: deferred support-group axis classification. Tightening this needs a focused support-group invariant.
       endpoint->semantic.side_axis = HorizontalNormalizedOr(source->group_axis);
       endpoint->semantic.chosen_side_sign = 1.0;
       endpoint->endpoint_offset_z_m = -resolved_down_offset;

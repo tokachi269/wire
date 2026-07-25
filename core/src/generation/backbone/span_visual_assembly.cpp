@@ -30,6 +30,7 @@ std::uint64_t mix_seed(std::uint64_t value) {
 }
 
 Vec3d unit_or(const Vec3d& value, const Vec3d& fallback) {
+  // R5 fallback: legitimate degenerate visual sampling. Support/helix visuals keep finite frames for clamped samples.
   const double length = Length(value);
   return length > kLengthToleranceM ? ScaleVec(value, 1.0 / length) : fallback;
 }

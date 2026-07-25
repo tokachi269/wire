@@ -319,6 +319,7 @@ bool finite_point(const Vec3d& p) {
 }
 
 Vec3d safe_unit(const Vec3d& value, const Vec3d& fallback) {
+  // R5 fallback: legitimate degenerate patch tangent. Patch/jumper visual parts keep finite tangents at tiny boundaries.
   const double len = Length(value);
   if (len <= kCurveEps) {
     return fallback;

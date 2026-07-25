@@ -18,6 +18,7 @@ bool finite(const Vec3d& value) {
 }
 
 Vec3d normalized_or(const Vec3d& value, const Vec3d& fallback) {
+  // R5 fallback: legitimate degenerate cable frame. Cable curves must keep finite frames for vertical/degenerate spans.
   Vec3d result = value;
   if (!Normalize(&result)) {
     result = fallback;

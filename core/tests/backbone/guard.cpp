@@ -2147,6 +2147,25 @@ bool C830_edit_errors_require_registered_prefixes() {
   return true;
 }
 
+bool C831_normalization_fallback_calls_are_classified_in_source() {
+  const std::vector<std::pair<std::filesystem::path, std::string>> required = {
+      {repo_root() / "core/src/geometry/curve/curve.cpp", "R5 fallback: legitimate degenerate cable frame"},
+      {repo_root() / "core/src/generation/backbone/curve_parts.cpp", "R5 fallback: legitimate degenerate patch tangent"},
+      {repo_root() / "core/src/generation/backbone/span_visual_assembly.cpp",
+       "R5 fallback: legitimate degenerate visual sampling"},
+      {repo_root() / "core/src/generation/backbone/emit_shared.cpp",
+       "R5 fallback: upstream row-axis inconsistency candidate"},
+      {repo_root() / "core/src/generation/backbone/pipeline.cpp",
+       "R5 fallback: deferred support-group axis classification"},
+  };
+  for (const auto& [path, token] : required) {
+    std::string text{};
+    WIRE_TEST_EXPECT(file_text(path, &text), "failed to read fallback source: " + path.string());
+    WIRE_TEST_EXPECT(contains_text(text, token), "fallback source missing classification token: " + token);
+  }
+  return true;
+}
+
 bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
   std::string model_assembly{};
   std::string curve_parts{};

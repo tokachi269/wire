@@ -64,6 +64,7 @@ double LaneOffset(std::size_t lane_index, int count, double spacing_m) {
 }
 
 double PortLayoutYawDeg(const Vec3d& row_axis) {
+  // R5 fallback: upstream row-axis inconsistency candidate. Supported rows should validate non-zero axes earlier.
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
   return YawDegFromXY(ScaleVec(ComputeLateralAxis(axis), -1.0));
 }
@@ -122,6 +123,7 @@ EditResult<std::vector<PortPlacementBand>> SelectPortPlacementBands(const PoleTy
 
 Vec3d PortLocalPosition(const Vec3d& row_axis, const PortPlacementBand& band, double lane_offset_m,
                         double lateral_offset_m, const Vec3d& shift) {
+  // R5 fallback: upstream row-axis inconsistency candidate. This mirrors PortLayoutYawDeg's row-axis contract.
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
   const Vec3d forward_axis = ScaleVec(ComputeLateralAxis(axis), -1.0);
   const double offset = band.lateral_center_m + lane_offset_m + lateral_offset_m;
@@ -130,6 +132,7 @@ Vec3d PortLocalPosition(const Vec3d& row_axis, const PortPlacementBand& band, do
 
 Vec3d PortWorldPosition(const Pole& pole, const Vec3d& row_axis, const PortPlacementBand& band,
                         double lane_offset_m, double lateral_offset_m, const Vec3d& shift) {
+  // R5 fallback: upstream row-axis inconsistency candidate. This path should not own row-axis validation.
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
   const double layout_yaw_deg = PortLayoutYawDeg(axis);
   return LocalPointToWorld(BuildPoleFrame(pole.world_transform, layout_yaw_deg),

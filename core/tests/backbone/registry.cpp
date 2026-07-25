@@ -1249,6 +1249,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "core edit errors use registered machine-readable prefixes",
                          "Boundary", false,
                          C830_edit_errors_require_registered_prefixes);
+  test_registry::AddTest(tests, "C831_normalization_fallback_calls_are_classified_in_source",
+                         "normalization fallback call sites carry local classification comments",
+                         "Boundary", false,
+                         C831_normalization_fallback_calls_are_classified_in_source);
   test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,

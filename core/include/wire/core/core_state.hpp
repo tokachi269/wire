@@ -267,9 +267,6 @@ private:
   std::string next_display_id(std::string_view prefix);
   void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr,
                                          const PortLayoutYawOverride* previous_row_layout_yaw_override = nullptr);
-  [[nodiscard]] EditState& edit_state_access() { return authoritative_.edit_state; }
-  [[nodiscard]] const EditState& edit_state_access() const { return authoritative_.edit_state; }
-
   [[nodiscard]] static bool has_zero_length(const Port& a, const Port& b);
   [[nodiscard]] ValidationResult Validate() const;
   [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const;

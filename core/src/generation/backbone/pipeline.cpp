@@ -3416,7 +3416,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             p = g_.nodes[r.node].pos;
           }
         } else {
-          const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
+          const Pole* pole = state_.authoritative_.edit_state.poles.find(tr.pole);
           if (pole == nullptr) {
             out.error = "backbone internal: backbone topology: row pole missing";
             return out;
@@ -3466,7 +3466,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           }
         }
         if (!ownerless && !has_existing_endpoint) {
-          const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
+          const Pole* pole = state_.authoritative_.edit_state.poles.find(tr.pole);
           if (pole == nullptr) {
             out.error = "backbone internal: backbone topology: row pole missing";
             return out;
@@ -3517,7 +3517,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             }
           }
           if (resolved.value != kInvalidObjectId) {
-            Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
+            Port* existing_port = state_.authoritative_.edit_state.ports.find(resolved.value);
             if (existing_port == nullptr) {
               out.error = "backbone internal: backbone topology: resolved port missing";
               return out;
@@ -3525,7 +3525,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             const bool moved = moved_more_than_epsilon(existing_port->world_position, p);
             bool height_reflow_required = moved;
             if (!ownerless) {
-              const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
+              const Pole* pole = state_.authoritative_.edit_state.poles.find(tr.pole);
               if (pole == nullptr) {
                 out.error = "backbone internal: backbone topology: row pole missing";
                 return out;
@@ -3563,7 +3563,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             out.error = port.error;
             return out;
           }
-          Port* created_port = state_.edit_state_access().ports.find(port.value);
+          Port* created_port = state_.authoritative_.edit_state.ports.find(port.value);
           ApplyPortBandTemplateFields(created_port, band);
           add(*changes, port.change_set);
           endpoint.ports[bundle_index].push_back(port.value);

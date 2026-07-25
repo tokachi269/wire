@@ -2047,9 +2047,11 @@ bool C828_core_state_mutable_accessors_are_audited() {
   for (const std::string& token : removed_tokens) {
     WIRE_TEST_EXPECT(!contains_text(core_state, token), "unused mutable accessor remains: " + token);
   }
-  WIRE_TEST_EXPECT(contains_text(core_state, "edit_state_access()"),
-                   "remaining production edit_state_access is not explicit");
-  WIRE_TEST_EXPECT(contains_text(audit, "edit_state_access"), "audit does not mention edit_state_access");
+  WIRE_TEST_EXPECT(!contains_text(core_state, "edit_state_access"),
+                   "mutable edit_state_access remains in core_state.hpp");
+  WIRE_TEST_EXPECT(!contains_text(core_state, "_access()"),
+                   "mutable accessor naming remains in core_state.hpp");
+  WIRE_TEST_EXPECT(contains_text(audit, "authoritative_.edit_state"), "audit does not mention friend edit_state access");
   WIRE_TEST_EXPECT(contains_text(audit, "pipeline.cpp"), "audit does not mention pipeline.cpp");
   WIRE_TEST_EXPECT(contains_text(audit, "CoreStateTestHook"), "audit does not mention CoreStateTestHook");
   return true;

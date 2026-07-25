@@ -13,10 +13,10 @@ These private accessors had no production or test call sites and were removed:
 - `next_generation_session_id_access`
 - `path_direction_debug_records_access`
 
-## Remaining production accessor
+## Remaining production friend access
 
-| Accessor | Caller | Classification | Reason / follow-up |
+| Storage | Caller | Classification | Reason / follow-up |
 |---|---|---|---|
-| `edit_state_access` | `core/src/generation/backbone/pipeline.cpp` | Production bridge, audited | The backbone pipeline currently runs as a `CoreState` friend-like implementation detail and needs direct mutation during `emit_ports`. Removing it requires moving that mutation behind a narrower generation-owned operation, which is a behavior-risking refactor and is not part of R8. |
+| `authoritative_.edit_state` | `core/src/generation/backbone/pipeline.cpp` | Production friend implementation detail, audited | The backbone pipeline is a declared `CoreState` friend and mutates ports during `emit_ports`. R8 closes the generic mutable accessor and leaves this explicit friend access as the remaining production bridge. A narrower generation-owned operation is a future refactor, not part of R8. |
 
-No new `*_access()` accessor should be added to `core_state.hpp` without extending this audit and a source-scan guard. Test-only access belongs in `CoreStateTestHook`.
+No new `*_access()` accessor should be added to `core_state.hpp`. Test-only access belongs in `CoreStateTestHook`.

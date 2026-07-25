@@ -85,5 +85,6 @@ std::vector<SpanOutputSnapshot> snapshot_span_outputs(const wire::core::CoreStat
                                                        const std::vector<wire::core::ObjectId>& span_ids);
 bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
                                 const wire::core::CoreState& state);
+bool backbone_common_invariants_pass(const wire::core::CoreState& state, std::string* reason);
 
 } // namespace backbone_tests

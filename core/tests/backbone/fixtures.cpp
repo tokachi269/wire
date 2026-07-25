@@ -720,4 +720,118 @@ bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
   return true;
 }
 
+bool backbone_common_invariants_pass(const wire::core::CoreState& state, std::string* reason) {
+  const auto fail = [&](const std::string& message) {
+    if (reason != nullptr) {
+      *reason = message;
+    }
+    return false;
+  };
+  const auto finite_vec = [](const wire::core::Vec3d& value) {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+  };
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  const auto saved_node_exists = [&](wire::core::ObjectId node_id) {
+    return std::any_of(graph.nodes.begin(), graph.nodes.end(), [&](const wire::core::SavedBackboneNode& node) {
+      return node.node_id == node_id;
+    });
+  };
+  const auto saved_edge_exists = [&](wire::core::ObjectId edge_id) {
+    return std::any_of(graph.edges.begin(), graph.edges.end(), [&](const wire::core::SavedBackboneEdge& edge) {
+      return edge.edge_id == edge_id;
+    });
+  };
+  const auto edge_bundle_exists = [&](wire::core::ObjectId edge_bundle_id) {
+    return std::any_of(graph.edge_bundles.begin(), graph.edge_bundles.end(),
+                       [&](const wire::core::SavedBackboneEdgeBundle& edge_bundle) {
+                         return edge_bundle.edge_bundle_id == edge_bundle_id;
+                       });
+  };
+  const auto edge_bundle_has_lane = [&](wire::core::ObjectId edge_bundle_id, std::size_t lane_index) {
+    return std::any_of(graph.span_bindings.begin(), graph.span_bindings.end(),
+                       [&](const wire::core::SavedBackboneSpanBinding& binding) {
+                         return binding.edge_bundle_id == edge_bundle_id && binding.lane_index == lane_index;
+                       });
+  };
+
+  for (const wire::core::Span& span : state.view().spans().items()) {
+    if (state.view().ports().find(span.port_a_id) == nullptr) {
+      return fail("span " + std::to_string(span.id) + " has missing port_a");
+    }
+    if (state.view().ports().find(span.port_b_id) == nullptr) {
+      return fail("span " + std::to_string(span.id) + " has missing port_b");
+    }
+    if (state.view().bundles().find(span.bundle_id) == nullptr) {
+      return fail("span " + std::to_string(span.id) + " has missing bundle");
+    }
+  }
+
+  for (const wire::core::SavedBackboneEdge& edge : graph.edges) {
+    if (!saved_node_exists(edge.node_a) || !saved_node_exists(edge.node_b)) {
+      return fail("saved edge " + std::to_string(edge.edge_id) + " references missing node");
+    }
+  }
+  for (const wire::core::SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    if (!saved_edge_exists(edge_bundle.edge_id)) {
+      return fail("edge bundle " + std::to_string(edge_bundle.edge_bundle_id) + " references missing edge");
+    }
+    if (state.view().bundles().find(edge_bundle.bundle_id) == nullptr) {
+      return fail("edge bundle " + std::to_string(edge_bundle.edge_bundle_id) + " references missing bundle");
+    }
+    for (wire::core::ObjectId span_id : edge_bundle.span_ids) {
+      if (state.view().spans().find(span_id) == nullptr) {
+        return fail("edge bundle " + std::to_string(edge_bundle.edge_bundle_id) + " references missing span");
+      }
+    }
+  }
+  for (const wire::core::SavedBackboneSpanBinding& binding : graph.span_bindings) {
+    if (!edge_bundle_exists(binding.edge_bundle_id)) {
+      return fail("span binding references missing edge bundle " + std::to_string(binding.edge_bundle_id));
+    }
+    if (state.view().spans().find(binding.span_id) == nullptr) {
+      return fail("span binding references missing span " + std::to_string(binding.span_id));
+    }
+  }
+  for (const wire::core::SavedBackbonePortBinding& binding : graph.port_bindings) {
+    if (!edge_bundle_exists(binding.edge_bundle_id)) {
+      return fail("port binding references missing edge bundle " + std::to_string(binding.edge_bundle_id));
+    }
+    if (state.view().ports().find(binding.port_id) == nullptr) {
+      return fail("port binding references missing port " + std::to_string(binding.port_id));
+    }
+    if (!saved_node_exists(binding.row_key.node_id)) {
+      return fail("port binding references missing row node " + std::to_string(binding.row_key.node_id));
+    }
+    if (!saved_edge_exists(binding.row_key.edge_id)) {
+      return fail("port binding references missing row edge " + std::to_string(binding.row_key.edge_id));
+    }
+  }
+  for (const wire::core::SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+    if (!saved_node_exists(continuity.node_id)) {
+      return fail("row continuity references missing node " + std::to_string(continuity.node_id));
+    }
+    if (!edge_bundle_exists(continuity.a.edge_bundle_id) ||
+        !edge_bundle_has_lane(continuity.a.edge_bundle_id, continuity.a.lane_index) ||
+        !edge_bundle_exists(continuity.b.edge_bundle_id) ||
+        !edge_bundle_has_lane(continuity.b.edge_bundle_id, continuity.b.lane_index)) {
+      return fail("row continuity references missing edge bundle lane");
+    }
+  }
+
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    for (const wire::core::Vec3d& sample : part.samples) {
+      if (!finite_vec(sample)) {
+        return fail("visual curve part has non-finite sample");
+      }
+    }
+    if (!finite_vec(part.bounds.min) || !finite_vec(part.bounds.max)) {
+      return fail("visual curve part has non-finite bounds");
+    }
+  }
+  if (reason != nullptr) {
+    reason->clear();
+  }
+  return true;
+}
+
 } // namespace backbone_tests

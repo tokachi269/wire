@@ -28,6 +28,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "test failure diagnostics are available and used by representative backbone scenarios",
                          "Boundary", false,
                          C823_test_failure_diagnostics_are_available_for_backbone_scenarios);
+  test_registry::AddTest(tests, "C824_backbone_seeded_route_fuzz_preserves_common_invariants",
+                         "seeded route fuzz preserves common backbone invariants or rejects without mutation",
+                         "Invariant", true,
+                         C824_backbone_seeded_route_fuzz_preserves_common_invariants);
   test_registry::AddTest(tests, "C372_backbone_rules_do_not_seed", "backbone saves rules without creating authority seed",
                          "Boundary", false, C372_backbone_rules_do_not_seed);
   test_registry::AddTest(tests, "C373_backbone_layout_saved_without_recalc", "backbone saves layout immediately from rules",

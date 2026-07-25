@@ -1563,18 +1563,26 @@ bool C773_backbone_incremental_sharp_completion_derives_jumper_from_continuity()
   const wire::core::ObjectId bd = edge_between(fixture.state, node_b->node_id, node_d->node_id);
   const wire::core::ObjectId be = edge_between(fixture.state, node_b->node_id, node_e->node_id);
   const JunctionRowSnapshot snapshot = junction_snapshot(fixture.state, fixture.pole_b);
-  return bd != wire::core::kInvalidObjectId && be != wire::core::kInvalidObjectId &&
-         snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
-         has_row_key(snapshot.row_keys, false, bd, be) &&
-         fixture.bd_ports == unique_generated_ports_on_pole(fixture.state, fixture.bd_spans, fixture.pole_b) &&
-         std::count_if(
-             fixture.state.visual_curve_parts().parts.begin(),
-             fixture.state.visual_curve_parts().parts.end(),
-             [](const wire::core::VisualCurvePart& part) {
-               return part.kind ==
-                      wire::core::VisualCurvePartKind::kJumper;
-             }) >= 1 &&
-         curve_endpoints_match_layout(fixture.state);
+  WIRE_TEST_EXPECT(bd != wire::core::kInvalidObjectId && be != wire::core::kInvalidObjectId,
+                   "sharp completion edge lookup failed");
+  WIRE_TEST_EXPECT(snapshot.pair_rows == 2 && snapshot.open_rows == 0,
+                   "sharp completion row counts are wrong");
+  WIRE_TEST_EXPECT(has_row_key(snapshot.row_keys, false, bd, be),
+                   "sharp completion pair row key is missing");
+  WIRE_TEST_EXPECT(fixture.bd_ports == unique_generated_ports_on_pole(fixture.state, fixture.bd_spans, fixture.pole_b),
+                   "sharp completion changed existing BD ports");
+  WIRE_TEST_EXPECT(std::count_if(
+                       fixture.state.visual_curve_parts().parts.begin(),
+                       fixture.state.visual_curve_parts().parts.end(),
+                       [](const wire::core::VisualCurvePart& part) {
+                         return part.kind ==
+                                wire::core::VisualCurvePartKind::kJumper;
+                       }) >= 1,
+                   "sharp completion did not derive a jumper");
+  WIRE_TEST_EXPECT(curve_endpoints_match_layout(fixture.state), "curve endpoints do not match layout");
+  std::string invariant_error{};
+  WIRE_TEST_EXPECT(backbone_common_invariants_pass(fixture.state, &invariant_error), invariant_error);
+  return true;
 }
 
 bool C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_are_ambiguous() {
@@ -1663,6 +1671,8 @@ bool C775_backbone_incremental_canonical_pair_survives_save_load() {
   const JunctionRowSnapshot after = junction_snapshot(loaded, source.pole_b);
   WIRE_TEST_EXPECT(snapshots_match(before, after), "junction row snapshot changed after save/load");
   WIRE_TEST_EXPECT(curve_endpoints_match_layout(loaded), "curve endpoints do not match layout after save/load");
+  std::string invariant_error{};
+  WIRE_TEST_EXPECT(backbone_common_invariants_pass(loaded, &invariant_error), invariant_error);
   return true;
 }
 
@@ -3977,6 +3987,8 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
   }
 
   WIRE_TEST_EXPECT(curve_endpoints_match_layout(state), "curve endpoints do not match layout");
+  std::string invariant_error{};
+  WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
   return true;
 }
 
@@ -4160,6 +4172,10 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
   WIRE_TEST_EXPECT(legacy_loaded_result.ok, legacy_loaded_result.error);
   WIRE_TEST_EXPECT(expected(legacy_loaded, junction, {0.0, 1.0, 2.0}),
                    "legacy loaded junction levels are not {0,1,2}");
+  std::string invariant_error{};
+  WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
+  WIRE_TEST_EXPECT(backbone_common_invariants_pass(loaded, &invariant_error), invariant_error);
+  WIRE_TEST_EXPECT(backbone_common_invariants_pass(legacy_loaded, &invariant_error), invariant_error);
   return true;
 }
 
@@ -4168,16 +4184,22 @@ bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {
     wire::core::CoreState state;
     const auto out = state.GenerateFromBackboneSpec(line_req(state));
     if (!out.ok || !row_continuity_graph_lint_passes(state)) return false;
+    std::string invariant_error{};
+    WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
   }
   {
     wire::core::CoreState state;
     const auto out = state.GenerateFromBackboneSpec(hv_poly3_req(state));
     if (!out.ok || !row_continuity_graph_lint_passes(state)) return false;
+    std::string invariant_error{};
+    WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
   }
   {
     wire::core::CoreState state;
     const auto spans = lowering_branch_spans(state);
     if (spans.empty() || !row_continuity_graph_lint_passes(state)) return false;
+    std::string invariant_error{};
+    WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
   }
   {
     IncrementalCrossFixture cross{};
@@ -4185,6 +4207,8 @@ bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {
         !row_continuity_graph_lint_passes(cross.state)) {
       return false;
     }
+    std::string invariant_error{};
+    WIRE_TEST_EXPECT(backbone_common_invariants_pass(cross.state, &invariant_error), invariant_error);
   }
   return true;
 }
@@ -4314,6 +4338,9 @@ bool C815_backbone_sharp_pair_height_is_operation_order_independent() {
   WIRE_TEST_EXPECT(one_levels == incremental_levels, "one-shot and incremental sharp endpoint levels differ");
   WIRE_TEST_EXPECT(curve_endpoints_match_layout(one_shot), "one-shot curve endpoints do not match layout");
   WIRE_TEST_EXPECT(curve_endpoints_match_layout(incremental), "incremental curve endpoints do not match layout");
+  std::string invariant_error{};
+  WIRE_TEST_EXPECT(backbone_common_invariants_pass(one_shot, &invariant_error), invariant_error);
+  WIRE_TEST_EXPECT(backbone_common_invariants_pass(incremental, &invariant_error), invariant_error);
   return true;
 }
 

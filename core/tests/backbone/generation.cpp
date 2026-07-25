@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <random>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -494,6 +495,40 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
   WIRE_TEST_EXPECT(contains_text(testing_doc, "WIRE_TEST_EXPECT(condition, reason)"),
                    "docs/testing.md does not document failure diagnostics");
   WIRE_TEST_EXPECT(contains_text(agents, "WIRE_TEST_EXPECT"), "AGENTS.md does not require diagnostic helper use");
+  return true;
+}
+
+bool C824_backbone_seeded_route_fuzz_preserves_common_invariants() {
+  const std::array<std::uint32_t, 8> seeds{11U, 29U, 47U, 83U, 131U, 197U, 251U, 307U};
+  for (std::uint32_t seed : seeds) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<double> dx(5.0, 12.0);
+    std::uniform_real_distribution<double> dy(-7.0, 7.0);
+    const int point_count = 2 + static_cast<int>(seed % 3U);
+    std::vector<wire::core::Vec3d> points{};
+    points.reserve(static_cast<std::size_t>(point_count));
+    wire::core::Vec3d cursor{0.0, 0.0, 0.0};
+    points.push_back(cursor);
+    for (int i = 1; i < point_count; ++i) {
+      cursor.x += dx(rng);
+      cursor.y += dy(rng);
+      points.push_back(cursor);
+    }
+
+    wire::core::CoreState state;
+    wire::core::BackboneSpec req = line_req(state);
+    req.path.polyline = points;
+    const CoreCounts before = snapshot_counts(state);
+    const auto out = state.GenerateFromBackboneSpec(req);
+    if (!out.ok) {
+      WIRE_TEST_EXPECT(same_counts(before, snapshot_counts(state)),
+                       "rejected fuzz request mutated state for seed " + std::to_string(seed));
+      continue;
+    }
+    std::string invariant_error{};
+    WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error),
+                     "seed " + std::to_string(seed) + ": " + invariant_error);
+  }
   return true;
 }
 

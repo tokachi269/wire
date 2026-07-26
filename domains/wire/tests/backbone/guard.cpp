@@ -618,7 +618,7 @@ bool C520_backbone_duplicate_span_binding_preflight_before_emit() {
 }
 
 bool C522_backbone_supported_scope_is_documented() {
-  const std::filesystem::path doc = repo_root() / "docs" / "architecture.md";
+  const std::filesystem::path doc = repo_root() / "docs" / "wire" / "architecture.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;
@@ -633,7 +633,7 @@ bool C522_backbone_supported_scope_is_documented() {
 bool C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates() {
   std::string viewer{};
   std::string readiness{};
-  if (!file_text(repo_root() / "docs" / "viewer_operations.md", &viewer) ||
+  if (!file_text(repo_root() / "docs" / "viewer" / "operations.md", &viewer) ||
       !file_text(repo_root() / "docs" / "merge_readiness.md", &readiness)) {
     return false;
   }
@@ -760,7 +760,7 @@ bool C537_backbone_draw_source_has_no_decision_inputs() {
 }
 
 bool C538_backbone_viewer_deps_are_not_core_draw_gate() {
-  const std::filesystem::path doc = repo_root() / "docs" / "architecture.md";
+  const std::filesystem::path doc = repo_root() / "docs" / "wire" / "architecture.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;
@@ -794,7 +794,7 @@ bool C541_backbone_manual_existing_pole_without_graph_is_gate_rejected() {
 }
 
 bool C542_backbone_usable_mainline_architecture_audit_passes() {
-  const std::filesystem::path doc = repo_root() / "docs" / "architecture.md";
+  const std::filesystem::path doc = repo_root() / "docs" / "wire" / "architecture.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;
@@ -2009,7 +2009,7 @@ bool C826_geometry_generation_tolerances_are_named() {
 bool C827_model_rotation_frame_contract_is_documented() {
   std::string models{};
   std::string coord_utils{};
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/models.md", &models), "docs/models.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/models.md", &models), "docs/wire/models.md is missing");
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains/wire/include/city/wire/coord_utils.hpp", &coord_utils),
                    "coord_utils.hpp is missing");
   const std::vector<std::string> doc_tokens = {
@@ -2059,8 +2059,8 @@ bool C828_core_state_mutable_accessors_are_audited() {
 
 bool C829_core_policy_constants_are_classified() {
   std::string audit{};
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/core_policy_constants.md", &audit),
-                   "docs/core_policy_constants.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_policy_constants.md", &audit),
+                   "docs/wire/core_policy_constants.md is missing");
   const std::vector<std::string> required_tokens = {
       "Physical / numeric identity",
       "Fixed contract",
@@ -2207,7 +2207,7 @@ bool C788_model_assembly_keeps_belt_and_socket_authority_in_materialization() {
                  &curve_parts) ||
       !file_text(repo_root() / "web/src/render/scene.ts", &scene) ||
       !file_text(repo_root() / "web/src/render/modelAssets.ts", &model_assets) ||
-      !file_text(repo_root() / "docs/models.md", &models_doc)) {
+      !file_text(repo_root() / "docs/wire/models.md", &models_doc)) {
     return false;
   }
   return contains_text(model_assembly, "ModelFitMode::kPoleRadial") &&

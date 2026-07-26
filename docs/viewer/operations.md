@@ -148,7 +148,7 @@ outliner として監査した。
 - `Apply Pole Template` も成功後に同 API を暗黙実行する。
 - 後段が失敗すると先行した template 更新は既に成功しているのに、UI は一つの Apply が失敗したように見える。
 - web viewer では template 更新と related pole 適用を別 action / button にし、各 `EditResult.error` を表示する。
-- template の未対応 decision/structure 差分は [merge_readiness.md](merge_readiness.md) の条件で unsupported になり得る。
+- template の未対応 decision/structure 差分は [merge_readiness.md](../merge_readiness.md) の条件で unsupported になり得る。
   `UpdateLayoutSettings` と span override は backbone span でも統一 regenerate で反映する。事前推測せず core の error を表示する。
 
 ## W4 実装結果

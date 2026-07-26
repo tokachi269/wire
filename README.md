@@ -14,13 +14,13 @@ viewerは不足したtopologyやplacementを推測しない。
 
 ## ドキュメント
 
-1. [architecture](docs/architecture.md)
-2. [legacy map](docs/legacy_map.md)
+1. [repository architecture](docs/architecture.md)
+2. [wire architecture](docs/wire/architecture.md)
 3. [merge readiness](docs/merge_readiness.md)
 4. [testing](docs/testing.md)
 5. [command cheatsheet](docs/command_cheatsheet.md)
-6. [cable instance / section](docs/cable_instance_section.md)
-7. [models](docs/models.md)
+6. [wire documents](docs/wire/README.md)
+7. [road documents](docs/road/README.md)
 
 ## Quick check
 

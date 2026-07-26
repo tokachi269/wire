@@ -58,22 +58,22 @@ def parse_backbone_semantics_cells(text: str) -> tuple[set[str], list[str]]:
     errors: list[str] = []
     table = table_after_heading(text, "## 操作×状態")
     if len(table) < 2:
-        return set(), ["docs/backbone_operation_semantics.md: missing operation-state table"]
+        return set(), ["docs/wire/backbone_operation_semantics.md: missing operation-state table"]
     header = markdown_cells(table[0])
     states = [match.group(1) for cell in header[1:] if (match := re.fullmatch(r"`([^`]+)`", cell))]
     if len(states) != len(header) - 1:
-        errors.append("docs/backbone_operation_semantics.md: operation-state table state headers must be backtick ids")
+        errors.append("docs/wire/backbone_operation_semantics.md: operation-state table state headers must be backtick ids")
     required: set[str] = set()
     for line in table[1:]:
         cells = markdown_cells(line)
         if not cells or is_separator_row(cells):
             continue
         if len(cells) != len(header):
-            errors.append(f"docs/backbone_operation_semantics.md: malformed operation-state row: {line.strip()}")
+            errors.append(f"docs/wire/backbone_operation_semantics.md: malformed operation-state row: {line.strip()}")
             continue
         op_match = re.search(r"`([^`]+)`", cells[0])
         if op_match is None:
-            errors.append(f"docs/backbone_operation_semantics.md: operation row lacks backtick id: {cells[0]}")
+            errors.append(f"docs/wire/backbone_operation_semantics.md: operation row lacks backtick id: {cells[0]}")
             continue
         operation = op_match.group(1)
         for state, value in zip(states, cells[1:]):
@@ -132,7 +132,7 @@ def registered_core_case_ids(root: Path) -> set[str]:
 
 
 def check_backbone_semantics_coverage(root: Path) -> list[str]:
-    docs_path = root / "docs" / "backbone_operation_semantics.md"
+    docs_path = root / "docs" / "wire" / "backbone_operation_semantics.md"
     ledger_path = root / "domains" / "wire" / "tests" / "spec_ledger.md"
     if not docs_path.exists() or not ledger_path.exists():
         return ["backbone semantics coverage: docs or spec ledger file is missing"]
@@ -158,6 +158,45 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
             errors.append(
                 f"domains/wire/tests/spec_ledger.md: {cell} references unregistered cases {', '.join(missing_registered_cases)}"
             )
+    return errors
+
+
+def check_architecture_documents(root: Path) -> list[str]:
+    required_tokens = {
+        "docs/architecture.md": (
+            "# Repository architecture",
+            "## Domain着手条件",
+            "## State layers",
+            "## Operations and build",
+            "## Dependency direction",
+        ),
+        "docs/wire/architecture.md": (
+            "# Wire architecture",
+            "backbone_operation_semantics.md",
+        ),
+        "docs/wire/backbone_operation_semantics.md": (
+            "## 操作×状態",
+        ),
+        "docs/road/architecture.md": (
+            "# Road architecture",
+            "## Existing implementation mapping",
+            "## State ownership",
+            "## Build stages",
+        ),
+        "docs/road/operation_semantics.md": (
+            "## 操作 x 状態",
+        ),
+    }
+    errors: list[str] = []
+    for source, tokens in required_tokens.items():
+        path = root / source
+        if not path.exists():
+            errors.append(f"{source}: required architecture document is missing")
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for token in tokens:
+            if token not in text:
+                errors.append(f"{source}: required architecture contract is missing {token!r}")
     return errors
 
 
@@ -230,6 +269,7 @@ def main() -> int:
                 if word_present(text, symbol):
                     errors.append(f"{source}: wire core forbids city-domain symbol {symbol!r}")
 
+    errors.extend(check_architecture_documents(root))
     errors.extend(check_backbone_semantics_coverage(root))
 
     if errors:

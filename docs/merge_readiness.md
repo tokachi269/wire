@@ -51,12 +51,12 @@ viewerはこれらを事前に判別せず、Apply後のerror logで初めてuns
 
 | 操作 | 制限 | 正本 |
 |---|---|---|
-| `UpdateCableTemplate` | non-backbone span を含む decision差分は mutation 前に unsupported。backbone-only scope は統一 regenerate が所有する | architecture.md の transaction / regenerate 契約 |
-| `UpdateAttachmentTemplate` | 使用中 attachment の構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更)は、モデル再読込 conflict として解決するまで mutation 前に unsupported | [models.md](models.md) の `UpdateAttachmentTemplate` 構造差分 |
+| `UpdateCableTemplate` | non-backbone span を含む decision差分は mutation 前に unsupported。backbone-only scope は統一 regenerate が所有する | [wire/architecture.md](wire/architecture.md) の transaction / regenerate 契約 |
+| `UpdateAttachmentTemplate` | 使用中 attachment の構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更)は、モデル再読込 conflict として解決するまで mutation 前に unsupported | [wire/models.md](wire/models.md) の `UpdateAttachmentTemplate` 構造差分 |
 
 既に保留から外したもの: `UpdateBundleTemplate` の fixed count 増減、`kTopology` policy差分、range化(`count_rule` fixed/range、`min_count` / `max_count` / `default_count`: 保存済み`conductor_count`が新policy内なら出力不変、外ならmutation前拒否)、multi-bundle、3点以上route、存続attachment保持、退役attachment拒否、存続manual port保持、退役manual port拒否、`population_rules` / `support_wire_pole_band_id` / `cable_template_id` detail差分、`related_pole_type_id` の定義更新のみ、metadata/name、`UpdateCableTemplate` の backbone continuity policy decision差分、geometry/render差分、source-edge branch projection追従、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles`、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings`。
 
-E. Docs stale only: `docs/viewer_operations.md` に残っていた backbone span / active backbone / decision差分の旧unsupported表記は実装と spec ledger に合わないため削除した。以後は viewer が事前にunsupported判定せず、core の error を表示する。
+E. Docs stale only: `docs/viewer/operations.md` に残っていた backbone span / active backbone / decision差分の旧unsupported表記は実装と spec ledger に合わないため削除した。以後は viewer が事前にunsupported判定せず、core の error を表示する。
 
 ## 残blocker
 

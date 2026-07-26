@@ -2273,7 +2273,7 @@ bool C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors() {
       repo_root() / "domains" / "wire" / "src" / "generation" / "backbone" / "mount_graph.hpp";
   const std::filesystem::path rule_source =
       repo_root() / "domains" / "wire" / "src" / "generation" / "backbone" / "model_placement_rules.cpp";
-  const std::filesystem::path models_doc = repo_root() / "docs" / "models.md";
+  const std::filesystem::path models_doc = repo_root() / "docs" / "wire" / "models.md";
   std::string model_text{};
   std::string mount_text{};
   std::string rule_text{};

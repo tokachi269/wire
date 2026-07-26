@@ -19,6 +19,8 @@
 
 ## 実装の判断
 - まず直近の指示から決定事項・非対象・受け入れ条件を整理する。
+- 新しいdomain、subsystem、pipelineへ着手する前に、同じリポジトリの類似authority、operation、pipeline、utilityを調査する。production実装より先に、既存の決定者 / 新domainでの対応 / 再利用箇所 / 新設理由 / Input / 正本 / 派生 / ownerをdomain architectureへ記載する。対応が未決定なら実装を始めない。
+- リポジトリ共通architectureの正本は docs/architecture.md とする。domain固有文書は固有語彙を追加できるが、共通のauthority境界、ID規則、依存方向、transaction契約を弱めない。
 - 操作または対応状態を増やす変更は、先に該当domainの操作×状態意味論表を更新する。未定義セルを現在の実装やtestから推測して埋めない。
 - 局所修正で済むなら局所で直す。ただし同じ意味を別の場所で再判定しているなら構造改善を優先する。
 - bool や番兵値を安易に増やさない。新しい例外分岐を足す前に、既存の責務境界が正しいか確認する。
@@ -54,10 +56,14 @@
 同じ種類の指摘が繰り返された場合は、個別対応で済ませず AGENTS.md への恒久ルール追加を簡潔に提案する。
 
 ## wire 固有
-- アーキテクチャ・authority(topology / connectivity / placement / 派生の一方向性)の正本は docs/architecture.md、モデル・座標規約は docs/models.md。本ファイルと矛盾したら docs を優先する。
+- wireのarchitecture・authority(topology / connectivity / placement / 派生の一方向性)の正本は docs/wire/architecture.md、操作意味論は docs/wire/backbone_operation_semantics.md、モデル・座標規約は docs/wire/models.md。本ファイルと矛盾したら共通architecture、domain architectureの順に優先する。
 - Generation 以外は support_orientation_rule を変えない。Materialization 以外は socket を変えない。Visual は world-space geometry を読むだけ。
 - context link は判断入力であり、生成・保存対象にしない。
 - pipeline.cpp に新しい flag・分岐を足す前に、責務を既存の owner に寄せられるか確認する。
+
+## road 固有
+- roadの移行先authorityとbuild境界は docs/road/architecture.md、操作意味論は docs/road/operation_semantics.md、要求範囲は docs/road/plan.md を正本とする。
+- roadの現行実装を設計根拠にしない。docs/road/architecture.mdに未移行と記載された責務へ機能を追加する前に、該当authority境界を移行する。
 
 ## ここに書かないもの
 直近の個別バグ、今回だけの仕様、作業中の閾値、過去ログの要約は都度の指示文に書く。

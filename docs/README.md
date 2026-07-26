@@ -2,15 +2,12 @@
 
 現行情報は次の文書を正とする。
 
-- [architecture.md](architecture.md): 設計契約
-- [backbone_operation_semantics.md](backbone_operation_semantics.md): backboneの操作×既存状態ごとの要件と未定義セル
-- [legacy_map.md](legacy_map.md): 残存・削除済みfamily
+- [architecture.md](architecture.md): リポジトリ共通のauthority、依存方向、transaction契約
+- [wire/](wire/README.md): wire固有のarchitecture、操作意味論、model、監査文書
+- [road/](road/README.md): road固有のarchitecture、操作意味論、plan
+- [viewer/](viewer/README.md): viewer layout、操作、smoke
 - [merge_readiness.md](merge_readiness.md): main merge条件
 - [testing.md](testing.md): test/lint体系
 - [command_cheatsheet.md](command_cheatsheet.md): 実績あるローカル実行コマンド
-- [cable_instance_section.md](cable_instance_section.md): CableInstance / CableSection / carrier の設計語
-- [models.md](models.md): 自作モデル/descriptor方針
-- [viewer_operations.md](viewer_operations.md): web viewerへ移す操作の監査表
-- [viewer_layout.md](viewer_layout.md): web viewerのリージョン構成と配置方針
 
 作業履歴と過去planはGitで確認する。docsに日記を追加しない。

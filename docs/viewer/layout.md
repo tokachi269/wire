@@ -65,7 +65,7 @@ panels.cpp の1:1移植は禁止する。
 
 ## 反映モデル
 
-- スライダの drag policy は viewer_operations.md の更新クラス列に従う:
+- スライダの drag policy は operations.md の更新クラス列に従う:
   kRedraw/kReshape/kReposition は生反映(スロットル)、regenerate 級・構造差分は release-only か無効化。
 - kReshape の生反映では `preferred_visible_span_ids` を必ず渡す(既存 `UpdateCableTemplate` 機構)。
 - 明示 Apply ボタンは regenerate 級・構造差分にのみ置く。
@@ -83,7 +83,7 @@ panels.cpp の1:1移植は禁止する。
 
 ## W0 / W4 との関係
 
-- W0 の操作監査表(viewer_operations.md)に次の列を持たせる:
+- W0 の操作監査表(operations.md)に次の列を持たせる:
   group(生成/pole/span/visual/debug)、region(top/left/right/bottom)、
   visibility-context(always / pole 選択時 / span 選択時)、control 種別(slider/toggle/button/text)。
-- W4 は viewer_operations.md と本ドキュメントの両方に従う。表と本仕様に無い配置を実装時に足さない。
+- W4 は operations.md と本ドキュメントの両方に従う。表と本仕様に無い配置を実装時に足さない。

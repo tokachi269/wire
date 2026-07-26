@@ -5,7 +5,7 @@
 
 ## 位置づけ
 
-architecture.mdの境界を変えない。
+`architecture.md`と`../architecture.md`の境界を変えない。
 coreはbackend非依存のcurve、bounds、model assembly、style参照を出力し、mesh assetはadapter側で解決する。
 **coreはmeshを読まない。** adapterはローカル測定値を渡し、world配置と電線接続点はcoreが決める。
 

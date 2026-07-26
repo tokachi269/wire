@@ -134,8 +134,9 @@ pair/openの表現、peer edge、row axisは保存しない。接続済みpeer�
 2 edgeの単位接線二等分線から決め、鋭角の各row axisは各edge方向から決める。
 
 5本のincident edgeは、2接続pairと未接続1本なら3 support levelを使う。
-1 levelは1接続pairまたは1未接続openを収容する。鋭角pairの2 open rowは
-同じlevelを使うが、fixtureを潰さないため別support groupを持つ。
+1 levelは1接続pairまたは1未接続openを収容する。通常pairは共有rowとして
+level 0を使えるが、鋭角pairは2つのopen rowとjumperへ派生するためlevel 1以降を使う。
+鋭角pairの2 open rowは同じlevelを使うが、fixtureを潰さないため別support groupを持つ。
 
 ### 既存saveの移行
 

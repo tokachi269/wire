@@ -721,7 +721,7 @@ bool C533_backbone_build_mutation_order_is_fixed() {
   const std::size_t intent_pos = cpp.find("return make(ps.value)", route_pos);
   const std::size_t group_pos = cpp.find("return make(ps.value, intents.value)", route_pos);
   const std::size_t emit_pos = cpp.find("return emit(ps.value, intents.value)", route_pos);
-  const std::size_t graph_pos = cpp.find("return save_graph(made.value, ps.value, placement.value)", route_pos);
+  const std::size_t graph_pos = cpp.find("return save_graph(", route_pos);
   const std::size_t rules_pos = cpp.find("rules next = make(route.made, route.ps, route.placement)", derived_pos);
   const std::size_t layout_pos = cpp.find("return make(saved)", derived_pos);
   const std::size_t geom_pos = cpp.find("return make(placed.value)", derived_pos);

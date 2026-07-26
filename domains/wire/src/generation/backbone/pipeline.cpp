@@ -237,7 +237,8 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
   }
   EditResult<bool> graph_saved =
       timed(timing, &GenerationTiming::save_graph_ms,
-            [&] { return save_graph(made.value, ps.value, placement.value); });
+            [&] { return save_graph(made.value, ps.value, placement.value,
+                                    &made.change_set); });
   if (!graph_saved.ok) {
     out.error = graph_saved.error;
     return out;
@@ -3044,6 +3045,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
         used_levels[static_cast<std::size_t>(saved.support_level)] = true;
       }
       for (const std::vector<std::size_t>& members : logical_rows) {
+        const std::size_t minimum_support_level = members.size() > 1 ? 1 : 0;
         int selected_existing_level = -1;
         int selected_existing_group_id = -1;
         for (std::size_t member : members) {
@@ -3074,8 +3076,10 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
             }
           }
         }
-        std::size_t support_level = 0;
-        if (selected_existing_level >= 0) {
+        std::size_t support_level = minimum_support_level;
+        if (selected_existing_level >= 0 &&
+            static_cast<std::size_t>(selected_existing_level) >=
+                minimum_support_level) {
           support_level =
               static_cast<std::size_t>(selected_existing_level);
         } else {
@@ -3094,7 +3098,9 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
           continue;
         }
         const int support_group_id =
-            selected_existing_level >= 0
+            selected_existing_level >= 0 &&
+                    static_cast<std::size_t>(selected_existing_level) >=
+                        minimum_support_level
                 ? selected_existing_group_id
                 : next_support_group_id_by_node[node_id]++;
         for (std::size_t member : members) {
@@ -3656,7 +3662,8 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
 }
 
 EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
-                                      const groups& placement) {
+                                      const groups& placement,
+                                      ChangeSet* changes) {
   EditResult<bool> out{};
   std::vector<int> path_index_by_local(g_.nodes.size(), -1);
   for (std::size_t input_index = 0; input_index < local_by_input_.size(); ++input_index) {
@@ -3809,6 +3816,41 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
     return std::pair<int, int>{0, -1};
   };
+  auto bundle_index_for_spec = [&](std::size_t spec_index) {
+    for (std::size_t bundle_index = 0; bundle_index < made.bundle_specs.size();
+         ++bundle_index) {
+      if (made.bundle_specs[bundle_index] == spec_index) {
+        return bundle_index;
+      }
+    }
+    return bad;
+  };
+  for (const PromotionPlanEntry& entry : promotion_plan_) {
+    if (entry.row >= made.rows.size()) {
+      out.error = "backbone internal: promoted binding row missing";
+      return out;
+    }
+    const std::size_t bundle_index = bundle_index_for_spec(entry.spec_index);
+    if (bundle_index == bad) {
+      out.error = "backbone internal: promoted binding bundle missing";
+      return out;
+    }
+    const double layout_yaw_deg = PortLayoutYawDeg(made.rows[entry.row].axis);
+    const auto [support_level, support_group_id] =
+        support_for(entry.row, bundle_index);
+    EditResult<bool> promoted =
+        state_.update_backbone_port_binding_layout_exact(
+            entry.existing_edge_bundle_id, entry.row_key,
+            entry.lane_index, layout_yaw_deg,
+            support_level, support_group_id, entry.port_id);
+    if (!promoted.ok) {
+      out.error = promoted.error;
+      return out;
+    }
+    if (promoted.value) {
+      state_.touch_connected_spans_from_port(entry.port_id, changes);
+    }
+  }
   for (const tspan& span : made.spans) {
     if (!span.is_new) {
       continue;
@@ -3859,25 +3901,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
                   span.lane < made.rows[row_index].placement_band_ids[span.bundle].size()
               ? made.rows[row_index].placement_band_ids[span.bundle][span.lane]
               : 0;
-      const port_scope scope{bundle->bundle_template_id, made.bundles[span.bundle], bundle->placement_key, port->kind,
-                             port->layer, placement_band_id};
       const double layout_yaw_deg = PortLayoutYawDeg(made.rows[row_index].axis);
-      const std::size_t spec_index =
-          span.bundle < made.bundle_specs.size() ? made.bundle_specs[span.bundle] : bad;
-      for (const PromotionPlanEntry& entry : promotion_plan_) {
-        if (entry.row != row_index || entry.spec_index != spec_index || entry.lane_index != span.lane) {
-          continue;
-        }
-        EditResult<bool> promoted =
-            state_.update_backbone_port_binding_layout_exact(
-                entry.existing_edge_bundle_id, entry.row_key,
-                entry.lane_index, layout_yaw_deg, entry.port_id);
-        if (!promoted.ok) {
-          out.error = promoted.error;
-          return false;
-        }
-        break;
-      }
       const auto [support_level, support_group_id] =
           support_for(row_index, span.bundle);
       EditResult<bool> bound =

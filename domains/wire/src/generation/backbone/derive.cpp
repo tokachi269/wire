@@ -192,11 +192,29 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
 
   std::vector<SpanLayoutRule> reposition_rules{};
   generation::backbone::FixturePlacementPlanByPort reposition_fixture_plan{};
-  const auto hydrate_endpoint_from_decision = [&](EndpointLayoutRule* endpoint) {
-    if (endpoint == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint->semantic)) {
+  const auto hydrate_endpoint_from_decision = [&](ObjectId span_id,
+                                                  EndpointLayoutRule* endpoint) {
+    if (endpoint == nullptr) {
       return;
     }
-    const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint->semantic);
+    LoweredSupportGroupKey key{};
+    bool hydrate_from_binding = false;
+    if (UsesAuthoritativeGroupedLoweredSupport(endpoint->semantic)) {
+      key = LoweredSupportGroupKeyFromDecision(endpoint->semantic);
+    } else {
+      if (has_span_branch_down_offset_override(span_id)) {
+        return;
+      }
+      const SavedBackbonePortBinding* binding =
+          view().backbone_port_binding_for_port(endpoint->port_id);
+      if (binding == nullptr || binding->support_level <= 0 ||
+          binding->support_group_id < 0 ||
+          endpoint->semantic.owner_pole_id == kInvalidObjectId) {
+        return;
+      }
+      key = {endpoint->semantic.owner_pole_id, binding->support_group_id};
+      hydrate_from_binding = true;
+    }
     const auto group_it = runtime_.cache_state.span_layout_cache.support_groups.decision.by_key.find(key);
     if (group_it == runtime_.cache_state.span_layout_cache.support_groups.decision.by_key.end()) {
       return;
@@ -210,6 +228,23 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     endpoint->order_decision_choice_reason = group.order_decision_choice_reason;
     endpoint->chosen_side = group.chosen_side;
     endpoint->used_junction_pair_side_assignment = group.used_junction_pair_side_assignment;
+    if (!hydrate_from_binding) {
+      return;
+    }
+    const auto placement_it =
+        runtime_.cache_state.span_layout_cache.support_groups.placement.by_key.find(key);
+    if (placement_it == runtime_.cache_state.span_layout_cache.support_groups.placement.by_key.end()) {
+      return;
+    }
+    const double down_offset = placement_it->second.down_offset_m;
+    endpoint->flow_kind = BackboneFlowKind::kBranch;
+    endpoint->default_lower_required = true;
+    endpoint->same_level_feasible = false;
+    endpoint->same_level_reason = SameLevelFeasibilityReason::kBundleRule;
+    endpoint->endpoint_offset_z_m = -down_offset;
+    endpoint->automatic_endpoint_offset_z_m = -down_offset;
+    endpoint->branch_down_offset_m = down_offset;
+    endpoint->automatic_branch_down_offset_m = down_offset;
   };
   const auto build_reposition_context = [&]() -> EditResult<bool> {
     EditResult<bool> built{};
@@ -234,8 +269,8 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
         continue;
       }
       SpanLayoutRule rule = *cached_rule;
-      hydrate_endpoint_from_decision(&rule.start);
-      hydrate_endpoint_from_decision(&rule.end);
+      hydrate_endpoint_from_decision(cached_span_id, &rule.start);
+      hydrate_endpoint_from_decision(cached_span_id, &rule.end);
       reposition_rules.push_back(std::move(rule));
     }
     EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =

@@ -4572,4 +4572,151 @@ bool C816_backbone_incremental_normal_pair_keeps_allocated_support_level() {
          curve_endpoints_match_layout(state);
 }
 
+bool C835_backbone_sharp_route_corner_uses_branch_down_level() {
+  auto explicit_bundle = [](const city::wire::CoreState& state,
+                            city::wire::BundleKind kind,
+                            std::uint64_t placement_key,
+                            int count,
+                            double height_m,
+                            double lateral_m,
+                            double spacing_m) {
+    const city::wire::BundleTemplateId template_id =
+        city::wire::DefaultBundleTemplateId(kind);
+    const city::wire::BundleTemplate& tmpl =
+        state.view().bundle_templates().at(template_id);
+    city::wire::BackboneBundleSpec bundle{};
+    bundle.bundle_template_id = template_id;
+    bundle.placement_key = placement_key;
+    bundle.layer = tmpl.default_layer;
+    bundle.count = count;
+    bundle.placement_explicit = true;
+    bundle.height_m = height_m;
+    bundle.lateral_m = lateral_m;
+    bundle.spacing_m = spacing_m;
+    return bundle;
+  };
+  auto viewer_default_repro_req = [&](city::wire::CoreState& state,
+                                      bool polyline3) {
+    city::wire::BackboneSpec req = polyline3 ? poly3_req(state) : line_req(state);
+    req.pole_type_id = 2;
+    req.pole_placement.enable_tilt = true;
+    req.pole_placement.max_tilt_deg = 12.0;
+    if (polyline3) {
+      req.path.polyline = {{21.390, 15.503, 0.0},
+                           {-1.406, 9.899, 0.0},
+                           {25.824, 3.610, 0.0}};
+    }
+    req.bundles.clear();
+    req.bundles.push_back(
+        explicit_bundle(state, city::wire::BundleKind::kHighVoltage, 1, 3, 9.2, -0.2, 0.45));
+    req.bundles.push_back(
+        explicit_bundle(state, city::wire::BundleKind::kLowVoltage, 2, 1, 7.7, 0.0, 0.2));
+    req.bundles.push_back(
+        explicit_bundle(state, city::wire::BundleKind::kLowVoltage, 3, 1, 7.35, 0.0, 0.2));
+    req.bundles.push_back(
+        explicit_bundle(state, city::wire::BundleKind::kLowVoltage, 4, 1, 7.0, 0.0, 0.2));
+    req.bundles.push_back(
+        explicit_bundle(state, city::wire::BundleKind::kCommunication, 5, 1, 5.5, 0.0, 0.2));
+    req.bundles.push_back(
+        explicit_bundle(state, city::wire::BundleKind::kOptical, 6, 1, 5.3, 0.0, 0.2));
+    return req;
+  };
+  auto repro_points = []() {
+    return std::array<city::wire::Vec3d, 3>{
+        city::wire::Vec3d{21.390, 15.503, 0.0},
+        city::wire::Vec3d{-1.406, 9.899, 0.0},
+        city::wire::Vec3d{25.824, 3.610, 0.0}};
+  };
+  auto expect_sharp_hv_lowering =
+      [&](const city::wire::CoreState& state,
+          city::wire::ObjectId junction,
+          const char* label) {
+    const double hv_step = std::max(
+        0.0, -state.view()
+                  .bundle_templates()
+                  .at(city::wire::DefaultBundleTemplateId(
+                      city::wire::BundleKind::kHighVoltage))
+                  .branch_endpoint_offset_m);
+    WIRE_TEST_EXPECT(hv_step > 0.0,
+                     std::string(label) + ": HV branch-down step is not positive");
+    std::size_t hv_lowered = 0;
+    std::size_t hv_unlowered = 0;
+    std::size_t non_hv_lowered = 0;
+    for (const city::wire::Span& span : state.view().spans().items()) {
+      const city::wire::Bundle* bundle =
+          state.view().bundles().find(span.bundle_id);
+      const city::wire::SpanLayoutEntry* layout = state.span_layout(span.id).entry;
+      WIRE_TEST_EXPECT(bundle != nullptr && layout != nullptr,
+                       std::string(label) + ": span bundle or layout is missing");
+      for (const city::wire::LayoutEndpoint* endpoint :
+           {&layout->start, &layout->end}) {
+        const city::wire::Port* port =
+            state.view().ports().find(endpoint->port_id);
+        if (port == nullptr || port->owner_pole_id != junction) {
+          continue;
+        }
+        if (bundle->bundle_template_id ==
+            city::wire::DefaultBundleTemplateId(
+                city::wire::BundleKind::kHighVoltage)) {
+          if (endpoint->default_lower_required && endpoint->lower_required &&
+              almost_equal(endpoint->branch_down_offset_m, hv_step, 1e-9)) {
+            ++hv_lowered;
+          } else {
+            ++hv_unlowered;
+          }
+        } else if (endpoint->default_lower_required ||
+                   endpoint->lower_required ||
+                   endpoint->branch_down_offset_m > 1e-9) {
+          ++non_hv_lowered;
+        }
+      }
+    }
+    WIRE_TEST_EXPECT(hv_lowered == 6,
+                     std::string(label) + ": HV sharp route lowered " +
+                         std::to_string(hv_lowered) + " endpoints and left " +
+                         std::to_string(hv_unlowered) + " unlowered");
+    WIRE_TEST_EXPECT(non_hv_lowered == 0,
+                     std::string(label) + ": non-HV sharp route endpoints were lowered");
+    WIRE_TEST_EXPECT(curve_endpoints_match_layout(state),
+                     std::string(label) + ": curve endpoints do not match layout");
+    return true;
+  };
+
+  city::wire::CoreState one_shot;
+  const auto one_points = repro_points();
+  const auto one_generated =
+      one_shot.GenerateFromBackboneSpec(viewer_default_repro_req(one_shot, true));
+  WIRE_TEST_EXPECT(one_generated.ok, one_generated.error);
+  WIRE_TEST_EXPECT(one_generated.value.generated_pole_ids.size() == 3,
+                   "viewer repro sharp route did not generate 3 poles");
+  WIRE_TEST_EXPECT(one_generated.value.generated_span_ids.size() == 16,
+                   "viewer repro sharp route did not generate 16 spans");
+  if (!expect_sharp_hv_lowering(one_shot, one_generated.value.generated_pole_ids[1], "one-shot")) {
+    return false;
+  }
+
+  city::wire::CoreState incremental;
+  const auto inc_points = repro_points();
+  city::wire::BackboneSpec first = viewer_default_repro_req(incremental, false);
+  first.path.polyline = {inc_points[0], inc_points[1]};
+  const auto first_out = incremental.GenerateFromBackboneSpec(first);
+  WIRE_TEST_EXPECT(first_out.ok, first_out.error);
+  WIRE_TEST_EXPECT(first_out.value.generated_pole_ids.size() == 2,
+                   "first sharp edge did not generate 2 poles");
+  const city::wire::ObjectId junction = first_out.value.generated_pole_ids[1];
+  const city::wire::Pole* junction_pole = incremental.view().poles().find(junction);
+  WIRE_TEST_EXPECT(junction_pole != nullptr, "incremental junction pole is missing");
+  city::wire::BackboneSpec second = viewer_default_repro_req(incremental, false);
+  second.path.polyline = {junction_pole->world_transform.position, inc_points[2]};
+  second.path.node_specs = {pole_spec(0, junction)};
+  const auto second_out = incremental.GenerateFromBackboneSpec(second);
+  WIRE_TEST_EXPECT(second_out.ok, second_out.error);
+  WIRE_TEST_EXPECT(second_out.value.generated_pole_ids.size() == 1,
+                   "second sharp edge did not generate one pole");
+  if (!expect_sharp_hv_lowering(incremental, junction, "incremental")) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace backbone_tests

@@ -262,7 +262,8 @@ private:
   void save(geom made);
   void save(draw made);
   [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps,
-                                            const groups& placement);
+                                            const groups& placement,
+                                            ChangeSet* changes);
   [[nodiscard]] std::size_t local(std::size_t input_point) const;
 
   CoreState& state_;

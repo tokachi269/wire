@@ -1333,6 +1333,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "sharp pair branch lowering reaches endpoint fixture sockets and curve endpoints",
                          "Invariant", false,
                          C834_backbone_sharp_pair_lowering_reaches_model_socket);
+  test_registry::AddTest(tests, "C835_backbone_sharp_route_corner_uses_branch_down_level",
+                         "same-operation sharp route corners use branch-down support level",
+                         "Invariant", false,
+                         C835_backbone_sharp_route_corner_uses_branch_down_level);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

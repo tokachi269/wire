@@ -299,12 +299,15 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
 
 EditResult<bool> CoreState::update_backbone_port_binding_layout_exact(
     ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
-    std::size_t lane_index, double layout_yaw_deg, ObjectId port_id) {
+    std::size_t lane_index, double layout_yaw_deg,
+    int support_level, int support_group_id, ObjectId port_id) {
   EditResult<bool> out{};
   out.value = false;
   if (edge_bundle_id == kInvalidObjectId ||
       row_key.node_id == kInvalidObjectId ||
-      row_key.edge_id == kInvalidObjectId || port_id == kInvalidObjectId) {
+      row_key.edge_id == kInvalidObjectId || port_id == kInvalidObjectId ||
+      support_level < 0 || (support_level == 0 && support_group_id != -1) ||
+      (support_level > 0 && support_group_id < 0)) {
     out.ok = true;
     return out;
   }
@@ -326,8 +329,14 @@ EditResult<bool> CoreState::update_backbone_port_binding_layout_exact(
     return out;
   }
   SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[match_index];
-  binding.layout_yaw_deg = NormalizeYawDeg(layout_yaw_deg);
-  out.value = true;
+  const double normalized_yaw = NormalizeYawDeg(layout_yaw_deg);
+  out.value = binding.support_level != support_level ||
+              binding.support_group_id != support_group_id ||
+              std::abs(NormalizeYawDeg(binding.layout_yaw_deg - normalized_yaw)) >
+                  kLengthToleranceM;
+  binding.layout_yaw_deg = normalized_yaw;
+  binding.support_level = support_level;
+  binding.support_group_id = support_group_id;
   out.ok = true;
   return out;
 }

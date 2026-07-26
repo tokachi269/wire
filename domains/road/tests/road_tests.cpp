@@ -19,7 +19,10 @@ namespace {
   } while (false)
 
 using city::road::ErrorKind;
+using city::road::BoundaryRole;
 using city::road::JapaneseUrbanTwoLaneTemplate;
+using city::road::MarkingRule;
+using city::road::MakeArcThroughPoints;
 using city::road::MakeBezier;
 using city::road::MakeLine;
 using city::road::MakePath;
@@ -31,6 +34,7 @@ using city::road::SectionTransition;
 using city::road::SectionTransitionRule;
 using city::road::StationRef;
 using city::road::StationRefKind;
+using city::road::SurfaceRole;
 using city::road::ThreeLaneTemplate;
 using city::road::TransitionAnchor;
 using city::road::TransitionAction;
@@ -141,6 +145,46 @@ bool P0_tool_preview_includes_bezier_handles(std::string& failure) {
   return true;
 }
 
+bool P0_arc_uses_start_through_end_order(std::string& failure) {
+  const auto arc = MakeArcThroughPoints({0.0, 0.0}, {10.0, 10.0}, {20.0, 0.0});
+  ROAD_TEST_EXPECT(arc.ok, arc.error);
+  const auto path = MakePath({arc.value});
+  const auto midpoint = city::road::EvaluatePath(path, city::road::PathLength(path).value * 0.5);
+  ROAD_TEST_EXPECT(midpoint.ok, midpoint.error);
+  ROAD_TEST_EXPECT(std::abs(midpoint.value.x - 10.0) < 1e-6 && std::abs(midpoint.value.y - 10.0) < 1e-6,
+                   "road arc does not pass through the second click");
+  const auto collinear = MakeArcThroughPoints({0.0, 0.0}, {10.0, 0.0}, {20.0, 0.0});
+  ROAD_TEST_EXPECT(!collinear.ok && collinear.error_kind == ErrorKind::kUnsupported,
+                   "collinear road arc input was not rejected as unsupported");
+  return true;
+}
+
+bool P0_edit_and_delete_preserve_graph_ownership(std::string& failure) {
+  RoadState state{};
+  const auto isolated = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1);
+  ROAD_TEST_EXPECT(isolated.ok, isolated.error);
+  const auto edited = state.EditSegmentPath(isolated.value, MakePath({MakeLine({2.0, 3.0}, {24.0, 3.0})}));
+  ROAD_TEST_EXPECT(edited.ok, edited.error);
+  ROAD_TEST_EXPECT(std::abs(state.graph().nodes[0].position.x - 2.0) < 1e-9,
+                   "isolated road edit did not move its owned endpoint node");
+
+  const auto shared_node = state.graph().segments.front().node_a;
+  const auto branch = state.AddSegmentConnectedTo(MakePath({MakeLine({2.0, 3.0}, {2.0, 23.0})}), 1, shared_node);
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  const auto before = state.Save();
+  const auto invalid = state.EditSegmentPath(isolated.value, MakePath({MakeLine({4.0, 3.0}, {24.0, 3.0})}));
+  ROAD_TEST_EXPECT(!invalid.ok && invalid.error_kind == ErrorKind::kUnsupported,
+                   "connected road edit moved a shared endpoint node");
+  ROAD_TEST_EXPECT(state.Save().value == before.value, "rejected connected road edit mutated authority");
+
+  const auto deleted = state.DeleteSegment(branch.value);
+  ROAD_TEST_EXPECT(deleted.ok, deleted.error);
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 1, "road delete removed the wrong segment");
+  ROAD_TEST_EXPECT(state.graph().nodes.size() == 2, "road delete left an orphan endpoint node");
+  ROAD_TEST_EXPECT(state.graph().junctions.empty(), "road delete left a junction with fewer than two approaches");
+  return true;
+}
+
 bool P1_connected_segments_create_gates_and_junction(std::string& failure) {
   RoadState state{};
   const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1);
@@ -169,7 +213,35 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   ROAD_TEST_EXPECT(state.graph().junctions.size() == 1, "T junction did not save one JunctionDefinition");
   ROAD_TEST_EXPECT(state.derived().junction_areas.size() == 1, "T junction did not derive one JunctionArea");
   ROAD_TEST_EXPECT(state.derived().junction_areas.front().gates.size() == 3, "T junction does not have three gates");
+  ROAD_TEST_EXPECT(state.derived().junction_meshes.size() == 1,
+                   "T junction did not derive a visible junction surface mesh");
+  ROAD_TEST_EXPECT(!state.derived().junction_meshes.front().indices.empty(),
+                   "T junction surface mesh has no triangles");
+  ROAD_TEST_EXPECT(state.derived().junction_marking_meshes.size() >= 6,
+                   "T junction did not derive a stop line and zebra for every approach");
+  for (const auto& gate : state.derived().junction_areas.front().gates) {
+    ROAD_TEST_EXPECT(std::abs(std::hypot(gate.position.x - 20.0, gate.position.y) - 4.0) < 1e-6,
+                     "T junction gate is not offset by the 4m corner radius");
+  }
   ROAD_TEST_EXPECT(ValidateGraphInvariants(state.graph(), state.derived()).ok, "T junction invariants failed");
+  return true;
+}
+
+bool P1_cross_junction_accepts_opposite_approaches(std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1);
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto north = state.AddSegmentConnectedToSegment(MakePath({MakeLine({20.0, 0.0}, {20.0, 24.0})}), 1,
+                                                        base.value);
+  ROAD_TEST_EXPECT(north.ok, north.error);
+  const auto junction_node = state.graph().junctions.front().node_id;
+  const auto south = state.AddSegmentConnectedTo(MakePath({MakeLine({20.0, 0.0}, {20.0, -24.0})}), 1,
+                                                 junction_node);
+  ROAD_TEST_EXPECT(south.ok, south.error);
+  ROAD_TEST_EXPECT(state.derived().junction_areas.front().gates.size() == 4,
+                   "cross junction does not have four approaches");
+  ROAD_TEST_EXPECT(state.derived().junction_meshes.size() == 1,
+                   "cross junction did not derive one shared surface");
   return true;
 }
 
@@ -252,6 +324,78 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   return true;
 }
 
+bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
+  {
+    RoadState state{};
+    auto no_left_sidewalk = JapaneseUrbanTwoLaneTemplate(0);
+    no_left_sidewalk.bands.erase(no_left_sidewalk.bands.begin());
+    no_left_sidewalk.boundaries.erase(no_left_sidewalk.boundaries.begin());
+    const auto target = state.AddSectionTemplate(no_left_sidewalk);
+    ROAD_TEST_EXPECT(target.ok, target.error);
+    const auto segment = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1);
+    ROAD_TEST_EXPECT(segment.ok, segment.error);
+    SectionTransition transition{};
+    transition.from_template = 1;
+    transition.to_template = target.value;
+    transition.start = StationRef{StationRefKind::kFromStart, 10.0};
+    transition.end = StationRef{StationRefKind::kRatio, 0.5};
+    transition.anchor = TransitionAnchor::kRightEdge;
+    transition.rules = {SectionTransitionRule{10, TransitionAction::kTaperOut}};
+    const auto transition_id = state.AddTransition(transition);
+    ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
+    ROAD_TEST_EXPECT(state.AttachSectionTransition(segment.value, transition_id.value).ok,
+                     "sidewalk taper could not be attached");
+    ROAD_TEST_EXPECT(!state.derived().segment_meshes.empty(), "sidewalk taper produced no material meshes");
+  }
+
+  {
+    RoadState state{};
+    const auto three_lane = state.AddSectionTemplate(ThreeLaneTemplate(0));
+    ROAD_TEST_EXPECT(three_lane.ok, three_lane.error);
+    const auto segment = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), three_lane.value);
+    ROAD_TEST_EXPECT(segment.ok, segment.error);
+    SectionTransition transition{};
+    transition.from_template = three_lane.value;
+    transition.to_template = 1;
+    transition.start = StationRef{StationRefKind::kFromEnd, 30.0};
+    transition.end = StationRef{StationRefKind::kFromEnd, 5.0};
+    transition.rules = {SectionTransitionRule{35, TransitionAction::kTaperOut}};
+    const auto transition_id = state.AddTransition(transition);
+    ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
+    ROAD_TEST_EXPECT(state.AttachSectionTransition(segment.value, transition_id.value).ok,
+                     "lane reduction could not be attached");
+  }
+
+  {
+    RoadState state{};
+    auto median = JapaneseUrbanTwoLaneTemplate(0);
+    median.bands.insert(median.bands.begin() + 2, {25, SurfaceRole::kMedian, 2.0, 0.0, "median"});
+    median.boundaries = {
+        {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
+        {210, BoundaryRole::kMedianEdge, 0.2, 0.12, MarkingRule::kNone},
+        {220, BoundaryRole::kMedianEdge, 0.2, -0.12, MarkingRule::kNone},
+        {300, BoundaryRole::kCurb, 0.2, 0.15, MarkingRule::kOuterLine},
+    };
+    const auto median_id = state.AddSectionTemplate(median);
+    ROAD_TEST_EXPECT(median_id.ok, median_id.error);
+    const auto segment = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), median_id.value);
+    ROAD_TEST_EXPECT(segment.ok, segment.error);
+    SectionTransition invalid{};
+    invalid.from_template = median_id.value;
+    invalid.to_template = 1;
+    invalid.start = StationRef{StationRefKind::kFromStart, 10.0};
+    invalid.end = StationRef{StationRefKind::kFromStart, 30.0};
+    invalid.rules = {SectionTransitionRule{25, TransitionAction::kTaperOut}};
+    ROAD_TEST_EXPECT(!state.AddTransition(invalid).ok, "median disappearance accepted TaperOut instead of EndCap");
+    invalid.rules = {SectionTransitionRule{25, TransitionAction::kEndCap}};
+    const auto transition_id = state.AddTransition(invalid);
+    ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
+    ROAD_TEST_EXPECT(state.AttachSectionTransition(segment.value, transition_id.value).ok,
+                     "median end cap could not be attached");
+  }
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -289,9 +433,13 @@ int main() {
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
+      {"P0_arc_uses_start_through_end_order", P0_arc_uses_start_through_end_order},
+      {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},
       {"P1_connected_segments_create_gates_and_junction", P1_connected_segments_create_gates_and_junction},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
+      {"P1_cross_junction_accepts_opposite_approaches", P1_cross_junction_accepts_opposite_approaches},
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
+      {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Cable, Minus, Route, Spline } from "@lucide/svelte";
+  import { Cable, Circle, Minus, Route, Spline } from "@lucide/svelte";
   import type { ViewerActions } from "./actions/viewer";
   import Settings from "./panels/Settings.svelte";
   import Templates from "./panels/Templates.svelte";
@@ -281,6 +281,13 @@
             title="Straight road"
             onclick={() => actions.setRoadMode("line")}
           ><Minus size={21} aria-hidden="true" /></button>
+          <button
+            class:active={snapshot.road.mode === "arc"}
+            type="button"
+            aria-label="Circular arc road"
+            title="Circular arc road"
+            onclick={() => actions.setRoadMode("arc")}
+          ><Circle size={19} aria-hidden="true" /></button>
           <button
             class:active={snapshot.road.mode === "bezier"}
             type="button"

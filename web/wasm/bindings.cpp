@@ -87,6 +87,13 @@ using city::wire::Vec3d;
     };
     return city::road::MakePath({city::road::MakeBezier(start, handle_a, handle_b, end)});
   }
+  if (kind == "arc") {
+    const city::road::Vec2d handle_a{input["handleAX"].as<double>(), input["handleAY"].as<double>()};
+    const city::road::Vec2d through{start.x + (handle_a.x - start.x) * 1.5,
+                                    start.y + (handle_a.y - start.y) * 1.5};
+    const auto arc = city::road::MakeArcThroughPoints(start, through, end);
+    return arc.ok ? city::road::MakePath({arc.value}) : city::road::Path{};
+  }
   return {};
 }
 
@@ -1283,8 +1290,14 @@ public:
     for (const auto& mesh : derived.segment_meshes) {
       surface_meshes.call<void>("push", road_mesh_value(mesh));
     }
+    for (const auto& mesh : derived.junction_meshes) {
+      surface_meshes.call<void>("push", road_mesh_value(mesh));
+    }
     val marking_meshes = val::array();
     for (const auto& mesh : derived.marking_meshes) {
+      marking_meshes.call<void>("push", road_mesh_value(mesh));
+    }
+    for (const auto& mesh : derived.junction_marking_meshes) {
       marking_meshes.call<void>("push", road_mesh_value(mesh));
     }
     for (const auto& mesh : derived.manual_marking_meshes) {

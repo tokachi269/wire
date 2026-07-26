@@ -211,10 +211,22 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return it == graph.nodes.end() ? nullptr : &*it;
 }
 
+[[nodiscard]] const JunctionDefinition* find_junction(const SavedRoadGraph& graph, RoadNodeId node_id) {
+  const auto it = std::find_if(graph.junctions.begin(), graph.junctions.end(),
+                               [node_id](const JunctionDefinition& item) { return item.node_id == node_id; });
+  return it == graph.junctions.end() ? nullptr : &*it;
+}
+
 [[nodiscard]] RoadNode* find_node(SavedRoadGraph& graph, RoadNodeId id) {
   const auto it = std::find_if(graph.nodes.begin(), graph.nodes.end(),
                                [id](const RoadNode& item) { return item.id == id; });
   return it == graph.nodes.end() ? nullptr : &*it;
+}
+
+[[nodiscard]] std::size_t node_degree(const SavedRoadGraph& graph, RoadNodeId id) {
+  return static_cast<std::size_t>(std::count_if(graph.segments.begin(), graph.segments.end(), [id](const RoadSegment& segment) {
+    return segment.node_a == id || segment.node_b == id;
+  }));
 }
 
 [[nodiscard]] std::vector<SectionBoundarySample> evaluate_section(const CrossSectionTemplate& section) {
@@ -243,7 +255,9 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
     height = band_end_height;
     if (i < section.boundaries.size()) {
       const BoundaryProfile& boundary = section.boundaries[i];
-      if (boundary.width_m <= kEpsilon && std::abs(boundary.height_m) <= kEpsilon) {
+      const bool structural_boundary = boundary.role == BoundaryRole::kCurb ||
+                                       boundary.role == BoundaryRole::kMedianEdge;
+      if (!structural_boundary && boundary.width_m <= kEpsilon && std::abs(boundary.height_m) <= kEpsilon) {
         samples.push_back(
             SectionBoundarySample{boundary.boundary_id, boundary.role, lateral, height, boundary.marking_rule});
         continue;
@@ -274,7 +288,8 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
     materials.push_back(section.bands[i].style.empty() ? "surface" : section.bands[i].style);
     if (i < section.boundaries.size()) {
       const BoundaryProfile& boundary = section.boundaries[i];
-      if (boundary.width_m > kEpsilon || std::abs(boundary.height_m) > kEpsilon) {
+      if (boundary.role == BoundaryRole::kCurb || boundary.role == BoundaryRole::kMedianEdge ||
+          boundary.width_m > kEpsilon || std::abs(boundary.height_m) > kEpsilon) {
         materials.push_back(boundary_material(boundary.role));
       }
     }
@@ -427,6 +442,26 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return stations;
 }
 
+[[nodiscard]] std::vector<double> stations_for_segment_mesh(const SavedRoadGraph& graph,
+                                                            const RoadSegment& segment) {
+  const Result<double> length_result = PathLength(segment.alignment);
+  if (!length_result.ok) return {};
+  const double total = length_result.value;
+  const JunctionDefinition* start_junction = find_junction(graph, segment.node_a);
+  const JunctionDefinition* end_junction = find_junction(graph, segment.node_b);
+  const double start = start_junction == nullptr ? 0.0 : start_junction->corner_radius_m;
+  const double end = total - (end_junction == nullptr ? 0.0 : end_junction->corner_radius_m);
+  if (end < start - kEpsilon) return {};
+  if (end - start <= kEpsilon) return {start};
+  const int count = std::max(1, static_cast<int>(std::ceil((end - start) / kSampleStepM)));
+  std::vector<double> stations{};
+  stations.reserve(static_cast<std::size_t>(count) + 1);
+  for (int i = 0; i <= count; ++i) {
+    stations.push_back(start + (end - start) * static_cast<double>(i) / count);
+  }
+  return stations;
+}
+
 [[nodiscard]] Vec2d path_start(const Path& path) {
   return primitive_start(path.primitives.front());
 }
@@ -451,11 +486,11 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
 }
 
 [[nodiscard]] std::vector<Mesh> build_surface_meshes(const SavedRoadGraph& graph, const RoadSegment& segment) {
-  const std::vector<double> stations = stations_for_path(segment.alignment);
+  const std::vector<double> stations = stations_for_segment_mesh(graph, segment);
   if (stations.empty()) {
     return {};
   }
-  const double total = stations.back();
+  const double total = PathLength(segment.alignment).value;
   std::uint32_t width = 0;
   std::vector<Vec3d> vertices{};
   std::vector<std::string> materials{};
@@ -509,11 +544,11 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
 [[nodiscard]] TerrainMaskPolygon build_terrain_mask(const SavedRoadGraph& graph, const RoadSegment& segment) {
   TerrainMaskPolygon mask{};
   mask.segment_id = segment.id;
-  const std::vector<double> stations = stations_for_path(segment.alignment);
+  const std::vector<double> stations = stations_for_segment_mesh(graph, segment);
   if (stations.empty()) {
     return mask;
   }
-  const double total = stations.back();
+  const double total = PathLength(segment.alignment).value;
   std::vector<Vec2d> right_side{};
   std::vector<Vec2d> left_side{};
   for (double station : stations) {
@@ -536,11 +571,11 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
 
 [[nodiscard]] Mesh build_marking_mesh(const SavedRoadGraph& graph, const RoadSegment& segment) {
   Mesh mesh{};
-  const std::vector<double> stations = stations_for_path(segment.alignment);
+  const std::vector<double> stations = stations_for_segment_mesh(graph, segment);
   if (stations.empty()) {
     return mesh;
   }
-  const double total = stations.back();
+  const double total = PathLength(segment.alignment).value;
   const auto first_section = evaluate_segment_section(graph, segment, stations.front(), total);
   if (!first_section.ok) {
     return mesh;
@@ -624,19 +659,160 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return mesh;
 }
 
+[[nodiscard]] std::pair<double, double> carriageway_edges(const ConnectionGate& gate) {
+  struct Run {
+    std::size_t first = 0;
+    std::size_t last = 0;
+  };
+  std::vector<Run> curb_runs{};
+  for (std::size_t i = 0; i < gate.boundaries.size(); ++i) {
+    if (gate.boundaries[i].role != BoundaryRole::kCurb) continue;
+    if (curb_runs.empty() || gate.boundaries[curb_runs.back().last].boundary_id != gate.boundaries[i].boundary_id) {
+      curb_runs.push_back(Run{i, i});
+    } else {
+      curb_runs.back().last = i;
+    }
+  }
+  if (curb_runs.size() >= 2) {
+    return {gate.boundaries[curb_runs.front().last].lateral_m,
+            gate.boundaries[curb_runs.back().first].lateral_m};
+  }
+  return {gate.boundaries.front().lateral_m, gate.boundaries.back().lateral_m};
+}
+
+[[nodiscard]] std::vector<Vec2d> convex_hull(std::vector<Vec2d> points) {
+  std::sort(points.begin(), points.end(), [](Vec2d a, Vec2d b) {
+    return a.x < b.x || (a.x == b.x && a.y < b.y);
+  });
+  points.erase(std::unique(points.begin(), points.end(), [](Vec2d a, Vec2d b) { return almost_same(a, b); }),
+               points.end());
+  if (points.size() < 3) return {};
+  std::vector<Vec2d> hull{};
+  for (Vec2d point : points) {
+    while (hull.size() >= 2 && cross(sub(hull.back(), hull[hull.size() - 2]), sub(point, hull.back())) <= 0.0) {
+      hull.pop_back();
+    }
+    hull.push_back(point);
+  }
+  const std::size_t lower_size = hull.size();
+  for (auto it = points.rbegin() + 1; it != points.rend(); ++it) {
+    while (hull.size() > lower_size &&
+           cross(sub(hull.back(), hull[hull.size() - 2]), sub(*it, hull.back())) <= 0.0) {
+      hull.pop_back();
+    }
+    hull.push_back(*it);
+  }
+  hull.pop_back();
+  return hull;
+}
+
+[[nodiscard]] Mesh build_junction_mesh(const JunctionArea& area) {
+  std::vector<Vec2d> edge_points{};
+  for (const ConnectionGate& gate : area.gates) {
+    const auto [left, right] = carriageway_edges(gate);
+    const Vec2d center{gate.position.x, gate.position.y};
+    const Vec2d lateral{-gate.tangent.y, gate.tangent.x};
+    edge_points.push_back(add(center, mul(lateral, left)));
+    edge_points.push_back(add(center, mul(lateral, right)));
+  }
+  const std::vector<Vec2d> hull = convex_hull(std::move(edge_points));
+  Mesh mesh{};
+  mesh.material = "asphalt";
+  if (hull.size() < 3) return mesh;
+  Vec2d center{};
+  for (Vec2d point : hull) center = add(center, point);
+  center = mul(center, 1.0 / hull.size());
+  mesh.vertices.push_back({center.x, center.y, 0.0});
+  for (Vec2d point : hull) mesh.vertices.push_back({point.x, point.y, 0.0});
+  for (std::uint32_t i = 0; i < hull.size(); ++i) {
+    mesh.indices.insert(mesh.indices.end(), {0, i + 1, static_cast<std::uint32_t>((i + 1) % hull.size()) + 1});
+  }
+  return mesh;
+}
+
+void append_quad(Mesh& mesh, Vec2d center, Vec2d tangent, double half_length, double left, double right) {
+  const Vec2d lateral{-tangent.y, tangent.x};
+  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
+  for (Vec2d point : std::array<Vec2d, 4>{
+           add(add(center, mul(tangent, -half_length)), mul(lateral, left)),
+           add(add(center, mul(tangent, half_length)), mul(lateral, left)),
+           add(add(center, mul(tangent, -half_length)), mul(lateral, right)),
+           add(add(center, mul(tangent, half_length)), mul(lateral, right))}) {
+    mesh.vertices.push_back({point.x, point.y, 0.025});
+  }
+  mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2, base + 1, base + 3, base + 2});
+}
+
+[[nodiscard]] std::vector<Mesh> build_junction_markings(const JunctionArea& area) {
+  std::vector<Mesh> meshes{};
+  for (const ConnectionGate& gate : area.gates) {
+    const auto [left, right] = carriageway_edges(gate);
+    const Vec2d tangent{gate.tangent.x, gate.tangent.y};
+    const Vec2d gate_center{gate.position.x, gate.position.y};
+    Mesh stop{};
+    stop.material = "marking";
+    append_quad(stop, add(gate_center, mul(tangent, 0.35)), tangent, 0.08, left, right);
+    meshes.push_back(std::move(stop));
+
+    Mesh zebra{};
+    zebra.material = "marking";
+    for (int stripe = 0; stripe < 5; ++stripe) {
+      append_quad(zebra, add(gate_center, mul(tangent, 0.9 + stripe * 0.55)), tangent, 0.16, left, right);
+    }
+    meshes.push_back(std::move(zebra));
+  }
+  return meshes;
+}
+
 [[nodiscard]] Result<bool> validate_transition(const SavedRoadGraph& graph, const SectionTransition& transition) {
-  if (find_template(graph, transition.from_template) == nullptr || find_template(graph, transition.to_template) == nullptr) {
+  const CrossSectionTemplate* from = find_template(graph, transition.from_template);
+  const CrossSectionTemplate* to = find_template(graph, transition.to_template);
+  if (from == nullptr || to == nullptr) {
     return Result<bool>::Fail(ErrorKind::kValidation, "section transition references a missing template");
   }
   if (!finite(transition.start.value) || !finite(transition.end.value)) {
     return Result<bool>::Fail(ErrorKind::kValidation, "section transition station is not finite");
   }
+  const auto valid_station = [](StationRef station) {
+    return station.value >= 0.0 &&
+           (station.kind != StationRefKind::kRatio || station.value <= 1.0);
+  };
+  if (!valid_station(transition.start) || !valid_station(transition.end)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "section transition station reference is outside its range");
+  }
   if (transition.rules.empty()) {
     return Result<bool>::Fail(ErrorKind::kUnsupported, "section transition must define element actions");
   }
+  std::unordered_set<std::uint64_t> ruled_elements{};
   for (const SectionTransitionRule& rule : transition.rules) {
+    if (rule.element_id == 0 || !ruled_elements.insert(rule.element_id).second ||
+        (find_band(*from, rule.element_id) == nullptr && find_band(*to, rule.element_id) == nullptr)) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "section transition rule element is invalid");
+    }
     if (rule.action == TransitionAction::kUnsupported) {
       return Result<bool>::Fail(ErrorKind::kUnsupported, "section transition contains unsupported element action");
+    }
+  }
+  const auto action_for = [&transition](std::uint64_t id) -> std::optional<TransitionAction> {
+    const auto it = std::find_if(transition.rules.begin(), transition.rules.end(),
+                                 [id](const SectionTransitionRule& rule) { return rule.element_id == id; });
+    return it == transition.rules.end() ? std::nullopt : std::optional<TransitionAction>(it->action);
+  };
+  for (const SurfaceBand& band : to->bands) {
+    if (find_band(*from, band.element_id) == nullptr && action_for(band.element_id) != TransitionAction::kTaperIn) {
+      return Result<bool>::Fail(ErrorKind::kUnsupported, "appearing section element requires TaperIn");
+    }
+  }
+  for (const SurfaceBand& band : from->bands) {
+    if (find_band(*to, band.element_id) != nullptr) continue;
+    const std::optional<TransitionAction> action = action_for(band.element_id);
+    const TransitionAction required = band.role == SurfaceRole::kMedian ? TransitionAction::kEndCap
+                                                                        : TransitionAction::kTaperOut;
+    if (action != required) {
+      return Result<bool>::Fail(ErrorKind::kUnsupported,
+                                band.role == SurfaceRole::kMedian
+                                    ? "disappearing median requires EndCap"
+                                    : "disappearing section element requires TaperOut");
     }
   }
   return Result<bool>::Ok(true);
@@ -716,6 +892,40 @@ Primitive MakeArc(Vec2d center, double radius, double start_angle_rad, double sw
   out.start_angle_rad = start_angle_rad;
   out.sweep_angle_rad = sweep_angle_rad;
   return out;
+}
+
+Result<Primitive> MakeArcThroughPoints(Vec2d start, Vec2d through, Vec2d end) {
+  if (!finite(start) || !finite(through) || !finite(end)) {
+    return Result<Primitive>::Fail(ErrorKind::kValidation, "road arc point is not finite");
+  }
+  const double determinant = 2.0 * (start.x * (through.y - end.y) + through.x * (end.y - start.y) +
+                                    end.x * (start.y - through.y));
+  if (std::abs(determinant) <= 1e-8) {
+    return Result<Primitive>::Fail(ErrorKind::kUnsupported, "collinear road arc points are unsupported");
+  }
+  const double start_norm = dot(start, start);
+  const double through_norm = dot(through, through);
+  const double end_norm = dot(end, end);
+  const Vec2d center{
+      (start_norm * (through.y - end.y) + through_norm * (end.y - start.y) +
+       end_norm * (start.y - through.y)) /
+          determinant,
+      (start_norm * (end.x - through.x) + through_norm * (start.x - end.x) +
+       end_norm * (through.x - start.x)) /
+          determinant};
+  const double radius = distance(center, start);
+  const double start_angle = std::atan2(start.y - center.y, start.x - center.x);
+  const double through_angle = std::atan2(through.y - center.y, through.x - center.x);
+  const double end_angle = std::atan2(end.y - center.y, end.x - center.x);
+  constexpr double two_pi = 6.28318530717958647692;
+  const auto ccw_delta = [two_pi](double from, double to) {
+    double delta = std::fmod(to - from, two_pi);
+    if (delta < 0.0) delta += two_pi;
+    return delta;
+  };
+  double sweep = ccw_delta(start_angle, end_angle);
+  if (ccw_delta(start_angle, through_angle) > sweep) sweep -= two_pi;
+  return Result<Primitive>::Ok(MakeArc(center, radius, start_angle, sweep));
 }
 
 Primitive MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3) {
@@ -832,13 +1042,21 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
     return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "connected road segment is shorter than P1 minimum");
   }
   const Vec2d new_direction = normalize(sub(path_end(alignment), path_start(alignment)));
+  const std::size_t existing_degree = static_cast<std::size_t>(std::count_if(
+      graph_.segments.begin(), graph_.segments.end(), [start_node](const RoadSegment& item) {
+        return item.node_a == start_node || item.node_b == start_node;
+      }));
+  if (existing_degree >= 4) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "road junction supports at most four approaches");
+  }
   for (const RoadSegment& existing : graph_.segments) {
     if (existing.node_a != start_node && existing.node_b != start_node) {
       continue;
     }
     const Vec2d other = existing.node_a == start_node ? path_end(existing.alignment) : path_start(existing.alignment);
     const double angle = angle_deg(sub(other, node->position), new_direction);
-    if (angle < kP1MinConnectionAngleDeg || angle > kP1MaxConnectionAngleDeg) {
+    const bool opposite_continuation = angle >= 180.0 - 1e-6;
+    if (!opposite_continuation && (angle < kP1MinConnectionAngleDeg || angle > kP1MaxConnectionAngleDeg)) {
       return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "connected road segment angle is outside P1 range");
     }
   }
@@ -876,6 +1094,10 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(Path alignment,
   const RoadSegment* source = find_segment(graph_, start_segment);
   if (source == nullptr) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment snap target does not exist");
+  }
+  if (source->transition.has_value()) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported,
+                                       "splitting a transitioning road segment is unsupported");
   }
   if (source->alignment.primitives.size() != 1 ||
       source->alignment.primitives.front().kind != Primitive::Kind::kLine) {
@@ -926,40 +1148,72 @@ Result<bool> RoadState::EditSegmentPath(RoadSegmentId segment_id, Path alignment
   if (segment == nullptr) {
     return Result<bool>::Fail(ErrorKind::kValidation, "road segment does not exist");
   }
-  SavedRoadGraph trial = graph_;
-  RoadSegment* trial_segment = find_segment(trial, segment_id);
+  const RoadNode* node_a = find_node(graph_, segment->node_a);
+  const RoadNode* node_b = find_node(graph_, segment->node_b);
+  if ((node_degree(graph_, segment->node_a) > 1 && !almost_same(path_start(alignment), node_a->position)) ||
+      (node_degree(graph_, segment->node_b) > 1 && !almost_same(path_end(alignment), node_b->position))) {
+    return Result<bool>::Fail(ErrorKind::kUnsupported, "connected road edit cannot move a shared endpoint");
+  }
+  RoadState trial = *this;
+  RoadSegment* trial_segment = find_segment(trial.graph_, segment_id);
   trial_segment->alignment = alignment;
-  RoadNode* a = find_node(trial, trial_segment->node_a);
-  RoadNode* b = find_node(trial, trial_segment->node_b);
+  RoadNode* a = find_node(trial.graph_, trial_segment->node_a);
+  RoadNode* b = find_node(trial.graph_, trial_segment->node_b);
   if (a != nullptr) {
     a->position = path_start(alignment);
   }
   if (b != nullptr) {
     b->position = path_end(alignment);
   }
-  graph_ = std::move(trial);
-  return RebuildDerived();
+  const Result<bool> rebuilt = trial.RebuildDerived();
+  if (!rebuilt.ok) return rebuilt;
+  *this = std::move(trial);
+  return Result<bool>::Ok(true);
 }
 
 Result<bool> RoadState::DeleteSegment(RoadSegmentId segment_id) {
-  const auto old_size = graph_.segments.size();
-  graph_.segments.erase(std::remove_if(graph_.segments.begin(), graph_.segments.end(),
-                                       [segment_id](const RoadSegment& item) { return item.id == segment_id; }),
-                        graph_.segments.end());
-  if (graph_.segments.size() == old_size) {
+  RoadState trial = *this;
+  const RoadSegment* target = find_segment(trial.graph_, segment_id);
+  if (target == nullptr) {
     return Result<bool>::Fail(ErrorKind::kValidation, "road segment does not exist");
   }
-  graph_.manual_lines.erase(std::remove_if(graph_.manual_lines.begin(), graph_.manual_lines.end(),
+  const std::optional<SectionTransitionId> transition = target->transition;
+  trial.graph_.segments.erase(std::remove_if(trial.graph_.segments.begin(), trial.graph_.segments.end(),
+                                       [segment_id](const RoadSegment& item) { return item.id == segment_id; }),
+                        trial.graph_.segments.end());
+  trial.graph_.manual_lines.erase(std::remove_if(trial.graph_.manual_lines.begin(), trial.graph_.manual_lines.end(),
                                            [segment_id](const ManualLineMarking& item) {
                                              return item.owner_segment_id == segment_id;
                                            }),
-                            graph_.manual_lines.end());
-  graph_.manual_areas.erase(std::remove_if(graph_.manual_areas.begin(), graph_.manual_areas.end(),
+                            trial.graph_.manual_lines.end());
+  trial.graph_.manual_areas.erase(std::remove_if(trial.graph_.manual_areas.begin(), trial.graph_.manual_areas.end(),
                                            [segment_id](const ManualAreaMarking& item) {
                                              return item.owner_segment_id == segment_id;
                                            }),
-                            graph_.manual_areas.end());
-  return RebuildDerived();
+                            trial.graph_.manual_areas.end());
+  trial.graph_.nodes.erase(std::remove_if(trial.graph_.nodes.begin(), trial.graph_.nodes.end(),
+                                           [&trial](const RoadNode& node) {
+                                             return node_degree(trial.graph_, node.id) == 0;
+                                           }),
+                           trial.graph_.nodes.end());
+  trial.graph_.junctions.erase(std::remove_if(trial.graph_.junctions.begin(), trial.graph_.junctions.end(),
+                                               [&trial](const JunctionDefinition& junction) {
+                                                 return node_degree(trial.graph_, junction.node_id) < 2;
+                                               }),
+                               trial.graph_.junctions.end());
+  if (transition.has_value() &&
+      std::none_of(trial.graph_.segments.begin(), trial.graph_.segments.end(), [transition](const RoadSegment& segment) {
+        return segment.transition == transition;
+      })) {
+    trial.graph_.transitions.erase(
+        std::remove_if(trial.graph_.transitions.begin(), trial.graph_.transitions.end(),
+                       [transition](const SectionTransition& item) { return item.id == *transition; }),
+        trial.graph_.transitions.end());
+  }
+  const Result<bool> rebuilt = trial.RebuildDerived();
+  if (!rebuilt.ok) return rebuilt;
+  *this = std::move(trial);
+  return Result<bool>::Ok(true);
 }
 
 Result<CrossSectionTemplateId> RoadState::AddSectionTemplate(CrossSectionTemplate section_template) {
@@ -1120,13 +1374,19 @@ Result<bool> RoadState::RebuildDerived() {
       if (node == nullptr) {
         return Result<bool>::Fail(ErrorKind::kValidation, "road segment endpoint node is missing");
       }
-      Vec2d other = node_id == segment.node_a ? path_end(segment.alignment) : path_start(segment.alignment);
-      Vec2d tangent2 = normalize(sub(other, node->position));
-      const double gate_station = node_id == segment.node_a ? 0.0 : total;
+      const JunctionDefinition* junction = find_junction(graph_, node_id);
+      const double offset = junction == nullptr ? 0.0 : junction->corner_radius_m;
+      const double gate_station = node_id == segment.node_a ? offset : total - offset;
+      const auto gate_center = EvaluatePath(segment.alignment, gate_station);
+      const auto path_direction = path_tangent(segment.alignment, gate_station, total);
+      if (!gate_center.ok || !path_direction.has_value()) {
+        return Result<bool>::Fail(ErrorKind::kInternal, "road connection gate frame could not be evaluated");
+      }
+      const Vec2d tangent2 = node_id == segment.node_a ? *path_direction : mul(*path_direction, -1.0);
       const auto gate_section = evaluate_segment_section(graph_, segment, gate_station, total);
       if (!gate_section.ok) return Result<bool>::Fail(gate_section.error_kind, gate_section.error);
       next.connection_gates.push_back(
-          ConnectionGate{segment.id, node_id, to3(node->position), to3(tangent2), gate_section.value});
+          ConnectionGate{segment.id, node_id, to3(gate_center.value), to3(tangent2), gate_section.value});
     }
   }
   for (const JunctionDefinition& junction : graph_.junctions) {
@@ -1141,6 +1401,15 @@ Result<bool> RoadState::RebuildDerived() {
     if (area.gates.size() < 2) {
       return Result<bool>::Fail(ErrorKind::kInternal, "junction has fewer than two connection gates");
     }
+    Mesh junction_mesh = build_junction_mesh(area);
+    if (junction_mesh.indices.empty()) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "junction surface materialization failed");
+    }
+    next.junction_meshes.push_back(std::move(junction_mesh));
+    std::vector<Mesh> junction_markings = build_junction_markings(area);
+    next.junction_marking_meshes.insert(next.junction_marking_meshes.end(),
+                                        std::make_move_iterator(junction_markings.begin()),
+                                        std::make_move_iterator(junction_markings.end()));
     next.junction_areas.push_back(std::move(area));
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {

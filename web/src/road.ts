@@ -1,4 +1,4 @@
-export type RoadToolMode = "line" | "bezier";
+export type RoadToolMode = "line" | "arc" | "bezier";
 export type RoadToolPhase = "start" | "end" | "bend";
 
 export interface RoadPoint {

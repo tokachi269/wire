@@ -254,6 +254,8 @@ struct DerivedRoad {
   std::vector<TerrainMaskPolygon> terrain_masks{};
   std::vector<ConnectionGate> connection_gates{};
   std::vector<JunctionArea> junction_areas{};
+  std::vector<Mesh> junction_meshes{};
+  std::vector<Mesh> junction_marking_meshes{};
   std::vector<Mesh> manual_marking_meshes{};
 };
 
@@ -265,6 +267,7 @@ struct RoadToolDraft {
 
 [[nodiscard]] Primitive MakeLine(Vec2d a, Vec2d b);
 [[nodiscard]] Primitive MakeArc(Vec2d center, double radius, double start_angle_rad, double sweep_angle_rad);
+[[nodiscard]] Result<Primitive> MakeArcThroughPoints(Vec2d start, Vec2d through, Vec2d end);
 [[nodiscard]] Primitive MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3);
 [[nodiscard]] Path MakePath(std::vector<Primitive> primitives);
 [[nodiscard]] RoadToolDraft PreviewRoadToolPath(Vec2d start, Vec2d end, std::optional<Vec2d> handle_a,

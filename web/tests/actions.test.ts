@@ -681,6 +681,30 @@ describe("viewport tool routing", () => {
     }));
     expect(current(store).road.phase).toBe("bend");
   });
+
+  it("draws a circular arc in start-through-end order", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadMode("arc");
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.addViewportPoint([10, 10, 0]);
+    expect(roadAddSegment).not.toHaveBeenCalled();
+    actions.addViewportPoint([20, 0, 0]);
+
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "arc",
+      startX: 0,
+      startY: 0,
+      endX: 20,
+      endY: 0,
+      handleAX: 20 / 3,
+      handleAY: 20 / 3
+    }));
+  });
 });
 
 describe("P1 action contracts", () => {

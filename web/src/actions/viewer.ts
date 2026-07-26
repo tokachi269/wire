@@ -138,7 +138,7 @@ export class ViewerActions {
     this.selection.clearSelection();
   }
 
-  setRoadMode(mode: "line" | "bezier"): void {
+  setRoadMode(mode: "line" | "arc" | "bezier"): void {
     this.road.setMode(mode);
   }
 

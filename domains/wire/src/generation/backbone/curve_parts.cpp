@@ -1279,7 +1279,7 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
              candidate.bundle_template_id == endpoint.bundle_template_id &&
              candidate.lane_index == endpoint.lane_index;
     });
-    if (peer == endpoints.end() || Length(peer->point - endpoint.point) <= kLengthToleranceM) {
+    if (peer == endpoints.end()) {
       continue;
     }
 

@@ -995,6 +995,12 @@ std::vector<Vec3d> row_height_offsets(const pairs& ps) {
   return offsets;
 }
 
+bool AllowsBranchHeightOffset(const BackboneBundleSpec& spec,
+                              const BundleTemplate& tmpl) {
+  return !spec.placement_explicit && tmpl.enable_branch_down_offset &&
+         tmpl.branch_endpoint_offset_m != 0.0;
+}
+
 bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& points, double radius) {
   if (points.empty() || radius <= 0.0) {
     return true;
@@ -3400,8 +3406,10 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
                                spec_.bundles[spec_index].placement_key,
                                PortKindForCategory(v.value.tmpl->category),
                                PortLayerForSpanLayer(v.value.layer), band.band_id};
+        const bool allow_branch_height_offset =
+            AllowsBranchHeightOffset(bundle_spec, *v.value.tmpl);
         const Vec3d row_offset =
-            (bundle_spec.placement_explicit || r.id >= row_offsets.size()) ? Vec3d{} : row_offsets[r.id];
+            (!allow_branch_height_offset || r.id >= row_offsets.size()) ? Vec3d{} : row_offsets[r.id];
         Vec3d p{};
         if (ownerless) {
           if (g_.nodes[r.node].has_source_edge) {
@@ -3473,7 +3481,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           }
           const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
           Vec3d local = WorldPointToLocal(frame, p);
-          if (!bundle_spec.placement_explicit) {
+          if (allow_branch_height_offset) {
             local.z = row_slot_plan.height_for(r.id, made->bundles[bundle_index], tr.pole,
                                                scope.bundle, scope.placement_key,
                                                scope.placement_band_id, local.z);

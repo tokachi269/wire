@@ -10,6 +10,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -143,7 +144,7 @@ bool test_acute_corner_auto_widens_lane_spacing() {
       return 0;
     }
 
-    std::vector<city::wire::Vec3d> row_points{};
+    std::vector<city::wire::ObjectId> row_edges{};
     for (const city::wire::Port& port : state.view().ports().items()) {
       if (port.owner_pole_id != corner_pole) {
         continue;
@@ -153,20 +154,54 @@ bool test_acute_corner_auto_widens_lane_spacing() {
           std::abs(port.side_scale_applied - 1.0) > 1e-9) {
         continue;
       }
-      if (std::none_of(row_points.begin(), row_points.end(),
-                       [&](const city::wire::Vec3d& value) {
-                         return city::wire::Length(value - port.world_position) <=
-                                1e-9;
-                       })) {
-        row_points.push_back(port.world_position);
+      if (std::find(row_edges.begin(), row_edges.end(), binding->row_key.edge_id) ==
+          row_edges.end()) {
+        row_edges.push_back(binding->row_key.edge_id);
       }
     }
-    const std::size_t expected_lane_count = 2;
-    if (row_points.size() % expected_lane_count != 0) {
+    std::size_t continuity_count = 0;
+    for (const city::wire::SavedBackboneRowContinuity& continuity :
+         state.view().backbone().row_continuities) {
+      continuity_count += continuity.node_id == node->node_id ? 1U : 0U;
+    }
+    std::size_t jumper_count = 0;
+    std::size_t node_patch_count = 0;
+    for (const city::wire::VisualCurvePart& part :
+         state.view().visual_curve_parts().parts) {
+      if (part.source_node_id != node->node_id) {
+        continue;
+      }
+      jumper_count += part.kind == city::wire::VisualCurvePartKind::kJumper ? 1U : 0U;
+      node_patch_count += part.kind == city::wire::VisualCurvePartKind::kNodePatch ? 1U : 0U;
+    }
+    if (continuity_count != 2 || row_edges.size() != 2) {
+      std::ostringstream reason;
+      reason << "unexpected row identity count at " << interior_deg
+             << "deg: continuities=" << continuity_count
+             << " row_edges=" << row_edges.size();
+      test_registry::SetFailureReason(reason.str());
       return 0;
     }
-    const std::size_t row_count = row_points.size() / expected_lane_count;
-    return row_count == (expect_open ? 2u : 1u) ? row_count : 0;
+    if (expect_open) {
+      if (jumper_count == 2 && node_patch_count == 0) {
+        return 2U;
+      }
+      std::ostringstream reason;
+      reason << "sharp representation mismatch at " << interior_deg
+             << "deg: jumpers=" << jumper_count
+             << " node_patches=" << node_patch_count;
+      test_registry::SetFailureReason(reason.str());
+      return 0;
+    }
+    if (node_patch_count == 2 && jumper_count == 0) {
+      return 1U;
+    }
+    std::ostringstream reason;
+    reason << "normal representation mismatch at " << interior_deg
+           << "deg: jumpers=" << jumper_count
+           << " node_patches=" << node_patch_count;
+    test_registry::SetFailureReason(reason.str());
+    return 0;
   };
 
   return row_count_for_interior(45.0, true) == 2 && row_count_for_interior(120.0, false) == 1;

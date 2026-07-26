@@ -1437,6 +1437,31 @@ std::optional<double> local_port_height_for_binding(
   return city::wire::WorldPointToLocal(frame, port->world_position).z;
 }
 
+std::optional<double> nominal_band_height_for_binding(
+    const city::wire::CoreState& state,
+    const city::wire::SavedBackbonePortBinding& binding) {
+  const city::wire::Port* port = state.view().ports().find(binding.port_id);
+  const city::wire::Pole* pole =
+      port == nullptr ? nullptr : state.view().poles().find(port->owner_pole_id);
+  if (pole == nullptr) {
+    return std::nullopt;
+  }
+  const auto pole_type_it = state.view().pole_types().find(pole->pole_type_id);
+  if (pole_type_it == state.view().pole_types().end()) {
+    return std::nullopt;
+  }
+  const auto band_it = std::find_if(
+      pole_type_it->second.port_bands.begin(),
+      pole_type_it->second.port_bands.end(),
+      [&](const city::wire::PortPlacementBand& band) {
+        return band.band_id == binding.placement_band_id;
+      });
+  if (band_it == pole_type_it->second.port_bands.end()) {
+    return std::nullopt;
+  }
+  return band_it->height_center_m;
+}
+
 } // namespace
 
 bool C771_backbone_incremental_cross_completion_matches_one_shot_rows() {
@@ -1461,7 +1486,7 @@ bool C771_backbone_incremental_cross_completion_matches_one_shot_rows() {
   const city::wire::ObjectId one_be = edge_between(one_shot, one_node_b->node_id, one_node_e->node_id);
   const JunctionRowSnapshot expected = junction_snapshot(one_shot, one_b);
   if (one_bd == city::wire::kInvalidObjectId || one_be == city::wire::kInvalidObjectId ||
-      expected.pair_rows != 2 || expected.open_rows != 0 || expected.support_levels != 2 ||
+      expected.pair_rows != 2 || expected.open_rows != 0 ||
       !has_row_key(expected.row_keys, false, one_bd, one_be) || !curve_endpoints_match_layout(one_shot)) {
     return false;
   }
@@ -1502,7 +1527,7 @@ bool C771_backbone_incremental_cross_completion_matches_one_shot_rows() {
       unique_generated_ports_on_pole(incremental, bd_spans_before, inc_b);
 
   return inc_bd != city::wire::kInvalidObjectId && inc_be != city::wire::kInvalidObjectId &&
-         actual.pair_rows == 2 && actual.open_rows == 0 && actual.support_levels == 2 &&
+         actual.pair_rows == 2 && actual.open_rows == 0 &&
          has_row_key(actual.row_keys, false, inc_bd, inc_be) &&
          bd_ports_before == bd_ports_after &&
          std::all_of(bd_spans_before.begin(), bd_spans_before.end(), [&](city::wire::ObjectId span_id) {
@@ -2839,7 +2864,6 @@ bool C477_backbone_cross_rows_are_separated_without_cross_kind() {
     return false;
   }
   const city::wire::ObjectId b = first.value.generated_pole_ids[1];
-  const std::vector<city::wire::Vec3d> before = pole_port_positions(state, b);
   const auto* pole_b = state.view().poles().find(b);
   if (pole_b == nullptr) {
     return false;
@@ -2848,8 +2872,12 @@ bool C477_backbone_cross_rows_are_separated_without_cross_kind() {
   cross.path.polyline = {{12.0, -8.0, 0.0}, pole_b->world_transform.position, {20.0, 0.0, 0.0}};
   cross.path.node_specs = {pole_spec(1, b)};
   const auto second = state.GenerateFromBackboneSpec(cross);
-  const std::vector<city::wire::Vec3d> placed = generated_ports_on_pole(state, second.value.generated_span_ids, b);
-  return second.ok && separated_from(before, placed) && C391_backbone_no_kind_label();
+  const JunctionRowSnapshot snapshot = junction_snapshot(state, b);
+  return second.ok && second.value.generated_pole_ids.size() == 2 &&
+         !second.value.generated_span_ids.empty() &&
+         snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
+         curve_endpoints_match_layout(state) &&
+         C391_backbone_no_kind_label();
 }
 
 bool C478_backbone_row_separation_is_deterministic() {
@@ -3321,19 +3349,13 @@ bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
     return false;
   }
   std::unordered_set<city::wire::ObjectId> b_ports_after{};
-  std::vector<double> levels{};
   for (const city::wire::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
     const city::wire::Port* port = state.view().ports().find(binding.port_id);
     if (port == nullptr || port->owner_pole_id != b) {
       continue;
     }
     b_ports_after.insert(port->id);
-    if (std::none_of(levels.begin(), levels.end(),
-                     [&](double z) { return std::abs(z - port->world_position.z) <= 1e-9; })) {
-      levels.push_back(port->world_position.z);
-    }
   }
-  std::sort(levels.begin(), levels.end());
   const std::filesystem::path source = repo_root() / "domains" / "wire" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   std::string emit_ports_body;
@@ -3342,11 +3364,12 @@ bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
                      &emit_ports_body)) {
     return false;
   }
+  const JunctionRowSnapshot snapshot = junction_snapshot(state, b);
   return !second.value.generated_span_ids.empty() &&
          b_ports_after.size() == b_ports_before.size() + second.value.generated_span_ids.size() &&
-         levels.size() == 2 &&
-         std::abs((levels[1] - levels[0]) - 0.5) <= 1e-9 &&
+         snapshot.pair_rows == 1 && snapshot.open_rows == 1 &&
          contains_text(emit_ports_body, "row_height_offsets(ps)") &&
+         contains_text(emit_ports_body, "AllowsBranchHeightOffset") &&
          contains_text(emit_ports_body, "canonical row reflow requires moving manual ports") &&
          !contains_text(emit_ports_body, "if (r.id >= active_rows.size() || !active_rows[r.id])");
 }
@@ -4063,9 +4086,22 @@ bool C808_backbone_branch_lowering_uses_template_flag_not_hv_category() {
     const bool end_at_junction = end_port != nullptr && end_port->owner_pole_id == junction;
     const city::wire::LayoutEndpoint& endpoint =
         start_at_junction ? layout.entry->start : layout.entry->end;
+    const city::wire::SavedBackbonePortBinding* junction_binding =
+        state.view().backbone_port_binding_for_port(endpoint.port_id);
+    const std::optional<double> junction_port_height =
+        junction_binding == nullptr ? std::nullopt : local_port_height_for_binding(state, *junction_binding);
+    const std::optional<double> junction_nominal_height =
+        junction_binding == nullptr ? std::nullopt : nominal_band_height_for_binding(state, *junction_binding);
     if ((!start_at_junction && !end_at_junction) || (is_hv && endpoint.default_lower_required) ||
         (is_lv && (!endpoint.default_lower_required || endpoint.branch_down_offset_m <= 0.1))) {
       return false;
+    }
+    WIRE_TEST_EXPECT(junction_binding != nullptr && junction_port_height.has_value() &&
+                         junction_nominal_height.has_value(),
+                     "junction port binding or nominal band height is missing");
+    if (is_hv) {
+      WIRE_TEST_EXPECT(almost_equal(*junction_port_height, *junction_nominal_height, 1e-9),
+                       "non-flagged HV junction port height moved away from its placement band");
     }
   }
   return hv_spans == 3 && lv_spans == 1 && curve_endpoints_match_layout(state);

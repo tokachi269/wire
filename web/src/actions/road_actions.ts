@@ -1,6 +1,7 @@
 import {
   roadSegmentInput,
   withRoadBend,
+  withRoadCurveEnd,
   withRoadEnd,
   type RoadPoint,
   type RoadToolMode,
@@ -30,20 +31,26 @@ export class RoadActions {
     const target = { x: point[0], y: point[1] };
     const current = this.ctx.readSnapshot().road;
     if (current.phase === "start") {
+      const phase = current.mode === "bezier" ? "bend" : "end";
       this.ctx.store.update((snapshot) => ({
         ...snapshot,
-        road: withRoadEnd({ ...snapshot.road, draftStart: target, phase: "end" }, target)
+        road: withRoadEnd({
+          ...snapshot.road,
+          draftStart: target,
+          draftBend: target,
+          phase
+        }, target)
       }));
       return;
     }
-    if (current.mode === "bezier" && current.phase === "end") {
+    if (current.mode === "bezier" && current.phase === "bend") {
       this.ctx.store.update((snapshot) => ({
         ...snapshot,
-        road: { ...withRoadEnd(snapshot.road, target), phase: "bend" }
+        road: { ...withRoadBend(snapshot.road, target), phase: "end" }
       }));
       return;
     }
-    const road = current.phase === "bend" ? withRoadBend(current, target) : withRoadEnd(current, target);
+    const road = current.mode === "bezier" ? withRoadCurveEnd(current, target) : withRoadEnd(current, target);
     this.commit(road);
   }
 
@@ -51,7 +58,7 @@ export class RoadActions {
     const current = this.ctx.readSnapshot().road;
     if (current.phase === "start") return;
     const target: RoadPoint = { x: point[0], y: point[1] };
-    const road = current.phase === "bend" ? withRoadBend(current, target) : withRoadEnd(current, target);
+    const road = this.previewState(current, target);
     const preview = this.ctx.bridge.roadPreviewSegment(roadSegmentInput(road));
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
@@ -94,13 +101,15 @@ export class RoadActions {
       return;
     }
     const nextStart = road.draftEnd;
+    const phase = road.mode === "bezier" ? "bend" : "end";
     const scene = this.ctx.bridge.roadScene();
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: withRoadEnd({
         ...road,
-        phase: "end",
+        phase,
         draftStart: nextStart,
+        draftBend: nextStart,
         scene,
         previewMeshes: [],
         lastError: ""
@@ -108,6 +117,16 @@ export class RoadActions {
       error: "",
       logs: [...snapshot.logs, "road add segment"]
     }));
+  }
+
+  private previewState(current: RoadToolState, target: RoadPoint): RoadToolState {
+    if (current.mode !== "bezier") {
+      return withRoadEnd(current, target);
+    }
+    if (current.phase === "bend") {
+      return withRoadEnd(withRoadBend(current, target), target);
+    }
+    return withRoadCurveEnd(current, target);
   }
 
   private finish(result: { ok: boolean; error: string }, log: string): void {

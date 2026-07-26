@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Cable, Route } from "@lucide/svelte";
+  import { Cable, Minus, Route, Spline } from "@lucide/svelte";
   import type { ViewerActions } from "./actions/viewer";
   import Settings from "./panels/Settings.svelte";
   import Templates from "./panels/Templates.svelte";
@@ -272,6 +272,24 @@
           onclick={() => actions.setActiveTool("road")}
         ><Route size={20} aria-hidden="true" /></button>
       </div>
+      {#if snapshot.activeTool === "road"}
+        <div class="tool-group road-shape-tools">
+          <button
+            class:active={snapshot.road.mode === "line"}
+            type="button"
+            aria-label="Straight road"
+            title="Straight road"
+            onclick={() => actions.setRoadMode("line")}
+          ><Minus size={21} aria-hidden="true" /></button>
+          <button
+            class:active={snapshot.road.mode === "bezier"}
+            type="button"
+            aria-label="Curved road"
+            title="Curved road"
+            onclick={() => actions.setRoadMode("bezier")}
+          ><Spline size={20} aria-hidden="true" /></button>
+        </div>
+      {/if}
     </div>
 
     {#if snapshot.showRightPanel}

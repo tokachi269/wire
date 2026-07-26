@@ -16,13 +16,6 @@
     <strong class="point-count">JP 2 lane</strong>
   </div>
 
-  <div class="segmented">
-    <button class:active={snapshot.road.mode === "line"} type="button"
-      onclick={() => actions.setRoadMode("line")}>Line</button>
-    <button class:active={snapshot.road.mode === "bezier"} type="button"
-      onclick={() => actions.setRoadMode("bezier")}>Bezier</button>
-  </div>
-
   <div class="road-profile" aria-label="Road cross section">
     <span class="sidewalk">2.0m</span>
     <span class="lane">3.0m</span>

@@ -585,6 +585,41 @@ describe("viewport tool routing", () => {
     expect(current(store).pathPoints).toEqual([]);
     expect(current(store).road.phase).toBe("end");
   });
+
+  it("draws a curved road with a Cities-style bend point before the end point", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.setRoadMode("bezier");
+    actions.addViewportPoint([0, 0, 0]);
+
+    expect(current(store).road.phase).toBe("bend");
+
+    actions.previewViewportPoint([9, 9, 0]);
+    expect(current(store).road.draftBend).toEqual({ x: 9, y: 9 });
+
+    actions.addViewportPoint([9, 9, 0]);
+    expect(roadAddSegment).not.toHaveBeenCalled();
+    expect(current(store).road.phase).toBe("end");
+
+    actions.addViewportPoint([18, 0, 0]);
+
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "bezier",
+      startX: 0,
+      startY: 0,
+      endX: 18,
+      endY: 0,
+      handleAX: 6,
+      handleAY: 6,
+      handleBX: 12,
+      handleBY: 6
+    }));
+    expect(current(store).road.phase).toBe("bend");
+  });
 });
 
 describe("P1 action contracts", () => {

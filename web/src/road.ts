@@ -39,6 +39,7 @@ export interface RoadToolState {
   mode: RoadToolMode;
   phase: RoadToolPhase;
   draftStart: RoadPoint;
+  draftBend: RoadPoint;
   draftEnd: RoadPoint;
   handleA: RoadPoint;
   handleB: RoadPoint;
@@ -53,6 +54,7 @@ export function createRoadToolState(): RoadToolState {
     mode: "line",
     phase: "start",
     draftStart: { x: 0, y: 0 },
+    draftBend: { x: 0, y: 0 },
     draftEnd: { x: 0, y: 0 },
     handleA: { x: 0, y: 0 },
     handleB: { x: 0, y: 0 },
@@ -90,16 +92,26 @@ export function withRoadEnd(state: RoadToolState, end: RoadPoint): RoadToolState
   };
 }
 
-export function withRoadBend(state: RoadToolState, control: RoadPoint): RoadToolState {
+export function withRoadBend(state: RoadToolState, bend: RoadPoint): RoadToolState {
   return {
     ...state,
+    draftBend: bend,
+    lastError: ""
+  };
+}
+
+export function withRoadCurveEnd(state: RoadToolState, end: RoadPoint): RoadToolState {
+  const control = state.draftBend;
+  return {
+    ...state,
+    draftEnd: end,
     handleA: {
       x: state.draftStart.x + (control.x - state.draftStart.x) * 2 / 3,
       y: state.draftStart.y + (control.y - state.draftStart.y) * 2 / 3
     },
     handleB: {
-      x: state.draftEnd.x + (control.x - state.draftEnd.x) * 2 / 3,
-      y: state.draftEnd.y + (control.y - state.draftEnd.y) * 2 / 3
+      x: end.x + (control.x - end.x) * 2 / 3,
+      y: end.y + (control.y - end.y) * 2 / 3
     },
     lastError: ""
   };

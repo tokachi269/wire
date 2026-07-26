@@ -264,6 +264,85 @@ h1 {
   padding: 0.65rem;
 }
 
+.road-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--panel-raised);
+  padding: 0.65rem;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 0.55rem;
+}
+
+.segmented button.active {
+  background: #315b84;
+  border-color: #5f9de3;
+}
+
+.road-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.road-panel .check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+}
+
+.road-panel .check input {
+  width: auto;
+}
+
+.path-preview,
+.road-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 7px;
+  margin-top: 0.6rem;
+  padding: 0.5rem;
+  border: 1px solid #3b4448;
+  background: #1b2022;
+  color: var(--muted);
+  font-size: var(--sidebar-small-size);
+}
+
+.path-preview {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.path-preview strong,
+.road-summary strong {
+  color: #e3e7e5;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.road-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 0.6rem;
+}
+
+.road-actions button {
+  min-width: 0;
+  padding: 0.45rem 0.35rem;
+  font-size: var(--sidebar-small-size);
+}
+
+.road-error {
+  margin: 0.55rem 0 0;
+  color: #ffb4a8;
+  font-size: var(--sidebar-small-size);
+}
+
 .draw-panel-head {
   display: flex;
   align-items: center;

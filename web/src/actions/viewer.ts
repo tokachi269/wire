@@ -15,6 +15,7 @@ import type { WorkspaceCache } from "../store/workspace";
 import { ViewerActionContext } from "./context";
 import { DrawActions } from "./draw_actions";
 import { SelectionActions } from "./selection_actions";
+import { RoadActions } from "./road_actions";
 import { SettingsActions } from "./settings_actions";
 import { TemplateActions } from "./template_actions";
 import { WorkspaceActions } from "./workspace_actions";
@@ -23,6 +24,7 @@ export class ViewerActions {
   private readonly ctx: ViewerActionContext;
   private readonly draw: DrawActions;
   private readonly selection: SelectionActions;
+  private readonly road: RoadActions;
   private readonly settings: SettingsActions;
   private readonly templates: TemplateActions;
   private readonly workspace: WorkspaceActions;
@@ -35,6 +37,7 @@ export class ViewerActions {
     this.ctx = new ViewerActionContext(bridge, store, workspaceCache);
     this.draw = new DrawActions(this.ctx);
     this.selection = new SelectionActions(this.ctx);
+    this.road = new RoadActions(this.ctx);
     this.settings = new SettingsActions(this.ctx);
     this.templates = new TemplateActions(this.ctx);
     this.workspace = new WorkspaceActions(this.ctx);
@@ -95,6 +98,38 @@ export class ViewerActions {
 
   clearSelection(): void {
     this.selection.clearSelection();
+  }
+
+  setRoadMode(mode: "line" | "bezier"): void {
+    this.road.setRoadMode(mode);
+  }
+
+  setRoadConnectToFirstNode(value: boolean): void {
+    this.road.setRoadConnectToFirstNode(value);
+  }
+
+  updateRoadDraftPoint(
+    key: "draftStart" | "draftEnd" | "handleA" | "handleB",
+    axis: "x" | "y",
+    value: number
+  ): void {
+    this.road.updateRoadDraftPoint(key, axis, value);
+  }
+
+  addRoadSegment(): void {
+    this.road.addRoadSegment();
+  }
+
+  addRoadTransition(): void {
+    this.road.addRoadTransition();
+  }
+
+  addRoadManualLine(): void {
+    this.road.addRoadManualLine();
+  }
+
+  addRoadManualArea(): void {
+    this.road.addRoadManualArea();
   }
 
   selectBundleTemplate(id: number): void {

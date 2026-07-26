@@ -16,6 +16,7 @@ import type {
   VisualPartInfo,
   VisualSettings
 } from "../model";
+import { createRoadToolState, type RoadToolState } from "../road";
 
 export type WorldPoint = [number, number, number];
 export type SelectionKind = "pole" | "port" | "span" | "supportNode";
@@ -86,6 +87,7 @@ export interface ViewerSnapshot {
     maxFrameMs: number;
     longFrameCount: number;
   } | null;
+  road: RoadToolState;
 }
 
 export function createViewerSnapshot(): ViewerSnapshot {
@@ -150,7 +152,8 @@ export function createViewerSnapshot(): ViewerSnapshot {
     showRightPanel: true,
     workspaceLeftWidth: 220,
     workspaceWidth: 320,
-    lastInteractionFrames: null
+    lastInteractionFrames: null,
+    road: createRoadToolState()
   };
 }
 

@@ -4,6 +4,7 @@
   import Settings from "./panels/Settings.svelte";
   import Templates from "./panels/Templates.svelte";
   import Outliner from "./panels/Outliner.svelte";
+  import RoadPanel from "./panels/RoadPanel.svelte";
   import SelectionInspector from "./panels/SelectionInspector.svelte";
   import { buildInfo } from "./buildInfo";
   import { categoryShort } from "./labels";
@@ -336,6 +337,7 @@
           </label>
           <p class="hint">LMB: add point / RMB: undo point / Enter: generate / Esc: cancel</p>
         </div>
+        <RoadPanel {actions} {snapshot} />
         <SelectionInspector {actions} {snapshot} />
         <Settings {actions} {snapshot} />
         <Templates {actions} {snapshot} />

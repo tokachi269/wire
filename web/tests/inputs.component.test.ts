@@ -249,6 +249,44 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).parts).toEqual(generatedParts);
   });
 
+  it("drives the road P0 through P2 panel state", async () => {
+    const mounted = await mountViewer(false);
+
+    const bezier = [...document.querySelectorAll("button")]
+      .find((button) => button.textContent?.trim() === "Bezier");
+    expect(bezier).toBeInstanceOf(HTMLButtonElement);
+    (bezier as HTMLButtonElement).click();
+    await tick();
+
+    clickButton("Add segment");
+    await tick();
+    expect(current(mounted.store).road.segments).toHaveLength(1);
+    expect(current(mounted.store).road.derived.surfaceMeshes).toBe(1);
+    expect(current(mounted.store).road.derived.terrainMasks).toBe(1);
+
+    const connect = inputForLabel("Connect to first node");
+    connect.checked = true;
+    connect.dispatchEvent(new Event("change", { bubbles: true }));
+    await tick();
+    clickButton("Add segment");
+    await tick();
+    expect(current(mounted.store).road.segments).toHaveLength(2);
+    expect(current(mounted.store).road.derived.connectionGates).toBe(4);
+    expect(current(mounted.store).road.derived.junctionAreas).toBe(1);
+
+    clickButton("Add transition");
+    clickButton("Manual line");
+    clickButton("Zebra area");
+    await tick();
+
+    expect(current(mounted.store).road.transitions).toHaveLength(1);
+    expect(current(mounted.store).road.sectionTemplates).toHaveLength(2);
+    expect(current(mounted.store).road.manualMarkings).toHaveLength(2);
+    expect(current(mounted.store).road.derived.manualMarkingMeshes).toBe(2);
+    expect(document.body.textContent).toContain("P0-P2");
+    expect(document.body.textContent).toContain("junctions");
+  });
+
   it("resets both core state and viewer settings", async () => {
     const mounted = await mountViewer();
     const factorySagFactor = mounted.bridge.geometrySettings().sagFactor;
@@ -331,4 +369,13 @@ function inputForDetails(summaryText: string, labelText: string): HTMLInputEleme
     throw new Error(`input not found: ${summaryText} / ${labelText}`);
   }
   return input;
+}
+
+function clickButton(text: string): void {
+  const button = [...document.querySelectorAll("button")]
+    .find((candidate) => candidate.textContent?.trim() === text);
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`button not found: ${text}`);
+  }
+  button.click();
 }

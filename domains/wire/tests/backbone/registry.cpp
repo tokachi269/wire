@@ -1329,6 +1329,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental normal pair keeps the support level allocated to its two edges",
                          "Invariant", false,
                          C816_backbone_incremental_normal_pair_keeps_allocated_support_level);
+  test_registry::AddTest(tests, "C834_backbone_sharp_pair_lowering_reaches_model_socket",
+                         "sharp pair branch lowering reaches endpoint fixture sockets and curve endpoints",
+                         "Invariant", false,
+                         C834_backbone_sharp_pair_lowering_reaches_model_socket);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

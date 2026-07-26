@@ -2556,6 +2556,236 @@ bool C833_branch_down_override_zero_reaches_model_socket_plan() {
   return true;
 }
 
+bool C834_backbone_sharp_pair_lowering_reaches_model_socket() {
+  constexpr city::wire::ModelAssemblyTemplateId kRowAssembly = 9817;
+  constexpr city::wire::ModelAssemblyTemplateId kEndpointAssembly = 9818;
+  constexpr double kRowMountZ = 0.04;
+  constexpr double kWireSocketZ = 0.18;
+  const city::wire::Vec3d d{12.0, -8.0, 0.0};
+  const city::wire::Vec3d e{13.0, -10.0, 0.0};
+
+  const auto configure = [](city::wire::CoreState* state) {
+    if (state == nullptr) return false;
+    city::wire::ModelAssemblyTemplate row_assembly{};
+    row_assembly.id = kRowAssembly;
+    city::wire::ModelAssemblyPart row_part{};
+    row_part.part_id = 1;
+    row_part.model_key = "c817_crossarm";
+    row_part.descriptor_version = 1;
+    row_part.fit_mode = city::wire::ModelFitMode::kRigid;
+    row_part.sockets.push_back({"endpoint_mount", {0.0, 0.0, kRowMountZ}, {0.0, 0.0, 1.0}});
+    row_assembly.parts.push_back(row_part);
+    row_assembly.endpoint_mount_socket = city::wire::AssemblySocketRef{1, "endpoint_mount"};
+
+    city::wire::ModelAssemblyTemplate endpoint_assembly{};
+    endpoint_assembly.id = kEndpointAssembly;
+    city::wire::ModelAssemblyPart endpoint_part{};
+    endpoint_part.part_id = 1;
+    endpoint_part.model_key = "c817_insulator";
+    endpoint_part.descriptor_version = 1;
+    endpoint_part.sockets.push_back({"wire", {0.0, 0.0, kWireSocketZ}, {1.0, 0.0, 0.0}});
+    endpoint_assembly.parts.push_back(endpoint_part);
+    endpoint_assembly.wire_socket = city::wire::AssemblySocketRef{1, "wire"};
+    WIRE_TEST_EXPECT(state->RegisterModelAssemblyTemplate(row_assembly).ok,
+                     "failed to register sharp row assembly");
+    WIRE_TEST_EXPECT(state->RegisterModelAssemblyTemplate(endpoint_assembly).ok,
+                     "failed to register sharp endpoint assembly");
+
+    const city::wire::BundleTemplateId hv_template_id =
+        city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kHighVoltage);
+    city::wire::BundleTemplate hv = state->view().bundle_templates().at(hv_template_id);
+    hv.row_fixture_assembly_id = kRowAssembly;
+    hv.endpoint_fixture_assembly_id = kEndpointAssembly;
+    WIRE_TEST_EXPECT(hv.enable_branch_down_offset,
+                     "HV branch-down flag is disabled");
+    WIRE_TEST_EXPECT(state->UpdateBundleTemplate(hv).ok,
+                     "failed to attach sharp HV assemblies");
+    return true;
+  };
+
+  const auto use_explicit_hv_placement = [](city::wire::BackboneSpec* request) {
+    if (request == nullptr || request->bundles.size() != 1) return false;
+    city::wire::BackboneBundleSpec& bundle = request->bundles.front();
+    bundle.placement_key = 817;
+    bundle.placement_explicit = true;
+    bundle.count = 3;
+    bundle.height_m = 9.2;
+    bundle.lateral_m = -0.2;
+    bundle.spacing_m = 0.45;
+    return true;
+  };
+
+  const auto hv_request = [&](city::wire::CoreState& state) {
+    city::wire::BackboneSpec request = line_req(state);
+    request.bundles.clear();
+    add_backbone_bundle(request, city::wire::BundleKind::kHighVoltage);
+    static_cast<void>(use_explicit_hv_placement(&request));
+    return request;
+  };
+
+  const auto visible_socket_for_port =
+      [](const city::wire::CoreState& state, city::wire::ObjectId port_id,
+         city::wire::Vec3d* out) {
+    if (out == nullptr) return false;
+    const std::string fixture_prefix = "port:" + std::to_string(port_id) + ":";
+    const auto fixture = std::find_if(
+        state.view().visual_model_instances().instances.begin(),
+        state.view().visual_model_instances().instances.end(),
+        [&](const city::wire::VisualModelInstance& instance) {
+          return instance.model_key == "c817_insulator" &&
+                 instance.stable_key.rfind(fixture_prefix, 0) == 0;
+        });
+    if (fixture == state.view().visual_model_instances().instances.end()) {
+      return false;
+    }
+    const city::wire::Vec3d local_socket{0.0, 0.0, kWireSocketZ};
+    *out = fixture->world_transform.position +
+           city::wire::RotateEulerXYZDeg(
+               {local_socket.x * fixture->world_transform.scale.x,
+                local_socket.y * fixture->world_transform.scale.y,
+                local_socket.z * fixture->world_transform.scale.z},
+               fixture->world_transform.rotation_euler_deg);
+    return true;
+  };
+
+  const auto check_sharp_lowering =
+      [&](const city::wire::CoreState& state, city::wire::ObjectId junction,
+          const char* label) {
+    const city::wire::BundleTemplateId hv_template_id =
+        city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kHighVoltage);
+    const city::wire::SavedBackboneNode* node =
+        state.view().backbone_node_for_pole(junction);
+    WIRE_TEST_EXPECT(node != nullptr,
+                     std::string(label) + ": junction backbone node is missing");
+    const double expected_down = std::max(
+        0.0, -state.view().bundle_templates().at(hv_template_id).branch_endpoint_offset_m);
+    WIRE_TEST_EXPECT(expected_down > 0.0,
+                     std::string(label) + ": branch-down step is not positive");
+
+    std::size_t lowered_endpoint_count = 0;
+    std::size_t baseline_endpoint_count = 0;
+    for (const city::wire::Span& span : state.view().spans().items()) {
+      const city::wire::SpanLayoutEntry* layout = state.span_layout(span.id).entry;
+      const city::wire::CurveCacheEntry* curve = state.find_curve_cache(span.id);
+      WIRE_TEST_EXPECT(layout != nullptr && curve != nullptr &&
+                           curve->detail.sample_points.size() >= 2,
+                       std::string(label) + ": layout or curve is missing");
+      for (const auto& endpoint_pair : {
+               std::pair<const city::wire::LayoutEndpoint*, const city::wire::Vec3d*>{
+                   &layout->start, &curve->detail.sample_points.front()},
+               std::pair<const city::wire::LayoutEndpoint*, const city::wire::Vec3d*>{
+                   &layout->end, &curve->detail.sample_points.back()}}) {
+        const city::wire::LayoutEndpoint& endpoint = *endpoint_pair.first;
+        const city::wire::Port* port = state.view().ports().find(endpoint.port_id);
+        if (port == nullptr || port->owner_pole_id != junction) continue;
+        const city::wire::SavedBackbonePortBinding* binding =
+            state.view().backbone_port_binding_for_port(port->id);
+        if (binding == nullptr || binding->row_key.node_id != node->node_id ||
+            binding->bundle_template_id != hv_template_id) {
+          continue;
+        }
+        const city::wire::Pole* pole =
+            state.view().poles().find(port->owner_pole_id);
+        WIRE_TEST_EXPECT(pole != nullptr,
+                         std::string(label) + ": endpoint pole is missing");
+        const city::wire::PoleFrame frame =
+            city::wire::BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
+        const bool lowered = endpoint.default_lower_required ||
+                             endpoint.lower_required ||
+                             endpoint.branch_down_offset_m > 0.0;
+        if (!lowered) {
+          ++baseline_endpoint_count;
+          continue;
+        }
+        ++lowered_endpoint_count;
+        city::wire::Vec3d visible_socket{};
+        WIRE_TEST_EXPECT(visible_socket_for_port(state, port->id, &visible_socket),
+                         std::string(label) + ": lowered endpoint fixture is missing");
+        const city::wire::Vec3d expected_fixture_root =
+            port->world_position - city::wire::ScaleVec(frame.up, expected_down) +
+            city::wire::ScaleVec(frame.up, kRowMountZ);
+        const city::wire::Vec3d expected_wire_socket =
+            expected_fixture_root + city::wire::ScaleVec(frame.up, kWireSocketZ);
+        const std::string fixture_prefix = "port:" + std::to_string(port->id) + ":";
+        const auto fixture = std::find_if(
+            state.view().visual_model_instances().instances.begin(),
+            state.view().visual_model_instances().instances.end(),
+            [&](const city::wire::VisualModelInstance& instance) {
+              return instance.model_key == "c817_insulator" &&
+                     instance.stable_key.rfind(fixture_prefix, 0) == 0;
+            });
+        WIRE_TEST_EXPECT(fixture != state.view().visual_model_instances().instances.end(),
+                         std::string(label) + ": lowered fixture instance is missing");
+        WIRE_TEST_EXPECT(almost_equal(endpoint.branch_down_offset_m, expected_down, 1e-9),
+                         std::string(label) + ": lowered endpoint offset is not one sharp support step");
+        WIRE_TEST_EXPECT(almost_equal(fixture->world_transform.position, expected_fixture_root, 1e-9),
+                         std::string(label) + ": lowered fixture root does not use sharp support step");
+        WIRE_TEST_EXPECT(almost_equal(visible_socket, expected_wire_socket, 1e-9),
+                         std::string(label) + ": visible socket does not use sharp support step");
+        WIRE_TEST_EXPECT(almost_equal(endpoint.endpoint_world, visible_socket, 1e-9),
+                         std::string(label) + ": layout endpoint is not the visible socket");
+        WIRE_TEST_EXPECT(almost_equal(*endpoint_pair.second, visible_socket, 1e-9),
+                         std::string(label) + ": curve endpoint is not the visible socket");
+      }
+    }
+    WIRE_TEST_EXPECT(baseline_endpoint_count == 6,
+                     std::string(label) + ": base through endpoints changed height");
+    WIRE_TEST_EXPECT(lowered_endpoint_count == 6,
+                     std::string(label) + ": sharp pair did not lower all three phases on both edges");
+    return true;
+  };
+
+  city::wire::CoreState one_shot;
+  WIRE_TEST_EXPECT(configure(&one_shot), "failed to configure one-shot state");
+  city::wire::BackboneSpec one_base = hv_poly3_req(one_shot);
+  WIRE_TEST_EXPECT(use_explicit_hv_placement(&one_base),
+                   "failed to configure one-shot base HV placement");
+  const auto one_base_result = one_shot.GenerateFromBackboneSpec(one_base);
+  WIRE_TEST_EXPECT(one_base_result.ok, one_base_result.error);
+  WIRE_TEST_EXPECT(one_base_result.value.generated_pole_ids.size() == 3,
+                   "one-shot base did not generate 3 poles");
+  const city::wire::ObjectId one_b = one_base_result.value.generated_pole_ids[1];
+  const city::wire::Pole* one_pole = one_shot.view().poles().find(one_b);
+  WIRE_TEST_EXPECT(one_pole != nullptr, "one-shot junction pole is missing");
+  city::wire::BackboneSpec one_pair = hv_request(one_shot);
+  one_pair.path.polyline = {d, one_pole->world_transform.position, e};
+  one_pair.path.node_specs = {pole_spec(1, one_b)};
+  const auto one_pair_result = one_shot.GenerateFromBackboneSpec(one_pair);
+  WIRE_TEST_EXPECT(one_pair_result.ok, one_pair_result.error);
+  WIRE_TEST_EXPECT(check_sharp_lowering(one_shot, one_b, "one-shot"),
+                   "one-shot sharp lowering check failed");
+
+  city::wire::CoreState incremental;
+  WIRE_TEST_EXPECT(configure(&incremental), "failed to configure incremental state");
+  city::wire::BackboneSpec incremental_base = hv_poly3_req(incremental);
+  WIRE_TEST_EXPECT(use_explicit_hv_placement(&incremental_base),
+                   "failed to configure incremental base HV placement");
+  const auto incremental_base_result =
+      incremental.GenerateFromBackboneSpec(incremental_base);
+  WIRE_TEST_EXPECT(incremental_base_result.ok, incremental_base_result.error);
+  WIRE_TEST_EXPECT(incremental_base_result.value.generated_pole_ids.size() == 3,
+                   "incremental base did not generate 3 poles");
+  const city::wire::ObjectId incremental_b =
+      incremental_base_result.value.generated_pole_ids[1];
+  const city::wire::Pole* incremental_pole =
+      incremental.view().poles().find(incremental_b);
+  WIRE_TEST_EXPECT(incremental_pole != nullptr,
+                   "incremental junction pole is missing");
+  city::wire::BackboneSpec first = hv_request(incremental);
+  first.path.polyline = {incremental_pole->world_transform.position, d};
+  first.path.node_specs = {pole_spec(0, incremental_b)};
+  const auto first_result = incremental.GenerateFromBackboneSpec(first);
+  WIRE_TEST_EXPECT(first_result.ok, first_result.error);
+  city::wire::BackboneSpec second = hv_request(incremental);
+  second.path.polyline = {e, incremental_pole->world_transform.position};
+  second.path.node_specs = {pole_spec(1, incremental_b)};
+  const auto second_result = incremental.GenerateFromBackboneSpec(second);
+  WIRE_TEST_EXPECT(second_result.ok, second_result.error);
+  WIRE_TEST_EXPECT(check_sharp_lowering(incremental, incremental_b, "incremental"),
+                   "incremental sharp lowering check failed");
+  return true;
+}
+
 bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
   constexpr city::wire::ModelAssemblyTemplateId kRowAssembly = 9120;
   constexpr city::wire::ModelAssemblyTemplateId kEndpointAssembly = 9121;

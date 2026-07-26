@@ -201,8 +201,8 @@ def parse_backbone_authority_guards(text: str) -> tuple[list[dict[str, object]],
         if not re.fullmatch(r"[a-z0-9_]+", name):
             errors.append(f"domains/wire/tests/spec_ledger.md: invalid authority guard name: {name}")
             continue
-        if not owner.startswith("domains/wire/src/"):
-            errors.append(f"domains/wire/tests/spec_ledger.md: authority guard owner must be production source: {owner}")
+        if not (owner.startswith("domains/wire/src/") or owner.startswith("domains/wire/include/")):
+            errors.append(f"domains/wire/tests/spec_ledger.md: authority guard owner must be wire production code: {owner}")
             continue
         guards.append(
             {
@@ -288,9 +288,11 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
             errors.append(
                 f"domains/wire/tests/spec_ledger.md: {cell} missing required aspects {', '.join(missing_aspects)}"
             )
+    production_roots = [root / "domains" / "wire" / "src", root / "domains" / "wire" / "include"]
     production_files = [
         path
-        for path in (root / "domains" / "wire" / "src").rglob("*")
+        for production_root in production_roots
+        for path in production_root.rglob("*")
         if path.is_file() and path.suffix in {".cpp", ".hpp"}
     ]
     production_text: dict[str, str] = {

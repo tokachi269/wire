@@ -107,13 +107,14 @@
 
 matrix / aspect は外部仕様と観測点を表す。authority guard は、各観点を決める
 production式が分散しないことを固定する。`Required owner tokens` は owner に必須、
-`Unique production tokens` は `domains/wire/src` 内で owner にだけ存在できる。
+`Unique production tokens` は `domains/wire/src` と `domains/wire/include` 内で owner にだけ存在できる。
 `Forbidden owner tokens` は owner 内で使ってはいけない分岐語彙を示す。
 
 | Authority | Owner | Required owner tokens | Unique production tokens | Forbidden owner tokens |
 |---|---|---|---|---|
 | support_level_spacing | `domains/wire/src/generation/backbone/pipeline.cpp` | `kRowHeightSeparationM` | `kRowHeightSeparationM` |  |
 | branch_lowering_formula | `domains/wire/src/generation/backbone/pipeline.cpp` | `branch_endpoint_offset_m * static_cast<double>(support_level)` `endpoint->branch_down_offset_m` | `branch_endpoint_offset_m * static_cast<double>(support_level)` | `BundleKind::kHighVoltage` |
+| layout_endpoint_lowering_projection | `domains/wire/include/city/wire/span_layout_types.hpp` | `ApplyEndpointLayoutRule` `dst.branch_down_offset_m = rule.branch_down_offset_m` | `ApplyEndpointLayoutRule` |  |
 | sharp_representation_threshold | `domains/wire/src/generation/backbone/row_representation.cpp` | `kSharpCornerInteriorAngleMaxDeg` | `kSharpCornerInteriorAngleMaxDeg` |  |
 
 | Case ID | 分類 | Stage | 目的 | 前提 | 入力 | 期待結果 | 観測点 | 壊れた時に守りたいユーザ価値 |

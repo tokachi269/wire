@@ -1429,7 +1429,75 @@ describe("road wasm smoke", () => {
     expect(scene.nodes.length).toBe(4);
     expect(scene.connectionGateCount).toBe(6);
     expect(scene.junctionCount).toBe(1);
+    expect(scene.centerlineSegments.every((segment) =>
+      scene.editableSegments.some((editable) => editable.id === segment.id)
+    )).toBe(true);
     expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "asphalt").length).toBeGreaterThan(3);
     expect(scene.markingMeshes.length).toBeGreaterThanOrEqual(9);
+  });
+
+  it("edits sections and applies P2 transitions and manual markings through wasm", () => {
+    state.clear();
+    const added = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 60,
+      endY: 0,
+      handleAX: 20,
+      handleAY: 0,
+      handleBX: 40,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      connectToFirstNode: false,
+      sectionTemplateId: 1
+    });
+    expect(added.ok, added.error).toBe(true);
+    const segmentId = state.scene().centerlineSegments[0].id;
+
+    const updated = state.updateSectionTemplate({
+      id: 1,
+      sidewalkWidthM: 2.4,
+      laneWidthM: 3.2,
+      medianWidthM: 0,
+      hasCenterLine: true,
+      hasOuterLines: false
+    });
+    expect(updated.ok, updated.error).toBe(true);
+    expect(state.scene().sectionTemplates.find((template) => template.id === 1)?.laneWidthM).toBe(3.2);
+
+    const transitioned = state.applyTransition({
+      segmentId,
+      targetTemplateId: 2,
+      lengthM: 20,
+      endOffsetM: 2,
+      anchor: 1
+    });
+    expect(transitioned.ok, transitioned.error).toBe(true);
+    expect(state.scene().transitionCount).toBe(1);
+
+    expect(state.addManualLine({
+      segmentId,
+      startStationM: 5,
+      endStationM: 20,
+      lateralM: 0.8,
+      style: "white"
+    }).ok).toBe(true);
+    expect(state.addManualArea({
+      segmentId,
+      stationM: 30,
+      lateralM: 0,
+      widthM: 4,
+      lengthM: 6,
+      style: "zebra"
+    }).ok).toBe(true);
+    expect(state.scene().markingCount).toBe(2);
+
+    const restored = createRoadState();
+    expect(restored.loadState(state.saveState()).ok).toBe(true);
+    expect(restored.scene().transitionCount).toBe(1);
+    expect(restored.scene().markingCount).toBe(2);
+    restored.delete();
   });
 });

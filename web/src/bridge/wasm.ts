@@ -113,6 +113,18 @@ export interface RoadMeshPayload {
   indices: number[];
 }
 
+export interface RoadSectionTemplatePayload {
+  id: number;
+  name: string;
+  bands: Array<{ elementId: number; role: "sidewalk" | "carriageway" | "median"; widthM: number }>;
+  sidewalkWidthM: number;
+  laneWidthM: number;
+  medianWidthM: number;
+  laneCount: number;
+  hasCenterLine: boolean;
+  hasOuterLines: boolean;
+}
+
 export interface RoadScenePayload {
   segmentCount: number;
   sectionTemplateCount: number;
@@ -122,6 +134,8 @@ export interface RoadScenePayload {
   junctionCount: number;
   nodes: RoadNodePayload[];
   centerlineSegments: RoadCenterlineSegmentPayload[];
+  sectionTemplates: RoadSectionTemplatePayload[];
+  editableSegments: Array<{ id: number; kind: "line" | "arc" | "bezier"; points: Array<{ x: number; y: number }> }>;
   surfaceMeshes: RoadMeshPayload[];
   markingMeshes: RoadMeshPayload[];
 }
@@ -138,12 +152,21 @@ export interface RoadCenterlineSegmentPayload {
   startY: number;
   endX: number;
   endY: number;
+  startStationM: number;
+  endStationM: number;
 }
 
 export interface RoadStateHandle {
   addSegment(input: RoadSegmentInput): OperationResult;
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   scene(): RoadScenePayload;
+  deleteSegment(segmentId: number): OperationResult;
+  editSegment(segmentId: number, input: RoadSegmentInput): OperationResult;
+  previewEditSegment(segmentId: number, input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
+  updateSectionTemplate(input: Record<string, number | boolean>): OperationResult;
+  applyTransition(input: Record<string, number>): OperationResult;
+  addManualLine(input: Record<string, number | string>): OperationResult;
+  addManualArea(input: Record<string, number | string>): OperationResult;
   undoSegment(): OperationResult;
   clear(): OperationResult;
   saveState(): string;

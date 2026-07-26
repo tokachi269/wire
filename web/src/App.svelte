@@ -1,6 +1,17 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Cable, Circle, Minus, Route, Spline } from "@lucide/svelte";
+  import {
+    Cable,
+    Circle,
+    GitCompareArrows,
+    Minus,
+    PenLine,
+    Pencil,
+    Route,
+    Spline,
+    SquareDashed,
+    Trash2
+  } from "@lucide/svelte";
   import type { ViewerActions } from "./actions/viewer";
   import Settings from "./panels/Settings.svelte";
   import Templates from "./panels/Templates.svelte";
@@ -273,6 +284,32 @@
         ><Route size={20} aria-hidden="true" /></button>
       </div>
       {#if snapshot.activeTool === "road"}
+        <div class="tool-group road-operation-tools">
+          <button class:active={snapshot.road.operation === "draw"} type="button"
+            aria-label="Draw road" title="Draw road" onclick={() => actions.setRoadOperation("draw")}
+          ><Pencil size={19} aria-hidden="true" /></button>
+          <button class:active={snapshot.road.operation === "edit"} type="button"
+            aria-label="Edit road alignment" title="Edit road alignment"
+            onclick={() => actions.setRoadOperation("edit")}
+          ><Spline size={19} aria-hidden="true" /></button>
+          <button class:active={snapshot.road.operation === "delete"} type="button"
+            aria-label="Delete road" title="Delete road" onclick={() => actions.setRoadOperation("delete")}
+          ><Trash2 size={19} aria-hidden="true" /></button>
+          <button class:active={snapshot.road.operation === "transition"} type="button"
+            aria-label="Apply section transition" title="Apply section transition"
+            onclick={() => actions.setRoadOperation("transition")}
+          ><GitCompareArrows size={19} aria-hidden="true" /></button>
+          <button class:active={snapshot.road.operation === "line-marking"} type="button"
+            aria-label="Add line marking" title="Add line marking"
+            onclick={() => actions.setRoadOperation("line-marking")}
+          ><PenLine size={19} aria-hidden="true" /></button>
+          <button class:active={snapshot.road.operation === "area-marking"} type="button"
+            aria-label="Add area marking" title="Add area marking"
+            onclick={() => actions.setRoadOperation("area-marking")}
+          ><SquareDashed size={19} aria-hidden="true" /></button>
+        </div>
+      {/if}
+      {#if snapshot.activeTool === "road" && snapshot.road.operation === "draw"}
         <div class="tool-group road-shape-tools">
           <button
             class:active={snapshot.road.mode === "line"}

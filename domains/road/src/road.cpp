@@ -991,9 +991,31 @@ CrossSectionTemplate ThreeLaneTemplate(CrossSectionTemplateId id) {
   return section;
 }
 
+CrossSectionTemplate NoLeftSidewalkTemplate(CrossSectionTemplateId id) {
+  CrossSectionTemplate section = JapaneseUrbanTwoLaneTemplate(id);
+  section.bands.erase(section.bands.begin());
+  section.boundaries.erase(section.boundaries.begin());
+  return section;
+}
+
+CrossSectionTemplate MedianTwoLaneTemplate(CrossSectionTemplateId id) {
+  CrossSectionTemplate section = JapaneseUrbanTwoLaneTemplate(id);
+  section.bands.insert(section.bands.begin() + 2, {25, SurfaceRole::kMedian, 2.0, 0.0, "median"});
+  section.boundaries = {
+      {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
+      {210, BoundaryRole::kMedianEdge, 0.2, 0.12, MarkingRule::kNone},
+      {220, BoundaryRole::kMedianEdge, 0.2, -0.12, MarkingRule::kNone},
+      {300, BoundaryRole::kCurb, 0.2, 0.15, MarkingRule::kOuterLine},
+  };
+  return section;
+}
+
 RoadState::RoadState() {
   graph_.section_templates.push_back(JapaneseUrbanTwoLaneTemplate(1));
-  next_id_ = 2;
+  graph_.section_templates.push_back(ThreeLaneTemplate(2));
+  graph_.section_templates.push_back(NoLeftSidewalkTemplate(3));
+  graph_.section_templates.push_back(MedianTwoLaneTemplate(4));
+  next_id_ = 5;
 }
 
 const SavedRoadGraph& RoadState::graph() const {
@@ -1261,6 +1283,29 @@ Result<SectionTransitionId> RoadState::AddTransition(SectionTransition transitio
   }
   graph_.transitions.push_back(std::move(transition));
   return Result<SectionTransitionId>::Ok(graph_.transitions.back().id);
+}
+
+Result<SectionTransitionId> RoadState::AddTransitionToSegment(RoadSegmentId segment_id,
+                                                              SectionTransition transition) {
+  const RoadSegment* segment = find_segment(graph_, segment_id);
+  if (segment == nullptr) {
+    return Result<SectionTransitionId>::Fail(ErrorKind::kValidation, "road transition segment does not exist");
+  }
+  transition.from_template = segment->section_template;
+  RoadState trial = *this;
+  const std::optional<SectionTransitionId> old_transition = segment->transition;
+  const Result<SectionTransitionId> added = trial.AddTransition(std::move(transition));
+  if (!added.ok) return added;
+  const Result<bool> attached = trial.AttachSectionTransition(segment_id, added.value);
+  if (!attached.ok) return Result<SectionTransitionId>::Fail(attached.error_kind, attached.error);
+  if (old_transition.has_value()) {
+    trial.graph_.transitions.erase(
+        std::remove_if(trial.graph_.transitions.begin(), trial.graph_.transitions.end(),
+                       [old_transition](const SectionTransition& item) { return item.id == *old_transition; }),
+        trial.graph_.transitions.end());
+  }
+  *this = std::move(trial);
+  return added;
 }
 
 Result<bool> RoadState::AttachSectionTransition(RoadSegmentId segment_id, SectionTransitionId transition_id) {

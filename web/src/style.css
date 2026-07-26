@@ -364,7 +364,6 @@ h1 {
 
 .road-profile {
   display: grid;
-  grid-template-columns: 2fr 3fr 3fr 2fr;
   min-height: 34px;
   border: 1px solid #4a5357;
   background: #1c2225;
@@ -378,11 +377,12 @@ h1 {
   font: 600 0.62rem "JetBrains Mono", monospace;
 }
 
-.road-profile .sidewalk {
+.road-profile .sidewalk,
+.road-profile .median {
   background: #697173;
 }
 
-.road-profile .lane {
+.road-profile .carriageway {
   border-inline: 1px dashed #e1d36e;
   background: #44494b;
 }
@@ -998,6 +998,13 @@ summary {
     bottom: auto;
     max-height: 42vh;
     width: min(var(--left-width), calc(100vw - 8px));
+  }
+
+  .viewport-tools {
+    top: 48px;
+    max-width: calc(100vw - 12px);
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .right-region {

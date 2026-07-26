@@ -275,6 +275,7 @@ export class WireScene {
   private readonly snapPreview = new THREE.Group();
   private readonly road = new THREE.Group();
   private readonly roadPreview = new THREE.Group();
+  private readonly roadEditHandles = new THREE.Group();
   private readonly snapPreviewRing = new THREE.Mesh(
     new THREE.TorusGeometry(0.28, 0.018, 8, 32),
     new THREE.MeshBasicMaterial({
@@ -333,7 +334,9 @@ export class WireScene {
     private readonly onGroundPreview: (point: WorldPoint) => void,
     private readonly onContextAction: () => void,
     private readonly onFrame: (deltaMs: number) => void,
-    private readonly onContentSync?: (stats: SceneContentSyncStats) => void
+    private readonly onContentSync?: (stats: SceneContentSyncStats) => void,
+    private readonly onRoadEditPreview?: (handleIndex: number, point: WorldPoint) => void,
+    private readonly onRoadEditCommit?: () => void
   ) {
     this.scene.background = new THREE.Color(0xc8d6e4);
     this.scene.add(this.backbone);
@@ -342,6 +345,7 @@ export class WireScene {
     this.scene.add(this.snapPreview);
     this.scene.add(this.road);
     this.scene.add(this.roadPreview);
+    this.scene.add(this.roadEditHandles);
     this.snapPreviewRing.renderOrder = 60;
     this.snapPreview.add(this.snapPreviewRing);
     this.snapPreview.visible = false;
@@ -399,6 +403,7 @@ export class WireScene {
       centerX: number;
       centerY: number;
     } | null = null;
+    let roadHandleDrag: number | null = null;
     const canvas = this.renderer.domElement;
     canvas.style.touchAction = "none";
     const currentPinch = () => {
@@ -416,6 +421,13 @@ export class WireScene {
       this.renderer.domElement.focus();
       this.clearSnapPreview();
       if (event.pointerType === "mouse" && event.button === 0) {
+        const handleIndex = this.pickRoadEditHandle(event.clientX, event.clientY);
+        if (handleIndex !== null) {
+          roadHandleDrag = handleIndex;
+          event.preventDefault();
+          this.renderer.domElement.setPointerCapture(event.pointerId);
+          return;
+        }
         this.addGroundPoint(event);
         return;
       }
@@ -444,6 +456,12 @@ export class WireScene {
       this.renderer.domElement.setPointerCapture(event.pointerId);
     };
     const onPointerMove = (event: PointerEvent) => {
+      if (roadHandleDrag !== null) {
+        const point = this.roadEditWorldPoint(event.clientX, event.clientY);
+        if (point !== null) this.onRoadEditPreview?.(roadHandleDrag, point);
+        event.preventDefault();
+        return;
+      }
       if (activePointers.has(event.pointerId)) {
         activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       }
@@ -478,6 +496,11 @@ export class WireScene {
       event.preventDefault();
     };
     const onPointerUp = (event: PointerEvent) => {
+      if (roadHandleDrag !== null) {
+        roadHandleDrag = null;
+        this.onRoadEditCommit?.();
+        return;
+      }
       const finished = pointerDown;
       activePointers.delete(event.pointerId);
       pinch = activePointers.size >= 2 ? currentPinch() : null;
@@ -485,6 +508,7 @@ export class WireScene {
         this.addGroundPoint(event);
       }
       pointerDown = null;
+      roadHandleDrag = null;
     };
     const onPointerCancel = () => {
       activePointers.clear();
@@ -541,6 +565,7 @@ export class WireScene {
     this.disposeGroup(this.snapPreview);
     this.disposeGroup(this.road);
     this.disposeGroup(this.roadPreview);
+    this.disposeGroup(this.roadEditHandles);
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -707,6 +732,30 @@ export class WireScene {
     return null;
   }
 
+  private roadEditWorldPoint(clientX: number, clientY: number): WorldPoint | null {
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(this.pointerFromClient(clientX, clientY), this.camera);
+    const hit = new THREE.Vector3();
+    if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hit)) return null;
+    return [hit.x, hit.y, 0];
+  }
+
+  private pickRoadEditHandle(clientX: number, clientY: number): number | null {
+    const road = this.snapshot?.road;
+    if (road?.operation !== "edit" || road.selectedEditSegmentId === 0) return null;
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    const pointer = new THREE.Vector2(clientX - bounds.left, clientY - bounds.top);
+    let best: { index: number; distance: number } | null = null;
+    for (let index = 0; index < road.editPoints.length; index += 1) {
+      const point = road.editPoints[index];
+      const projected = this.projectToCanvas(new THREE.Vector3(point.x, point.y, 0.12), bounds);
+      if (projected === null) continue;
+      const distance = projected.distanceTo(pointer);
+      if (distance <= 16 && (best === null || distance < best.distance)) best = { index, distance };
+    }
+    return best === null ? null : best.index;
+  }
+
   private pickRoadPoint(
     clientX: number,
     clientY: number
@@ -724,7 +773,7 @@ export class WireScene {
         bestNode = {
           distance,
           point,
-          snap: { kind: "road", nodeId: node.id, segmentId: 0 }
+          snap: { kind: "road", nodeId: node.id, segmentId: 0, stationM: 0 }
         };
       }
     }
@@ -762,7 +811,12 @@ export class WireScene {
       bestSegment = {
         distance,
         point,
-        snap: { kind: "road", nodeId: 0, segmentId: segment.id }
+        snap: {
+          kind: "road",
+          nodeId: 0,
+          segmentId: segment.id,
+          stationM: segment.startStationM + (segment.endStationM - segment.startStationM) * t
+        }
       };
     }
     if (bestSegment !== null) {
@@ -926,13 +980,16 @@ export class WireScene {
       ...snapshot.road.scene.surfaceMeshes.map(meshKey),
       ...snapshot.road.scene.markingMeshes.map(meshKey),
       "preview",
-      ...snapshot.road.previewMeshes.map(meshKey)
+      ...snapshot.road.previewMeshes.map(meshKey),
+      `edit:${snapshot.road.operation}:${snapshot.road.selectedEditSegmentId}:` +
+        snapshot.road.editPoints.map((point) => `${point.x}:${point.y}`).join("|")
     ].join("|");
   }
 
   private rebuildRoad(snapshot: ViewerSnapshot): void {
     this.disposeGroup(this.road);
     this.disposeGroup(this.roadPreview);
+    this.disposeGroup(this.roadEditHandles);
     const markingMaterial = new THREE.MeshStandardMaterial({
       color: 0xf2f0d9,
       roughness: 0.75,
@@ -963,6 +1020,18 @@ export class WireScene {
       const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), material);
       mesh.position.z += 0.03;
       this.roadPreview.add(mesh);
+    }
+    if (snapshot.road.operation === "edit" && snapshot.road.selectedEditSegmentId !== 0) {
+      snapshot.road.editPoints.forEach((point, index) => {
+        const handle = new THREE.Mesh(
+          new THREE.SphereGeometry(index === 0 || index === snapshot.road.editPoints.length - 1 ? 0.22 : 0.18, 12, 8),
+          new THREE.MeshBasicMaterial({ color: index === 0 || index === snapshot.road.editPoints.length - 1
+            ? 0xffb13b : 0x58b9dc, depthTest: false })
+        );
+        handle.position.set(point.x, point.y, 0.12);
+        handle.renderOrder = 70;
+        this.roadEditHandles.add(handle);
+      });
     }
   }
 

@@ -275,6 +275,8 @@ struct RoadToolDraft {
 
 [[nodiscard]] CrossSectionTemplate JapaneseUrbanTwoLaneTemplate(CrossSectionTemplateId id);
 [[nodiscard]] CrossSectionTemplate ThreeLaneTemplate(CrossSectionTemplateId id);
+[[nodiscard]] CrossSectionTemplate NoLeftSidewalkTemplate(CrossSectionTemplateId id);
+[[nodiscard]] CrossSectionTemplate MedianTwoLaneTemplate(CrossSectionTemplateId id);
 
 class RoadState {
 public:
@@ -294,6 +296,8 @@ public:
   [[nodiscard]] Result<CrossSectionTemplateId> AddSectionTemplate(CrossSectionTemplate section_template);
   [[nodiscard]] Result<bool> EditSectionTemplate(CrossSectionTemplate section_template);
   [[nodiscard]] Result<SectionTransitionId> AddTransition(SectionTransition transition);
+  [[nodiscard]] Result<SectionTransitionId> AddTransitionToSegment(RoadSegmentId segment_id,
+                                                                   SectionTransition transition);
   [[nodiscard]] Result<bool> AttachSectionTransition(RoadSegmentId segment_id,
                                                      SectionTransitionId transition_id);
   [[nodiscard]] Result<ManualMarkingId> AddManualLine(ManualLineMarking marking);

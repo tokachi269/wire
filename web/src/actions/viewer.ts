@@ -142,6 +142,35 @@ export class ViewerActions {
     this.road.setMode(mode);
   }
 
+  setRoadOperation(operation: import("../road").RoadOperation): void {
+    this.road.setOperation(operation);
+  }
+
+  setRoadSetting<K extends keyof import("../road").RoadToolState>(
+    key: K,
+    value: import("../road").RoadToolState[K]
+  ): void {
+    this.road.setSetting(key, value);
+  }
+
+  updateSelectedRoadSectionTemplate(input: {
+    sidewalkWidthM: number;
+    laneWidthM: number;
+    medianWidthM: number;
+    hasCenterLine: boolean;
+    hasOuterLines: boolean;
+  }): void {
+    this.road.updateSelectedSectionTemplate(input);
+  }
+
+  previewRoadEditHandle(handleIndex: number, point: WorldPoint): void {
+    this.road.previewEditHandle(handleIndex, point);
+  }
+
+  commitRoadEditHandle(): void {
+    this.road.commitEditHandle();
+  }
+
   setRoadConnectToFirstNode(value: boolean): void {
     this.road.setConnectToFirstNode(value);
   }

@@ -50,7 +50,11 @@ export class WorkspaceActions {
         current.selectedPoleTemplateId ?? defaultPoleId,
       geometry: this.ctx.bridge.geometrySettings(),
       layout: this.ctx.bridge.layoutSettings(),
-      visual: this.ctx.bridge.visualSettings()
+      visual: this.ctx.bridge.visualSettings(),
+      road: {
+        ...current.road,
+        scene: this.ctx.bridge.roadScene()
+      }
     }));
     this.ctx.saveFactoryCoreState();
   }

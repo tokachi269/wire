@@ -1,5 +1,6 @@
 export type RoadToolMode = "line" | "arc" | "bezier";
 export type RoadToolPhase = "start" | "end" | "bend";
+export type RoadOperation = "draw" | "edit" | "delete" | "transition" | "line-marking" | "area-marking";
 
 export interface RoadPoint {
   x: number;
@@ -19,6 +20,7 @@ export interface RoadSegmentInput {
   startNodeId: number;
   startSegmentId: number;
   connectToFirstNode: boolean;
+  sectionTemplateId?: number;
 }
 
 export interface RoadMeshData {
@@ -36,6 +38,8 @@ export interface RoadSceneData {
   junctionCount: number;
   nodes: RoadNodeData[];
   centerlineSegments: RoadCenterlineSegmentData[];
+  sectionTemplates: RoadSectionTemplateData[];
+  editableSegments: RoadEditableSegmentData[];
   surfaceMeshes: RoadMeshData[];
   markingMeshes: RoadMeshData[];
 }
@@ -52,16 +56,38 @@ export interface RoadCenterlineSegmentData {
   startY: number;
   endX: number;
   endY: number;
+  startStationM: number;
+  endStationM: number;
+}
+
+export interface RoadSectionTemplateData {
+  id: number;
+  name: string;
+  bands: Array<{ elementId: number; role: "sidewalk" | "carriageway" | "median"; widthM: number }>;
+  sidewalkWidthM: number;
+  laneWidthM: number;
+  medianWidthM: number;
+  laneCount: number;
+  hasCenterLine: boolean;
+  hasOuterLines: boolean;
+}
+
+export interface RoadEditableSegmentData {
+  id: number;
+  kind: RoadToolMode;
+  points: RoadPoint[];
 }
 
 export interface RoadSnapInfo {
   kind: "road";
   nodeId: number;
   segmentId: number;
+  stationM: number;
 }
 
 export interface RoadToolState {
   mode: RoadToolMode;
+  operation: RoadOperation;
   phase: RoadToolPhase;
   draftStart: RoadPoint;
   draftBend: RoadPoint;
@@ -71,6 +97,19 @@ export interface RoadToolState {
   draftStartNodeId: number;
   draftStartSegmentId: number;
   connectToFirstNode: boolean;
+  selectedSectionTemplateId: number;
+  transitionTargetTemplateId: number;
+  transitionLengthM: number;
+  transitionEndOffsetM: number;
+  transitionAnchor: 0 | 1 | 2;
+  manualLineOffsetM: number;
+  manualAreaWidthM: number;
+  manualAreaLengthM: number;
+  markingDraftSegmentId: number;
+  markingDraftStationM: number;
+  selectedEditSegmentId: number;
+  editKind: RoadToolMode;
+  editPoints: RoadPoint[];
   scene: RoadSceneData;
   previewMeshes: RoadMeshData[];
   lastError: string;
@@ -79,6 +118,7 @@ export interface RoadToolState {
 export function createRoadToolState(): RoadToolState {
   return {
     mode: "line",
+    operation: "draw",
     phase: "start",
     draftStart: { x: 0, y: 0 },
     draftBend: { x: 0, y: 0 },
@@ -88,6 +128,19 @@ export function createRoadToolState(): RoadToolState {
     draftStartNodeId: 0,
     draftStartSegmentId: 0,
     connectToFirstNode: false,
+    selectedSectionTemplateId: 1,
+    transitionTargetTemplateId: 2,
+    transitionLengthM: 20,
+    transitionEndOffsetM: 2,
+    transitionAnchor: 0,
+    manualLineOffsetM: 0,
+    manualAreaWidthM: 4,
+    manualAreaLengthM: 6,
+    markingDraftSegmentId: 0,
+    markingDraftStationM: 0,
+    selectedEditSegmentId: 0,
+    editKind: "line",
+    editPoints: [],
     scene: emptyRoadScene(),
     previewMeshes: [],
     lastError: ""
@@ -107,7 +160,8 @@ export function roadSegmentInput(state: RoadToolState): RoadSegmentInput {
     handleBY: state.handleB.y,
     startNodeId: state.draftStartNodeId,
     startSegmentId: state.draftStartSegmentId,
-    connectToFirstNode: state.connectToFirstNode
+    connectToFirstNode: state.connectToFirstNode,
+    sectionTemplateId: state.selectedSectionTemplateId
   };
 }
 
@@ -158,6 +212,8 @@ export function emptyRoadScene(): RoadSceneData {
     junctionCount: 0,
     nodes: [],
     centerlineSegments: [],
+    sectionTemplates: [],
+    editableSegments: [],
     surfaceMeshes: [],
     markingMeshes: []
   };

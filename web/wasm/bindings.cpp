@@ -1214,15 +1214,18 @@ public:
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
     const bool connect = input["connectToFirstNode"].as<bool>();
+    const auto section_template_id = input["sectionTemplateId"].isUndefined()
+                                         ? city::road::CrossSectionTemplateId{1}
+                                         : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> result{};
     if (start_segment_id != 0) {
-      result = state_->AddSegmentConnectedToSegment(path, 1, start_segment_id);
+      result = state_->AddSegmentConnectedToSegment(path, section_template_id, start_segment_id);
     } else if (start_node_id != 0) {
-      result = state_->AddSegmentConnectedTo(path, 1, start_node_id);
+      result = state_->AddSegmentConnectedTo(path, section_template_id, start_node_id);
     } else if (connect && !state_->graph().nodes.empty()) {
-      result = state_->AddSegmentConnectedTo(path, 1, state_->graph().nodes.front().id);
+      result = state_->AddSegmentConnectedTo(path, section_template_id, state_->graph().nodes.front().id);
     } else {
-      result = state_->AddSegment(path, 1);
+      result = state_->AddSegment(path, section_template_id);
     }
     return road_result_value(result.ok, result.error, result.error_kind);
   }
@@ -1238,15 +1241,18 @@ public:
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
     const bool connect = input["connectToFirstNode"].as<bool>();
+    const auto section_template_id = input["sectionTemplateId"].isUndefined()
+                                         ? city::road::CrossSectionTemplateId{1}
+                                         : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> added{};
     if (start_segment_id != 0) {
-      added = trial.AddSegmentConnectedToSegment(path, 1, start_segment_id);
+      added = trial.AddSegmentConnectedToSegment(path, section_template_id, start_segment_id);
     } else if (start_node_id != 0) {
-      added = trial.AddSegmentConnectedTo(path, 1, start_node_id);
+      added = trial.AddSegmentConnectedTo(path, section_template_id, start_node_id);
     } else if (connect && !trial.graph().nodes.empty()) {
-      added = trial.AddSegmentConnectedTo(path, 1, trial.graph().nodes.front().id);
+      added = trial.AddSegmentConnectedTo(path, section_template_id, trial.graph().nodes.front().id);
     } else {
-      added = trial.AddSegment(path, 1);
+      added = trial.AddSegment(path, section_template_id);
     }
     val result = road_result_value(added.ok, added.error, added.error_kind);
     val meshes = val::array();
@@ -1265,26 +1271,104 @@ public:
     val nodes = val::array();
     for (const auto& node : graph.nodes) {
       val item = val::object();
-      item.set("id", node.id);
+      item.set("id", static_cast<double>(node.id));
       item.set("x", node.position.x);
       item.set("y", node.position.y);
       nodes.call<void>("push", item);
     }
     val centerline_segments = val::array();
     for (const auto& segment : graph.segments) {
-      if (segment.alignment.primitives.size() != 1 ||
-          segment.alignment.primitives.front().kind != city::road::Primitive::Kind::kLine) {
-        continue;
+      const double total = city::road::PathLength(segment.alignment).value;
+      const int piece_count = segment.alignment.primitives.size() == 1 &&
+                                      segment.alignment.primitives.front().kind == city::road::Primitive::Kind::kLine
+                                  ? 1
+                                  : std::max(2, static_cast<int>(std::ceil(total / 2.0)));
+      for (int piece = 0; piece < piece_count; ++piece) {
+        const double start_station = total * piece / piece_count;
+        const double end_station = total * (piece + 1) / piece_count;
+        const city::road::Vec2d start = city::road::EvaluatePath(segment.alignment, start_station).value;
+        const city::road::Vec2d end = city::road::EvaluatePath(segment.alignment, end_station).value;
+        val item = val::object();
+        item.set("id", static_cast<double>(segment.id));
+        item.set("startX", start.x);
+        item.set("startY", start.y);
+        item.set("endX", end.x);
+        item.set("endY", end.y);
+        item.set("startStationM", start_station);
+        item.set("endStationM", end_station);
+        centerline_segments.call<void>("push", item);
       }
-      const city::road::Vec2d start = city::road::EvaluatePath(segment.alignment, 0.0).value;
-      const city::road::Vec2d end = city::road::EvaluatePath(segment.alignment, city::road::PathLength(segment.alignment).value).value;
+    }
+    val section_templates = val::array();
+    for (const auto& section : graph.section_templates) {
       val item = val::object();
-      item.set("id", segment.id);
-      item.set("startX", start.x);
-      item.set("startY", start.y);
-      item.set("endX", end.x);
-      item.set("endY", end.y);
-      centerline_segments.call<void>("push", item);
+      item.set("id", static_cast<double>(section.id));
+      item.set("name", section.id == 1 ? "JP 2 lane"
+                           : section.id == 2 ? "JP 3 lane"
+                           : section.id == 3 ? "JP 2 lane / no left sidewalk"
+                                             : section.id == 4 ? "JP 2 lane / median" : "Custom section");
+      double sidewalk_width = 0.0;
+      double lane_width = 0.0;
+      double median_width = 0.0;
+      int sidewalk_count = 0;
+      int lane_count = 0;
+      val bands = val::array();
+      for (const auto& band : section.bands) {
+        val band_item = val::object();
+        band_item.set("elementId", static_cast<double>(band.element_id));
+        band_item.set("role", band.role == city::road::SurfaceRole::kSidewalk ? "sidewalk"
+                                  : band.role == city::road::SurfaceRole::kMedian ? "median"
+                                                                                 : "carriageway");
+        band_item.set("widthM", band.width_m);
+        bands.call<void>("push", band_item);
+        if (band.role == city::road::SurfaceRole::kSidewalk) { sidewalk_width += band.width_m; ++sidewalk_count; }
+        if (band.role == city::road::SurfaceRole::kCarriageway) { lane_width += band.width_m; ++lane_count; }
+        if (band.role == city::road::SurfaceRole::kMedian) median_width += band.width_m;
+      }
+      item.set("bands", bands);
+      item.set("sidewalkWidthM", sidewalk_count == 0 ? 0.0 : sidewalk_width / sidewalk_count);
+      item.set("laneWidthM", lane_count == 0 ? 0.0 : lane_width / lane_count);
+      item.set("medianWidthM", median_width);
+      item.set("laneCount", lane_count);
+      item.set("hasCenterLine", std::any_of(section.boundaries.begin(), section.boundaries.end(), [](const auto& boundary) {
+        return boundary.marking_rule == city::road::MarkingRule::kCenterLine;
+      }));
+      item.set("hasOuterLines", std::any_of(section.boundaries.begin(), section.boundaries.end(), [](const auto& boundary) {
+        return boundary.marking_rule == city::road::MarkingRule::kOuterLine;
+      }));
+      section_templates.call<void>("push", item);
+    }
+    val editable_segments = val::array();
+    for (const auto& segment : graph.segments) {
+      if (segment.alignment.primitives.size() != 1) continue;
+      const auto& primitive = segment.alignment.primitives.front();
+      val item = val::object();
+      item.set("id", static_cast<double>(segment.id));
+      item.set("kind", primitive.kind == city::road::Primitive::Kind::kLine ? "line"
+                         : primitive.kind == city::road::Primitive::Kind::kArc ? "arc" : "bezier");
+      val points = val::array();
+      const auto push_point = [&points](city::road::Vec2d point) {
+        val value = val::object();
+        value.set("x", point.x);
+        value.set("y", point.y);
+        points.call<void>("push", value);
+      };
+      if (primitive.kind == city::road::Primitive::Kind::kLine) {
+        push_point(primitive.p0);
+        push_point(primitive.p1);
+      } else if (primitive.kind == city::road::Primitive::Kind::kArc) {
+        const double total = city::road::PathLength(segment.alignment).value;
+        push_point(city::road::EvaluatePath(segment.alignment, 0.0).value);
+        push_point(city::road::EvaluatePath(segment.alignment, total * 0.5).value);
+        push_point(city::road::EvaluatePath(segment.alignment, total).value);
+      } else {
+        push_point(primitive.p0);
+        push_point(primitive.p1);
+        push_point(primitive.p2);
+        push_point(primitive.p3);
+      }
+      item.set("points", points);
+      editable_segments.call<void>("push", item);
     }
     val surface_meshes = val::array();
     for (const auto& mesh : derived.segment_meshes) {
@@ -1312,9 +1396,125 @@ public:
     result.set("junctionCount", derived.junction_areas.size());
     result.set("nodes", nodes);
     result.set("centerlineSegments", centerline_segments);
+    result.set("sectionTemplates", section_templates);
+    result.set("editableSegments", editable_segments);
     result.set("surfaceMeshes", surface_meshes);
     result.set("markingMeshes", marking_meshes);
     return result;
+  }
+
+  val delete_segment(std::uint64_t segment_id) {
+    const auto result = state_->DeleteSegment(segment_id);
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val edit_segment(std::uint64_t segment_id, const val& input) {
+    const auto result = state_->EditSegmentPath(segment_id, road_path_value(input));
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val preview_edit_segment(std::uint64_t segment_id, const val& input) const {
+    city::road::RoadState trial = *state_;
+    const auto edited = trial.EditSegmentPath(segment_id, road_path_value(input));
+    val result = road_result_value(edited.ok, edited.error, edited.error_kind);
+    val meshes = val::array();
+    if (edited.ok) {
+      for (const auto& mesh : trial.derived().segment_meshes) {
+        if (mesh.owner_segment_id == segment_id) meshes.call<void>("push", road_mesh_value(mesh));
+      }
+    }
+    result.set("meshes", meshes);
+    return result;
+  }
+
+  val update_section_template(const val& input) {
+    const auto id = input["id"].as<city::road::CrossSectionTemplateId>();
+    const auto it = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
+                                 [id](const auto& section) { return section.id == id; });
+    if (it == state_->graph().section_templates.end()) {
+      return road_result_value(false, "section template does not exist", city::road::ErrorKind::kValidation);
+    }
+    city::road::CrossSectionTemplate section = *it;
+    const double sidewalk_width = input["sidewalkWidthM"].as<double>();
+    const double lane_width = input["laneWidthM"].as<double>();
+    const double median_width = input["medianWidthM"].as<double>();
+    for (auto& band : section.bands) {
+      if (band.role == city::road::SurfaceRole::kSidewalk) band.width_m = sidewalk_width;
+      if (band.role == city::road::SurfaceRole::kCarriageway) band.width_m = lane_width;
+      if (band.role == city::road::SurfaceRole::kMedian) band.width_m = median_width;
+    }
+    const bool center_line = input["hasCenterLine"].as<bool>();
+    const bool outer_lines = input["hasOuterLines"].as<bool>();
+    for (auto& boundary : section.boundaries) {
+      if (boundary.role == city::road::BoundaryRole::kLaneDivider) {
+        boundary.marking_rule = center_line ? city::road::MarkingRule::kCenterLine : city::road::MarkingRule::kNone;
+      }
+      if (boundary.role == city::road::BoundaryRole::kCurb) {
+        boundary.marking_rule = outer_lines ? city::road::MarkingRule::kOuterLine : city::road::MarkingRule::kNone;
+      }
+    }
+    const auto result = state_->EditSectionTemplate(std::move(section));
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val apply_transition(const val& input) {
+    const auto segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
+    const auto target_id = input["targetTemplateId"].as<city::road::CrossSectionTemplateId>();
+    const auto segment = std::find_if(state_->graph().segments.begin(), state_->graph().segments.end(),
+                                      [segment_id](const auto& item) { return item.id == segment_id; });
+    const auto target = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
+                                     [target_id](const auto& item) { return item.id == target_id; });
+    if (segment == state_->graph().segments.end() || target == state_->graph().section_templates.end()) {
+      return road_result_value(false, "road transition reference is missing", city::road::ErrorKind::kValidation);
+    }
+    const auto source = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
+                                     [segment](const auto& item) { return item.id == segment->section_template; });
+    city::road::SectionTransition transition{};
+    transition.to_template = target_id;
+    transition.start = {city::road::StationRefKind::kFromEnd,
+                        input["lengthM"].as<double>() + input["endOffsetM"].as<double>()};
+    transition.end = {city::road::StationRefKind::kFromEnd, input["endOffsetM"].as<double>()};
+    transition.anchor = static_cast<city::road::TransitionAnchor>(input["anchor"].as<int>());
+    for (const auto& band : source->bands) {
+      const auto match = std::find_if(target->bands.begin(), target->bands.end(), [&band](const auto& item) {
+        return item.element_id == band.element_id;
+      });
+      transition.rules.push_back({band.element_id,
+                                  match != target->bands.end() ? city::road::TransitionAction::kContinue
+                                  : band.role == city::road::SurfaceRole::kMedian ? city::road::TransitionAction::kEndCap
+                                                                                  : city::road::TransitionAction::kTaperOut});
+    }
+    for (const auto& band : target->bands) {
+      if (std::none_of(source->bands.begin(), source->bands.end(), [&band](const auto& item) {
+            return item.element_id == band.element_id;
+          })) {
+        transition.rules.push_back({band.element_id, city::road::TransitionAction::kTaperIn});
+      }
+    }
+    const auto result = state_->AddTransitionToSegment(segment_id, std::move(transition));
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val add_manual_line(const val& input) {
+    city::road::ManualLineMarking marking{};
+    marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
+    marking.path = city::road::MakePath({city::road::MakeLine(
+        {input["startStationM"].as<double>(), input["lateralM"].as<double>()},
+        {input["endStationM"].as<double>(), input["lateralM"].as<double>()})});
+    marking.style = input["style"].as<std::string>();
+    const auto result = state_->AddManualLine(std::move(marking));
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val add_manual_area(const val& input) {
+    city::road::ManualAreaMarking marking{};
+    marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
+    marking.frame_origin = {input["stationM"].as<double>(), input["lateralM"].as<double>()};
+    marking.width_m = input["widthM"].as<double>();
+    marking.length_m = input["lengthM"].as<double>();
+    marking.style = input["style"].as<std::string>();
+    const auto result = state_->AddManualArea(std::move(marking));
+    return road_result_value(result.ok, result.error, result.error_kind);
   }
 
   val undo_segment() {
@@ -1357,6 +1557,13 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("addSegment", &RoadStateBinding::add_segment)
       .function("previewSegment", &RoadStateBinding::preview_segment)
       .function("scene", &RoadStateBinding::scene)
+      .function("deleteSegment", &RoadStateBinding::delete_segment)
+      .function("editSegment", &RoadStateBinding::edit_segment)
+      .function("previewEditSegment", &RoadStateBinding::preview_edit_segment)
+      .function("updateSectionTemplate", &RoadStateBinding::update_section_template)
+      .function("applyTransition", &RoadStateBinding::apply_transition)
+      .function("addManualLine", &RoadStateBinding::add_manual_line)
+      .function("addManualArea", &RoadStateBinding::add_manual_area)
       .function("undoSegment", &RoadStateBinding::undo_segment)
       .function("clear", &RoadStateBinding::clear)
       .function("saveState", &RoadStateBinding::save_state)

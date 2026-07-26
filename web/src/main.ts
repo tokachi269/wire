@@ -53,7 +53,9 @@ async function main(): Promise<void> {
     (point) => actions.previewViewportPoint(point),
     () => actions.undoActiveTool(),
     (deltaMs) => actions.recordFrame(deltaMs),
-    (stats) => actions.recordSceneContentSync(stats)
+    (stats) => actions.recordSceneContentSync(stats),
+    (handleIndex, point) => actions.previewRoadEditHandle(handleIndex, point),
+    () => actions.commitRoadEditHandle()
   );
 
   mount(App, {

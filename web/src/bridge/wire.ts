@@ -316,6 +316,35 @@ export class WireBridge {
     };
   }
 
+  roadDeleteSegment(segmentId: number): OperationResult {
+    return this.roadState.deleteSegment(segmentId);
+  }
+
+  roadEditSegment(segmentId: number, input: RoadSegmentInput): OperationResult {
+    return this.roadState.editSegment(segmentId, input);
+  }
+
+  roadPreviewEditSegment(segmentId: number, input: RoadSegmentInput): OperationResult & { meshes: RoadMeshData[] } {
+    const result = this.roadState.previewEditSegment(segmentId, input);
+    return { ...result, meshes: result.meshes.map(copyRoadMesh) };
+  }
+
+  roadUpdateSectionTemplate(input: Record<string, number | boolean>): OperationResult {
+    return this.roadState.updateSectionTemplate(input);
+  }
+
+  roadApplyTransition(input: Record<string, number>): OperationResult {
+    return this.roadState.applyTransition(input);
+  }
+
+  roadAddManualLine(input: Record<string, number | string>): OperationResult {
+    return this.roadState.addManualLine(input);
+  }
+
+  roadAddManualArea(input: Record<string, number | string>): OperationResult {
+    return this.roadState.addManualArea(input);
+  }
+
   roadUndoSegment(): OperationResult {
     return this.roadState.undoSegment();
   }

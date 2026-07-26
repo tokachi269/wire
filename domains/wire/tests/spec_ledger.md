@@ -103,6 +103,19 @@
 | BOS:regenerate:S5 | case:C805 | `regenerate` `continuity_table` `support_level` |
 | BOS:regenerate:SM | case:C719 case:C724 case:C725 | `regenerate` `source_projection` |
 
+## Backbone Authority Guard Coverage
+
+matrix / aspect は外部仕様と観測点を表す。authority guard は、各観点を決める
+production式が分散しないことを固定する。`Required owner tokens` は owner に必須、
+`Unique production tokens` は `domains/wire/src` 内で owner にだけ存在できる。
+`Forbidden owner tokens` は owner 内で使ってはいけない分岐語彙を示す。
+
+| Authority | Owner | Required owner tokens | Unique production tokens | Forbidden owner tokens |
+|---|---|---|---|---|
+| support_level_spacing | `domains/wire/src/generation/backbone/pipeline.cpp` | `kRowHeightSeparationM` | `kRowHeightSeparationM` |  |
+| branch_lowering_formula | `domains/wire/src/generation/backbone/pipeline.cpp` | `branch_endpoint_offset_m * static_cast<double>(support_level)` `endpoint->branch_down_offset_m` | `branch_endpoint_offset_m * static_cast<double>(support_level)` | `BundleKind::kHighVoltage` |
+| sharp_representation_threshold | `domains/wire/src/generation/backbone/row_representation.cpp` | `kSharpCornerInteriorAngleMaxDeg` | `kSharpCornerInteriorAngleMaxDeg` |  |
+
 | Case ID | 分類 | Stage | 目的 | 前提 | 入力 | 期待結果 | 観測点 | 壊れた時に守りたいユーザ価値 |
 |---|---|---|---|---|---|---|---|---|
 | C750 | Invariant | Commit | authoritative save は version 付きで決定的かつ編集を反映する | 66 pole級 route を生成済み | SerializeAuthoritative x2 → 別route生成 → SerializeAuthoritative | Invariant: header は `wire_state_v1`、同一stateはbyte一致、編集後はbyte差分 | serialized text | 保存結果の非決定性と編集の取りこぼしを防ぐ |
@@ -162,6 +175,7 @@
 | C830 | Boundary | error handling | domains/wire/srcのEditResult error literalは登録済みprefixを持ち、未知prefixはInternal扱いになる | source-scan + direct classification | wire_core_tests | Boundary: `domains/wire/src`内の`error = "..."`は登録prefixで始まり、prefixなし文字列はUnsupportedへ落ちない | EditResult / ClassifyEditError / domains/wire/src error literals | 文字列prefixなしerrorが黙ってUnsupportedに分類され、入力不正・未対応・内部不整合の区別が崩れる回帰防止 |
 | C831 | Boundary | domains/wire/fallback | NormalizedOr/unit_or/safe_unit系fallback呼出はsource上で分類される | source-scan | wire_core_tests | Boundary: curve/patch/span visual/emit/pipelineのfallback呼出近傍にR5分類コメントが存在する | curve.cpp / curve_parts.cpp / span_visual_assembly.cpp / emit_shared.cpp / pipeline.cpp | fallback分類がdocsだけにあり、呼出追加時に意図不明な黙示補完が増える回帰防止 |
 | C832 | Boundary | Pick / docs | ResolveBranchPick pure化はbridge協定変更としてmerge readinessに保留登録する | source-scan | wire_core_tests | Boundary: `docs/merge_readiness.md`にR2/ResolveBranchPick/pure/pending support node/bridgeが揃う | merge_readiness.md / ResolveBranchPick | 副作用を持つ照会APIのpure化保留が忘れられ、未定義のまま次のUI/API変更へ混ざる回帰防止 |
+| C833 | Invariant | model assembly / Layout | branch-down override 0 は最終 lowering 値として fixture socket と curve endpoint まで届く | wire socket付きHV endpoint assembly、T branch lowered span、branch-down override 0 | GenerateFromBackboneSpec→SetSpanBranchDownOffsetOverride | Invariant: `branch_down_offset_m == 0` の LayoutEndpoint、endpoint fixture root、visible socket、curve endpoint が automatic lowering へfallbackせず同じ最終socketに一致する | SpanLayoutEntry / VisualModelInstanceCache / CurveCacheEntry | layout が0 overrideを持つのにmodel assemblyがautomatic loweringを復活させる二重決定者の回帰防止 |
 | C121 | Authority | General | Template責務の分離 | 型定義 | compile-time traits | Exact: allow_midair_branch は BundleTemplate 側のみで、CableTemplate と entity は bezier入力や arc-length table を持たない | type traits | 正本とテンプレ責務の混線防止 |
 | C122 | Symptom | Generate/Edit | CableTemplate編集で Pole tilt を上書きしない | Pole tilt 設定済み + CableTemplate編集 | SetPoleTilt(max) + UpdateCableTemplate | Invariant: pole の tilt magnitude と実際の rotation X/Y は不変 | pole tilt_magnitude_deg / pole world_transform | Pole傾きをテンプレ変更が壊さない |
 | C123 | Invariant | Generate/Edit | BundleTemplate の topology 変更は backbone scope を regenerate する | LV backbone route + `default_layer`変更 | UpdateBundleTemplate | Invariant: update成功後のtemplateは新layerになり、binding不一致のspan/portはChangeSetで退役+再生成される | BundleTemplate / Span / Port / ChangeSet | topology変更をrejectまたはvisual-onlyで済ませる回帰防止 |

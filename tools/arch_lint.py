@@ -183,6 +183,39 @@ def parse_backbone_aspect_coverage(text: str) -> tuple[dict[str, tuple[set[str],
     return coverage, errors
 
 
+def parse_backbone_authority_guards(text: str) -> tuple[list[dict[str, object]], list[str]]:
+    errors: list[str] = []
+    guards: list[dict[str, object]] = []
+    table = table_after_heading(text, "## Backbone Authority Guard Coverage")
+    if len(table) < 2:
+        return guards, ["domains/wire/tests/spec_ledger.md: missing Backbone Authority Guard Coverage table"]
+    for line in table[1:]:
+        cells = markdown_cells(line)
+        if not cells or is_separator_row(cells):
+            continue
+        if len(cells) < 4:
+            errors.append(f"domains/wire/tests/spec_ledger.md: malformed authority guard row: {line.strip()}")
+            continue
+        name = cells[0]
+        owner = cells[1].strip("`")
+        if not re.fullmatch(r"[a-z0-9_]+", name):
+            errors.append(f"domains/wire/tests/spec_ledger.md: invalid authority guard name: {name}")
+            continue
+        if not owner.startswith("domains/wire/src/"):
+            errors.append(f"domains/wire/tests/spec_ledger.md: authority guard owner must be production source: {owner}")
+            continue
+        guards.append(
+            {
+                "name": name,
+                "owner": owner,
+                "required": parse_aspect_list(cells[2]),
+                "unique": parse_aspect_list(cells[3]),
+                "forbidden": parse_aspect_list(cells[4]) if len(cells) >= 5 else set(),
+            }
+        )
+    return guards, errors
+
+
 def registered_core_case_ids(root: Path) -> set[str]:
     ids: set[str] = set()
     tests_root = root / "domains" / "wire" / "tests"
@@ -205,8 +238,9 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
     )
     requirements, requirement_errors = parse_backbone_aspect_requirements(docs_path.read_text(encoding="utf-8"))
     aspect_coverage, aspect_coverage_errors = parse_backbone_aspect_coverage(ledger_path.read_text(encoding="utf-8"))
+    authority_guards, authority_errors = parse_backbone_authority_guards(ledger_path.read_text(encoding="utf-8"))
     registered_ids = registered_core_case_ids(root)
-    errors = parse_errors + coverage_errors + requirement_errors + aspect_coverage_errors
+    errors = parse_errors + coverage_errors + requirement_errors + aspect_coverage_errors + authority_errors
     covered = set(coverage.keys())
     for cell in sorted(required - covered):
         errors.append(f"domains/wire/tests/spec_ledger.md: missing semantics coverage for {cell}")
@@ -254,6 +288,33 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
             errors.append(
                 f"domains/wire/tests/spec_ledger.md: {cell} missing required aspects {', '.join(missing_aspects)}"
             )
+    production_files = [
+        path
+        for path in (root / "domains" / "wire" / "src").rglob("*")
+        if path.is_file() and path.suffix in {".cpp", ".hpp"}
+    ]
+    production_text: dict[str, str] = {
+        rel(path, root): path.read_text(encoding="utf-8", errors="replace") for path in production_files
+    }
+    for guard in authority_guards:
+        name = str(guard["name"])
+        owner = str(guard["owner"])
+        owner_text = production_text.get(owner)
+        if owner_text is None:
+            errors.append(f"domains/wire/tests/spec_ledger.md: authority guard {name} owner is missing: {owner}")
+            continue
+        for token in sorted(guard["required"]):
+            if token not in owner_text:
+                errors.append(f"domains/wire/tests/spec_ledger.md: authority guard {name} owner missing token {token}")
+        for token in sorted(guard["forbidden"]):
+            if token in owner_text:
+                errors.append(f"domains/wire/tests/spec_ledger.md: authority guard {name} owner contains forbidden token {token}")
+        for token in sorted(guard["unique"]):
+            owners = sorted(path for path, text in production_text.items() if token in text)
+            if owners != [owner]:
+                errors.append(
+                    f"domains/wire/tests/spec_ledger.md: authority guard {name} token {token} appears outside owner: {', '.join(owners) or 'none'}"
+                )
     return errors
 
 

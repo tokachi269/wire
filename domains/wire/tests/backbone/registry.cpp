@@ -1257,6 +1257,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "ResolveBranchPick pure split remains an explicit merge readiness hold",
                          "Boundary", false,
                          C832_resolve_branch_pick_pure_split_is_merge_readiness_hold);
+  test_registry::AddTest(tests, "C833_branch_down_override_zero_reaches_model_socket_plan",
+                         "branch-down override zero is the final lowering authority for fixture sockets and curve endpoints",
+                         "Invariant", false,
+                         C833_branch_down_override_zero_reaches_model_socket_plan);
   test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,

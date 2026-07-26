@@ -2430,6 +2430,132 @@ bool C765_branch_lowering_places_final_model_socket_on_curve_endpoint() {
          endpoint_instance_count <= derived_endpoint_keys.size();
 }
 
+bool C833_branch_down_override_zero_reaches_model_socket_plan() {
+  constexpr city::wire::ModelAssemblyTemplateId kRowAssembly = 9133;
+  constexpr city::wire::ModelAssemblyTemplateId kEndpointAssembly = 9134;
+  city::wire::CoreState state;
+
+  city::wire::ModelAssemblyTemplate row_assembly{};
+  row_assembly.id = kRowAssembly;
+  city::wire::ModelAssemblyPart row_part{};
+  row_part.part_id = 1;
+  row_part.model_key = "hv_crossarm";
+  row_part.sockets.push_back({"endpoint_mount", {0.0, 0.0, 0.04}, {0.0, 0.0, 1.0}});
+  row_assembly.parts.push_back(row_part);
+  row_assembly.endpoint_mount_socket =
+      city::wire::AssemblySocketRef{1, "endpoint_mount"};
+  WIRE_TEST_EXPECT(state.RegisterModelAssemblyTemplate(row_assembly).ok,
+                   "failed to register row assembly");
+
+  city::wire::ModelAssemblyTemplate endpoint_assembly{};
+  endpoint_assembly.id = kEndpointAssembly;
+  city::wire::ModelAssemblyPart endpoint_part{};
+  endpoint_part.part_id = 1;
+  endpoint_part.model_key = "hv_insulator";
+  endpoint_part.descriptor_version = 1;
+  endpoint_part.sockets.push_back({"wire", {0.0, 0.0, -0.25}, {1.0, 0.0, 0.0}});
+  endpoint_assembly.parts.push_back(endpoint_part);
+  endpoint_assembly.wire_socket = city::wire::AssemblySocketRef{1, "wire"};
+  WIRE_TEST_EXPECT(state.RegisterModelAssemblyTemplate(endpoint_assembly).ok,
+                   "failed to register endpoint assembly");
+
+  const city::wire::BundleTemplateId hv_template_id =
+      city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kHighVoltage);
+  city::wire::BundleTemplate hv = state.view().bundle_templates().at(hv_template_id);
+  hv.row_fixture_assembly_id = kRowAssembly;
+  hv.endpoint_fixture_assembly_id = kEndpointAssembly;
+  WIRE_TEST_EXPECT(state.UpdateBundleTemplate(hv).ok, "failed to attach HV fixture assemblies");
+
+  const std::vector<city::wire::ObjectId> branch_spans = lowering_branch_spans(state);
+  WIRE_TEST_EXPECT(!branch_spans.empty(), "lowering branch spans were not generated");
+
+  city::wire::ObjectId span_id = city::wire::kInvalidObjectId;
+  city::wire::ObjectId port_id = city::wire::kInvalidObjectId;
+  bool is_start = false;
+  double automatic_down = 0.0;
+  for (city::wire::ObjectId candidate : branch_spans) {
+    const city::wire::SpanLayoutEntry* layout = state.span_layout(candidate).entry;
+    if (layout == nullptr) continue;
+    for (const auto& endpoint_pair : {
+             std::pair<const city::wire::LayoutEndpoint*, bool>{&layout->start, true},
+             std::pair<const city::wire::LayoutEndpoint*, bool>{&layout->end, false}}) {
+      const city::wire::LayoutEndpoint& endpoint = *endpoint_pair.first;
+      if (!endpoint.default_lower_required || endpoint.branch_down_offset_m <= 0.1) continue;
+      span_id = candidate;
+      port_id = endpoint.port_id;
+      is_start = endpoint_pair.second;
+      automatic_down = endpoint.branch_down_offset_m;
+      break;
+    }
+    if (span_id != city::wire::kInvalidObjectId) break;
+  }
+  WIRE_TEST_EXPECT(span_id != city::wire::kInvalidObjectId,
+                   "no lowered endpoint was available for zero override");
+  const auto override_result = state.SetSpanBranchDownOffsetOverride(span_id, 0.0);
+  WIRE_TEST_EXPECT(override_result.ok, override_result.error);
+
+  const city::wire::SpanLayoutEntry* layout = state.span_layout(span_id).entry;
+  const city::wire::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+  WIRE_TEST_EXPECT(layout != nullptr && curve != nullptr && curve->detail.sample_points.size() >= 2,
+                   "layout or curve missing after zero override");
+  const city::wire::LayoutEndpoint& endpoint = is_start ? layout->start : layout->end;
+  const city::wire::Vec3d& curve_endpoint =
+      is_start ? curve->detail.sample_points.front() : curve->detail.sample_points.back();
+  WIRE_TEST_EXPECT(endpoint.port_id == port_id, "override changed the target endpoint port");
+  WIRE_TEST_EXPECT(almost_equal(endpoint.branch_down_offset_m, 0.0, 1e-9),
+                   "layout final branch-down offset is not zero");
+  WIRE_TEST_EXPECT(automatic_down > 0.1, "test did not capture an automatic lowering candidate");
+
+  const city::wire::Port* port = state.view().ports().find(port_id);
+  const city::wire::Pole* pole = port == nullptr ? nullptr : state.view().poles().find(port->owner_pole_id);
+  const city::wire::SavedBackbonePortBinding* binding =
+      port == nullptr ? nullptr : state.view().backbone_port_binding_for_port(port->id);
+  WIRE_TEST_EXPECT(port != nullptr && pole != nullptr && binding != nullptr,
+                   "port, pole, or backbone binding missing after zero override");
+  const std::string fixture_prefix = "port:" + std::to_string(port_id) + ":";
+  const auto fixture = std::find_if(
+      state.view().visual_model_instances().instances.begin(),
+      state.view().visual_model_instances().instances.end(),
+      [&](const city::wire::VisualModelInstance& instance) {
+        return instance.model_key == "hv_insulator" &&
+               instance.stable_key.rfind(fixture_prefix, 0) == 0;
+      });
+  WIRE_TEST_EXPECT(fixture != state.view().visual_model_instances().instances.end(),
+                   "endpoint fixture missing after zero override");
+
+  const city::wire::PoleFrame frame =
+      city::wire::BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
+  const city::wire::Vec3d expected_fixture_root =
+      port->world_position + city::wire::ScaleVec(frame.up, row_part.sockets.front().local_position.z);
+  const city::wire::Vec3d expected_wire_socket =
+      expected_fixture_root + city::wire::ScaleVec(frame.up, endpoint_part.sockets.front().local_position.z);
+  const city::wire::Vec3d automatic_wire_socket =
+      port->world_position - city::wire::ScaleVec(frame.up, automatic_down) +
+      city::wire::ScaleVec(frame.up, row_part.sockets.front().local_position.z +
+                                         endpoint_part.sockets.front().local_position.z);
+  const city::wire::Vec3d local_socket = endpoint_part.sockets.front().local_position;
+  const city::wire::Vec3d visible_socket =
+      fixture->world_transform.position +
+      city::wire::RotateEulerXYZDeg(
+          {local_socket.x * fixture->world_transform.scale.x,
+           local_socket.y * fixture->world_transform.scale.y,
+           local_socket.z * fixture->world_transform.scale.z},
+          fixture->world_transform.rotation_euler_deg);
+  WIRE_TEST_EXPECT(!almost_equal(expected_wire_socket, automatic_wire_socket, 1e-9),
+                   "zero and automatic lowering expectations are indistinguishable");
+  WIRE_TEST_EXPECT(almost_equal(fixture->world_transform.position, expected_fixture_root, 1e-9),
+                   "fixture root still uses automatic lowering after zero override");
+  WIRE_TEST_EXPECT(almost_equal(visible_socket, expected_wire_socket, 1e-9),
+                   "visible socket does not use the zero override lowering");
+  WIRE_TEST_EXPECT(almost_equal(endpoint.endpoint_world, expected_wire_socket, 1e-9),
+                   "layout endpoint does not use the zero override socket");
+  WIRE_TEST_EXPECT(almost_equal(curve_endpoint, expected_wire_socket, 1e-9),
+                   "curve endpoint does not use the zero override socket");
+  WIRE_TEST_EXPECT(!almost_equal(endpoint.endpoint_world, automatic_wire_socket, 1e-9),
+                   "endpoint fell back to automatic lowering after zero override");
+  return true;
+}
+
 bool C766_row_fixture_and_wire_follow_port_band_lateral_change() {
   constexpr city::wire::ModelAssemblyTemplateId kRowAssembly = 9120;
   constexpr city::wire::ModelAssemblyTemplateId kEndpointAssembly = 9121;

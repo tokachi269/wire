@@ -98,31 +98,31 @@ def parse_backbone_semantics_coverage(text: str) -> tuple[dict[str, set[str]], s
             case_ids.add(match.group(1))
     table = table_after_heading(text, "## Backbone Operation Semantics Coverage")
     if len(table) < 2:
-        return coverage, case_ids, ["core/tests/spec_ledger.md: missing Backbone Operation Semantics Coverage table"]
+        return coverage, case_ids, ["domains/wire/tests/spec_ledger.md: missing Backbone Operation Semantics Coverage table"]
     for line in table[1:]:
         cells = markdown_cells(line)
         if not cells or is_separator_row(cells):
             continue
         if len(cells) < 2:
-            errors.append(f"core/tests/spec_ledger.md: malformed semantics coverage row: {line.strip()}")
+            errors.append(f"domains/wire/tests/spec_ledger.md: malformed semantics coverage row: {line.strip()}")
             continue
         cell_id = cells[0]
         if not re.fullmatch(r"BOS:[a-z0-9_]+:[A-Z0-9]+", cell_id):
-            errors.append(f"core/tests/spec_ledger.md: invalid semantics coverage cell id: {cell_id}")
+            errors.append(f"domains/wire/tests/spec_ledger.md: invalid semantics coverage cell id: {cell_id}")
             continue
         if cell_id in coverage:
-            errors.append(f"core/tests/spec_ledger.md: duplicate semantics coverage cell: {cell_id}")
+            errors.append(f"domains/wire/tests/spec_ledger.md: duplicate semantics coverage cell: {cell_id}")
             continue
         cases = set(re.findall(r"C\d+", cells[1]))
         if not cases:
-            errors.append(f"core/tests/spec_ledger.md: semantics coverage has no case ids: {cell_id}")
+            errors.append(f"domains/wire/tests/spec_ledger.md: semantics coverage has no case ids: {cell_id}")
         coverage[cell_id] = cases
     return coverage, case_ids, errors
 
 
 def registered_core_case_ids(root: Path) -> set[str]:
     ids: set[str] = set()
-    tests_root = root / "core" / "tests"
+    tests_root = root / "domains" / "wire" / "tests"
     if not tests_root.exists():
         return ids
     for path in tests_root.rglob("*.cpp"):
@@ -133,7 +133,7 @@ def registered_core_case_ids(root: Path) -> set[str]:
 
 def check_backbone_semantics_coverage(root: Path) -> list[str]:
     docs_path = root / "docs" / "backbone_operation_semantics.md"
-    ledger_path = root / "core" / "tests" / "spec_ledger.md"
+    ledger_path = root / "domains" / "wire" / "tests" / "spec_ledger.md"
     if not docs_path.exists() or not ledger_path.exists():
         return ["backbone semantics coverage: docs or spec ledger file is missing"]
     required, parse_errors = parse_backbone_semantics_cells(docs_path.read_text(encoding="utf-8"))
@@ -144,19 +144,19 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
     errors = parse_errors + coverage_errors
     covered = set(coverage.keys())
     for cell in sorted(required - covered):
-        errors.append(f"core/tests/spec_ledger.md: missing semantics coverage for {cell}")
+        errors.append(f"domains/wire/tests/spec_ledger.md: missing semantics coverage for {cell}")
     for cell in sorted(covered - required):
-        errors.append(f"core/tests/spec_ledger.md: semantics coverage for non-required cell {cell}")
+        errors.append(f"domains/wire/tests/spec_ledger.md: semantics coverage for non-required cell {cell}")
     for cell, cases in sorted(coverage.items()):
         missing_ledger_cases = sorted(case for case in cases if case not in ledger_case_ids)
         if missing_ledger_cases:
             errors.append(
-                f"core/tests/spec_ledger.md: {cell} references cases absent from ledger {', '.join(missing_ledger_cases)}"
+                f"domains/wire/tests/spec_ledger.md: {cell} references cases absent from ledger {', '.join(missing_ledger_cases)}"
             )
         missing_registered_cases = sorted(case for case in cases if case not in registered_ids)
         if missing_registered_cases:
             errors.append(
-                f"core/tests/spec_ledger.md: {cell} references unregistered cases {', '.join(missing_registered_cases)}"
+                f"domains/wire/tests/spec_ledger.md: {cell} references unregistered cases {', '.join(missing_registered_cases)}"
             )
     return errors
 
@@ -221,11 +221,11 @@ def main() -> int:
         for token in layer.get("forbidden_tokens", []):
             if token in text:
                 errors.append(f"{source}: {classified[source]} forbids {token!r}")
-        if source.startswith(("core/include/", "core/src/", "viewer/src/")):
+        if source.startswith(("domains/wire/include/", "domains/wire/src/", "viewer/src/")):
             for symbol in forbidden_symbols:
                 if word_present(text, symbol):
                     errors.append(f"{source}: forbidden resurrection symbol {symbol!r}")
-        if source.startswith(("core/include/", "core/src/")):
+        if source.startswith(("domains/wire/include/", "domains/wire/src/")):
             for symbol in domain_symbols:
                 if word_present(text, symbol):
                     errors.append(f"{source}: wire core forbids city-domain symbol {symbol!r}")

@@ -12,14 +12,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(WIRE_ENABLE_PCH "Enable core precompiled headers" OFF)
 
-# core/CMakeLists.txt shares these target hooks with the root MSVC build.
+# domains/wire/CMakeLists.txt shares these target hooks with the root MSVC build.
 function(wire_enable_msvc_target_defaults target_name)
 endfunction()
 
 function(wire_enable_builtin_vcpkg_applocal target_name)
 endfunction()
 
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../core" core)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../domains/wire" wire)
 
 add_executable(wire_web_core bindings.cpp)
 target_link_libraries(wire_web_core PRIVATE wire_core)

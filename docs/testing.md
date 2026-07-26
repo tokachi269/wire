@@ -13,18 +13,18 @@
 backbone acceptanceのfilterは`backbone`である。旧`bb2` filter aliasは持たない。
 
 ```powershell
-build-vs18-coretests\core\Debug\wire_core_tests.exe backbone
+build-vs18-coretests\domains\wire\Debug\wire_core_tests.exe backbone
 ```
 
 ## fixture
 
-backbone fixtureは`core/tests/backbone/fixtures.*`に置く。
+backbone fixtureは`domains/wire/tests/backbone/fixtures.*`に置く。
 testはv1 topology API、existing span geometry、position proximityから入力正本を組み立てない。
 代表sceneは結果だけでなく、topology/connectivity/placementのownerも検証する。
 
 ## test family manifest
 
-`core/tests/test_family_manifest.json`はtest sourceのownerをfamily単位で管理する。
+`domains/wire/tests/test_family_manifest.json`はtest sourceのownerをfamily単位で管理する。
 新しい登録test sourceが未分類、または複数familyへ分類された場合はlintを失敗させる。
 C番号は履歴識別子として維持するが、C番号の増加を進捗指標にしない。
 
@@ -43,9 +43,9 @@ reasonに残す。
 - viewerからcore private headerへの依存
 - geometry/validationからgeneration privateへの逆依存
 - recalc/support-layout familyの復活
-- road/rail/building/city domain identityのcore流入
+- domains/road/rail/building/city domain identityのcore流入
 - `docs/backbone_operation_semantics.md` の操作×状態表と
-  `core/tests/spec_ledger.md` の `BOS:<operation>:<state>` coverage 対応漏れ
+  `domains/wire/tests/spec_ledger.md` の `BOS:<operation>:<state>` coverage 対応漏れ
 
 source scanは安定した境界だけに使う。広い単語grepをtest semanticsの代わりにしない。
 

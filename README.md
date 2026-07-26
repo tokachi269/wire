@@ -27,8 +27,8 @@ viewerは不足したtopologyやplacementを推測しない。
 ```powershell
 python tools\arch_lint.py
 python tools\test_family_lint.py
-& .\build-vs18-coretests\core\Debug\wire_core_tests.exe
-& .\build-vs18-coretests\core\Debug\wire_core_tests.exe backbone
+& .\build-vs18-coretests\domains\wire\Debug\wire_core_tests.exe
+& .\build-vs18-coretests\domains\wire\Debug\wire_core_tests.exe backbone
 ```
 
 詳細なbuild/viewerコマンドは[command_cheatsheet.md](docs/command_cheatsheet.md)を参照する。

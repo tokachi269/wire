@@ -40,7 +40,7 @@ def main() -> int:
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=Path("core/tests/test_family_manifest.json"),
+        default=Path("domains/wire/tests/test_family_manifest.json"),
     )
     args = parser.parse_args()
     root = args.root.resolve()
@@ -63,7 +63,7 @@ def main() -> int:
                 errors.append(f"{name}: missing source {source}")
 
     registered = 0
-    for test_root in (root / "core/tests", root / "viewer/tests"):
+    for test_root in (root / "domains/wire/tests", root / "viewer/tests"):
         for source_path in sorted(test_root.rglob("*.cpp")):
             source = rel(source_path, root)
             text = source_path.read_text(encoding="utf-8")

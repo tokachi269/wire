@@ -1,17 +1,17 @@
 #include "path_pick_policy.hpp"
 
-#include "wire/core/coord_utils.hpp"
+#include "city/wire/coord_utils.hpp"
 
 #include <algorithm>
 
 namespace {
 
-bool IsTemplateSelected(std::uint32_t selected_template_mask, wire::core::BundleKind kind) {
+bool IsTemplateSelected(std::uint32_t selected_template_mask, city::wire::BundleKind kind) {
   const auto bit = (1u << static_cast<unsigned>(kind));
   return (selected_template_mask & bit) != 0;
 }
 
-double SegmentTxy(const wire::core::Vec3d& p, const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+double SegmentTxy(const city::wire::Vec3d& p, const city::wire::Vec3d& a, const city::wire::Vec3d& b) {
   const double abx = b.x - a.x;
   const double aby = b.y - a.y;
   const double ab2 = abx * abx + aby * aby;
@@ -25,9 +25,9 @@ double SegmentTxy(const wire::core::Vec3d& p, const wire::core::Vec3d& a, const 
 
 } // namespace
 
-std::vector<wire::core::BundleKind> SelectedBundleTemplateKinds(const wire::core::CoreView& view,
+std::vector<city::wire::BundleKind> SelectedBundleTemplateKinds(const city::wire::CoreView& view,
                                                                 std::uint32_t selected_template_mask) {
-  std::vector<wire::core::BundleKind> selected{};
+  std::vector<city::wire::BundleKind> selected{};
   for (const auto& [kind, _] : view.bundle_templates()) {
     if (IsTemplateSelected(selected_template_mask, kind)) {
       selected.push_back(kind);
@@ -39,23 +39,23 @@ std::vector<wire::core::BundleKind> SelectedBundleTemplateKinds(const wire::core
 
 namespace {
 
-wire::core::BundleKind ResolveHitSpanTemplateOrDefault(const wire::core::CoreView& view,
-                                                       const wire::core::PickResult& pick) {
-  if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
-    if (const wire::core::Span* span = view.edit_state().spans.find(pick.hit_id); span != nullptr) {
-      if (const wire::core::Bundle* bundle = view.edit_state().bundles.find(span->bundle_id); bundle != nullptr) {
+city::wire::BundleKind ResolveHitSpanTemplateOrDefault(const city::wire::CoreView& view,
+                                                       const city::wire::PickResult& pick) {
+  if (pick.hit_kind == city::wire::PickHitKind::kSegment) {
+    if (const city::wire::Span* span = view.edit_state().spans.find(pick.hit_id); span != nullptr) {
+      if (const city::wire::Bundle* bundle = view.edit_state().bundles.find(span->bundle_id); bundle != nullptr) {
         return bundle->bundle_template_id;
       }
     }
   }
-  return wire::core::BundleKind::kLowVoltage;
+  return city::wire::BundleKind::kLowVoltage;
 }
 
 } // namespace
 
-std::vector<wire::core::BundleKind> ResolveTemplateKindsForPathPick(const wire::core::CoreView& view,
+std::vector<city::wire::BundleKind> ResolveTemplateKindsForPathPick(const city::wire::CoreView& view,
                                                                     std::uint32_t selected_template_mask,
-                                                                    const wire::core::PickResult& pick) {
+                                                                    const city::wire::PickResult& pick) {
   const auto selected = SelectedBundleTemplateKinds(view, selected_template_mask);
   if (!selected.empty()) {
     return selected;
@@ -63,9 +63,9 @@ std::vector<wire::core::BundleKind> ResolveTemplateKindsForPathPick(const wire::
   return {ResolveHitSpanTemplateOrDefault(view, pick)};
 }
 
-std::string FindMidairBranchBlockedTemplateName(const wire::core::CoreView& view,
-                                                const std::vector<wire::core::BundleKind>& template_ids) {
-  for (wire::core::BundleKind kind : template_ids) {
+std::string FindMidairBranchBlockedTemplateName(const city::wire::CoreView& view,
+                                                const std::vector<city::wire::BundleKind>& template_ids) {
+  for (city::wire::BundleKind kind : template_ids) {
     const auto it = view.bundle_templates().find(kind);
     if (it == view.bundle_templates().end()) {
       continue;
@@ -77,9 +77,9 @@ std::string FindMidairBranchBlockedTemplateName(const wire::core::CoreView& view
   return {};
 }
 
-wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreView& view, const wire::core::PickResult& pick,
+city::wire::PickResult NormalizeDrawPathPick(const city::wire::CoreView& view, const city::wire::PickResult& pick,
                                              double endpoint_snap_radius_world) {
-  if (pick.hit_kind != wire::core::PickHitKind::kSegment || !pick.has_segment_endpoints || endpoint_snap_radius_world <= 0.0) {
+  if (pick.hit_kind != city::wire::PickHitKind::kSegment || !pick.has_segment_endpoints || endpoint_snap_radius_world <= 0.0) {
     return pick;
   }
 
@@ -91,13 +91,13 @@ wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreView& view, c
     return pick;
   }
 
-  const double d2_a = wire::core::DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_a_world);
-  const double d2_b = wire::core::DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_b_world);
+  const double d2_a = city::wire::DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_a_world);
+  const double d2_b = city::wire::DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_b_world);
   if (near_start && d2_a <= endpoint_snap_r2 && d2_a <= d2_b) {
-    wire::core::PickResult normalized = pick;
-    if (pick.segment_node_a_id != wire::core::kInvalidObjectId) {
-      if (const wire::core::Pole* pole = view.edit_state().poles.find(pick.segment_node_a_id); pole != nullptr) {
-        normalized.hit_kind = wire::core::PickHitKind::kNode;
+    city::wire::PickResult normalized = pick;
+    if (pick.segment_node_a_id != city::wire::kInvalidObjectId) {
+      if (const city::wire::Pole* pole = view.edit_state().poles.find(pick.segment_node_a_id); pole != nullptr) {
+        normalized.hit_kind = city::wire::PickHitKind::kNode;
         normalized.hit_id = pick.segment_node_a_id;
         normalized.hit_pos_world = pole->world_transform.position;
       } else {
@@ -109,10 +109,10 @@ wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreView& view, c
     return normalized;
   }
   if (near_end && d2_b <= endpoint_snap_r2 && d2_b <= d2_a) {
-    wire::core::PickResult normalized = pick;
-    if (pick.segment_node_b_id != wire::core::kInvalidObjectId) {
-      if (const wire::core::Pole* pole = view.edit_state().poles.find(pick.segment_node_b_id); pole != nullptr) {
-        normalized.hit_kind = wire::core::PickHitKind::kNode;
+    city::wire::PickResult normalized = pick;
+    if (pick.segment_node_b_id != city::wire::kInvalidObjectId) {
+      if (const city::wire::Pole* pole = view.edit_state().poles.find(pick.segment_node_b_id); pole != nullptr) {
+        normalized.hit_kind = city::wire::PickHitKind::kNode;
         normalized.hit_id = pick.segment_node_b_id;
         normalized.hit_pos_world = pole->world_transform.position;
       } else {
@@ -126,16 +126,16 @@ wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreView& view, c
   return pick;
 }
 
-wire::core::PickResult CanonicalizeDrawPathPick(const wire::core::CoreView& view, const wire::core::PickResult& pick,
-                                                const wire::core::Vec3d& ground_hover_world, bool has_ground_hit,
+city::wire::PickResult CanonicalizeDrawPathPick(const city::wire::CoreView& view, const city::wire::PickResult& pick,
+                                                const city::wire::Vec3d& ground_hover_world, bool has_ground_hit,
                                                 double snap_radius_world) {
-  wire::core::PickResult normalized = NormalizeDrawPathPick(view, pick, snap_radius_world);
-  if (normalized.hit_kind == wire::core::PickHitKind::kNode) {
+  city::wire::PickResult normalized = NormalizeDrawPathPick(view, pick, snap_radius_world);
+  if (normalized.hit_kind == city::wire::PickHitKind::kNode) {
     return normalized;
   }
 
-  wire::core::Vec3d anchor_point = normalized.hit_pos_world;
-  bool has_anchor_point = (normalized.hit_kind != wire::core::PickHitKind::kEmpty);
+  city::wire::Vec3d anchor_point = normalized.hit_pos_world;
+  bool has_anchor_point = (normalized.hit_kind != city::wire::PickHitKind::kEmpty);
   if (!has_anchor_point && has_ground_hit) {
     anchor_point = ground_hover_world;
     has_anchor_point = true;
@@ -144,25 +144,25 @@ wire::core::PickResult CanonicalizeDrawPathPick(const wire::core::CoreView& view
     return normalized;
   }
 
-  const wire::core::PickResult promoted = PromoteGroundHoverToNearbyPolePick(view, anchor_point, snap_radius_world);
-  if (promoted.hit_kind != wire::core::PickHitKind::kEmpty) {
+  const city::wire::PickResult promoted = PromoteGroundHoverToNearbyPolePick(view, anchor_point, snap_radius_world);
+  if (promoted.hit_kind != city::wire::PickHitKind::kEmpty) {
     return promoted;
   }
   return normalized;
 }
 
-wire::core::PickResult PromoteGroundHoverToNearbyPolePick(const wire::core::CoreView& view,
-                                                          const wire::core::Vec3d& ground_hover_world,
+city::wire::PickResult PromoteGroundHoverToNearbyPolePick(const city::wire::CoreView& view,
+                                                          const city::wire::Vec3d& ground_hover_world,
                                                           double snap_radius_world) {
   if (snap_radius_world <= 0.0) {
     return {};
   }
 
   const double snap_radius_squared = snap_radius_world * snap_radius_world;
-  const wire::core::Pole* best_pole = nullptr;
+  const city::wire::Pole* best_pole = nullptr;
   double best_distance_squared = snap_radius_squared + 1.0;
-  for (const wire::core::Pole& pole : view.edit_state().poles.items()) {
-    const double distance_squared = wire::core::DistanceSquaredXY(pole.world_transform.position, ground_hover_world);
+  for (const city::wire::Pole& pole : view.edit_state().poles.items()) {
+    const double distance_squared = city::wire::DistanceSquaredXY(pole.world_transform.position, ground_hover_world);
     if (distance_squared > snap_radius_squared) {
       continue;
     }
@@ -176,8 +176,8 @@ wire::core::PickResult PromoteGroundHoverToNearbyPolePick(const wire::core::Core
     return {};
   }
 
-  wire::core::PickResult promoted{};
-  promoted.hit_kind = wire::core::PickHitKind::kNode;
+  city::wire::PickResult promoted{};
+  promoted.hit_kind = city::wire::PickHitKind::kNode;
   promoted.hit_id = best_pole->id;
   promoted.hit_pos_world = best_pole->world_transform.position;
   return promoted;

@@ -9,30 +9,30 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
-#include "wire/core/core_state.hpp"
-#include "wire/core/core_view.hpp"
-#include "wire/core/model_descriptor.hpp"
+#include "city/wire/core_state.hpp"
+#include "city/wire/core_view.hpp"
+#include "city/wire/model_descriptor.hpp"
 
 namespace {
 
 using emscripten::val;
-using wire::core::BackboneBundleSpec;
-using wire::core::BackboneInputSpec;
-using wire::core::BackboneSpec;
-using wire::core::BundleKind;
-using wire::core::BundleTemplateId;
-using wire::core::CoreState;
-using wire::core::CoreView;
-using wire::core::EditErrorKind;
-using wire::core::GenerationTiming;
-using wire::core::ObjectId;
-using wire::core::PickHitKind;
-using wire::core::PickResult;
-using wire::core::PoleTypeId;
-using wire::core::ResolveBranchPickOptions;
-using wire::core::SpanLayer;
-using wire::core::SupportKind;
-using wire::core::Vec3d;
+using city::wire::BackboneBundleSpec;
+using city::wire::BackboneInputSpec;
+using city::wire::BackboneSpec;
+using city::wire::BundleKind;
+using city::wire::BundleTemplateId;
+using city::wire::CoreState;
+using city::wire::CoreView;
+using city::wire::EditErrorKind;
+using city::wire::GenerationTiming;
+using city::wire::ObjectId;
+using city::wire::PickHitKind;
+using city::wire::PickResult;
+using city::wire::PoleTypeId;
+using city::wire::ResolveBranchPickOptions;
+using city::wire::SpanLayer;
+using city::wire::SupportKind;
+using city::wire::Vec3d;
 
 [[nodiscard]] val generation_timing_value(const GenerationTiming& timing) {
   val result = val::object();
@@ -60,7 +60,7 @@ using wire::core::Vec3d;
   result.set("error", error);
   const EditErrorKind effective_kind =
       ok ? EditErrorKind::kNone
-         : (error_kind == EditErrorKind::kNone ? wire::core::ClassifyEditError(error) : error_kind);
+         : (error_kind == EditErrorKind::kNone ? city::wire::ClassifyEditError(error) : error_kind);
   result.set("errorKind", static_cast<int>(effective_kind));
   return result;
 }
@@ -70,11 +70,11 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
 }
 
 [[nodiscard]] BundleTemplateId bundle_template_id(int raw) {
-  return raw <= 0 ? wire::core::kInvalidBundleTemplateId : static_cast<BundleTemplateId>(raw);
+  return raw <= 0 ? city::wire::kInvalidBundleTemplateId : static_cast<BundleTemplateId>(raw);
 }
 
-[[nodiscard]] wire::core::Transformd transform_value(const val& input) {
-  wire::core::Transformd transform{};
+[[nodiscard]] city::wire::Transformd transform_value(const val& input) {
+  city::wire::Transformd transform{};
   transform.position = {
       property<double>(input, "positionX"),
       property<double>(input, "positionY"),
@@ -93,23 +93,23 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
   return transform;
 }
 
-[[nodiscard]] wire::core::EditResult<bool> apply_model_bootstrap(CoreState& state,
+[[nodiscard]] city::wire::EditResult<bool> apply_model_bootstrap(CoreState& state,
                                                                   const val& input) {
-  wire::core::EditResult<bool> result{};
+  city::wire::EditResult<bool> result{};
   CoreState trial = state;
   const val assemblies = input["assemblies"];
   const std::size_t assembly_count = assemblies["length"].as<std::size_t>();
   for (std::size_t assembly_index = 0; assembly_index < assembly_count; ++assembly_index) {
     const val assembly_input = assemblies[assembly_index];
-    wire::core::ModelAssemblyTemplate assembly{};
-    assembly.id = property<wire::core::ModelAssemblyTemplateId>(assembly_input, "id");
+    city::wire::ModelAssemblyTemplate assembly{};
+    assembly.id = property<city::wire::ModelAssemblyTemplateId>(assembly_input, "id");
     assembly.version = property<std::uint64_t>(assembly_input, "version");
     const val parts = assembly_input["parts"];
     const std::size_t part_count = parts["length"].as<std::size_t>();
     assembly.parts.reserve(part_count);
     for (std::size_t part_index = 0; part_index < part_count; ++part_index) {
       const val part_input = parts[part_index];
-      wire::core::ModelDescriptor descriptor{};
+      city::wire::ModelDescriptor descriptor{};
       descriptor.measurement.name = property<std::string>(part_input, "descriptorName");
       descriptor.measurement.version = property<std::uint64_t>(part_input, "descriptorVersion");
       const val sockets = part_input["sockets"];
@@ -117,7 +117,7 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
       descriptor.measurement.sockets.reserve(socket_count);
       for (std::size_t socket_index = 0; socket_index < socket_count; ++socket_index) {
         const val socket_input = sockets[socket_index];
-        wire::core::ModelSocket socket{};
+        city::wire::ModelSocket socket{};
         socket.name = property<std::string>(socket_input, "name");
         socket.local_position = {
             property<double>(socket_input, "positionX"),
@@ -131,11 +131,11 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
         };
         descriptor.measurement.sockets.push_back(std::move(socket));
       }
-      const auto built = wire::core::build_model_assembly_part(
+      const auto built = city::wire::build_model_assembly_part(
           descriptor, property<std::uint32_t>(part_input, "partId"),
           property<std::string>(part_input, "modelKey"),
           transform_value(part_input["localTransform"]),
-          static_cast<wire::core::ModelFitMode>(property<int>(part_input, "fitMode")));
+          static_cast<city::wire::ModelFitMode>(property<int>(part_input, "fitMode")));
       if (!built.report.conflicts.empty()) {
         result.error = "model bootstrap: " + built.report.conflicts.front().message;
         return result;
@@ -144,14 +144,14 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
     }
     const val wire_socket = assembly_input["wireSocket"];
     if (!wire_socket.isNull() && !wire_socket.isUndefined()) {
-      assembly.wire_socket = wire::core::AssemblySocketRef{
+      assembly.wire_socket = city::wire::AssemblySocketRef{
           property<std::uint32_t>(wire_socket, "partId"),
           property<std::string>(wire_socket, "socketName"),
       };
     }
     const val endpoint_mount_socket = assembly_input["endpointMountSocket"];
     if (!endpoint_mount_socket.isNull() && !endpoint_mount_socket.isUndefined()) {
-      assembly.endpoint_mount_socket = wire::core::AssemblySocketRef{
+      assembly.endpoint_mount_socket = city::wire::AssemblySocketRef{
           property<std::uint32_t>(endpoint_mount_socket, "partId"),
           property<std::string>(endpoint_mount_socket, "socketName"),
       };
@@ -191,7 +191,7 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
     }
     auto pole_type = pole_type_it->second;
     pole_type.pole_visual_assembly_id =
-        property<wire::core::ModelAssemblyTemplateId>(assignment, "assemblyId");
+        property<city::wire::ModelAssemblyTemplateId>(assignment, "assemblyId");
     pole_type.radius_base_m = property<double>(assignment, "radiusBaseM");
     pole_type.radius_top_m = property<double>(assignment, "radiusTopM");
     const auto updated = trial.UpdatePoleTypeDefinition(pole_type);
@@ -213,9 +213,9 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
     }
     auto bundle_template = bundle_it->second;
     bundle_template.row_fixture_assembly_id =
-        property<wire::core::ModelAssemblyTemplateId>(assignment, "rowAssemblyId");
+        property<city::wire::ModelAssemblyTemplateId>(assignment, "rowAssemblyId");
     bundle_template.endpoint_fixture_assembly_id =
-        property<wire::core::ModelAssemblyTemplateId>(assignment, "endpointAssemblyId");
+        property<city::wire::ModelAssemblyTemplateId>(assignment, "endpointAssemblyId");
     const auto updated = trial.UpdateBundleTemplate(bundle_template);
     if (!updated.ok) {
       result.error = updated.error;
@@ -291,7 +291,7 @@ public:
     }
     spec.interval_m = interval_m;
     spec.pole_type_id = static_cast<PoleTypeId>(pole_type_id);
-    spec.direction_mode = static_cast<wire::core::PathDirectionMode>(direction_mode);
+    spec.direction_mode = static_cast<city::wire::PathDirectionMode>(direction_mode);
     spec.pole_placement.enable_tilt = max_tilt_deg > 0.0;
     spec.pole_placement.max_tilt_deg = max_tilt_deg;
 
@@ -302,7 +302,7 @@ public:
     for (std::size_t index = 0; index < bundle_count; ++index) {
       const val placement = bundle_placements[index];
       const BundleTemplateId id = bundle_template_id(placement["bundleTemplateId"].as<int>());
-      if (id == wire::core::kInvalidBundleTemplateId) {
+      if (id == city::wire::kInvalidBundleTemplateId) {
         return result_value(false, "bundle template id is invalid");
       }
       const auto template_it = CoreView(*state_).bundle_templates().find(id);
@@ -384,7 +384,7 @@ public:
     options.selected_bundle_template_ids.reserve(selected_count);
     for (std::size_t index = 0; index < selected_count; ++index) {
       const BundleTemplateId id = bundle_template_id(selected_bundle_template_ids[index].as<int>());
-      if (id != wire::core::kInvalidBundleTemplateId) {
+      if (id != city::wire::kInvalidBundleTemplateId) {
         options.selected_bundle_template_ids.push_back(id);
       }
     }
@@ -418,8 +418,8 @@ public:
     for (const auto& part : parts) {
       sample_value_count += part.samples.size() * 3;
     }
-    for (const wire::core::Span& span : view.spans().items()) {
-      const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
+    for (const city::wire::Span& span : view.spans().items()) {
+      const city::wire::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
       if (visual == nullptr) continue;
       sample_value_count += visual->parts.size() * 6;
     }
@@ -561,13 +561,13 @@ public:
 
   [[nodiscard]] val span_layout(const std::string& span_id_text) const {
     const ObjectId span_id = span_id_text.empty() || span_id_text == "0"
-                                 ? wire::core::kInvalidObjectId
+                                 ? city::wire::kInvalidObjectId
                                  : static_cast<ObjectId>(std::stoull(span_id_text));
-    const wire::core::SpanLayoutView layout = state_->span_layout(span_id);
+    const city::wire::SpanLayoutView layout = state_->span_layout(span_id);
     if (!layout.has_layout()) {
       return result_value(false, "span layout is missing");
     }
-    auto endpoint_value = [](const wire::core::LayoutEndpoint& endpoint) {
+    auto endpoint_value = [](const city::wire::LayoutEndpoint& endpoint) {
       val output = val::object();
       output.set("portId", std::to_string(endpoint.port_id));
       output.set("supportZ", endpoint.support_world.z);
@@ -588,7 +588,7 @@ public:
   }
 
   [[nodiscard]] val support_node(std::size_t index) const {
-    const std::vector<wire::core::SupportNode> nodes = state_->SavedBackboneResult().nodes;
+    const std::vector<city::wire::SupportNode> nodes = state_->SavedBackboneResult().nodes;
     if (index >= nodes.size()) {
       throw std::out_of_range("support node index is out of range");
     }
@@ -608,7 +608,7 @@ public:
   }
 
   [[nodiscard]] val backbone_edge(std::size_t index) const {
-    const std::vector<wire::core::BackboneEdge> edges = state_->SavedBackboneEdges();
+    const std::vector<city::wire::BackboneEdge> edges = state_->SavedBackboneEdges();
     if (index >= edges.size()) {
       throw std::out_of_range("backbone edge index is out of range");
     }
@@ -626,19 +626,19 @@ public:
 
   val clear_pole_orientation_override(const std::string& pole_id) {
     const auto result =
-        state_->ClearPoleOrientationOverride(static_cast<wire::core::ObjectId>(std::stoull(pole_id)));
+        state_->ClearPoleOrientationOverride(static_cast<city::wire::ObjectId>(std::stoull(pole_id)));
     return result_value(result.ok, result.error);
   }
 
   val clear_span_socket_override(const std::string& span_id, bool is_start_endpoint) {
     const auto result = state_->ClearSpanEndpointSocketOverride(
-        static_cast<wire::core::ObjectId>(std::stoull(span_id)), is_start_endpoint);
+        static_cast<city::wire::ObjectId>(std::stoull(span_id)), is_start_endpoint);
     return result_value(result.ok, result.error);
   }
 
   val clear_span_branch_down_override(const std::string& span_id) {
     const auto result = state_->ClearSpanBranchDownOffsetOverride(
-        static_cast<wire::core::ObjectId>(std::stoull(span_id)));
+        static_cast<city::wire::ObjectId>(std::stoull(span_id)));
     return result_value(result.ok, result.error);
   }
 
@@ -666,7 +666,7 @@ public:
     output.set("name", bundle_template.name);
     output.set("defaultCount", bundle_template.default_count);
     output.set("defaultSpacing", bundle_template.default_spacing_m);
-    output.set("fixedCount", bundle_template.count_rule == wire::core::BundleCountRuleKind::kFixed);
+    output.set("fixedCount", bundle_template.count_rule == city::wire::BundleCountRuleKind::kFixed);
     output.set("fixedCountValue", bundle_template.fixed_count);
     output.set("minCount", bundle_template.min_count);
     output.set("maxCount", bundle_template.max_count);
@@ -717,7 +717,7 @@ public:
 
   val update_bundle_template(const val& input) {
     const BundleTemplateId id = bundle_template_id(property<int>(input, "id"));
-    if (id == wire::core::kInvalidBundleTemplateId) {
+    if (id == city::wire::kInvalidBundleTemplateId) {
       return result_value(false, "bundle template id is invalid");
     }
     const auto& templates = CoreView(*state_).bundle_templates();
@@ -726,7 +726,7 @@ public:
       return result_value(false, "bundle template is missing");
     }
     auto bundle_template = it->second;
-    bundle_template.cable_template_id = property<wire::core::CableTemplateId>(input, "cableTemplateId");
+    bundle_template.cable_template_id = property<city::wire::CableTemplateId>(input, "cableTemplateId");
     bundle_template.related_pole_type_id = property<PoleTypeId>(input, "relatedPoleTypeId");
     bundle_template.default_layer = static_cast<SpanLayer>(property<int>(input, "defaultLayer"));
     bundle_template.allow_midair_node = property<bool>(input, "allowMidairNode");
@@ -735,9 +735,9 @@ public:
     bundle_template.branch_endpoint_offset_m = property<double>(input, "branchEndpointOffset");
     bundle_template.support_wire_pole_band_id = property<int>(input, "supportWirePoleBandId");
     bundle_template.row_fixture_assembly_id =
-        property<wire::core::ModelAssemblyTemplateId>(input, "rowFixtureAssemblyId");
+        property<city::wire::ModelAssemblyTemplateId>(input, "rowFixtureAssemblyId");
     bundle_template.endpoint_fixture_assembly_id =
-        property<wire::core::ModelAssemblyTemplateId>(input, "endpointFixtureAssemblyId");
+        property<city::wire::ModelAssemblyTemplateId>(input, "endpointFixtureAssemblyId");
     const val assembly = input["spanVisualAssembly"];
     bundle_template.span_visual_assembly.support_path_enabled =
         property<bool>(assembly, "supportPathEnabled");
@@ -752,7 +752,7 @@ public:
     bundle_template.span_visual_assembly.member_wander_phase_bias = property<double>(assembly, "memberWanderPhaseBias");
     bundle_template.span_visual_assembly.member_twist_turns_per_meter = property<double>(assembly, "memberTwistTurnsPerMeter");
     bundle_template.span_visual_assembly.member_twist_phase = property<double>(assembly, "memberTwistPhase");
-    const std::vector<wire::core::CablePopulationRule> existing_population_rules =
+    const std::vector<city::wire::CablePopulationRule> existing_population_rules =
         bundle_template.population_rules;
     bundle_template.population_rules.clear();
     const val population_rules = input["populationRules"];
@@ -760,13 +760,13 @@ public:
     bundle_template.population_rules.reserve(population_rule_count);
     for (std::size_t index = 0; index < population_rule_count; ++index) {
       const val item = population_rules[index];
-      const wire::core::CableSectionRuleId rule_id =
-          property<wire::core::CableSectionRuleId>(item, "ruleId");
+      const city::wire::CableSectionRuleId rule_id =
+          property<city::wire::CableSectionRuleId>(item, "ruleId");
       const auto existing_rule = std::ranges::find_if(
           existing_population_rules,
-          [rule_id](const wire::core::CablePopulationRule& rule) { return rule.rule_id == rule_id; });
-      wire::core::CablePopulationRule rule =
-          existing_rule == existing_population_rules.end() ? wire::core::CablePopulationRule{} : *existing_rule;
+          [rule_id](const city::wire::CablePopulationRule& rule) { return rule.rule_id == rule_id; });
+      city::wire::CablePopulationRule rule =
+          existing_rule == existing_population_rules.end() ? city::wire::CablePopulationRule{} : *existing_rule;
       rule.rule_id = rule_id;
       rule.explicit_seed = property<std::uint64_t>(item, "explicitSeed");
       rule.priority = property<int>(item, "priority");
@@ -785,7 +785,7 @@ public:
 
   val apply_related_pole_type(int bundle_template_id) {
     const BundleTemplateId id = ::bundle_template_id(bundle_template_id);
-    if (id == wire::core::kInvalidBundleTemplateId) {
+    if (id == city::wire::kInvalidBundleTemplateId) {
       return result_value(false, "bundle template id is invalid");
     }
     const auto updated = state_->ApplyBundleRelatedPoleTypeToExistingPoles(id);
@@ -819,7 +819,7 @@ public:
 
   [[nodiscard]] val cable_template(std::size_t index) const {
     const auto& templates = CoreView(*state_).cable_templates();
-    std::vector<wire::core::CableTemplateId> ids{};
+    std::vector<city::wire::CableTemplateId> ids{};
     ids.reserve(templates.size());
     for (const auto& [id, cable_template] : templates) {
       (void)cable_template;
@@ -842,9 +842,9 @@ public:
     output.set("slackFactor", cable_template.slack_factor);
     output.set("continuityPolicy", static_cast<int>(cable_template.continuity_policy));
     const auto supplemental = std::ranges::find_if(
-        cable_template.supplemental_paths, [](const wire::core::CableSupplementalPathTemplate& path) {
-          return path.anchor_mode == wire::core::CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
-                 path.profile_kind == wire::core::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
+        cable_template.supplemental_paths, [](const city::wire::CableSupplementalPathTemplate& path) {
+          return path.anchor_mode == city::wire::CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
+                 path.profile_kind == city::wire::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
         });
     const bool has_supplemental = supplemental != cable_template.supplemental_paths.end();
     output.set("supplementalEnabled", has_supplemental);
@@ -858,7 +858,7 @@ public:
   }
 
   val update_cable_template(const val& input, const val& preferred_span_ids) {
-    const wire::core::CableTemplateId id = property<wire::core::CableTemplateId>(input, "id");
+    const city::wire::CableTemplateId id = property<city::wire::CableTemplateId>(input, "id");
     const auto& templates = CoreView(*state_).cable_templates();
     const auto it = templates.find(id);
     if (it == templates.end()) {
@@ -869,24 +869,24 @@ public:
     cable_template.bend_stiffness = property<double>(input, "bendStiffness");
     cable_template.min_bend_radius_m = property<double>(input, "minBendRadius");
     cable_template.material_style =
-        static_cast<wire::core::CableMaterialStyleKind>(property<int>(input, "materialStyle"));
+        static_cast<city::wire::CableMaterialStyleKind>(property<int>(input, "materialStyle"));
     cable_template.color_rgba = property<std::uint32_t>(input, "colorRgba");
     cable_template.sag_factor = property<double>(input, "sagFactor");
     cable_template.slack_factor = property<double>(input, "slackFactor");
     cable_template.continuity_policy =
-        static_cast<wire::core::CableContinuityPolicyHint>(property<int>(input, "continuityPolicy"));
+        static_cast<city::wire::CableContinuityPolicyHint>(property<int>(input, "continuityPolicy"));
 
     auto supplemental = std::ranges::find_if(
-        cable_template.supplemental_paths, [](const wire::core::CableSupplementalPathTemplate& path) {
-          return path.anchor_mode == wire::core::CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
-                 path.profile_kind == wire::core::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
+        cable_template.supplemental_paths, [](const city::wire::CableSupplementalPathTemplate& path) {
+          return path.anchor_mode == city::wire::CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
+                 path.profile_kind == city::wire::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
         });
     if (property<bool>(input, "supplementalEnabled")) {
       if (supplemental == cable_template.supplemental_paths.end()) {
-        wire::core::CableSupplementalPathTemplate path{};
-        path.anchor_mode = wire::core::CableSupplementalPathTemplate::AnchorMode::kCurveOffset;
-        path.profile_kind = wire::core::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
-        path.interaction_mode = wire::core::AttachmentLineInteractionMode::kAddInternalPath;
+        city::wire::CableSupplementalPathTemplate path{};
+        path.anchor_mode = city::wire::CableSupplementalPathTemplate::AnchorMode::kCurveOffset;
+        path.profile_kind = city::wire::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
+        path.interaction_mode = city::wire::AttachmentLineInteractionMode::kAddInternalPath;
         cable_template.supplemental_paths.push_back(path);
         supplemental = std::prev(cable_template.supplemental_paths.end());
       }
@@ -900,12 +900,12 @@ public:
       cable_template.supplemental_paths.erase(supplemental);
     }
 
-    std::vector<wire::core::ObjectId> preferred{};
+    std::vector<city::wire::ObjectId> preferred{};
     const std::size_t preferred_count = preferred_span_ids["length"].as<std::size_t>();
     preferred.reserve(preferred_count);
     for (std::size_t preferred_index = 0; preferred_index < preferred_count; ++preferred_index) {
       preferred.push_back(
-          static_cast<wire::core::ObjectId>(std::stoull(preferred_span_ids[preferred_index].as<std::string>())));
+          static_cast<city::wire::ObjectId>(std::stoull(preferred_span_ids[preferred_index].as<std::string>())));
     }
     const auto updated = state_->UpdateCableTemplate(cable_template, preferred);
     return result_value(updated.ok, updated.error);
@@ -980,25 +980,25 @@ public:
     if (existing == CoreView(*state_).pole_types().end()) {
       return result_value(false, "pole template is missing");
     }
-    wire::core::PoleTypeDefinition pole_template = existing->second;
+    city::wire::PoleTypeDefinition pole_template = existing->second;
     pole_template.id = pole_type_id;
     pole_template.name = property<std::string>(input, "name");
     pole_template.description = property<std::string>(input, "description");
     pole_template.default_height_m = property<double>(input, "defaultHeight");
     pole_template.pole_visual_assembly_id =
-        property<wire::core::ModelAssemblyTemplateId>(input, "poleVisualAssemblyId");
+        property<city::wire::ModelAssemblyTemplateId>(input, "poleVisualAssemblyId");
     const val bands = input["portBands"];
     const std::size_t band_count = bands["length"].as<std::size_t>();
     pole_template.port_bands.clear();
     pole_template.port_bands.reserve(band_count);
     for (std::size_t band_index = 0; band_index < band_count; ++band_index) {
       const val item = bands[band_index];
-      wire::core::PortPlacementBand band{};
+      city::wire::PortPlacementBand band{};
       band.band_id = property<int>(item, "bandId");
-      band.category = static_cast<wire::core::ConnectionCategory>(property<int>(item, "category"));
+      band.category = static_cast<city::wire::ConnectionCategory>(property<int>(item, "category"));
       band.layer = property<int>(item, "layer");
-      band.side = static_cast<wire::core::SlotSide>(property<int>(item, "side"));
-      band.role = static_cast<wire::core::SlotRole>(property<int>(item, "role"));
+      band.side = static_cast<city::wire::SlotSide>(property<int>(item, "side"));
+      band.role = static_cast<city::wire::SlotRole>(property<int>(item, "role"));
       band.lateral_center_m = property<double>(item, "lateralCenter");
       band.lateral_min_m = property<double>(item, "lateralMin");
       band.lateral_max_m = property<double>(item, "lateralMax");
@@ -1009,7 +1009,7 @@ public:
       band.min_spacing_m = property<double>(item, "minSpacing");
       band.allow_multiple = property<bool>(item, "allowMultiple");
       band.overflow_policy =
-          static_cast<wire::core::BandOverflowPolicy>(property<int>(item, "overflowPolicy"));
+          static_cast<city::wire::BandOverflowPolicy>(property<int>(item, "overflowPolicy"));
       band.enabled = property<bool>(item, "enabled");
       pole_template.port_bands.push_back(band);
     }
@@ -1019,9 +1019,9 @@ public:
     pole_template.anchor_slots.reserve(slot_count);
     for (std::size_t slot_index = 0; slot_index < slot_count; ++slot_index) {
       const val item = slots[slot_index];
-      wire::core::AnchorSlotTemplate slot{};
+      city::wire::AnchorSlotTemplate slot{};
       slot.slot_id = property<int>(item, "slotId");
-      slot.usage = static_cast<wire::core::AnchorSupportKind>(property<int>(item, "usage"));
+      slot.usage = static_cast<city::wire::AnchorSupportKind>(property<int>(item, "usage"));
       slot.local_position = {
           property<double>(item, "localX"),
           property<double>(item, "localY"),
@@ -1046,7 +1046,7 @@ public:
   }
 
   val update_geometry_settings(const val& input) {
-    wire::core::GeometrySettings settings{};
+    city::wire::GeometrySettings settings{};
     settings.curve_samples = property<int>(input, "curveSamples");
     settings.sag_enabled = property<bool>(input, "sagEnabled");
     settings.sag_factor = property<double>(input, "sagFactor");
@@ -1066,7 +1066,7 @@ public:
   }
 
   val update_layout_settings(const val& input) {
-    wire::core::LayoutSettings settings{};
+    city::wire::LayoutSettings settings{};
     settings.angle_correction_enabled = property<bool>(input, "angleCorrectionEnabled");
     settings.corner_threshold_deg = property<double>(input, "cornerThresholdDeg");
     settings.min_side_scale = property<double>(input, "minSideScale");
@@ -1085,7 +1085,7 @@ public:
   }
 
   val update_visual_settings(const val& input) {
-    wire::core::VisualSettings settings{};
+    city::wire::VisualSettings settings{};
     settings.enable_insulators = property<bool>(input, "enableInsulators");
     settings.insulator_radius_m = property<double>(input, "insulatorRadius");
     settings.insulator_length_m = property<double>(input, "insulatorLength");
@@ -1094,11 +1094,11 @@ public:
   }
 
   val apply_pole_tilt(const val& pole_ids, double max_tilt_deg) {
-    std::vector<wire::core::ObjectId> ids{};
+    std::vector<city::wire::ObjectId> ids{};
     const std::size_t count = pole_ids["length"].as<std::size_t>();
     ids.reserve(count);
     for (std::size_t index = 0; index < count; ++index) {
-      ids.push_back(static_cast<wire::core::ObjectId>(std::stoull(pole_ids[index].as<std::string>())));
+      ids.push_back(static_cast<city::wire::ObjectId>(std::stoull(pole_ids[index].as<std::string>())));
     }
     const auto updated = state_->ApplyPoleTilt(ids, max_tilt_deg);
     return result_value(updated.ok, updated.error);

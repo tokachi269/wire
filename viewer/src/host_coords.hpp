@@ -1,7 +1,7 @@
 #pragma once
 
 #include "raylib.h"
-#include "wire/core/types.hpp"
+#include "city/wire/types.hpp"
 
-wire::core::Vec3d HostWorldToInternal(const Vector3& host_world);
-Vector3 InternalToHostWorld(const wire::core::Vec3d& internal_world);
+city::wire::Vec3d HostWorldToInternal(const Vector3& host_world);
+Vector3 InternalToHostWorld(const city::wire::Vec3d& internal_world);

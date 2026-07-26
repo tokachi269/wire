@@ -3,7 +3,7 @@
 #include "path_pick_policy.hpp"
 #include "ui_common.hpp"
 
-#include "wire/core/coord_utils.hpp"
+#include "city/wire/coord_utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -30,384 +30,384 @@ constexpr auto EnumOrdinal(Enum value) noexcept {
   return static_cast<std::underlying_type_t<Enum>>(value);
 }
 
-const char* CategoryLabelLocal(wire::core::ConnectionCategory category) {
+const char* CategoryLabelLocal(city::wire::ConnectionCategory category) {
   switch (category) {
-  case wire::core::ConnectionCategory::kLowVoltage:
+  case city::wire::ConnectionCategory::kLowVoltage:
     return "LowVoltage";
-  case wire::core::ConnectionCategory::kHighVoltage:
+  case city::wire::ConnectionCategory::kHighVoltage:
     return "HighVoltage";
-  case wire::core::ConnectionCategory::kCommunication:
+  case city::wire::ConnectionCategory::kCommunication:
     return "Communication";
-  case wire::core::ConnectionCategory::kOptical:
+  case city::wire::ConnectionCategory::kOptical:
     return "Optical";
-  case wire::core::ConnectionCategory::kDrop:
+  case city::wire::ConnectionCategory::kDrop:
     return "Drop";
   default:
     return "Unknown";
   }
 }
 
-const char* ContextLabelLocal(wire::core::ConnectionContext context) {
+const char* ContextLabelLocal(city::wire::ConnectionContext context) {
   switch (context) {
-  case wire::core::ConnectionContext::kTrunkContinue:
+  case city::wire::ConnectionContext::kTrunkContinue:
     return "TrunkContinue";
-  case wire::core::ConnectionContext::kCornerPass:
+  case city::wire::ConnectionContext::kCornerPass:
     return "CornerPass";
-  case wire::core::ConnectionContext::kBranchAdd:
+  case city::wire::ConnectionContext::kBranchAdd:
     return "BranchAdd";
-  case wire::core::ConnectionContext::kDropAdd:
+  case city::wire::ConnectionContext::kDropAdd:
     return "DropAdd";
   default:
     return "Unknown";
   }
 }
 
-const char* PathDirectionModeLabelLocal(wire::core::PathDirectionMode mode) {
+const char* PathDirectionModeLabelLocal(city::wire::PathDirectionMode mode) {
   switch (mode) {
-  case wire::core::PathDirectionMode::kAuto:
+  case city::wire::PathDirectionMode::kAuto:
     return "Auto";
-  case wire::core::PathDirectionMode::kForward:
+  case city::wire::PathDirectionMode::kForward:
     return "Forward";
-  case wire::core::PathDirectionMode::kReverse:
+  case city::wire::PathDirectionMode::kReverse:
     return "Reverse";
   default:
     return "Unknown";
   }
 }
 
-const char* PathDirectionChosenLabelLocal(wire::core::PathDirectionChosen chosen) {
+const char* PathDirectionChosenLabelLocal(city::wire::PathDirectionChosen chosen) {
   switch (chosen) {
-  case wire::core::PathDirectionChosen::kForward:
+  case city::wire::PathDirectionChosen::kForward:
     return "Forward";
-  case wire::core::PathDirectionChosen::kReverse:
+  case city::wire::PathDirectionChosen::kReverse:
     return "Reverse";
   default:
     return "Unknown";
   }
 }
 
-const char* CableMaterialStyleLabelLocal(wire::core::CableMaterialStyleKind kind) {
+const char* CableMaterialStyleLabelLocal(city::wire::CableMaterialStyleKind kind) {
   switch (kind) {
-  case wire::core::CableMaterialStyleKind::kGeneric:
+  case city::wire::CableMaterialStyleKind::kGeneric:
     return "Generic";
-  case wire::core::CableMaterialStyleKind::kBareConductor:
+  case city::wire::CableMaterialStyleKind::kBareConductor:
     return "BareConductor";
-  case wire::core::CableMaterialStyleKind::kInsulated:
+  case city::wire::CableMaterialStyleKind::kInsulated:
     return "Insulated";
-  case wire::core::CableMaterialStyleKind::kOptical:
+  case city::wire::CableMaterialStyleKind::kOptical:
     return "Optical";
   default:
     return "Unknown";
   }
 }
 
-const char* CableAttachmentStyleLabelLocal(wire::core::CableAttachmentStyleHint kind) {
+const char* CableAttachmentStyleLabelLocal(city::wire::CableAttachmentStyleHint kind) {
   switch (kind) {
-  case wire::core::CableAttachmentStyleHint::kAuto:
+  case city::wire::CableAttachmentStyleHint::kAuto:
     return "Auto";
-  case wire::core::CableAttachmentStyleHint::kDirectThrough:
+  case city::wire::CableAttachmentStyleHint::kDirectThrough:
     return "DirectThrough";
-  case wire::core::CableAttachmentStyleHint::kViaAttachment:
+  case city::wire::CableAttachmentStyleHint::kViaAttachment:
     return "ViaAttachment";
   default:
     return "Unknown";
   }
 }
 
-const char* VisualCurvePartKindLabelLocal(wire::core::VisualCurvePartKind kind) {
+const char* VisualCurvePartKindLabelLocal(city::wire::VisualCurvePartKind kind) {
   switch (kind) {
-  case wire::core::VisualCurvePartKind::kEdgeBody:
+  case city::wire::VisualCurvePartKind::kEdgeBody:
     return "edge_body";
-  case wire::core::VisualCurvePartKind::kNodePatch:
+  case city::wire::VisualCurvePartKind::kNodePatch:
     return "node_patch";
-  case wire::core::VisualCurvePartKind::kLead:
+  case city::wire::VisualCurvePartKind::kLead:
     return "lead";
-  case wire::core::VisualCurvePartKind::kJumper:
+  case city::wire::VisualCurvePartKind::kJumper:
     return "jumper";
-  case wire::core::VisualCurvePartKind::kSupplemental:
+  case city::wire::VisualCurvePartKind::kSupplemental:
     return "supplemental";
   default:
     return "unknown";
   }
 }
 
-const char* NodePatchClassificationLabelLocal(wire::core::NodePatchClassification kind) {
+const char* NodePatchClassificationLabelLocal(city::wire::NodePatchClassification kind) {
   switch (kind) {
-  case wire::core::NodePatchClassification::kNone:
+  case city::wire::NodePatchClassification::kNone:
     return "none";
-  case wire::core::NodePatchClassification::kTerminal:
+  case city::wire::NodePatchClassification::kTerminal:
     return "terminal";
-  case wire::core::NodePatchClassification::kSimpleContinuous:
+  case city::wire::NodePatchClassification::kSimpleContinuous:
     return "simple_continuous";
-  case wire::core::NodePatchClassification::kMultiIncidentUnsupported:
+  case city::wire::NodePatchClassification::kMultiIncidentUnsupported:
     return "multi_incident_unsupported";
-  case wire::core::NodePatchClassification::kFixtureBoundaryUnsupported:
+  case city::wire::NodePatchClassification::kFixtureBoundaryUnsupported:
     return "fixture_boundary_unsupported";
   default:
     return "unknown";
   }
 }
 
-const char* StyleObjectKindLabelLocal(wire::core::StyleObjectKind kind) {
+const char* StyleObjectKindLabelLocal(city::wire::StyleObjectKind kind) {
   switch (kind) {
-  case wire::core::StyleObjectKind::kSpan:
+  case city::wire::StyleObjectKind::kSpan:
     return "Span";
-  case wire::core::StyleObjectKind::kEndpoint:
+  case city::wire::StyleObjectKind::kEndpoint:
     return "Endpoint";
-  case wire::core::StyleObjectKind::kAttachment:
+  case city::wire::StyleObjectKind::kAttachment:
     return "Attachment";
-  case wire::core::StyleObjectKind::kSupport:
+  case city::wire::StyleObjectKind::kSupport:
     return "Support";
-  case wire::core::StyleObjectKind::kPoleAccessory:
+  case city::wire::StyleObjectKind::kPoleAccessory:
     return "PoleAccessory";
   default:
     return "Unknown";
   }
 }
 
-const char* SupportKindLabelLocal(wire::core::SupportKind kind) {
+const char* SupportKindLabelLocal(city::wire::SupportKind kind) {
   switch (kind) {
-  case wire::core::SupportKind::kPole:
+  case city::wire::SupportKind::kPole:
     return "Pole";
-  case wire::core::SupportKind::kMidair:
+  case city::wire::SupportKind::kMidair:
     return "Midair";
-  case wire::core::SupportKind::kExternal:
+  case city::wire::SupportKind::kExternal:
     return "External";
   default:
     return "Unknown";
   }
 }
 
-const char* PickHitKindLabelLocal(wire::core::PickHitKind kind) {
+const char* PickHitKindLabelLocal(city::wire::PickHitKind kind) {
   switch (kind) {
-  case wire::core::PickHitKind::kNode:
+  case city::wire::PickHitKind::kNode:
     return "Node";
-  case wire::core::PickHitKind::kSegment:
+  case city::wire::PickHitKind::kSegment:
     return "Segment";
-  case wire::core::PickHitKind::kGround:
+  case city::wire::PickHitKind::kGround:
     return "Ground";
-  case wire::core::PickHitKind::kExternal:
+  case city::wire::PickHitKind::kExternal:
     return "External";
   default:
     return "Empty";
   }
 }
 
-const char* LoweringKindLabelLocal(wire::core::BackboneLoweringKind kind) {
+const char* LoweringKindLabelLocal(city::wire::BackboneLoweringKind kind) {
   switch (kind) {
-  case wire::core::BackboneLoweringKind::kNone:
+  case city::wire::BackboneLoweringKind::kNone:
     return "None";
-  case wire::core::BackboneLoweringKind::kBranchSupport:
+  case city::wire::BackboneLoweringKind::kBranchSupport:
     return "BranchSupport";
-  case wire::core::BackboneLoweringKind::kCrossUnderpass:
+  case city::wire::BackboneLoweringKind::kCrossUnderpass:
     return "CrossUnderpass";
-  case wire::core::BackboneLoweringKind::kAcuteCorner:
+  case city::wire::BackboneLoweringKind::kAcuteCorner:
     return "AcuteCorner";
   default:
     return "Unknown";
   }
 }
 
-const char* FlowKindLabelLocal(wire::core::BackboneFlowKind kind) {
+const char* FlowKindLabelLocal(city::wire::BackboneFlowKind kind) {
   switch (kind) {
-  case wire::core::BackboneFlowKind::kMain:
+  case city::wire::BackboneFlowKind::kMain:
     return "Main";
-  case wire::core::BackboneFlowKind::kBranch:
+  case city::wire::BackboneFlowKind::kBranch:
     return "Branch";
   default:
     return "Unknown";
   }
 }
 
-const char* FlowRuleLabelLocal(wire::core::BackboneFlowDecisionRule rule) {
+const char* FlowRuleLabelLocal(city::wire::BackboneFlowDecisionRule rule) {
   switch (rule) {
-  case wire::core::BackboneFlowDecisionRule::kDefaultMain:
+  case city::wire::BackboneFlowDecisionRule::kDefaultMain:
     return "DefaultMain";
-  case wire::core::BackboneFlowDecisionRule::kJunctionOrderMain:
+  case city::wire::BackboneFlowDecisionRule::kJunctionOrderMain:
     return "JunctionOrderMain";
-  case wire::core::BackboneFlowDecisionRule::kJunctionOrderBranch:
+  case city::wire::BackboneFlowDecisionRule::kJunctionOrderBranch:
     return "JunctionOrderBranch";
   default:
     return "Unknown";
   }
 }
 
-const char* JunctionRelationLabelLocal(wire::core::JunctionRelationKind kind) {
+const char* JunctionRelationLabelLocal(city::wire::JunctionRelationKind kind) {
   switch (kind) {
-  case wire::core::JunctionRelationKind::kNone:
+  case city::wire::JunctionRelationKind::kNone:
     return "None";
-  case wire::core::JunctionRelationKind::kThroughMain:
+  case city::wire::JunctionRelationKind::kThroughMain:
     return "ThroughMain";
-  case wire::core::JunctionRelationKind::kSideBranch:
+  case city::wire::JunctionRelationKind::kSideBranch:
     return "SideBranch";
-  case wire::core::JunctionRelationKind::kCornerContinuation:
+  case city::wire::JunctionRelationKind::kCornerContinuation:
     return "CornerContinuation";
-  case wire::core::JunctionRelationKind::kCrossUnderpass:
+  case city::wire::JunctionRelationKind::kCrossUnderpass:
     return "CrossUnderpass";
   default:
     return "Unknown";
   }
 }
 
-const char* ContinuityClassLabelLocal(wire::core::ContinuityCategoryClass continuity_class) {
+const char* ContinuityClassLabelLocal(city::wire::ContinuityCategoryClass continuity_class) {
   switch (continuity_class) {
-  case wire::core::ContinuityCategoryClass::kPointLike:
+  case city::wire::ContinuityCategoryClass::kPointLike:
     return "PointLike";
-  case wire::core::ContinuityCategoryClass::kBundleLike:
+  case city::wire::ContinuityCategoryClass::kBundleLike:
     return "BundleLike";
   default:
     return "Unknown";
   }
 }
 
-const char* SameLevelReasonLabelLocal(wire::core::SameLevelFeasibilityReason reason) {
+const char* SameLevelReasonLabelLocal(city::wire::SameLevelFeasibilityReason reason) {
   switch (reason) {
-  case wire::core::SameLevelFeasibilityReason::kNone:
+  case city::wire::SameLevelFeasibilityReason::kNone:
     return "None";
-  case wire::core::SameLevelFeasibilityReason::kBundleRule:
+  case city::wire::SameLevelFeasibilityReason::kBundleRule:
     return "BundleRule";
-  case wire::core::SameLevelFeasibilityReason::kEnvelopeOverlap:
+  case city::wire::SameLevelFeasibilityReason::kEnvelopeOverlap:
     return "EnvelopeOverlap";
-  case wire::core::SameLevelFeasibilityReason::kNearNodeClearance:
+  case city::wire::SameLevelFeasibilityReason::kNearNodeClearance:
     return "NearNodeClearance";
-  case wire::core::SameLevelFeasibilityReason::kCategoryPolicyDisabled:
+  case city::wire::SameLevelFeasibilityReason::kCategoryPolicyDisabled:
     return "CategoryPolicyDisabled";
   default:
     return "Unknown";
   }
 }
 
-const char* OrderDecisionPolicyLabelLocal(wire::core::OrderDecisionPolicyKind policy) {
+const char* OrderDecisionPolicyLabelLocal(city::wire::OrderDecisionPolicyKind policy) {
   switch (policy) {
-  case wire::core::OrderDecisionPolicyKind::kFixedOrder:
+  case city::wire::OrderDecisionPolicyKind::kFixedOrder:
     return "FixedOrder";
-  case wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous:
+  case city::wire::OrderDecisionPolicyKind::kPermutableHomogeneous:
     return "PermutableHomogeneous";
   default:
     return "Unknown";
   }
 }
 
-const char* OrderDecisionChoiceLabelLocal(wire::core::OrderDecisionChoiceKind choice) {
+const char* OrderDecisionChoiceLabelLocal(city::wire::OrderDecisionChoiceKind choice) {
   switch (choice) {
-  case wire::core::OrderDecisionChoiceKind::kNormal:
+  case city::wire::OrderDecisionChoiceKind::kNormal:
     return "Normal";
-  case wire::core::OrderDecisionChoiceKind::kReversed:
+  case city::wire::OrderDecisionChoiceKind::kReversed:
     return "Reversed";
   default:
     return "Unknown";
   }
 }
 
-const char* OrderDecisionChoiceReasonLabelLocal(wire::core::OrderDecisionChoiceReason reason) {
+const char* OrderDecisionChoiceReasonLabelLocal(city::wire::OrderDecisionChoiceReason reason) {
   switch (reason) {
-  case wire::core::OrderDecisionChoiceReason::kFixedOrder:
+  case city::wire::OrderDecisionChoiceReason::kFixedOrder:
     return "FixedOrder";
-  case wire::core::OrderDecisionChoiceReason::kCrossingFewer:
+  case city::wire::OrderDecisionChoiceReason::kCrossingFewer:
     return "CrossingFewer";
-  case wire::core::OrderDecisionChoiceReason::kSpacingBetter:
+  case city::wire::OrderDecisionChoiceReason::kSpacingBetter:
     return "SpacingBetter";
-  case wire::core::OrderDecisionChoiceReason::kTwistSmaller:
+  case city::wire::OrderDecisionChoiceReason::kTwistSmaller:
     return "TwistSmaller";
-  case wire::core::OrderDecisionChoiceReason::kKeptDefault:
+  case city::wire::OrderDecisionChoiceReason::kKeptDefault:
     return "KeptDefault";
   default:
     return "Unknown";
   }
 }
 
-const char* LateralSideChoiceLabelLocal(wire::core::LateralSideChoiceKind choice) {
+const char* LateralSideChoiceLabelLocal(city::wire::LateralSideChoiceKind choice) {
   switch (choice) {
-  case wire::core::LateralSideChoiceKind::kCenter:
+  case city::wire::LateralSideChoiceKind::kCenter:
     return "Center";
-  case wire::core::LateralSideChoiceKind::kLeft:
+  case city::wire::LateralSideChoiceKind::kLeft:
     return "Left";
-  case wire::core::LateralSideChoiceKind::kRight:
+  case city::wire::LateralSideChoiceKind::kRight:
     return "Right";
   default:
     return "Unknown";
   }
 }
 
-const char* SideAssignmentRuleLabelLocal(wire::core::SideAssignmentRuleKind rule) {
+const char* SideAssignmentRuleLabelLocal(city::wire::SideAssignmentRuleKind rule) {
   switch (rule) {
-  case wire::core::SideAssignmentRuleKind::kPoleLocal:
+  case city::wire::SideAssignmentRuleKind::kPoleLocal:
     return "PoleLocal";
-  case wire::core::SideAssignmentRuleKind::kChord:
+  case city::wire::SideAssignmentRuleKind::kChord:
     return "Chord";
-  case wire::core::SideAssignmentRuleKind::kThroughPairNormal:
+  case city::wire::SideAssignmentRuleKind::kThroughPairNormal:
     return "ThroughPairNormal";
-  case wire::core::SideAssignmentRuleKind::kBisector:
+  case city::wire::SideAssignmentRuleKind::kBisector:
     return "Bisector";
   default:
     return "Unknown";
   }
 }
 
-const char* SupportOrientationRuleLabelLocal(wire::core::SupportOrientationRuleKind rule) {
+const char* SupportOrientationRuleLabelLocal(city::wire::SupportOrientationRuleKind rule) {
   switch (rule) {
-  case wire::core::SupportOrientationRuleKind::kRadial:
+  case city::wire::SupportOrientationRuleKind::kRadial:
     return "Radial";
-  case wire::core::SupportOrientationRuleKind::kChord:
+  case city::wire::SupportOrientationRuleKind::kChord:
     return "Chord";
-  case wire::core::SupportOrientationRuleKind::kThroughPairNormal:
+  case city::wire::SupportOrientationRuleKind::kThroughPairNormal:
     return "ThroughPairNormal";
-  case wire::core::SupportOrientationRuleKind::kBisector:
+  case city::wire::SupportOrientationRuleKind::kBisector:
     return "Bisector";
   default:
     return "Unknown";
   }
 }
 
-const char* SupportOrientationBasisLabelLocal(wire::core::SupportOrientationBasisKind basis) {
+const char* SupportOrientationBasisLabelLocal(city::wire::SupportOrientationBasisKind basis) {
   switch (basis) {
-  case wire::core::SupportOrientationBasisKind::kRadial:
+  case city::wire::SupportOrientationBasisKind::kRadial:
     return "Radial";
-  case wire::core::SupportOrientationBasisKind::kChordForward:
+  case city::wire::SupportOrientationBasisKind::kChordForward:
     return "ChordForward";
-  case wire::core::SupportOrientationBasisKind::kChordReverse:
+  case city::wire::SupportOrientationBasisKind::kChordReverse:
     return "ChordReverse";
-  case wire::core::SupportOrientationBasisKind::kBisectorForward:
+  case city::wire::SupportOrientationBasisKind::kBisectorForward:
     return "BisectorForward";
-  case wire::core::SupportOrientationBasisKind::kBisectorReverse:
+  case city::wire::SupportOrientationBasisKind::kBisectorReverse:
     return "BisectorReverse";
-  case wire::core::SupportOrientationBasisKind::kPairNormalPositive:
+  case city::wire::SupportOrientationBasisKind::kPairNormalPositive:
     return "PairNormalPositive";
-  case wire::core::SupportOrientationBasisKind::kPairNormalNegative:
+  case city::wire::SupportOrientationBasisKind::kPairNormalNegative:
     return "PairNormalNegative";
   default:
     return "Unknown";
   }
 }
 
-const char* SupportGroupingRuleLabelLocal(wire::core::SupportGroupingRuleKind rule) {
+const char* SupportGroupingRuleLabelLocal(city::wire::SupportGroupingRuleKind rule) {
   switch (rule) {
-  case wire::core::SupportGroupingRuleKind::kPerPort:
+  case city::wire::SupportGroupingRuleKind::kPerPort:
     return "PerPort";
-  case wire::core::SupportGroupingRuleKind::kDecisionGroup:
+  case city::wire::SupportGroupingRuleKind::kDecisionGroup:
     return "DecisionGroup";
   default:
     return "Unknown";
   }
 }
 
-const char* DecisionTraceTopicLabelLocal(wire::core::DecisionTraceTopic topic) {
+const char* DecisionTraceTopicLabelLocal(city::wire::DecisionTraceTopic topic) {
   switch (topic) {
-  case wire::core::DecisionTraceTopic::kPoleOrientation:
+  case city::wire::DecisionTraceTopic::kPoleOrientation:
     return "PoleOrientation";
-  case wire::core::DecisionTraceTopic::kFlowClassification:
+  case city::wire::DecisionTraceTopic::kFlowClassification:
     return "FlowClassification";
-  case wire::core::DecisionTraceTopic::kSpanLayout:
+  case city::wire::DecisionTraceTopic::kSpanLayout:
     return "SpanLayout";
-  case wire::core::DecisionTraceTopic::kTangentGeneration:
+  case city::wire::DecisionTraceTopic::kTangentGeneration:
     return "TangentGeneration";
-  case wire::core::DecisionTraceTopic::kContinuitySelection:
+  case city::wire::DecisionTraceTopic::kContinuitySelection:
     return "ContinuitySelection";
-  case wire::core::DecisionTraceTopic::kContinuityDegrade:
+  case city::wire::DecisionTraceTopic::kContinuityDegrade:
     return "ContinuityDegrade";
-  case wire::core::DecisionTraceTopic::kSagProfile:
+  case city::wire::DecisionTraceTopic::kSagProfile:
     return "SagProfile";
-  case wire::core::DecisionTraceTopic::kOverrideResolution:
+  case city::wire::DecisionTraceTopic::kOverrideResolution:
     return "OverrideResolution";
   default:
     return "Unknown";
@@ -446,27 +446,27 @@ const char* SelectedTypeLabelLocal(SelectedType selected_type) {
   }
 }
 
-std::optional<wire::core::EntityRef> SelectedEntityRefLocal(const ViewerUiState& ui_state) {
-  using wire::core::EntityKind;
+std::optional<city::wire::EntityRef> SelectedEntityRefLocal(const ViewerUiState& ui_state) {
+  using city::wire::EntityKind;
   switch (ui_state.selected_type) {
   case SelectedType::kPole:
-    return wire::core::EntityRef{EntityKind::kPole, ui_state.selected_id};
+    return city::wire::EntityRef{EntityKind::kPole, ui_state.selected_id};
   case SelectedType::kSpan:
-    return wire::core::EntityRef{EntityKind::kSpan, ui_state.selected_id};
+    return city::wire::EntityRef{EntityKind::kSpan, ui_state.selected_id};
   case SelectedType::kSupportNode:
-    return wire::core::EntityRef{EntityKind::kSupportNode, ui_state.selected_id};
+    return city::wire::EntityRef{EntityKind::kSupportNode, ui_state.selected_id};
   case SelectedType::kSpanLayout:
-    return wire::core::EntityRef{EntityKind::kSpanLayout, ui_state.selected_id};
+    return city::wire::EntityRef{EntityKind::kSpanLayout, ui_state.selected_id};
   case SelectedType::kDetailCurve:
-    return wire::core::EntityRef{EntityKind::kDetailCurve, ui_state.selected_id};
+    return city::wire::EntityRef{EntityKind::kDetailCurve, ui_state.selected_id};
   case SelectedType::kJunction:
-    return wire::core::EntityRef{EntityKind::kJunction, ui_state.selected_id};
+    return city::wire::EntityRef{EntityKind::kJunction, ui_state.selected_id};
   default:
     return std::nullopt;
   }
 }
 
-std::string BundleTemplatePreviewOrIdLocal(const wire::core::CoreView& view, wire::core::BundleKind kind) {
+std::string BundleTemplatePreviewOrIdLocal(const city::wire::CoreView& view, city::wire::BundleKind kind) {
   const auto it = view.bundle_templates().find(kind);
   if (it == view.bundle_templates().end()) {
     return std::to_string(static_cast<int>(kind));
@@ -474,7 +474,7 @@ std::string BundleTemplatePreviewOrIdLocal(const wire::core::CoreView& view, wir
   return it->second.name;
 }
 
-std::string GeneratedEndpointSourceSummaryLocal(const wire::core::CoreView& view, const std::vector<ObjectId>& span_ids) {
+std::string GeneratedEndpointSourceSummaryLocal(const city::wire::CoreView& view, const std::vector<ObjectId>& span_ids) {
   int plain = 0;
   int socket = 0;
   int socket_override = 0;
@@ -485,15 +485,15 @@ std::string GeneratedEndpointSourceSummaryLocal(const wire::core::CoreView& view
     if (!layout_view.has_layout()) {
       continue;
     }
-    const auto accumulate = [&](const wire::core::LayoutEndpoint& endpoint) {
-      if (endpoint.attachment_request.kind != wire::core::EndpointAttachmentRequestKind::kNone) {
+    const auto accumulate = [&](const city::wire::LayoutEndpoint& endpoint) {
+      if (endpoint.attachment_request.kind != city::wire::EndpointAttachmentRequestKind::kNone) {
         ++attachment_inputs;
       }
-      if (endpoint.endpoint_source == wire::core::LayoutEndpointSourceKind::kPlainSupport) {
+      if (endpoint.endpoint_source == city::wire::LayoutEndpointSourceKind::kPlainSupport) {
         ++plain;
-      } else if (endpoint.endpoint_source == wire::core::LayoutEndpointSourceKind::kAttachmentSocket) {
+      } else if (endpoint.endpoint_source == city::wire::LayoutEndpointSourceKind::kAttachmentSocket) {
         ++socket;
-      } else if (endpoint.endpoint_source == wire::core::LayoutEndpointSourceKind::kAttachmentSocketOverride) {
+      } else if (endpoint.endpoint_source == city::wire::LayoutEndpointSourceKind::kAttachmentSocketOverride) {
         ++socket_override;
       } else {
         ++fallback;
@@ -508,12 +508,12 @@ std::string GeneratedEndpointSourceSummaryLocal(const wire::core::CoreView& view
   return oss.str();
 }
 
-void WriteVec3CaptureLocal(std::ofstream& ofs, const std::string& key, const wire::core::Vec3d& value) {
+void WriteVec3CaptureLocal(std::ofstream& ofs, const std::string& key, const city::wire::Vec3d& value) {
   ofs << key << "=" << value.x << "," << value.y << "," << value.z << "\n";
 }
 
 void WriteLayoutEndpointCaptureLocal(std::ofstream& ofs, const std::string& prefix,
-                                     const wire::core::LayoutEndpoint& endpoint) {
+                                     const city::wire::LayoutEndpoint& endpoint) {
   WriteVec3CaptureLocal(ofs, prefix + ".support", endpoint.support_world);
   WriteVec3CaptureLocal(ofs, prefix + ".endpoint", endpoint.endpoint_world);
   WriteVec3CaptureLocal(ofs, prefix + ".departure", endpoint.departure_dir);
@@ -539,7 +539,7 @@ void WriteLayoutEndpointCaptureLocal(std::ofstream& ofs, const std::string& pref
       << SupportOrientationBasisLabelLocal(endpoint.support_orientation_basis) << "\n";
 }
 
-void WriteNeutralSpanLayoutCaptureLocal(const wire::core::CoreView& view, std::ofstream& ofs,
+void WriteNeutralSpanLayoutCaptureLocal(const city::wire::CoreView& view, std::ofstream& ofs,
                                         const std::string& prefix, ObjectId span_id) {
   const auto rules_view = view.span_layout_rules(span_id);
   const auto layout_state = view.span_layout_state(span_id);
@@ -549,7 +549,7 @@ void WriteNeutralSpanLayoutCaptureLocal(const wire::core::CoreView& view, std::o
   ofs << prefix << ".layout_state.has_rules=" << (layout_state.has_rules ? 1 : 0) << "\n";
   ofs << prefix << ".layout_state.has_layout=" << (layout_state.has_layout ? 1 : 0) << "\n";
   if (rules_view.has_rule()) {
-    const wire::core::SpanLayoutRule& rule = *rules_view.rule;
+    const city::wire::SpanLayoutRule& rule = *rules_view.rule;
     ofs << prefix << ".rule_flow_kind=" << FlowKindLabelLocal(rule.flow_kind) << "\n";
     ofs << prefix << ".rule_pass_mode=" << static_cast<int>(rule.pass_mode) << "\n";
     ofs << prefix << ".rule_lowering_kind=" << LoweringKindLabelLocal(rule.lowering_kind) << "\n";
@@ -559,7 +559,7 @@ void WriteNeutralSpanLayoutCaptureLocal(const wire::core::CoreView& view, std::o
     ofs << prefix << ".rule_end_lower_required=" << (rule.end.semantic.lower_required ? 1 : 0) << "\n";
   }
   if (layout_view.has_layout()) {
-    const wire::core::SpanLayoutEntry& layout = *layout_view.entry;
+    const city::wire::SpanLayoutEntry& layout = *layout_view.entry;
     ofs << prefix << ".layout_flow_kind=" << FlowKindLabelLocal(layout.flow_kind) << "\n";
     ofs << prefix << ".layout_pass_mode=" << static_cast<int>(layout.pass_mode) << "\n";
     ofs << prefix << ".layout_lowering_kind=" << LoweringKindLabelLocal(layout.lowering_kind) << "\n";
@@ -567,7 +567,7 @@ void WriteNeutralSpanLayoutCaptureLocal(const wire::core::CoreView& view, std::o
     WriteLayoutEndpointCaptureLocal(ofs, prefix + ".layout_end", layout.end);
     ofs << prefix << ".layout_lowered_support_key_count=" << layout.lowered_support_group_keys.size() << "\n";
     for (std::size_t key_index = 0; key_index < layout.lowered_support_group_keys.size(); ++key_index) {
-      const wire::core::LoweredSupportGroupKey& key = layout.lowered_support_group_keys[key_index];
+      const city::wire::LoweredSupportGroupKey& key = layout.lowered_support_group_keys[key_index];
       ofs << prefix << ".layout_lowered_support_key[" << key_index
           << "].owner_pole_id=" << static_cast<unsigned long long>(key.owner_pole_id) << "\n";
       ofs << prefix << ".layout_lowered_support_key[" << key_index << "].support_group_id=" << key.support_group_id
@@ -576,12 +576,12 @@ void WriteNeutralSpanLayoutCaptureLocal(const wire::core::CoreView& view, std::o
   }
 }
 
-int ResolveBundleTemplateCountLocal(ViewerUiState& ui_state, const wire::core::BundleTemplate& bundle_template,
-                                    wire::core::BundleKind kind) {
+int ResolveBundleTemplateCountLocal(ViewerUiState& ui_state, const city::wire::BundleTemplate& bundle_template,
+                                    city::wire::BundleKind kind) {
   return ResolveBundleTemplateCount(ui_state, bundle_template, kind);
 }
 
-std::string PoleTypePreviewLocal(const wire::core::CoreView& view, wire::core::PoleTypeId pole_type_id) {
+std::string PoleTypePreviewLocal(const city::wire::CoreView& view, city::wire::PoleTypeId pole_type_id) {
   const auto it = view.pole_types().find(pole_type_id);
   if (it == view.pole_types().end()) {
     return std::to_string(pole_type_id);
@@ -597,12 +597,12 @@ std::size_t ClampedTypeIndexLocal(int current, std::size_t count) {
   return static_cast<std::size_t>(std::clamp(current, 0, max_index));
 }
 
-Vector3 ToRaylibLocal(const wire::core::Vec3d& ue_xyz) {
+Vector3 ToRaylibLocal(const city::wire::Vec3d& ue_xyz) {
   return Vector3{static_cast<float>(ue_xyz.x), static_cast<float>(ue_xyz.z), static_cast<float>(ue_xyz.y)};
 }
 
-double PolylineLengthLocal(const std::vector<wire::core::Vec3d>& points) {
-  return wire::core::PolylineLength(points);
+double PolylineLengthLocal(const std::vector<city::wire::Vec3d>& points) {
+  return city::wire::PolylineLength(points);
 }
 
 void PushLogLocal(ViewerUiState& ui_state, const std::string& line) {
@@ -616,18 +616,18 @@ void PushLogLocal(ViewerUiState& ui_state, const std::string& line) {
 
 void EnsureDrawPathPointKinds(ViewerUiState& ui_state) {
   if (ui_state.draw_path_point_support_kinds.size() < ui_state.draw_path_points.size()) {
-    ui_state.draw_path_point_support_kinds.resize(ui_state.draw_path_points.size(), wire::core::SupportKind::kPole);
+    ui_state.draw_path_point_support_kinds.resize(ui_state.draw_path_points.size(), city::wire::SupportKind::kPole);
   } else if (ui_state.draw_path_point_support_kinds.size() > ui_state.draw_path_points.size()) {
     ui_state.draw_path_point_support_kinds.resize(ui_state.draw_path_points.size());
   }
   if (ui_state.draw_path_point_node_ids.size() < ui_state.draw_path_points.size()) {
-    ui_state.draw_path_point_node_ids.resize(ui_state.draw_path_points.size(), wire::core::kInvalidObjectId);
+    ui_state.draw_path_point_node_ids.resize(ui_state.draw_path_points.size(), city::wire::kInvalidObjectId);
   } else if (ui_state.draw_path_point_node_ids.size() > ui_state.draw_path_points.size()) {
     ui_state.draw_path_point_node_ids.resize(ui_state.draw_path_points.size());
   }
 }
 
-void DrawPathPushPoint(ViewerUiState& ui_state, const wire::core::Vec3d& point, wire::core::SupportKind support_kind,
+void DrawPathPushPoint(ViewerUiState& ui_state, const city::wire::Vec3d& point, city::wire::SupportKind support_kind,
                        ObjectId node_id) {
   ui_state.draw_path_points.push_back(point);
   ui_state.draw_path_point_support_kinds.push_back(support_kind);
@@ -653,18 +653,18 @@ void DrawPathClearPoints(ViewerUiState& ui_state) {
   ui_state.draw_path_point_node_ids.clear();
 }
 
-wire::core::ResolveBranchPickResult DirectResolvedDrawPathTarget(const wire::core::PickResult& pick) {
-  wire::core::ResolveBranchPickResult resolved{};
-  resolved.resolution = wire::core::PickBranchResolutionKind::kNode;
+city::wire::ResolveBranchPickResult DirectResolvedDrawPathTarget(const city::wire::PickResult& pick) {
+  city::wire::ResolveBranchPickResult resolved{};
+  resolved.resolution = city::wire::PickBranchResolutionKind::kNode;
   resolved.resolved_node_id = pick.hit_id;
   resolved.position = pick.hit_pos_world;
-  resolved.support_kind = (pick.hit_kind == wire::core::PickHitKind::kExternal) ? wire::core::SupportKind::kExternal
-                                                                                 : wire::core::SupportKind::kPole;
+  resolved.support_kind = (pick.hit_kind == city::wire::PickHitKind::kExternal) ? city::wire::SupportKind::kExternal
+                                                                                 : city::wire::SupportKind::kPole;
   resolved.snapped_from_segment_endpoint = false;
   return resolved;
 }
 
-bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
+bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const city::wire::BackboneSpec& request,
                             bool clear_draw_path_on_success, const char* success_log,
                             const char* failure_log) {
   const auto view = viewer_core_state::View(state);
@@ -723,16 +723,16 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   const int mode_index = std::clamp(ui_state.draw_direction_mode, 0, 2);
   ui_state.draw_direction_mode = mode_index;
 
-  wire::core::BackboneSpec request{};
+  city::wire::BackboneSpec request{};
   request.path.polyline = ui_state.draw_path_points;
   for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
-    const wire::core::SupportKind support_kind = ui_state.draw_path_point_support_kinds[i];
+    const city::wire::SupportKind support_kind = ui_state.draw_path_point_support_kinds[i];
     const ObjectId node_id =
-        (i < ui_state.draw_path_point_node_ids.size()) ? ui_state.draw_path_point_node_ids[i] : wire::core::kInvalidObjectId;
-    if (support_kind == wire::core::SupportKind::kPole && node_id == wire::core::kInvalidObjectId) {
+        (i < ui_state.draw_path_point_node_ids.size()) ? ui_state.draw_path_point_node_ids[i] : city::wire::kInvalidObjectId;
+    if (support_kind == city::wire::SupportKind::kPole && node_id == city::wire::kInvalidObjectId) {
       continue;
     }
-    wire::core::BackboneInputSpec::NodeSpec node_spec{};
+    city::wire::BackboneInputSpec::NodeSpec node_spec{};
     node_spec.point_index = i;
     node_spec.support_kind = support_kind;
     node_spec.node_id = node_id;
@@ -746,19 +746,19 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   request.pole_type_id = type_ids[ui_state.road_pole_type_index];
   request.pole_placement.enable_tilt = ui_state.tilt_all_max_deg > 0.0;
   request.pole_placement.max_tilt_deg = ui_state.tilt_all_max_deg;
-  request.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
-  for (wire::core::BundleKind kind : selected_templates) {
+  request.direction_mode = static_cast<city::wire::PathDirectionMode>(mode_index);
+  for (city::wire::BundleKind kind : selected_templates) {
     const auto it = view.bundle_templates().find(kind);
     if (it == view.bundle_templates().end()) {
       ui_state.last_error = "selected bundle template is not available";
       return;
     }
-    const wire::core::BundleTemplate& bundle_template = it->second;
-    wire::core::BackboneBundleSpec bundle_request{};
+    const city::wire::BundleTemplate& bundle_template = it->second;
+    city::wire::BackboneBundleSpec bundle_request{};
     bundle_request.bundle_template_id = kind;
-    bundle_request.layer = wire::core::SpanLayer::kUnknown;
+    bundle_request.layer = city::wire::SpanLayer::kUnknown;
     bundle_request.count = 0;
-    if (bundle_template.count_rule == wire::core::BundleCountRuleKind::kRange) {
+    if (bundle_template.count_rule == city::wire::BundleCountRuleKind::kRange) {
       bundle_request.count = ResolveBundleTemplateCountLocal(ui_state, bundle_template, kind);
     }
     request.bundles.push_back(bundle_request);
@@ -827,10 +827,10 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   const auto view = viewer_core_state::View(state);
   const auto selected_templates = SelectedBundleTemplates(view, ui_state);
   const auto& dir_debug = view.last_path_direction_debug();
-  const auto write_vec3 = [&](const std::string& key, const wire::core::Vec3d& value) {
+  const auto write_vec3 = [&](const std::string& key, const city::wire::Vec3d& value) {
     ofs << key << "=" << value.x << "," << value.y << "," << value.z << "\n";
   };
-  const auto write_decision_trace = [&](const std::string& prefix, const wire::core::EntityRef& ref) {
+  const auto write_decision_trace = [&](const std::string& prefix, const city::wire::EntityRef& ref) {
     const auto trace = view.collect_decision_trace(ref);
     ofs << prefix << ".decision_trace_count=" << trace.size() << "\n";
     for (std::size_t index = 0; index < trace.size(); ++index) {
@@ -840,7 +840,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << prefix << ".decision_trace[" << index << "].summary=" << trace[index].summary << "\n";
     }
   };
-  const auto write_style_inspection = [&](const std::string& prefix, const wire::core::StyleInspectionView& style) {
+  const auto write_style_inspection = [&](const std::string& prefix, const city::wire::StyleInspectionView& style) {
     ofs << prefix << ".has_context=" << (style.has_context ? 1 : 0) << "\n";
     if (!style.has_context) {
       return;
@@ -889,8 +889,8 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".object_variation.attachment_offset_m=" << style.resolved.object.attachment_offset_m << "\n";
     ofs << prefix << ".object_variation.choice_bias=" << style.resolved.object.choice_bias << "\n";
   };
-      const auto write_endpoint_junction = [&](const std::string& prefix, wire::core::ObjectId node_id,
-                           wire::core::ObjectId peer_node_id) {
+      const auto write_endpoint_junction = [&](const std::string& prefix, city::wire::ObjectId node_id,
+                           city::wire::ObjectId peer_node_id) {
       ofs << prefix << ".node_id=" << static_cast<unsigned long long>(node_id) << "\n";
       if (const auto junction_view = view.inspect_junction(node_id); junction_view.has_value()) {
         ofs << prefix << ".has_local_relation=" << (junction_view->has_local_relation ? 1 : 0) << "\n";
@@ -906,7 +906,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
 
         const auto relation_it = std::find_if(
           junction_view->local_relations.begin(), junction_view->local_relations.end(),
-          [peer_node_id](const wire::core::JunctionIncidentRelationView& relation) {
+          [peer_node_id](const city::wire::JunctionIncidentRelationView& relation) {
           return relation.neighbor_node_id == peer_node_id;
           });
         ofs << prefix << ".peer_relation_found=" << (relation_it != junction_view->local_relations.end() ? 1 : 0)
@@ -1020,7 +1020,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << prefix << ".render.wire_radius_m=" << render->wire_radius_m << "\n";
     }
 
-    const wire::core::BackboneFrontier frontier = view.span_frontier(span_id);
+    const city::wire::BackboneFrontier frontier = view.span_frontier(span_id);
     ofs << prefix << ".frontier.node_id=" << static_cast<unsigned long long>(frontier.node_id) << "\n";
     ofs << prefix << ".frontier.edge_id=" << static_cast<unsigned long long>(frontier.edge_id) << "\n";
     ofs << prefix << ".frontier.edge_bundle_id=" << static_cast<unsigned long long>(frontier.edge_bundle_id) << "\n";
@@ -1104,7 +1104,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".bundle_id=" << static_cast<unsigned long long>(span.bundle_id) << "\n";
     ofs << prefix << ".endpoint_node_a_id=" << static_cast<unsigned long long>(span.endpoint_node_a_id) << "\n";
     ofs << prefix << ".endpoint_node_b_id=" << static_cast<unsigned long long>(span.endpoint_node_b_id) << "\n";
-    write_decision_trace(prefix, wire::core::EntityRef{wire::core::EntityKind::kSpan, span.id});
+    write_decision_trace(prefix, city::wire::EntityRef{city::wire::EntityKind::kSpan, span.id});
     if (const auto span_view = view.inspect_span(span.id); span_view.has_value()) {
       write_style_inspection(prefix + ".style", span_view->style);
     }
@@ -1117,15 +1117,15 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
     const auto& p = ui_state.draw_path_points[i];
     ofs << "draw.path[" << i << "]=" << p.x << "," << p.y << "," << p.z << "\n";
-    const wire::core::SupportKind support_kind =
+    const city::wire::SupportKind support_kind =
         (i < ui_state.draw_path_point_support_kinds.size()) ? ui_state.draw_path_point_support_kinds[i]
-                                                            : wire::core::SupportKind::kPole;
+                                                            : city::wire::SupportKind::kPole;
     ofs << "draw.path[" << i << "].support_kind=" << SupportKindLabelLocal(support_kind) << "\n";
     const ObjectId node_id =
-        (i < ui_state.draw_path_point_node_ids.size()) ? ui_state.draw_path_point_node_ids[i] : wire::core::kInvalidObjectId;
+        (i < ui_state.draw_path_point_node_ids.size()) ? ui_state.draw_path_point_node_ids[i] : city::wire::kInvalidObjectId;
     ofs << "draw.path[" << i << "].node_id=" << static_cast<unsigned long long>(node_id) << "\n";
   }
-  const wire::core::BackboneSpec* replay_request =
+  const city::wire::BackboneSpec* replay_request =
       ui_state.last_draw_path_request.has_value() ? &*ui_state.last_draw_path_request : nullptr;
   ofs << "request.available=" << ((replay_request != nullptr) ? 1 : 0) << "\n";
   if (replay_request != nullptr) {
@@ -1162,7 +1162,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "draw.clicked_points_only=" << (ui_state.draw_clicked_points_only ? 1 : 0) << "\n";
   ofs << "draw.direction_mode="
       << PathDirectionModeLabelLocal(
-             static_cast<wire::core::PathDirectionMode>(std::clamp(ui_state.draw_direction_mode, 0, 2)))
+             static_cast<city::wire::PathDirectionMode>(std::clamp(ui_state.draw_direction_mode, 0, 2)))
       << "\n";
   ofs << "draw.keep_path_after_generate=" << (ui_state.draw_keep_path_after_generate ? 1 : 0) << "\n";
   ofs << "draw.plane_z=" << ui_state.draw_plane_z << "\n";
@@ -1177,7 +1177,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
 
   ofs << "draw.bundle_template_count=" << selected_templates.size() << "\n";
   for (std::size_t i = 0; i < selected_templates.size(); ++i) {
-    const wire::core::BundleKind kind = selected_templates[i];
+    const city::wire::BundleKind kind = selected_templates[i];
     const auto it = view.bundle_templates().find(kind);
     ofs << "draw.bundle[" << i << "].kind=" << static_cast<int>(kind) << "\n";
     if (it != view.bundle_templates().end()) {
@@ -1188,7 +1188,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << "draw.bundle[" << i << "].enable_branch_down_offset=" << (tpl.enable_branch_down_offset ? 1 : 0) << "\n";
       ofs << "draw.bundle[" << i << "].branch_endpoint_offset_m=" << tpl.branch_endpoint_offset_m << "\n";
       ofs << "draw.bundle[" << i << "].count_rule=" << static_cast<int>(tpl.count_rule) << "\n";
-      if (tpl.count_rule == wire::core::BundleCountRuleKind::kFixed) {
+      if (tpl.count_rule == city::wire::BundleCountRuleKind::kFixed) {
         ofs << "draw.bundle[" << i << "].count=" << tpl.fixed_count << "\n";
       } else {
         const int key = static_cast<int>(kind);
@@ -1210,7 +1210,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "result.direction.cost.forward.corner=" << dir_debug.forward_cost.corner_compression_penalty << "\n";
   ofs << "result.direction.cost.forward.branch=" << dir_debug.forward_cost.branch_conflict_penalty << "\n";
 
-  const wire::core::BackboneResult rebuilt_backbone = view.saved_backbone_result();
+  const city::wire::BackboneResult rebuilt_backbone = view.saved_backbone_result();
   const auto& edge_orientations = view.last_generation_edge_orientations();
   ofs << "result.backbone.snapshot_node_count=" << rebuilt_backbone.nodes.size() << "\n";
   ofs << "result.backbone.snapshot_edge_count=" << rebuilt_backbone.edges.size() << "\n";
@@ -1238,7 +1238,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << "result.backbone.node[" << i << "].bundle_mode[" << j
           << "].mode=" << static_cast<int>(bundle_mode.mode) << "\n";
     }
-    if (node.pole_id != wire::core::kInvalidObjectId) {
+    if (node.pole_id != city::wire::kInvalidObjectId) {
       if (const auto* pole = view.edit_state().poles.find(node.pole_id); pole != nullptr) {
         ofs << "result.backbone.node[" << i << "].pole_yaw_deg=" << pole->world_transform.rotation_euler_deg.z
             << "\n";
@@ -1323,14 +1323,14 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     write_endpoint_junction("result.current_span[" + std::to_string(current_span_index) + "].endpoint_b_junction",
                             span.endpoint_node_b_id, span.endpoint_node_a_id);
     write_decision_trace("result.current_span[" + std::to_string(current_span_index) + "]",
-               wire::core::EntityRef{wire::core::EntityKind::kSpan, span.id});
+               city::wire::EntityRef{city::wire::EntityKind::kSpan, span.id});
     ++current_span_index;
     }
 
   const auto& visual_curve_parts = view.visual_curve_parts().parts;
   ofs << "result.visual_curve_part_count=" << visual_curve_parts.size() << "\n";
   for (std::size_t i = 0; i < visual_curve_parts.size(); ++i) {
-    const wire::core::VisualCurvePart& part = visual_curve_parts[i];
+    const city::wire::VisualCurvePart& part = visual_curve_parts[i];
     const std::string prefix = std::format("result.visual_curve_part[{}]", i);
     ofs << prefix << ".kind=" << VisualCurvePartKindLabelLocal(part.kind) << "\n";
     ofs << prefix << ".node_patch_classification="
@@ -1350,7 +1350,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".tangent_b=" << part.tangent_b.x << "," << part.tangent_b.y << "," << part.tangent_b.z
         << "\n";
     ofs << prefix << ".sag_method="
-        << (part.sag_method == wire::core::VisualCurveSagMethod::kParabolic ? "parabolic" : "none") << "\n";
+        << (part.sag_method == city::wire::VisualCurveSagMethod::kParabolic ? "parabolic" : "none") << "\n";
     ofs << prefix << ".sag_m=" << part.sag_m << "\n";
     ofs << prefix << ".wire_radius_m=" << part.wire_radius_m << "\n";
     ofs << prefix << ".color_rgba=" << part.color_rgba << "\n";
@@ -1384,7 +1384,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         << (part.has_explicit_attachment_orientation ? 1 : 0) << "\n";
     ofs << prefix << ".bezier_control_count=" << part.bezier_control_points.size() << "\n";
     for (std::size_t control_index = 0; control_index < part.bezier_control_points.size(); ++control_index) {
-      const wire::core::Vec3d& control = part.bezier_control_points[control_index];
+      const city::wire::Vec3d& control = part.bezier_control_points[control_index];
       ofs << prefix << ".bezier_control[" << control_index << "]=" << control.x << "," << control.y << ","
           << control.z << "\n";
     }
@@ -1402,7 +1402,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   const auto& curve_diagnostics = view.visual_curve_parts().diagnostics;
   ofs << "result.visual_curve_diagnostic_count=" << curve_diagnostics.size() << "\n";
   for (std::size_t i = 0; i < curve_diagnostics.size(); ++i) {
-    const wire::core::VisualCurveDiagnostic& diagnostic = curve_diagnostics[i];
+    const city::wire::VisualCurveDiagnostic& diagnostic = curve_diagnostics[i];
     const std::string prefix = std::format("result.visual_curve_diagnostic[{}]", i);
     ofs << prefix << ".source_node_id=" << static_cast<unsigned long long>(diagnostic.source_node_id) << "\n";
     ofs << prefix << ".source_span_id=" << static_cast<unsigned long long>(diagnostic.source_span_id) << "\n";
@@ -1424,7 +1424,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".reason=" << diagnostic.reason << "\n";
   }
 
-  std::map<std::pair<wire::core::ObjectId, int>, wire::core::LoweredSupportGroupKey> layout_lowered_support_keys{};
+  std::map<std::pair<city::wire::ObjectId, int>, city::wire::LoweredSupportGroupKey> layout_lowered_support_keys{};
   for (const auto& span : view.edit_state().spans.items()) {
     const auto layout_view = view.span_layout(span.id);
     if (!layout_view.has_layout()) {
@@ -1466,7 +1466,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << prefix << ".support_axis=" << pole_view->support_axis_dir.x << "," << pole_view->support_axis_dir.y
           << "," << pole_view->support_axis_dir.z << "\n";
     }
-    write_decision_trace(prefix, wire::core::EntityRef{wire::core::EntityKind::kPole, pole.id});
+    write_decision_trace(prefix, city::wire::EntityRef{city::wire::EntityKind::kPole, pole.id});
     ++current_pole_index;
   }
 
@@ -1532,7 +1532,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
   EnsureDrawPathPointKinds(ui_state);
 
   ImGuiIO& io = ImGui::GetIO();
-  wire::core::Vec3d hover{};
+  city::wire::Vec3d hover{};
   const bool has_ground_hit = TryPickGroundPoint(camera, ui_state.draw_plane_z, &hover);
   ui_state.draw_hover_valid = has_ground_hit;
   if (has_ground_hit) {
@@ -1543,36 +1543,36 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
 
   if (ui_state.draw_pick_enabled && accept_mouse_input) {
     ViewerSceneQuery scene_query{};
-    const wire::core::PickResult raw_pick = scene_query.Raycast(view, camera, ui_state.draw_plane_z);
+    const city::wire::PickResult raw_pick = scene_query.Raycast(view, camera, ui_state.draw_plane_z);
     const double hover_snap_radius_world = std::max(ui_state.draw_snap_radius_world, 1.25);
-    wire::core::PickResult pick =
+    city::wire::PickResult pick =
         CanonicalizeDrawPathPick(view, raw_pick, hover, has_ground_hit, hover_snap_radius_world);
     ui_state.draw_hover_pick = pick;
     bool blocked_pick_target = false;
-    if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
+    if (pick.hit_kind == city::wire::PickHitKind::kEmpty) {
       if (ui_state.draw_hover_status.empty()) {
         ui_state.draw_hover_status = "target: Empty";
       }
     } else {
-      if (pick.hit_kind == wire::core::PickHitKind::kNode && raw_pick.hit_kind != wire::core::PickHitKind::kNode) {
+      if (pick.hit_kind == city::wire::PickHitKind::kNode && raw_pick.hit_kind != city::wire::PickHitKind::kNode) {
         ui_state.draw_hover_status = "target: " + std::string(PickHitKindLabelLocal(raw_pick.hit_kind)) +
                                      " -> snapped: Node " +
                                      std::to_string(static_cast<unsigned long long>(pick.hit_id));
       }
-      const std::vector<wire::core::BundleKind> pick_template_ids =
+      const std::vector<city::wire::BundleKind> pick_template_ids =
           ResolveTemplateKindsForPathPick(view, ui_state.draw_bundle_template_mask, pick);
       if (ui_state.draw_hover_status.empty()) {
         ui_state.draw_hover_status =
             std::string("target: ") + PickHitKindLabelLocal(pick.hit_kind) + " " + PickTargetLabel(pick);
       }
-      if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
-          pick.hit_kind == wire::core::PickHitKind::kExternal) {
-        wire::core::EditResult<wire::core::ResolveBranchPickResult> resolved{};
-        if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kExternal) {
+      if (pick.hit_kind == city::wire::PickHitKind::kNode || pick.hit_kind == city::wire::PickHitKind::kSegment ||
+          pick.hit_kind == city::wire::PickHitKind::kExternal) {
+        city::wire::EditResult<city::wire::ResolveBranchPickResult> resolved{};
+        if (pick.hit_kind == city::wire::PickHitKind::kNode || pick.hit_kind == city::wire::PickHitKind::kExternal) {
           resolved.ok = true;
           resolved.value = DirectResolvedDrawPathTarget(pick);
         } else {
-          wire::core::ResolveBranchPickOptions options{};
+          city::wire::ResolveBranchPickOptions options{};
           options.selected_bundle_template_ids = pick_template_ids;
           options.snap_radius_world = ui_state.draw_snap_radius_world;
           options.create_midair_node = false;
@@ -1581,7 +1581,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
         }
         if (resolved.ok) {
           const std::string blocked_template = FindMidairBranchBlockedTemplateName(view, pick_template_ids);
-          if (resolved.value.resolution == wire::core::PickBranchResolutionKind::kMidair &&
+          if (resolved.value.resolution == city::wire::PickBranchResolutionKind::kMidair &&
               !blocked_template.empty()) {
             ui_state.draw_hover_status += " -> warn: template " + blocked_template + " will not connect here";
           }
@@ -1590,10 +1590,10 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           ui_state.draw_hover_point = resolved.value.position;
           ui_state.draw_hover_valid = true;
           ui_state.draw_hover_status +=
-              (resolved.value.resolution == wire::core::PickBranchResolutionKind::kNode)
+              (resolved.value.resolution == city::wire::PickBranchResolutionKind::kNode)
                   ? " | resolved: Node"
                   : " | resolved: Midair";
-          if (resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
+          if (resolved.value.resolved_node_id != city::wire::kInvalidObjectId) {
             ui_state.draw_hover_status +=
                 " " + std::to_string(static_cast<unsigned long long>(resolved.value.resolved_node_id));
           }
@@ -1611,16 +1611,16 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
   if (accept_mouse_input) {
     if (ui_state.draw_hover_valid && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
       if (ui_state.draw_hover_has_resolution) {
-        wire::core::EditResult<wire::core::ResolveBranchPickResult> applied{};
-        if (ui_state.draw_hover_pick.hit_kind == wire::core::PickHitKind::kNode ||
-            ui_state.draw_hover_pick.hit_kind == wire::core::PickHitKind::kExternal ||
-            ui_state.draw_hover_resolution.resolution == wire::core::PickBranchResolutionKind::kNode) {
+        city::wire::EditResult<city::wire::ResolveBranchPickResult> applied{};
+        if (ui_state.draw_hover_pick.hit_kind == city::wire::PickHitKind::kNode ||
+            ui_state.draw_hover_pick.hit_kind == city::wire::PickHitKind::kExternal ||
+            ui_state.draw_hover_resolution.resolution == city::wire::PickBranchResolutionKind::kNode) {
           applied.ok = true;
           applied.value = ui_state.draw_hover_resolution;
         } else {
-          const std::vector<wire::core::BundleKind> click_template_ids =
+          const std::vector<city::wire::BundleKind> click_template_ids =
               ResolveTemplateKindsForPathPick(view, ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
-          wire::core::ResolveBranchPickOptions click_options{};
+          city::wire::ResolveBranchPickOptions click_options{};
           click_options.selected_bundle_template_ids = click_template_ids;
           click_options.snap_radius_world = ui_state.draw_snap_radius_world;
           click_options.create_midair_node = true;
@@ -1635,8 +1635,8 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           DrawPathPushPoint(ui_state, applied.value.position, applied.value.support_kind, applied.value.resolved_node_id);
         }
       } else {
-        DrawPathPushPoint(ui_state, ui_state.draw_hover_point, wire::core::SupportKind::kPole,
-                          wire::core::kInvalidObjectId);
+        DrawPathPushPoint(ui_state, ui_state.draw_hover_point, city::wire::SupportKind::kPole,
+                          city::wire::kInvalidObjectId);
       }
     }
     if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
@@ -1666,19 +1666,19 @@ void DrawPathPreview(const ViewerUiState& ui_state) {
   }
 
   for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
-    const wire::core::SupportKind support_kind =
+    const city::wire::SupportKind support_kind =
         (i < ui_state.draw_path_point_support_kinds.size()) ? ui_state.draw_path_point_support_kinds[i]
-                                                            : wire::core::SupportKind::kPole;
+                                                            : city::wire::SupportKind::kPole;
     const ObjectId node_id =
-        (i < ui_state.draw_path_point_node_ids.size()) ? ui_state.draw_path_point_node_ids[i] : wire::core::kInvalidObjectId;
+        (i < ui_state.draw_path_point_node_ids.size()) ? ui_state.draw_path_point_node_ids[i] : city::wire::kInvalidObjectId;
     Color point_color = Color{196, 156, 68, 255};
-    if (support_kind == wire::core::SupportKind::kMidair) {
+    if (support_kind == city::wire::SupportKind::kMidair) {
       point_color = Color{90, 154, 176, 255};
-    } else if (support_kind == wire::core::SupportKind::kExternal) {
+    } else if (support_kind == city::wire::SupportKind::kExternal) {
       point_color = Color{110, 154, 100, 255};
     }
     DrawSphere(ToRaylibLocal(ui_state.draw_path_points[i]), 0.12f, point_color);
-    if (node_id != wire::core::kInvalidObjectId) {
+    if (node_id != city::wire::kInvalidObjectId) {
       DrawSphereWires(ToRaylibLocal(ui_state.draw_path_points[i]), 0.18f, 10, 16, Color{128, 126, 120, 200});
     }
     if (i + 1 < ui_state.draw_path_points.size()) {
@@ -1715,13 +1715,13 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
   const int midair_points = static_cast<int>(
       std::count(ui_state.draw_path_point_support_kinds.begin(), ui_state.draw_path_point_support_kinds.end(),
-                 wire::core::SupportKind::kMidair));
+                 city::wire::SupportKind::kMidair));
   const int building_points = static_cast<int>(
       std::count(ui_state.draw_path_point_support_kinds.begin(), ui_state.draw_path_point_support_kinds.end(),
-                 wire::core::SupportKind::kExternal));
+                 city::wire::SupportKind::kExternal));
   const int anchored_points = static_cast<int>(
       std::count_if(ui_state.draw_path_point_node_ids.begin(), ui_state.draw_path_point_node_ids.end(),
-                    [](ObjectId node_id) { return node_id != wire::core::kInvalidObjectId; }));
+                    [](ObjectId node_id) { return node_id != city::wire::kInvalidObjectId; }));
   ImGui::Text("Support kind points: Midair=%d External=%d", midair_points, building_points);
   ImGui::Text("Anchored Backbone points: %d", anchored_points);
   if (ui_state.draw_hover_valid) {
@@ -1735,7 +1735,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   }
   if (ui_state.draw_hover_has_resolution) {
     ImGui::Text("Hover resolved: %s kind=%s",
-                (ui_state.draw_hover_resolution.resolution == wire::core::PickBranchResolutionKind::kNode)
+                (ui_state.draw_hover_resolution.resolution == city::wire::PickBranchResolutionKind::kNode)
                     ? "Node"
                     : "Midair",
                 SupportKindLabelLocal(ui_state.draw_hover_resolution.support_kind));
@@ -1745,7 +1745,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   if (!type_ids.empty()) {
     const std::size_t road_type_index = ClampedTypeIndexLocal(ui_state.road_pole_type_index, type_ids.size());
     ui_state.road_pole_type_index = static_cast<int>(road_type_index);
-    const wire::core::PoleTypeId road_type_id = type_ids[road_type_index];
+    const city::wire::PoleTypeId road_type_id = type_ids[road_type_index];
     const std::string road_type_name = PoleTypePreviewLocal(view, road_type_id);
     if (ImGui::BeginCombo("Path PoleType", road_type_name.c_str())) {
       for (std::size_t i = 0; i < type_ids.size(); ++i) {
@@ -1767,7 +1767,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "No bundle template registered in core");
   } else {
     if (ImGui::BeginCombo("Bundle Templates", BundleTemplateMultiPreview(view, ui_state).c_str())) {
-      for (const wire::core::BundleKind kind : template_ids) {
+      for (const city::wire::BundleKind kind : template_ids) {
         bool selected = IsBundleTemplateSelected(ui_state, kind);
         if (ImGui::Selectable(BundleTemplatePreviewOrIdLocal(view, kind).c_str(), selected,
                               ImGuiSelectableFlags_DontClosePopups)) {
@@ -1784,16 +1784,16 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     if (selected_templates.empty()) {
       ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Select at least one bundle template");
     }
-    for (wire::core::BundleKind kind : selected_templates) {
+    for (city::wire::BundleKind kind : selected_templates) {
       const auto it = view.bundle_templates().find(kind);
       if (it == view.bundle_templates().end()) {
         continue;
       }
-      const wire::core::BundleTemplate& bundle_template = it->second;
+      const city::wire::BundleTemplate& bundle_template = it->second;
       ImGui::Separator();
       ImGui::TextUnformatted(BundleTemplatePreviewOrIdLocal(view, kind).c_str());
       ImGui::Text("Category: %s", CategoryLabelLocal(bundle_template.category));
-      if (bundle_template.count_rule == wire::core::BundleCountRuleKind::kRange) {
+      if (bundle_template.count_rule == city::wire::BundleCountRuleKind::kRange) {
         const int key = static_cast<int>(kind);
         int count = ResolveBundleTemplateCountLocal(ui_state, bundle_template, kind);
         ImGui::PushID(key);
@@ -1812,10 +1812,10 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   }
   if (ImGui::BeginCombo("Direction Mode",
                         PathDirectionModeLabelLocal(
-                            static_cast<wire::core::PathDirectionMode>(ui_state.draw_direction_mode)))) {
+                            static_cast<city::wire::PathDirectionMode>(ui_state.draw_direction_mode)))) {
     for (int i = 0; i < 3; ++i) {
       const bool selected = (i == ui_state.draw_direction_mode);
-      const auto mode = static_cast<wire::core::PathDirectionMode>(i);
+      const auto mode = static_cast<city::wire::PathDirectionMode>(i);
       if (ImGui::Selectable(PathDirectionModeLabelLocal(mode), selected)) {
         ui_state.draw_direction_mode = i;
       }
@@ -1829,10 +1829,10 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Path Interval must be > 0");
   }
   if (ImGui::Button("Flip Direction (Manual)")) {
-    if (ui_state.draw_direction_mode == static_cast<int>(wire::core::PathDirectionMode::kReverse)) {
-      ui_state.draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kForward);
+    if (ui_state.draw_direction_mode == static_cast<int>(city::wire::PathDirectionMode::kReverse)) {
+      ui_state.draw_direction_mode = static_cast<int>(city::wire::PathDirectionMode::kForward);
     } else {
-      ui_state.draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kReverse);
+      ui_state.draw_direction_mode = static_cast<int>(city::wire::PathDirectionMode::kReverse);
     }
   }
   const auto& dir_debug = view.last_path_direction_debug();

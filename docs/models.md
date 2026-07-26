@@ -76,7 +76,7 @@ asset / descriptor / viewer は kind から template を一意に推測しない
   表面fixtureとbeltも同じ半径profileを使うため、pole meshと別のテーパー式を再解釈しない。
 - mesh adapterが存在しないheadless Coreでは、半径profileが未設定の場合だけpole kindの既定近似を使う。
 - 取付位置はmesh下端基準にしない。地面基準またはpole local height基準で扱い、埋め込み量でport、socket、金具位置がずれないようにする。
-- core/templateが持つのは高さ、見える高さ、中心軸、local frame、section/radius等の数値契約であり、meshの下端や三角形面を取付基準にしない。
+- domains/wire/templateが持つのは高さ、見える高さ、中心軸、local frame、section/radius等の数値契約であり、meshの下端や三角形面を取付基準にしない。
 - 何角柱として描くか、LODをどう切り替えるかはrender/asset側の都合とする。部品配置はmesh面番号ではなく、pole local frame上の高さ、角度、半径方向offsetで表す。
 - 長さ別meshやend-middle-end分割を検討する対象は、電柱本体ではなく、横柱、腕金、吊り金具、クランプ列、バンド付き部品、端部形状を持つケーブル装飾などに限定する。
 

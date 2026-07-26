@@ -1,0 +1,122 @@
+#pragma once
+
+#include <cstddef>
+#include <string>
+#include <vector>
+
+#include "city/wire/entities.hpp"
+#include "city/wire/workflow_types.hpp"
+
+namespace city::wire {
+
+struct PathDirectionCostBreakdown {
+  int estimated_cross_penalty = 0;
+  int side_flip_penalty = 0;
+  int layer_jump_penalty = 0;
+  int corner_compression_penalty = 0;
+  int branch_conflict_penalty = 0;
+  int total = 0;
+};
+
+struct PathDirectionEvaluationDebug {
+  PathDirectionMode requested_mode = PathDirectionMode::kAuto;
+  PathDirectionChosen chosen = PathDirectionChosen::kForward;
+  PathDirectionCostBreakdown forward_cost{};
+  PathDirectionCostBreakdown reverse_cost{};
+  std::string reason{};
+};
+
+enum class PoleForwardRule : std::uint8_t {
+  kFallback = 0,
+  kPrimaryIncident = 1,
+  kMainChainSingle = 2,
+  kMainChainBisector = 3,
+};
+
+enum class PoleSupportAxisRule : std::uint8_t {
+  kFallback = 0,
+  kPrimaryIncident = 1,
+  kMainChainSingle = 2,
+  kMainChainPair = 3,
+  kConnectedDirectionFit = 4,
+};
+
+struct PoleOrientationDebugRecord {
+  ObjectId pole_id = kInvalidObjectId;
+  PoleForwardRule rule = PoleForwardRule::kFallback;
+  PoleSupportAxisRule support_axis_rule = PoleSupportAxisRule::kFallback;
+  RowLayoutAxisMode row_layout_axis_mode = RowLayoutAxisMode::kPoleYaw;
+  ConnectionCategory row_layout_axis_category = ConnectionCategory::kLowVoltage;
+  ObjectId primary_neighbor_id = kInvalidObjectId;
+  ObjectId secondary_neighbor_id = kInvalidObjectId;
+  Vec3d adopted_forward{};
+  Vec3d adopted_support_axis{};
+};
+
+struct PlacementCandidateDebug {
+  int candidate_rank = -1;
+  int band_id = -1;
+  int band_layer = 0;
+  SlotSide band_side = SlotSide::kCenter;
+  SlotRole band_role = SlotRole::kNeutral;
+  double band_lateral_min_m = 0.0;
+  double band_lateral_max_m = 0.0;
+  double band_height_min_m = 0.0;
+  double band_height_max_m = 0.0;
+  ObjectId resolved_port_id = kInvalidObjectId;
+  double resolved_lateral_m = 0.0;
+  double resolved_height_m = 0.0;
+  bool min_spacing_satisfied = false;
+  bool overflow_used = false;
+  ContinuityCategoryClass continuity_class_hint = ContinuityCategoryClass::kPointLike;
+  bool default_lower_required_hint = false;
+  bool same_level_feasible_hint = true;
+  SameLevelFeasibilityReason same_level_reason_hint = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_hint_m = -1.0;
+  double required_clearance_hint_m = 0.0;
+  JunctionRelationKind relation_kind_hint = JunctionRelationKind::kNone;
+  bool eligible = false;
+  int total_score = 0;
+  int category_score = 0;
+  int context_score = 0;
+  int layer_score = 0;
+  int side_score = 0;
+  int role_score = 0;
+  int priority_score = 0;
+  int usage_score = 0;
+  int congestion_score = 0;
+  int tie_breaker = 0;
+  std::size_t usage_count = 0;
+  std::size_t congestion_count = 0;
+  std::string reason{};
+};
+
+struct PortResolutionDebugRecord {
+  // Session diagnostics for placement-band evaluation and port resolution.
+  ObjectId pole_id = kInvalidObjectId;
+  ObjectId peer_pole_id = kInvalidObjectId;
+  ObjectId reference_span_id = kInvalidObjectId;
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
+  PoleContextKind pole_context = PoleContextKind::kStraight;
+  double corner_angle_deg = 0.0;
+  double corner_turn_sign = 0.0;
+  double side_scale = 1.0;
+  ContinuityCategoryClass continuity_class_hint = ContinuityCategoryClass::kPointLike;
+  bool default_lower_required_hint = false;
+  bool same_level_feasible_hint = true;
+  SameLevelFeasibilityReason same_level_reason_hint = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_hint_m = -1.0;
+  double required_clearance_hint_m = 0.0;
+  JunctionRelationKind relation_kind_hint = JunctionRelationKind::kNone;
+  ObjectId selected_port_id = kInvalidObjectId;
+  bool created_new_port = false;
+  bool overflow_triggered = false;
+  bool solver_used_same_level_constraint = false;
+  bool unresolved_same_level_conflict = false;
+  bool fell_back_to_special_case = false;
+  std::string result{};
+  std::vector<PlacementCandidateDebug> candidates{};
+};
+
+} // namespace city::wire

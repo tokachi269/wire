@@ -1,0 +1,184 @@
+#include "internal_services.hpp"
+#include "port_placement.hpp"
+#include "city/wire/coord_utils.hpp"
+#include "city/wire/support/numeric_tolerances.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+namespace city::wire::state_internal {
+
+namespace {
+
+Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& local) {
+  return LocalPointToWorld(BuildPoleFrame(tf, yaw_deg), local);
+}
+
+const AnchorSlotTemplate* find_anchor_hint(const PoleTypeDefinition* pole_type, const Anchor& anchor,
+                                           const Pole& pole, double pole_yaw_deg) {
+  if (pole_type == nullptr) {
+    return nullptr;
+  }
+  const PoleFrame frame = BuildPoleFrame(pole.world_transform, pole_yaw_deg);
+  const Vec3d local = WorldPointToLocal(frame, anchor.world_position);
+  const AnchorSlotTemplate* best = nullptr;
+  double best_dist2 = std::numeric_limits<double>::infinity();
+  for (const AnchorSlotTemplate& hint : pole_type->anchor_slots) {
+    if (!hint.enabled || hint.usage != anchor.support_kind) {
+      continue;
+    }
+    const Vec3d delta = local - hint.local_position;
+    const double dist2 = Dot(delta, delta);
+    if (dist2 < best_dist2) {
+      best = &hint;
+      best_dist2 = dist2;
+    }
+  }
+  return best;
+}
+
+} // namespace
+
+OwnedEndpointIds EndpointRefreshService::CollectOwnedEndpointIds(const CoreState& state, ObjectId pole_id) {
+  OwnedEndpointIds ids{};
+  if (const auto it = state.runtime_.relation_index.ports_by_pole.find(pole_id); it != state.runtime_.relation_index.ports_by_pole.end()) {
+    ids.port_ids = it->second;
+    ids.port_ids.erase(
+        std::remove_if(ids.port_ids.begin(), ids.port_ids.end(),
+                       [&](ObjectId id) { return state.authoritative_.edit_state.ports.find(id) == nullptr; }),
+        ids.port_ids.end());
+    std::sort(ids.port_ids.begin(), ids.port_ids.end());
+    ids.port_ids.erase(std::unique(ids.port_ids.begin(), ids.port_ids.end()), ids.port_ids.end());
+  }
+  if (const auto it = state.runtime_.relation_index.anchors_by_pole.find(pole_id);
+      it != state.runtime_.relation_index.anchors_by_pole.end()) {
+    ids.anchor_ids = it->second;
+    ids.anchor_ids.erase(
+        std::remove_if(ids.anchor_ids.begin(), ids.anchor_ids.end(),
+                       [&](ObjectId id) { return state.authoritative_.edit_state.anchors.find(id) == nullptr; }),
+        ids.anchor_ids.end());
+    std::sort(ids.anchor_ids.begin(), ids.anchor_ids.end());
+    ids.anchor_ids.erase(std::unique(ids.anchor_ids.begin(), ids.anchor_ids.end()), ids.anchor_ids.end());
+  }
+  return ids;
+}
+
+void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, ObjectId pole_id, ChangeSet* change_set,
+                                                           const Pole* previous_pole,
+                                                           const PortLayoutYawOverride* previous_row_layout_yaw_override) {
+  Pole* pole = state.authoritative_.edit_state.poles.find(pole_id);
+  if (pole == nullptr) {
+    return;
+  }
+
+  const PoleTypeDefinition* pole_type = state.find_pole_type(pole->pole_type_id);
+  const double effective_yaw = state.effective_pole_yaw_deg(*pole);
+
+  const OwnedEndpointIds owned = CollectOwnedEndpointIds(state, pole_id);
+
+  for (ObjectId port_id : owned.port_ids) {
+    Port* port = state.authoritative_.edit_state.ports.find(port_id);
+    if (port == nullptr || port->position_mode == PortPositionMode::kManual) {
+      continue;
+    }
+    const double layout_yaw = state.effective_port_layout_yaw_deg(*pole, port->id, port->category);
+    const double previous_layout_yaw =
+        (previous_pole == nullptr)
+            ? effective_yaw
+            : state.effective_port_layout_yaw_deg(*previous_pole, port->id, port->category,
+                                                  previous_row_layout_yaw_override);
+    Vec3d new_world = port->world_position;
+    bool apply_angle_correction = false;
+    double applied_scale = 1.0;
+    PortPlacementSourceKind refresh_source = port->placement_source;
+    if (port->placement_source == PortPlacementSourceKind::kPlacementBand ||
+        port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained) {
+      const PortPlacementBand* band =
+          pole_type == nullptr ? nullptr : FindPortPlacementBandForPort(state, *pole_type, *port);
+      if (band != nullptr) {
+        const Vec3d reference_local =
+            (previous_pole != nullptr)
+                ? WorldPointToLocal(BuildPoleFrame(previous_pole->world_transform, previous_layout_yaw), port->world_position)
+                : WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw), port->world_position);
+        Vec3d adjusted_local{
+            0.0,
+            (port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained)
+                ? reference_local.y
+                : std::clamp(reference_local.y, band->lateral_min_m, band->lateral_max_m),
+            (port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained)
+                ? reference_local.z
+                : std::clamp(reference_local.z, band->height_min_m, band->height_max_m),
+        };
+        apply_angle_correction = state.authoritative_.layout_settings.angle_correction_enabled &&
+                                 pole->context.kind == PoleContextKind::kCorner && band->side != SlotSide::kCenter;
+        if (apply_angle_correction) {
+          adjusted_local.y =
+              state_internal::apply_corner_side_scale(
+                  adjusted_local.y, band->side, pole->context.corner_turn_sign, pole->context.side_scale);
+          if (std::abs(reference_local.y) > kLengthToleranceM) {
+            applied_scale = std::abs(adjusted_local.y / reference_local.y);
+          }
+        }
+        adjusted_local = state.apply_pole_clearance_to_local(*pole, adjusted_local, band->side);
+        new_world = local_to_world_on_pole(pole->world_transform, layout_yaw, adjusted_local);
+      } else if (previous_pole != nullptr) {
+        const Vec3d old_local =
+            WorldPointToLocal(BuildPoleFrame(previous_pole->world_transform, previous_layout_yaw), port->world_position);
+        new_world = local_to_world_on_pole(pole->world_transform, layout_yaw, old_local);
+      }
+    } else if (previous_pole != nullptr) {
+      const Vec3d old_local =
+          WorldPointToLocal(BuildPoleFrame(previous_pole->world_transform, previous_layout_yaw), port->world_position);
+      new_world = local_to_world_on_pole(pole->world_transform, layout_yaw, old_local);
+    }
+
+    const bool moved = std::abs(new_world.x - port->world_position.x) > kLengthToleranceM ||
+                       std::abs(new_world.y - port->world_position.y) > kLengthToleranceM ||
+                       std::abs(new_world.z - port->world_position.z) > kLengthToleranceM;
+    const bool changed_scale =
+        std::abs(port->side_scale_applied - (apply_angle_correction ? applied_scale : 1.0)) > kLengthToleranceM;
+    const bool changed_angle_flag = port->angle_correction_applied != apply_angle_correction;
+    if (!moved && !changed_scale && !changed_angle_flag) {
+      continue;
+    }
+
+    port->world_position = new_world;
+    port->angle_correction_applied = apply_angle_correction;
+    port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
+    state.apply_port_position_mode(*port, PortPositionMode::kAuto, refresh_source);
+    if (change_set != nullptr) {
+      state.add_unique_id(change_set->updated_ids, port->id);
+      state.touch_connected_spans_from_port(port->id, change_set);
+    }
+  }
+
+  for (ObjectId anchor_id : owned.anchor_ids) {
+    Anchor* anchor = state.authoritative_.edit_state.anchors.find(anchor_id);
+    if (anchor == nullptr) {
+      continue;
+    }
+    const AnchorSlotTemplate* slot = find_anchor_hint(pole_type, *anchor, *pole, effective_yaw);
+    Vec3d new_world = anchor->world_position;
+    if (slot != nullptr) {
+      new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, slot->local_position);
+    } else if (previous_pole != nullptr) {
+      const Vec3d old_local = state.to_local_on_pole(*previous_pole, anchor->world_position);
+      new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, old_local);
+    }
+    const bool moved = std::abs(new_world.x - anchor->world_position.x) > kLengthToleranceM ||
+                       std::abs(new_world.y - anchor->world_position.y) > kLengthToleranceM ||
+                       std::abs(new_world.z - anchor->world_position.z) > kLengthToleranceM;
+    if (!moved) {
+      continue;
+    }
+
+    anchor->world_position = new_world;
+    if (change_set != nullptr) {
+      state.add_unique_id(change_set->updated_ids, anchor->id);
+      state.touch_connected_spans_from_anchor(anchor->id, change_set);
+    }
+  }
+}
+
+} // namespace city::wire::state_internal

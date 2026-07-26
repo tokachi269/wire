@@ -2,7 +2,7 @@
 
 この文書は、操作前の状態と操作の組合せごとに、期待する状態遷移を定義する。
 実装済みコードやtest結果ではなく、実装前に合意する要件の正本である。
-実装の回帰一覧は`core/tests/spec_ledger.md`、未実装の保留条件は
+実装の回帰一覧は`domains/wire/tests/spec_ledger.md`、未実装の保留条件は
 `docs/merge_readiness.md`が担当する。
 
 ## セルの状態
@@ -121,7 +121,7 @@ curve endpointの意味値を一致させ、load後の再saveは新形式へ正�
 1. 新機能またはバグ修正の対象となる操作と既存状態を特定する。
 2. 対象セルが`D#`なら、Input、正本、派生、失敗時動作を決めて表を更新する。
 3. `C/O/K/U`へ確定したセルごとにfail-first testを追加する。
-4. 実装後、対応testを`core/tests/spec_ledger.md`へ登録する。
+4. 実装後、対応testを`domains/wire/tests/spec_ledger.md`へ登録する。
 5. 隣接セルに同じ変更が波及しないことを確認する。
 
 未定義セルをtestの期待値や現在のコードから埋めてはならない。

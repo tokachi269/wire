@@ -1,7 +1,7 @@
 #include "scene_query.hpp"
 #include "backbone_plane.hpp"
 #include "host_coords.hpp"
-#include "wire/core/coord_utils.hpp"
+#include "city/wire/coord_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -11,34 +11,34 @@
 namespace {
 
 struct UeRay {
-  wire::core::Vec3d origin{};
-  wire::core::Vec3d direction{};
+  city::wire::Vec3d origin{};
+  city::wire::Vec3d direction{};
 };
 
 constexpr double kBranchPickNodeHitRadiusWorld = 0.75;
 constexpr double kBranchPickSegmentHitRadiusWorld = 1.25;
 
-double DistancePointToRaySquared(const wire::core::Vec3d& p, const UeRay& ray) {
-  const wire::core::Vec3d to_point = p - ray.origin;
-  const double t = std::max(0.0, wire::core::Dot(to_point, ray.direction));
-  const wire::core::Vec3d closest = ray.origin + wire::core::Vec3d{
+double DistancePointToRaySquared(const city::wire::Vec3d& p, const UeRay& ray) {
+  const city::wire::Vec3d to_point = p - ray.origin;
+  const double t = std::max(0.0, city::wire::Dot(to_point, ray.direction));
+  const city::wire::Vec3d closest = ray.origin + city::wire::Vec3d{
                                                      ray.direction.x * t,
                                                      ray.direction.y * t,
                                                      ray.direction.z * t,
                                                  };
-  return wire::core::LengthSquared(p - closest);
+  return city::wire::LengthSquared(p - closest);
 }
 
-double DistanceRayToSegmentSquared(const UeRay& ray, const wire::core::Vec3d& a, const wire::core::Vec3d& b,
-                                   wire::core::Vec3d* out_point_on_segment) {
-  const wire::core::Vec3d u = ray.direction;
-  const wire::core::Vec3d v = b - a;
-  const wire::core::Vec3d w0 = ray.origin - a;
-  const double a_dot = wire::core::Dot(u, u);
-  const double b_dot = wire::core::Dot(u, v);
-  const double c_dot = wire::core::Dot(v, v);
-  const double d_dot = wire::core::Dot(u, w0);
-  const double e_dot = wire::core::Dot(v, w0);
+double DistanceRayToSegmentSquared(const UeRay& ray, const city::wire::Vec3d& a, const city::wire::Vec3d& b,
+                                   city::wire::Vec3d* out_point_on_segment) {
+  const city::wire::Vec3d u = ray.direction;
+  const city::wire::Vec3d v = b - a;
+  const city::wire::Vec3d w0 = ray.origin - a;
+  const double a_dot = city::wire::Dot(u, u);
+  const double b_dot = city::wire::Dot(u, v);
+  const double c_dot = city::wire::Dot(v, v);
+  const double d_dot = city::wire::Dot(u, w0);
+  const double e_dot = city::wire::Dot(v, w0);
   const double denom = a_dot * c_dot - b_dot * b_dot;
 
   double s = 0.0;
@@ -61,17 +61,17 @@ double DistanceRayToSegmentSquared(const UeRay& ray, const wire::core::Vec3d& a,
     }
   }
 
-  const wire::core::Vec3d point_ray = ray.origin + wire::core::Vec3d{u.x * s, u.y * s, u.z * s};
-  const wire::core::Vec3d point_seg = a + wire::core::Vec3d{v.x * t, v.y * t, v.z * t};
+  const city::wire::Vec3d point_ray = ray.origin + city::wire::Vec3d{u.x * s, u.y * s, u.z * s};
+  const city::wire::Vec3d point_seg = a + city::wire::Vec3d{v.x * t, v.y * t, v.z * t};
   if (out_point_on_segment != nullptr) {
     *out_point_on_segment = point_seg;
   }
-  return wire::core::LengthSquared(point_ray - point_seg);
+  return city::wire::LengthSquared(point_ray - point_seg);
 }
 
 } // namespace
 
-bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::Vec3d* out_ue_point) {
+bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, city::wire::Vec3d* out_ue_point) {
   if (out_ue_point == nullptr) {
     return false;
   }
@@ -94,44 +94,44 @@ bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::V
   return true;
 }
 
-wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreView& view, const Camera3D& camera,
+city::wire::PickResult ViewerSceneQuery::Raycast(const city::wire::CoreView& view, const Camera3D& camera,
                                                  double draw_plane_z) const {
-  wire::core::PickResult pick{};
+  city::wire::PickResult pick{};
 
   const Vector2 mouse = GetMousePosition();
   const Ray raylib_ray = GetMouseRay(mouse, camera);
   UeRay ray{};
   ray.origin = HostWorldToInternal(raylib_ray.position);
   ray.direction = HostWorldToInternal(raylib_ray.direction);
-  if (!wire::core::Normalize(&ray.direction)) {
-    pick.hit_kind = wire::core::PickHitKind::kEmpty;
+  if (!city::wire::Normalize(&ray.direction)) {
+    pick.hit_kind = city::wire::PickHitKind::kEmpty;
     return pick;
   }
 
-  wire::core::Vec3d ground{};
+  city::wire::Vec3d ground{};
   if (TryPickGroundPoint(camera, draw_plane_z, &ground)) {
-    pick.hit_kind = wire::core::PickHitKind::kGround;
+    pick.hit_kind = city::wire::PickHitKind::kGround;
     pick.hit_pos_world = ground;
   } else {
-    pick.hit_kind = wire::core::PickHitKind::kEmpty;
+    pick.hit_kind = city::wire::PickHitKind::kEmpty;
   }
 
   struct NodeCandidate {
-    wire::core::ObjectId node_id = wire::core::kInvalidObjectId;
-    wire::core::SupportKind support_kind = wire::core::SupportKind::kPole;
-    wire::core::Vec3d position{};
+    city::wire::ObjectId node_id = city::wire::kInvalidObjectId;
+    city::wire::SupportKind support_kind = city::wire::SupportKind::kPole;
+    city::wire::Vec3d position{};
     double d2 = std::numeric_limits<double>::max();
   };
   NodeCandidate best_node{};
 
-  const wire::core::BackboneResult backbone = view.saved_backbone_result();
-  std::unordered_map<wire::core::ObjectId, wire::core::Vec3d> backbone_node_positions{};
+  const city::wire::BackboneResult backbone = view.saved_backbone_result();
+  std::unordered_map<city::wire::ObjectId, city::wire::Vec3d> backbone_node_positions{};
   backbone_node_positions.reserve(backbone.nodes.size());
-  for (const wire::core::SupportNode& node : backbone.nodes) {
-    if (node.node_id == wire::core::kInvalidObjectId) {
+  for (const city::wire::SupportNode& node : backbone.nodes) {
+    if (node.node_id == city::wire::kInvalidObjectId) {
       continue;
     }
-    const wire::core::Vec3d flattened = ProjectBackbonePointToDisplayPlane(node.position);
+    const city::wire::Vec3d flattened = ProjectBackbonePointToDisplayPlane(node.position);
     backbone_node_positions[node.node_id] = flattened;
     const double d2 = DistancePointToRaySquared(flattened, ray);
     if (d2 < best_node.d2) {
@@ -144,20 +144,20 @@ wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreView& vie
 
   struct SegmentCandidate {
     double d2 = std::numeric_limits<double>::max();
-    wire::core::Vec3d closest{};
-    wire::core::ObjectId node_a_id = wire::core::kInvalidObjectId;
-    wire::core::ObjectId node_b_id = wire::core::kInvalidObjectId;
-    wire::core::Vec3d endpoint_a{};
-    wire::core::Vec3d endpoint_b{};
+    city::wire::Vec3d closest{};
+    city::wire::ObjectId node_a_id = city::wire::kInvalidObjectId;
+    city::wire::ObjectId node_b_id = city::wire::kInvalidObjectId;
+    city::wire::Vec3d endpoint_a{};
+    city::wire::Vec3d endpoint_b{};
   };
   SegmentCandidate best_segment{};
-  for (const wire::core::BackboneEdge& edge : backbone.edges) {
+  for (const city::wire::BackboneEdge& edge : backbone.edges) {
     const auto it_a = backbone_node_positions.find(edge.node_a);
     const auto it_b = backbone_node_positions.find(edge.node_b);
     if (it_a == backbone_node_positions.end() || it_b == backbone_node_positions.end()) {
       continue;
     }
-    wire::core::Vec3d closest{};
+    city::wire::Vec3d closest{};
     const double d2 = DistanceRayToSegmentSquared(ray, it_a->second, it_b->second, &closest);
     if (d2 >= best_segment.d2) {
       continue;
@@ -170,20 +170,20 @@ wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreView& vie
     best_segment.endpoint_b = it_b->second;
   }
 
-  const bool node_hit = best_node.node_id != wire::core::kInvalidObjectId &&
+  const bool node_hit = best_node.node_id != city::wire::kInvalidObjectId &&
                         best_node.d2 <= (kBranchPickNodeHitRadiusWorld * kBranchPickNodeHitRadiusWorld);
-  const bool segment_hit = best_segment.node_a_id != wire::core::kInvalidObjectId &&
+  const bool segment_hit = best_segment.node_a_id != city::wire::kInvalidObjectId &&
                            best_segment.d2 <= (kBranchPickSegmentHitRadiusWorld * kBranchPickSegmentHitRadiusWorld);
   if (node_hit && (!segment_hit || best_node.d2 <= best_segment.d2)) {
-    pick.hit_kind = (best_node.support_kind == wire::core::SupportKind::kExternal) ? wire::core::PickHitKind::kExternal
-                                                                                    : wire::core::PickHitKind::kNode;
+    pick.hit_kind = (best_node.support_kind == city::wire::SupportKind::kExternal) ? city::wire::PickHitKind::kExternal
+                                                                                    : city::wire::PickHitKind::kNode;
     pick.hit_id = best_node.node_id;
     pick.hit_pos_world = best_node.position;
     return pick;
   }
   if (segment_hit) {
-    pick.hit_kind = wire::core::PickHitKind::kSegment;
-    pick.hit_id = wire::core::kInvalidObjectId;
+    pick.hit_kind = city::wire::PickHitKind::kSegment;
+    pick.hit_id = city::wire::kInvalidObjectId;
     pick.hit_pos_world = best_segment.closest;
     pick.has_segment_endpoints = true;
     pick.segment_node_a_id = best_segment.node_a_id;
@@ -195,13 +195,13 @@ wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreView& vie
   return pick;
 }
 
-std::string PickTargetLabel(const wire::core::PickResult& pick) {
-  if (pick.hit_kind == wire::core::PickHitKind::kSegment && pick.hit_id == wire::core::kInvalidObjectId &&
-      pick.segment_node_a_id != wire::core::kInvalidObjectId && pick.segment_node_b_id != wire::core::kInvalidObjectId) {
+std::string PickTargetLabel(const city::wire::PickResult& pick) {
+  if (pick.hit_kind == city::wire::PickHitKind::kSegment && pick.hit_id == city::wire::kInvalidObjectId &&
+      pick.segment_node_a_id != city::wire::kInvalidObjectId && pick.segment_node_b_id != city::wire::kInvalidObjectId) {
     return std::string("backbone-edge ") + std::to_string(static_cast<unsigned long long>(pick.segment_node_a_id)) + "-" +
            std::to_string(static_cast<unsigned long long>(pick.segment_node_b_id));
   }
-  if (pick.hit_id == wire::core::kInvalidObjectId) {
+  if (pick.hit_id == city::wire::kInvalidObjectId) {
     return "none";
   }
   return std::to_string(static_cast<unsigned long long>(pick.hit_id));

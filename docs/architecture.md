@@ -64,7 +64,7 @@ member-wise move commitする。どの段階で失敗しても、本stateは変�
 
 ## backbone generation
 
-`GenerateFromBackboneSpec()` は `core/src/generation/backbone` のpipelineだけを呼ぶ。
+`GenerateFromBackboneSpec()` は `domains/wire/src/generation/backbone` のpipelineだけを呼ぶ。
 未対応入力はv1へfallbackせず、mutation前に`unsupported`を返す。
 外部入力の数値検証はpipeline preflight先頭の `validate_backbone_spec_external_input` が所有する。
 対象は `BackboneSpec.path.polyline`、`NodeSpec.tangent_hint`、`interval_m`、`constraints.avoid_points`、
@@ -269,7 +269,7 @@ viewerが不足fixtureを推測して補ってはいけない。
 ## cable curve
 
 cable centerlineの正本はBezier制御点ではなく、attachment endpoint、gravity、sag、tangent policy、
-canonical direction、curve familyである。`core/src/geometry/curve`がこの意味入力からsample、arc length、
+canonical direction、curve familyである。`domains/wire/src/geometry/curve`がこの意味入力からsample、arc length、
 frame、boundsを生成し、具体的な計算方式は`CurveMethod`で差し替える。
 
 main spanの既定方式はparabolic sagとし、支持点でsag勾配を持つ実接線を維持する。
@@ -375,8 +375,8 @@ spanはport間の生成結果であり、topology authorityではない。
 
 ## 境界guard
 
-- public API: `core/include/wire/core`
-- private generation: `core/src/generation/backbone`
+- public API: `domains/wire/include/city/wire`
+- private generation: `domains/wire/src/generation/backbone`
 - state ownership: `CoreState`
 - read-only query: `CoreView`とconst query
 - dependency guard: `tools/arch_lint.py`

@@ -3,30 +3,30 @@
 #include <string>
 
 #include "raylib.h"
-#include "wire/core/types.hpp"
-#include "wire/core/workflow_types.hpp"
+#include "city/wire/types.hpp"
+#include "city/wire/workflow_types.hpp"
 
-namespace wire::core {
+namespace city::wire {
 class CoreState;
 class CoreView;
 }
 
-bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::Vec3d* out_ue_point);
+bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, city::wire::Vec3d* out_ue_point);
 
-double DistancePointToSegmentSquared(const wire::core::Vec3d& p, const wire::core::Vec3d& a, const wire::core::Vec3d& b,
-                                     double* out_t, wire::core::Vec3d* out_closest);
+double DistancePointToSegmentSquared(const city::wire::Vec3d& p, const city::wire::Vec3d& a, const city::wire::Vec3d& b,
+                                     double* out_t, city::wire::Vec3d* out_closest);
 
 class ISceneQuery {
 public:
   virtual ~ISceneQuery() = default;
-  virtual wire::core::PickResult Raycast(const wire::core::CoreView& view, const Camera3D& camera,
+  virtual city::wire::PickResult Raycast(const city::wire::CoreView& view, const Camera3D& camera,
                                          double draw_plane_z) const = 0;
 };
 
 class ViewerSceneQuery final : public ISceneQuery {
 public:
-  wire::core::PickResult Raycast(const wire::core::CoreView& view, const Camera3D& camera,
+  city::wire::PickResult Raycast(const city::wire::CoreView& view, const Camera3D& camera,
                                  double draw_plane_z) const override;
 };
 
-std::string PickTargetLabel(const wire::core::PickResult& pick);
+std::string PickTargetLabel(const city::wire::PickResult& pick);

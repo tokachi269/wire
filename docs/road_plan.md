@@ -5,8 +5,8 @@
 
 ## 0. 背景(引き継ぎ用の最小文脈)
 
-- 大目標: **町全体の自動生成**。既存の第一ドメインとして「wire」(電柱・電線網の生成/編集システム。C++ core + wasm + three.js/Svelte viewer)が稼働中。道路は第二ドメイン。
-- wireで確立済みで、町全体に共通させる規約(**town共通規約**と呼ぶ):
+- 上位製品の範囲と名称は未決定。現在は複数の生成・編集ドメインを同一リポジトリで扱う。既存の第一ドメインは`city::wire`(電柱・電線網。C++ core + wasm + three.js/Svelte viewer)、道路は`city::road`。
+- `city::wire`で確立済みで、各ドメインに共通させる規約(**リポジトリ共通規約**と呼ぶ):
   1. 状態はInput / 正本(authoritative) / 派生に分類。正本を書けるのは所有する操作APIのみ。派生は一方向導出で保存しない
   2. 操作はトランザクション(事前検証preflight → trial状態で実行 → 成功時のみcommit)。全外部入力の有限性・範囲検証はpreflightに一元化
   3. エラーは3分類: validation(入力不正) / unsupported(仕様上の拒否) / internal(バグ検出)。fallbackで黙って通さない
@@ -364,7 +364,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 
 ### A. 今すぐ共有
 
-同一リポジトリ内`foundation` static library。wireもroadも依存可能。
+同一リポジトリ内`foundation` static library。`city::wire`も`city::road`も依存可能。ただし共有対象が抽出されるまで空のlibraryは作らない。
 
 - 既に安定している数学型(Vec3d等)、hash
 - EditResultとエラー3分類
@@ -372,7 +372,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 - 永続化archive機構(key=value、version、field列挙。format/version文字列は各ドメイン)
 - テストharness、理由付き失敗、fuzz骨格、計測カウンター
 
-foundation変更時は両ドメインのテストを通す。
+foundation変更時は両ドメインのテストを通す。namespaceは`city::foundation`とする。
 
 ### B. 規約として共有、コードは各ドメイン
 
@@ -424,7 +424,7 @@ P1ではConnectionGate共有、junctionとの隙間・重複・法線不一致�
 
 ## 17. 決定済み事項
 
-1. リポジトリ配置: 同一リポジトリ内の独立roadモジュール。wire coreへのinclude依存ゼロをlintで強制する
+1. リポジトリ配置: `domains/wire` (`city::wire`)と`domains/road` (`city::road`)を独立配置する。roadからwireへのinclude依存ゼロをlintで強制する。共有実装は条件を満たしたものだけ`foundation` (`city::foundation`)へ置く
 2. P0固定断面: 日本の一般的な都市部2車線を初期値にする。車線3.0m×2、歩道2.0m×2、curb幅0.2m/段差0.15m、車道横断勾配2%、歩道横断勾配1%。浅い側溝はP0では独立SurfaceBandにしない
 3. P0の既存segment重なり: 判定しない。warningにもunsupportedにもせず、接続なしの独立segmentとして扱う
 4. Path編集UI: Bezierハンドル編集を後回しにしない。P0からCities系道路ツール相当のライブプレビュー、直線/円弧/Bezier作成、ハンドル編集を対象にする

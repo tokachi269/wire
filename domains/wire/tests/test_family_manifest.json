@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "families": [
+    {
+      "name": "backbone_acceptance",
+      "status": "keep",
+      "owner": "Backbone acceptance registration and shared fixtures",
+      "sources": [
+        "domains/wire/tests/backbone/fixtures.cpp",
+        "domains/wire/tests/backbone/registry.cpp",
+        "viewer/tests/backbone_scenes.cpp"
+      ],
+      "notes": "Single registration entry and shared fixture boundary."
+    },
+    {
+      "name": "backbone_generation",
+      "status": "keep",
+      "owner": "Backbone generation and connectivity scenarios",
+      "sources": ["domains/wire/tests/backbone/generation.cpp"],
+      "notes": "Generation results without downstream source inference."
+    },
+    {
+      "name": "backbone_graph",
+      "status": "keep",
+      "owner": "SavedBackboneGraph identity, binding, and frontier contracts",
+      "sources": ["domains/wire/tests/backbone/graph.cpp"],
+      "notes": "Topology authority and saved identity."
+    },
+    {
+      "name": "backbone_input",
+      "status": "keep",
+      "owner": "Backbone input, pick, avoid, and support-node scenarios",
+      "sources": ["domains/wire/tests/backbone/input.cpp"],
+      "notes": "Input validation and supported scenario coverage."
+    },
+    {
+      "name": "backbone_output",
+      "status": "keep",
+      "owner": "Rules, layout, geometry, draw, and support-group outputs",
+      "sources": ["domains/wire/tests/backbone/output.cpp"],
+      "notes": "Derived outputs remain consumers of saved decisions."
+    },
+    {
+      "name": "backbone_population",
+      "status": "keep",
+      "owner": "Topology-neutral cable population",
+      "sources": ["domains/wire/tests/backbone/population.cpp"],
+      "notes": "Pure placement identity, pairing, constraints, and no-topology-mutation contracts."
+    },
+    {
+      "name": "backbone_update",
+      "status": "keep",
+      "owner": "Coarse UpdateKind and direct derive contracts",
+      "sources": ["domains/wire/tests/backbone/update.cpp"],
+      "notes": "Post-edit output freshness without recalc."
+    },
+    {
+      "name": "backbone_guard",
+      "status": "keep",
+      "owner": "Architecture and negative boundary guards",
+      "sources": ["domains/wire/tests/backbone/guard.cpp"],
+      "notes": "Stable source and authority boundaries only."
+    },
+    {
+      "name": "editing_update_kind",
+      "status": "migrated",
+      "owner": "Entity edits, coarse updates, and explicit unsupported topology mutation boundaries",
+      "sources": ["domains/wire/tests/editing.cpp"],
+      "notes": "Manual topology allocator cases are retired; current topology tests use SavedBackboneGraph."
+    },
+    {
+      "name": "geometry_curve",
+      "status": "keep",
+      "owner": "Coordinate and DetailCurve geometry contracts",
+      "sources": ["domains/wire/tests/geometry.cpp"],
+      "notes": "Does not own topology."
+    },
+    {
+      "name": "template_policy",
+      "status": "migrated",
+      "owner": "Wire template validation and mutation-safe generated output policy",
+      "sources": ["domains/wire/tests/template_policy.cpp"],
+      "notes": "Validation is current; topology-changing edits reject before mutation."
+    },
+    {
+      "name": "workflow_public_behavior",
+      "status": "migrated",
+      "owner": "SavedGraph workflow and public unsupported boundaries",
+      "sources": ["domains/wire/tests/regeneration.cpp", "domains/wire/tests/workflow.cpp"],
+      "notes": "Manual topology allocator cases are retired; current workflow uses backbone or explicit unsupported."
+    },
+    {
+      "name": "pick_input",
+      "status": "keep",
+      "owner": "Pick resolution into wire input facts",
+      "sources": ["domains/wire/tests/pick.cpp", "viewer/tests/pick_policy.cpp"],
+      "notes": "No viewer or city-domain topology enters core."
+    },
+    {
+      "name": "state_services",
+      "status": "isolated",
+      "owner": "State mutation and runtime marker behavior still exposed by public operations",
+      "sources": ["domains/wire/tests/state_services.cpp"],
+      "notes": "Internal v1 service-shape tests are retired."
+    },
+    {
+      "name": "bundle_visuals",
+      "status": "keep",
+      "owner": "Abstract visual and render cache output",
+      "sources": ["domains/wire/tests/bundle_visuals.cpp"],
+      "notes": "Viewer/backend semantics are not owned here."
+    },
+    {
+      "name": "api_surface",
+      "status": "keep",
+      "owner": "Public API and type boundary",
+      "sources": ["domains/wire/tests/api_surface.cpp"],
+      "notes": "Private backbone scratch types must not leak."
+    },
+    {
+      "name": "state_persistence",
+      "status": "keep",
+      "owner": "Authoritative state serialization, transactional load, and roundtrip equivalence",
+      "sources": ["domains/wire/tests/persistence.cpp"],
+      "notes": "Runtime and debug outputs are rebuilt rather than serialized."
+    },
+    {
+      "name": "viewer_behavior",
+      "status": "keep",
+      "owner": "Viewer input, coordinate, selection, and backbone-plane behavior",
+      "sources": [
+        "viewer/tests/app_state.cpp",
+        "viewer/tests/backbone_plane.cpp",
+        "viewer/tests/host_coords.cpp"
+      ],
+      "notes": "Viewer consumes public core outputs only."
+    },
+    {
+      "name": "test_infra",
+      "status": "keep",
+      "owner": "Test registration, runner, and shared test helpers",
+      "sources": [
+        "domains/wire/tests/registry.cpp",
+        "domains/wire/tests/runner.cpp",
+        "domains/wire/tests/helpers.cpp",
+        "viewer/tests/registry.cpp",
+        "viewer/tests/runner.cpp"
+      ],
+      "notes": "Contains no product contract cases."
+    },
+    {
+      "name": "legacy_retired",
+      "status": "retired",
+      "owner": "Historical v1/recalc/support-layout expectations",
+      "sources": [],
+      "notes": "Tracked by family in docs/legacy_map.md; not registered."
+    }
+  ]
+}

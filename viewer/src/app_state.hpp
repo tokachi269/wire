@@ -9,11 +9,11 @@
 #include <vector>
 
 #include "raylib.h"
-#include "wire/core/core_state_api_types.hpp"
-#include "wire/core/core_view.hpp"
+#include "city/wire/core_state_api_types.hpp"
+#include "city/wire/core_view.hpp"
 
-using wire::core::CoreState;
-using wire::core::ObjectId;
+using city::wire::CoreState;
+using city::wire::ObjectId;
 
 enum class SelectedType {
   kNone = 0,
@@ -42,7 +42,7 @@ enum class EditMode {
 
 struct SelectionItem {
   SelectedType type = SelectedType::kNone;
-  ObjectId id = wire::core::kInvalidObjectId;
+  ObjectId id = city::wire::kInvalidObjectId;
 };
 
 struct DragSelectionState {
@@ -54,7 +54,7 @@ struct DragSelectionState {
 struct ViewerUiState {
   EditMode mode = EditMode::kDrawPath;
   SelectedType selected_type = SelectedType::kNone;
-  ObjectId selected_id = wire::core::kInvalidObjectId;
+  ObjectId selected_id = city::wire::kInvalidObjectId;
   std::vector<SelectionItem> selection_items{};
   bool selection_include_poles = true;
   bool selection_include_midair_nodes = true;
@@ -77,18 +77,18 @@ struct ViewerUiState {
   double visual_insulator_radius = 0.07;
   double visual_insulator_length = 0.16;
   bool cable_template_loaded = false;
-  wire::core::CableTemplateId selected_cable_template_id = static_cast<wire::core::CableTemplateId>(1);
+  city::wire::CableTemplateId selected_cable_template_id = static_cast<city::wire::CableTemplateId>(1);
   std::string cable_template_name{"HV_BARE"};
   double cable_outer_diameter = 0.048;
   double cable_bend_stiffness = 2.8;
   double cable_min_bend_radius = 0.7;
-  int cable_material_style = static_cast<int>(wire::core::CableMaterialStyleKind::kBareConductor);
+  int cable_material_style = static_cast<int>(city::wire::CableMaterialStyleKind::kBareConductor);
   bool cable_requires_insulator = true;
   double cable_insulator_attachment_height = 0.145;
   double cable_sag_factor = 0.045;
   double cable_slack_factor = 0.025;
   double cable_default_grouped_support_fanout_spacing = 0.35;
-  int cable_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kPreferG1);
+  int cable_continuity_policy = static_cast<int>(city::wire::CableContinuityPolicyHint::kPreferG1);
   bool cable_curve_offset_straight_supplemental_enabled = true;
   double cable_curve_offset_straight_lateral_offset = 0.0;
   double cable_curve_offset_straight_vertical_offset = 0.0;
@@ -97,57 +97,57 @@ struct ViewerUiState {
   double cable_curve_offset_straight_wobble_phase_bias = 0.0;
   double cable_curve_offset_straight_endpoint_envelope_ratio = 0.0;
   bool bundle_template_loaded = false;
-  wire::core::BundleKind selected_bundle_template_id = wire::core::BundleKind::kHighVoltage;
-  wire::core::CableTemplateId bundle_template_cable_template_id = wire::core::kInvalidCableTemplateId;
-  int bundle_template_default_layer = static_cast<int>(wire::core::SpanLayer::kLowVoltage);
+  city::wire::BundleKind selected_bundle_template_id = city::wire::BundleKind::kHighVoltage;
+  city::wire::CableTemplateId bundle_template_cable_template_id = city::wire::kInvalidCableTemplateId;
+  int bundle_template_default_layer = static_cast<int>(city::wire::SpanLayer::kLowVoltage);
   bool bundle_template_allow_mirror = true;
   bool bundle_template_allow_midair_node = true;
   bool bundle_template_allow_midair_branch = true;
-  int bundle_template_support_style = static_cast<int>(wire::core::BundleSupportStyleHint::kAuto);
-  int bundle_template_branch_policy = static_cast<int>(wire::core::BundleBranchPolicyHint::kAuto);
-  int bundle_template_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
+  int bundle_template_support_style = static_cast<int>(city::wire::BundleSupportStyleHint::kAuto);
+  int bundle_template_branch_policy = static_cast<int>(city::wire::BundleBranchPolicyHint::kAuto);
+  int bundle_template_continuity_policy = static_cast<int>(city::wire::CableContinuityPolicyHint::kAuto);
   double bundle_template_grouped_support_fanout_spacing = 0.2;
-  wire::core::SpanVisualAssemblyTemplate bundle_template_span_visual_assembly{};
+  city::wire::SpanVisualAssemblyTemplate bundle_template_span_visual_assembly{};
   bool pole_template_loaded = false;
-  wire::core::PoleTypeId selected_pole_template_id = wire::core::kInvalidPoleTypeId;
-  wire::core::PoleTypeDefinition pole_template_edit{};
+  city::wire::PoleTypeId selected_pole_template_id = city::wire::kInvalidPoleTypeId;
+  city::wire::PoleTypeDefinition pole_template_edit{};
   double tilt_all_max_deg = 9.5;
-  std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));
+  std::uint32_t draw_category_mask = (1u << static_cast<int>(city::wire::ConnectionCategory::kLowVoltage));
   std::uint32_t draw_bundle_template_mask =
-      (1u << static_cast<int>(wire::core::BundleKind::kLowVoltage)) |
-      (1u << static_cast<int>(wire::core::BundleKind::kHighVoltage)) |
-      (1u << static_cast<int>(wire::core::BundleKind::kCommunication)) |
-      (1u << static_cast<int>(wire::core::BundleKind::kOptical));
+      (1u << static_cast<int>(city::wire::BundleKind::kLowVoltage)) |
+      (1u << static_cast<int>(city::wire::BundleKind::kHighVoltage)) |
+      (1u << static_cast<int>(city::wire::BundleKind::kCommunication)) |
+      (1u << static_cast<int>(city::wire::BundleKind::kOptical));
   std::unordered_map<int, int> draw_bundle_count_by_template{};
   int road_pole_type_index = 1;
   int last_generated_poles = 0;
   int last_generated_spans = 0;
   std::vector<ObjectId> last_generated_pole_ids{};
   std::vector<ObjectId> last_generated_span_ids{};
-  std::optional<wire::core::BackboneSpec> last_draw_path_request{};
-  std::vector<wire::core::Vec3d> draw_path_points{};
-  std::vector<wire::core::SupportKind> draw_path_point_support_kinds{};
+  std::optional<city::wire::BackboneSpec> last_draw_path_request{};
+  std::vector<city::wire::Vec3d> draw_path_points{};
+  std::vector<city::wire::SupportKind> draw_path_point_support_kinds{};
   std::vector<ObjectId> draw_path_point_node_ids{};
   bool draw_pick_enabled = true;
   double draw_snap_radius_world = 0.75;
   bool draw_show_backbone_overlay = true;
-  wire::core::PickResult draw_hover_pick{};
+  city::wire::PickResult draw_hover_pick{};
   bool draw_hover_has_resolution = false;
-  wire::core::ResolveBranchPickResult draw_hover_resolution{};
+  city::wire::ResolveBranchPickResult draw_hover_resolution{};
   std::string draw_hover_status{};
   bool draw_hover_valid = false;
-  wire::core::Vec3d draw_hover_point{};
+  city::wire::Vec3d draw_hover_point{};
   double draw_plane_z = 0.0;
   bool draw_show_preview = true;
   bool draw_keep_path_after_generate = true;
   bool draw_clicked_points_only = true;
   double draw_interval_m = 8.0;
-  int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
+  int draw_direction_mode = static_cast<int>(city::wire::PathDirectionMode::kAuto);
   bool layout_settings_loaded = false;
   bool layout_angle_correction_enabled = true;
-  double layout_corner_threshold_deg = wire::core::kDefaultCornerThresholdDeg;
+  double layout_corner_threshold_deg = city::wire::kDefaultCornerThresholdDeg;
   double layout_min_side_scale = 1.0;
-  double layout_max_side_scale = wire::core::kMaxCornerSideScale;
+  double layout_max_side_scale = city::wire::kMaxCornerSideScale;
   std::string last_repro_capture_path{};
   std::vector<ObjectId> preferred_visible_span_ids{};
   int preferred_visible_span_count = 0;
@@ -169,7 +169,7 @@ struct ViewerUiState {
 };
 
 inline bool IsValidSelectionItem(const SelectionItem& item) {
-  return item.type != SelectedType::kNone && item.id != wire::core::kInvalidObjectId;
+  return item.type != SelectedType::kNone && item.id != city::wire::kInvalidObjectId;
 }
 
 inline void NormalizeSelection(ViewerUiState& ui_state) {
@@ -192,7 +192,7 @@ inline void NormalizeSelection(ViewerUiState& ui_state) {
 
   if (ui_state.selection_items.empty()) {
     ui_state.selected_type = SelectedType::kNone;
-    ui_state.selected_id = wire::core::kInvalidObjectId;
+    ui_state.selected_id = city::wire::kInvalidObjectId;
     return;
   }
   ui_state.selected_type = ui_state.selection_items.front().type;
@@ -235,11 +235,11 @@ struct ViewerPersistentSettings {
 };
 
 void EnsureDrawPathPointKinds(ViewerUiState& ui_state);
-void DrawPathPushPoint(ViewerUiState& ui_state, const wire::core::Vec3d& point, wire::core::SupportKind support_kind,
-                       ObjectId node_id = wire::core::kInvalidObjectId);
+void DrawPathPushPoint(ViewerUiState& ui_state, const city::wire::Vec3d& point, city::wire::SupportKind support_kind,
+                       ObjectId node_id = city::wire::kInvalidObjectId);
 void DrawPathPopPoint(ViewerUiState& ui_state);
 void DrawPathClearPoints(ViewerUiState& ui_state);
-bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
+bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const city::wire::BackboneSpec& request,
                             bool clear_draw_path_on_success, const char* success_log,
                             const char* failure_log);
 void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key);

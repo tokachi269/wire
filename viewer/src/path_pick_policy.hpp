@@ -4,31 +4,31 @@
 #include <string>
 #include <vector>
 
-#include "wire/core/types.hpp"
-#include "wire/core/workflow_types.hpp"
+#include "city/wire/types.hpp"
+#include "city/wire/workflow_types.hpp"
 
-namespace wire::core {
+namespace city::wire {
 class CoreState;
 class CoreView;
 }
 
-std::vector<wire::core::BundleKind> SelectedBundleTemplateKinds(const wire::core::CoreView& view,
+std::vector<city::wire::BundleKind> SelectedBundleTemplateKinds(const city::wire::CoreView& view,
                                                                 std::uint32_t selected_template_mask);
 
-std::vector<wire::core::BundleKind> ResolveTemplateKindsForPathPick(const wire::core::CoreView& view,
+std::vector<city::wire::BundleKind> ResolveTemplateKindsForPathPick(const city::wire::CoreView& view,
                                                                     std::uint32_t selected_template_mask,
-                                                                    const wire::core::PickResult& pick);
+                                                                    const city::wire::PickResult& pick);
 
-std::string FindMidairBranchBlockedTemplateName(const wire::core::CoreView& view,
-                                                const std::vector<wire::core::BundleKind>& template_ids);
+std::string FindMidairBranchBlockedTemplateName(const city::wire::CoreView& view,
+                                                const std::vector<city::wire::BundleKind>& template_ids);
 
-wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreView& view, const wire::core::PickResult& pick,
+city::wire::PickResult NormalizeDrawPathPick(const city::wire::CoreView& view, const city::wire::PickResult& pick,
                                              double endpoint_snap_radius_world);
 
-wire::core::PickResult CanonicalizeDrawPathPick(const wire::core::CoreView& view, const wire::core::PickResult& pick,
-                                                const wire::core::Vec3d& ground_hover_world, bool has_ground_hit,
+city::wire::PickResult CanonicalizeDrawPathPick(const city::wire::CoreView& view, const city::wire::PickResult& pick,
+                                                const city::wire::Vec3d& ground_hover_world, bool has_ground_hit,
                                                 double snap_radius_world);
 
-wire::core::PickResult PromoteGroundHoverToNearbyPolePick(const wire::core::CoreView& view,
-                                                          const wire::core::Vec3d& ground_hover_world,
+city::wire::PickResult PromoteGroundHoverToNearbyPolePick(const city::wire::CoreView& view,
+                                                          const city::wire::Vec3d& ground_hover_world,
                                                           double snap_radius_world);

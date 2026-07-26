@@ -9,7 +9,7 @@
 
 #include "host_coords.hpp"
 #include "ui_common.hpp"
-#include "wire/core/coord_utils.hpp"
+#include "city/wire/coord_utils.hpp"
 
 namespace {
 
@@ -31,8 +31,8 @@ Color ViewerWireColor(Color color) {
   return out;
 }
 
-Color FlowTintedWireColor(Color base, wire::core::BackboneFlowKind flow_kind, bool uses_branch_support) {
-  if (flow_kind == wire::core::BackboneFlowKind::kBranch) {
+Color FlowTintedWireColor(Color base, city::wire::BackboneFlowKind flow_kind, bool uses_branch_support) {
+  if (flow_kind == city::wire::BackboneFlowKind::kBranch) {
     Color out = BlendColor(base, Color{82, 136, 154, 255}, uses_branch_support ? 0.46f : 0.34f);
     out.a = base.a;
     return out;
@@ -45,25 +45,25 @@ Color FlowTintedWireColor(Color base, wire::core::BackboneFlowKind flow_kind, bo
   return base;
 }
 
-float SegmentLengthSquared(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
-  return static_cast<float>(wire::core::DistanceSquared(a, b));
+float SegmentLengthSquared(const city::wire::Vec3d& a, const city::wire::Vec3d& b) {
+  return static_cast<float>(city::wire::DistanceSquared(a, b));
 }
 
-float SolidVisualPartRadius(wire::core::VisualPartKind kind, double radius_m) {
+float SolidVisualPartRadius(city::wire::VisualPartKind kind, double radius_m) {
   if (radius_m > 1e-6) {
     return static_cast<float>(radius_m);
   }
   switch (kind) {
-  case wire::core::VisualPartKind::kInsulator:
+  case city::wire::VisualPartKind::kInsulator:
     return 0.018f;
-  case wire::core::VisualPartKind::kFitting:
+  case city::wire::VisualPartKind::kFitting:
     return 0.015f;
   default:
     return 0.014f;
   }
 }
 
-void DrawSupportSegment(const wire::core::Vec3d& a, const wire::core::Vec3d& b, float radius, Color color,
+void DrawSupportSegment(const city::wire::Vec3d& a, const city::wire::Vec3d& b, float radius, Color color,
                         bool solid_render) {
   if (solid_render) {
     if (SegmentLengthSquared(a, b) > 1e-8f) {
@@ -76,7 +76,7 @@ void DrawSupportSegment(const wire::core::Vec3d& a, const wire::core::Vec3d& b, 
   DrawLine3D(ToRaylib(a), ToRaylib(b), color);
 }
 
-void DrawCurveControls(const std::vector<wire::core::Vec3d>& controls) {
+void DrawCurveControls(const std::vector<city::wire::Vec3d>& controls) {
   if (controls.empty()) {
     return;
   }
@@ -85,22 +85,22 @@ void DrawCurveControls(const std::vector<wire::core::Vec3d>& controls) {
   for (std::size_t i = 0; i + 1 < controls.size(); ++i) {
     DrawLine3D(ToRaylib(controls[i]), ToRaylib(controls[i + 1]), handle_color);
   }
-  for (const wire::core::Vec3d& point : controls) {
+  for (const city::wire::Vec3d& point : controls) {
     DrawSphere(ToRaylib(point), 0.07f, point_color);
   }
 }
 
-static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole, double layout_yaw_deg) {
-  const wire::core::PoleFrame frame =
-      wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg);
-  return wire::core::LocalPointToWorld(frame, wire::core::ScaleVec(wire::core::WorldUp(), pole.height_m));
+static city::wire::Vec3d PoleTopPoint(const city::wire::Pole& pole, double layout_yaw_deg) {
+  const city::wire::PoleFrame frame =
+      city::wire::BuildPoleFrame(pole.world_transform, layout_yaw_deg);
+  return city::wire::LocalPointToWorld(frame, city::wire::ScaleVec(city::wire::WorldUp(), pole.height_m));
 }
 
-static Color VisualPartColor(wire::core::VisualPartKind kind) {
+static Color VisualPartColor(city::wire::VisualPartKind kind) {
   switch (kind) {
-  case wire::core::VisualPartKind::kInsulator:
+  case city::wire::VisualPartKind::kInsulator:
     return Color{109, 141, 173, 255};
-  case wire::core::VisualPartKind::kFitting:
+  case city::wire::VisualPartKind::kFitting:
     return Color{128, 132, 138, 255};
   default:
     return Color{94, 98, 104, 255};
@@ -128,7 +128,7 @@ bool IsProjectedPointOnScreen(const Vector2& projected, float margin) {
          projected.y <= static_cast<float>(GetScreenHeight()) + margin;
 }
 
-std::vector<wire::core::Vec3d> AabbCorners(const wire::core::AABBd& box) {
+std::vector<city::wire::Vec3d> AabbCorners(const city::wire::AABBd& box) {
   return {
       {box.min.x, box.min.y, box.min.z},
       {box.min.x, box.min.y, box.max.z},
@@ -141,9 +141,9 @@ std::vector<wire::core::Vec3d> AabbCorners(const wire::core::AABBd& box) {
   };
 }
 
-bool IsBoundsVisibleApprox(const Camera3D& camera, const wire::core::AABBd& bounds) {
+bool IsBoundsVisibleApprox(const Camera3D& camera, const city::wire::AABBd& bounds) {
   constexpr float kScreenMarginPx = 64.0f;
-  for (const wire::core::Vec3d& corner : AabbCorners(bounds)) {
+  for (const city::wire::Vec3d& corner : AabbCorners(bounds)) {
     const Vector3 host_point = InternalToHostWorld(corner);
     if (!IsHostPointInFrontOfCamera(camera, host_point)) {
       continue;
@@ -156,8 +156,8 @@ bool IsBoundsVisibleApprox(const Camera3D& camera, const wire::core::AABBd& boun
   return false;
 }
 
-std::vector<wire::core::Vec3d> SampleCurveInterval(const wire::core::DetailCurve& curve, double start_s, double end_s) {
-  std::vector<wire::core::Vec3d> points{};
+std::vector<city::wire::Vec3d> SampleCurveInterval(const city::wire::DetailCurve& curve, double start_s, double end_s) {
+  std::vector<city::wire::Vec3d> points{};
   const double span = std::max(0.0, end_s - start_s);
   if (curve.Length() <= 1e-9 || span <= 1e-9) {
     return points;
@@ -171,7 +171,7 @@ std::vector<wire::core::Vec3d> SampleCurveInterval(const wire::core::DetailCurve
   return points;
 }
 
-void DrawWirePolyline(const std::vector<wire::core::Vec3d>& points, float wire_radius, Color wire_color) {
+void DrawWirePolyline(const std::vector<city::wire::Vec3d>& points, float wire_radius, Color wire_color) {
   if (points.size() < 2) {
     return;
   }
@@ -180,7 +180,7 @@ void DrawWirePolyline(const std::vector<wire::core::Vec3d>& points, float wire_r
   }
 }
 
-Color SpanDebugColor(const wire::core::SpanRuntimeState* runtime_state) {
+Color SpanDebugColor(const city::wire::SpanRuntimeState* runtime_state) {
   if (runtime_state == nullptr) return Color{92, 96, 102, 255};
   return Color{96, 112, 128, 255};
 }
@@ -191,23 +191,23 @@ void DrawAxesImpl() {
   DrawLine3D(ToRaylib({0.0, 0.0, 0.0}), ToRaylib({0.0, 0.0, kAxisLength}), BLUE);
 }
 
-void DrawPickHighlightImpl(const wire::core::PickResult& pick, bool has_resolution,
-                           const wire::core::ResolveBranchPickResult& resolution) {
+void DrawPickHighlightImpl(const city::wire::PickResult& pick, bool has_resolution,
+                           const city::wire::ResolveBranchPickResult& resolution) {
   if (has_resolution) {
-    const bool is_midair = (resolution.resolution == wire::core::PickBranchResolutionKind::kMidair);
+    const bool is_midair = (resolution.resolution == city::wire::PickBranchResolutionKind::kMidair);
     const Color resolved_color = is_midair ? Color{90, 154, 176, 235} : Color{214, 180, 92, 235};
     DrawSphere(ToRaylib(resolution.position), 0.16f, resolved_color);
     DrawSphereWires(ToRaylib(resolution.position), 0.21f, 10, 16, Color{122, 124, 128, 210});
     return;
   }
 
-  if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
+  if (pick.hit_kind == city::wire::PickHitKind::kEmpty) {
     return;
   }
-  if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kExternal) {
+  if (pick.hit_kind == city::wire::PickHitKind::kNode || pick.hit_kind == city::wire::PickHitKind::kExternal) {
     DrawSphere(ToRaylib(pick.hit_pos_world), 0.16f, Color{214, 180, 92, 215});
     DrawSphereWires(ToRaylib(pick.hit_pos_world), 0.22f, 10, 14, Color{132, 118, 88, 220});
-  } else if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
+  } else if (pick.hit_kind == city::wire::PickHitKind::kSegment) {
     if (pick.has_segment_endpoints) {
       DrawLine3D(ToRaylib(pick.segment_endpoint_a_world), ToRaylib(pick.segment_endpoint_b_world),
                  Color{86, 148, 126, 235});
@@ -216,14 +216,14 @@ void DrawPickHighlightImpl(const wire::core::PickResult& pick, bool has_resoluti
   }
 }
 
-void DrawBackboneOverlayImpl(const wire::core::BackboneResult& backbone, const ViewerUiState& ui_state) {
-  std::unordered_map<ObjectId, wire::core::Vec3d> node_position_by_id{};
+void DrawBackboneOverlayImpl(const city::wire::BackboneResult& backbone, const ViewerUiState& ui_state) {
+  std::unordered_map<ObjectId, city::wire::Vec3d> node_position_by_id{};
   node_position_by_id.reserve(backbone.nodes.size());
-  for (const wire::core::SupportNode& node : backbone.nodes) {
+  for (const city::wire::SupportNode& node : backbone.nodes) {
     node_position_by_id[node.node_id] = ProjectBackbonePointToDisplayPlane(node.position);
   }
 
-  for (const wire::core::BackboneEdge& edge : backbone.edges) {
+  for (const city::wire::BackboneEdge& edge : backbone.edges) {
     const auto it_a = node_position_by_id.find(edge.node_a);
     const auto it_b = node_position_by_id.find(edge.node_b);
     if (it_a == node_position_by_id.end() || it_b == node_position_by_id.end()) {
@@ -232,18 +232,18 @@ void DrawBackboneOverlayImpl(const wire::core::BackboneResult& backbone, const V
     DrawLine3D(ToRaylib(it_a->second), ToRaylib(it_b->second), Color{176, 150, 92, 170});
   }
 
-  for (const wire::core::SupportNode& node : backbone.nodes) {
+  for (const city::wire::SupportNode& node : backbone.nodes) {
     const bool in_draw_path = std::find(ui_state.draw_path_point_node_ids.begin(), ui_state.draw_path_point_node_ids.end(),
                                         node.node_id) != ui_state.draw_path_point_node_ids.end();
-    if (node.support_kind == wire::core::SupportKind::kPole && !in_draw_path) {
+    if (node.support_kind == city::wire::SupportKind::kPole && !in_draw_path) {
       continue;
     }
     Color color = Color{196, 164, 88, 210};
     float radius = 0.12f;
-    if (node.support_kind == wire::core::SupportKind::kMidair) {
+    if (node.support_kind == city::wire::SupportKind::kMidair) {
       color = Color{90, 154, 176, 220};
       radius = 0.14f;
-    } else if (node.support_kind == wire::core::SupportKind::kExternal) {
+    } else if (node.support_kind == city::wire::SupportKind::kExternal) {
       color = Color{110, 154, 100, 220};
       radius = 0.14f;
     }
@@ -255,7 +255,7 @@ void DrawBackboneOverlayImpl(const wire::core::BackboneResult& backbone, const V
       color = Color{220, 204, 152, 235};
       radius += 0.03f;
     }
-    const wire::core::Vec3d display = ProjectBackbonePointToDisplayPlane(node.position);
+    const city::wire::Vec3d display = ProjectBackbonePointToDisplayPlane(node.position);
     DrawSphere(ToRaylib(display), radius, color);
     DrawSphereWires(ToRaylib(display), radius + 0.05f, 9, 14, Color{126, 128, 132, 170});
   }
@@ -271,10 +271,10 @@ static Color ColorFromRgba(std::uint32_t rgba) {
 }
 } // namespace
 
-void UpdatePreferredVisibleSpans(const wire::core::CoreView& view, const Camera3D& camera, ViewerUiState& ui_state) {
+void UpdatePreferredVisibleSpans(const city::wire::CoreView& view, const Camera3D& camera, ViewerUiState& ui_state) {
   ui_state.preferred_visible_span_ids.clear();
-  for (const wire::core::Span& span : view.edit_state().spans.items()) {
-    const wire::core::BoundsCacheEntry* bounds = view.find_bounds_cache(span.id);
+  for (const city::wire::Span& span : view.edit_state().spans.items()) {
+    const city::wire::BoundsCacheEntry* bounds = view.find_bounds_cache(span.id);
     if (bounds == nullptr) {
       continue;
     }
@@ -288,23 +288,23 @@ void UpdatePreferredVisibleSpans(const wire::core::CoreView& view, const Camera3
 
 void DrawAxes() { DrawAxesImpl(); }
 
-void DrawPickHighlight(const wire::core::PickResult& pick, bool has_resolution,
-                       const wire::core::ResolveBranchPickResult& resolution) {
+void DrawPickHighlight(const city::wire::PickResult& pick, bool has_resolution,
+                       const city::wire::ResolveBranchPickResult& resolution) {
   DrawPickHighlightImpl(pick, has_resolution, resolution);
 }
 
-void DrawBackboneOverlay(const wire::core::BackboneResult& backbone, const ViewerUiState& ui_state) {
+void DrawBackboneOverlay(const city::wire::BackboneResult& backbone, const ViewerUiState& ui_state) {
   DrawBackboneOverlayImpl(backbone, ui_state);
 }
 
-void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
+void DrawCore(const city::wire::CoreView& view, const ViewerUiState& ui_state) {
   const auto& edit = view.edit_state();
-  const wire::core::BackboneResult backbone = view.saved_backbone_result();
+  const city::wire::BackboneResult backbone = view.saved_backbone_result();
   const bool enable_solid_support_render = ui_state.viewer_enable_solid_support_render;
-  ObjectId selected_bundle_id = wire::core::kInvalidObjectId;
+  ObjectId selected_bundle_id = city::wire::kInvalidObjectId;
   for (const SelectionItem& item : ui_state.selection_items) {
-    if (item.type == SelectedType::kSpan && item.id != wire::core::kInvalidObjectId) {
-      const wire::core::Span* selected_span = edit.spans.find(item.id);
+    if (item.type == SelectedType::kSpan && item.id != city::wire::kInvalidObjectId) {
+      const city::wire::Span* selected_span = edit.spans.find(item.id);
       if (selected_span != nullptr) {
         selected_bundle_id = selected_span->bundle_id;
         break;
@@ -312,13 +312,13 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     }
   }
 
-  for (const wire::core::Pole& pole : edit.poles.items()) {
-    const wire::core::Vec3d pole_base_ue = pole.world_transform.position;
+  for (const city::wire::Pole& pole : edit.poles.items()) {
+    const city::wire::Vec3d pole_base_ue = pole.world_transform.position;
     double layout_yaw_deg = pole.world_transform.rotation_euler_deg.z;
     if (const auto pole_view = view.inspect_pole(pole.id); pole_view.has_value() && pole_view->has_layout_yaw) {
       layout_yaw_deg = pole_view->layout_yaw_deg;
     }
-    const wire::core::Vec3d pole_top_ue = PoleTopPoint(pole, layout_yaw_deg);
+    const city::wire::Vec3d pole_top_ue = PoleTopPoint(pole, layout_yaw_deg);
     Color color = DARKGRAY;
     if (SelectionContains(ui_state, SelectedType::kPole, pole.id)) {
       color = GOLD;
@@ -328,11 +328,11 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
 
   const bool show_backbone_overlay = ui_state.draw_show_backbone_overlay;
   if (!show_backbone_overlay) {
-    for (const wire::core::SupportNode& node : backbone.nodes) {
-      if (node.support_kind == wire::core::SupportKind::kPole) {
+    for (const city::wire::SupportNode& node : backbone.nodes) {
+      if (node.support_kind == city::wire::SupportKind::kPole) {
         continue;
       }
-      Color color = (node.support_kind == wire::core::SupportKind::kMidair) ? Color{90, 154, 176, 230}
+      Color color = (node.support_kind == city::wire::SupportKind::kMidair) ? Color{90, 154, 176, 230}
                                                                              : Color{110, 154, 100, 230};
       if (SelectionContains(ui_state, SelectedType::kSupportNode, node.node_id)) {
         color = GOLD;
@@ -345,15 +345,15 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
       ui_state.show_debug_labels || SelectionCountByType(ui_state, SelectedType::kPort) > 0 ||
       SelectionCountByType(ui_state, SelectedType::kAnchor) > 0;
   if (draw_endpoint_markers) {
-    for (const wire::core::Port& port : edit.ports.items()) {
-      Color color = (port.position_mode == wire::core::PortPositionMode::kManual) ? MAGENTA : ORANGE;
+    for (const city::wire::Port& port : edit.ports.items()) {
+      Color color = (port.position_mode == city::wire::PortPositionMode::kManual) ? MAGENTA : ORANGE;
       if (SelectionContains(ui_state, SelectedType::kPort, port.id)) {
         color = GOLD;
       }
       DrawSphere(ToRaylib(port.world_position), 0.09f, color);
     }
 
-    for (const wire::core::Anchor& anchor : edit.anchors.items()) {
+    for (const city::wire::Anchor& anchor : edit.anchors.items()) {
       Color color = PURPLE;
       if (SelectionContains(ui_state, SelectedType::kAnchor, anchor.id)) {
         color = GOLD;
@@ -362,32 +362,32 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     }
   }
 
-  std::unordered_set<wire::core::ObjectId> spans_drawn_as_visual_parts{};
-  const wire::core::VisualCurvePartCache& visual_curve_parts = view.visual_curve_parts();
-  for (const wire::core::VisualCurvePart& part : visual_curve_parts.parts) {
+  std::unordered_set<city::wire::ObjectId> spans_drawn_as_visual_parts{};
+  const city::wire::VisualCurvePartCache& visual_curve_parts = view.visual_curve_parts();
+  for (const city::wire::VisualCurvePart& part : visual_curve_parts.parts) {
     if (part.samples.size() < 2) {
       continue;
     }
     float wire_radius = static_cast<float>(std::max(0.0005, part.wire_radius_m));
     Color wire_color = ViewerWireColor(ColorFromRgba(part.color_rgba));
-    if (part.source_span_id != wire::core::kInvalidObjectId) {
-      const wire::core::Span* part_span = edit.spans.find(part.source_span_id);
+    if (part.source_span_id != city::wire::kInvalidObjectId) {
+      const city::wire::Span* part_span = edit.spans.find(part.source_span_id);
       const auto part_layout_view = view.span_layout(part.source_span_id);
-      const wire::core::BackboneFlowKind part_flow_kind =
-          (!part_layout_view.has_layout()) ? wire::core::BackboneFlowKind::kMain : part_layout_view.entry->flow_kind;
+      const city::wire::BackboneFlowKind part_flow_kind =
+          (!part_layout_view.has_layout()) ? city::wire::BackboneFlowKind::kMain : part_layout_view.entry->flow_kind;
       const bool part_uses_branch_support =
           part_layout_view.has_layout() &&
-          part_layout_view.entry->lowering_kind == wire::core::BackboneLoweringKind::kBranchSupport;
+          part_layout_view.entry->lowering_kind == city::wire::BackboneLoweringKind::kBranchSupport;
       wire_color = FlowTintedWireColor(wire_color, part_flow_kind, part_uses_branch_support);
       if (SelectionContains(ui_state, SelectedType::kSpan, part.source_span_id)) {
         wire_color = Color{182, 142, 48, 255};
-      } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != wire::core::kInvalidObjectId &&
+      } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != city::wire::kInvalidObjectId &&
                  part_span != nullptr && part_span->bundle_id == selected_bundle_id) {
         wire_color = Color{154, 112, 56, 255};
       }
       spans_drawn_as_visual_parts.insert(part.source_span_id);
     } else if (ui_state.show_selected_bundle_highlight &&
-               selected_bundle_id != wire::core::kInvalidObjectId && part.source_bundle_id == selected_bundle_id) {
+               selected_bundle_id != city::wire::kInvalidObjectId && part.source_bundle_id == selected_bundle_id) {
       wire_color = Color{154, 112, 56, 255};
     }
     DrawWirePolyline(part.samples, wire_radius, wire_color);
@@ -396,36 +396,36 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     }
   }
 
-  for (const wire::core::Span& span : edit.spans.items()) {
-    const wire::core::Port* start_port = edit.ports.find(span.port_a_id);
-    const wire::core::Port* end_port = edit.ports.find(span.port_b_id);
+  for (const city::wire::Span& span : edit.spans.items()) {
+    const city::wire::Port* start_port = edit.ports.find(span.port_a_id);
+    const city::wire::Port* end_port = edit.ports.find(span.port_b_id);
     if (start_port == nullptr || end_port == nullptr) {
       continue;
     }
-    const wire::core::SpanRuntimeState* runtime_state = view.find_span_runtime_state(span.id);
+    const city::wire::SpanRuntimeState* runtime_state = view.find_span_runtime_state(span.id);
     Color color = SpanDebugColor(runtime_state);
     if (SelectionContains(ui_state, SelectedType::kSpan, span.id)) {
       color = GOLD;
-    } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != wire::core::kInvalidObjectId &&
+    } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != city::wire::kInvalidObjectId &&
                span.bundle_id == selected_bundle_id) {
       color = ORANGE;
     }
 
-    const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span.id);
-    const wire::core::SpanRenderCacheEntry* render = view.find_span_render_cache(span.id);
+    const city::wire::CurveCacheEntry* curve = view.find_curve_cache(span.id);
+    const city::wire::SpanRenderCacheEntry* render = view.find_span_render_cache(span.id);
     const auto layout_view = view.span_layout(span.id);
-    const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
-    const wire::core::BackboneFlowKind flow_kind =
-        (!layout_view.has_layout()) ? wire::core::BackboneFlowKind::kMain : layout_view.entry->flow_kind;
+    const city::wire::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
+    const city::wire::BackboneFlowKind flow_kind =
+        (!layout_view.has_layout()) ? city::wire::BackboneFlowKind::kMain : layout_view.entry->flow_kind;
     const bool uses_branch_support =
-        layout_view.has_layout() && layout_view.entry->lowering_kind == wire::core::BackboneLoweringKind::kBranchSupport;
+        layout_view.has_layout() && layout_view.entry->lowering_kind == city::wire::BackboneLoweringKind::kBranchSupport;
     const float wire_radius =
         static_cast<float>((render == nullptr) ? 0.01 : std::max(0.0005, render->wire_radius_m));
     Color wire_color = (render == nullptr) ? ViewerWireColor(color) : ViewerWireColor(ColorFromRgba(render->color_rgba));
     wire_color = FlowTintedWireColor(wire_color, flow_kind, uses_branch_support);
     if (SelectionContains(ui_state, SelectedType::kSpan, span.id)) {
       wire_color = Color{182, 142, 48, 255};
-    } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != wire::core::kInvalidObjectId &&
+    } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != city::wire::kInvalidObjectId &&
                span.bundle_id == selected_bundle_id) {
       wire_color = Color{154, 112, 56, 255};
     }
@@ -433,17 +433,17 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     if (!wire_drawn_as_visual_part) {
       if (curve != nullptr && curve->points.size() >= 2) {
         if (!curve->detail.visible_intervals.empty()) {
-          for (const wire::core::CurveLengthInterval& interval : curve->detail.visible_intervals) {
+          for (const city::wire::CurveLengthInterval& interval : curve->detail.visible_intervals) {
             DrawWirePolyline(SampleCurveInterval(curve->detail, interval.start_m, interval.end_m), wire_radius,
                              wire_color);
           }
         } else {
           DrawWirePolyline(curve->points, wire_radius, wire_color);
         }
-        for (const wire::core::DetailReplacementPath& replacement : curve->detail.replacement_paths) {
+        for (const city::wire::DetailReplacementPath& replacement : curve->detail.replacement_paths) {
           DrawWirePolyline(replacement.points, wire_radius, wire_color);
         }
-        for (const wire::core::DetailSupplementalPath& supplemental : curve->detail.supplemental_paths) {
+        for (const city::wire::DetailSupplementalPath& supplemental : curve->detail.supplemental_paths) {
           DrawWirePolyline(supplemental.points, wire_radius, wire_color);
         }
       } else {
@@ -452,22 +452,22 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
       }
     }
 
-    const wire::core::BoundsCacheEntry* bounds = view.find_bounds_cache(span.id);
+    const city::wire::BoundsCacheEntry* bounds = view.find_bounds_cache(span.id);
     if (bounds != nullptr) {
       if (ui_state.show_whole_aabb) {
         DrawBoundingBox(ToRaylibBounds(bounds->whole), DARKGREEN);
       }
       if (ui_state.show_segment_aabb) {
-        for (const wire::core::AABBd& segment : bounds->segments) {
+        for (const city::wire::AABBd& segment : bounds->segments) {
           DrawBoundingBox(ToRaylibBounds(segment), Color{108, 124, 144, 130});
         }
       }
     }
 
     if (visual != nullptr) {
-      for (const wire::core::VisualPart& part : visual->parts) {
+      for (const city::wire::VisualPart& part : visual->parts) {
         const Color part_color = VisualPartColor(part.kind);
-        if (part.kind == wire::core::VisualPartKind::kInsulator) {
+        if (part.kind == city::wire::VisualPartKind::kInsulator) {
           DrawCylinderEx(ToRaylib(part.a), ToRaylib(part.b), static_cast<float>(part.radius_m),
                          static_cast<float>(part.radius_m), 8, part_color);
         } else {

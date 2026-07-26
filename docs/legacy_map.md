@@ -36,7 +36,7 @@
 - span-derived backbone public query
 - global cable population config / enable flag / seed
 - `AddConnectionByPole`、`AddDropFromPole`、`AddDropFromSpan`、`SplitSpan`のpublic API、実装、専用型
-- road/building固有のcore identity型
+- domains/road/building固有のcore identity型
 - `SegmentLaneAssignment`、`last_generation_lane_assignments`、旧generation test suite
 
 ## viewer/debug境界

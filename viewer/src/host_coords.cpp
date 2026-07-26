@@ -1,6 +1,6 @@
 #include "host_coords.hpp"
 
-wire::core::Vec3d HostWorldToInternal(const Vector3& host_world) {
+city::wire::Vec3d HostWorldToInternal(const Vector3& host_world) {
   return {
       static_cast<double>(host_world.x),
       static_cast<double>(host_world.z),
@@ -8,7 +8,7 @@ wire::core::Vec3d HostWorldToInternal(const Vector3& host_world) {
   };
 }
 
-Vector3 InternalToHostWorld(const wire::core::Vec3d& internal_world) {
+Vector3 InternalToHostWorld(const city::wire::Vec3d& internal_world) {
   return {
       static_cast<float>(internal_world.x),
       static_cast<float>(internal_world.z),

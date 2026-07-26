@@ -1,6 +1,6 @@
 #include "ui_common.hpp"
 
-#include "wire/core/coord_utils.hpp"
+#include "city/wire/coord_utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,201 +9,201 @@
 
 #include "host_coords.hpp"
 
-constexpr std::array<wire::core::ConnectionCategory, 5> kAllCategories = {
-    wire::core::ConnectionCategory::kHighVoltage,   wire::core::ConnectionCategory::kLowVoltage,
-    wire::core::ConnectionCategory::kCommunication, wire::core::ConnectionCategory::kOptical,
-    wire::core::ConnectionCategory::kDrop,
+constexpr std::array<city::wire::ConnectionCategory, 5> kAllCategories = {
+    city::wire::ConnectionCategory::kHighVoltage,   city::wire::ConnectionCategory::kLowVoltage,
+    city::wire::ConnectionCategory::kCommunication, city::wire::ConnectionCategory::kOptical,
+    city::wire::ConnectionCategory::kDrop,
 };
 
-constexpr std::array<wire::core::ConnectionContext, 4> kAllConnectionContexts = {
-    wire::core::ConnectionContext::kTrunkContinue,
-    wire::core::ConnectionContext::kCornerPass,
-    wire::core::ConnectionContext::kBranchAdd,
-    wire::core::ConnectionContext::kDropAdd,
+constexpr std::array<city::wire::ConnectionContext, 4> kAllConnectionContexts = {
+    city::wire::ConnectionContext::kTrunkContinue,
+    city::wire::ConnectionContext::kCornerPass,
+    city::wire::ConnectionContext::kBranchAdd,
+    city::wire::ConnectionContext::kDropAdd,
 };
 
-const std::array<wire::core::ConnectionCategory, 5>& AllCategories() {
+const std::array<city::wire::ConnectionCategory, 5>& AllCategories() {
   return kAllCategories;
 }
 
-const std::array<wire::core::ConnectionContext, 4>& AllConnectionContexts() {
+const std::array<city::wire::ConnectionContext, 4>& AllConnectionContexts() {
   return kAllConnectionContexts;
 }
 
-const char* CategoryLabel(wire::core::ConnectionCategory category) {
+const char* CategoryLabel(city::wire::ConnectionCategory category) {
   switch (category) {
-  case wire::core::ConnectionCategory::kHighVoltage:
+  case city::wire::ConnectionCategory::kHighVoltage:
     return "HighVoltage";
-  case wire::core::ConnectionCategory::kLowVoltage:
+  case city::wire::ConnectionCategory::kLowVoltage:
     return "LowVoltage";
-  case wire::core::ConnectionCategory::kCommunication:
+  case city::wire::ConnectionCategory::kCommunication:
     return "Communication";
-  case wire::core::ConnectionCategory::kOptical:
+  case city::wire::ConnectionCategory::kOptical:
     return "Optical";
-  case wire::core::ConnectionCategory::kDrop:
+  case city::wire::ConnectionCategory::kDrop:
     return "Drop";
   default:
     return "Unknown";
   }
 }
 
-const char* ContextLabel(wire::core::ConnectionContext context) {
+const char* ContextLabel(city::wire::ConnectionContext context) {
   switch (context) {
-  case wire::core::ConnectionContext::kTrunkContinue:
+  case city::wire::ConnectionContext::kTrunkContinue:
     return "Trunk";
-  case wire::core::ConnectionContext::kCornerPass:
+  case city::wire::ConnectionContext::kCornerPass:
     return "Corner";
-  case wire::core::ConnectionContext::kBranchAdd:
+  case city::wire::ConnectionContext::kBranchAdd:
     return "Branch";
-  case wire::core::ConnectionContext::kDropAdd:
+  case city::wire::ConnectionContext::kDropAdd:
     return "Drop";
   default:
     return "Unknown";
   }
 }
 
-const char* PoleContextLabel(wire::core::PoleContextKind context) {
+const char* PoleContextLabel(city::wire::PoleContextKind context) {
   switch (context) {
-  case wire::core::PoleContextKind::kStraight:
+  case city::wire::PoleContextKind::kStraight:
     return "Straight";
-  case wire::core::PoleContextKind::kCorner:
+  case city::wire::PoleContextKind::kCorner:
     return "Corner";
-  case wire::core::PoleContextKind::kBranch:
+  case city::wire::PoleContextKind::kBranch:
     return "Branch";
-  case wire::core::PoleContextKind::kTerminal:
+  case city::wire::PoleContextKind::kTerminal:
     return "Terminal";
   default:
     return "Unknown";
   }
 }
 
-const char* PolePlacementModeLabel(wire::core::PlacementMode mode) {
+const char* PolePlacementModeLabel(city::wire::PlacementMode mode) {
   switch (mode) {
-  case wire::core::PlacementMode::kAuto:
+  case city::wire::PlacementMode::kAuto:
     return "Auto";
-  case wire::core::PlacementMode::kManual:
+  case city::wire::PlacementMode::kManual:
     return "Manual";
   default:
     return "Unknown";
   }
 }
 
-const char* SlotSideLabel(wire::core::SlotSide side) {
+const char* SlotSideLabel(city::wire::SlotSide side) {
   switch (side) {
-  case wire::core::SlotSide::kLeft:
+  case city::wire::SlotSide::kLeft:
     return "L";
-  case wire::core::SlotSide::kCenter:
+  case city::wire::SlotSide::kCenter:
     return "C";
-  case wire::core::SlotSide::kRight:
+  case city::wire::SlotSide::kRight:
     return "R";
   default:
     return "?";
   }
 }
 
-const char* SlotRoleLabel(wire::core::SlotRole role) {
+const char* SlotRoleLabel(city::wire::SlotRole role) {
   switch (role) {
-  case wire::core::SlotRole::kNeutral:
+  case city::wire::SlotRole::kNeutral:
     return "Neutral";
-  case wire::core::SlotRole::kTrunkPreferred:
+  case city::wire::SlotRole::kTrunkPreferred:
     return "Trunk";
-  case wire::core::SlotRole::kBranchPreferred:
+  case city::wire::SlotRole::kBranchPreferred:
     return "Branch";
-  case wire::core::SlotRole::kDropPreferred:
+  case city::wire::SlotRole::kDropPreferred:
     return "Drop";
   default:
     return "Unknown";
   }
 }
 
-const char* PortPositionModeLabel(wire::core::PortPositionMode mode) {
+const char* PortPositionModeLabel(city::wire::PortPositionMode mode) {
   switch (mode) {
-  case wire::core::PortPositionMode::kAuto:
+  case city::wire::PortPositionMode::kAuto:
     return "Auto";
-  case wire::core::PortPositionMode::kManual:
+  case city::wire::PortPositionMode::kManual:
     return "Manual";
   default:
     return "Unknown";
   }
 }
 
-const char* PortPlacementSourceLabel(wire::core::PortPlacementSourceKind source) {
+const char* PortPlacementSourceLabel(city::wire::PortPlacementSourceKind source) {
   switch (source) {
-  case wire::core::PortPlacementSourceKind::kPlacementBand:
+  case city::wire::PortPlacementSourceKind::kPlacementBand:
     return "Band";
-  case wire::core::PortPlacementSourceKind::kGenerated:
+  case city::wire::PortPlacementSourceKind::kGenerated:
     return "Generated";
-  case wire::core::PortPlacementSourceKind::kManualEdit:
+  case city::wire::PortPlacementSourceKind::kManualEdit:
     return "ManualEdit";
-  case wire::core::PortPlacementSourceKind::kAerialBranch:
+  case city::wire::PortPlacementSourceKind::kAerialBranch:
     return "AerialBranch";
-  case wire::core::PortPlacementSourceKind::kBranchSupport:
+  case city::wire::PortPlacementSourceKind::kBranchSupport:
     return "BranchSupport";
-  case wire::core::PortPlacementSourceKind::kUnknown:
+  case city::wire::PortPlacementSourceKind::kUnknown:
   default:
     return "Unknown";
   }
 }
 
-const char* PathDirectionModeLabel(wire::core::PathDirectionMode mode) {
+const char* PathDirectionModeLabel(city::wire::PathDirectionMode mode) {
   switch (mode) {
-  case wire::core::PathDirectionMode::kAuto:
+  case city::wire::PathDirectionMode::kAuto:
     return "Auto";
-  case wire::core::PathDirectionMode::kForward:
+  case city::wire::PathDirectionMode::kForward:
     return "Forward";
-  case wire::core::PathDirectionMode::kReverse:
+  case city::wire::PathDirectionMode::kReverse:
     return "Reverse";
   default:
     return "Unknown";
   }
 }
 
-const char* PathDirectionChosenLabel(wire::core::PathDirectionChosen chosen) {
+const char* PathDirectionChosenLabel(city::wire::PathDirectionChosen chosen) {
   switch (chosen) {
-  case wire::core::PathDirectionChosen::kForward:
+  case city::wire::PathDirectionChosen::kForward:
     return "Forward";
-  case wire::core::PathDirectionChosen::kReverse:
+  case city::wire::PathDirectionChosen::kReverse:
     return "Reverse";
   default:
     return "Unknown";
   }
 }
 
-const char* SupportKindLabel(wire::core::SupportKind kind) {
+const char* SupportKindLabel(city::wire::SupportKind kind) {
   switch (kind) {
-  case wire::core::SupportKind::kPole:
+  case city::wire::SupportKind::kPole:
     return "Pole";
-  case wire::core::SupportKind::kMidair:
+  case city::wire::SupportKind::kMidair:
     return "Midair";
-  case wire::core::SupportKind::kExternal:
+  case city::wire::SupportKind::kExternal:
     return "External";
   default:
     return "Unknown";
   }
 }
 
-const char* BundleNodeModeLabel(wire::core::BundleNodeMode mode) {
+const char* BundleNodeModeLabel(city::wire::BundleNodeMode mode) {
   switch (mode) {
-  case wire::core::BundleNodeMode::kNotPresent:
+  case city::wire::BundleNodeMode::kNotPresent:
     return "NotPresent";
-  case wire::core::BundleNodeMode::kPassThrough:
+  case city::wire::BundleNodeMode::kPassThrough:
     return "PassThrough";
   default:
     return "Unknown";
   }
 }
 
-const char* PickHitKindLabel(wire::core::PickHitKind kind) {
+const char* PickHitKindLabel(city::wire::PickHitKind kind) {
   switch (kind) {
-  case wire::core::PickHitKind::kNode:
+  case city::wire::PickHitKind::kNode:
     return "Node";
-  case wire::core::PickHitKind::kSegment:
+  case city::wire::PickHitKind::kSegment:
     return "Segment";
-  case wire::core::PickHitKind::kGround:
+  case city::wire::PickHitKind::kGround:
     return "Ground";
-  case wire::core::PickHitKind::kExternal:
+  case city::wire::PickHitKind::kExternal:
     return "External";
-  case wire::core::PickHitKind::kEmpty:
+  case city::wire::PickHitKind::kEmpty:
   default:
     return "Empty";
   }
@@ -246,25 +246,25 @@ const char* SelectedTypeLabel(SelectedType selected_type) {
   }
 }
 
-int FallbackParallelSpanCount(wire::core::ConnectionCategory category) {
+int FallbackParallelSpanCount(city::wire::ConnectionCategory category) {
   switch (category) {
-  case wire::core::ConnectionCategory::kHighVoltage:
+  case city::wire::ConnectionCategory::kHighVoltage:
     return 3;
-  case wire::core::ConnectionCategory::kLowVoltage:
+  case city::wire::ConnectionCategory::kLowVoltage:
     return 2;
-  case wire::core::ConnectionCategory::kCommunication:
+  case city::wire::ConnectionCategory::kCommunication:
     return 1;
-  case wire::core::ConnectionCategory::kOptical:
+  case city::wire::ConnectionCategory::kOptical:
     return 1;
-  case wire::core::ConnectionCategory::kDrop:
+  case city::wire::ConnectionCategory::kDrop:
     return 1;
   default:
     return 1;
   }
 }
 
-int AutoParallelSpanCountFromPoleType(const wire::core::CoreView& view, wire::core::PoleTypeId pole_type_id,
-                                      wire::core::ConnectionCategory category) {
+int AutoParallelSpanCountFromPoleType(const city::wire::CoreView& view, city::wire::PoleTypeId pole_type_id,
+                                      city::wire::ConnectionCategory category) {
   const int count = view.count_port_bands(pole_type_id, category);
   if (count <= 0) {
     return FallbackParallelSpanCount(category);
@@ -291,8 +291,8 @@ void SetDrawCategorySelected(ViewerUiState& ui_state, int category_index, bool s
   }
 }
 
-std::vector<wire::core::ConnectionCategory> SelectedDrawCategories(const ViewerUiState& ui_state) {
-  std::vector<wire::core::ConnectionCategory> categories;
+std::vector<city::wire::ConnectionCategory> SelectedDrawCategories(const ViewerUiState& ui_state) {
+  std::vector<city::wire::ConnectionCategory> categories;
   for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
     if (IsDrawCategorySelected(ui_state, i)) {
       categories.push_back(kAllCategories[i]);
@@ -319,19 +319,19 @@ std::string DrawCategoryPreview(const ViewerUiState& ui_state) {
   return oss.str();
 }
 
-std::vector<wire::core::BundleKind> SortedBundleTemplateKinds(const wire::core::CoreView& view) {
-  std::vector<wire::core::BundleKind> ids;
+std::vector<city::wire::BundleKind> SortedBundleTemplateKinds(const city::wire::CoreView& view) {
+  std::vector<city::wire::BundleKind> ids;
   ids.reserve(view.bundle_templates().size());
   for (const auto& [id, _] : view.bundle_templates()) {
     ids.push_back(id);
   }
-  std::sort(ids.begin(), ids.end(), [](wire::core::BundleKind a, wire::core::BundleKind b) {
+  std::sort(ids.begin(), ids.end(), [](city::wire::BundleKind a, city::wire::BundleKind b) {
     return static_cast<int>(a) < static_cast<int>(b);
   });
   return ids;
 }
 
-bool IsBundleTemplateSelected(const ViewerUiState& ui_state, wire::core::BundleKind kind) {
+bool IsBundleTemplateSelected(const ViewerUiState& ui_state, city::wire::BundleKind kind) {
   const int bit_index = static_cast<int>(kind);
   if (bit_index < 0 || bit_index >= 32) {
     return false;
@@ -339,7 +339,7 @@ bool IsBundleTemplateSelected(const ViewerUiState& ui_state, wire::core::BundleK
   return (ui_state.draw_bundle_template_mask & (1u << bit_index)) != 0u;
 }
 
-void SetBundleTemplateSelected(ViewerUiState& ui_state, wire::core::BundleKind kind, bool selected) {
+void SetBundleTemplateSelected(ViewerUiState& ui_state, city::wire::BundleKind kind, bool selected) {
   const int bit_index = static_cast<int>(kind);
   if (bit_index < 0 || bit_index >= 32) {
     return;
@@ -352,11 +352,11 @@ void SetBundleTemplateSelected(ViewerUiState& ui_state, wire::core::BundleKind k
   }
 }
 
-std::vector<wire::core::BundleKind> SelectedBundleTemplates(const wire::core::CoreView& view,
+std::vector<city::wire::BundleKind> SelectedBundleTemplates(const city::wire::CoreView& view,
                                                             const ViewerUiState& ui_state) {
-  std::vector<wire::core::BundleKind> selected{};
+  std::vector<city::wire::BundleKind> selected{};
   const auto all = SortedBundleTemplateKinds(view);
-  for (wire::core::BundleKind kind : all) {
+  for (city::wire::BundleKind kind : all) {
     if (IsBundleTemplateSelected(ui_state, kind)) {
       selected.push_back(kind);
     }
@@ -364,7 +364,7 @@ std::vector<wire::core::BundleKind> SelectedBundleTemplates(const wire::core::Co
   return selected;
 }
 
-std::string BundleTemplatePreview(const wire::core::CoreView& view, wire::core::BundleKind kind) {
+std::string BundleTemplatePreview(const city::wire::CoreView& view, city::wire::BundleKind kind) {
   const auto it = view.bundle_templates().find(kind);
   if (it == view.bundle_templates().end()) {
     return "UnknownTemplate";
@@ -372,7 +372,7 @@ std::string BundleTemplatePreview(const wire::core::CoreView& view, wire::core::
   return it->second.name.empty() ? std::to_string(static_cast<int>(kind)) : it->second.name;
 }
 
-std::string BundleTemplateMultiPreview(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
+std::string BundleTemplateMultiPreview(const city::wire::CoreView& view, const ViewerUiState& ui_state) {
   const auto selected = SelectedBundleTemplates(view, ui_state);
   if (selected.empty()) {
     return "(none)";
@@ -390,9 +390,9 @@ std::string BundleTemplateMultiPreview(const wire::core::CoreView& view, const V
   return oss.str();
 }
 
-int ResolveBundleTemplateCount(ViewerUiState& ui_state, const wire::core::BundleTemplate& bundle_template,
-                               wire::core::BundleKind kind) {
-  if (bundle_template.count_rule == wire::core::BundleCountRuleKind::kFixed) {
+int ResolveBundleTemplateCount(ViewerUiState& ui_state, const city::wire::BundleTemplate& bundle_template,
+                               city::wire::BundleKind kind) {
+  if (bundle_template.count_rule == city::wire::BundleCountRuleKind::kFixed) {
     return bundle_template.fixed_count;
   }
   const int key = static_cast<int>(kind);
@@ -403,8 +403,8 @@ int ResolveBundleTemplateCount(ViewerUiState& ui_state, const wire::core::Bundle
   return value;
 }
 
-std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const wire::core::CoreView& view) {
-  std::vector<wire::core::PoleTypeId> ids;
+std::vector<city::wire::PoleTypeId> SortedPoleTypeIds(const city::wire::CoreView& view) {
+  std::vector<city::wire::PoleTypeId> ids;
   ids.reserve(view.pole_types().size());
   for (const auto& [id, _] : view.pole_types()) {
     ids.push_back(id);
@@ -421,11 +421,11 @@ std::size_t ClampedTypeIndex(int current, std::size_t count) {
   return static_cast<std::size_t>(std::clamp(current, 0, max_index));
 }
 
-Vector3 ToRaylib(const wire::core::Vec3d& ue_xyz) {
+Vector3 ToRaylib(const city::wire::Vec3d& ue_xyz) {
   return InternalToHostWorld(ue_xyz);
 }
 
-BoundingBox ToRaylibBounds(const wire::core::AABBd& box_ue) {
+BoundingBox ToRaylibBounds(const city::wire::AABBd& box_ue) {
   const Vector3 a = ToRaylib(box_ue.min);
   const Vector3 b = ToRaylib(box_ue.max);
   BoundingBox out{};
@@ -442,8 +442,8 @@ BoundingBox ToRaylibBounds(const wire::core::AABBd& box_ue) {
   return out;
 }
 
-double PolylineLength(const std::vector<wire::core::Vec3d>& points) {
-  return wire::core::PolylineLength(points);
+double PolylineLength(const std::vector<city::wire::Vec3d>& points) {
+  return city::wire::PolylineLength(points);
 }
 
 void PushLog(ViewerUiState& ui_state, const std::string& line) {

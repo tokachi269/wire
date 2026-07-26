@@ -9,45 +9,45 @@ diagrams:
     package_type: directory
     glob:
       include:
-        - core/src/**/*.cpp
-        - core/tests/**/*.cpp
+        - domains/wire/src/**/*.cpp
+        - domains/wire/tests/**/*.cpp
 
   core_state_context:
     type: class
     title: CoreState context
-    using_namespace: wire::core
+    using_namespace: city::wire
     generate_packages: true
     package_type: namespace
     include_relations_also_as_members: false
     glob:
       include:
-        - core/src/**/*.cpp
-        - core/tests/**/*.cpp
+        - domains/wire/src/**/*.cpp
+        - domains/wire/tests/**/*.cpp
     include:
       namespaces:
-        - wire::core
+        - city::wire
       context:
         - CoreState
     exclude:
       namespaces:
-        - wire::core::state_internal
+        - city::wire::state_internal
       access:
         - private
 
   detail_curve_context:
     type: class
     title: DetailCurve relation map
-    using_namespace: wire::core
+    using_namespace: city::wire
     generate_packages: true
     package_type: namespace
     include_relations_also_as_members: false
     glob:
       include:
-        - core/src/**/*.cpp
-        - core/tests/**/*.cpp
+        - domains/wire/src/**/*.cpp
+        - domains/wire/tests/**/*.cpp
     include:
       namespaces:
-        - wire::core
+        - city::wire
       context:
         - match:
             radius: 2
@@ -57,7 +57,7 @@ diagrams:
             pattern: CurveConstraint
     exclude:
       namespaces:
-        - wire::core::state_internal
+        - city::wire::state_internal
       access:
         - public
         - protected
@@ -66,17 +66,17 @@ diagrams:
   support_layout_curve_context:
     type: class
     title: Support layout to detail-curve relation map
-    using_namespace: wire::core
+    using_namespace: city::wire
     generate_packages: true
     package_type: namespace
     include_relations_also_as_members: false
     glob:
       include:
-        - core/src/**/*.cpp
-        - core/tests/**/*.cpp
+        - domains/wire/src/**/*.cpp
+        - domains/wire/tests/**/*.cpp
     include:
       namespaces:
-        - wire::core
+        - city::wire
       context:
         - match:
             radius: 2
@@ -89,7 +89,7 @@ diagrams:
             pattern: DetailCurveInspectionView
     exclude:
       namespaces:
-        - wire::core::state_internal
+        - city::wire::state_internal
       access:
         - public
         - protected

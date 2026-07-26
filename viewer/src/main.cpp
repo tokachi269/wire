@@ -23,8 +23,8 @@
 #include "render_overlay.hpp"
 #include "panels.hpp"
 #include "ui_common.hpp"
-#include "wire/core/coord_utils.hpp"
-#include "wire/core/core_state.hpp"
+#include "city/wire/coord_utils.hpp"
+#include "city/wire/core_state.hpp"
 
 namespace {
 
@@ -103,18 +103,18 @@ void SaveViewerPersistentSettings(const ViewerPersistentSettings& settings) {
   ofs << "camera_walk_speed=" << settings.camera_walk_speed << "\n";
 }
 
-wire::core::Vec3d Lerp(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double t) {
-  return wire::core::Vec3d{
+city::wire::Vec3d Lerp(const city::wire::Vec3d& a, const city::wire::Vec3d& b, double t) {
+  return city::wire::Vec3d{
       a.x + (b.x - a.x) * t,
       a.y + (b.y - a.y) * t,
       a.z + (b.z - a.z) * t,
   };
 }
 
-wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole, double layout_yaw_deg) {
-  const wire::core::PoleFrame frame =
-      wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg);
-  return wire::core::LocalPointToWorld(frame, wire::core::ScaleVec(wire::core::WorldUp(), pole.height_m));
+city::wire::Vec3d PoleTopPoint(const city::wire::Pole& pole, double layout_yaw_deg) {
+  const city::wire::PoleFrame frame =
+      city::wire::BuildPoleFrame(pole.world_transform, layout_yaw_deg);
+  return city::wire::LocalPointToWorld(frame, city::wire::ScaleVec(city::wire::WorldUp(), pole.height_m));
 }
 
 void DrawGroundGrid() {
@@ -154,11 +154,11 @@ bool HasMeaningfulDragSelection(const DragSelectionState& drag_selection) {
          std::fabs(drag_selection.end_screen.y - drag_selection.start_screen.y) >= kSelectionDragThresholdPx;
 }
 
-Color VisualPartColor(wire::core::VisualPartKind kind) {
+Color VisualPartColor(city::wire::VisualPartKind kind) {
   switch (kind) {
-  case wire::core::VisualPartKind::kInsulator:
+  case city::wire::VisualPartKind::kInsulator:
     return SKYBLUE;
-  case wire::core::VisualPartKind::kFitting:
+  case city::wire::VisualPartKind::kFitting:
     return LIGHTGRAY;
   default:
     return GRAY;
@@ -215,7 +215,7 @@ bool IsHostPointInFrontOfCamera(const Camera3D& camera, const Vector3& host_poin
   return dot > 0.0f;
 }
 
-bool TryProjectWorldPoint(const Camera3D& camera, const wire::core::Vec3d& world, Vector2* out_screen) {
+bool TryProjectWorldPoint(const Camera3D& camera, const city::wire::Vec3d& world, Vector2* out_screen) {
   if (out_screen == nullptr) {
     return false;
   }
@@ -288,14 +288,14 @@ bool RectangleIntersectsSegment(const Rectangle& rect, const Vector2& a, const V
          SegmentsIntersect2d(a, b, br, bl) || SegmentsIntersect2d(a, b, bl, tl);
 }
 
-std::vector<Vector2> ProjectSpanPolyline(const wire::core::CoreView& view, const wire::core::EditState& edit,
+std::vector<Vector2> ProjectSpanPolyline(const city::wire::CoreView& view, const city::wire::EditState& edit,
                                          const Camera3D& camera,
-                                         const wire::core::Span& span) {
+                                         const city::wire::Span& span) {
   std::vector<Vector2> projected{};
-  if (const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span.id);
+  if (const city::wire::CurveCacheEntry* curve = view.find_curve_cache(span.id);
       curve != nullptr && curve->points.size() >= 2) {
     projected.reserve(curve->points.size());
-    for (const wire::core::Vec3d& point : curve->points) {
+    for (const city::wire::Vec3d& point : curve->points) {
       Vector2 screen{};
       if (TryProjectWorldPoint(camera, point, &screen)) {
         projected.push_back(screen);
@@ -305,8 +305,8 @@ std::vector<Vector2> ProjectSpanPolyline(const wire::core::CoreView& view, const
       return projected;
     }
   }
-  const wire::core::Port* port_a = edit.ports.find(span.port_a_id);
-  const wire::core::Port* port_b = edit.ports.find(span.port_b_id);
+  const city::wire::Port* port_a = edit.ports.find(span.port_a_id);
+  const city::wire::Port* port_b = edit.ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
     return projected;
   }
@@ -341,16 +341,16 @@ bool PolylineIntersectsRectangle(const std::vector<Vector2>& polyline, const Rec
   return false;
 }
 
-SelectionItem PickViewportSelection(const wire::core::CoreView& view, const Camera3D& camera,
+SelectionItem PickViewportSelection(const city::wire::CoreView& view, const Camera3D& camera,
                                     const ViewerUiState& ui_state,
                                     const Vector2& mouse_screen) {
   const auto& edit = view.edit_state();
-  const wire::core::BackboneResult backbone = view.saved_backbone_result();
+  const city::wire::BackboneResult backbone = view.saved_backbone_result();
   SelectionItem best{};
   float best_distance_sq = kSelectionClickRadiusPx * kSelectionClickRadiusPx;
 
   if (ui_state.selection_include_poles) {
-    for (const wire::core::Pole& pole : edit.poles.items()) {
+    for (const city::wire::Pole& pole : edit.poles.items()) {
       Vector2 base{};
       Vector2 top{};
       double layout_yaw_deg = pole.world_transform.rotation_euler_deg.z;
@@ -370,8 +370,8 @@ SelectionItem PickViewportSelection(const wire::core::CoreView& view, const Came
   }
 
   if (ui_state.selection_include_midair_nodes) {
-    for (const wire::core::SupportNode& node : backbone.nodes) {
-      if (node.support_kind != wire::core::SupportKind::kMidair) {
+    for (const city::wire::SupportNode& node : backbone.nodes) {
+      if (node.support_kind != city::wire::SupportKind::kMidair) {
         continue;
       }
       Vector2 screen{};
@@ -389,7 +389,7 @@ SelectionItem PickViewportSelection(const wire::core::CoreView& view, const Came
   }
 
   if (ui_state.selection_include_spans) {
-    for (const wire::core::Span& span : edit.spans.items()) {
+    for (const city::wire::Span& span : edit.spans.items()) {
       const std::vector<Vector2> polyline = ProjectSpanPolyline(view, edit, camera, span);
       const float d2 = DistanceToProjectedPolylineSquared(polyline, mouse_screen);
       if (d2 < best_distance_sq) {
@@ -402,14 +402,14 @@ SelectionItem PickViewportSelection(const wire::core::CoreView& view, const Came
   return best;
 }
 
-std::vector<SelectionItem> CollectViewportSelection(const wire::core::CoreView& view, const Camera3D& camera,
+std::vector<SelectionItem> CollectViewportSelection(const city::wire::CoreView& view, const Camera3D& camera,
                                                     const ViewerUiState& ui_state, const Rectangle& rect) {
   const auto& edit = view.edit_state();
-  const wire::core::BackboneResult backbone = view.saved_backbone_result();
+  const city::wire::BackboneResult backbone = view.saved_backbone_result();
   std::vector<SelectionItem> items{};
 
   if (ui_state.selection_include_poles) {
-    for (const wire::core::Pole& pole : edit.poles.items()) {
+    for (const city::wire::Pole& pole : edit.poles.items()) {
       Vector2 base{};
       Vector2 top{};
       double layout_yaw_deg = pole.world_transform.rotation_euler_deg.z;
@@ -427,8 +427,8 @@ std::vector<SelectionItem> CollectViewportSelection(const wire::core::CoreView& 
   }
 
   if (ui_state.selection_include_midair_nodes) {
-    for (const wire::core::SupportNode& node : backbone.nodes) {
-      if (node.support_kind != wire::core::SupportKind::kMidair) {
+    for (const city::wire::SupportNode& node : backbone.nodes) {
+      if (node.support_kind != city::wire::SupportKind::kMidair) {
         continue;
       }
       Vector2 screen{};
@@ -439,7 +439,7 @@ std::vector<SelectionItem> CollectViewportSelection(const wire::core::CoreView& 
   }
 
   if (ui_state.selection_include_spans) {
-    for (const wire::core::Span& span : edit.spans.items()) {
+    for (const city::wire::Span& span : edit.spans.items()) {
       const std::vector<Vector2> polyline = ProjectSpanPolyline(view, edit, camera, span);
       if (PolylineIntersectsRectangle(polyline, rect)) {
         items.push_back({SelectedType::kSpan, span.id});
@@ -459,7 +459,7 @@ void DrawDragSelectionOverlay(const ViewerUiState& ui_state) {
   DrawRectangleLinesEx(rect, 1.5f, Color{255, 225, 120, 220});
 }
 
-void UpdateViewportSelectionInput(const wire::core::CoreView& view, const Camera3D& camera, ViewerUiState& ui_state) {
+void UpdateViewportSelectionInput(const city::wire::CoreView& view, const Camera3D& camera, ViewerUiState& ui_state) {
   ImGuiIO& io = ImGui::GetIO();
   if (!IsSelectionViewportMode(ui_state) || io.WantCaptureMouse || ui_state.camera_walk_mode ||
       ui_state.camera_drag_mode != CameraDragMode::kNone) {
@@ -643,7 +643,7 @@ void UpdateCameraForViewport(Camera3D* camera, ViewerUiState& ui_state) {
   }
 
   if (!ui_captures_mouse && alt && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-    wire::core::Vec3d picked{};
+    city::wire::Vec3d picked{};
     if (TryPickGroundPoint(*camera, ui_state.draw_plane_z, &picked)) {
       camera->target = ToRaylib(picked);
       PushLog(ui_state, "Camera: orbit pivot set from click");
@@ -703,7 +703,7 @@ int main() {
   CoreState state{};
   {
     const auto view = viewer_core_state::View(state);
-    wire::core::GeometrySettings geometry = view.geometry_settings();
+    city::wire::GeometrySettings geometry = view.geometry_settings();
     geometry.sag_enabled = true;
     (void)viewer_core_state::UpdateGeometrySettings(state, geometry, false);
   }

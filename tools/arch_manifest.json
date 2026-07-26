@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scan": {
-    "roots": ["core/include", "core/src", "core/tests", "core/tools", "viewer/src", "viewer/tests", "web/src", "web/tests", "web/wasm", "tools"],
+    "roots": ["domains/wire/include", "domains/wire/src", "domains/wire/tests", "domains/wire/tools", "domains/road/include", "domains/road/src", "domains/road/tests", "viewer/src", "viewer/tests", "web/src", "web/tests", "web/wasm", "tools"],
     "extensions": [".cpp", ".hpp", ".py", ".ts", ".svelte"],
     "exclude_patterns": [
       "web/wasm/build/**",
@@ -19,31 +19,31 @@
   "layers": [
     {
       "name": "public_api",
-      "patterns": ["core/include/wire/core/*.hpp", "core/include/wire/core/support/*.hpp"],
-      "forbidden_tokens": ["core/src/"]
+      "patterns": ["domains/wire/include/city/wire/*.hpp", "domains/wire/include/city/wire/support/*.hpp"],
+      "forbidden_tokens": ["domains/wire/src/"]
     },
     {
       "name": "state_internal",
       "patterns": [
-        "core/src/state/*.cpp",
-        "core/src/state/*.hpp",
-        "core/src/state/**/*.cpp",
-        "core/src/state/**/*.hpp"
+        "domains/wire/src/state/*.cpp",
+        "domains/wire/src/state/*.hpp",
+        "domains/wire/src/state/**/*.cpp",
+        "domains/wire/src/state/**/*.hpp"
       ],
       "forbidden_tokens": ["viewer/"]
     },
     {
       "name": "generation_backbone",
-      "patterns": ["core/src/generation/backbone/*.cpp", "core/src/generation/backbone/*.hpp"],
+      "patterns": ["domains/wire/src/generation/backbone/*.cpp", "domains/wire/src/generation/backbone/*.hpp"],
       "forbidden_tokens": ["viewer/", "ProcessDirtyQueues", "support_layout_contract", "support_layout_projection"]
     },
     {
       "name": "generation_input",
       "patterns": [
-        "core/src/generation/*.cpp",
-        "core/src/generation/*.hpp",
-        "core/src/generation/pole_facing/*.cpp",
-        "core/src/generation/pole_facing/*.hpp"
+        "domains/wire/src/generation/*.cpp",
+        "domains/wire/src/generation/*.hpp",
+        "domains/wire/src/generation/pole_facing/*.cpp",
+        "domains/wire/src/generation/pole_facing/*.hpp"
       ],
       "forbidden_tokens": ["viewer/", "generation/backbone/pipeline.hpp"]
     },
@@ -55,35 +55,51 @@
     {
       "name": "geometry",
       "patterns": [
-        "core/src/geometry/*.cpp",
-        "core/src/geometry/*.hpp",
-        "core/src/geometry/**/*.cpp",
-        "core/src/geometry/**/*.hpp"
+        "domains/wire/src/geometry/*.cpp",
+        "domains/wire/src/geometry/*.hpp",
+        "domains/wire/src/geometry/**/*.cpp",
+        "domains/wire/src/geometry/**/*.hpp"
       ],
       "forbidden_tokens": ["generation/backbone/", "viewer/"]
     },
     {
       "name": "validation",
-      "patterns": ["core/src/validation/*.cpp", "core/src/validation/*.hpp"],
+      "patterns": ["domains/wire/src/validation/*.cpp", "domains/wire/src/validation/*.hpp"],
       "forbidden_tokens": ["AddPole(", "AddPort(", "AddSpan(", "cache_span_", "generation/backbone/"]
     },
     {
       "name": "core_internal",
-      "patterns": ["core/src/pch.hpp", "core/src/collection_utils.hpp", "core/src/support/*.hpp", "core/src/support/*.cpp"],
+      "patterns": ["domains/wire/src/pch.hpp", "domains/wire/src/collection_utils.hpp", "domains/wire/src/support/*.hpp", "domains/wire/src/support/*.cpp"],
       "forbidden_tokens": ["viewer/"]
+    },
+    {
+      "name": "road_domain",
+      "patterns": [
+        "domains/road/include/city/road/*.hpp",
+        "domains/road/include/city/road/**/*.hpp",
+        "domains/road/src/*.cpp",
+        "domains/road/src/*.hpp",
+        "domains/road/src/**/*.cpp",
+        "domains/road/src/**/*.hpp"
+      ],
+      "forbidden_tokens": ["city/wire", "domains/wire"]
     },
     {
       "name": "viewer",
       "patterns": ["viewer/src/*.cpp", "viewer/src/*.hpp"],
-      "forbidden_tokens": ["core/src/"]
+      "forbidden_tokens": ["domains/wire/src/"]
     },
     {
       "name": "tests",
       "patterns": [
-        "core/tests/*.cpp",
-        "core/tests/*.hpp",
-        "core/tests/**/*.cpp",
-        "core/tests/**/*.hpp",
+        "domains/wire/tests/*.cpp",
+        "domains/wire/tests/*.hpp",
+        "domains/wire/tests/**/*.cpp",
+        "domains/wire/tests/**/*.hpp",
+        "domains/road/tests/*.cpp",
+        "domains/road/tests/*.hpp",
+        "domains/road/tests/**/*.cpp",
+        "domains/road/tests/**/*.hpp",
         "viewer/tests/*.cpp",
         "viewer/tests/*.hpp"
       ],
@@ -92,27 +108,27 @@
     {
       "name": "web_binding",
       "patterns": ["web/wasm/*.cpp"],
-      "forbidden_tokens": ["core/src/", "viewer/"]
+      "forbidden_tokens": ["domains/wire/src/", "viewer/"]
     },
     {
       "name": "web_model",
-      "patterns": ["web/src/model.ts"],
-      "forbidden_tokens": ["./bridge/", "./actions/", "./render/", "wire/core", "viewer/"]
+      "patterns": ["web/src/model.ts", "web/src/road.ts"],
+      "forbidden_tokens": ["./bridge/", "./actions/", "./render/", "city/wire", "viewer/"]
     },
     {
       "name": "web_bridge",
       "patterns": ["web/src/bridge/*.ts"],
-      "forbidden_tokens": ["viewer/", "core/src/"]
+      "forbidden_tokens": ["viewer/", "domains/wire/src/"]
     },
     {
       "name": "web_build",
       "patterns": ["web/src/buildInfo.ts"],
-      "forbidden_tokens": ["viewer/", "core/src/", "wire/core"]
+      "forbidden_tokens": ["viewer/", "domains/wire/src/", "city/wire"]
     },
     {
       "name": "web_console",
       "patterns": ["web/src/consoleLog.ts"],
-      "forbidden_tokens": ["./bridge/", "./actions/", "./render/", "wire/core", "viewer/"]
+      "forbidden_tokens": ["./bridge/", "./actions/", "./render/", "city/wire", "viewer/"]
     },
     {
       "name": "web_store",
@@ -127,22 +143,22 @@
     {
       "name": "web_profile",
       "patterns": ["web/src/profile/*.ts"],
-      "forbidden_tokens": ["../bridge/", "../actions/", "../render/", "wire/core", "viewer/"]
+      "forbidden_tokens": ["../bridge/", "../actions/", "../render/", "city/wire", "viewer/"]
     },
     {
       "name": "web_render",
       "patterns": ["web/src/render/*.ts"],
-      "forbidden_tokens": ["../bridge/", "../actions/", "wire/core", "viewer/"]
+      "forbidden_tokens": ["../bridge/", "../actions/", "city/wire", "viewer/"]
     },
     {
       "name": "web_panels",
       "patterns": ["web/src/*.svelte", "web/src/panels/*.svelte", "web/src/labels.ts"],
-      "forbidden_tokens": ["/bridge/", "wire/core", "viewer/"]
+      "forbidden_tokens": ["/bridge/", "city/wire", "viewer/"]
     },
     {
       "name": "web_entry",
       "patterns": ["web/src/main.ts", "web/src/vite-env.d.ts"],
-      "forbidden_tokens": ["wire/core", "viewer/"]
+      "forbidden_tokens": ["city/wire", "viewer/"]
     },
     {
       "name": "web_tests",
@@ -151,7 +167,7 @@
     },
     {
       "name": "tools",
-      "patterns": ["core/tools/*.cpp", "tools/*.py"],
+      "patterns": ["domains/wire/tools/*.cpp", "tools/*.py"],
       "forbidden_tokens": []
     }
   ],

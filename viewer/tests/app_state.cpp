@@ -10,7 +10,7 @@ bool test_selection_helpers_keep_primary_and_deduplicate() {
                        {SelectedType::kSpan, 42},
                        {SelectedType::kPole, 7},
                        {SelectedType::kPole, 7},
-                       {SelectedType::kNone, wire::core::kInvalidObjectId},
+                       {SelectedType::kNone, city::wire::kInvalidObjectId},
                    });
   return ui_state.selection_items.size() == 2 && ui_state.selected_type == SelectedType::kPole && ui_state.selected_id == 7 &&
          SelectionContains(ui_state, SelectedType::kSpan, 42) && SelectionCountByType(ui_state, SelectedType::kPole) == 1;
@@ -25,7 +25,7 @@ bool test_set_primary_and_clear_selection_reset_state() {
   }
   ClearSelection(ui_state);
   return ui_state.selection_items.empty() && ui_state.selected_type == SelectedType::kNone &&
-         ui_state.selected_id == wire::core::kInvalidObjectId;
+         ui_state.selected_id == city::wire::kInvalidObjectId;
 }
 
 void register_app_state_tests(viewer_test_registry::TestRegistry& tests) {

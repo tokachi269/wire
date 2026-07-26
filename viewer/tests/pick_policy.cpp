@@ -3,130 +3,130 @@
 
 #include "path_pick_policy.hpp"
 #include "registry.hpp"
-#include "wire/core/core_state.hpp"
+#include "city/wire/core_state.hpp"
 
 namespace {
 
-wire::core::PoleTypeId FirstPoleTypeId(const wire::core::CoreState& state) {
-  wire::core::PoleTypeId best = wire::core::kInvalidPoleTypeId;
+city::wire::PoleTypeId FirstPoleTypeId(const city::wire::CoreState& state) {
+  city::wire::PoleTypeId best = city::wire::kInvalidPoleTypeId;
   for (const auto& [id, _] : state.view().pole_types()) {
-    if (best == wire::core::kInvalidPoleTypeId || id < best) {
+    if (best == city::wire::kInvalidPoleTypeId || id < best) {
       best = id;
     }
   }
   return best;
 }
 
-wire::core::ObjectId CreatePole(wire::core::CoreState& state, const wire::core::Vec3d& pos, wire::core::PoleTypeId type_id,
+city::wire::ObjectId CreatePole(city::wire::CoreState& state, const city::wire::Vec3d& pos, city::wire::PoleTypeId type_id,
                                 const char* name) {
-  wire::core::Transformd tf{};
+  city::wire::Transformd tf{};
   tf.position = pos;
   const auto pole = state.AddPole(tf, 10.0, name);
   if (!pole.ok) {
-    return wire::core::kInvalidObjectId;
+    return city::wire::kInvalidObjectId;
   }
   if (!state.ApplyPoleType(pole.value, type_id).ok) {
-    return wire::core::kInvalidObjectId;
+    return city::wire::kInvalidObjectId;
   }
   return pole.value;
 }
 
-wire::core::ObjectId CreateTemplateSpan(wire::core::CoreState& state, wire::core::PoleTypeId type_id,
-                                        wire::core::BundleKind kind) {
-  wire::core::BackboneSpec request{};
+city::wire::ObjectId CreateTemplateSpan(city::wire::CoreState& state, city::wire::PoleTypeId type_id,
+                                        city::wire::BundleKind kind) {
+  city::wire::BackboneSpec request{};
   request.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
   request.interval_m = 1000.0;
   request.pole_type_id = type_id;
-  wire::core::BackboneBundleSpec bundle{};
+  city::wire::BackboneBundleSpec bundle{};
   bundle.bundle_template_id = kind;
   request.bundles.push_back(bundle);
   const auto result = state.GenerateFromBackboneSpec(request);
   return result.ok && !result.value.generated_span_ids.empty()
              ? result.value.generated_span_ids.front()
-             : wire::core::kInvalidObjectId;
+             : city::wire::kInvalidObjectId;
 }
 
-std::uint32_t TemplateMask(wire::core::BundleKind kind) {
+std::uint32_t TemplateMask(city::wire::BundleKind kind) {
   return (1u << static_cast<unsigned>(kind));
 }
 
 bool test_selected_templates_are_not_collapsed_to_first_selected_kind() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
-  if (type_id == wire::core::kInvalidPoleTypeId) {
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  const city::wire::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == city::wire::kInvalidPoleTypeId) {
     return false;
   }
-  const wire::core::ObjectId span_id = CreateTemplateSpan(state, type_id, wire::core::BundleKind::kHighVoltage);
-  if (span_id == wire::core::kInvalidObjectId) {
+  const city::wire::ObjectId span_id = CreateTemplateSpan(state, type_id, city::wire::BundleKind::kHighVoltage);
+  if (span_id == city::wire::kInvalidObjectId) {
     return false;
   }
 
-  wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  city::wire::PickResult pick{};
+  pick.hit_kind = city::wire::PickHitKind::kSegment;
   pick.hit_id = span_id;
   const std::uint32_t mask =
-      TemplateMask(wire::core::BundleKind::kLowVoltage) | TemplateMask(wire::core::BundleKind::kHighVoltage);
-  const std::vector<wire::core::BundleKind> resolved = ResolveTemplateKindsForPathPick(view, mask, pick);
+      TemplateMask(city::wire::BundleKind::kLowVoltage) | TemplateMask(city::wire::BundleKind::kHighVoltage);
+  const std::vector<city::wire::BundleKind> resolved = ResolveTemplateKindsForPathPick(view, mask, pick);
   return resolved.size() == 2 &&
-         std::find(resolved.begin(), resolved.end(), wire::core::BundleKind::kLowVoltage) != resolved.end() &&
-         std::find(resolved.begin(), resolved.end(), wire::core::BundleKind::kHighVoltage) != resolved.end();
+         std::find(resolved.begin(), resolved.end(), city::wire::BundleKind::kLowVoltage) != resolved.end() &&
+         std::find(resolved.begin(), resolved.end(), city::wire::BundleKind::kHighVoltage) != resolved.end();
 }
 
 bool test_hit_span_template_is_used_when_nothing_selected() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
-  if (type_id == wire::core::kInvalidPoleTypeId) {
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  const city::wire::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == city::wire::kInvalidPoleTypeId) {
     return false;
   }
-  const wire::core::ObjectId span_id = CreateTemplateSpan(state, type_id, wire::core::BundleKind::kHighVoltage);
-  if (span_id == wire::core::kInvalidObjectId) {
+  const city::wire::ObjectId span_id = CreateTemplateSpan(state, type_id, city::wire::BundleKind::kHighVoltage);
+  if (span_id == city::wire::kInvalidObjectId) {
     return false;
   }
 
-  wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  city::wire::PickResult pick{};
+  pick.hit_kind = city::wire::PickHitKind::kSegment;
   pick.hit_id = span_id;
-  const std::vector<wire::core::BundleKind> resolved = ResolveTemplateKindsForPathPick(view, 0u, pick);
-  return resolved.size() == 1 && resolved.front() == wire::core::BundleKind::kHighVoltage;
+  const std::vector<city::wire::BundleKind> resolved = ResolveTemplateKindsForPathPick(view, 0u, pick);
+  return resolved.size() == 1 && resolved.front() == city::wire::BundleKind::kHighVoltage;
 }
 
 bool test_midair_branch_block_checks_selected_templates() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  const std::vector<wire::core::BundleKind> selected =
-      ResolveTemplateKindsForPathPick(view, TemplateMask(wire::core::BundleKind::kLowVoltage), {});
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  const std::vector<city::wire::BundleKind> selected =
+      ResolveTemplateKindsForPathPick(view, TemplateMask(city::wire::BundleKind::kLowVoltage), {});
   const std::string blocked = FindMidairBranchBlockedTemplateName(view, selected);
-  return selected.size() == 1 && selected.front() == wire::core::BundleKind::kLowVoltage && blocked.empty();
+  return selected.size() == 1 && selected.front() == city::wire::BundleKind::kLowVoltage && blocked.empty();
 }
 
 bool test_midair_branch_block_finds_disallowed_template() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
   const std::uint32_t mask =
-      TemplateMask(wire::core::BundleKind::kLowVoltage) | TemplateMask(wire::core::BundleKind::kHighVoltage);
-  const std::vector<wire::core::BundleKind> selected = ResolveTemplateKindsForPathPick(view, mask, {});
+      TemplateMask(city::wire::BundleKind::kLowVoltage) | TemplateMask(city::wire::BundleKind::kHighVoltage);
+  const std::vector<city::wire::BundleKind> selected = ResolveTemplateKindsForPathPick(view, mask, {});
   const std::string blocked = FindMidairBranchBlockedTemplateName(view, selected);
-  return std::find(selected.begin(), selected.end(), wire::core::BundleKind::kHighVoltage) != selected.end() &&
+  return std::find(selected.begin(), selected.end(), city::wire::BundleKind::kHighVoltage) != selected.end() &&
          blocked == "HV_3PH";
 }
 
 bool test_draw_path_segment_pick_near_endpoint_snaps_to_endpoint_position() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
-  if (type_id == wire::core::kInvalidPoleTypeId) {
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  const city::wire::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == city::wire::kInvalidPoleTypeId) {
     return false;
   }
-  const wire::core::ObjectId pole_a = CreatePole(state, {0.0, 0.0, 0.0}, type_id, "A");
-  const wire::core::ObjectId pole_b = CreatePole(state, {10.0, 0.0, 0.0}, type_id, "B");
-  if (pole_a == wire::core::kInvalidObjectId || pole_b == wire::core::kInvalidObjectId) {
+  const city::wire::ObjectId pole_a = CreatePole(state, {0.0, 0.0, 0.0}, type_id, "A");
+  const city::wire::ObjectId pole_b = CreatePole(state, {10.0, 0.0, 0.0}, type_id, "B");
+  if (pole_a == city::wire::kInvalidObjectId || pole_b == city::wire::kInvalidObjectId) {
     return false;
   }
 
-  wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  city::wire::PickResult pick{};
+  pick.hit_kind = city::wire::PickHitKind::kSegment;
   pick.has_segment_endpoints = true;
   pick.segment_node_a_id = pole_a;
   pick.segment_node_b_id = pole_b;
@@ -134,8 +134,8 @@ bool test_draw_path_segment_pick_near_endpoint_snaps_to_endpoint_position() {
   pick.segment_endpoint_b_world = {9.4, 0.0, 8.7};
   pick.hit_pos_world = {0.6, 0.0, 0.0};
 
-  const wire::core::PickResult normalized = NormalizeDrawPathPick(view, pick, 1.25);
-  return normalized.hit_kind == wire::core::PickHitKind::kNode &&
+  const city::wire::PickResult normalized = NormalizeDrawPathPick(view, pick, 1.25);
+  return normalized.hit_kind == city::wire::PickHitKind::kNode &&
          normalized.hit_id == pole_a &&
          normalized.hit_pos_world.x == 0.0 &&
          normalized.hit_pos_world.y == 0.0 &&
@@ -143,10 +143,10 @@ bool test_draw_path_segment_pick_near_endpoint_snaps_to_endpoint_position() {
 }
 
 bool test_draw_path_segment_pick_midspan_does_not_snap_to_endpoint_position() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  city::wire::PickResult pick{};
+  pick.hit_kind = city::wire::PickHitKind::kSegment;
   pick.has_segment_endpoints = true;
   pick.segment_node_a_id = 10;
   pick.segment_node_b_id = 11;
@@ -154,27 +154,27 @@ bool test_draw_path_segment_pick_midspan_does_not_snap_to_endpoint_position() {
   pick.segment_endpoint_b_world = {10.0, 0.0, 0.0};
   pick.hit_pos_world = {5.0, 0.0, 0.0};
 
-  const wire::core::PickResult normalized = NormalizeDrawPathPick(view, pick, 1.25);
+  const city::wire::PickResult normalized = NormalizeDrawPathPick(view, pick, 1.25);
   return normalized.hit_pos_world.x == 5.0 &&
          normalized.hit_pos_world.y == 0.0 &&
          normalized.hit_pos_world.z == 0.0;
 }
 
 bool test_ground_hover_near_pole_promotes_to_node_pick() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
-  if (type_id == wire::core::kInvalidPoleTypeId) {
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  const city::wire::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == city::wire::kInvalidPoleTypeId) {
     return false;
   }
-  const wire::core::ObjectId pole_id = CreatePole(state, {2.0, -1.0, 0.0}, type_id, "SnapPole");
-  if (pole_id == wire::core::kInvalidObjectId) {
+  const city::wire::ObjectId pole_id = CreatePole(state, {2.0, -1.0, 0.0}, type_id, "SnapPole");
+  if (pole_id == city::wire::kInvalidObjectId) {
     return false;
   }
 
-  const wire::core::PickResult promoted =
+  const city::wire::PickResult promoted =
       PromoteGroundHoverToNearbyPolePick(view, {2.35, -0.8, 0.0}, 1.0);
-  return promoted.hit_kind == wire::core::PickHitKind::kNode &&
+  return promoted.hit_kind == city::wire::PickHitKind::kNode &&
          promoted.hit_id == pole_id &&
          promoted.hit_pos_world.x == 2.0 &&
          promoted.hit_pos_world.y == -1.0 &&
@@ -182,86 +182,86 @@ bool test_ground_hover_near_pole_promotes_to_node_pick() {
 }
 
 bool test_canonical_pick_ground_near_pole_promotes_to_node() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
-  if (type_id == wire::core::kInvalidPoleTypeId) {
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  const city::wire::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == city::wire::kInvalidPoleTypeId) {
     return false;
   }
-  const wire::core::ObjectId pole_id = CreatePole(state, {2.0, -1.0, 0.0}, type_id, "GroundSnapPole");
-  if (pole_id == wire::core::kInvalidObjectId) {
+  const city::wire::ObjectId pole_id = CreatePole(state, {2.0, -1.0, 0.0}, type_id, "GroundSnapPole");
+  if (pole_id == city::wire::kInvalidObjectId) {
     return false;
   }
 
-  wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kGround;
+  city::wire::PickResult pick{};
+  pick.hit_kind = city::wire::PickHitKind::kGround;
   pick.hit_pos_world = {2.35, -0.8, 0.0};
-  const wire::core::PickResult canonical =
+  const city::wire::PickResult canonical =
       CanonicalizeDrawPathPick(view, pick, pick.hit_pos_world, true, 1.0);
-  return canonical.hit_kind == wire::core::PickHitKind::kNode &&
+  return canonical.hit_kind == city::wire::PickHitKind::kNode &&
          canonical.hit_id == pole_id &&
          canonical.hit_pos_world.x == 2.0 &&
          canonical.hit_pos_world.y == -1.0;
 }
 
 bool test_canonical_pick_unresolved_segment_near_pole_promotes_to_node() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
-  if (type_id == wire::core::kInvalidPoleTypeId) {
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  const city::wire::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == city::wire::kInvalidPoleTypeId) {
     return false;
   }
-  const wire::core::ObjectId pole_id = CreatePole(state, {4.0, 3.0, 0.0}, type_id, "SegmentSnapPole");
-  if (pole_id == wire::core::kInvalidObjectId) {
+  const city::wire::ObjectId pole_id = CreatePole(state, {4.0, 3.0, 0.0}, type_id, "SegmentSnapPole");
+  if (pole_id == city::wire::kInvalidObjectId) {
     return false;
   }
 
-  wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  city::wire::PickResult pick{};
+  pick.hit_kind = city::wire::PickHitKind::kSegment;
   pick.hit_pos_world = {4.2, 3.1, 0.0};
   pick.has_segment_endpoints = false;
-  const wire::core::PickResult canonical =
+  const city::wire::PickResult canonical =
       CanonicalizeDrawPathPick(view, pick, {0.0, 0.0, 0.0}, false, 0.5);
-  return canonical.hit_kind == wire::core::PickHitKind::kNode &&
+  return canonical.hit_kind == city::wire::PickHitKind::kNode &&
          canonical.hit_id == pole_id &&
          canonical.hit_pos_world.x == 4.0 &&
          canonical.hit_pos_world.y == 3.0;
 }
 
 bool test_ground_hover_far_from_pole_stays_empty() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
-  if (type_id == wire::core::kInvalidPoleTypeId) {
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  const city::wire::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == city::wire::kInvalidPoleTypeId) {
     return false;
   }
-  if (CreatePole(state, {0.0, 0.0, 0.0}, type_id, "FarPole") == wire::core::kInvalidObjectId) {
+  if (CreatePole(state, {0.0, 0.0, 0.0}, type_id, "FarPole") == city::wire::kInvalidObjectId) {
     return false;
   }
 
-  const wire::core::PickResult promoted =
+  const city::wire::PickResult promoted =
       PromoteGroundHoverToNearbyPolePick(view, {4.0, 4.0, 0.0}, 0.75);
-  return promoted.hit_kind == wire::core::PickHitKind::kEmpty &&
-         promoted.hit_id == wire::core::kInvalidObjectId;
+  return promoted.hit_kind == city::wire::PickHitKind::kEmpty &&
+         promoted.hit_id == city::wire::kInvalidObjectId;
 }
 
 bool test_canonical_pick_empty_ground_near_pole_promotes_to_node() {
-  wire::core::CoreState state;
-  const wire::core::CoreView& view = state.view();
-  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
-  if (type_id == wire::core::kInvalidPoleTypeId) {
+  city::wire::CoreState state;
+  const city::wire::CoreView& view = state.view();
+  const city::wire::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == city::wire::kInvalidPoleTypeId) {
     return false;
   }
-  const wire::core::ObjectId pole_id = CreatePole(state, {1.0, 1.0, 0.0}, type_id, "FallbackPole");
-  if (pole_id == wire::core::kInvalidObjectId) {
+  const city::wire::ObjectId pole_id = CreatePole(state, {1.0, 1.0, 0.0}, type_id, "FallbackPole");
+  if (pole_id == city::wire::kInvalidObjectId) {
     return false;
   }
 
-  wire::core::PickResult pick{};
-  const wire::core::Vec3d hover{1.2, 1.1, 0.0};
-  const wire::core::PickResult canonical =
+  city::wire::PickResult pick{};
+  const city::wire::Vec3d hover{1.2, 1.1, 0.0};
+  const city::wire::PickResult canonical =
       CanonicalizeDrawPathPick(view, pick, hover, true, 0.5);
-  return canonical.hit_kind == wire::core::PickHitKind::kNode &&
+  return canonical.hit_kind == city::wire::PickHitKind::kNode &&
          canonical.hit_id == pole_id;
 }
 

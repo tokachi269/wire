@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(wire LANGUAGES CXX)
+project(city LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -114,8 +114,8 @@ endfunction()
 
 wire_configure_compiler_launcher()
 
-add_subdirectory(core)
-add_subdirectory(road)
+add_subdirectory(domains/wire)
+add_subdirectory(domains/road)
 
 if(WIRE_BUILD_VIEWER)
   add_subdirectory(viewer)
@@ -134,12 +134,12 @@ if(WIRE_ENABLE_FORMAT_TARGETS)
 
   if(CLANG_FORMAT_EXE)
     file(GLOB_RECURSE WIRE_FORMAT_FILES
-      "${CMAKE_CURRENT_SOURCE_DIR}/core/include/*.hpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/core/src/*.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/core/tests/*.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/road/include/*.hpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/road/src/*.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/road/tests/*.cpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/domains/wire/include/*.hpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/domains/wire/src/*.cpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/domains/wire/tests/*.cpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/domains/road/include/*.hpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/domains/road/src/*.cpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/domains/road/tests/*.cpp"
       "${CMAKE_CURRENT_SOURCE_DIR}/viewer/src/*.cpp"
     )
 

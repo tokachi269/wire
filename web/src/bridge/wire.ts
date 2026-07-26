@@ -1,5 +1,7 @@
 import {
   loadWireModule,
+  type RoadMeshPayload,
+  type RoadStateHandle,
   type WireModuleOptions,
   type WireStateHandle
 } from "./wasm";
@@ -26,6 +28,7 @@ import type {
   VisualModelInstanceInfo,
   VisualSettings
 } from "../model";
+import type { RoadMeshData, RoadSceneData, RoadSegmentInput } from "../road";
 
 export interface VisualPartData {
   info: VisualPartInfo;
@@ -46,11 +49,14 @@ export interface SceneData {
 export class WireBridge {
   private modelBootstrap: ModelAssemblyBootstrapInput | null = null;
 
-  private constructor(private readonly state: WireStateHandle) {}
+  private constructor(
+    private readonly state: WireStateHandle,
+    private readonly roadState: RoadStateHandle
+  ) {}
 
   static async create(options?: WireModuleOptions): Promise<WireBridge> {
     const module = await loadWireModule(options);
-    return new WireBridge(new module.WireState());
+    return new WireBridge(new module.WireState(), new module.RoadState());
   }
 
   generate(
@@ -292,7 +298,49 @@ export class WireBridge {
     return this.state.clearSpanBranchDownOverride(spanId);
   }
 
+  roadAddSegment(input: RoadSegmentInput): OperationResult {
+    return this.roadState.addSegment(input);
+  }
+
+  roadPreviewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshData[] } {
+    const result = this.roadState.previewSegment(input);
+    return { ...result, meshes: result.meshes.map(copyRoadMesh) };
+  }
+
+  roadScene(): RoadSceneData {
+    const scene = this.roadState.scene();
+    return {
+      ...scene,
+      surfaceMeshes: scene.surfaceMeshes.map(copyRoadMesh),
+      markingMeshes: scene.markingMeshes.map(copyRoadMesh)
+    };
+  }
+
+  roadUndoSegment(): OperationResult {
+    return this.roadState.undoSegment();
+  }
+
+  roadClear(): OperationResult {
+    return this.roadState.clear();
+  }
+
+  roadSaveState(): string {
+    return this.roadState.saveState();
+  }
+
+  roadLoadState(text: string): OperationResult {
+    return this.roadState.loadState(text);
+  }
+
   dispose(): void {
+    this.roadState.delete();
     this.state.delete();
   }
+}
+
+function copyRoadMesh(mesh: RoadMeshPayload): RoadMeshData {
+  return {
+    vertices: new Float64Array(mesh.vertices),
+    indices: new Uint32Array(mesh.indices)
+  };
 }

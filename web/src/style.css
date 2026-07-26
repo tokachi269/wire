@@ -212,6 +212,7 @@ h1 {
   right: 6px;
   width: var(--right-width);
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 6px;
   padding: 6px 10px 6px 6px;
@@ -287,6 +288,55 @@ h1 {
   padding: 0.65rem;
 }
 
+.viewport-tools {
+  position: absolute;
+  z-index: 16;
+  top: 60px;
+  left: 50%;
+  display: flex;
+  gap: 6px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.tool-group {
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid rgba(65, 76, 82, 0.9);
+  border-radius: 4px;
+  background: rgba(28, 34, 37, 0.92);
+  box-shadow: 0 3px 10px rgba(21, 28, 31, 0.22);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+.tool-group button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: #b8c2c0;
+}
+
+.tool-group button:hover {
+  border-color: #53626a;
+  background: #344047;
+  color: #fff;
+}
+
+.tool-group button.active,
+.tool-group button.primary-tool {
+  border-color: #6da7e8;
+  background: #315f8b;
+  color: #fff;
+}
+
+
 .road-panel {
   min-width: 0;
   overflow: hidden;
@@ -322,6 +372,36 @@ h1 {
 
 .road-panel .check input {
   width: auto;
+}
+
+.road-profile {
+  display: grid;
+  grid-template-columns: 2fr 3fr 3fr 2fr;
+  min-height: 34px;
+  border: 1px solid #4a5357;
+  background: #1c2225;
+}
+
+.road-profile span {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  color: #e2e6e4;
+  font: 600 0.62rem "JetBrains Mono", monospace;
+}
+
+.road-profile .sidewalk {
+  background: #697173;
+}
+
+.road-profile .lane {
+  border-inline: 1px dashed #e1d36e;
+  background: #44494b;
+}
+
+.repro-button {
+  width: 100%;
+  margin-bottom: 0.55rem;
 }
 
 .path-preview,

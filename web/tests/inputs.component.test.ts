@@ -249,48 +249,38 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).parts).toEqual(generatedParts);
   });
 
-  it("drives the road P0 through P2 panel state", async () => {
+  it("keeps road drawing on the viewport tool instead of a form submit panel", async () => {
     const mounted = await mountViewer(false);
     expect(document.body.textContent).toContain("DRAW PATH");
-    expect(document.body.textContent).not.toContain("P0-P2");
+    expect(document.querySelector('[aria-label="Road tool"]')).toBeInstanceOf(HTMLButtonElement);
 
-    clickButton("Road");
+    (document.querySelector('[aria-label="Road tool"]') as HTMLButtonElement).click();
     await tick();
-    expect(document.body.textContent).toContain("P0-P2");
-    expect(document.body.textContent).not.toContain("DRAW PATH");
+    expect(current(mounted.store).activeTool).toBe("road");
+    expect(current(mounted.store).rightPanelMode).toBe("wire");
+    expect(document.body.textContent).toContain("DRAW PATH");
+    expect(document.body.textContent).not.toContain("Add segment");
+    expect(document.body.textContent).toContain("Repro capture");
 
-    const bezier = [...document.querySelectorAll("button")]
-      .find((button) => button.textContent?.trim() === "Bezier");
-    expect(bezier).toBeInstanceOf(HTMLButtonElement);
-    (bezier as HTMLButtonElement).click();
+    mounted.actions.addViewportPoint([0, 0, 0]);
+    mounted.actions.previewViewportPoint([24, 0, 0]);
+    expect(current(mounted.store).road.previewMeshes.length).toBeGreaterThan(0);
+    mounted.actions.addViewportPoint([24, 0, 0]);
     await tick();
+    expect(current(mounted.store).road.scene.segmentCount).toBe(1);
+    expect(current(mounted.store).road.scene.surfaceMeshes.length).toBeGreaterThan(0);
 
-    clickButton("Add segment");
+    const roadTab = [...document.querySelectorAll(".domain-tabs button")]
+      .find((button) => button.textContent?.trim() === "Road") as HTMLButtonElement;
+    roadTab.click();
     await tick();
-    expect(current(mounted.store).road.segments).toHaveLength(1);
-    expect(current(mounted.store).road.derived.surfaceMeshes).toBe(1);
-    expect(current(mounted.store).road.derived.terrainMasks).toBe(1);
+    expect(current(mounted.store).rightPanelMode).toBe("road");
+    expect(document.body.textContent).not.toContain("Repro capture");
 
-    const connect = inputForLabel("Connect to first node");
-    connect.checked = true;
-    connect.dispatchEvent(new Event("change", { bubbles: true }));
+    (document.querySelector('[aria-label="Wire tool"]') as HTMLButtonElement).click();
     await tick();
-    clickButton("Add segment");
-    await tick();
-    expect(current(mounted.store).road.segments).toHaveLength(2);
-    expect(current(mounted.store).road.derived.connectionGates).toBe(4);
-    expect(current(mounted.store).road.derived.junctionAreas).toBe(1);
-
-    clickButton("Add transition");
-    clickButton("Manual line");
-    clickButton("Zebra area");
-    await tick();
-
-    expect(current(mounted.store).road.transitions).toHaveLength(1);
-    expect(current(mounted.store).road.sectionTemplates).toHaveLength(2);
-    expect(current(mounted.store).road.manualMarkings).toHaveLength(2);
-    expect(current(mounted.store).road.derived.manualMarkingMeshes).toBe(2);
-    expect(document.body.textContent).toContain("junctions");
+    expect(current(mounted.store).activeTool).toBe("wire");
+    expect(current(mounted.store).rightPanelMode).toBe("road");
   });
 
   it("resets both core state and viewer settings", async () => {
@@ -375,13 +365,4 @@ function inputForDetails(summaryText: string, labelText: string): HTMLInputEleme
     throw new Error(`input not found: ${summaryText} / ${labelText}`);
   }
   return input;
-}
-
-function clickButton(text: string): void {
-  const button = [...document.querySelectorAll("button")]
-    .find((candidate) => candidate.textContent?.trim() === text);
-  if (!(button instanceof HTMLButtonElement)) {
-    throw new Error(`button not found: ${text}`);
-  }
-  button.click();
 }

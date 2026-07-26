@@ -155,6 +155,19 @@ export function makeSampledTubeGeometry(samples: Float64Array, radius: number): 
   return geometry;
 }
 
+export function makeRoadMeshGeometry(data: {
+  vertices: Float64Array;
+  indices: Uint32Array;
+}): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(data.vertices), 3));
+  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(data.indices), 1));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 function makeSampledTubeBuffers(pointCount: number): SampledTubeBuffers {
   const radialSegments = WIRE_RADIAL_SEGMENTS;
   const vertexCount = pointCount * radialSegments;
@@ -251,6 +264,8 @@ export class WireScene {
   private readonly backbone = new THREE.Group();
   private readonly guide = new THREE.Group();
   private readonly snapPreview = new THREE.Group();
+  private readonly road = new THREE.Group();
+  private readonly roadPreview = new THREE.Group();
   private readonly snapPreviewRing = new THREE.Mesh(
     new THREE.TorusGeometry(0.28, 0.018, 8, 32),
     new THREE.MeshBasicMaterial({
@@ -268,6 +283,7 @@ export class WireScene {
   private lastFrameTime: number | null = null;
   private backboneSignature = "";
   private guideSignature = "";
+  private roadSignature = "";
   private cameraFov: number | null = null;
   private readonly partMeshes = new Map<string, {
     mesh: THREE.Mesh;
@@ -305,6 +321,7 @@ export class WireScene {
   constructor(
     private readonly store: ViewerStore,
     private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo) => void,
+    private readonly onGroundPreview: (point: WorldPoint) => void,
     private readonly onContextAction: () => void,
     private readonly onFrame: (deltaMs: number) => void,
     private readonly onContentSync?: (stats: SceneContentSyncStats) => void
@@ -314,6 +331,8 @@ export class WireScene {
     this.scene.add(this.content);
     this.scene.add(this.guide);
     this.scene.add(this.snapPreview);
+    this.scene.add(this.road);
+    this.scene.add(this.roadPreview);
     this.snapPreviewRing.renderOrder = 60;
     this.snapPreview.add(this.snapPreviewRing);
     this.snapPreview.visible = false;
@@ -511,6 +530,8 @@ export class WireScene {
     this.disposeGroup(this.backbone);
     this.disposeGroup(this.guide);
     this.disposeGroup(this.snapPreview);
+    this.disposeGroup(this.road);
+    this.disposeGroup(this.roadPreview);
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -528,7 +549,9 @@ export class WireScene {
     const ray = new THREE.Raycaster();
     ray.params.Line = { threshold: 0.35 };
     ray.setFromCamera(pointer, this.camera);
-    const backboneHit = this.pickBackbonePoint(event.clientX, event.clientY);
+    const backboneHit = this.snapshot?.activeTool === "wire"
+      ? this.pickBackbonePoint(event.clientX, event.clientY)
+      : null;
     if (backboneHit !== null) {
       this.onGroundClick(backboneHit.point, backboneHit.pick);
       return;
@@ -783,6 +806,12 @@ export class WireScene {
       this.guideSignature = nextGuideSignature;
       this.rebuildGuide(snapshot);
     }
+
+    const nextRoadSignature = this.sceneRoadSignature(snapshot);
+    if (this.roadSignature !== nextRoadSignature) {
+      this.roadSignature = nextRoadSignature;
+      this.rebuildRoad(snapshot);
+    }
   }
 
   private sceneBackboneSignature(snapshot: ViewerSnapshot): string {
@@ -808,6 +837,54 @@ export class WireScene {
       spec === null ? "null" : `${spec.supportKind}:${spec.nodeId}`
     ).join("|");
     return `${points};${specs}`;
+  }
+
+  private sceneRoadSignature(snapshot: ViewerSnapshot): string {
+    const meshKey = (mesh: { vertices: Float64Array; indices: Uint32Array }) =>
+      `${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
+    return [
+      ...snapshot.road.scene.surfaceMeshes.map(meshKey),
+      ...snapshot.road.scene.markingMeshes.map(meshKey),
+      "preview",
+      ...snapshot.road.previewMeshes.map(meshKey)
+    ].join("|");
+  }
+
+  private rebuildRoad(snapshot: ViewerSnapshot): void {
+    this.disposeGroup(this.road);
+    this.disposeGroup(this.roadPreview);
+    const surfaceMaterial = new THREE.MeshStandardMaterial({
+      color: 0x4a4e50,
+      roughness: 0.9,
+      metalness: 0
+    });
+    const markingMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf2f0d9,
+      roughness: 0.75,
+      polygonOffset: true,
+      polygonOffsetFactor: -2
+    });
+    for (const data of snapshot.road.scene.surfaceMeshes) {
+      const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), surfaceMaterial.clone());
+      mesh.receiveShadow = true;
+      mesh.castShadow = true;
+      this.road.add(mesh);
+    }
+    for (const data of snapshot.road.scene.markingMeshes) {
+      this.road.add(new THREE.Mesh(makeRoadMeshGeometry(data), markingMaterial.clone()));
+    }
+    for (const data of snapshot.road.previewMeshes) {
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x66a8d8,
+        transparent: true,
+        opacity: 0.68,
+        depthWrite: false,
+        side: THREE.DoubleSide
+      });
+      const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), material);
+      mesh.position.z += 0.03;
+      this.roadPreview.add(mesh);
+    }
   }
 
   private syncContent(snapshot: ViewerSnapshot): boolean {
@@ -1256,6 +1333,16 @@ export class WireScene {
 
   private updateSnapPreview(event: PointerEvent): void {
     this.clearSnapPreview();
+    if (this.snapshot?.activeTool === "road") {
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(this.pointerFromClient(event.clientX, event.clientY), this.camera);
+      const hit = new THREE.Vector3();
+      const planeZ = this.snapshot.drawPlaneZ;
+      if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ), hit)) {
+        this.onGroundPreview([hit.x, hit.y, hit.z]);
+      }
+      return;
+    }
     const hit = this.pickBackbonePoint(event.clientX, event.clientY);
     if (hit === null) return;
 

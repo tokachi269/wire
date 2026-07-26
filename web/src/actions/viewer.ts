@@ -55,6 +55,40 @@ export class ViewerActions {
     this.draw.addPathPoint(point, pick);
   }
 
+  setActiveTool(tool: "wire" | "road"): void {
+    this.settings.setDrawOption("activeTool", tool);
+  }
+
+  addViewportPoint(point: WorldPoint, pick?: PathPickInfo): void {
+    if (this.ctx.readSnapshot().activeTool === "road") {
+      this.road.addViewportPoint(point);
+      return;
+    }
+    this.draw.addPathPoint(point, pick);
+  }
+
+  previewViewportPoint(point: WorldPoint): void {
+    if (this.ctx.readSnapshot().activeTool === "road") {
+      this.road.previewViewportPoint(point);
+    }
+  }
+
+  undoActiveTool(): void {
+    if (this.ctx.readSnapshot().activeTool === "road") {
+      this.road.undoOrCancel();
+      return;
+    }
+    this.draw.undoPathPointOrClearSelection(() => this.selection.clearSelection());
+  }
+
+  clearActiveTool(): void {
+    if (this.ctx.readSnapshot().activeTool === "road") {
+      this.road.clear();
+      return;
+    }
+    this.draw.clearPath();
+  }
+
   clearPath(): void {
     this.draw.clearPath();
   }
@@ -86,6 +120,7 @@ export class ViewerActions {
       | "showLeftPanel"
       | "showRightPanel"
       | "rightPanelMode"
+      | "activeTool"
       | "workspaceLeftWidth"
       | "workspaceWidth",
     value: number | boolean | string
@@ -102,35 +137,11 @@ export class ViewerActions {
   }
 
   setRoadMode(mode: "line" | "bezier"): void {
-    this.road.setRoadMode(mode);
+    this.road.setMode(mode);
   }
 
   setRoadConnectToFirstNode(value: boolean): void {
-    this.road.setRoadConnectToFirstNode(value);
-  }
-
-  updateRoadDraftPoint(
-    key: "draftStart" | "draftEnd" | "handleA" | "handleB",
-    axis: "x" | "y",
-    value: number
-  ): void {
-    this.road.updateRoadDraftPoint(key, axis, value);
-  }
-
-  addRoadSegment(): void {
-    this.road.addRoadSegment();
-  }
-
-  addRoadTransition(): void {
-    this.road.addRoadTransition();
-  }
-
-  addRoadManualLine(): void {
-    this.road.addRoadManualLine();
-  }
-
-  addRoadManualArea(): void {
-    this.road.addRoadManualArea();
+    this.road.setConnectToFirstNode(value);
   }
 
   selectBundleTemplate(id: number): void {

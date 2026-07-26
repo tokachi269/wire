@@ -67,6 +67,7 @@ export interface WorkspacePreferences {
   showLeftPanel: boolean;
   showRightPanel: boolean;
   rightPanelMode?: "wire" | "road";
+  activeTool?: "wire" | "road";
   workspaceLeftWidth: number;
   workspaceWidth: number;
 }
@@ -74,13 +75,19 @@ export interface WorkspacePreferences {
 export interface WorkspaceDocument {
   version: 1;
   coreState: string;
+  roadState?: string;
   viewer: WorkspacePreferences;
 }
 
-export function createWorkspaceDocument(coreState: string, snapshot: ViewerSnapshot): WorkspaceDocument {
+export function createWorkspaceDocument(
+  coreState: string,
+  snapshot: ViewerSnapshot,
+  roadState?: string
+): WorkspaceDocument {
   return {
     version: WORKSPACE_VERSION,
     coreState,
+    ...(roadState === undefined ? {} : { roadState }),
     viewer: captureWorkspacePreferences(snapshot)
   };
 }
@@ -120,6 +127,7 @@ export function captureWorkspacePreferences(
     showLeftPanel: snapshot.showLeftPanel,
     showRightPanel: snapshot.showRightPanel,
     rightPanelMode: snapshot.rightPanelMode,
+    activeTool: snapshot.activeTool,
     workspaceLeftWidth: snapshot.workspaceLeftWidth,
     workspaceWidth: snapshot.workspaceWidth
   };
@@ -152,9 +160,9 @@ export class WorkspaceCache {
     }
   }
 
-  write(coreState: string, snapshot: ViewerSnapshot): Promise<void> {
+  write(coreState: string, snapshot: ViewerSnapshot, roadState?: string): Promise<void> {
     if (coreState.length === 0) return Promise.resolve();
-    const document = createWorkspaceDocument(coreState, snapshot);
+    const document = createWorkspaceDocument(coreState, snapshot, roadState);
     return this.enqueue(async () => {
       const text = await serializeWorkspaceDocument(document);
       await this.storage.set(WORKSPACE_CACHE_KEY, text);
@@ -246,6 +254,7 @@ function isWorkspaceDocument(value: unknown): value is WorkspaceDocument {
   return candidate.version === WORKSPACE_VERSION &&
     typeof candidate.coreState === "string" &&
     candidate.coreState.length > 0 &&
+    (candidate.roadState === undefined || typeof candidate.roadState === "string") &&
     typeof candidate.viewer === "object" &&
     candidate.viewer !== null;
 }

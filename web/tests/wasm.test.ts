@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { loadWireModule, type WireStateHandle } from "../src/bridge/wasm";
+import { loadWireModule, type RoadStateHandle, type WireStateHandle } from "../src/bridge/wasm";
 import { EditErrorKind, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
 import {
   buildDefaultModelBootstrap,
@@ -1290,4 +1290,75 @@ describe("wire wasm smoke", () => {
     placementState.delete();
   });
 
+});
+
+describe("road wasm smoke", () => {
+  let state: RoadStateHandle;
+  let createRoadState: () => RoadStateHandle;
+
+  beforeAll(async () => {
+    const module = await loadWireModule();
+    createRoadState = () => new module.RoadState();
+    state = createRoadState();
+  });
+
+  afterAll(() => {
+    state.delete();
+  });
+
+  it("builds the Japanese two-lane surface from a clicked line", () => {
+    const added = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 24,
+      endY: 0,
+      handleAX: 8,
+      handleAY: 0,
+      handleBX: 16,
+      handleBY: 0,
+      connectToFirstNode: false
+    });
+
+    expect(added.ok, added.error).toBe(true);
+    const scene = state.scene();
+    expect(scene.segmentCount).toBe(1);
+    expect(scene.surfaceMeshes).toHaveLength(1);
+    expect(scene.surfaceMeshes[0].vertices.length).toBeGreaterThan(0);
+    expect(scene.surfaceMeshes[0].indices.length).toBeGreaterThan(0);
+    expect(scene.markingMeshes.length).toBeGreaterThan(0);
+
+    const restored = createRoadState();
+    const loaded = restored.loadState(state.saveState());
+    expect(loaded.ok, loaded.error).toBe(true);
+    expect(restored.scene().segmentCount).toBe(1);
+    restored.delete();
+  });
+
+  it("keeps the final cross section perpendicular to an angled road", () => {
+    state.clear();
+    const added = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 24,
+      endY: 12,
+      handleAX: 8,
+      handleAY: 4,
+      handleBX: 16,
+      handleBY: 8,
+      connectToFirstNode: false
+    });
+    expect(added.ok, added.error).toBe(true);
+    const vertices = state.scene().surfaceMeshes[0].vertices;
+    const rowCount = Math.ceil(Math.hypot(24, 12) / 2) + 1;
+    const rowWidth = vertices.length / 3 / rowCount;
+    const first = (rowCount - 1) * rowWidth * 3;
+    const last = first + (rowWidth - 1) * 3;
+    const crossX = vertices[last] - vertices[first];
+    const crossY = vertices[last + 1] - vertices[first + 1];
+    const tangentLength = Math.hypot(24, 12);
+    const dot = crossX * 24 / tangentLength + crossY * 12 / tangentLength;
+    expect(Math.abs(dot)).toBeLessThan(1e-6);
+  });
 });

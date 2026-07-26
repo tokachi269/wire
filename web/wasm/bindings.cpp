@@ -12,6 +12,7 @@
 #include "city/wire/core_state.hpp"
 #include "city/wire/core_view.hpp"
 #include "city/wire/model_descriptor.hpp"
+#include "city/road/road.hpp"
 
 namespace {
 
@@ -33,6 +34,60 @@ using city::wire::ResolveBranchPickOptions;
 using city::wire::SpanLayer;
 using city::wire::SupportKind;
 using city::wire::Vec3d;
+
+[[nodiscard]] val road_result_value(bool ok,
+                                    const std::string& error,
+                                    city::road::ErrorKind error_kind = city::road::ErrorKind::kNone) {
+  val result = val::object();
+  result.set("ok", ok);
+  result.set("error", error);
+  result.set("errorKind", static_cast<int>(error_kind));
+  return result;
+}
+
+[[nodiscard]] val road_mesh_value(const city::road::Mesh& mesh) {
+  val vertices = val::array();
+  for (const auto& vertex : mesh.vertices) {
+    vertices.call<void>("push", vertex.x);
+    vertices.call<void>("push", vertex.y);
+    vertices.call<void>("push", vertex.z);
+  }
+  val indices = val::array();
+  for (const auto index : mesh.indices) {
+    indices.call<void>("push", index);
+  }
+  val result = val::object();
+  result.set("vertices", vertices);
+  result.set("indices", indices);
+  return result;
+}
+
+[[nodiscard]] city::road::Path road_path_value(const val& input) {
+  const city::road::Vec2d start{
+      input["startX"].as<double>(),
+      input["startY"].as<double>(),
+  };
+  const city::road::Vec2d end{
+      input["endX"].as<double>(),
+      input["endY"].as<double>(),
+  };
+  const std::string kind = input["kind"].as<std::string>();
+  if (kind == "line") {
+    return city::road::MakePath({city::road::MakeLine(start, end)});
+  }
+  if (kind == "bezier") {
+    const city::road::Vec2d handle_a{
+        input["handleAX"].as<double>(),
+        input["handleAY"].as<double>(),
+    };
+    const city::road::Vec2d handle_b{
+        input["handleBX"].as<double>(),
+        input["handleBY"].as<double>(),
+    };
+    return city::road::MakePath({city::road::MakeBezier(start, handle_a, handle_b, end)});
+  }
+  return {};
+}
 
 [[nodiscard]] val generation_timing_value(const GenerationTiming& timing) {
   val result = val::object();
@@ -1139,9 +1194,120 @@ private:
   std::vector<double> sample_buffer_{};
 };
 
+class RoadStateBinding {
+public:
+  RoadStateBinding() : state_(std::make_unique<city::road::RoadState>()) {}
+
+  val add_segment(const val& input) {
+    const auto path = road_path_value(input);
+    if (path.primitives.empty()) {
+      return road_result_value(false, "unsupported road primitive", city::road::ErrorKind::kUnsupported);
+    }
+    const bool connect = input["connectToFirstNode"].as<bool>();
+    city::road::Result<city::road::RoadSegmentId> result{};
+    if (connect && !state_->graph().nodes.empty()) {
+      result = state_->AddSegmentConnectedTo(path, 1, state_->graph().nodes.front().id);
+    } else {
+      result = state_->AddSegment(path, 1);
+    }
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val preview_segment(const val& input) const {
+    city::road::RoadState trial = *state_;
+    const auto path = road_path_value(input);
+    if (path.primitives.empty()) {
+      val result = road_result_value(false, "unsupported road primitive", city::road::ErrorKind::kUnsupported);
+      result.set("meshes", val::array());
+      return result;
+    }
+    const bool connect = input["connectToFirstNode"].as<bool>();
+    city::road::Result<city::road::RoadSegmentId> added{};
+    if (connect && !trial.graph().nodes.empty()) {
+      added = trial.AddSegmentConnectedTo(path, 1, trial.graph().nodes.front().id);
+    } else {
+      added = trial.AddSegment(path, 1);
+    }
+    val result = road_result_value(added.ok, added.error, added.error_kind);
+    val meshes = val::array();
+    if (added.ok && !trial.derived().segment_meshes.empty()) {
+      meshes.call<void>("push", road_mesh_value(trial.derived().segment_meshes.back()));
+    }
+    result.set("meshes", meshes);
+    return result;
+  }
+
+  val scene() const {
+    const auto& graph = state_->graph();
+    const auto& derived = state_->derived();
+    val surface_meshes = val::array();
+    for (const auto& mesh : derived.segment_meshes) {
+      surface_meshes.call<void>("push", road_mesh_value(mesh));
+    }
+    val marking_meshes = val::array();
+    for (const auto& mesh : derived.marking_meshes) {
+      marking_meshes.call<void>("push", road_mesh_value(mesh));
+    }
+    for (const auto& mesh : derived.manual_marking_meshes) {
+      marking_meshes.call<void>("push", road_mesh_value(mesh));
+    }
+    val result = val::object();
+    result.set("segmentCount", graph.segments.size());
+    result.set("sectionTemplateCount", graph.section_templates.size());
+    result.set("transitionCount", graph.transitions.size());
+    result.set("markingCount", graph.manual_lines.size() + graph.manual_areas.size());
+    result.set("connectionGateCount", derived.connection_gates.size());
+    result.set("junctionCount", derived.junction_areas.size());
+    result.set("surfaceMeshes", surface_meshes);
+    result.set("markingMeshes", marking_meshes);
+    return result;
+  }
+
+  val undo_segment() {
+    if (state_->graph().segments.empty()) {
+      return road_result_value(true, {});
+    }
+    const auto result = state_->DeleteSegment(state_->graph().segments.back().id);
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val clear() {
+    state_ = std::make_unique<city::road::RoadState>();
+    return road_result_value(true, {});
+  }
+
+  std::string save_state() const {
+    const auto result = state_->Save();
+    if (!result.ok) throw std::runtime_error(result.error);
+    return result.value;
+  }
+
+  val load_state(const std::string& text) {
+    const auto loaded = city::road::RoadState::Load(text);
+    if (!loaded.ok) {
+      return road_result_value(false, loaded.error, loaded.error_kind);
+    }
+    *state_ = loaded.value;
+    return road_result_value(true, {});
+  }
+
+private:
+  std::unique_ptr<city::road::RoadState> state_;
+};
+
 } // namespace
 
 EMSCRIPTEN_BINDINGS(wire_web_core) {
+  emscripten::class_<RoadStateBinding>("RoadState")
+      .constructor<>()
+      .function("addSegment", &RoadStateBinding::add_segment)
+      .function("previewSegment", &RoadStateBinding::preview_segment)
+      .function("scene", &RoadStateBinding::scene)
+      .function("undoSegment", &RoadStateBinding::undo_segment)
+      .function("clear", &RoadStateBinding::clear)
+      .function("saveState", &RoadStateBinding::save_state)
+      .function("loadState", &RoadStateBinding::load_state);
+
   emscripten::class_<WireState>("WireState")
       .constructor<>()
       .function("generate", &WireState::generate)

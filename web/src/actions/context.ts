@@ -18,6 +18,7 @@ export class ViewerActionContext {
   private suppressNextCommit = false;
   readonly reproTrace = new ReproTrace();
   private factoryCoreState = "";
+  private factoryRoadState = "";
   private workspaceSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private workspaceSubscription: (() => void) | null = null;
   private persistencePaused = true;
@@ -105,6 +106,7 @@ export class ViewerActionContext {
 
   saveFactoryCoreState(): void {
     this.factoryCoreState = this.bridge.saveState();
+    this.factoryRoadState = this.bridge.roadSaveState();
   }
 
   hasFactoryCoreState(): boolean {
@@ -112,11 +114,17 @@ export class ViewerActionContext {
   }
 
   loadFactoryCoreState(): OperationResult {
-    return this.bridge.loadState(this.factoryCoreState);
+    const wire = this.bridge.loadState(this.factoryCoreState);
+    if (!wire.ok) return wire;
+    return this.bridge.roadLoadState(this.factoryRoadState);
   }
 
   currentCoreState(): string {
     return this.bridge.saveState();
+  }
+
+  currentRoadState(): string {
+    return this.bridge.roadSaveState();
   }
 
   async readWorkspaceCache(): Promise<Awaited<ReturnType<WorkspaceCache["read"]>> | null> {
@@ -129,7 +137,11 @@ export class ViewerActionContext {
 
   async writeWorkspaceCache(): Promise<void> {
     if (this.workspaceCache === null) return;
-    await this.workspaceCache.write(this.currentCoreState(), this.readSnapshot());
+    await this.workspaceCache.write(
+      this.currentCoreState(),
+      this.readSnapshot(),
+      this.currentRoadState()
+    );
   }
 
   hasWorkspaceCache(): boolean {

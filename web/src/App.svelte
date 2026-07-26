@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { Cable, Route } from "@lucide/svelte";
   import type { ViewerActions } from "./actions/viewer";
   import Settings from "./panels/Settings.svelte";
   import Templates from "./panels/Templates.svelte";
@@ -146,8 +147,12 @@
           if (active instanceof HTMLInputElement && editStart.checked !== null) {
             active.checked = editStart.checked;
           }
-        } else if (!editing && snapshot.pathPoints.length > 0) {
-          actions.clearPath();
+        } else if (!editing) {
+          if (snapshot.activeTool === "wire" && snapshot.pathPoints.length > 0) {
+            actions.clearPath();
+          } else if (snapshot.activeTool === "road") {
+            actions.undoActiveTool();
+          }
         }
         actions.cancel(editing);
         if (editing) {
@@ -162,8 +167,10 @@
         target instanceof HTMLTextAreaElement ||
         target?.isContentEditable;
       if (event.key === "Enter" && !editing) {
-        event.preventDefault();
-        actions.generatePath();
+        if (snapshot.activeTool === "wire") {
+          event.preventDefault();
+          actions.generatePath();
+        }
       }
     };
     window.addEventListener("focusin", handleFocusIn);
@@ -198,9 +205,6 @@
       </button>
       <button class="secondary mini-action" type="button" onclick={() => actions.clearPath()}>
         Clear
-      </button>
-      <button class="secondary" type="button" onclick={() => actions.exportReproCapture()}>
-        Repro capture
       </button>
       <button class="secondary mini-action" type="button" onclick={() => void actions.exportWorkspaceFile()}>
         Export
@@ -251,6 +255,25 @@
 
     <div class="viewport" bind:this={sceneHost}></div>
 
+    <div class="viewport-tools" aria-label="Viewport draw tools">
+      <div class="tool-group domain-tools">
+        <button
+          class:active={snapshot.activeTool === "wire"}
+          type="button"
+          aria-label="Wire tool"
+          title="Wire tool"
+          onclick={() => actions.setActiveTool("wire")}
+        ><Cable size={20} aria-hidden="true" /></button>
+        <button
+          class:active={snapshot.activeTool === "road"}
+          type="button"
+          aria-label="Road tool"
+          title="Road tool"
+          onclick={() => actions.setActiveTool("road")}
+        ><Route size={20} aria-hidden="true" /></button>
+      </div>
+    </div>
+
     {#if snapshot.showRightPanel}
       <button
         class="resize-handle"
@@ -281,6 +304,9 @@
               <p class="panel-label">DRAW PATH</p>
               <strong class="point-count">{snapshot.pathPoints.length} points</strong>
             </div>
+            <button class="secondary repro-button" type="button" onclick={() => actions.exportReproCapture()}>
+              Repro capture
+            </button>
             <label>
               Pole template
               <select

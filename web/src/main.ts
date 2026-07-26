@@ -49,8 +49,9 @@ async function main(): Promise<void> {
   await actions.restoreWorkspace();
   const scene = new WireScene(
     store,
-    (point, pick) => actions.addPathPoint(point, pick),
-    () => actions.undoPathPointOrClearSelection(),
+    (point, pick) => actions.addViewportPoint(point, pick),
+    (point) => actions.previewViewportPoint(point),
+    () => actions.undoActiveTool(),
     (deltaMs) => actions.recordFrame(deltaMs),
     (stats) => actions.recordSceneContentSync(stats)
   );

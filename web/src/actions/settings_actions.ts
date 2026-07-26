@@ -23,6 +23,7 @@ export class SettingsActions {
       | "showLeftPanel"
       | "showRightPanel"
       | "rightPanelMode"
+      | "activeTool"
       | "workspaceLeftWidth"
       | "workspaceWidth",
     value: number | boolean | string

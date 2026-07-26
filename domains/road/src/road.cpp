@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cmath>
 #include <limits>
+#include <locale>
 #include <map>
 #include <sstream>
 #include <string_view>
@@ -253,6 +254,21 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return primitive_end(path.primitives.back());
 }
 
+[[nodiscard]] std::optional<Vec2d> path_tangent(const Path& path, double station, double total) {
+  const double delta = std::min(0.1, total);
+  const double before_station = std::max(0.0, station - delta);
+  const double after_station = std::min(total, station + delta);
+  if (after_station - before_station <= kEpsilon) {
+    return std::nullopt;
+  }
+  const Result<Vec2d> before = EvaluatePath(path, before_station);
+  const Result<Vec2d> after = EvaluatePath(path, after_station);
+  if (!before.ok || !after.ok) {
+    return std::nullopt;
+  }
+  return normalize(sub(after.value, before.value));
+}
+
 [[nodiscard]] Mesh build_surface_mesh(const RoadSegment& segment, const CrossSectionTemplate& section) {
   Mesh mesh{};
   const std::vector<double> stations = stations_for_path(segment.alignment);
@@ -260,17 +276,14 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   if (stations.empty() || boundaries.size() < 2) {
     return mesh;
   }
+  const double total = stations.back();
   for (double station : stations) {
     const Result<Vec2d> center = EvaluatePath(segment.alignment, station);
-    if (!center.ok) {
-      continue;
+    const std::optional<Vec2d> tangent = path_tangent(segment.alignment, station, total);
+    if (!center.ok || !tangent.has_value()) {
+      return {};
     }
-    Vec2d tangent2{1.0, 0.0};
-    const Result<Vec2d> ahead = EvaluatePath(segment.alignment, station + 0.1);
-    if (ahead.ok) {
-      tangent2 = normalize(sub(ahead.value, center.value));
-    }
-    const Vec2d right{-tangent2.y, tangent2.x};
+    const Vec2d right{-tangent->y, tangent->x};
     for (const SectionBoundarySample& boundary : boundaries) {
       const Vec2d p = add(center.value, mul(right, boundary.lateral_m));
       mesh.vertices.push_back({p.x, p.y, boundary.height_m});
@@ -299,16 +312,16 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   }
   const double left = boundaries.front().lateral_m;
   const double right = boundaries.back().lateral_m;
+  const double total = stations.back();
   std::vector<Vec2d> right_side{};
   std::vector<Vec2d> left_side{};
   for (double station : stations) {
     const Result<Vec2d> center = EvaluatePath(segment.alignment, station);
-    const Result<Vec2d> ahead = EvaluatePath(segment.alignment, station + 0.1);
-    if (!center.ok) {
-      continue;
+    const std::optional<Vec2d> tangent = path_tangent(segment.alignment, station, total);
+    if (!center.ok || !tangent.has_value()) {
+      return {};
     }
-    const Vec2d tangent = ahead.ok ? normalize(sub(ahead.value, center.value)) : Vec2d{1.0, 0.0};
-    const Vec2d lateral{-tangent.y, tangent.x};
+    const Vec2d lateral{-tangent->y, tangent->x};
     left_side.push_back(add(center.value, mul(lateral, left)));
     right_side.push_back(add(center.value, mul(lateral, right)));
   }
@@ -323,21 +336,21 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   Mesh mesh{};
   const std::vector<double> stations = stations_for_path(segment.alignment);
   const std::vector<SectionBoundarySample> boundaries = evaluate_section(section);
+  if (stations.empty()) {
+    return mesh;
+  }
+  const double total = stations.back();
   for (const SectionBoundarySample& boundary : boundaries) {
     if (boundary.marking_rule == MarkingRule::kNone) {
       continue;
     }
     for (double station : stations) {
       const Result<Vec2d> center = EvaluatePath(segment.alignment, station);
-      if (!center.ok) {
-        continue;
+      const std::optional<Vec2d> tangent = path_tangent(segment.alignment, station, total);
+      if (!center.ok || !tangent.has_value()) {
+        return {};
       }
-      Vec2d tangent{1.0, 0.0};
-      const Result<Vec2d> ahead = EvaluatePath(segment.alignment, station + 0.1);
-      if (ahead.ok) {
-        tangent = normalize(sub(ahead.value, center.value));
-      }
-      const Vec2d lateral{-tangent.y, tangent.x};
+      const Vec2d lateral{-tangent->y, tangent->x};
       const Vec2d p = add(center.value, mul(lateral, boundary.lateral_m));
       mesh.vertices.push_back({p.x, p.y, boundary.height_m + 0.01});
     }
@@ -396,11 +409,14 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
 }
 
 [[nodiscard]] std::optional<double> parse_double(std::string_view text) {
+  if (text.empty()) {
+    return std::nullopt;
+  }
   double value = 0.0;
-  const char* first = text.data();
-  const char* last = text.data() + text.size();
-  const std::from_chars_result result = std::from_chars(first, last, value);
-  if (result.ec != std::errc{} || result.ptr != last) {
+  std::istringstream stream{std::string(text)};
+  stream.imbue(std::locale::classic());
+  stream >> std::noskipws >> value;
+  if (!stream || !stream.eof() || !finite(value)) {
     return std::nullopt;
   }
   return value;

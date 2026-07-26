@@ -21,6 +21,7 @@ import { createRoadToolState, type RoadToolState } from "../road";
 export type WorldPoint = [number, number, number];
 export type SelectionKind = "pole" | "port" | "span" | "supportNode";
 export type RightPanelMode = "wire" | "road";
+export type ActiveTool = "wire" | "road";
 
 export interface VisualPart {
   info: VisualPartInfo;
@@ -82,6 +83,7 @@ export interface ViewerSnapshot {
   showLeftPanel: boolean;
   showRightPanel: boolean;
   rightPanelMode: RightPanelMode;
+  activeTool: ActiveTool;
   workspaceLeftWidth: number;
   workspaceWidth: number;
   lastInteractionFrames: {
@@ -153,6 +155,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     showLeftPanel: true,
     showRightPanel: true,
     rightPanelMode: "wire",
+    activeTool: "wire",
     workspaceLeftWidth: 220,
     workspaceWidth: 320,
     lastInteractionFrames: null,

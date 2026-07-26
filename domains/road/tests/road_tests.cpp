@@ -49,6 +49,25 @@ bool P0_generates_two_lane_segment(std::string& failure) {
   return true;
 }
 
+bool P0_angled_segment_keeps_final_section_perpendicular(std::string& failure) {
+  RoadState state{};
+  const Vec2d start{0.0, 0.0};
+  const Vec2d end{24.0, 12.0};
+  const auto added = state.AddSegment(MakePath({MakeLine(start, end)}), 1);
+  ROAD_TEST_EXPECT(added.ok, added.error);
+  const auto& vertices = state.derived().segment_meshes.front().vertices;
+  const std::size_t row_count = static_cast<std::size_t>(std::ceil(std::hypot(24.0, 12.0) / 2.0)) + 1;
+  ROAD_TEST_EXPECT(vertices.size() % row_count == 0, "surface mesh rows are not stable");
+  const std::size_t row_width = vertices.size() / row_count;
+  const auto& left = vertices[(row_count - 1) * row_width];
+  const auto& right = vertices[row_count * row_width - 1];
+  const double tangent_length = std::hypot(end.x - start.x, end.y - start.y);
+  const double dot = (right.x - left.x) * (end.x - start.x) / tangent_length +
+                     (right.y - left.y) * (end.y - start.y) / tangent_length;
+  ROAD_TEST_EXPECT(std::abs(dot) < 1e-9, "final cross section is not perpendicular to the road tangent");
+  return true;
+}
+
 bool P0_rejects_self_intersection_without_mutation(std::string& failure) {
   RoadState state{};
   const auto first = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1);
@@ -171,6 +190,7 @@ struct Test {
 int main() {
   const Test tests[] = {
       {"P0_generates_two_lane_segment", P0_generates_two_lane_segment},
+      {"P0_angled_segment_keeps_final_section_perpendicular", P0_angled_segment_keeps_final_section_perpendicular},
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},

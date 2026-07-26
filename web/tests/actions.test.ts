@@ -297,6 +297,7 @@ describe("viewer actions", () => {
         insulatorLength: 0.16
       }),
       saveState: () => "factory-state",
+      roadSaveState: () => "factory-road-state",
       generate: () => ({
         ok: true,
         error: "",
@@ -534,12 +535,57 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     updateBackboneBundlePlacement: () => ({ ok: true, error: "" }),
     updatePoleTemplate: () => ({ ok: true, error: "" }),
     clearPendingSupportNodes: () => ({ ok: true, error: "" }),
+    roadAddSegment: () => ({ ok: true, error: "" }),
+    roadPreviewSegment: () => ({ ok: true, error: "", meshes: [] }),
+    roadScene: () => ({
+      segmentCount: 0,
+      sectionTemplateCount: 1,
+      transitionCount: 0,
+      markingCount: 0,
+      connectionGateCount: 0,
+      junctionCount: 0,
+      surfaceMeshes: [],
+      markingMeshes: []
+    }),
+    roadUndoSegment: () => ({ ok: true, error: "" }),
+    roadClear: () => ({ ok: true, error: "" }),
+    roadSaveState: () => "factory-road-state",
+    roadLoadState: () => ({ ok: true, error: "" }),
     saveState: () => "factory-state",
     loadState: () => ({ ok: true, error: "" }),
     scene: () => emptyScene,
     ...overrides
   } as WireBridge;
 }
+
+describe("viewport tool routing", () => {
+  it("draws a road through two viewport clicks without adding Wire path points", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([2, 3, 0]);
+    actions.previewViewportPoint([18, 5, 0]);
+
+    expect(current(store).pathPoints).toEqual([]);
+    expect(current(store).road.phase).toBe("end");
+    expect(current(store).road.draftEnd).toEqual({ x: 18, y: 5 });
+
+    actions.addViewportPoint([18, 5, 0]);
+
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "line",
+      startX: 2,
+      startY: 3,
+      endX: 18,
+      endY: 5
+    }));
+    expect(current(store).pathPoints).toEqual([]);
+    expect(current(store).road.phase).toBe("end");
+  });
+});
 
 describe("P1 action contracts", () => {
   it("uses the desktop viewer template defaults", () => {

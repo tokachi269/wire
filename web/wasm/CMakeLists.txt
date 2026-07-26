@@ -20,9 +20,10 @@ function(wire_enable_builtin_vcpkg_applocal target_name)
 endfunction()
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../domains/wire" wire)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../domains/road" road)
 
 add_executable(wire_web_core bindings.cpp)
-target_link_libraries(wire_web_core PRIVATE wire_core)
+target_link_libraries(wire_web_core PRIVATE wire_core road)
 
 target_link_options(
   wire_web_core

@@ -59,7 +59,10 @@ export class WorkspaceActions {
     const cached = await this.ctx.readWorkspaceCache();
     if (cached !== null) {
       const result = this.ctx.bridge.loadState(cached.coreState);
-      if (result.ok) {
+      const roadResult = result.ok && cached.roadState !== undefined
+        ? this.ctx.bridge.roadLoadState(cached.roadState)
+        : { ok: true, error: "" };
+      if (result.ok && roadResult.ok) {
         this.ctx.refreshCatalogs();
         this.restoreWorkspacePreferences(cached.viewer);
         this.ctx.store.update((current) => ({
@@ -70,9 +73,10 @@ export class WorkspaceActions {
           error: ""
         }));
         this.ctx.refreshScene();
+        this.refreshRoadScene();
       } else {
         this.ctx.pausePersistence();
-        this.ctx.store.setError(`Workspace restore failed: ${result.error}`);
+        this.ctx.store.setError(`Workspace restore failed: ${result.ok ? roadResult.error : result.error}`);
         return;
       }
     }
@@ -97,7 +101,11 @@ export class WorkspaceActions {
   }
 
   async exportWorkspaceText(): Promise<string> {
-    const document = createWorkspaceDocument(this.ctx.currentCoreState(), this.ctx.readSnapshot());
+    const document = createWorkspaceDocument(
+      this.ctx.currentCoreState(),
+      this.ctx.readSnapshot(),
+      this.ctx.currentRoadState()
+    );
     return serializeWorkspaceDocument(document);
   }
 
@@ -128,6 +136,13 @@ export class WorkspaceActions {
       this.ctx.store.setError(`Workspace import failed: ${result.error}`);
       return;
     }
+    if (document.roadState !== undefined) {
+      const roadResult = this.ctx.bridge.roadLoadState(document.roadState);
+      if (!roadResult.ok) {
+        this.ctx.store.setError(`Workspace import failed: ${roadResult.error}`);
+        return;
+      }
+    }
     this.ctx.refreshCatalogs();
     this.restoreWorkspacePreferences(document.viewer);
     this.ctx.store.update((current) => ({
@@ -138,6 +153,7 @@ export class WorkspaceActions {
       error: ""
     }));
     this.ctx.refreshScene();
+    this.refreshRoadScene();
     await this.flushWorkspaceCache();
   }
 
@@ -165,6 +181,7 @@ export class WorkspaceActions {
     this.initialize();
     await this.restoreWorkspace();
     this.ctx.refreshScene();
+    this.refreshRoadScene();
     this.ctx.store.update((current) => ({
       ...current,
       logs: [...current.logs, "Workspace reset"]
@@ -181,6 +198,14 @@ export class WorkspaceActions {
       this.ctx.pausePersistence();
       this.ctx.store.setError(`Workspace cache failed: ${message}`);
     }
+  }
+
+  private refreshRoadScene(): void {
+    const scene = this.ctx.bridge.roadScene();
+    this.ctx.store.update((current) => ({
+      ...current,
+      road: { ...current.road, scene, previewMeshes: [], phase: "start", lastError: "" }
+    }));
   }
 
   dispose(): void {

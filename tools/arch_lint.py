@@ -122,6 +122,67 @@ def parse_backbone_semantics_coverage(text: str) -> tuple[dict[str, set[str]], s
     return coverage, case_ids, errors
 
 
+def parse_aspect_list(value: str) -> set[str]:
+    return set(re.findall(r"`([a-z0-9_]+)`", value))
+
+
+def parse_backbone_aspect_requirements(text: str) -> tuple[dict[str, set[str]], list[str]]:
+    errors: list[str] = []
+    requirements: dict[str, set[str]] = {}
+    table = table_after_heading(text, "## セル必須観点")
+    if len(table) < 2:
+        return requirements, ["docs/wire/backbone_operation_semantics.md: missing cell aspect requirements table"]
+    for line in table[1:]:
+        cells = markdown_cells(line)
+        if not cells or is_separator_row(cells):
+            continue
+        if len(cells) < 2:
+            errors.append(f"docs/wire/backbone_operation_semantics.md: malformed aspect requirement row: {line.strip()}")
+            continue
+        cell_id = cells[0]
+        if not re.fullmatch(r"BOS:[a-z0-9_]+:[A-Z0-9]+", cell_id):
+            errors.append(f"docs/wire/backbone_operation_semantics.md: invalid aspect requirement cell id: {cell_id}")
+            continue
+        if cell_id in requirements:
+            errors.append(f"docs/wire/backbone_operation_semantics.md: duplicate aspect requirement cell: {cell_id}")
+            continue
+        aspects = parse_aspect_list(cells[1])
+        if not aspects:
+            errors.append(f"docs/wire/backbone_operation_semantics.md: aspect requirement has no aspects: {cell_id}")
+        requirements[cell_id] = aspects
+    return requirements, errors
+
+
+def parse_backbone_aspect_coverage(text: str) -> tuple[dict[str, tuple[set[str], set[str]]], list[str]]:
+    errors: list[str] = []
+    coverage: dict[str, tuple[set[str], set[str]]] = {}
+    table = table_after_heading(text, "## Backbone Operation Aspect Coverage")
+    if len(table) < 2:
+        return coverage, ["domains/wire/tests/spec_ledger.md: missing Backbone Operation Aspect Coverage table"]
+    for line in table[1:]:
+        cells = markdown_cells(line)
+        if not cells or is_separator_row(cells):
+            continue
+        if len(cells) < 3:
+            errors.append(f"domains/wire/tests/spec_ledger.md: malformed semantics aspect row: {line.strip()}")
+            continue
+        cell_id = cells[0]
+        if not re.fullmatch(r"BOS:[a-z0-9_]+:[A-Z0-9]+", cell_id):
+            errors.append(f"domains/wire/tests/spec_ledger.md: invalid semantics aspect cell id: {cell_id}")
+            continue
+        if cell_id in coverage:
+            errors.append(f"domains/wire/tests/spec_ledger.md: duplicate semantics aspect cell: {cell_id}")
+            continue
+        cases = set(re.findall(r"C\d+", cells[1]))
+        aspects = parse_aspect_list(cells[2])
+        if not cases:
+            errors.append(f"domains/wire/tests/spec_ledger.md: semantics aspect coverage has no case ids: {cell_id}")
+        if not aspects:
+            errors.append(f"domains/wire/tests/spec_ledger.md: semantics aspect coverage has no aspects: {cell_id}")
+        coverage[cell_id] = (cases, aspects)
+    return coverage, errors
+
+
 def registered_core_case_ids(root: Path) -> set[str]:
     ids: set[str] = set()
     tests_root = root / "domains" / "wire" / "tests"
@@ -142,8 +203,10 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
     coverage, ledger_case_ids, coverage_errors = parse_backbone_semantics_coverage(
         ledger_path.read_text(encoding="utf-8")
     )
+    requirements, requirement_errors = parse_backbone_aspect_requirements(docs_path.read_text(encoding="utf-8"))
+    aspect_coverage, aspect_coverage_errors = parse_backbone_aspect_coverage(ledger_path.read_text(encoding="utf-8"))
     registered_ids = registered_core_case_ids(root)
-    errors = parse_errors + coverage_errors
+    errors = parse_errors + coverage_errors + requirement_errors + aspect_coverage_errors
     covered = set(coverage.keys())
     for cell in sorted(required - covered):
         errors.append(f"domains/wire/tests/spec_ledger.md: missing semantics coverage for {cell}")
@@ -159,6 +222,37 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
         if missing_registered_cases:
             errors.append(
                 f"domains/wire/tests/spec_ledger.md: {cell} references unregistered cases {', '.join(missing_registered_cases)}"
+            )
+    required_aspect_cells = set(requirements.keys())
+    aspect_covered_cells = set(aspect_coverage.keys())
+    for cell in sorted(required - required_aspect_cells):
+        errors.append(f"docs/wire/backbone_operation_semantics.md: missing aspect requirements for {cell}")
+    for cell in sorted(required_aspect_cells - required):
+        errors.append(f"docs/wire/backbone_operation_semantics.md: aspect requirements for non-required cell {cell}")
+    for cell in sorted(required - aspect_covered_cells):
+        errors.append(f"domains/wire/tests/spec_ledger.md: missing aspect coverage for {cell}")
+    for cell in sorted(aspect_covered_cells - required):
+        errors.append(f"domains/wire/tests/spec_ledger.md: aspect coverage for non-required cell {cell}")
+    for cell, (cases, aspects) in sorted(aspect_coverage.items()):
+        expected_cases = coverage.get(cell, set())
+        if cases != expected_cases:
+            errors.append(
+                f"domains/wire/tests/spec_ledger.md: aspect coverage cases for {cell} do not match semantics coverage"
+            )
+        missing_ledger_cases = sorted(case for case in cases if case not in ledger_case_ids)
+        if missing_ledger_cases:
+            errors.append(
+                f"domains/wire/tests/spec_ledger.md: aspect coverage {cell} references cases absent from ledger {', '.join(missing_ledger_cases)}"
+            )
+        missing_registered_cases = sorted(case for case in cases if case not in registered_ids)
+        if missing_registered_cases:
+            errors.append(
+                f"domains/wire/tests/spec_ledger.md: aspect coverage {cell} references unregistered cases {', '.join(missing_registered_cases)}"
+            )
+        missing_aspects = sorted(requirements.get(cell, set()) - aspects)
+        if missing_aspects:
+            errors.append(
+                f"domains/wire/tests/spec_ledger.md: {cell} missing required aspects {', '.join(missing_aspects)}"
             )
     return errors
 

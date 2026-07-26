@@ -46,6 +46,53 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 | `regenerate` regenerate | `K` | `K` | `K` | `K` | `K` | `K` | `K` |
 | `connect_two_open` 明示的に2 openを接続 | `-` | `-` | `-` | `-` | `-` | `D2` | `D2` |
 
+## セル必須観点
+
+`C` / `O` / `K` / `U` の各セルは、case ID の有無だけでなく、次の観点を
+`domains/wire/tests/spec_ledger.md` の aspect coverage で満たす。
+この表は「何を見ればそのセルを検証したと言えるか」の正本である。
+
+| Cell | Required aspects |
+|---|---|
+| BOS:add_one_edge:S0 | `open_state` `support_level` |
+| BOS:add_one_edge:S1 | `pair_connectivity` `continuity_table` `support_level` `curve_endpoint` |
+| BOS:add_one_edge:S2 | `open_state` `support_level` |
+| BOS:add_one_edge:S3 | `open_state` `ambiguity_open` |
+| BOS:add_one_edge:S4 | `pair_connectivity` `continuity_table` `support_level` |
+| BOS:add_one_edge:S5 | `open_state` `ambiguity_open` |
+| BOS:add_one_edge:SM | `template_policy` `selected_policy` `source_projection` `open_state` |
+| BOS:add_two_edges:S0 | `pair_connectivity` `continuity_table` `port_identity` `curve_endpoint` |
+| BOS:add_two_edges:S1 | `open_state` `ambiguity_open` |
+| BOS:add_two_edges:S2 | `open_state` `ambiguity_open` |
+| BOS:add_two_edges:S3 | `open_state` `ambiguity_open` |
+| BOS:add_two_edges:S4 | `open_state` `ambiguity_open` |
+| BOS:add_two_edges:S5 | `open_state` `ambiguity_open` |
+| BOS:move_pole_angle:S1 | `open_state` `port_identity` `curve_endpoint` |
+| BOS:move_pole_angle:S2 | `continuity_table` `port_identity` `representation_switch` `row_fixture` `nodepatch` `curve_endpoint` |
+| BOS:move_pole_angle:S3 | `continuity_table` `port_identity` `representation_switch` `row_fixture` `jumper` `curve_endpoint` |
+| BOS:move_pole_angle:S4 | `continuity_table` `port_identity` `representation_switch` `support_level` |
+| BOS:move_pole_angle:S5 | `continuity_table` `port_identity` `representation_switch` `support_level` |
+| BOS:update_placement:S1 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:S2 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:S3 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:S4 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:S5 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:SM | `placement_identity` `source_projection` `curve_endpoint` |
+| BOS:save_load:S0 | `save_load` `derived_equivalence` |
+| BOS:save_load:S1 | `save_load` `continuity_table` |
+| BOS:save_load:S2 | `save_load` `continuity_table` `port_identity` `derived_equivalence` |
+| BOS:save_load:S3 | `save_load` `continuity_table` `jumper` `derived_equivalence` |
+| BOS:save_load:S4 | `save_load` `continuity_table` `support_level` |
+| BOS:save_load:S5 | `save_load` `continuity_table` `support_level` |
+| BOS:save_load:SM | `save_load` `source_projection` |
+| BOS:regenerate:S0 | `regenerate` `derived_equivalence` |
+| BOS:regenerate:S1 | `regenerate` `continuity_table` |
+| BOS:regenerate:S2 | `regenerate` `continuity_table` `port_identity` `derived_equivalence` |
+| BOS:regenerate:S3 | `regenerate` `continuity_table` `jumper` `derived_equivalence` |
+| BOS:regenerate:S4 | `regenerate` `continuity_table` `support_level` |
+| BOS:regenerate:S5 | `regenerate` `continuity_table` `support_level` |
+| BOS:regenerate:SM | `regenerate` `source_projection` |
+
 ### 接続候補の規則
 
 生成操作の完了時に、影響nodeの未接続endpointを同じ解決処理へ渡す。

@@ -56,6 +56,53 @@
 | BOS:regenerate:S5 | case:C805 |
 | BOS:regenerate:SM | case:C719 case:C724 case:C725 |
 
+## Backbone Operation Aspect Coverage
+
+各セルのcase群が、`docs/wire/backbone_operation_semantics.md` の「セル必須観点」を
+集合として満たしていることを記録する。caseを追加・差し替えした場合は、この表の観点も
+更新する。`tools/arch_lint.py` は必須観点の不足とcase集合の不一致を検出する。
+
+| Cell | Cases | Covered aspects |
+|---|---|---|
+| BOS:add_one_edge:S0 | case:C809 | `open_state` `support_level` |
+| BOS:add_one_edge:S1 | case:C771 case:C773 | `pair_connectivity` `continuity_table` `support_level` `curve_endpoint` |
+| BOS:add_one_edge:S2 | case:C816 | `open_state` `support_level` |
+| BOS:add_one_edge:S3 | case:C782 | `open_state` `ambiguity_open` |
+| BOS:add_one_edge:S4 | case:C809 case:C816 | `pair_connectivity` `continuity_table` `support_level` |
+| BOS:add_one_edge:S5 | case:C772 case:C814 | `open_state` `ambiguity_open` |
+| BOS:add_one_edge:SM | case:C564 case:C566 case:C589 | `template_policy` `selected_policy` `source_projection` `open_state` |
+| BOS:add_two_edges:S0 | case:C388 case:C663 | `pair_connectivity` `continuity_table` `port_identity` `curve_endpoint` |
+| BOS:add_two_edges:S1 | case:C814 | `open_state` `ambiguity_open` |
+| BOS:add_two_edges:S2 | case:C814 | `open_state` `ambiguity_open` |
+| BOS:add_two_edges:S3 | case:C814 | `open_state` `ambiguity_open` |
+| BOS:add_two_edges:S4 | case:C814 | `open_state` `ambiguity_open` |
+| BOS:add_two_edges:S5 | case:C814 | `open_state` `ambiguity_open` |
+| BOS:move_pole_angle:S1 | case:C813 | `open_state` `port_identity` `curve_endpoint` |
+| BOS:move_pole_angle:S2 | case:C813 | `continuity_table` `port_identity` `representation_switch` `row_fixture` `nodepatch` `curve_endpoint` |
+| BOS:move_pole_angle:S3 | case:C813 | `continuity_table` `port_identity` `representation_switch` `row_fixture` `jumper` `curve_endpoint` |
+| BOS:move_pole_angle:S4 | case:C813 | `continuity_table` `port_identity` `representation_switch` `support_level` |
+| BOS:move_pole_angle:S5 | case:C813 | `continuity_table` `port_identity` `representation_switch` `support_level` |
+| BOS:update_placement:S1 | case:C796 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:S2 | case:C770 case:C816 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:S3 | case:C770 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:S4 | case:C770 case:C796 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:S5 | case:C796 | `placement_identity` `support_level` `curve_endpoint` |
+| BOS:update_placement:SM | case:C719 case:C724 case:C725 | `placement_identity` `source_projection` `curve_endpoint` |
+| BOS:save_load:S0 | case:C751 | `save_load` `derived_equivalence` |
+| BOS:save_load:S1 | case:C775 | `save_load` `continuity_table` |
+| BOS:save_load:S2 | case:C751 case:C775 case:C811 | `save_load` `continuity_table` `port_identity` `derived_equivalence` |
+| BOS:save_load:S3 | case:C751 case:C773 case:C811 | `save_load` `continuity_table` `jumper` `derived_equivalence` |
+| BOS:save_load:S4 | case:C805 | `save_load` `continuity_table` `support_level` |
+| BOS:save_load:S5 | case:C805 | `save_load` `continuity_table` `support_level` |
+| BOS:save_load:SM | case:C805 | `save_load` `source_projection` |
+| BOS:regenerate:S0 | case:C702 | `regenerate` `derived_equivalence` |
+| BOS:regenerate:S1 | case:C776 | `regenerate` `continuity_table` |
+| BOS:regenerate:S2 | case:C776 case:C813 | `regenerate` `continuity_table` `port_identity` `derived_equivalence` |
+| BOS:regenerate:S3 | case:C776 case:C813 | `regenerate` `continuity_table` `jumper` `derived_equivalence` |
+| BOS:regenerate:S4 | case:C805 | `regenerate` `continuity_table` `support_level` |
+| BOS:regenerate:S5 | case:C805 | `regenerate` `continuity_table` `support_level` |
+| BOS:regenerate:SM | case:C719 case:C724 case:C725 | `regenerate` `source_projection` |
+
 | Case ID | 分類 | Stage | 目的 | 前提 | 入力 | 期待結果 | 観測点 | 壊れた時に守りたいユーザ価値 |
 |---|---|---|---|---|---|---|---|---|
 | C750 | Invariant | Commit | authoritative save は version 付きで決定的かつ編集を反映する | 66 pole級 route を生成済み | SerializeAuthoritative x2 → 別route生成 → SerializeAuthoritative | Invariant: header は `wire_state_v1`、同一stateはbyte一致、編集後はbyte差分 | serialized text | 保存結果の非決定性と編集の取りこぼしを防ぐ |

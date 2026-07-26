@@ -340,6 +340,7 @@ export class WireBridge {
 
 function copyRoadMesh(mesh: RoadMeshPayload): RoadMeshData {
   return {
+    material: mesh.material,
     vertices: new Float64Array(mesh.vertices),
     indices: new Uint32Array(mesh.indices)
   };

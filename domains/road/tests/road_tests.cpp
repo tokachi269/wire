@@ -1,9 +1,11 @@
 #include "city/road/road.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <string>
 
 namespace {
@@ -30,6 +32,7 @@ using city::road::SectionTransitionRule;
 using city::road::StationRef;
 using city::road::StationRefKind;
 using city::road::ThreeLaneTemplate;
+using city::road::TransitionAnchor;
 using city::road::TransitionAction;
 using city::road::ValidateGraphInvariants;
 using city::road::Vec2d;
@@ -56,10 +59,18 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
   ROAD_TEST_EXPECT(!state.derived().section_evaluations.empty(), "P0 did not evaluate the section");
   const auto& boundaries = state.derived().section_evaluations.front().boundaries;
   ROAD_TEST_EXPECT(boundaries.size() >= 7, "P0 section does not expose sidewalk/curb/carriageway edges");
-  ROAD_TEST_EXPECT(std::abs(boundaries.front().height_m - 0.15) < 1e-9, "left sidewalk is not raised 0.15m");
-  ROAD_TEST_EXPECT(std::abs(boundaries.back().height_m - 0.15) < 1e-9, "right sidewalk is not raised 0.15m");
+  ROAD_TEST_EXPECT(std::abs(boundaries.front().height_m - 0.13) < 1e-9,
+                   "left sidewalk outer edge does not apply the 1% outward slope");
+  ROAD_TEST_EXPECT(std::abs(boundaries[1].height_m - 0.15) < 1e-9,
+                   "left curb top is not 0.15m above the carriageway edge");
+  ROAD_TEST_EXPECT(std::abs(boundaries.back().height_m - 0.13) < 1e-9,
+                   "right sidewalk outer edge does not apply the 1% outward slope");
+  ROAD_TEST_EXPECT(std::abs(boundaries[5].height_m - 0.15) < 1e-9,
+                   "right curb top is not 0.15m above the carriageway edge");
   ROAD_TEST_EXPECT(std::abs(boundaries[2].height_m) < 1e-9, "left carriageway edge is not at road height");
   ROAD_TEST_EXPECT(std::abs(boundaries[4].height_m) < 1e-9, "right carriageway edge is not at road height");
+  ROAD_TEST_EXPECT(std::abs(boundaries[3].height_m - 0.06) < 1e-9,
+                   "two-lane carriageway does not have a 2% center crown");
   ROAD_TEST_EXPECT(std::abs((boundaries[2].lateral_m - boundaries[1].lateral_m) - 0.2) < 1e-9,
                    "left curb width is not 0.2m");
   ROAD_TEST_EXPECT(std::abs((boundaries[5].lateral_m - boundaries[4].lateral_m) - 0.2) < 1e-9,
@@ -68,6 +79,10 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
   const auto& marking = state.derived().marking_meshes.front();
   ROAD_TEST_EXPECT(!marking.vertices.empty(), "P0 marking mesh has no vertices");
   ROAD_TEST_EXPECT(!marking.indices.empty(), "P0 marking mesh has no triangles");
+  std::set<std::string> materials{};
+  for (const auto& mesh : state.derived().segment_meshes) materials.insert(mesh.material);
+  ROAD_TEST_EXPECT(materials.contains("asphalt") && materials.contains("sidewalk") && materials.contains("curb"),
+                   "P0 surface meshes are not separated by core material semantics");
   return true;
 }
 
@@ -160,7 +175,7 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
 
 bool P2_section_transition_and_manual_markings(std::string& failure) {
   RoadState state{};
-  const auto added = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1);
+  const auto added = state.AddSegment(MakePath({MakeLine({100.0, 50.0}, {160.0, 50.0})}), 1);
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto template_id = state.AddSectionTemplate(ThreeLaneTemplate(0));
   ROAD_TEST_EXPECT(template_id.ok, template_id.error);
@@ -169,12 +184,15 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   transition.to_template = template_id.value;
   transition.start = StationRef{StationRefKind::kFromEnd, 25.0};
   transition.end = StationRef{StationRefKind::kFromEnd, 5.0};
+  transition.anchor = TransitionAnchor::kLeftEdge;
   transition.rules = {
       SectionTransitionRule{35, TransitionAction::kTaperIn},
       SectionTransitionRule{10, TransitionAction::kContinue},
   };
   const auto transition_id = state.AddTransition(transition);
   ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
+  const auto attached = state.AttachSectionTransition(added.value, transition_id.value);
+  ROAD_TEST_EXPECT(attached.ok, attached.error);
   ManualLineMarking line{};
   line.owner_segment_id = added.value;
   line.path = MakePath({MakeLine({5.0, 0.5}, {20.0, 0.5})});
@@ -193,6 +211,44 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   ROAD_TEST_EXPECT(state.graph().manual_lines.size() == 1, "P2 did not save manual line authority");
   ROAD_TEST_EXPECT(state.graph().manual_areas.size() == 1, "P2 did not save manual area authority");
   ROAD_TEST_EXPECT(state.derived().manual_marking_meshes.size() == 2, "P2 did not derive manual marking meshes");
+  ROAD_TEST_EXPECT(state.graph().segments.front().transition == transition_id.value,
+                   "P2 transition is not attached to the segment authority");
+
+  const auto& sections = state.derived().section_evaluations;
+  const auto at_station = [&sections](double station) -> const city::road::SectionEvaluation* {
+    const auto it = std::find_if(sections.begin(), sections.end(), [station](const auto& item) {
+      return std::abs(item.station_m - station) < 1e-6;
+    });
+    return it == sections.end() ? nullptr : &*it;
+  };
+  const auto* before = at_station(0.0);
+  const auto* after = at_station(60.0);
+  ROAD_TEST_EXPECT(before != nullptr && after != nullptr, "P2 transition endpoints were not evaluated");
+  const double before_width = before->boundaries.back().lateral_m - before->boundaries.front().lateral_m;
+  const double after_width = after->boundaries.back().lateral_m - after->boundaries.front().lateral_m;
+  ROAD_TEST_EXPECT(std::abs(before_width - 10.4) < 1e-6, "P2 transition changed the from-section before its start");
+  ROAD_TEST_EXPECT(std::abs(after_width - 13.4) < 1e-6, "P2 transition did not reach the three-lane section");
+  ROAD_TEST_EXPECT(std::abs(before->boundaries.front().lateral_m - after->boundaries.front().lateral_m) < 1e-6,
+                   "P2 left-edge anchor moved during one-sided widening");
+
+  const auto& line_mesh = state.derived().manual_marking_meshes[0];
+  ROAD_TEST_EXPECT(!line_mesh.indices.empty(), "P2 manual line is not a drawable ribbon mesh");
+  ROAD_TEST_EXPECT(std::abs(line_mesh.vertices.front().x - 105.0) < 1e-6 &&
+                       std::abs(line_mesh.vertices.front().y - 50.5) < 0.1,
+                   "P2 manual line was not transformed from owner-local coordinates");
+  const auto& area_mesh = state.derived().manual_marking_meshes[1];
+  ROAD_TEST_EXPECT(std::abs(area_mesh.vertices.front().x - 126.0) < 1e-6 &&
+                       std::abs(area_mesh.vertices.front().y - 48.0) < 1e-6,
+                   "P2 manual area was not transformed from owner-local coordinates");
+
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  ROAD_TEST_EXPECT(loaded.value.graph().transitions.size() == 1 &&
+                       loaded.value.graph().manual_lines.size() == 1 &&
+                       loaded.value.graph().manual_areas.size() == 1,
+                   "P2 authority did not survive save/load");
   return true;
 }
 

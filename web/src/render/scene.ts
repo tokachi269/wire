@@ -162,20 +162,19 @@ export function makeRoadMeshGeometry(data: {
 }): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(data.vertices);
-  const colors = new Float32Array(positions.length);
-  for (let index = 0; index + 2 < positions.length; index += 3) {
-    const raised = positions[index + 2] > 0.08;
-    colors[index] = raised ? 0.55 : 0.22;
-    colors[index + 1] = raised ? 0.58 : 0.24;
-    colors[index + 2] = raised ? 0.56 : 0.25;
-  }
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(data.indices), 1));
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+export function roadSurfaceColor(material: string): number {
+  if (material === "sidewalk") return 0x858b87;
+  if (material === "curb") return 0xadb1ad;
+  if (material === "median") return 0x747b72;
+  return 0x3f4345;
 }
 
 function makeSampledTubeBuffers(pointCount: number): SampledTubeBuffers {
@@ -921,8 +920,8 @@ export class WireScene {
   }
 
   private sceneRoadSignature(snapshot: ViewerSnapshot): string {
-    const meshKey = (mesh: { vertices: Float64Array; indices: Uint32Array }) =>
-      `${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
+    const meshKey = (mesh: { material: string; vertices: Float64Array; indices: Uint32Array }) =>
+      `${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
     return [
       ...snapshot.road.scene.surfaceMeshes.map(meshKey),
       ...snapshot.road.scene.markingMeshes.map(meshKey),
@@ -934,12 +933,6 @@ export class WireScene {
   private rebuildRoad(snapshot: ViewerSnapshot): void {
     this.disposeGroup(this.road);
     this.disposeGroup(this.roadPreview);
-    const surfaceMaterial = new THREE.MeshStandardMaterial({
-      color: 0x4a4e50,
-      roughness: 0.9,
-      metalness: 0,
-      vertexColors: true
-    });
     const markingMaterial = new THREE.MeshStandardMaterial({
       color: 0xf2f0d9,
       roughness: 0.75,
@@ -947,7 +940,11 @@ export class WireScene {
       polygonOffsetFactor: -2
     });
     for (const data of snapshot.road.scene.surfaceMeshes) {
-      const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), surfaceMaterial.clone());
+      const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), new THREE.MeshStandardMaterial({
+        color: roadSurfaceColor(data.material),
+        roughness: data.material === "asphalt" ? 0.96 : 0.88,
+        metalness: 0
+      }));
       mesh.receiveShadow = true;
       mesh.castShadow = true;
       this.road.add(mesh);

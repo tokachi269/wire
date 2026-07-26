@@ -108,6 +108,7 @@ export interface WireStateHandle {
 }
 
 export interface RoadMeshPayload {
+  material: string;
   vertices: number[];
   indices: number[];
 }

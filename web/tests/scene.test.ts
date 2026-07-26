@@ -9,6 +9,7 @@ import {
   distanceToScreenSegmentPx,
   makeSampledTubeGeometry,
   makeRoadMeshGeometry,
+  roadSurfaceColor,
   makeBackbonePick,
   poleAxisEndpoints,
   setPoleRotation
@@ -79,7 +80,7 @@ describe("sampled wire curve", () => {
 });
 
 describe("road rendering", () => {
-  it("colors raised road vertices separately from carriageway vertices", () => {
+  it("uses core material keys instead of deriving materials from vertex height", () => {
     const geometry = makeRoadMeshGeometry({
       vertices: new Float64Array([
         0, 0, 0.15,
@@ -88,12 +89,9 @@ describe("road rendering", () => {
       ]),
       indices: new Uint32Array([0, 1, 2])
     });
-    const colors = geometry.getAttribute("color");
-
-    expect(colors.count).toBe(3);
-    expect(colors.getX(0)).toBeGreaterThan(colors.getX(1));
-    expect(colors.getY(0)).toBeGreaterThan(colors.getY(1));
-    expect(colors.getZ(0)).toBeGreaterThan(colors.getZ(1));
+    expect(geometry.getAttribute("color")).toBeUndefined();
+    expect(roadSurfaceColor("sidewalk")).not.toBe(roadSurfaceColor("asphalt"));
+    expect(roadSurfaceColor("curb")).not.toBe(roadSurfaceColor("asphalt"));
   });
 });
 

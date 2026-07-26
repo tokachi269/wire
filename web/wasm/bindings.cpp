@@ -57,6 +57,7 @@ using city::wire::Vec3d;
     indices.call<void>("push", index);
   }
   val result = val::object();
+  result.set("material", mesh.material);
   result.set("vertices", vertices);
   result.set("indices", indices);
   return result;
@@ -1242,8 +1243,10 @@ public:
     }
     val result = road_result_value(added.ok, added.error, added.error_kind);
     val meshes = val::array();
-    if (added.ok && !trial.derived().segment_meshes.empty()) {
-      meshes.call<void>("push", road_mesh_value(trial.derived().segment_meshes.back()));
+    if (added.ok) {
+      for (const auto& mesh : trial.derived().segment_meshes) {
+        if (mesh.owner_segment_id == added.value) meshes.call<void>("push", road_mesh_value(mesh));
+      }
     }
     result.set("meshes", meshes);
     return result;

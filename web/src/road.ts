@@ -22,6 +22,7 @@ export interface RoadSegmentInput {
 }
 
 export interface RoadMeshData {
+  material: string;
   vertices: Float64Array;
   indices: Uint32Array;
 }

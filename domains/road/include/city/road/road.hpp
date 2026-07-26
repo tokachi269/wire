@@ -140,6 +140,12 @@ enum class TransitionAction {
   kUnsupported,
 };
 
+enum class TransitionAnchor {
+  kCenter,
+  kLeftEdge,
+  kRightEdge,
+};
+
 struct SectionTransitionRule {
   std::uint64_t element_id = 0;
   TransitionAction action = TransitionAction::kContinue;
@@ -151,6 +157,7 @@ struct SectionTransition {
   CrossSectionTemplateId to_template = 0;
   StationRef start{};
   StationRef end{};
+  TransitionAnchor anchor = TransitionAnchor::kCenter;
   std::vector<SectionTransitionRule> rules{};
 };
 
@@ -215,6 +222,8 @@ struct SectionEvaluation {
 };
 
 struct Mesh {
+  RoadSegmentId owner_segment_id = 0;
+  std::string material{};
   std::vector<Vec3d> vertices{};
   std::vector<std::uint32_t> indices{};
 };
@@ -282,6 +291,8 @@ public:
   [[nodiscard]] Result<CrossSectionTemplateId> AddSectionTemplate(CrossSectionTemplate section_template);
   [[nodiscard]] Result<bool> EditSectionTemplate(CrossSectionTemplate section_template);
   [[nodiscard]] Result<SectionTransitionId> AddTransition(SectionTransition transition);
+  [[nodiscard]] Result<bool> AttachSectionTransition(RoadSegmentId segment_id,
+                                                     SectionTransitionId transition_id);
   [[nodiscard]] Result<ManualMarkingId> AddManualLine(ManualLineMarking marking);
   [[nodiscard]] Result<ManualMarkingId> AddManualArea(ManualAreaMarking marking);
   [[nodiscard]] Result<bool> RebuildDerived();

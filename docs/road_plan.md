@@ -296,10 +296,11 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 
 - ConnectionGate
 - 既存nodeへの接続
-- 同一CrossSectionTemplate同士のT字・十字
+- degree 2は単純接続として扱い、直進は幅を持たず、屈曲は同一断面のBezier connectorを派生する
+- degree 3/4の同一CrossSectionTemplate接続をT字・十字の実交差点として扱う
 - JunctionDefinitionからJunctionAreaを自動導出
-- 接続角度45〜135度、最小segment長8m、corner radius初期値4m
-- 停止線、ゼブラ1種
+- 接続角度45〜135度、最小segment長8m、corner radius初期値4m。gate setbackは断面幅と接続角から拡張する
+- 実交差点にだけ停止線、ゼブラ1種を派生する
 - segment/gate/junctionの隙間・法線・所有重複を不変量検査
 
 ### P2 — 断面の可変と手動マーキング

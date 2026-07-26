@@ -7,7 +7,7 @@
 #include <iterator>
 #include <limits>
 #include <locale>
-#include <map>
+#include <numbers>
 #include <sstream>
 #include <string_view>
 #include <unordered_set>
@@ -425,15 +425,87 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return stations;
 }
 
+[[nodiscard]] std::optional<Vec2d> endpoint_outward_tangent(const RoadSegment& segment, RoadNodeId node_id) {
+  const Result<double> length = PathLength(segment.alignment);
+  if (!length.ok) return std::nullopt;
+  const double delta = std::min(0.1, length.value);
+  if (node_id == segment.node_a) {
+    const auto endpoint = EvaluatePath(segment.alignment, 0.0);
+    const auto inward = EvaluatePath(segment.alignment, delta);
+    if (!endpoint.ok || !inward.ok) return std::nullopt;
+    return normalize(sub(inward.value, endpoint.value));
+  }
+  if (node_id == segment.node_b) {
+    const auto endpoint = EvaluatePath(segment.alignment, length.value);
+    const auto inward = EvaluatePath(segment.alignment, length.value - delta);
+    if (!endpoint.ok || !inward.ok) return std::nullopt;
+    return normalize(sub(inward.value, endpoint.value));
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::vector<const RoadSegment*> node_approaches(const SavedRoadGraph& graph, RoadNodeId node_id) {
+  std::vector<const RoadSegment*> out{};
+  for (const RoadSegment& segment : graph.segments) {
+    if (segment.node_a == node_id || segment.node_b == node_id) out.push_back(&segment);
+  }
+  return out;
+}
+
+[[nodiscard]] double approach_outer_half_width(const SavedRoadGraph& graph,
+                                               const RoadSegment& segment,
+                                               RoadNodeId node_id) {
+  const auto length = PathLength(segment.alignment);
+  if (!length.ok) return 0.0;
+  const double station = node_id == segment.node_a ? 0.0 : length.value;
+  const auto section = evaluate_segment_section(graph, segment, station, length.value);
+  if (!section.ok || section.value.empty()) return 0.0;
+  return std::max(std::abs(section.value.front().lateral_m), std::abs(section.value.back().lateral_m));
+}
+
+[[nodiscard]] bool is_straight_connection(const SavedRoadGraph& graph, RoadNodeId node_id) {
+  const auto approaches = node_approaches(graph, node_id);
+  if (approaches.size() != 2) return false;
+  const auto a = endpoint_outward_tangent(*approaches[0], node_id);
+  const auto b = endpoint_outward_tangent(*approaches[1], node_id);
+  return a.has_value() && b.has_value() && dot(*a, *b) <= -std::cos(5.0 * std::numbers::pi / 180.0);
+}
+
+[[nodiscard]] double node_gate_setback(const SavedRoadGraph& graph,
+                                       const RoadSegment& segment,
+                                       RoadNodeId node_id) {
+  const auto approaches = node_approaches(graph, node_id);
+  if (approaches.size() < 2 || (approaches.size() == 2 && is_straight_connection(graph, node_id))) return 0.0;
+  const auto tangent = endpoint_outward_tangent(segment, node_id);
+  if (!tangent.has_value()) return 0.0;
+  if (approaches.size() == 2) {
+    const RoadSegment* other = approaches[0] == &segment ? approaches[1] : approaches[0];
+    const auto other_tangent = endpoint_outward_tangent(*other, node_id);
+    if (!other_tangent.has_value()) return 0.0;
+    const double outward_angle = std::acos(std::clamp(dot(*tangent, *other_tangent), -1.0, 1.0));
+    const double turn_angle = std::numbers::pi - outward_angle;
+    return 4.0 * std::tan(turn_angle * 0.5);
+  }
+  const JunctionDefinition* junction = find_junction(graph, node_id);
+  double setback = junction == nullptr ? 0.0 : junction->corner_radius_m;
+  for (const RoadSegment* other : approaches) {
+    if (other == &segment) continue;
+    const auto other_tangent = endpoint_outward_tangent(*other, node_id);
+    if (!other_tangent.has_value()) continue;
+    const double sine = std::abs(cross(*tangent, *other_tangent));
+    if (sine <= 1e-3) continue;
+    setback = std::max(setback, approach_outer_half_width(graph, *other, node_id) / sine);
+  }
+  return setback;
+}
+
 [[nodiscard]] std::vector<double> stations_for_segment_mesh(const SavedRoadGraph& graph,
                                                             const RoadSegment& segment) {
   const Result<double> length_result = PathLength(segment.alignment);
   if (!length_result.ok) return {};
   const double total = length_result.value;
-  const JunctionDefinition* start_junction = find_junction(graph, segment.node_a);
-  const JunctionDefinition* end_junction = find_junction(graph, segment.node_b);
-  const double start = start_junction == nullptr ? 0.0 : start_junction->corner_radius_m;
-  const double end = total - (end_junction == nullptr ? 0.0 : end_junction->corner_radius_m);
+  const double start = node_gate_setback(graph, segment, segment.node_a);
+  const double end = total - node_gate_setback(graph, segment, segment.node_b);
   if (end < start - kEpsilon) return {};
   if (end - start <= kEpsilon) return {start};
   const int count = std::max(1, static_cast<int>(std::ceil((end - start) / kSampleStepM)));
@@ -594,18 +666,39 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return mesh;
 }
 
-[[nodiscard]] std::optional<Vec3d> owner_local_point(const RoadSegment& owner, Vec2d local, double z) {
+[[nodiscard]] double section_surface_height(const std::vector<SectionBoundarySample>& boundaries,
+                                            double lateral_m) {
+  if (boundaries.empty()) return 0.0;
+  if (lateral_m <= boundaries.front().lateral_m) return boundaries.front().height_m;
+  for (std::size_t i = 1; i < boundaries.size(); ++i) {
+    const auto& a = boundaries[i - 1];
+    const auto& b = boundaries[i];
+    if (lateral_m > b.lateral_m) continue;
+    const double width = b.lateral_m - a.lateral_m;
+    const double t = width <= kEpsilon ? 0.0 : (lateral_m - a.lateral_m) / width;
+    return a.height_m + (b.height_m - a.height_m) * t;
+  }
+  return boundaries.back().height_m;
+}
+
+[[nodiscard]] std::optional<Vec3d> owner_local_point(const SavedRoadGraph& graph,
+                                                      const RoadSegment& owner,
+                                                      Vec2d local,
+                                                      double z_offset) {
   const auto total_result = PathLength(owner.alignment);
   if (!total_result.ok || local.x < 0.0 || local.x > total_result.value) return std::nullopt;
   const auto center = EvaluatePath(owner.alignment, local.x);
   const auto tangent = path_tangent(owner.alignment, local.x, total_result.value);
-  if (!center.ok || !tangent.has_value()) return std::nullopt;
+  const auto section = evaluate_segment_section(graph, owner, local.x, total_result.value);
+  if (!center.ok || !tangent.has_value() || !section.ok) return std::nullopt;
   const Vec2d lateral{-tangent->y, tangent->x};
   const Vec2d world = add(center.value, mul(lateral, local.y));
-  return Vec3d{world.x, world.y, z};
+  return Vec3d{world.x, world.y, section_surface_height(section.value, local.y) + z_offset};
 }
 
-[[nodiscard]] Mesh build_manual_line_mesh(const RoadSegment& owner, const ManualLineMarking& marking) {
+[[nodiscard]] Mesh build_manual_line_mesh(const SavedRoadGraph& graph,
+                                          const RoadSegment& owner,
+                                          const ManualLineMarking& marking) {
   Mesh mesh{};
   const std::vector<Vec2d> points = FlattenPath(marking.path);
   constexpr double half_width = 0.05;
@@ -613,8 +706,8 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
     Vec2d direction = i + 1 < points.size() ? sub(points[i + 1], points[i]) : sub(points[i], points[i - 1]);
     direction = normalize(direction);
     const Vec2d normal{-direction.y, direction.x};
-    const auto a = owner_local_point(owner, add(points[i], mul(normal, -half_width)), 0.02);
-    const auto b = owner_local_point(owner, add(points[i], mul(normal, half_width)), 0.02);
+    const auto a = owner_local_point(graph, owner, add(points[i], mul(normal, -half_width)), 0.02);
+    const auto b = owner_local_point(graph, owner, add(points[i], mul(normal, half_width)), 0.02);
     if (!a.has_value() || !b.has_value()) return {};
     mesh.vertices.push_back(*a);
     mesh.vertices.push_back(*b);
@@ -626,7 +719,9 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return mesh;
 }
 
-[[nodiscard]] Mesh build_manual_area_mesh(const RoadSegment& owner, const ManualAreaMarking& marking) {
+[[nodiscard]] Mesh build_manual_area_mesh(const SavedRoadGraph& graph,
+                                          const RoadSegment& owner,
+                                          const ManualAreaMarking& marking) {
   Mesh mesh{};
   const double hw = marking.width_m * 0.5;
   const double hl = marking.length_m * 0.5;
@@ -634,7 +729,7 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
                                            Vec2d{marking.frame_origin.x + hl, marking.frame_origin.y - hw},
                                            Vec2d{marking.frame_origin.x - hl, marking.frame_origin.y + hw},
                                            Vec2d{marking.frame_origin.x + hl, marking.frame_origin.y + hw}}) {
-    const auto point = owner_local_point(owner, local, 0.025);
+    const auto point = owner_local_point(graph, owner, local, 0.025);
     if (!point.has_value()) return {};
     mesh.vertices.push_back(*point);
   }
@@ -663,65 +758,207 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return {gate.boundaries.front().lateral_m, gate.boundaries.back().lateral_m};
 }
 
-[[nodiscard]] std::vector<Vec2d> convex_hull(std::vector<Vec2d> points) {
-  std::sort(points.begin(), points.end(), [](Vec2d a, Vec2d b) {
-    return a.x < b.x || (a.x == b.x && a.y < b.y);
-  });
-  points.erase(std::unique(points.begin(), points.end(), [](Vec2d a, Vec2d b) { return almost_same(a, b); }),
-               points.end());
-  if (points.size() < 3) return {};
-  std::vector<Vec2d> hull{};
-  for (Vec2d point : points) {
-    while (hull.size() >= 2 && cross(sub(hull.back(), hull[hull.size() - 2]), sub(point, hull.back())) <= 0.0) {
-      hull.pop_back();
-    }
-    hull.push_back(point);
-  }
-  const std::size_t lower_size = hull.size();
-  for (auto it = points.rbegin() + 1; it != points.rend(); ++it) {
-    while (hull.size() > lower_size &&
-           cross(sub(hull.back(), hull[hull.size() - 2]), sub(*it, hull.back())) <= 0.0) {
-      hull.pop_back();
-    }
-    hull.push_back(*it);
-  }
-  hull.pop_back();
-  return hull;
+struct GateSideProfile {
+  RoadSegmentId segment_id = 0;
+  Vec2d tangent{};
+  Vec3d outer{};
+  Vec3d sidewalk{};
+  Vec3d carriageway{};
+};
+
+[[nodiscard]] Vec3d gate_point(const ConnectionGate& gate, const SectionBoundarySample& boundary) {
+  const Vec2d tangent{gate.tangent.x, gate.tangent.y};
+  const Vec2d lateral{-tangent.y, tangent.x};
+  return {gate.position.x + lateral.x * boundary.lateral_m,
+          gate.position.y + lateral.y * boundary.lateral_m,
+          boundary.height_m};
 }
 
-[[nodiscard]] Mesh build_junction_mesh(const JunctionArea& area) {
-  std::vector<Vec2d> edge_points{};
+[[nodiscard]] std::vector<GateSideProfile> gate_side_profiles(const ConnectionGate& gate) {
+  struct Run {
+    std::size_t first = 0;
+    std::size_t last = 0;
+  };
+  std::vector<Run> curb_runs{};
+  for (std::size_t i = 0; i < gate.boundaries.size(); ++i) {
+    if (gate.boundaries[i].role != BoundaryRole::kCurb) continue;
+    if (curb_runs.empty() || gate.boundaries[curb_runs.back().last].boundary_id != gate.boundaries[i].boundary_id) {
+      curb_runs.push_back(Run{i, i});
+    } else {
+      curb_runs.back().last = i;
+    }
+  }
+  if (curb_runs.size() < 2 || gate.boundaries.empty()) return {};
+  const Vec2d tangent{gate.tangent.x, gate.tangent.y};
+  return {
+      GateSideProfile{gate.segment_id, tangent, gate_point(gate, gate.boundaries.front()),
+                      gate_point(gate, gate.boundaries[curb_runs.front().first]),
+                      gate_point(gate, gate.boundaries[curb_runs.front().last])},
+      GateSideProfile{gate.segment_id, tangent, gate_point(gate, gate.boundaries.back()),
+                      gate_point(gate, gate.boundaries[curb_runs.back().last]),
+                      gate_point(gate, gate.boundaries[curb_runs.back().first])},
+  };
+}
+
+[[nodiscard]] Vec3d cubic_point(Vec3d p0, Vec3d p1, Vec3d p2, Vec3d p3, double t) {
+  const double u = 1.0 - t;
+  return {p0.x * u * u * u + p1.x * 3.0 * u * u * t + p2.x * 3.0 * u * t * t + p3.x * t * t * t,
+          p0.y * u * u * u + p1.y * 3.0 * u * u * t + p2.y * 3.0 * u * t * t + p3.y * t * t * t,
+          p0.z * u * u * u + p1.z * 3.0 * u * u * t + p2.z * 3.0 * u * t * t + p3.z * t * t * t};
+}
+
+[[nodiscard]] std::vector<Vec3d> corner_curve(Vec3d a,
+                                              Vec3d b,
+                                              Vec2d tangent_a,
+                                              Vec2d tangent_b,
+                                              double control,
+                                              int samples = 6) {
+  const Vec3d c1{a.x - tangent_a.x * control, a.y - tangent_a.y * control, a.z};
+  const Vec3d c2{b.x - tangent_b.x * control, b.y - tangent_b.y * control, b.z};
+  std::vector<Vec3d> out{};
+  out.reserve(samples + 1);
+  for (int i = 0; i <= samples; ++i) {
+    out.push_back(cubic_point(a, c1, c2, b, static_cast<double>(i) / samples));
+  }
+  return out;
+}
+
+void append_strip(Mesh& mesh, const std::vector<Vec3d>& a, const std::vector<Vec3d>& b) {
+  if (a.size() != b.size() || a.size() < 2) return;
+  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    mesh.vertices.push_back(a[i]);
+    mesh.vertices.push_back(b[i]);
+  }
+  for (std::uint32_t i = 0; i + 1 < a.size(); ++i) {
+    const std::uint32_t p = base + i * 2;
+    mesh.indices.insert(mesh.indices.end(), {p, p + 2, p + 1, p + 1, p + 2, p + 3});
+  }
+}
+
+[[nodiscard]] std::vector<Mesh> build_junction_meshes(const JunctionArea& area, Vec2d node_position) {
+  std::vector<GateSideProfile> sides{};
   for (const ConnectionGate& gate : area.gates) {
-    const auto [left, right] = carriageway_edges(gate);
-    const Vec2d center{gate.position.x, gate.position.y};
-    const Vec2d lateral{-gate.tangent.y, gate.tangent.x};
-    edge_points.push_back(add(center, mul(lateral, left)));
-    edge_points.push_back(add(center, mul(lateral, right)));
+    std::vector<GateSideProfile> profiles = gate_side_profiles(gate);
+    sides.insert(sides.end(), profiles.begin(), profiles.end());
   }
-  const std::vector<Vec2d> hull = convex_hull(std::move(edge_points));
-  Mesh mesh{};
-  mesh.material = "asphalt";
-  if (hull.size() < 3) return mesh;
-  Vec2d center{};
-  for (Vec2d point : hull) center = add(center, point);
-  center = mul(center, 1.0 / hull.size());
-  mesh.vertices.push_back({center.x, center.y, 0.0});
-  for (Vec2d point : hull) mesh.vertices.push_back({point.x, point.y, 0.0});
-  for (std::uint32_t i = 0; i < hull.size(); ++i) {
-    mesh.indices.insert(mesh.indices.end(), {0, i + 1, static_cast<std::uint32_t>((i + 1) % hull.size()) + 1});
+  if (sides.size() < 3) return {};
+  std::sort(sides.begin(), sides.end(), [node_position](const GateSideProfile& a, const GateSideProfile& b) {
+    return std::atan2(a.carriageway.y - node_position.y, a.carriageway.x - node_position.x) <
+           std::atan2(b.carriageway.y - node_position.y, b.carriageway.x - node_position.x);
+  });
+  Mesh asphalt{};
+  asphalt.material = "asphalt";
+  Mesh sidewalk{};
+  sidewalk.material = "sidewalk";
+  Mesh curb{};
+  curb.material = "curb";
+  std::vector<Vec3d> perimeter{};
+  for (std::size_t i = 0; i < sides.size(); ++i) {
+    const GateSideProfile& a = sides[i];
+    const GateSideProfile& b = sides[(i + 1) % sides.size()];
+    perimeter.push_back(a.carriageway);
+    if (a.segment_id == b.segment_id) continue;
+    const double control = std::min(std::hypot(a.carriageway.x - node_position.x,
+                                               a.carriageway.y - node_position.y),
+                                    std::hypot(b.carriageway.x - node_position.x,
+                                               b.carriageway.y - node_position.y)) * 0.45;
+    const auto carriage_curve = corner_curve(a.carriageway, b.carriageway, a.tangent, b.tangent, control);
+    const auto sidewalk_curve = corner_curve(a.sidewalk, b.sidewalk, a.tangent, b.tangent, control);
+    const auto outer_curve = corner_curve(a.outer, b.outer, a.tangent, b.tangent, control);
+    perimeter.insert(perimeter.end(), carriage_curve.begin() + 1, carriage_curve.end() - 1);
+    append_strip(curb, carriage_curve, sidewalk_curve);
+    append_strip(sidewalk, sidewalk_curve, outer_curve);
   }
-  return mesh;
+  Vec3d center{node_position.x, node_position.y, 0.0};
+  for (const Vec3d& point : perimeter) center.z += point.z;
+  center.z /= perimeter.size();
+  asphalt.vertices.push_back(center);
+  asphalt.vertices.insert(asphalt.vertices.end(), perimeter.begin(), perimeter.end());
+  for (std::uint32_t i = 0; i < perimeter.size(); ++i) {
+    asphalt.indices.insert(asphalt.indices.end(), {0, i + 1, static_cast<std::uint32_t>((i + 1) % perimeter.size()) + 1});
+  }
+  return {std::move(asphalt), std::move(sidewalk), std::move(curb)};
 }
 
-void append_quad(Mesh& mesh, Vec2d center, Vec2d tangent, double half_length, double left, double right) {
+[[nodiscard]] std::vector<Mesh> build_connection_meshes(const SavedRoadGraph& graph,
+                                                        const ConnectionArea& area,
+                                                        Vec2d node_position) {
+  if (area.gates.size() != 2 || area.gates[0].boundaries.size() != area.gates[1].boundaries.size()) return {};
+  const RoadSegment* owner = find_segment(graph, area.gates[0].segment_id);
+  if (owner == nullptr) return {};
+  const auto owner_length = PathLength(owner->alignment);
+  if (!owner_length.ok) return {};
+  const double owner_station = owner->node_a == area.node_id
+                                   ? node_gate_setback(graph, *owner, area.node_id)
+                                   : owner_length.value - node_gate_setback(graph, *owner, area.node_id);
+  const auto section_template = evaluate_segment_template(graph, *owner, owner_station, owner_length.value);
+  if (!section_template.ok) return {};
+  const std::vector<std::string> materials = surface_materials(section_template.value);
+  if (materials.size() + 1 != area.gates[0].boundaries.size()) return {};
+  const double control = std::min(std::hypot(area.gates[0].position.x - node_position.x,
+                                             area.gates[0].position.y - node_position.y),
+                                  std::hypot(area.gates[1].position.x - node_position.x,
+                                             area.gates[1].position.y - node_position.y)) * 0.55;
+  constexpr int samples = 8;
+  std::vector<std::vector<Vec3d>> boundary_curves{};
+  boundary_curves.reserve(area.gates[0].boundaries.size());
+  const Vec2d tangent_a{area.gates[0].tangent.x, area.gates[0].tangent.y};
+  const Vec2d tangent_b{area.gates[1].tangent.x, area.gates[1].tangent.y};
+  for (std::size_t i = 0; i < area.gates[0].boundaries.size(); ++i) {
+    boundary_curves.push_back(corner_curve(gate_point(area.gates[0], area.gates[0].boundaries[i]),
+                                           gate_point(area.gates[1], area.gates[1].boundaries[i]),
+                                           tangent_a, tangent_b, control, samples));
+  }
+  std::vector<Vec3d> vertices{};
+  for (int row = 0; row <= samples; ++row) {
+    for (const auto& curve : boundary_curves) vertices.push_back(curve[row]);
+  }
+  std::vector<Mesh> meshes{};
+  const std::uint32_t width = static_cast<std::uint32_t>(boundary_curves.size());
+  for (const std::string& material : materials) {
+    if (std::any_of(meshes.begin(), meshes.end(), [&material](const Mesh& mesh) { return mesh.material == material; })) {
+      continue;
+    }
+    Mesh mesh{};
+    mesh.material = material;
+    mesh.vertices = vertices;
+    for (std::uint32_t row = 0; row < samples; ++row) {
+      for (std::uint32_t col = 0; col < materials.size(); ++col) {
+        if (materials[col] != material) continue;
+        const std::uint32_t a = row * width + col;
+        const std::uint32_t b = a + 1;
+        const std::uint32_t c = (row + 1) * width + col;
+        const std::uint32_t d = c + 1;
+        mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
+      }
+    }
+    meshes.push_back(std::move(mesh));
+  }
+  return meshes;
+}
+
+[[nodiscard]] double gate_surface_height(const ConnectionGate& gate, double lateral_m) {
+  return section_surface_height(gate.boundaries, lateral_m);
+}
+
+void append_gate_quad(Mesh& mesh,
+                      const ConnectionGate& gate,
+                      double longitudinal_center,
+                      double longitudinal_half,
+                      double lateral_center,
+                      double lateral_half) {
+  const Vec2d tangent{gate.tangent.x, gate.tangent.y};
   const Vec2d lateral{-tangent.y, tangent.x};
   const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
-  for (Vec2d point : std::array<Vec2d, 4>{
-           add(add(center, mul(tangent, -half_length)), mul(lateral, left)),
-           add(add(center, mul(tangent, half_length)), mul(lateral, left)),
-           add(add(center, mul(tangent, -half_length)), mul(lateral, right)),
-           add(add(center, mul(tangent, half_length)), mul(lateral, right))}) {
-    mesh.vertices.push_back({point.x, point.y, 0.025});
+  for (const auto [longitudinal, lateral_offset] : std::array<std::pair<double, double>, 4>{
+           std::pair{longitudinal_center - longitudinal_half, lateral_center - lateral_half},
+           std::pair{longitudinal_center + longitudinal_half, lateral_center - lateral_half},
+           std::pair{longitudinal_center - longitudinal_half, lateral_center + lateral_half},
+           std::pair{longitudinal_center + longitudinal_half, lateral_center + lateral_half}}) {
+    const Vec2d point = add(add(Vec2d{gate.position.x, gate.position.y}, mul(tangent, longitudinal)),
+                            mul(lateral, lateral_offset));
+    mesh.vertices.push_back({point.x, point.y, gate_surface_height(gate, lateral_offset) + 0.025});
   }
   mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2, base + 1, base + 3, base + 2});
 }
@@ -730,17 +967,19 @@ void append_quad(Mesh& mesh, Vec2d center, Vec2d tangent, double half_length, do
   std::vector<Mesh> meshes{};
   for (const ConnectionGate& gate : area.gates) {
     const auto [left, right] = carriageway_edges(gate);
-    const Vec2d tangent{gate.tangent.x, gate.tangent.y};
-    const Vec2d gate_center{gate.position.x, gate.position.y};
     Mesh stop{};
     stop.material = "marking";
-    append_quad(stop, add(gate_center, mul(tangent, 0.35)), tangent, 0.08, left, right);
+    append_gate_quad(stop, gate, 0.35, 0.08, (left + right) * 0.5, (right - left) * 0.5);
     meshes.push_back(std::move(stop));
 
     Mesh zebra{};
     zebra.material = "marking";
-    for (int stripe = 0; stripe < 5; ++stripe) {
-      append_quad(zebra, add(gate_center, mul(tangent, 0.9 + stripe * 0.55)), tangent, 0.16, left, right);
+    constexpr double stripe_width = 0.35;
+    constexpr double stripe_pitch = 0.7;
+    for (double lateral_center = left + stripe_pitch * 0.5;
+         lateral_center + stripe_width * 0.5 <= right;
+         lateral_center += stripe_pitch) {
+      append_gate_quad(zebra, gate, 2.0, 1.4, lateral_center, stripe_width * 0.5);
     }
     meshes.push_back(std::move(zebra));
   }
@@ -1054,7 +1293,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
       trial.graph_.segments.begin(), trial.graph_.segments.end(), [start_node](const RoadSegment& item) {
         return item.node_a == start_node || item.node_b == start_node;
       }));
-  if (degree >= 2 &&
+  if (degree >= 3 &&
       std::none_of(trial.graph_.junctions.begin(), trial.graph_.junctions.end(),
                    [start_node](const JunctionDefinition& item) { return item.node_id == start_node; })) {
     trial.graph_.junctions.push_back(JunctionDefinition{trial.next_id_++, start_node, 4.0});
@@ -1181,7 +1420,7 @@ Result<bool> RoadState::DeleteSegment(RoadSegmentId segment_id) {
                            trial.graph_.nodes.end());
   trial.graph_.junctions.erase(std::remove_if(trial.graph_.junctions.begin(), trial.graph_.junctions.end(),
                                                [&trial](const JunctionDefinition& junction) {
-                                                 return node_degree(trial.graph_, junction.node_id) < 2;
+                                                 return node_degree(trial.graph_, junction.node_id) < 3;
                                                }),
                                trial.graph_.junctions.end());
   if (transition.has_value() &&
@@ -1380,8 +1619,7 @@ Result<bool> RoadState::RebuildDerived() {
       if (node == nullptr) {
         return Result<bool>::Fail(ErrorKind::kValidation, "road segment endpoint node is missing");
       }
-      const JunctionDefinition* junction = find_junction(graph_, node_id);
-      const double offset = junction == nullptr ? 0.0 : junction->corner_radius_m;
+      const double offset = node_gate_setback(graph_, segment, node_id);
       const double gate_station = node_id == segment.node_a ? offset : total - offset;
       const auto gate_center = EvaluatePath(segment.alignment, gate_station);
       const auto path_direction = path_tangent(segment.alignment, gate_station, total);
@@ -1395,6 +1633,21 @@ Result<bool> RoadState::RebuildDerived() {
           ConnectionGate{segment.id, node_id, to3(gate_center.value), to3(tangent2), gate_section.value});
     }
   }
+  for (const RoadNode& node : graph_.nodes) {
+    if (node_degree(graph_, node.id) != 2 || is_straight_connection(graph_, node.id)) continue;
+    ConnectionArea area{};
+    area.node_id = node.id;
+    for (const ConnectionGate& gate : next.connection_gates) {
+      if (gate.node_id == node.id) area.gates.push_back(gate);
+    }
+    std::vector<Mesh> meshes = build_connection_meshes(graph_, area, node.position);
+    if (area.gates.size() != 2 || meshes.empty()) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road corner connection materialization failed");
+    }
+    next.connection_meshes.insert(next.connection_meshes.end(), std::make_move_iterator(meshes.begin()),
+                                  std::make_move_iterator(meshes.end()));
+    next.connection_areas.push_back(std::move(area));
+  }
   for (const JunctionDefinition& junction : graph_.junctions) {
     JunctionArea area{};
     area.definition_id = junction.id;
@@ -1404,14 +1657,22 @@ Result<bool> RoadState::RebuildDerived() {
         area.gates.push_back(gate);
       }
     }
-    if (area.gates.size() < 2) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "junction has fewer than two connection gates");
+    if (area.gates.size() < 3) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "junction has fewer than three connection gates");
     }
-    Mesh junction_mesh = build_junction_mesh(area);
-    if (junction_mesh.indices.empty()) {
+    const RoadNode* node = find_node(graph_, junction.node_id);
+    if (node == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "junction node is missing");
+    }
+    std::vector<Mesh> junction_meshes = build_junction_meshes(area, node->position);
+    if (junction_meshes.empty() ||
+        std::any_of(junction_meshes.begin(), junction_meshes.end(), [](const Mesh& mesh) {
+          return mesh.indices.empty();
+        })) {
       return Result<bool>::Fail(ErrorKind::kInternal, "junction surface materialization failed");
     }
-    next.junction_meshes.push_back(std::move(junction_mesh));
+    next.junction_meshes.insert(next.junction_meshes.end(), std::make_move_iterator(junction_meshes.begin()),
+                                std::make_move_iterator(junction_meshes.end()));
     std::vector<Mesh> junction_markings = build_junction_markings(area);
     next.junction_marking_meshes.insert(next.junction_marking_meshes.end(),
                                         std::make_move_iterator(junction_markings.begin()),
@@ -1421,12 +1682,12 @@ Result<bool> RoadState::RebuildDerived() {
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
     if (owner == nullptr) return Result<bool>::Fail(ErrorKind::kValidation, "manual line owner is missing");
-    next.manual_marking_meshes.push_back(build_manual_line_mesh(*owner, marking));
+    next.manual_marking_meshes.push_back(build_manual_line_mesh(graph_, *owner, marking));
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
     if (owner == nullptr) return Result<bool>::Fail(ErrorKind::kValidation, "manual area owner is missing");
-    next.manual_marking_meshes.push_back(build_manual_area_mesh(*owner, marking));
+    next.manual_marking_meshes.push_back(build_manual_area_mesh(graph_, *owner, marking));
   }
   const Result<bool> invariant = ValidateGraphInvariants(graph_, next);
   if (!invariant.ok) {
@@ -1686,6 +1947,13 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road archive key");
     }
   }
+  if (!version3) {
+    state.graph_.junctions.erase(
+        std::remove_if(state.graph_.junctions.begin(), state.graph_.junctions.end(), [&state](const auto& junction) {
+          return node_degree(state.graph_, junction.node_id) < 3;
+        }),
+        state.graph_.junctions.end());
+  }
   const Result<bool> rebuilt = state.RebuildDerived();
   if (!rebuilt.ok) {
     return Result<RoadState>::Fail(rebuilt.error_kind, rebuilt.error);
@@ -1715,16 +1983,28 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
       previous = boundary.lateral_m;
     }
   }
-  for (const Mesh& mesh : derived.segment_meshes) {
+  for (const JunctionDefinition& junction : graph.junctions) {
+    if (node_degree(graph, junction.node_id) < 3) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "degree-two node owns a junction definition");
+    }
+  }
+  const auto valid_mesh = [](const Mesh& mesh) {
     for (const Vec3d& vertex : mesh.vertices) {
       if (!finite(vertex.x) || !finite(vertex.y) || !finite(vertex.z)) {
-        return Result<bool>::Fail(ErrorKind::kInternal, "road mesh contains non-finite vertex");
+        return false;
       }
     }
     for (std::uint32_t index : mesh.indices) {
-      if (index >= mesh.vertices.size()) {
-        return Result<bool>::Fail(ErrorKind::kInternal, "road mesh contains out-of-range index");
-      }
+      if (index >= mesh.vertices.size()) return false;
+    }
+    return true;
+  };
+  const std::array<const std::vector<Mesh>*, 6> mesh_families{
+      &derived.segment_meshes, &derived.marking_meshes, &derived.connection_meshes,
+      &derived.junction_meshes, &derived.junction_marking_meshes, &derived.manual_marking_meshes};
+  for (const auto* family : mesh_families) {
+    if (std::any_of(family->begin(), family->end(), [&valid_mesh](const Mesh& mesh) { return !valid_mesh(mesh); })) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road mesh contains invalid geometry");
     }
   }
   return Result<bool>::Ok(true);

@@ -170,19 +170,49 @@ bool P0_edit_and_delete_preserve_graph_ownership(std::string& failure) {
   return true;
 }
 
-bool P1_connected_segments_create_gates_and_junction(std::string& failure) {
+bool P1_degree_two_corner_uses_a_curve_without_a_junction(std::string& failure) {
   RoadState state{};
   const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1);
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto node = state.graph().segments.front().node_a;
   const auto branch = state.AddSegmentConnectedTo(MakePath({MakeLine({0.0, 0.0}, {0.0, 30.0})}), 1, node);
   ROAD_TEST_EXPECT(branch.ok, branch.error);
-  ROAD_TEST_EXPECT(!state.graph().junctions.empty(), "P1 did not save a JunctionDefinition");
-  ROAD_TEST_EXPECT(!state.derived().junction_areas.empty(), "P1 did not derive a JunctionArea");
-  ROAD_TEST_EXPECT(state.derived().junction_areas.front().gates.size() == 2, "P1 junction does not share two gates");
+  ROAD_TEST_EXPECT(state.graph().junctions.empty(), "degree-two connection was saved as a JunctionDefinition");
+  ROAD_TEST_EXPECT(state.derived().junction_areas.empty(), "degree-two connection derived a JunctionArea");
+  ROAD_TEST_EXPECT(state.derived().junction_marking_meshes.empty(),
+                   "degree-two connection derived stop or zebra markings");
+  ROAD_TEST_EXPECT(state.derived().connection_areas.size() == 1,
+                   "degree-two corner did not derive a separate connection area");
+  std::set<std::string> connection_materials{};
+  bool has_curved_vertex = false;
+  for (const auto& mesh : state.derived().connection_meshes) {
+    connection_materials.insert(mesh.material);
+    has_curved_vertex = has_curved_vertex || std::any_of(mesh.vertices.begin(), mesh.vertices.end(), [](const auto& p) {
+      return p.x > 0.1 && p.y > 0.1;
+    });
+  }
+  ROAD_TEST_EXPECT(connection_materials.contains("asphalt") && connection_materials.contains("sidewalk") &&
+                       connection_materials.contains("curb"),
+                   "degree-two corner does not preserve the road section materials");
+  ROAD_TEST_EXPECT(has_curved_vertex, "degree-two corner connector is not curved between its gates");
   const auto too_sharp = state.AddSegmentConnectedTo(MakePath({MakeLine({0.0, 0.0}, {30.0, 1.0})}), 1, node);
   ROAD_TEST_EXPECT(!too_sharp.ok && too_sharp.error_kind == ErrorKind::kUnsupported,
                    "P1 accepted a connection angle outside the fixed range");
+  return true;
+}
+
+bool P1_straight_connection_has_no_junction_area(std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1);
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto node = state.graph().segments.front().node_b;
+  const auto continued = state.AddSegmentConnectedTo(MakePath({MakeLine({20.0, 0.0}, {40.0, 0.0})}), 1, node);
+  ROAD_TEST_EXPECT(continued.ok, continued.error);
+  ROAD_TEST_EXPECT(state.graph().junctions.empty(), "straight connection was saved as a junction");
+  ROAD_TEST_EXPECT(state.derived().connection_areas.empty() && state.derived().junction_areas.empty(),
+                   "straight connection derived an area with artificial width");
+  ROAD_TEST_EXPECT(state.derived().junction_marking_meshes.empty(),
+                   "straight connection derived stop or zebra markings");
   return true;
 }
 
@@ -190,7 +220,7 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   RoadState state{};
   const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1);
   ROAD_TEST_EXPECT(base.ok, base.error);
-  const auto branch = state.AddSegmentConnectedToSegment(MakePath({MakeLine({20.0, 0.0}, {20.0, 24.0})}), 1,
+  const auto branch = state.AddSegmentConnectedToSegment(MakePath({MakeLine({20.0, 0.0}, {32.0, 24.0})}), 1,
                                                          base.value);
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 3, "T junction did not split base road and add branch");
@@ -198,16 +228,38 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   ROAD_TEST_EXPECT(state.graph().junctions.size() == 1, "T junction did not save one JunctionDefinition");
   ROAD_TEST_EXPECT(state.derived().junction_areas.size() == 1, "T junction did not derive one JunctionArea");
   ROAD_TEST_EXPECT(state.derived().junction_areas.front().gates.size() == 3, "T junction does not have three gates");
-  ROAD_TEST_EXPECT(state.derived().junction_meshes.size() == 1,
-                   "T junction did not derive a visible junction surface mesh");
+  ROAD_TEST_EXPECT(state.derived().junction_meshes.size() >= 3,
+                   "T junction did not derive material-separated junction surface meshes");
   ROAD_TEST_EXPECT(!state.derived().junction_meshes.front().indices.empty(),
                    "T junction surface mesh has no triangles");
   ROAD_TEST_EXPECT(state.derived().junction_marking_meshes.size() >= 6,
                    "T junction did not derive a stop line and zebra for every approach");
+  std::set<std::string> junction_materials{};
+  for (const auto& mesh : state.derived().junction_meshes) junction_materials.insert(mesh.material);
+  ROAD_TEST_EXPECT(junction_materials.contains("asphalt") && junction_materials.contains("sidewalk") &&
+                       junction_materials.contains("curb"),
+                   "T junction does not connect carriageway, sidewalks, and curbs by material authority");
   for (const auto& gate : state.derived().junction_areas.front().gates) {
-    ROAD_TEST_EXPECT(std::abs(std::hypot(gate.position.x - 20.0, gate.position.y) - 4.0) < 1e-6,
-                     "T junction gate is not offset by the 4m corner radius");
+    ROAD_TEST_EXPECT(std::hypot(gate.position.x - 20.0, gate.position.y) >= 5.2 - 1e-6,
+                     "T junction gate setback did not adapt to the approach width");
   }
+  const auto& gate = state.derived().junction_areas.front().gates.front();
+  const auto& zebra = state.derived().junction_marking_meshes[1];
+  ROAD_TEST_EXPECT(zebra.vertices.size() >= 4, "T junction zebra has no stripe geometry");
+  const Vec2d tangent{gate.tangent.x, gate.tangent.y};
+  const Vec2d lateral{-tangent.y, tangent.x};
+  const Vec2d stripe_edge_a{zebra.vertices[1].x - zebra.vertices[0].x,
+                            zebra.vertices[1].y - zebra.vertices[0].y};
+  const Vec2d stripe_edge_b{zebra.vertices[2].x - zebra.vertices[0].x,
+                            zebra.vertices[2].y - zebra.vertices[0].y};
+  const double tangent_extent = std::max(std::abs(stripe_edge_a.x * tangent.x + stripe_edge_a.y * tangent.y),
+                                         std::abs(stripe_edge_b.x * tangent.x + stripe_edge_b.y * tangent.y));
+  const double lateral_extent = std::max(std::abs(stripe_edge_a.x * lateral.x + stripe_edge_a.y * lateral.y),
+                                         std::abs(stripe_edge_b.x * lateral.x + stripe_edge_b.y * lateral.y));
+  ROAD_TEST_EXPECT(tangent_extent > lateral_extent, "T junction zebra stripes are rotated by 90 degrees");
+  const auto [min_z, max_z] = std::minmax_element(
+      zebra.vertices.begin(), zebra.vertices.end(), [](const auto& a, const auto& b) { return a.z < b.z; });
+  ROAD_TEST_EXPECT(max_z->z - min_z->z > 0.01, "T junction zebra does not follow the road cross slope");
   ROAD_TEST_EXPECT(ValidateGraphInvariants(state.graph(), state.derived()).ok, "T junction invariants failed");
   return true;
 }
@@ -225,8 +277,8 @@ bool P1_cross_junction_accepts_opposite_approaches(std::string& failure) {
   ROAD_TEST_EXPECT(south.ok, south.error);
   ROAD_TEST_EXPECT(state.derived().junction_areas.front().gates.size() == 4,
                    "cross junction does not have four approaches");
-  ROAD_TEST_EXPECT(state.derived().junction_meshes.size() == 1,
-                   "cross junction did not derive one shared surface");
+  ROAD_TEST_EXPECT(state.derived().junction_meshes.size() >= 3,
+                   "cross junction did not derive material-separated shared surfaces");
   return true;
 }
 
@@ -293,6 +345,8 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   ROAD_TEST_EXPECT(std::abs(line_mesh.vertices.front().x - 105.0) < 1e-6 &&
                        std::abs(line_mesh.vertices.front().y - 50.5) < 0.1,
                    "P2 manual line was not transformed from owner-local coordinates");
+  ROAD_TEST_EXPECT(line_mesh.vertices.front().z > 0.02,
+                   "P2 manual line does not follow the owner section cross slope");
   const auto& area_mesh = state.derived().manual_marking_meshes[1];
   ROAD_TEST_EXPECT(std::abs(area_mesh.vertices.front().x - 126.0) < 1e-6 &&
                        std::abs(area_mesh.vertices.front().y - 48.0) < 1e-6,
@@ -450,7 +504,8 @@ int main() {
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
       {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},
-      {"P1_connected_segments_create_gates_and_junction", P1_connected_segments_create_gates_and_junction},
+      {"P1_degree_two_corner_uses_a_curve_without_a_junction", P1_degree_two_corner_uses_a_curve_without_a_junction},
+      {"P1_straight_connection_has_no_junction_area", P1_straight_connection_has_no_junction_area},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
       {"P1_cross_junction_accepts_opposite_approaches", P1_cross_junction_accepts_opposite_approaches},
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},

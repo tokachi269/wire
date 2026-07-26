@@ -9,7 +9,7 @@
 |---|---|
 | empty | segment がない |
 | isolated | 接続されていない segment |
-| connected | node を共有する同一断面 segment |
+| connected | node を共有する同一断面 segment。degree 2 は単純接続、degree 3/4 は実交差点 |
 | transitioning | segment が 1 個の SectionTransition を参照する |
 | marked | segment が ManualLineMarking / ManualAreaMarking を所有する |
 
@@ -25,6 +25,15 @@
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
 | AttachSectionTransition | validation | supported | supported | replace supported | supported |
 | AddManualLine / AddManualArea | validation | supported | supported | supported | supported |
+
+## P1 node semantics
+
+- degree 2 は `JunctionDefinition` を保存しない。対向する2本は幅を増やさずそのまま連続し、屈曲する2本は同じ断面を保った曲線connectorを派生する。停止線・ゼブラは生成しない。
+- degree 3/4 だけを実交差点として `JunctionDefinition` を保存する。
+- 実交差点の各gate位置は固定距離にしない。接続角と各approachの断面幅から、approach同士が重ならないsetbackを一度だけ決定する。
+- 実交差点はcarriagewayだけでなく、gate断面のsidewalkとcurbを隣接approach間へ接続する。
+- 交差点cornerとdegree 2の屈曲connectorは、gate接線を共有するBezier形状として派生する。segment側とconnector側で接線を再解釈しない。
+- 自動停止線・ゼブラは実交差点だけに生成する。向きと高さはgate frameおよびSectionEvaluationの横断勾配から導出する。
 
 ## P2 transition semantics
 

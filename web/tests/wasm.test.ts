@@ -1370,6 +1370,30 @@ describe("road wasm smoke", () => {
     expect(Math.abs(dot)).toBeLessThan(1e-6);
   });
 
+  it("derives a curved degree-two connector without junction markings", () => {
+    state.clear();
+    const base = state.addSegment({
+      kind: "line", startX: 0, startY: 0, endX: 20, endY: 0,
+      handleAX: 6, handleAY: 0, handleBX: 14, handleBY: 0,
+      startNodeId: 0, startSegmentId: 0, connectToFirstNode: false
+    });
+    expect(base.ok, base.error).toBe(true);
+    const endpoint = state.scene().nodes.find((node) => Math.abs(node.x - 20) < 1e-6 && Math.abs(node.y) < 1e-6);
+    expect(endpoint).toBeDefined();
+    const corner = state.addSegment({
+      kind: "line", startX: 20, startY: 0, endX: 20, endY: 24,
+      handleAX: 20, handleAY: 8, handleBX: 20, handleBY: 16,
+      startNodeId: endpoint!.id, startSegmentId: 0, connectToFirstNode: false
+    });
+    expect(corner.ok, corner.error).toBe(true);
+    const scene = state.scene();
+    expect(scene.junctionCount).toBe(0);
+    expect(scene.markingMeshes).toHaveLength(2);
+    expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "asphalt").length).toBeGreaterThan(2);
+    expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "sidewalk").length).toBeGreaterThan(2);
+    expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "curb").length).toBeGreaterThan(2);
+  });
+
   it("splits a straight segment when a branch starts from a centerline snap", () => {
     state.clear();
     const base = state.addSegment({
@@ -1392,11 +1416,11 @@ describe("road wasm smoke", () => {
       kind: "line",
       startX: 20,
       startY: 0,
-      endX: 20,
+      endX: 32,
       endY: 24,
-      handleAX: 20,
+      handleAX: 24,
       handleAY: 8,
-      handleBX: 20,
+      handleBX: 28,
       handleBY: 16,
       startNodeId: 0,
       startSegmentId: baseSegmentId,
@@ -1412,6 +1436,8 @@ describe("road wasm smoke", () => {
       scene.editableSegments.some((editable) => editable.id === segment.id)
     )).toBe(true);
     expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "asphalt").length).toBeGreaterThan(3);
+    expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "sidewalk").length).toBeGreaterThan(3);
+    expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "curb").length).toBeGreaterThan(3);
     expect(scene.markingMeshes.length).toBeGreaterThanOrEqual(9);
   });
 

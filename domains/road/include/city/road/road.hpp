@@ -242,12 +242,19 @@ struct JunctionArea {
   std::vector<ConnectionGate> gates{};
 };
 
+struct ConnectionArea {
+  RoadNodeId node_id = 0;
+  std::vector<ConnectionGate> gates{};
+};
+
 struct DerivedRoad {
   std::vector<SectionEvaluation> section_evaluations{};
   std::vector<Mesh> segment_meshes{};
   std::vector<Mesh> marking_meshes{};
   std::vector<TerrainMaskPolygon> terrain_masks{};
   std::vector<ConnectionGate> connection_gates{};
+  std::vector<ConnectionArea> connection_areas{};
+  std::vector<Mesh> connection_meshes{};
   std::vector<JunctionArea> junction_areas{};
   std::vector<Mesh> junction_meshes{};
   std::vector<Mesh> junction_marking_meshes{};

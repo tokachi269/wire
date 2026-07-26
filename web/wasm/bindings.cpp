@@ -1361,6 +1361,9 @@ public:
     for (const auto& mesh : derived.segment_meshes) {
       surface_meshes.call<void>("push", road_mesh_value(mesh));
     }
+    for (const auto& mesh : derived.connection_meshes) {
+      surface_meshes.call<void>("push", road_mesh_value(mesh));
+    }
     for (const auto& mesh : derived.junction_meshes) {
       surface_meshes.call<void>("push", road_mesh_value(mesh));
     }

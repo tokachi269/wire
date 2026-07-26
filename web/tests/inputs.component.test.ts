@@ -251,6 +251,13 @@ describe("viewer numeric inputs", () => {
 
   it("drives the road P0 through P2 panel state", async () => {
     const mounted = await mountViewer(false);
+    expect(document.body.textContent).toContain("DRAW PATH");
+    expect(document.body.textContent).not.toContain("P0-P2");
+
+    clickButton("Road");
+    await tick();
+    expect(document.body.textContent).toContain("P0-P2");
+    expect(document.body.textContent).not.toContain("DRAW PATH");
 
     const bezier = [...document.querySelectorAll("button")]
       .find((button) => button.textContent?.trim() === "Bezier");
@@ -283,7 +290,6 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).road.sectionTemplates).toHaveLength(2);
     expect(current(mounted.store).road.manualMarkings).toHaveLength(2);
     expect(current(mounted.store).road.derived.manualMarkingMeshes).toBe(2);
-    expect(document.body.textContent).toContain("P0-P2");
     expect(document.body.textContent).toContain("junctions");
   });
 

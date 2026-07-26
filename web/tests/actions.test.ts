@@ -52,6 +52,7 @@ describe("workspace cache", () => {
     firstCoreState = "edited-core";
     firstActions.setDrawOption("cameraFov", 73);
     firstActions.setDrawOption("showRightPanel", false);
+    firstActions.setDrawOption("rightPanelMode", "road");
     firstActions.setDrawOption("workspaceLeftWidth", 240);
     firstActions.setDrawOption("workspaceWidth", 370);
     firstActions.addPathPoint([1, 2, 3]);
@@ -78,6 +79,7 @@ describe("workspace cache", () => {
     expect(current(secondStore)).toEqual(expect.objectContaining({
       cameraFov: 73,
       showRightPanel: false,
+      rightPanelMode: "road",
       workspaceLeftWidth: 240,
       workspaceWidth: 370,
       pathPoints: []
@@ -90,6 +92,7 @@ describe("workspace cache", () => {
     expect(current(secondStore)).toEqual(expect.objectContaining({
       cameraFov: 48,
       showRightPanel: false,
+      rightPanelMode: "wire",
       workspaceLeftWidth: 240,
       workspaceWidth: 370,
       pathPoints: []

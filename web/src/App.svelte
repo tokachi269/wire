@@ -259,88 +259,107 @@
         onpointerdown={(event) => beginResize("right", event)}
       ></button>
       <div class="right-region">
-        <div class="draw-panel">
-          <div class="draw-panel-head">
-            <p class="panel-label">DRAW PATH</p>
-            <strong class="point-count">{snapshot.pathPoints.length} points</strong>
-          </div>
-          <label>
-            Pole template
-            <select
-              value={snapshot.selectedPoleTemplateId ?? ""}
-              onchange={(event) =>
-                actions.selectPoleTemplate(Number(event.currentTarget.value))}
-            >
-              {#each snapshot.poleTemplates as template}
-                <option value={template.id}>{template.name}</option>
-              {/each}
-            </select>
-          </label>
-          <fieldset class="bundle-picker">
-            <legend>Bundle placement</legend>
-            <div class="bundle-placement bundle-placement-head">
-              <span>Bundle</span><span>Height</span><span>Offset</span><span>Spread</span><span>Count</span>
-            </div>
-            {#each snapshot.drawBundlePlacements as placement (placement.id)}
-              {@const template = snapshot.bundleTemplates.find((item) => item.id === placement.bundleTemplateId)}
-              {#if template !== undefined && template.category !== 4}
-                {@const siblings = snapshot.drawBundlePlacements.filter((item) => item.bundleTemplateId === template.id)}
-                {@const index = siblings.findIndex((item) => item.id === placement.id)}
-                <div class="bundle-placement">
-                  <span class="bundle-placement-name">
-                    <strong>{categoryShort(template.category)}{siblings.length > 1 ? ` ${index + 1}` : ""}</strong>
-                    <button class="bundle-placement-add" type="button"
-                      aria-label={`Duplicate ${template.name}`} title="Duplicate bundle placement"
-                      onclick={() => actions.duplicateDrawBundlePlacement(placement.id)}>+</button>
-                  </span>
-                  <input aria-label={`${template.name} ${index + 1} height`} type="number" step="0.05" value={placement.height}
-                    oninput={(event) => actions.updateDrawBundlePlacement(placement.id, { height: Number(event.currentTarget.value) })} />
-                  <input aria-label={`${template.name} ${index + 1} offset`} type="number" step="0.02" value={placement.offset}
-                    oninput={(event) => actions.updateDrawBundlePlacement(placement.id, { offset: Number(event.currentTarget.value) })} />
-                  <input aria-label={`${template.name} ${index + 1} spread`} type="number" min="0.001" step="0.02" value={placement.spacing}
-                    oninput={(event) => actions.updateDrawBundlePlacement(placement.id, { spacing: Number(event.currentTarget.value) })} />
-                  <span>{template.fixedCount ? template.fixedCountValue : placement.count}</span>
-                </div>
-              {/if}
-            {/each}
-          </fieldset>
-          <label class="check"><input type="checkbox" checked={snapshot.showBackboneOverlay}
-            onchange={(event) => actions.setDrawOption("showBackboneOverlay", event.currentTarget.checked)} />
-            Backbone overlay</label>
-          <label class="check"><input type="checkbox" checked={snapshot.showPreview}
-            onchange={(event) => actions.setDrawOption("showPreview", event.currentTarget.checked)} />
-            Preview</label>
-          <label class="check"><input type="checkbox" checked={snapshot.keepPathAfterGenerate}
-            onchange={(event) => actions.setDrawOption("keepPathAfterGenerate", event.currentTarget.checked)} />
-            Keep path</label>
-          <label class="check"><input type="checkbox" checked={snapshot.clickedPointsOnly}
-            onchange={(event) => actions.setDrawOption("clickedPointsOnly", event.currentTarget.checked)} />
-            Clicked points only</label>
-          <label>Interval
-            <input type="number" step="0.5" value={snapshot.intervalM}
-              disabled={snapshot.clickedPointsOnly}
-              onchange={(event) => actions.setDrawOption("intervalM", Number(event.currentTarget.value))} />
-          </label>
-          <label>Direction
-            <select value={snapshot.directionMode}
-              onchange={(event) => actions.setDrawOption("directionMode", Number(event.currentTarget.value))}>
-              <option value="0">Auto</option><option value="1">Forward</option><option value="2">Reverse</option>
-            </select>
-          </label>
-          <button class="secondary" type="button"
-            onclick={() => actions.setDrawOption("directionMode", snapshot.directionMode === 1 ? 2 : 1)}>
-            Flip Direction
+        <div class="domain-tabs">
+          <button
+            class:active={snapshot.rightPanelMode === "wire"}
+            type="button"
+            onclick={() => actions.setDrawOption("rightPanelMode", "wire")}
+          >
+            Wire
           </button>
-          <label>Plane Z
-            <input type="number" step="0.1" value={snapshot.drawPlaneZ}
-              onchange={(event) => actions.setDrawOption("drawPlaneZ", Number(event.currentTarget.value))} />
-          </label>
-          <p class="hint">LMB: add point / RMB: undo point / Enter: generate / Esc: cancel</p>
+          <button
+            class:active={snapshot.rightPanelMode === "road"}
+            type="button"
+            onclick={() => actions.setDrawOption("rightPanelMode", "road")}
+          >
+            Road
+          </button>
         </div>
-        <RoadPanel {actions} {snapshot} />
-        <SelectionInspector {actions} {snapshot} />
-        <Settings {actions} {snapshot} />
-        <Templates {actions} {snapshot} />
+        {#if snapshot.rightPanelMode === "wire"}
+          <div class="draw-panel">
+            <div class="draw-panel-head">
+              <p class="panel-label">DRAW PATH</p>
+              <strong class="point-count">{snapshot.pathPoints.length} points</strong>
+            </div>
+            <label>
+              Pole template
+              <select
+                value={snapshot.selectedPoleTemplateId ?? ""}
+                onchange={(event) =>
+                  actions.selectPoleTemplate(Number(event.currentTarget.value))}
+              >
+                {#each snapshot.poleTemplates as template}
+                  <option value={template.id}>{template.name}</option>
+                {/each}
+              </select>
+            </label>
+            <fieldset class="bundle-picker">
+              <legend>Bundle placement</legend>
+              <div class="bundle-placement bundle-placement-head">
+                <span>Bundle</span><span>Height</span><span>Offset</span><span>Spread</span><span>Count</span>
+              </div>
+              {#each snapshot.drawBundlePlacements as placement (placement.id)}
+                {@const template = snapshot.bundleTemplates.find((item) => item.id === placement.bundleTemplateId)}
+                {#if template !== undefined && template.category !== 4}
+                  {@const siblings = snapshot.drawBundlePlacements.filter((item) => item.bundleTemplateId === template.id)}
+                  {@const index = siblings.findIndex((item) => item.id === placement.id)}
+                  <div class="bundle-placement">
+                    <span class="bundle-placement-name">
+                      <strong>{categoryShort(template.category)}{siblings.length > 1 ? ` ${index + 1}` : ""}</strong>
+                      <button class="bundle-placement-add" type="button"
+                        aria-label={`Duplicate ${template.name}`} title="Duplicate bundle placement"
+                        onclick={() => actions.duplicateDrawBundlePlacement(placement.id)}>+</button>
+                    </span>
+                    <input aria-label={`${template.name} ${index + 1} height`} type="number" step="0.05" value={placement.height}
+                      oninput={(event) => actions.updateDrawBundlePlacement(placement.id, { height: Number(event.currentTarget.value) })} />
+                    <input aria-label={`${template.name} ${index + 1} offset`} type="number" step="0.02" value={placement.offset}
+                      oninput={(event) => actions.updateDrawBundlePlacement(placement.id, { offset: Number(event.currentTarget.value) })} />
+                    <input aria-label={`${template.name} ${index + 1} spread`} type="number" min="0.001" step="0.02" value={placement.spacing}
+                      oninput={(event) => actions.updateDrawBundlePlacement(placement.id, { spacing: Number(event.currentTarget.value) })} />
+                    <span>{template.fixedCount ? template.fixedCountValue : placement.count}</span>
+                  </div>
+                {/if}
+              {/each}
+            </fieldset>
+            <label class="check"><input type="checkbox" checked={snapshot.showBackboneOverlay}
+              onchange={(event) => actions.setDrawOption("showBackboneOverlay", event.currentTarget.checked)} />
+              Backbone overlay</label>
+            <label class="check"><input type="checkbox" checked={snapshot.showPreview}
+              onchange={(event) => actions.setDrawOption("showPreview", event.currentTarget.checked)} />
+              Preview</label>
+            <label class="check"><input type="checkbox" checked={snapshot.keepPathAfterGenerate}
+              onchange={(event) => actions.setDrawOption("keepPathAfterGenerate", event.currentTarget.checked)} />
+              Keep path</label>
+            <label class="check"><input type="checkbox" checked={snapshot.clickedPointsOnly}
+              onchange={(event) => actions.setDrawOption("clickedPointsOnly", event.currentTarget.checked)} />
+              Clicked points only</label>
+            <label>Interval
+              <input type="number" step="0.5" value={snapshot.intervalM}
+                disabled={snapshot.clickedPointsOnly}
+                onchange={(event) => actions.setDrawOption("intervalM", Number(event.currentTarget.value))} />
+            </label>
+            <label>Direction
+              <select value={snapshot.directionMode}
+                onchange={(event) => actions.setDrawOption("directionMode", Number(event.currentTarget.value))}>
+                <option value="0">Auto</option><option value="1">Forward</option><option value="2">Reverse</option>
+              </select>
+            </label>
+            <button class="secondary" type="button"
+              onclick={() => actions.setDrawOption("directionMode", snapshot.directionMode === 1 ? 2 : 1)}>
+              Flip Direction
+            </button>
+            <label>Plane Z
+              <input type="number" step="0.1" value={snapshot.drawPlaneZ}
+                onchange={(event) => actions.setDrawOption("drawPlaneZ", Number(event.currentTarget.value))} />
+            </label>
+            <p class="hint">LMB: add point / RMB: undo point / Enter: generate / Esc: cancel</p>
+          </div>
+          <SelectionInspector {actions} {snapshot} />
+          <Settings {actions} {snapshot} />
+          <Templates {actions} {snapshot} />
+        {:else}
+          <RoadPanel {actions} {snapshot} />
+        {/if}
       </div>
     {/if}
   </section>

@@ -218,6 +218,29 @@ h1 {
   font-size: var(--sidebar-control-size);
 }
 
+.domain-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  background: #1b2022;
+}
+
+.domain-tabs button {
+  min-width: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.domain-tabs button.active,
+.domain-tabs button:hover {
+  border-color: #4b78a8;
+  background: #315b84;
+  color: #f5f8fb;
+}
+
 .resize-handle {
   position: absolute;
   z-index: 12;

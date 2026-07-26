@@ -85,9 +85,10 @@ export class ViewerActions {
       | "selectionIncludeSpans"
       | "showLeftPanel"
       | "showRightPanel"
+      | "rightPanelMode"
       | "workspaceLeftWidth"
       | "workspaceWidth",
-    value: number | boolean
+    value: number | boolean | string
   ): void {
     this.settings.setDrawOption(param, value);
   }

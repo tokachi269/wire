@@ -66,6 +66,7 @@ export interface WorkspacePreferences {
   selectionIncludeSpans: boolean;
   showLeftPanel: boolean;
   showRightPanel: boolean;
+  rightPanelMode?: "wire" | "road";
   workspaceLeftWidth: number;
   workspaceWidth: number;
 }
@@ -118,6 +119,7 @@ export function captureWorkspacePreferences(
     selectionIncludeSpans: snapshot.selectionIncludeSpans,
     showLeftPanel: snapshot.showLeftPanel,
     showRightPanel: snapshot.showRightPanel,
+    rightPanelMode: snapshot.rightPanelMode,
     workspaceLeftWidth: snapshot.workspaceLeftWidth,
     workspaceWidth: snapshot.workspaceWidth
   };

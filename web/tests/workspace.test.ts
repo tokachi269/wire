@@ -25,6 +25,7 @@ describe("workspace persistence", () => {
     firstActions.commitGeometry("sagFactor", factorySagFactor + 0.015);
     firstActions.setDrawOption("cameraFov", 67);
     firstActions.setDrawOption("showLeftPanel", false);
+    firstActions.setDrawOption("rightPanelMode", "road");
     firstActions.setDrawOption("workspaceLeftWidth", 260);
     firstActions.setDrawOption("workspaceWidth", 360);
     firstActions.setDrawOption("maxTiltDeg", 0);
@@ -48,6 +49,7 @@ describe("workspace persistence", () => {
     expect(current(restoredStore)).toEqual(expect.objectContaining({
       cameraFov: 67,
       showLeftPanel: false,
+      rightPanelMode: "road",
       workspaceLeftWidth: 260,
       workspaceWidth: 360,
       pathPoints: []
@@ -60,6 +62,7 @@ describe("workspace persistence", () => {
     expect(current(restoredStore)).toEqual(expect.objectContaining({
       cameraFov: 48,
       showLeftPanel: false,
+      rightPanelMode: "wire",
       workspaceLeftWidth: 260,
       workspaceWidth: 360,
       pathPoints: []

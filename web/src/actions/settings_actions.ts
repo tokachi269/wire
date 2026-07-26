@@ -22,9 +22,10 @@ export class SettingsActions {
       | "selectionIncludeSpans"
       | "showLeftPanel"
       | "showRightPanel"
+      | "rightPanelMode"
       | "workspaceLeftWidth"
       | "workspaceWidth",
-    value: number | boolean
+    value: number | boolean | string
   ): void {
     this.ctx.store.update((current) => ({ ...current, [param]: value }));
   }

@@ -280,13 +280,17 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 ### P0 — 歩ける骨格
 
 - road内Pathによる単独曲線segment
-- 固定断面テンプレ1種(例: 歩道|curb|車道|curb|歩道)
+- 固定断面テンプレ1種(日本の一般的な都市部2車線):
+  - 歩道2.0m | curb0.2m/段差0.15m | 車道6.0m(3.0m×2) | curb0.2m/段差0.15m | 歩道2.0m
+  - 車道は中央から左右へ2%の横断勾配、歩道は外側へ1%の横断勾配
+  - 浅い側溝はP0では独立SurfaceBandにしない。必要なら固定BoundaryProfileの見た目としてだけ扱い、編集可能な側溝種別はP2以降
 - SectionEvaluationTable
 - SurfaceMesh、固定中央線・外側線、TerrainMask導出
 - alignment編集→全派生再生成
+- Path編集UIは初期からCities系道路ツール相当の引き方にする。開始点指定、ライブプレビュー、終点確定、直線/円弧/Bezier(S字含む)の作成とハンドル編集をP0対象に含める
 - save/load、segment削除
 - 決定論テスト、不変量テスト、自己交差reject
-- 交差点なし。既存segmentとの重なりは決定した方針に従いwarningまたはunsupported
+- 交差点なし。既存segmentとの重なりはP0では判定しない。接続も警告も発生させず、独立segmentとして生成する
 
 ### P1 — 同一断面の接続
 
@@ -392,8 +396,8 @@ wireとの実行時結合は`RoadsideGuide`一本のみ。
 
 | 操作 \ 状態 | 空 | 既存segmentあり | 自己交差入力 | 既存segmentと重なる |
 |---|---|---|---|---|
-| 道路を引く | 生成 | 独立生成(接続なし=P0) | unsupported | 未決事項3の決定に従う |
-| 点/曲線を編集 | - | 再生成 | unsupported | 未決事項3の決定に従う |
+| 道路を引く | 生成 | 独立生成(接続なし=P0) | unsupported | 判定しない。独立生成 |
+| 点/曲線を編集 | - | 再生成 | unsupported | 判定しない。再生成 |
 | segment削除 | - | 定義済み(P0実装) | - | - |
 | save/load | 空を復元 | 正本bit一致 | - | - |
 
@@ -415,9 +419,12 @@ P1ではConnectionGate共有、junctionとの隙間・重複・法線不一致�
 
 ## 16. 未決事項
 
-1. リポジトリ配置: 推奨=同一リポジトリ内の独立roadモジュール。wire coreへのinclude依存ゼロをlintで強制。完全別リポジトリも可だが統合コストを許容する必要がある
-2. P0固定断面の初期値(車道幅・歩道幅・curb高・横断勾配・浅い側溝を含めるか)
-3. P0の既存segment重なり検出をwarningのみとするかunsupportedとするか
-4. Path編集UIをクリック点列→自動Arc化で開始し、Bezierハンドル編集を後回しにするか
-5. P1で許可する接続角度・最小segment長・corner radiusの範囲
-6. マテリアル境界と描画メッシュ結合の最小ルール(意味要素は分けたまま、どこまで同一mesh/material groupへまとめるか)
+1. P1で許可する接続角度・最小segment長・corner radiusの範囲
+2. マテリアル境界と描画メッシュ結合の最小ルール(意味要素は分けたまま、どこまで同一mesh/material groupへまとめるか)
+
+## 17. 決定済み事項
+
+1. リポジトリ配置: 同一リポジトリ内の独立roadモジュール。wire coreへのinclude依存ゼロをlintで強制する
+2. P0固定断面: 日本の一般的な都市部2車線を初期値にする。車線3.0m×2、歩道2.0m×2、curb幅0.2m/段差0.15m、車道横断勾配2%、歩道横断勾配1%。浅い側溝はP0では独立SurfaceBandにしない
+3. P0の既存segment重なり: 判定しない。warningにもunsupportedにもせず、接続なしの独立segmentとして扱う
+4. Path編集UI: Bezierハンドル編集を後回しにしない。P0からCities系道路ツール相当のライブプレビュー、直線/円弧/Bezier作成、ハンドル編集を対象にする

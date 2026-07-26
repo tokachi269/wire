@@ -21,6 +21,7 @@ constexpr int kCurveSamples = 24;
 constexpr double kP1MinSegmentLengthM = 8.0;
 constexpr double kP1MinConnectionAngleDeg = 45.0;
 constexpr double kP1MaxConnectionAngleDeg = 135.0;
+constexpr double kSnapStationPointToleranceM = 0.6;
 
 [[nodiscard]] bool finite(double value) {
   return std::isfinite(value);
@@ -77,50 +78,97 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return distance(a, b) <= 1e-6;
 }
 
-[[nodiscard]] bool point_on_line_segment(Vec2d point, Vec2d a, Vec2d b) {
-  const Vec2d ab = sub(b, a);
-  const double len2 = dot(ab, ab);
-  if (len2 <= kEpsilon) {
-    return false;
-  }
-  const double t = dot(sub(point, a), ab) / len2;
-  if (t <= 1e-6 || t >= 1.0 - 1e-6) {
-    return false;
-  }
-  const Vec2d closest = add(a, mul(ab, t));
-  return distance(point, closest) <= 1e-5;
+[[nodiscard]] Vec2d span_start(const BezierSpan& span) {
+  return span.p0;
 }
 
-[[nodiscard]] Vec2d primitive_start(const Primitive& primitive) {
-  return primitive.p0;
+[[nodiscard]] Vec2d span_end(const BezierSpan& span) {
+  return span.p3;
 }
 
-[[nodiscard]] Vec2d primitive_end(const Primitive& primitive) {
-  return primitive.kind == Primitive::Kind::kBezier ? primitive.p3 : primitive.p1;
-}
-
-[[nodiscard]] Vec2d primitive_eval(const Primitive& primitive, double t) {
+[[nodiscard]] Vec2d span_eval(const BezierSpan& span, double t) {
   t = std::clamp(t, 0.0, 1.0);
-  if (primitive.kind == Primitive::Kind::kLine) {
-    return add(mul(primitive.p0, 1.0 - t), mul(primitive.p1, t));
-  }
   const double u = 1.0 - t;
-  return add(add(mul(primitive.p0, u * u * u), mul(primitive.p1, 3.0 * u * u * t)),
-             add(mul(primitive.p2, 3.0 * u * t * t), mul(primitive.p3, t * t * t)));
+  return add(add(mul(span.p0, u * u * u), mul(span.p1, 3.0 * u * u * t)),
+             add(mul(span.p2, 3.0 * u * t * t), mul(span.p3, t * t * t)));
 }
 
-[[nodiscard]] double primitive_length(const Primitive& primitive) {
-  if (primitive.kind == Primitive::Kind::kLine) {
-    return distance(primitive.p0, primitive.p1);
-  }
+[[nodiscard]] double span_length(const BezierSpan& span) {
   double out = 0.0;
-  Vec2d prev = primitive.p0;
+  Vec2d prev = span.p0;
   for (int i = 1; i <= kCurveSamples; ++i) {
-    const Vec2d current = primitive_eval(primitive, static_cast<double>(i) / kCurveSamples);
+    const Vec2d current = span_eval(span, static_cast<double>(i) / kCurveSamples);
     out += distance(prev, current);
     prev = current;
   }
   return out;
+}
+
+[[nodiscard]] double span_parameter_at_length(const BezierSpan& span, double station_m) {
+  if (station_m <= 0.0) return 0.0;
+  double accumulated = 0.0;
+  Vec2d previous = span.p0;
+  for (int i = 1; i <= kCurveSamples; ++i) {
+    const double t = static_cast<double>(i) / kCurveSamples;
+    const Vec2d current = span_eval(span, t);
+    const double piece_length = distance(previous, current);
+    if (accumulated + piece_length >= station_m || i == kCurveSamples) {
+      const double ratio = piece_length <= kEpsilon ? 0.0 : (station_m - accumulated) / piece_length;
+      return (static_cast<double>(i - 1) + std::clamp(ratio, 0.0, 1.0)) / kCurveSamples;
+    }
+    accumulated += piece_length;
+    previous = current;
+  }
+  return 1.0;
+}
+
+[[nodiscard]] std::pair<BezierSpan, BezierSpan> split_span(const BezierSpan& span, double t) {
+  const Vec2d p01 = add(mul(span.p0, 1.0 - t), mul(span.p1, t));
+  const Vec2d p12 = add(mul(span.p1, 1.0 - t), mul(span.p2, t));
+  const Vec2d p23 = add(mul(span.p2, 1.0 - t), mul(span.p3, t));
+  const Vec2d p012 = add(mul(p01, 1.0 - t), mul(p12, t));
+  const Vec2d p123 = add(mul(p12, 1.0 - t), mul(p23, t));
+  const Vec2d point = add(mul(p012, 1.0 - t), mul(p123, t));
+  return {BezierSpan{span.p0, p01, p012, point}, BezierSpan{point, p123, p23, span.p3}};
+}
+
+struct PathSplit {
+  Path before{};
+  Path after{};
+  Vec2d point{};
+};
+
+[[nodiscard]] Result<PathSplit> split_path_at_station(const Path& path, double station_m) {
+  const Result<double> total = PathLength(path);
+  if (!total.ok) return Result<PathSplit>::Fail(total.error_kind, total.error);
+  if (!finite(station_m) || station_m <= kEpsilon || station_m >= total.value - kEpsilon) {
+    return Result<PathSplit>::Fail(ErrorKind::kValidation, "road segment split station is outside its interior");
+  }
+  double remaining = station_m;
+  for (std::size_t index = 0; index < path.spans.size(); ++index) {
+    const BezierSpan& span = path.spans[index];
+    const double length_m = span_length(span);
+    if (index + 1 < path.spans.size() && std::abs(remaining - length_m) <= kEpsilon) {
+      PathSplit result{};
+      result.before.spans.insert(result.before.spans.end(), path.spans.begin(), path.spans.begin() + index + 1);
+      result.after.spans.insert(result.after.spans.end(), path.spans.begin() + index + 1, path.spans.end());
+      result.point = span.p3;
+      return Result<PathSplit>::Ok(std::move(result));
+    }
+    if (remaining < length_m || index + 1 == path.spans.size()) {
+      const double t = span_parameter_at_length(span, remaining);
+      auto [left, right] = split_span(span, t);
+      PathSplit result{};
+      result.before.spans.insert(result.before.spans.end(), path.spans.begin(), path.spans.begin() + index);
+      result.before.spans.push_back(left);
+      result.after.spans.push_back(right);
+      result.after.spans.insert(result.after.spans.end(), path.spans.begin() + index + 1, path.spans.end());
+      result.point = left.p3;
+      return Result<PathSplit>::Ok(std::move(result));
+    }
+    remaining -= length_m;
+  }
+  return Result<PathSplit>::Fail(ErrorKind::kInternal, "road segment split station resolution fell through");
 }
 
 [[nodiscard]] bool segments_intersect(Vec2d a, Vec2d b, Vec2d c, Vec2d d) {
@@ -518,11 +566,11 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
 }
 
 [[nodiscard]] Vec2d path_start(const Path& path) {
-  return primitive_start(path.primitives.front());
+  return span_start(path.spans.front());
 }
 
 [[nodiscard]] Vec2d path_end(const Path& path) {
-  return primitive_end(path.primitives.back());
+  return span_end(path.spans.back());
 }
 
 [[nodiscard]] std::optional<Vec2d> path_tangent(const Path& path, double station, double total) {
@@ -1061,13 +1109,6 @@ void append_gate_quad(Mesh& mesh,
   return Result<bool>::Ok(true);
 }
 
-[[nodiscard]] std::string primitive_kind_name(Primitive::Kind kind) {
-  if (kind == Primitive::Kind::kLine) {
-    return "line";
-  }
-  return "bezier";
-}
-
 [[nodiscard]] std::optional<double> parse_double(std::string_view text) {
   if (text.empty()) {
     return std::nullopt;
@@ -1095,28 +1136,24 @@ void append_gate_quad(Mesh& mesh,
 
 } // namespace
 
-Primitive MakeLine(Vec2d a, Vec2d b) {
-  Primitive out{};
-  out.kind = Primitive::Kind::kLine;
-  out.p0 = a;
-  out.p1 = b;
-  return out;
+BezierSpan MakeLine(Vec2d a, Vec2d b) {
+  const Vec2d delta = sub(b, a);
+  return BezierSpan{a, add(a, mul(delta, 1.0 / 3.0)), add(a, mul(delta, 2.0 / 3.0)), b};
 }
 
-Primitive MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3) {
-  Primitive out{};
-  out.kind = Primitive::Kind::kBezier;
-  out.p0 = p0;
-  out.p1 = p1;
-  out.p2 = p2;
-  out.p3 = p3;
-  return out;
+BezierSpan MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3) {
+  return BezierSpan{p0, p1, p2, p3};
 }
 
-Path MakePath(std::vector<Primitive> primitives) {
+Path MakePath(std::vector<BezierSpan> spans) {
   Path out{};
-  out.primitives = std::move(primitives);
+  out.spans = std::move(spans);
   return out;
+}
+
+bool IsLinearSpan(const BezierSpan& span) {
+  return almost_same(span.p1, add(span.p0, mul(sub(span.p3, span.p0), 1.0 / 3.0))) &&
+         almost_same(span.p2, add(span.p0, mul(sub(span.p3, span.p0), 2.0 / 3.0)));
 }
 
 RoadToolDraft PreviewRoadToolPath(Vec2d start, Vec2d end, std::optional<Vec2d> handle_a, std::optional<Vec2d> handle_b) {
@@ -1308,7 +1345,12 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
 
 Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(Path alignment,
                                                               CrossSectionTemplateId section_template,
-                                                              RoadSegmentId start_segment) {
+                                                              RoadSegmentId start_segment,
+                                                              double station_m) {
+  const Result<bool> alignment_valid = ValidatePath(alignment);
+  if (!alignment_valid.ok) {
+    return Result<RoadSegmentId>::Fail(alignment_valid.error_kind, alignment_valid.error);
+  }
   const RoadSegment* source = find_segment(graph_, start_segment);
   if (source == nullptr) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment snap target does not exist");
@@ -1317,19 +1359,25 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(Path alignment,
     return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported,
                                        "splitting a transitioning road segment is unsupported");
   }
-  if (source->alignment.primitives.size() != 1 ||
-      source->alignment.primitives.front().kind != Primitive::Kind::kLine) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "road segment split supports straight segments only");
-  }
   if (source->section_template != section_template) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported,
                                        "road segment split requires a matching section template");
   }
-  const Vec2d split_point = path_start(alignment);
-  const Vec2d source_start = path_start(source->alignment);
-  const Vec2d source_end = path_end(source->alignment);
-  if (!point_on_line_segment(split_point, source_start, source_end)) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment snap point is not on the target segment");
+  const Result<PathSplit> path_split = split_path_at_station(source->alignment, station_m);
+  if (!path_split.ok) {
+    return Result<RoadSegmentId>::Fail(path_split.error_kind, path_split.error);
+  }
+  if (distance(path_start(alignment), path_split.value.point) > kSnapStationPointToleranceM) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation,
+                                       "road segment input start does not match its explicit snap station");
+  }
+  BezierSpan& input_start = alignment.spans.front();
+  if (IsLinearSpan(input_start)) {
+    input_start = MakeLine(path_split.value.point, input_start.p3);
+  } else {
+    const Vec2d correction = sub(path_split.value.point, input_start.p0);
+    input_start.p0 = path_split.value.point;
+    input_start.p1 = add(input_start.p1, correction);
   }
 
   RoadState trial = *this;
@@ -1340,13 +1388,13 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(Path alignment,
   const RoadNodeId old_end = split->node_b;
   const RoadNodeId split_node = trial.next_id_++;
   const RoadSegmentId second_id = trial.next_id_++;
-  trial.graph_.nodes.push_back(RoadNode{split_node, split_point});
+  trial.graph_.nodes.push_back(RoadNode{split_node, path_split.value.point});
   split->node_b = split_node;
-  split->alignment = MakePath({MakeLine(source_start, split_point)});
+  split->alignment = path_split.value.before;
   trial.graph_.segments.push_back(RoadSegment{second_id,
                                               split_node,
                                               old_end,
-                                              MakePath({MakeLine(split_point, source_end)}),
+                                              path_split.value.after,
                                               split->section_template,
                                               split->transition});
   const Result<bool> rebuilt = trial.RebuildDerived();
@@ -1699,7 +1747,7 @@ Result<bool> RoadState::RebuildDerived() {
 
 Result<std::string> RoadState::Save() const {
   std::ostringstream out;
-  out << "road_graph_version=3\n";
+  out << "road_graph_version=4\n";
   out << "next_id=" << next_id_ << "\n";
   for (const CrossSectionTemplate& section : graph_.section_templates) {
     out << "section_template=" << section.id << "\n";
@@ -1732,20 +1780,18 @@ Result<std::string> RoadState::Save() const {
   for (const RoadSegment& segment : graph_.segments) {
     out << "segment=" << segment.id << "," << segment.node_a << "," << segment.node_b << ","
         << segment.section_template << "," << segment.transition.value_or(0) << ","
-        << segment.alignment.primitives.size() << "\n";
-    for (const Primitive& primitive : segment.alignment.primitives) {
-      out << "primitive=" << primitive_kind_name(primitive.kind) << "," << primitive.p0.x << "," << primitive.p0.y
-          << "," << primitive.p1.x << "," << primitive.p1.y << "," << primitive.p2.x << "," << primitive.p2.y << ","
-          << primitive.p3.x << "," << primitive.p3.y << "\n";
+        << segment.alignment.spans.size() << "\n";
+    for (const BezierSpan& span : segment.alignment.spans) {
+      out << "span=" << span.p0.x << "," << span.p0.y << "," << span.p1.x << "," << span.p1.y << ","
+          << span.p2.x << "," << span.p2.y << "," << span.p3.x << "," << span.p3.y << "\n";
     }
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     out << "manual_line=" << marking.id << "," << marking.owner_segment_id << "," << marking.style << ","
-        << marking.path.primitives.size() << "\n";
-    for (const Primitive& primitive : marking.path.primitives) {
-      out << "manual_primitive=" << primitive_kind_name(primitive.kind) << "," << primitive.p0.x << ","
-          << primitive.p0.y << "," << primitive.p1.x << "," << primitive.p1.y << "," << primitive.p2.x << ","
-          << primitive.p2.y << "," << primitive.p3.x << "," << primitive.p3.y << "\n";
+        << marking.path.spans.size() << "\n";
+    for (const BezierSpan& span : marking.path.spans) {
+      out << "manual_span=" << span.p0.x << "," << span.p0.y << "," << span.p1.x << "," << span.p1.y << ","
+          << span.p2.x << "," << span.p2.y << "," << span.p3.x << "," << span.p3.y << "\n";
     }
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
@@ -1759,7 +1805,8 @@ Result<RoadState> RoadState::Load(const std::string& text) {
   const bool version1 = text.starts_with("road_graph_version=1\n");
   const bool version2 = text.starts_with("road_graph_version=2\n");
   const bool version3 = text.starts_with("road_graph_version=3\n");
-  const bool modern = version2 || version3;
+  const bool version4 = text.starts_with("road_graph_version=4\n");
+  const bool modern = version2 || version3 || version4;
   if (!version1 && !modern) {
     return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road graph version");
   }
@@ -1775,7 +1822,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
   std::string line;
   RoadSegment* current_segment = nullptr;
   ManualLineMarking* current_manual_line = nullptr;
-  const auto primitive_from_parts = [version3](const std::vector<std::string_view>& parts) -> std::optional<Primitive> {
+  const auto legacy_span_from_parts = [version3](const std::vector<std::string_view>& parts) -> std::optional<BezierSpan> {
     const std::size_t value_count = version3 ? 8 : 13;
     if (parts.size() != value_count + 1 || (parts[0] != "line" && parts[0] != "bezier")) return std::nullopt;
     std::array<double, 13> values{};
@@ -1784,13 +1831,22 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       if (!parsed.has_value()) return std::nullopt;
       values[i - 1] = *parsed;
     }
-    Primitive primitive{};
-    primitive.kind = parts[0] == "bezier" ? Primitive::Kind::kBezier : Primitive::Kind::kLine;
-    primitive.p0 = {values[0], values[1]};
-    primitive.p1 = {values[2], values[3]};
-    primitive.p2 = {values[4], values[5]};
-    primitive.p3 = {values[6], values[7]};
-    return primitive;
+    const Vec2d p0{values[0], values[1]};
+    const Vec2d p1{values[2], values[3]};
+    return parts[0] == "line" ? std::optional<BezierSpan>{MakeLine(p0, p1)}
+                               : std::optional<BezierSpan>{MakeBezier(p0, p1, {values[4], values[5]},
+                                                                      {values[6], values[7]})};
+  };
+  const auto span_from_parts = [](const std::vector<std::string_view>& parts) -> std::optional<BezierSpan> {
+    if (parts.size() != 8) return std::nullopt;
+    std::array<double, 8> values{};
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+      const auto parsed = parse_double(parts[i]);
+      if (!parsed.has_value()) return std::nullopt;
+      values[i] = *parsed;
+    }
+    return MakeBezier({values[0], values[1]}, {values[2], values[3]},
+                      {values[4], values[5]}, {values[6], values[7]});
   };
   while (std::getline(in, line)) {
     if (line.empty()) {
@@ -1813,7 +1869,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       view.remove_prefix(comma + 1);
     }
     if (key == "road_graph_version") {
-      if (value != "1" && value != "2" && value != "3") {
+      if (value != "1" && value != "2" && value != "3" && value != "4") {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road graph version");
       }
     } else if (key == "next_id") {
@@ -1911,12 +1967,18 @@ Result<RoadState> RoadState::Load(const std::string& text) {
                                                    *transition == 0 ? std::nullopt
                                                                     : std::optional<SectionTransitionId>(*transition)});
       current_segment = &state.graph_.segments.back();
-    } else if (key == "primitive") {
-      const auto primitive = primitive_from_parts(parts);
-      if (current_segment == nullptr || !primitive.has_value()) {
+    } else if (key == "primitive" && !version4) {
+      const auto span = legacy_span_from_parts(parts);
+      if (current_segment == nullptr || !span.has_value()) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid primitive row");
       }
-      current_segment->alignment.primitives.push_back(*primitive);
+      current_segment->alignment.spans.push_back(*span);
+    } else if (key == "span" && version4) {
+      const auto span = span_from_parts(parts);
+      if (current_segment == nullptr || !span.has_value()) {
+        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid span row");
+      }
+      current_segment->alignment.spans.push_back(*span);
     } else if (key == "manual_line" && modern) {
       if (parts.size() != 4) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual line row");
       const auto id = parse_u64(parts[0]);
@@ -1924,12 +1986,18 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       if (!id || !owner) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual line value");
       state.graph_.manual_lines.push_back(ManualLineMarking{*id, *owner, {}, std::string(parts[2])});
       current_manual_line = &state.graph_.manual_lines.back();
-    } else if (key == "manual_primitive" && modern) {
-      const auto primitive = primitive_from_parts(parts);
-      if (current_manual_line == nullptr || !primitive.has_value()) {
+    } else if (key == "manual_primitive" && modern && !version4) {
+      const auto span = legacy_span_from_parts(parts);
+      if (current_manual_line == nullptr || !span.has_value()) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual primitive row");
       }
-      current_manual_line->path.primitives.push_back(*primitive);
+      current_manual_line->path.spans.push_back(*span);
+    } else if (key == "manual_span" && version4) {
+      const auto span = span_from_parts(parts);
+      if (current_manual_line == nullptr || !span.has_value()) {
+        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual span row");
+      }
+      current_manual_line->path.spans.push_back(*span);
     } else if (key == "manual_area" && modern) {
       if (parts.size() != 7) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual area row");
       const auto id = parse_u64(parts[0]);
@@ -1947,7 +2015,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road archive key");
     }
   }
-  if (!version3) {
+  if (!version3 && !version4) {
     state.graph_.junctions.erase(
         std::remove_if(state.graph_.junctions.begin(), state.graph_.junctions.end(), [&state](const auto& junction) {
           return node_degree(state.graph_, junction.node_id) < 3;
@@ -2011,19 +2079,19 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
 }
 
 Result<bool> ValidatePath(const Path& path) {
-  if (path.primitives.empty()) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road path has no primitives");
+  if (path.spans.empty()) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "road path has no spans");
   }
-  for (std::size_t i = 0; i < path.primitives.size(); ++i) {
-    const Primitive& primitive = path.primitives[i];
-    if (!finite(primitive_start(primitive)) || !finite(primitive_end(primitive))) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "road path contains non-finite endpoint");
+  for (std::size_t i = 0; i < path.spans.size(); ++i) {
+    const BezierSpan& span = path.spans[i];
+    if (!finite(span.p0) || !finite(span.p1) || !finite(span.p2) || !finite(span.p3)) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "road path contains a non-finite control point");
     }
-    if (primitive_length(primitive) <= kEpsilon) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "road primitive has zero length");
+    if (span_length(span) <= kEpsilon) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "road span has zero length");
     }
-    if (i > 0 && !almost_same(primitive_start(primitive), primitive_end(path.primitives[i - 1]))) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "road path primitives are not continuous");
+    if (i > 0 && !almost_same(span_start(span), span_end(path.spans[i - 1]))) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "road path spans are not continuous");
     }
   }
   return validate_no_self_intersection(path);
@@ -2035,8 +2103,8 @@ Result<double> PathLength(const Path& path) {
     return Result<double>::Fail(valid.error_kind, valid.error);
   }
   double out = 0.0;
-  for (const Primitive& primitive : path.primitives) {
-    out += primitive_length(primitive);
+  for (const BezierSpan& span : path.spans) {
+    out += span_length(span);
   }
   return Result<double>::Ok(out);
 }
@@ -2047,10 +2115,10 @@ Result<Vec2d> EvaluatePath(const Path& path, double station_m) {
     return Result<Vec2d>::Fail(length_result.error_kind, length_result.error);
   }
   double remaining = std::clamp(station_m, 0.0, length_result.value);
-  for (const Primitive& primitive : path.primitives) {
-    const double len = primitive_length(primitive);
-    if (remaining <= len || &primitive == &path.primitives.back()) {
-      return Result<Vec2d>::Ok(primitive_eval(primitive, len <= kEpsilon ? 0.0 : remaining / len));
+  for (const BezierSpan& span : path.spans) {
+    const double len = span_length(span);
+    if (remaining <= len || &span == &path.spans.back()) {
+      return Result<Vec2d>::Ok(span_eval(span, span_parameter_at_length(span, remaining)));
     }
     remaining -= len;
   }
@@ -2059,13 +2127,13 @@ Result<Vec2d> EvaluatePath(const Path& path, double station_m) {
 
 std::vector<Vec2d> FlattenPath(const Path& path) {
   std::vector<Vec2d> points{};
-  for (const Primitive& primitive : path.primitives) {
-    const int samples = primitive.kind == Primitive::Kind::kLine ? 1 : kCurveSamples;
+  for (const BezierSpan& span : path.spans) {
+    const int samples = IsLinearSpan(span) ? 1 : kCurveSamples;
     if (points.empty()) {
-      points.push_back(primitive_start(primitive));
+      points.push_back(span_start(span));
     }
     for (int i = 1; i <= samples; ++i) {
-      points.push_back(primitive_eval(primitive, static_cast<double>(i) / samples));
+      points.push_back(span_eval(span, static_cast<double>(i) / samples));
     }
   }
   return points;

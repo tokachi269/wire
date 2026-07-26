@@ -49,11 +49,11 @@ backboneの思想(正本グラフ→一方向導出、接続は操作時に決�
 ## 4. road内共通プリミティブ: Path
 
 ```text
-Path = 順序付きprimitive列
-primitive = Line | Bezier
+Path = 順序付きcubic Bezier span列
 ```
 
 - 初期配置はroadモジュール内。別の実消費者が現れ、APIが安定してからfoundationへの抽出を判断する。
+- Line / Bezierは入力tool modeであり、正本のkindではない。Line入力は1/3、2/3 control pointを持つcubic Bezierへ操作境界で正規化する。
 - 保存Pathは原則として**所有者ローカルの2D曲線**。segmentの平面線形、Areaの縁、手動マーキング中心線などに使う。
 - 評価は弧長s。Path自体は道路の高さ・roll・world-upフレームを決めない。
 - 3D位置と姿勢は所有者の評価器が決める。
@@ -388,7 +388,7 @@ foundation変更時は両ドメインのテストを通す。namespaceは`city::
 - 部分更新reconcileの汎用化
 - Junction、SectionTransition、ConnectionGate等の道路概念
 
-`Path(Line|Bezier)`は新規かつ初期消費者がroadだけなので、まずroad内に置く。別の実消費者が現れ、APIが収束した場合のみfoundationへ抽出する。
+`Path(cubic Bezier span列)`は新規かつ初期消費者がroadだけなので、まずroad内に置く。別の実消費者が現れ、APIが収束した場合のみfoundationへ抽出する。
 
 viewerは共有前提(同一Svelte/threeシェル、bridge様式、workspace永続)。ドメイン別なのはscene部分と操作パネル。
 
@@ -408,7 +408,7 @@ P1以降、接続・交差・Area・遷移のセルを埋めてから実装す�
 ## 15. P0不変量
 
 - 全IDが一意で参照先が存在する
-- Path primitive列が連続し、弧長評価が有限
+- Path span列が連続し、弧長評価が有限
 - 断面評価のboundary順序が横断方向に一貫する
 - 生成メッシュにNaN/Inf、範囲外index、ゼロ面積triangleがない
 - 同一正本からの再生成が決定論的

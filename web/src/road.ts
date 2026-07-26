@@ -19,6 +19,7 @@ export interface RoadSegmentInput {
   handleBY: number;
   startNodeId: number;
   startSegmentId: number;
+  startStationM: number;
   connectToFirstNode: boolean;
   sectionTemplateId?: number;
 }
@@ -96,6 +97,7 @@ export interface RoadToolState {
   handleB: RoadPoint;
   draftStartNodeId: number;
   draftStartSegmentId: number;
+  draftStartStationM: number;
   connectToFirstNode: boolean;
   selectedSectionTemplateId: number;
   manualLineOffsetM: number;
@@ -123,6 +125,7 @@ export function createRoadToolState(): RoadToolState {
     handleB: { x: 0, y: 0 },
     draftStartNodeId: 0,
     draftStartSegmentId: 0,
+    draftStartStationM: 0,
     connectToFirstNode: false,
     selectedSectionTemplateId: 1,
     manualLineOffsetM: 0,
@@ -152,6 +155,7 @@ export function roadSegmentInput(state: RoadToolState): RoadSegmentInput {
     handleBY: state.handleB.y,
     startNodeId: state.draftStartNodeId,
     startSegmentId: state.draftStartSegmentId,
+    startStationM: state.draftStartStationM,
     connectToFirstNode: state.connectToFirstNode,
     sectionTemplateId: state.selectedSectionTemplateId
   };

@@ -107,3 +107,10 @@ src/persistence/
 7. persistenceを新authorityのroundtrip契約へ更新する。
 
 移行中もUI操作を変更しない。既存scenarioの制約を抽出して新operation testへ移植し、旧内部表現への期待は持ち込まない。
+
+## Migration status
+
+- 完了: 正本Pathをcubic Bezier span列へ統一し、Straight入力をoperation境界で正規化した。
+- 完了: segment途中接続を`target_segment_id + station_m`入力へ変更し、複数spanを含むPathをDe Casteljau分割する。
+- 完了: archive version 4はspanだけを保存し、version 1-3のLine / Bezierをload時にcanonical spanへ移行する。
+- 未完: authoritative / input / derived型の物理分離、統一build stage、junction policy overrideへの移行。

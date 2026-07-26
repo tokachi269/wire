@@ -237,6 +237,7 @@ export class RoadActions {
         draftBend: nextStart,
         draftStartNodeId: 0,
         draftStartSegmentId: 0,
+        draftStartStationM: 0,
         scene,
         previewMeshes: [],
         lastError: ""
@@ -266,6 +267,7 @@ export class RoadActions {
         draftBend: target,
         draftStartNodeId: snap?.nodeId ?? 0,
         draftStartSegmentId: snap?.segmentId ?? 0,
+        draftStartStationM: snap?.stationM ?? 0,
         phase
       }, target)
     }));
@@ -314,6 +316,7 @@ function editInput(road: RoadToolState) {
     handleBY: handleB.y,
     startNodeId: 0,
     startSegmentId: 0,
+    startStationM: 0,
     connectToFirstNode: false,
     sectionTemplateId: road.selectedSectionTemplateId
   };

@@ -27,6 +27,9 @@ using city::road::MakeLine;
 using city::road::MakePath;
 using city::road::ManualAreaMarking;
 using city::road::ManualLineMarking;
+using city::road::EvaluatePath;
+using city::road::Path;
+using city::road::PathLength;
 using city::road::PreviewRoadToolPath;
 using city::road::RoadState;
 using city::road::SectionTransition;
@@ -128,11 +131,24 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=4\n") &&
+                       saved.value.find("primitive=") == std::string::npos,
+                   "road save did not use canonical Bezier span authority");
   const auto loaded = RoadState::Load(saved.value);
   ROAD_TEST_EXPECT(loaded.ok, loaded.error);
   const auto saved_again = loaded.value.Save();
   ROAD_TEST_EXPECT(saved_again.ok, saved_again.error);
   ROAD_TEST_EXPECT(saved.value == saved_again.value, "road save/load was not bit stable");
+  std::string version3 = saved.value;
+  version3.replace(0, std::string("road_graph_version=4").size(), "road_graph_version=3");
+  const std::size_t span_row = version3.find("span=");
+  ROAD_TEST_EXPECT(span_row != std::string::npos, "road v4 archive has no span row");
+  version3.replace(span_row, std::string("span=").size(), "primitive=bezier,");
+  const auto migrated = RoadState::Load(version3);
+  ROAD_TEST_EXPECT(migrated.ok, migrated.error);
+  const auto migrated_save = migrated.value.Save();
+  ROAD_TEST_EXPECT(migrated_save.ok && migrated_save.value.starts_with("road_graph_version=4\n"),
+                   "road v3 archive was not migrated to canonical span authority");
   return true;
 }
 
@@ -140,7 +156,11 @@ bool P0_tool_preview_includes_bezier_handles(std::string& failure) {
   const auto draft = PreviewRoadToolPath({0.0, 0.0}, {40.0, 0.0}, Vec2d{10.0, 15.0}, Vec2d{30.0, -15.0});
   ROAD_TEST_EXPECT(draft.has_live_preview, "road tool lacks live preview");
   ROAD_TEST_EXPECT(draft.supports_bezier_handles, "road tool does not expose Bezier handles");
-  ROAD_TEST_EXPECT(draft.preview_path.primitives.size() == 1, "road tool did not produce a preview primitive");
+  ROAD_TEST_EXPECT(draft.preview_path.spans.size() == 1, "road tool did not produce a preview span");
+  const auto line = MakeLine({0.0, 0.0}, {30.0, 0.0});
+  ROAD_TEST_EXPECT(std::abs(line.p1.x - 10.0) < 1e-9 && std::abs(line.p2.x - 20.0) < 1e-9 &&
+                       std::abs(line.p3.x - 30.0) < 1e-9,
+                   "straight input was not normalized to a cubic Bezier span");
   return true;
 }
 
@@ -221,7 +241,7 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1);
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto branch = state.AddSegmentConnectedToSegment(MakePath({MakeLine({20.0, 0.0}, {32.0, 24.0})}), 1,
-                                                         base.value);
+                                                         base.value, 20.0);
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 3, "T junction did not split base road and add branch");
   ROAD_TEST_EXPECT(state.graph().nodes.size() == 4, "T junction did not create one shared middle node");
@@ -264,12 +284,72 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   return true;
 }
 
+bool P1_segment_snap_splits_bezier_road_for_t_junction(std::string& failure) {
+  RoadState state{};
+  const Path curve = MakePath({MakeBezier({0.0, 0.0}, {20.0, 10.0}, {60.0, 10.0}, {80.0, 0.0})});
+  const auto base = state.AddSegment(curve, 1);
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto curve_length = PathLength(curve);
+  ROAD_TEST_EXPECT(curve_length.ok, curve_length.error);
+  const auto split_point = EvaluatePath(curve, curve_length.value * 0.5);
+  ROAD_TEST_EXPECT(split_point.ok, split_point.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      MakePath({MakeLine(split_point.value, {split_point.value.x, split_point.value.y + 30.0})}), 1, base.value,
+      curve_length.value * 0.5);
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 3, "Bezier T junction did not split base road and add branch");
+  ROAD_TEST_EXPECT(state.graph().junctions.size() == 1, "Bezier T junction did not create one junction authority");
+  ROAD_TEST_EXPECT(state.derived().junction_areas.size() == 1 &&
+                       state.derived().junction_areas.front().gates.size() == 3,
+                   "Bezier T junction did not derive three connection gates");
+  const auto first = std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
+                                  [base](const auto& segment) { return segment.id == base.value; });
+  const auto second = std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
+                                   [base, branch](const auto& segment) {
+                                     return segment.id != base.value && segment.id != branch.value;
+                                   });
+  ROAD_TEST_EXPECT(first != state.graph().segments.end() && second != state.graph().segments.end(),
+                   "Bezier split segments are missing");
+  const auto& left = first->alignment.spans.back();
+  const auto& right = second->alignment.spans.front();
+  const Vec2d left_tangent{left.p3.x - left.p2.x, left.p3.y - left.p2.y};
+  const Vec2d right_tangent{right.p1.x - right.p0.x, right.p1.y - right.p0.y};
+  ROAD_TEST_EXPECT(std::hypot(left.p3.x - right.p0.x, left.p3.y - right.p0.y) < 1e-9,
+                   "Bezier split produced a positional gap");
+  ROAD_TEST_EXPECT(std::abs(left_tangent.x * right_tangent.y - left_tangent.y * right_tangent.x) < 1e-9 &&
+                       left_tangent.x * right_tangent.x + left_tangent.y * right_tangent.y > 0.0,
+                   "Bezier split did not preserve tangent continuity");
+  ROAD_TEST_EXPECT(ValidateGraphInvariants(state.graph(), state.derived()).ok,
+                   "Bezier T junction invariants failed");
+  return true;
+}
+
+bool P1_segment_snap_splits_at_bezier_span_boundary(std::string& failure) {
+  RoadState state{};
+  const auto first_span = MakeBezier({0.0, 0.0}, {10.0, 10.0}, {30.0, 10.0}, {40.0, 0.0});
+  const auto second_span = MakeBezier({40.0, 0.0}, {50.0, -10.0}, {70.0, -10.0}, {80.0, 0.0});
+  const Path alignment = MakePath({first_span, second_span});
+  const auto base = state.AddSegment(alignment, 1);
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto boundary_station = PathLength(MakePath({first_span}));
+  ROAD_TEST_EXPECT(boundary_station.ok, boundary_station.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), 1, base.value, boundary_station.value);
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 3, "span-boundary split did not create three segments");
+  for (const auto& segment : state.graph().segments) {
+    const auto length = PathLength(segment.alignment);
+    ROAD_TEST_EXPECT(length.ok && length.value > 0.0, "span-boundary split created a zero-length span");
+  }
+  return true;
+}
+
 bool P1_cross_junction_accepts_opposite_approaches(std::string& failure) {
   RoadState state{};
   const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1);
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto north = state.AddSegmentConnectedToSegment(MakePath({MakeLine({20.0, 0.0}, {20.0, 24.0})}), 1,
-                                                        base.value);
+                                                        base.value, 20.0);
   ROAD_TEST_EXPECT(north.ok, north.error);
   const auto junction_node = state.graph().junctions.front().node_id;
   const auto south = state.AddSegmentConnectedTo(MakePath({MakeLine({20.0, 0.0}, {20.0, -24.0})}), 1,
@@ -507,6 +587,8 @@ int main() {
       {"P1_degree_two_corner_uses_a_curve_without_a_junction", P1_degree_two_corner_uses_a_curve_without_a_junction},
       {"P1_straight_connection_has_no_junction_area", P1_straight_connection_has_no_junction_area},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
+      {"P1_segment_snap_splits_bezier_road_for_t_junction", P1_segment_snap_splits_bezier_road_for_t_junction},
+      {"P1_segment_snap_splits_at_bezier_span_boundary", P1_segment_snap_splits_at_bezier_span_boundary},
       {"P1_cross_junction_accepts_opposite_approaches", P1_cross_junction_accepts_opposite_approaches},
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},

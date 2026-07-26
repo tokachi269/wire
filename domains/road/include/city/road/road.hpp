@@ -50,13 +50,7 @@ struct Result {
   }
 };
 
-struct Primitive {
-  enum class Kind {
-    kLine,
-    kBezier,
-  };
-
-  Kind kind = Kind::kLine;
+struct BezierSpan {
   Vec2d p0{};
   Vec2d p1{};
   Vec2d p2{};
@@ -64,7 +58,7 @@ struct Primitive {
 };
 
 struct Path {
-  std::vector<Primitive> primitives{};
+  std::vector<BezierSpan> spans{};
 };
 
 using RoadNodeId = std::uint64_t;
@@ -267,9 +261,10 @@ struct RoadToolDraft {
   bool supports_bezier_handles = false;
 };
 
-[[nodiscard]] Primitive MakeLine(Vec2d a, Vec2d b);
-[[nodiscard]] Primitive MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3);
-[[nodiscard]] Path MakePath(std::vector<Primitive> primitives);
+[[nodiscard]] BezierSpan MakeLine(Vec2d a, Vec2d b);
+[[nodiscard]] BezierSpan MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3);
+[[nodiscard]] Path MakePath(std::vector<BezierSpan> spans);
+[[nodiscard]] bool IsLinearSpan(const BezierSpan& span);
 [[nodiscard]] RoadToolDraft PreviewRoadToolPath(Vec2d start, Vec2d end, std::optional<Vec2d> handle_a,
                                                 std::optional<Vec2d> handle_b);
 
@@ -290,7 +285,8 @@ public:
                                                             RoadNodeId start_node);
   [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedToSegment(Path alignment,
                                                                    CrossSectionTemplateId section_template,
-                                                                   RoadSegmentId start_segment);
+                                                                   RoadSegmentId start_segment,
+                                                                   double station_m);
   [[nodiscard]] Result<bool> EditSegmentPath(RoadSegmentId segment_id, Path alignment);
   [[nodiscard]] Result<bool> DeleteSegment(RoadSegmentId segment_id);
   [[nodiscard]] Result<CrossSectionTemplateId> AddSectionTemplate(CrossSectionTemplate section_template);

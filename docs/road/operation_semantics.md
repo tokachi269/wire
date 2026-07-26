@@ -19,7 +19,7 @@
 |---|---|---|---|---|---|
 | AddSegment | supported | supported | supported | supported | supported |
 | AddSegmentConnectedTo | validation | gate断面ID一致のみsupported | gate断面ID一致かつdegree 4までsupported | 終端gateがto断面ならsupported | gate断面ID一致のみsupported |
-| AddSegmentConnectedToSegment | validation | 同一断面の直線のみsupported | 同一断面の直線のみsupported | unsupported | 同一断面の直線のみsupported |
+| AddSegmentConnectedToSegment | validation | 同一断面かつ明示`segment_id + station_m`ならsupported | 同一断面かつ明示`segment_id + station_m`ならsupported | unsupported | 同一断面かつ明示`segment_id + station_m`ならsupported |
 | EditSegmentPath | validation | supported | 接続nodeを動かさない範囲のみsupported | StationRef規則で再評価 | owner-local markingを追従 |
 | DeleteSegment | validation | supported | supported (不要junctionを除去) | transition参照を除去 | owned markingを除去 |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
@@ -28,6 +28,8 @@
 
 ## P1 node semantics
 
+- segment途中への接続は`target_segment_id + station_m`を入力とし、alignmentを該当stationで分割する。座標近接から対象segmentやstationを再推測しない。
+- Line / Bezierは入力toolの区別に限定し、正本Pathはcubic Bezier span列へ正規化する。曲線segmentの分割はDe Casteljau分割を使う。
 - degree 2 は `JunctionDefinition` を保存しない。対向する2本は幅を増やさずそのまま連続し、屈曲する2本は同じ断面を保った曲線connectorを派生する。停止線・ゼブラは生成しない。
 - degree 3/4 だけを実交差点として `JunctionDefinition` を保存する。
 - 実交差点の各gate位置は固定距離にしない。接続角と各approachの断面幅から、approach同士が重ならないsetbackを一度だけ決定する。

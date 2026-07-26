@@ -1201,18 +1201,19 @@ public:
 
   val add_segment(const val& input) {
     const auto path = road_path_value(input);
-    if (path.primitives.empty()) {
+    if (path.spans.empty()) {
       return road_result_value(false, "unsupported road primitive", city::road::ErrorKind::kUnsupported);
     }
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
+    const double start_station_m = input["startStationM"].as<double>();
     const bool connect = input["connectToFirstNode"].as<bool>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> result{};
     if (start_segment_id != 0) {
-      result = state_->AddSegmentConnectedToSegment(path, section_template_id, start_segment_id);
+      result = state_->AddSegmentConnectedToSegment(path, section_template_id, start_segment_id, start_station_m);
     } else if (start_node_id != 0) {
       result = state_->AddSegmentConnectedTo(path, section_template_id, start_node_id);
     } else if (connect && !state_->graph().nodes.empty()) {
@@ -1226,20 +1227,21 @@ public:
   val preview_segment(const val& input) const {
     city::road::RoadState trial = *state_;
     const auto path = road_path_value(input);
-    if (path.primitives.empty()) {
+    if (path.spans.empty()) {
       val result = road_result_value(false, "unsupported road primitive", city::road::ErrorKind::kUnsupported);
       result.set("meshes", val::array());
       return result;
     }
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
+    const double start_station_m = input["startStationM"].as<double>();
     const bool connect = input["connectToFirstNode"].as<bool>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> added{};
     if (start_segment_id != 0) {
-      added = trial.AddSegmentConnectedToSegment(path, section_template_id, start_segment_id);
+      added = trial.AddSegmentConnectedToSegment(path, section_template_id, start_segment_id, start_station_m);
     } else if (start_node_id != 0) {
       added = trial.AddSegmentConnectedTo(path, section_template_id, start_node_id);
     } else if (connect && !trial.graph().nodes.empty()) {
@@ -1272,8 +1274,8 @@ public:
     val centerline_segments = val::array();
     for (const auto& segment : graph.segments) {
       const double total = city::road::PathLength(segment.alignment).value;
-      const int piece_count = segment.alignment.primitives.size() == 1 &&
-                                      segment.alignment.primitives.front().kind == city::road::Primitive::Kind::kLine
+      const int piece_count = segment.alignment.spans.size() == 1 &&
+                                      city::road::IsLinearSpan(segment.alignment.spans.front())
                                   ? 1
                                   : std::max(2, static_cast<int>(std::ceil(total / 2.0)));
       for (int piece = 0; piece < piece_count; ++piece) {
@@ -1333,11 +1335,12 @@ public:
     }
     val editable_segments = val::array();
     for (const auto& segment : graph.segments) {
-      if (segment.alignment.primitives.size() != 1) continue;
-      const auto& primitive = segment.alignment.primitives.front();
+      if (segment.alignment.spans.size() != 1) continue;
+      const auto& span = segment.alignment.spans.front();
+      const bool linear = city::road::IsLinearSpan(span);
       val item = val::object();
       item.set("id", static_cast<double>(segment.id));
-      item.set("kind", primitive.kind == city::road::Primitive::Kind::kLine ? "line" : "bezier");
+      item.set("kind", linear ? "line" : "bezier");
       val points = val::array();
       const auto push_point = [&points](city::road::Vec2d point) {
         val value = val::object();
@@ -1345,14 +1348,14 @@ public:
         value.set("y", point.y);
         points.call<void>("push", value);
       };
-      if (primitive.kind == city::road::Primitive::Kind::kLine) {
-        push_point(primitive.p0);
-        push_point(primitive.p1);
+      if (linear) {
+        push_point(span.p0);
+        push_point(span.p3);
       } else {
-        push_point(primitive.p0);
-        push_point(primitive.p1);
-        push_point(primitive.p2);
-        push_point(primitive.p3);
+        push_point(span.p0);
+        push_point(span.p1);
+        push_point(span.p2);
+        push_point(span.p3);
       }
       item.set("points", points);
       editable_segments.call<void>("push", item);

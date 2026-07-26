@@ -630,7 +630,8 @@ describe("viewport tool routing", () => {
       endX: 20,
       endY: 24,
       startNodeId: 0,
-      startSegmentId: 7
+      startSegmentId: 7,
+      startStationM: 20
     }));
   });
 
@@ -652,9 +653,11 @@ describe("viewport tool routing", () => {
       endX: 20,
       endY: 24,
       startNodeId: 0,
-      startSegmentId: 7
+      startSegmentId: 7,
+      startStationM: 20
     }));
     expect(current(store).road.draftStartSegmentId).toBe(0);
+    expect(current(store).road.draftStartStationM).toBe(0);
   });
 
   it("draws a curved road with a Cities-style bend point before the end point", () => {

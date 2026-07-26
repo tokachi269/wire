@@ -1319,6 +1319,7 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
+      startStationM: 0,
       connectToFirstNode: false
     });
 
@@ -1355,6 +1356,7 @@ describe("road wasm smoke", () => {
       handleBY: 8,
       startNodeId: 0,
       startSegmentId: 0,
+      startStationM: 0,
       connectToFirstNode: false
     });
     expect(added.ok, added.error).toBe(true);
@@ -1375,7 +1377,7 @@ describe("road wasm smoke", () => {
     const base = state.addSegment({
       kind: "line", startX: 0, startY: 0, endX: 20, endY: 0,
       handleAX: 6, handleAY: 0, handleBX: 14, handleBY: 0,
-      startNodeId: 0, startSegmentId: 0, connectToFirstNode: false
+      startNodeId: 0, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
     const endpoint = state.scene().nodes.find((node) => Math.abs(node.x - 20) < 1e-6 && Math.abs(node.y) < 1e-6);
@@ -1383,7 +1385,7 @@ describe("road wasm smoke", () => {
     const corner = state.addSegment({
       kind: "line", startX: 20, startY: 0, endX: 20, endY: 24,
       handleAX: 20, handleAY: 8, handleBX: 20, handleBY: 16,
-      startNodeId: endpoint!.id, startSegmentId: 0, connectToFirstNode: false
+      startNodeId: endpoint!.id, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
     });
     expect(corner.ok, corner.error).toBe(true);
     const scene = state.scene();
@@ -1408,6 +1410,7 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
+      startStationM: 0,
       connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
@@ -1424,6 +1427,7 @@ describe("road wasm smoke", () => {
       handleBY: 16,
       startNodeId: 0,
       startSegmentId: baseSegmentId,
+      startStationM: 20,
       connectToFirstNode: false
     });
     expect(branch.ok, branch.error).toBe(true);
@@ -1441,6 +1445,51 @@ describe("road wasm smoke", () => {
     expect(scene.markingMeshes.length).toBeGreaterThanOrEqual(9);
   });
 
+  it("splits a Bezier segment at the explicit centerline station", () => {
+    state.clear();
+    const base = state.addSegment({
+      kind: "bezier",
+      startX: 0,
+      startY: 0,
+      endX: 80,
+      endY: 0,
+      handleAX: 20,
+      handleAY: 10,
+      handleBX: 60,
+      handleBY: 10,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startStationM: 0,
+      connectToFirstNode: false
+    });
+    expect(base.ok, base.error).toBe(true);
+    const centerlines = state.scene().centerlineSegments;
+    const total = centerlines.at(-1)!.endStationM;
+    const target = centerlines.reduce((best, segment) =>
+      Math.abs(segment.startStationM - total * 0.5) < Math.abs(best.startStationM - total * 0.5)
+        ? segment
+        : best
+    );
+    const branch = state.addSegment({
+      kind: "line",
+      startX: target.startX,
+      startY: target.startY,
+      endX: target.startX,
+      endY: target.startY + 30,
+      handleAX: target.startX,
+      handleAY: target.startY + 10,
+      handleBX: target.startX,
+      handleBY: target.startY + 20,
+      startNodeId: 0,
+      startSegmentId: target.id,
+      startStationM: target.startStationM,
+      connectToFirstNode: false
+    });
+    expect(branch.ok, branch.error).toBe(true);
+    expect(state.scene().segmentCount).toBe(3);
+    expect(state.scene().junctionCount).toBe(1);
+  });
+
   it("edits sections and applies P2 transitions and manual markings through wasm", () => {
     state.clear();
     const added = state.addSegment({
@@ -1455,6 +1504,7 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
+      startStationM: 0,
       connectToFirstNode: false,
       sectionTemplateId: 1
     });

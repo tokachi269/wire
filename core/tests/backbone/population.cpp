@@ -515,7 +515,7 @@ bool C735_bundle_template_id_source_guard() {
       "bundle_template_id = BundleKind::",
       "bundle->bundle_template_id == BundleKind::"};
   return std::none_of(paths.begin(), paths.end(), [&](const std::filesystem::path& path) {
-    return source_contains_any(path, banned);
+    return source_contains_any(repo_root() / path, banned);
   });
 }
 

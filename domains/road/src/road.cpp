@@ -1056,6 +1056,10 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
   if (!almost_same(path_start(alignment), node->position)) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "connected segment path does not start at node");
   }
+  if (find_template(graph_, section_template) == nullptr) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation,
+                                       "connected road references a missing section template");
+  }
   const Result<double> length_result = PathLength(alignment);
   if (!length_result.ok) {
     return Result<RoadSegmentId>::Fail(length_result.error_kind, length_result.error);
@@ -1075,6 +1079,21 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
     if (existing.node_a != start_node && existing.node_b != start_node) {
       continue;
     }
+    const Result<double> existing_length = PathLength(existing.alignment);
+    if (!existing_length.ok) {
+      return Result<RoadSegmentId>::Fail(existing_length.error_kind, existing_length.error);
+    }
+    const double endpoint_station = existing.node_a == start_node ? 0.0 : existing_length.value;
+    const Result<CrossSectionTemplate> endpoint_section =
+        evaluate_segment_template(graph_, existing, endpoint_station, existing_length.value);
+    if (!endpoint_section.ok) {
+      return Result<RoadSegmentId>::Fail(endpoint_section.error_kind, endpoint_section.error);
+    }
+    if (endpoint_section.value.id != section_template) {
+      return Result<RoadSegmentId>::Fail(
+          ErrorKind::kUnsupported,
+          "connected road section must match the existing connection gate section");
+    }
     const Vec2d other = existing.node_a == start_node ? path_end(existing.alignment) : path_start(existing.alignment);
     const double angle = angle_deg(sub(other, node->position), new_direction);
     const bool opposite_continuation = angle >= 180.0 - 1e-6;
@@ -1082,31 +1101,33 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
       return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "connected road segment angle is outside P1 range");
     }
   }
-  const Result<RoadSegmentId> added = AddSegment(std::move(alignment), section_template);
+  RoadState trial = *this;
+  const Result<RoadSegmentId> added = trial.AddSegment(std::move(alignment), section_template);
   if (!added.ok) {
     return added;
   }
-  RoadSegment* segment = find_segment(graph_, added.value);
+  RoadSegment* segment = find_segment(trial.graph_, added.value);
   if (segment == nullptr) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kInternal, "new road segment disappeared");
   }
-  graph_.nodes.erase(std::remove_if(graph_.nodes.begin(), graph_.nodes.end(),
+  trial.graph_.nodes.erase(std::remove_if(trial.graph_.nodes.begin(), trial.graph_.nodes.end(),
                                     [segment](const RoadNode& candidate) { return candidate.id == segment->node_a; }),
-                     graph_.nodes.end());
+                     trial.graph_.nodes.end());
   segment->node_a = start_node;
   const std::size_t degree = static_cast<std::size_t>(std::count_if(
-      graph_.segments.begin(), graph_.segments.end(), [start_node](const RoadSegment& item) {
+      trial.graph_.segments.begin(), trial.graph_.segments.end(), [start_node](const RoadSegment& item) {
         return item.node_a == start_node || item.node_b == start_node;
       }));
   if (degree >= 2 &&
-      std::none_of(graph_.junctions.begin(), graph_.junctions.end(),
+      std::none_of(trial.graph_.junctions.begin(), trial.graph_.junctions.end(),
                    [start_node](const JunctionDefinition& item) { return item.node_id == start_node; })) {
-    graph_.junctions.push_back(JunctionDefinition{next_id_++, start_node, 4.0});
+    trial.graph_.junctions.push_back(JunctionDefinition{trial.next_id_++, start_node, 4.0});
   }
-  const Result<bool> rebuilt = RebuildDerived();
+  const Result<bool> rebuilt = trial.RebuildDerived();
   if (!rebuilt.ok) {
     return Result<RoadSegmentId>::Fail(rebuilt.error_kind, rebuilt.error);
   }
+  *this = std::move(trial);
   return added;
 }
 
@@ -1124,6 +1145,10 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(Path alignment,
   if (source->alignment.primitives.size() != 1 ||
       source->alignment.primitives.front().kind != Primitive::Kind::kLine) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "road segment split supports straight segments only");
+  }
+  if (source->section_template != section_template) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported,
+                                       "road segment split requires a matching section template");
   }
   const Vec2d split_point = path_start(alignment);
   const Vec2d source_start = path_start(source->alignment);

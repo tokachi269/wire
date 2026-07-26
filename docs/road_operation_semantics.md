@@ -18,8 +18,8 @@
 | 操作 | empty | isolated | connected | transitioning | marked |
 |---|---|---|---|---|---|
 | AddSegment | supported | supported | supported | supported | supported |
-| AddSegmentConnectedTo | validation | supported | supported (degree 4まで) | supported | supported |
-| AddSegmentConnectedToSegment | validation | 直線のみsupported | 直線のみsupported | unsupported | supported |
+| AddSegmentConnectedTo | validation | gate断面ID一致のみsupported | gate断面ID一致かつdegree 4までsupported | 終端gateがto断面ならsupported | gate断面ID一致のみsupported |
+| AddSegmentConnectedToSegment | validation | 同一断面の直線のみsupported | 同一断面の直線のみsupported | unsupported | 同一断面の直線のみsupported |
 | EditSegmentPath | validation | supported | 接続nodeを動かさない範囲のみsupported | StationRef規則で再評価 | owner-local markingを追従 |
 | DeleteSegment | validation | supported | supported (不要junctionを除去) | transition参照を除去 | owned markingを除去 |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
@@ -34,6 +34,7 @@
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge のいずれか。
 - element対応は ID で行う。出現は `TaperIn`、消滅は `TaperOut` または `EndCap` を明示する。
 - 1 segmentに同時に接続できる transition は1個。短距離多重transitionはP2非対象。
+- 異なる断面をnodeへ直接接続しない。既存approachの終端gateをtransitionの`to_template`まで評価し、追加segmentの断面IDと一致した場合だけ接続する。
 
 ## P2 marking semantics
 

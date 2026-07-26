@@ -396,6 +396,37 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   return true;
 }
 
+bool P2_requires_transition_for_mixed_section_connection(std::string& failure) {
+  {
+    RoadState state{};
+    const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1);
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const auto endpoint = state.graph().segments.front().node_b;
+    const auto direct = state.AddSegmentConnectedTo(
+        MakePath({MakeLine({60.0, 0.0}, {60.0, 20.0})}), 2, endpoint);
+    ROAD_TEST_EXPECT(!direct.ok && direct.error_kind == ErrorKind::kUnsupported,
+                     "P2 accepted a mixed-section node connection without a transition");
+  }
+
+  {
+    RoadState state{};
+    const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1);
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    SectionTransition transition{};
+    transition.to_template = 2;
+    transition.start = StationRef{StationRefKind::kFromEnd, 20.0};
+    transition.end = StationRef{StationRefKind::kFromEnd, 0.0};
+    transition.rules = {SectionTransitionRule{35, TransitionAction::kTaperIn}};
+    const auto transition_id = state.AddTransitionToSegment(base.value, transition);
+    ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
+    const auto endpoint = state.graph().segments.front().node_b;
+    const auto connected = state.AddSegmentConnectedTo(
+        MakePath({MakeLine({60.0, 0.0}, {60.0, 20.0})}), 2, endpoint);
+    ROAD_TEST_EXPECT(connected.ok, connected.error);
+  }
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -440,6 +471,7 @@ int main() {
       {"P1_cross_junction_accepts_opposite_approaches", P1_cross_junction_accepts_opposite_approaches},
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
+      {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

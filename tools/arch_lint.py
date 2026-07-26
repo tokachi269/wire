@@ -7,6 +7,8 @@ import re
 import sys
 from pathlib import Path, PurePosixPath
 
+from road_arch_lint import check_road_architecture
+
 
 def rel(path: Path, root: Path) -> str:
     return path.resolve().relative_to(root.resolve()).as_posix()
@@ -271,6 +273,7 @@ def main() -> int:
 
     errors.extend(check_architecture_documents(root))
     errors.extend(check_backbone_semantics_coverage(root))
+    errors.extend(check_road_architecture(root))
 
     if errors:
         for error in errors:

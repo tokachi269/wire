@@ -1,7 +1,15 @@
-# Road operation semantics (P0-P2)
+# Road operation semantics (P0-P2 prototype scenarios)
 
 `city::road` の supported scenario を操作と状態の組で固定する。
 表にない組み合わせは推測せず `unsupported` とする。
+この表のscenario通過はarchitecture migration完了を意味しない。各public operationの実装契約は次で固定する。
+
+```text
+Request -> Preflight -> OperationPlan -> trial Apply -> single Build -> Validate -> Commit
+```
+
+失敗時はauthoritative bytes、derived hash、next ID、inspection / query結果を一切変更しない。
+public operationから別public operationを呼ばない。
 
 ## 状態
 
@@ -9,7 +17,7 @@
 |---|---|
 | empty | segment がない |
 | isolated | 接続されていない segment |
-| connected | node を共有する同一断面 segment。degree 2 は単純接続、degree 3/4 は実交差点 |
+| connected | node IDを共有する同一断面segment。connection kindはbuild派生で保存しない |
 | transitioning | segment が 1 個の SectionTransition を参照する |
 | marked | segment が ManualLineMarking / ManualAreaMarking を所有する |
 
@@ -20,7 +28,8 @@
 | AddSegment | supported | supported | supported | supported | supported |
 | AddSegmentConnectedTo | validation | gate断面ID一致のみsupported | gate断面ID一致かつdegree 4までsupported | 終端gateがto断面ならsupported | gate断面ID一致のみsupported |
 | AddSegmentConnectedToSegment | validation | 同一断面かつ明示`segment_id + station_m`ならsupported | 同一断面かつ明示`segment_id + station_m`ならsupported | unsupported | 同一断面かつ明示`segment_id + station_m`ならsupported |
-| EditSegmentPath | validation | supported | 接続nodeを動かさない範囲のみsupported | StationRef規則で再評価 | owner-local markingを追従 |
+| EditSegmentShape | validation | supported | node位置を変えずshapeだけ変更 | StationRef規則で再評価 | owner-local markingを追従 |
+| MoveNode | validation | endpoint nodeを移動 | 接続全segmentを再導出 | StationRef規則で再評価 | owner-local markingを追従 |
 | DeleteSegment | validation | supported | supported (不要junctionを除去) | transition参照を除去 | owned markingを除去 |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
 | AttachSectionTransition | validation | supported | supported | replace supported | supported |
@@ -29,9 +38,10 @@
 ## P1 node semantics
 
 - segment途中への接続は`target_segment_id + station_m`を入力とし、alignmentを該当stationで分割する。座標近接から対象segmentやstationを再推測しない。
-- Line / Bezierは入力toolの区別に限定し、正本Pathはcubic Bezier span列へ正規化する。曲線segmentの分割はDe Casteljau分割を使う。
-- degree 2 は `JunctionDefinition` を保存しない。対向する2本は幅を増やさずそのまま連続し、屈曲する2本は同じ断面を保った曲線connectorを派生する。停止線・ゼブラは生成しない。
-- degree 3/4 だけを実交差点として `JunctionDefinition` を保存する。
+- Line / Bezierは入力toolの区別に限定し、正本はendpointを含まない`SegmentShape`、完全Pathは派生`CanonicalAlignment`とする。曲線segmentの分割はDe Casteljau分割を使う。
+- degree 2 の自動decisionはPassThroughまたはCorner。対向する2本は幅を増やさず連続し、屈曲する2本は同じ断面を保った曲線connectorを派生する。停止線・ゼブラは生成しない。
+- degree 3/4 の自動decisionは対応範囲ならJunction。自動junctionの存在は保存しない。
+- ユーザーが明示した場合だけ`NodeConnectionPolicyOverride`を保存する。overrideを削除するとAutoへ戻る。
 - 実交差点の各gate位置は固定距離にしない。接続角と各approachの断面幅から、approach同士が重ならないsetbackを一度だけ決定する。
 - 実交差点はcarriagewayだけでなく、gate断面のsidewalkとcurbを隣接approach間へ接続する。
 - 交差点cornerとdegree 2の屈曲connectorは、gate接線を共有するBezier形状として派生する。segment側とconnector側で接線を再解釈しない。

@@ -15,6 +15,7 @@
   6. 「操作×状態の意味論表」を維持し、未定義セルは実装禁止(unsupported)
   7. テストはfail-first・理由付き失敗メッセージ・seed付きfuzz+不変量検査・skipを通過と数えない
 - wireの反省: 要件の意味論を決めずに実装が先行して手戻りが大きかった/削除操作を後回しにした/投機的な型を先行させて死にデータ化した。本計画はこれらを初日から避ける。
+- P0-P2 testはscenario coverage、RS0-RS8はarchitecture準拠の証拠として分離する。RS0-RS8は完了済みであり、今後もUI変更は明示要件なしに行わない。
 
 ## 1. 目的と品質バー
 
@@ -27,13 +28,13 @@
 ## 2. 設計原則
 
 1. **挙動は段階導入、先に固定するのは契約であって将来の全スキーマではない。**
-   - 初期に固定する: 正本/派生の所有、ID参照、接続境界、導出方向、保存versionとmigration方針
+   - 初期に固定する: 正本/派生の所有、ID参照、接続境界、導出方向、保存version方針
    - 初期に固定しない: 消費者のいない将来フィールド、未実装機能のスロット、用途が未確定な専用型
-   - 将来の正当なスキーマ変更はversion migrationで扱う
+   - RS7では旧prototype versionをrejectしmigrationしない。新architecture baseline確立後の将来versionだけ明示migrationを検討できる
 2. **決定者一箇所。** 断面評価の結果(境界・外周・アンカー・接続口)を、路面・白線・交差点・地面マスク・将来の車両経路が同一テーブルから消費する。各生成器が独自に幅や高さを再計算しない。
 3. **意味モデルと描画メッシュを分ける。** 車線・歩道・分離帯などは意味上別要素として保持するが、同じ材質・連続面なら描画メッシュは結合してよい。
 4. **自動生成物と手動正本を分ける。** 自動中央線・外側線・交差点面は保存しない。ユーザーが置いた自由線・ゼブラ・広場などは正本として保存する。
-5. **専用型を増やしすぎない。** 曲線表現はroad内の共通Pathを使う。ただし所有者・座標空間・用途属性は参照側が持つ。異なる所有や意味を無理に一つの正本型へ統合しない。
+5. **専用型を増やしすぎない。** SegmentShape、CanonicalAlignment、manual marking Pathはownerと保存性が異なるため分けるが、各型の純粋Bezier演算はroad内で共有する。
 
 ## 3. wireとの構造的な違い
 
@@ -46,21 +47,23 @@
 
 backboneの思想(正本グラフ→一方向導出、接続は操作時に決定して記録、再生成はreconcile)は引き継ぐ。構造・型は引き継がない。
 
-## 4. road内共通プリミティブ: Path
+## 4. road内共通曲線: SegmentShapeとCanonicalAlignment
 
 ```text
-Path = 順序付きcubic Bezier span列
+SegmentShape = endpoint handle vector + internal knot / handle
+CanonicalAlignment = RoadNode.position + SegmentShapeから導出するcubic Bezier span列
 ```
 
 - 初期配置はroadモジュール内。別の実消費者が現れ、APIが安定してからfoundationへの抽出を判断する。
-- Line / Bezierは入力tool modeであり、正本のkindではない。Line入力は1/3、2/3 control pointを持つcubic Bezierへ操作境界で正規化する。
-- 保存Pathは原則として**所有者ローカルの2D曲線**。segmentの平面線形、Areaの縁、手動マーキング中心線などに使う。
-- 評価は弧長s。Path自体は道路の高さ・roll・world-upフレームを決めない。
+- `RoadNode.position`がsegment endpoint位置の唯一の正本である。`RoadSegment`はendpoint座標や完全Pathを保存しない。
+- Line / Bezierは入力tool modeであり、正本のkindではない。Line入力はoperation planで直線`SegmentShape`へ正規化する。
+- ManualMarking等の自由Pathは所有者ローカルの2D曲線として保存できるが、segmentのCanonicalAlignmentとは別ownerである。
+- 評価は弧長s。CanonicalAlignment自体は道路の高さ・roll・world-upフレームを決めない。
 - 3D位置と姿勢は所有者の評価器が決める。
 
 ```text
 RoadSurfaceEvaluator
-= horizontal Path
+= CanonicalAlignment
 + phase導入後のvertical profile
 + phase導入後のroll profile
 + cross-section evaluation
@@ -81,7 +84,8 @@ RoadSurfaceEvaluator
 │    ← 接続点・端点のみ
 │
 ├─ RoadSegment
-│    { id, node_a, node_b, alignment: Path, section_timeline }
+│    { id, node_a, node_b, shape: SegmentShape, section_timeline }
+│    ← endpoint座標は持たない
 │
 ├─ SectionTimeline
 │    { 区間ごとのCrossSectionTemplate参照、必要なphaseでSectionTransition参照 }
@@ -97,9 +101,9 @@ RoadSurfaceEvaluator
 ├─ SectionTransition                 ← P2で追加
 │    { from/to、station範囲、要素対応表、anchor、各要素の開始/終了規則 }
 │
-├─ JunctionDefinition                ← P1で追加
-│    { node_id、approachごとの接続設定、corner radius、許可されたoverride }
-│    ← 自動交差点面そのものは保存しない
+├─ NodeConnectionPolicyOverride      ← ユーザー指定時だけ保存
+│    { node_id、Auto / ForcePassThrough / ForceCorner / ForceJunction、許可されたpolicy値 }
+│    ← 自動NodeConnectionDecisionと自動交差点の存在は保存しない
 │
 ├─ UserPavedArea                     ← P5で追加
 │    { id、owner frame、outer、holes、surface style、connection gates }
@@ -178,14 +182,14 @@ segment側とjunction側が別々に幅・高さ・頂点を計算してはな�
 
 ### 6.2 自動面とユーザー面
 
-- `JunctionArea`は`JunctionDefinition + ConnectionGate[]`から導出する。正本として保存しない。
+- `JunctionArea`は`NodeConnectionDecision + ConnectionGate[]`から導出する。正本として保存しない。
 - `UserPavedArea`はユーザー入力そのものなので正本として保存する。
 - 自動交差点とユーザー広場を同じ正本型として扱わない。
 
 ### 6.3 自動マーキングと手動マーキング
 
 - 中央線・車線境界線・外側線などは断面要素間のBoundary roleとMarkingRuleから導出する。
-- 停止線・ゼブラはP1ではJunctionDefinitionから自動導出してよい。
+- 停止線・ゼブラはP1ではNodeConnectionDecisionとConnectionGateから自動導出してよい。
 - ユーザーが編集・追加した自由線やAreaMarkingだけをManualMarkingとして保存する。
 - MarkingMeshは路面テクスチャへ焼き込まず、リボンメッシュ、デカール、シェーダー等の描画方式から独立した意味データを使う。
 
@@ -244,13 +248,13 @@ StationRef
 
 | 要件 | 置き場所 |
 |---|---|
-| 1 segment内で左右カーブ | `RoadSegment.alignment = Path` |
+| 1 segment内で左右カーブ | `RoadSegment.shape`から`CanonicalAlignment`を導出 |
 | 歩道・車道・分離帯・側溝 | `CrossSectionTemplate.surface_chain` |
 | curb・段差・丸み | `BoundaryProfile` |
 | 高架壁・遮音壁 | `edge_structures` |
 | 高架床版側面・裏面・箱桁 | `structural_shells` |
 | lane増減・歩道消滅 | `SectionTransition` |
-| 異なる道路と交差点の接続 | `ConnectionGate + JunctionDefinition` |
+| 異なる道路と交差点の接続 | `NodeConnectionDecision + ConnectionGate` |
 | 自動中央線・外側線 | Boundary roleから導出する`AutoMarking` |
 | 手動白線・自由線 | owner付き`ManualLineMarking` |
 | ゼブラ、斜め交差点で縞を独立方向に保つ | `ManualAreaMarking`または自動AreaMarkingのowner-local frame |
@@ -277,7 +281,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 
 ## 11. フェーズ計画(挙動の段階導入)
 
-### P0 — 歩ける骨格
+### P0 prototype scenario — 歩ける骨格
 
 - road内Pathによる単独曲線segment
 - 固定断面テンプレ1種(日本の一般的な都市部2車線):
@@ -292,18 +296,18 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 - 決定論テスト、不変量テスト、自己交差reject
 - 交差点なし。既存segmentとの重なりはP0では判定しない。接続も警告も発生させず、独立segmentとして生成する
 
-### P1 — 同一断面の接続
+### P1 prototype scenario — 同一断面の接続
 
 - ConnectionGate
 - 既存nodeへの接続
 - degree 2は単純接続として扱い、直進は幅を持たず、屈曲は同一断面のBezier connectorを派生する
 - degree 3/4の同一CrossSectionTemplate接続をT字・十字の実交差点として扱う
-- JunctionDefinitionからJunctionAreaを自動導出
+- NodeConnectionDecisionからJunctionAreaを自動導出し、junctionの存在を保存しない
 - 接続角度45〜135度、最小segment長8m、corner radius初期値4m。gate setbackは断面幅と接続角から拡張する
 - 実交差点にだけ停止線、ゼブラ1種を派生する
 - segment/gate/junctionの隙間・法線・所有重複を不変量検査
 
-### P2 — 断面の可変と手動マーキング
+### P2 prototype scenario — 断面の可変と手動マーキング
 
 - CrossSectionTemplate編集の正本化
 - StationRefの意味論と実装
@@ -349,7 +353,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 - LanePath・右左折経路: 交通対応時の導出物。専用正本・専用曲線型を先に作らない
 - アウトインアウト: 道路境界を動かす場合と車両経路だけを動かす場合を分離。両方とも実装保留
 - BoundaryProfileの丸み種別: P0は必要な固定断面だけ。未使用join欄は置かず、丸み編集を実装するphaseで追加
-- ApproachOverride: P1はcorner radiusのみ。未使用override群を先に定義しない
+- NodeConnectionPolicyOverride: Auto / ForcePassThrough / ForceCorner / ForceJunction以外の未使用overrideを先に定義しない
 - 高架壁⇔地上curbの自動変換: 明示的な構造切替がなければunsupported
 - 個別モデル・テクスチャ: 道路形状・接続契約の後。初期文書で網羅しない
 
@@ -388,7 +392,7 @@ foundation変更時は両ドメインのテストを通す。namespaceは`city::
 - 部分更新reconcileの汎用化
 - Junction、SectionTransition、ConnectionGate等の道路概念
 
-`Path(cubic Bezier span列)`は新規かつ初期消費者がroadだけなので、まずroad内に置く。別の実消費者が現れ、APIが収束した場合のみfoundationへ抽出する。
+`SegmentShape`と`CanonicalAlignment`は新規かつ初期消費者がroadだけなので、まずroad内に置く。別の実消費者が現れ、APIが収束した場合のみfoundationへ抽出する。
 
 viewerは共有前提(同一Svelte/threeシェル、bridge様式、workspace永続)。ドメイン別なのはscene部分と操作パネル。
 
@@ -399,7 +403,8 @@ wireとの実行時結合は`RoadsideGuide`一本のみ。
 | 操作 \ 状態 | 空 | 既存segmentあり | 自己交差入力 | 既存segmentと重なる |
 |---|---|---|---|---|
 | 道路を引く | 生成 | 独立生成(接続なし=P0) | unsupported | 判定しない。独立生成 |
-| 点/曲線を編集 | - | 再生成 | unsupported | 判定しない。再生成 |
+| nodeを移動 | - | 接続segmentを再導出 | validation | 判定しない。再導出 |
+| segment shapeを編集 | - | node位置を維持して再導出 | unsupported | 判定しない。再導出 |
 | segment削除 | - | 定義済み(P0実装) | - | - |
 | save/load | 空を復元 | 正本bit一致 | - | - |
 
@@ -408,7 +413,8 @@ P1以降、接続・交差・Area・遷移のセルを埋めてから実装す�
 ## 15. P0不変量
 
 - 全IDが一意で参照先が存在する
-- Path span列が連続し、弧長評価が有限
+- CanonicalAlignment span列が連続し、弧長評価が有限
+- CanonicalAlignmentの両端が参照RoadNode.positionと一致
 - 断面評価のboundary順序が横断方向に一貫する
 - 生成メッシュにNaN/Inf、範囲外index、ゼロ面積triangleがない
 - 同一正本からの再生成が決定論的

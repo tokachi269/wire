@@ -1,10 +1,16 @@
 #include "city/road/road.hpp"
 
+#include "build/build_context.hpp"
+#include "materialization/materialize.hpp"
+#include "operations/operation_plan.hpp"
+#include "persistence/schema.hpp"
+
 #include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
 #include <iterator>
+#include <iomanip>
 #include <limits>
 #include <locale>
 #include <numbers>
@@ -242,10 +248,11 @@ struct PathSplit {
   return it == graph.nodes.end() ? nullptr : &*it;
 }
 
-[[nodiscard]] const JunctionDefinition* find_junction(const SavedRoadGraph& graph, RoadNodeId node_id) {
-  const auto it = std::find_if(graph.junctions.begin(), graph.junctions.end(),
-                               [node_id](const JunctionDefinition& item) { return item.node_id == node_id; });
-  return it == graph.junctions.end() ? nullptr : &*it;
+[[nodiscard]] const NodeConnectionPolicyOverride* find_connection_policy_override(const SavedRoadGraph& graph,
+                                                                                   RoadNodeId node_id) {
+  const auto it = std::find_if(graph.connection_policy_overrides.begin(), graph.connection_policy_overrides.end(),
+                               [node_id](const auto& item) { return item.node_id == node_id; });
+  return it == graph.connection_policy_overrides.end() ? nullptr : &*it;
 }
 
 [[nodiscard]] RoadNode* find_node(SavedRoadGraph& graph, RoadNodeId id) {
@@ -473,19 +480,21 @@ struct PathSplit {
   return stations;
 }
 
-[[nodiscard]] std::optional<Vec2d> endpoint_outward_tangent(const RoadSegment& segment, RoadNodeId node_id) {
-  const Result<double> length = PathLength(segment.alignment);
+[[nodiscard]] std::optional<Vec2d> endpoint_outward_tangent(const RoadSegment& segment,
+                                                            const Path& alignment,
+                                                            RoadNodeId node_id) {
+  const Result<double> length = PathLength(alignment);
   if (!length.ok) return std::nullopt;
   const double delta = std::min(0.1, length.value);
   if (node_id == segment.node_a) {
-    const auto endpoint = EvaluatePath(segment.alignment, 0.0);
-    const auto inward = EvaluatePath(segment.alignment, delta);
+    const auto endpoint = EvaluatePath(alignment, 0.0);
+    const auto inward = EvaluatePath(alignment, delta);
     if (!endpoint.ok || !inward.ok) return std::nullopt;
     return normalize(sub(inward.value, endpoint.value));
   }
   if (node_id == segment.node_b) {
-    const auto endpoint = EvaluatePath(segment.alignment, length.value);
-    const auto inward = EvaluatePath(segment.alignment, length.value - delta);
+    const auto endpoint = EvaluatePath(alignment, length.value);
+    const auto inward = EvaluatePath(alignment, length.value - delta);
     if (!endpoint.ok || !inward.ok) return std::nullopt;
     return normalize(sub(inward.value, endpoint.value));
   }
@@ -502,8 +511,9 @@ struct PathSplit {
 
 [[nodiscard]] double approach_outer_half_width(const SavedRoadGraph& graph,
                                                const RoadSegment& segment,
+                                               const Path& alignment,
                                                RoadNodeId node_id) {
-  const auto length = PathLength(segment.alignment);
+  const auto length = PathLength(alignment);
   if (!length.ok) return 0.0;
   const double station = node_id == segment.node_a ? 0.0 : length.value;
   const auto section = evaluate_segment_section(graph, segment, station, length.value);
@@ -511,49 +521,74 @@ struct PathSplit {
   return std::max(std::abs(section.value.front().lateral_m), std::abs(section.value.back().lateral_m));
 }
 
-[[nodiscard]] bool is_straight_connection(const SavedRoadGraph& graph, RoadNodeId node_id) {
+[[nodiscard]] bool is_straight_connection(const SavedRoadGraph& graph,
+                                          const DerivedRoad& derived,
+                                          RoadNodeId node_id) {
   const auto approaches = node_approaches(graph, node_id);
   if (approaches.size() != 2) return false;
-  const auto a = endpoint_outward_tangent(*approaches[0], node_id);
-  const auto b = endpoint_outward_tangent(*approaches[1], node_id);
+  const Path* path_a = FindCanonicalAlignment(derived, approaches[0]->id);
+  const Path* path_b = FindCanonicalAlignment(derived, approaches[1]->id);
+  if (path_a == nullptr || path_b == nullptr) return false;
+  const auto a = endpoint_outward_tangent(*approaches[0], *path_a, node_id);
+  const auto b = endpoint_outward_tangent(*approaches[1], *path_b, node_id);
   return a.has_value() && b.has_value() && dot(*a, *b) <= -std::cos(5.0 * std::numbers::pi / 180.0);
 }
 
+[[nodiscard]] const build::NodeConnectionDecision* find_connection_decision(
+    const std::vector<build::NodeConnectionDecision>& decisions, RoadNodeId node_id) {
+  const auto found = std::find_if(decisions.begin(), decisions.end(), [node_id](const auto& decision) {
+    return decision.node_id == node_id;
+  });
+  return found == decisions.end() ? nullptr : &*found;
+}
+
 [[nodiscard]] double node_gate_setback(const SavedRoadGraph& graph,
+                                       const DerivedRoad& derived,
+                                       build::NodeConnectionKind connection_kind,
                                        const RoadSegment& segment,
+                                       const Path& alignment,
                                        RoadNodeId node_id) {
   const auto approaches = node_approaches(graph, node_id);
-  if (approaches.size() < 2 || (approaches.size() == 2 && is_straight_connection(graph, node_id))) return 0.0;
-  const auto tangent = endpoint_outward_tangent(segment, node_id);
+  if (connection_kind == build::NodeConnectionKind::kPassThrough) return 0.0;
+  const auto tangent = endpoint_outward_tangent(segment, alignment, node_id);
   if (!tangent.has_value()) return 0.0;
-  if (approaches.size() == 2) {
+  if (connection_kind == build::NodeConnectionKind::kCorner) {
     const RoadSegment* other = approaches[0] == &segment ? approaches[1] : approaches[0];
-    const auto other_tangent = endpoint_outward_tangent(*other, node_id);
+    const Path* other_path = FindCanonicalAlignment(derived, other->id);
+    if (other_path == nullptr) return 0.0;
+    const auto other_tangent = endpoint_outward_tangent(*other, *other_path, node_id);
     if (!other_tangent.has_value()) return 0.0;
     const double outward_angle = std::acos(std::clamp(dot(*tangent, *other_tangent), -1.0, 1.0));
     const double turn_angle = std::numbers::pi - outward_angle;
     return 4.0 * std::tan(turn_angle * 0.5);
   }
-  const JunctionDefinition* junction = find_junction(graph, node_id);
-  double setback = junction == nullptr ? 0.0 : junction->corner_radius_m;
+  double setback = 4.0;
   for (const RoadSegment* other : approaches) {
     if (other == &segment) continue;
-    const auto other_tangent = endpoint_outward_tangent(*other, node_id);
+    const Path* other_path = FindCanonicalAlignment(derived, other->id);
+    if (other_path == nullptr) continue;
+    const auto other_tangent = endpoint_outward_tangent(*other, *other_path, node_id);
     if (!other_tangent.has_value()) continue;
     const double sine = std::abs(cross(*tangent, *other_tangent));
     if (sine <= 1e-3) continue;
-    setback = std::max(setback, approach_outer_half_width(graph, *other, node_id) / sine);
+    setback = std::max(setback, approach_outer_half_width(graph, *other, *other_path, node_id) / sine);
   }
   return setback;
 }
 
 [[nodiscard]] std::vector<double> stations_for_segment_mesh(const SavedRoadGraph& graph,
-                                                            const RoadSegment& segment) {
-  const Result<double> length_result = PathLength(segment.alignment);
+                                                            const DerivedRoad& derived,
+                                                            const std::vector<build::NodeConnectionDecision>& decisions,
+                                                            const RoadSegment& segment,
+                                                            const Path& alignment) {
+  const Result<double> length_result = PathLength(alignment);
   if (!length_result.ok) return {};
   const double total = length_result.value;
-  const double start = node_gate_setback(graph, segment, segment.node_a);
-  const double end = total - node_gate_setback(graph, segment, segment.node_b);
+  const auto* start_decision = find_connection_decision(decisions, segment.node_a);
+  const auto* end_decision = find_connection_decision(decisions, segment.node_b);
+  if (start_decision == nullptr || end_decision == nullptr) return {};
+  const double start = node_gate_setback(graph, derived, start_decision->kind, segment, alignment, segment.node_a);
+  const double end = total - node_gate_setback(graph, derived, end_decision->kind, segment, alignment, segment.node_b);
   if (end < start - kEpsilon) return {};
   if (end - start <= kEpsilon) return {start};
   const int count = std::max(1, static_cast<int>(std::ceil((end - start) / kSampleStepM)));
@@ -588,132 +623,6 @@ struct PathSplit {
   return normalize(sub(after.value, before.value));
 }
 
-[[nodiscard]] std::vector<Mesh> build_surface_meshes(const SavedRoadGraph& graph, const RoadSegment& segment) {
-  const std::vector<double> stations = stations_for_segment_mesh(graph, segment);
-  if (stations.empty()) {
-    return {};
-  }
-  const double total = PathLength(segment.alignment).value;
-  std::uint32_t width = 0;
-  std::vector<Vec3d> vertices{};
-  std::vector<std::string> materials{};
-  for (double station : stations) {
-    const auto section = evaluate_segment_section(graph, segment, station, total);
-    const auto section_template = evaluate_segment_template(graph, segment, station, total);
-    const Result<Vec2d> center = EvaluatePath(segment.alignment, station);
-    const std::optional<Vec2d> tangent = path_tangent(segment.alignment, station, total);
-    if (!section.ok || !section_template.ok || section.value.size() < 2 || !center.ok || !tangent.has_value()) {
-      return {};
-    }
-    const std::vector<std::string> row_materials = surface_materials(section_template.value);
-    if (row_materials.size() + 1 != section.value.size()) return {};
-    if (materials.empty()) materials = row_materials;
-    if (materials != row_materials) return {};
-    if (width == 0) {
-      width = static_cast<std::uint32_t>(section.value.size());
-    } else if (width != section.value.size()) {
-      return {};
-    }
-    const Vec2d right{-tangent->y, tangent->x};
-    for (const SectionBoundarySample& boundary : section.value) {
-      const Vec2d p = add(center.value, mul(right, boundary.lateral_m));
-      vertices.push_back({p.x, p.y, boundary.height_m});
-    }
-  }
-  std::vector<Mesh> meshes{};
-  for (const std::string& material : materials) {
-    if (std::any_of(meshes.begin(), meshes.end(), [&material](const Mesh& mesh) { return mesh.material == material; })) {
-      continue;
-    }
-    Mesh mesh{};
-    mesh.owner_segment_id = segment.id;
-    mesh.material = material;
-    mesh.vertices = vertices;
-    for (std::uint32_t row = 0; row + 1 < stations.size(); ++row) {
-      for (std::uint32_t col = 0; col < materials.size(); ++col) {
-        if (materials[col] != material) continue;
-        const std::uint32_t a = row * width + col;
-        const std::uint32_t b = a + 1;
-        const std::uint32_t c = (row + 1) * width + col;
-        const std::uint32_t d = c + 1;
-        mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
-      }
-    }
-    meshes.push_back(std::move(mesh));
-  }
-  return meshes;
-}
-
-[[nodiscard]] TerrainMaskPolygon build_terrain_mask(const SavedRoadGraph& graph, const RoadSegment& segment) {
-  TerrainMaskPolygon mask{};
-  mask.segment_id = segment.id;
-  const std::vector<double> stations = stations_for_segment_mesh(graph, segment);
-  if (stations.empty()) {
-    return mask;
-  }
-  const double total = PathLength(segment.alignment).value;
-  std::vector<Vec2d> right_side{};
-  std::vector<Vec2d> left_side{};
-  for (double station : stations) {
-    const auto section = evaluate_segment_section(graph, segment, station, total);
-    const Result<Vec2d> center = EvaluatePath(segment.alignment, station);
-    const std::optional<Vec2d> tangent = path_tangent(segment.alignment, station, total);
-    if (!section.ok || section.value.size() < 2 || !center.ok || !tangent.has_value()) {
-      return {};
-    }
-    const Vec2d lateral{-tangent->y, tangent->x};
-    left_side.push_back(add(center.value, mul(lateral, section.value.front().lateral_m)));
-    right_side.push_back(add(center.value, mul(lateral, section.value.back().lateral_m)));
-  }
-  mask.points = left_side;
-  for (auto it = right_side.rbegin(); it != right_side.rend(); ++it) {
-    mask.points.push_back(*it);
-  }
-  return mask;
-}
-
-[[nodiscard]] Mesh build_marking_mesh(const SavedRoadGraph& graph, const RoadSegment& segment) {
-  Mesh mesh{};
-  const std::vector<double> stations = stations_for_segment_mesh(graph, segment);
-  if (stations.empty()) {
-    return mesh;
-  }
-  const double total = PathLength(segment.alignment).value;
-  const auto first_section = evaluate_segment_section(graph, segment, stations.front(), total);
-  if (!first_section.ok) {
-    return mesh;
-  }
-  for (std::size_t boundary_index = 0; boundary_index < first_section.value.size(); ++boundary_index) {
-    const MarkingRule rule = first_section.value[boundary_index].marking_rule;
-    if (rule == MarkingRule::kNone) continue;
-    const double half_width = rule == MarkingRule::kCenterLine ? 0.06 : 0.05;
-    const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
-    for (double station : stations) {
-      const auto section = evaluate_segment_section(graph, segment, station, total);
-      const Result<Vec2d> center = EvaluatePath(segment.alignment, station);
-      const std::optional<Vec2d> tangent = path_tangent(segment.alignment, station, total);
-      if (!section.ok || boundary_index >= section.value.size() || !center.ok || !tangent.has_value()) {
-        return {};
-      }
-      const SectionBoundarySample& boundary = section.value[boundary_index];
-      const Vec2d lateral{-tangent->y, tangent->x};
-      const Vec2d a = add(center.value, mul(lateral, boundary.lateral_m - half_width));
-      const Vec2d b = add(center.value, mul(lateral, boundary.lateral_m + half_width));
-      mesh.vertices.push_back({a.x, a.y, boundary.height_m + 0.02});
-      mesh.vertices.push_back({b.x, b.y, boundary.height_m + 0.02});
-    }
-    const std::uint32_t row_count = static_cast<std::uint32_t>(stations.size());
-    for (std::uint32_t row = 0; row + 1 < row_count; ++row) {
-      const std::uint32_t a = base + row * 2;
-      const std::uint32_t b = a + 1;
-      const std::uint32_t c = a + 2;
-      const std::uint32_t d = a + 3;
-      mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
-    }
-  }
-  return mesh;
-}
-
 [[nodiscard]] double section_surface_height(const std::vector<SectionBoundarySample>& boundaries,
                                             double lateral_m) {
   if (boundaries.empty()) return 0.0;
@@ -731,307 +640,18 @@ struct PathSplit {
 
 [[nodiscard]] std::optional<Vec3d> owner_local_point(const SavedRoadGraph& graph,
                                                       const RoadSegment& owner,
+                                                      const Path& alignment,
                                                       Vec2d local,
                                                       double z_offset) {
-  const auto total_result = PathLength(owner.alignment);
+  const auto total_result = PathLength(alignment);
   if (!total_result.ok || local.x < 0.0 || local.x > total_result.value) return std::nullopt;
-  const auto center = EvaluatePath(owner.alignment, local.x);
-  const auto tangent = path_tangent(owner.alignment, local.x, total_result.value);
+  const auto center = EvaluatePath(alignment, local.x);
+  const auto tangent = path_tangent(alignment, local.x, total_result.value);
   const auto section = evaluate_segment_section(graph, owner, local.x, total_result.value);
   if (!center.ok || !tangent.has_value() || !section.ok) return std::nullopt;
   const Vec2d lateral{-tangent->y, tangent->x};
   const Vec2d world = add(center.value, mul(lateral, local.y));
   return Vec3d{world.x, world.y, section_surface_height(section.value, local.y) + z_offset};
-}
-
-[[nodiscard]] Mesh build_manual_line_mesh(const SavedRoadGraph& graph,
-                                          const RoadSegment& owner,
-                                          const ManualLineMarking& marking) {
-  Mesh mesh{};
-  const std::vector<Vec2d> points = FlattenPath(marking.path);
-  constexpr double half_width = 0.05;
-  for (std::size_t i = 0; i < points.size(); ++i) {
-    Vec2d direction = i + 1 < points.size() ? sub(points[i + 1], points[i]) : sub(points[i], points[i - 1]);
-    direction = normalize(direction);
-    const Vec2d normal{-direction.y, direction.x};
-    const auto a = owner_local_point(graph, owner, add(points[i], mul(normal, -half_width)), 0.02);
-    const auto b = owner_local_point(graph, owner, add(points[i], mul(normal, half_width)), 0.02);
-    if (!a.has_value() || !b.has_value()) return {};
-    mesh.vertices.push_back(*a);
-    mesh.vertices.push_back(*b);
-  }
-  for (std::uint32_t row = 0; row + 1 < points.size(); ++row) {
-    const std::uint32_t a = row * 2;
-    mesh.indices.insert(mesh.indices.end(), {a, a + 2, a + 1, a + 1, a + 2, a + 3});
-  }
-  return mesh;
-}
-
-[[nodiscard]] Mesh build_manual_area_mesh(const SavedRoadGraph& graph,
-                                          const RoadSegment& owner,
-                                          const ManualAreaMarking& marking) {
-  Mesh mesh{};
-  const double hw = marking.width_m * 0.5;
-  const double hl = marking.length_m * 0.5;
-  for (Vec2d local : std::array<Vec2d, 4>{Vec2d{marking.frame_origin.x - hl, marking.frame_origin.y - hw},
-                                           Vec2d{marking.frame_origin.x + hl, marking.frame_origin.y - hw},
-                                           Vec2d{marking.frame_origin.x - hl, marking.frame_origin.y + hw},
-                                           Vec2d{marking.frame_origin.x + hl, marking.frame_origin.y + hw}}) {
-    const auto point = owner_local_point(graph, owner, local, 0.025);
-    if (!point.has_value()) return {};
-    mesh.vertices.push_back(*point);
-  }
-  mesh.indices = {0, 1, 2, 1, 3, 2};
-  return mesh;
-}
-
-[[nodiscard]] std::pair<double, double> carriageway_edges(const ConnectionGate& gate) {
-  struct Run {
-    std::size_t first = 0;
-    std::size_t last = 0;
-  };
-  std::vector<Run> curb_runs{};
-  for (std::size_t i = 0; i < gate.boundaries.size(); ++i) {
-    if (gate.boundaries[i].role != BoundaryRole::kCurb) continue;
-    if (curb_runs.empty() || gate.boundaries[curb_runs.back().last].boundary_id != gate.boundaries[i].boundary_id) {
-      curb_runs.push_back(Run{i, i});
-    } else {
-      curb_runs.back().last = i;
-    }
-  }
-  if (curb_runs.size() >= 2) {
-    return {gate.boundaries[curb_runs.front().last].lateral_m,
-            gate.boundaries[curb_runs.back().first].lateral_m};
-  }
-  return {gate.boundaries.front().lateral_m, gate.boundaries.back().lateral_m};
-}
-
-struct GateSideProfile {
-  RoadSegmentId segment_id = 0;
-  Vec2d tangent{};
-  Vec3d outer{};
-  Vec3d sidewalk{};
-  Vec3d carriageway{};
-};
-
-[[nodiscard]] Vec3d gate_point(const ConnectionGate& gate, const SectionBoundarySample& boundary) {
-  const Vec2d tangent{gate.tangent.x, gate.tangent.y};
-  const Vec2d lateral{-tangent.y, tangent.x};
-  return {gate.position.x + lateral.x * boundary.lateral_m,
-          gate.position.y + lateral.y * boundary.lateral_m,
-          boundary.height_m};
-}
-
-[[nodiscard]] std::vector<GateSideProfile> gate_side_profiles(const ConnectionGate& gate) {
-  struct Run {
-    std::size_t first = 0;
-    std::size_t last = 0;
-  };
-  std::vector<Run> curb_runs{};
-  for (std::size_t i = 0; i < gate.boundaries.size(); ++i) {
-    if (gate.boundaries[i].role != BoundaryRole::kCurb) continue;
-    if (curb_runs.empty() || gate.boundaries[curb_runs.back().last].boundary_id != gate.boundaries[i].boundary_id) {
-      curb_runs.push_back(Run{i, i});
-    } else {
-      curb_runs.back().last = i;
-    }
-  }
-  if (curb_runs.size() < 2 || gate.boundaries.empty()) return {};
-  const Vec2d tangent{gate.tangent.x, gate.tangent.y};
-  return {
-      GateSideProfile{gate.segment_id, tangent, gate_point(gate, gate.boundaries.front()),
-                      gate_point(gate, gate.boundaries[curb_runs.front().first]),
-                      gate_point(gate, gate.boundaries[curb_runs.front().last])},
-      GateSideProfile{gate.segment_id, tangent, gate_point(gate, gate.boundaries.back()),
-                      gate_point(gate, gate.boundaries[curb_runs.back().last]),
-                      gate_point(gate, gate.boundaries[curb_runs.back().first])},
-  };
-}
-
-[[nodiscard]] Vec3d cubic_point(Vec3d p0, Vec3d p1, Vec3d p2, Vec3d p3, double t) {
-  const double u = 1.0 - t;
-  return {p0.x * u * u * u + p1.x * 3.0 * u * u * t + p2.x * 3.0 * u * t * t + p3.x * t * t * t,
-          p0.y * u * u * u + p1.y * 3.0 * u * u * t + p2.y * 3.0 * u * t * t + p3.y * t * t * t,
-          p0.z * u * u * u + p1.z * 3.0 * u * u * t + p2.z * 3.0 * u * t * t + p3.z * t * t * t};
-}
-
-[[nodiscard]] std::vector<Vec3d> corner_curve(Vec3d a,
-                                              Vec3d b,
-                                              Vec2d tangent_a,
-                                              Vec2d tangent_b,
-                                              double control,
-                                              int samples = 6) {
-  const Vec3d c1{a.x - tangent_a.x * control, a.y - tangent_a.y * control, a.z};
-  const Vec3d c2{b.x - tangent_b.x * control, b.y - tangent_b.y * control, b.z};
-  std::vector<Vec3d> out{};
-  out.reserve(samples + 1);
-  for (int i = 0; i <= samples; ++i) {
-    out.push_back(cubic_point(a, c1, c2, b, static_cast<double>(i) / samples));
-  }
-  return out;
-}
-
-void append_strip(Mesh& mesh, const std::vector<Vec3d>& a, const std::vector<Vec3d>& b) {
-  if (a.size() != b.size() || a.size() < 2) return;
-  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
-  for (std::size_t i = 0; i < a.size(); ++i) {
-    mesh.vertices.push_back(a[i]);
-    mesh.vertices.push_back(b[i]);
-  }
-  for (std::uint32_t i = 0; i + 1 < a.size(); ++i) {
-    const std::uint32_t p = base + i * 2;
-    mesh.indices.insert(mesh.indices.end(), {p, p + 2, p + 1, p + 1, p + 2, p + 3});
-  }
-}
-
-[[nodiscard]] std::vector<Mesh> build_junction_meshes(const JunctionArea& area, Vec2d node_position) {
-  std::vector<GateSideProfile> sides{};
-  for (const ConnectionGate& gate : area.gates) {
-    std::vector<GateSideProfile> profiles = gate_side_profiles(gate);
-    sides.insert(sides.end(), profiles.begin(), profiles.end());
-  }
-  if (sides.size() < 3) return {};
-  std::sort(sides.begin(), sides.end(), [node_position](const GateSideProfile& a, const GateSideProfile& b) {
-    return std::atan2(a.carriageway.y - node_position.y, a.carriageway.x - node_position.x) <
-           std::atan2(b.carriageway.y - node_position.y, b.carriageway.x - node_position.x);
-  });
-  Mesh asphalt{};
-  asphalt.material = "asphalt";
-  Mesh sidewalk{};
-  sidewalk.material = "sidewalk";
-  Mesh curb{};
-  curb.material = "curb";
-  std::vector<Vec3d> perimeter{};
-  for (std::size_t i = 0; i < sides.size(); ++i) {
-    const GateSideProfile& a = sides[i];
-    const GateSideProfile& b = sides[(i + 1) % sides.size()];
-    perimeter.push_back(a.carriageway);
-    if (a.segment_id == b.segment_id) continue;
-    const double control = std::min(std::hypot(a.carriageway.x - node_position.x,
-                                               a.carriageway.y - node_position.y),
-                                    std::hypot(b.carriageway.x - node_position.x,
-                                               b.carriageway.y - node_position.y)) * 0.45;
-    const auto carriage_curve = corner_curve(a.carriageway, b.carriageway, a.tangent, b.tangent, control);
-    const auto sidewalk_curve = corner_curve(a.sidewalk, b.sidewalk, a.tangent, b.tangent, control);
-    const auto outer_curve = corner_curve(a.outer, b.outer, a.tangent, b.tangent, control);
-    perimeter.insert(perimeter.end(), carriage_curve.begin() + 1, carriage_curve.end() - 1);
-    append_strip(curb, carriage_curve, sidewalk_curve);
-    append_strip(sidewalk, sidewalk_curve, outer_curve);
-  }
-  Vec3d center{node_position.x, node_position.y, 0.0};
-  for (const Vec3d& point : perimeter) center.z += point.z;
-  center.z /= perimeter.size();
-  asphalt.vertices.push_back(center);
-  asphalt.vertices.insert(asphalt.vertices.end(), perimeter.begin(), perimeter.end());
-  for (std::uint32_t i = 0; i < perimeter.size(); ++i) {
-    asphalt.indices.insert(asphalt.indices.end(), {0, i + 1, static_cast<std::uint32_t>((i + 1) % perimeter.size()) + 1});
-  }
-  return {std::move(asphalt), std::move(sidewalk), std::move(curb)};
-}
-
-[[nodiscard]] std::vector<Mesh> build_connection_meshes(const SavedRoadGraph& graph,
-                                                        const ConnectionArea& area,
-                                                        Vec2d node_position) {
-  if (area.gates.size() != 2 || area.gates[0].boundaries.size() != area.gates[1].boundaries.size()) return {};
-  const RoadSegment* owner = find_segment(graph, area.gates[0].segment_id);
-  if (owner == nullptr) return {};
-  const auto owner_length = PathLength(owner->alignment);
-  if (!owner_length.ok) return {};
-  const double owner_station = owner->node_a == area.node_id
-                                   ? node_gate_setback(graph, *owner, area.node_id)
-                                   : owner_length.value - node_gate_setback(graph, *owner, area.node_id);
-  const auto section_template = evaluate_segment_template(graph, *owner, owner_station, owner_length.value);
-  if (!section_template.ok) return {};
-  const std::vector<std::string> materials = surface_materials(section_template.value);
-  if (materials.size() + 1 != area.gates[0].boundaries.size()) return {};
-  const double control = std::min(std::hypot(area.gates[0].position.x - node_position.x,
-                                             area.gates[0].position.y - node_position.y),
-                                  std::hypot(area.gates[1].position.x - node_position.x,
-                                             area.gates[1].position.y - node_position.y)) * 0.55;
-  constexpr int samples = 8;
-  std::vector<std::vector<Vec3d>> boundary_curves{};
-  boundary_curves.reserve(area.gates[0].boundaries.size());
-  const Vec2d tangent_a{area.gates[0].tangent.x, area.gates[0].tangent.y};
-  const Vec2d tangent_b{area.gates[1].tangent.x, area.gates[1].tangent.y};
-  for (std::size_t i = 0; i < area.gates[0].boundaries.size(); ++i) {
-    boundary_curves.push_back(corner_curve(gate_point(area.gates[0], area.gates[0].boundaries[i]),
-                                           gate_point(area.gates[1], area.gates[1].boundaries[i]),
-                                           tangent_a, tangent_b, control, samples));
-  }
-  std::vector<Vec3d> vertices{};
-  for (int row = 0; row <= samples; ++row) {
-    for (const auto& curve : boundary_curves) vertices.push_back(curve[row]);
-  }
-  std::vector<Mesh> meshes{};
-  const std::uint32_t width = static_cast<std::uint32_t>(boundary_curves.size());
-  for (const std::string& material : materials) {
-    if (std::any_of(meshes.begin(), meshes.end(), [&material](const Mesh& mesh) { return mesh.material == material; })) {
-      continue;
-    }
-    Mesh mesh{};
-    mesh.material = material;
-    mesh.vertices = vertices;
-    for (std::uint32_t row = 0; row < samples; ++row) {
-      for (std::uint32_t col = 0; col < materials.size(); ++col) {
-        if (materials[col] != material) continue;
-        const std::uint32_t a = row * width + col;
-        const std::uint32_t b = a + 1;
-        const std::uint32_t c = (row + 1) * width + col;
-        const std::uint32_t d = c + 1;
-        mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
-      }
-    }
-    meshes.push_back(std::move(mesh));
-  }
-  return meshes;
-}
-
-[[nodiscard]] double gate_surface_height(const ConnectionGate& gate, double lateral_m) {
-  return section_surface_height(gate.boundaries, lateral_m);
-}
-
-void append_gate_quad(Mesh& mesh,
-                      const ConnectionGate& gate,
-                      double longitudinal_center,
-                      double longitudinal_half,
-                      double lateral_center,
-                      double lateral_half) {
-  const Vec2d tangent{gate.tangent.x, gate.tangent.y};
-  const Vec2d lateral{-tangent.y, tangent.x};
-  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
-  for (const auto [longitudinal, lateral_offset] : std::array<std::pair<double, double>, 4>{
-           std::pair{longitudinal_center - longitudinal_half, lateral_center - lateral_half},
-           std::pair{longitudinal_center + longitudinal_half, lateral_center - lateral_half},
-           std::pair{longitudinal_center - longitudinal_half, lateral_center + lateral_half},
-           std::pair{longitudinal_center + longitudinal_half, lateral_center + lateral_half}}) {
-    const Vec2d point = add(add(Vec2d{gate.position.x, gate.position.y}, mul(tangent, longitudinal)),
-                            mul(lateral, lateral_offset));
-    mesh.vertices.push_back({point.x, point.y, gate_surface_height(gate, lateral_offset) + 0.025});
-  }
-  mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2, base + 1, base + 3, base + 2});
-}
-
-[[nodiscard]] std::vector<Mesh> build_junction_markings(const JunctionArea& area) {
-  std::vector<Mesh> meshes{};
-  for (const ConnectionGate& gate : area.gates) {
-    const auto [left, right] = carriageway_edges(gate);
-    Mesh stop{};
-    stop.material = "marking";
-    append_gate_quad(stop, gate, 0.35, 0.08, (left + right) * 0.5, (right - left) * 0.5);
-    meshes.push_back(std::move(stop));
-
-    Mesh zebra{};
-    zebra.material = "marking";
-    constexpr double stripe_width = 0.35;
-    constexpr double stripe_pitch = 0.7;
-    for (double lateral_center = left + stripe_pitch * 0.5;
-         lateral_center + stripe_width * 0.5 <= right;
-         lateral_center += stripe_pitch) {
-      append_gate_quad(zebra, gate, 2.0, 1.4, lateral_center, stripe_width * 0.5);
-    }
-    meshes.push_back(std::move(zebra));
-  }
-  return meshes;
 }
 
 [[nodiscard]] Result<bool> validate_transition(const SavedRoadGraph& graph, const SectionTransition& transition) {
@@ -1151,6 +771,52 @@ Path MakePath(std::vector<BezierSpan> spans) {
   return out;
 }
 
+Result<SegmentShape> SegmentShapeFromPath(const Path& path) {
+  const Result<bool> valid = ValidatePath(path);
+  if (!valid.ok) return Result<SegmentShape>::Fail(valid.error_kind, valid.error);
+  SegmentShape shape{};
+  shape.start_handle = sub(path.spans.front().p1, path.spans.front().p0);
+  shape.end_handle = sub(path.spans.back().p2, path.spans.back().p3);
+  shape.internal_knots.reserve(path.spans.size() - 1);
+  for (std::size_t i = 0; i + 1 < path.spans.size(); ++i) {
+    const BezierSpan& before = path.spans[i];
+    const BezierSpan& after = path.spans[i + 1];
+    shape.internal_knots.push_back(
+        SegmentKnot{before.p3, sub(before.p2, before.p3), sub(after.p1, after.p0)});
+  }
+  return Result<SegmentShape>::Ok(std::move(shape));
+}
+
+Result<Path> BuildCanonicalAlignment(Vec2d start, Vec2d end, const SegmentShape& shape) {
+  if (!finite(start) || !finite(end) || !finite(shape.start_handle) || !finite(shape.end_handle)) {
+    return Result<Path>::Fail(ErrorKind::kValidation, "road segment shape contains a non-finite point");
+  }
+  Path path{};
+  Vec2d span_start = start;
+  Vec2d handle_out = shape.start_handle;
+  for (const SegmentKnot& knot : shape.internal_knots) {
+    if (!finite(knot.position) || !finite(knot.handle_in) || !finite(knot.handle_out)) {
+      return Result<Path>::Fail(ErrorKind::kValidation, "road segment shape contains a non-finite knot");
+    }
+    path.spans.push_back(
+        MakeBezier(span_start, add(span_start, handle_out), add(knot.position, knot.handle_in), knot.position));
+    span_start = knot.position;
+    handle_out = knot.handle_out;
+  }
+  path.spans.push_back(MakeBezier(span_start, add(span_start, handle_out), add(end, shape.end_handle), end));
+  const Result<bool> valid = ValidatePath(path);
+  if (!valid.ok) return Result<Path>::Fail(valid.error_kind, valid.error);
+  return Result<Path>::Ok(std::move(path));
+}
+
+const Path* FindCanonicalAlignment(const DerivedRoad& derived, RoadSegmentId segment_id) {
+  const auto found = std::find_if(derived.canonical_alignments.begin(), derived.canonical_alignments.end(),
+                                  [segment_id](const CanonicalAlignment& item) {
+                                    return item.segment_id == segment_id;
+                                  });
+  return found == derived.canonical_alignments.end() ? nullptr : &found->path;
+}
+
 bool IsLinearSpan(const BezierSpan& span) {
   return almost_same(span.p1, add(span.p0, mul(sub(span.p3, span.p0), 1.0 / 3.0))) &&
          almost_same(span.p2, add(span.p0, mul(sub(span.p3, span.p0), 2.0 / 3.0)));
@@ -1238,7 +904,19 @@ const DerivedRoad& RoadState::derived() const {
   return derived_;
 }
 
-Result<RoadSegmentId> RoadState::AddSegment(Path alignment, CrossSectionTemplateId section_template) {
+Result<bool> RoadState::Execute(const operations::OperationPlan& plan) {
+  RoadState trial = *this;
+  const Result<bool> applied = operations::Apply(plan, trial.graph_, trial.next_id_);
+  if (!applied.ok) return applied;
+  const Result<bool> built = trial.BuildDerived();
+  if (!built.ok) return built;
+  *this = std::move(trial);
+  return Result<bool>::Ok(true);
+}
+
+Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
+  Path alignment = std::move(request.alignment);
+  const CrossSectionTemplateId section_template = request.section_template;
   const Result<bool> valid = ValidatePath(alignment);
   if (!valid.ok) {
     return Result<RoadSegmentId>::Fail(valid.error_kind, valid.error);
@@ -1246,27 +924,29 @@ Result<RoadSegmentId> RoadState::AddSegment(Path alignment, CrossSectionTemplate
   if (find_template(graph_, section_template) == nullptr) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment references a missing section template");
   }
-  const RoadNodeId node_a = next_id_++;
-  const RoadNodeId node_b = next_id_++;
-  const RoadSegmentId segment_id = next_id_++;
-  graph_.nodes.push_back(RoadNode{node_a, path_start(alignment)});
-  graph_.nodes.push_back(RoadNode{node_b, path_end(alignment)});
-  graph_.segments.push_back(RoadSegment{segment_id, node_a, node_b, alignment, section_template, std::nullopt});
-  const Result<bool> rebuilt = RebuildDerived();
-  if (!rebuilt.ok) {
-    return Result<RoadSegmentId>::Fail(rebuilt.error_kind, rebuilt.error);
-  }
+  const Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
+  if (!shape.ok) return Result<RoadSegmentId>::Fail(shape.error_kind, shape.error);
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  const RoadNodeId node_a = next_id++;
+  const RoadNodeId node_b = next_id++;
+  const RoadSegmentId segment_id = next_id++;
+  plan.next_id_after = next_id;
+  plan.add_nodes = {RoadNode{node_a, path_start(alignment)}, RoadNode{node_b, path_end(alignment)}};
+  plan.add_segments.push_back(
+      RoadSegment{segment_id, node_a, node_b, shape.value, section_template, std::nullopt});
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
   return Result<RoadSegmentId>::Ok(segment_id);
 }
 
-Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSectionTemplateId section_template,
-                                                       RoadNodeId start_node) {
+Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequest request) {
+  Path alignment = std::move(request.alignment);
+  const CrossSectionTemplateId section_template = request.section_template;
+  const RoadNodeId start_node = request.start_node;
   const RoadNode* node = find_node(graph_, start_node);
   if (node == nullptr) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment start node does not exist");
-  }
-  if (!almost_same(path_start(alignment), node->position)) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "connected segment path does not start at node");
   }
   if (find_template(graph_, section_template) == nullptr) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kValidation,
@@ -1279,6 +959,12 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
   if (length_result.value < kP1MinSegmentLengthM) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "connected road segment is shorter than P1 minimum");
   }
+  BezierSpan& first_span = alignment.spans.front();
+  const Vec2d correction = sub(node->position, first_span.p0);
+  first_span.p0 = node->position;
+  first_span.p1 = add(first_span.p1, correction);
+  const Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
+  if (!shape.ok) return Result<RoadSegmentId>::Fail(shape.error_kind, shape.error);
   const Vec2d new_direction = normalize(sub(path_end(alignment), path_start(alignment)));
   const std::size_t existing_degree = static_cast<std::size_t>(std::count_if(
       graph_.segments.begin(), graph_.segments.end(), [start_node](const RoadSegment& item) {
@@ -1291,7 +977,11 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
     if (existing.node_a != start_node && existing.node_b != start_node) {
       continue;
     }
-    const Result<double> existing_length = PathLength(existing.alignment);
+    const Path* existing_path = FindCanonicalAlignment(derived_, existing.id);
+    if (existing_path == nullptr) {
+      return Result<RoadSegmentId>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+    }
+    const Result<double> existing_length = PathLength(*existing_path);
     if (!existing_length.ok) {
       return Result<RoadSegmentId>::Fail(existing_length.error_kind, existing_length.error);
     }
@@ -1306,47 +996,31 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
           ErrorKind::kUnsupported,
           "connected road section must match the existing connection gate section");
     }
-    const Vec2d other = existing.node_a == start_node ? path_end(existing.alignment) : path_start(existing.alignment);
+    const Vec2d other = existing.node_a == start_node ? path_end(*existing_path) : path_start(*existing_path);
     const double angle = angle_deg(sub(other, node->position), new_direction);
     const bool opposite_continuation = angle >= 180.0 - 1e-6;
     if (!opposite_continuation && (angle < kP1MinConnectionAngleDeg || angle > kP1MaxConnectionAngleDeg)) {
       return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "connected road segment angle is outside P1 range");
     }
   }
-  RoadState trial = *this;
-  const Result<RoadSegmentId> added = trial.AddSegment(std::move(alignment), section_template);
-  if (!added.ok) {
-    return added;
-  }
-  RoadSegment* segment = find_segment(trial.graph_, added.value);
-  if (segment == nullptr) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kInternal, "new road segment disappeared");
-  }
-  trial.graph_.nodes.erase(std::remove_if(trial.graph_.nodes.begin(), trial.graph_.nodes.end(),
-                                    [segment](const RoadNode& candidate) { return candidate.id == segment->node_a; }),
-                     trial.graph_.nodes.end());
-  segment->node_a = start_node;
-  const std::size_t degree = static_cast<std::size_t>(std::count_if(
-      trial.graph_.segments.begin(), trial.graph_.segments.end(), [start_node](const RoadSegment& item) {
-        return item.node_a == start_node || item.node_b == start_node;
-      }));
-  if (degree >= 3 &&
-      std::none_of(trial.graph_.junctions.begin(), trial.graph_.junctions.end(),
-                   [start_node](const JunctionDefinition& item) { return item.node_id == start_node; })) {
-    trial.graph_.junctions.push_back(JunctionDefinition{trial.next_id_++, start_node, 4.0});
-  }
-  const Result<bool> rebuilt = trial.RebuildDerived();
-  if (!rebuilt.ok) {
-    return Result<RoadSegmentId>::Fail(rebuilt.error_kind, rebuilt.error);
-  }
-  *this = std::move(trial);
-  return added;
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  const RoadNodeId end_node = next_id++;
+  const RoadSegmentId segment_id = next_id++;
+  plan.add_nodes.push_back(RoadNode{end_node, path_end(alignment)});
+  plan.add_segments.push_back(
+      RoadSegment{segment_id, start_node, end_node, shape.value, section_template, std::nullopt});
+  plan.next_id_after = next_id;
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
+  return Result<RoadSegmentId>::Ok(segment_id);
 }
 
-Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(Path alignment,
-                                                              CrossSectionTemplateId section_template,
-                                                              RoadSegmentId start_segment,
-                                                              double station_m) {
+Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnectedToSegmentRequest request) {
+  Path alignment = std::move(request.alignment);
+  const CrossSectionTemplateId section_template = request.section_template;
+  const RoadSegmentId start_segment = request.start_segment;
+  const double station_m = request.station_m;
   const Result<bool> alignment_valid = ValidatePath(alignment);
   if (!alignment_valid.ok) {
     return Result<RoadSegmentId>::Fail(alignment_valid.error_kind, alignment_valid.error);
@@ -1363,7 +1037,11 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(Path alignment,
     return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported,
                                        "road segment split requires a matching section template");
   }
-  const Result<PathSplit> path_split = split_path_at_station(source->alignment, station_m);
+  const Path* source_path = FindCanonicalAlignment(derived_, source->id);
+  if (source_path == nullptr) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+  }
+  const Result<PathSplit> path_split = split_path_at_station(*source_path, station_m);
   if (!path_split.ok) {
     return Result<RoadSegmentId>::Fail(path_split.error_kind, path_split.error);
   }
@@ -1379,129 +1057,136 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(Path alignment,
     input_start.p0 = path_split.value.point;
     input_start.p1 = add(input_start.p1, correction);
   }
+  const Result<double> branch_length = PathLength(alignment);
+  if (!branch_length.ok) return Result<RoadSegmentId>::Fail(branch_length.error_kind, branch_length.error);
+  if (branch_length.value < kP1MinSegmentLengthM) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "connected road segment is shorter than P1 minimum");
+  }
+  const Vec2d branch_direction = normalize(sub(path_end(alignment), path_split.value.point));
+  for (const Vec2d other : std::array<Vec2d, 2>{path_start(*source_path), path_end(*source_path)}) {
+    const double angle = angle_deg(sub(other, path_split.value.point), branch_direction);
+    const bool opposite_continuation = angle >= 180.0 - 1e-6;
+    if (!opposite_continuation && (angle < kP1MinConnectionAngleDeg || angle > kP1MaxConnectionAngleDeg)) {
+      return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "connected road segment angle is outside P1 range");
+    }
+  }
 
-  RoadState trial = *this;
-  RoadSegment* split = find_segment(trial.graph_, start_segment);
-  if (split == nullptr) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kInternal, "road segment split target disappeared");
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  const RoadNodeId split_node = next_id++;
+  const RoadSegmentId second_id = next_id++;
+  const RoadNodeId branch_end_node = next_id++;
+  const RoadSegmentId branch_id = next_id++;
+  const Result<SegmentShape> first_shape = SegmentShapeFromPath(path_split.value.before);
+  const Result<SegmentShape> second_shape = SegmentShapeFromPath(path_split.value.after);
+  const Result<SegmentShape> branch_shape = SegmentShapeFromPath(alignment);
+  if (!first_shape.ok || !second_shape.ok || !branch_shape.ok) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment split shape is invalid");
   }
-  const RoadNodeId old_end = split->node_b;
-  const RoadNodeId split_node = trial.next_id_++;
-  const RoadSegmentId second_id = trial.next_id_++;
-  trial.graph_.nodes.push_back(RoadNode{split_node, path_split.value.point});
-  split->node_b = split_node;
-  split->alignment = path_split.value.before;
-  trial.graph_.segments.push_back(RoadSegment{second_id,
-                                              split_node,
-                                              old_end,
-                                              path_split.value.after,
-                                              split->section_template,
-                                              split->transition});
-  const Result<bool> rebuilt = trial.RebuildDerived();
-  if (!rebuilt.ok) {
-    return Result<RoadSegmentId>::Fail(rebuilt.error_kind, rebuilt.error);
-  }
-  const Result<RoadSegmentId> added = trial.AddSegmentConnectedTo(std::move(alignment), section_template, split_node);
-  if (!added.ok) {
-    return added;
-  }
-  *this = std::move(trial);
-  return added;
+  RoadSegment first = *source;
+  first.node_b = split_node;
+  first.shape = first_shape.value;
+  plan.replace_segments.push_back(std::move(first));
+  plan.add_nodes = {RoadNode{split_node, path_split.value.point}, RoadNode{branch_end_node, path_end(alignment)}};
+  plan.add_segments = {
+      RoadSegment{second_id, split_node, source->node_b, second_shape.value, source->section_template,
+                  source->transition},
+      RoadSegment{branch_id, split_node, branch_end_node, branch_shape.value, section_template, std::nullopt},
+  };
+  plan.next_id_after = next_id;
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
+  return Result<RoadSegmentId>::Ok(branch_id);
 }
 
-Result<bool> RoadState::EditSegmentPath(RoadSegmentId segment_id, Path alignment) {
-  const Result<bool> valid = ValidatePath(alignment);
-  if (!valid.ok) {
-    return valid;
-  }
-  RoadSegment* segment = find_segment(graph_, segment_id);
+Result<bool> RoadState::EditSegmentShape(EditSegmentShapeRequest request) {
+  const RoadSegmentId segment_id = request.segment_id;
+  SegmentShape shape = std::move(request.shape);
+  const RoadSegment* segment = find_segment(graph_, segment_id);
   if (segment == nullptr) {
     return Result<bool>::Fail(ErrorKind::kValidation, "road segment does not exist");
   }
   const RoadNode* node_a = find_node(graph_, segment->node_a);
   const RoadNode* node_b = find_node(graph_, segment->node_b);
-  if ((node_degree(graph_, segment->node_a) > 1 && !almost_same(path_start(alignment), node_a->position)) ||
-      (node_degree(graph_, segment->node_b) > 1 && !almost_same(path_end(alignment), node_b->position))) {
-    return Result<bool>::Fail(ErrorKind::kUnsupported, "connected road edit cannot move a shared endpoint");
-  }
-  RoadState trial = *this;
-  RoadSegment* trial_segment = find_segment(trial.graph_, segment_id);
-  trial_segment->alignment = alignment;
-  RoadNode* a = find_node(trial.graph_, trial_segment->node_a);
-  RoadNode* b = find_node(trial.graph_, trial_segment->node_b);
-  if (a != nullptr) {
-    a->position = path_start(alignment);
-  }
-  if (b != nullptr) {
-    b->position = path_end(alignment);
-  }
-  const Result<bool> rebuilt = trial.RebuildDerived();
-  if (!rebuilt.ok) return rebuilt;
-  *this = std::move(trial);
-  return Result<bool>::Ok(true);
+  const Result<Path> alignment = BuildCanonicalAlignment(node_a->position, node_b->position, shape);
+  if (!alignment.ok) return Result<bool>::Fail(alignment.error_kind, alignment.error);
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  RoadSegment replacement = *segment;
+  replacement.shape = std::move(shape);
+  plan.replace_segments.push_back(std::move(replacement));
+  return Execute(plan);
 }
 
-Result<bool> RoadState::DeleteSegment(RoadSegmentId segment_id) {
-  RoadState trial = *this;
-  const RoadSegment* target = find_segment(trial.graph_, segment_id);
+Result<bool> RoadState::MoveNode(MoveNodeRequest request) {
+  const RoadNodeId node_id = request.node_id;
+  const Vec2d position = request.position;
+  if (!finite(position)) return Result<bool>::Fail(ErrorKind::kValidation, "road node position is non-finite");
+  const RoadNode* node = find_node(graph_, node_id);
+  if (node == nullptr) return Result<bool>::Fail(ErrorKind::kValidation, "road node does not exist");
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  RoadNode replacement = *node;
+  replacement.position = position;
+  plan.replace_nodes.push_back(replacement);
+  return Execute(plan);
+}
+
+Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
+  const RoadSegmentId segment_id = request.segment_id;
+  const RoadSegment* target = find_segment(graph_, segment_id);
   if (target == nullptr) {
     return Result<bool>::Fail(ErrorKind::kValidation, "road segment does not exist");
   }
-  const std::optional<SectionTransitionId> transition = target->transition;
-  trial.graph_.segments.erase(std::remove_if(trial.graph_.segments.begin(), trial.graph_.segments.end(),
-                                       [segment_id](const RoadSegment& item) { return item.id == segment_id; }),
-                        trial.graph_.segments.end());
-  trial.graph_.manual_lines.erase(std::remove_if(trial.graph_.manual_lines.begin(), trial.graph_.manual_lines.end(),
-                                           [segment_id](const ManualLineMarking& item) {
-                                             return item.owner_segment_id == segment_id;
-                                           }),
-                            trial.graph_.manual_lines.end());
-  trial.graph_.manual_areas.erase(std::remove_if(trial.graph_.manual_areas.begin(), trial.graph_.manual_areas.end(),
-                                           [segment_id](const ManualAreaMarking& item) {
-                                             return item.owner_segment_id == segment_id;
-                                           }),
-                            trial.graph_.manual_areas.end());
-  trial.graph_.nodes.erase(std::remove_if(trial.graph_.nodes.begin(), trial.graph_.nodes.end(),
-                                           [&trial](const RoadNode& node) {
-                                             return node_degree(trial.graph_, node.id) == 0;
-                                           }),
-                           trial.graph_.nodes.end());
-  trial.graph_.junctions.erase(std::remove_if(trial.graph_.junctions.begin(), trial.graph_.junctions.end(),
-                                               [&trial](const JunctionDefinition& junction) {
-                                                 return node_degree(trial.graph_, junction.node_id) < 3;
-                                               }),
-                               trial.graph_.junctions.end());
-  if (transition.has_value() &&
-      std::none_of(trial.graph_.segments.begin(), trial.graph_.segments.end(), [transition](const RoadSegment& segment) {
-        return segment.transition == transition;
-      })) {
-    trial.graph_.transitions.erase(
-        std::remove_if(trial.graph_.transitions.begin(), trial.graph_.transitions.end(),
-                       [transition](const SectionTransition& item) { return item.id == *transition; }),
-        trial.graph_.transitions.end());
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  plan.remove_segments.push_back(segment_id);
+  for (const RoadNodeId node_id : std::array<RoadNodeId, 2>{target->node_a, target->node_b}) {
+    if (node_degree(graph_, node_id) == 1) plan.remove_nodes.push_back(node_id);
   }
-  const Result<bool> rebuilt = trial.RebuildDerived();
-  if (!rebuilt.ok) return rebuilt;
-  *this = std::move(trial);
-  return Result<bool>::Ok(true);
+  for (const NodeConnectionPolicyOverride& policy : graph_.connection_policy_overrides) {
+    const std::size_t degree_after = node_degree(graph_, policy.node_id) -
+                                     ((target->node_a == policy.node_id || target->node_b == policy.node_id) ? 1 : 0);
+    if (degree_after == 0) plan.remove_connection_policy_overrides.push_back(policy.id);
+  }
+  for (const ManualLineMarking& marking : graph_.manual_lines) {
+    if (marking.owner_segment_id == segment_id) plan.remove_manual_lines.push_back(marking.id);
+  }
+  for (const ManualAreaMarking& marking : graph_.manual_areas) {
+    if (marking.owner_segment_id == segment_id) plan.remove_manual_areas.push_back(marking.id);
+  }
+  const std::optional<SectionTransitionId> transition = target->transition;
+  if (transition.has_value() &&
+      std::none_of(graph_.segments.begin(), graph_.segments.end(), [segment_id, transition](const RoadSegment& segment) {
+        return segment.id != segment_id && segment.transition == transition;
+      })) {
+    plan.remove_transitions.push_back(*transition);
+  }
+  return Execute(plan);
 }
 
-Result<CrossSectionTemplateId> RoadState::AddSectionTemplate(CrossSectionTemplate section_template) {
+Result<CrossSectionTemplateId> RoadState::AddSectionTemplate(AddSectionTemplateRequest request) {
+  CrossSectionTemplate section_template = std::move(request.section_template);
   const Result<bool> valid = validate_section_template(section_template);
   if (!valid.ok) {
     return Result<CrossSectionTemplateId>::Fail(valid.error_kind, valid.error);
   }
-  if (section_template.id == 0) {
-    section_template.id = next_id_++;
-  }
-  if (find_template(graph_, section_template.id) != nullptr) {
+  if (section_template.id != 0 && find_template(graph_, section_template.id) != nullptr) {
     return Result<CrossSectionTemplateId>::Fail(ErrorKind::kValidation, "section template id already exists");
   }
-  graph_.section_templates.push_back(std::move(section_template));
-  return Result<CrossSectionTemplateId>::Ok(graph_.section_templates.back().id);
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  if (section_template.id == 0) section_template.id = next_id++;
+  const CrossSectionTemplateId id = section_template.id;
+  plan.next_id_after = next_id;
+  plan.add_section_templates.push_back(std::move(section_template));
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) return Result<CrossSectionTemplateId>::Fail(executed.error_kind, executed.error);
+  return Result<CrossSectionTemplateId>::Ok(id);
 }
 
-Result<bool> RoadState::EditSectionTemplate(CrossSectionTemplate section_template) {
+Result<bool> RoadState::EditSectionTemplate(EditSectionTemplateRequest request) {
+  CrossSectionTemplate section_template = std::move(request.section_template);
   const Result<bool> valid = validate_section_template(section_template);
   if (!valid.ok) return valid;
   auto it = std::find_if(graph_.section_templates.begin(), graph_.section_templates.end(),
@@ -1509,54 +1194,62 @@ Result<bool> RoadState::EditSectionTemplate(CrossSectionTemplate section_templat
   if (it == graph_.section_templates.end()) {
     return Result<bool>::Fail(ErrorKind::kValidation, "section template does not exist");
   }
-  RoadState trial = *this;
-  auto trial_it = std::find_if(trial.graph_.section_templates.begin(), trial.graph_.section_templates.end(),
-                               [&section_template](const CrossSectionTemplate& item) {
-                                 return item.id == section_template.id;
-                               });
-  *trial_it = std::move(section_template);
-  const Result<bool> rebuilt = trial.RebuildDerived();
-  if (!rebuilt.ok) return rebuilt;
-  *this = std::move(trial);
-  return Result<bool>::Ok(true);
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  plan.replace_section_templates.push_back(std::move(section_template));
+  return Execute(plan);
 }
 
-Result<SectionTransitionId> RoadState::AddTransition(SectionTransition transition) {
-  if (transition.id == 0) {
-    transition.id = next_id_++;
-  }
+Result<SectionTransitionId> RoadState::AddTransition(SectionTransitionRequest request) {
+  SectionTransition transition{0, request.from_template, request.to_template, request.start, request.end,
+                               request.anchor, std::move(request.rules)};
   const Result<bool> valid = validate_transition(graph_, transition);
   if (!valid.ok) {
     return Result<SectionTransitionId>::Fail(valid.error_kind, valid.error);
   }
-  graph_.transitions.push_back(std::move(transition));
-  return Result<SectionTransitionId>::Ok(graph_.transitions.back().id);
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  if (transition.id == 0) transition.id = next_id++;
+  const SectionTransitionId id = transition.id;
+  plan.next_id_after = next_id;
+  plan.add_transitions.push_back(std::move(transition));
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) return Result<SectionTransitionId>::Fail(executed.error_kind, executed.error);
+  return Result<SectionTransitionId>::Ok(id);
 }
 
-Result<SectionTransitionId> RoadState::AddTransitionToSegment(RoadSegmentId segment_id,
-                                                              SectionTransition transition) {
+Result<SectionTransitionId> RoadState::AddTransitionToSegment(AddTransitionToSegmentRequest operation) {
+  const RoadSegmentId segment_id = operation.segment_id;
+  SectionTransitionRequest request = std::move(operation.transition);
   const RoadSegment* segment = find_segment(graph_, segment_id);
   if (segment == nullptr) {
     return Result<SectionTransitionId>::Fail(ErrorKind::kValidation, "road transition segment does not exist");
   }
-  transition.from_template = segment->section_template;
-  RoadState trial = *this;
+  SectionTransition transition{0, segment->section_template, request.to_template, request.start, request.end,
+                               request.anchor, std::move(request.rules)};
+  const Result<bool> valid = validate_transition(graph_, transition);
+  if (!valid.ok) return Result<SectionTransitionId>::Fail(valid.error_kind, valid.error);
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  if (transition.id == 0) transition.id = next_id++;
+  const SectionTransitionId id = transition.id;
   const std::optional<SectionTransitionId> old_transition = segment->transition;
-  const Result<SectionTransitionId> added = trial.AddTransition(std::move(transition));
-  if (!added.ok) return added;
-  const Result<bool> attached = trial.AttachSectionTransition(segment_id, added.value);
-  if (!attached.ok) return Result<SectionTransitionId>::Fail(attached.error_kind, attached.error);
+  RoadSegment replacement = *segment;
+  replacement.transition = id;
+  plan.replace_segments.push_back(std::move(replacement));
+  plan.add_transitions.push_back(std::move(transition));
   if (old_transition.has_value()) {
-    trial.graph_.transitions.erase(
-        std::remove_if(trial.graph_.transitions.begin(), trial.graph_.transitions.end(),
-                       [old_transition](const SectionTransition& item) { return item.id == *old_transition; }),
-        trial.graph_.transitions.end());
+    plan.remove_transitions.push_back(*old_transition);
   }
-  *this = std::move(trial);
-  return added;
+  plan.next_id_after = next_id;
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) return Result<SectionTransitionId>::Fail(executed.error_kind, executed.error);
+  return Result<SectionTransitionId>::Ok(id);
 }
 
-Result<bool> RoadState::AttachSectionTransition(RoadSegmentId segment_id, SectionTransitionId transition_id) {
+Result<bool> RoadState::AttachSectionTransition(AttachSectionTransitionRequest request) {
+  const RoadSegmentId segment_id = request.segment_id;
+  const SectionTransitionId transition_id = request.transition_id;
   const RoadSegment* segment = find_segment(graph_, segment_id);
   const SectionTransition* transition = find_transition(graph_, transition_id);
   if (segment == nullptr || transition == nullptr) {
@@ -1565,22 +1258,25 @@ Result<bool> RoadState::AttachSectionTransition(RoadSegmentId segment_id, Sectio
   if (segment->section_template != transition->from_template) {
     return Result<bool>::Fail(ErrorKind::kValidation, "road transition from-template does not match segment");
   }
-  const auto total = PathLength(segment->alignment);
+  const Path* alignment = FindCanonicalAlignment(derived_, segment_id);
+  if (alignment == nullptr) return Result<bool>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+  const auto total = PathLength(*alignment);
   if (!total.ok) return Result<bool>::Fail(total.error_kind, total.error);
   const double start = station_value(transition->start, total.value);
   const double end = station_value(transition->end, total.value);
   if (start < 0.0 || end > total.value || end - start <= kEpsilon) {
     return Result<bool>::Fail(ErrorKind::kValidation, "road transition station range is invalid");
   }
-  RoadState trial = *this;
-  find_segment(trial.graph_, segment_id)->transition = transition_id;
-  const Result<bool> rebuilt = trial.RebuildDerived();
-  if (!rebuilt.ok) return rebuilt;
-  *this = std::move(trial);
-  return Result<bool>::Ok(true);
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  RoadSegment replacement = *segment;
+  replacement.transition = transition_id;
+  plan.replace_segments.push_back(std::move(replacement));
+  return Execute(plan);
 }
 
-Result<ManualMarkingId> RoadState::AddManualLine(ManualLineMarking marking) {
+Result<ManualMarkingId> RoadState::AddManualLine(ManualLineRequest request) {
+  ManualLineMarking marking{0, request.owner_segment_id, std::move(request.path), std::move(request.style)};
   const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
   if (owner == nullptr) {
     return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual line owner segment does not exist");
@@ -1589,27 +1285,30 @@ Result<ManualMarkingId> RoadState::AddManualLine(ManualLineMarking marking) {
   if (!valid.ok) {
     return Result<ManualMarkingId>::Fail(valid.error_kind, valid.error);
   }
-  const auto length_result = PathLength(owner->alignment);
+  const Path* alignment = FindCanonicalAlignment(derived_, owner->id);
+  if (alignment == nullptr) {
+    return Result<ManualMarkingId>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+  }
+  const auto length_result = PathLength(*alignment);
   for (const Vec2d point : FlattenPath(marking.path)) {
     if (!length_result.ok || point.x < 0.0 || point.x > length_result.value || !finite(point.y)) {
       return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual line lies outside owner station range");
     }
   }
-  RoadState trial = *this;
-  if (marking.id == 0) {
-    marking.id = trial.next_id_++;
-  }
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  if (marking.id == 0) marking.id = next_id++;
   const ManualMarkingId id = marking.id;
-  trial.graph_.manual_lines.push_back(std::move(marking));
-  const Result<bool> rebuilt = trial.RebuildDerived();
-  if (!rebuilt.ok) {
-    return Result<ManualMarkingId>::Fail(rebuilt.error_kind, rebuilt.error);
-  }
-  *this = std::move(trial);
+  plan.next_id_after = next_id;
+  plan.add_manual_lines.push_back(std::move(marking));
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) return Result<ManualMarkingId>::Fail(executed.error_kind, executed.error);
   return Result<ManualMarkingId>::Ok(id);
 }
 
-Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaMarking marking) {
+Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaRequest request) {
+  ManualAreaMarking marking{0, request.owner_segment_id, request.frame_origin, request.width_m, request.length_m,
+                            std::move(request.style)};
   const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
   if (owner == nullptr) {
     return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area owner segment does not exist");
@@ -1618,136 +1317,311 @@ Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaMarking marking) {
       marking.width_m <= 0.0 || marking.length_m <= 0.0) {
     return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area shape is invalid");
   }
-  const auto owner_length = PathLength(owner->alignment);
+  const Path* alignment = FindCanonicalAlignment(derived_, owner->id);
+  if (alignment == nullptr) {
+    return Result<ManualMarkingId>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+  }
+  const auto owner_length = PathLength(*alignment);
   if (!owner_length.ok || marking.frame_origin.x - marking.length_m * 0.5 < 0.0 ||
       marking.frame_origin.x + marking.length_m * 0.5 > owner_length.value) {
     return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area lies outside owner station range");
   }
-  RoadState trial = *this;
-  if (marking.id == 0) {
-    marking.id = trial.next_id_++;
-  }
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  if (marking.id == 0) marking.id = next_id++;
   const ManualMarkingId id = marking.id;
-  trial.graph_.manual_areas.push_back(std::move(marking));
-  const Result<bool> rebuilt = trial.RebuildDerived();
-  if (!rebuilt.ok) {
-    return Result<ManualMarkingId>::Fail(rebuilt.error_kind, rebuilt.error);
-  }
-  *this = std::move(trial);
+  plan.next_id_after = next_id;
+  plan.add_manual_areas.push_back(std::move(marking));
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) return Result<ManualMarkingId>::Fail(executed.error_kind, executed.error);
   return Result<ManualMarkingId>::Ok(id);
 }
 
-Result<bool> RoadState::RebuildDerived() {
-  DerivedRoad next{};
-  for (const RoadSegment& segment : graph_.segments) {
-    const CrossSectionTemplate* section = find_template(graph_, segment.section_template);
-    if (section == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "road segment section template is missing");
+Result<bool> RoadState::BuildDerived() {
+  build::BuildContext context(graph_);
+  std::vector<materialization::ConnectionInput> connection_inputs{};
+  std::vector<materialization::JunctionInput> junction_inputs{};
+  std::vector<materialization::ManualLineInput> manual_line_inputs{};
+  std::vector<materialization::ManualAreaInput> manual_area_inputs{};
+  const auto begin_stage = [&context](build::Stage stage) { return context.Begin(stage); };
+
+  if (const auto started = begin_stage(build::Stage::kTopologyIndex); !started.ok) return started;
+  context.topology.reserve(graph_.nodes.size());
+  for (const RoadNode& node : graph_.nodes) {
+    build::NodeTopology topology{};
+    topology.node_id = node.id;
+    for (const RoadSegment& segment : graph_.segments) {
+      if (segment.node_a == node.id || segment.node_b == node.id) topology.approach_segment_ids.push_back(segment.id);
     }
-    const auto stations = stations_for_path(segment.alignment);
-    if (stations.empty()) {
+    context.topology.push_back(std::move(topology));
+  }
+
+  if (const auto started = begin_stage(build::Stage::kCanonicalAlignment); !started.ok) return started;
+  context.derived.canonical_alignments.reserve(graph_.segments.size());
+  for (const RoadSegment& segment : graph_.segments) {
+    const RoadNode* node_a = find_node(graph_, segment.node_a);
+    const RoadNode* node_b = find_node(graph_, segment.node_b);
+    if (node_a == nullptr || node_b == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "road segment endpoint node is missing");
+    }
+    Result<Path> alignment = BuildCanonicalAlignment(node_a->position, node_b->position, segment.shape);
+    if (!alignment.ok) return Result<bool>::Fail(alignment.error_kind, alignment.error);
+    context.derived.canonical_alignments.push_back(CanonicalAlignment{segment.id, std::move(alignment.value)});
+  }
+
+  if (const auto started = begin_stage(build::Stage::kNodeConnectionDecision); !started.ok) return started;
+  context.connection_decisions.reserve(context.topology.size());
+  for (const build::NodeTopology& topology : context.topology) {
+    build::NodeConnectionDecision decision{};
+    decision.node_id = topology.node_id;
+    const NodeConnectionPolicyOverride* policy = find_connection_policy_override(graph_, topology.node_id);
+    if (policy != nullptr) {
+      if (policy->policy == NodeConnectionPolicy::kForcePassThrough) {
+        decision.kind = build::NodeConnectionKind::kPassThrough;
+      } else if (policy->policy == NodeConnectionPolicy::kForceCorner) {
+        decision.kind = build::NodeConnectionKind::kCorner;
+      } else {
+        decision.kind = build::NodeConnectionKind::kJunction;
+      }
+      decision.reason = "explicit policy override";
+    } else if (topology.approach_segment_ids.size() <= 1) {
+      decision.kind = build::NodeConnectionKind::kPassThrough;
+      decision.reason = "endpoint";
+    } else if (topology.approach_segment_ids.size() == 2) {
+      const bool straight = is_straight_connection(graph_, context.derived, topology.node_id);
+      decision.kind = straight ? build::NodeConnectionKind::kPassThrough : build::NodeConnectionKind::kCorner;
+      decision.reason = straight ? "two aligned approaches" : "two turning approaches";
+    } else if (topology.approach_segment_ids.size() <= 4) {
+      decision.kind = build::NodeConnectionKind::kJunction;
+      decision.reason = "three or four approaches";
+    } else {
+      decision.kind = build::NodeConnectionKind::kUnsupported;
+      decision.reason = "more than four approaches";
+      return Result<bool>::Fail(ErrorKind::kUnsupported, "road node has more than four approaches");
+    }
+    context.connection_decisions.push_back(std::move(decision));
+  }
+
+  if (const auto started = begin_stage(build::Stage::kSamplingPlan); !started.ok) return started;
+  context.sampling_plans.reserve(graph_.segments.size());
+  for (const RoadSegment& segment : graph_.segments) {
+    const Path* alignment = FindCanonicalAlignment(context.derived, segment.id);
+    if (alignment == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+    }
+    build::SegmentSamplingPlan plan{
+        segment.id, stations_for_segment_mesh(graph_, context.derived, context.connection_decisions, segment, *alignment)};
+    if (plan.stations_m.empty()) {
       return Result<bool>::Fail(ErrorKind::kValidation, "road segment has no section stations");
     }
-    const double total = stations.back();
-    for (double station : stations) {
+    context.sampling_plans.push_back(std::move(plan));
+  }
+
+  if (const auto started = begin_stage(build::Stage::kSectionEvaluation); !started.ok) return started;
+  for (const RoadSegment& segment : graph_.segments) {
+    if (find_template(graph_, segment.section_template) == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "road segment section template is missing");
+    }
+    const auto plan = std::find_if(context.sampling_plans.begin(), context.sampling_plans.end(),
+                                   [&segment](const auto& item) { return item.segment_id == segment.id; });
+    if (plan == context.sampling_plans.end()) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road segment sampling plan is missing");
+    }
+    const double total = plan->stations_m.back();
+    for (double station : plan->stations_m) {
       const auto evaluated = evaluate_segment_section(graph_, segment, station, total);
       if (!evaluated.ok) return Result<bool>::Fail(evaluated.error_kind, evaluated.error);
-      next.section_evaluations.push_back(SectionEvaluation{segment.id, station, evaluated.value});
+      const auto evaluated_template = evaluate_segment_template(graph_, segment, station, total);
+      if (!evaluated_template.ok) {
+        return Result<bool>::Fail(evaluated_template.error_kind, evaluated_template.error);
+      }
+      context.derived.section_evaluations.push_back(
+          SectionEvaluation{segment.id, station, evaluated.value, surface_materials(evaluated_template.value)});
     }
-    std::vector<Mesh> surface_meshes = build_surface_meshes(graph_, segment);
-    if (surface_meshes.empty()) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road surface materialization produced no meshes");
-    }
-    next.segment_meshes.insert(next.segment_meshes.end(), std::make_move_iterator(surface_meshes.begin()),
-                               std::make_move_iterator(surface_meshes.end()));
-    next.marking_meshes.push_back(build_marking_mesh(graph_, segment));
-    next.terrain_masks.push_back(build_terrain_mask(graph_, segment));
+  }
+
+  if (const auto started = begin_stage(build::Stage::kConnectionGate); !started.ok) return started;
+  for (const RoadSegment& segment : graph_.segments) {
+    const Path* alignment = FindCanonicalAlignment(context.derived, segment.id);
+    if (alignment == nullptr) return Result<bool>::Fail(ErrorKind::kInternal, "road alignment is missing");
+    const auto total_result = PathLength(*alignment);
+    if (!total_result.ok) return Result<bool>::Fail(total_result.error_kind, total_result.error);
+    const double total = total_result.value;
     for (RoadNodeId node_id : std::array<RoadNodeId, 2>{segment.node_a, segment.node_b}) {
       const RoadNode* node = find_node(graph_, node_id);
       if (node == nullptr) {
         return Result<bool>::Fail(ErrorKind::kValidation, "road segment endpoint node is missing");
       }
-      const double offset = node_gate_setback(graph_, segment, node_id);
+      const auto* decision = find_connection_decision(context.connection_decisions, node_id);
+      if (decision == nullptr) return Result<bool>::Fail(ErrorKind::kInternal, "road connection decision is missing");
+      const double offset = node_gate_setback(graph_, context.derived, decision->kind, segment, *alignment, node_id);
       const double gate_station = node_id == segment.node_a ? offset : total - offset;
-      const auto gate_center = EvaluatePath(segment.alignment, gate_station);
-      const auto path_direction = path_tangent(segment.alignment, gate_station, total);
+      const auto gate_center = EvaluatePath(*alignment, gate_station);
+      const auto path_direction = path_tangent(*alignment, gate_station, total);
       if (!gate_center.ok || !path_direction.has_value()) {
         return Result<bool>::Fail(ErrorKind::kInternal, "road connection gate frame could not be evaluated");
       }
       const Vec2d tangent2 = node_id == segment.node_a ? *path_direction : mul(*path_direction, -1.0);
       const auto gate_section = evaluate_segment_section(graph_, segment, gate_station, total);
       if (!gate_section.ok) return Result<bool>::Fail(gate_section.error_kind, gate_section.error);
-      next.connection_gates.push_back(
+      context.derived.connection_gates.push_back(
           ConnectionGate{segment.id, node_id, to3(gate_center.value), to3(tangent2), gate_section.value});
     }
   }
-  for (const RoadNode& node : graph_.nodes) {
-    if (node_degree(graph_, node.id) != 2 || is_straight_connection(graph_, node.id)) continue;
-    ConnectionArea area{};
-    area.node_id = node.id;
-    for (const ConnectionGate& gate : next.connection_gates) {
-      if (gate.node_id == node.id) area.gates.push_back(gate);
-    }
-    std::vector<Mesh> meshes = build_connection_meshes(graph_, area, node.position);
-    if (area.gates.size() != 2 || meshes.empty()) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road corner connection materialization failed");
-    }
-    next.connection_meshes.insert(next.connection_meshes.end(), std::make_move_iterator(meshes.begin()),
-                                  std::make_move_iterator(meshes.end()));
-    next.connection_areas.push_back(std::move(area));
-  }
-  for (const JunctionDefinition& junction : graph_.junctions) {
-    JunctionArea area{};
-    area.definition_id = junction.id;
-    area.node_id = junction.node_id;
-    for (const ConnectionGate& gate : next.connection_gates) {
-      if (gate.node_id == junction.node_id) {
-        area.gates.push_back(gate);
+
+  if (const auto started = begin_stage(build::Stage::kJunctionGeometry); !started.ok) return started;
+  for (const build::NodeConnectionDecision& decision : context.connection_decisions) {
+    if (decision.kind == build::NodeConnectionKind::kPassThrough) continue;
+    if (decision.kind == build::NodeConnectionKind::kCorner) {
+      ConnectionArea area{};
+      area.node_id = decision.node_id;
+      for (const ConnectionGate& gate : context.derived.connection_gates) {
+        if (gate.node_id == decision.node_id) area.gates.push_back(gate);
       }
+      if (area.gates.size() != 2) return Result<bool>::Fail(ErrorKind::kInternal, "road corner gates are invalid");
+      const RoadNode* node = find_node(graph_, decision.node_id);
+      const auto section = std::find_if(context.derived.section_evaluations.begin(),
+                                        context.derived.section_evaluations.end(), [&area](const auto& item) {
+                                          return item.segment_id == area.gates.front().segment_id;
+                                        });
+      if (node == nullptr || section == context.derived.section_evaluations.end()) {
+        return Result<bool>::Fail(ErrorKind::kInternal, "road corner materialization read model is missing");
+      }
+      connection_inputs.push_back(
+          materialization::ConnectionInput{area, node->position, section->surface_materials});
+      context.derived.connection_areas.push_back(std::move(area));
+      continue;
     }
-    if (area.gates.size() < 3) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "junction has fewer than three connection gates");
+    const NodeConnectionPolicyOverride* policy = find_connection_policy_override(graph_, decision.node_id);
+    JunctionArea area{};
+    area.policy_override_id = policy == nullptr ? 0 : policy->id;
+    area.node_id = decision.node_id;
+    for (const ConnectionGate& gate : context.derived.connection_gates) {
+      if (gate.node_id == decision.node_id) area.gates.push_back(gate);
     }
-    const RoadNode* node = find_node(graph_, junction.node_id);
-    if (node == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "junction node is missing");
-    }
-    std::vector<Mesh> junction_meshes = build_junction_meshes(area, node->position);
-    if (junction_meshes.empty() ||
-        std::any_of(junction_meshes.begin(), junction_meshes.end(), [](const Mesh& mesh) {
-          return mesh.indices.empty();
-        })) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "junction surface materialization failed");
-    }
-    next.junction_meshes.insert(next.junction_meshes.end(), std::make_move_iterator(junction_meshes.begin()),
-                                std::make_move_iterator(junction_meshes.end()));
-    std::vector<Mesh> junction_markings = build_junction_markings(area);
-    next.junction_marking_meshes.insert(next.junction_marking_meshes.end(),
-                                        std::make_move_iterator(junction_markings.begin()),
-                                        std::make_move_iterator(junction_markings.end()));
-    next.junction_areas.push_back(std::move(area));
+    if (area.gates.size() < 3) return Result<bool>::Fail(ErrorKind::kInternal, "road junction gates are invalid");
+    const RoadNode* node = find_node(graph_, decision.node_id);
+    if (node == nullptr) return Result<bool>::Fail(ErrorKind::kInternal, "road junction node is missing");
+    junction_inputs.push_back(materialization::JunctionInput{area, node->position});
+    context.derived.junction_areas.push_back(std::move(area));
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
-    if (owner == nullptr) return Result<bool>::Fail(ErrorKind::kValidation, "manual line owner is missing");
-    next.manual_marking_meshes.push_back(build_manual_line_mesh(graph_, *owner, marking));
+    const Path* alignment = owner == nullptr ? nullptr : FindCanonicalAlignment(context.derived, owner->id);
+    if (owner == nullptr || alignment == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "manual line owner read model is missing");
+    }
+    materialization::ManualLineInput input{};
+    input.marking_id = marking.id;
+    const std::vector<Vec2d> points = FlattenPath(marking.path);
+    constexpr double half_width = 0.05;
+    for (std::size_t i = 0; i < points.size(); ++i) {
+      Vec2d direction = i + 1 < points.size() ? sub(points[i + 1], points[i]) : sub(points[i], points[i - 1]);
+      direction = normalize(direction);
+      const Vec2d normal{-direction.y, direction.x};
+      const auto left = owner_local_point(graph_, *owner, *alignment, add(points[i], mul(normal, -half_width)), 0.02);
+      const auto right = owner_local_point(graph_, *owner, *alignment, add(points[i], mul(normal, half_width)), 0.02);
+      if (!left.has_value() || !right.has_value()) {
+        return Result<bool>::Fail(ErrorKind::kValidation, "manual line read model is invalid");
+      }
+      input.left.push_back(*left);
+      input.right.push_back(*right);
+    }
+    manual_line_inputs.push_back(std::move(input));
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
-    if (owner == nullptr) return Result<bool>::Fail(ErrorKind::kValidation, "manual area owner is missing");
-    next.manual_marking_meshes.push_back(build_manual_area_mesh(graph_, *owner, marking));
+    const Path* alignment = owner == nullptr ? nullptr : FindCanonicalAlignment(context.derived, owner->id);
+    if (owner == nullptr || alignment == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "manual area owner read model is missing");
+    }
+    materialization::ManualAreaInput input{};
+    input.marking_id = marking.id;
+    const double hw = marking.width_m * 0.5;
+    const double hl = marking.length_m * 0.5;
+    const std::array<Vec2d, 4> locals{Vec2d{marking.frame_origin.x - hl, marking.frame_origin.y - hw},
+                                      Vec2d{marking.frame_origin.x + hl, marking.frame_origin.y - hw},
+                                      Vec2d{marking.frame_origin.x - hl, marking.frame_origin.y + hw},
+                                      Vec2d{marking.frame_origin.x + hl, marking.frame_origin.y + hw}};
+    for (std::size_t i = 0; i < locals.size(); ++i) {
+      const auto point = owner_local_point(graph_, *owner, *alignment, locals[i], 0.025);
+      if (!point.has_value()) return Result<bool>::Fail(ErrorKind::kValidation, "manual area read model is invalid");
+      input.corners[i] = *point;
+    }
+    manual_area_inputs.push_back(std::move(input));
   }
-  const Result<bool> invariant = ValidateGraphInvariants(graph_, next);
+
+  if (const auto started = begin_stage(build::Stage::kMaterialization); !started.ok) return started;
+  for (const CanonicalAlignment& canonical : context.derived.canonical_alignments) {
+    const Path& alignment = canonical.path;
+    const auto total = PathLength(alignment);
+    if (!total.ok) return Result<bool>::Fail(total.error_kind, total.error);
+    materialization::SegmentInput input{};
+    input.segment_id = canonical.segment_id;
+    for (const SectionEvaluation& section : context.derived.section_evaluations) {
+      if (section.segment_id != canonical.segment_id) continue;
+      const auto center = EvaluatePath(alignment, section.station_m);
+      const auto tangent = path_tangent(alignment, section.station_m, total.value);
+      if (!center.ok || !tangent.has_value()) {
+        return Result<bool>::Fail(ErrorKind::kInternal, "road materialization sample frame is invalid");
+      }
+      input.samples.push_back(
+          materialization::SegmentSample{center.value, *tangent, section.boundaries, section.surface_materials});
+    }
+    auto output = materialization::MaterializeSegment(input);
+    if (!output.ok) return Result<bool>::Fail(output.error_kind, output.error);
+    context.derived.segment_meshes.insert(context.derived.segment_meshes.end(),
+                                           std::make_move_iterator(output.value.surface_meshes.begin()),
+                                           std::make_move_iterator(output.value.surface_meshes.end()));
+    context.derived.marking_meshes.push_back(std::move(output.value.marking_mesh));
+    context.derived.terrain_masks.push_back(std::move(output.value.terrain_mask));
+  }
+  for (const materialization::ConnectionInput& input : connection_inputs) {
+    auto materialized = materialization::MaterializeConnection(input);
+    if (!materialized.ok) return Result<bool>::Fail(materialized.error_kind, materialized.error);
+    std::vector<Mesh>& meshes = materialized.value;
+    context.derived.connection_meshes.insert(context.derived.connection_meshes.end(),
+                                              std::make_move_iterator(meshes.begin()),
+                                              std::make_move_iterator(meshes.end()));
+  }
+  for (const materialization::JunctionInput& input : junction_inputs) {
+    auto materialized = materialization::MaterializeJunction(input);
+    if (!materialized.ok) return Result<bool>::Fail(materialized.error_kind, materialized.error);
+    std::vector<Mesh>& meshes = materialized.value.surface_meshes;
+    context.derived.junction_meshes.insert(context.derived.junction_meshes.end(),
+                                            std::make_move_iterator(meshes.begin()),
+                                            std::make_move_iterator(meshes.end()));
+    std::vector<Mesh>& markings = materialized.value.marking_meshes;
+    context.derived.junction_marking_meshes.insert(context.derived.junction_marking_meshes.end(),
+                                                    std::make_move_iterator(markings.begin()),
+                                                    std::make_move_iterator(markings.end()));
+  }
+  for (const materialization::ManualLineInput& input : manual_line_inputs) {
+    auto mesh = materialization::MaterializeManualLine(input);
+    if (!mesh.ok) return Result<bool>::Fail(mesh.error_kind, mesh.error);
+    context.derived.manual_marking_meshes.push_back(std::move(mesh.value));
+  }
+  for (const materialization::ManualAreaInput& input : manual_area_inputs) {
+    auto mesh = materialization::MaterializeManualArea(input);
+    if (!mesh.ok) return Result<bool>::Fail(mesh.error_kind, mesh.error);
+    context.derived.manual_marking_meshes.push_back(std::move(mesh.value));
+  }
+
+  if (const auto started = begin_stage(build::Stage::kDerivedInvariant); !started.ok) return started;
+  context.derived.build_stage_runs = context.stage_runs;
+  const Result<bool> invariant = ValidateGraphInvariants(graph_, context.derived);
   if (!invariant.ok) {
     return invariant;
   }
-  derived_ = std::move(next);
+  derived_ = std::move(context.derived);
   return Result<bool>::Ok(true);
 }
 
 Result<std::string> RoadState::Save() const {
   std::ostringstream out;
-  out << "road_graph_version=4\n";
+  out.imbue(std::locale::classic());
+  out << std::setprecision(std::numeric_limits<double>::max_digits10);
+  out << persistence::kHeader;
   out << "next_id=" << next_id_ << "\n";
   for (const CrossSectionTemplate& section : graph_.section_templates) {
     out << "section_template=" << section.id << "\n";
@@ -1774,16 +1648,19 @@ Result<std::string> RoadState::Save() const {
   for (const RoadNode& node : graph_.nodes) {
     out << "node=" << node.id << "," << node.position.x << "," << node.position.y << "\n";
   }
-  for (const JunctionDefinition& junction : graph_.junctions) {
-    out << "junction=" << junction.id << "," << junction.node_id << "," << junction.corner_radius_m << "\n";
+  for (const NodeConnectionPolicyOverride& policy : graph_.connection_policy_overrides) {
+    out << "connection_policy_override=" << policy.id << "," << policy.node_id << ","
+        << static_cast<int>(policy.policy) << "\n";
   }
   for (const RoadSegment& segment : graph_.segments) {
     out << "segment=" << segment.id << "," << segment.node_a << "," << segment.node_b << ","
         << segment.section_template << "," << segment.transition.value_or(0) << ","
-        << segment.alignment.spans.size() << "\n";
-    for (const BezierSpan& span : segment.alignment.spans) {
-      out << "span=" << span.p0.x << "," << span.p0.y << "," << span.p1.x << "," << span.p1.y << ","
-          << span.p2.x << "," << span.p2.y << "," << span.p3.x << "," << span.p3.y << "\n";
+        << segment.shape.internal_knots.size() << "\n";
+    out << "segment_shape=" << segment.shape.start_handle.x << "," << segment.shape.start_handle.y << ","
+        << segment.shape.end_handle.x << "," << segment.shape.end_handle.y << "\n";
+    for (const SegmentKnot& knot : segment.shape.internal_knots) {
+      out << "segment_knot=" << knot.position.x << "," << knot.position.y << "," << knot.handle_in.x << ","
+          << knot.handle_in.y << "," << knot.handle_out.x << "," << knot.handle_out.y << "\n";
     }
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
@@ -1802,41 +1679,28 @@ Result<std::string> RoadState::Save() const {
 }
 
 Result<RoadState> RoadState::Load(const std::string& text) {
-  const bool version1 = text.starts_with("road_graph_version=1\n");
-  const bool version2 = text.starts_with("road_graph_version=2\n");
-  const bool version3 = text.starts_with("road_graph_version=3\n");
-  const bool version4 = text.starts_with("road_graph_version=4\n");
-  const bool modern = version2 || version3 || version4;
-  if (!version1 && !modern) {
+  const bool version5 = persistence::HasCurrentHeader(text);
+  if (!version5 && persistence::HasRoadHeader(text)) {
+    return Result<RoadState>::Fail(ErrorKind::kValidation, "legacy road graph version is unsupported");
+  }
+  if (!version5) {
     return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road graph version");
   }
   RoadState state{};
   state.graph_.nodes.clear();
   state.graph_.segments.clear();
   state.graph_.transitions.clear();
-  state.graph_.junctions.clear();
+  state.graph_.connection_policy_overrides.clear();
   state.graph_.manual_lines.clear();
   state.graph_.manual_areas.clear();
-  if (modern) state.graph_.section_templates.clear();
+  state.graph_.section_templates.clear();
   std::istringstream in(text);
   std::string line;
   RoadSegment* current_segment = nullptr;
   ManualLineMarking* current_manual_line = nullptr;
-  const auto legacy_span_from_parts = [version3](const std::vector<std::string_view>& parts) -> std::optional<BezierSpan> {
-    const std::size_t value_count = version3 ? 8 : 13;
-    if (parts.size() != value_count + 1 || (parts[0] != "line" && parts[0] != "bezier")) return std::nullopt;
-    std::array<double, 13> values{};
-    for (std::size_t i = 1; i < parts.size(); ++i) {
-      const auto parsed = parse_double(parts[i]);
-      if (!parsed.has_value()) return std::nullopt;
-      values[i - 1] = *parsed;
-    }
-    const Vec2d p0{values[0], values[1]};
-    const Vec2d p1{values[2], values[3]};
-    return parts[0] == "line" ? std::optional<BezierSpan>{MakeLine(p0, p1)}
-                               : std::optional<BezierSpan>{MakeBezier(p0, p1, {values[4], values[5]},
-                                                                      {values[6], values[7]})};
-  };
+  std::vector<std::pair<RoadSegmentId, std::size_t>> expected_segment_knots{};
+  std::unordered_set<RoadSegmentId> segment_shapes{};
+  std::vector<std::pair<ManualMarkingId, std::size_t>> expected_manual_spans{};
   const auto span_from_parts = [](const std::vector<std::string_view>& parts) -> std::optional<BezierSpan> {
     if (parts.size() != 8) return std::nullopt;
     std::array<double, 8> values{};
@@ -1869,7 +1733,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       view.remove_prefix(comma + 1);
     }
     if (key == "road_graph_version") {
-      if (value != "1" && value != "2" && value != "3" && value != "4") {
+      if (value != "5") {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road graph version");
       }
     } else if (key == "next_id") {
@@ -1878,11 +1742,11 @@ Result<RoadState> RoadState::Load(const std::string& text) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid next_id");
       }
       state.next_id_ = *parsed;
-    } else if (key == "section_template" && modern) {
+    } else if (key == "section_template") {
       const auto id = parse_u64(value);
       if (!id.has_value()) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid section template row");
       state.graph_.section_templates.push_back(CrossSectionTemplate{*id});
-    } else if (key == "surface_band" && modern) {
+    } else if (key == "surface_band") {
       if (parts.size() != 6) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid surface band row");
       const auto template_id = parse_u64(parts[0]);
       const auto element_id = parse_u64(parts[1]);
@@ -1896,7 +1760,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       if (section == nullptr) return Result<RoadState>::Fail(ErrorKind::kValidation, "surface band template is missing");
       section->bands.push_back(SurfaceBand{*element_id, static_cast<SurfaceRole>(*role), *width, *slope,
                                            std::string(parts[5])});
-    } else if (key == "boundary" && modern) {
+    } else if (key == "boundary") {
       if (parts.size() != 6) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid boundary row");
       const auto template_id = parse_u64(parts[0]);
       const auto boundary_id = parse_u64(parts[1]);
@@ -1911,7 +1775,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       if (section == nullptr) return Result<RoadState>::Fail(ErrorKind::kValidation, "boundary template is missing");
       section->boundaries.push_back(BoundaryProfile{*boundary_id, static_cast<BoundaryRole>(*role), *width, *height,
                                                      static_cast<MarkingRule>(*marking)});
-    } else if (key == "transition" && modern) {
+    } else if (key == "transition") {
       if (parts.size() != 8) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid transition row");
       std::array<std::optional<std::uint64_t>, 6> ints{parse_u64(parts[0]), parse_u64(parts[1]), parse_u64(parts[2]),
                                                        parse_u64(parts[3]), parse_u64(parts[5]), parse_u64(parts[7])};
@@ -1925,7 +1789,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
                                                             StationRef{static_cast<StationRefKind>(*ints[3]), *start_value},
                                                             StationRef{static_cast<StationRefKind>(*ints[4]), *end_value},
                                                             static_cast<TransitionAnchor>(*ints[5]), {}});
-    } else if (key == "transition_rule" && modern) {
+    } else if (key == "transition_rule") {
       if (parts.size() != 3) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid transition rule row");
       const auto transition_id = parse_u64(parts[0]);
       const auto element_id = parse_u64(parts[1]);
@@ -1943,62 +1807,90 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       if (parts.size() != 3) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid node row");
       }
-      state.graph_.nodes.push_back(RoadNode{*parse_u64(parts[0]), {*parse_double(parts[1]), *parse_double(parts[2])}});
-    } else if (key == "junction" && modern) {
-      if (parts.size() != 3) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid junction row");
+      const auto id = parse_u64(parts[0]);
+      const auto x = parse_double(parts[1]);
+      const auto y = parse_double(parts[2]);
+      if (!id || !x || !y) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid node value");
+      state.graph_.nodes.push_back(RoadNode{*id, {*x, *y}});
+    } else if (key == "connection_policy_override") {
+      if (parts.size() != 3) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid connection policy row");
       const auto id = parse_u64(parts[0]);
       const auto node = parse_u64(parts[1]);
-      const auto radius = parse_double(parts[2]);
-      if (!id || !node || !radius) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid junction value");
-      state.graph_.junctions.push_back(JunctionDefinition{*id, *node, *radius});
+      const auto policy = parse_u64(parts[2]);
+      if (!id || !node || !policy) {
+        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid connection policy value");
+      }
+      state.graph_.connection_policy_overrides.push_back(
+          NodeConnectionPolicyOverride{*id, *node, static_cast<NodeConnectionPolicy>(*policy)});
+    } else if (key == "junction") {
+      return Result<RoadState>::Fail(ErrorKind::kValidation, "legacy junction authority is unsupported");
     } else if (key == "segment") {
-      if ((version1 && parts.size() != 5) || (modern && parts.size() != 6)) {
+      if (parts.size() != 6) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment row");
       }
       const auto id = parse_u64(parts[0]);
       const auto node_a = parse_u64(parts[1]);
       const auto node_b = parse_u64(parts[2]);
       const auto section = parse_u64(parts[3]);
-      const auto transition = modern ? parse_u64(parts[4]) : std::optional<std::uint64_t>{0};
-      if (!id || !node_a || !node_b || !section || !transition) {
+      const auto transition = parse_u64(parts[4]);
+      const auto knot_count = parse_u64(parts[5]);
+      if (!id || !node_a || !node_b || !section || !transition || !knot_count) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment value");
       }
       state.graph_.segments.push_back(RoadSegment{*id, *node_a, *node_b, {}, *section,
                                                    *transition == 0 ? std::nullopt
                                                                     : std::optional<SectionTransitionId>(*transition)});
       current_segment = &state.graph_.segments.back();
-    } else if (key == "primitive" && !version4) {
-      const auto span = legacy_span_from_parts(parts);
-      if (current_segment == nullptr || !span.has_value()) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid primitive row");
+      expected_segment_knots.push_back({*id, static_cast<std::size_t>(*knot_count)});
+    } else if (key == "segment_shape") {
+      if (current_segment == nullptr || parts.size() != 4) {
+        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment shape row");
       }
-      current_segment->alignment.spans.push_back(*span);
-    } else if (key == "span" && version4) {
-      const auto span = span_from_parts(parts);
-      if (current_segment == nullptr || !span.has_value()) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid span row");
+      const auto sx = parse_double(parts[0]);
+      const auto sy = parse_double(parts[1]);
+      const auto ex = parse_double(parts[2]);
+      const auto ey = parse_double(parts[3]);
+      if (!sx || !sy || !ex || !ey) {
+        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment shape value");
       }
-      current_segment->alignment.spans.push_back(*span);
-    } else if (key == "manual_line" && modern) {
+      current_segment->shape.start_handle = {*sx, *sy};
+      current_segment->shape.end_handle = {*ex, *ey};
+      if (!segment_shapes.insert(current_segment->id).second) {
+        return Result<RoadState>::Fail(ErrorKind::kValidation, "duplicate segment shape row");
+      }
+    } else if (key == "segment_knot") {
+      if (current_segment == nullptr || parts.size() != 6) {
+        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment knot row");
+      }
+      std::array<std::optional<double>, 6> values{};
+      for (std::size_t i = 0; i < values.size(); ++i) values[i] = parse_double(parts[i]);
+      if (std::any_of(values.begin(), values.end(), [](const auto& value) { return !value.has_value(); })) {
+        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment knot value");
+      }
+      current_segment->shape.internal_knots.push_back(
+          SegmentKnot{{*values[0], *values[1]}, {*values[2], *values[3]}, {*values[4], *values[5]}});
+    } else if (key == "primitive" || key == "span") {
+      return Result<RoadState>::Fail(ErrorKind::kValidation, "legacy road segment persistence is unsupported");
+    } else if (key == "manual_line") {
       if (parts.size() != 4) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual line row");
       const auto id = parse_u64(parts[0]);
       const auto owner = parse_u64(parts[1]);
-      if (!id || !owner) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual line value");
+      const auto span_count = parse_u64(parts[3]);
+      if (!id || !owner || !span_count) {
+        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual line value");
+      }
       state.graph_.manual_lines.push_back(ManualLineMarking{*id, *owner, {}, std::string(parts[2])});
       current_manual_line = &state.graph_.manual_lines.back();
-    } else if (key == "manual_primitive" && modern && !version4) {
-      const auto span = legacy_span_from_parts(parts);
-      if (current_manual_line == nullptr || !span.has_value()) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual primitive row");
-      }
-      current_manual_line->path.spans.push_back(*span);
-    } else if (key == "manual_span" && version4) {
+      expected_manual_spans.push_back({*id, static_cast<std::size_t>(*span_count)});
+    } else if (key == "manual_primitive") {
+      return Result<RoadState>::Fail(ErrorKind::kValidation, "legacy manual marking persistence is unsupported");
+    } else if (key == "manual_span") {
       const auto span = span_from_parts(parts);
       if (current_manual_line == nullptr || !span.has_value()) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual span row");
       }
       current_manual_line->path.spans.push_back(*span);
-    } else if (key == "manual_area" && modern) {
+    } else if (key == "manual_area") {
       if (parts.size() != 7) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual area row");
       const auto id = parse_u64(parts[0]);
       const auto owner = parse_u64(parts[1]);
@@ -2015,14 +1907,20 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road archive key");
     }
   }
-  if (!version3 && !version4) {
-    state.graph_.junctions.erase(
-        std::remove_if(state.graph_.junctions.begin(), state.graph_.junctions.end(), [&state](const auto& junction) {
-          return node_degree(state.graph_, junction.node_id) < 3;
-        }),
-        state.graph_.junctions.end());
+  for (const auto& [segment_id, expected] : expected_segment_knots) {
+    const RoadSegment* segment = find_segment(state.graph_, segment_id);
+    if (segment == nullptr || !segment_shapes.contains(segment_id) || segment->shape.internal_knots.size() != expected) {
+      return Result<RoadState>::Fail(ErrorKind::kValidation, "road segment shape rows are truncated or excessive");
+    }
   }
-  const Result<bool> rebuilt = state.RebuildDerived();
+  for (const auto& [marking_id, expected] : expected_manual_spans) {
+    const auto marking = std::find_if(state.graph_.manual_lines.begin(), state.graph_.manual_lines.end(),
+                                      [marking_id](const auto& item) { return item.id == marking_id; });
+    if (marking == state.graph_.manual_lines.end() || marking->path.spans.size() != expected) {
+      return Result<RoadState>::Fail(ErrorKind::kValidation, "manual line rows are truncated or excessive");
+    }
+  }
+  const Result<bool> rebuilt = state.BuildDerived();
   if (!rebuilt.ok) {
     return Result<RoadState>::Fail(rebuilt.error_kind, rebuilt.error);
   }
@@ -2030,7 +1928,16 @@ Result<RoadState> RoadState::Load(const std::string& text) {
 }
 
 Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedRoad& derived) {
+  if (std::any_of(derived.build_stage_runs.begin(), derived.build_stage_runs.end(),
+                  [](std::size_t runs) { return runs != 1; })) {
+    return Result<bool>::Fail(ErrorKind::kInternal, "road build stage count invariant failed");
+  }
   std::unordered_set<std::uint64_t> ids{};
+  for (const CrossSectionTemplate& section : graph.section_templates) {
+    if (!ids.insert(section.id).second) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road section template ID invariant failed");
+    }
+  }
   for (const RoadNode& node : graph.nodes) {
     if (!ids.insert(node.id).second || !finite(node.position)) {
       return Result<bool>::Fail(ErrorKind::kInternal, "road node invariant failed");
@@ -2051,9 +1958,24 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
       previous = boundary.lateral_m;
     }
   }
-  for (const JunctionDefinition& junction : graph.junctions) {
-    if (node_degree(graph, junction.node_id) < 3) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "degree-two node owns a junction definition");
+  for (const NodeConnectionPolicyOverride& policy : graph.connection_policy_overrides) {
+    if (!ids.insert(policy.id).second || find_node(graph, policy.node_id) == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road connection policy override invariant failed");
+    }
+  }
+  for (const SectionTransition& transition : graph.transitions) {
+    if (!ids.insert(transition.id).second) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road transition ID invariant failed");
+    }
+  }
+  for (const ManualLineMarking& marking : graph.manual_lines) {
+    if (!ids.insert(marking.id).second || find_segment(graph, marking.owner_segment_id) == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "manual line ID or owner invariant failed");
+    }
+  }
+  for (const ManualAreaMarking& marking : graph.manual_areas) {
+    if (!ids.insert(marking.id).second || find_segment(graph, marking.owner_segment_id) == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "manual area ID or owner invariant failed");
     }
   }
   const auto valid_mesh = [](const Mesh& mesh) {

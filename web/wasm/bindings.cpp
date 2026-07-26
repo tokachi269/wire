@@ -1207,19 +1207,18 @@ public:
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
     const double start_station_m = input["startStationM"].as<double>();
-    const bool connect = input["connectToFirstNode"].as<bool>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> result{};
     if (start_segment_id != 0) {
-      result = state_->AddSegmentConnectedToSegment(path, section_template_id, start_segment_id, start_station_m);
+      result = state_->AddSegmentConnectedToSegment(
+          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_station_m});
     } else if (start_node_id != 0) {
-      result = state_->AddSegmentConnectedTo(path, section_template_id, start_node_id);
-    } else if (connect && !state_->graph().nodes.empty()) {
-      result = state_->AddSegmentConnectedTo(path, section_template_id, state_->graph().nodes.front().id);
+      result = state_->AddSegmentConnectedTo(
+          city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id});
     } else {
-      result = state_->AddSegment(path, section_template_id);
+      result = state_->AddSegment(city::road::AddSegmentRequest{path, section_template_id});
     }
     return road_result_value(result.ok, result.error, result.error_kind);
   }
@@ -1235,19 +1234,18 @@ public:
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
     const double start_station_m = input["startStationM"].as<double>();
-    const bool connect = input["connectToFirstNode"].as<bool>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> added{};
     if (start_segment_id != 0) {
-      added = trial.AddSegmentConnectedToSegment(path, section_template_id, start_segment_id, start_station_m);
+      added = trial.AddSegmentConnectedToSegment(
+          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_station_m});
     } else if (start_node_id != 0) {
-      added = trial.AddSegmentConnectedTo(path, section_template_id, start_node_id);
-    } else if (connect && !trial.graph().nodes.empty()) {
-      added = trial.AddSegmentConnectedTo(path, section_template_id, trial.graph().nodes.front().id);
+      added = trial.AddSegmentConnectedTo(
+          city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id});
     } else {
-      added = trial.AddSegment(path, section_template_id);
+      added = trial.AddSegment(city::road::AddSegmentRequest{path, section_template_id});
     }
     val result = road_result_value(added.ok, added.error, added.error_kind);
     val meshes = val::array();
@@ -1273,16 +1271,18 @@ public:
     }
     val centerline_segments = val::array();
     for (const auto& segment : graph.segments) {
-      const double total = city::road::PathLength(segment.alignment).value;
-      const int piece_count = segment.alignment.spans.size() == 1 &&
-                                      city::road::IsLinearSpan(segment.alignment.spans.front())
+      const city::road::Path* alignment = city::road::FindCanonicalAlignment(derived, segment.id);
+      if (alignment == nullptr) continue;
+      const double total = city::road::PathLength(*alignment).value;
+      const int piece_count = alignment->spans.size() == 1 &&
+                                      city::road::IsLinearSpan(alignment->spans.front())
                                   ? 1
                                   : std::max(2, static_cast<int>(std::ceil(total / 2.0)));
       for (int piece = 0; piece < piece_count; ++piece) {
         const double start_station = total * piece / piece_count;
         const double end_station = total * (piece + 1) / piece_count;
-        const city::road::Vec2d start = city::road::EvaluatePath(segment.alignment, start_station).value;
-        const city::road::Vec2d end = city::road::EvaluatePath(segment.alignment, end_station).value;
+        const city::road::Vec2d start = city::road::EvaluatePath(*alignment, start_station).value;
+        const city::road::Vec2d end = city::road::EvaluatePath(*alignment, end_station).value;
         val item = val::object();
         item.set("id", static_cast<double>(segment.id));
         item.set("startX", start.x);
@@ -1335,8 +1335,9 @@ public:
     }
     val editable_segments = val::array();
     for (const auto& segment : graph.segments) {
-      if (segment.alignment.spans.size() != 1) continue;
-      const auto& span = segment.alignment.spans.front();
+      const city::road::Path* alignment = city::road::FindCanonicalAlignment(derived, segment.id);
+      if (alignment == nullptr || alignment->spans.size() != 1) continue;
+      const auto& span = alignment->spans.front();
       const bool linear = city::road::IsLinearSpan(span);
       val item = val::object();
       item.set("id", static_cast<double>(segment.id));
@@ -1397,18 +1398,22 @@ public:
   }
 
   val delete_segment(std::uint64_t segment_id) {
-    const auto result = state_->DeleteSegment(segment_id);
+    const auto result = state_->DeleteSegment(city::road::DeleteSegmentRequest{segment_id});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
   val edit_segment(std::uint64_t segment_id, const val& input) {
-    const auto result = state_->EditSegmentPath(segment_id, road_path_value(input));
+    const auto shape = city::road::SegmentShapeFromPath(road_path_value(input));
+    if (!shape.ok) return road_result_value(false, shape.error, shape.error_kind);
+    const auto result = state_->EditSegmentShape(city::road::EditSegmentShapeRequest{segment_id, shape.value});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
   val preview_edit_segment(std::uint64_t segment_id, const val& input) const {
     city::road::RoadState trial = *state_;
-    const auto edited = trial.EditSegmentPath(segment_id, road_path_value(input));
+    const auto shape = city::road::SegmentShapeFromPath(road_path_value(input));
+    if (!shape.ok) return road_result_value(false, shape.error, shape.error_kind);
+    const auto edited = trial.EditSegmentShape(city::road::EditSegmentShapeRequest{segment_id, shape.value});
     val result = road_result_value(edited.ok, edited.error, edited.error_kind);
     val meshes = val::array();
     if (edited.ok) {
@@ -1446,7 +1451,7 @@ public:
         boundary.marking_rule = outer_lines ? city::road::MarkingRule::kOuterLine : city::road::MarkingRule::kNone;
       }
     }
-    const auto result = state_->EditSectionTemplate(std::move(section));
+    const auto result = state_->EditSectionTemplate(city::road::EditSectionTemplateRequest{std::move(section)});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
@@ -1462,7 +1467,7 @@ public:
     }
     const auto source = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
                                      [segment](const auto& item) { return item.id == segment->section_template; });
-    city::road::SectionTransition transition{};
+    city::road::SectionTransitionRequest transition{};
     transition.to_template = target_id;
     transition.start = {city::road::StationRefKind::kFromEnd,
                         input["lengthM"].as<double>() + input["endOffsetM"].as<double>()};
@@ -1484,12 +1489,13 @@ public:
         transition.rules.push_back({band.element_id, city::road::TransitionAction::kTaperIn});
       }
     }
-    const auto result = state_->AddTransitionToSegment(segment_id, std::move(transition));
+    const auto result = state_->AddTransitionToSegment(
+        city::road::AddTransitionToSegmentRequest{segment_id, std::move(transition)});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
   val add_manual_line(const val& input) {
-    city::road::ManualLineMarking marking{};
+    city::road::ManualLineRequest marking{};
     marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
     marking.path = city::road::MakePath({city::road::MakeLine(
         {input["startStationM"].as<double>(), input["lateralM"].as<double>()},
@@ -1500,7 +1506,7 @@ public:
   }
 
   val add_manual_area(const val& input) {
-    city::road::ManualAreaMarking marking{};
+    city::road::ManualAreaRequest marking{};
     marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
     marking.frame_origin = {input["stationM"].as<double>(), input["lateralM"].as<double>()};
     marking.width_m = input["widthM"].as<double>();
@@ -1514,7 +1520,8 @@ public:
     if (state_->graph().segments.empty()) {
       return road_result_value(true, {});
     }
-    const auto result = state_->DeleteSegment(state_->graph().segments.back().id);
+    const auto result = state_->DeleteSegment(
+        city::road::DeleteSegmentRequest{state_->graph().segments.back().id});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 

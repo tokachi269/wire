@@ -1936,8 +1936,8 @@ bool C787_web_bundle_template_category_has_no_layer_fallback() {
 
 bool C825_core_silent_fallback_audit_is_recorded() {
   std::string audit{};
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/core_silent_fallback_audit.md", &audit),
-                   "docs/core_silent_fallback_audit.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_silent_fallback_audit.md", &audit),
+                   "docs/wire/core_silent_fallback_audit.md is missing");
   const std::vector<std::string> required_tokens = {
       "HorizontalNormalizedOr",
       "model_assembly.cpp",
@@ -2034,7 +2034,7 @@ bool C828_core_state_mutable_accessors_are_audited() {
   std::string audit{};
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains/wire/include/city/wire/core_state.hpp", &core_state),
                    "core_state.hpp is missing");
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/core_state_mutable_access_audit.md", &audit),
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs/wire/core_state_mutable_access_audit.md", &audit),
                    "core state mutable accessor audit is missing");
   const std::vector<std::string> removed_tokens = {
       "connection_index_access",

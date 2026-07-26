@@ -298,7 +298,8 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 - 既存nodeへの接続
 - 同一CrossSectionTemplate同士のT字・十字
 - JunctionDefinitionからJunctionAreaを自動導出
-- corner radius、停止線、ゼブラ1種
+- 接続角度45〜135度、最小segment長8m、corner radius初期値4m
+- 停止線、ゼブラ1種
 - segment/gate/junctionの隙間・法線・所有重複を不変量検査
 
 ### P2 — 断面の可変と手動マーキング
@@ -419,8 +420,7 @@ P1ではConnectionGate共有、junctionとの隙間・重複・法線不一致�
 
 ## 16. 未決事項
 
-1. P1で許可する接続角度・最小segment長・corner radiusの範囲
-2. マテリアル境界と描画メッシュ結合の最小ルール(意味要素は分けたまま、どこまで同一mesh/material groupへまとめるか)
+1. マテリアル境界と描画メッシュ結合の最小ルール(意味要素は分けたまま、どこまで同一mesh/material groupへまとめるか)
 
 ## 17. 決定済み事項
 
@@ -428,3 +428,4 @@ P1ではConnectionGate共有、junctionとの隙間・重複・法線不一致�
 2. P0固定断面: 日本の一般的な都市部2車線を初期値にする。車線3.0m×2、歩道2.0m×2、curb幅0.2m/段差0.15m、車道横断勾配2%、歩道横断勾配1%。浅い側溝はP0では独立SurfaceBandにしない
 3. P0の既存segment重なり: 判定しない。warningにもunsupportedにもせず、接続なしの独立segmentとして扱う
 4. Path編集UI: Bezierハンドル編集を後回しにしない。P0からCities系道路ツール相当のライブプレビュー、直線/円弧/Bezier作成、ハンドル編集を対象にする
+5. P1接続範囲: 同一断面のT字・十字だけを対象に、接続角度45〜135度、最小segment長8m、corner radius初期値4mとする

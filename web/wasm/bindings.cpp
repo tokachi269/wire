@@ -87,13 +87,6 @@ using city::wire::Vec3d;
     };
     return city::road::MakePath({city::road::MakeBezier(start, handle_a, handle_b, end)});
   }
-  if (kind == "arc") {
-    const city::road::Vec2d handle_a{input["handleAX"].as<double>(), input["handleAY"].as<double>()};
-    const city::road::Vec2d through{start.x + (handle_a.x - start.x) * 1.5,
-                                    start.y + (handle_a.y - start.y) * 1.5};
-    const auto arc = city::road::MakeArcThroughPoints(start, through, end);
-    return arc.ok ? city::road::MakePath({arc.value}) : city::road::Path{};
-  }
   return {};
 }
 
@@ -1344,8 +1337,7 @@ public:
       const auto& primitive = segment.alignment.primitives.front();
       val item = val::object();
       item.set("id", static_cast<double>(segment.id));
-      item.set("kind", primitive.kind == city::road::Primitive::Kind::kLine ? "line"
-                         : primitive.kind == city::road::Primitive::Kind::kArc ? "arc" : "bezier");
+      item.set("kind", primitive.kind == city::road::Primitive::Kind::kLine ? "line" : "bezier");
       val points = val::array();
       const auto push_point = [&points](city::road::Vec2d point) {
         val value = val::object();
@@ -1356,11 +1348,6 @@ public:
       if (primitive.kind == city::road::Primitive::Kind::kLine) {
         push_point(primitive.p0);
         push_point(primitive.p1);
-      } else if (primitive.kind == city::road::Primitive::Kind::kArc) {
-        const double total = city::road::PathLength(segment.alignment).value;
-        push_point(city::road::EvaluatePath(segment.alignment, 0.0).value);
-        push_point(city::road::EvaluatePath(segment.alignment, total * 0.5).value);
-        push_point(city::road::EvaluatePath(segment.alignment, total).value);
       } else {
         push_point(primitive.p0);
         push_point(primitive.p1);

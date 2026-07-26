@@ -50,7 +50,7 @@ backboneの思想(正本グラフ→一方向導出、接続は操作時に決�
 
 ```text
 Path = 順序付きprimitive列
-primitive = Line | Arc | Bezier
+primitive = Line | Bezier
 ```
 
 - 初期配置はroadモジュール内。別の実消費者が現れ、APIが安定してからfoundationへの抽出を判断する。
@@ -287,7 +287,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 - SectionEvaluationTable
 - SurfaceMesh、固定中央線・外側線、TerrainMask導出
 - alignment編集→全派生再生成
-- Path編集UIは初期からCities系道路ツール相当の引き方にする。開始点指定、ライブプレビュー、終点確定、直線/円弧/Bezier(S字含む)の作成とハンドル編集をP0対象に含める
+- Path編集UIは初期からCities系道路ツール相当の引き方にする。開始点指定、ライブプレビュー、終点確定、直線/Bezier(S字含む)の作成とハンドル編集をP0対象に含める
 - save/load、segment削除
 - 決定論テスト、不変量テスト、自己交差reject
 - 交差点なし。既存segmentとの重なりはP0では判定しない。接続も警告も発生させず、独立segmentとして生成する
@@ -387,7 +387,7 @@ foundation変更時は両ドメインのテストを通す。namespaceは`city::
 - 部分更新reconcileの汎用化
 - Junction、SectionTransition、ConnectionGate等の道路概念
 
-`Path(Line|Arc|Bezier)`は新規かつ初期消費者がroadだけなので、まずroad内に置く。別の実消費者が現れ、APIが収束した場合のみfoundationへ抽出する。
+`Path(Line|Bezier)`は新規かつ初期消費者がroadだけなので、まずroad内に置く。別の実消費者が現れ、APIが収束した場合のみfoundationへ抽出する。
 
 viewerは共有前提(同一Svelte/threeシェル、bridge様式、workspace永続)。ドメイン別なのはscene部分と操作パネル。
 
@@ -427,5 +427,5 @@ P1ではConnectionGate共有、junctionとの隙間・重複・法線不一致�
 1. リポジトリ配置: `domains/wire` (`city::wire`)と`domains/road` (`city::road`)を独立配置する。roadからwireへのinclude依存ゼロをlintで強制する。共有実装は条件を満たしたものだけ`foundation` (`city::foundation`)へ置く
 2. P0固定断面: 日本の一般的な都市部2車線を初期値にする。車線3.0m×2、歩道2.0m×2、curb幅0.2m/段差0.15m、車道横断勾配2%、歩道横断勾配1%。浅い側溝はP0では独立SurfaceBandにしない
 3. P0の既存segment重なり: 判定しない。warningにもunsupportedにもせず、接続なしの独立segmentとして扱う
-4. Path編集UI: Bezierハンドル編集を後回しにしない。P0からCities系道路ツール相当のライブプレビュー、直線/円弧/Bezier作成、ハンドル編集を対象にする
+4. Path編集UI: Bezierハンドル編集を後回しにしない。P0からCities系道路ツール相当のライブプレビュー、直線/Bezier作成、ハンドル編集を対象にする
 5. P1接続範囲: 同一断面のT字・十字だけを対象に、接続角度45〜135度、最小segment長8m、corner radius初期値4mとする

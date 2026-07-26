@@ -22,7 +22,6 @@ using city::road::ErrorKind;
 using city::road::BoundaryRole;
 using city::road::JapaneseUrbanTwoLaneTemplate;
 using city::road::MarkingRule;
-using city::road::MakeArcThroughPoints;
 using city::road::MakeBezier;
 using city::road::MakeLine;
 using city::road::MakePath;
@@ -142,20 +141,6 @@ bool P0_tool_preview_includes_bezier_handles(std::string& failure) {
   ROAD_TEST_EXPECT(draft.has_live_preview, "road tool lacks live preview");
   ROAD_TEST_EXPECT(draft.supports_bezier_handles, "road tool does not expose Bezier handles");
   ROAD_TEST_EXPECT(draft.preview_path.primitives.size() == 1, "road tool did not produce a preview primitive");
-  return true;
-}
-
-bool P0_arc_uses_start_through_end_order(std::string& failure) {
-  const auto arc = MakeArcThroughPoints({0.0, 0.0}, {10.0, 10.0}, {20.0, 0.0});
-  ROAD_TEST_EXPECT(arc.ok, arc.error);
-  const auto path = MakePath({arc.value});
-  const auto midpoint = city::road::EvaluatePath(path, city::road::PathLength(path).value * 0.5);
-  ROAD_TEST_EXPECT(midpoint.ok, midpoint.error);
-  ROAD_TEST_EXPECT(std::abs(midpoint.value.x - 10.0) < 1e-6 && std::abs(midpoint.value.y - 10.0) < 1e-6,
-                   "road arc does not pass through the second click");
-  const auto collinear = MakeArcThroughPoints({0.0, 0.0}, {10.0, 0.0}, {20.0, 0.0});
-  ROAD_TEST_EXPECT(!collinear.ok && collinear.error_kind == ErrorKind::kUnsupported,
-                   "collinear road arc input was not rejected as unsupported");
   return true;
 }
 
@@ -464,7 +449,6 @@ int main() {
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
-      {"P0_arc_uses_start_through_end_order", P0_arc_uses_start_through_end_order},
       {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},
       {"P1_connected_segments_create_gates_and_junction", P1_connected_segments_create_gates_and_junction},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},

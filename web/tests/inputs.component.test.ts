@@ -257,6 +257,8 @@ describe("viewer numeric inputs", () => {
     (document.querySelector('[aria-label="Road tool"]') as HTMLButtonElement).click();
     await tick();
     expect(current(mounted.store).activeTool).toBe("road");
+    expect(document.querySelector('[aria-label="Apply section transition"]')).toBeNull();
+    expect(document.querySelector('[aria-label="Circular arc road"]')).toBeNull();
     expect(current(mounted.store).rightPanelMode).toBe("wire");
     expect(document.body.textContent).toContain("DRAW PATH");
     expect(document.body.textContent).not.toContain("Add segment");

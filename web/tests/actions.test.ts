@@ -692,48 +692,18 @@ describe("viewport tool routing", () => {
     expect(current(store).road.phase).toBe("bend");
   });
 
-  it("draws a circular arc in start-through-end order", () => {
-    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
-    const store = new ViewerStore();
-    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
-    actions.initialize();
-    actions.setActiveTool("road");
-    actions.setRoadMode("arc");
-
-    actions.addViewportPoint([0, 0, 0]);
-    actions.addViewportPoint([10, 10, 0]);
-    expect(roadAddSegment).not.toHaveBeenCalled();
-    actions.addViewportPoint([20, 0, 0]);
-
-    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "arc",
-      startX: 0,
-      startY: 0,
-      endX: 20,
-      endY: 0,
-      handleAX: 20 / 3,
-      handleAY: 20 / 3
-    }));
-  });
-
-  it("routes transition, marking, and delete tools from centerline picks", () => {
-    const roadApplyTransition = vi.fn(() => ({ ok: true, error: "" }));
+  it("routes marking and delete tools from centerline picks", () => {
     const roadAddManualLine = vi.fn(() => ({ ok: true, error: "" }));
     const roadAddManualArea = vi.fn(() => ({ ok: true, error: "" }));
     const roadDeleteSegment = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({
-      roadApplyTransition,
       roadAddManualLine,
       roadAddManualArea,
       roadDeleteSegment
     }), store);
     actions.initialize();
     actions.setActiveTool("road");
-
-    actions.setRoadOperation("transition");
-    actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 10 });
-    expect(roadApplyTransition).toHaveBeenCalledWith(expect.objectContaining({ segmentId: 12, targetTemplateId: 2 }));
 
     actions.setRoadOperation("line-marking");
     actions.addViewportPoint([5, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 5 });

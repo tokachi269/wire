@@ -73,20 +73,6 @@
       onchange={(event) => updateTemplate({ hasOuterLines: event.currentTarget.checked })} />Outer lines</label>
   {/if}
 
-  <div class="draw-panel-head"><p class="panel-label">TRANSITION</p></div>
-  <label><span>Target section</span><select value={snapshot.road.transitionTargetTemplateId}
-    onchange={(event) => actions.setRoadSetting("transitionTargetTemplateId", Number(event.currentTarget.value))}>
-    {#each snapshot.road.scene.sectionTemplates as template}<option value={template.id}>{template.name}</option>{/each}
-  </select></label>
-  <label><span>Length</span><input type="number" min="4" step="1" value={snapshot.road.transitionLengthM}
-    onchange={(event) => actions.setRoadSetting("transitionLengthM", Number(event.currentTarget.value))} /></label>
-  <label><span>End offset</span><input type="number" min="0" step="0.5" value={snapshot.road.transitionEndOffsetM}
-    onchange={(event) => actions.setRoadSetting("transitionEndOffsetM", Number(event.currentTarget.value))} /></label>
-  <label><span>Anchor</span><select value={snapshot.road.transitionAnchor}
-    onchange={(event) => actions.setRoadSetting("transitionAnchor", Number(event.currentTarget.value) as 0 | 1 | 2)}>
-    <option value={0}>Center</option><option value={1}>Left edge</option><option value={2}>Right edge</option>
-  </select></label>
-
   <div class="draw-panel-head"><p class="panel-label">MARKING</p></div>
   <label><span>Lateral offset</span><input type="number" step="0.1" value={snapshot.road.manualLineOffsetM}
     onchange={(event) => actions.setRoadSetting("manualLineOffsetM", Number(event.currentTarget.value))} /></label>

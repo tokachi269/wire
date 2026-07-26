@@ -156,16 +156,6 @@ export class RoadActions {
       }));
       return;
     }
-    if (road.operation === "transition") {
-      this.finish(this.ctx.bridge.roadApplyTransition({
-        segmentId: snap.segmentId,
-        targetTemplateId: road.transitionTargetTemplateId,
-        lengthM: road.transitionLengthM,
-        endOffsetM: road.transitionEndOffsetM,
-        anchor: road.transitionAnchor
-      }), "road apply transition");
-      return;
-    }
     if (road.operation === "area-marking") {
       this.finish(this.ctx.bridge.roadAddManualArea({
         segmentId: snap.segmentId,
@@ -308,17 +298,7 @@ function editInput(road: RoadToolState) {
   const end = road.editPoints.at(-1) ?? start;
   let handleA = start;
   let handleB = end;
-  if (road.editKind === "arc") {
-    const through = road.editPoints[1] ?? start;
-    handleA = {
-      x: start.x + (through.x - start.x) * 2 / 3,
-      y: start.y + (through.y - start.y) * 2 / 3
-    };
-    handleB = {
-      x: end.x + (through.x - end.x) * 2 / 3,
-      y: end.y + (through.y - end.y) * 2 / 3
-    };
-  } else if (road.editKind === "bezier") {
+  if (road.editKind === "bezier") {
     handleA = road.editPoints[1] ?? start;
     handleB = road.editPoints[2] ?? end;
   }

@@ -1,6 +1,6 @@
-export type RoadToolMode = "line" | "arc" | "bezier";
+export type RoadToolMode = "line" | "bezier";
 export type RoadToolPhase = "start" | "end" | "bend";
-export type RoadOperation = "draw" | "edit" | "delete" | "transition" | "line-marking" | "area-marking";
+export type RoadOperation = "draw" | "edit" | "delete" | "line-marking" | "area-marking";
 
 export interface RoadPoint {
   x: number;
@@ -98,10 +98,6 @@ export interface RoadToolState {
   draftStartSegmentId: number;
   connectToFirstNode: boolean;
   selectedSectionTemplateId: number;
-  transitionTargetTemplateId: number;
-  transitionLengthM: number;
-  transitionEndOffsetM: number;
-  transitionAnchor: 0 | 1 | 2;
   manualLineOffsetM: number;
   manualAreaWidthM: number;
   manualAreaLengthM: number;
@@ -129,10 +125,6 @@ export function createRoadToolState(): RoadToolState {
     draftStartSegmentId: 0,
     connectToFirstNode: false,
     selectedSectionTemplateId: 1,
-    transitionTargetTemplateId: 2,
-    transitionLengthM: 20,
-    transitionEndOffsetM: 2,
-    transitionAnchor: 0,
     manualLineOffsetM: 0,
     manualAreaWidthM: 4,
     manualAreaLengthM: 6,

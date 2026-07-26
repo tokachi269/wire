@@ -53,7 +53,6 @@ struct Result {
 struct Primitive {
   enum class Kind {
     kLine,
-    kArc,
     kBezier,
   };
 
@@ -62,10 +61,6 @@ struct Primitive {
   Vec2d p1{};
   Vec2d p2{};
   Vec2d p3{};
-  Vec2d center{};
-  double radius = 0.0;
-  double start_angle_rad = 0.0;
-  double sweep_angle_rad = 0.0;
 };
 
 struct Path {
@@ -266,8 +261,6 @@ struct RoadToolDraft {
 };
 
 [[nodiscard]] Primitive MakeLine(Vec2d a, Vec2d b);
-[[nodiscard]] Primitive MakeArc(Vec2d center, double radius, double start_angle_rad, double sweep_angle_rad);
-[[nodiscard]] Result<Primitive> MakeArcThroughPoints(Vec2d start, Vec2d through, Vec2d end);
 [[nodiscard]] Primitive MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3);
 [[nodiscard]] Path MakePath(std::vector<Primitive> primitives);
 [[nodiscard]] RoadToolDraft PreviewRoadToolPath(Vec2d start, Vec2d end, std::optional<Vec2d> handle_a,

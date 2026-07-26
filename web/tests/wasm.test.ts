@@ -1370,27 +1370,6 @@ describe("road wasm smoke", () => {
     expect(Math.abs(dot)).toBeLessThan(1e-6);
   });
 
-  it("creates a circular arc through the second viewport click", () => {
-    state.clear();
-    const added = state.addSegment({
-      kind: "arc",
-      startX: 0,
-      startY: 0,
-      endX: 20,
-      endY: 0,
-      handleAX: 20 / 3,
-      handleAY: 20 / 3,
-      handleBX: 40 / 3,
-      handleBY: 20 / 3,
-      startNodeId: 0,
-      startSegmentId: 0,
-      connectToFirstNode: false
-    });
-    expect(added.ok, added.error).toBe(true);
-    const asphalt = state.scene().surfaceMeshes.find((mesh) => mesh.material === "asphalt");
-    expect(asphalt?.vertices.length).toBeGreaterThan(60);
-  });
-
   it("splits a straight segment when a branch starts from a centerline snap", () => {
     state.clear();
     const base = state.addSegment({

@@ -135,7 +135,7 @@ export interface RoadScenePayload {
   nodes: RoadNodePayload[];
   centerlineSegments: RoadCenterlineSegmentPayload[];
   sectionTemplates: RoadSectionTemplatePayload[];
-  editableSegments: Array<{ id: number; kind: "line" | "arc" | "bezier"; points: Array<{ x: number; y: number }> }>;
+  editableSegments: Array<{ id: number; kind: "line" | "bezier"; points: Array<{ x: number; y: number }> }>;
   surfaceMeshes: RoadMeshPayload[];
   markingMeshes: RoadMeshPayload[];
 }

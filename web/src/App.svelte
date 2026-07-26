@@ -2,8 +2,6 @@
   import { onMount } from "svelte";
   import {
     Cable,
-    Circle,
-    GitCompareArrows,
     Minus,
     PenLine,
     Pencil,
@@ -295,10 +293,6 @@
           <button class:active={snapshot.road.operation === "delete"} type="button"
             aria-label="Delete road" title="Delete road" onclick={() => actions.setRoadOperation("delete")}
           ><Trash2 size={19} aria-hidden="true" /></button>
-          <button class:active={snapshot.road.operation === "transition"} type="button"
-            aria-label="Apply section transition" title="Apply section transition"
-            onclick={() => actions.setRoadOperation("transition")}
-          ><GitCompareArrows size={19} aria-hidden="true" /></button>
           <button class:active={snapshot.road.operation === "line-marking"} type="button"
             aria-label="Add line marking" title="Add line marking"
             onclick={() => actions.setRoadOperation("line-marking")}
@@ -318,13 +312,6 @@
             title="Straight road"
             onclick={() => actions.setRoadMode("line")}
           ><Minus size={21} aria-hidden="true" /></button>
-          <button
-            class:active={snapshot.road.mode === "arc"}
-            type="button"
-            aria-label="Circular arc road"
-            title="Circular arc road"
-            onclick={() => actions.setRoadMode("arc")}
-          ><Circle size={19} aria-hidden="true" /></button>
           <button
             class:active={snapshot.road.mode === "bezier"}
             type="button"

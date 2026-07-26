@@ -92,19 +92,10 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
 }
 
 [[nodiscard]] Vec2d primitive_start(const Primitive& primitive) {
-  if (primitive.kind == Primitive::Kind::kArc) {
-    return {primitive.center.x + std::cos(primitive.start_angle_rad) * primitive.radius,
-            primitive.center.y + std::sin(primitive.start_angle_rad) * primitive.radius};
-  }
   return primitive.p0;
 }
 
 [[nodiscard]] Vec2d primitive_end(const Primitive& primitive) {
-  if (primitive.kind == Primitive::Kind::kArc) {
-    const double angle = primitive.start_angle_rad + primitive.sweep_angle_rad;
-    return {primitive.center.x + std::cos(angle) * primitive.radius,
-            primitive.center.y + std::sin(angle) * primitive.radius};
-  }
   return primitive.kind == Primitive::Kind::kBezier ? primitive.p3 : primitive.p1;
 }
 
@@ -112,11 +103,6 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   t = std::clamp(t, 0.0, 1.0);
   if (primitive.kind == Primitive::Kind::kLine) {
     return add(mul(primitive.p0, 1.0 - t), mul(primitive.p1, t));
-  }
-  if (primitive.kind == Primitive::Kind::kArc) {
-    const double angle = primitive.start_angle_rad + primitive.sweep_angle_rad * t;
-    return {primitive.center.x + std::cos(angle) * primitive.radius,
-            primitive.center.y + std::sin(angle) * primitive.radius};
   }
   const double u = 1.0 - t;
   return add(add(mul(primitive.p0, u * u * u), mul(primitive.p1, 3.0 * u * u * t)),
@@ -126,9 +112,6 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
 [[nodiscard]] double primitive_length(const Primitive& primitive) {
   if (primitive.kind == Primitive::Kind::kLine) {
     return distance(primitive.p0, primitive.p1);
-  }
-  if (primitive.kind == Primitive::Kind::kArc) {
-    return std::abs(primitive.radius * primitive.sweep_angle_rad);
   }
   double out = 0.0;
   Vec2d prev = primitive.p0;
@@ -843,9 +826,6 @@ void append_quad(Mesh& mesh, Vec2d center, Vec2d tangent, double half_length, do
   if (kind == Primitive::Kind::kLine) {
     return "line";
   }
-  if (kind == Primitive::Kind::kArc) {
-    return "arc";
-  }
   return "bezier";
 }
 
@@ -882,50 +862,6 @@ Primitive MakeLine(Vec2d a, Vec2d b) {
   out.p0 = a;
   out.p1 = b;
   return out;
-}
-
-Primitive MakeArc(Vec2d center, double radius, double start_angle_rad, double sweep_angle_rad) {
-  Primitive out{};
-  out.kind = Primitive::Kind::kArc;
-  out.center = center;
-  out.radius = radius;
-  out.start_angle_rad = start_angle_rad;
-  out.sweep_angle_rad = sweep_angle_rad;
-  return out;
-}
-
-Result<Primitive> MakeArcThroughPoints(Vec2d start, Vec2d through, Vec2d end) {
-  if (!finite(start) || !finite(through) || !finite(end)) {
-    return Result<Primitive>::Fail(ErrorKind::kValidation, "road arc point is not finite");
-  }
-  const double determinant = 2.0 * (start.x * (through.y - end.y) + through.x * (end.y - start.y) +
-                                    end.x * (start.y - through.y));
-  if (std::abs(determinant) <= 1e-8) {
-    return Result<Primitive>::Fail(ErrorKind::kUnsupported, "collinear road arc points are unsupported");
-  }
-  const double start_norm = dot(start, start);
-  const double through_norm = dot(through, through);
-  const double end_norm = dot(end, end);
-  const Vec2d center{
-      (start_norm * (through.y - end.y) + through_norm * (end.y - start.y) +
-       end_norm * (start.y - through.y)) /
-          determinant,
-      (start_norm * (end.x - through.x) + through_norm * (start.x - end.x) +
-       end_norm * (through.x - start.x)) /
-          determinant};
-  const double radius = distance(center, start);
-  const double start_angle = std::atan2(start.y - center.y, start.x - center.x);
-  const double through_angle = std::atan2(through.y - center.y, through.x - center.x);
-  const double end_angle = std::atan2(end.y - center.y, end.x - center.x);
-  constexpr double two_pi = 6.28318530717958647692;
-  const auto ccw_delta = [two_pi](double from, double to) {
-    double delta = std::fmod(to - from, two_pi);
-    if (delta < 0.0) delta += two_pi;
-    return delta;
-  };
-  double sweep = ccw_delta(start_angle, end_angle);
-  if (ccw_delta(start_angle, through_angle) > sweep) sweep -= two_pi;
-  return Result<Primitive>::Ok(MakeArc(center, radius, start_angle, sweep));
 }
 
 Primitive MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3) {
@@ -1502,7 +1438,7 @@ Result<bool> RoadState::RebuildDerived() {
 
 Result<std::string> RoadState::Save() const {
   std::ostringstream out;
-  out << "road_graph_version=2\n";
+  out << "road_graph_version=3\n";
   out << "next_id=" << next_id_ << "\n";
   for (const CrossSectionTemplate& section : graph_.section_templates) {
     out << "section_template=" << section.id << "\n";
@@ -1539,8 +1475,7 @@ Result<std::string> RoadState::Save() const {
     for (const Primitive& primitive : segment.alignment.primitives) {
       out << "primitive=" << primitive_kind_name(primitive.kind) << "," << primitive.p0.x << "," << primitive.p0.y
           << "," << primitive.p1.x << "," << primitive.p1.y << "," << primitive.p2.x << "," << primitive.p2.y << ","
-          << primitive.p3.x << "," << primitive.p3.y << "," << primitive.center.x << "," << primitive.center.y << ","
-          << primitive.radius << "," << primitive.start_angle_rad << "," << primitive.sweep_angle_rad << "\n";
+          << primitive.p3.x << "," << primitive.p3.y << "\n";
     }
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
@@ -1549,9 +1484,7 @@ Result<std::string> RoadState::Save() const {
     for (const Primitive& primitive : marking.path.primitives) {
       out << "manual_primitive=" << primitive_kind_name(primitive.kind) << "," << primitive.p0.x << ","
           << primitive.p0.y << "," << primitive.p1.x << "," << primitive.p1.y << "," << primitive.p2.x << ","
-          << primitive.p2.y << "," << primitive.p3.x << "," << primitive.p3.y << "," << primitive.center.x << ","
-          << primitive.center.y << "," << primitive.radius << "," << primitive.start_angle_rad << ","
-          << primitive.sweep_angle_rad << "\n";
+          << primitive.p2.y << "," << primitive.p3.x << "," << primitive.p3.y << "\n";
     }
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
@@ -1564,7 +1497,9 @@ Result<std::string> RoadState::Save() const {
 Result<RoadState> RoadState::Load(const std::string& text) {
   const bool version1 = text.starts_with("road_graph_version=1\n");
   const bool version2 = text.starts_with("road_graph_version=2\n");
-  if (!version1 && !version2) {
+  const bool version3 = text.starts_with("road_graph_version=3\n");
+  const bool modern = version2 || version3;
+  if (!version1 && !modern) {
     return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road graph version");
   }
   RoadState state{};
@@ -1574,13 +1509,14 @@ Result<RoadState> RoadState::Load(const std::string& text) {
   state.graph_.junctions.clear();
   state.graph_.manual_lines.clear();
   state.graph_.manual_areas.clear();
-  if (version2) state.graph_.section_templates.clear();
+  if (modern) state.graph_.section_templates.clear();
   std::istringstream in(text);
   std::string line;
   RoadSegment* current_segment = nullptr;
   ManualLineMarking* current_manual_line = nullptr;
-  const auto primitive_from_parts = [](const std::vector<std::string_view>& parts) -> std::optional<Primitive> {
-    if (parts.size() != 14) return std::nullopt;
+  const auto primitive_from_parts = [version3](const std::vector<std::string_view>& parts) -> std::optional<Primitive> {
+    const std::size_t value_count = version3 ? 8 : 13;
+    if (parts.size() != value_count + 1 || (parts[0] != "line" && parts[0] != "bezier")) return std::nullopt;
     std::array<double, 13> values{};
     for (std::size_t i = 1; i < parts.size(); ++i) {
       const auto parsed = parse_double(parts[i]);
@@ -1588,16 +1524,11 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       values[i - 1] = *parsed;
     }
     Primitive primitive{};
-    primitive.kind = parts[0] == "arc" ? Primitive::Kind::kArc
-                                        : (parts[0] == "bezier" ? Primitive::Kind::kBezier : Primitive::Kind::kLine);
+    primitive.kind = parts[0] == "bezier" ? Primitive::Kind::kBezier : Primitive::Kind::kLine;
     primitive.p0 = {values[0], values[1]};
     primitive.p1 = {values[2], values[3]};
     primitive.p2 = {values[4], values[5]};
     primitive.p3 = {values[6], values[7]};
-    primitive.center = {values[8], values[9]};
-    primitive.radius = values[10];
-    primitive.start_angle_rad = values[11];
-    primitive.sweep_angle_rad = values[12];
     return primitive;
   };
   while (std::getline(in, line)) {
@@ -1621,7 +1552,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       view.remove_prefix(comma + 1);
     }
     if (key == "road_graph_version") {
-      if (value != "1" && value != "2") {
+      if (value != "1" && value != "2" && value != "3") {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road graph version");
       }
     } else if (key == "next_id") {
@@ -1630,11 +1561,11 @@ Result<RoadState> RoadState::Load(const std::string& text) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid next_id");
       }
       state.next_id_ = *parsed;
-    } else if (key == "section_template" && version2) {
+    } else if (key == "section_template" && modern) {
       const auto id = parse_u64(value);
       if (!id.has_value()) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid section template row");
       state.graph_.section_templates.push_back(CrossSectionTemplate{*id});
-    } else if (key == "surface_band" && version2) {
+    } else if (key == "surface_band" && modern) {
       if (parts.size() != 6) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid surface band row");
       const auto template_id = parse_u64(parts[0]);
       const auto element_id = parse_u64(parts[1]);
@@ -1648,7 +1579,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       if (section == nullptr) return Result<RoadState>::Fail(ErrorKind::kValidation, "surface band template is missing");
       section->bands.push_back(SurfaceBand{*element_id, static_cast<SurfaceRole>(*role), *width, *slope,
                                            std::string(parts[5])});
-    } else if (key == "boundary" && version2) {
+    } else if (key == "boundary" && modern) {
       if (parts.size() != 6) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid boundary row");
       const auto template_id = parse_u64(parts[0]);
       const auto boundary_id = parse_u64(parts[1]);
@@ -1663,7 +1594,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       if (section == nullptr) return Result<RoadState>::Fail(ErrorKind::kValidation, "boundary template is missing");
       section->boundaries.push_back(BoundaryProfile{*boundary_id, static_cast<BoundaryRole>(*role), *width, *height,
                                                      static_cast<MarkingRule>(*marking)});
-    } else if (key == "transition" && version2) {
+    } else if (key == "transition" && modern) {
       if (parts.size() != 8) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid transition row");
       std::array<std::optional<std::uint64_t>, 6> ints{parse_u64(parts[0]), parse_u64(parts[1]), parse_u64(parts[2]),
                                                        parse_u64(parts[3]), parse_u64(parts[5]), parse_u64(parts[7])};
@@ -1677,7 +1608,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
                                                             StationRef{static_cast<StationRefKind>(*ints[3]), *start_value},
                                                             StationRef{static_cast<StationRefKind>(*ints[4]), *end_value},
                                                             static_cast<TransitionAnchor>(*ints[5]), {}});
-    } else if (key == "transition_rule" && version2) {
+    } else if (key == "transition_rule" && modern) {
       if (parts.size() != 3) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid transition rule row");
       const auto transition_id = parse_u64(parts[0]);
       const auto element_id = parse_u64(parts[1]);
@@ -1696,7 +1627,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid node row");
       }
       state.graph_.nodes.push_back(RoadNode{*parse_u64(parts[0]), {*parse_double(parts[1]), *parse_double(parts[2])}});
-    } else if (key == "junction" && version2) {
+    } else if (key == "junction" && modern) {
       if (parts.size() != 3) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid junction row");
       const auto id = parse_u64(parts[0]);
       const auto node = parse_u64(parts[1]);
@@ -1704,14 +1635,14 @@ Result<RoadState> RoadState::Load(const std::string& text) {
       if (!id || !node || !radius) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid junction value");
       state.graph_.junctions.push_back(JunctionDefinition{*id, *node, *radius});
     } else if (key == "segment") {
-      if ((version1 && parts.size() != 5) || (version2 && parts.size() != 6)) {
+      if ((version1 && parts.size() != 5) || (modern && parts.size() != 6)) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment row");
       }
       const auto id = parse_u64(parts[0]);
       const auto node_a = parse_u64(parts[1]);
       const auto node_b = parse_u64(parts[2]);
       const auto section = parse_u64(parts[3]);
-      const auto transition = version2 ? parse_u64(parts[4]) : std::optional<std::uint64_t>{0};
+      const auto transition = modern ? parse_u64(parts[4]) : std::optional<std::uint64_t>{0};
       if (!id || !node_a || !node_b || !section || !transition) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment value");
       }
@@ -1725,20 +1656,20 @@ Result<RoadState> RoadState::Load(const std::string& text) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid primitive row");
       }
       current_segment->alignment.primitives.push_back(*primitive);
-    } else if (key == "manual_line" && version2) {
+    } else if (key == "manual_line" && modern) {
       if (parts.size() != 4) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual line row");
       const auto id = parse_u64(parts[0]);
       const auto owner = parse_u64(parts[1]);
       if (!id || !owner) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual line value");
       state.graph_.manual_lines.push_back(ManualLineMarking{*id, *owner, {}, std::string(parts[2])});
       current_manual_line = &state.graph_.manual_lines.back();
-    } else if (key == "manual_primitive" && version2) {
+    } else if (key == "manual_primitive" && modern) {
       const auto primitive = primitive_from_parts(parts);
       if (current_manual_line == nullptr || !primitive.has_value()) {
         return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual primitive row");
       }
       current_manual_line->path.primitives.push_back(*primitive);
-    } else if (key == "manual_area" && version2) {
+    } else if (key == "manual_area" && modern) {
       if (parts.size() != 7) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual area row");
       const auto id = parse_u64(parts[0]);
       const auto owner = parse_u64(parts[1]);
@@ -1807,11 +1738,6 @@ Result<bool> ValidatePath(const Path& path) {
     const Primitive& primitive = path.primitives[i];
     if (!finite(primitive_start(primitive)) || !finite(primitive_end(primitive))) {
       return Result<bool>::Fail(ErrorKind::kValidation, "road path contains non-finite endpoint");
-    }
-    if (primitive.kind == Primitive::Kind::kArc && (!finite(primitive.radius) || primitive.radius <= 0.0 ||
-                                                   !finite(primitive.start_angle_rad) ||
-                                                   !finite(primitive.sweep_angle_rad))) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "road arc primitive is invalid");
     }
     if (primitive_length(primitive) <= kEpsilon) {
       return Result<bool>::Fail(ErrorKind::kValidation, "road primitive has zero length");

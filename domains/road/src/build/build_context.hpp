@@ -22,27 +22,14 @@ enum class Stage : std::size_t {
   kCount,
 };
 
+struct TopologyEndpoint {
+  RoadSegmentId segment_id = 0;
+  EndpointRole endpoint_role = EndpointRole::kStart;
+};
+
 struct NodeTopology {
   RoadNodeId node_id = 0;
-  std::vector<RoadSegmentId> approach_segment_ids{};
-};
-
-enum class NodeConnectionKind {
-  kPassThrough,
-  kCorner,
-  kJunction,
-  kUnsupported,
-};
-
-struct NodeConnectionDecision {
-  RoadNodeId node_id = 0;
-  NodeConnectionKind kind = NodeConnectionKind::kUnsupported;
-  std::string reason{};
-};
-
-struct SegmentSamplingPlan {
-  RoadSegmentId segment_id = 0;
-  std::vector<double> stations_m{};
+  std::vector<TopologyEndpoint> endpoints{};
 };
 
 struct BuildContext {
@@ -60,8 +47,6 @@ struct BuildContext {
 
   const SavedRoadGraph& authoritative;
   std::vector<NodeTopology> topology{};
-  std::vector<NodeConnectionDecision> connection_decisions{};
-  std::vector<SegmentSamplingPlan> sampling_plans{};
   DerivedRoad derived{};
   std::vector<std::string> diagnostics{};
   std::array<std::size_t, static_cast<std::size_t>(Stage::kCount)> stage_runs{};

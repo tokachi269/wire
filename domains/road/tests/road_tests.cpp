@@ -82,6 +82,17 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
   ROAD_TEST_EXPECT(std::abs((boundaries[5].lateral_m - boundaries[4].lateral_m) - 0.2) < 1e-9,
                    "right curb width is not 0.2m");
   ROAD_TEST_EXPECT(!state.derived().marking_meshes.empty(), "P0 did not derive marking meshes");
+  std::vector<double> outer_line_laterals{};
+  for (const auto& boundary : boundaries) {
+    if (boundary.marking_rule == MarkingRule::kOuterLine) {
+      outer_line_laterals.push_back(boundary.lateral_m);
+    }
+  }
+  ROAD_TEST_EXPECT(
+      outer_line_laterals.size() == 2 &&
+          std::abs(outer_line_laterals[0] + 3.0) < 1e-9 &&
+          std::abs(outer_line_laterals[1] - 3.0) < 1e-9,
+      "outer lines are not on both carriageway-adjacent curb edges");
   const auto& marking = state.derived().marking_meshes.front();
   ROAD_TEST_EXPECT(!marking.vertices.empty(), "P0 marking mesh has no vertices");
   ROAD_TEST_EXPECT(!marking.indices.empty(), "P0 marking mesh has no triangles");

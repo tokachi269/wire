@@ -1,9 +1,11 @@
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <emscripten/bind.h>
@@ -1206,12 +1208,18 @@ public:
     }
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
+    const auto extension_segment_id = input["extensionSegmentId"].isUndefined()
+                                          ? city::road::RoadSegmentId{0}
+                                          : input["extensionSegmentId"].as<city::road::RoadSegmentId>();
     const double start_station_m = input["startStationM"].as<double>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> result{};
-    if (start_segment_id != 0) {
+    if (extension_segment_id != 0) {
+      result = state_->ExtendSegment(city::road::ExtendSegmentRequest{
+          extension_segment_id, start_node_id, path, section_template_id});
+    } else if (start_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_station_m});
     } else if (start_node_id != 0) {
@@ -1220,7 +1228,21 @@ public:
     } else {
       result = state_->AddSegment(city::road::AddSegmentRequest{path, section_template_id});
     }
-    return road_result_value(result.ok, result.error, result.error_kind);
+    val output = road_result_value(result.ok, result.error, result.error_kind);
+    if (result.ok) {
+      output.set("segmentId", static_cast<double>(result.value));
+      const auto segment = std::find_if(
+          state_->graph().segments.begin(), state_->graph().segments.end(),
+          [&result](const city::road::RoadSegment& item) {
+            return item.id == result.value;
+          });
+      const city::road::RoadNodeId end_node_id =
+          extension_segment_id != 0
+              ? start_node_id
+              : segment == state_->graph().segments.end() ? 0 : segment->node_b;
+      output.set("endNodeId", static_cast<double>(end_node_id));
+    }
+    return output;
   }
 
   val preview_segment(const val& input) const {
@@ -1233,12 +1255,18 @@ public:
     }
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
+    const auto extension_segment_id = input["extensionSegmentId"].isUndefined()
+                                          ? city::road::RoadSegmentId{0}
+                                          : input["extensionSegmentId"].as<city::road::RoadSegmentId>();
     const double start_station_m = input["startStationM"].as<double>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> added{};
-    if (start_segment_id != 0) {
+    if (extension_segment_id != 0) {
+      added = trial.ExtendSegment(city::road::ExtendSegmentRequest{
+          extension_segment_id, start_node_id, path, section_template_id});
+    } else if (start_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_station_m});
     } else if (start_node_id != 0) {
@@ -1262,11 +1290,29 @@ public:
     const auto& graph = state_->graph();
     const auto& derived = state_->derived();
     val nodes = val::array();
+    std::unordered_map<city::road::RoadNodeId,
+                       std::pair<std::size_t, city::road::RoadSegmentId>>
+        node_incidence{};
+    for (const auto& segment : graph.segments) {
+      for (const city::road::RoadNodeId node_id :
+           std::array<city::road::RoadNodeId, 2>{segment.node_a,
+                                                 segment.node_b}) {
+        auto& incidence = node_incidence[node_id];
+        ++incidence.first;
+        incidence.second = segment.id;
+      }
+    }
     for (const auto& node : graph.nodes) {
       val item = val::object();
       item.set("id", static_cast<double>(node.id));
       item.set("x", node.position.x);
       item.set("y", node.position.y);
+      const auto incidence = node_incidence.find(node.id);
+      item.set("extensionSegmentId",
+               static_cast<double>(incidence != node_incidence.end() &&
+                                           incidence->second.first == 1
+                                       ? incidence->second.second
+                                       : city::road::RoadSegmentId{0}));
       nodes.call<void>("push", item);
     }
     val centerline_segments = val::array();

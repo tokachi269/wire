@@ -20,6 +20,7 @@ export interface RoadSegmentInput {
   startNodeId: number;
   startSegmentId: number;
   startStationM: number;
+  extensionSegmentId?: number;
   connectToFirstNode: boolean;
   sectionTemplateId?: number;
 }
@@ -49,6 +50,7 @@ export interface RoadNodeData {
   id: number;
   x: number;
   y: number;
+  extensionSegmentId?: number;
 }
 
 export interface RoadCenterlineSegmentData {
@@ -84,6 +86,7 @@ export interface RoadSnapInfo {
   nodeId: number;
   segmentId: number;
   stationM: number;
+  extensionSegmentId?: number;
 }
 
 export interface RoadToolState {
@@ -98,6 +101,7 @@ export interface RoadToolState {
   draftStartNodeId: number;
   draftStartSegmentId: number;
   draftStartStationM: number;
+  draftExtensionSegmentId: number;
   connectToFirstNode: boolean;
   selectedSectionTemplateId: number;
   manualLineOffsetM: number;
@@ -126,6 +130,7 @@ export function createRoadToolState(): RoadToolState {
     draftStartNodeId: 0,
     draftStartSegmentId: 0,
     draftStartStationM: 0,
+    draftExtensionSegmentId: 0,
     connectToFirstNode: false,
     selectedSectionTemplateId: 1,
     manualLineOffsetM: 0,
@@ -156,6 +161,7 @@ export function roadSegmentInput(state: RoadToolState): RoadSegmentInput {
     startNodeId: state.draftStartNodeId,
     startSegmentId: state.draftStartSegmentId,
     startStationM: state.draftStartStationM,
+    extensionSegmentId: state.draftExtensionSegmentId,
     connectToFirstNode: state.connectToFirstNode,
     sectionTemplateId: state.selectedSectionTemplateId
   };

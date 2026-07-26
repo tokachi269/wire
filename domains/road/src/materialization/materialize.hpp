@@ -1,6 +1,6 @@
 #pragma once
 
-#include "city/road/road.hpp"
+#include "city/road/derived_types/derived_road.hpp"
 
 #include <string>
 #include <vector>
@@ -36,17 +36,6 @@ struct ManualAreaInput {
   std::array<Vec3d, 4> corners{};
 };
 
-struct ConnectionInput {
-  ConnectionArea area{};
-  Vec2d node_position{};
-  std::vector<std::string> surface_materials{};
-};
-
-struct JunctionInput {
-  JunctionArea area{};
-  Vec2d node_position{};
-};
-
 struct JunctionOutput {
   std::vector<Mesh> surface_meshes{};
   std::vector<Mesh> marking_meshes{};
@@ -55,7 +44,7 @@ struct JunctionOutput {
 [[nodiscard]] Result<SegmentOutput> MaterializeSegment(const SegmentInput& input);
 [[nodiscard]] Result<Mesh> MaterializeManualLine(const ManualLineInput& input);
 [[nodiscard]] Result<Mesh> MaterializeManualArea(const ManualAreaInput& input);
-[[nodiscard]] Result<std::vector<Mesh>> MaterializeConnection(const ConnectionInput& input);
-[[nodiscard]] Result<JunctionOutput> MaterializeJunction(const JunctionInput& input);
+[[nodiscard]] Result<std::vector<Mesh>> MaterializeConnection(const ConnectionGeometry& input);
+[[nodiscard]] Result<JunctionOutput> MaterializeJunction(const JunctionGeometry& input);
 
 } // namespace city::road::materialization

@@ -11,6 +11,11 @@ Request -> Preflight -> OperationPlan -> trial Apply -> single Build -> Validate
 失敗時はauthoritative bytes、derived hash、next ID、inspection / query結果を一切変更しない。
 public operationから別public operationを呼ばない。
 
+Preflightはrequestの形式、ID存在、有限性、明白な値域と、planを作るために必要な局所構造だけを検証する。
+接続角度、endpoint section互換、branch / junction approach上限、接続setback、split後を含むtrial topologyの成立性は
+trial Buildの`NodeConnectionDecisionStage`以降が一度だけ決める。operationは同じgeometry / section policyを
+再実装せず、trial Buildの`kUnsupported`を操作結果として返す。
+
 ## 状態
 
 | 状態 | 意味 |
@@ -26,6 +31,7 @@ public operationから別public operationを呼ばない。
 | 操作 | empty | isolated | connected | transitioning | marked |
 |---|---|---|---|---|---|
 | AddSegment | supported | supported | supported | supported | supported |
+| ExtendSegment | validation | degree 1終端かつ同一断面ならsupported | 対象終端がdegree 1ならsupported | appendのみsupported、prependはunsupported | appendのみsupported、prependはunsupported |
 | AddSegmentConnectedTo | validation | gate断面ID一致のみsupported | gate断面ID一致かつdegree 4までsupported | 終端gateがto断面ならsupported | gate断面ID一致のみsupported |
 | AddSegmentConnectedToSegment | validation | 同一断面かつ明示`segment_id + station_m`ならsupported | 同一断面かつ明示`segment_id + station_m`ならsupported | unsupported | 同一断面かつ明示`segment_id + station_m`ならsupported |
 | EditSegmentShape | validation | supported | node位置を変えずshapeだけ変更 | StationRef規則で再評価 | owner-local markingを追従 |
@@ -37,6 +43,19 @@ public operationから別public operationを呼ばない。
 
 ## P1 node semantics
 
+- 同じ道路形状・接続関係を表す操作は、描画の確定回数にかかわらず同じ正規化結果になる。
+  `A -> B -> C`を一度に渡す場合と、`A -> B`を確定後にdegree 1終端から`B -> C`へ延長する場合は、
+  authoritative bytes、CanonicalAlignment、断面、mesh、marking、derived observationが一致する。
+- degree 1終端から同じsectionの道路を伸ばす既定操作は`ExtendSegment`とする。既存segment IDと終端node IDを維持し、
+  終端nodeを新位置へ移動して旧終端を`SegmentShape.internal_knots`へ取り込む。操作確定は道路構造の境界にしない。
+- `ExtendSegment`は対象nodeが対象segmentの終端でdegree 1、sectionが同一、node policy overrideがない場合だけsupportedとする。
+  branch、segment途中への接続、異なるsection、明示的な独立接続は新segmentを作る。
+- node Bを内部knotへ吸収するときは、前後spanを共通のpath normalizationへ渡す。line / Bezierや一括 / 逐次で
+  別のcorner規則を持たず、同じ入力Pathに正規化してから`SegmentShape`へ変換する。
+- node_b側appendは既存のowner-local stationを維持する。node_a側prependは既存stationの意味を移動させるため、
+  transitionまたはmanual markingを持つsegmentではunsupportedとする。
+- 逆方向入力はID、segment向き、station原点が異なるためraw serialization一致を要求しない。
+  CanonicalAlignmentを同じ向きへ正規化した形状、material別mesh頂点集合、marking形状の一致を要求する。
 - segment途中への接続は`target_segment_id + station_m`を入力とし、alignmentを該当stationで分割する。座標近接から対象segmentやstationを再推測しない。
 - Line / Bezierは入力toolの区別に限定し、正本はendpointを含まない`SegmentShape`、完全Pathは派生`CanonicalAlignment`とする。曲線segmentの分割はDe Casteljau分割を使う。
 - degree 2 の自動decisionはPassThroughまたはCorner。対向する2本は幅を増やさず連続し、屈曲する2本は同じ断面を保った曲線connectorを派生する。停止線・ゼブラは生成しない。
@@ -47,6 +66,13 @@ public operationから別public operationを呼ばない。
 - 交差点cornerとdegree 2の屈曲connectorは、gate接線を共有するBezier形状として派生する。segment側とconnector側で接線を再解釈しない。
 - 自動停止線・ゼブラは実交差点だけに生成する。向きと高さはgate frameおよびSectionEvaluationの横断勾配から導出する。
 
+## Simple path
+
+- 単独segmentとdegree 1終端はjunction接続準備を要求しない。
+- `ApproachKey`、`NodeConnectionDecision`、`ConnectionGate`はdegree 2以上の明示接続nodeだけに生成する。
+- segment内部の通常曲線は`CanonicalAlignment`とSectionEvaluationから直接生成し、JunctionGeometryStageへ渡さない。
+- `RoadGraph -> Build`の一回で必要な派生物を生成し、操作履歴や事前tableの有無でstage経路を変えない。
+
 ## P2 transition semantics
 
 - `StationRef::FromStart(d)` は `d`、`FromEnd(d)` は `length-d`、`Ratio(u)` は `length*u` に解決する。
@@ -55,7 +81,8 @@ public operationから別public operationを呼ばない。
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge のいずれか。
 - element対応は ID で行う。出現は `TaperIn`、消滅は `TaperOut` または `EndCap` を明示する。
 - 1 segmentに同時に接続できる transition は1個。短距離多重transitionはP2非対象。
-- 異なる断面をnodeへ直接接続しない。既存approachの終端gateをtransitionの`to_template`まで評価し、追加segmentの断面IDと一致した場合だけ接続する。
+- 異なる断面をnodeへ直接接続しない。trial Buildの`NodeConnectionDecisionStage`が各approachのendpoint section IDを
+  一度だけ解決し、全approachで完全一致する場合だけ接続する。operation preflightは断面を再評価しない。
 
 ## P2 marking semantics
 

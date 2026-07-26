@@ -144,6 +144,7 @@ export interface RoadNodePayload {
   id: number;
   x: number;
   y: number;
+  extensionSegmentId?: number;
 }
 
 export interface RoadCenterlineSegmentPayload {
@@ -156,8 +157,13 @@ export interface RoadCenterlineSegmentPayload {
   endStationM: number;
 }
 
+export interface RoadSegmentResult extends OperationResult {
+  segmentId?: number;
+  endNodeId?: number;
+}
+
 export interface RoadStateHandle {
-  addSegment(input: RoadSegmentInput): OperationResult;
+  addSegment(input: RoadSegmentInput): RoadSegmentResult;
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   scene(): RoadScenePayload;
   deleteSegment(segmentId: number): OperationResult;

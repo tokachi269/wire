@@ -18,6 +18,12 @@ struct AddSegmentConnectedToSegmentRequest {
   RoadSegmentId start_segment = 0;
   double station_m = 0.0;
 };
+struct ExtendSegmentRequest {
+  RoadSegmentId segment_id = 0;
+  RoadNodeId endpoint_node_id = 0;
+  Path extension{};
+  CrossSectionTemplateId section_template = 0;
+};
 struct EditSegmentShapeRequest { RoadSegmentId segment_id = 0; SegmentShape shape{}; };
 struct MoveNodeRequest { RoadNodeId node_id = 0; Vec2d position{}; };
 struct DeleteSegmentRequest { RoadSegmentId segment_id = 0; };

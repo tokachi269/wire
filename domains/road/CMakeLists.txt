@@ -2,6 +2,15 @@ add_library(
   road
   STATIC
   src/road.cpp
+  src/build/build_pipeline.cpp
+  src/build/canonical_alignment.cpp
+  src/build/connection_gate.cpp
+  src/build/junction_geometry.cpp
+  src/build/node_connection_decision.cpp
+  src/build/sampling_plan.cpp
+  src/build/section_evaluation.cpp
+  src/build/stage_support.cpp
+  src/build/topology.cpp
   src/materialization/materialize.cpp
   src/operations/operation_plan.cpp
 )

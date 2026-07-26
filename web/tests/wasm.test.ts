@@ -1342,6 +1342,62 @@ describe("road wasm smoke", () => {
     restored.delete();
   });
 
+  it("extends a degree-one endpoint without creating gesture boundaries", () => {
+    state.clear();
+    const first = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 20,
+      endY: 0,
+      handleAX: 20 / 3,
+      handleAY: 0,
+      handleBX: 40 / 3,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startStationM: 0,
+      extensionSegmentId: 0,
+      connectToFirstNode: false
+    });
+    expect(first.ok, first.error).toBe(true);
+    expect(first.segmentId).toBeGreaterThan(0);
+    expect(first.endNodeId).toBeGreaterThan(0);
+
+    const extended = state.addSegment({
+      kind: "line",
+      startX: 20,
+      startY: 0,
+      endX: 32,
+      endY: 16,
+      handleAX: 24,
+      handleAY: 16 / 3,
+      handleBX: 28,
+      handleBY: 32 / 3,
+      startNodeId: first.endNodeId!,
+      startSegmentId: 0,
+      startStationM: 0,
+      extensionSegmentId: first.segmentId!,
+      connectToFirstNode: false
+    });
+    expect(extended.ok, extended.error).toBe(true);
+    expect(extended.segmentId).toBe(first.segmentId);
+    expect(extended.endNodeId).toBe(first.endNodeId);
+    const scene = state.scene();
+    expect(scene.segmentCount).toBe(1);
+    expect(scene.nodes).toHaveLength(2);
+    expect(scene.centerlineSegments.length).toBeGreaterThan(1);
+    expect(new Set(scene.centerlineSegments.map((segment) => segment.id))).toEqual(
+      new Set([first.segmentId!])
+    );
+    const endpoint = scene.nodes.find((node) => node.id === first.endNodeId);
+    expect(endpoint).toMatchObject({
+      x: 32,
+      y: 16,
+      extensionSegmentId: first.segmentId
+    });
+  });
+
   it("keeps the final cross section perpendicular to an angled road", () => {
     state.clear();
     const added = state.addSegment({
@@ -1434,7 +1490,7 @@ describe("road wasm smoke", () => {
     const scene = state.scene();
     expect(scene.segmentCount).toBe(3);
     expect(scene.nodes.length).toBe(4);
-    expect(scene.connectionGateCount).toBe(6);
+    expect(scene.connectionGateCount).toBe(3);
     expect(scene.junctionCount).toBe(1);
     expect(scene.centerlineSegments.every((segment) =>
       scene.editableSegments.some((editable) => editable.id === segment.id)

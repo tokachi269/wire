@@ -17,6 +17,7 @@ struct OperationPlan;
 [[nodiscard]] BezierSpan MakeLine(Vec2d a, Vec2d b);
 [[nodiscard]] BezierSpan MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3);
 [[nodiscard]] Path MakePath(std::vector<BezierSpan> spans);
+[[nodiscard]] Result<Path> NormalizeRoadPath(Path path);
 [[nodiscard]] bool IsLinearSpan(const BezierSpan& span);
 [[nodiscard]] RoadToolDraft PreviewRoadToolPath(Vec2d start, Vec2d end, std::optional<Vec2d> handle_a,
                                                 std::optional<Vec2d> handle_b);
@@ -34,6 +35,7 @@ public:
   [[nodiscard]] const DerivedRoad& derived() const;
 
   [[nodiscard]] Result<RoadSegmentId> AddSegment(AddSegmentRequest request);
+  [[nodiscard]] Result<RoadSegmentId> ExtendSegment(ExtendSegmentRequest request);
   [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedTo(AddSegmentConnectedToRequest request);
   [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedToSegment(AddSegmentConnectedToSegmentRequest request);
   [[nodiscard]] Result<bool> EditSegmentShape(EditSegmentShapeRequest request);

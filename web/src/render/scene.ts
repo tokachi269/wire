@@ -773,7 +773,13 @@ export class WireScene {
         bestNode = {
           distance,
           point,
-          snap: { kind: "road", nodeId: node.id, segmentId: 0, stationM: 0 }
+          snap: {
+            kind: "road",
+            nodeId: node.id,
+            segmentId: 0,
+            stationM: 0,
+            extensionSegmentId: node.extensionSegmentId ?? 0
+          }
         };
       }
     }

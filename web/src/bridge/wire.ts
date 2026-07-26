@@ -1,6 +1,7 @@
 import {
   loadWireModule,
   type RoadMeshPayload,
+  type RoadSegmentResult,
   type RoadStateHandle,
   type WireModuleOptions,
   type WireStateHandle
@@ -298,7 +299,7 @@ export class WireBridge {
     return this.state.clearSpanBranchDownOverride(spanId);
   }
 
-  roadAddSegment(input: RoadSegmentInput): OperationResult {
+  roadAddSegment(input: RoadSegmentInput): RoadSegmentResult {
     return this.roadState.addSegment(input);
   }
 

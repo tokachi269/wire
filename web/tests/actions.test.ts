@@ -614,6 +614,48 @@ describe("viewport tool routing", () => {
     expect(current(store).road.phase).toBe("end");
   });
 
+  it("normalizes continuous road drawing to extension of the same segment", () => {
+    const roadAddSegment = vi.fn()
+      .mockReturnValueOnce({ ok: true, error: "", segmentId: 11, endNodeId: 12 })
+      .mockReturnValue({ ok: true, error: "", segmentId: 11, endNodeId: 12 });
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.addViewportPoint([20, 0, 0]);
+    actions.addViewportPoint([32, 16, 0]);
+
+    expect(roadAddSegment).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      startX: 20,
+      startY: 0,
+      endX: 32,
+      endY: 16,
+      startNodeId: 12,
+      extensionSegmentId: 11
+    }));
+  });
+
+  it("normalizes a resumed degree-one endpoint to extension", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "", segmentId: 11, endNodeId: 12 }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint(
+      [20, 0, 0],
+      { kind: "road", nodeId: 12, segmentId: 0, stationM: 0, extensionSegmentId: 11 }
+    );
+    actions.addViewportPoint([32, 16, 0]);
+
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startNodeId: 12,
+      extensionSegmentId: 11
+    }));
+  });
+
   it("passes a road segment snap target to the authoritative road state", () => {
     const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();

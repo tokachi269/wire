@@ -10,6 +10,15 @@ def source_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
 
 
+def road_sources(root: Path) -> list[Path]:
+    source_root = root / "domains/road/src"
+    return [
+        path
+        for path in source_root.rglob("*")
+        if path.is_file() and path.suffix in {".cpp", ".hpp"}
+    ]
+
+
 def check_road_architecture(root: Path) -> list[str]:
     errors: list[str] = []
     required_boundaries = (
@@ -24,9 +33,25 @@ def check_road_architecture(root: Path) -> list[str]:
     for source in required_boundaries:
         if not (root / source).exists():
             errors.append(f"{source}: required road architecture boundary is missing")
+    required_stage_owners = (
+        "domains/road/src/build/topology.cpp",
+        "domains/road/src/build/canonical_alignment.cpp",
+        "domains/road/src/build/node_connection_decision.cpp",
+        "domains/road/src/build/sampling_plan.cpp",
+        "domains/road/src/build/section_evaluation.cpp",
+        "domains/road/src/build/connection_gate.cpp",
+        "domains/road/src/build/junction_geometry.cpp",
+        "domains/road/src/build/build_pipeline.cpp",
+    )
+    for source in required_stage_owners:
+        if not (root / source).is_file():
+            errors.append(f"{source}: required road build-stage owner is missing")
 
     road_header = source_text(root / "domains/road/include/city/road/road.hpp")
     road_source = source_text(root / "domains/road/src/road.cpp")
+    derived_header = source_text(
+        root / "domains/road/include/city/road/derived_types/derived_road.hpp"
+    )
     bindings = source_text(root / "web/wasm/bindings.cpp")
 
     forbidden_legacy_authority = {
@@ -74,6 +99,18 @@ def check_road_architecture(root: Path) -> list[str]:
         for token in direct_mutations:
             if token in operation_region:
                 errors.append(f"domains/road/src/road.cpp: public operation bypasses plan/Execute: {token!r}")
+        geometry_policy = (
+            "angle_deg(",
+            "ResolveTemplateAt(",
+            "node_gate_setback",
+            "existing_degree",
+        )
+        for token in geometry_policy:
+            if token in operation_region:
+                errors.append(
+                    "domains/road/src/road.cpp: operation preflight duplicates trial build "
+                    f"geometry policy: {token!r}"
+                )
 
     identity_inference = (
         "almost_same(path_start(alignment), node->position)",
@@ -103,7 +140,25 @@ def check_road_architecture(root: Path) -> list[str]:
 
     materialization_root = root / "domains/road/src/materialization"
     if materialization_root.exists():
-        forbidden_materialization = ("SavedRoadGraph", "evaluate_section", "evaluate_segment_section", "node_degree")
+        forbidden_materialization = (
+            "SavedRoadGraph",
+            "CrossSectionTemplate",
+            "SectionTransition",
+            "NodeConnectionPolicyOverride",
+            "NodeConnectionDecision",
+            "ConnectionArea",
+            "JunctionArea",
+            "node_degree",
+            'city/road/road.hpp',
+            "authoritative_types",
+        )
+        policy_materialization = {
+            "BoundaryRole::kCurb": "materialization must not infer section meaning by curb-role search",
+            "* 0.55": "materialization must not choose connection corner control",
+            "* 0.45": "materialization must not choose junction corner control",
+            "std::sort(sides": "materialization must not sort approaches",
+            "append_gate_quad": "materialization must not place junction markings",
+        }
         for path in materialization_root.rglob("*"):
             if not path.is_file() or path.suffix not in {".cpp", ".hpp"}:
                 continue
@@ -112,6 +167,70 @@ def check_road_architecture(root: Path) -> list[str]:
                 if token in text:
                     source = path.relative_to(root).as_posix()
                     errors.append(f"{source}: materialization must not use {token!r}")
+            for token, reason in policy_materialization.items():
+                if token in text:
+                    source = path.relative_to(root).as_posix()
+                    errors.append(f"{source}: {reason}: {token!r}")
+        materialization_header = source_text(
+            materialization_root / "materialize.hpp"
+        )
+        required_resolved_inputs = (
+            "MaterializeConnection(const ConnectionGeometry&",
+            "MaterializeJunction(const JunctionGeometry&",
+        )
+        for token in required_resolved_inputs:
+            if token not in materialization_header:
+                errors.append(
+                    "domains/road/src/materialization/materialize.hpp: "
+                    f"resolved geometry input is missing: {token!r}"
+                )
+
+    if "ApproachKey approach" not in derived_header:
+        errors.append(
+            "domains/road/include/city/road/derived_types/derived_road.hpp: "
+            "ConnectionGate must own ApproachKey identity"
+        )
+
+    for path in road_sources(root):
+        source = path.relative_to(root).as_posix()
+        if "node_gate_setback" in source_text(path):
+            errors.append(
+                f"{source}: legacy node_gate_setback must be removed"
+            )
+
+    for path in road_sources(root):
+        source = path.relative_to(root).as_posix()
+        text = source_text(path)
+        for token in ("evaluate_segment_section", "evaluate_segment_template"):
+            if token in text:
+                errors.append(
+                    f"{source}: legacy distributed section evaluator must be removed: {token}"
+                )
+        for token in ("connection_control_factor", "junction_control_factor"):
+            if token in text and source != "domains/road/src/build/node_connection_decision.cpp":
+                errors.append(
+                    f"{source}: connection geometry policy must be owned by "
+                    f"node_connection_decision.cpp: {token!r}"
+                )
+
+    build_begin = road_source.find("Result<bool> RoadState::BuildDerived()")
+    save_begin = road_source.find("Result<std::string> RoadState::Save()")
+    if build_begin < 0 or save_begin <= build_begin:
+        errors.append("domains/road/src/road.cpp: BuildDerived region could not be identified")
+    else:
+        build_region = road_source[build_begin:save_begin]
+        for token in (
+            "build::Stage::",
+            "NodeConnectionDecision",
+            "evaluate_segment_section",
+            "MaterializeConnection",
+            "MaterializeJunction",
+        ):
+            if token in build_region:
+                errors.append(
+                    "domains/road/src/road.cpp: BuildDerived must remain a thin orchestrator; "
+                    f"stage implementation token remains: {token!r}"
+                )
     return errors
 
 

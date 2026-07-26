@@ -179,9 +179,9 @@ export class WorkspaceActions {
       workspaceWidth: beforeReset.workspaceWidth
     });
     this.initialize();
-    await this.restoreWorkspace();
     this.ctx.refreshScene();
     this.refreshRoadScene();
+    this.ctx.resumePersistence();
     this.ctx.store.update((current) => ({
       ...current,
       logs: [...current.logs, "Workspace reset"]

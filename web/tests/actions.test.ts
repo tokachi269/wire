@@ -35,12 +35,18 @@ describe("workspace cache", () => {
     };
     const cache = new WorkspaceCache(storage);
     let firstCoreState = "factory-core";
+    let firstRoadState = "factory-road";
     const firstStore = new ViewerStore();
     const firstActions = new ViewerActions(
       actionBridge({
         saveState: () => firstCoreState,
         loadState: (text: string) => {
           firstCoreState = text;
+          return { ok: true, error: "" };
+        },
+        roadSaveState: () => firstRoadState,
+        roadLoadState: (text: string) => {
+          firstRoadState = text;
           return { ok: true, error: "" };
         }
       }),
@@ -50,6 +56,7 @@ describe("workspace cache", () => {
     firstActions.initialize();
     await firstActions.restoreWorkspace();
     firstCoreState = "edited-core";
+    firstRoadState = "edited-road";
     firstActions.setDrawOption("cameraFov", 73);
     firstActions.setDrawOption("showRightPanel", false);
     firstActions.setDrawOption("rightPanelMode", "road");
@@ -60,12 +67,18 @@ describe("workspace cache", () => {
     firstActions.dispose();
 
     let secondCoreState = "fresh-core";
+    let secondRoadState = "fresh-road";
     const secondStore = new ViewerStore();
     const secondActions = new ViewerActions(
       actionBridge({
         saveState: () => secondCoreState,
         loadState: (text: string) => {
           secondCoreState = text;
+          return { ok: true, error: "" };
+        },
+        roadSaveState: () => secondRoadState,
+        roadLoadState: (text: string) => {
+          secondRoadState = text;
           return { ok: true, error: "" };
         }
       }),
@@ -76,6 +89,7 @@ describe("workspace cache", () => {
     await secondActions.restoreWorkspace();
 
     expect(secondCoreState).toBe("edited-core");
+    expect(secondRoadState).toBe("edited-road");
     expect(current(secondStore)).toEqual(expect.objectContaining({
       cameraFov: 73,
       showRightPanel: false,
@@ -89,6 +103,7 @@ describe("workspace cache", () => {
 
     await secondActions.resetWorkspace();
     expect(secondCoreState).toBe("fresh-core");
+    expect(secondRoadState).toBe("fresh-road");
     expect(current(secondStore)).toEqual(expect.objectContaining({
       cameraFov: 48,
       showRightPanel: false,
@@ -99,6 +114,7 @@ describe("workspace cache", () => {
     }));
     expect(await cache.read()).toEqual(expect.objectContaining({
       coreState: "fresh-core",
+      roadState: "fresh-road",
       viewer: expect.objectContaining({ cameraFov: 48 })
     }));
     secondActions.dispose();

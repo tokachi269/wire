@@ -8,6 +8,7 @@ import {
   backboneNodeHitId,
   distanceToScreenSegmentPx,
   makeSampledTubeGeometry,
+  makeRoadMeshGeometry,
   makeBackbonePick,
   poleAxisEndpoints,
   setPoleRotation
@@ -74,6 +75,25 @@ describe("sampled wire curve", () => {
     expect(geometry.getAttribute("position").count).toBe(4 * WIRE_RADIAL_SEGMENTS);
     expect(geometry.getAttribute("normal").count).toBe(4 * WIRE_RADIAL_SEGMENTS);
     expect(geometry.getIndex()?.count).toBe(3 * WIRE_RADIAL_SEGMENTS * 6);
+  });
+});
+
+describe("road rendering", () => {
+  it("colors raised road vertices separately from carriageway vertices", () => {
+    const geometry = makeRoadMeshGeometry({
+      vertices: new Float64Array([
+        0, 0, 0.15,
+        1, 0, 0,
+        0, 1, 0.15
+      ]),
+      indices: new Uint32Array([0, 1, 2])
+    });
+    const colors = geometry.getAttribute("color");
+
+    expect(colors.count).toBe(3);
+    expect(colors.getX(0)).toBeGreaterThan(colors.getX(1));
+    expect(colors.getY(0)).toBeGreaterThan(colors.getY(1));
+    expect(colors.getZ(0)).toBeGreaterThan(colors.getZ(1));
   });
 });
 

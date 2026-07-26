@@ -196,10 +196,12 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return it == graph.nodes.end() ? nullptr : &*it;
 }
 
+[[nodiscard]] double surface_height(SurfaceRole role) {
+  return role == SurfaceRole::kSidewalk ? 0.15 : 0.0;
+}
+
 [[nodiscard]] std::vector<SectionBoundarySample> evaluate_section(const CrossSectionTemplate& section) {
   std::vector<SectionBoundarySample> samples{};
-  double lateral = 0.0;
-  double height = 0.0;
   if (section.bands.empty()) {
     return samples;
   }
@@ -210,20 +212,28 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   for (const BoundaryProfile& boundary : section.boundaries) {
     total_width += boundary.width_m;
   }
-  lateral = -total_width * 0.5;
-  samples.push_back(SectionBoundarySample{1, BoundaryRole::kOuterEdge, lateral, height, MarkingRule::kOuterLine});
+  double lateral = -total_width * 0.5;
+  double height = surface_height(section.bands.front().role);
+  samples.push_back(SectionBoundarySample{1, BoundaryRole::kOuterEdge, lateral, height, MarkingRule::kNone});
   for (std::size_t i = 0; i < section.bands.size(); ++i) {
     lateral += section.bands[i].width_m;
     if (i < section.boundaries.size()) {
       const BoundaryProfile& boundary = section.boundaries[i];
-      height += boundary.height_m;
+      const double next_height =
+          i + 1 < section.bands.size() ? surface_height(section.bands[i + 1].role) : height + boundary.height_m;
+      if (boundary.width_m <= kEpsilon && std::abs(next_height - height) <= kEpsilon) {
+        samples.push_back(
+            SectionBoundarySample{boundary.boundary_id, boundary.role, lateral, height, boundary.marking_rule});
+        continue;
+      }
+      samples.push_back(SectionBoundarySample{boundary.boundary_id, boundary.role, lateral, height, MarkingRule::kNone});
+      lateral += boundary.width_m;
+      height = next_height;
       samples.push_back(
           SectionBoundarySample{boundary.boundary_id, boundary.role, lateral, height, boundary.marking_rule});
-      lateral += boundary.width_m;
     }
   }
-  samples.push_back(SectionBoundarySample{999, BoundaryRole::kOuterEdge, total_width * 0.5, height,
-                                          MarkingRule::kOuterLine});
+  samples.push_back(SectionBoundarySample{999, BoundaryRole::kOuterEdge, total_width * 0.5, height, MarkingRule::kNone});
   return samples;
 }
 
@@ -344,6 +354,8 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
     if (boundary.marking_rule == MarkingRule::kNone) {
       continue;
     }
+    const double half_width = boundary.marking_rule == MarkingRule::kCenterLine ? 0.06 : 0.05;
+    const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
     for (double station : stations) {
       const Result<Vec2d> center = EvaluatePath(segment.alignment, station);
       const std::optional<Vec2d> tangent = path_tangent(segment.alignment, station, total);
@@ -351,8 +363,18 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
         return {};
       }
       const Vec2d lateral{-tangent->y, tangent->x};
-      const Vec2d p = add(center.value, mul(lateral, boundary.lateral_m));
-      mesh.vertices.push_back({p.x, p.y, boundary.height_m + 0.01});
+      const Vec2d a = add(center.value, mul(lateral, boundary.lateral_m - half_width));
+      const Vec2d b = add(center.value, mul(lateral, boundary.lateral_m + half_width));
+      mesh.vertices.push_back({a.x, a.y, boundary.height_m + 0.02});
+      mesh.vertices.push_back({b.x, b.y, boundary.height_m + 0.02});
+    }
+    const std::uint32_t row_count = static_cast<std::uint32_t>(stations.size());
+    for (std::uint32_t row = 0; row + 1 < row_count; ++row) {
+      const std::uint32_t a = base + row * 2;
+      const std::uint32_t b = a + 1;
+      const std::uint32_t c = a + 2;
+      const std::uint32_t d = a + 3;
+      mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
     }
   }
   return mesh;

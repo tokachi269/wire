@@ -49,6 +49,28 @@ bool P0_generates_two_lane_segment(std::string& failure) {
   return true;
 }
 
+bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
+  RoadState state{};
+  const auto added = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1);
+  ROAD_TEST_EXPECT(added.ok, added.error);
+  ROAD_TEST_EXPECT(!state.derived().section_evaluations.empty(), "P0 did not evaluate the section");
+  const auto& boundaries = state.derived().section_evaluations.front().boundaries;
+  ROAD_TEST_EXPECT(boundaries.size() >= 7, "P0 section does not expose sidewalk/curb/carriageway edges");
+  ROAD_TEST_EXPECT(std::abs(boundaries.front().height_m - 0.15) < 1e-9, "left sidewalk is not raised 0.15m");
+  ROAD_TEST_EXPECT(std::abs(boundaries.back().height_m - 0.15) < 1e-9, "right sidewalk is not raised 0.15m");
+  ROAD_TEST_EXPECT(std::abs(boundaries[2].height_m) < 1e-9, "left carriageway edge is not at road height");
+  ROAD_TEST_EXPECT(std::abs(boundaries[4].height_m) < 1e-9, "right carriageway edge is not at road height");
+  ROAD_TEST_EXPECT(std::abs((boundaries[2].lateral_m - boundaries[1].lateral_m) - 0.2) < 1e-9,
+                   "left curb width is not 0.2m");
+  ROAD_TEST_EXPECT(std::abs((boundaries[5].lateral_m - boundaries[4].lateral_m) - 0.2) < 1e-9,
+                   "right curb width is not 0.2m");
+  ROAD_TEST_EXPECT(!state.derived().marking_meshes.empty(), "P0 did not derive marking meshes");
+  const auto& marking = state.derived().marking_meshes.front();
+  ROAD_TEST_EXPECT(!marking.vertices.empty(), "P0 marking mesh has no vertices");
+  ROAD_TEST_EXPECT(!marking.indices.empty(), "P0 marking mesh has no triangles");
+  return true;
+}
+
 bool P0_angled_segment_keeps_final_section_perpendicular(std::string& failure) {
   RoadState state{};
   const Vec2d start{0.0, 0.0};
@@ -190,6 +212,7 @@ struct Test {
 int main() {
   const Test tests[] = {
       {"P0_generates_two_lane_segment", P0_generates_two_lane_segment},
+      {"P0_two_lane_mesh_shows_sidewalks_curbs_and_markings", P0_two_lane_mesh_shows_sidewalks_curbs_and_markings},
       {"P0_angled_segment_keeps_final_section_perpendicular", P0_angled_segment_keeps_final_section_perpendicular},
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},

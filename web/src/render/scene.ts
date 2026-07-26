@@ -160,7 +160,16 @@ export function makeRoadMeshGeometry(data: {
   indices: Uint32Array;
 }): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(data.vertices), 3));
+  const positions = new Float32Array(data.vertices);
+  const colors = new Float32Array(positions.length);
+  for (let index = 0; index + 2 < positions.length; index += 3) {
+    const raised = positions[index + 2] > 0.08;
+    colors[index] = raised ? 0.55 : 0.22;
+    colors[index + 1] = raised ? 0.58 : 0.24;
+    colors[index + 2] = raised ? 0.56 : 0.25;
+  }
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(data.indices), 1));
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
@@ -856,7 +865,8 @@ export class WireScene {
     const surfaceMaterial = new THREE.MeshStandardMaterial({
       color: 0x4a4e50,
       roughness: 0.9,
-      metalness: 0
+      metalness: 0,
+      vertexColors: true
     });
     const markingMaterial = new THREE.MeshStandardMaterial({
       color: 0xf2f0d9,

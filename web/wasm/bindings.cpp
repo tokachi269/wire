@@ -297,7 +297,7 @@ public:
 
     const std::size_t bundle_count = bundle_placements["length"].as<std::size_t>();
     if (bundle_count == 0) {
-      return result_value(false, "bundle placements must be non-empty");
+      return result_value(false, "backbone unsupported: bundle placements must be non-empty");
     }
     for (std::size_t index = 0; index < bundle_count; ++index) {
       const val placement = bundle_placements[index];

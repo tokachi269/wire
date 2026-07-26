@@ -3,6 +3,7 @@ import {
   withRoadBend,
   withRoadCurveEnd,
   withRoadEnd,
+  type RoadSnapInfo,
   type RoadPoint,
   type RoadToolMode,
   type RoadToolState
@@ -27,20 +28,15 @@ export class RoadActions {
     }));
   }
 
-  addViewportPoint(point: WorldPoint): void {
+  addViewportPoint(point: WorldPoint, snap?: RoadSnapInfo): void {
     const target = { x: point[0], y: point[1] };
     const current = this.ctx.readSnapshot().road;
     if (current.phase === "start") {
-      const phase = current.mode === "bezier" ? "bend" : "end";
-      this.ctx.store.update((snapshot) => ({
-        ...snapshot,
-        road: withRoadEnd({
-          ...snapshot.road,
-          draftStart: target,
-          draftBend: target,
-          phase
-        }, target)
-      }));
+      this.beginAt(target, snap);
+      return;
+    }
+    if (snap !== undefined && !sameRoadPoint(current.draftStart, target)) {
+      this.beginAt(target, snap);
       return;
     }
     if (current.mode === "bezier" && current.phase === "bend") {
@@ -110,6 +106,8 @@ export class RoadActions {
         phase,
         draftStart: nextStart,
         draftBend: nextStart,
+        draftStartNodeId: 0,
+        draftStartSegmentId: 0,
         scene,
         previewMeshes: [],
         lastError: ""
@@ -129,6 +127,21 @@ export class RoadActions {
     return withRoadCurveEnd(current, target);
   }
 
+  private beginAt(target: RoadPoint, snap?: RoadSnapInfo): void {
+    const phase = this.ctx.readSnapshot().road.mode === "bezier" ? "bend" : "end";
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      road: withRoadEnd({
+        ...snapshot.road,
+        draftStart: target,
+        draftBend: target,
+        draftStartNodeId: snap?.nodeId ?? 0,
+        draftStartSegmentId: snap?.segmentId ?? 0,
+        phase
+      }, target)
+    }));
+  }
+
   private finish(result: { ok: boolean; error: string }, log: string): void {
     if (!result.ok) {
       this.ctx.store.setError(result.error);
@@ -142,4 +155,8 @@ export class RoadActions {
       logs: [...snapshot.logs, log]
     }));
   }
+}
+
+function sameRoadPoint(a: RoadPoint, b: RoadPoint): boolean {
+  return Math.hypot(a.x - b.x, a.y - b.y) <= 1e-6;
 }

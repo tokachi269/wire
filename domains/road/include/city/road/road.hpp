@@ -274,6 +274,9 @@ public:
   [[nodiscard]] Result<RoadSegmentId> AddSegment(Path alignment, CrossSectionTemplateId section_template);
   [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedTo(Path alignment, CrossSectionTemplateId section_template,
                                                             RoadNodeId start_node);
+  [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedToSegment(Path alignment,
+                                                                   CrossSectionTemplateId section_template,
+                                                                   RoadSegmentId start_segment);
   [[nodiscard]] Result<bool> EditSegmentPath(RoadSegmentId segment_id, Path alignment);
   [[nodiscard]] Result<bool> DeleteSegment(RoadSegmentId segment_id);
   [[nodiscard]] Result<CrossSectionTemplateId> AddSectionTemplate(CrossSectionTemplate section_template);

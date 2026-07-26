@@ -1203,9 +1203,15 @@ public:
     if (path.primitives.empty()) {
       return road_result_value(false, "unsupported road primitive", city::road::ErrorKind::kUnsupported);
     }
+    const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
+    const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
     const bool connect = input["connectToFirstNode"].as<bool>();
     city::road::Result<city::road::RoadSegmentId> result{};
-    if (connect && !state_->graph().nodes.empty()) {
+    if (start_segment_id != 0) {
+      result = state_->AddSegmentConnectedToSegment(path, 1, start_segment_id);
+    } else if (start_node_id != 0) {
+      result = state_->AddSegmentConnectedTo(path, 1, start_node_id);
+    } else if (connect && !state_->graph().nodes.empty()) {
       result = state_->AddSegmentConnectedTo(path, 1, state_->graph().nodes.front().id);
     } else {
       result = state_->AddSegment(path, 1);
@@ -1221,9 +1227,15 @@ public:
       result.set("meshes", val::array());
       return result;
     }
+    const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
+    const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
     const bool connect = input["connectToFirstNode"].as<bool>();
     city::road::Result<city::road::RoadSegmentId> added{};
-    if (connect && !trial.graph().nodes.empty()) {
+    if (start_segment_id != 0) {
+      added = trial.AddSegmentConnectedToSegment(path, 1, start_segment_id);
+    } else if (start_node_id != 0) {
+      added = trial.AddSegmentConnectedTo(path, 1, start_node_id);
+    } else if (connect && !trial.graph().nodes.empty()) {
       added = trial.AddSegmentConnectedTo(path, 1, trial.graph().nodes.front().id);
     } else {
       added = trial.AddSegment(path, 1);
@@ -1240,6 +1252,30 @@ public:
   val scene() const {
     const auto& graph = state_->graph();
     const auto& derived = state_->derived();
+    val nodes = val::array();
+    for (const auto& node : graph.nodes) {
+      val item = val::object();
+      item.set("id", node.id);
+      item.set("x", node.position.x);
+      item.set("y", node.position.y);
+      nodes.call<void>("push", item);
+    }
+    val centerline_segments = val::array();
+    for (const auto& segment : graph.segments) {
+      if (segment.alignment.primitives.size() != 1 ||
+          segment.alignment.primitives.front().kind != city::road::Primitive::Kind::kLine) {
+        continue;
+      }
+      const city::road::Vec2d start = city::road::EvaluatePath(segment.alignment, 0.0).value;
+      const city::road::Vec2d end = city::road::EvaluatePath(segment.alignment, city::road::PathLength(segment.alignment).value).value;
+      val item = val::object();
+      item.set("id", segment.id);
+      item.set("startX", start.x);
+      item.set("startY", start.y);
+      item.set("endX", end.x);
+      item.set("endY", end.y);
+      centerline_segments.call<void>("push", item);
+    }
     val surface_meshes = val::array();
     for (const auto& mesh : derived.segment_meshes) {
       surface_meshes.call<void>("push", road_mesh_value(mesh));
@@ -1258,6 +1294,8 @@ public:
     result.set("markingCount", graph.manual_lines.size() + graph.manual_areas.size());
     result.set("connectionGateCount", derived.connection_gates.size());
     result.set("junctionCount", derived.junction_areas.size());
+    result.set("nodes", nodes);
+    result.set("centerlineSegments", centerline_segments);
     result.set("surfaceMeshes", surface_meshes);
     result.set("markingMeshes", marking_meshes);
     return result;

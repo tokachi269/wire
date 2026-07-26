@@ -76,6 +76,20 @@ constexpr double kP1MaxConnectionAngleDeg = 135.0;
   return distance(a, b) <= 1e-6;
 }
 
+[[nodiscard]] bool point_on_line_segment(Vec2d point, Vec2d a, Vec2d b) {
+  const Vec2d ab = sub(b, a);
+  const double len2 = dot(ab, ab);
+  if (len2 <= kEpsilon) {
+    return false;
+  }
+  const double t = dot(sub(point, a), ab) / len2;
+  if (t <= 1e-6 || t >= 1.0 - 1e-6) {
+    return false;
+  }
+  const Vec2d closest = add(a, mul(ab, t));
+  return distance(point, closest) <= 1e-5;
+}
+
 [[nodiscard]] Vec2d primitive_start(const Primitive& primitive) {
   if (primitive.kind == Primitive::Kind::kArc) {
     return {primitive.center.x + std::cos(primitive.start_angle_rad) * primitive.radius,
@@ -624,6 +638,53 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(Path alignment, CrossSect
   if (!rebuilt.ok) {
     return Result<RoadSegmentId>::Fail(rebuilt.error_kind, rebuilt.error);
   }
+  return added;
+}
+
+Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(Path alignment,
+                                                              CrossSectionTemplateId section_template,
+                                                              RoadSegmentId start_segment) {
+  const RoadSegment* source = find_segment(graph_, start_segment);
+  if (source == nullptr) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment snap target does not exist");
+  }
+  if (source->alignment.primitives.size() != 1 ||
+      source->alignment.primitives.front().kind != Primitive::Kind::kLine) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "road segment split supports straight segments only");
+  }
+  const Vec2d split_point = path_start(alignment);
+  const Vec2d source_start = path_start(source->alignment);
+  const Vec2d source_end = path_end(source->alignment);
+  if (!point_on_line_segment(split_point, source_start, source_end)) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment snap point is not on the target segment");
+  }
+
+  RoadState trial = *this;
+  RoadSegment* split = find_segment(trial.graph_, start_segment);
+  if (split == nullptr) {
+    return Result<RoadSegmentId>::Fail(ErrorKind::kInternal, "road segment split target disappeared");
+  }
+  const RoadNodeId old_end = split->node_b;
+  const RoadNodeId split_node = trial.next_id_++;
+  const RoadSegmentId second_id = trial.next_id_++;
+  trial.graph_.nodes.push_back(RoadNode{split_node, split_point});
+  split->node_b = split_node;
+  split->alignment = MakePath({MakeLine(source_start, split_point)});
+  trial.graph_.segments.push_back(RoadSegment{second_id,
+                                              split_node,
+                                              old_end,
+                                              MakePath({MakeLine(split_point, source_end)}),
+                                              split->section_template,
+                                              split->transition});
+  const Result<bool> rebuilt = trial.RebuildDerived();
+  if (!rebuilt.ok) {
+    return Result<RoadSegmentId>::Fail(rebuilt.error_kind, rebuilt.error);
+  }
+  const Result<RoadSegmentId> added = trial.AddSegmentConnectedTo(std::move(alignment), section_template, split_node);
+  if (!added.ok) {
+    return added;
+  }
+  *this = std::move(trial);
   return added;
 }
 

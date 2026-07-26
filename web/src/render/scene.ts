@@ -8,6 +8,7 @@ import type {
 } from "../model";
 import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
+import type { RoadSnapInfo } from "../road";
 import {
   type LoadedModelAsset,
   modelAssetCache
@@ -329,7 +330,7 @@ export class WireScene {
 
   constructor(
     private readonly store: ViewerStore,
-    private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo) => void,
+    private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo) => void,
     private readonly onGroundPreview: (point: WorldPoint) => void,
     private readonly onContextAction: () => void,
     private readonly onFrame: (deltaMs: number) => void,
@@ -565,6 +566,13 @@ export class WireScene {
       this.onGroundClick(backboneHit.point, backboneHit.pick);
       return;
     }
+    const roadHit = this.snapshot?.activeTool === "road"
+      ? this.pickRoadPoint(event.clientX, event.clientY)
+      : null;
+    if (roadHit !== null) {
+      this.onGroundClick(roadHit.point, roadHit.snap);
+      return;
+    }
     const hit = new THREE.Vector3();
     const planeZ = this.snapshot?.drawPlaneZ ?? 0;
     if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ), hit)) {
@@ -697,6 +705,70 @@ export class WireScene {
       return { point: bestEdge.point, pick: bestEdge.pick };
     }
 
+    return null;
+  }
+
+  private pickRoadPoint(
+    clientX: number,
+    clientY: number
+  ): { point: WorldPoint; snap: RoadSnapInfo } | null {
+    if (this.snapshot === null) return null;
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    const pointerPx = new THREE.Vector2(clientX - bounds.left, clientY - bounds.top);
+    let bestNode: { distance: number; point: WorldPoint; snap: RoadSnapInfo } | null = null;
+    for (const node of this.snapshot.road.scene.nodes) {
+      const point: WorldPoint = [node.x, node.y, 0];
+      const screenPoint = this.projectToCanvas(new THREE.Vector3(...point), bounds);
+      if (screenPoint === null) continue;
+      const distance = screenPoint.distanceTo(pointerPx);
+      if (distance <= BACKBONE_NODE_SNAP_PX && (bestNode === null || distance < bestNode.distance)) {
+        bestNode = {
+          distance,
+          point,
+          snap: { kind: "road", nodeId: node.id, segmentId: 0 }
+        };
+      }
+    }
+    if (bestNode !== null) {
+      return { point: bestNode.point, snap: bestNode.snap };
+    }
+
+    let bestSegment: { distance: number; point: WorldPoint; snap: RoadSnapInfo } | null = null;
+    for (const segment of this.snapshot.road.scene.centerlineSegments) {
+      const endpointA: WorldPoint = [segment.startX, segment.startY, 0];
+      const endpointB: WorldPoint = [segment.endX, segment.endY, 0];
+      const screenA = this.projectToCanvas(new THREE.Vector3(...endpointA), bounds);
+      const screenB = this.projectToCanvas(new THREE.Vector3(...endpointB), bounds);
+      if (screenA === null || screenB === null) continue;
+      const dx = screenB.x - screenA.x;
+      const dy = screenB.y - screenA.y;
+      const length2 = dx * dx + dy * dy;
+      const t = length2 > 0
+        ? THREE.MathUtils.clamp(
+            ((pointerPx.x - screenA.x) * dx + (pointerPx.y - screenA.y) * dy) / length2,
+            0,
+            1
+          )
+        : 0;
+      const closest = new THREE.Vector2(screenA.x + dx * t, screenA.y + dy * t);
+      const distance = closest.distanceTo(pointerPx);
+      if (distance > BACKBONE_EDGE_SNAP_PX || (bestSegment !== null && distance >= bestSegment.distance)) {
+        continue;
+      }
+      const point: WorldPoint = [
+        endpointA[0] + (endpointB[0] - endpointA[0]) * t,
+        endpointA[1] + (endpointB[1] - endpointA[1]) * t,
+        0
+      ];
+      bestSegment = {
+        distance,
+        point,
+        snap: { kind: "road", nodeId: 0, segmentId: segment.id }
+      };
+    }
+    if (bestSegment !== null) {
+      return { point: bestSegment.point, snap: bestSegment.snap };
+    }
     return null;
   }
 
@@ -1344,6 +1416,14 @@ export class WireScene {
   private updateSnapPreview(event: PointerEvent): void {
     this.clearSnapPreview();
     if (this.snapshot?.activeTool === "road") {
+      const roadHit = this.pickRoadPoint(event.clientX, event.clientY);
+      if (roadHit !== null) {
+        const point = new THREE.Vector3(roadHit.point[0], roadHit.point[1], roadHit.point[2] + 0.08);
+        this.snapPreviewRing.position.copy(point);
+        this.snapPreview.visible = true;
+        this.onGroundPreview(roadHit.point);
+        return;
+      }
       const ray = new THREE.Raycaster();
       ray.setFromCamera(this.pointerFromClient(event.clientX, event.clientY), this.camera);
       const hit = new THREE.Vector3();

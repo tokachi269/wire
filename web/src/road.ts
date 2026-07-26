@@ -16,6 +16,8 @@ export interface RoadSegmentInput {
   handleAY: number;
   handleBX: number;
   handleBY: number;
+  startNodeId: number;
+  startSegmentId: number;
   connectToFirstNode: boolean;
 }
 
@@ -31,8 +33,30 @@ export interface RoadSceneData {
   markingCount: number;
   connectionGateCount: number;
   junctionCount: number;
+  nodes: RoadNodeData[];
+  centerlineSegments: RoadCenterlineSegmentData[];
   surfaceMeshes: RoadMeshData[];
   markingMeshes: RoadMeshData[];
+}
+
+export interface RoadNodeData {
+  id: number;
+  x: number;
+  y: number;
+}
+
+export interface RoadCenterlineSegmentData {
+  id: number;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+}
+
+export interface RoadSnapInfo {
+  kind: "road";
+  nodeId: number;
+  segmentId: number;
 }
 
 export interface RoadToolState {
@@ -43,6 +67,8 @@ export interface RoadToolState {
   draftEnd: RoadPoint;
   handleA: RoadPoint;
   handleB: RoadPoint;
+  draftStartNodeId: number;
+  draftStartSegmentId: number;
   connectToFirstNode: boolean;
   scene: RoadSceneData;
   previewMeshes: RoadMeshData[];
@@ -58,6 +84,8 @@ export function createRoadToolState(): RoadToolState {
     draftEnd: { x: 0, y: 0 },
     handleA: { x: 0, y: 0 },
     handleB: { x: 0, y: 0 },
+    draftStartNodeId: 0,
+    draftStartSegmentId: 0,
     connectToFirstNode: false,
     scene: emptyRoadScene(),
     previewMeshes: [],
@@ -76,6 +104,8 @@ export function roadSegmentInput(state: RoadToolState): RoadSegmentInput {
     handleAY: state.handleA.y,
     handleBX: state.handleB.x,
     handleBY: state.handleB.y,
+    startNodeId: state.draftStartNodeId,
+    startSegmentId: state.draftStartSegmentId,
     connectToFirstNode: state.connectToFirstNode
   };
 }
@@ -125,6 +155,8 @@ export function emptyRoadScene(): RoadSceneData {
     markingCount: 0,
     connectionGateCount: 0,
     junctionCount: 0,
+    nodes: [],
+    centerlineSegments: [],
     surfaceMeshes: [],
     markingMeshes: []
   };

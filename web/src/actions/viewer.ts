@@ -15,6 +15,7 @@ import type { WorkspaceCache } from "../store/workspace";
 import { ViewerActionContext } from "./context";
 import { DrawActions } from "./draw_actions";
 import { SelectionActions } from "./selection_actions";
+import type { RoadSnapInfo } from "../road";
 import { RoadActions } from "./road_actions";
 import { SettingsActions } from "./settings_actions";
 import { TemplateActions } from "./template_actions";
@@ -59,12 +60,13 @@ export class ViewerActions {
     this.settings.setDrawOption("activeTool", tool);
   }
 
-  addViewportPoint(point: WorldPoint, pick?: PathPickInfo): void {
+  addViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): void {
+    const roadSnap = pick !== undefined && "kind" in pick && pick.kind === "road" ? pick : undefined;
     if (this.ctx.readSnapshot().activeTool === "road") {
-      this.road.addViewportPoint(point);
+      this.road.addViewportPoint(point, roadSnap);
       return;
     }
-    this.draw.addPathPoint(point, pick);
+    this.draw.addPathPoint(point, roadSnap === undefined ? pick as PathPickInfo | undefined : undefined);
   }
 
   previewViewportPoint(point: WorldPoint): void {

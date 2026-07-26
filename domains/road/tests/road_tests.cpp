@@ -142,6 +142,22 @@ bool P1_connected_segments_create_gates_and_junction(std::string& failure) {
   return true;
 }
 
+bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1);
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(MakePath({MakeLine({20.0, 0.0}, {20.0, 24.0})}), 1,
+                                                         base.value);
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 3, "T junction did not split base road and add branch");
+  ROAD_TEST_EXPECT(state.graph().nodes.size() == 4, "T junction did not create one shared middle node");
+  ROAD_TEST_EXPECT(state.graph().junctions.size() == 1, "T junction did not save one JunctionDefinition");
+  ROAD_TEST_EXPECT(state.derived().junction_areas.size() == 1, "T junction did not derive one JunctionArea");
+  ROAD_TEST_EXPECT(state.derived().junction_areas.front().gates.size() == 3, "T junction does not have three gates");
+  ROAD_TEST_EXPECT(ValidateGraphInvariants(state.graph(), state.derived()).ok, "T junction invariants failed");
+  return true;
+}
+
 bool P2_section_transition_and_manual_markings(std::string& failure) {
   RoadState state{};
   const auto added = state.AddSegment(MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1);
@@ -218,6 +234,7 @@ int main() {
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
       {"P1_connected_segments_create_gates_and_junction", P1_connected_segments_create_gates_and_junction},
+      {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };

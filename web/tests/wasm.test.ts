@@ -1317,6 +1317,8 @@ describe("road wasm smoke", () => {
       handleAY: 0,
       handleBX: 16,
       handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
       connectToFirstNode: false
     });
 
@@ -1327,6 +1329,8 @@ describe("road wasm smoke", () => {
     expect(scene.surfaceMeshes[0].vertices.length).toBeGreaterThan(0);
     expect(scene.surfaceMeshes[0].indices.length).toBeGreaterThan(0);
     expect(scene.markingMeshes.length).toBeGreaterThan(0);
+    expect(scene.nodes.length).toBe(2);
+    expect(scene.centerlineSegments.length).toBe(1);
 
     const restored = createRoadState();
     const loaded = restored.loadState(state.saveState());
@@ -1347,6 +1351,8 @@ describe("road wasm smoke", () => {
       handleAY: 4,
       handleBX: 16,
       handleBY: 8,
+      startNodeId: 0,
+      startSegmentId: 0,
       connectToFirstNode: false
     });
     expect(added.ok, added.error).toBe(true);
@@ -1360,5 +1366,45 @@ describe("road wasm smoke", () => {
     const tangentLength = Math.hypot(24, 12);
     const dot = crossX * 24 / tangentLength + crossY * 12 / tangentLength;
     expect(Math.abs(dot)).toBeLessThan(1e-6);
+  });
+
+  it("splits a straight segment when a branch starts from a centerline snap", () => {
+    state.clear();
+    const base = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 40,
+      endY: 0,
+      handleAX: 13,
+      handleAY: 0,
+      handleBX: 27,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      connectToFirstNode: false
+    });
+    expect(base.ok, base.error).toBe(true);
+    const baseSegmentId = state.scene().centerlineSegments[0].id;
+    const branch = state.addSegment({
+      kind: "line",
+      startX: 20,
+      startY: 0,
+      endX: 20,
+      endY: 24,
+      handleAX: 20,
+      handleAY: 8,
+      handleBX: 20,
+      handleBY: 16,
+      startNodeId: 0,
+      startSegmentId: baseSegmentId,
+      connectToFirstNode: false
+    });
+    expect(branch.ok, branch.error).toBe(true);
+    const scene = state.scene();
+    expect(scene.segmentCount).toBe(3);
+    expect(scene.nodes.length).toBe(4);
+    expect(scene.connectionGateCount).toBe(6);
+    expect(scene.junctionCount).toBe(1);
   });
 });

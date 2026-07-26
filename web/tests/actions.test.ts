@@ -560,6 +560,8 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       markingCount: 0,
       connectionGateCount: 0,
       junctionCount: 0,
+      nodes: [],
+      centerlineSegments: [],
       surfaceMeshes: [],
       markingMeshes: []
     }),
@@ -600,6 +602,49 @@ describe("viewport tool routing", () => {
     }));
     expect(current(store).pathPoints).toEqual([]);
     expect(current(store).road.phase).toBe("end");
+  });
+
+  it("passes a road segment snap target to the authoritative road state", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7 });
+    actions.addViewportPoint([20, 24, 0]);
+
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startX: 20,
+      startY: 0,
+      endX: 20,
+      endY: 24,
+      startNodeId: 0,
+      startSegmentId: 7
+    }));
+  });
+
+  it("starts a new road branch when an existing road segment is snapped during continuous drawing", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.addViewportPoint([40, 0, 0]);
+    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7 });
+    actions.addViewportPoint([20, 24, 0]);
+
+    expect(roadAddSegment).toHaveBeenLastCalledWith(expect.objectContaining({
+      startX: 20,
+      startY: 0,
+      endX: 20,
+      endY: 24,
+      startNodeId: 0,
+      startSegmentId: 7
+    }));
+    expect(current(store).road.draftStartSegmentId).toBe(0);
   });
 
   it("draws a curved road with a Cities-style bend point before the end point", () => {

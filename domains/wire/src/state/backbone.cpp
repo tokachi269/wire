@@ -241,7 +241,7 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
   EditResult<bool> out{};
   if (edge_bundle_id == kInvalidObjectId || port_id == kInvalidObjectId || row_key.node_id == kInvalidObjectId ||
       row_key.edge_id == kInvalidObjectId || support_level < 0 ||
-      (support_level == 0 && support_group_id != -1) ||
+      support_group_id < -1 ||
       (support_level > 0 && support_group_id < 0)) {
     out.error = "backbone invalid input: invalid backbone port binding";
     return out;
@@ -306,7 +306,7 @@ EditResult<bool> CoreState::update_backbone_port_binding_layout_exact(
   if (edge_bundle_id == kInvalidObjectId ||
       row_key.node_id == kInvalidObjectId ||
       row_key.edge_id == kInvalidObjectId || port_id == kInvalidObjectId ||
-      support_level < 0 || (support_level == 0 && support_group_id != -1) ||
+      support_level < 0 || support_group_id < -1 ||
       (support_level > 0 && support_group_id < 0)) {
     out.ok = true;
     return out;

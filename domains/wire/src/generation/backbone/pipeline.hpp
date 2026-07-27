@@ -123,6 +123,7 @@ struct group {
   Vec3d group_axis{};
   int vertical_order = 0;
   double endpoint_offset_m = 0.0;
+  intent_reason reason = intent_reason::none;
 };
 
 struct groups {

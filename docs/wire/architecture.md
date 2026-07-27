@@ -132,11 +132,11 @@ pole facingはこのcorner decisionの`node_forward`を消費し、角度や二�
 ### row conflict と endpoint offset
 
 通常のroute bendはlowering対象ではない。
-同一nodeのrow conflictでは、接続pairまたは未接続openを1 support levelとして扱う。level 0は基準位置、
+同一nodeのrow conflictでは、物理fixture rowごとに1 support levelを割り当てる。level 0は基準位置、
 level 1以降は`abs(BundleTemplate::branch_endpoint_offset_m) * level`だけ順に下げる。
-1 levelへ複数の論理接続を載せない。通常pairは共有rowなのでlevel 0を使えるが、
-鋭角pairは2つのfixture rowとjumperへ派生するため、既存rowの有無に関係なくlevel 1以降を使う。
-鋭角pairの2 fixture rowは同じlevelを使う。
+1 levelへ複数の物理fixture rowを載せない。通常pairは共有rowなので1つのlevelだけを使うが、
+鋭角pairは2つのfixture rowとjumperへ派生するため、2つの異なる空きlevelを使う。
+jumperはcontinuity表現であり、2つのrowを同じplacement levelへまとめる根拠にしない。
 この多段配置は`BundleTemplate::enable_branch_down_offset`が有効なbundle placementだけに適用し、
 無効なplacementはrow数に関係なくlevel 0を維持する。
 `SavedBackbonePortBinding`はrowごとの`support_level`と`support_group_id`を保存し、

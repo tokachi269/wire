@@ -133,10 +133,11 @@ pair/openの表現、peer edge、row axisは保存しない。接続済みpeer�
 1つの派生処理へ渡して、共有rowまたは2 open rowを決める。通常角のrow axisは従来どおり
 2 edgeの単位接線二等分線から決め、鋭角の各row axisは各edge方向から決める。
 
-5本のincident edgeは、2接続pairと未接続1本なら3 support levelを使う。
-1 levelは1接続pairまたは1未接続openを収容する。通常pairは共有rowとして
-level 0を使えるが、鋭角pairは2つのopen rowとjumperへ派生するためlevel 1以降を使う。
-鋭角pairの2 open rowは同じlevelを使うが、fixtureを潰さないため別support groupを持つ。
+support levelはcontinuity単位ではなく物理fixture row単位で割り当てる。
+通常pairは共有rowとして1 levelを使う。鋭角pairは2つのopen rowとjumperへ派生するため、
+2つの異なる空きlevelを使い、各rowが別support groupを持つ。
+既に低いlevelが別rowで埋まっている場合は、鋭角pairの2 rowへ次の2つの空きlevelを割り当てる。
+jumperはcontinuityを表すだけで、placement levelを共有させない。
 
 ### 既存saveの移行
 

@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -2745,8 +2746,7 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
 EditResult<intent> pipeline::make(const pairs& ps) const {
   EditResult<intent> out{};
   struct saved_row_support {
-    ObjectId edge_bundle_a = kInvalidObjectId;
-    ObjectId edge_bundle_b = kInvalidObjectId;
+    DerivedBackboneRowKey row_key{};
     int support_level = 0;
     int support_group_id = -1;
   };
@@ -2856,6 +2856,34 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     }
     return links;
   };
+  auto row_sort_angle = [&](std::size_t row_id) {
+    if (row_id >= ps.rows.size() || ps.rows[row_id].node >= g_.nodes.size()) {
+      return 0.0;
+    }
+    const Vec3d node_pos = g_.nodes[ps.rows[row_id].node].pos;
+    double angle = std::numeric_limits<double>::infinity();
+    for (std::size_t link_id : row_links(ps.rows[row_id])) {
+      if (link_id >= ps.links.size()) {
+        continue;
+      }
+      const link& edge = ps.links[link_id];
+      std::size_t other = bad;
+      if (edge.a == ps.rows[row_id].node) {
+        other = edge.b;
+      } else if (edge.b == ps.rows[row_id].node) {
+        other = edge.a;
+      }
+      if (other == bad || other >= g_.nodes.size()) {
+        continue;
+      }
+      Vec3d away = g_.nodes[other].pos - node_pos;
+      if (!NormalizeXY(&away)) {
+        continue;
+      }
+      angle = std::min(angle, std::atan2(away.y, away.x));
+    }
+    return std::isfinite(angle) ? angle : 0.0;
+  };
   auto saved_rows_for_scope = [&](ObjectId node_id, BundleTemplateId bundle_template_id,
                                   std::uint64_t placement_key) {
     EditResult<std::vector<saved_row_support>> out{};
@@ -2877,44 +2905,24 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
         out.error = "backbone unsupported: saved row support level is missing";
         return out;
       }
-      if ((binding.support_level == 0 && binding.support_group_id != -1) ||
+      if (binding.support_group_id < -1 ||
           (binding.support_level > 0 && binding.support_group_id < 0)) {
         out.error = "backbone unsupported: saved row support group is invalid";
         return out;
       }
-      ObjectId row_a = binding.edge_bundle_id;
-      ObjectId row_b = kInvalidObjectId;
-      for (const SavedBackboneRowContinuity& continuity :
-           state_.view().backbone().row_continuities) {
-        if (continuity.node_id != binding.row_key.node_id) {
-          continue;
-        }
-        const bool is_a =
-            continuity.a.edge_bundle_id == binding.edge_bundle_id &&
-            continuity.a.lane_index == binding.lane_index;
-        const bool is_b =
-            continuity.b.edge_bundle_id == binding.edge_bundle_id &&
-            continuity.b.lane_index == binding.lane_index;
-        if (!is_a && !is_b) {
-          continue;
-        }
-        if (row_b != kInvalidObjectId) {
-          out.error =
-              "backbone unsupported: endpoint has multiple row continuities";
-          return out;
-        }
-        const ObjectId peer =
-            is_a ? continuity.b.edge_bundle_id : continuity.a.edge_bundle_id;
-        row_a = std::min(binding.edge_bundle_id, peer);
-        row_b = std::max(binding.edge_bundle_id, peer);
+      const EditResult<EndpointRowRepresentation> representation =
+          DeriveEndpointRowRepresentation(state_, binding);
+      if (!representation.ok) {
+        out.error = representation.error;
+        return out;
       }
       const auto existing =
           std::find_if(out.value.begin(), out.value.end(), [&](const auto& item) {
-            return item.edge_bundle_a == row_a &&
-                   item.edge_bundle_b == row_b;
+            return item.row_key == representation.value.row_key;
           });
       if (existing == out.value.end()) {
-        out.value.push_back({row_a, row_b, binding.support_level,
+        out.value.push_back({representation.value.row_key,
+                             binding.support_level,
                              binding.support_group_id});
       } else if (existing->support_level != binding.support_level ||
                  existing->support_group_id != binding.support_group_id) {
@@ -2986,31 +2994,15 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     if (active_rows.empty()) {
       continue;
     }
-    std::vector<std::vector<std::size_t>> logical_rows{};
-    std::unordered_set<std::size_t> grouped_rows{};
-    for (std::size_t row_id : active_rows) {
-      if (!grouped_rows.insert(row_id).second) {
-        continue;
-      }
-      std::vector<std::size_t> members{row_id};
-      const auto jumper_it =
-          std::find_if(ps.jumpers.begin(), ps.jumpers.end(),
-                       [&](const jumper& connection) {
-                         return connection.row_a == row_id ||
-                                connection.row_b == row_id;
-                       });
-      if (jumper_it != ps.jumpers.end()) {
-        const std::size_t peer = jumper_it->row_a == row_id
-                                     ? jumper_it->row_b
-                                     : jumper_it->row_a;
-        if (std::find(active_rows.begin(), active_rows.end(), peer) !=
-                active_rows.end() &&
-            grouped_rows.insert(peer).second) {
-          members.push_back(peer);
-        }
-      }
-      logical_rows.push_back(std::move(members));
-    }
+    std::sort(active_rows.begin(), active_rows.end(),
+              [&](std::size_t a, std::size_t b) {
+                const double angle_a = row_sort_angle(a);
+                const double angle_b = row_sort_angle(b);
+                if (std::abs(angle_a - angle_b) > kAngleToleranceDeg) {
+                  return angle_a < angle_b;
+                }
+                return a < b;
+              });
     for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
       const BundleTemplate* tmpl = bundle_templates[bundle];
       if (tmpl == nullptr || !tmpl->enable_branch_down_offset || tmpl->branch_endpoint_offset_m == 0.0) {
@@ -3023,8 +3015,8 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       }
       const BackboneBundleSpec& bundle_spec = spec_.bundles[spec_index];
       const ObjectId node_id =
-          ps.rows[logical_rows.front().front()].node < g_.nodes.size()
-              ? g_.nodes[ps.rows[logical_rows.front().front()].node].saved
+          ps.rows[active_rows.front()].node < g_.nodes.size()
+              ? g_.nodes[ps.rows[active_rows.front()].node].saved
               : kInvalidObjectId;
       EditResult<std::vector<saved_row_support>> existing_rows =
           saved_rows_for_scope(node_id, tmpl->id, bundle_spec.placement_key);
@@ -3033,7 +3025,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
         return out;
       }
       std::vector<bool> used_levels(
-          existing_rows.value.size() + logical_rows.size() + 1, false);
+          existing_rows.value.size() + active_rows.size() + 1, false);
       for (const saved_row_support& saved : existing_rows.value) {
         if (saved.support_level < 0 ||
             static_cast<std::size_t>(saved.support_level) >=
@@ -3044,42 +3036,40 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
         }
         used_levels[static_cast<std::size_t>(saved.support_level)] = true;
       }
-      for (const std::vector<std::size_t>& members : logical_rows) {
-        const std::size_t minimum_support_level = members.size() > 1 ? 1 : 0;
-        int selected_existing_level = -1;
-        int selected_existing_group_id = -1;
-        for (std::size_t member : members) {
-          for (std::size_t link_id : row_links(ps.rows[member])) {
-            if (link_id >= ps.links.size() ||
-                ps.links[link_id].saved == kInvalidObjectId) {
-              continue;
-            }
-            const ObjectId saved_edge_id = ps.links[link_id].saved;
-            for (const saved_row_support& saved : existing_rows.value) {
-              const ObjectId edge_a =
-                  edge_for_bundle(state_, saved.edge_bundle_a);
-              const ObjectId edge_b =
-                  edge_for_bundle(state_, saved.edge_bundle_b);
-              if (edge_a != saved_edge_id && edge_b != saved_edge_id) {
-                continue;
-              }
-              if (selected_existing_level >= 0 &&
-                  (selected_existing_level != saved.support_level ||
-                   selected_existing_group_id !=
-                       saved.support_group_id)) {
-                out.error =
-                    "backbone unsupported: selected row support assignment is ambiguous";
-                return out;
-              }
-              selected_existing_level = saved.support_level;
-              selected_existing_group_id = saved.support_group_id;
-            }
+      auto row_matches_saved = [&](std::size_t row_id,
+                                   const saved_row_support& saved) {
+        for (std::size_t link_id : row_links(ps.rows[row_id])) {
+          if (link_id >= ps.links.size() ||
+              ps.links[link_id].saved == kInvalidObjectId) {
+            continue;
+          }
+          const ObjectId saved_edge_id = ps.links[link_id].saved;
+          if (saved.row_key.edge_a == saved_edge_id ||
+              saved.row_key.edge_b == saved_edge_id) {
+            return true;
           }
         }
-        std::size_t support_level = minimum_support_level;
-        if (selected_existing_level >= 0 &&
-            static_cast<std::size_t>(selected_existing_level) >=
-                minimum_support_level) {
+        return false;
+      };
+      for (std::size_t row_id : active_rows) {
+        int selected_existing_level = -1;
+        int selected_existing_group_id = -1;
+        for (const saved_row_support& saved : existing_rows.value) {
+          if (!row_matches_saved(row_id, saved)) {
+            continue;
+          }
+          if (selected_existing_level >= 0 &&
+              (selected_existing_level != saved.support_level ||
+               selected_existing_group_id != saved.support_group_id)) {
+            out.error =
+                "backbone unsupported: selected row support assignment is ambiguous";
+            return out;
+          }
+          selected_existing_level = saved.support_level;
+          selected_existing_group_id = saved.support_group_id;
+        }
+        std::size_t support_level = 0;
+        if (selected_existing_level >= 0) {
           support_level =
               static_cast<std::size_t>(selected_existing_level);
         } else {
@@ -3094,19 +3084,12 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
           }
           used_levels[support_level] = true;
         }
-        if (support_level == 0) {
-          continue;
-        }
         const int support_group_id =
-            selected_existing_level >= 0 &&
-                    static_cast<std::size_t>(selected_existing_level) >=
-                        minimum_support_level
+            selected_existing_level >= 0 && selected_existing_group_id >= 0
                 ? selected_existing_group_id
                 : next_support_group_id_by_node[node_id]++;
-        for (std::size_t member : members) {
-          add_row_intent(member, bundle, intent_reason::conflicting_rows,
-                         support_level, support_group_id);
-        }
+        add_row_intent(row_id, bundle, intent_reason::conflicting_rows,
+                       support_level, support_group_id);
       }
     }
   }
@@ -3134,11 +3117,8 @@ EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const 
     placed.row_members.push_back(group_member{item.row, item.bundle});
     placed.group_axis = ps.rows[item.row].axis;
     placed.vertical_order = item.support_level;
-    if (item.endpoint_offset_m == 0.0) {
-      out.error = "backbone unsupported: support group offset policy is missing";
-      return out;
-    }
     placed.endpoint_offset_m = item.endpoint_offset_m;
+    placed.reason = item.reason;
     out.value.items.push_back(std::move(placed));
   }
   out.ok = true;
@@ -4053,11 +4033,6 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
     rule.span_id = span.id;
     rule.flow_kind = BackboneFlowKind::kMain;
     rule.pass_mode = CurvePassMode::kPassThrough;
-    if (start_group != nullptr || end_group != nullptr) {
-      rule.flow_kind = BackboneFlowKind::kBranch;
-      rule.pass_mode = CurvePassMode::kBranch;
-      rule.lowering_kind = BackboneLoweringKind::kBranchSupport;
-    }
     auto endpoint = [&](const trow& row, ObjectId port_id) {
       EndpointLayoutRule e{};
       e.endpoint_node_id = row.pole;
@@ -4089,12 +4064,11 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       const double resolved_down_offset =
           state_span == nullptr ? automatic_down_offset
                                 : state_.resolve_span_branch_down_offset_m(*state_span, automatic_down_offset);
-      endpoint->flow_kind = BackboneFlowKind::kBranch;
-      endpoint->origin = LayoutOriginKind::kBranchSupport;
-      endpoint->default_lower_required = true;
+      endpoint->origin = LayoutOriginKind::kPlacementConstraint;
+      endpoint->default_lower_required = automatic_down_offset > 0.0;
       endpoint->same_level_feasible = false;
       endpoint->same_level_reason = SameLevelFeasibilityReason::kBundleRule;
-      endpoint->semantic.lower_required = true;
+      endpoint->semantic.lower_required = automatic_down_offset > 0.0;
       endpoint->semantic.lowering_blocked_by_policy = false;
       endpoint->semantic.support_group_id = static_cast<int>(source->id);
       endpoint->semantic.side_assignment_rule = SideAssignmentRuleKind::kChord;

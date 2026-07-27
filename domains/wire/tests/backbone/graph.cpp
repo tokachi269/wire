@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -4367,7 +4368,7 @@ bool C815_backbone_sharp_pair_height_is_operation_order_independent() {
                     city::wire::BundleKind::kHighVoltage))
                 .branch_endpoint_offset_m);
   const std::vector<std::pair<int, double>> expected{
-      {0, 0.0}, {0, 0.0}, {1, step}, {1, step}};
+      {0, 0.0}, {0, 0.0}, {1, step}, {2, step * 2.0}};
   WIRE_TEST_EXPECT(step > 0.0, "HV branch-down step is not positive");
   WIRE_TEST_EXPECT(one_levels == expected, "one-shot sharp endpoint levels do not match expected");
   WIRE_TEST_EXPECT(incremental_levels == expected, "incremental sharp endpoint levels do not match expected");
@@ -4627,7 +4628,67 @@ bool C835_backbone_sharp_route_corner_uses_branch_down_level() {
         city::wire::Vec3d{-1.406, 9.899, 0.0},
         city::wire::Vec3d{25.824, 3.610, 0.0}};
   };
-  auto expect_sharp_hv_lowering =
+  struct SharpRowEndpoint {
+    city::wire::ObjectId edge_id = city::wire::kInvalidObjectId;
+    std::size_t lane = 0;
+    int support_level = -1;
+    int support_group_id = -2;
+    double down_offset_m = 0.0;
+    city::wire::BackboneFlowKind flow_kind = city::wire::BackboneFlowKind::kBranch;
+    city::wire::Vec3d endpoint_world{};
+  };
+  auto sharp_row_endpoints =
+      [&](const city::wire::CoreState& state,
+          city::wire::ObjectId junction,
+          city::wire::BundleTemplateId template_id) {
+    std::vector<SharpRowEndpoint> rows{};
+    const city::wire::SavedBackboneNode* node =
+        state.view().backbone_node_for_pole(junction);
+    if (node == nullptr) {
+      return rows;
+    }
+    for (const city::wire::SavedBackbonePortBinding& binding :
+         state.view().backbone().port_bindings) {
+      if (binding.row_key.node_id != node->node_id ||
+          binding.bundle_template_id != template_id) {
+        continue;
+      }
+      const city::wire::SavedBackboneEdgeBundle* edge_bundle =
+          state.view().backbone_edge_bundle(binding.edge_bundle_id);
+      if (edge_bundle == nullptr) {
+        continue;
+      }
+      const city::wire::LayoutEndpoint* matched = nullptr;
+      const city::wire::SpanLayoutEntry* matched_layout = nullptr;
+      for (const city::wire::Span& span : state.view().spans().items()) {
+        const city::wire::SpanLayoutView layout = state.span_layout(span.id);
+        if (!layout.has_layout()) {
+          continue;
+        }
+        if (layout.entry->start.port_id == binding.port_id) {
+          matched = &layout.entry->start;
+          matched_layout = layout.entry;
+        } else if (layout.entry->end.port_id == binding.port_id) {
+          matched = &layout.entry->end;
+          matched_layout = layout.entry;
+        }
+      }
+      if (matched == nullptr || matched_layout == nullptr) {
+        continue;
+      }
+      rows.push_back({edge_bundle->edge_id, binding.lane_index,
+                      binding.support_level, binding.support_group_id,
+                      matched->branch_down_offset_m,
+                      matched_layout->flow_kind,
+                      matched->endpoint_world});
+    }
+    std::sort(rows.begin(), rows.end(), [](const SharpRowEndpoint& a,
+                                           const SharpRowEndpoint& b) {
+      return std::tie(a.edge_id, a.lane) < std::tie(b.edge_id, b.lane);
+    });
+    return rows;
+  };
+  auto expect_sharp_hv_stagger =
       [&](const city::wire::CoreState& state,
           city::wire::ObjectId junction,
           const char* label) {
@@ -4639,8 +4700,54 @@ bool C835_backbone_sharp_route_corner_uses_branch_down_level() {
                   .branch_endpoint_offset_m);
     WIRE_TEST_EXPECT(hv_step > 0.0,
                      std::string(label) + ": HV branch-down step is not positive");
-    std::size_t hv_lowered = 0;
-    std::size_t hv_unlowered = 0;
+    const auto hv_rows = sharp_row_endpoints(
+        state, junction,
+        city::wire::DefaultBundleTemplateId(
+            city::wire::BundleKind::kHighVoltage));
+    WIRE_TEST_EXPECT(hv_rows.size() == 6,
+                     std::string(label) + ": expected 6 HV row endpoints");
+    std::map<city::wire::ObjectId, int> edge_level{};
+    std::map<city::wire::ObjectId, int> edge_group{};
+    std::map<city::wire::ObjectId, double> edge_down{};
+    for (const SharpRowEndpoint& row : hv_rows) {
+      WIRE_TEST_EXPECT(row.flow_kind == city::wire::BackboneFlowKind::kMain,
+                       std::string(label) + ": sharp route row was classified as branch flow");
+      const auto [level_it, level_inserted] =
+          edge_level.emplace(row.edge_id, row.support_level);
+      WIRE_TEST_EXPECT(level_inserted || level_it->second == row.support_level,
+                       std::string(label) + ": HV lanes disagree on edge support level");
+      const auto [group_it, group_inserted] =
+          edge_group.emplace(row.edge_id, row.support_group_id);
+      WIRE_TEST_EXPECT(group_inserted || group_it->second == row.support_group_id,
+                       std::string(label) + ": HV lanes disagree on edge support group");
+      const auto [down_it, down_inserted] =
+          edge_down.emplace(row.edge_id, row.down_offset_m);
+      WIRE_TEST_EXPECT(down_inserted ||
+                           almost_equal(down_it->second, row.down_offset_m,
+                                        1e-9),
+                       std::string(label) + ": HV lanes disagree on edge down offset");
+    }
+    WIRE_TEST_EXPECT(edge_level.size() == 2,
+                     std::string(label) + ": sharp pair did not produce two physical rows");
+    std::vector<int> levels{};
+    std::vector<int> groups{};
+    std::vector<double> downs{};
+    for (const auto& [edge_id, level] : edge_level) {
+      levels.push_back(level);
+      groups.push_back(edge_group[edge_id]);
+      downs.push_back(edge_down[edge_id]);
+    }
+    std::sort(levels.begin(), levels.end());
+    std::sort(groups.begin(), groups.end());
+    std::sort(downs.begin(), downs.end());
+    WIRE_TEST_EXPECT(levels == std::vector<int>({0, 1}),
+                     std::string(label) + ": isolated sharp pair levels are not {0,1}");
+    WIRE_TEST_EXPECT(groups.size() == 2 && groups[0] >= 0 &&
+                         groups[1] >= 0 && groups[0] != groups[1],
+                     std::string(label) + ": sharp physical rows do not have distinct support groups");
+    WIRE_TEST_EXPECT(almost_equal(downs[0], 0.0, 1e-9) &&
+                         almost_equal(downs[1], hv_step, 1e-9),
+                     std::string(label) + ": sharp pair down offsets are not {0, step}");
     std::size_t non_hv_lowered = 0;
     for (const city::wire::Span& span : state.view().spans().items()) {
       const city::wire::Bundle* bundle =
@@ -4655,26 +4762,16 @@ bool C835_backbone_sharp_route_corner_uses_branch_down_level() {
         if (port == nullptr || port->owner_pole_id != junction) {
           continue;
         }
-        if (bundle->bundle_template_id ==
-            city::wire::DefaultBundleTemplateId(
-                city::wire::BundleKind::kHighVoltage)) {
-          if (endpoint->default_lower_required && endpoint->lower_required &&
-              almost_equal(endpoint->branch_down_offset_m, hv_step, 1e-9)) {
-            ++hv_lowered;
-          } else {
-            ++hv_unlowered;
-          }
-        } else if (endpoint->default_lower_required ||
+        if (bundle->bundle_template_id !=
+                city::wire::DefaultBundleTemplateId(
+                    city::wire::BundleKind::kHighVoltage) &&
+            (endpoint->default_lower_required ||
                    endpoint->lower_required ||
-                   endpoint->branch_down_offset_m > 1e-9) {
+                   endpoint->branch_down_offset_m > 1e-9)) {
           ++non_hv_lowered;
         }
       }
     }
-    WIRE_TEST_EXPECT(hv_lowered == 6,
-                     std::string(label) + ": HV sharp route lowered " +
-                         std::to_string(hv_lowered) + " endpoints and left " +
-                         std::to_string(hv_unlowered) + " unlowered");
     WIRE_TEST_EXPECT(non_hv_lowered == 0,
                      std::string(label) + ": non-HV sharp route endpoints were lowered");
     WIRE_TEST_EXPECT(curve_endpoints_match_layout(state),
@@ -4691,7 +4788,7 @@ bool C835_backbone_sharp_route_corner_uses_branch_down_level() {
                    "viewer repro sharp route did not generate 3 poles");
   WIRE_TEST_EXPECT(one_generated.value.generated_span_ids.size() == 16,
                    "viewer repro sharp route did not generate 16 spans");
-  if (!expect_sharp_hv_lowering(one_shot, one_generated.value.generated_pole_ids[1], "one-shot")) {
+  if (!expect_sharp_hv_stagger(one_shot, one_generated.value.generated_pole_ids[1], "one-shot")) {
     return false;
   }
 
@@ -4713,7 +4810,7 @@ bool C835_backbone_sharp_route_corner_uses_branch_down_level() {
   WIRE_TEST_EXPECT(second_out.ok, second_out.error);
   WIRE_TEST_EXPECT(second_out.value.generated_pole_ids.size() == 1,
                    "second sharp edge did not generate one pole");
-  if (!expect_sharp_hv_lowering(incremental, junction, "incremental")) {
+  if (!expect_sharp_hv_stagger(incremental, junction, "incremental")) {
     return false;
   }
   return true;

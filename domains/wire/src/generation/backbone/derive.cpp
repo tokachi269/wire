@@ -237,7 +237,6 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
       return;
     }
     const double down_offset = placement_it->second.down_offset_m;
-    endpoint->flow_kind = BackboneFlowKind::kBranch;
     endpoint->default_lower_required = true;
     endpoint->same_level_feasible = false;
     endpoint->same_level_reason = SameLevelFeasibilityReason::kBundleRule;

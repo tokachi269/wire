@@ -1298,7 +1298,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          C808_backbone_branch_lowering_uses_template_flag_not_hv_category);
   test_registry::AddTest(tests, "C809_backbone_incremental_rows_use_one_support_level_per_pair",
-                         "incremental rows allocate one stable support level per pair or open row",
+                         "incremental rows allocate stable support levels for physical fixture rows",
                          "Invariant", false,
                          C809_backbone_incremental_rows_use_one_support_level_per_pair);
   test_registry::AddTest(tests, "C810_backbone_normal_pair_uses_edge_ports_and_derived_fixture",
@@ -1330,11 +1330,11 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          C816_backbone_incremental_normal_pair_keeps_allocated_support_level);
   test_registry::AddTest(tests, "C834_backbone_sharp_pair_lowering_reaches_model_socket",
-                         "sharp pair branch lowering reaches endpoint fixture sockets and curve endpoints",
+                         "sharp pair staggered support levels reach endpoint fixture sockets and curve endpoints",
                          "Invariant", false,
                          C834_backbone_sharp_pair_lowering_reaches_model_socket);
   test_registry::AddTest(tests, "C835_backbone_sharp_route_corner_uses_branch_down_level",
-                         "same-operation sharp route corners use branch-down support level",
+                         "same-operation sharp route corners use staggered physical support levels",
                          "Invariant", false,
                          C835_backbone_sharp_route_corner_uses_branch_down_level);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",

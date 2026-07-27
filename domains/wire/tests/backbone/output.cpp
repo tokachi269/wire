@@ -2657,9 +2657,9 @@ bool C834_backbone_sharp_pair_lowering_reaches_model_socket() {
         state.view().backbone_node_for_pole(junction);
     WIRE_TEST_EXPECT(node != nullptr,
                      std::string(label) + ": junction backbone node is missing");
-    const double expected_down = std::max(
+    const double step = std::max(
         0.0, -state.view().bundle_templates().at(hv_template_id).branch_endpoint_offset_m);
-    WIRE_TEST_EXPECT(expected_down > 0.0,
+    WIRE_TEST_EXPECT(step > 0.0,
                      std::string(label) + ": branch-down step is not positive");
 
     std::size_t lowered_endpoint_count = 0;
@@ -2698,6 +2698,10 @@ bool C834_backbone_sharp_pair_lowering_reaches_model_socket() {
           continue;
         }
         ++lowered_endpoint_count;
+        const double expected_down =
+            step * static_cast<double>(binding->support_level);
+        WIRE_TEST_EXPECT(binding->support_level > 0,
+                         std::string(label) + ": lowered endpoint has no positive support level");
         city::wire::Vec3d visible_socket{};
         WIRE_TEST_EXPECT(visible_socket_for_port(state, port->id, &visible_socket),
                          std::string(label) + ": lowered endpoint fixture is missing");
@@ -2717,11 +2721,11 @@ bool C834_backbone_sharp_pair_lowering_reaches_model_socket() {
         WIRE_TEST_EXPECT(fixture != state.view().visual_model_instances().instances.end(),
                          std::string(label) + ": lowered fixture instance is missing");
         WIRE_TEST_EXPECT(almost_equal(endpoint.branch_down_offset_m, expected_down, 1e-9),
-                         std::string(label) + ": lowered endpoint offset is not one sharp support step");
+                         std::string(label) + ": lowered endpoint offset does not match its support level");
         WIRE_TEST_EXPECT(almost_equal(fixture->world_transform.position, expected_fixture_root, 1e-9),
-                         std::string(label) + ": lowered fixture root does not use sharp support step");
+                         std::string(label) + ": lowered fixture root does not use its support level");
         WIRE_TEST_EXPECT(almost_equal(visible_socket, expected_wire_socket, 1e-9),
-                         std::string(label) + ": visible socket does not use sharp support step");
+                         std::string(label) + ": visible socket does not use its support level");
         WIRE_TEST_EXPECT(almost_equal(endpoint.endpoint_world, visible_socket, 1e-9),
                          std::string(label) + ": layout endpoint is not the visible socket");
         WIRE_TEST_EXPECT(almost_equal(*endpoint_pair.second, visible_socket, 1e-9),
@@ -3524,28 +3528,35 @@ std::string d1_derived_signature(const city::wire::CoreState& state) {
 bool C810_backbone_normal_pair_uses_edge_ports_and_derived_fixture() {
   city::wire::CoreState state;
   D1CornerFixture fixture{};
-  if (!make_d1_model_corner(&state, &fixture)) return false;
+  WIRE_TEST_EXPECT(make_d1_model_corner(&state, &fixture),
+                   "failed to build D1 model corner");
 
   const std::vector<city::wire::ObjectId> before_ports =
       endpoint_ports_on_pole(state, fixture.generated.generated_span_ids,
                              fixture.middle_pole_id);
-  if (before_ports.size() != 2 || before_ports[0] == before_ports[1]) return false;
+  WIRE_TEST_EXPECT(before_ports.size() == 2 && before_ports[0] != before_ports[1],
+                   "normal pair did not keep two distinct endpoint ports");
   const city::wire::Port* before_a =
       state.view().ports().find(before_ports[0]);
   const city::wire::Port* before_b =
       state.view().ports().find(before_ports[1]);
-  if (before_a == nullptr || before_b == nullptr ||
-      !bit_equal(before_a->world_position, before_b->world_position) ||
-      state.view().backbone_port_bindings_for_port(before_ports[0]).size() !=
-          1 ||
-      state.view().backbone_port_bindings_for_port(before_ports[1]).size() !=
-          1 ||
-      model_count(state, "d1_fixture") != 3 ||
-      curve_part_count(state,
-                       city::wire::VisualCurvePartKind::kNodePatch) != 1 ||
-      curve_part_count(state, city::wire::VisualCurvePartKind::kJumper) != 0) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(before_a != nullptr && before_b != nullptr,
+                   "normal pair endpoint port is missing");
+  WIRE_TEST_EXPECT(bit_equal(before_a->world_position, before_b->world_position),
+                   "normal pair endpoint ports no longer bit-match");
+  WIRE_TEST_EXPECT(state.view().backbone_port_bindings_for_port(before_ports[0]).size() == 1,
+                   "first normal pair port has wrong binding count");
+  WIRE_TEST_EXPECT(state.view().backbone_port_bindings_for_port(before_ports[1]).size() == 1,
+                   "second normal pair port has wrong binding count");
+  WIRE_TEST_EXPECT(model_count(state, "d1_fixture") == 3,
+                   "normal pair fixture count is " +
+                       std::to_string(model_count(state, "d1_fixture")) +
+                       " instead of 3");
+  WIRE_TEST_EXPECT(curve_part_count(state,
+                                    city::wire::VisualCurvePartKind::kNodePatch) == 1,
+                   "normal pair did not derive one node patch");
+  WIRE_TEST_EXPECT(curve_part_count(state, city::wire::VisualCurvePartKind::kJumper) == 0,
+                   "normal pair derived a jumper");
 
   city::wire::Transformd moved = fixture.moving_pole_transform;
   moved.position.x += 1.0;

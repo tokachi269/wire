@@ -30,6 +30,12 @@ struct OperationPlan {
   std::vector<ApproachGeometryOverride> add_approach_geometry_overrides{};
   std::vector<ApproachKey> remove_approach_geometry_overrides{};
 
+  std::vector<AutoMarkingOverride> add_auto_marking_overrides{};
+  std::vector<AutoMarkingKey> remove_auto_marking_overrides{};
+
+  std::vector<JunctionMarkingOverride> add_junction_marking_overrides{};
+  std::vector<JunctionMarkingOverrideId> remove_junction_marking_overrides{};
+
   std::vector<ManualLineMarking> add_manual_lines{};
   std::vector<ManualMarkingId> remove_manual_lines{};
   std::vector<ManualAreaMarking> add_manual_areas{};

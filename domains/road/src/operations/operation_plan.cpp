@@ -70,6 +70,19 @@ Result<bool> remove_approach_overrides(std::vector<ApproachGeometryOverride>& ta
   return Result<bool>::Ok(true);
 }
 
+Result<bool> remove_auto_marking_overrides(std::vector<AutoMarkingOverride>& target,
+                                           const std::vector<AutoMarkingKey>& removals) {
+  for (const AutoMarkingKey& key : removals) {
+    const auto it = std::find_if(target.begin(), target.end(),
+                                 [&](const AutoMarkingOverride& entity) { return entity.key == key; });
+    if (it == target.end()) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "auto marking override removal key is missing");
+    }
+    target.erase(it);
+  }
+  return Result<bool>::Ok(true);
+}
+
 } // namespace
 
 Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std::uint64_t& next_id) {
@@ -90,6 +103,14 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   if (!result.ok) return result;
   result = remove_approach_overrides(authoritative.approach_geometry_overrides,
                                      plan.remove_approach_geometry_overrides);
+  if (!result.ok) return result;
+  result = remove_auto_marking_overrides(authoritative.auto_marking_overrides,
+                                         plan.remove_auto_marking_overrides);
+  if (!result.ok) return result;
+  result = remove_entities(authoritative.junction_marking_overrides,
+                           plan.remove_junction_marking_overrides,
+                           [](const JunctionMarkingOverride& value) { return value.id; },
+                           "junction marking override");
   if (!result.ok) return result;
   result = remove_entities(authoritative.transitions, plan.remove_transitions, transition_id, "transition");
   if (!result.ok) return result;
@@ -119,6 +140,15 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   result = add_entities(authoritative.approach_geometry_overrides, plan.add_approach_geometry_overrides,
                         [](const ApproachGeometryOverride& value) { return value.key; },
                         "approach geometry override");
+  if (!result.ok) return result;
+  result = add_entities(authoritative.auto_marking_overrides, plan.add_auto_marking_overrides,
+                        [](const AutoMarkingOverride& value) { return value.key; },
+                        "auto marking override");
+  if (!result.ok) return result;
+  result = add_entities(authoritative.junction_marking_overrides,
+                        plan.add_junction_marking_overrides,
+                        [](const JunctionMarkingOverride& value) { return value.id; },
+                        "junction marking override");
   if (!result.ok) return result;
   result = add_entities(authoritative.manual_lines, plan.add_manual_lines, line_id, "manual line");
   if (!result.ok) return result;

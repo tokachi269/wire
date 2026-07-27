@@ -239,6 +239,101 @@ bool contains_id(const std::set<std::uint64_t>& ids, std::uint64_t id) {
   return id != 0 && ids.contains(id);
 }
 
+void write_approach_key(ArchiveWriter& writer, const std::string& prefix,
+                        ApproachKey key) {
+  writer.UInt(prefix + ".node_id", key.node_id);
+  writer.UInt(prefix + ".segment_id", key.segment_id);
+  writer.Int(prefix + ".endpoint_role", static_cast<int>(key.endpoint_role));
+}
+
+Result<ApproachKey> read_approach_key(ArchiveReader& reader,
+                                      const std::string& prefix) {
+  Result<std::uint64_t> node_id = reader.RequireU64(prefix + ".node_id");
+  Result<std::uint64_t> segment_id = reader.RequireU64(prefix + ".segment_id");
+  Result<EndpointRole> endpoint_role =
+      enum_value<EndpointRole>(reader, prefix + ".endpoint_role", 0, 1);
+  if (!node_id.ok) return Result<ApproachKey>::Fail(node_id.error_kind, node_id.error);
+  if (!segment_id.ok) return Result<ApproachKey>::Fail(segment_id.error_kind, segment_id.error);
+  if (!endpoint_role.ok) return Result<ApproachKey>::Fail(endpoint_role.error_kind, endpoint_role.error);
+  return Result<ApproachKey>::Ok(ApproachKey{node_id.value, segment_id.value,
+                                             endpoint_role.value});
+}
+
+void write_marking_owner(ArchiveWriter& writer, const std::string& prefix,
+                         MarkingOwner owner) {
+  writer.Int(prefix + ".kind", static_cast<int>(owner.kind));
+  writer.UInt(prefix + ".segment_id", owner.segment_id);
+  writer.UInt(prefix + ".node_id", owner.node_id);
+  writer.UInt(prefix + ".manual_id", owner.manual_id);
+}
+
+Result<MarkingOwner> read_marking_owner(ArchiveReader& reader,
+                                        const std::string& prefix) {
+  Result<MarkingOwner::Kind> kind =
+      enum_value<MarkingOwner::Kind>(reader, prefix + ".kind", 0, 2);
+  Result<std::uint64_t> segment_id = reader.RequireU64(prefix + ".segment_id");
+  Result<std::uint64_t> node_id = reader.RequireU64(prefix + ".node_id");
+  Result<std::uint64_t> manual_id = reader.RequireU64(prefix + ".manual_id");
+  if (!kind.ok) return Result<MarkingOwner>::Fail(kind.error_kind, kind.error);
+  if (!segment_id.ok) return Result<MarkingOwner>::Fail(segment_id.error_kind, segment_id.error);
+  if (!node_id.ok) return Result<MarkingOwner>::Fail(node_id.error_kind, node_id.error);
+  if (!manual_id.ok) return Result<MarkingOwner>::Fail(manual_id.error_kind, manual_id.error);
+  return Result<MarkingOwner>::Ok(
+      MarkingOwner{kind.value, segment_id.value, node_id.value, manual_id.value});
+}
+
+void write_auto_marking_key(ArchiveWriter& writer, const std::string& prefix,
+                            const AutoMarkingKey& key) {
+  write_marking_owner(writer, prefix + ".owner", key.owner);
+  writer.Int(prefix + ".role", static_cast<int>(key.role));
+  writer.Int(prefix + ".track.has_value", key.track.has_value() ? 1 : 0);
+  if (key.track.has_value()) {
+    writer.UInt(prefix + ".track.segment_id", key.track->segment_id);
+    writer.UInt(prefix + ".track.boundary_id", key.track->boundary_id);
+    writer.Int(prefix + ".track.role", static_cast<int>(key.track->role));
+  }
+  writer.Int(prefix + ".approach.has_value", key.approach.has_value() ? 1 : 0);
+  if (key.approach.has_value()) {
+    write_approach_key(writer, prefix + ".approach", *key.approach);
+  }
+}
+
+Result<AutoMarkingKey> read_auto_marking_key(ArchiveReader& reader,
+                                             const std::string& prefix) {
+  Result<MarkingOwner> owner = read_marking_owner(reader, prefix + ".owner");
+  Result<MarkingRole> role = enum_value<MarkingRole>(reader, prefix + ".role", 0, 5);
+  Result<int> track_has = reader.RequireInt(prefix + ".track.has_value");
+  Result<int> approach_has = reader.RequireInt(prefix + ".approach.has_value");
+  if (!owner.ok) return Result<AutoMarkingKey>::Fail(owner.error_kind, owner.error);
+  if (!role.ok) return Result<AutoMarkingKey>::Fail(role.error_kind, role.error);
+  if (!track_has.ok) return Result<AutoMarkingKey>::Fail(track_has.error_kind, track_has.error);
+  if (!approach_has.ok) return Result<AutoMarkingKey>::Fail(approach_has.error_kind, approach_has.error);
+  if ((track_has.value != 0 && track_has.value != 1) ||
+      (approach_has.value != 0 && approach_has.value != 1)) {
+    return Result<AutoMarkingKey>::Fail(ErrorKind::kValidation,
+                                        "auto marking key optional flag is invalid");
+  }
+  AutoMarkingKey key{};
+  key.owner = owner.value;
+  key.role = role.value;
+  if (track_has.value == 1) {
+    Result<std::uint64_t> segment_id = reader.RequireU64(prefix + ".track.segment_id");
+    Result<std::uint64_t> boundary_id = reader.RequireU64(prefix + ".track.boundary_id");
+    Result<MarkingRole> track_role =
+        enum_value<MarkingRole>(reader, prefix + ".track.role", 0, 5);
+    if (!segment_id.ok) return Result<AutoMarkingKey>::Fail(segment_id.error_kind, segment_id.error);
+    if (!boundary_id.ok) return Result<AutoMarkingKey>::Fail(boundary_id.error_kind, boundary_id.error);
+    if (!track_role.ok) return Result<AutoMarkingKey>::Fail(track_role.error_kind, track_role.error);
+    key.track = MarkingTrackKey{segment_id.value, boundary_id.value, track_role.value};
+  }
+  if (approach_has.value == 1) {
+    Result<ApproachKey> approach = read_approach_key(reader, prefix + ".approach");
+    if (!approach.ok) return Result<AutoMarkingKey>::Fail(approach.error_kind, approach.error);
+    key.approach = approach.value;
+  }
+  return Result<AutoMarkingKey>::Ok(key);
+}
+
 } // namespace
 
 Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
@@ -253,6 +348,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
   std::set<std::uint64_t> transition_ids{};
   std::set<std::uint64_t> policy_ids{};
   std::set<std::uint64_t> marking_ids{};
+  std::set<std::uint64_t> junction_marking_ids{};
   std::uint64_t max_id = 0;
   const auto add_id = [&](std::uint64_t id, std::set<std::uint64_t>* domain,
                           std::string_view label) -> Result<bool> {
@@ -289,8 +385,10 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
           boundary.width_m < 0.0 ||
           static_cast<int>(boundary.role) < 0 ||
           static_cast<int>(boundary.role) > 3 ||
-          static_cast<int>(boundary.marking_rule) < 0 ||
-          static_cast<int>(boundary.marking_rule) > 2) {
+          static_cast<int>(boundary.marking.role) < 0 ||
+          static_cast<int>(boundary.marking.role) > 5 ||
+          (boundary.marking.enabled &&
+           !IsKnownMarkingStyle(boundary.marking.style_id))) {
         return Result<bool>::Fail(ErrorKind::kValidation,
                                   "section template boundary is invalid");
       }
@@ -379,6 +477,71 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
                                 "approach geometry override is invalid");
     }
   }
+  std::set<AutoMarkingKey> auto_marking_keys{};
+  for (const AutoMarkingOverride& override : graph.auto_marking_overrides) {
+    if (!auto_marking_keys.insert(override.key).second ||
+        static_cast<int>(override.key.role) < 0 ||
+        static_cast<int>(override.key.role) > 5) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "auto marking override is invalid");
+    }
+    if (override.key.owner.kind == MarkingOwner::Kind::kRoadSegment) {
+      if (!contains_id(segment_ids, override.key.owner.segment_id) ||
+          override.key.owner.node_id != 0 || override.key.owner.manual_id != 0 ||
+          !override.key.track.has_value() || override.key.approach.has_value() ||
+          override.key.track->segment_id != override.key.owner.segment_id ||
+          override.key.track->role != override.key.role) {
+        return Result<bool>::Fail(ErrorKind::kValidation,
+                                  "auto marking segment override is invalid");
+      }
+    } else if (override.key.owner.kind == MarkingOwner::Kind::kJunction) {
+      if (!contains_id(node_ids, override.key.owner.node_id) ||
+          override.key.owner.segment_id != 0 || override.key.owner.manual_id != 0 ||
+          override.key.track.has_value() || !override.key.approach.has_value()) {
+        return Result<bool>::Fail(ErrorKind::kValidation,
+                                  "auto marking junction override is invalid");
+      }
+    } else {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "auto marking manual override is invalid");
+    }
+  }
+  for (const JunctionMarkingOverride& override :
+       graph.junction_marking_overrides) {
+    Result<bool> id = add_id(override.id, &junction_marking_ids,
+                             "junction_marking_override");
+    if (!id.ok) return id;
+    if (!contains_id(node_ids, override.node_id) ||
+        static_cast<int>(override.action) < 0 ||
+        static_cast<int>(override.action) > 2) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "junction marking override is invalid");
+    }
+    const auto valid_endpoint = [&](const JunctionMarkingEndpoint& endpoint) {
+      const auto segment =
+          std::find_if(graph.segments.begin(), graph.segments.end(),
+                       [&](const RoadSegment& candidate) {
+                         return candidate.id == endpoint.approach.segment_id;
+                       });
+      return segment != graph.segments.end() &&
+             endpoint.approach.node_id == override.node_id &&
+             ((endpoint.approach.endpoint_role == EndpointRole::kStart &&
+               segment->node_a == endpoint.approach.node_id) ||
+              (endpoint.approach.endpoint_role == EndpointRole::kEnd &&
+               segment->node_b == endpoint.approach.node_id)) &&
+             endpoint.boundary_id != 0 &&
+             static_cast<int>(endpoint.role) >= 0 &&
+             static_cast<int>(endpoint.role) <= 5;
+    };
+    if (!valid_endpoint(override.source) ||
+        (override.action == JunctionMarkingAction::kConnectToApproach &&
+         (!override.target.has_value() || !valid_endpoint(*override.target))) ||
+        (override.action != JunctionMarkingAction::kConnectToApproach &&
+         override.target.has_value())) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "junction marking endpoint is invalid");
+    }
+  }
   for (const ManualLineMarking& marking : graph.manual_lines) {
     Result<bool> id = add_id(marking.id, &marking_ids, "manual_line");
     if (!id.ok) return id;
@@ -395,7 +558,8 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     if (!id.ok) return id;
     if (!contains_id(segment_ids, marking.owner_segment_id) ||
         !IsKnownMarkingStyle(marking.style_id) ||
-        !finite(marking.frame_origin) || !finite(marking.width_m) ||
+        !finite(marking.frame_origin) || !finite(marking.rotation_rad) ||
+        !finite(marking.width_m) ||
         !finite(marking.length_m) || marking.width_m <= 0.0 ||
         marking.length_m <= 0.0) {
       return Result<bool>::Fail(ErrorKind::kValidation,
@@ -443,8 +607,12 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
       writer.Int(boundary_prefix + ".role", static_cast<int>(boundary.role));
       writer.Double(boundary_prefix + ".width_m", boundary.width_m);
       writer.Double(boundary_prefix + ".height_m", boundary.height_m);
-      writer.Int(boundary_prefix + ".marking_rule",
-                 static_cast<int>(boundary.marking_rule));
+      writer.Int(boundary_prefix + ".marking.enabled",
+                 boundary.marking.enabled ? 1 : 0);
+      writer.Int(boundary_prefix + ".marking.role",
+                 static_cast<int>(boundary.marking.role));
+      writer.UInt(boundary_prefix + ".marking.style_id",
+                  boundary.marking.style_id.value);
     }
   }
 
@@ -507,14 +675,51 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
   for (std::size_t i = 0; i < approach_overrides.size(); ++i) {
     const ApproachGeometryOverride& override = *approach_overrides[i];
     const std::string prefix = "approach_geometry_override." + std::to_string(i);
-    writer.UInt(prefix + ".node_id", override.key.node_id);
-    writer.UInt(prefix + ".segment_id", override.key.segment_id);
-    writer.Int(prefix + ".endpoint_role", static_cast<int>(override.key.endpoint_role));
+    write_approach_key(writer, prefix, override.key);
     writer.Int(prefix + ".setback.mode", override.setback_m.has_value ? 1 : 0);
     if (override.setback_m.has_value) writer.Double(prefix + ".setback.value", override.setback_m.value);
     writer.Int(prefix + ".lateral_shift.mode", override.lateral_shift_m.has_value ? 1 : 0);
     if (override.lateral_shift_m.has_value) {
       writer.Double(prefix + ".lateral_shift.value", override.lateral_shift_m.value);
+    }
+  }
+
+  std::vector<const AutoMarkingOverride*> auto_marking_overrides{};
+  auto_marking_overrides.reserve(graph.auto_marking_overrides.size());
+  for (const AutoMarkingOverride& override : graph.auto_marking_overrides) {
+    if (override.suppressed) auto_marking_overrides.push_back(&override);
+  }
+  std::sort(auto_marking_overrides.begin(), auto_marking_overrides.end(),
+            [](const auto* a, const auto* b) { return a->key < b->key; });
+  writer.UInt("auto_marking_override.count", auto_marking_overrides.size());
+  for (std::size_t i = 0; i < auto_marking_overrides.size(); ++i) {
+    const AutoMarkingOverride& override = *auto_marking_overrides[i];
+    const std::string prefix = "auto_marking_override." + std::to_string(i);
+    write_auto_marking_key(writer, prefix + ".key", override.key);
+    writer.Int(prefix + ".suppressed", override.suppressed ? 1 : 0);
+  }
+
+  const auto junction_marking_overrides =
+      sorted_by_id(graph.junction_marking_overrides);
+  writer.UInt("junction_marking_override.count",
+              junction_marking_overrides.size());
+  for (std::size_t i = 0; i < junction_marking_overrides.size(); ++i) {
+    const JunctionMarkingOverride& override = *junction_marking_overrides[i];
+    const std::string prefix =
+        "junction_marking_override." + std::to_string(i);
+    writer.UInt(prefix + ".id", override.id);
+    writer.UInt(prefix + ".node_id", override.node_id);
+    write_approach_key(writer, prefix + ".source.approach",
+                       override.source.approach);
+    writer.UInt(prefix + ".source.boundary_id", override.source.boundary_id);
+    writer.Int(prefix + ".source.role", static_cast<int>(override.source.role));
+    writer.Int(prefix + ".action", static_cast<int>(override.action));
+    writer.Int(prefix + ".target.has_value", override.target.has_value() ? 1 : 0);
+    if (override.target.has_value()) {
+      write_approach_key(writer, prefix + ".target.approach",
+                         override.target->approach);
+      writer.UInt(prefix + ".target.boundary_id", override.target->boundary_id);
+      writer.Int(prefix + ".target.role", static_cast<int>(override.target->role));
     }
   }
 
@@ -565,6 +770,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     writer.UInt(prefix + ".id", marking.id);
     writer.UInt(prefix + ".owner_segment_id", marking.owner_segment_id);
     write_vec2(writer, prefix + ".frame_origin", marking.frame_origin);
+    writer.Double(prefix + ".rotation_rad", marking.rotation_rad);
     writer.Double(prefix + ".width_m", marking.width_m);
     writer.Double(prefix + ".length_m", marking.length_m);
     writer.UInt(prefix + ".style_id", marking.style_id.value);
@@ -634,14 +840,30 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
       Result<BoundaryRole> role = enum_value<BoundaryRole>(reader, boundary_prefix + ".role", 0, 3);
       Result<double> width = reader.RequireDouble(boundary_prefix + ".width_m");
       Result<double> height = reader.RequireDouble(boundary_prefix + ".height_m");
-      Result<MarkingRule> marking = enum_value<MarkingRule>(reader, boundary_prefix + ".marking_rule", 0, 2);
+      Result<int> marking_enabled = reader.RequireInt(boundary_prefix + ".marking.enabled");
+      Result<MarkingRole> marking_role =
+          enum_value<MarkingRole>(reader, boundary_prefix + ".marking.role", 0, 5);
+      Result<std::uint64_t> marking_style =
+          reader.RequireU64(boundary_prefix + ".marking.style_id");
       if (!boundary_id.ok) return Result<LoadedRoad>::Fail(boundary_id.error_kind, boundary_id.error);
       if (!role.ok) return Result<LoadedRoad>::Fail(role.error_kind, role.error);
       if (!width.ok) return Result<LoadedRoad>::Fail(width.error_kind, width.error);
       if (!height.ok) return Result<LoadedRoad>::Fail(height.error_kind, height.error);
-      if (!marking.ok) return Result<LoadedRoad>::Fail(marking.error_kind, marking.error);
+      if (!marking_enabled.ok) {
+        return Result<LoadedRoad>::Fail(marking_enabled.error_kind, marking_enabled.error);
+      }
+      if (!marking_role.ok) return Result<LoadedRoad>::Fail(marking_role.error_kind, marking_role.error);
+      if (!marking_style.ok) return Result<LoadedRoad>::Fail(marking_style.error_kind, marking_style.error);
+      if (marking_enabled.value != 0 && marking_enabled.value != 1) {
+        return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+                                        "boundary marking enabled flag is invalid");
+      }
       section.boundaries.push_back(BoundaryProfile{boundary_id.value, role.value, width.value,
-                                                   height.value, marking.value});
+                                                   height.value,
+                                                   AutoMarkingPolicy{
+                                                       marking_enabled.value == 1,
+                                                       marking_role.value,
+                                                       MarkingStyleId{marking_style.value}}});
     }
     loaded.graph.section_templates.push_back(std::move(section));
   }
@@ -714,14 +936,10 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   }
   for (std::size_t i = 0; i < approach_override_count.value; ++i) {
     const std::string prefix = "approach_geometry_override." + std::to_string(i);
-    Result<std::uint64_t> node_id = reader.RequireU64(prefix + ".node_id");
-    Result<std::uint64_t> segment_id = reader.RequireU64(prefix + ".segment_id");
-    Result<EndpointRole> endpoint_role = enum_value<EndpointRole>(reader, prefix + ".endpoint_role", 0, 1);
+    Result<ApproachKey> key = read_approach_key(reader, prefix);
     Result<int> setback_mode = reader.RequireInt(prefix + ".setback.mode");
     Result<int> lateral_mode = reader.RequireInt(prefix + ".lateral_shift.mode");
-    if (!node_id.ok) return Result<LoadedRoad>::Fail(node_id.error_kind, node_id.error);
-    if (!segment_id.ok) return Result<LoadedRoad>::Fail(segment_id.error_kind, segment_id.error);
-    if (!endpoint_role.ok) return Result<LoadedRoad>::Fail(endpoint_role.error_kind, endpoint_role.error);
+    if (!key.ok) return Result<LoadedRoad>::Fail(key.error_kind, key.error);
     if (!setback_mode.ok) return Result<LoadedRoad>::Fail(setback_mode.error_kind, setback_mode.error);
     if (!lateral_mode.ok) return Result<LoadedRoad>::Fail(lateral_mode.error_kind, lateral_mode.error);
     if ((setback_mode.value != 0 && setback_mode.value != 1) ||
@@ -730,7 +948,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
                                       "approach geometry override mode is invalid");
     }
     ApproachGeometryOverride override{};
-    override.key = ApproachKey{node_id.value, segment_id.value, endpoint_role.value};
+    override.key = key.value;
     if (setback_mode.value == 1) {
       Result<double> value = reader.RequireDouble(prefix + ".setback.value");
       if (!value.ok) return Result<LoadedRoad>::Fail(value.error_kind, value.error);
@@ -742,6 +960,80 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
       override.lateral_shift_m = ManualDoubleOverride{true, value.value};
     }
     loaded.graph.approach_geometry_overrides.push_back(override);
+  }
+
+  Result<std::size_t> auto_marking_override_count =
+      require_count("auto_marking_override.count");
+  if (!auto_marking_override_count.ok) {
+    return Result<LoadedRoad>::Fail(auto_marking_override_count.error_kind,
+                                    auto_marking_override_count.error);
+  }
+  for (std::size_t i = 0; i < auto_marking_override_count.value; ++i) {
+    const std::string prefix = "auto_marking_override." + std::to_string(i);
+    Result<AutoMarkingKey> key = read_auto_marking_key(reader, prefix + ".key");
+    Result<int> suppressed = reader.RequireInt(prefix + ".suppressed");
+    if (!key.ok) return Result<LoadedRoad>::Fail(key.error_kind, key.error);
+    if (!suppressed.ok) return Result<LoadedRoad>::Fail(suppressed.error_kind, suppressed.error);
+    if (suppressed.value != 0 && suppressed.value != 1) {
+      return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+                                      "auto marking override suppressed flag is invalid");
+    }
+    loaded.graph.auto_marking_overrides.push_back(
+        AutoMarkingOverride{key.value, suppressed.value == 1});
+  }
+
+  Result<std::size_t> junction_marking_override_count =
+      require_count("junction_marking_override.count");
+  if (!junction_marking_override_count.ok) {
+    return Result<LoadedRoad>::Fail(junction_marking_override_count.error_kind,
+                                    junction_marking_override_count.error);
+  }
+  for (std::size_t i = 0; i < junction_marking_override_count.value; ++i) {
+    const std::string prefix = "junction_marking_override." + std::to_string(i);
+    Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
+    Result<std::uint64_t> node_id = reader.RequireU64(prefix + ".node_id");
+    Result<ApproachKey> source_approach =
+        read_approach_key(reader, prefix + ".source.approach");
+    Result<std::uint64_t> source_boundary =
+        reader.RequireU64(prefix + ".source.boundary_id");
+    Result<MarkingRole> source_role =
+        enum_value<MarkingRole>(reader, prefix + ".source.role", 0, 5);
+    Result<JunctionMarkingAction> action =
+        enum_value<JunctionMarkingAction>(reader, prefix + ".action", 0, 2);
+    Result<int> target_has = reader.RequireInt(prefix + ".target.has_value");
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
+    if (!node_id.ok) return Result<LoadedRoad>::Fail(node_id.error_kind, node_id.error);
+    if (!source_approach.ok) return Result<LoadedRoad>::Fail(source_approach.error_kind, source_approach.error);
+    if (!source_boundary.ok) return Result<LoadedRoad>::Fail(source_boundary.error_kind, source_boundary.error);
+    if (!source_role.ok) return Result<LoadedRoad>::Fail(source_role.error_kind, source_role.error);
+    if (!action.ok) return Result<LoadedRoad>::Fail(action.error_kind, action.error);
+    if (!target_has.ok) return Result<LoadedRoad>::Fail(target_has.error_kind, target_has.error);
+    if (target_has.value != 0 && target_has.value != 1) {
+      return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+                                      "junction marking override target flag is invalid");
+    }
+    JunctionMarkingOverride override{};
+    override.id = id.value;
+    override.node_id = node_id.value;
+    override.source = JunctionMarkingEndpoint{source_approach.value,
+                                              source_boundary.value,
+                                              source_role.value};
+    override.action = action.value;
+    if (target_has.value == 1) {
+      Result<ApproachKey> target_approach =
+          read_approach_key(reader, prefix + ".target.approach");
+      Result<std::uint64_t> target_boundary =
+          reader.RequireU64(prefix + ".target.boundary_id");
+      Result<MarkingRole> target_role =
+          enum_value<MarkingRole>(reader, prefix + ".target.role", 0, 5);
+      if (!target_approach.ok) return Result<LoadedRoad>::Fail(target_approach.error_kind, target_approach.error);
+      if (!target_boundary.ok) return Result<LoadedRoad>::Fail(target_boundary.error_kind, target_boundary.error);
+      if (!target_role.ok) return Result<LoadedRoad>::Fail(target_role.error_kind, target_role.error);
+      override.target = JunctionMarkingEndpoint{target_approach.value,
+                                                target_boundary.value,
+                                                target_role.value};
+    }
+    loaded.graph.junction_marking_overrides.push_back(std::move(override));
   }
 
   Result<std::size_t> segment_count = require_count("segment.count");
@@ -811,17 +1103,19 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
     Result<std::uint64_t> owner = reader.RequireU64(prefix + ".owner_segment_id");
     Result<Vec2d> frame_origin = vec2(reader, prefix + ".frame_origin");
+    Result<double> rotation = reader.RequireDouble(prefix + ".rotation_rad");
     Result<double> width = reader.RequireDouble(prefix + ".width_m");
     Result<double> length = reader.RequireDouble(prefix + ".length_m");
     Result<std::uint64_t> style = reader.RequireU64(prefix + ".style_id");
     if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
     if (!owner.ok) return Result<LoadedRoad>::Fail(owner.error_kind, owner.error);
     if (!frame_origin.ok) return Result<LoadedRoad>::Fail(frame_origin.error_kind, frame_origin.error);
+    if (!rotation.ok) return Result<LoadedRoad>::Fail(rotation.error_kind, rotation.error);
     if (!width.ok) return Result<LoadedRoad>::Fail(width.error_kind, width.error);
     if (!length.ok) return Result<LoadedRoad>::Fail(length.error_kind, length.error);
     if (!style.ok) return Result<LoadedRoad>::Fail(style.error_kind, style.error);
     loaded.graph.manual_areas.push_back(ManualAreaMarking{
-        id.value, owner.value, frame_origin.value, width.value, length.value,
+        id.value, owner.value, frame_origin.value, rotation.value, width.value, length.value,
         MarkingStyleId{style.value}});
   }
 

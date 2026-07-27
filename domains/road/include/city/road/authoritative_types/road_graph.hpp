@@ -3,6 +3,7 @@
 #include "city/road/common_types.hpp"
 
 #include <optional>
+#include <tuple>
 
 namespace city::road {
 
@@ -55,9 +56,33 @@ struct ManualAreaMarking {
   ManualMarkingId id = 0;
   RoadSegmentId owner_segment_id = 0;
   Vec2d frame_origin{};
+  double rotation_rad = 0.0;
   double width_m = 0.0;
   double length_m = 0.0;
   MarkingStyleId style_id{};
+};
+struct AutoMarkingOverride {
+  AutoMarkingKey key{};
+  bool suppressed = false;
+};
+struct JunctionMarkingEndpoint {
+  ApproachKey approach{};
+  std::uint64_t boundary_id = 0;
+  MarkingRole role = MarkingRole::kCenterLine;
+
+  bool operator==(const JunctionMarkingEndpoint&) const = default;
+};
+enum class JunctionMarkingAction {
+  kTerminateAtGate,
+  kConnectToApproach,
+  kSuppress,
+};
+struct JunctionMarkingOverride {
+  JunctionMarkingOverrideId id = 0;
+  RoadNodeId node_id = 0;
+  JunctionMarkingEndpoint source{};
+  JunctionMarkingAction action = JunctionMarkingAction::kTerminateAtGate;
+  std::optional<JunctionMarkingEndpoint> target{};
 };
 struct SavedRoadGraph {
   std::vector<RoadNode> nodes{};
@@ -66,6 +91,8 @@ struct SavedRoadGraph {
   std::vector<SectionTransition> transitions{};
   std::vector<NodeConnectionPolicyOverride> connection_policy_overrides{};
   std::vector<ApproachGeometryOverride> approach_geometry_overrides{};
+  std::vector<JunctionMarkingOverride> junction_marking_overrides{};
+  std::vector<AutoMarkingOverride> auto_marking_overrides{};
   std::vector<ManualLineMarking> manual_lines{};
   std::vector<ManualAreaMarking> manual_areas{};
 };

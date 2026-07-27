@@ -27,7 +27,7 @@ def check_road_architecture(root: Path) -> list[str]:
         "domains/road/include/city/road/derived_types",
         "domains/road/src/operations",
         "domains/road/src/build",
-        "domains/road/src/materialization",
+        "domains/road/src/draw",
         "domains/road/src/persistence",
     )
     for source in required_boundaries:
@@ -35,13 +35,14 @@ def check_road_architecture(root: Path) -> list[str]:
             errors.append(f"{source}: required road architecture boundary is missing")
     required_stage_owners = (
         "domains/road/src/build/topology.cpp",
-        "domains/road/src/build/canonical_alignment.cpp",
-        "domains/road/src/build/node_connection_decision.cpp",
-        "domains/road/src/build/sampling_plan.cpp",
-        "domains/road/src/build/section_evaluation.cpp",
-        "domains/road/src/build/connection_gate.cpp",
-        "domains/road/src/build/junction_geometry.cpp",
-        "domains/road/src/build/build_pipeline.cpp",
+        "domains/road/src/build/alignment.cpp",
+        "domains/road/src/build/connection.cpp",
+        "domains/road/src/build/sampling.cpp",
+        "domains/road/src/build/section.cpp",
+        "domains/road/src/build/gate.cpp",
+        "domains/road/src/build/junction.cpp",
+        "domains/road/src/build/marking.cpp",
+        "domains/road/src/build/pipeline.cpp",
     )
     for source in required_stage_owners:
         if not (root / source).is_file():
@@ -129,7 +130,7 @@ def check_road_architecture(root: Path) -> list[str]:
                 errors.append(f"domains/road/src/road.cpp: public operation bypasses plan/Execute: {token!r}")
         geometry_policy = (
             "angle_deg(",
-            "ResolveTemplateAt(",
+            "template_at(",
             "node_gate_setback",
             "existing_degree",
         )
@@ -170,9 +171,9 @@ def check_road_architecture(root: Path) -> list[str]:
     if "mesh.material" in bindings:
         errors.append("web/wasm/bindings.cpp: road adapter must not read core mesh material strings")
 
-    materialization_root = root / "domains/road/src/materialization"
-    if materialization_root.exists():
-        forbidden_materialization = (
+    draw_root = root / "domains/road/src/draw"
+    if draw_root.exists():
+        forbidden_draw = (
             "SavedRoadGraph",
             "CrossSectionTemplate",
             "SectionTransition",
@@ -184,47 +185,48 @@ def check_road_architecture(root: Path) -> list[str]:
             'city/road/road.hpp',
             "authoritative_types",
         )
-        policy_materialization = {
-            "BoundaryRole::kCurb": "materialization must not infer section meaning by curb-role search",
-            "* 0.55": "materialization must not choose connection corner control",
-            "* 0.45": "materialization must not choose junction corner control",
-            "std::sort(sides": "materialization must not sort approaches",
-            "append_gate_quad": "materialization must not place junction markings",
+        policy_draw = {
+            "BoundaryRole::kCurb": "draw must not infer section meaning by curb-role search",
+            "* 0.55": "draw must not choose connection corner control",
+            "* 0.45": "draw must not choose junction corner control",
+            "std::sort(sides": "draw must not sort approaches",
+            "append_gate_quad": "draw must not place junction markings",
         }
-        for path in materialization_root.rglob("*"):
+        for path in draw_root.rglob("*"):
             if not path.is_file() or path.suffix not in {".cpp", ".hpp"}:
                 continue
             text = source_text(path)
-            for token in forbidden_materialization:
+            for token in forbidden_draw:
                 if token in text:
                     source = path.relative_to(root).as_posix()
-                    errors.append(f"{source}: materialization must not use {token!r}")
-            for token, reason in policy_materialization.items():
+                    errors.append(f"{source}: draw must not use {token!r}")
+            for token, reason in policy_draw.items():
                 if token in text:
                     source = path.relative_to(root).as_posix()
                     errors.append(f"{source}: {reason}: {token!r}")
             if "ApproachGeometryOverride" in text:
                 source = path.relative_to(root).as_posix()
-                errors.append(f"{source}: materialization must not read ApproachGeometryOverride")
+                errors.append(f"{source}: draw must not read ApproachGeometryOverride")
             for token in ('"asphalt"', '"sidewalk"', '"curb"', '"road_marking"', '"marking"'):
                 if token in text:
                     source = path.relative_to(root).as_posix()
-                    errors.append(f"{source}: materialization must not use display material string {token}")
+                    errors.append(f"{source}: draw must not use display material string {token}")
             if ".material" in text:
                 source = path.relative_to(root).as_posix()
-                errors.append(f"{source}: materialization must consume RenderStyleRef, not Mesh.material")
-        materialization_header = source_text(
-            materialization_root / "materialize.hpp"
+                errors.append(f"{source}: draw must consume RenderStyleRef, not Mesh.material")
+        draw_header = source_text(
+            draw_root / "mesh.hpp"
         )
         required_resolved_inputs = (
-            "MaterializeConnection(const ConnectionGeometry&",
-            "MaterializeJunction(const JunctionGeometry&",
+            ("make_connection(", "ConnectionGeometry"),
+            ("make_junction(", "JunctionGeometry"),
+            ("make_markings(", "ResolvedMarkingGraph"),
         )
-        for token in required_resolved_inputs:
-            if token not in materialization_header:
+        for function_token, type_token in required_resolved_inputs:
+            if function_token not in draw_header or type_token not in draw_header:
                 errors.append(
-                    "domains/road/src/materialization/materialize.hpp: "
-                    f"resolved geometry input is missing: {token!r}"
+                    "domains/road/src/draw/mesh.hpp: "
+                    f"resolved geometry input is missing: {function_token!r} / {type_token!r}"
                 )
 
     if "ApproachKey approach" not in derived_header:
@@ -247,6 +249,52 @@ def check_road_architecture(root: Path) -> list[str]:
           "manual approach override authority is missing"
       )
 
+    retired_build_names = (
+        "build_context.hpp",
+        "build_pipeline.cpp",
+        "stages.hpp",
+        "stage_support.hpp",
+        "stage_support.cpp",
+        "canonical_alignment.cpp",
+        "node_connection_decision.cpp",
+        "auto_node_layout.cpp",
+        "resolved_node_layout.cpp",
+        "sampling_plan.cpp",
+        "section_evaluation.cpp",
+        "connection_gate.cpp",
+        "junction_geometry.cpp",
+    )
+    for name in retired_build_names:
+        if (root / "domains/road/src/build" / name).exists():
+            errors.append(
+                f"domains/road/src/build/{name}: retired verbose build owner returned"
+            )
+
+    build_root = root / "domains/road/src/build"
+    forbidden_build_names = (
+        "BuildContext",
+        "BuildTopologyIndex",
+        "BuildCanonicalAlignments",
+        "BuildNodeConnectionDecisions",
+        "BuildAutoNodeLayouts",
+        "BuildResolvedNodeLayouts",
+        "BuildSamplingPlans",
+        "BuildSectionEvaluations",
+        "BuildConnectionGates",
+        "BuildJunctionGeometries",
+        "BuildMarkingAnchors",
+        "BuildMarkingIntents",
+        "BuildMarkingContinuations",
+        "BuildResolvedMarkingGraph",
+    )
+    for path in build_root.rglob("*"):
+        if not path.is_file() or path.suffix not in {".cpp", ".hpp"}:
+            continue
+        text = source_text(path)
+        for token in forbidden_build_names:
+            if token in text:
+                source = path.relative_to(root).as_posix()
+                errors.append(f"{source}: verbose road build name returned: {token}")
     for path in road_sources(root):
         source = path.relative_to(root).as_posix()
         if "node_gate_setback" in source_text(path):
@@ -257,35 +305,52 @@ def check_road_architecture(root: Path) -> list[str]:
     for path in road_sources(root):
         source = path.relative_to(root).as_posix()
         text = source_text(path)
-        if source != "domains/road/src/build/section_evaluation.cpp":
+        if source != "domains/road/src/build/section.cpp":
             for token in ("SurfaceStyleForBoundaryRole",):
                 if token in text:
                     errors.append(
-                        f"{source}: BoundaryRole to SurfaceStyleId mapping must stay in section_evaluation.cpp"
+                        f"{source}: BoundaryRole to SurfaceStyleId mapping must stay in section.cpp"
                     )
         if source in {
-            "domains/road/src/build/connection_gate.cpp",
-            "domains/road/src/build/junction_geometry.cpp",
+            "domains/road/src/build/gate.cpp",
+            "domains/road/src/build/junction.cpp",
         } and "ApproachGeometryOverride" in text:
-            errors.append(f"{source}: override authority must be consumed only by resolved_node_layout.cpp")
-        if "FindApproachGeometryOverride" in text and source not in {
-            "domains/road/src/build/resolved_node_layout.cpp",
-            "domains/road/src/build/stage_support.cpp",
-            "domains/road/src/build/stage_support.hpp",
+            errors.append(f"{source}: override authority must be consumed only by layout.cpp")
+        if "find_approach_override" in text and source not in {
+            "domains/road/src/build/layout.cpp",
+            "domains/road/src/build/read.cpp",
+            "domains/road/src/build/read.hpp",
         }:
-            errors.append(f"{source}: auto/manual approach layout composition must stay in resolved_node_layout.cpp")
+            errors.append(f"{source}: auto/manual approach layout composition must stay in layout.cpp")
         if "setback_m.value" in text and source not in {
-            "domains/road/src/build/resolved_node_layout.cpp",
+            "domains/road/src/build/layout.cpp",
             "domains/road/src/persistence/road_archive.cpp",
             "domains/road/src/road.cpp",
         }:
             errors.append(f"{source}: manual setback value must not be consumed outside resolved layout/persistence/operation")
         if "lateral_shift_m.value" in text and source not in {
-            "domains/road/src/build/resolved_node_layout.cpp",
+            "domains/road/src/build/layout.cpp",
             "domains/road/src/persistence/road_archive.cpp",
             "domains/road/src/road.cpp",
         }:
-            errors.append(f"{source}: manual lateral shift value must not be consumed outside resolved layout/persistence/operation")
+                errors.append(f"{source}: manual lateral shift value must not be consumed outside resolved layout/persistence/operation")
+        if "MarkingRule" in text or "marking_rule" in text:
+            errors.append(f"{source}: legacy MarkingRule/marking_rule must not be used")
+        if source.startswith("domains/road/src/draw/"):
+            for token in ("AutoMarkingPolicy", "SectionBoundarySample.marking", "MarkingRole::"):
+                if token in text:
+                    errors.append(f"{source}: marking policy/role decisions must be resolved before draw: {token!r}")
+            for token in ("kCenterLine ? 0.06", "kStopLineCenter", "kCrosswalk"):
+                if token in text:
+                    errors.append(f"{source}: marking width/placement policy must not live in draw: {token!r}")
+        if source == "domains/road/src/build/junction.cpp":
+            for token in ("ResolvedAutoMarking", "auto_markings", "marking_quad", "zebra"):
+                if token in text:
+                    errors.append(f"{source}: junction geometry must not generate marking quads: {token!r}")
+        if source == "domains/road/src/build/marking.cpp":
+            for token in ("MarkingIntent", "ResolvedMarkingGraph", "AutoMarkingPolicy"):
+                if token not in text:
+                    errors.append(f"{source}: marking resolution stage must own {token}")
         if source.startswith("domains/road/src/persistence/"):
             for token in ("find(',')", "getline(in, line)", "std::stringstream"):
                 if token in text:
@@ -296,10 +361,10 @@ def check_road_architecture(root: Path) -> list[str]:
                     f"{source}: legacy distributed section evaluator must be removed: {token}"
                 )
         for token in ("connection_control_factor", "junction_control_factor"):
-            if token in text and source != "domains/road/src/build/node_connection_decision.cpp":
+            if token in text and source != "domains/road/src/build/connection.cpp":
                 errors.append(
                     f"{source}: connection geometry policy must be owned by "
-                    f"node_connection_decision.cpp: {token!r}"
+                    f"connection.cpp: {token!r}"
                 )
 
     build_begin = road_source.find("Result<bool> RoadState::BuildDerived()")
@@ -309,11 +374,11 @@ def check_road_architecture(root: Path) -> list[str]:
     else:
         build_region = road_source[build_begin:save_begin]
         for token in (
-            "build::Stage::",
+            "build::stage::",
             "NodeConnectionDecision",
             "evaluate_segment_section",
-            "MaterializeConnection",
-            "MaterializeJunction",
+            "make_connection",
+            "make_junction",
         ):
             if token in build_region:
                 errors.append(

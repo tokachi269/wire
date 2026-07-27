@@ -48,6 +48,15 @@ struct ResetAllApproachOverridesRequest {
 };
 struct AddSectionTemplateRequest { CrossSectionTemplate section_template{}; };
 struct EditSectionTemplateRequest { CrossSectionTemplate section_template{}; };
+struct SetBoundaryMarkingPolicyRequest {
+  CrossSectionTemplateId section_template_id = 0;
+  std::uint64_t boundary_id = 0;
+  AutoMarkingPolicy policy{};
+};
+struct ResetBoundaryMarkingPolicyRequest {
+  CrossSectionTemplateId section_template_id = 0;
+  std::uint64_t boundary_id = 0;
+};
 struct SectionTransitionRequest {
   CrossSectionTemplateId from_template = 0;
   CrossSectionTemplateId to_template = 0;
@@ -72,9 +81,22 @@ struct ManualLineRequest {
 struct ManualAreaRequest {
   RoadSegmentId owner_segment_id = 0;
   Vec2d frame_origin{};
+  double rotation_rad = 0.0;
   double width_m = 0.0;
   double length_m = 0.0;
   MarkingStyleId style_id = builtin_marking_styles::kWhiteSolid;
+};
+struct SuppressAutoMarkingRequest {
+  AutoMarkingKey key{};
+};
+struct ResetAutoMarkingSuppressionRequest {
+  AutoMarkingKey key{};
+};
+struct SetJunctionMarkingOverrideRequest {
+  JunctionMarkingOverride override{};
+};
+struct DeleteJunctionMarkingOverrideRequest {
+  JunctionMarkingOverrideId id = 0;
 };
 struct RoadToolDraft {
   Path preview_path{};

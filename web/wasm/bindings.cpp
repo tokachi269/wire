@@ -1410,10 +1410,12 @@ public:
       item.set("medianWidthM", median_width);
       item.set("laneCount", lane_count);
       item.set("hasCenterLine", std::any_of(section.boundaries.begin(), section.boundaries.end(), [](const auto& boundary) {
-        return boundary.marking_rule == city::road::MarkingRule::kCenterLine;
+        return boundary.marking.enabled &&
+               boundary.marking.role == city::road::MarkingRole::kCenterLine;
       }));
       item.set("hasOuterLines", std::any_of(section.boundaries.begin(), section.boundaries.end(), [](const auto& boundary) {
-        return boundary.marking_rule == city::road::MarkingRule::kOuterLine;
+        return boundary.marking.enabled &&
+               boundary.marking.role == city::road::MarkingRole::kCarriagewayEdge;
       }));
       section_templates.call<void>("push", item);
     }
@@ -1459,22 +1461,16 @@ public:
     for (const auto& mesh : derived.marking_meshes) {
       marking_meshes.call<void>("push", road_mesh_value(mesh));
     }
-    for (const auto& mesh : derived.junction_marking_meshes) {
-      marking_meshes.call<void>("push", road_mesh_value(mesh));
-    }
-    for (const auto& mesh : derived.manual_marking_meshes) {
-      marking_meshes.call<void>("push", road_mesh_value(mesh));
-    }
     val approaches = val::array();
-    for (const auto& resolved_layout : derived.resolved_node_layouts) {
+    for (const auto& resolved_layout : derived.layouts) {
       const auto auto_layout = std::find_if(
-          derived.auto_node_layouts.begin(), derived.auto_node_layouts.end(),
+          derived.auto_layouts.begin(), derived.auto_layouts.end(),
           [&resolved_layout](const city::road::AutoNodeLayout& item) {
             return item.node_id == resolved_layout.node_id;
           });
       for (const auto& resolved : resolved_layout.approaches) {
         const city::road::AutoApproachLayout* auto_approach = nullptr;
-        if (auto_layout != derived.auto_node_layouts.end()) {
+        if (auto_layout != derived.auto_layouts.end()) {
           const auto found = std::find_if(
               auto_layout->approaches.begin(), auto_layout->approaches.end(),
               [&resolved](const city::road::AutoApproachLayout& item) {
@@ -1516,7 +1512,7 @@ public:
     result.set("sectionTemplateCount", graph.section_templates.size());
     result.set("transitionCount", graph.transitions.size());
     result.set("markingCount", graph.manual_lines.size() + graph.manual_areas.size());
-    result.set("connectionGateCount", derived.connection_gates.size());
+    result.set("connectionGateCount", derived.gates.size());
     result.set("junctionCount", derived.junction_areas.size());
     result.set("nodes", nodes);
     result.set("centerlineSegments", centerline_segments);
@@ -1606,13 +1602,47 @@ public:
     const bool outer_lines = input["hasOuterLines"].as<bool>();
     for (auto& boundary : section.boundaries) {
       if (boundary.role == city::road::BoundaryRole::kLaneDivider) {
-        boundary.marking_rule = center_line ? city::road::MarkingRule::kCenterLine : city::road::MarkingRule::kNone;
+        boundary.marking = center_line
+                               ? city::road::AutoMarkingPolicy{
+                                     true, city::road::MarkingRole::kCenterLine,
+                                     city::road::builtin_marking_styles::kCenterLine}
+                               : city::road::AutoMarkingPolicy{};
       }
       if (boundary.role == city::road::BoundaryRole::kCurb) {
-        boundary.marking_rule = outer_lines ? city::road::MarkingRule::kOuterLine : city::road::MarkingRule::kNone;
+        boundary.marking = outer_lines
+                               ? city::road::AutoMarkingPolicy{
+                                     true,
+                                     city::road::MarkingRole::kCarriagewayEdge,
+                                     city::road::builtin_marking_styles::kWhiteSolid}
+                               : city::road::AutoMarkingPolicy{};
       }
     }
     const auto result = state_->EditSectionTemplate(city::road::EditSectionTemplateRequest{std::move(section)});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val set_boundary_marking_policy(const val& input) {
+    const auto style = road_marking_style_id(input["style"].as<std::string>());
+    if (!style.has_value()) {
+      return road_result_value(false, "unknown road marking style",
+                               city::road::ErrorKind::kValidation);
+    }
+    city::road::SetBoundaryMarkingPolicyRequest request{};
+    request.section_template_id =
+        input["templateId"].as<city::road::CrossSectionTemplateId>();
+    request.boundary_id = input["boundaryId"].as<std::uint64_t>();
+    request.policy.enabled = input["enabled"].as<bool>();
+    request.policy.role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
+    request.policy.style_id = *style;
+    const auto result = state_->SetBoundaryMarkingPolicy(request);
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val reset_boundary_marking_policy(const val& input) {
+    const auto result = state_->ResetBoundaryMarkingPolicy(
+        city::road::ResetBoundaryMarkingPolicyRequest{
+            input["templateId"].as<city::road::CrossSectionTemplateId>(),
+            input["boundaryId"].as<std::uint64_t>()});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
@@ -1675,6 +1705,9 @@ public:
     city::road::ManualAreaRequest marking{};
     marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
     marking.frame_origin = {input["stationM"].as<double>(), input["lateralM"].as<double>()};
+    if (input.call<bool>("hasOwnProperty", std::string("rotationRad"))) {
+      marking.rotation_rad = input["rotationRad"].as<double>();
+    }
     marking.width_m = input["widthM"].as<double>();
     marking.length_m = input["lengthM"].as<double>();
     const auto style = road_marking_style_id(input["style"].as<std::string>());
@@ -1684,6 +1717,35 @@ public:
     }
     marking.style_id = *style;
     const auto result = state_->AddManualArea(std::move(marking));
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val suppress_segment_marking(const val& input) {
+    const auto segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
+    const auto boundary_id = input["boundaryId"].as<std::uint64_t>();
+    const auto role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
+    city::road::AutoMarkingKey key{
+        city::road::MarkingOwner{city::road::MarkingOwner::Kind::kRoadSegment,
+                                 segment_id, 0, 0},
+        role,
+        city::road::MarkingTrackKey{segment_id, boundary_id, role},
+        std::nullopt};
+    const auto result = state_->SuppressAutoMarking(city::road::SuppressAutoMarkingRequest{key});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val reset_segment_marking_suppression(const val& input) {
+    const auto segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
+    const auto boundary_id = input["boundaryId"].as<std::uint64_t>();
+    const auto role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
+    city::road::AutoMarkingKey key{
+        city::road::MarkingOwner{city::road::MarkingOwner::Kind::kRoadSegment,
+                                 segment_id, 0, 0},
+        role,
+        city::road::MarkingTrackKey{segment_id, boundary_id, role},
+        std::nullopt};
+    const auto result = state_->ResetAutoMarkingSuppression(
+        city::road::ResetAutoMarkingSuppressionRequest{key});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
@@ -1736,9 +1798,13 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("editSegment", &RoadStateBinding::edit_segment)
       .function("previewEditSegment", &RoadStateBinding::preview_edit_segment)
       .function("updateSectionTemplate", &RoadStateBinding::update_section_template)
+      .function("setBoundaryMarkingPolicy", &RoadStateBinding::set_boundary_marking_policy)
+      .function("resetBoundaryMarkingPolicy", &RoadStateBinding::reset_boundary_marking_policy)
       .function("applyTransition", &RoadStateBinding::apply_transition)
       .function("addManualLine", &RoadStateBinding::add_manual_line)
       .function("addManualArea", &RoadStateBinding::add_manual_area)
+      .function("suppressSegmentMarking", &RoadStateBinding::suppress_segment_marking)
+      .function("resetSegmentMarkingSuppression", &RoadStateBinding::reset_segment_marking_suppression)
       .function("undoSegment", &RoadStateBinding::undo_segment)
       .function("clear", &RoadStateBinding::clear)
       .function("saveState", &RoadStateBinding::save_state)

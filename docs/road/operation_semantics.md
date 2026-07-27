@@ -13,7 +13,7 @@ public operationから別public operationを呼ばない。
 
 Preflightはrequestの形式、ID存在、有限性、明白な値域と、planを作るために必要な局所構造だけを検証する。
 接続角度、endpoint section互換、branch / junction approach上限、接続setback、split後を含むtrial topologyの成立性は
-trial Buildの`NodeConnectionDecisionStage`以降が一度だけ決める。operationは同じgeometry / section policyを
+trial Buildの`connections`以降が一度だけ決める。operationは同じgeometry / section policyを
 再実装せず、trial Buildの`kUnsupported`を操作結果として返す。
 
 ## Public operation preflight audit
@@ -101,7 +101,7 @@ trial Buildの`NodeConnectionDecisionStage`以降が一度だけ決める。oper
 - 単独segmentとdegree 1終端はjunction接続準備を要求しない。
 - `ApproachKey`、`NodeConnectionDecision`、`ConnectionGate`はdegree 2以上の明示接続nodeだけに生成する。
 - `AutoNodeLayout` / `ResolvedNodeLayout`はdegree 2以上のlayout対象だけに生成する。degree 1 endpoint overrideはunsupported。
-- segment内部の通常曲線は`CanonicalAlignment`とSectionEvaluationから直接生成し、JunctionGeometryStageへ渡さない。
+- segment内部の通常曲線は`CanonicalAlignment`とSectionEvaluationから直接生成し、junctionsへ渡さない。
 - `RoadGraph -> Build`の一回で必要な派生物を生成し、操作履歴や事前tableの有無でstage経路を変えない。
 
 ## Approach geometry override
@@ -122,11 +122,15 @@ trial Buildの`NodeConnectionDecisionStage`以降が一度だけ決める。oper
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge のいずれか。
 - element対応は ID で行う。出現は `TaperIn`、消滅は `TaperOut` または `EndCap` を明示する。
 - 1 segmentに同時に接続できる transition は1個。短距離多重transitionはP2非対象。
-- 異なる断面をnodeへ直接接続しない。trial Buildの`NodeConnectionDecisionStage`が各approachのendpoint section IDを
+- 異なる断面をnodeへ直接接続しない。trial Buildの`connections`が各approachのendpoint section IDを
   一度だけ解決し、全approachで完全一致する場合だけ接続する。operation preflightは断面を再評価しない。
 
 ## P2 marking semantics
 
-- boundary marking は SectionEvaluationTable の boundary ID / rule を唯一の入力とする。
+- boundary marking は SectionEvaluationTable の boundary ID / `AutoMarkingPolicy` を唯一の入力とし、
+  drawはsection ruleを読まない。
 - ManualLineMarking の Path と ManualAreaMarking の frame は owner segment local `(station, lateral)`。
+  ManualAreaMarking は `rotation_rad` を持ち、0 はowner segment station方向を意味する。
+- 自動線は MarkingIntent / Continuation / ResolvedMarkingGraph を通ってからmesh化する。
+  segment、junction、manual のowner境界はgateとmanual entity IDで決め、位置近接で再bindしない。
 - 保存するのはlocal値で、world meshだけを派生する。segment alignment編集時はlocal値を維持して再導出する。

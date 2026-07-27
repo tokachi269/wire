@@ -192,8 +192,8 @@ segment側とjunction側が別々に幅・高さ・頂点を計算してはな�
 
 ### 6.3 自動マーキングと手動マーキング
 
-- 中央線・車線境界線・外側線などは断面要素間のBoundary roleとMarkingRuleから導出する。
-- 停止線・ゼブラはP1ではNodeConnectionDecisionとConnectionGateから自動導出してよい。
+- 中央線・車線境界線・外側線などは断面要素間のBoundary roleと`AutoMarkingPolicy`から`MarkingIntent`へ導出する。
+- 停止線・ゼブラはNodeConnectionDecisionとConnectionGateから直接quad化せず、`MarkingIntent`経由で導出する。
 - ユーザーが編集・追加した自由線やAreaMarkingだけをManualMarkingとして保存する。
 - MarkingMeshは路面テクスチャへ焼き込まず、リボンメッシュ、デカール、シェーダー等の描画方式から独立した意味データを使う。
 
@@ -317,7 +317,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 - StationRefの意味論と実装
 - SectionTransition
 - 歩道テーパ、片側拡幅、車線増減、分離帯先端終了
-- boundary別MarkingRule
+- boundary別AutoMarkingPolicy
 - ManualLineMarking / ManualAreaMarking
 
 ### P3 — 縦断・地形・立体交差

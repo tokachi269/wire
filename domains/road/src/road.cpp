@@ -1,6 +1,6 @@
 #include "city/road/road.hpp"
 
-#include "build/stages.hpp"
+#include "build/pipeline.hpp"
 #include "operations/operation_plan.hpp"
 #include "persistence/road_archive.hpp"
 
@@ -262,6 +262,103 @@ struct PathSplit {
   return it == section.bands.end() ? nullptr : &*it;
 }
 
+[[nodiscard]] BoundaryProfile* find_boundary(CrossSectionTemplate& section, std::uint64_t id) {
+  const auto it = std::find_if(section.boundaries.begin(), section.boundaries.end(),
+                               [id](const BoundaryProfile& boundary) { return boundary.boundary_id == id; });
+  return it == section.boundaries.end() ? nullptr : &*it;
+}
+
+[[nodiscard]] const BoundaryProfile* find_boundary(const CrossSectionTemplate& section, std::uint64_t id) {
+  const auto it = std::find_if(section.boundaries.begin(), section.boundaries.end(),
+                               [id](const BoundaryProfile& boundary) { return boundary.boundary_id == id; });
+  return it == section.boundaries.end() ? nullptr : &*it;
+}
+
+[[nodiscard]] bool valid_marking_role(MarkingRole role) {
+  return static_cast<int>(role) >= 0 && static_cast<int>(role) <= 5;
+}
+
+[[nodiscard]] Result<bool> validate_marking_policy(const AutoMarkingPolicy& policy) {
+  if (!valid_marking_role(policy.role) ||
+      (policy.enabled && !IsKnownMarkingStyle(policy.style_id))) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "marking policy is invalid");
+  }
+  return Result<bool>::Ok(true);
+}
+
+[[nodiscard]] Result<bool> validate_auto_marking_key(const SavedRoadGraph& graph,
+                                                     const AutoMarkingKey& key) {
+  if (!valid_marking_role(key.role)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "auto marking key role is invalid");
+  }
+  if (key.owner.kind == MarkingOwner::Kind::kRoadSegment) {
+    const RoadSegment* segment = find_segment(graph, key.owner.segment_id);
+    if (segment == nullptr || key.owner.node_id != 0 || key.owner.manual_id != 0) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking segment owner is invalid");
+    }
+    if (!key.track.has_value() || key.approach.has_value() ||
+        key.track->segment_id != segment->id || key.track->role != key.role) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking segment key is invalid");
+    }
+    const CrossSectionTemplate* section = find_template(graph, segment->section_template);
+    if (section == nullptr || find_boundary(*section, key.track->boundary_id) == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking boundary is missing");
+    }
+    return Result<bool>::Ok(true);
+  }
+  if (key.owner.kind == MarkingOwner::Kind::kJunction) {
+    if (find_node(graph, key.owner.node_id) == nullptr || key.owner.segment_id != 0 ||
+        key.owner.manual_id != 0 || key.track.has_value() || !key.approach.has_value()) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking junction key is invalid");
+    }
+    const RoadSegment* segment = find_segment(graph, key.approach->segment_id);
+    if (segment == nullptr || !endpoint_matches(*segment, *key.approach) ||
+        key.approach->node_id != key.owner.node_id) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking junction approach is invalid");
+    }
+    return Result<bool>::Ok(true);
+  }
+  return Result<bool>::Fail(ErrorKind::kValidation, "auto marking manual owner cannot be suppressed");
+}
+
+[[nodiscard]] Result<bool> validate_junction_marking_endpoint(const SavedRoadGraph& graph,
+                                                              RoadNodeId node_id,
+                                                              const JunctionMarkingEndpoint& endpoint) {
+  if (!valid_marking_role(endpoint.role)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking endpoint role is invalid");
+  }
+  const RoadSegment* segment = find_segment(graph, endpoint.approach.segment_id);
+  if (segment == nullptr || endpoint.approach.node_id != node_id ||
+      !endpoint_matches(*segment, endpoint.approach)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking endpoint approach is invalid");
+  }
+  const CrossSectionTemplate* section = find_template(graph, segment->section_template);
+  if (section == nullptr || find_boundary(*section, endpoint.boundary_id) == nullptr) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking endpoint boundary is missing");
+  }
+  return Result<bool>::Ok(true);
+}
+
+[[nodiscard]] Result<bool> validate_junction_marking_override(const SavedRoadGraph& graph,
+                                                              const JunctionMarkingOverride& override) {
+  if (override.id == 0 || find_node(graph, override.node_id) == nullptr ||
+      static_cast<int>(override.action) < 0 || static_cast<int>(override.action) > 2) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking override is invalid");
+  }
+  Result<bool> source = validate_junction_marking_endpoint(graph, override.node_id, override.source);
+  if (!source.ok) return source;
+  if (override.action == JunctionMarkingAction::kConnectToApproach) {
+    if (!override.target.has_value()) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "junction marking override target is missing");
+    }
+    return validate_junction_marking_endpoint(graph, override.node_id, *override.target);
+  }
+  if (override.target.has_value()) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking override target is invalid");
+  }
+  return Result<bool>::Ok(true);
+}
+
 
 [[nodiscard]] double station_value(StationRef ref, double total) {
   if (ref.kind == StationRefKind::kFromEnd) {
@@ -357,6 +454,13 @@ struct PathSplit {
     if (boundary.boundary_id == 0 || !ids.insert(boundary.boundary_id).second || !finite(boundary.width_m) ||
         !finite(boundary.height_m) || boundary.width_m < 0.0) {
       return Result<bool>::Fail(ErrorKind::kValidation, "section template boundary is invalid");
+    }
+    if (static_cast<int>(boundary.marking.role) < 0 ||
+        static_cast<int>(boundary.marking.role) > 5 ||
+        (boundary.marking.enabled &&
+         !IsKnownMarkingStyle(boundary.marking.style_id))) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "section template marking policy is invalid");
     }
   }
   return Result<bool>::Ok(true);
@@ -481,11 +585,11 @@ Result<Path> BuildCanonicalAlignment(Vec2d start, Vec2d end, const SegmentShape&
 }
 
 const Path* FindCanonicalAlignment(const DerivedRoad& derived, RoadSegmentId segment_id) {
-  const auto found = std::find_if(derived.canonical_alignments.begin(), derived.canonical_alignments.end(),
+  const auto found = std::find_if(derived.alignments.begin(), derived.alignments.end(),
                                   [segment_id](const CanonicalAlignment& item) {
                                     return item.segment_id == segment_id;
                                   });
-  return found == derived.canonical_alignments.end() ? nullptr : &found->path;
+  return found == derived.alignments.end() ? nullptr : &found->path;
 }
 
 bool IsLinearSpan(const BezierSpan& span) {
@@ -506,6 +610,10 @@ RoadToolDraft PreviewRoadToolPath(Vec2d start, Vec2d end, std::optional<Vec2d> h
 }
 
 CrossSectionTemplate JapaneseUrbanTwoLaneTemplate(CrossSectionTemplateId id) {
+  const AutoMarkingPolicy outer_line{
+      true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid};
+  const AutoMarkingPolicy center_line{
+      true, MarkingRole::kCenterLine, builtin_marking_styles::kCenterLine};
   CrossSectionTemplate section{};
   section.id = id;
   section.bands = {
@@ -515,14 +623,18 @@ CrossSectionTemplate JapaneseUrbanTwoLaneTemplate(CrossSectionTemplateId id) {
       {40, SurfaceRole::kSidewalk, 2.0, -0.01, builtin_surface_styles::kSidewalk},
   };
   section.boundaries = {
-      {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
-      {200, BoundaryRole::kLaneDivider, 0.0, 0.0, MarkingRule::kCenterLine},
-      {300, BoundaryRole::kCurb, 0.2, 0.15, MarkingRule::kOuterLine},
+      {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
+      {200, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
+      {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
   };
   return section;
 }
 
 CrossSectionTemplate ThreeLaneTemplate(CrossSectionTemplateId id) {
+  const AutoMarkingPolicy outer_line{
+      true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid};
+  const AutoMarkingPolicy center_line{
+      true, MarkingRole::kCenterLine, builtin_marking_styles::kCenterLine};
   CrossSectionTemplate section = JapaneseUrbanTwoLaneTemplate(id);
   section.bands = {
       {10, SurfaceRole::kSidewalk, 2.0, 0.01, builtin_surface_styles::kSidewalk},
@@ -532,10 +644,10 @@ CrossSectionTemplate ThreeLaneTemplate(CrossSectionTemplateId id) {
       {40, SurfaceRole::kSidewalk, 2.0, -0.01, builtin_surface_styles::kSidewalk},
   };
   section.boundaries = {
-      {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
-      {200, BoundaryRole::kLaneDivider, 0.0, 0.0, MarkingRule::kCenterLine},
-      {250, BoundaryRole::kLaneDivider, 0.0, 0.0, MarkingRule::kCenterLine},
-      {300, BoundaryRole::kCurb, 0.2, 0.15, MarkingRule::kOuterLine},
+      {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
+      {200, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
+      {250, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
+      {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
   };
   return section;
 }
@@ -548,14 +660,16 @@ CrossSectionTemplate NoLeftSidewalkTemplate(CrossSectionTemplateId id) {
 }
 
 CrossSectionTemplate MedianTwoLaneTemplate(CrossSectionTemplateId id) {
+  const AutoMarkingPolicy outer_line{
+      true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid};
   CrossSectionTemplate section = JapaneseUrbanTwoLaneTemplate(id);
   section.bands.insert(section.bands.begin() + 2,
                        {25, SurfaceRole::kMedian, 2.0, 0.0, builtin_surface_styles::kMedian});
   section.boundaries = {
-      {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
-      {210, BoundaryRole::kMedianEdge, 0.2, 0.12, MarkingRule::kNone},
-      {220, BoundaryRole::kMedianEdge, 0.2, -0.12, MarkingRule::kNone},
-      {300, BoundaryRole::kCurb, 0.2, 0.15, MarkingRule::kOuterLine},
+      {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
+      {210, BoundaryRole::kMedianEdge, 0.2, 0.12, {}},
+      {220, BoundaryRole::kMedianEdge, 0.2, -0.12, {}},
+      {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
   };
   return section;
 }
@@ -899,6 +1013,33 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
       plan.remove_approach_geometry_overrides.push_back(override.key);
     }
   }
+  for (const AutoMarkingOverride& override : graph_.auto_marking_overrides) {
+    const bool segment_owner =
+        override.key.owner.kind == MarkingOwner::Kind::kRoadSegment &&
+        override.key.owner.segment_id == segment_id;
+    const bool junction_owner =
+        override.key.owner.kind == MarkingOwner::Kind::kJunction &&
+        (override.key.owner.node_id == target->node_a ||
+         override.key.owner.node_id == target->node_b);
+    const bool approach_owner =
+        override.key.approach.has_value() &&
+        override.key.approach->segment_id == segment_id;
+    const bool track_owner =
+        override.key.track.has_value() &&
+        override.key.track->segment_id == segment_id;
+    if (segment_owner || junction_owner || approach_owner || track_owner) {
+      plan.remove_auto_marking_overrides.push_back(override.key);
+    }
+  }
+  for (const JunctionMarkingOverride& override : graph_.junction_marking_overrides) {
+    const bool node_owner = override.node_id == target->node_a || override.node_id == target->node_b;
+    const bool source_owner = override.source.approach.segment_id == segment_id;
+    const bool target_owner =
+        override.target.has_value() && override.target->approach.segment_id == segment_id;
+    if (node_owner || source_owner || target_owner) {
+      plan.remove_junction_marking_overrides.push_back(override.id);
+    }
+  }
   const std::optional<SectionTransitionId> transition = target->transition;
   if (transition.has_value() &&
       std::none_of(graph_.segments.begin(), graph_.segments.end(), [segment_id, transition](const RoadSegment& segment) {
@@ -919,9 +1060,9 @@ Result<bool> RoadState::SetApproachSetbackOverride(SetApproachSetbackOverrideReq
     return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
   }
   const auto layout = std::find_if(
-      derived_.resolved_node_layouts.begin(), derived_.resolved_node_layouts.end(),
+      derived_.layouts.begin(), derived_.layouts.end(),
       [&](const ResolvedNodeLayout& item) { return item.node_id == request.key.node_id; });
-  if (layout == derived_.resolved_node_layouts.end() ||
+  if (layout == derived_.layouts.end() ||
       std::none_of(layout->approaches.begin(), layout->approaches.end(),
                    [&](const ResolvedApproachLayout& item) { return item.key == request.key; })) {
     return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved layout");
@@ -950,9 +1091,9 @@ Result<bool> RoadState::SetApproachLateralShiftOverride(SetApproachLateralShiftO
     return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
   }
   const auto layout = std::find_if(
-      derived_.resolved_node_layouts.begin(), derived_.resolved_node_layouts.end(),
+      derived_.layouts.begin(), derived_.layouts.end(),
       [&](const ResolvedNodeLayout& item) { return item.node_id == request.key.node_id; });
-  if (layout == derived_.resolved_node_layouts.end() ||
+  if (layout == derived_.layouts.end() ||
       std::none_of(layout->approaches.begin(), layout->approaches.end(),
                    [&](const ResolvedApproachLayout& item) { return item.key == request.key; })) {
     return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved layout");
@@ -1040,6 +1181,30 @@ Result<bool> RoadState::EditSectionTemplate(EditSectionTemplateRequest request) 
   plan.next_id_after = next_id_;
   plan.replace_section_templates.push_back(std::move(section_template));
   return Execute(plan);
+}
+
+Result<bool> RoadState::SetBoundaryMarkingPolicy(SetBoundaryMarkingPolicyRequest request) {
+  const Result<bool> valid_policy = validate_marking_policy(request.policy);
+  if (!valid_policy.ok) return valid_policy;
+  const CrossSectionTemplate* existing = find_template(graph_, request.section_template_id);
+  if (existing == nullptr) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "section template does not exist");
+  }
+  CrossSectionTemplate replacement = *existing;
+  BoundaryProfile* boundary = find_boundary(replacement, request.boundary_id);
+  if (boundary == nullptr) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "section boundary does not exist");
+  }
+  boundary->marking = request.policy;
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  plan.replace_section_templates.push_back(std::move(replacement));
+  return Execute(plan);
+}
+
+Result<bool> RoadState::ResetBoundaryMarkingPolicy(ResetBoundaryMarkingPolicyRequest request) {
+  return SetBoundaryMarkingPolicy(SetBoundaryMarkingPolicyRequest{
+      request.section_template_id, request.boundary_id, AutoMarkingPolicy{}});
 }
 
 Result<SectionTransitionId> RoadState::AddTransition(SectionTransitionRequest request) {
@@ -1152,8 +1317,9 @@ Result<ManualMarkingId> RoadState::AddManualLine(ManualLineRequest request) {
 }
 
 Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaRequest request) {
-  ManualAreaMarking marking{0, request.owner_segment_id, request.frame_origin, request.width_m, request.length_m,
-                            request.style_id};
+  ManualAreaMarking marking{0, request.owner_segment_id, request.frame_origin,
+                            request.rotation_rad, request.width_m,
+                            request.length_m, request.style_id};
   if (!IsKnownMarkingStyle(marking.style_id)) {
     return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area style is unknown");
   }
@@ -1161,7 +1327,8 @@ Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaRequest request) {
   if (owner == nullptr) {
     return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area owner segment does not exist");
   }
-  if (!finite(marking.frame_origin) || !finite(marking.width_m) || !finite(marking.length_m) ||
+  if (!finite(marking.frame_origin) || !finite(marking.rotation_rad) ||
+      !finite(marking.width_m) || !finite(marking.length_m) ||
       marking.width_m <= 0.0 || marking.length_m <= 0.0) {
     return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area shape is invalid");
   }
@@ -1185,8 +1352,88 @@ Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaRequest request) {
   return Result<ManualMarkingId>::Ok(id);
 }
 
+Result<bool> RoadState::SuppressAutoMarking(SuppressAutoMarkingRequest request) {
+  const Result<bool> valid = validate_auto_marking_key(graph_, request.key);
+  if (!valid.ok) return valid;
+  if (std::any_of(graph_.auto_marking_overrides.begin(),
+                  graph_.auto_marking_overrides.end(),
+                  [&request](const AutoMarkingOverride& override) {
+                    return override.key == request.key && override.suppressed;
+                  })) {
+    return Result<bool>::Ok(true);
+  }
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  plan.add_auto_marking_overrides.push_back(AutoMarkingOverride{request.key, true});
+  return Execute(plan);
+}
+
+Result<bool> RoadState::ResetAutoMarkingSuppression(ResetAutoMarkingSuppressionRequest request) {
+  const Result<bool> valid = validate_auto_marking_key(graph_, request.key);
+  if (!valid.ok) return valid;
+  const auto existing =
+      std::find_if(graph_.auto_marking_overrides.begin(),
+                   graph_.auto_marking_overrides.end(),
+                   [&request](const AutoMarkingOverride& override) {
+                     return override.key == request.key;
+                   });
+  if (existing == graph_.auto_marking_overrides.end()) {
+    return Result<bool>::Ok(true);
+  }
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  plan.remove_auto_marking_overrides.push_back(request.key);
+  return Execute(plan);
+}
+
+Result<JunctionMarkingOverrideId> RoadState::SetJunctionMarkingOverride(
+    SetJunctionMarkingOverrideRequest request) {
+  JunctionMarkingOverride override = request.override;
+  std::uint64_t next_id = next_id_;
+  if (override.id == 0) {
+    override.id = next_id++;
+  }
+  const Result<bool> valid = validate_junction_marking_override(graph_, override);
+  if (!valid.ok) {
+    return Result<JunctionMarkingOverrideId>::Fail(valid.error_kind, valid.error);
+  }
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id;
+  if (std::any_of(graph_.junction_marking_overrides.begin(),
+                  graph_.junction_marking_overrides.end(),
+                  [&override](const JunctionMarkingOverride& item) {
+                    return item.id == override.id;
+                  })) {
+    plan.remove_junction_marking_overrides.push_back(override.id);
+  }
+  plan.add_junction_marking_overrides.push_back(std::move(override));
+  const JunctionMarkingOverrideId id = plan.add_junction_marking_overrides.front().id;
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) {
+    return Result<JunctionMarkingOverrideId>::Fail(executed.error_kind, executed.error);
+  }
+  return Result<JunctionMarkingOverrideId>::Ok(id);
+}
+
+Result<bool> RoadState::DeleteJunctionMarkingOverride(DeleteJunctionMarkingOverrideRequest request) {
+  if (request.id == 0) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking override id is invalid");
+  }
+  if (std::none_of(graph_.junction_marking_overrides.begin(),
+                   graph_.junction_marking_overrides.end(),
+                   [&request](const JunctionMarkingOverride& item) {
+                     return item.id == request.id;
+                   })) {
+    return Result<bool>::Ok(true);
+  }
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  plan.remove_junction_marking_overrides.push_back(request.id);
+  return Execute(plan);
+}
+
 Result<bool> RoadState::BuildDerived() {
-  Result<DerivedRoad> built = build::BuildRoad(graph_);
+  Result<DerivedRoad> built = build::make(graph_);
   if (!built.ok) {
     return Result<bool>::Fail(built.error_kind, built.error);
   }
@@ -1246,7 +1493,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
     }
   }
   std::size_t decision_approaches = 0;
-  for (const NodeConnectionDecision& decision : derived.node_connection_decisions) {
+  for (const NodeConnectionDecision& decision : derived.decisions) {
     if (find_node(graph, decision.node_id) == nullptr ||
         decision.approaches.size() != decision.ordered_approaches.size()) {
       return Result<bool>::Fail(ErrorKind::kInternal,
@@ -1283,7 +1530,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
     }
   }
   std::size_t layout_approaches = 0;
-  for (const ResolvedNodeLayout& layout : derived.resolved_node_layouts) {
+  for (const ResolvedNodeLayout& layout : derived.layouts) {
     if (layout.approaches.size() != layout.ordered_approaches.size()) {
       return Result<bool>::Fail(ErrorKind::kInternal,
                                 "road resolved node layout invariant failed");
@@ -1301,15 +1548,15 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
   }
   if (decision_approaches != expected_approaches ||
       derived.setback_calculation_count != expected_approaches ||
-      derived.connection_gates.size() != layout_approaches) {
+      derived.gates.size() != layout_approaches) {
     return Result<bool>::Fail(ErrorKind::kInternal,
                               "road approach single-decision count invariant failed");
   }
-  if (derived.section_evaluation_count != derived.section_evaluations.size()) {
+  if (derived.section_evaluation_count != derived.sections.size()) {
     return Result<bool>::Fail(ErrorKind::kInternal,
                               "road section evaluation count invariant failed");
   }
-  for (const SectionEvaluation& section : derived.section_evaluations) {
+  for (const SectionEvaluation& section : derived.sections) {
     double previous = -std::numeric_limits<double>::infinity();
     for (const SectionBoundarySample& boundary : section.boundaries) {
       if (!finite(boundary.lateral_m) || !finite(boundary.height_m) || boundary.lateral_m < previous) {
@@ -1318,7 +1565,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
       previous = boundary.lateral_m;
     }
   }
-  for (const ConnectionGate& gate : derived.connection_gates) {
+  for (const ConnectionGate& gate : derived.gates) {
     const RoadSegment* segment = find_segment(graph, gate.approach.segment_id);
     const bool endpoint_matches =
         segment != nullptr && gate.segment_id == gate.approach.segment_id &&
@@ -1338,7 +1585,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
                                 "road connection gate frame invariant failed");
     }
     const ResolvedNodeLayout* layout = nullptr;
-    for (const ResolvedNodeLayout& candidate : derived.resolved_node_layouts) {
+    for (const ResolvedNodeLayout& candidate : derived.layouts) {
       if (candidate.node_id == gate.approach.node_id) {
         if (layout != nullptr) {
           return Result<bool>::Fail(ErrorKind::kInternal,
@@ -1360,7 +1607,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
                                 "road connection gate resolved approach is missing");
     }
     const SectionEvaluation* matched_section = nullptr;
-    for (const SectionEvaluation& section : derived.section_evaluations) {
+    for (const SectionEvaluation& section : derived.sections) {
       if (section.segment_id != gate.approach.segment_id ||
           std::abs(section.station_m - approach->gate_station_m) > kEpsilon) {
         continue;
@@ -1386,7 +1633,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
           gate_boundary.role != section_boundary.role ||
           gate_boundary.lateral_m != section_boundary.lateral_m ||
           gate_boundary.height_m != section_boundary.height_m ||
-          gate_boundary.marking_rule != section_boundary.marking_rule) {
+          gate_boundary.marking != section_boundary.marking) {
         return Result<bool>::Fail(
             ErrorKind::kInternal,
             "road connection gate boundary copy invariant failed");
@@ -1442,9 +1689,9 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
     }
     return true;
   };
-  const std::array<const std::vector<Mesh>*, 6> mesh_families{
+  const std::array<const std::vector<Mesh>*, 4> mesh_families{
       &derived.segment_meshes, &derived.marking_meshes, &derived.connection_meshes,
-      &derived.junction_meshes, &derived.junction_marking_meshes, &derived.manual_marking_meshes};
+      &derived.junction_meshes};
   for (const auto* family : mesh_families) {
     if (std::any_of(family->begin(), family->end(), [&valid_mesh](const Mesh& mesh) { return !valid_mesh(mesh); })) {
       return Result<bool>::Fail(ErrorKind::kInternal, "road mesh contains invalid geometry");

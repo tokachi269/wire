@@ -47,11 +47,17 @@ public:
   [[nodiscard]] Result<bool> ResetAllApproachOverrides(ResetAllApproachOverridesRequest request);
   [[nodiscard]] Result<CrossSectionTemplateId> AddSectionTemplate(AddSectionTemplateRequest request);
   [[nodiscard]] Result<bool> EditSectionTemplate(EditSectionTemplateRequest request);
+  [[nodiscard]] Result<bool> SetBoundaryMarkingPolicy(SetBoundaryMarkingPolicyRequest request);
+  [[nodiscard]] Result<bool> ResetBoundaryMarkingPolicy(ResetBoundaryMarkingPolicyRequest request);
   [[nodiscard]] Result<SectionTransitionId> AddTransition(SectionTransitionRequest request);
   [[nodiscard]] Result<SectionTransitionId> AddTransitionToSegment(AddTransitionToSegmentRequest request);
   [[nodiscard]] Result<bool> AttachSectionTransition(AttachSectionTransitionRequest request);
   [[nodiscard]] Result<ManualMarkingId> AddManualLine(ManualLineRequest request);
   [[nodiscard]] Result<ManualMarkingId> AddManualArea(ManualAreaRequest request);
+  [[nodiscard]] Result<bool> SuppressAutoMarking(SuppressAutoMarkingRequest request);
+  [[nodiscard]] Result<bool> ResetAutoMarkingSuppression(ResetAutoMarkingSuppressionRequest request);
+  [[nodiscard]] Result<JunctionMarkingOverrideId> SetJunctionMarkingOverride(SetJunctionMarkingOverrideRequest request);
+  [[nodiscard]] Result<bool> DeleteJunctionMarkingOverride(DeleteJunctionMarkingOverrideRequest request);
   [[nodiscard]] Result<std::string> Save() const;
   [[nodiscard]] static Result<RoadState> Load(const std::string& text);
 

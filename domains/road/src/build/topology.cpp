@@ -1,25 +1,26 @@
-#include "stages.hpp"
+#include "pipeline.hpp"
 
-#include "stage_support.hpp"
+#include "geometry.hpp"
+#include "read.hpp"
 
 namespace city::road::build {
 
-Result<bool> BuildTopologyIndex(BuildContext& context) {
-  context.topology.clear();
-  context.topology.reserve(context.authoritative.nodes.size());
-  for (const RoadNode& node : context.authoritative.nodes) {
-    NodeTopology topology{};
-    topology.node_id = node.id;
-    for (const RoadSegment& segment : context.authoritative.segments) {
+Result<bool> make_topology(pipeline &pipe) {
+  pipe.nodes.clear();
+  pipe.nodes.reserve(pipe.source.nodes.size());
+  for (const RoadNode &node : pipe.source.nodes) {
+    topology item{};
+    item.node_id = node.id;
+    for (const RoadSegment &segment : pipe.source.segments) {
       if (segment.node_a == node.id || segment.node_b == node.id) {
-        topology.endpoints.push_back(TopologyEndpoint{
+        item.endpoints.push_back(endpoint{
             segment.id,
             segment.node_a == node.id ? EndpointRole::kStart
                                       : EndpointRole::kEnd,
         });
       }
     }
-    context.topology.push_back(std::move(topology));
+    pipe.nodes.push_back(std::move(item));
   }
   return Result<bool>::Ok(true);
 }

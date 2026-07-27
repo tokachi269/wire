@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -43,6 +44,7 @@ using CrossSectionTemplateId = std::uint64_t;
 using SectionTransitionId = std::uint64_t;
 using ManualMarkingId = std::uint64_t;
 using NodeConnectionPolicyOverrideId = std::uint64_t;
+using JunctionMarkingOverrideId = std::uint64_t;
 
 struct SurfaceStyleId {
   std::uint64_t value = 0;
@@ -68,6 +70,7 @@ inline constexpr MarkingStyleId kWhiteSolid{1};
 inline constexpr MarkingStyleId kCenterLine{2};
 inline constexpr MarkingStyleId kStopLine{3};
 inline constexpr MarkingStyleId kCrosswalk{4};
+inline constexpr MarkingStyleId kWhiteDashed{5};
 } // namespace builtin_marking_styles
 
 [[nodiscard]] inline bool IsKnownSurfaceStyle(SurfaceStyleId id) {
@@ -81,12 +84,27 @@ inline constexpr MarkingStyleId kCrosswalk{4};
   return id == builtin_marking_styles::kWhiteSolid ||
          id == builtin_marking_styles::kCenterLine ||
          id == builtin_marking_styles::kStopLine ||
-         id == builtin_marking_styles::kCrosswalk;
+         id == builtin_marking_styles::kCrosswalk ||
+         id == builtin_marking_styles::kWhiteDashed;
 }
 
 enum class SurfaceRole { kCarriageway, kSidewalk, kMedian };
 enum class BoundaryRole { kOuterEdge, kCurb, kLaneDivider, kMedianEdge };
-enum class MarkingRule { kNone, kCenterLine, kOuterLine };
+enum class MarkingRole {
+  kLaneSeparator,
+  kCenterLine,
+  kCarriagewayEdge,
+  kStopLine,
+  kCrosswalk,
+  kFree,
+};
+struct AutoMarkingPolicy {
+  bool enabled = false;
+  MarkingRole role = MarkingRole::kLaneSeparator;
+  MarkingStyleId style_id{};
+
+  bool operator==(const AutoMarkingPolicy&) const = default;
+};
 enum class StationRefKind { kFromStart, kFromEnd, kRatio };
 enum class TransitionAction { kContinue, kChangeWidthHeightOffset, kTaperOut, kTaperIn, kEndCap, kUnsupported };
 enum class TransitionAnchor { kCenter, kLeftEdge, kRightEdge };
@@ -106,6 +124,46 @@ struct ApproachKey {
            std::tie(other.node_id, other.segment_id, other.endpoint_role);
   }
 };
+struct MarkingOwner {
+  enum class Kind {
+    kRoadSegment,
+    kJunction,
+    kManual,
+  };
+  Kind kind = Kind::kRoadSegment;
+  RoadSegmentId segment_id = 0;
+  RoadNodeId node_id = 0;
+  ManualMarkingId manual_id = 0;
+
+  bool operator==(const MarkingOwner&) const = default;
+  bool operator<(const MarkingOwner& other) const {
+    return std::tie(kind, segment_id, node_id, manual_id) <
+           std::tie(other.kind, other.segment_id, other.node_id, other.manual_id);
+  }
+};
+struct MarkingTrackKey {
+  RoadSegmentId segment_id = 0;
+  std::uint64_t boundary_id = 0;
+  MarkingRole role = MarkingRole::kLaneSeparator;
+
+  bool operator==(const MarkingTrackKey&) const = default;
+  bool operator<(const MarkingTrackKey& other) const {
+    return std::tie(segment_id, boundary_id, role) <
+           std::tie(other.segment_id, other.boundary_id, other.role);
+  }
+};
+struct AutoMarkingKey {
+  MarkingOwner owner{};
+  MarkingRole role = MarkingRole::kLaneSeparator;
+  std::optional<MarkingTrackKey> track{};
+  std::optional<ApproachKey> approach{};
+
+  bool operator==(const AutoMarkingKey&) const = default;
+  bool operator<(const AutoMarkingKey& other) const {
+    return std::tie(owner, role, track, approach) <
+           std::tie(other.owner, other.role, other.track, other.approach);
+  }
+};
 
 struct SurfaceBand {
   std::uint64_t element_id = 0;
@@ -119,7 +177,7 @@ struct BoundaryProfile {
   BoundaryRole role = BoundaryRole::kCurb;
   double width_m = 0.0;
   double height_m = 0.0;
-  MarkingRule marking_rule = MarkingRule::kNone;
+  AutoMarkingPolicy marking{};
 };
 struct CrossSectionTemplate {
   CrossSectionTemplateId id = 0;

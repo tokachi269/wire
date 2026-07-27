@@ -3,6 +3,7 @@
 #include "city/road/common_types.hpp"
 
 #include <array>
+#include <optional>
 #include <tuple>
 
 namespace city::road {
@@ -12,7 +13,7 @@ struct SectionBoundarySample {
   BoundaryRole role = BoundaryRole::kCurb;
   double lateral_m = 0.0;
   double height_m = 0.0;
-  MarkingRule marking_rule = MarkingRule::kNone;
+  AutoMarkingPolicy marking{};
 };
 enum class RenderStyleDomain {
   kSurface,
@@ -134,13 +135,18 @@ enum class MarkingAnchorKind {
   kApproachCenter,
   kJunctionCorner,
 };
+using MarkingAnchorId = std::uint64_t;
 struct MarkingAnchor {
+  MarkingAnchorId id = 0;
   MarkingAnchorKind kind = MarkingAnchorKind::kApproachGate;
-  RoadNodeId owner_node_id = 0;
-  RoadSegmentId owner_segment_id = 0;
+  MarkingOwner owner{};
   ApproachKey approach{};
   std::uint64_t boundary_id = 0;
-  Vec3d position{};
+  MarkingRole role = MarkingRole::kFree;
+  Vec3d world_position{};
+  Vec3d tangent{};
+  Vec3d lateral{};
+  Vec3d normal{0.0, 0.0, 1.0};
 };
 struct JunctionArea {
   NodeConnectionPolicyOverrideId policy_override_id = 0;
@@ -170,10 +176,61 @@ struct ResolvedSurfaceRegion {
   std::vector<Vec3d> perimeter{};
 };
 
-struct ResolvedAutoMarking {
-  ApproachKey approach{};
-  RenderStyleRef style{};
-  std::vector<std::array<Vec3d, 4>> quads{};
+using MarkingIntentId = std::uint64_t;
+using ResolvedMarkingId = std::uint64_t;
+enum class MarkingGeometryRule {
+  kFollowBoundary,
+  kConnectAnchors,
+  kOwnerLocalPath,
+  kOwnerLocalArea,
+};
+enum class MarkingContinuationAction {
+  kContinue,
+  kBegin,
+  kTerminate,
+  kConnectAcrossJunction,
+  kSuppress,
+  kUnsupported,
+};
+struct MarkingStyleDefinition {
+  MarkingStyleId style_id{};
+  RenderStyleRef render_style{};
+  double width_m = 0.05;
+};
+struct MarkingIntent {
+  MarkingIntentId id = 0;
+  MarkingOwner owner{};
+  MarkingRole role = MarkingRole::kLaneSeparator;
+  MarkingStyleId style_id{};
+  MarkingGeometryRule geometry = MarkingGeometryRule::kFollowBoundary;
+  std::optional<MarkingTrackKey> track{};
+  std::vector<MarkingAnchorId> anchors{};
+  std::vector<Vec3d> world_path{};
+  std::vector<Vec3d> world_polygon{};
+};
+struct ResolvedMarkingPath {
+  ResolvedMarkingId id = 0;
+  MarkingOwner owner{};
+  MarkingRole role = MarkingRole::kLaneSeparator;
+  MarkingStyleId style_id{};
+  MarkingContinuationAction source_action = MarkingContinuationAction::kContinue;
+  std::vector<Vec3d> centerline{};
+  double width_m = 0.05;
+};
+struct ResolvedMarkingArea {
+  ResolvedMarkingId id = 0;
+  MarkingOwner owner{};
+  MarkingRole role = MarkingRole::kFree;
+  MarkingStyleId style_id{};
+  Vec3d origin{};
+  Vec3d forward{};
+  Vec3d lateral{};
+  Vec3d normal{0.0, 0.0, 1.0};
+  std::vector<std::vector<Vec3d>> polygons{};
+};
+struct ResolvedMarkingGraph {
+  std::vector<ResolvedMarkingPath> paths{};
+  std::vector<ResolvedMarkingArea> areas{};
 };
 
 struct ConnectionGeometry {
@@ -189,32 +246,31 @@ struct JunctionGeometry {
   std::vector<ResolvedBoundaryCurve> perimeter_curves{};
   std::vector<ResolvedSurfaceRegion> surface_regions{};
   std::vector<ResolvedSurfaceStrip> surface_strips{};
-  std::vector<ResolvedAutoMarking> auto_markings{};
 };
 
 struct DerivedRoad {
-  std::array<std::size_t, 12> build_stage_runs{};
+  std::array<std::size_t, 15> build_stage_runs{};
   std::size_t setback_calculation_count = 0;
   std::size_t section_evaluation_count = 0;
-  std::vector<CanonicalAlignment> canonical_alignments{};
-  std::vector<NodeConnectionDecision> node_connection_decisions{};
-  std::vector<SegmentSamplingPlan> sampling_plans{};
-  std::vector<SectionEvaluation> section_evaluations{};
-  std::vector<AutoNodeLayout> auto_node_layouts{};
-  std::vector<ResolvedNodeLayout> resolved_node_layouts{};
+  std::vector<CanonicalAlignment> alignments{};
+  std::vector<NodeConnectionDecision> decisions{};
+  std::vector<SegmentSamplingPlan> sampling{};
+  std::vector<SectionEvaluation> sections{};
+  std::vector<AutoNodeLayout> auto_layouts{};
+  std::vector<ResolvedNodeLayout> layouts{};
   std::vector<MarkingAnchor> marking_anchors{};
+  std::vector<MarkingIntent> marking_intents{};
+  ResolvedMarkingGraph markings{};
   std::vector<Mesh> segment_meshes{};
   std::vector<Mesh> marking_meshes{};
   std::vector<TerrainMaskPolygon> terrain_masks{};
-  std::vector<ConnectionGate> connection_gates{};
+  std::vector<ConnectionGate> gates{};
   std::vector<ConnectionArea> connection_areas{};
   std::vector<Mesh> connection_meshes{};
   std::vector<JunctionArea> junction_areas{};
-  std::vector<ConnectionGeometry> connection_geometries{};
-  std::vector<JunctionGeometry> junction_geometries{};
+  std::vector<ConnectionGeometry> connections{};
+  std::vector<JunctionGeometry> junctions{};
   std::vector<Mesh> junction_meshes{};
-  std::vector<Mesh> junction_marking_meshes{};
-  std::vector<Mesh> manual_marking_meshes{};
 };
 
 } // namespace city::road

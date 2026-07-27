@@ -20,8 +20,16 @@ namespace {
 
 using city::road::ErrorKind;
 using city::road::BoundaryRole;
+using city::road::AutoMarkingKey;
+using city::road::AutoMarkingPolicy;
+using city::road::EndpointRole;
 using city::road::JapaneseUrbanTwoLaneTemplate;
-using city::road::MarkingRule;
+using city::road::JunctionMarkingAction;
+using city::road::JunctionMarkingEndpoint;
+using city::road::JunctionMarkingOverride;
+using city::road::MarkingRole;
+using city::road::MarkingOwner;
+using city::road::MarkingTrackKey;
 using city::road::MakeBezier;
 using city::road::MakeLine;
 using city::road::MakePath;
@@ -53,7 +61,7 @@ bool P0_generates_two_lane_segment(std::string& failure) {
   const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
   ROAD_TEST_EXPECT(added.ok, added.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 1, "P0 did not save one authoritative segment");
-  ROAD_TEST_EXPECT(state.derived().section_evaluations.size() > 2, "P0 did not derive section samples");
+  ROAD_TEST_EXPECT(state.derived().sections.size() > 2, "P0 did not derive section samples");
   ROAD_TEST_EXPECT(!state.derived().segment_meshes.empty(), "P0 did not derive a surface mesh");
   ROAD_TEST_EXPECT(!state.derived().terrain_masks.empty(), "P0 did not derive a terrain mask");
   const auto section = JapaneseUrbanTwoLaneTemplate(1);
@@ -67,8 +75,8 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
   RoadState state{};
   const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
   ROAD_TEST_EXPECT(added.ok, added.error);
-  ROAD_TEST_EXPECT(!state.derived().section_evaluations.empty(), "P0 did not evaluate the section");
-  const auto& boundaries = state.derived().section_evaluations.front().boundaries;
+  ROAD_TEST_EXPECT(!state.derived().sections.empty(), "P0 did not evaluate the section");
+  const auto& boundaries = state.derived().sections.front().boundaries;
   ROAD_TEST_EXPECT(boundaries.size() >= 7, "P0 section does not expose sidewalk/curb/carriageway edges");
   ROAD_TEST_EXPECT(std::abs(boundaries.front().height_m - 0.13) < 1e-9,
                    "left sidewalk outer edge does not apply the 1% outward slope");
@@ -89,7 +97,8 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
   ROAD_TEST_EXPECT(!state.derived().marking_meshes.empty(), "P0 did not derive marking meshes");
   std::vector<double> outer_line_laterals{};
   for (const auto& boundary : boundaries) {
-    if (boundary.marking_rule == MarkingRule::kOuterLine) {
+    if (boundary.marking.enabled &&
+        boundary.marking.role == MarkingRole::kCarriagewayEdge) {
       outer_line_laterals.push_back(boundary.lateral_m);
     }
   }
@@ -149,7 +158,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=7\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=8\n") &&
                        saved.value.find("primitive=") == std::string::npos &&
                        saved.value.find("segment.0.shape.start_handle.x=") != std::string::npos,
                    "road save did not use named canonical Bezier shape authority");
@@ -191,12 +200,12 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
                    "non-finite road archive double was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.band.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "8")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "9")).ok,
                    "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
-  for (int old_version = 1; old_version <= 6; ++old_version) {
+  for (int old_version = 1; old_version <= 7; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=7").size(),
+    legacy.replace(0, std::string("road_graph_version=8").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
@@ -251,8 +260,12 @@ bool P1_degree_two_corner_uses_a_curve_without_a_junction(std::string& failure) 
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   ROAD_TEST_EXPECT(state.graph().connection_policy_overrides.empty(), "degree-two connection saved an automatic decision");
   ROAD_TEST_EXPECT(state.derived().junction_areas.empty(), "degree-two connection derived a JunctionArea");
-  ROAD_TEST_EXPECT(state.derived().junction_marking_meshes.empty(),
-                   "degree-two connection derived stop or zebra markings");
+  ROAD_TEST_EXPECT(std::none_of(state.derived().markings.areas.begin(),
+                                state.derived().markings.areas.end(),
+                                [](const auto& area) {
+                                  return area.owner.kind == city::road::MarkingOwner::Kind::kJunction;
+                                }),
+                   "degree-two connection derived stop or crosswalk markings");
   ROAD_TEST_EXPECT(state.derived().connection_areas.size() == 1,
                    "degree-two corner did not derive a separate connection area");
   std::set<RenderStyleRef> connection_styles{};
@@ -284,8 +297,12 @@ bool P1_straight_connection_has_no_junction_area(std::string& failure) {
   ROAD_TEST_EXPECT(state.graph().connection_policy_overrides.empty(), "straight connection saved an automatic decision");
   ROAD_TEST_EXPECT(state.derived().connection_areas.empty() && state.derived().junction_areas.empty(),
                    "straight connection derived an area with artificial width");
-  ROAD_TEST_EXPECT(state.derived().junction_marking_meshes.empty(),
-                   "straight connection derived stop or zebra markings");
+  ROAD_TEST_EXPECT(std::none_of(state.derived().markings.areas.begin(),
+                                state.derived().markings.areas.end(),
+                                [](const auto& area) {
+                                  return area.owner.kind == city::road::MarkingOwner::Kind::kJunction;
+                                }),
+                   "straight connection derived stop or crosswalk markings");
   return true;
 }
 
@@ -305,8 +322,14 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
                    "T junction did not derive material-separated junction surface meshes");
   ROAD_TEST_EXPECT(!state.derived().junction_meshes.front().indices.empty(),
                    "T junction surface mesh has no triangles");
-  ROAD_TEST_EXPECT(state.derived().junction_marking_meshes.size() >= 6,
-                   "T junction did not derive a stop line and zebra for every approach");
+  const auto junction_area_count = std::count_if(
+      state.derived().markings.areas.begin(),
+      state.derived().markings.areas.end(),
+      [](const auto& area) {
+        return area.owner.kind == city::road::MarkingOwner::Kind::kJunction;
+      });
+  ROAD_TEST_EXPECT(junction_area_count >= 6,
+                   "T junction did not resolve stop line and crosswalk markings for every approach");
   std::set<RenderStyleRef> junction_styles{};
   for (const auto& mesh : state.derived().junction_meshes) junction_styles.insert(mesh.style);
   ROAD_TEST_EXPECT(junction_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kAsphalt)) &&
@@ -318,21 +341,30 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
                      "T junction gate setback did not adapt to the approach width");
   }
   const auto& gate = state.derived().junction_areas.front().gates.front();
-  const auto& zebra = state.derived().junction_marking_meshes[1];
-  ROAD_TEST_EXPECT(zebra.vertices.size() >= 4, "T junction zebra has no stripe geometry");
+  const auto zebra_it = std::find_if(
+      state.derived().markings.areas.begin(),
+      state.derived().markings.areas.end(),
+      [](const auto& area) {
+        return area.owner.kind == city::road::MarkingOwner::Kind::kJunction &&
+               area.role == MarkingRole::kCrosswalk && !area.polygons.empty();
+      });
+  ROAD_TEST_EXPECT(zebra_it != state.derived().markings.areas.end(),
+                   "T junction crosswalk has no resolved geometry");
+  const auto& zebra = zebra_it->polygons.front();
+  ROAD_TEST_EXPECT(zebra.size() >= 4, "T junction crosswalk has no stripe geometry");
   const Vec2d tangent{gate.tangent.x, gate.tangent.y};
   const Vec2d lateral{-tangent.y, tangent.x};
-  const Vec2d stripe_edge_a{zebra.vertices[1].x - zebra.vertices[0].x,
-                            zebra.vertices[1].y - zebra.vertices[0].y};
-  const Vec2d stripe_edge_b{zebra.vertices[2].x - zebra.vertices[0].x,
-                            zebra.vertices[2].y - zebra.vertices[0].y};
+  const Vec2d stripe_edge_a{zebra[1].x - zebra[0].x,
+                            zebra[1].y - zebra[0].y};
+  const Vec2d stripe_edge_b{zebra[2].x - zebra[0].x,
+                            zebra[2].y - zebra[0].y};
   const double tangent_extent = std::max(std::abs(stripe_edge_a.x * tangent.x + stripe_edge_a.y * tangent.y),
                                          std::abs(stripe_edge_b.x * tangent.x + stripe_edge_b.y * tangent.y));
   const double lateral_extent = std::max(std::abs(stripe_edge_a.x * lateral.x + stripe_edge_a.y * lateral.y),
                                          std::abs(stripe_edge_b.x * lateral.x + stripe_edge_b.y * lateral.y));
   ROAD_TEST_EXPECT(tangent_extent > lateral_extent, "T junction zebra stripes are rotated by 90 degrees");
   const auto [min_z, max_z] = std::minmax_element(
-      zebra.vertices.begin(), zebra.vertices.end(), [](const auto& a, const auto& b) { return a.z < b.z; });
+      zebra.begin(), zebra.end(), [](const auto& a, const auto& b) { return a.z < b.z; });
   ROAD_TEST_EXPECT(max_z->z - min_z->z > 0.01, "T junction zebra does not follow the road cross slope");
   ROAD_TEST_EXPECT(ValidateGraphInvariants(state.graph(), state.derived()).ok, "T junction invariants failed");
   return true;
@@ -451,6 +483,7 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   ManualAreaRequest area{};
   area.owner_segment_id = added.value;
   area.frame_origin = {30.0, 0.0};
+  area.rotation_rad = std::acos(-1.0) * 0.5;
   area.width_m = 4.0;
   area.length_m = 8.0;
   area.style_id = builtin_marking_styles::kCrosswalk;
@@ -459,11 +492,24 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   ROAD_TEST_EXPECT(state.graph().transitions.size() == 1, "P2 did not save transition authority");
   ROAD_TEST_EXPECT(state.graph().manual_lines.size() == 1, "P2 did not save manual line authority");
   ROAD_TEST_EXPECT(state.graph().manual_areas.size() == 1, "P2 did not save manual area authority");
-  ROAD_TEST_EXPECT(state.derived().manual_marking_meshes.size() == 2, "P2 did not derive manual marking meshes");
+  const auto manual_path_count = std::count_if(
+      state.derived().markings.paths.begin(),
+      state.derived().markings.paths.end(),
+      [](const auto& path) {
+        return path.owner.kind == city::road::MarkingOwner::Kind::kManual;
+      });
+  const auto manual_area_count = std::count_if(
+      state.derived().markings.areas.begin(),
+      state.derived().markings.areas.end(),
+      [](const auto& area) {
+        return area.owner.kind == city::road::MarkingOwner::Kind::kManual;
+      });
+  ROAD_TEST_EXPECT(manual_path_count == 1 && manual_area_count == 1,
+                   "P2 did not resolve manual markings");
   ROAD_TEST_EXPECT(state.graph().segments.front().transition == transition_id.value,
                    "P2 transition is not attached to the segment authority");
 
-  const auto& sections = state.derived().section_evaluations;
+  const auto& sections = state.derived().sections;
   const auto at_station = [&sections](double station) -> const city::road::SectionEvaluation* {
     const auto it = std::find_if(sections.begin(), sections.end(), [station](const auto& item) {
       return std::abs(item.station_m - station) < 1e-6;
@@ -480,22 +526,39 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   ROAD_TEST_EXPECT(std::abs(before->boundaries.front().lateral_m - after->boundaries.front().lateral_m) < 1e-6,
                    "P2 left-edge anchor moved during one-sided widening");
 
-  const auto& line_mesh = state.derived().manual_marking_meshes[0];
-  ROAD_TEST_EXPECT(!line_mesh.indices.empty(), "P2 manual line is not a drawable ribbon mesh");
-  ROAD_TEST_EXPECT(line_mesh.style == RenderStyleFromMarking(builtin_marking_styles::kWhiteSolid),
-                   "P2 manual line style was saved but not consumed by materialization");
-  ROAD_TEST_EXPECT(std::abs(line_mesh.vertices.front().x - 105.0) < 1e-6 &&
-                       std::abs(line_mesh.vertices.front().y - 50.5) < 0.1,
+  const auto manual_line_it = std::find_if(
+      state.derived().markings.paths.begin(),
+      state.derived().markings.paths.end(),
+      [](const auto& path) {
+        return path.owner.kind == city::road::MarkingOwner::Kind::kManual &&
+               path.style_id == builtin_marking_styles::kWhiteSolid;
+      });
+  ROAD_TEST_EXPECT(manual_line_it != state.derived().markings.paths.end(),
+                   "P2 manual line was not resolved");
+  ROAD_TEST_EXPECT(manual_line_it->centerline.size() >= 2,
+                   "P2 manual line is not a drawable path");
+  ROAD_TEST_EXPECT(manual_line_it->style_id == builtin_marking_styles::kWhiteSolid,
+                   "P2 manual line style was saved but not consumed by draw");
+  ROAD_TEST_EXPECT(std::abs(manual_line_it->centerline.front().x - 105.0) < 1e-6 &&
+                       std::abs(manual_line_it->centerline.front().y - 50.5) < 0.1,
                    "P2 manual line was not transformed from owner-local coordinates");
-  ROAD_TEST_EXPECT(line_mesh.vertices.front().z > 0.02,
+  ROAD_TEST_EXPECT(manual_line_it->centerline.front().z > 0.02,
                    "P2 manual line does not follow the owner section cross slope");
-  const auto& area_mesh = state.derived().manual_marking_meshes[1];
-  ROAD_TEST_EXPECT(std::abs(area_mesh.vertices.front().x - 126.0) < 1e-6 &&
-                       std::abs(area_mesh.vertices.front().y - 48.0) < 1e-6,
-                   "P2 manual area was not transformed from owner-local coordinates");
+  const auto area_mesh_it = std::find_if(
+      state.derived().marking_meshes.begin(), state.derived().marking_meshes.end(),
+      [](const auto& mesh) {
+        return mesh.style == RenderStyleFromMarking(builtin_marking_styles::kCrosswalk);
+      });
+  ROAD_TEST_EXPECT(area_mesh_it != state.derived().marking_meshes.end(),
+                   "P2 manual area mesh was not materialized");
+  const auto& area_mesh = *area_mesh_it;
+  ROAD_TEST_EXPECT(std::abs(area_mesh.vertices.front().x - 132.0) < 1e-6 &&
+                       std::abs(area_mesh.vertices.front().y - 46.0) < 1e-6,
+                   "P2 manual area rotation was not transformed from owner-local coordinates");
   ROAD_TEST_EXPECT(area_mesh.style == RenderStyleFromMarking(builtin_marking_styles::kCrosswalk),
-                   "P2 manual area style was saved but not consumed by materialization");
-  ROAD_TEST_EXPECT(line_mesh.style != area_mesh.style, "P2 distinct manual marking styles collapsed to one mesh style");
+                   "P2 manual area style was saved but not consumed by draw");
+  ROAD_TEST_EXPECT(manual_line_it->style_id != builtin_marking_styles::kCrosswalk,
+                   "P2 distinct manual marking styles collapsed to one mesh style");
 
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
@@ -505,6 +568,8 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
                        loaded.value.graph().manual_lines.size() == 1 &&
                        loaded.value.graph().manual_areas.size() == 1,
                    "P2 authority did not survive save/load");
+  ROAD_TEST_EXPECT(loaded.value.graph().manual_areas.front().rotation_rad == area.rotation_rad,
+                   "P2 manual area rotation did not survive save/load");
   const auto before_bad_style = state.Save();
   ROAD_TEST_EXPECT(before_bad_style.ok, before_bad_style.error);
   ManualLineRequest bad_line = line;
@@ -563,13 +628,15 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   {
     RoadState state{};
     auto median = JapaneseUrbanTwoLaneTemplate(0);
+    const city::road::AutoMarkingPolicy outer_line{
+        true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid};
     median.bands.insert(median.bands.begin() + 2,
                         {25, SurfaceRole::kMedian, 2.0, 0.0, builtin_surface_styles::kMedian});
     median.boundaries = {
-        {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
-        {210, BoundaryRole::kMedianEdge, 0.2, 0.12, MarkingRule::kNone},
-        {220, BoundaryRole::kMedianEdge, 0.2, -0.12, MarkingRule::kNone},
-        {300, BoundaryRole::kCurb, 0.2, 0.15, MarkingRule::kOuterLine},
+        {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
+        {210, BoundaryRole::kMedianEdge, 0.2, 0.12, {}},
+        {220, BoundaryRole::kMedianEdge, 0.2, -0.12, {}},
+        {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
     };
     const auto median_id = state.AddSectionTemplate(city::road::AddSectionTemplateRequest{median});
     ROAD_TEST_EXPECT(median_id.ok, median_id.error);
@@ -622,6 +689,117 @@ bool P2_requires_transition_for_mixed_section_connection(std::string& failure) {
   return true;
 }
 
+bool P2_marking_policy_suppression_and_junction_override(std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(
+      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto node = state.graph().segments.front().node_b;
+  const auto branch_a = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), 1, node});
+  ROAD_TEST_EXPECT(branch_a.ok, branch_a.error);
+  const auto branch_b = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({40.0, 0.0}, {70.0, 0.0})}), 1, node});
+  ROAD_TEST_EXPECT(branch_b.ok, branch_b.error);
+  ROAD_TEST_EXPECT(!state.derived().junction_areas.empty(), "junction area was not derived");
+
+  const auto center_paths = [&]() {
+    return static_cast<std::size_t>(std::count_if(
+        state.derived().markings.paths.begin(), state.derived().markings.paths.end(),
+        [](const auto& path) {
+          return path.owner.kind == MarkingOwner::Kind::kRoadSegment &&
+                 path.role == MarkingRole::kCenterLine;
+        }));
+  };
+  const std::size_t center_before = center_paths();
+  ROAD_TEST_EXPECT(center_before >= 3, "center lines were not resolved per segment");
+
+  AutoMarkingKey suppress_key{
+      MarkingOwner{MarkingOwner::Kind::kRoadSegment, base.value, 0, 0},
+      MarkingRole::kCenterLine,
+      MarkingTrackKey{base.value, 200, MarkingRole::kCenterLine},
+      std::nullopt};
+  const auto suppressed = state.SuppressAutoMarking(city::road::SuppressAutoMarkingRequest{suppress_key});
+  ROAD_TEST_EXPECT(suppressed.ok, suppressed.error);
+  ROAD_TEST_EXPECT(center_paths() + 1 == center_before,
+                   "semantic suppression did not remove exactly one segment marking");
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  ROAD_TEST_EXPECT(saved.value.find("auto_marking_override.count=1") != std::string::npos,
+                   "auto marking suppression was not persisted");
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  ROAD_TEST_EXPECT(std::count_if(loaded.value.derived().markings.paths.begin(),
+                                 loaded.value.derived().markings.paths.end(),
+                                 [](const auto& path) {
+                                   return path.owner.kind == MarkingOwner::Kind::kRoadSegment &&
+                                          path.role == MarkingRole::kCenterLine;
+                                 }) == static_cast<long long>(center_paths()),
+                   "auto marking suppression was not restored");
+
+  const auto reset = state.ResetAutoMarkingSuppression(
+      city::road::ResetAutoMarkingSuppressionRequest{suppress_key});
+  ROAD_TEST_EXPECT(reset.ok, reset.error);
+  ROAD_TEST_EXPECT(center_paths() == center_before, "suppression reset did not restore center line");
+
+  const auto& area = state.derived().junction_areas.front();
+  ROAD_TEST_EXPECT(area.gates.size() >= 2, "junction override test needs two gates");
+  JunctionMarkingOverride override{};
+  override.node_id = area.node_id;
+  override.source = JunctionMarkingEndpoint{area.gates[0].approach, 200, MarkingRole::kCenterLine};
+  override.action = JunctionMarkingAction::kConnectToApproach;
+  override.target = JunctionMarkingEndpoint{area.gates[1].approach, 200, MarkingRole::kCenterLine};
+  const auto override_id =
+      state.SetJunctionMarkingOverride(city::road::SetJunctionMarkingOverrideRequest{override});
+  ROAD_TEST_EXPECT(override_id.ok, override_id.error);
+  ROAD_TEST_EXPECT(std::any_of(state.derived().markings.paths.begin(),
+                               state.derived().markings.paths.end(),
+                               [&](const auto& path) {
+                                 return path.owner.kind == MarkingOwner::Kind::kJunction &&
+                                        path.role == MarkingRole::kCenterLine &&
+                                        path.centerline.size() == 2;
+                               }),
+                   "explicit junction marking override did not create a junction-owned path");
+  const auto deleted = state.DeleteJunctionMarkingOverride(
+      city::road::DeleteJunctionMarkingOverrideRequest{override_id.value});
+  ROAD_TEST_EXPECT(deleted.ok, deleted.error);
+  ROAD_TEST_EXPECT(std::none_of(state.derived().markings.paths.begin(),
+                                state.derived().markings.paths.end(),
+                                [](const auto& path) {
+                                  return path.owner.kind == MarkingOwner::Kind::kJunction &&
+                                         path.role == MarkingRole::kCenterLine;
+                                }),
+                   "deleting junction marking override did not remove the explicit path");
+
+  const auto disabled = state.ResetBoundaryMarkingPolicy(
+      city::road::ResetBoundaryMarkingPolicyRequest{1, 200});
+  ROAD_TEST_EXPECT(disabled.ok, disabled.error);
+  ROAD_TEST_EXPECT(std::none_of(state.derived().markings.paths.begin(),
+                                state.derived().markings.paths.end(),
+                                [](const auto& path) {
+                                  return path.owner.kind == MarkingOwner::Kind::kRoadSegment &&
+                                         path.role == MarkingRole::kCenterLine;
+                                }),
+                   "reset boundary policy did not remove center line tracks");
+  const auto reenabled = state.SetBoundaryMarkingPolicy(
+      city::road::SetBoundaryMarkingPolicyRequest{
+          1, 200,
+          AutoMarkingPolicy{true, MarkingRole::kCenterLine,
+                            builtin_marking_styles::kCenterLine}});
+  ROAD_TEST_EXPECT(reenabled.ok, reenabled.error);
+  ROAD_TEST_EXPECT(center_paths() == center_before,
+                   "set boundary policy did not restore center line tracks");
+  const auto unknown_style = state.SetBoundaryMarkingPolicy(
+      city::road::SetBoundaryMarkingPolicyRequest{
+          1, 200, AutoMarkingPolicy{true, MarkingRole::kCenterLine,
+                                    city::road::MarkingStyleId{9999}}});
+  ROAD_TEST_EXPECT(!unknown_style.ok && unknown_style.error_kind == ErrorKind::kValidation,
+                   "unknown boundary marking style was not validation rejected");
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -669,6 +847,7 @@ int main() {
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
+      {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

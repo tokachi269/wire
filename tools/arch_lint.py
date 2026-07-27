@@ -183,6 +183,63 @@ def parse_backbone_aspect_coverage(text: str) -> tuple[dict[str, tuple[set[str],
     return coverage, errors
 
 
+def parse_backbone_representative_requirements(text: str) -> tuple[dict[str, set[str]], list[str]]:
+    errors: list[str] = []
+    requirements: dict[str, set[str]] = {}
+    table = table_after_heading(text, "## セル必須入力代表")
+    if len(table) < 2:
+        return requirements, ["docs/wire/backbone_operation_semantics.md: missing cell representative requirements table"]
+    for line in table[1:]:
+        cells = markdown_cells(line)
+        if not cells or is_separator_row(cells):
+            continue
+        if len(cells) < 2:
+            errors.append(f"docs/wire/backbone_operation_semantics.md: malformed representative requirement row: {line.strip()}")
+            continue
+        cell_id = cells[0]
+        if not re.fullmatch(r"BOS:[a-z0-9_]+:[A-Z0-9]+", cell_id):
+            errors.append(f"docs/wire/backbone_operation_semantics.md: invalid representative requirement cell id: {cell_id}")
+            continue
+        if cell_id in requirements:
+            errors.append(f"docs/wire/backbone_operation_semantics.md: duplicate representative requirement cell: {cell_id}")
+            continue
+        representatives = parse_aspect_list(cells[1])
+        if not representatives:
+            errors.append(f"docs/wire/backbone_operation_semantics.md: representative requirement has no representatives: {cell_id}")
+        requirements[cell_id] = representatives
+    return requirements, errors
+
+
+def parse_backbone_representative_coverage(text: str) -> tuple[dict[str, tuple[set[str], set[str]]], list[str]]:
+    errors: list[str] = []
+    coverage: dict[str, tuple[set[str], set[str]]] = {}
+    table = table_after_heading(text, "## Backbone Operation Representative Coverage")
+    if len(table) < 2:
+        return coverage, ["domains/wire/tests/spec_ledger.md: missing Backbone Operation Representative Coverage table"]
+    for line in table[1:]:
+        cells = markdown_cells(line)
+        if not cells or is_separator_row(cells):
+            continue
+        if len(cells) < 3:
+            errors.append(f"domains/wire/tests/spec_ledger.md: malformed semantics representative row: {line.strip()}")
+            continue
+        cell_id = cells[0]
+        if not re.fullmatch(r"BOS:[a-z0-9_]+:[A-Z0-9]+", cell_id):
+            errors.append(f"domains/wire/tests/spec_ledger.md: invalid semantics representative cell id: {cell_id}")
+            continue
+        if cell_id in coverage:
+            errors.append(f"domains/wire/tests/spec_ledger.md: duplicate semantics representative cell: {cell_id}")
+            continue
+        cases = set(re.findall(r"C\d+", cells[1]))
+        representatives = parse_aspect_list(cells[2])
+        if not cases:
+            errors.append(f"domains/wire/tests/spec_ledger.md: semantics representative coverage has no case ids: {cell_id}")
+        if not representatives:
+            errors.append(f"domains/wire/tests/spec_ledger.md: semantics representative coverage has no representatives: {cell_id}")
+        coverage[cell_id] = (cases, representatives)
+    return coverage, errors
+
+
 def parse_backbone_authority_guards(text: str) -> tuple[list[dict[str, object]], list[str]]:
     errors: list[str] = []
     guards: list[dict[str, object]] = []
@@ -238,9 +295,23 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
     )
     requirements, requirement_errors = parse_backbone_aspect_requirements(docs_path.read_text(encoding="utf-8"))
     aspect_coverage, aspect_coverage_errors = parse_backbone_aspect_coverage(ledger_path.read_text(encoding="utf-8"))
+    representative_requirements, representative_requirement_errors = parse_backbone_representative_requirements(
+        docs_path.read_text(encoding="utf-8")
+    )
+    representative_coverage, representative_coverage_errors = parse_backbone_representative_coverage(
+        ledger_path.read_text(encoding="utf-8")
+    )
     authority_guards, authority_errors = parse_backbone_authority_guards(ledger_path.read_text(encoding="utf-8"))
     registered_ids = registered_core_case_ids(root)
-    errors = parse_errors + coverage_errors + requirement_errors + aspect_coverage_errors + authority_errors
+    errors = (
+        parse_errors
+        + coverage_errors
+        + requirement_errors
+        + aspect_coverage_errors
+        + representative_requirement_errors
+        + representative_coverage_errors
+        + authority_errors
+    )
     covered = set(coverage.keys())
     for cell in sorted(required - covered):
         errors.append(f"domains/wire/tests/spec_ledger.md: missing semantics coverage for {cell}")
@@ -287,6 +358,37 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
         if missing_aspects:
             errors.append(
                 f"domains/wire/tests/spec_ledger.md: {cell} missing required aspects {', '.join(missing_aspects)}"
+            )
+    required_representative_cells = set(representative_requirements.keys())
+    representative_covered_cells = set(representative_coverage.keys())
+    for cell in sorted(required - required_representative_cells):
+        errors.append(f"docs/wire/backbone_operation_semantics.md: missing representative requirements for {cell}")
+    for cell in sorted(required_representative_cells - required):
+        errors.append(f"docs/wire/backbone_operation_semantics.md: representative requirements for non-required cell {cell}")
+    for cell in sorted(required - representative_covered_cells):
+        errors.append(f"domains/wire/tests/spec_ledger.md: missing representative coverage for {cell}")
+    for cell in sorted(representative_covered_cells - required):
+        errors.append(f"domains/wire/tests/spec_ledger.md: representative coverage for non-required cell {cell}")
+    for cell, (cases, representatives) in sorted(representative_coverage.items()):
+        expected_cases = coverage.get(cell, set())
+        if cases != expected_cases:
+            errors.append(
+                f"domains/wire/tests/spec_ledger.md: representative coverage cases for {cell} do not match semantics coverage"
+            )
+        missing_ledger_cases = sorted(case for case in cases if case not in ledger_case_ids)
+        if missing_ledger_cases:
+            errors.append(
+                f"domains/wire/tests/spec_ledger.md: representative coverage {cell} references cases absent from ledger {', '.join(missing_ledger_cases)}"
+            )
+        missing_registered_cases = sorted(case for case in cases if case not in registered_ids)
+        if missing_registered_cases:
+            errors.append(
+                f"domains/wire/tests/spec_ledger.md: representative coverage {cell} references unregistered cases {', '.join(missing_registered_cases)}"
+            )
+        missing_representatives = sorted(representative_requirements.get(cell, set()) - representatives)
+        if missing_representatives:
+            errors.append(
+                f"domains/wire/tests/spec_ledger.md: {cell} missing required representatives {', '.join(missing_representatives)}"
             )
     production_roots = [root / "domains" / "wire" / "src", root / "domains" / "wire" / "include"]
     production_files = [

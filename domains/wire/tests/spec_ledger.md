@@ -18,15 +18,15 @@
 | Cell | Cases |
 |---|---|
 | BOS:add_one_edge:S0 | case:C809 |
-| BOS:add_one_edge:S1 | case:C771 case:C773 |
-| BOS:add_one_edge:S2 | case:C816 |
+| BOS:add_one_edge:S1 | case:C771 case:C773 case:C835 |
+| BOS:add_one_edge:S2 | case:C816 case:C834 case:C815 |
 | BOS:add_one_edge:S3 | case:C782 |
-| BOS:add_one_edge:S4 | case:C809 case:C816 |
+| BOS:add_one_edge:S4 | case:C809 case:C816 case:C834 case:C815 |
 | BOS:add_one_edge:S5 | case:C772 case:C814 |
 | BOS:add_one_edge:SM | case:C564 case:C566 case:C589 |
-| BOS:add_two_edges:S0 | case:C388 case:C663 |
+| BOS:add_two_edges:S0 | case:C388 case:C663 case:C835 |
 | BOS:add_two_edges:S1 | case:C814 |
-| BOS:add_two_edges:S2 | case:C814 |
+| BOS:add_two_edges:S2 | case:C814 case:C834 case:C815 |
 | BOS:add_two_edges:S3 | case:C814 |
 | BOS:add_two_edges:S4 | case:C814 |
 | BOS:add_two_edges:S5 | case:C814 |
@@ -65,15 +65,15 @@
 | Cell | Cases | Covered aspects |
 |---|---|---|
 | BOS:add_one_edge:S0 | case:C809 | `open_state` `support_level` |
-| BOS:add_one_edge:S1 | case:C771 case:C773 | `pair_connectivity` `continuity_table` `support_level` `curve_endpoint` |
-| BOS:add_one_edge:S2 | case:C816 | `open_state` `support_level` |
+| BOS:add_one_edge:S1 | case:C771 case:C773 case:C835 | `pair_connectivity` `continuity_table` `support_level` `curve_endpoint` |
+| BOS:add_one_edge:S2 | case:C816 case:C834 case:C815 | `open_state` `support_level` |
 | BOS:add_one_edge:S3 | case:C782 | `open_state` `ambiguity_open` |
-| BOS:add_one_edge:S4 | case:C809 case:C816 | `pair_connectivity` `continuity_table` `support_level` |
+| BOS:add_one_edge:S4 | case:C809 case:C816 case:C834 case:C815 | `pair_connectivity` `continuity_table` `support_level` |
 | BOS:add_one_edge:S5 | case:C772 case:C814 | `open_state` `ambiguity_open` |
 | BOS:add_one_edge:SM | case:C564 case:C566 case:C589 | `template_policy` `selected_policy` `source_projection` `open_state` |
-| BOS:add_two_edges:S0 | case:C388 case:C663 | `pair_connectivity` `continuity_table` `port_identity` `curve_endpoint` |
+| BOS:add_two_edges:S0 | case:C388 case:C663 case:C835 | `pair_connectivity` `continuity_table` `port_identity` `curve_endpoint` |
 | BOS:add_two_edges:S1 | case:C814 | `open_state` `ambiguity_open` |
-| BOS:add_two_edges:S2 | case:C814 | `open_state` `ambiguity_open` |
+| BOS:add_two_edges:S2 | case:C814 case:C834 case:C815 | `open_state` `ambiguity_open` |
 | BOS:add_two_edges:S3 | case:C814 | `open_state` `ambiguity_open` |
 | BOS:add_two_edges:S4 | case:C814 | `open_state` `ambiguity_open` |
 | BOS:add_two_edges:S5 | case:C814 | `open_state` `ambiguity_open` |
@@ -102,6 +102,54 @@
 | BOS:regenerate:S4 | case:C805 | `regenerate` `continuity_table` `support_level` |
 | BOS:regenerate:S5 | case:C805 | `regenerate` `continuity_table` `support_level` |
 | BOS:regenerate:SM | case:C719 case:C724 case:C725 | `regenerate` `source_projection` |
+
+## Backbone Operation Representative Coverage
+
+各セルのcase群が、`docs/wire/backbone_operation_semantics.md` の「セル必須入力代表」を
+集合として満たしていることを記録する。観点は「何を見るか」、入力代表は
+「どの入力形状・操作履歴を通したか」を表す。`tools/arch_lint.py` は必須代表の不足と
+case集合の不一致を検出する。
+
+| Cell | Cases | Covered representatives |
+|---|---|---|
+| BOS:add_one_edge:S0 | case:C809 | `single_edge` `no_existing_incident` |
+| BOS:add_one_edge:S1 | case:C771 case:C773 case:C835 | `incremental` `existing_open_one` `normal_angle` `sharp_angle` `draw_forward` `draw_reverse` `branch_down_enabled` `branch_down_disabled` |
+| BOS:add_one_edge:S2 | case:C816 case:C834 case:C815 | `incremental` `existing_pair_normal` `single_added_edge` `branch_down_enabled` |
+| BOS:add_one_edge:S3 | case:C782 | `incremental` `existing_pair_sharp` `single_added_edge` `ambiguity_candidates` |
+| BOS:add_one_edge:S4 | case:C809 case:C816 case:C834 case:C815 | `incremental` `existing_pair_plus_open_one` `single_added_edge` `occupied_lower_levels` `branch_down_enabled` |
+| BOS:add_one_edge:S5 | case:C772 case:C814 | `incremental` `existing_pair_plus_open_many` `ambiguity_candidates` |
+| BOS:add_one_edge:SM | case:C564 case:C566 case:C589 | `incremental` `source_edge_midspan` `selected_template_allowed` `selected_template_rejected` |
+| BOS:add_two_edges:S0 | case:C388 case:C663 case:C835 | `one_shot` `two_edge_same_operation` `normal_angle` `sharp_angle` `viewer_default_bundle_set` `branch_down_enabled` `branch_down_disabled` |
+| BOS:add_two_edges:S1 | case:C814 | `one_shot` `two_edge_same_operation` `existing_open_one` `ambiguity_candidates` |
+| BOS:add_two_edges:S2 | case:C814 case:C834 case:C815 | `one_shot` `two_edge_same_operation` `existing_pair_normal` `sharp_angle` `occupied_lower_levels` `branch_down_enabled` |
+| BOS:add_two_edges:S3 | case:C814 | `one_shot` `two_edge_same_operation` `existing_pair_sharp` `ambiguity_candidates` |
+| BOS:add_two_edges:S4 | case:C814 | `one_shot` `two_edge_same_operation` `existing_pair_plus_open_one` `ambiguity_candidates` |
+| BOS:add_two_edges:S5 | case:C814 | `one_shot` `two_edge_same_operation` `existing_pair_plus_open_many` `ambiguity_candidates` |
+| BOS:move_pole_angle:S1 | case:C813 | `move_pole` `existing_open_one` |
+| BOS:move_pole_angle:S2 | case:C813 | `move_pole` `existing_pair_normal` `move_to_sharp` `move_back_to_normal` `model_assembly` |
+| BOS:move_pole_angle:S3 | case:C813 | `move_pole` `existing_pair_sharp` `move_to_normal` `move_back_to_sharp` `model_assembly` |
+| BOS:move_pole_angle:S4 | case:C813 | `move_pole` `existing_pair_plus_open_one` `representation_switch` |
+| BOS:move_pole_angle:S5 | case:C813 | `move_pole` `existing_pair_plus_open_many` `representation_switch` |
+| BOS:update_placement:S1 | case:C796 | `placement_update` `existing_open_one` |
+| BOS:update_placement:S2 | case:C770 case:C816 | `placement_update` `existing_pair_normal` `same_template_multi_placement` |
+| BOS:update_placement:S3 | case:C770 | `placement_update` `existing_pair_sharp` |
+| BOS:update_placement:S4 | case:C770 case:C796 | `placement_update` `existing_pair_plus_open_one` `same_template_multi_placement` |
+| BOS:update_placement:S5 | case:C796 | `placement_update` `existing_pair_plus_open_many` |
+| BOS:update_placement:SM | case:C719 case:C724 case:C725 | `placement_update` `source_edge_midspan` |
+| BOS:save_load:S0 | case:C751 | `save_load` `no_existing_incident` |
+| BOS:save_load:S1 | case:C775 | `save_load` `existing_open_one` |
+| BOS:save_load:S2 | case:C751 case:C775 case:C811 | `save_load` `existing_pair_normal` `migration_shared_port` |
+| BOS:save_load:S3 | case:C751 case:C773 case:C811 | `save_load` `existing_pair_sharp` `migration_shared_port` |
+| BOS:save_load:S4 | case:C805 | `save_load` `existing_pair_plus_open_one` |
+| BOS:save_load:S5 | case:C805 | `save_load` `existing_pair_plus_open_many` |
+| BOS:save_load:SM | case:C805 | `save_load` `source_edge_midspan` |
+| BOS:regenerate:S0 | case:C702 | `regenerate` `no_existing_incident` |
+| BOS:regenerate:S1 | case:C776 | `regenerate` `existing_open_one` |
+| BOS:regenerate:S2 | case:C776 case:C813 | `regenerate` `existing_pair_normal` |
+| BOS:regenerate:S3 | case:C776 case:C813 | `regenerate` `existing_pair_sharp` |
+| BOS:regenerate:S4 | case:C805 | `regenerate` `existing_pair_plus_open_one` |
+| BOS:regenerate:S5 | case:C805 | `regenerate` `existing_pair_plus_open_many` |
+| BOS:regenerate:SM | case:C719 case:C724 case:C725 | `regenerate` `source_edge_midspan` |
 
 ## Backbone Authority Guard Coverage
 

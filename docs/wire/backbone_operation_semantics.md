@@ -93,6 +93,53 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 | BOS:regenerate:S5 | `regenerate` `continuity_table` `support_level` |
 | BOS:regenerate:SM | `regenerate` `source_projection` |
 
+## セル必須入力代表
+
+`セル必須観点`は何を検査するかを定義する。この表は、どの入力形状・操作履歴を
+最低限通すかを定義する。case IDだけではなく、この代表集合を
+`domains/wire/tests/spec_ledger.md` の representative coverage で満たす。
+
+| Cell | Required representatives |
+|---|---|
+| BOS:add_one_edge:S0 | `single_edge` `no_existing_incident` |
+| BOS:add_one_edge:S1 | `incremental` `existing_open_one` `normal_angle` `sharp_angle` `draw_forward` `draw_reverse` `branch_down_enabled` `branch_down_disabled` |
+| BOS:add_one_edge:S2 | `incremental` `existing_pair_normal` `single_added_edge` `branch_down_enabled` |
+| BOS:add_one_edge:S3 | `incremental` `existing_pair_sharp` `single_added_edge` `ambiguity_candidates` |
+| BOS:add_one_edge:S4 | `incremental` `existing_pair_plus_open_one` `single_added_edge` `occupied_lower_levels` `branch_down_enabled` |
+| BOS:add_one_edge:S5 | `incremental` `existing_pair_plus_open_many` `ambiguity_candidates` |
+| BOS:add_one_edge:SM | `incremental` `source_edge_midspan` `selected_template_allowed` `selected_template_rejected` |
+| BOS:add_two_edges:S0 | `one_shot` `two_edge_same_operation` `normal_angle` `sharp_angle` `viewer_default_bundle_set` `branch_down_enabled` `branch_down_disabled` |
+| BOS:add_two_edges:S1 | `one_shot` `two_edge_same_operation` `existing_open_one` `ambiguity_candidates` |
+| BOS:add_two_edges:S2 | `one_shot` `two_edge_same_operation` `existing_pair_normal` `sharp_angle` `occupied_lower_levels` `branch_down_enabled` |
+| BOS:add_two_edges:S3 | `one_shot` `two_edge_same_operation` `existing_pair_sharp` `ambiguity_candidates` |
+| BOS:add_two_edges:S4 | `one_shot` `two_edge_same_operation` `existing_pair_plus_open_one` `ambiguity_candidates` |
+| BOS:add_two_edges:S5 | `one_shot` `two_edge_same_operation` `existing_pair_plus_open_many` `ambiguity_candidates` |
+| BOS:move_pole_angle:S1 | `move_pole` `existing_open_one` |
+| BOS:move_pole_angle:S2 | `move_pole` `existing_pair_normal` `move_to_sharp` `move_back_to_normal` `model_assembly` |
+| BOS:move_pole_angle:S3 | `move_pole` `existing_pair_sharp` `move_to_normal` `move_back_to_sharp` `model_assembly` |
+| BOS:move_pole_angle:S4 | `move_pole` `existing_pair_plus_open_one` `representation_switch` |
+| BOS:move_pole_angle:S5 | `move_pole` `existing_pair_plus_open_many` `representation_switch` |
+| BOS:update_placement:S1 | `placement_update` `existing_open_one` |
+| BOS:update_placement:S2 | `placement_update` `existing_pair_normal` `same_template_multi_placement` |
+| BOS:update_placement:S3 | `placement_update` `existing_pair_sharp` |
+| BOS:update_placement:S4 | `placement_update` `existing_pair_plus_open_one` `same_template_multi_placement` |
+| BOS:update_placement:S5 | `placement_update` `existing_pair_plus_open_many` |
+| BOS:update_placement:SM | `placement_update` `source_edge_midspan` |
+| BOS:save_load:S0 | `save_load` `no_existing_incident` |
+| BOS:save_load:S1 | `save_load` `existing_open_one` |
+| BOS:save_load:S2 | `save_load` `existing_pair_normal` `migration_shared_port` |
+| BOS:save_load:S3 | `save_load` `existing_pair_sharp` `migration_shared_port` |
+| BOS:save_load:S4 | `save_load` `existing_pair_plus_open_one` |
+| BOS:save_load:S5 | `save_load` `existing_pair_plus_open_many` |
+| BOS:save_load:SM | `save_load` `source_edge_midspan` |
+| BOS:regenerate:S0 | `regenerate` `no_existing_incident` |
+| BOS:regenerate:S1 | `regenerate` `existing_open_one` |
+| BOS:regenerate:S2 | `regenerate` `existing_pair_normal` |
+| BOS:regenerate:S3 | `regenerate` `existing_pair_sharp` |
+| BOS:regenerate:S4 | `regenerate` `existing_pair_plus_open_one` |
+| BOS:regenerate:S5 | `regenerate` `existing_pair_plus_open_many` |
+| BOS:regenerate:SM | `regenerate` `source_edge_midspan` |
+
 ### 接続候補の規則
 
 生成操作の完了時に、影響nodeの未接続endpointを同じ解決処理へ渡す。

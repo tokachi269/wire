@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace city::road::build {
+namespace city::road::internal {
 
 bool is_finite(double value) { return std::isfinite(value); }
 
@@ -105,4 +105,4 @@ void sort_unique_stations(std::vector<double> &stations) {
                  stations.end());
 }
 
-} // namespace city::road::build
+} // namespace city::road::internal

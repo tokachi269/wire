@@ -65,7 +65,7 @@ public:
 
 private:
   [[nodiscard]] Result<bool> Execute(const operations::OperationPlan& plan);
-  [[nodiscard]] Result<bool> BuildDerived();
+  [[nodiscard]] Result<bool> regenerate();
 
   SavedRoadGraph graph_{};
   DerivedRoad derived_{};

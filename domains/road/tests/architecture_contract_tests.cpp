@@ -1,5 +1,7 @@
 #include "city/road/road.hpp"
 
+#include "derived_view.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -23,10 +25,6 @@ namespace {
   } while (false)
 
 using namespace city::road;
-
-const ResolvedNodeLayout* find_resolved_layout(const DerivedRoad& derived, RoadNodeId node_id);
-const ResolvedApproachLayout* find_resolved_approach(const ResolvedNodeLayout& layout,
-                                                     const ApproachKey& key);
 
 void append_boundary(std::ostringstream& out, const SectionBoundarySample& value) {
   out << value.boundary_id << ',' << static_cast<int>(value.role) << ',' << value.lateral_m << ','
@@ -68,89 +66,47 @@ std::string derived_observation(const DerivedRoad& derived) {
   std::ostringstream out;
   out.imbue(std::locale::classic());
   out << std::hexfloat;
-  for (const std::size_t runs : derived.build_stage_runs) out << runs << ',';
-  out << ':' << derived.setback_calculation_count << ',' << derived.section_evaluation_count << ':';
-  out << derived.alignments.size() << ':';
-  for (const auto& alignment : derived.alignments) {
-    out << alignment.segment_id << ',' << alignment.path.spans.size() << ':';
-    for (const auto& span : alignment.path.spans) {
+  out << derived.setback_calculation_count << ',' << derived.section_evaluation_count << ':';
+  out << derived.segments.size() << ':';
+  for (const DerivedSegment& segment : derived.segments) {
+    out << segment.id << ',' << segment.length_m << ',' << segment.surface_start_m << ','
+        << segment.surface_end_m << ',' << segment.alignment.spans.size() << ':';
+    for (const auto& span : segment.alignment.spans) {
       out << span.p0.x << ',' << span.p0.y << ',' << span.p1.x << ',' << span.p1.y << ','
           << span.p2.x << ',' << span.p2.y << ',' << span.p3.x << ',' << span.p3.y << ';';
     }
-  }
-  out << derived.decisions.size() << ':';
-  for (const auto& decision : derived.decisions) {
-    out << decision.node_id << ',' << static_cast<int>(decision.kind) << ','
-        << decision.corner_radius_m << ',' << decision.corner_control_m << ','
-        << decision.junction_corner_control_m << ',' << decision.applied_policy_override_id << ':';
-    for (const ApproachKey& key : decision.ordered_approaches) {
-      append_approach(out, key);
-      out << ';';
-    }
-    for (const ApproachConnectionDecision& approach : decision.approaches) {
-      append_approach(out, approach.key);
-      out << ',' << approach.endpoint_template_id << ',' << approach.setback_m << ','
-          << approach.gate_station_m << ';';
-    }
-  }
-  out << derived.sampling.size() << ':';
-  for (const auto& plan : derived.sampling) {
-    out << plan.segment_id << ':';
-    for (double station : plan.semantic_stations_m) out << station << ',';
+    for (double station : segment.semantic_stations_m) out << station << ',';
     out << ':';
-    for (double station : plan.surface_stations_m) out << station << ',';
-    out << ';';
-  }
-  out << derived.sections.size() << ':';
-  for (const auto& section : derived.sections) {
-    out << section.segment_id << ',' << section.station_m << ','
-        << section.resolved_template_id << ':';
-    for (const auto& boundary : section.boundaries) append_boundary(out, boundary);
-    for (const auto& style : section.surface_styles) {
-      out << static_cast<int>(style.domain) << ':' << style.value << ';';
-    }
-  }
-  append_meshes(out, derived.segment_meshes);
-  append_meshes(out, derived.marking_meshes);
-  out << derived.markings.paths.size() << ':';
-  for (const ResolvedMarkingPath& path : derived.markings.paths) {
-    out << path.id << ':';
-    append_owner(out, path.owner);
-    out << ':' << static_cast<int>(path.role) << ',' << path.style_id.value
-        << ',' << static_cast<int>(path.source_action) << ',' << path.width_m << ':';
-    for (const Vec3d& point : path.centerline) {
-      out << point.x << ',' << point.y << ',' << point.z << ';';
-    }
-  }
-  out << derived.markings.areas.size() << ':';
-  for (const ResolvedMarkingArea& area : derived.markings.areas) {
-    out << area.id << ':';
-    append_owner(out, area.owner);
-    out << ':' << static_cast<int>(area.role) << ',' << area.style_id.value
-        << ':' << area.polygons.size() << ':';
-    for (const auto& polygon : area.polygons) {
-      out << polygon.size() << ':';
-      for (const Vec3d& point : polygon) {
-        out << point.x << ',' << point.y << ',' << point.z << ';';
+    for (double station : segment.surface_stations_m) out << station << ',';
+    out << ':' << segment.sections.size() << ':';
+    for (const SectionEvaluation& section : segment.sections) {
+      out << section.segment_id << ',' << section.station_m << ','
+          << section.resolved_template_id << ':';
+      for (const auto& boundary : section.boundaries) append_boundary(out, boundary);
+      for (const auto& style : section.surface_styles) {
+        out << static_cast<int>(style.domain) << ':' << style.value << ';';
       }
     }
   }
-  out << derived.terrain_masks.size() << ':';
-  for (const auto& mask : derived.terrain_masks) {
-    out << mask.segment_id << ',' << mask.points.size() << ':';
-    for (const auto& point : mask.points) out << point.x << ',' << point.y << ';';
-  }
-  out << derived.gates.size() << ':';
-  for (const auto& gate : derived.gates) append_gate(out, gate);
-  out << derived.connection_areas.size() << ':';
-  for (const auto& area : derived.connection_areas) {
-    out << area.node_id << ',' << area.gates.size() << ':';
-    for (const auto& gate : area.gates) append_gate(out, gate);
-  }
   out << derived.connections.size() << ':';
-  for (const ConnectionGeometry& geometry : derived.connections) {
-    out << geometry.node_id << ',' << geometry.surface_strips.size() << ':';
-    for (const ResolvedSurfaceStrip& strip : geometry.surface_strips) {
+  for (const ResolvedConnection& connection : derived.connections) {
+    out << connection.node_id << ',' << static_cast<int>(connection.kind) << ','
+        << connection.corner_radius_m << ',' << connection.corner_control_m << ','
+        << connection.junction_corner_control_m << ','
+        << connection.applied_policy_override_id << ':';
+    for (const ApproachKey& key : connection.ordered_approaches) {
+      append_approach(out, key);
+      out << ';';
+    }
+    for (const ResolvedApproach& approach : connection.approaches) {
+      append_approach(out, approach.key);
+      out << ',' << approach.endpoint_template_id << ',' << approach.auto_setback_m << ','
+          << approach.resolved_setback_m << ',' << approach.resolved_lateral_shift_m << ','
+          << approach.gate_station_m << ';';
+      append_gate(out, approach.gate);
+    }
+    out << connection.connection_geometry.surface_strips.size() << ':';
+    for (const ResolvedSurfaceStrip& strip : connection.connection_geometry.surface_strips) {
       out << static_cast<int>(strip.style.domain) << ':' << strip.style.value << ','
           << strip.left_boundary_id << ',' << strip.right_boundary_id << ':';
       for (const Vec3d& point : strip.left) {
@@ -160,24 +116,36 @@ std::string derived_observation(const DerivedRoad& derived) {
         out << point.x << ',' << point.y << ',' << point.z << ';';
       }
     }
-  }
-  append_meshes(out, derived.connection_meshes);
-  out << derived.junction_areas.size() << ':';
-  for (const auto& area : derived.junction_areas) {
-    out << area.policy_override_id << ',' << area.node_id << ',' << area.gates.size() << ':';
-    for (const auto& gate : area.gates) append_gate(out, gate);
-  }
-  out << derived.junctions.size() << ':';
-  for (const JunctionGeometry& geometry : derived.junctions) {
-    out << geometry.node_id << ',' << geometry.surface_regions.size() << ','
-        << geometry.surface_strips.size() << ':';
-    for (const ResolvedSurfaceRegion& region : geometry.surface_regions) {
+    out << connection.junction_geometry.surface_regions.size() << ','
+        << connection.junction_geometry.surface_strips.size() << ':';
+    for (const ResolvedSurfaceRegion& region : connection.junction_geometry.surface_regions) {
       out << static_cast<int>(region.style.domain) << ':' << region.style.value << ':';
       for (const Vec3d& point : region.perimeter) {
         out << point.x << ',' << point.y << ',' << point.z << ';';
       }
     }
   }
+  out << derived.markings.size() << ':';
+  for (const DerivedMarking& marking : derived.markings) {
+    append_owner(out, marking.owner);
+    out << ':' << marking.boundary_id << ',' << static_cast<int>(marking.role) << ','
+        << marking.style_id.value << ',' << marking.width_m << ':';
+    for (const Vec3d& point : marking.points) {
+      out << point.x << ',' << point.y << ',' << point.z << ';';
+    }
+    out << ':';
+    for (const Vec3d& point : marking.polygon) {
+      out << point.x << ',' << point.y << ',' << point.z << ';';
+    }
+  }
+  out << derived.terrain_masks.size() << ':';
+  for (const auto& mask : derived.terrain_masks) {
+    out << mask.segment_id << ',' << mask.points.size() << ':';
+    for (const auto& point : mask.points) out << point.x << ',' << point.y << ';';
+  }
+  append_meshes(out, derived.segment_meshes);
+  append_meshes(out, derived.marking_meshes);
+  append_meshes(out, derived.connection_meshes);
   append_meshes(out, derived.junction_meshes);
   return out.str();
 }
@@ -199,7 +167,7 @@ std::string query_observation(const RoadState& state) {
       << state.graph().manual_areas.size() << ':';
   for (const auto& node : state.graph().nodes) out << 'n' << node.id << ';';
   for (const auto& segment : state.graph().segments) out << 's' << segment.id << ';';
-  for (const auto& gate : state.derived().gates) out << 'g' << gate.segment_id << ',' << gate.node_id << ';';
+  for (const auto& gate : road_test_view::gates(state.derived())) out << 'g' << gate.segment_id << ',' << gate.node_id << ';';
   return out.str();
 }
 
@@ -473,20 +441,14 @@ bool reverse_input_has_equivalent_geometry(std::string& failure) {
     }
     return true;
   };
-  const auto marking_centers = [](const ResolvedMarkingGraph& graph) {
+  const auto marking_centers = [](const std::vector<DerivedMarking>& markings) {
     std::vector<Mesh> meshes{};
-    for (const ResolvedMarkingPath& path : graph.paths) {
+    for (const DerivedMarking& marking : markings) {
       Mesh mesh{};
-      mesh.style = RenderStyleFromMarking(path.style_id);
-      mesh.vertices = path.centerline;
-      meshes.push_back(std::move(mesh));
-    }
-    for (const ResolvedMarkingArea& area : graph.areas) {
-      Mesh mesh{};
-      mesh.style = RenderStyleFromMarking(area.style_id);
-      for (const auto& polygon : area.polygons) {
-        mesh.vertices.insert(mesh.vertices.end(), polygon.begin(), polygon.end());
-      }
+      mesh.style = RenderStyleFromMarking(marking.style_id);
+      mesh.vertices = marking.points;
+      mesh.vertices.insert(mesh.vertices.end(), marking.polygon.begin(),
+                           marking.polygon.end());
       meshes.push_back(std::move(mesh));
     }
     return meshes;
@@ -574,15 +536,12 @@ bool isolated_segment_uses_simple_path(std::string& failure) {
   const auto added = state.AddSegment(AddSegmentRequest{
       MakePath({MakeLine({0.0, 0.0}, {30.0, 0.0})}), 1});
   ROAD_CONTRACT_EXPECT(added.ok, added.error);
-  ROAD_CONTRACT_EXPECT(state.derived().decisions.empty(),
-                       "isolated segment created node connection decisions");
-  ROAD_CONTRACT_EXPECT(state.derived().gates.empty(),
+  ROAD_CONTRACT_EXPECT(state.derived().connections.empty(),
+                       "isolated segment created a connection entity");
+  ROAD_CONTRACT_EXPECT(road_test_view::gates(state.derived()).empty(),
                        "isolated segment created connection gates");
-  ROAD_CONTRACT_EXPECT(state.derived().auto_layouts.empty() &&
-                           state.derived().layouts.empty(),
-                       "isolated segment created node layout read models");
-  ROAD_CONTRACT_EXPECT(state.derived().connections.empty() &&
-                           state.derived().junctions.empty(),
+  ROAD_CONTRACT_EXPECT(state.derived().connection_meshes.empty() &&
+                           state.derived().junction_meshes.empty(),
                        "isolated segment entered connection geometry");
   return true;
 }
@@ -596,12 +555,12 @@ bool approach_override_resolves_and_persists_manual_fields(std::string& failure)
       AddSegmentConnectedToSegmentRequest{
           MakePath({MakeLine({20.0, 0.0}, {32.0, 24.0})}), 1, base.value, 20.0});
   ROAD_CONTRACT_EXPECT(branch.ok, branch.error);
-  ROAD_CONTRACT_EXPECT(!state.derived().layouts.empty(),
-                       "T branch did not derive a resolved node layout");
-  const ResolvedNodeLayout& layout = state.derived().layouts.front();
-  const ResolvedApproachLayout& original = layout.approaches.front();
+  ROAD_CONTRACT_EXPECT(!state.derived().connections.empty(),
+                       "T branch did not derive a resolved connection");
+  const ResolvedConnection& connection = state.derived().connections.front();
+  const ResolvedApproach& original = connection.approaches.front();
   const ApproachKey key = original.key;
-  const double manual_setback = original.setback_m + 0.5;
+  const double manual_setback = original.resolved_setback_m + 0.5;
   const auto set_setback = state.SetApproachSetbackOverride(
       SetApproachSetbackOverrideRequest{key, manual_setback});
   ROAD_CONTRACT_EXPECT(set_setback.ok, set_setback.error);
@@ -610,31 +569,19 @@ bool approach_override_resolves_and_persists_manual_fields(std::string& failure)
   ROAD_CONTRACT_EXPECT(set_shift.ok, set_shift.error);
   ROAD_CONTRACT_EXPECT(state.graph().approach_geometry_overrides.size() == 1,
                        "manual approach override was not saved as one authoritative row");
-  const ResolvedNodeLayout* resolved_layout = find_resolved_layout(state.derived(), key.node_id);
-  ROAD_CONTRACT_EXPECT(resolved_layout != nullptr, "manual override lost resolved node layout");
-  const ResolvedApproachLayout* resolved = find_resolved_approach(*resolved_layout, key);
-  ROAD_CONTRACT_EXPECT(resolved != nullptr, "manual override lost resolved approach");
-  ROAD_CONTRACT_EXPECT(std::abs(resolved->setback_m - manual_setback) < 1e-9 &&
-                           std::abs(resolved->lateral_shift_m - 0.75) < 1e-9,
-                       "manual override was not consumed by ResolvedNodeLayout");
-  const auto gate = std::find_if(
-      state.derived().gates.begin(), state.derived().gates.end(),
-      [&](const ConnectionGate& item) { return item.approach == key; });
-  ROAD_CONTRACT_EXPECT(gate != state.derived().gates.end(),
-                       "manual override removed the resolved gate");
-  ROAD_CONTRACT_EXPECT(gate->position.x == resolved->position.x &&
-                           gate->position.y == resolved->position.y &&
-                           gate->position.z == resolved->position.z,
-                       "ConnectionGate did not consume ResolvedNodeLayout");
-  ROAD_CONTRACT_EXPECT(!state.derived().marking_anchors.empty(),
-                       "MarkingAnchorTable was not derived");
-  ROAD_CONTRACT_EXPECT(std::any_of(state.derived().marking_anchors.begin(),
-                                   state.derived().marking_anchors.end(),
-                                   [&](const MarkingAnchor& anchor) {
-                                     return anchor.kind == MarkingAnchorKind::kApproachGate &&
-                                            anchor.approach == key;
-                                   }),
-                       "ApproachGateAnchor was not derived from resolved layout");
+  const ResolvedApproach* resolved = FindResolvedApproach(state.derived(), key);
+  ROAD_CONTRACT_EXPECT(resolved != nullptr, "manual override lost the resolved approach");
+  ROAD_CONTRACT_EXPECT(std::abs(resolved->resolved_setback_m - manual_setback) < 1e-9 &&
+                           std::abs(resolved->resolved_lateral_shift_m - 0.75) < 1e-9,
+                       "manual override was not consumed by the resolved approach");
+  ROAD_CONTRACT_EXPECT(std::abs(resolved->auto_setback_m - (manual_setback - 0.5)) < 1e-9 &&
+                           std::abs(resolved->auto_lateral_shift_m) < 1e-9,
+                       "resolved approach lost the automatic values it overrode");
+  ROAD_CONTRACT_EXPECT(resolved->gate.approach == key &&
+                           resolved->gate.position.x == resolved->position.x &&
+                           resolved->gate.position.y == resolved->position.y &&
+                           resolved->gate.position.z == resolved->position.z,
+                       "connection gate did not follow the resolved approach");
   const auto saved = state.Save();
   ROAD_CONTRACT_EXPECT(saved.ok, saved.error);
   ROAD_CONTRACT_EXPECT(saved.value.find("approach_geometry_override.count=1\n") != std::string::npos &&
@@ -744,36 +691,23 @@ bool move_node_rederives_incident_alignment_endpoints(std::string& failure) {
   return true;
 }
 
-bool build_runs_each_stage_exactly_once(std::string& failure) {
+bool regenerate_is_deterministic(std::string& failure) {
   RoadState state{};
-  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
-  ROAD_CONTRACT_EXPECT(added.ok, added.error);
-  ROAD_CONTRACT_EXPECT(std::all_of(state.derived().build_stage_runs.begin(), state.derived().build_stage_runs.end(),
-                                   [](std::size_t runs) { return runs == 1; }),
-                       "Build did not execute every stage exactly once");
+  const auto base = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({20.0, 0.0}, {32.0, 24.0})}), 1, base.value, 20.0});
+  ROAD_CONTRACT_EXPECT(branch.ok, branch.error);
+  const std::string first = derived_observation(state.derived());
+  const auto saved = state.Save();
+  ROAD_CONTRACT_EXPECT(saved.ok, saved.error);
+  const auto reloaded = RoadState::Load(saved.value);
+  ROAD_CONTRACT_EXPECT(reloaded.ok, reloaded.error);
+  ROAD_CONTRACT_EXPECT(derived_observation(reloaded.value.derived()) == first,
+                       "regenerate from the same authoritative state was not deterministic");
   return true;
-}
-
-const NodeConnectionDecision* find_decision(const DerivedRoad& derived, RoadNodeId node_id) {
-  const auto found = std::find_if(
-      derived.decisions.begin(), derived.decisions.end(),
-      [node_id](const NodeConnectionDecision& decision) { return decision.node_id == node_id; });
-  return found == derived.decisions.end() ? nullptr : &*found;
-}
-
-const ResolvedNodeLayout* find_resolved_layout(const DerivedRoad& derived, RoadNodeId node_id) {
-  const auto found = std::find_if(
-      derived.layouts.begin(), derived.layouts.end(),
-      [node_id](const ResolvedNodeLayout& layout) { return layout.node_id == node_id; });
-  return found == derived.layouts.end() ? nullptr : &*found;
-}
-
-const ResolvedApproachLayout* find_resolved_approach(const ResolvedNodeLayout& layout,
-                                                     const ApproachKey& key) {
-  const auto found = std::find_if(
-      layout.approaches.begin(), layout.approaches.end(),
-      [&key](const ResolvedApproachLayout& approach) { return approach.key == key; });
-  return found == layout.approaches.end() ? nullptr : &*found;
 }
 
 bool same_boundaries(const std::vector<SectionBoundarySample>& a,
@@ -791,7 +725,7 @@ bool same_boundaries(const std::vector<SectionBoundarySample>& a,
   return true;
 }
 
-bool decision_sampling_section_and_gate_have_single_owners(std::string& failure) {
+bool connection_section_and_gate_have_single_owners(std::string& failure) {
   RoadState state{};
   const auto base = state.AddSegment(
       AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
@@ -803,69 +737,53 @@ bool decision_sampling_section_and_gate_have_single_owners(std::string& failure)
 
   const DerivedRoad& derived = state.derived();
   std::size_t approach_count = 0;
-  for (const NodeConnectionDecision& decision : derived.decisions) {
-    approach_count += decision.approaches.size();
-    ROAD_CONTRACT_EXPECT(decision.approaches.size() == decision.ordered_approaches.size(),
-                         "decision approach table and deterministic order differ in size");
-    for (const ApproachConnectionDecision& approach : decision.approaches) {
+  for (const ResolvedConnection& connection : derived.connections) {
+    approach_count += connection.approaches.size();
+    ROAD_CONTRACT_EXPECT(connection.approaches.size() == connection.ordered_approaches.size(),
+                         "resolved approaches and deterministic order differ in size");
+    for (const ResolvedApproach& approach : connection.approaches) {
       ROAD_CONTRACT_EXPECT(
-          std::count_if(decision.approaches.begin(), decision.approaches.end(),
-                        [&approach](const ApproachConnectionDecision& candidate) {
+          std::count_if(connection.approaches.begin(), connection.approaches.end(),
+                        [&approach](const ResolvedApproach& candidate) {
                           return candidate.key == approach.key;
                         }) == 1,
-          "ApproachKey has more than one setback decision");
+          "ApproachKey has more than one resolved row");
     }
   }
   ROAD_CONTRACT_EXPECT(derived.setback_calculation_count == approach_count,
                        "setback calculation count does not equal ApproachKey count");
-  std::size_t resolved_approach_count = 0;
-  for (const ResolvedNodeLayout& layout : derived.layouts) {
-    resolved_approach_count += layout.approaches.size();
-  }
-  ROAD_CONTRACT_EXPECT(derived.gates.size() == resolved_approach_count,
-                       "ConnectionGate count does not equal resolved ApproachKey count");
-  ROAD_CONTRACT_EXPECT(derived.section_evaluation_count == derived.sections.size(),
-                       "SectionEvaluation counter differs from the produced table");
+  std::size_t section_rows = 0;
+  for (const DerivedSegment& segment : derived.segments) section_rows += segment.sections.size();
+  ROAD_CONTRACT_EXPECT(derived.section_evaluation_count == section_rows,
+                       "section evaluation counter differs from the produced sections");
 
-  for (const ConnectionGate& gate : derived.gates) {
-    const ResolvedNodeLayout* layout = find_resolved_layout(derived, gate.approach.node_id);
-    ROAD_CONTRACT_EXPECT(layout != nullptr, "gate resolved layout is missing");
-    const ResolvedApproachLayout* approach = find_resolved_approach(*layout, gate.approach);
-    ROAD_CONTRACT_EXPECT(approach != nullptr, "gate ApproachKey has no resolved layout row");
-    const auto plan = std::find_if(
-        derived.sampling.begin(), derived.sampling.end(),
-        [&gate](const SegmentSamplingPlan& value) {
-          return value.segment_id == gate.approach.segment_id;
-        });
-    ROAD_CONTRACT_EXPECT(plan != derived.sampling.end(),
-                         "gate sampling plan is missing");
-    ROAD_CONTRACT_EXPECT(
-        std::count(plan->semantic_stations_m.begin(), plan->semantic_stations_m.end(),
-                   approach->gate_station_m) == 1,
-        "gate station is not a unique semantic station");
-    const auto section_count = std::count_if(
-        derived.sections.begin(), derived.sections.end(),
-        [&gate, &approach](const SectionEvaluation& section) {
-          return section.segment_id == gate.approach.segment_id &&
-                 section.station_m == approach->gate_station_m;
-        });
-    ROAD_CONTRACT_EXPECT(section_count == 1,
-                         "gate station has no unique SectionEvaluation");
-    const auto section = std::find_if(
-        derived.sections.begin(), derived.sections.end(),
-        [&gate, &approach](const SectionEvaluation& value) {
-          return value.segment_id == gate.approach.segment_id &&
-                 value.station_m == approach->gate_station_m;
-        });
-    ROAD_CONTRACT_EXPECT(same_boundaries(gate.boundaries, section->boundaries),
-                         "gate boundaries differ from their SectionEvaluation");
+  for (const ResolvedConnection& connection : derived.connections) {
+    for (const ResolvedApproach& approach : connection.approaches) {
+      const DerivedSegment* segment = FindDerivedSegment(derived, approach.key.segment_id);
+      ROAD_CONTRACT_EXPECT(segment != nullptr, "approach segment is missing");
+      ROAD_CONTRACT_EXPECT(
+          std::count(segment->semantic_stations_m.begin(),
+                     segment->semantic_stations_m.end(),
+                     approach.gate_station_m) == 1,
+          "gate station is not a unique semantic station");
+      ROAD_CONTRACT_EXPECT(
+          std::count_if(segment->sections.begin(), segment->sections.end(),
+                        [&approach](const SectionEvaluation& section) {
+                          return section.station_m == approach.gate_station_m;
+                        }) == 1,
+          "gate station has no unique section evaluation");
+      const SectionEvaluation* section = FindSectionAt(*segment, approach.gate_station_m);
+      ROAD_CONTRACT_EXPECT(section != nullptr, "gate section evaluation is missing");
+      ROAD_CONTRACT_EXPECT(same_boundaries(approach.gate.boundaries, section->boundaries),
+                           "gate boundaries differ from their section evaluation");
+    }
   }
   return true;
 }
 
 std::vector<ApproachKey> sorted_gate_keys(const DerivedRoad& derived) {
   std::vector<ApproachKey> keys{};
-  for (const ConnectionGate& gate : derived.gates) keys.push_back(gate.approach);
+  for (const ConnectionGate& gate : road_test_view::gates(derived)) keys.push_back(gate.approach);
   std::sort(keys.begin(), keys.end(), [](const ApproachKey& a, const ApproachKey& b) {
     if (a.node_id != b.node_id) return a.node_id < b.node_id;
     if (a.segment_id != b.segment_id) return a.segment_id < b.segment_id;
@@ -920,7 +838,7 @@ bool same_angle_approaches_use_id_tie_break(std::string& failure) {
       MakePath({MakeBezier({0.0, 0.0}, {5.0, 0.0}, {15.0, -10.0}, {20.0, -20.0})}),
       1, shared});
   ROAD_CONTRACT_EXPECT(lower.ok, lower.error);
-  const NodeConnectionDecision* decision = find_decision(state.derived(), shared);
+  const ResolvedConnection* decision = FindResolvedConnection(state.derived(), shared);
   ROAD_CONTRACT_EXPECT(decision != nullptr && decision->ordered_approaches.size() == 3,
                        "same-angle junction decision is missing");
   const auto upper_position =
@@ -937,8 +855,8 @@ bool same_angle_approaches_use_id_tie_break(std::string& failure) {
   const auto saved = state.Save();
   const auto loaded = saved.ok ? RoadState::Load(saved.value) : Result<RoadState>{};
   ROAD_CONTRACT_EXPECT(loaded.ok, "same-angle state did not round-trip");
-  const NodeConnectionDecision* loaded_decision =
-      find_decision(loaded.value.derived(), shared);
+  const ResolvedConnection* loaded_decision =
+      FindResolvedConnection(loaded.value.derived(), shared);
   ROAD_CONTRACT_EXPECT(loaded_decision != nullptr &&
                            loaded_decision->ordered_approaches ==
                                decision->ordered_approaches,
@@ -975,8 +893,8 @@ bool same_angle_approaches_use_id_tie_break(std::string& failure) {
   for (const std::string& value : suffix) reordered_archive << value << '\n';
   const auto reordered = RoadState::Load(reordered_archive.str());
   ROAD_CONTRACT_EXPECT(reordered.ok, "reordered segment archive did not load");
-  const NodeConnectionDecision* reordered_decision =
-      find_decision(reordered.value.derived(), shared);
+  const ResolvedConnection* reordered_decision =
+      FindResolvedConnection(reordered.value.derived(), shared);
   ROAD_CONTRACT_EXPECT(reordered_decision != nullptr &&
                            reordered_decision->ordered_approaches ==
                                decision->ordered_approaches,
@@ -1005,7 +923,7 @@ bool unsupported_junction_section_is_atomic(std::string& failure) {
   return true;
 }
 
-bool sampling_plan_owns_all_semantic_stations(std::string& failure) {
+bool derived_segment_owns_all_semantic_stations(std::string& failure) {
   RoadState state{};
   const Path alignment = MakePath({
       MakeLine({0.0, 0.0}, {20.0, 0.0}),
@@ -1023,32 +941,25 @@ bool sampling_plan_owns_all_semantic_stations(std::string& failure) {
   const auto attached = state.AddTransitionToSegment(
       AddTransitionToSegmentRequest{segment.value, transition});
   ROAD_CONTRACT_EXPECT(attached.ok, attached.error);
-  const auto plan = std::find_if(
-      state.derived().sampling.begin(),
-      state.derived().sampling.end(),
-      [&segment](const SegmentSamplingPlan& value) {
-        return value.segment_id == segment.value;
-      });
-  ROAD_CONTRACT_EXPECT(plan != state.derived().sampling.end(),
-                       "semantic sampling plan is missing");
+  const DerivedSegment* derived_segment =
+      FindDerivedSegment(state.derived(), segment.value);
+  ROAD_CONTRACT_EXPECT(derived_segment != nullptr, "derived segment is missing");
   for (const double station : std::array<double, 5>{0.0, 10.0, 20.0, 30.0, 50.0}) {
     ROAD_CONTRACT_EXPECT(
-        std::count(plan->semantic_stations_m.begin(),
-                   plan->semantic_stations_m.end(), station) == 1,
+        std::count(derived_segment->semantic_stations_m.begin(),
+                   derived_segment->semantic_stations_m.end(), station) == 1,
         "required endpoint/span/transition semantic station is missing or duplicated");
     ROAD_CONTRACT_EXPECT(
-        std::count_if(
-            state.derived().sections.begin(),
-            state.derived().sections.end(),
-            [&segment, station](const SectionEvaluation& section) {
-              return section.segment_id == segment.value &&
-                     section.station_m == station;
-            }) == 1,
-        "semantic station has no unique SectionEvaluation");
+        std::count_if(derived_segment->sections.begin(),
+                      derived_segment->sections.end(),
+                      [station](const SectionEvaluation& section) {
+                        return section.station_m == station;
+                      }) == 1,
+        "semantic station has no unique section evaluation");
   }
   ROAD_CONTRACT_EXPECT(
-      std::is_sorted(plan->semantic_stations_m.begin(),
-                     plan->semantic_stations_m.end()),
+      std::is_sorted(derived_segment->semantic_stations_m.begin(),
+                     derived_segment->semantic_stations_m.end()),
       "semantic stations are not sorted");
   return true;
 }
@@ -1112,7 +1023,7 @@ int main() {
       {"node_identity_does_not_come_from_position", node_identity_does_not_come_from_position},
       {"segment_shape_edit_does_not_move_endpoint_authority", segment_shape_edit_does_not_move_endpoint_authority},
       {"move_node_rederives_incident_alignment_endpoints", move_node_rederives_incident_alignment_endpoints},
-      {"build_runs_each_stage_exactly_once", build_runs_each_stage_exactly_once},
+      {"regenerate_is_deterministic", regenerate_is_deterministic},
       {"extension_history_normalizes_to_one_segment",
        extension_history_normalizes_to_one_segment},
       {"reverse_input_has_equivalent_geometry",
@@ -1122,16 +1033,16 @@ int main() {
       {"isolated_segment_uses_simple_path", isolated_segment_uses_simple_path},
       {"approach_override_resolves_and_persists_manual_fields",
        approach_override_resolves_and_persists_manual_fields},
-      {"decision_sampling_section_and_gate_have_single_owners",
-       decision_sampling_section_and_gate_have_single_owners},
+      {"connection_section_and_gate_have_single_owners",
+       connection_section_and_gate_have_single_owners},
       {"approach_identity_survives_geometry_changes",
        approach_identity_survives_geometry_changes},
       {"same_angle_approaches_use_id_tie_break",
        same_angle_approaches_use_id_tie_break},
       {"unsupported_junction_section_is_atomic",
        unsupported_junction_section_is_atomic},
-      {"sampling_plan_owns_all_semantic_stations",
-       sampling_plan_owns_all_semantic_stations},
+      {"derived_segment_owns_all_semantic_stations",
+       derived_segment_owns_all_semantic_stations},
       {"seeded_operation_sequences_preserve_contracts", seeded_operation_sequences_preserve_contracts},
   };
   int failed = 0;

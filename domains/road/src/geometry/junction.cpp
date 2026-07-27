@@ -1,26 +1,17 @@
-#include "pipeline.hpp"
+#include "junction.hpp"
 
 #include "geometry.hpp"
-#include "read.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <map>
 
-namespace city::road::build {
+namespace city::road::internal {
 namespace {
 
 constexpr int kConnectionCurveSamples = 8;
 constexpr int kJunctionCurveSamples = 6;
-
-const ConnectionGate *find_gate(const DerivedRoad &out,
-                                const ApproachKey &key) {
-  const auto found = std::find_if(
-      out.gates.begin(), out.gates.end(),
-      [&key](const ConnectionGate &gate) { return gate.approach == key; });
-  return found == out.gates.end() ? nullptr : &*found;
-}
 
 Vec3d add3(Vec3d a, Vec3d b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
 
@@ -81,20 +72,11 @@ boundary_tokens(const std::vector<SectionBoundarySample> &boundaries) {
   return tokens;
 }
 
-Result<ConnectionGeometry> build_connection_geometry(
-    const NodeConnectionDecision &decision, const ConnectionGate &first,
-    const ConnectionGate &second, const DerivedRoad &out) {
-  const SectionEvaluation *first_section = find_section(
-      out, first.approach.segment_id,
-      find_approach_connection(decision, first.approach)->gate_station_m);
-  const SectionEvaluation *second_section = find_section(
-      out, second.approach.segment_id,
-      find_approach_connection(decision, second.approach)->gate_station_m);
-  if (first_section == nullptr || second_section == nullptr) {
-    return Result<ConnectionGeometry>::Fail(
-        ErrorKind::kInternal, "road connection section read model is missing");
-  }
-  if (first_section->surface_styles != second_section->surface_styles) {
+Result<ConnectionGeometry> connection_geometry_from_gates(
+    RoadNodeId node_id, const ConnectionGate &first,
+    const ConnectionGate &second, const SectionEvaluation &first_section,
+    const SectionEvaluation &second_section, double corner_control_m) {
+  if (first_section.surface_styles != second_section.surface_styles) {
     return Result<ConnectionGeometry>::Fail(
         ErrorKind::kUnsupported,
         "road connection requires identical explicit surface mappings");
@@ -109,7 +91,7 @@ Result<ConnectionGeometry> build_connection_geometry(
   }
 
   ConnectionGeometry geometry{};
-  geometry.node_id = decision.node_id;
+  geometry.node_id = node_id;
   geometry.approaches = {first.approach, second.approach};
   for (std::size_t index = 0; index < first.boundaries.size(); ++index) {
     const auto target = second_by_token.find(first_tokens[index]);
@@ -124,20 +106,20 @@ Result<ConnectionGeometry> build_connection_geometry(
         first.boundaries[index].role,
         resolved_curve(boundary_point(first, first.boundaries[index]),
                        boundary_point(second, *target->second), first.tangent,
-                       second.tangent, decision.corner_control_m,
+                       second.tangent, corner_control_m,
                        kConnectionCurveSamples),
     });
   }
-  if (first_section->surface_styles.size() + 1 !=
+  if (first_section.surface_styles.size() + 1 !=
       geometry.boundary_curves.size()) {
     return Result<ConnectionGeometry>::Fail(
         ErrorKind::kUnsupported,
         "road connection surface mapping does not match boundary mapping");
   }
-  for (std::size_t index = 0; index < first_section->surface_styles.size();
+  for (std::size_t index = 0; index < first_section.surface_styles.size();
        ++index) {
     geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-        first_section->surface_styles[index],
+        first_section.surface_styles[index],
         geometry.boundary_curves[index].source_boundary_id,
         geometry.boundary_curves[index + 1].source_boundary_id,
         geometry.boundary_curves[index].points,
@@ -230,133 +212,95 @@ struct side {
 
 } // namespace
 
-Result<bool> make_junctions(pipeline &pipe) {
-  pipe.out.connection_areas.clear();
-  pipe.out.junction_areas.clear();
-  pipe.out.connections.clear();
-  pipe.out.junctions.clear();
-
-  for (const NodeConnectionDecision &decision : pipe.out.decisions) {
-    if (decision.kind == NodeConnectionKind::kPassThrough)
-      continue;
-    if (decision.kind == NodeConnectionKind::kCorner) {
-      if (decision.ordered_approaches.size() != 2) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
-                                  "road corner approach order is invalid");
-      }
-      const ConnectionGate *first =
-          find_gate(pipe.out, decision.ordered_approaches[0]);
-      const ConnectionGate *second =
-          find_gate(pipe.out, decision.ordered_approaches[1]);
-      if (first == nullptr || second == nullptr) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
-                                  "road corner gate is missing");
-      }
-      ConnectionArea area{};
-      area.node_id = decision.node_id;
-      area.gates = {*first, *second};
-      Result<ConnectionGeometry> geometry =
-          build_connection_geometry(decision, *first, *second, pipe.out);
-      if (!geometry.ok) {
-        return Result<bool>::Fail(geometry.error_kind, geometry.error);
-      }
-      pipe.out.connection_areas.push_back(std::move(area));
-      pipe.out.connections.push_back(std::move(geometry.value));
-      continue;
-    }
-    if (decision.kind != NodeConnectionKind::kJunction) {
-      return Result<bool>::Fail(ErrorKind::kUnsupported,
-                                "road connection decision is unsupported");
-    }
-
-    JunctionArea area{};
-    area.policy_override_id = decision.applied_policy_override_id;
-    area.node_id = decision.node_id;
-    JunctionGeometry geometry{};
-    geometry.node_id = decision.node_id;
-    geometry.ordered_approaches = decision.ordered_approaches;
-    std::vector<side> sides{};
-    std::vector<std::pair<const ConnectionGate *, junction_section>>
-        resolved_sections{};
-
-    for (const ApproachKey &key : decision.ordered_approaches) {
-      const ConnectionGate *gate = find_gate(pipe.out, key);
-      const ResolvedNodeLayout *layout = find_layout(pipe.out, key.node_id);
-      const ResolvedApproachLayout *approach =
-          layout == nullptr ? nullptr : find_approach_layout(*layout, key);
-      if (gate == nullptr || approach == nullptr) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
-                                  "road junction gate is missing");
-      }
-      const SectionEvaluation *section =
-          find_section(pipe.out, key.segment_id, approach->gate_station_m);
-      if (section == nullptr) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
-                                  "road junction section is missing");
-      }
-      Result<junction_section> supported =
-          validate_supported_junction_section(*gate, *section);
-      if (!supported.ok) {
-        return Result<bool>::Fail(supported.error_kind, supported.error);
-      }
-      area.gates.push_back(*gate);
-      resolved_sections.push_back({gate, supported.value});
-      const auto side_from = [gate, &key](const curb &profile) {
-        return side{
-            key,
-            gate->tangent,
-            boundary_point(*gate, *profile.outer),
-            boundary_point(*gate, *profile.sidewalk),
-            boundary_point(*gate, *profile.carriageway),
-            profile.outer->boundary_id,
-            profile.carriageway->boundary_id,
-        };
-      };
-      sides.push_back(side_from(supported.value.right));
-      sides.push_back(side_from(supported.value.left));
-    }
-    if (area.gates.size() < 3 || sides.size() < 6) {
-      return Result<bool>::Fail(
-          ErrorKind::kInternal,
-          "road junction resolved geometry is incomplete");
-    }
-
-    std::vector<Vec3d> asphalt_perimeter{};
-    for (std::size_t index = 0; index < sides.size(); ++index) {
-      const side &a = sides[index];
-      const side &b = sides[(index + 1) % sides.size()];
-      asphalt_perimeter.push_back(a.carriageway);
-      if (a.approach == b.approach)
-        continue;
-      const std::vector<Vec3d> carriageway = resolved_curve(
-          a.carriageway, b.carriageway, a.tangent, b.tangent,
-          decision.junction_corner_control_m, kJunctionCurveSamples);
-      const std::vector<Vec3d> sidewalk = resolved_curve(
-          a.sidewalk, b.sidewalk, a.tangent, b.tangent,
-          decision.junction_corner_control_m, kJunctionCurveSamples);
-      const std::vector<Vec3d> outer = resolved_curve(
-          a.outer, b.outer, a.tangent, b.tangent,
-          decision.junction_corner_control_m, kJunctionCurveSamples);
-      asphalt_perimeter.insert(asphalt_perimeter.end(), carriageway.begin() + 1,
-                               carriageway.end() - 1);
-      geometry.perimeter_curves.push_back(
-          ResolvedBoundaryCurve{a.curb_boundary_id, b.curb_boundary_id,
-                                BoundaryRole::kCurb, carriageway});
-      geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-          RenderStyleFromSurface(builtin_surface_styles::kCurb),
-          a.curb_boundary_id, b.curb_boundary_id, carriageway, sidewalk});
-      geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-          RenderStyleFromSurface(builtin_surface_styles::kSidewalk),
-          a.outer_boundary_id, b.outer_boundary_id, sidewalk, outer});
-    }
-    geometry.surface_regions.push_back(ResolvedSurfaceRegion{
-        RenderStyleFromSurface(builtin_surface_styles::kAsphalt),
-        std::move(asphalt_perimeter)});
-
-    pipe.out.junction_areas.push_back(std::move(area));
-    pipe.out.junctions.push_back(std::move(geometry));
-  }
-  return Result<bool>::Ok(true);
+Result<ConnectionGeometry>
+generate_connection_geometry(RoadNodeId node_id, const ConnectionGate &first,
+                             const ConnectionGate &second,
+                             const SectionEvaluation &first_section,
+                             const SectionEvaluation &second_section,
+                             double corner_control_m) {
+  return connection_geometry_from_gates(node_id, first, second, first_section,
+                                        second_section, corner_control_m);
 }
 
-} // namespace city::road::build
+Result<JunctionGeometry>
+generate_junction_geometry(RoadNodeId node_id,
+                           const std::vector<ApproachKey> &ordered_approaches,
+                           const std::vector<ConnectionGate> &gates,
+                           const std::vector<const SectionEvaluation *> &sections,
+                           double junction_corner_control_m) {
+  if (gates.size() != ordered_approaches.size() ||
+      sections.size() != gates.size()) {
+    return Result<JunctionGeometry>::Fail(
+        ErrorKind::kInternal, "road junction geometry input is incomplete");
+  }
+  JunctionGeometry geometry{};
+  geometry.node_id = node_id;
+  geometry.ordered_approaches = ordered_approaches;
+  std::vector<side> sides{};
+  for (std::size_t index = 0; index < gates.size(); ++index) {
+    const ConnectionGate &gate = gates[index];
+    if (sections[index] == nullptr) {
+      return Result<JunctionGeometry>::Fail(ErrorKind::kInternal,
+                                            "road junction section is missing");
+    }
+    Result<junction_section> supported =
+        validate_supported_junction_section(gate, *sections[index]);
+    if (!supported.ok) {
+      return Result<JunctionGeometry>::Fail(supported.error_kind,
+                                            supported.error);
+    }
+    const ApproachKey key = gate.approach;
+    const auto side_from = [&gate, &key](const curb &profile) {
+      return side{
+          key,
+          gate.tangent,
+          boundary_point(gate, *profile.outer),
+          boundary_point(gate, *profile.sidewalk),
+          boundary_point(gate, *profile.carriageway),
+          profile.outer->boundary_id,
+          profile.carriageway->boundary_id,
+      };
+    };
+    sides.push_back(side_from(supported.value.right));
+    sides.push_back(side_from(supported.value.left));
+  }
+  if (gates.size() < 3 || sides.size() < 6) {
+    return Result<JunctionGeometry>::Fail(
+        ErrorKind::kInternal, "road junction resolved geometry is incomplete");
+  }
+
+  std::vector<Vec3d> asphalt_perimeter{};
+  for (std::size_t index = 0; index < sides.size(); ++index) {
+    const side &a = sides[index];
+    const side &b = sides[(index + 1) % sides.size()];
+    asphalt_perimeter.push_back(a.carriageway);
+    if (a.approach == b.approach)
+      continue;
+    const std::vector<Vec3d> carriageway = resolved_curve(
+        a.carriageway, b.carriageway, a.tangent, b.tangent,
+        junction_corner_control_m, kJunctionCurveSamples);
+    const std::vector<Vec3d> sidewalk =
+        resolved_curve(a.sidewalk, b.sidewalk, a.tangent, b.tangent,
+                       junction_corner_control_m, kJunctionCurveSamples);
+    const std::vector<Vec3d> outer =
+        resolved_curve(a.outer, b.outer, a.tangent, b.tangent,
+                       junction_corner_control_m, kJunctionCurveSamples);
+    asphalt_perimeter.insert(asphalt_perimeter.end(), carriageway.begin() + 1,
+                             carriageway.end() - 1);
+    geometry.perimeter_curves.push_back(
+        ResolvedBoundaryCurve{a.curb_boundary_id, b.curb_boundary_id,
+                              BoundaryRole::kCurb, carriageway});
+    geometry.surface_strips.push_back(ResolvedSurfaceStrip{
+        RenderStyleFromSurface(builtin_surface_styles::kCurb),
+        a.curb_boundary_id, b.curb_boundary_id, carriageway, sidewalk});
+    geometry.surface_strips.push_back(ResolvedSurfaceStrip{
+        RenderStyleFromSurface(builtin_surface_styles::kSidewalk),
+        a.outer_boundary_id, b.outer_boundary_id, sidewalk, outer});
+  }
+  geometry.surface_regions.push_back(ResolvedSurfaceRegion{
+      RenderStyleFromSurface(builtin_surface_styles::kAsphalt),
+      std::move(asphalt_perimeter)});
+  return Result<JunctionGeometry>::Ok(std::move(geometry));
+}
+
+} // namespace city::road::internal

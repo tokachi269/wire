@@ -2,21 +2,15 @@ add_library(
   road
   STATIC
   src/road.cpp
-  src/build/pipeline.cpp
-  src/build/auto_layout.cpp
-  src/build/alignment.cpp
-  src/build/gate.cpp
-  src/build/junction.cpp
-  src/build/marking_anchor.cpp
-  src/build/marking.cpp
-  src/build/connection.cpp
-  src/build/layout.cpp
-  src/build/sampling.cpp
-  src/build/section.cpp
-  src/build/geometry.cpp
-  src/build/read.cpp
-  src/build/topology.cpp
-  src/draw/mesh.cpp
+  src/lookup.cpp
+  src/generation/regenerate.cpp
+  src/generation/segments.cpp
+  src/generation/connections.cpp
+  src/generation/markings.cpp
+  src/generation/emit.cpp
+  src/geometry/geometry.cpp
+  src/geometry/section.cpp
+  src/geometry/junction.cpp
   src/operations/operation_plan.cpp
   src/persistence/road_archive.cpp
 )

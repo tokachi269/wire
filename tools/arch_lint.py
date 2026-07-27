@@ -440,9 +440,9 @@ def check_architecture_documents(root: Path) -> list[str]:
         ),
         "docs/road/architecture.md": (
             "# Road architecture",
-            "## Existing implementation mapping",
+            "## Naming",
             "## State ownership",
-            "## Build stages",
+            "## Regenerate",
         ),
         "docs/road/operation_semantics.md": (
             "## 操作 x 状態",

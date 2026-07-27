@@ -5,7 +5,7 @@
 この表のscenario通過はarchitecture migration完了を意味しない。各public operationの実装契約は次で固定する。
 
 ```text
-Request -> Preflight -> OperationPlan -> trial Apply -> single Build -> Validate -> Commit
+Request -> Preflight -> OperationPlan -> trial Apply -> regenerate -> Validate -> Commit
 ```
 
 失敗時はauthoritative bytes、derived hash、next ID、inspection / query結果を一切変更しない。
@@ -13,12 +13,12 @@ public operationから別public operationを呼ばない。
 
 Preflightはrequestの形式、ID存在、有限性、明白な値域と、planを作るために必要な局所構造だけを検証する。
 接続角度、endpoint section互換、branch / junction approach上限、接続setback、split後を含むtrial topologyの成立性は
-trial Buildの`connections`以降が一度だけ決める。operationは同じgeometry / section policyを
-再実装せず、trial Buildの`kUnsupported`を操作結果として返す。
+trial regenerateの`resolve_connections`以降が一度だけ決める。operationは同じgeometry / section policyを
+再実装せず、trial regenerateの`kUnsupported`を操作結果として返す。
 
 ## Public operation preflight audit
 
-| Operation | Request field | Preflight validation | Build decision |
+| Operation | Request field | Preflight validation | regenerate decision |
 |---|---|---|---|
 | AddSegment | alignment | finite、連続、非ゼロ、NormalizeRoadPath可能 | self-intersection、junction互換 |
 | AddSegment | section_template | ID exists | endpoint section互換 |
@@ -29,7 +29,7 @@ trial Buildの`connections`以降が一度だけ決める。operationは同じge
 | AddSegmentConnectedTo | section_template / start_node | ID exists | endpoint section互換 |
 | AddSegmentConnectedToSegment | alignment | finite、連続、非ゼロ、明示station点と一致 | split後topology、junction互換 |
 | AddSegmentConnectedToSegment | start_segment / station_m / section_template | ID exists、station finite、station interior | transition付きsplit unsupported |
-| EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのBuild可否 |
+| EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのregenerate可否 |
 | MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
 | SetApproachSetbackOverride | ApproachKey / setback_m | node exists、segment exists、endpoint role matches、finite、non-negative、layout target exists | gate overlap、segment length、junction quality |
@@ -128,7 +128,7 @@ trial Buildの`connections`以降が一度だけ決める。operationは同じge
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge のいずれか。
 - element対応は ID で行う。出現は `TaperIn`、消滅は `TaperOut` または `EndCap` を明示する。
 - 1 segmentに同時に接続できる transition は1個。短距離多重transitionはP2非対象。
-- 異なる断面をnodeへ直接接続しない。trial Buildの`connections`が各approachのendpoint section IDを
+- 異なる断面をnodeへ直接接続しない。trial regenerateの`resolve_connections`が各approachのendpoint section IDを
   一度だけ解決し、全approachで完全一致する場合だけ接続する。operation preflightは断面を再評価しない。
 
 ## P2 marking semantics

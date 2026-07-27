@@ -1,13 +1,13 @@
-#include "pipeline.hpp"
+#include "section.hpp"
 
+#include "../lookup.hpp"
 #include "geometry.hpp"
-#include "read.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
-namespace city::road::build {
+namespace city::road::internal {
 namespace {
 
 const SurfaceBand *find_band(const CrossSectionTemplate &section,
@@ -308,38 +308,4 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
       build_surface_styles(section.value)});
 }
 
-Result<bool> make_sections(pipeline &pipe) {
-  pipe.out.sections.clear();
-  pipe.out.section_evaluation_count = 0;
-  for (const RoadSegment &segment : pipe.source.segments) {
-    const Path *alignment = find_alignment(pipe.out, segment.id);
-    const SegmentSamplingPlan *plan = find_sampling(pipe.out, segment.id);
-    if (alignment == nullptr || plan == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road section evaluation input is missing");
-    }
-    const Result<double> length = PathLength(*alignment);
-    if (!length.ok)
-      return Result<bool>::Fail(length.error_kind, length.error);
-    std::vector<double> stations = plan->semantic_stations_m;
-    stations.insert(stations.end(), plan->surface_stations_m.begin(),
-                    plan->surface_stations_m.end());
-    stations.insert(stations.end(), plan->marking_stations_m.begin(),
-                    plan->marking_stations_m.end());
-    stations.insert(stations.end(), plan->mask_stations_m.begin(),
-                    plan->mask_stations_m.end());
-    sort_unique_stations(stations);
-    for (const double station : stations) {
-      Result<SectionEvaluation> evaluated =
-          section_at(pipe.source, segment, station, length.value);
-      if (!evaluated.ok) {
-        return Result<bool>::Fail(evaluated.error_kind, evaluated.error);
-      }
-      ++pipe.out.section_evaluation_count;
-      pipe.out.sections.push_back(std::move(evaluated.value));
-    }
-  }
-  return Result<bool>::Ok(true);
-}
-
-} // namespace city::road::build
+} // namespace city::road::internal

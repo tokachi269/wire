@@ -5,42 +5,15 @@
 
 共通契約は`../architecture.md`、操作×状態は`operation_semantics.md`、prototype要求範囲は`plan.md`を参照する。
 
-## Feature freeze
-
-RS0-RS8完了まではroadの新しい見た目、形状、断面、UI、model、高架機能を追加しない。
-既存P0-P2幾何はscenario coverageとして維持できるが、旧ownerや複数buildを温存する理由にはしない。
-
-## Existing implementation mapping
-
-| 既存の参照 | roadで採用する契約 | road固有の差異 |
-|---|---|---|
-| wire saved graph | node / segment identityを持つauthoritative graph | segment curve endpointはnodeが所有する |
-| wire operation semantics | operation前に操作×状態を定義する | roadはshape、section、marking requestを持つ |
-| wire trial + unified build | roadもplanをtrial authorityへ適用して一度だけBuildする | operation固有preflightとbuild decisionの責務を分ける |
-| wire derived curve | nodeとshapeからCanonicalAlignmentを導出する | roadの内部shapeはユーザー編集対象 |
-| wire ID connectivity | node / segment IDとstationで接続対象を指定する | 座標近接によるidentity推測は禁止 |
-| wire authority/runtime分離 | input / authoritative / derivedを物理分離する | 型はroad固有でありwire型を流用しない |
-
 ## Naming
 
-公開surfaceはwireと同じくPascalCaseを使う。`RoadState`、operation request、authoritative entity、
-derived read modelはこの規則に従う。
+生成系の動詞は`../architecture_naming.md`に従う。roadの派生生成入口は`regenerate`であり、
+`generate` / `derive` / `resolve` / `emit` / `validate`を責務の名前として使う。
+`Build`、`Stage`、`Materialize`はroadの生成語彙として使わない。
 
-`city::road::build`と`city::road::draw`はwireの`generation::backbone`と同じくlower snake caseを使う。
-pipeline内部でroad文脈を繰り返さず、ownerを表す短い中心語を使う。
+road固有の名詞(`RoadNode`、`RoadSegment`、`CrossSection`、`SectionTransition`、`Junction`、
+`ConnectionGate`、`ApproachKey`、`Marking`)はwireへ揃えない。
 
-| 意味 | 名前 |
-|---|---|
-| build owner | `pipeline` |
-| 実行順 | `stage` |
-| node incidence | `topology` / `endpoint` |
-| build entry | `make_topology`、`make_alignments`、`make_connections`、`make_sampling`、`make_sections`、`make_gates`、`make_junctions` |
-| manual/auto解決 | `resolve_layouts`、`resolve_markings` |
-| mesh emission | `draw::make_segment`、`draw::make_connection`、`draw::make_junction`、`draw::make_markings` |
-
-`BuildContext`、`BuildXxx`、`XxxStage`のようにpipeline文脈を重ねた名前は使わない。
-一方、`station_m`、`ApproachKey`、`SectionEvaluation`などroad固有の意味を持つ語は、
-wireの短い名前へ機械的に言い換えない。
 ## State ownership
 
 ### Input
@@ -72,9 +45,10 @@ corner radius、meshは保存しない。
 - `CanonicalAlignment`: `node_a.position + SegmentShape + node_b.position`から作るcubic Bezier span列
 - arc-length table、station、tangent、frame、bounds
 - `ApproachKey`: `node_id + segment_id + endpoint_role`の完全一致でsegment端を識別するderived identity
-- `NodeConnectionDecision`: PassThrough / Corner / Junction / Unsupported、approach order、endpoint section ID、
-  approachごとのsetback / gate station、corner policy、適用override、reason
-- SamplingPlan、SectionEvaluationTable、ConnectionGateTable、ConnectionGeometryTable、JunctionGeometryTable
+- `DerivedSegment`: CanonicalAlignment、semantic / surface station、`SectionEvaluation`
+- `ResolvedConnection`: PassThrough / Corner / Junction / Unsupported、approach order、corner policy、適用override、reason
+- `ResolvedApproach`: endpoint section ID、auto値、override後のresolved値、gate station、`ConnectionGate`
+- `DerivedMarking`: owner、boundary ID、role、style、幅、world points / polygon
 - `RenderStyleRef`付きsurface、curb、sidewalk、marking、terrain mask、mesh、viewer payload
 
 StraightとCurvedはinput modeだけである。Straight requestはoperation planで直線shapeへ正規化し、Build後の
@@ -92,7 +66,7 @@ Request
   -> Preflight(current authoritative, request)
   -> OperationPlan
   -> Apply(plan, trial authoritative + trial next_id)
-  -> Build(trial authoritative) exactly once
+  -> regenerate(trial authoritative) exactly once
   -> invariant
   -> Commit(authoritative + derived + next_id)
 ```
@@ -112,128 +86,52 @@ append / prependするPathは共通normalizerを通してから`SegmentShape`へ
 - `EditSegmentShape`: handle、internal knotだけを変更し、node位置を変更しない
 - `MoveNode`: `RoadNode.position`だけを変更し、接続segmentのCanonicalAlignmentを再導出する
 
-## Build stages
+## Regenerate
 
 ```text
-1. topology
-2. alignments
-3. connections
-4. auto layout
-5. resolved layout
-6. sampling
-7. sections
-8. gates
-9. junctions
-10. marking anchors
-11. marking intents
-12. marking continuity
-13. resolved markings
-14. draw
-15. invariant
+authoritative graph
+  -> edit plan
+  -> trial
+  -> regenerate
+       derive_segments      canonical alignment / semantic stations / section evaluation
+       resolve_connections  node decision / auto values / user override / gate / connection geometry
+       derive_markings      boundary lines / manual markings / junction markings
+       emit_geometry        surface, connection, junction and marking meshes
+  -> validate
+  -> commit
 ```
 
-`pipeline`はauthoritative read-only view、前段output、test counterを持つ。各stepはauthoritativeを書き換えない。
-### connections
+`regenerate_road(graph)`は純粋関数であり、`RoadState`へ途中結果を書かない。完成した`DerivedRoad`だけを返し、
+失敗時は部分的な派生を公開しない。工程を細分するかどうかは実装都合であり、契約はownerと依存方向だけを固定する。
 
-degree 2以上の接続nodeについて一度だけPassThrough / Corner / Junction / Unsupportedを決める。degree 0/1は
-segment端として直接扱い、ApproachKey、decision、gateを要求しない。入力はtopology、
-CanonicalAlignment、`NodeConnectionPolicyOverride`、一箇所のpolicy constantsだけとする。出力へcorner radius、
-approachごとのsetback / gate station、endpoint section ID、approach order、適用override、diagnostic reasonを含める。
-接続角度、最大approach数、endpoint section互換、setback、corner controlはこのstageだけが決める。
-approach orderはworld上面のtangent角度で並べ、同角度は`ApproachKey`のID順でtie-breakする。後段はdegree、
-角度、格納順から再判定・再sortしない。
+### derive_segments
 
-自動decisionは保存しない。authoritative policyはAuto / ForcePassThrough / ForceCorner / ForceJunctionだけである。
+`CanonicalAlignment`、semantic station、surface station、`SectionEvaluation`を`DerivedSegment`が所有する。
+sampling planやsection tableを独立した長寿命read modelとして公開しない。
+単独segmentとdegree 1終端は、connection側の解決を要求せずにこの段階だけで面とmarkingに必要な形状を持つ。
 
-### auto layout
+### resolve_connections
 
-`NodeConnectionDecision`が決めたconnection kind、approach order、auto setback、auto gate stationから
-`AutoNodeLayout`を作る。approach tangentはnodeからsegment内部へ向かう方向、lateral正方向はそのtangentの左側とする。
-degree 0/1にはnode layout entityを作らない。
+degree 2以上の接続nodeについて、接続種別、approach順、auto setback、ユーザーoverride、gate frame、
+corner / junction geometryを一度に決める。autoとresolvedを別工程・別tableにしない。
+`ResolvedApproach`がauto値とresolved値を両方持ち、inspectionはそこから読む。
+degree 0/1のnodeにはconnection entity、gate、layoutを作らない。
 
-### resolved layout
+接続前にpair、mapping、gateを正本へ用意する構造は持たない。必要な接続はgraphから導出する。
 
-`AutoNodeLayout + ApproachGeometryOverride`から`ResolvedNodeLayout`を作る唯一のstageである。manual fieldがあればmanual値、
-なければauto値を使う。manual値をautoへ近似削除したり、NaNやmagic numberでAutoを表さない。
-setbackはnode基準点からsegment内部方向への非負距離で、start endpointは`station=setback`、end endpointは
-`station=segment_length-setback`とする。lateral shiftはresolved lateral方向を正とする。
+### derive_markings
 
-### sampling
+線はowner segmentとboundary IDで識別する。断面遷移では同じboundary IDが続く限り線を継続し、
+現れた位置で開始、消えた位置で終了する。隣接車線が退化している区間には線を出さない。
+配列indexや位置近接で別boundaryへつなぎ替えない。
 
-segment start / end、各Bezier span境界、transition start / end、各approachのgate station、manual markingに必要な
-stationをsemantic stationとして一度だけ決め、sortと数値幾何epsによる重複除去を行う。gate stationは
-`ResolvedNodeLayout`から読み、再計算しない。surface、marking、maskはsemantic stationを共有し、
-用途別refinementだけを追加できる。
+交差点内はdefaultでgate終了とし、`JunctionMarkingOverride`が明示したsource / targetだけが接続線を作る。
+最も近い線や角度差最小の線を自動選択しない。
 
-### sections
+### emit_geometry
 
-断面、transition mapping、boundary ID、element ID、role、lateral、height、normal、outer boundary、marking anchorの
-唯一の決定者とする。全SamplingPlan用途stationの評価を`segment_id + station_m`で一意に供給する。
-Continue / TaperIn / TaperOut / EndCapは実際の形状評価で消費し、未実装actionはunsupportedにする。
-SurfaceBandの`SurfaceStyleId`と、BoundaryRoleからbuilt-in `SurfaceStyleId`への変換もこのstageだけが行う。
-
-### Connection and junction stages
-
-gatesは`ResolvedNodeLayout.gate_station_m`で`SectionEvaluationTable`を一意検索し、resolved frameと
-評価済みboundaryを持つgateを一度だけ生成する。断面を再評価せず、overrideを直接読まず、該当評価がない場合はfallbackせず失敗する。
-`ConnectionGate.approach`をidentityの正とし、冗長なnode / segment fieldはidentity判定に使わない。
-
-junctionsはdecision、resolved gate、評価済みboundaryだけを読み、degreeや角度を再判定しない。
-boundary ID / role / occurrenceの明示対応から`ConnectionGeometry`と`JunctionGeometry`を生成し、corner curve、
-surface strip / region、junction perimeterを解決する。停止線・ゼブラなどのmarking quadは生成しない。
-P1 junctionはouter edge、2組のcurb boundary、carriageway側boundaryというrole / boundary ID構造だけを対応対象とし、その他は
-reason付き`kUnsupported`とする。
-
-### marking anchors
-
-次段のmarking graph用にsemantic anchorだけを導出する。anchor identityはowner ID、`ApproachKey`、boundary ID、semantic roleから
-決定し、位置や配列indexから作らない。ApproachGate / ApproachCenter / JunctionCorner anchorは`ResolvedNodeLayout`以降だけを読む。
-
-### MarkingIntent / Continuation / ResolvedMarkingGraph
-
-マーキングの正本は、ユーザーが明示した`AutoMarkingPolicy`、manual marking、suppression / junction overrideだけである。
-自動線そのものは保存しない。Buildでは次の順で派生する。
-
-`SectionEvaluation`、`JunctionArea`、manual marking
-→ `MarkingIntent`
-→ `MarkingContinuation`
-→ `ResolvedMarkingGraph`
-→ marking mesh
-
-`ResolvedMarkingGraph`はmarking geometryの唯一の決定表で、すべてworld geometry、owner、role、style、continuation actionを持つ。
-segment線は`MarkingTrackKey(segment_id, boundary_id, role)`で識別し、boundary配列indexやworld位置からidentityを作らない。
-default junction markingはgateで終了する。交差点内部で中央線等を継続する場合は明示overrideだけが接続を作る。
-
-#### 線の要求元と統合
-
-境界へ線を要求できるのは`BoundaryProfile`自身の`AutoMarkingPolicy`と、`SurfaceBand`の
-`LaneSideMarkingPolicy`(carriageway bandのみ)である。lane side要求は断面テンプレの**要素順序で隣接する
-`BoundaryProfile`**へ解決する。断面の外端側には隣接境界要素がないため、その側への要求は`kUnsupported`とする。
-
-同じ境界への複数要求は`SectionEvaluation`で1つへ統合する。統合できるのはrole、style、geometry ruleが
-一致する場合だけで、一致しない要求は優先順位を付けず`kUnsupported`とする。統合結果が
-`SectionBoundarySample.marking`であり、marking stageはこの結果だけを読む。
-
-#### 継続とBegin / Terminate
-
-`MarkingContinuation`はtrackごとに、gateで切り出した区間`[range_start, range_end]`と、有効サンプルの
-最初・最後のstationを比較してactionを決める。区間内側で始まれば`kBegin`、内側で終われば`kTerminate`、
-端に達していれば`kContinue`である。
-
-車線増減で生じる退化区間(新旧車線の幅がゼロ付近)は、`SectionBoundarySample`が持つ隣接band幅で判定し、
-`kDegenerateBandWidthM`を唯一の有効化条件とする。位置の近さで線のidentityや継続を決めない。
-
-#### transition mappingが不足する場合
-
-`SectionTransition`の前後で同じboundary IDのroleが変わる場合、および`TransitionAction::kUnsupported`が
-markingを持つ要素を指す場合は`kUnsupported`とする。近い新boundaryへ自動でrebindしない。
-
-### draw
-
-drawは評価済みsegment断面、`ConnectionGeometry`、`JunctionGeometry`、`ResolvedMarkingGraph`を
-頂点、index、normal / UV、`RenderStyleRef`付きmeshへ変換するだけとする。`SavedRoadGraph`やauthoritative headerを読まず、
-section評価、connection kind、setback、gate、approach order、corner control、junction perimeter、boundary対応、
-停止線・ゼブラ配置、marking継続、style、線幅を決めない。
+解決済みgeometryだけを受け取り、頂点・index・normal・UV・mesh groupと有限性検査を行う。
+接続種別、setback、override適用、boundary対応、marking範囲、owner、style、線幅を決めない。
 
 ## Style ownership
 
@@ -241,11 +139,11 @@ section評価、connection kind、setback、gate、approach order、corner contr
 |---|---|
 | authoritative / request | `SurfaceStyleId` / `MarkingStyleId`を保存・入力する。自由文字列をidentityに使わない |
 | built-in catalog | road内の最小built-in styleだけを`common_types.hpp`で定義する |
-| derived / draw | `RenderStyleRef(domain, value)`だけを運ぶ。表示名文字列へ戻さない |
+| derived / emit | `RenderStyleRef(domain, value)`だけを運ぶ。表示名文字列へ戻さない |
 | viewer adapter | `RenderStyleRef`をviewer material key文字列へ変換する唯一の境界。未知IDはfallbackしない |
 
-manual markingのstyle IDは保存だけでなくdraw inputへ渡し、生成meshの`RenderStyleRef`へ反映する。
-BoundaryProfileには個別style fieldを持たせない。curb等の描画styleはBoundaryRoleからsectionsで導出する。
+manual markingのstyle IDは保存だけでなくemit inputへ渡し、生成meshの`RenderStyleRef`へ反映する。
+BoundaryProfileには個別style fieldを持たせない。curb等の描画styleはBoundaryRoleからsection評価で導出する。
 
 ## Identity
 
@@ -259,35 +157,35 @@ BoundaryProfileには個別style fieldを持たせない。curb等の描画style
 ## Approach override lifecycle
 
 authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / manual lateral shiftだけである。全fieldがAutoの空overrideは保存しない。
-単独segmentとdegree 1 endpointにはlayout/overrideを要求しない。degree 2のCorner/PassThrough、degree 3/4のJunctionで必要な場合だけ
-Auto/Resolved layoutを導出する。
+単独segmentとdegree 1 endpointにはconnection/overrideを要求しない。degree 2のCorner/PassThrough、degree 3/4のJunctionでだけ
+`ResolvedConnection`を導出する。
 
 - extension: 同一segmentを更新するため`ApproachKey`は維持される。manual fieldは維持し、Auto fieldは最新auto値へ追従する。
-- node move / shape edit: `ApproachKey`は維持され、Resolved layoutだけを再導出する。
+- node move / shape edit: `ApproachKey`は維持され、`ResolvedConnection`だけを再導出する。
 - segment split: 元segment start側overrideは元segmentに残る。元segment end側overrideは新しい外側segment endへIDでmappingする。内部nodeへ複製しない。
 - segment delete / node delete: 該当segment/nodeのoverrideは同じOperationPlanで削除し、orphanを残さない。
 - connection kind変更: 同じ`ApproachKey`かつfieldが有効なら維持する。layout対象外になったmanual overrideはBuildでunsupportedになり、黙って無視しない。
 
 ## Persistence target
 
-road persistenceはversion 7とする。保存対象はauthoritative stateとnext IDだけとする。
-CanonicalAlignment、decision、gate、evaluation、sampling、junction、mesh、mask、auto markingは保存しない。
-AutoNodeLayout / ResolvedNodeLayout / MarkingAnchorも保存しない。ApproachGeometryOverrideはmanual fieldがある場合だけ保存する。
+road persistenceはversion 9とする。保存対象はauthoritative stateとnext IDだけとする。
+CanonicalAlignment、connection、gate、section evaluation、junction geometry、mesh、mask、auto markingは保存しない。
+resolved connection、derived marking、mesh、maskも保存しない。ApproachGeometryOverrideはmanual fieldがある場合だけ保存する。
 
 形式は一行一fieldのnamed indexed `key=value`で、カンマ位置に意味を持たせない。save field順は固定し、
 top-level entityはID順にcanonical serializeする。順序に意味がある`SegmentShape.internal_knots`やPath spanは保存順を維持する。
 doubleはload後に同じbinary doubleへ戻る表現で保存する。
 
-version 6以前と未知versionは明示rejectし、migrationしない。loadはparse、field構造検証、型変換、
-`ValidateAuthoritativeGraph`、Build、DerivedInvariantを通過した場合だけ新stateを返す。duplicate key、missing key、
+version 8以前と未知versionは明示rejectし、migrationしない。loadはparse、field構造検証、型変換、
+`ValidateAuthoritativeGraph`、regenerate、不変条件検査を通過した場合だけ新stateを返す。duplicate key、missing key、
 unknown key、count不一致、enum範囲外、非有限値、重複ID、欠損参照をrejectする。
 
 ## Preflight and validation
 
 operation preflightはrequestの全fieldについて、ID存在、有限性、enum範囲、style ID、正であるべき寸法を検査する。
 正しい入力だが現在扱えない接続形状・transition付きsplit・prepend station移動は`kUnsupported`に残す。
-valid authoritativeから派生表が欠ける、drawへ不整合なresolved read modelが渡る等は`kInternal`とする。
-`ValidateAuthoritativeGraph`はloadとoperation trial後に共通利用し、保存正本の完全性だけを見る。Build stageでしか判断できない
+valid authoritativeから派生が欠ける、emitへ不整合なresolved geometryが渡る等は`kInternal`とする。
+`ValidateAuthoritativeGraph`はloadとoperation trial後に共通利用し、保存正本の完全性だけを見る。regenerateでしか判断できない
 幾何対応可否は混ぜない。
 
 ## Module boundaries
@@ -296,29 +194,17 @@ valid authoritativeから派生表が欠ける、drawへ不整合なresolved rea
 include/city/road/input_types/
 include/city/road/authoritative_types/
 include/city/road/derived_types/
+src/generation/     regenerate, segments, connections, markings, emit
+src/geometry/       alignment / section / junction の純粋幾何
 src/operations/
-src/build/
-src/draw/
 src/persistence/
 ```
 
-物理分割はownerを固定するために行う。drawはauthoritative headerをincludeせず、adapterはauthoritative型を構築しない。
-各build ownerは`src/build/topology.cpp`、`alignment.cpp`、`connection.cpp`、
-`sampling.cpp`、`section.cpp`、`gate.cpp`、`junction.cpp`へ分離し、
-`pipeline.cpp`だけが順に呼ぶ。`RoadState::BuildDerived()`は`build::make(graph_)`の結果交換だけを行う。
+物理分割はownerを固定するために行い、工程数と一致させない。emitはauthoritative headerをincludeせず、
+adapterはauthoritative型を構築しない。geometryはgraphを読むがderivedを書かない。
 
 ## Migration status
 
-| RS | 状態 | 完了条件 |
-|---|---|---|
-| RS0 | complete | 文書整合、機能凍結、進捗表 |
-| RS1 | complete | failure / identity / decision契約testと物理境界lintがfail-firstで存在 |
-| RS2 | complete | 全public operationがplan + trial + single Build、operation入れ子なし |
-| RS3 | complete | nodeだけがendpoint authority、SegmentShapeとCanonicalAlignmentを分離 |
-| RS4 | complete | 必須9 stageとread-only pipeline。NodeConnectionDecisionがapproach単位のsetbackを所有し、setbackの決定箇所が一つであること。SamplingPlanがgate stationをsemantic stationとして含み、ConnectionGateがSectionEvaluationを再評価しないこと |
-| RS5 | complete | draw純化、boundary ID対応。drawがcorner controlやjunction形状を決めず、断面roleを探索して意味を推測しないこと。JunctionGeometryTableが描画前の唯一の交差点形状決定表であること |
-| RS6 | complete | adapterはRequest変換だけ、fallbackとauthoritative構築なし |
-| RS7 | complete | version 6のみ、旧version reject、authoritative roundtrip / corruption test |
-| RS8 | complete | test分類、seed fuzz、全road / wire / web / lint回帰 |
-
-station splitはprototype実装であり、architecture migration完了の証拠ではない。
+生成構造の再編は完了している。`src/build`と`src/draw`、Stage型、`BuildDerived`、
+`AutoNodeLayout` / `ResolvedNodeLayout`の二重table、`MarkingAnchor`、`SamplingPlan`table、
+`MarkingIntent` / `ResolvedMarkingGraph`は削除済みで、互換aliasも残していない。

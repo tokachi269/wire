@@ -1,8 +1,8 @@
 #pragma once
 
-#include "pipeline.hpp"
+#include "city/road/road.hpp"
 
-namespace city::road::build {
+namespace city::road::internal {
 
 inline constexpr double station_epsilon = 1e-9;
 inline constexpr double surface_sample_step_m = 2.0;
@@ -26,4 +26,4 @@ inline constexpr double surface_sample_step_m = 2.0;
 [[nodiscard]] double endpoint_station(const ApproachKey &key, double length_m);
 void sort_unique_stations(std::vector<double> &stations);
 
-} // namespace city::road::build
+} // namespace city::road::internal

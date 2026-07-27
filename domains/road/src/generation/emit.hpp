@@ -4,7 +4,7 @@
 
 #include <vector>
 
-namespace city::road::draw {
+namespace city::road::generation {
 
 struct segment_sample {
   Vec2d center{};
@@ -27,12 +27,12 @@ struct junction_output {
   std::vector<Mesh> surface_meshes{};
 };
 
-[[nodiscard]] Result<segment_output> make_segment(const segment_input &input);
+[[nodiscard]] Result<segment_output> emit_segment(const segment_input &input);
 [[nodiscard]] Result<std::vector<Mesh>>
-make_connection(const ConnectionGeometry &input);
+emit_connection(const ConnectionGeometry &input);
 [[nodiscard]] Result<junction_output>
-make_junction(const JunctionGeometry &input);
+emit_junction(const JunctionGeometry &input);
 [[nodiscard]] Result<std::vector<Mesh>>
-make_markings(const ResolvedMarkingGraph &input);
+emit_markings(const std::vector<DerivedMarking> &markings);
 
-} // namespace city::road::draw
+} // namespace city::road::generation

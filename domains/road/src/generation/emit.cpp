@@ -1,10 +1,15 @@
-#include "mesh.hpp"
+#include "emit.hpp"
+
+#include "generation.hpp"
+
+#include "../geometry/geometry.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <cmath>
 #include <cstdint>
 
-namespace city::road::draw {
+namespace city::road::generation {
 namespace {
 
 Vec2d add(Vec2d a, Vec2d b) { return {a.x + b.x, a.y + b.y}; }
@@ -36,7 +41,7 @@ void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
 
 } // namespace
 
-Result<segment_output> make_segment(const segment_input &input) {
+Result<segment_output> emit_segment(const segment_input &input) {
   if (input.samples.empty()) {
     return Result<segment_output>::Fail(ErrorKind::kInternal,
                                         "road draw input has no samples");
@@ -100,7 +105,7 @@ Result<segment_output> make_segment(const segment_input &input) {
   return Result<segment_output>::Ok(std::move(output));
 }
 
-Result<std::vector<Mesh>> make_connection(const ConnectionGeometry &input) {
+Result<std::vector<Mesh>> emit_connection(const ConnectionGeometry &input) {
   if (input.surface_strips.empty()) {
     return Result<std::vector<Mesh>>::Fail(
         ErrorKind::kInternal,
@@ -126,7 +131,7 @@ Result<std::vector<Mesh>> make_connection(const ConnectionGeometry &input) {
   return Result<std::vector<Mesh>>::Ok(std::move(meshes));
 }
 
-Result<junction_output> make_junction(const JunctionGeometry &input) {
+Result<junction_output> emit_junction(const JunctionGeometry &input) {
   junction_output output{};
   for (const ResolvedSurfaceRegion &region : input.surface_regions) {
     if (region.perimeter.size() < 3) {
@@ -175,48 +180,49 @@ Result<junction_output> make_junction(const JunctionGeometry &input) {
   return Result<junction_output>::Ok(std::move(output));
 }
 
-Result<std::vector<Mesh>> make_markings(const ResolvedMarkingGraph &input) {
+Result<std::vector<Mesh>>
+emit_markings(const std::vector<DerivedMarking> &markings) {
   std::vector<Mesh> output{};
-  for (const ResolvedMarkingPath &path : input.paths) {
-    if (path.centerline.size() < 2 || path.width_m <= 0.0) {
-      return Result<std::vector<Mesh>>::Fail(
-          ErrorKind::kInternal, "resolved marking path is invalid");
-    }
-    Mesh mesh{};
-    mesh.owner_segment_id = path.owner.segment_id;
-    mesh.style = RenderStyleFromMarking(path.style_id);
-    std::vector<Vec3d> left{};
-    std::vector<Vec3d> right{};
-    const double half_width = path.width_m * 0.5;
-    for (std::size_t index = 0; index < path.centerline.size(); ++index) {
-      const Vec3d &current = path.centerline[index];
-      const Vec3d &next = index + 1 < path.centerline.size()
-                              ? path.centerline[index + 1]
-                              : path.centerline[index];
-      const Vec3d &prev =
-          index == 0 ? path.centerline[index] : path.centerline[index - 1];
-      const Vec2d direction =
-          normalize(Vec2d{next.x - prev.x, next.y - prev.y});
-      const Vec2d lateral{-direction.y, direction.x};
-      left.push_back(Vec3d{current.x + lateral.x * half_width,
-                           current.y + lateral.y * half_width, current.z});
-      right.push_back(Vec3d{current.x - lateral.x * half_width,
-                            current.y - lateral.y * half_width, current.z});
-    }
-    append_strip(mesh, left, right);
-    output.push_back(std::move(mesh));
-  }
-  for (const ResolvedMarkingArea &area : input.areas) {
-    for (const std::vector<Vec3d> &polygon : area.polygons) {
-      if (polygon.size() < 3) {
-        return Result<std::vector<Mesh>>::Fail(
-            ErrorKind::kInternal, "resolved marking area is invalid");
+  for (const DerivedMarking &marking : markings) {
+    if (!marking.points.empty()) {
+      if (marking.points.size() < 2 || marking.width_m <= 0.0) {
+        return Result<std::vector<Mesh>>::Fail(ErrorKind::kInternal,
+                                               "derived marking line is invalid");
       }
       Mesh mesh{};
-      mesh.owner_segment_id = area.owner.segment_id;
-      mesh.style = RenderStyleFromMarking(area.style_id);
-      mesh.vertices = polygon;
-      for (std::uint32_t index = 1; index + 1 < polygon.size(); ++index) {
+      mesh.owner_segment_id = marking.owner.segment_id;
+      mesh.style = RenderStyleFromMarking(marking.style_id);
+      std::vector<Vec3d> left{};
+      std::vector<Vec3d> right{};
+      const double half_width = marking.width_m * 0.5;
+      for (std::size_t index = 0; index < marking.points.size(); ++index) {
+        const Vec3d &current = marking.points[index];
+        const Vec3d &next = index + 1 < marking.points.size()
+                                ? marking.points[index + 1]
+                                : marking.points[index];
+        const Vec3d &prev =
+            index == 0 ? marking.points[index] : marking.points[index - 1];
+        const Vec2d direction =
+            normalize(Vec2d{next.x - prev.x, next.y - prev.y});
+        const Vec2d lateral{-direction.y, direction.x};
+        left.push_back(Vec3d{current.x + lateral.x * half_width,
+                             current.y + lateral.y * half_width, current.z});
+        right.push_back(Vec3d{current.x - lateral.x * half_width,
+                              current.y - lateral.y * half_width, current.z});
+      }
+      append_strip(mesh, left, right);
+      output.push_back(std::move(mesh));
+    }
+    if (!marking.polygon.empty()) {
+      if (marking.polygon.size() < 3) {
+        return Result<std::vector<Mesh>>::Fail(ErrorKind::kInternal,
+                                               "derived marking area is invalid");
+      }
+      Mesh mesh{};
+      mesh.owner_segment_id = marking.owner.segment_id;
+      mesh.style = RenderStyleFromMarking(marking.style_id);
+      mesh.vertices = marking.polygon;
+      for (std::uint32_t index = 1; index + 1 < marking.polygon.size(); ++index) {
         mesh.indices.insert(mesh.indices.end(), {0, index, index + 1});
       }
       output.push_back(std::move(mesh));
@@ -225,4 +231,72 @@ Result<std::vector<Mesh>> make_markings(const ResolvedMarkingGraph &input) {
   return Result<std::vector<Mesh>>::Ok(std::move(output));
 }
 
-} // namespace city::road::draw
+// Turns resolved geometry into meshes. It never decides connection kinds,
+// setbacks, marking extents, ownership, styles or widths.
+Result<bool> emit_geometry(DerivedRoad &derived) {
+  derived.segment_meshes.clear();
+  derived.connection_meshes.clear();
+  derived.junction_meshes.clear();
+  derived.marking_meshes.clear();
+  derived.terrain_masks.clear();
+
+  for (const DerivedSegment &segment : derived.segments) {
+    if (segment.surface_stations_m.empty()) {
+      return Result<bool>::Fail(ErrorKind::kInternal,
+                                "road segment has no surface stations");
+    }
+    segment_input input{};
+    input.segment_id = segment.id;
+    for (const double station : segment.surface_stations_m) {
+      const Result<Vec2d> center = EvaluatePath(segment.alignment, station);
+      const Result<Vec2d> tangent = internal::tangent_at(segment.alignment, station);
+      const SectionEvaluation *section = FindSectionAt(segment, station);
+      if (!center.ok || !tangent.ok || section == nullptr) {
+        return Result<bool>::Fail(ErrorKind::kInternal,
+                                  "road surface sample is missing");
+      }
+      input.samples.push_back(segment_sample{center.value, tangent.value,
+                                             section->boundaries,
+                                             section->surface_styles});
+    }
+    Result<segment_output> output = emit_segment(input);
+    if (!output.ok)
+      return Result<bool>::Fail(output.error_kind, output.error);
+    derived.segment_meshes.insert(
+        derived.segment_meshes.end(),
+        std::make_move_iterator(output.value.surface_meshes.begin()),
+        std::make_move_iterator(output.value.surface_meshes.end()));
+    derived.terrain_masks.push_back(std::move(output.value.terrain_mask));
+  }
+
+  for (const ResolvedConnection &connection : derived.connections) {
+    if (connection.kind == NodeConnectionKind::kCorner) {
+      Result<std::vector<Mesh>> meshes =
+          emit_connection(connection.connection_geometry);
+      if (!meshes.ok)
+        return Result<bool>::Fail(meshes.error_kind, meshes.error);
+      derived.connection_meshes.insert(
+          derived.connection_meshes.end(),
+          std::make_move_iterator(meshes.value.begin()),
+          std::make_move_iterator(meshes.value.end()));
+    } else if (connection.kind == NodeConnectionKind::kJunction) {
+      Result<junction_output> output =
+          emit_junction(connection.junction_geometry);
+      if (!output.ok)
+        return Result<bool>::Fail(output.error_kind, output.error);
+      derived.junction_meshes.insert(
+          derived.junction_meshes.end(),
+          std::make_move_iterator(output.value.surface_meshes.begin()),
+          std::make_move_iterator(output.value.surface_meshes.end()));
+    }
+  }
+
+  Result<std::vector<Mesh>> marking_meshes = emit_markings(derived.markings);
+  if (!marking_meshes.ok) {
+    return Result<bool>::Fail(marking_meshes.error_kind, marking_meshes.error);
+  }
+  derived.marking_meshes = std::move(marking_meshes.value);
+  return Result<bool>::Ok(true);
+}
+
+} // namespace city::road::generation

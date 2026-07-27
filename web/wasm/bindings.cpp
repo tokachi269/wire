@@ -1491,22 +1491,8 @@ public:
       marking_meshes.call<void>("push", road_mesh_value(mesh));
     }
     val approaches = val::array();
-    for (const auto& resolved_layout : derived.layouts) {
-      const auto auto_layout = std::find_if(
-          derived.auto_layouts.begin(), derived.auto_layouts.end(),
-          [&resolved_layout](const city::road::AutoNodeLayout& item) {
-            return item.node_id == resolved_layout.node_id;
-          });
-      for (const auto& resolved : resolved_layout.approaches) {
-        const city::road::AutoApproachLayout* auto_approach = nullptr;
-        if (auto_layout != derived.auto_layouts.end()) {
-          const auto found = std::find_if(
-              auto_layout->approaches.begin(), auto_layout->approaches.end(),
-              [&resolved](const city::road::AutoApproachLayout& item) {
-                return item.key == resolved.key;
-              });
-          if (found != auto_layout->approaches.end()) auto_approach = &*found;
-        }
+    for (const auto& connection : derived.connections) {
+      for (const auto& resolved : connection.approaches) {
         const auto override = std::find_if(
             graph.approach_geometry_overrides.begin(), graph.approach_geometry_overrides.end(),
             [&resolved](const city::road::ApproachGeometryOverride& item) {
@@ -1516,17 +1502,17 @@ public:
         item.set("nodeId", static_cast<double>(resolved.key.node_id));
         item.set("segmentId", static_cast<double>(resolved.key.segment_id));
         item.set("endpointRole", resolved.key.endpoint_role == city::road::EndpointRole::kEnd ? 1 : 0);
-        item.set("kind", static_cast<int>(resolved_layout.kind));
-        item.set("autoSetbackM", auto_approach == nullptr ? resolved.setback_m : auto_approach->setback_m);
-        item.set("resolvedSetbackM", resolved.setback_m);
+        item.set("kind", static_cast<int>(connection.kind));
+        item.set("autoSetbackM", resolved.auto_setback_m);
+        item.set("resolvedSetbackM", resolved.resolved_setback_m);
         item.set("manualSetback", override != graph.approach_geometry_overrides.end() &&
                                       override->setback_m.has_value);
         item.set("manualSetbackM", override != graph.approach_geometry_overrides.end() &&
                                        override->setback_m.has_value
                                      ? override->setback_m.value
                                      : 0.0);
-        item.set("autoLateralShiftM", auto_approach == nullptr ? 0.0 : auto_approach->lateral_shift_m);
-        item.set("resolvedLateralShiftM", resolved.lateral_shift_m);
+        item.set("autoLateralShiftM", resolved.auto_lateral_shift_m);
+        item.set("resolvedLateralShiftM", resolved.resolved_lateral_shift_m);
         item.set("manualLateralShift", override != graph.approach_geometry_overrides.end() &&
                                            override->lateral_shift_m.has_value);
         item.set("manualLateralShiftM", override != graph.approach_geometry_overrides.end() &&
@@ -1539,11 +1525,13 @@ public:
     // Junction marking candidates come from core so the viewer never infers a
     // target approach or boundary.
     val junctions = val::array();
-    for (const auto& area : derived.junction_areas) {
+    for (const auto& area : derived.connections) {
+      if (area.kind != city::road::NodeConnectionKind::kJunction) continue;
       val junction = val::object();
       junction.set("nodeId", static_cast<double>(area.node_id));
       val gates = val::array();
-      for (const auto& gate : area.gates) {
+      for (const auto& approach : area.approaches) {
+        const city::road::ConnectionGate& gate = approach.gate;
         val gate_value = val::object();
         gate_value.set("nodeId", static_cast<double>(gate.approach.node_id));
         gate_value.set("segmentId", static_cast<double>(gate.approach.segment_id));
@@ -1588,8 +1576,14 @@ public:
     result.set("sectionTemplateCount", graph.section_templates.size());
     result.set("transitionCount", graph.transitions.size());
     result.set("markingCount", graph.manual_lines.size() + graph.manual_areas.size());
-    result.set("connectionGateCount", derived.gates.size());
-    result.set("junctionCount", derived.junction_areas.size());
+    std::size_t gate_count = 0;
+    std::size_t junction_count = 0;
+    for (const auto& connection : derived.connections) {
+      gate_count += connection.approaches.size();
+      if (connection.kind == city::road::NodeConnectionKind::kJunction) ++junction_count;
+    }
+    result.set("connectionGateCount", gate_count);
+    result.set("junctionCount", junction_count);
     result.set("nodes", nodes);
     result.set("centerlineSegments", centerline_segments);
     result.set("sectionTemplates", section_templates);

@@ -1,6 +1,6 @@
 #include "city/road/road.hpp"
 
-#include "build/pipeline.hpp"
+#include "generation/generation.hpp"
 #include "operations/operation_plan.hpp"
 #include "persistence/road_archive.hpp"
 
@@ -590,14 +590,6 @@ Result<Path> BuildCanonicalAlignment(Vec2d start, Vec2d end, const SegmentShape&
   return Result<Path>::Ok(std::move(path));
 }
 
-const Path* FindCanonicalAlignment(const DerivedRoad& derived, RoadSegmentId segment_id) {
-  const auto found = std::find_if(derived.alignments.begin(), derived.alignments.end(),
-                                  [segment_id](const CanonicalAlignment& item) {
-                                    return item.segment_id == segment_id;
-                                  });
-  return found == derived.alignments.end() ? nullptr : &found->path;
-}
-
 bool IsLinearSpan(const BezierSpan& span) {
   return almost_same(span.p1, add(span.p0, mul(sub(span.p3, span.p0), 1.0 / 3.0))) &&
          almost_same(span.p2, add(span.p0, mul(sub(span.p3, span.p0), 2.0 / 3.0)));
@@ -703,7 +695,7 @@ Result<bool> RoadState::Execute(const operations::OperationPlan& plan) {
   const Result<bool> authoritative_valid =
       persistence::ValidateAuthoritativeGraph(trial.graph_, trial.next_id_);
   if (!authoritative_valid.ok) return authoritative_valid;
-  const Result<bool> built = trial.BuildDerived();
+  const Result<bool> built = trial.regenerate();
   if (!built.ok) return built;
   *this = std::move(trial);
   return Result<bool>::Ok(true);
@@ -1065,13 +1057,8 @@ Result<bool> RoadState::SetApproachSetbackOverride(SetApproachSetbackOverrideReq
       !endpoint_matches(*segment, request.key)) {
     return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
   }
-  const auto layout = std::find_if(
-      derived_.layouts.begin(), derived_.layouts.end(),
-      [&](const ResolvedNodeLayout& item) { return item.node_id == request.key.node_id; });
-  if (layout == derived_.layouts.end() ||
-      std::none_of(layout->approaches.begin(), layout->approaches.end(),
-                   [&](const ResolvedApproachLayout& item) { return item.key == request.key; })) {
-    return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved layout");
+  if (FindResolvedApproach(derived_, request.key) == nullptr) {
+    return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved connection");
   }
   ApproachGeometryOverride override =
       find_approach_geometry_override(graph_, request.key) != nullptr
@@ -1096,13 +1083,8 @@ Result<bool> RoadState::SetApproachLateralShiftOverride(SetApproachLateralShiftO
       !endpoint_matches(*segment, request.key)) {
     return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
   }
-  const auto layout = std::find_if(
-      derived_.layouts.begin(), derived_.layouts.end(),
-      [&](const ResolvedNodeLayout& item) { return item.node_id == request.key.node_id; });
-  if (layout == derived_.layouts.end() ||
-      std::none_of(layout->approaches.begin(), layout->approaches.end(),
-                   [&](const ResolvedApproachLayout& item) { return item.key == request.key; })) {
-    return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved layout");
+  if (FindResolvedApproach(derived_, request.key) == nullptr) {
+    return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved connection");
   }
   ApproachGeometryOverride override =
       find_approach_geometry_override(graph_, request.key) != nullptr
@@ -1472,12 +1454,12 @@ Result<bool> RoadState::DeleteJunctionMarkingOverride(DeleteJunctionMarkingOverr
   return Execute(plan);
 }
 
-Result<bool> RoadState::BuildDerived() {
-  Result<DerivedRoad> built = build::make(graph_);
-  if (!built.ok) {
-    return Result<bool>::Fail(built.error_kind, built.error);
+Result<bool> RoadState::regenerate() {
+  Result<DerivedRoad> regenerated = generation::regenerate_road(graph_);
+  if (!regenerated.ok) {
+    return Result<bool>::Fail(regenerated.error_kind, regenerated.error);
   }
-  derived_ = std::move(built.value);
+  derived_ = std::move(regenerated.value);
   return Result<bool>::Ok(true);
 }
 
@@ -1493,7 +1475,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
   RoadState state{};
   state.graph_ = std::move(loaded.value.graph);
   state.next_id_ = loaded.value.next_id;
-  Result<bool> rebuilt = state.BuildDerived();
+  Result<bool> rebuilt = state.regenerate();
   if (!rebuilt.ok) {
     return Result<RoadState>::Fail(rebuilt.error_kind, rebuilt.error);
   }
@@ -1501,10 +1483,6 @@ Result<RoadState> RoadState::Load(const std::string& text) {
 }
 
 Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedRoad& derived) {
-  if (std::any_of(derived.build_stage_runs.begin(), derived.build_stage_runs.end(),
-                  [](std::size_t runs) { return runs != 1; })) {
-    return Result<bool>::Fail(ErrorKind::kInternal, "road build stage count invariant failed");
-  }
   std::unordered_set<std::uint64_t> ids{};
   for (const CrossSectionTemplate& section : graph.section_templates) {
     if (!ids.insert(section.id).second) {
@@ -1521,7 +1499,11 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
         find_node(graph, segment.node_b) == nullptr || find_template(graph, segment.section_template) == nullptr) {
       return Result<bool>::Fail(ErrorKind::kInternal, "road segment reference invariant failed");
     }
+    if (FindDerivedSegment(derived, segment.id) == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road derived segment is missing");
+    }
   }
+
   std::size_t expected_approaches = 0;
   for (const RoadSegment& segment : graph.segments) {
     for (const RoadNodeId node_id :
@@ -1532,154 +1514,122 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
       }
     }
   }
-  std::size_t decision_approaches = 0;
-  for (const NodeConnectionDecision& decision : derived.decisions) {
-    if (find_node(graph, decision.node_id) == nullptr ||
-        decision.approaches.size() != decision.ordered_approaches.size()) {
+
+  std::size_t resolved_approaches = 0;
+  for (const ResolvedConnection& connection : derived.connections) {
+    if (find_node(graph, connection.node_id) == nullptr ||
+        connection.approaches.size() != connection.ordered_approaches.size()) {
       return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road node connection decision invariant failed");
+                                "road resolved connection invariant failed");
     }
-    decision_approaches += decision.approaches.size();
-    for (const ApproachConnectionDecision& approach : decision.approaches) {
+    resolved_approaches += connection.approaches.size();
+    for (const ResolvedApproach& approach : connection.approaches) {
       const RoadSegment* segment = find_segment(graph, approach.key.segment_id);
       const bool endpoint_matches =
-          segment != nullptr && approach.key.node_id == decision.node_id &&
+          segment != nullptr && approach.key.node_id == connection.node_id &&
           ((approach.key.endpoint_role == EndpointRole::kStart &&
             segment->node_a == approach.key.node_id) ||
            (approach.key.endpoint_role == EndpointRole::kEnd &&
             segment->node_b == approach.key.node_id));
       if (!endpoint_matches || approach.endpoint_template_id == 0 ||
-          !finite(approach.setback_m) || approach.setback_m < 0.0 ||
+          !finite(approach.auto_setback_m) || approach.auto_setback_m < 0.0 ||
+          !finite(approach.resolved_setback_m) || approach.resolved_setback_m < 0.0 ||
+          !finite(approach.resolved_lateral_shift_m) ||
           !finite(approach.gate_station_m)) {
-        return Result<bool>::Fail(
-            ErrorKind::kInternal,
-            "road approach connection decision invariant failed");
+        return Result<bool>::Fail(ErrorKind::kInternal,
+                                  "road resolved approach invariant failed");
       }
-      const std::size_t same_decision_rows = static_cast<std::size_t>(
-          std::count_if(decision.approaches.begin(), decision.approaches.end(),
-                        [&approach](const ApproachConnectionDecision& candidate) {
+      const std::size_t same_approach_rows = static_cast<std::size_t>(
+          std::count_if(connection.approaches.begin(), connection.approaches.end(),
+                        [&approach](const ResolvedApproach& candidate) {
                           return candidate.key == approach.key;
                         }));
       const std::size_t same_order_rows = static_cast<std::size_t>(
-          std::count(decision.ordered_approaches.begin(),
-                     decision.ordered_approaches.end(), approach.key));
-      if (same_decision_rows != 1 || same_order_rows != 1) {
+          std::count(connection.ordered_approaches.begin(),
+                     connection.ordered_approaches.end(), approach.key));
+      if (same_approach_rows != 1 || same_order_rows != 1) {
         return Result<bool>::Fail(ErrorKind::kInternal,
-                                  "road ApproachKey decision identity invariant failed");
+                                  "road ApproachKey identity invariant failed");
+      }
+
+      const ConnectionGate& gate = approach.gate;
+      if (gate.segment_id != approach.key.segment_id ||
+          gate.node_id != approach.key.node_id || gate.approach != approach.key ||
+          !finite(gate.position.x) || !finite(gate.position.y) || !finite(gate.position.z) ||
+          !finite(gate.tangent.x) || !finite(gate.tangent.y) || !finite(gate.tangent.z) ||
+          !finite(gate.lateral.x) || !finite(gate.lateral.y) || !finite(gate.lateral.z) ||
+          !finite(gate.normal.x) || !finite(gate.normal.y) || !finite(gate.normal.z)) {
+        return Result<bool>::Fail(ErrorKind::kInternal,
+                                  "road connection gate frame invariant failed");
+      }
+      const DerivedSegment* owner = FindDerivedSegment(derived, approach.key.segment_id);
+      const SectionEvaluation* section =
+          owner == nullptr ? nullptr : FindSectionAt(*owner, approach.gate_station_m);
+      if (section == nullptr || section->boundaries.size() != gate.boundaries.size()) {
+        return Result<bool>::Fail(
+            ErrorKind::kInternal,
+            "road connection gate section evaluation invariant failed");
+      }
+      for (std::size_t index = 0; index < gate.boundaries.size(); ++index) {
+        const SectionBoundarySample& gate_boundary = gate.boundaries[index];
+        const SectionBoundarySample& section_boundary = section->boundaries[index];
+        if (gate_boundary.boundary_id != section_boundary.boundary_id ||
+            gate_boundary.role != section_boundary.role ||
+            gate_boundary.lateral_m != section_boundary.lateral_m ||
+            gate_boundary.height_m != section_boundary.height_m ||
+            gate_boundary.marking != section_boundary.marking) {
+          return Result<bool>::Fail(
+              ErrorKind::kInternal,
+              "road connection gate boundary copy invariant failed");
+        }
       }
     }
   }
-  std::size_t layout_approaches = 0;
-  for (const ResolvedNodeLayout& layout : derived.layouts) {
-    if (layout.approaches.size() != layout.ordered_approaches.size()) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road resolved node layout invariant failed");
-    }
-    layout_approaches += layout.approaches.size();
-    for (const ResolvedApproachLayout& approach : layout.approaches) {
-      if (approach.key.node_id != layout.node_id || !finite(approach.position.x) ||
-          !finite(approach.position.y) || !finite(approach.position.z) ||
-          !finite(approach.setback_m) || approach.setback_m < 0.0 ||
-          !finite(approach.lateral_shift_m) || !finite(approach.gate_station_m)) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
-                                  "road resolved approach layout invariant failed");
-      }
-    }
-  }
-  if (decision_approaches != expected_approaches ||
-      derived.setback_calculation_count != expected_approaches ||
-      derived.gates.size() != layout_approaches) {
+  if (resolved_approaches != expected_approaches ||
+      derived.setback_calculation_count != expected_approaches) {
     return Result<bool>::Fail(ErrorKind::kInternal,
                               "road approach single-decision count invariant failed");
   }
-  if (derived.section_evaluation_count != derived.sections.size()) {
+
+  std::size_t section_rows = 0;
+  for (const DerivedSegment& segment : derived.segments) {
+    if (find_segment(graph, segment.id) == nullptr || !finite(segment.length_m) ||
+        segment.length_m <= 0.0 || segment.alignment.spans.empty()) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road derived segment invariant failed");
+    }
+    section_rows += segment.sections.size();
+    for (const SectionEvaluation& section : segment.sections) {
+      if (section.segment_id != segment.id) {
+        return Result<bool>::Fail(ErrorKind::kInternal, "road section owner invariant failed");
+      }
+      double previous = -std::numeric_limits<double>::infinity();
+      for (const SectionBoundarySample& boundary : section.boundaries) {
+        if (!finite(boundary.lateral_m) || !finite(boundary.height_m) || boundary.lateral_m < previous) {
+          return Result<bool>::Fail(ErrorKind::kInternal, "section boundary order invariant failed");
+        }
+        previous = boundary.lateral_m;
+      }
+    }
+  }
+  if (derived.section_evaluation_count != section_rows) {
     return Result<bool>::Fail(ErrorKind::kInternal,
                               "road section evaluation count invariant failed");
   }
-  for (const SectionEvaluation& section : derived.sections) {
-    double previous = -std::numeric_limits<double>::infinity();
-    for (const SectionBoundarySample& boundary : section.boundaries) {
-      if (!finite(boundary.lateral_m) || !finite(boundary.height_m) || boundary.lateral_m < previous) {
-        return Result<bool>::Fail(ErrorKind::kInternal, "section boundary order invariant failed");
-      }
-      previous = boundary.lateral_m;
+
+  for (const DerivedMarking& marking : derived.markings) {
+    const bool owner_exists =
+        marking.owner.kind == MarkingOwner::Kind::kRoadSegment
+            ? find_segment(graph, marking.owner.segment_id) != nullptr
+            : (marking.owner.kind == MarkingOwner::Kind::kJunction
+                   ? find_node(graph, marking.owner.node_id) != nullptr
+                   : marking.owner.manual_id != 0);
+    if (!owner_exists || !IsKnownMarkingStyle(marking.style_id) ||
+        !finite(marking.width_m) || marking.width_m <= 0.0 ||
+        (marking.points.empty() && marking.polygon.empty())) {
+      return Result<bool>::Fail(ErrorKind::kInternal, "road derived marking invariant failed");
     }
   }
-  for (const ConnectionGate& gate : derived.gates) {
-    const RoadSegment* segment = find_segment(graph, gate.approach.segment_id);
-    const bool endpoint_matches =
-        segment != nullptr && gate.segment_id == gate.approach.segment_id &&
-        gate.node_id == gate.approach.node_id &&
-        ((gate.approach.endpoint_role == EndpointRole::kStart &&
-          segment->node_a == gate.approach.node_id) ||
-         (gate.approach.endpoint_role == EndpointRole::kEnd &&
-          segment->node_b == gate.approach.node_id));
-    if (!endpoint_matches || !finite(gate.position.x) ||
-        !finite(gate.position.y) || !finite(gate.position.z) ||
-        !finite(gate.tangent.x) || !finite(gate.tangent.y) ||
-        !finite(gate.tangent.z) || !finite(gate.lateral.x) ||
-        !finite(gate.lateral.y) || !finite(gate.lateral.z) ||
-        !finite(gate.normal.x) || !finite(gate.normal.y) ||
-        !finite(gate.normal.z)) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road connection gate frame invariant failed");
-    }
-    const ResolvedNodeLayout* layout = nullptr;
-    for (const ResolvedNodeLayout& candidate : derived.layouts) {
-      if (candidate.node_id == gate.approach.node_id) {
-        if (layout != nullptr) {
-          return Result<bool>::Fail(ErrorKind::kInternal,
-                                    "road node has duplicate resolved layouts");
-        }
-        layout = &candidate;
-      }
-    }
-    if (layout == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road connection gate resolved layout is missing");
-    }
-    const auto approach = std::find_if(layout->approaches.begin(), layout->approaches.end(),
-        [&gate](const ResolvedApproachLayout& candidate) {
-          return candidate.key == gate.approach;
-        });
-    if (approach == layout->approaches.end()) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road connection gate resolved approach is missing");
-    }
-    const SectionEvaluation* matched_section = nullptr;
-    for (const SectionEvaluation& section : derived.sections) {
-      if (section.segment_id != gate.approach.segment_id ||
-          std::abs(section.station_m - approach->gate_station_m) > kEpsilon) {
-        continue;
-      }
-      if (matched_section != nullptr) {
-        return Result<bool>::Fail(
-            ErrorKind::kInternal,
-            "road connection gate has duplicate SectionEvaluation rows");
-      }
-      matched_section = &section;
-    }
-    if (matched_section == nullptr ||
-        matched_section->boundaries.size() != gate.boundaries.size()) {
-      return Result<bool>::Fail(
-          ErrorKind::kInternal,
-          "road connection gate SectionEvaluation invariant failed");
-    }
-    for (std::size_t index = 0; index < gate.boundaries.size(); ++index) {
-      const SectionBoundarySample& gate_boundary = gate.boundaries[index];
-      const SectionBoundarySample& section_boundary =
-          matched_section->boundaries[index];
-      if (gate_boundary.boundary_id != section_boundary.boundary_id ||
-          gate_boundary.role != section_boundary.role ||
-          gate_boundary.lateral_m != section_boundary.lateral_m ||
-          gate_boundary.height_m != section_boundary.height_m ||
-          gate_boundary.marking != section_boundary.marking) {
-        return Result<bool>::Fail(
-            ErrorKind::kInternal,
-            "road connection gate boundary copy invariant failed");
-      }
-    }
-  }
+
   for (const NodeConnectionPolicyOverride& policy : graph.connection_policy_overrides) {
     if (!ids.insert(policy.id).second || find_node(graph, policy.node_id) == nullptr) {
       return Result<bool>::Fail(ErrorKind::kInternal, "road connection policy override invariant failed");

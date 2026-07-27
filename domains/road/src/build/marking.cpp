@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstdint>
 #include <map>
+#include <string>
+#include <vector>
 
 namespace city::road::build {
 namespace {
@@ -19,6 +21,9 @@ constexpr double kCrosswalkCenterM = 2.0;
 constexpr double kCrosswalkHalfLengthM = 1.4;
 constexpr double kCrosswalkStripeHalfWidthM = 0.175;
 constexpr double kCrosswalkStripeStepM = 0.7;
+// No boundary line is emitted where an adjacent band is at most this wide.
+// This is the single decision value for degenerate runs.
+constexpr double kDegenerateBandWidthM = 0.05;
 
 std::uint64_t mix(std::uint64_t seed, std::uint64_t value) {
   seed ^= value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
@@ -247,18 +252,21 @@ Result<bool> add_segment_intents(pipeline &pipe) {
           it->second.style_id = boundary.marking.style_id;
           it->second.geometry = MarkingGeometryRule::kFollowBoundary;
           it->second.track = track;
+          it->second.range_start_m = range_start;
+          it->second.range_end_m = range_end;
         } else if (it->second.style_id != boundary.marking.style_id) {
           return Result<bool>::Fail(ErrorKind::kUnsupported,
                                     "conflicting marking policy on boundary");
         }
-        it->second.world_path.push_back(point.value);
+        it->second.boundary_samples.push_back(MarkingBoundarySample{
+            station, boundary.lateral_m,
+            std::min(boundary.left_band_width_m, boundary.right_band_width_m),
+            point.value});
       }
     }
     for (auto &[key, intent] : by_track) {
       (void)key;
-      if (intent.world_path.size() >= 2) {
-        pipe.out.marking_intents.push_back(std::move(intent));
-      }
+      pipe.out.marking_intents.push_back(std::move(intent));
     }
   }
   return Result<bool>::Ok(true);
@@ -468,6 +476,69 @@ Result<bool> add_junction_override_intents(pipeline &pipe) {
   return Result<bool>::Ok(true);
 }
 
+// Classify the cases where a section transition cannot decide continuation by
+// boundary ID. Never rebind automatically to a nearby boundary.
+Result<bool> validate_transition_marking_mapping(const pipeline &pipe) {
+  for (const RoadSegment &segment : pipe.source.segments) {
+    if (!segment.transition.has_value())
+      continue;
+    const SectionTransition *transition =
+        find_transition(pipe.source, *segment.transition);
+    if (transition == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "road segment transition is missing");
+    }
+    const CrossSectionTemplate *from =
+        find_template(pipe.source, transition->from_template);
+    const CrossSectionTemplate *to =
+        find_template(pipe.source, transition->to_template);
+    if (from == nullptr || to == nullptr) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "road transition template is missing");
+    }
+    for (const BoundaryProfile &source_boundary : from->boundaries) {
+      const auto target = std::find_if(
+          to->boundaries.begin(), to->boundaries.end(),
+          [&source_boundary](const BoundaryProfile &candidate) {
+            return candidate.boundary_id == source_boundary.boundary_id;
+          });
+      if (target == to->boundaries.end())
+        continue;
+      if (target->role != source_boundary.role) {
+        return Result<bool>::Fail(
+            ErrorKind::kUnsupported,
+            "transition boundary " +
+                std::to_string(source_boundary.boundary_id) +
+                " changes role and cannot continue markings");
+      }
+    }
+    for (const SectionTransitionRule &rule : transition->rules) {
+      if (rule.action != TransitionAction::kUnsupported)
+        continue;
+      const auto marked = std::find_if(
+          to->boundaries.begin(), to->boundaries.end(),
+          [&rule](const BoundaryProfile &candidate) {
+            return candidate.boundary_id == rule.element_id &&
+                   candidate.marking.enabled;
+          });
+      const auto marked_source = std::find_if(
+          from->boundaries.begin(), from->boundaries.end(),
+          [&rule](const BoundaryProfile &candidate) {
+            return candidate.boundary_id == rule.element_id &&
+                   candidate.marking.enabled;
+          });
+      if (marked != to->boundaries.end() ||
+          marked_source != from->boundaries.end()) {
+        return Result<bool>::Fail(
+            ErrorKind::kUnsupported,
+            "transition element " + std::to_string(rule.element_id) +
+                " has no supported marking mapping");
+      }
+    }
+  }
+  return Result<bool>::Ok(true);
+}
+
 } // namespace
 
 Result<bool> make_marking_intents(pipeline &pipe) {
@@ -485,7 +556,50 @@ Result<bool> make_marking_intents(pipeline &pipe) {
 }
 
 Result<bool> make_marking_continuity(pipeline &pipe) {
+  const Result<bool> mapping = validate_transition_marking_mapping(pipe);
+  if (!mapping.ok)
+    return mapping;
+
+  std::vector<MarkingIntent> kept{};
+  kept.reserve(pipe.out.marking_intents.size());
   for (MarkingIntent &intent : pipe.out.marking_intents) {
+    if (!intent.track.has_value()) {
+      kept.push_back(std::move(intent));
+      continue;
+    }
+    // Drop samples where the lane has collapsed. This is the only place the
+    // activation condition is decided.
+    std::vector<MarkingBoundarySample> live{};
+    for (const MarkingBoundarySample &sample : intent.boundary_samples) {
+      if (sample.min_adjacent_band_width_m > kDegenerateBandWidthM) {
+        live.push_back(sample);
+      }
+    }
+    if (live.size() < 2) {
+      continue;
+    }
+    std::sort(live.begin(), live.end(),
+              [](const MarkingBoundarySample &a,
+                 const MarkingBoundarySample &b) {
+                return a.station_m < b.station_m;
+              });
+    intent.source_action = live.front().station_m >
+                                   intent.range_start_m + station_epsilon
+                               ? MarkingContinuationAction::kBegin
+                               : MarkingContinuationAction::kContinue;
+    intent.end_action =
+        live.back().station_m < intent.range_end_m - station_epsilon
+            ? MarkingContinuationAction::kTerminate
+            : MarkingContinuationAction::kContinue;
+    intent.world_path.clear();
+    for (const MarkingBoundarySample &sample : live) {
+      intent.world_path.push_back(sample.position);
+    }
+    intent.boundary_samples = std::move(live);
+    kept.push_back(std::move(intent));
+  }
+  pipe.out.marking_intents = std::move(kept);
+  for (const MarkingIntent &intent : pipe.out.marking_intents) {
     if (intent.track.has_value() && intent.world_path.size() < 2) {
       return Result<bool>::Fail(ErrorKind::kInternal,
                                 "marking continuation path is incomplete");
@@ -512,7 +626,7 @@ Result<bool> resolve_markings(pipeline &pipe) {
       }
       graph.paths.push_back(ResolvedMarkingPath{
           intent.id, intent.owner, intent.role, intent.style_id,
-          MarkingContinuationAction::kContinue, intent.world_path,
+          intent.source_action, intent.end_action, intent.world_path,
           style.width_m});
     }
     if (!intent.world_polygon.empty()) {

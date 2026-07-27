@@ -376,6 +376,15 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         return Result<bool>::Fail(ErrorKind::kValidation,
                                   "section template surface band is invalid");
       }
+      for (const AutoMarkingPolicy& side :
+           {band.side_marking.left, band.side_marking.right}) {
+        if (static_cast<int>(side.role) < 0 || static_cast<int>(side.role) > 5 ||
+            (side.enabled && !IsKnownMarkingStyle(side.style_id))) {
+          return Result<bool>::Fail(
+              ErrorKind::kValidation,
+              "section template lane side marking is invalid");
+        }
+      }
     }
     std::set<std::uint64_t> boundaries{};
     for (const BoundaryProfile& boundary : section.boundaries) {
@@ -597,6 +606,15 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
       writer.Double(band_prefix + ".width_m", band.width_m);
       writer.Double(band_prefix + ".cross_slope", band.cross_slope);
       writer.UInt(band_prefix + ".style_id", band.style_id.value);
+      for (const auto& [side_key, side] :
+           {std::pair{std::string_view{"left"}, band.side_marking.left},
+            std::pair{std::string_view{"right"}, band.side_marking.right}}) {
+        const std::string side_prefix =
+            band_prefix + ".side_marking." + std::string(side_key);
+        writer.Int(side_prefix + ".enabled", side.enabled ? 1 : 0);
+        writer.Int(side_prefix + ".role", static_cast<int>(side.role));
+        writer.UInt(side_prefix + ".style_id", side.style_id.value);
+      }
     }
     writer.UInt(prefix + ".boundary.count", section.boundaries.size());
     for (std::size_t j = 0; j < section.boundaries.size(); ++j) {
@@ -829,8 +847,35 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
       if (!width.ok) return Result<LoadedRoad>::Fail(width.error_kind, width.error);
       if (!slope.ok) return Result<LoadedRoad>::Fail(slope.error_kind, slope.error);
       if (!style.ok) return Result<LoadedRoad>::Fail(style.error_kind, style.error);
+      LaneSideMarkingPolicy side_marking{};
+      for (const std::string_view side_key : {std::string_view{"left"}, std::string_view{"right"}}) {
+        const std::string side_prefix =
+            band_prefix + ".side_marking." + std::string(side_key);
+        Result<int> enabled = reader.RequireInt(side_prefix + ".enabled");
+        Result<MarkingRole> side_role =
+            enum_value<MarkingRole>(reader, side_prefix + ".role", 0, 5);
+        Result<std::uint64_t> side_style = reader.RequireU64(side_prefix + ".style_id");
+        if (!enabled.ok) return Result<LoadedRoad>::Fail(enabled.error_kind, enabled.error);
+        if (!side_role.ok) return Result<LoadedRoad>::Fail(side_role.error_kind, side_role.error);
+        if (!side_style.ok) return Result<LoadedRoad>::Fail(side_style.error_kind, side_style.error);
+        if (enabled.value != 0 && enabled.value != 1) {
+          return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+                                          "lane side marking enabled flag is invalid");
+        }
+        AutoMarkingPolicy policy{enabled.value == 1, side_role.value,
+                                 MarkingStyleId{side_style.value}};
+        if (policy.enabled && !IsKnownMarkingStyle(policy.style_id)) {
+          return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+                                          "lane side marking style is unknown");
+        }
+        if (side_key == "left") {
+          side_marking.left = policy;
+        } else {
+          side_marking.right = policy;
+        }
+      }
       section.bands.push_back(SurfaceBand{element_id.value, role.value, width.value, slope.value,
-                                          SurfaceStyleId{style.value}});
+                                          SurfaceStyleId{style.value}, side_marking});
     }
     Result<std::size_t> boundary_count = require_count(prefix + ".boundary.count");
     if (!boundary_count.ok) return Result<LoadedRoad>::Fail(boundary_count.error_kind, boundary_count.error);

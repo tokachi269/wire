@@ -45,6 +45,37 @@ export interface RoadSceneData {
   surfaceMeshes: RoadMeshData[];
   markingMeshes: RoadMeshData[];
   approaches: RoadApproachLayoutData[];
+  junctions: RoadJunctionData[];
+}
+
+export interface RoadJunctionMarkingBoundaryData {
+  boundaryId: number;
+  role: number;
+}
+
+export interface RoadJunctionGateData {
+  nodeId: number;
+  segmentId: number;
+  endpointRole: 0 | 1;
+  markingBoundaries: RoadJunctionMarkingBoundaryData[];
+}
+
+export interface RoadJunctionMarkingOverrideData {
+  overrideId: number;
+  action: number;
+  sourceSegmentId: number;
+  sourceBoundaryId: number;
+  sourceRole: number;
+  hasTarget: boolean;
+  targetSegmentId?: number;
+  targetBoundaryId?: number;
+  targetRole?: number;
+}
+
+export interface RoadJunctionData {
+  nodeId: number;
+  gates: RoadJunctionGateData[];
+  markingOverrides: RoadJunctionMarkingOverrideData[];
 }
 
 export interface RoadApproachLayoutData {
@@ -234,6 +265,7 @@ export function emptyRoadScene(): RoadSceneData {
     editableSegments: [],
     surfaceMeshes: [],
     markingMeshes: [],
-    approaches: []
+    approaches: [],
+    junctions: []
   };
 }

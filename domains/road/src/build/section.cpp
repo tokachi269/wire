@@ -73,8 +73,58 @@ CrossSectionTemplate interpolate_section(const CrossSectionTemplate &from,
   return out;
 }
 
+// Merge the marking requests that apply to a boundary into one policy. The
+// only sources are the boundary itself and the side policies of the bands
+// adjacent in element order; never lateral position or array index.
+Result<std::vector<AutoMarkingPolicy>>
+merge_boundary_policies(const CrossSectionTemplate &section) {
+  std::vector<AutoMarkingPolicy> merged(section.boundaries.size(),
+                                        AutoMarkingPolicy{});
+  if (section.bands.empty()) {
+    return Result<std::vector<AutoMarkingPolicy>>::Ok(std::move(merged));
+  }
+  // The outermost sides have no adjacent boundary element to resolve to.
+  if (section.bands.front().side_marking.left.enabled ||
+      section.bands.back().side_marking.right.enabled) {
+    return Result<std::vector<AutoMarkingPolicy>>::Fail(
+        ErrorKind::kUnsupported,
+        "lane side marking has no adjacent boundary element");
+  }
+  for (std::size_t index = 0; index < section.boundaries.size(); ++index) {
+    const BoundaryProfile &boundary = section.boundaries[index];
+    AutoMarkingPolicy resolved{};
+    bool has_request = false;
+    const auto accept = [&](const AutoMarkingPolicy &request) {
+      if (!request.enabled) {
+        return true;
+      }
+      if (!has_request) {
+        resolved = request;
+        has_request = true;
+        return true;
+      }
+      return resolved == request;
+    };
+    const bool compatible =
+        accept(boundary.marking) &&
+        accept(section.bands[index].side_marking.right) &&
+        accept(index + 1 < section.bands.size()
+                   ? section.bands[index + 1].side_marking.left
+                   : AutoMarkingPolicy{});
+    if (!compatible) {
+      return Result<std::vector<AutoMarkingPolicy>>::Fail(
+          ErrorKind::kUnsupported,
+          "conflicting marking requests on section boundary " +
+              std::to_string(boundary.boundary_id));
+    }
+    merged[index] = resolved;
+  }
+  return Result<std::vector<AutoMarkingPolicy>>::Ok(std::move(merged));
+}
+
 std::vector<SectionBoundarySample>
-build_boundaries(const CrossSectionTemplate &section) {
+build_boundaries(const CrossSectionTemplate &section,
+                 const std::vector<AutoMarkingPolicy> &policies) {
   std::vector<SectionBoundarySample> samples{};
   if (section.bands.empty())
     return samples;
@@ -101,30 +151,38 @@ build_boundaries(const CrossSectionTemplate &section) {
     if (index >= section.boundaries.size())
       continue;
     const BoundaryProfile &boundary = section.boundaries[index];
+    const AutoMarkingPolicy policy =
+        index < policies.size() ? policies[index] : boundary.marking;
+    const SurfaceBand &right_band = section.bands[index + 1];
+    const auto with_adjacency = [&](SectionBoundarySample sample) {
+      sample.left_element_id = band.element_id;
+      sample.right_element_id = right_band.element_id;
+      sample.left_band_width_m = band.width_m;
+      sample.right_band_width_m = right_band.width_m;
+      return sample;
+    };
     const bool structural_boundary = boundary.role == BoundaryRole::kCurb ||
                                      boundary.role == BoundaryRole::kMedianEdge;
     if (!structural_boundary && boundary.width_m <= station_epsilon &&
         std::abs(boundary.height_m) <= station_epsilon) {
-      samples.push_back(SectionBoundarySample{boundary.boundary_id,
-                                              boundary.role, lateral, height,
-                                              boundary.marking});
+      samples.push_back(with_adjacency(SectionBoundarySample{
+          boundary.boundary_id, boundary.role, lateral, height, policy}));
       continue;
     }
     AutoMarkingPolicy before_rule{};
-    AutoMarkingPolicy after_rule = boundary.marking;
+    AutoMarkingPolicy after_rule = policy;
     if (boundary.role == BoundaryRole::kCurb &&
-        index + 1 < section.bands.size() &&
         band.role == SurfaceRole::kCarriageway &&
-        section.bands[index + 1].role == SurfaceRole::kSidewalk) {
-      before_rule = boundary.marking;
+        right_band.role == SurfaceRole::kSidewalk) {
+      before_rule = policy;
       after_rule = {};
     }
-    samples.push_back(SectionBoundarySample{boundary.boundary_id, boundary.role,
-                                            lateral, height, before_rule});
+    samples.push_back(with_adjacency(SectionBoundarySample{
+        boundary.boundary_id, boundary.role, lateral, height, before_rule}));
     lateral += boundary.width_m;
     height += boundary.height_m;
-    samples.push_back(SectionBoundarySample{boundary.boundary_id, boundary.role,
-                                            lateral, height, after_rule});
+    samples.push_back(with_adjacency(SectionBoundarySample{
+        boundary.boundary_id, boundary.role, lateral, height, after_rule}));
   }
   samples.push_back(SectionBoundarySample{
       999, BoundaryRole::kOuterEdge, lateral, height, {}});
@@ -210,8 +268,13 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
   if (!section.ok) {
     return Result<SectionEvaluation>::Fail(section.error_kind, section.error);
   }
+  Result<std::vector<AutoMarkingPolicy>> policies =
+      merge_boundary_policies(section.value);
+  if (!policies.ok) {
+    return Result<SectionEvaluation>::Fail(policies.error_kind, policies.error);
+  }
   std::vector<SectionBoundarySample> boundaries =
-      build_boundaries(section.value);
+      build_boundaries(section.value, policies.value);
   if (boundaries.empty()) {
     return Result<SectionEvaluation>::Fail(
         ErrorKind::kInternal, "road section evaluation produced no boundaries");
@@ -226,8 +289,9 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
       return Result<SectionEvaluation>::Fail(
           ErrorKind::kValidation, "road transition anchor source is missing");
     }
-    const std::vector<SectionBoundarySample> from_boundaries =
-        build_boundaries(*from);
+    const std::vector<SectionBoundarySample> from_boundaries = build_boundaries(
+        *from, std::vector<AutoMarkingPolicy>(from->boundaries.size(),
+                                              AutoMarkingPolicy{}));
     const double shift =
         transition->anchor == TransitionAnchor::kLeftEdge
             ? from_boundaries.front().lateral_m - boundaries.front().lateral_m

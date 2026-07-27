@@ -204,6 +204,30 @@ reason付き`kUnsupported`とする。
 segment線は`MarkingTrackKey(segment_id, boundary_id, role)`で識別し、boundary配列indexやworld位置からidentityを作らない。
 default junction markingはgateで終了する。交差点内部で中央線等を継続する場合は明示overrideだけが接続を作る。
 
+#### 線の要求元と統合
+
+境界へ線を要求できるのは`BoundaryProfile`自身の`AutoMarkingPolicy`と、`SurfaceBand`の
+`LaneSideMarkingPolicy`(carriageway bandのみ)である。lane side要求は断面テンプレの**要素順序で隣接する
+`BoundaryProfile`**へ解決する。断面の外端側には隣接境界要素がないため、その側への要求は`kUnsupported`とする。
+
+同じ境界への複数要求は`SectionEvaluation`で1つへ統合する。統合できるのはrole、style、geometry ruleが
+一致する場合だけで、一致しない要求は優先順位を付けず`kUnsupported`とする。統合結果が
+`SectionBoundarySample.marking`であり、marking stageはこの結果だけを読む。
+
+#### 継続とBegin / Terminate
+
+`MarkingContinuation`はtrackごとに、gateで切り出した区間`[range_start, range_end]`と、有効サンプルの
+最初・最後のstationを比較してactionを決める。区間内側で始まれば`kBegin`、内側で終われば`kTerminate`、
+端に達していれば`kContinue`である。
+
+車線増減で生じる退化区間(新旧車線の幅がゼロ付近)は、`SectionBoundarySample`が持つ隣接band幅で判定し、
+`kDegenerateBandWidthM`を唯一の有効化条件とする。位置の近さで線のidentityや継続を決めない。
+
+#### transition mappingが不足する場合
+
+`SectionTransition`の前後で同じboundary IDのroleが変わる場合、および`TransitionAction::kUnsupported`が
+markingを持つ要素を指す場合は`kUnsupported`とする。近い新boundaryへ自動でrebindしない。
+
 ### draw
 
 drawは評価済みsegment断面、`ConnectionGeometry`、`JunctionGeometry`、`ResolvedMarkingGraph`を

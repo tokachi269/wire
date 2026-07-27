@@ -448,6 +448,12 @@ struct PathSplit {
     if (!IsKnownSurfaceStyle(band.style_id)) {
       return Result<bool>::Fail(ErrorKind::kValidation, "section template surface style is unknown");
     }
+    for (const AutoMarkingPolicy& side : {band.side_marking.left, band.side_marking.right}) {
+      if (!validate_marking_policy(side).ok) {
+        return Result<bool>::Fail(ErrorKind::kValidation,
+                                  "section template lane side marking policy is invalid");
+      }
+    }
   }
   ids.clear();
   for (const BoundaryProfile& boundary : section.boundaries) {
@@ -1205,6 +1211,40 @@ Result<bool> RoadState::SetBoundaryMarkingPolicy(SetBoundaryMarkingPolicyRequest
 Result<bool> RoadState::ResetBoundaryMarkingPolicy(ResetBoundaryMarkingPolicyRequest request) {
   return SetBoundaryMarkingPolicy(SetBoundaryMarkingPolicyRequest{
       request.section_template_id, request.boundary_id, AutoMarkingPolicy{}});
+}
+
+Result<bool> RoadState::SetLaneSideMarkingPolicy(SetLaneSideMarkingPolicyRequest request) {
+  const Result<bool> valid_policy = validate_marking_policy(request.policy);
+  if (!valid_policy.ok) return valid_policy;
+  const CrossSectionTemplate* existing = find_template(graph_, request.section_template_id);
+  if (existing == nullptr) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "section template does not exist");
+  }
+  CrossSectionTemplate replacement = *existing;
+  const auto band = std::find_if(replacement.bands.begin(), replacement.bands.end(),
+                                 [&request](const SurfaceBand& candidate) {
+                                   return candidate.element_id == request.band_element_id;
+                                 });
+  if (band == replacement.bands.end()) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "section band does not exist");
+  }
+  if (band->role != SurfaceRole::kCarriageway) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "lane side marking requires a carriageway band");
+  }
+  if (request.side == LaneSide::kLeft) {
+    band->side_marking.left = request.policy;
+  } else {
+    band->side_marking.right = request.policy;
+  }
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  plan.replace_section_templates.push_back(std::move(replacement));
+  return Execute(plan);
+}
+
+Result<bool> RoadState::ResetLaneSideMarkingPolicy(ResetLaneSideMarkingPolicyRequest request) {
+  return SetLaneSideMarkingPolicy(SetLaneSideMarkingPolicyRequest{
+      request.section_template_id, request.band_element_id, request.side, AutoMarkingPolicy{}});
 }
 
 Result<SectionTransitionId> RoadState::AddTransition(SectionTransitionRequest request) {

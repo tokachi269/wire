@@ -105,6 +105,14 @@ struct AutoMarkingPolicy {
 
   bool operator==(const AutoMarkingPolicy&) const = default;
 };
+// A lane requests a line on its own side. The request resolves to the
+// BoundaryProfile adjacent in template element order; the boundary owns the line.
+struct LaneSideMarkingPolicy {
+  AutoMarkingPolicy left{};
+  AutoMarkingPolicy right{};
+
+  bool operator==(const LaneSideMarkingPolicy&) const = default;
+};
 enum class StationRefKind { kFromStart, kFromEnd, kRatio };
 enum class TransitionAction { kContinue, kChangeWidthHeightOffset, kTaperOut, kTaperIn, kEndCap, kUnsupported };
 enum class TransitionAnchor { kCenter, kLeftEdge, kRightEdge };
@@ -171,6 +179,7 @@ struct SurfaceBand {
   double width_m = 0.0;
   double cross_slope = 0.0;
   SurfaceStyleId style_id{};
+  LaneSideMarkingPolicy side_marking{};
 };
 struct BoundaryProfile {
   std::uint64_t boundary_id = 0;

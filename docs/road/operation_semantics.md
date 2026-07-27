@@ -43,6 +43,12 @@ trial Buildの`connections`以降が一度だけ決める。operationは同じge
 | AttachSectionTransition | segment_id / transition_id | ID exists、from_template matches segment、station range valid | segment再評価 |
 | AddManualLine | owner_segment_id / path / style_id | owner exists、path finite、owner-local station範囲、known MarkingStyleId | owner section上への投影 |
 | AddManualArea | owner_segment_id / frame_origin / width / length / style_id | owner exists、finite、width/length正、station範囲、known MarkingStyleId | owner section上への投影 |
+| SetBoundaryMarkingPolicy | section_template_id / boundary_id / policy | template exists、boundary exists、role enum valid、known MarkingStyleId | 要求統合、継続再評価 |
+| SetLaneSideMarkingPolicy | section_template_id / band_element_id / side / policy | template exists、band exists、carriageway band、role enum valid、known MarkingStyleId | 隣接boundaryへの解決、要求統合 |
+| ResetLaneSideMarkingPolicy | section_template_id / band_element_id / side | 同上(policyは無効値) | 要求統合、継続再評価 |
+| SuppressAutoMarking / ResetAutoMarkingSuppression | AutoMarkingKey | owner種別ごとにID存在、segmentはtrack必須、junctionはapproach必須 | 該当自動線のみ非生成 |
+| SetJunctionMarkingOverride | node_id / action / source / target | node exists、approachがnodeに属する、boundaryがgateに存在、ConnectToApproachはtarget必須 | junction-owned pathの生成 |
+| DeleteJunctionMarkingOverride | override_id | ID非ゼロ | default terminateへ復帰 |
 
 外部入力不正は`kValidation`、正しい入力だがP0-P2で対応しない構造は`kUnsupported`、正しい正本から派生表やresolved read modelが欠ける場合は`kInternal`とする。
 
@@ -134,3 +140,22 @@ trial Buildの`connections`以降が一度だけ決める。operationは同じge
 - 自動線は MarkingIntent / Continuation / ResolvedMarkingGraph を通ってからmesh化する。
   segment、junction、manual のowner境界はgateとmanual entity IDで決め、位置近接で再bindしない。
 - 保存するのはlocal値で、world meshだけを派生する。segment alignment編集時はlocal値を維持して再導出する。
+- 境界への線要求は`BoundaryProfile.marking`と、carriageway `SurfaceBand`の`LaneSideMarkingPolicy`だけ。
+  lane side要求は要素順序で隣接する`BoundaryProfile`へ解決し、断面外端側の要求はunsupportedとする。
+- 同一境界への複数要求は、role / style / geometry ruleが一致する場合だけ1本へ統合する。
+  一致しない要求はunsupportedとし、暗黙の優先順位を持たない。
+- 車線増減では、boundary IDが継続する線はContinue、出現する線はBegin、消滅する線はTerminateとする。
+  隣接band幅が退化している区間には線を出さない。
+- transition前後でboundary IDのroleが変わる場合、および`TransitionAction::kUnsupported`がmarking付き要素を
+  指す場合はunsupportedとする。近い新boundaryへ自動でrebindしない。
+- junction markingのdefaultはgate終了。`JunctionMarkingOverride`で明示した場合だけ交差点内接続を作る。
+  targetは明示IDのみで、最寄り・正面・角度差から推測しない。
+
+### 操作 x marking状態
+
+| 操作 | policyなし | boundary policyあり | lane side policyあり | 競合要求 | suppressionあり |
+|---|---|---|---|---|---|
+| SetBoundaryMarkingPolicy | supported | 置換 | 一致すれば統合 | unsupported | supported (自動線は非生成のまま) |
+| SetLaneSideMarkingPolicy | supported | 一致すれば統合 | 置換 | unsupported | supported |
+| SuppressAutoMarking | validation (track不在) | supported | supported | - | 冪等 |
+| SetJunctionMarkingOverride | supported | supported | supported | - | supported |

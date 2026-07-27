@@ -57,6 +57,21 @@ struct ResetBoundaryMarkingPolicyRequest {
   CrossSectionTemplateId section_template_id = 0;
   std::uint64_t boundary_id = 0;
 };
+enum class LaneSide {
+  kLeft,
+  kRight,
+};
+struct SetLaneSideMarkingPolicyRequest {
+  CrossSectionTemplateId section_template_id = 0;
+  std::uint64_t band_element_id = 0;
+  LaneSide side = LaneSide::kLeft;
+  AutoMarkingPolicy policy{};
+};
+struct ResetLaneSideMarkingPolicyRequest {
+  CrossSectionTemplateId section_template_id = 0;
+  std::uint64_t band_element_id = 0;
+  LaneSide side = LaneSide::kLeft;
+};
 struct SectionTransitionRequest {
   CrossSectionTemplateId from_template = 0;
   CrossSectionTemplateId to_template = 0;

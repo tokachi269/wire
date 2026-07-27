@@ -49,6 +49,8 @@ public:
   [[nodiscard]] Result<bool> EditSectionTemplate(EditSectionTemplateRequest request);
   [[nodiscard]] Result<bool> SetBoundaryMarkingPolicy(SetBoundaryMarkingPolicyRequest request);
   [[nodiscard]] Result<bool> ResetBoundaryMarkingPolicy(ResetBoundaryMarkingPolicyRequest request);
+  [[nodiscard]] Result<bool> SetLaneSideMarkingPolicy(SetLaneSideMarkingPolicyRequest request);
+  [[nodiscard]] Result<bool> ResetLaneSideMarkingPolicy(ResetLaneSideMarkingPolicyRequest request);
   [[nodiscard]] Result<SectionTransitionId> AddTransition(SectionTransitionRequest request);
   [[nodiscard]] Result<SectionTransitionId> AddTransitionToSegment(AddTransitionToSegmentRequest request);
   [[nodiscard]] Result<bool> AttachSectionTransition(AttachSectionTransitionRequest request);

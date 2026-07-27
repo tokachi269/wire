@@ -229,6 +229,33 @@ def check_road_architecture(root: Path) -> list[str]:
                     f"resolved geometry input is missing: {function_token!r} / {type_token!r}"
                 )
 
+    marking_source = source_text(root / "domains/road/src/build/marking.cpp")
+    section_source = source_text(root / "domains/road/src/build/section.cpp")
+    if "merge_boundary_policies" not in section_source:
+        errors.append(
+            "domains/road/src/build/section.cpp: "
+            "lane side marking requests must merge into one boundary policy here"
+        )
+    if "side_marking" in marking_source:
+        errors.append(
+            "domains/road/src/build/marking.cpp: "
+            "lane side policies must be resolved by section evaluation, not by marking"
+        )
+    if "kDegenerateBandWidthM" not in marking_source:
+        errors.append(
+            "domains/road/src/build/marking.cpp: "
+            "degenerate run activation must be decided in the continuation stage"
+        )
+    if marking_source.count("kDegenerateBandWidthM") > 2:
+        errors.append(
+            "domains/road/src/build/marking.cpp: "
+            "degenerate run activation must stay a single decision site"
+        )
+    for token in ("MarkingContinuationAction::kBegin", "MarkingContinuationAction::kTerminate"):
+        if token not in marking_source:
+            errors.append(
+                f"domains/road/src/build/marking.cpp: continuation action is never produced: {token}"
+            )
     if "ApproachKey approach" not in derived_header:
         errors.append(
             "domains/road/include/city/road/derived_types/derived_road.hpp: "

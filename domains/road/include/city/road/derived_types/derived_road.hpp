@@ -13,7 +13,14 @@ struct SectionBoundarySample {
   BoundaryRole role = BoundaryRole::kCurb;
   double lateral_m = 0.0;
   double height_m = 0.0;
+  // Effective marking policy: the boundary policy and the adjacent lane side
+  // policies merged into one during section evaluation.
   AutoMarkingPolicy marking{};
+  // Bands adjacent in element order; used to decide marking begin and end.
+  std::uint64_t left_element_id = 0;
+  std::uint64_t right_element_id = 0;
+  double left_band_width_m = 0.0;
+  double right_band_width_m = 0.0;
 };
 enum class RenderStyleDomain {
   kSurface,
@@ -197,6 +204,14 @@ struct MarkingStyleDefinition {
   RenderStyleRef render_style{};
   double width_m = 0.05;
 };
+// kFollowBoundary requests are collected as per-station samples; the extent of
+// the run is decided by MarkingContinuation.
+struct MarkingBoundarySample {
+  double station_m = 0.0;
+  double lateral_m = 0.0;
+  double min_adjacent_band_width_m = 0.0;
+  Vec3d position{};
+};
 struct MarkingIntent {
   MarkingIntentId id = 0;
   MarkingOwner owner{};
@@ -205,6 +220,11 @@ struct MarkingIntent {
   MarkingGeometryRule geometry = MarkingGeometryRule::kFollowBoundary;
   std::optional<MarkingTrackKey> track{};
   std::vector<MarkingAnchorId> anchors{};
+  std::vector<MarkingBoundarySample> boundary_samples{};
+  double range_start_m = 0.0;
+  double range_end_m = 0.0;
+  MarkingContinuationAction source_action = MarkingContinuationAction::kContinue;
+  MarkingContinuationAction end_action = MarkingContinuationAction::kContinue;
   std::vector<Vec3d> world_path{};
   std::vector<Vec3d> world_polygon{};
 };
@@ -214,6 +234,7 @@ struct ResolvedMarkingPath {
   MarkingRole role = MarkingRole::kLaneSeparator;
   MarkingStyleId style_id{};
   MarkingContinuationAction source_action = MarkingContinuationAction::kContinue;
+  MarkingContinuationAction end_action = MarkingContinuationAction::kContinue;
   std::vector<Vec3d> centerline{};
   double width_m = 0.05;
 };

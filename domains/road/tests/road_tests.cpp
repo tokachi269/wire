@@ -158,7 +158,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=8\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=9\n") &&
                        saved.value.find("primitive=") == std::string::npos &&
                        saved.value.find("segment.0.shape.start_handle.x=") != std::string::npos,
                    "road save did not use named canonical Bezier shape authority");
@@ -179,7 +179,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
     return archive;
   };
   std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=7").size(), "road_graph_version=4");
+  version4.replace(0, std::string("road_graph_version=9").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
   ROAD_TEST_EXPECT(!rejected.ok && rejected.error_kind == ErrorKind::kValidation,
                    "legacy road archive was not rejected");
@@ -200,12 +200,12 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
                    "non-finite road archive double was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.band.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "9")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "10")).ok,
                    "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
-  for (int old_version = 1; old_version <= 7; ++old_version) {
+  for (int old_version = 1; old_version <= 8; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=8").size(),
+    legacy.replace(0, std::string("road_graph_version=9").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
@@ -800,6 +800,201 @@ bool P2_marking_policy_suppression_and_junction_override(std::string& failure) {
   return true;
 }
 
+const city::road::MarkingIntent* find_track_intent(const RoadState& state,
+                                                   city::road::RoadSegmentId segment_id,
+                                                   std::uint64_t boundary_id) {
+  for (const auto& intent : state.derived().marking_intents) {
+    if (intent.track.has_value() && intent.track->segment_id == segment_id &&
+        intent.track->boundary_id == boundary_id) {
+      return &intent;
+    }
+  }
+  return nullptr;
+}
+
+const city::road::ResolvedMarkingPath* find_resolved_path(const RoadState& state,
+                                                          city::road::MarkingIntentId id) {
+  for (const auto& path : state.derived().markings.paths) {
+    if (path.id == id) return &path;
+  }
+  return nullptr;
+}
+
+bool M1_lane_side_requests_share_one_boundary_line(std::string& failure) {
+  RoadState state{};
+  const auto segment = state.AddSegment(
+      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const std::size_t baseline = state.derived().markings.paths.size();
+  const AutoMarkingPolicy center{true, MarkingRole::kCenterLine,
+                                 builtin_marking_styles::kCenterLine};
+  // Both lanes request the same line on the boundary they share.
+  const auto left_request = state.SetLaneSideMarkingPolicy(
+      city::road::SetLaneSideMarkingPolicyRequest{1, 20, city::road::LaneSide::kRight, center});
+  ROAD_TEST_EXPECT(left_request.ok, left_request.error);
+  const auto right_request = state.SetLaneSideMarkingPolicy(
+      city::road::SetLaneSideMarkingPolicyRequest{1, 30, city::road::LaneSide::kLeft, center});
+  ROAD_TEST_EXPECT(right_request.ok, right_request.error);
+  ROAD_TEST_EXPECT(state.derived().markings.paths.size() == baseline,
+                   "duplicate lane side requests did not merge into one line");
+
+  const auto saved_before = state.Save();
+  ROAD_TEST_EXPECT(saved_before.ok, saved_before.error);
+  const AutoMarkingPolicy conflicting{true, MarkingRole::kLaneSeparator,
+                                      builtin_marking_styles::kWhiteDashed};
+  const auto conflict = state.SetLaneSideMarkingPolicy(
+      city::road::SetLaneSideMarkingPolicyRequest{1, 30, city::road::LaneSide::kLeft, conflicting});
+  ROAD_TEST_EXPECT(!conflict.ok && conflict.error_kind == ErrorKind::kUnsupported,
+                   "conflicting lane side requests were not unsupported");
+  const auto saved_after = state.Save();
+  ROAD_TEST_EXPECT(saved_after.ok && saved_after.value == saved_before.value,
+                   "conflicting request mutated authoritative state");
+
+  const auto reloaded = RoadState::Load(saved_before.value);
+  ROAD_TEST_EXPECT(reloaded.ok, reloaded.error);
+  ROAD_TEST_EXPECT(reloaded.value.derived().markings.paths.size() == baseline,
+                   "lane side policy did not survive save and load");
+  return true;
+}
+
+bool M1_lane_side_without_adjacent_boundary_is_unsupported(std::string& failure) {
+  RoadState state{};
+  // Template 3 starts with a carriageway band, so its left side has no boundary.
+  const auto segment = state.AddSegment(
+      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 3});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const auto saved_before = state.Save();
+  ROAD_TEST_EXPECT(saved_before.ok, saved_before.error);
+  const auto request = state.SetLaneSideMarkingPolicy(
+      city::road::SetLaneSideMarkingPolicyRequest{
+          3, 20, city::road::LaneSide::kLeft,
+          AutoMarkingPolicy{true, MarkingRole::kCarriagewayEdge,
+                            builtin_marking_styles::kWhiteSolid}});
+  ROAD_TEST_EXPECT(!request.ok && request.error_kind == ErrorKind::kUnsupported,
+                   "outermost lane side request was not unsupported");
+  const auto saved_after = state.Save();
+  ROAD_TEST_EXPECT(saved_after.ok && saved_after.value == saved_before.value,
+                   "unsupported lane side request mutated authoritative state");
+
+  const auto non_carriageway = state.SetLaneSideMarkingPolicy(
+      city::road::SetLaneSideMarkingPolicyRequest{
+          1, 10, city::road::LaneSide::kRight,
+          AutoMarkingPolicy{true, MarkingRole::kCarriagewayEdge,
+                            builtin_marking_styles::kWhiteSolid}});
+  ROAD_TEST_EXPECT(!non_carriageway.ok && non_carriageway.error_kind == ErrorKind::kValidation,
+                   "lane side policy on a sidewalk band was not rejected");
+  return true;
+}
+
+bool M3_lane_count_change_begins_and_terminates_lines(std::string& failure) {
+  {
+    RoadState state{};
+    const auto segment = state.AddSegment(
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 1});
+    ROAD_TEST_EXPECT(segment.ok, segment.error);
+    SectionTransitionRequest transition{};
+    transition.from_template = 1;
+    transition.to_template = 2;
+    transition.start = StationRef{StationRefKind::kFromStart, 20.0};
+    transition.end = StationRef{StationRefKind::kFromStart, 50.0};
+    transition.rules = {SectionTransitionRule{35, TransitionAction::kTaperIn}};
+    const auto transition_id = state.AddTransition(transition);
+    ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
+    ROAD_TEST_EXPECT(
+        state.AttachSectionTransition(
+                 city::road::AttachSectionTransitionRequest{segment.value, transition_id.value})
+            .ok,
+        "lane addition transition could not be attached");
+
+    const auto* added = find_track_intent(state, segment.value, 250);
+    ROAD_TEST_EXPECT(added != nullptr, "added lane divider produced no marking track");
+    const auto* added_path = find_resolved_path(state, added->id);
+    ROAD_TEST_EXPECT(added_path != nullptr, "added lane divider was not resolved");
+    ROAD_TEST_EXPECT(added_path->source_action == city::road::MarkingContinuationAction::kBegin,
+                     "added lane divider did not begin inside the segment");
+    ROAD_TEST_EXPECT(added->boundary_samples.front().station_m > 20.0,
+                     "added lane divider started inside the degenerate run");
+    for (const auto& sample : added->boundary_samples) {
+      ROAD_TEST_EXPECT(sample.min_adjacent_band_width_m > 0.05,
+                       "added lane divider kept a degenerate sample");
+    }
+
+    const auto* kept = find_track_intent(state, segment.value, 200);
+    ROAD_TEST_EXPECT(kept != nullptr, "existing lane divider lost its marking track");
+    const auto* kept_path = find_resolved_path(state, kept->id);
+    ROAD_TEST_EXPECT(kept_path != nullptr, "existing lane divider was not resolved");
+    ROAD_TEST_EXPECT(kept_path->source_action == city::road::MarkingContinuationAction::kContinue &&
+                         kept_path->end_action == city::road::MarkingContinuationAction::kContinue,
+                     "existing lane divider did not continue across the transition");
+  }
+
+  {
+    RoadState state{};
+    const auto segment = state.AddSegment(
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 2});
+    ROAD_TEST_EXPECT(segment.ok, segment.error);
+    SectionTransitionRequest transition{};
+    transition.from_template = 2;
+    transition.to_template = 1;
+    transition.start = StationRef{StationRefKind::kFromStart, 30.0};
+    transition.end = StationRef{StationRefKind::kFromStart, 60.0};
+    transition.rules = {SectionTransitionRule{35, TransitionAction::kTaperOut}};
+    const auto transition_id = state.AddTransition(transition);
+    ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
+    ROAD_TEST_EXPECT(
+        state.AttachSectionTransition(
+                 city::road::AttachSectionTransitionRequest{segment.value, transition_id.value})
+            .ok,
+        "lane reduction transition could not be attached");
+
+    const auto* removed = find_track_intent(state, segment.value, 250);
+    ROAD_TEST_EXPECT(removed != nullptr, "removed lane divider produced no marking track");
+    const auto* removed_path = find_resolved_path(state, removed->id);
+    ROAD_TEST_EXPECT(removed_path != nullptr, "removed lane divider was not resolved");
+    ROAD_TEST_EXPECT(removed_path->end_action == city::road::MarkingContinuationAction::kTerminate,
+                     "removed lane divider did not terminate inside the segment");
+    ROAD_TEST_EXPECT(removed->boundary_samples.back().station_m < 60.0,
+                     "removed lane divider survived past the degenerate run");
+
+    const auto* kept = find_track_intent(state, segment.value, 200);
+    ROAD_TEST_EXPECT(kept != nullptr, "existing lane divider lost its marking track");
+    const auto* kept_path = find_resolved_path(state, kept->id);
+    ROAD_TEST_EXPECT(kept_path != nullptr && kept_path->end_action ==
+                                                 city::road::MarkingContinuationAction::kContinue,
+                     "existing lane divider did not continue across the reduction");
+  }
+  return true;
+}
+
+bool M6_transition_without_boundary_mapping_is_unsupported(std::string& failure) {
+  RoadState state{};
+  auto role_changed = JapaneseUrbanTwoLaneTemplate(0);
+  role_changed.boundaries[1].role = BoundaryRole::kMedianEdge;
+  const auto target = state.AddSectionTemplate(city::road::AddSectionTemplateRequest{role_changed});
+  ROAD_TEST_EXPECT(target.ok, target.error);
+  const auto segment = state.AddSegment(
+      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  SectionTransitionRequest transition{};
+  transition.from_template = 1;
+  transition.to_template = target.value;
+  transition.start = StationRef{StationRefKind::kFromStart, 10.0};
+  transition.end = StationRef{StationRefKind::kFromStart, 40.0};
+  transition.rules = {SectionTransitionRule{20, TransitionAction::kContinue}};
+  const auto transition_id = state.AddTransition(transition);
+  ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
+  const auto saved_before = state.Save();
+  ROAD_TEST_EXPECT(saved_before.ok, saved_before.error);
+  const auto attached = state.AttachSectionTransition(
+      city::road::AttachSectionTransitionRequest{segment.value, transition_id.value});
+  ROAD_TEST_EXPECT(!attached.ok && attached.error_kind == ErrorKind::kUnsupported,
+                   "boundary role change was not reported as unsupported");
+  const auto saved_after = state.Save();
+  ROAD_TEST_EXPECT(saved_after.ok && saved_after.value == saved_before.value,
+                   "unsupported transition mutated authoritative state");
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -848,6 +1043,12 @@ int main() {
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},
+      {"M1_lane_side_requests_share_one_boundary_line", M1_lane_side_requests_share_one_boundary_line},
+      {"M1_lane_side_without_adjacent_boundary_is_unsupported",
+       M1_lane_side_without_adjacent_boundary_is_unsupported},
+      {"M3_lane_count_change_begins_and_terminates_lines", M3_lane_count_change_begins_and_terminates_lines},
+      {"M6_transition_without_boundary_mapping_is_unsupported",
+       M6_transition_without_boundary_mapping_is_unsupported},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

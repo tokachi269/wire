@@ -85,6 +85,35 @@ using city::wire::Vec3d;
   };
 }
 
+[[nodiscard]] city::road::LaneSide road_lane_side_value(const val& input) {
+  return input["side"].as<std::string>() == "right" ? city::road::LaneSide::kRight
+                                                    : city::road::LaneSide::kLeft;
+}
+
+[[nodiscard]] city::road::JunctionMarkingAction road_junction_marking_action(int value) {
+  if (value == 1) return city::road::JunctionMarkingAction::kConnectToApproach;
+  if (value == 2) return city::road::JunctionMarkingAction::kSuppress;
+  return city::road::JunctionMarkingAction::kTerminateAtGate;
+}
+
+[[nodiscard]] city::road::JunctionMarkingEndpoint road_junction_marking_endpoint(const val& input) {
+  city::road::JunctionMarkingEndpoint endpoint{};
+  endpoint.approach = road_approach_key_value(input);
+  endpoint.boundary_id = input["boundaryId"].as<std::uint64_t>();
+  endpoint.role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
+  return endpoint;
+}
+
+[[nodiscard]] city::road::AutoMarkingKey road_junction_marking_key(const val& input) {
+  const auto node_id = input["nodeId"].as<city::road::RoadNodeId>();
+  const auto role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
+  return city::road::AutoMarkingKey{
+      city::road::MarkingOwner{city::road::MarkingOwner::Kind::kJunction, 0, node_id, 0},
+      role,
+      std::nullopt,
+      road_approach_key_value(input)};
+}
+
 [[nodiscard]] val road_mesh_value(const city::road::Mesh& mesh) {
   val vertices = val::array();
   for (const auto& vertex : mesh.vertices) {
@@ -1507,7 +1536,54 @@ public:
         approaches.call<void>("push", item);
       }
     }
+    // Junction marking candidates come from core so the viewer never infers a
+    // target approach or boundary.
+    val junctions = val::array();
+    for (const auto& area : derived.junction_areas) {
+      val junction = val::object();
+      junction.set("nodeId", static_cast<double>(area.node_id));
+      val gates = val::array();
+      for (const auto& gate : area.gates) {
+        val gate_value = val::object();
+        gate_value.set("nodeId", static_cast<double>(gate.approach.node_id));
+        gate_value.set("segmentId", static_cast<double>(gate.approach.segment_id));
+        gate_value.set("endpointRole",
+                       gate.approach.endpoint_role == city::road::EndpointRole::kEnd ? 1 : 0);
+        val boundaries = val::array();
+        for (const auto& boundary : gate.boundaries) {
+          if (!boundary.marking.enabled) continue;
+          val item = val::object();
+          item.set("boundaryId", static_cast<double>(boundary.boundary_id));
+          item.set("role", static_cast<int>(boundary.marking.role));
+          boundaries.call<void>("push", item);
+        }
+        gate_value.set("markingBoundaries", boundaries);
+        gates.call<void>("push", gate_value);
+      }
+      junction.set("gates", gates);
+      val overrides = val::array();
+      for (const auto& override : graph.junction_marking_overrides) {
+        if (override.node_id != area.node_id) continue;
+        val item = val::object();
+        item.set("overrideId", static_cast<double>(override.id));
+        item.set("action", static_cast<int>(override.action));
+        item.set("sourceSegmentId", static_cast<double>(override.source.approach.segment_id));
+        item.set("sourceBoundaryId", static_cast<double>(override.source.boundary_id));
+        item.set("sourceRole", static_cast<int>(override.source.role));
+        item.set("hasTarget", override.target.has_value());
+        if (override.target.has_value()) {
+          item.set("targetSegmentId", static_cast<double>(override.target->approach.segment_id));
+          item.set("targetBoundaryId", static_cast<double>(override.target->boundary_id));
+          item.set("targetRole", static_cast<int>(override.target->role));
+        }
+        overrides.call<void>("push", item);
+      }
+      junction.set("markingOverrides", overrides);
+      junctions.call<void>("push", junction);
+    }
+
     val result = val::object();
+    result.set("junctions", junctions);
     result.set("segmentCount", graph.segments.size());
     result.set("sectionTemplateCount", graph.section_templates.size());
     result.set("transitionCount", graph.transitions.size());
@@ -1643,6 +1719,70 @@ public:
         city::road::ResetBoundaryMarkingPolicyRequest{
             input["templateId"].as<city::road::CrossSectionTemplateId>(),
             input["boundaryId"].as<std::uint64_t>()});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val set_lane_side_marking_policy(const val& input) {
+    const auto style = road_marking_style_id(input["style"].as<std::string>());
+    if (!style.has_value()) {
+      return road_result_value(false, "unknown road marking style",
+                               city::road::ErrorKind::kValidation);
+    }
+    city::road::SetLaneSideMarkingPolicyRequest request{};
+    request.section_template_id =
+        input["templateId"].as<city::road::CrossSectionTemplateId>();
+    request.band_element_id = input["bandElementId"].as<std::uint64_t>();
+    request.side = road_lane_side_value(input);
+    request.policy.enabled = input["enabled"].as<bool>();
+    request.policy.role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
+    request.policy.style_id = *style;
+    const auto result = state_->SetLaneSideMarkingPolicy(request);
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val reset_lane_side_marking_policy(const val& input) {
+    const auto result = state_->ResetLaneSideMarkingPolicy(
+        city::road::ResetLaneSideMarkingPolicyRequest{
+            input["templateId"].as<city::road::CrossSectionTemplateId>(),
+            input["bandElementId"].as<std::uint64_t>(),
+            road_lane_side_value(input)});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val suppress_junction_marking(const val& input) {
+    const auto result = state_->SuppressAutoMarking(
+        city::road::SuppressAutoMarkingRequest{road_junction_marking_key(input)});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val reset_junction_marking_suppression(const val& input) {
+    const auto result = state_->ResetAutoMarkingSuppression(
+        city::road::ResetAutoMarkingSuppressionRequest{road_junction_marking_key(input)});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val set_junction_marking_override(const val& input) {
+    city::road::JunctionMarkingOverride override{};
+    override.node_id = input["nodeId"].as<city::road::RoadNodeId>();
+    if (!input["overrideId"].isUndefined()) {
+      override.id = input["overrideId"].as<city::road::JunctionMarkingOverrideId>();
+    }
+    override.action = road_junction_marking_action(input["action"].as<int>());
+    override.source = road_junction_marking_endpoint(input["source"]);
+    if (!input["target"].isUndefined() && !input["target"].isNull()) {
+      override.target = road_junction_marking_endpoint(input["target"]);
+    }
+    const auto result = state_->SetJunctionMarkingOverride(
+        city::road::SetJunctionMarkingOverrideRequest{std::move(override)});
+    val output = road_result_value(result.ok, result.error, result.error_kind);
+    if (result.ok) output.set("overrideId", static_cast<double>(result.value));
+    return output;
+  }
+
+  val delete_junction_marking_override(const val& input) {
+    const auto result = state_->DeleteJunctionMarkingOverride(
+        city::road::DeleteJunctionMarkingOverrideRequest{
+            input["overrideId"].as<city::road::JunctionMarkingOverrideId>()});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
@@ -1803,8 +1943,14 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("applyTransition", &RoadStateBinding::apply_transition)
       .function("addManualLine", &RoadStateBinding::add_manual_line)
       .function("addManualArea", &RoadStateBinding::add_manual_area)
+      .function("setLaneSideMarkingPolicy", &RoadStateBinding::set_lane_side_marking_policy)
+      .function("resetLaneSideMarkingPolicy", &RoadStateBinding::reset_lane_side_marking_policy)
       .function("suppressSegmentMarking", &RoadStateBinding::suppress_segment_marking)
       .function("resetSegmentMarkingSuppression", &RoadStateBinding::reset_segment_marking_suppression)
+      .function("suppressJunctionMarking", &RoadStateBinding::suppress_junction_marking)
+      .function("resetJunctionMarkingSuppression", &RoadStateBinding::reset_junction_marking_suppression)
+      .function("setJunctionMarkingOverride", &RoadStateBinding::set_junction_marking_override)
+      .function("deleteJunctionMarkingOverride", &RoadStateBinding::delete_junction_marking_override)
       .function("undoSegment", &RoadStateBinding::undo_segment)
       .function("clear", &RoadStateBinding::clear)
       .function("saveState", &RoadStateBinding::save_state)

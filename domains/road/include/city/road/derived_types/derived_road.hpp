@@ -7,19 +7,6 @@
 
 namespace city::road {
 
-enum class EndpointRole {
-  kStart,
-  kEnd,
-};
-
-struct ApproachKey {
-  RoadNodeId node_id = 0;
-  RoadSegmentId segment_id = 0;
-  EndpointRole endpoint_role = EndpointRole::kStart;
-
-  bool operator==(const ApproachKey&) const = default;
-};
-
 struct SectionBoundarySample {
   std::uint64_t boundary_id = 0;
   BoundaryRole role = BoundaryRole::kCurb;
@@ -105,6 +92,56 @@ struct ConnectionGate {
   Vec3d normal{0.0, 0.0, 1.0};
   std::vector<SectionBoundarySample> boundaries{};
 };
+struct AutoApproachLayout {
+  ApproachKey key{};
+  Vec3d base_position{};
+  Vec3d tangent{};
+  Vec3d lateral{};
+  Vec3d normal{0.0, 0.0, 1.0};
+  double setback_m = 0.0;
+  double lateral_shift_m = 0.0;
+  double gate_station_m = 0.0;
+  ConnectionGate auto_gate{};
+};
+struct AutoNodeLayout {
+  RoadNodeId node_id = 0;
+  NodeConnectionKind kind = NodeConnectionKind::kUnsupported;
+  std::vector<ApproachKey> ordered_approaches{};
+  std::vector<AutoApproachLayout> approaches{};
+};
+struct ResolvedApproachLayout {
+  ApproachKey key{};
+  Vec3d position{};
+  Vec3d tangent{};
+  Vec3d lateral{};
+  Vec3d normal{0.0, 0.0, 1.0};
+  double setback_m = 0.0;
+  double lateral_shift_m = 0.0;
+  double gate_station_m = 0.0;
+  ConnectionGate gate{};
+};
+struct ResolvedNodeLayout {
+  RoadNodeId node_id = 0;
+  NodeConnectionKind kind = NodeConnectionKind::kUnsupported;
+  std::vector<ApproachKey> ordered_approaches{};
+  std::vector<ResolvedApproachLayout> approaches{};
+};
+enum class MarkingAnchorKind {
+  kSectionBoundary,
+  kLaneSide,
+  kCarriagewayEdge,
+  kApproachGate,
+  kApproachCenter,
+  kJunctionCorner,
+};
+struct MarkingAnchor {
+  MarkingAnchorKind kind = MarkingAnchorKind::kApproachGate;
+  RoadNodeId owner_node_id = 0;
+  RoadSegmentId owner_segment_id = 0;
+  ApproachKey approach{};
+  std::uint64_t boundary_id = 0;
+  Vec3d position{};
+};
 struct JunctionArea {
   NodeConnectionPolicyOverrideId policy_override_id = 0;
   RoadNodeId node_id = 0;
@@ -156,13 +193,16 @@ struct JunctionGeometry {
 };
 
 struct DerivedRoad {
-  std::array<std::size_t, 9> build_stage_runs{};
+  std::array<std::size_t, 12> build_stage_runs{};
   std::size_t setback_calculation_count = 0;
   std::size_t section_evaluation_count = 0;
   std::vector<CanonicalAlignment> canonical_alignments{};
   std::vector<NodeConnectionDecision> node_connection_decisions{};
   std::vector<SegmentSamplingPlan> sampling_plans{};
   std::vector<SectionEvaluation> section_evaluations{};
+  std::vector<AutoNodeLayout> auto_node_layouts{};
+  std::vector<ResolvedNodeLayout> resolved_node_layouts{};
+  std::vector<MarkingAnchor> marking_anchors{};
   std::vector<Mesh> segment_meshes{};
   std::vector<Mesh> marking_meshes{};
   std::vector<TerrainMaskPolygon> terrain_masks{};

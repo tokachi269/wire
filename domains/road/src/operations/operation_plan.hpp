@@ -27,6 +27,9 @@ struct OperationPlan {
   std::vector<NodeConnectionPolicyOverride> add_connection_policy_overrides{};
   std::vector<NodeConnectionPolicyOverrideId> remove_connection_policy_overrides{};
 
+  std::vector<ApproachGeometryOverride> add_approach_geometry_overrides{};
+  std::vector<ApproachKey> remove_approach_geometry_overrides{};
+
   std::vector<ManualLineMarking> add_manual_lines{};
   std::vector<ManualMarkingId> remove_manual_lines{};
   std::vector<ManualAreaMarking> add_manual_areas{};

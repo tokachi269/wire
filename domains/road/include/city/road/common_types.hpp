@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -89,6 +90,22 @@ enum class MarkingRule { kNone, kCenterLine, kOuterLine };
 enum class StationRefKind { kFromStart, kFromEnd, kRatio };
 enum class TransitionAction { kContinue, kChangeWidthHeightOffset, kTaperOut, kTaperIn, kEndCap, kUnsupported };
 enum class TransitionAnchor { kCenter, kLeftEdge, kRightEdge };
+enum class EndpointRole {
+  kStart,
+  kEnd,
+};
+
+struct ApproachKey {
+  RoadNodeId node_id = 0;
+  RoadSegmentId segment_id = 0;
+  EndpointRole endpoint_role = EndpointRole::kStart;
+
+  bool operator==(const ApproachKey&) const = default;
+  bool operator<(const ApproachKey& other) const {
+    return std::tie(node_id, segment_id, endpoint_role) <
+           std::tie(other.node_id, other.segment_id, other.endpoint_role);
+  }
+};
 
 struct SurfaceBand {
   std::uint64_t element_id = 0;

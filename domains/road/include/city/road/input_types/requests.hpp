@@ -27,6 +27,25 @@ struct ExtendSegmentRequest {
 struct EditSegmentShapeRequest { RoadSegmentId segment_id = 0; SegmentShape shape{}; };
 struct MoveNodeRequest { RoadNodeId node_id = 0; Vec2d position{}; };
 struct DeleteSegmentRequest { RoadSegmentId segment_id = 0; };
+struct SetApproachSetbackOverrideRequest {
+  ApproachKey key{};
+  double setback_m = 0.0;
+};
+struct SetApproachLateralShiftOverrideRequest {
+  ApproachKey key{};
+  double lateral_shift_m = 0.0;
+};
+enum class ApproachOverrideField {
+  kSetback,
+  kLateralShift,
+};
+struct ResetApproachOverrideFieldRequest {
+  ApproachKey key{};
+  ApproachOverrideField field = ApproachOverrideField::kSetback;
+};
+struct ResetAllApproachOverridesRequest {
+  ApproachKey key{};
+};
 struct AddSectionTemplateRequest { CrossSectionTemplate section_template{}; };
 struct EditSectionTemplateRequest { CrossSectionTemplate section_template{}; };
 struct SectionTransitionRequest {

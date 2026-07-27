@@ -105,6 +105,10 @@ RoadSurfaceEvaluator
 │    { node_id、Auto / ForcePassThrough / ForceCorner / ForceJunction、許可されたpolicy値 }
 │    ← 自動NodeConnectionDecisionと自動交差点の存在は保存しない
 │
+├─ ApproachGeometryOverride
+│    { ApproachKey、manual setback、manual lateral shift }
+│    ← auto値は保存しない。manual fieldがある場合だけ保存する
+│
 ├─ UserPavedArea                     ← P5で追加
 │    { id、owner frame、outer、holes、SurfaceStyleId、connection gates }
 │    ← ロータリー・駅前広場などユーザーが作る面

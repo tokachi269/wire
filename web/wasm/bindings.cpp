@@ -76,6 +76,15 @@ using city::wire::Vec3d;
   return std::nullopt;
 }
 
+[[nodiscard]] city::road::ApproachKey road_approach_key_value(const val& input) {
+  const int role = input["endpointRole"].as<int>();
+  return city::road::ApproachKey{
+      input["nodeId"].as<city::road::RoadNodeId>(),
+      input["segmentId"].as<city::road::RoadSegmentId>(),
+      role == 1 ? city::road::EndpointRole::kEnd : city::road::EndpointRole::kStart,
+  };
+}
+
 [[nodiscard]] val road_mesh_value(const city::road::Mesh& mesh) {
   val vertices = val::array();
   for (const auto& vertex : mesh.vertices) {
@@ -1456,6 +1465,52 @@ public:
     for (const auto& mesh : derived.manual_marking_meshes) {
       marking_meshes.call<void>("push", road_mesh_value(mesh));
     }
+    val approaches = val::array();
+    for (const auto& resolved_layout : derived.resolved_node_layouts) {
+      const auto auto_layout = std::find_if(
+          derived.auto_node_layouts.begin(), derived.auto_node_layouts.end(),
+          [&resolved_layout](const city::road::AutoNodeLayout& item) {
+            return item.node_id == resolved_layout.node_id;
+          });
+      for (const auto& resolved : resolved_layout.approaches) {
+        const city::road::AutoApproachLayout* auto_approach = nullptr;
+        if (auto_layout != derived.auto_node_layouts.end()) {
+          const auto found = std::find_if(
+              auto_layout->approaches.begin(), auto_layout->approaches.end(),
+              [&resolved](const city::road::AutoApproachLayout& item) {
+                return item.key == resolved.key;
+              });
+          if (found != auto_layout->approaches.end()) auto_approach = &*found;
+        }
+        const auto override = std::find_if(
+            graph.approach_geometry_overrides.begin(), graph.approach_geometry_overrides.end(),
+            [&resolved](const city::road::ApproachGeometryOverride& item) {
+              return item.key == resolved.key;
+            });
+        val item = val::object();
+        item.set("nodeId", static_cast<double>(resolved.key.node_id));
+        item.set("segmentId", static_cast<double>(resolved.key.segment_id));
+        item.set("endpointRole", resolved.key.endpoint_role == city::road::EndpointRole::kEnd ? 1 : 0);
+        item.set("kind", static_cast<int>(resolved_layout.kind));
+        item.set("autoSetbackM", auto_approach == nullptr ? resolved.setback_m : auto_approach->setback_m);
+        item.set("resolvedSetbackM", resolved.setback_m);
+        item.set("manualSetback", override != graph.approach_geometry_overrides.end() &&
+                                      override->setback_m.has_value);
+        item.set("manualSetbackM", override != graph.approach_geometry_overrides.end() &&
+                                       override->setback_m.has_value
+                                     ? override->setback_m.value
+                                     : 0.0);
+        item.set("autoLateralShiftM", auto_approach == nullptr ? 0.0 : auto_approach->lateral_shift_m);
+        item.set("resolvedLateralShiftM", resolved.lateral_shift_m);
+        item.set("manualLateralShift", override != graph.approach_geometry_overrides.end() &&
+                                           override->lateral_shift_m.has_value);
+        item.set("manualLateralShiftM", override != graph.approach_geometry_overrides.end() &&
+                                            override->lateral_shift_m.has_value
+                                          ? override->lateral_shift_m.value
+                                          : 0.0);
+        approaches.call<void>("push", item);
+      }
+    }
     val result = val::object();
     result.set("segmentCount", graph.segments.size());
     result.set("sectionTemplateCount", graph.section_templates.size());
@@ -1469,11 +1524,42 @@ public:
     result.set("editableSegments", editable_segments);
     result.set("surfaceMeshes", surface_meshes);
     result.set("markingMeshes", marking_meshes);
+    result.set("approaches", approaches);
     return result;
   }
 
   val delete_segment(std::uint64_t segment_id) {
     const auto result = state_->DeleteSegment(city::road::DeleteSegmentRequest{segment_id});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val set_approach_setback_override(const val& input) {
+    const auto result = state_->SetApproachSetbackOverride(
+        city::road::SetApproachSetbackOverrideRequest{
+            road_approach_key_value(input), input["setbackM"].as<double>()});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val set_approach_lateral_shift_override(const val& input) {
+    const auto result = state_->SetApproachLateralShiftOverride(
+        city::road::SetApproachLateralShiftOverrideRequest{
+            road_approach_key_value(input), input["lateralShiftM"].as<double>()});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val reset_approach_override_field(const val& input) {
+    const int field = input["field"].as<int>();
+    const auto result = state_->ResetApproachOverrideField(
+        city::road::ResetApproachOverrideFieldRequest{
+            road_approach_key_value(input),
+            field == 1 ? city::road::ApproachOverrideField::kLateralShift
+                       : city::road::ApproachOverrideField::kSetback});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val reset_all_approach_overrides(const val& input) {
+    const auto result = state_->ResetAllApproachOverrides(
+        city::road::ResetAllApproachOverridesRequest{road_approach_key_value(input)});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
@@ -1643,6 +1729,10 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("previewSegment", &RoadStateBinding::preview_segment)
       .function("scene", &RoadStateBinding::scene)
       .function("deleteSegment", &RoadStateBinding::delete_segment)
+      .function("setApproachSetbackOverride", &RoadStateBinding::set_approach_setback_override)
+      .function("setApproachLateralShiftOverride", &RoadStateBinding::set_approach_lateral_shift_override)
+      .function("resetApproachOverrideField", &RoadStateBinding::reset_approach_override_field)
+      .function("resetAllApproachOverrides", &RoadStateBinding::reset_all_approach_overrides)
       .function("editSegment", &RoadStateBinding::edit_segment)
       .function("previewEditSegment", &RoadStateBinding::preview_edit_segment)
       .function("updateSectionTemplate", &RoadStateBinding::update_section_template)

@@ -338,8 +338,9 @@ Result<bool> BuildJunctionGeometries(BuildContext& context) {
 
     for (const ApproachKey& key : decision.ordered_approaches) {
       const ConnectionGate* gate = find_gate(context.derived, key);
-      const ApproachConnectionDecision* approach =
-          FindApproachDecision(decision, key);
+      const ResolvedNodeLayout* layout = FindResolvedNodeLayout(context.derived, key.node_id);
+      const ResolvedApproachLayout* approach =
+          layout == nullptr ? nullptr : FindResolvedApproachLayout(*layout, key);
       if (gate == nullptr || approach == nullptr) {
         return Result<bool>::Fail(ErrorKind::kInternal,
                                   "road junction gate is missing");

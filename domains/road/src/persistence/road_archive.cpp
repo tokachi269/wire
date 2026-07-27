@@ -354,6 +354,31 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
                                 "connection policy override is invalid");
     }
   }
+  for (const ApproachGeometryOverride& override :
+       graph.approach_geometry_overrides) {
+    const RoadSegment* segment = nullptr;
+    for (const RoadSegment& candidate : graph.segments) {
+      if (candidate.id == override.key.segment_id) {
+        segment = &candidate;
+        break;
+      }
+    }
+    const bool endpoint_matches =
+        segment != nullptr &&
+        ((override.key.endpoint_role == EndpointRole::kStart &&
+          segment->node_a == override.key.node_id) ||
+         (override.key.endpoint_role == EndpointRole::kEnd &&
+          segment->node_b == override.key.node_id));
+    if (!endpoint_matches ||
+        (!override.setback_m.has_value && !override.lateral_shift_m.has_value) ||
+        (override.setback_m.has_value &&
+         (!finite(override.setback_m.value) || override.setback_m.value < 0.0)) ||
+        (override.lateral_shift_m.has_value &&
+         !finite(override.lateral_shift_m.value))) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "approach geometry override is invalid");
+    }
+  }
   for (const ManualLineMarking& marking : graph.manual_lines) {
     Result<bool> id = add_id(marking.id, &marking_ids, "manual_line");
     if (!id.ok) return id;
@@ -466,6 +491,31 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     writer.UInt(prefix + ".id", policy.id);
     writer.UInt(prefix + ".node_id", policy.node_id);
     writer.Int(prefix + ".policy", static_cast<int>(policy.policy));
+  }
+
+  std::vector<const ApproachGeometryOverride*> approach_overrides{};
+  approach_overrides.reserve(graph.approach_geometry_overrides.size());
+  for (const ApproachGeometryOverride& override : graph.approach_geometry_overrides) {
+    if (override.setback_m.has_value || override.lateral_shift_m.has_value) {
+      approach_overrides.push_back(&override);
+    }
+  }
+  std::sort(approach_overrides.begin(), approach_overrides.end(), [](const auto* a, const auto* b) {
+    return a->key < b->key;
+  });
+  writer.UInt("approach_geometry_override.count", approach_overrides.size());
+  for (std::size_t i = 0; i < approach_overrides.size(); ++i) {
+    const ApproachGeometryOverride& override = *approach_overrides[i];
+    const std::string prefix = "approach_geometry_override." + std::to_string(i);
+    writer.UInt(prefix + ".node_id", override.key.node_id);
+    writer.UInt(prefix + ".segment_id", override.key.segment_id);
+    writer.Int(prefix + ".endpoint_role", static_cast<int>(override.key.endpoint_role));
+    writer.Int(prefix + ".setback.mode", override.setback_m.has_value ? 1 : 0);
+    if (override.setback_m.has_value) writer.Double(prefix + ".setback.value", override.setback_m.value);
+    writer.Int(prefix + ".lateral_shift.mode", override.lateral_shift_m.has_value ? 1 : 0);
+    if (override.lateral_shift_m.has_value) {
+      writer.Double(prefix + ".lateral_shift.value", override.lateral_shift_m.value);
+    }
   }
 
   const auto segments = sorted_by_id(graph.segments);
@@ -656,6 +706,42 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     if (!policy.ok) return Result<LoadedRoad>::Fail(policy.error_kind, policy.error);
     loaded.graph.connection_policy_overrides.push_back(
         NodeConnectionPolicyOverride{id.value, node_id.value, policy.value});
+  }
+
+  Result<std::size_t> approach_override_count = require_count("approach_geometry_override.count");
+  if (!approach_override_count.ok) {
+    return Result<LoadedRoad>::Fail(approach_override_count.error_kind, approach_override_count.error);
+  }
+  for (std::size_t i = 0; i < approach_override_count.value; ++i) {
+    const std::string prefix = "approach_geometry_override." + std::to_string(i);
+    Result<std::uint64_t> node_id = reader.RequireU64(prefix + ".node_id");
+    Result<std::uint64_t> segment_id = reader.RequireU64(prefix + ".segment_id");
+    Result<EndpointRole> endpoint_role = enum_value<EndpointRole>(reader, prefix + ".endpoint_role", 0, 1);
+    Result<int> setback_mode = reader.RequireInt(prefix + ".setback.mode");
+    Result<int> lateral_mode = reader.RequireInt(prefix + ".lateral_shift.mode");
+    if (!node_id.ok) return Result<LoadedRoad>::Fail(node_id.error_kind, node_id.error);
+    if (!segment_id.ok) return Result<LoadedRoad>::Fail(segment_id.error_kind, segment_id.error);
+    if (!endpoint_role.ok) return Result<LoadedRoad>::Fail(endpoint_role.error_kind, endpoint_role.error);
+    if (!setback_mode.ok) return Result<LoadedRoad>::Fail(setback_mode.error_kind, setback_mode.error);
+    if (!lateral_mode.ok) return Result<LoadedRoad>::Fail(lateral_mode.error_kind, lateral_mode.error);
+    if ((setback_mode.value != 0 && setback_mode.value != 1) ||
+        (lateral_mode.value != 0 && lateral_mode.value != 1)) {
+      return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+                                      "approach geometry override mode is invalid");
+    }
+    ApproachGeometryOverride override{};
+    override.key = ApproachKey{node_id.value, segment_id.value, endpoint_role.value};
+    if (setback_mode.value == 1) {
+      Result<double> value = reader.RequireDouble(prefix + ".setback.value");
+      if (!value.ok) return Result<LoadedRoad>::Fail(value.error_kind, value.error);
+      override.setback_m = ManualDoubleOverride{true, value.value};
+    }
+    if (lateral_mode.value == 1) {
+      Result<double> value = reader.RequireDouble(prefix + ".lateral_shift.value");
+      if (!value.ok) return Result<LoadedRoad>::Fail(value.error_kind, value.error);
+      override.lateral_shift_m = ManualDoubleOverride{true, value.value};
+    }
+    loaded.graph.approach_geometry_overrides.push_back(override);
   }
 
   Result<std::size_t> segment_count = require_count("segment.count");

@@ -207,6 +207,10 @@ Result<DerivedRoad> BuildRoad(const SavedRoadGraph& authoritative) {
   if (!result.ok) return Result<DerivedRoad>::Fail(result.error_kind, result.error);
   result = run(Stage::kNodeConnectionDecision, BuildNodeConnectionDecisions);
   if (!result.ok) return Result<DerivedRoad>::Fail(result.error_kind, result.error);
+  result = run(Stage::kAutoNodeLayout, BuildAutoNodeLayouts);
+  if (!result.ok) return Result<DerivedRoad>::Fail(result.error_kind, result.error);
+  result = run(Stage::kResolvedNodeLayout, BuildResolvedNodeLayouts);
+  if (!result.ok) return Result<DerivedRoad>::Fail(result.error_kind, result.error);
   result = run(Stage::kSamplingPlan, BuildSamplingPlans);
   if (!result.ok) return Result<DerivedRoad>::Fail(result.error_kind, result.error);
   result = run(Stage::kSectionEvaluation, BuildSectionEvaluations);
@@ -214,6 +218,8 @@ Result<DerivedRoad> BuildRoad(const SavedRoadGraph& authoritative) {
   result = run(Stage::kConnectionGate, BuildConnectionGates);
   if (!result.ok) return Result<DerivedRoad>::Fail(result.error_kind, result.error);
   result = run(Stage::kJunctionGeometry, BuildJunctionGeometries);
+  if (!result.ok) return Result<DerivedRoad>::Fail(result.error_kind, result.error);
+  result = run(Stage::kMarkingAnchor, BuildMarkingAnchors);
   if (!result.ok) return Result<DerivedRoad>::Fail(result.error_kind, result.error);
   result = run(Stage::kMaterialization,
                [](BuildContext& value) { return materialize(value); });

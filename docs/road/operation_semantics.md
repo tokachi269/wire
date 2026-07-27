@@ -32,6 +32,10 @@ trial Buildの`NodeConnectionDecisionStage`以降が一度だけ決める。oper
 | EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのBuild可否 |
 | MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
+| SetApproachSetbackOverride | ApproachKey / setback_m | node exists、segment exists、endpoint role matches、finite、non-negative、layout target exists | gate overlap、segment length、junction quality |
+| SetApproachLateralShiftOverride | ApproachKey / lateral_shift_m | node exists、segment exists、endpoint role matches、finite、layout target exists | self-intersection、junction quality |
+| ResetApproachOverrideField | ApproachKey / field | node exists、segment exists、endpoint role matches、field enum valid | resolved layout rebuild |
+| ResetAllApproachOverrides | ApproachKey | node exists、segment exists、endpoint role matches | resolved layout rebuild |
 | AddSectionTemplate | section_template | ID一意、band/boundary ID一意、width正、finite、enum valid、known SurfaceStyleId | trial section evaluation |
 | EditSectionTemplate | section_template | ID exists、band/boundary ID一意、width正、finite、enum valid、known SurfaceStyleId | 既存segment再評価 |
 | AddTransition | from/to/start/end/anchor/rules | template exists、station finite/range、rule element exists、enum valid | element出現/消滅action対応 |
@@ -96,8 +100,19 @@ trial Buildの`NodeConnectionDecisionStage`以降が一度だけ決める。oper
 
 - 単独segmentとdegree 1終端はjunction接続準備を要求しない。
 - `ApproachKey`、`NodeConnectionDecision`、`ConnectionGate`はdegree 2以上の明示接続nodeだけに生成する。
+- `AutoNodeLayout` / `ResolvedNodeLayout`はdegree 2以上のlayout対象だけに生成する。degree 1 endpoint overrideはunsupported。
 - segment内部の通常曲線は`CanonicalAlignment`とSectionEvaluationから直接生成し、JunctionGeometryStageへ渡さない。
 - `RoadGraph -> Build`の一回で必要な派生物を生成し、操作履歴や事前tableの有無でstage経路を変えない。
+
+## Approach geometry override
+
+- `ApproachKey = node_id + segment_id + endpoint_role`だけをidentityとする。
+- setbackはnodeからsegment内部方向への非負距離。startは`station=setback`、endは`station=length-setback`。
+- lateral shiftはresolved approach lateral方向を正とする。
+- manual fieldだけを`ApproachGeometryOverride`へ保存する。auto setback / auto lateral shiftは保存しない。
+- reset fieldで該当manual fieldを消し、全fieldがAutoになったoverride entityは削除する。
+- segment削除では該当segment/nodeのoverrideを同じOperationPlanで削除する。
+- segment splitでは元segment外側endpointのoverrideだけを新しい外側segmentへID mappingし、内部nodeへ複製しない。
 
 ## P2 transition semantics
 

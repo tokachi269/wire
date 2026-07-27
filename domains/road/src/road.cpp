@@ -230,6 +230,19 @@ struct PathSplit {
   return it == graph.connection_policy_overrides.end() ? nullptr : &*it;
 }
 
+[[nodiscard]] const ApproachGeometryOverride* find_approach_geometry_override(const SavedRoadGraph& graph,
+                                                                               const ApproachKey& key) {
+  const auto it = std::find_if(graph.approach_geometry_overrides.begin(), graph.approach_geometry_overrides.end(),
+                               [&key](const ApproachGeometryOverride& item) { return item.key == key; });
+  return it == graph.approach_geometry_overrides.end() ? nullptr : &*it;
+}
+
+[[nodiscard]] bool endpoint_matches(const RoadSegment& segment, const ApproachKey& key) {
+  return key.segment_id == segment.id &&
+         ((key.endpoint_role == EndpointRole::kStart && key.node_id == segment.node_a) ||
+          (key.endpoint_role == EndpointRole::kEnd && key.node_id == segment.node_b));
+}
+
 [[nodiscard]] RoadNode* find_node(SavedRoadGraph& graph, RoadNodeId id) {
   const auto it = std::find_if(graph.nodes.begin(), graph.nodes.end(),
                                [id](const RoadNode& item) { return item.id == id; });
@@ -809,6 +822,14 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
                   source->transition},
       RoadSegment{branch_id, split_node, branch_end_node, branch_shape.value, section_template, std::nullopt},
   };
+  const ApproachKey old_end_key{source->node_b, source->id, EndpointRole::kEnd};
+  if (const ApproachGeometryOverride* old_end_override =
+          find_approach_geometry_override(graph_, old_end_key)) {
+    ApproachGeometryOverride mapped = *old_end_override;
+    mapped.key = ApproachKey{source->node_b, second_id, EndpointRole::kEnd};
+    plan.remove_approach_geometry_overrides.push_back(old_end_key);
+    plan.add_approach_geometry_overrides.push_back(mapped);
+  }
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
@@ -871,6 +892,13 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id == segment_id) plan.remove_manual_areas.push_back(marking.id);
   }
+  for (const ApproachGeometryOverride& override : graph_.approach_geometry_overrides) {
+    if (override.key.segment_id == segment_id ||
+        override.key.node_id == target->node_a ||
+        override.key.node_id == target->node_b) {
+      plan.remove_approach_geometry_overrides.push_back(override.key);
+    }
+  }
   const std::optional<SectionTransitionId> transition = target->transition;
   if (transition.has_value() &&
       std::none_of(graph_.segments.begin(), graph_.segments.end(), [segment_id, transition](const RoadSegment& segment) {
@@ -878,6 +906,104 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
       })) {
     plan.remove_transitions.push_back(*transition);
   }
+  return Execute(plan);
+}
+
+Result<bool> RoadState::SetApproachSetbackOverride(SetApproachSetbackOverrideRequest request) {
+  if (!finite(request.setback_m) || request.setback_m < 0.0) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "road approach setback override is invalid");
+  }
+  const RoadSegment* segment = find_segment(graph_, request.key.segment_id);
+  if (segment == nullptr || find_node(graph_, request.key.node_id) == nullptr ||
+      !endpoint_matches(*segment, request.key)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
+  }
+  const auto layout = std::find_if(
+      derived_.resolved_node_layouts.begin(), derived_.resolved_node_layouts.end(),
+      [&](const ResolvedNodeLayout& item) { return item.node_id == request.key.node_id; });
+  if (layout == derived_.resolved_node_layouts.end() ||
+      std::none_of(layout->approaches.begin(), layout->approaches.end(),
+                   [&](const ResolvedApproachLayout& item) { return item.key == request.key; })) {
+    return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved layout");
+  }
+  ApproachGeometryOverride override =
+      find_approach_geometry_override(graph_, request.key) != nullptr
+          ? *find_approach_geometry_override(graph_, request.key)
+          : ApproachGeometryOverride{request.key, {}, {}};
+  override.setback_m = ManualDoubleOverride{true, request.setback_m};
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  if (find_approach_geometry_override(graph_, request.key) != nullptr) {
+    plan.remove_approach_geometry_overrides.push_back(request.key);
+  }
+  plan.add_approach_geometry_overrides.push_back(override);
+  return Execute(plan);
+}
+
+Result<bool> RoadState::SetApproachLateralShiftOverride(SetApproachLateralShiftOverrideRequest request) {
+  if (!finite(request.lateral_shift_m)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "road approach lateral shift override is invalid");
+  }
+  const RoadSegment* segment = find_segment(graph_, request.key.segment_id);
+  if (segment == nullptr || find_node(graph_, request.key.node_id) == nullptr ||
+      !endpoint_matches(*segment, request.key)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
+  }
+  const auto layout = std::find_if(
+      derived_.resolved_node_layouts.begin(), derived_.resolved_node_layouts.end(),
+      [&](const ResolvedNodeLayout& item) { return item.node_id == request.key.node_id; });
+  if (layout == derived_.resolved_node_layouts.end() ||
+      std::none_of(layout->approaches.begin(), layout->approaches.end(),
+                   [&](const ResolvedApproachLayout& item) { return item.key == request.key; })) {
+    return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved layout");
+  }
+  ApproachGeometryOverride override =
+      find_approach_geometry_override(graph_, request.key) != nullptr
+          ? *find_approach_geometry_override(graph_, request.key)
+          : ApproachGeometryOverride{request.key, {}, {}};
+  override.lateral_shift_m = ManualDoubleOverride{true, request.lateral_shift_m};
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  if (find_approach_geometry_override(graph_, request.key) != nullptr) {
+    plan.remove_approach_geometry_overrides.push_back(request.key);
+  }
+  plan.add_approach_geometry_overrides.push_back(override);
+  return Execute(plan);
+}
+
+Result<bool> RoadState::ResetApproachOverrideField(ResetApproachOverrideFieldRequest request) {
+  const RoadSegment* segment = find_segment(graph_, request.key.segment_id);
+  if (segment == nullptr || find_node(graph_, request.key.node_id) == nullptr ||
+      !endpoint_matches(*segment, request.key)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
+  }
+  const ApproachGeometryOverride* existing = find_approach_geometry_override(graph_, request.key);
+  if (existing == nullptr) return Result<bool>::Ok(true);
+  ApproachGeometryOverride replacement = *existing;
+  if (request.field == ApproachOverrideField::kSetback) {
+    replacement.setback_m = {};
+  } else {
+    replacement.lateral_shift_m = {};
+  }
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  plan.remove_approach_geometry_overrides.push_back(request.key);
+  if (replacement.setback_m.has_value || replacement.lateral_shift_m.has_value) {
+    plan.add_approach_geometry_overrides.push_back(replacement);
+  }
+  return Execute(plan);
+}
+
+Result<bool> RoadState::ResetAllApproachOverrides(ResetAllApproachOverridesRequest request) {
+  const RoadSegment* segment = find_segment(graph_, request.key.segment_id);
+  if (segment == nullptr || find_node(graph_, request.key.node_id) == nullptr ||
+      !endpoint_matches(*segment, request.key)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
+  }
+  if (find_approach_geometry_override(graph_, request.key) == nullptr) return Result<bool>::Ok(true);
+  operations::OperationPlan plan{};
+  plan.next_id_after = next_id_;
+  plan.remove_approach_geometry_overrides.push_back(request.key);
   return Execute(plan);
 }
 
@@ -1156,9 +1282,26 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
       }
     }
   }
+  std::size_t layout_approaches = 0;
+  for (const ResolvedNodeLayout& layout : derived.resolved_node_layouts) {
+    if (layout.approaches.size() != layout.ordered_approaches.size()) {
+      return Result<bool>::Fail(ErrorKind::kInternal,
+                                "road resolved node layout invariant failed");
+    }
+    layout_approaches += layout.approaches.size();
+    for (const ResolvedApproachLayout& approach : layout.approaches) {
+      if (approach.key.node_id != layout.node_id || !finite(approach.position.x) ||
+          !finite(approach.position.y) || !finite(approach.position.z) ||
+          !finite(approach.setback_m) || approach.setback_m < 0.0 ||
+          !finite(approach.lateral_shift_m) || !finite(approach.gate_station_m)) {
+        return Result<bool>::Fail(ErrorKind::kInternal,
+                                  "road resolved approach layout invariant failed");
+      }
+    }
+  }
   if (decision_approaches != expected_approaches ||
       derived.setback_calculation_count != expected_approaches ||
-      derived.connection_gates.size() != expected_approaches) {
+      derived.connection_gates.size() != layout_approaches) {
     return Result<bool>::Fail(ErrorKind::kInternal,
                               "road approach single-decision count invariant failed");
   }
@@ -1194,30 +1337,27 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
       return Result<bool>::Fail(ErrorKind::kInternal,
                                 "road connection gate frame invariant failed");
     }
-    const NodeConnectionDecision* decision = nullptr;
-    for (const NodeConnectionDecision& candidate :
-         derived.node_connection_decisions) {
+    const ResolvedNodeLayout* layout = nullptr;
+    for (const ResolvedNodeLayout& candidate : derived.resolved_node_layouts) {
       if (candidate.node_id == gate.approach.node_id) {
-        if (decision != nullptr) {
-          return Result<bool>::Fail(
-              ErrorKind::kInternal,
-              "road node has duplicate connection decisions");
+        if (layout != nullptr) {
+          return Result<bool>::Fail(ErrorKind::kInternal,
+                                    "road node has duplicate resolved layouts");
         }
-        decision = &candidate;
+        layout = &candidate;
       }
     }
-    if (decision == nullptr) {
+    if (layout == nullptr) {
       return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road connection gate decision is missing");
+                                "road connection gate resolved layout is missing");
     }
-    const auto approach = std::find_if(
-        decision->approaches.begin(), decision->approaches.end(),
-        [&gate](const ApproachConnectionDecision& candidate) {
+    const auto approach = std::find_if(layout->approaches.begin(), layout->approaches.end(),
+        [&gate](const ResolvedApproachLayout& candidate) {
           return candidate.key == gate.approach;
         });
-    if (approach == decision->approaches.end()) {
+    if (approach == layout->approaches.end()) {
       return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road connection gate approach is missing");
+                                "road connection gate resolved approach is missing");
     }
     const SectionEvaluation* matched_section = nullptr;
     for (const SectionEvaluation& section : derived.section_evaluations) {
@@ -1256,6 +1396,24 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
   for (const NodeConnectionPolicyOverride& policy : graph.connection_policy_overrides) {
     if (!ids.insert(policy.id).second || find_node(graph, policy.node_id) == nullptr) {
       return Result<bool>::Fail(ErrorKind::kInternal, "road connection policy override invariant failed");
+    }
+  }
+  for (const ApproachGeometryOverride& override : graph.approach_geometry_overrides) {
+    const RoadSegment* segment = find_segment(graph, override.key.segment_id);
+    const bool endpoint_matches =
+        segment != nullptr &&
+        ((override.key.endpoint_role == EndpointRole::kStart &&
+          segment->node_a == override.key.node_id) ||
+         (override.key.endpoint_role == EndpointRole::kEnd &&
+          segment->node_b == override.key.node_id));
+    if (!endpoint_matches ||
+        (!override.setback_m.has_value && !override.lateral_shift_m.has_value) ||
+        (override.setback_m.has_value &&
+         (!finite(override.setback_m.value) || override.setback_m.value < 0.0)) ||
+        (override.lateral_shift_m.has_value &&
+         !finite(override.lateral_shift_m.value))) {
+      return Result<bool>::Fail(ErrorKind::kInternal,
+                                "road approach geometry override invariant failed");
     }
   }
   for (const SectionTransition& transition : graph.transitions) {

@@ -24,6 +24,10 @@ namespace {
 
 using namespace city::road;
 
+const ResolvedNodeLayout* find_resolved_layout(const DerivedRoad& derived, RoadNodeId node_id);
+const ResolvedApproachLayout* find_resolved_approach(const ResolvedNodeLayout& layout,
+                                                     const ApproachKey& key);
+
 void append_boundary(std::ostringstream& out, const SectionBoundarySample& value) {
   out << value.boundary_id << ',' << static_cast<int>(value.role) << ',' << value.lateral_m << ','
       << value.height_m << ',' << static_cast<int>(value.marking_rule) << ';';
@@ -538,9 +542,91 @@ bool isolated_segment_uses_simple_path(std::string& failure) {
                        "isolated segment created node connection decisions");
   ROAD_CONTRACT_EXPECT(state.derived().connection_gates.empty(),
                        "isolated segment created connection gates");
+  ROAD_CONTRACT_EXPECT(state.derived().auto_node_layouts.empty() &&
+                           state.derived().resolved_node_layouts.empty(),
+                       "isolated segment created node layout read models");
   ROAD_CONTRACT_EXPECT(state.derived().connection_geometries.empty() &&
                            state.derived().junction_geometries.empty(),
                        "isolated segment entered connection geometry");
+  return true;
+}
+
+bool approach_override_resolves_and_persists_manual_fields(std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({20.0, 0.0}, {32.0, 24.0})}), 1, base.value, 20.0});
+  ROAD_CONTRACT_EXPECT(branch.ok, branch.error);
+  ROAD_CONTRACT_EXPECT(!state.derived().resolved_node_layouts.empty(),
+                       "T branch did not derive a resolved node layout");
+  const ResolvedNodeLayout& layout = state.derived().resolved_node_layouts.front();
+  const ResolvedApproachLayout& original = layout.approaches.front();
+  const ApproachKey key = original.key;
+  const double manual_setback = original.setback_m + 0.5;
+  const auto set_setback = state.SetApproachSetbackOverride(
+      SetApproachSetbackOverrideRequest{key, manual_setback});
+  ROAD_CONTRACT_EXPECT(set_setback.ok, set_setback.error);
+  const auto set_shift = state.SetApproachLateralShiftOverride(
+      SetApproachLateralShiftOverrideRequest{key, 0.75});
+  ROAD_CONTRACT_EXPECT(set_shift.ok, set_shift.error);
+  ROAD_CONTRACT_EXPECT(state.graph().approach_geometry_overrides.size() == 1,
+                       "manual approach override was not saved as one authoritative row");
+  const ResolvedNodeLayout* resolved_layout = find_resolved_layout(state.derived(), key.node_id);
+  ROAD_CONTRACT_EXPECT(resolved_layout != nullptr, "manual override lost resolved node layout");
+  const ResolvedApproachLayout* resolved = find_resolved_approach(*resolved_layout, key);
+  ROAD_CONTRACT_EXPECT(resolved != nullptr, "manual override lost resolved approach");
+  ROAD_CONTRACT_EXPECT(std::abs(resolved->setback_m - manual_setback) < 1e-9 &&
+                           std::abs(resolved->lateral_shift_m - 0.75) < 1e-9,
+                       "manual override was not consumed by ResolvedNodeLayout");
+  const auto gate = std::find_if(
+      state.derived().connection_gates.begin(), state.derived().connection_gates.end(),
+      [&](const ConnectionGate& item) { return item.approach == key; });
+  ROAD_CONTRACT_EXPECT(gate != state.derived().connection_gates.end(),
+                       "manual override removed the resolved gate");
+  ROAD_CONTRACT_EXPECT(gate->position.x == resolved->position.x &&
+                           gate->position.y == resolved->position.y &&
+                           gate->position.z == resolved->position.z,
+                       "ConnectionGate did not consume ResolvedNodeLayout");
+  ROAD_CONTRACT_EXPECT(!state.derived().marking_anchors.empty(),
+                       "MarkingAnchorTable was not derived");
+  ROAD_CONTRACT_EXPECT(std::any_of(state.derived().marking_anchors.begin(),
+                                   state.derived().marking_anchors.end(),
+                                   [&](const MarkingAnchor& anchor) {
+                                     return anchor.kind == MarkingAnchorKind::kApproachGate &&
+                                            anchor.approach == key;
+                                   }),
+                       "ApproachGateAnchor was not derived from resolved layout");
+  const auto saved = state.Save();
+  ROAD_CONTRACT_EXPECT(saved.ok, saved.error);
+  ROAD_CONTRACT_EXPECT(saved.value.find("approach_geometry_override.count=1\n") != std::string::npos &&
+                           saved.value.find(".setback.value=") != std::string::npos &&
+                           saved.value.find(".lateral_shift.value=") != std::string::npos,
+                       "manual approach override fields were not persisted");
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_CONTRACT_EXPECT(loaded.ok, loaded.error);
+  ROAD_CONTRACT_EXPECT(loaded.value.graph().approach_geometry_overrides.size() == 1,
+                       "manual approach override did not survive load");
+  const auto reset_field = state.ResetApproachOverrideField(
+      ResetApproachOverrideFieldRequest{key, ApproachOverrideField::kSetback});
+  ROAD_CONTRACT_EXPECT(reset_field.ok, reset_field.error);
+  ROAD_CONTRACT_EXPECT(state.graph().approach_geometry_overrides.size() == 1 &&
+                           !state.graph().approach_geometry_overrides.front().setback_m.has_value,
+                       "reset field did not remove only setback override");
+  const auto reset_all = state.ResetAllApproachOverrides(ResetAllApproachOverridesRequest{key});
+  ROAD_CONTRACT_EXPECT(reset_all.ok, reset_all.error);
+  ROAD_CONTRACT_EXPECT(state.graph().approach_geometry_overrides.empty(),
+                       "reset all did not remove empty override entity");
+  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
+                           state,
+                           [&] {
+                             return state.SetApproachSetbackOverride(
+                                 SetApproachSetbackOverrideRequest{key, -1.0});
+                           },
+                           "negative setback override", failure),
+                       failure);
   return true;
 }
 
@@ -639,6 +725,21 @@ const NodeConnectionDecision* find_decision(const DerivedRoad& derived, RoadNode
   return found == derived.node_connection_decisions.end() ? nullptr : &*found;
 }
 
+const ResolvedNodeLayout* find_resolved_layout(const DerivedRoad& derived, RoadNodeId node_id) {
+  const auto found = std::find_if(
+      derived.resolved_node_layouts.begin(), derived.resolved_node_layouts.end(),
+      [node_id](const ResolvedNodeLayout& layout) { return layout.node_id == node_id; });
+  return found == derived.resolved_node_layouts.end() ? nullptr : &*found;
+}
+
+const ResolvedApproachLayout* find_resolved_approach(const ResolvedNodeLayout& layout,
+                                                     const ApproachKey& key) {
+  const auto found = std::find_if(
+      layout.approaches.begin(), layout.approaches.end(),
+      [&key](const ResolvedApproachLayout& approach) { return approach.key == key; });
+  return found == layout.approaches.end() ? nullptr : &*found;
+}
+
 bool same_boundaries(const std::vector<SectionBoundarySample>& a,
                      const std::vector<SectionBoundarySample>& b) {
   if (a.size() != b.size()) return false;
@@ -681,21 +782,20 @@ bool decision_sampling_section_and_gate_have_single_owners(std::string& failure)
   }
   ROAD_CONTRACT_EXPECT(derived.setback_calculation_count == approach_count,
                        "setback calculation count does not equal ApproachKey count");
-  ROAD_CONTRACT_EXPECT(derived.connection_gates.size() == approach_count,
-                       "ConnectionGate count does not equal ApproachKey count");
+  std::size_t resolved_approach_count = 0;
+  for (const ResolvedNodeLayout& layout : derived.resolved_node_layouts) {
+    resolved_approach_count += layout.approaches.size();
+  }
+  ROAD_CONTRACT_EXPECT(derived.connection_gates.size() == resolved_approach_count,
+                       "ConnectionGate count does not equal resolved ApproachKey count");
   ROAD_CONTRACT_EXPECT(derived.section_evaluation_count == derived.section_evaluations.size(),
                        "SectionEvaluation counter differs from the produced table");
 
   for (const ConnectionGate& gate : derived.connection_gates) {
-    const NodeConnectionDecision* decision = find_decision(derived, gate.approach.node_id);
-    ROAD_CONTRACT_EXPECT(decision != nullptr, "gate decision is missing");
-    const auto approach = std::find_if(
-        decision->approaches.begin(), decision->approaches.end(),
-        [&gate](const ApproachConnectionDecision& value) {
-          return value.key == gate.approach;
-        });
-    ROAD_CONTRACT_EXPECT(approach != decision->approaches.end(),
-                         "gate ApproachKey has no decision row");
+    const ResolvedNodeLayout* layout = find_resolved_layout(derived, gate.approach.node_id);
+    ROAD_CONTRACT_EXPECT(layout != nullptr, "gate resolved layout is missing");
+    const ResolvedApproachLayout* approach = find_resolved_approach(*layout, gate.approach);
+    ROAD_CONTRACT_EXPECT(approach != nullptr, "gate ApproachKey has no resolved layout row");
     const auto plan = std::find_if(
         derived.sampling_plans.begin(), derived.sampling_plans.end(),
         [&gate](const SegmentSamplingPlan& value) {
@@ -984,6 +1084,8 @@ int main() {
       {"extension_semantic_boundaries_are_atomic",
        extension_semantic_boundaries_are_atomic},
       {"isolated_segment_uses_simple_path", isolated_segment_uses_simple_path},
+      {"approach_override_resolves_and_persists_manual_fields",
+       approach_override_resolves_and_persists_manual_fields},
       {"decision_sampling_section_and_gate_have_single_owners",
        decision_sampling_section_and_gate_have_single_owners},
       {"approach_identity_survives_geometry_changes",

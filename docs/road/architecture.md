@@ -98,12 +98,15 @@ append / prependするPathは共通normalizerを通してから`SegmentShape`へ
 1. TopologyIndexStage
 2. CanonicalAlignmentStage
 3. NodeConnectionDecisionStage
-4. SamplingPlanStage
-5. SectionEvaluationStage
-6. ConnectionGateStage
-7. JunctionGeometryStage
-8. MaterializationStage
-9. DerivedInvariantStage
+4. AutoNodeLayoutStage
+5. ResolvedNodeLayoutStage
+6. SamplingPlanStage
+7. SectionEvaluationStage
+8. ConnectionGateStage
+9. JunctionGeometryStage
+10. MarkingAnchorStage
+11. MaterializationStage
+12. DerivedInvariantStage
 ```
 
 BuildContextはauthoritative read-only view、前段derived output、diagnostic、test counterを持つ。
@@ -121,11 +124,24 @@ approach orderはworld上面のtangent角度で並べ、同角度は`ApproachKey
 
 自動decisionは保存しない。authoritative policyはAuto / ForcePassThrough / ForceCorner / ForceJunctionだけである。
 
+### AutoNodeLayoutStage
+
+`NodeConnectionDecision`が決めたconnection kind、approach order、auto setback、auto gate stationから
+`AutoNodeLayout`を作る。approach tangentはnodeからsegment内部へ向かう方向、lateral正方向はそのtangentの左側とする。
+degree 0/1にはnode layout entityを作らない。
+
+### ResolvedNodeLayoutStage
+
+`AutoNodeLayout + ApproachGeometryOverride`から`ResolvedNodeLayout`を作る唯一のstageである。manual fieldがあればmanual値、
+なければauto値を使う。manual値をautoへ近似削除したり、NaNやmagic numberでAutoを表さない。
+setbackはnode基準点からsegment内部方向への非負距離で、start endpointは`station=setback`、end endpointは
+`station=segment_length-setback`とする。lateral shiftはresolved lateral方向を正とする。
+
 ### SamplingPlanStage
 
 segment start / end、各Bezier span境界、transition start / end、各approachのgate station、manual markingに必要な
 stationをsemantic stationとして一度だけ決め、sortと数値幾何epsによる重複除去を行う。gate stationは
-`NodeConnectionDecision`から読み、再計算しない。surface、marking、maskはsemantic stationを共有し、
+`ResolvedNodeLayout`から読み、再計算しない。surface、marking、maskはsemantic stationを共有し、
 用途別refinementだけを追加できる。
 
 ### SectionEvaluationStage
@@ -137,15 +153,20 @@ SurfaceBandの`SurfaceStyleId`と、BoundaryRoleからbuilt-in `SurfaceStyleId`�
 
 ### Connection and junction stages
 
-ConnectionGateStageは`NodeConnectionDecision.gate_station_m`で`SectionEvaluationTable`を一意検索し、frameと
-評価済みboundaryを持つgateを一度だけ生成する。断面を再評価せず、該当評価がない場合はfallbackせず失敗する。
+ConnectionGateStageは`ResolvedNodeLayout.gate_station_m`で`SectionEvaluationTable`を一意検索し、resolved frameと
+評価済みboundaryを持つgateを一度だけ生成する。断面を再評価せず、overrideを直接読まず、該当評価がない場合はfallbackせず失敗する。
 `ConnectionGate.approach`をidentityの正とし、冗長なnode / segment fieldはidentity判定に使わない。
 
-JunctionGeometryStageはdecision、gate、評価済みboundaryだけを読み、degreeや角度を再判定しない。
+JunctionGeometryStageはdecision、resolved gate、評価済みboundaryだけを読み、degreeや角度を再判定しない。
 boundary ID / role / occurrenceの明示対応から`ConnectionGeometry`と`JunctionGeometry`を生成し、corner curve、
 surface strip / region、junction perimeter、自動停止線・ゼブラquadをmaterialization前に解決する。
 P1 junctionはouter edge、2組のcurb boundary、carriageway側boundaryというrole / boundary ID構造だけを対応対象とし、その他は
 reason付き`kUnsupported`とする。
+
+### MarkingAnchorStage
+
+次段のmarking graph用にsemantic anchorだけを導出する。anchor identityはowner ID、`ApproachKey`、boundary ID、semantic roleから
+決定し、位置や配列indexから作らない。ApproachGate / ApproachCenter / JunctionCorner anchorは`ResolvedNodeLayout`以降だけを読む。
 
 ### MaterializationStage
 
@@ -175,16 +196,29 @@ BoundaryProfileには個別style fieldを持たせない。curb等の描画style
 - `almost_same`やdistance-epsはBezier連続性、ゼロ長、平行性など数値幾何だけに使える。
 - 同位置に複数nodeが存在しても別identityである。
 
+## Approach override lifecycle
+
+authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / manual lateral shiftだけである。全fieldがAutoの空overrideは保存しない。
+単独segmentとdegree 1 endpointにはlayout/overrideを要求しない。degree 2のCorner/PassThrough、degree 3/4のJunctionで必要な場合だけ
+Auto/Resolved layoutを導出する。
+
+- extension: 同一segmentを更新するため`ApproachKey`は維持される。manual fieldは維持し、Auto fieldは最新auto値へ追従する。
+- node move / shape edit: `ApproachKey`は維持され、Resolved layoutだけを再導出する。
+- segment split: 元segment start側overrideは元segmentに残る。元segment end側overrideは新しい外側segment endへIDでmappingする。内部nodeへ複製しない。
+- segment delete / node delete: 該当segment/nodeのoverrideは同じOperationPlanで削除し、orphanを残さない。
+- connection kind変更: 同じ`ApproachKey`かつfieldが有効なら維持する。layout対象外になったmanual overrideはBuildでunsupportedになり、黙って無視しない。
+
 ## Persistence target
 
-road persistenceはversion 6とする。保存対象はauthoritative stateとnext IDだけとする。
+road persistenceはversion 7とする。保存対象はauthoritative stateとnext IDだけとする。
 CanonicalAlignment、decision、gate、evaluation、sampling、junction、mesh、mask、auto markingは保存しない。
+AutoNodeLayout / ResolvedNodeLayout / MarkingAnchorも保存しない。ApproachGeometryOverrideはmanual fieldがある場合だけ保存する。
 
 形式は一行一fieldのnamed indexed `key=value`で、カンマ位置に意味を持たせない。save field順は固定し、
 top-level entityはID順にcanonical serializeする。順序に意味がある`SegmentShape.internal_knots`やPath spanは保存順を維持する。
 doubleはload後に同じbinary doubleへ戻る表現で保存する。
 
-version 5以前と未知versionは明示rejectし、migrationしない。loadはparse、field構造検証、型変換、
+version 6以前と未知versionは明示rejectし、migrationしない。loadはparse、field構造検証、型変換、
 `ValidateAuthoritativeGraph`、Build、DerivedInvariantを通過した場合だけ新stateを返す。duplicate key、missing key、
 unknown key、count不一致、enum範囲外、非有限値、重複ID、欠損参照をrejectする。
 

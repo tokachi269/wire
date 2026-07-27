@@ -44,6 +44,22 @@ export interface RoadSceneData {
   editableSegments: RoadEditableSegmentData[];
   surfaceMeshes: RoadMeshData[];
   markingMeshes: RoadMeshData[];
+  approaches: RoadApproachLayoutData[];
+}
+
+export interface RoadApproachLayoutData {
+  nodeId: number;
+  segmentId: number;
+  endpointRole: 0 | 1;
+  kind: number;
+  autoSetbackM: number;
+  resolvedSetbackM: number;
+  manualSetback: boolean;
+  manualSetbackM: number;
+  autoLateralShiftM: number;
+  resolvedLateralShiftM: number;
+  manualLateralShift: boolean;
+  manualLateralShiftM: number;
 }
 
 export interface RoadNodeData {
@@ -217,6 +233,7 @@ export function emptyRoadScene(): RoadSceneData {
     sectionTemplates: [],
     editableSegments: [],
     surfaceMeshes: [],
-    markingMeshes: []
+    markingMeshes: [],
+    approaches: []
   };
 }

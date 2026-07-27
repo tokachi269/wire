@@ -26,10 +26,18 @@ inline constexpr double kSurfaceSampleStepM = 2.0;
 [[nodiscard]] const SectionTransition* FindTransition(const SavedRoadGraph& graph, SectionTransitionId id);
 [[nodiscard]] const NodeConnectionPolicyOverride* FindPolicyOverride(const SavedRoadGraph& graph,
                                                                      RoadNodeId node_id);
+[[nodiscard]] const ApproachGeometryOverride* FindApproachGeometryOverride(const SavedRoadGraph& graph,
+                                                                           const ApproachKey& key);
 [[nodiscard]] const Path* FindAlignment(const DerivedRoad& derived, RoadSegmentId segment_id);
 [[nodiscard]] const NodeConnectionDecision* FindDecision(const DerivedRoad& derived, RoadNodeId node_id);
 [[nodiscard]] const ApproachConnectionDecision* FindApproachDecision(const NodeConnectionDecision& decision,
                                                                      const ApproachKey& key);
+[[nodiscard]] const AutoNodeLayout* FindAutoNodeLayout(const DerivedRoad& derived, RoadNodeId node_id);
+[[nodiscard]] const AutoApproachLayout* FindAutoApproachLayout(const AutoNodeLayout& layout,
+                                                               const ApproachKey& key);
+[[nodiscard]] const ResolvedNodeLayout* FindResolvedNodeLayout(const DerivedRoad& derived, RoadNodeId node_id);
+[[nodiscard]] const ResolvedApproachLayout* FindResolvedApproachLayout(const ResolvedNodeLayout& layout,
+                                                                       const ApproachKey& key);
 [[nodiscard]] const SegmentSamplingPlan* FindSamplingPlan(const DerivedRoad& derived,
                                                           RoadSegmentId segment_id);
 [[nodiscard]] const SectionEvaluation* FindSectionEvaluation(const DerivedRoad& derived,

@@ -41,6 +41,10 @@ public:
   [[nodiscard]] Result<bool> EditSegmentShape(EditSegmentShapeRequest request);
   [[nodiscard]] Result<bool> MoveNode(MoveNodeRequest request);
   [[nodiscard]] Result<bool> DeleteSegment(DeleteSegmentRequest request);
+  [[nodiscard]] Result<bool> SetApproachSetbackOverride(SetApproachSetbackOverrideRequest request);
+  [[nodiscard]] Result<bool> SetApproachLateralShiftOverride(SetApproachLateralShiftOverrideRequest request);
+  [[nodiscard]] Result<bool> ResetApproachOverrideField(ResetApproachOverrideFieldRequest request);
+  [[nodiscard]] Result<bool> ResetAllApproachOverrides(ResetAllApproachOverridesRequest request);
   [[nodiscard]] Result<CrossSectionTemplateId> AddSectionTemplate(AddSectionTemplateRequest request);
   [[nodiscard]] Result<bool> EditSectionTemplate(EditSectionTemplateRequest request);
   [[nodiscard]] Result<SectionTransitionId> AddTransition(SectionTransitionRequest request);

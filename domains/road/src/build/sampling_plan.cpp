@@ -67,26 +67,21 @@ Result<bool> BuildSamplingPlans(BuildContext& context) {
         ApproachKey{segment.node_a, segment.id, EndpointRole::kStart};
     const ApproachKey end_key =
         ApproachKey{segment.node_b, segment.id, EndpointRole::kEnd};
-    const NodeConnectionDecision* start_decision =
-        FindDecision(context.derived, segment.node_a);
-    const NodeConnectionDecision* end_decision =
-        FindDecision(context.derived, segment.node_b);
-    const ApproachConnectionDecision* start =
-        start_decision == nullptr
-            ? nullptr
-            : FindApproachDecision(*start_decision, start_key);
-    const ApproachConnectionDecision* end =
-        end_decision == nullptr ? nullptr
-                                : FindApproachDecision(*end_decision, end_key);
-    if ((start_decision != nullptr && start == nullptr) ||
-        (end_decision != nullptr && end == nullptr)) {
+    const ResolvedNodeLayout* start_layout =
+        FindResolvedNodeLayout(context.derived, segment.node_a);
+    const ResolvedNodeLayout* end_layout =
+        FindResolvedNodeLayout(context.derived, segment.node_b);
+    const ResolvedApproachLayout* start =
+        start_layout == nullptr ? nullptr : FindResolvedApproachLayout(*start_layout, start_key);
+    const ResolvedApproachLayout* end =
+        end_layout == nullptr ? nullptr : FindResolvedApproachLayout(*end_layout, end_key);
+    if ((start_layout != nullptr && start == nullptr) ||
+        (end_layout != nullptr && end == nullptr)) {
       return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road segment approach decision is missing");
+                                "road segment resolved approach layout is missing");
     }
-    const double surface_start =
-        start == nullptr ? 0.0 : start->gate_station_m;
-    const double surface_end =
-        end == nullptr ? length.value : end->gate_station_m;
+    const double surface_start = start == nullptr ? 0.0 : start->gate_station_m;
+    const double surface_end = end == nullptr ? length.value : end->gate_station_m;
     plan.semantic_stations_m.push_back(surface_start);
     plan.semantic_stations_m.push_back(surface_end);
 

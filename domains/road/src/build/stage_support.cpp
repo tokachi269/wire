@@ -79,6 +79,14 @@ const NodeConnectionPolicyOverride* FindPolicyOverride(const SavedRoadGraph& gra
   return found == graph.connection_policy_overrides.end() ? nullptr : &*found;
 }
 
+const ApproachGeometryOverride* FindApproachGeometryOverride(const SavedRoadGraph& graph,
+                                                             const ApproachKey& key) {
+  const auto found = std::find_if(
+      graph.approach_geometry_overrides.begin(), graph.approach_geometry_overrides.end(),
+      [&key](const ApproachGeometryOverride& value) { return value.key == key; });
+  return found == graph.approach_geometry_overrides.end() ? nullptr : &*found;
+}
+
 const Path* FindAlignment(const DerivedRoad& derived, RoadSegmentId segment_id) {
   return FindCanonicalAlignment(derived, segment_id);
 }
@@ -96,6 +104,36 @@ const ApproachConnectionDecision* FindApproachDecision(const NodeConnectionDecis
       decision.approaches.begin(), decision.approaches.end(),
       [&key](const ApproachConnectionDecision& approach) { return approach.key == key; });
   return found == decision.approaches.end() ? nullptr : &*found;
+}
+
+const AutoNodeLayout* FindAutoNodeLayout(const DerivedRoad& derived, RoadNodeId node_id) {
+  const auto found = std::find_if(
+      derived.auto_node_layouts.begin(), derived.auto_node_layouts.end(),
+      [node_id](const AutoNodeLayout& layout) { return layout.node_id == node_id; });
+  return found == derived.auto_node_layouts.end() ? nullptr : &*found;
+}
+
+const AutoApproachLayout* FindAutoApproachLayout(const AutoNodeLayout& layout,
+                                                 const ApproachKey& key) {
+  const auto found = std::find_if(
+      layout.approaches.begin(), layout.approaches.end(),
+      [&key](const AutoApproachLayout& approach) { return approach.key == key; });
+  return found == layout.approaches.end() ? nullptr : &*found;
+}
+
+const ResolvedNodeLayout* FindResolvedNodeLayout(const DerivedRoad& derived, RoadNodeId node_id) {
+  const auto found = std::find_if(
+      derived.resolved_node_layouts.begin(), derived.resolved_node_layouts.end(),
+      [node_id](const ResolvedNodeLayout& layout) { return layout.node_id == node_id; });
+  return found == derived.resolved_node_layouts.end() ? nullptr : &*found;
+}
+
+const ResolvedApproachLayout* FindResolvedApproachLayout(const ResolvedNodeLayout& layout,
+                                                         const ApproachKey& key) {
+  const auto found = std::find_if(
+      layout.approaches.begin(), layout.approaches.end(),
+      [&key](const ResolvedApproachLayout& approach) { return approach.key == key; });
+  return found == layout.approaches.end() ? nullptr : &*found;
 }
 
 const SegmentSamplingPlan* FindSamplingPlan(const DerivedRoad& derived,

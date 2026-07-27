@@ -3,10 +3,13 @@ add_library(
   STATIC
   src/road.cpp
   src/build/build_pipeline.cpp
+  src/build/auto_node_layout.cpp
   src/build/canonical_alignment.cpp
   src/build/connection_gate.cpp
   src/build/junction_geometry.cpp
+  src/build/marking_anchor.cpp
   src/build/node_connection_decision.cpp
+  src/build/resolved_node_layout.cpp
   src/build/sampling_plan.cpp
   src/build/section_evaluation.cpp
   src/build/stage_support.cpp

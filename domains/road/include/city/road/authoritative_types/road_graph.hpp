@@ -36,6 +36,15 @@ struct NodeConnectionPolicyOverride {
   RoadNodeId node_id = 0;
   NodeConnectionPolicy policy = NodeConnectionPolicy::kForceJunction;
 };
+struct ManualDoubleOverride {
+  bool has_value = false;
+  double value = 0.0;
+};
+struct ApproachGeometryOverride {
+  ApproachKey key{};
+  ManualDoubleOverride setback_m{};
+  ManualDoubleOverride lateral_shift_m{};
+};
 struct ManualLineMarking {
   ManualMarkingId id = 0;
   RoadSegmentId owner_segment_id = 0;
@@ -56,6 +65,7 @@ struct SavedRoadGraph {
   std::vector<CrossSectionTemplate> section_templates{};
   std::vector<SectionTransition> transitions{};
   std::vector<NodeConnectionPolicyOverride> connection_policy_overrides{};
+  std::vector<ApproachGeometryOverride> approach_geometry_overrides{};
   std::vector<ManualLineMarking> manual_lines{};
   std::vector<ManualAreaMarking> manual_areas{};
 };

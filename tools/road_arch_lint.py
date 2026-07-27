@@ -203,6 +203,9 @@ def check_road_architecture(root: Path) -> list[str]:
                 if token in text:
                     source = path.relative_to(root).as_posix()
                     errors.append(f"{source}: {reason}: {token!r}")
+            if "ApproachGeometryOverride" in text:
+                source = path.relative_to(root).as_posix()
+                errors.append(f"{source}: materialization must not read ApproachGeometryOverride")
             for token in ('"asphalt"', '"sidewalk"', '"curb"', '"road_marking"', '"marking"'):
                 if token in text:
                     source = path.relative_to(root).as_posix()
@@ -229,6 +232,20 @@ def check_road_architecture(root: Path) -> list[str]:
             "domains/road/include/city/road/derived_types/derived_road.hpp: "
             "ConnectionGate must own ApproachKey identity"
         )
+    for token in ("AutoNodeLayout", "ResolvedNodeLayout", "MarkingAnchor"):
+        if token not in derived_header:
+            errors.append(
+                "domains/road/include/city/road/derived_types/derived_road.hpp: "
+                f"missing road layout read model: {token}"
+            )
+    authoritative_header = source_text(
+        root / "domains/road/include/city/road/authoritative_types/road_graph.hpp"
+    )
+    if "ApproachGeometryOverride" not in authoritative_header:
+      errors.append(
+          "domains/road/include/city/road/authoritative_types/road_graph.hpp: "
+          "manual approach override authority is missing"
+      )
 
     for path in road_sources(root):
         source = path.relative_to(root).as_posix()
@@ -246,6 +263,29 @@ def check_road_architecture(root: Path) -> list[str]:
                     errors.append(
                         f"{source}: BoundaryRole to SurfaceStyleId mapping must stay in section_evaluation.cpp"
                     )
+        if source in {
+            "domains/road/src/build/connection_gate.cpp",
+            "domains/road/src/build/junction_geometry.cpp",
+        } and "ApproachGeometryOverride" in text:
+            errors.append(f"{source}: override authority must be consumed only by resolved_node_layout.cpp")
+        if "FindApproachGeometryOverride" in text and source not in {
+            "domains/road/src/build/resolved_node_layout.cpp",
+            "domains/road/src/build/stage_support.cpp",
+            "domains/road/src/build/stage_support.hpp",
+        }:
+            errors.append(f"{source}: auto/manual approach layout composition must stay in resolved_node_layout.cpp")
+        if "setback_m.value" in text and source not in {
+            "domains/road/src/build/resolved_node_layout.cpp",
+            "domains/road/src/persistence/road_archive.cpp",
+            "domains/road/src/road.cpp",
+        }:
+            errors.append(f"{source}: manual setback value must not be consumed outside resolved layout/persistence/operation")
+        if "lateral_shift_m.value" in text and source not in {
+            "domains/road/src/build/resolved_node_layout.cpp",
+            "domains/road/src/persistence/road_archive.cpp",
+            "domains/road/src/road.cpp",
+        }:
+            errors.append(f"{source}: manual lateral shift value must not be consumed outside resolved layout/persistence/operation")
         if source.startswith("domains/road/src/persistence/"):
             for token in ("find(',')", "getline(in, line)", "std::stringstream"):
                 if token in text:

@@ -16,6 +16,32 @@ Preflightはrequestの形式、ID存在、有限性、明白な値域と、plan�
 trial Buildの`NodeConnectionDecisionStage`以降が一度だけ決める。operationは同じgeometry / section policyを
 再実装せず、trial Buildの`kUnsupported`を操作結果として返す。
 
+## Public operation preflight audit
+
+| Operation | Request field | Preflight validation | Build decision |
+|---|---|---|---|
+| AddSegment | alignment | finite、連続、非ゼロ、NormalizeRoadPath可能 | self-intersection、junction互換 |
+| AddSegment | section_template | ID exists | endpoint section互換 |
+| ExtendSegment | segment_id / endpoint_node_id | ID exists、endpoint node is segment endpoint、degree-one | prepend station-owned state unsupported、trial connection |
+| ExtendSegment | extension | finite、連続、非ゼロ、endpointへ補正可能 | normalized shape対応 |
+| ExtendSegment | section_template | existing segmentと一致 | 異断面延長はunsupported |
+| AddSegmentConnectedTo | alignment | finite、連続、非ゼロ、start nodeへ補正可能 | 接続角、degree、setback |
+| AddSegmentConnectedTo | section_template / start_node | ID exists | endpoint section互換 |
+| AddSegmentConnectedToSegment | alignment | finite、連続、非ゼロ、明示station点と一致 | split後topology、junction互換 |
+| AddSegmentConnectedToSegment | start_segment / station_m / section_template | ID exists、station finite、station interior | transition付きsplit unsupported |
+| EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのBuild可否 |
+| MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
+| DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
+| AddSectionTemplate | section_template | ID一意、band/boundary ID一意、width正、finite、enum valid、known SurfaceStyleId | trial section evaluation |
+| EditSectionTemplate | section_template | ID exists、band/boundary ID一意、width正、finite、enum valid、known SurfaceStyleId | 既存segment再評価 |
+| AddTransition | from/to/start/end/anchor/rules | template exists、station finite/range、rule element exists、enum valid | element出現/消滅action対応 |
+| AddTransitionToSegment | segment_id + transition request | segment exists、transition preflight | 既存transition replace、segment section整合 |
+| AttachSectionTransition | segment_id / transition_id | ID exists、from_template matches segment、station range valid | segment再評価 |
+| AddManualLine | owner_segment_id / path / style_id | owner exists、path finite、owner-local station範囲、known MarkingStyleId | owner section上への投影 |
+| AddManualArea | owner_segment_id / frame_origin / width / length / style_id | owner exists、finite、width/length正、station範囲、known MarkingStyleId | owner section上への投影 |
+
+外部入力不正は`kValidation`、正しい入力だがP0-P2で対応しない構造は`kUnsupported`、正しい正本から派生表やresolved read modelが欠ける場合は`kInternal`とする。
+
 ## 状態
 
 | 状態 | 意味 |

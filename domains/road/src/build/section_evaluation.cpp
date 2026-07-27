@@ -131,28 +131,29 @@ std::vector<SectionBoundarySample> build_boundaries(
   return samples;
 }
 
-std::string boundary_material(BoundaryRole role) {
-  if (role == BoundaryRole::kCurb) return "curb";
-  if (role == BoundaryRole::kMedianEdge) return "median";
-  return "asphalt";
+SurfaceStyleId SurfaceStyleForBoundaryRole(BoundaryRole role) {
+  if (role == BoundaryRole::kCurb) return builtin_surface_styles::kCurb;
+  if (role == BoundaryRole::kMedianEdge) return builtin_surface_styles::kMedian;
+  return builtin_surface_styles::kAsphalt;
 }
 
-std::vector<std::string> build_surface_materials(
+std::vector<RenderStyleRef> build_surface_styles(
     const CrossSectionTemplate& section) {
-  std::vector<std::string> materials{};
+  std::vector<RenderStyleRef> styles{};
   for (std::size_t index = 0; index < section.bands.size(); ++index) {
     const SurfaceBand& band = section.bands[index];
-    materials.push_back(band.style.empty() ? "surface" : band.style);
+    styles.push_back(RenderStyleFromSurface(band.style_id));
     if (index >= section.boundaries.size()) continue;
     const BoundaryProfile& boundary = section.boundaries[index];
     if (boundary.role == BoundaryRole::kCurb ||
         boundary.role == BoundaryRole::kMedianEdge ||
         boundary.width_m > kStationEpsilon ||
         std::abs(boundary.height_m) > kStationEpsilon) {
-      materials.push_back(boundary_material(boundary.role));
+      styles.push_back(RenderStyleFromSurface(
+          SurfaceStyleForBoundaryRole(boundary.role)));
     }
   }
-  return materials;
+  return styles;
 }
 
 } // namespace
@@ -232,7 +233,7 @@ Result<SectionEvaluation> ResolveSectionAt(const SavedRoadGraph& graph,
   }
   return Result<SectionEvaluation>::Ok(
       SectionEvaluation{segment.id, station_m, section.value.id, std::move(boundaries),
-                        build_surface_materials(section.value)});
+                        build_surface_styles(section.value)});
 }
 
 Result<bool> BuildSectionEvaluations(BuildContext& context) {

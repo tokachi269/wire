@@ -52,6 +52,13 @@ def check_road_architecture(root: Path) -> list[str]:
     derived_header = source_text(
         root / "domains/road/include/city/road/derived_types/derived_road.hpp"
     )
+    common_header = source_text(root / "domains/road/include/city/road/common_types.hpp")
+    authoritative_header = source_text(
+        root / "domains/road/include/city/road/authoritative_types/road_graph.hpp"
+    )
+    request_header = source_text(
+        root / "domains/road/include/city/road/input_types/requests.hpp"
+    )
     bindings = source_text(root / "web/wasm/bindings.cpp")
 
     forbidden_legacy_authority = {
@@ -61,6 +68,27 @@ def check_road_architecture(root: Path) -> list[str]:
     for token, reason in forbidden_legacy_authority.items():
         if token in road_header:
             errors.append(f"domains/road/include/city/road/road.hpp: {reason}: {token!r}")
+
+    for source, text in (
+        ("domains/road/include/city/road/common_types.hpp", common_header),
+        ("domains/road/include/city/road/authoritative_types/road_graph.hpp", authoritative_header),
+        ("domains/road/include/city/road/input_types/requests.hpp", request_header),
+    ):
+        for token in ("std::string style", "string style"):
+            if token in text:
+                errors.append(f"{source}: road authoritative/request style must be typed ID, not {token!r}")
+    if "SurfaceStyleId" not in common_header or "MarkingStyleId" not in common_header:
+        errors.append("domains/road/include/city/road/common_types.hpp: typed road style IDs are missing")
+    if "std::string material" in derived_header or "surface_materials" in derived_header:
+        errors.append(
+            "domains/road/include/city/road/derived_types/derived_road.hpp: "
+            "derived road material must use RenderStyleRef, not display strings"
+        )
+    if "RenderStyleRef" not in derived_header:
+        errors.append(
+            "domains/road/include/city/road/derived_types/derived_road.hpp: "
+            "RenderStyleRef is missing"
+        )
 
     nested_public_calls = (
         "trial.AddSegment(",
@@ -137,6 +165,10 @@ def check_road_architecture(root: Path) -> list[str]:
     for token in adapter_authority:
         if token in bindings:
             errors.append(f"web/wasm/bindings.cpp: adapter constructs road authoritative type: {token!r}")
+    if "road_material_key(city::road::RenderStyleRef" not in bindings:
+        errors.append("web/wasm/bindings.cpp: road viewer material mapping must be a single RenderStyleRef adapter")
+    if "mesh.material" in bindings:
+        errors.append("web/wasm/bindings.cpp: road adapter must not read core mesh material strings")
 
     materialization_root = root / "domains/road/src/materialization"
     if materialization_root.exists():
@@ -171,6 +203,13 @@ def check_road_architecture(root: Path) -> list[str]:
                 if token in text:
                     source = path.relative_to(root).as_posix()
                     errors.append(f"{source}: {reason}: {token!r}")
+            for token in ('"asphalt"', '"sidewalk"', '"curb"', '"road_marking"', '"marking"'):
+                if token in text:
+                    source = path.relative_to(root).as_posix()
+                    errors.append(f"{source}: materialization must not use display material string {token}")
+            if ".material" in text:
+                source = path.relative_to(root).as_posix()
+                errors.append(f"{source}: materialization must consume RenderStyleRef, not Mesh.material")
         materialization_header = source_text(
             materialization_root / "materialize.hpp"
         )
@@ -201,6 +240,16 @@ def check_road_architecture(root: Path) -> list[str]:
     for path in road_sources(root):
         source = path.relative_to(root).as_posix()
         text = source_text(path)
+        if source != "domains/road/src/build/section_evaluation.cpp":
+            for token in ("SurfaceStyleForBoundaryRole",):
+                if token in text:
+                    errors.append(
+                        f"{source}: BoundaryRole to SurfaceStyleId mapping must stay in section_evaluation.cpp"
+                    )
+        if source.startswith("domains/road/src/persistence/"):
+            for token in ("find(',')", "getline(in, line)", "std::stringstream"):
+                if token in text:
+                    errors.append(f"{source}: road persistence must not use position-dependent comma row parsing: {token!r}")
         for token in ("evaluate_segment_section", "evaluate_segment_template"):
             if token in text:
                 errors.append(
@@ -231,6 +280,14 @@ def check_road_architecture(root: Path) -> list[str]:
                     "domains/road/src/road.cpp: BuildDerived must remain a thin orchestrator; "
                     f"stage implementation token remains: {token!r}"
                 )
+    save_region = road_source[save_begin:] if save_begin >= 0 else ""
+    if "return persistence::SaveRoad(graph_, next_id_);" not in save_region:
+        errors.append("domains/road/src/road.cpp: RoadState::Save must delegate to road persistence")
+    if "persistence::LoadRoad(text)" not in save_region:
+        errors.append("domains/road/src/road.cpp: RoadState::Load must delegate to road persistence")
+    for token in ("surface_band=", "manual_line=", "manual_area=", "std::ostringstream out"):
+        if token in save_region:
+            errors.append(f"domains/road/src/road.cpp: Save/Load body must not remain in road.cpp: {token!r}")
     return errors
 
 

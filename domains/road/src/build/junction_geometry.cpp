@@ -101,7 +101,7 @@ Result<ConnectionGeometry> build_connection_geometry(
     return Result<ConnectionGeometry>::Fail(
         ErrorKind::kInternal, "road connection section read model is missing");
   }
-  if (first_section->surface_materials != second_section->surface_materials) {
+  if (first_section->surface_styles != second_section->surface_styles) {
     return Result<ConnectionGeometry>::Fail(
         ErrorKind::kUnsupported,
         "road connection requires identical explicit surface mappings");
@@ -135,16 +135,16 @@ Result<ConnectionGeometry> build_connection_geometry(
                        kConnectionCurveSamples),
     });
   }
-  if (first_section->surface_materials.size() + 1 !=
+  if (first_section->surface_styles.size() + 1 !=
       geometry.boundary_curves.size()) {
     return Result<ConnectionGeometry>::Fail(
         ErrorKind::kUnsupported,
         "road connection surface mapping does not match boundary mapping");
   }
   for (std::size_t index = 0;
-       index < first_section->surface_materials.size(); ++index) {
+       index < first_section->surface_styles.size(); ++index) {
     geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-        first_section->surface_materials[index],
+        first_section->surface_styles[index],
         geometry.boundary_curves[index].source_boundary_id,
         geometry.boundary_curves[index + 1].source_boundary_id,
         geometry.boundary_curves[index].points,
@@ -170,19 +170,7 @@ struct SupportedJunctionSection {
 Result<SupportedJunctionSection> validate_supported_junction_section(
     const ConnectionGate& gate,
     const SectionEvaluation& section) {
-  const bool supported_material_order =
-      section.surface_materials.size() >= 5 &&
-      section.surface_materials.front() == "sidewalk" &&
-      section.surface_materials[1] == "curb" &&
-      section.surface_materials[section.surface_materials.size() - 2] ==
-          "curb" &&
-      section.surface_materials.back() == "sidewalk" &&
-      std::all_of(section.surface_materials.begin() + 2,
-                  section.surface_materials.end() - 2,
-                  [](const std::string& material) {
-                    return material == "asphalt";
-                  });
-  if (!supported_material_order) {
+  if (section.surface_styles.size() < 5) {
     return Result<SupportedJunctionSection>::Fail(
         ErrorKind::kUnsupported,
         "road junction supports only sidewalk-curb-carriageway-curb-sidewalk sections");
@@ -260,7 +248,7 @@ ResolvedAutoMarking marking_quad(const ConnectionGate& gate,
                                  double lateral_half) {
   ResolvedAutoMarking marking{};
   marking.approach = gate.approach;
-  marking.material = "marking";
+  marking.style = RenderStyleFromMarking(builtin_marking_styles::kStopLine);
   std::array<Vec3d, 4> corners{};
   std::size_t index = 0;
   for (const auto [longitudinal, lateral] :
@@ -413,14 +401,15 @@ Result<bool> BuildJunctionGeometries(BuildContext& context) {
           a.curb_boundary_id, b.curb_boundary_id, BoundaryRole::kCurb,
           carriageway});
       geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-          "curb", a.curb_boundary_id, b.curb_boundary_id, carriageway,
-          sidewalk});
+          RenderStyleFromSurface(builtin_surface_styles::kCurb),
+          a.curb_boundary_id, b.curb_boundary_id, carriageway, sidewalk});
       geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-          "sidewalk", a.outer_boundary_id, b.outer_boundary_id, sidewalk,
-          outer});
+          RenderStyleFromSurface(builtin_surface_styles::kSidewalk),
+          a.outer_boundary_id, b.outer_boundary_id, sidewalk, outer});
     }
     geometry.surface_regions.push_back(
-        ResolvedSurfaceRegion{"asphalt", std::move(asphalt_perimeter)});
+        ResolvedSurfaceRegion{RenderStyleFromSurface(builtin_surface_styles::kAsphalt),
+                              std::move(asphalt_perimeter)});
 
     for (const auto& [gate, section] : resolved_sections) {
       const double left = section.carriageway_left_m;
@@ -430,7 +419,7 @@ Result<bool> BuildJunctionGeometries(BuildContext& context) {
                        (right - left) * 0.5));
       ResolvedAutoMarking zebra{};
       zebra.approach = gate->approach;
-      zebra.material = "marking";
+      zebra.style = RenderStyleFromMarking(builtin_marking_styles::kCrosswalk);
       for (double center = left + 0.35; center + 0.175 <= right;
            center += 0.7) {
         ResolvedAutoMarking stripe =

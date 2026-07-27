@@ -45,13 +45,17 @@ struct AttachSectionTransitionRequest {
   RoadSegmentId segment_id = 0;
   SectionTransitionId transition_id = 0;
 };
-struct ManualLineRequest { RoadSegmentId owner_segment_id = 0; Path path{}; std::string style{}; };
+struct ManualLineRequest {
+  RoadSegmentId owner_segment_id = 0;
+  Path path{};
+  MarkingStyleId style_id = builtin_marking_styles::kWhiteSolid;
+};
 struct ManualAreaRequest {
   RoadSegmentId owner_segment_id = 0;
   Vec2d frame_origin{};
   double width_m = 0.0;
   double length_m = 0.0;
-  std::string style{};
+  MarkingStyleId style_id = builtin_marking_styles::kWhiteSolid;
 };
 struct RoadToolDraft {
   Path preview_path{};

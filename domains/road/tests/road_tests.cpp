@@ -31,6 +31,9 @@ using city::road::EvaluatePath;
 using city::road::Path;
 using city::road::PathLength;
 using city::road::PreviewRoadToolPath;
+using city::road::RenderStyleFromMarking;
+using city::road::RenderStyleFromSurface;
+using city::road::RenderStyleRef;
 using city::road::RoadState;
 using city::road::SectionTransitionRequest;
 using city::road::SectionTransitionRule;
@@ -42,6 +45,8 @@ using city::road::TransitionAnchor;
 using city::road::TransitionAction;
 using city::road::ValidateGraphInvariants;
 using city::road::Vec2d;
+namespace builtin_marking_styles = city::road::builtin_marking_styles;
+namespace builtin_surface_styles = city::road::builtin_surface_styles;
 
 bool P0_generates_two_lane_segment(std::string& failure) {
   RoadState state{};
@@ -96,10 +101,12 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
   const auto& marking = state.derived().marking_meshes.front();
   ROAD_TEST_EXPECT(!marking.vertices.empty(), "P0 marking mesh has no vertices");
   ROAD_TEST_EXPECT(!marking.indices.empty(), "P0 marking mesh has no triangles");
-  std::set<std::string> materials{};
-  for (const auto& mesh : state.derived().segment_meshes) materials.insert(mesh.material);
-  ROAD_TEST_EXPECT(materials.contains("asphalt") && materials.contains("sidewalk") && materials.contains("curb"),
-                   "P0 surface meshes are not separated by core material semantics");
+  std::set<RenderStyleRef> styles{};
+  for (const auto& mesh : state.derived().segment_meshes) styles.insert(mesh.style);
+  ROAD_TEST_EXPECT(styles.contains(RenderStyleFromSurface(builtin_surface_styles::kAsphalt)) &&
+                       styles.contains(RenderStyleFromSurface(builtin_surface_styles::kSidewalk)) &&
+                       styles.contains(RenderStyleFromSurface(builtin_surface_styles::kCurb)),
+                   "P0 surface meshes are not separated by core style semantics");
   return true;
 }
 
@@ -142,32 +149,54 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=5\n") &&
-                       saved.value.find("primitive=") == std::string::npos,
-                   "road save did not use canonical Bezier span authority");
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=6\n") &&
+                       saved.value.find("primitive=") == std::string::npos &&
+                       saved.value.find("segment.0.shape.start_handle.x=") != std::string::npos,
+                   "road save did not use named canonical Bezier shape authority");
   const auto loaded = RoadState::Load(saved.value);
   ROAD_TEST_EXPECT(loaded.ok, loaded.error);
   const auto saved_again = loaded.value.Save();
   ROAD_TEST_EXPECT(saved_again.ok, saved_again.error);
   ROAD_TEST_EXPECT(saved.value == saved_again.value, "road save/load was not bit stable");
+  auto archive_with = [&failure](std::string archive, const std::string& key, const std::string& value) {
+    const std::string prefix = key + "=";
+    const auto pos = archive.find(prefix);
+    if (pos == std::string::npos) {
+      failure = "test archive key is missing: " + key;
+      return archive;
+    }
+    const auto end = archive.find('\n', pos);
+    archive.replace(pos, end == std::string::npos ? std::string::npos : end - pos, prefix + value);
+    return archive;
+  };
   std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=5").size(), "road_graph_version=4");
+  version4.replace(0, std::string("road_graph_version=6").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
   ROAD_TEST_EXPECT(!rejected.ok && rejected.error_kind == ErrorKind::kValidation,
                    "legacy road archive was not rejected");
   std::string truncated = saved.value;
-  const std::size_t shape_row = truncated.find("segment_shape=");
-  ROAD_TEST_EXPECT(shape_row != std::string::npos, "road v5 archive has no segment shape row");
+  const std::size_t shape_row = truncated.find("segment.0.shape.start_handle.x=");
+  ROAD_TEST_EXPECT(shape_row != std::string::npos, "road v6 archive has no segment shape field");
   truncated.erase(shape_row, truncated.find('\n', shape_row) - shape_row + 1);
   ROAD_TEST_EXPECT(!RoadState::Load(truncated).ok, "truncated road archive was accepted");
   std::string duplicate = saved.value;
-  const std::size_t node_row = duplicate.find("node=");
+  const std::size_t node_row = duplicate.find("node.0.id=");
   const std::size_t node_end = duplicate.find('\n', node_row);
   duplicate.append(duplicate.substr(node_row, node_end - node_row + 1));
-  ROAD_TEST_EXPECT(!RoadState::Load(duplicate).ok, "duplicate road authority ID was accepted");
-  for (int old_version = 1; old_version <= 4; ++old_version) {
+  ROAD_TEST_EXPECT(!RoadState::Load(duplicate).ok, "duplicate road archive key was accepted");
+  std::string unknown = saved.value;
+  unknown += "unknown.field=1\n";
+  ROAD_TEST_EXPECT(!RoadState::Load(unknown).ok, "unknown road archive key was accepted");
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "node.0.position.x", "nan")).ok,
+                   "non-finite road archive double was accepted");
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.band.0.style_id", "999")).ok,
+                   "unknown road archive surface style was accepted");
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "7")).ok,
+                   "future road archive version was accepted");
+  ROAD_TEST_EXPECT(failure.empty(), failure);
+  for (int old_version = 1; old_version <= 5; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=5").size(),
+    legacy.replace(0, std::string("road_graph_version=6").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
@@ -226,17 +255,18 @@ bool P1_degree_two_corner_uses_a_curve_without_a_junction(std::string& failure) 
                    "degree-two connection derived stop or zebra markings");
   ROAD_TEST_EXPECT(state.derived().connection_areas.size() == 1,
                    "degree-two corner did not derive a separate connection area");
-  std::set<std::string> connection_materials{};
+  std::set<RenderStyleRef> connection_styles{};
   bool has_curved_vertex = false;
   for (const auto& mesh : state.derived().connection_meshes) {
-    connection_materials.insert(mesh.material);
+    connection_styles.insert(mesh.style);
     has_curved_vertex = has_curved_vertex || std::any_of(mesh.vertices.begin(), mesh.vertices.end(), [](const auto& p) {
       return p.x > 0.1 && p.y > 0.1;
     });
   }
-  ROAD_TEST_EXPECT(connection_materials.contains("asphalt") && connection_materials.contains("sidewalk") &&
-                       connection_materials.contains("curb"),
-                   "degree-two corner does not preserve the road section materials");
+  ROAD_TEST_EXPECT(connection_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kAsphalt)) &&
+                       connection_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kSidewalk)) &&
+                       connection_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kCurb)),
+                   "degree-two corner does not preserve the road section styles");
   ROAD_TEST_EXPECT(has_curved_vertex, "degree-two corner connector is not curved between its gates");
   const auto too_sharp = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({0.0, 0.0}, {30.0, 1.0})}), 1, node});
   ROAD_TEST_EXPECT(!too_sharp.ok && too_sharp.error_kind == ErrorKind::kUnsupported,
@@ -277,11 +307,12 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
                    "T junction surface mesh has no triangles");
   ROAD_TEST_EXPECT(state.derived().junction_marking_meshes.size() >= 6,
                    "T junction did not derive a stop line and zebra for every approach");
-  std::set<std::string> junction_materials{};
-  for (const auto& mesh : state.derived().junction_meshes) junction_materials.insert(mesh.material);
-  ROAD_TEST_EXPECT(junction_materials.contains("asphalt") && junction_materials.contains("sidewalk") &&
-                       junction_materials.contains("curb"),
-                   "T junction does not connect carriageway, sidewalks, and curbs by material authority");
+  std::set<RenderStyleRef> junction_styles{};
+  for (const auto& mesh : state.derived().junction_meshes) junction_styles.insert(mesh.style);
+  ROAD_TEST_EXPECT(junction_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kAsphalt)) &&
+                       junction_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kSidewalk)) &&
+                       junction_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kCurb)),
+                   "T junction does not connect carriageway, sidewalks, and curbs by style authority");
   for (const auto& gate : state.derived().junction_areas.front().gates) {
     ROAD_TEST_EXPECT(std::hypot(gate.position.x - 20.0, gate.position.y) >= 5.2 - 1e-6,
                      "T junction gate setback did not adapt to the approach width");
@@ -414,7 +445,7 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   ManualLineRequest line{};
   line.owner_segment_id = added.value;
   line.path = MakePath({MakeLine({5.0, 0.5}, {20.0, 0.5})});
-  line.style = "white";
+  line.style_id = builtin_marking_styles::kWhiteSolid;
   const auto line_id = state.AddManualLine(line);
   ROAD_TEST_EXPECT(line_id.ok, line_id.error);
   ManualAreaRequest area{};
@@ -422,7 +453,7 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   area.frame_origin = {30.0, 0.0};
   area.width_m = 4.0;
   area.length_m = 8.0;
-  area.style = "zebra";
+  area.style_id = builtin_marking_styles::kCrosswalk;
   const auto area_id = state.AddManualArea(area);
   ROAD_TEST_EXPECT(area_id.ok, area_id.error);
   ROAD_TEST_EXPECT(state.graph().transitions.size() == 1, "P2 did not save transition authority");
@@ -451,6 +482,8 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
 
   const auto& line_mesh = state.derived().manual_marking_meshes[0];
   ROAD_TEST_EXPECT(!line_mesh.indices.empty(), "P2 manual line is not a drawable ribbon mesh");
+  ROAD_TEST_EXPECT(line_mesh.style == RenderStyleFromMarking(builtin_marking_styles::kWhiteSolid),
+                   "P2 manual line style was saved but not consumed by materialization");
   ROAD_TEST_EXPECT(std::abs(line_mesh.vertices.front().x - 105.0) < 1e-6 &&
                        std::abs(line_mesh.vertices.front().y - 50.5) < 0.1,
                    "P2 manual line was not transformed from owner-local coordinates");
@@ -460,6 +493,9 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   ROAD_TEST_EXPECT(std::abs(area_mesh.vertices.front().x - 126.0) < 1e-6 &&
                        std::abs(area_mesh.vertices.front().y - 48.0) < 1e-6,
                    "P2 manual area was not transformed from owner-local coordinates");
+  ROAD_TEST_EXPECT(area_mesh.style == RenderStyleFromMarking(builtin_marking_styles::kCrosswalk),
+                   "P2 manual area style was saved but not consumed by materialization");
+  ROAD_TEST_EXPECT(line_mesh.style != area_mesh.style, "P2 distinct manual marking styles collapsed to one mesh style");
 
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
@@ -469,6 +505,16 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
                        loaded.value.graph().manual_lines.size() == 1 &&
                        loaded.value.graph().manual_areas.size() == 1,
                    "P2 authority did not survive save/load");
+  const auto before_bad_style = state.Save();
+  ROAD_TEST_EXPECT(before_bad_style.ok, before_bad_style.error);
+  ManualLineRequest bad_line = line;
+  bad_line.style_id = city::road::MarkingStyleId{999};
+  const auto rejected_line = state.AddManualLine(bad_line);
+  ROAD_TEST_EXPECT(!rejected_line.ok && rejected_line.error_kind == ErrorKind::kValidation,
+                   "P2 accepted an unknown manual line style");
+  const auto after_bad_style = state.Save();
+  ROAD_TEST_EXPECT(after_bad_style.ok && after_bad_style.value == before_bad_style.value,
+                   "P2 unknown manual line style mutated authoritative state");
   return true;
 }
 
@@ -517,7 +563,8 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   {
     RoadState state{};
     auto median = JapaneseUrbanTwoLaneTemplate(0);
-    median.bands.insert(median.bands.begin() + 2, {25, SurfaceRole::kMedian, 2.0, 0.0, "median"});
+    median.bands.insert(median.bands.begin() + 2,
+                        {25, SurfaceRole::kMedian, 2.0, 0.0, builtin_surface_styles::kMedian});
     median.boundaries = {
         {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
         {210, BoundaryRole::kMedianEdge, 0.2, 0.12, MarkingRule::kNone},

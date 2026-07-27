@@ -3,7 +3,7 @@
 #include "city/road/common_types.hpp"
 
 #include <array>
-#include <string>
+#include <tuple>
 
 namespace city::road {
 
@@ -27,16 +27,35 @@ struct SectionBoundarySample {
   double height_m = 0.0;
   MarkingRule marking_rule = MarkingRule::kNone;
 };
+enum class RenderStyleDomain {
+  kSurface,
+  kMarking,
+};
+struct RenderStyleRef {
+  RenderStyleDomain domain = RenderStyleDomain::kSurface;
+  std::uint64_t value = 0;
+
+  bool operator==(const RenderStyleRef&) const = default;
+  bool operator<(const RenderStyleRef& other) const {
+    return std::tie(domain, value) < std::tie(other.domain, other.value);
+  }
+};
+[[nodiscard]] inline RenderStyleRef RenderStyleFromSurface(SurfaceStyleId id) {
+  return RenderStyleRef{RenderStyleDomain::kSurface, id.value};
+}
+[[nodiscard]] inline RenderStyleRef RenderStyleFromMarking(MarkingStyleId id) {
+  return RenderStyleRef{RenderStyleDomain::kMarking, id.value};
+}
 struct SectionEvaluation {
   RoadSegmentId segment_id = 0;
   double station_m = 0.0;
   CrossSectionTemplateId resolved_template_id = 0;
   std::vector<SectionBoundarySample> boundaries{};
-  std::vector<std::string> surface_materials{};
+  std::vector<RenderStyleRef> surface_styles{};
 };
 struct Mesh {
   RoadSegmentId owner_segment_id = 0;
-  std::string material{};
+  RenderStyleRef style{};
   std::vector<Vec3d> vertices{};
   std::vector<std::uint32_t> indices{};
 };
@@ -102,7 +121,7 @@ struct ResolvedBoundaryCurve {
 };
 
 struct ResolvedSurfaceStrip {
-  std::string material{};
+  RenderStyleRef style{};
   std::uint64_t left_boundary_id = 0;
   std::uint64_t right_boundary_id = 0;
   std::vector<Vec3d> left{};
@@ -110,13 +129,13 @@ struct ResolvedSurfaceStrip {
 };
 
 struct ResolvedSurfaceRegion {
-  std::string material{};
+  RenderStyleRef style{};
   std::vector<Vec3d> perimeter{};
 };
 
 struct ResolvedAutoMarking {
   ApproachKey approach{};
-  std::string material{};
+  RenderStyleRef style{};
   std::vector<std::array<Vec3d, 4>> quads{};
 };
 

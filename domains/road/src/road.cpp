@@ -2,18 +2,13 @@
 
 #include "build/stages.hpp"
 #include "operations/operation_plan.hpp"
-#include "persistence/schema.hpp"
+#include "persistence/road_archive.hpp"
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cmath>
 #include <iterator>
-#include <iomanip>
 #include <limits>
-#include <locale>
-#include <sstream>
-#include <string_view>
 #include <unordered_set>
 
 namespace city::road {
@@ -340,6 +335,9 @@ struct PathSplit {
         !finite(band.cross_slope) || band.width_m <= 0.0) {
       return Result<bool>::Fail(ErrorKind::kValidation, "section template surface band is invalid");
     }
+    if (!IsKnownSurfaceStyle(band.style_id)) {
+      return Result<bool>::Fail(ErrorKind::kValidation, "section template surface style is unknown");
+    }
   }
   ids.clear();
   for (const BoundaryProfile& boundary : section.boundaries) {
@@ -349,31 +347,6 @@ struct PathSplit {
     }
   }
   return Result<bool>::Ok(true);
-}
-
-[[nodiscard]] std::optional<double> parse_double(std::string_view text) {
-  if (text.empty()) {
-    return std::nullopt;
-  }
-  double value = 0.0;
-  std::istringstream stream{std::string(text)};
-  stream.imbue(std::locale::classic());
-  stream >> std::noskipws >> value;
-  if (!stream || !stream.eof() || !finite(value)) {
-    return std::nullopt;
-  }
-  return value;
-}
-
-[[nodiscard]] std::optional<std::uint64_t> parse_u64(std::string_view text) {
-  std::uint64_t value = 0;
-  const char* first = text.data();
-  const char* last = text.data() + text.size();
-  const std::from_chars_result result = std::from_chars(first, last, value);
-  if (result.ec != std::errc{} || result.ptr != last) {
-    return std::nullopt;
-  }
-  return value;
 }
 
 } // namespace
@@ -523,10 +496,10 @@ CrossSectionTemplate JapaneseUrbanTwoLaneTemplate(CrossSectionTemplateId id) {
   CrossSectionTemplate section{};
   section.id = id;
   section.bands = {
-      {10, SurfaceRole::kSidewalk, 2.0, 0.01, "sidewalk"},
-      {20, SurfaceRole::kCarriageway, 3.0, 0.02, "asphalt"},
-      {30, SurfaceRole::kCarriageway, 3.0, -0.02, "asphalt"},
-      {40, SurfaceRole::kSidewalk, 2.0, -0.01, "sidewalk"},
+      {10, SurfaceRole::kSidewalk, 2.0, 0.01, builtin_surface_styles::kSidewalk},
+      {20, SurfaceRole::kCarriageway, 3.0, 0.02, builtin_surface_styles::kAsphalt},
+      {30, SurfaceRole::kCarriageway, 3.0, -0.02, builtin_surface_styles::kAsphalt},
+      {40, SurfaceRole::kSidewalk, 2.0, -0.01, builtin_surface_styles::kSidewalk},
   };
   section.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
@@ -539,11 +512,11 @@ CrossSectionTemplate JapaneseUrbanTwoLaneTemplate(CrossSectionTemplateId id) {
 CrossSectionTemplate ThreeLaneTemplate(CrossSectionTemplateId id) {
   CrossSectionTemplate section = JapaneseUrbanTwoLaneTemplate(id);
   section.bands = {
-      {10, SurfaceRole::kSidewalk, 2.0, 0.01, "sidewalk"},
-      {20, SurfaceRole::kCarriageway, 3.0, 0.02, "asphalt"},
-      {30, SurfaceRole::kCarriageway, 3.0, 0.0, "asphalt"},
-      {35, SurfaceRole::kCarriageway, 3.0, -0.02, "asphalt"},
-      {40, SurfaceRole::kSidewalk, 2.0, -0.01, "sidewalk"},
+      {10, SurfaceRole::kSidewalk, 2.0, 0.01, builtin_surface_styles::kSidewalk},
+      {20, SurfaceRole::kCarriageway, 3.0, 0.02, builtin_surface_styles::kAsphalt},
+      {30, SurfaceRole::kCarriageway, 3.0, 0.0, builtin_surface_styles::kAsphalt},
+      {35, SurfaceRole::kCarriageway, 3.0, -0.02, builtin_surface_styles::kAsphalt},
+      {40, SurfaceRole::kSidewalk, 2.0, -0.01, builtin_surface_styles::kSidewalk},
   };
   section.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
@@ -563,7 +536,8 @@ CrossSectionTemplate NoLeftSidewalkTemplate(CrossSectionTemplateId id) {
 
 CrossSectionTemplate MedianTwoLaneTemplate(CrossSectionTemplateId id) {
   CrossSectionTemplate section = JapaneseUrbanTwoLaneTemplate(id);
-  section.bands.insert(section.bands.begin() + 2, {25, SurfaceRole::kMedian, 2.0, 0.0, "median"});
+  section.bands.insert(section.bands.begin() + 2,
+                       {25, SurfaceRole::kMedian, 2.0, 0.0, builtin_surface_styles::kMedian});
   section.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, MarkingRule::kOuterLine},
       {210, BoundaryRole::kMedianEdge, 0.2, 0.12, MarkingRule::kNone},
@@ -593,6 +567,9 @@ Result<bool> RoadState::Execute(const operations::OperationPlan& plan) {
   RoadState trial = *this;
   const Result<bool> applied = operations::Apply(plan, trial.graph_, trial.next_id_);
   if (!applied.ok) return applied;
+  const Result<bool> authoritative_valid =
+      persistence::ValidateAuthoritativeGraph(trial.graph_, trial.next_id_);
+  if (!authoritative_valid.ok) return authoritative_valid;
   const Result<bool> built = trial.BuildDerived();
   if (!built.ok) return built;
   *this = std::move(trial);
@@ -1015,7 +992,10 @@ Result<bool> RoadState::AttachSectionTransition(AttachSectionTransitionRequest r
 }
 
 Result<ManualMarkingId> RoadState::AddManualLine(ManualLineRequest request) {
-  ManualLineMarking marking{0, request.owner_segment_id, std::move(request.path), std::move(request.style)};
+  ManualLineMarking marking{0, request.owner_segment_id, std::move(request.path), request.style_id};
+  if (!IsKnownMarkingStyle(marking.style_id)) {
+    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual line style is unknown");
+  }
   const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
   if (owner == nullptr) {
     return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual line owner segment does not exist");
@@ -1047,7 +1027,10 @@ Result<ManualMarkingId> RoadState::AddManualLine(ManualLineRequest request) {
 
 Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaRequest request) {
   ManualAreaMarking marking{0, request.owner_segment_id, request.frame_origin, request.width_m, request.length_m,
-                            std::move(request.style)};
+                            request.style_id};
+  if (!IsKnownMarkingStyle(marking.style_id)) {
+    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area style is unknown");
+  }
   const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
   if (owner == nullptr) {
     return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area owner segment does not exist");
@@ -1086,313 +1069,22 @@ Result<bool> RoadState::BuildDerived() {
 }
 
 Result<std::string> RoadState::Save() const {
-  std::ostringstream out;
-  out.imbue(std::locale::classic());
-  out << std::setprecision(std::numeric_limits<double>::max_digits10);
-  out << persistence::kHeader;
-  out << "next_id=" << next_id_ << "\n";
-  for (const CrossSectionTemplate& section : graph_.section_templates) {
-    out << "section_template=" << section.id << "\n";
-    for (const SurfaceBand& band : section.bands) {
-      out << "surface_band=" << section.id << "," << band.element_id << "," << static_cast<int>(band.role) << ","
-          << band.width_m << "," << band.cross_slope << "," << band.style << "\n";
-    }
-    for (const BoundaryProfile& boundary : section.boundaries) {
-      out << "boundary=" << section.id << "," << boundary.boundary_id << "," << static_cast<int>(boundary.role)
-          << "," << boundary.width_m << "," << boundary.height_m << "," << static_cast<int>(boundary.marking_rule)
-          << "\n";
-    }
-  }
-  for (const SectionTransition& transition : graph_.transitions) {
-    out << "transition=" << transition.id << "," << transition.from_template << "," << transition.to_template << ","
-        << static_cast<int>(transition.start.kind) << "," << transition.start.value << ","
-        << static_cast<int>(transition.end.kind) << "," << transition.end.value << ","
-        << static_cast<int>(transition.anchor) << "\n";
-    for (const SectionTransitionRule& rule : transition.rules) {
-      out << "transition_rule=" << transition.id << "," << rule.element_id << "," << static_cast<int>(rule.action)
-          << "\n";
-    }
-  }
-  for (const RoadNode& node : graph_.nodes) {
-    out << "node=" << node.id << "," << node.position.x << "," << node.position.y << "\n";
-  }
-  for (const NodeConnectionPolicyOverride& policy : graph_.connection_policy_overrides) {
-    out << "connection_policy_override=" << policy.id << "," << policy.node_id << ","
-        << static_cast<int>(policy.policy) << "\n";
-  }
-  for (const RoadSegment& segment : graph_.segments) {
-    out << "segment=" << segment.id << "," << segment.node_a << "," << segment.node_b << ","
-        << segment.section_template << "," << segment.transition.value_or(0) << ","
-        << segment.shape.internal_knots.size() << "\n";
-    out << "segment_shape=" << segment.shape.start_handle.x << "," << segment.shape.start_handle.y << ","
-        << segment.shape.end_handle.x << "," << segment.shape.end_handle.y << "\n";
-    for (const SegmentKnot& knot : segment.shape.internal_knots) {
-      out << "segment_knot=" << knot.position.x << "," << knot.position.y << "," << knot.handle_in.x << ","
-          << knot.handle_in.y << "," << knot.handle_out.x << "," << knot.handle_out.y << "\n";
-    }
-  }
-  for (const ManualLineMarking& marking : graph_.manual_lines) {
-    out << "manual_line=" << marking.id << "," << marking.owner_segment_id << "," << marking.style << ","
-        << marking.path.spans.size() << "\n";
-    for (const BezierSpan& span : marking.path.spans) {
-      out << "manual_span=" << span.p0.x << "," << span.p0.y << "," << span.p1.x << "," << span.p1.y << ","
-          << span.p2.x << "," << span.p2.y << "," << span.p3.x << "," << span.p3.y << "\n";
-    }
-  }
-  for (const ManualAreaMarking& marking : graph_.manual_areas) {
-    out << "manual_area=" << marking.id << "," << marking.owner_segment_id << "," << marking.frame_origin.x << ","
-        << marking.frame_origin.y << "," << marking.width_m << "," << marking.length_m << "," << marking.style << "\n";
-  }
-  return Result<std::string>::Ok(out.str());
+  return persistence::SaveRoad(graph_, next_id_);
 }
 
 Result<RoadState> RoadState::Load(const std::string& text) {
-  const bool version5 = persistence::HasCurrentHeader(text);
-  if (!version5 && persistence::HasRoadHeader(text)) {
-    return Result<RoadState>::Fail(ErrorKind::kValidation, "legacy road graph version is unsupported");
-  }
-  if (!version5) {
-    return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road graph version");
+  Result<persistence::LoadedRoad> loaded = persistence::LoadRoad(text);
+  if (!loaded.ok) {
+    return Result<RoadState>::Fail(loaded.error_kind, loaded.error);
   }
   RoadState state{};
-  state.graph_.nodes.clear();
-  state.graph_.segments.clear();
-  state.graph_.transitions.clear();
-  state.graph_.connection_policy_overrides.clear();
-  state.graph_.manual_lines.clear();
-  state.graph_.manual_areas.clear();
-  state.graph_.section_templates.clear();
-  std::istringstream in(text);
-  std::string line;
-  RoadSegment* current_segment = nullptr;
-  ManualLineMarking* current_manual_line = nullptr;
-  std::vector<std::pair<RoadSegmentId, std::size_t>> expected_segment_knots{};
-  std::unordered_set<RoadSegmentId> segment_shapes{};
-  std::vector<std::pair<ManualMarkingId, std::size_t>> expected_manual_spans{};
-  const auto span_from_parts = [](const std::vector<std::string_view>& parts) -> std::optional<BezierSpan> {
-    if (parts.size() != 8) return std::nullopt;
-    std::array<double, 8> values{};
-    for (std::size_t i = 0; i < parts.size(); ++i) {
-      const auto parsed = parse_double(parts[i]);
-      if (!parsed.has_value()) return std::nullopt;
-      values[i] = *parsed;
-    }
-    return MakeBezier({values[0], values[1]}, {values[2], values[3]},
-                      {values[4], values[5]}, {values[6], values[7]});
-  };
-  while (std::getline(in, line)) {
-    if (line.empty()) {
-      continue;
-    }
-    const std::size_t eq = line.find('=');
-    if (eq == std::string::npos) {
-      return Result<RoadState>::Fail(ErrorKind::kValidation, "road archive line lacks key");
-    }
-    const std::string key = line.substr(0, eq);
-    const std::string value = line.substr(eq + 1);
-    std::vector<std::string_view> parts{};
-    std::string_view view(value);
-    while (true) {
-      const std::size_t comma = view.find(',');
-      parts.push_back(view.substr(0, comma));
-      if (comma == std::string_view::npos) {
-        break;
-      }
-      view.remove_prefix(comma + 1);
-    }
-    if (key == "road_graph_version") {
-      if (value != "5") {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road graph version");
-      }
-    } else if (key == "next_id") {
-      const std::optional<std::uint64_t> parsed = parse_u64(value);
-      if (!parsed.has_value()) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid next_id");
-      }
-      state.next_id_ = *parsed;
-    } else if (key == "section_template") {
-      const auto id = parse_u64(value);
-      if (!id.has_value()) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid section template row");
-      state.graph_.section_templates.push_back(CrossSectionTemplate{*id});
-    } else if (key == "surface_band") {
-      if (parts.size() != 6) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid surface band row");
-      const auto template_id = parse_u64(parts[0]);
-      const auto element_id = parse_u64(parts[1]);
-      const auto role = parse_u64(parts[2]);
-      const auto width = parse_double(parts[3]);
-      const auto slope = parse_double(parts[4]);
-      if (!template_id || !element_id || !role || !width || !slope) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid surface band value");
-      }
-      auto* section = const_cast<CrossSectionTemplate*>(find_template(state.graph_, *template_id));
-      if (section == nullptr) return Result<RoadState>::Fail(ErrorKind::kValidation, "surface band template is missing");
-      section->bands.push_back(SurfaceBand{*element_id, static_cast<SurfaceRole>(*role), *width, *slope,
-                                           std::string(parts[5])});
-    } else if (key == "boundary") {
-      if (parts.size() != 6) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid boundary row");
-      const auto template_id = parse_u64(parts[0]);
-      const auto boundary_id = parse_u64(parts[1]);
-      const auto role = parse_u64(parts[2]);
-      const auto width = parse_double(parts[3]);
-      const auto height = parse_double(parts[4]);
-      const auto marking = parse_u64(parts[5]);
-      if (!template_id || !boundary_id || !role || !width || !height || !marking) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid boundary value");
-      }
-      auto* section = const_cast<CrossSectionTemplate*>(find_template(state.graph_, *template_id));
-      if (section == nullptr) return Result<RoadState>::Fail(ErrorKind::kValidation, "boundary template is missing");
-      section->boundaries.push_back(BoundaryProfile{*boundary_id, static_cast<BoundaryRole>(*role), *width, *height,
-                                                     static_cast<MarkingRule>(*marking)});
-    } else if (key == "transition") {
-      if (parts.size() != 8) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid transition row");
-      std::array<std::optional<std::uint64_t>, 6> ints{parse_u64(parts[0]), parse_u64(parts[1]), parse_u64(parts[2]),
-                                                       parse_u64(parts[3]), parse_u64(parts[5]), parse_u64(parts[7])};
-      const auto start_value = parse_double(parts[4]);
-      const auto end_value = parse_double(parts[6]);
-      if (std::any_of(ints.begin(), ints.end(), [](const auto& item) { return !item.has_value(); }) ||
-          !start_value || !end_value) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid transition value");
-      }
-      state.graph_.transitions.push_back(SectionTransition{*ints[0], *ints[1], *ints[2],
-                                                            StationRef{static_cast<StationRefKind>(*ints[3]), *start_value},
-                                                            StationRef{static_cast<StationRefKind>(*ints[4]), *end_value},
-                                                            static_cast<TransitionAnchor>(*ints[5]), {}});
-    } else if (key == "transition_rule") {
-      if (parts.size() != 3) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid transition rule row");
-      const auto transition_id = parse_u64(parts[0]);
-      const auto element_id = parse_u64(parts[1]);
-      const auto action = parse_u64(parts[2]);
-      if (!transition_id || !element_id || !action) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid transition rule value");
-      }
-      auto transition = std::find_if(state.graph_.transitions.begin(), state.graph_.transitions.end(),
-                                     [transition_id](const SectionTransition& item) { return item.id == *transition_id; });
-      if (transition == state.graph_.transitions.end()) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "transition rule owner is missing");
-      }
-      transition->rules.push_back(SectionTransitionRule{*element_id, static_cast<TransitionAction>(*action)});
-    } else if (key == "node") {
-      if (parts.size() != 3) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid node row");
-      }
-      const auto id = parse_u64(parts[0]);
-      const auto x = parse_double(parts[1]);
-      const auto y = parse_double(parts[2]);
-      if (!id || !x || !y) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid node value");
-      state.graph_.nodes.push_back(RoadNode{*id, {*x, *y}});
-    } else if (key == "connection_policy_override") {
-      if (parts.size() != 3) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid connection policy row");
-      const auto id = parse_u64(parts[0]);
-      const auto node = parse_u64(parts[1]);
-      const auto policy = parse_u64(parts[2]);
-      if (!id || !node || !policy) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid connection policy value");
-      }
-      state.graph_.connection_policy_overrides.push_back(
-          NodeConnectionPolicyOverride{*id, *node, static_cast<NodeConnectionPolicy>(*policy)});
-    } else if (key == "junction") {
-      return Result<RoadState>::Fail(ErrorKind::kValidation, "legacy junction authority is unsupported");
-    } else if (key == "segment") {
-      if (parts.size() != 6) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment row");
-      }
-      const auto id = parse_u64(parts[0]);
-      const auto node_a = parse_u64(parts[1]);
-      const auto node_b = parse_u64(parts[2]);
-      const auto section = parse_u64(parts[3]);
-      const auto transition = parse_u64(parts[4]);
-      const auto knot_count = parse_u64(parts[5]);
-      if (!id || !node_a || !node_b || !section || !transition || !knot_count) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment value");
-      }
-      state.graph_.segments.push_back(RoadSegment{*id, *node_a, *node_b, {}, *section,
-                                                   *transition == 0 ? std::nullopt
-                                                                    : std::optional<SectionTransitionId>(*transition)});
-      current_segment = &state.graph_.segments.back();
-      expected_segment_knots.push_back({*id, static_cast<std::size_t>(*knot_count)});
-    } else if (key == "segment_shape") {
-      if (current_segment == nullptr || parts.size() != 4) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment shape row");
-      }
-      const auto sx = parse_double(parts[0]);
-      const auto sy = parse_double(parts[1]);
-      const auto ex = parse_double(parts[2]);
-      const auto ey = parse_double(parts[3]);
-      if (!sx || !sy || !ex || !ey) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment shape value");
-      }
-      current_segment->shape.start_handle = {*sx, *sy};
-      current_segment->shape.end_handle = {*ex, *ey};
-      if (!segment_shapes.insert(current_segment->id).second) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "duplicate segment shape row");
-      }
-    } else if (key == "segment_knot") {
-      if (current_segment == nullptr || parts.size() != 6) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment knot row");
-      }
-      std::array<std::optional<double>, 6> values{};
-      for (std::size_t i = 0; i < values.size(); ++i) values[i] = parse_double(parts[i]);
-      if (std::any_of(values.begin(), values.end(), [](const auto& value) { return !value.has_value(); })) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid segment knot value");
-      }
-      current_segment->shape.internal_knots.push_back(
-          SegmentKnot{{*values[0], *values[1]}, {*values[2], *values[3]}, {*values[4], *values[5]}});
-    } else if (key == "primitive" || key == "span") {
-      return Result<RoadState>::Fail(ErrorKind::kValidation, "legacy road segment persistence is unsupported");
-    } else if (key == "manual_line") {
-      if (parts.size() != 4) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual line row");
-      const auto id = parse_u64(parts[0]);
-      const auto owner = parse_u64(parts[1]);
-      const auto span_count = parse_u64(parts[3]);
-      if (!id || !owner || !span_count) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual line value");
-      }
-      state.graph_.manual_lines.push_back(ManualLineMarking{*id, *owner, {}, std::string(parts[2])});
-      current_manual_line = &state.graph_.manual_lines.back();
-      expected_manual_spans.push_back({*id, static_cast<std::size_t>(*span_count)});
-    } else if (key == "manual_primitive") {
-      return Result<RoadState>::Fail(ErrorKind::kValidation, "legacy manual marking persistence is unsupported");
-    } else if (key == "manual_span") {
-      const auto span = span_from_parts(parts);
-      if (current_manual_line == nullptr || !span.has_value()) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual span row");
-      }
-      current_manual_line->path.spans.push_back(*span);
-    } else if (key == "manual_area") {
-      if (parts.size() != 7) return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual area row");
-      const auto id = parse_u64(parts[0]);
-      const auto owner = parse_u64(parts[1]);
-      const auto x = parse_double(parts[2]);
-      const auto y = parse_double(parts[3]);
-      const auto width = parse_double(parts[4]);
-      const auto length = parse_double(parts[5]);
-      if (!id || !owner || !x || !y || !width || !length) {
-        return Result<RoadState>::Fail(ErrorKind::kValidation, "invalid manual area value");
-      }
-      state.graph_.manual_areas.push_back(
-          ManualAreaMarking{*id, *owner, {*x, *y}, *width, *length, std::string(parts[6])});
-    } else {
-      return Result<RoadState>::Fail(ErrorKind::kValidation, "unknown road archive key");
-    }
-  }
-  for (const auto& [segment_id, expected] : expected_segment_knots) {
-    const RoadSegment* segment = find_segment(state.graph_, segment_id);
-    if (segment == nullptr || !segment_shapes.contains(segment_id) || segment->shape.internal_knots.size() != expected) {
-      return Result<RoadState>::Fail(ErrorKind::kValidation, "road segment shape rows are truncated or excessive");
-    }
-  }
-  for (const auto& [marking_id, expected] : expected_manual_spans) {
-    const auto marking = std::find_if(state.graph_.manual_lines.begin(), state.graph_.manual_lines.end(),
-                                      [marking_id](const auto& item) { return item.id == marking_id; });
-    if (marking == state.graph_.manual_lines.end() || marking->path.spans.size() != expected) {
-      return Result<RoadState>::Fail(ErrorKind::kValidation, "manual line rows are truncated or excessive");
-    }
-  }
-  const Result<bool> rebuilt = state.BuildDerived();
+  state.graph_ = std::move(loaded.value.graph);
+  state.next_id_ = loaded.value.next_id;
+  Result<bool> rebuilt = state.BuildDerived();
   if (!rebuilt.ok) {
     return Result<RoadState>::Fail(rebuilt.error_kind, rebuilt.error);
   }
-  return Result<RoadState>::Ok(state);
+  return Result<RoadState>::Ok(std::move(state));
 }
 
 Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedRoad& derived) {

@@ -39,6 +39,7 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 - `SegmentShape`: endpointから出るhandle vector、内部knot、内部handle。endpoint座標は持たない
 - `CrossSectionTemplate`と`SectionTransition`の意味入力
 - manual markingのowner IDとowner-local station / lateral値
+- surface / marking style identityは`SurfaceStyleId` / `MarkingStyleId`で保存する
 - ユーザーが明示した`NodeConnectionPolicyOverride`
 - next ID state
 
@@ -54,7 +55,7 @@ corner radius、meshは保存しない。
 - `NodeConnectionDecision`: PassThrough / Corner / Junction / Unsupported、approach order、endpoint section ID、
   approachごとのsetback / gate station、corner policy、適用override、reason
 - SamplingPlan、SectionEvaluationTable、ConnectionGateTable、ConnectionGeometryTable、JunctionGeometryTable
-- surface、curb、sidewalk、marking、terrain mask、mesh、viewer payload
+- `RenderStyleRef`付きsurface、curb、sidewalk、marking、terrain mask、mesh、viewer payload
 
 StraightとCurvedはinput modeだけである。Straight requestはoperation planで直線shapeへ正規化し、Build後の
 CanonicalAlignmentは他のcurveと同じcubic Bezier span列になる。
@@ -132,6 +133,7 @@ stationをsemantic stationとして一度だけ決め、sortと数値幾何eps�
 断面、transition mapping、boundary ID、element ID、role、lateral、height、normal、outer boundary、marking anchorの
 唯一の決定者とする。全SamplingPlan用途stationの評価を`segment_id + station_m`で一意に供給する。
 Continue / TaperIn / TaperOut / EndCapは実際の形状評価で消費し、未実装actionはunsupportedにする。
+SurfaceBandの`SurfaceStyleId`と、BoundaryRoleからbuilt-in `SurfaceStyleId`への変換もこのstageだけが行う。
 
 ### Connection and junction stages
 
@@ -142,15 +144,27 @@ ConnectionGateStageは`NodeConnectionDecision.gate_station_m`で`SectionEvaluati
 JunctionGeometryStageはdecision、gate、評価済みboundaryだけを読み、degreeや角度を再判定しない。
 boundary ID / role / occurrenceの明示対応から`ConnectionGeometry`と`JunctionGeometry`を生成し、corner curve、
 surface strip / region、junction perimeter、自動停止線・ゼブラquadをmaterialization前に解決する。
-P1 junctionは`sidewalk | curb | asphalt... | curb | sidewalk`の明示構造だけを対応対象とし、その他は
+P1 junctionはouter edge、2組のcurb boundary、carriageway側boundaryというrole / boundary ID構造だけを対応対象とし、その他は
 reason付き`kUnsupported`とする。
 
 ### MaterializationStage
 
 materializationは評価済みsegment断面、`ConnectionGeometry`、`JunctionGeometry`、専用manual-marking read modelを
-頂点、index、normal / UV、material groupへ変換するだけとする。`SavedRoadGraph`やauthoritative headerを読まず、
+頂点、index、normal / UV、`RenderStyleRef`付きmeshへ変換するだけとする。`SavedRoadGraph`やauthoritative headerを読まず、
 section評価、connection kind、setback、gate、approach order、corner control、junction perimeter、boundary対応、
 停止線・ゼブラ配置を決めない。
+
+## Style ownership
+
+| 層 | 契約 |
+|---|---|
+| authoritative / request | `SurfaceStyleId` / `MarkingStyleId`を保存・入力する。自由文字列をidentityに使わない |
+| built-in catalog | road内の最小built-in styleだけを`common_types.hpp`で定義する |
+| derived / materialization | `RenderStyleRef(domain, value)`だけを運ぶ。表示名文字列へ戻さない |
+| viewer adapter | `RenderStyleRef`をviewer material key文字列へ変換する唯一の境界。未知IDはfallbackしない |
+
+manual markingのstyle IDは保存だけでなくmaterialization inputへ渡し、生成meshの`RenderStyleRef`へ反映する。
+BoundaryProfileには個別style fieldを持たせない。curb等の描画styleはBoundaryRoleからSectionEvaluationStageで導出する。
 
 ## Identity
 
@@ -163,11 +177,24 @@ section評価、connection kind、setback、gate、approach order、corner contr
 
 ## Persistence target
 
-構造移行後に新しいroad versionを定義する。保存対象はauthoritative stateとnext IDだけとする。
+road persistenceはversion 6とする。保存対象はauthoritative stateとnext IDだけとする。
 CanonicalAlignment、decision、gate、evaluation、sampling、junction、mesh、mask、auto markingは保存しない。
 
-旧road versionは明示rejectし、endpoint付きalignmentからmigrationしない。loadは新trialへparse、validation、Buildを行い、
-成功時だけstate交換する。構文不正、未知field、非有限値、重複ID、欠損参照をrejectする。
+形式は一行一fieldのnamed indexed `key=value`で、カンマ位置に意味を持たせない。save field順は固定し、
+top-level entityはID順にcanonical serializeする。順序に意味がある`SegmentShape.internal_knots`やPath spanは保存順を維持する。
+doubleはload後に同じbinary doubleへ戻る表現で保存する。
+
+version 5以前と未知versionは明示rejectし、migrationしない。loadはparse、field構造検証、型変換、
+`ValidateAuthoritativeGraph`、Build、DerivedInvariantを通過した場合だけ新stateを返す。duplicate key、missing key、
+unknown key、count不一致、enum範囲外、非有限値、重複ID、欠損参照をrejectする。
+
+## Preflight and validation
+
+operation preflightはrequestの全fieldについて、ID存在、有限性、enum範囲、style ID、正であるべき寸法を検査する。
+正しい入力だが現在扱えない接続形状・transition付きsplit・prepend station移動は`kUnsupported`に残す。
+valid authoritativeから派生表が欠ける、materializationへ不整合なresolved read modelが渡る等は`kInternal`とする。
+`ValidateAuthoritativeGraph`はloadとoperation trial後に共通利用し、保存正本の完全性だけを見る。Build stageでしか判断できない
+幾何対応可否は混ぜない。
 
 ## Module boundaries
 
@@ -197,7 +224,7 @@ src/persistence/
 | RS4 | complete | 必須9 stageとread-only BuildContext。NodeConnectionDecisionがapproach単位のsetbackを所有し、setbackの決定箇所が一つであること。SamplingPlanがgate stationをsemantic stationとして含み、ConnectionGateがSectionEvaluationを再評価しないこと |
 | RS5 | complete | materialization純化、boundary ID対応。materializationがcorner controlやjunction形状を決めず、断面roleを探索して意味を推測しないこと。JunctionGeometryTableが描画前の唯一の交差点形状決定表であること |
 | RS6 | complete | adapterはRequest変換だけ、fallbackとauthoritative構築なし |
-| RS7 | complete | version 5のみ、旧version reject、authoritative roundtrip / corruption test |
+| RS7 | complete | version 6のみ、旧version reject、authoritative roundtrip / corruption test |
 | RS8 | complete | test分類、seed fuzz、全road / wire / web / lint回帰 |
 
 station splitはprototype実装であり、architecture migration完了の証拠ではない。

@@ -43,6 +43,46 @@ using SectionTransitionId = std::uint64_t;
 using ManualMarkingId = std::uint64_t;
 using NodeConnectionPolicyOverrideId = std::uint64_t;
 
+struct SurfaceStyleId {
+  std::uint64_t value = 0;
+  bool operator==(const SurfaceStyleId&) const = default;
+  bool operator<(const SurfaceStyleId& other) const { return value < other.value; }
+};
+
+struct MarkingStyleId {
+  std::uint64_t value = 0;
+  bool operator==(const MarkingStyleId&) const = default;
+  bool operator<(const MarkingStyleId& other) const { return value < other.value; }
+};
+
+namespace builtin_surface_styles {
+inline constexpr SurfaceStyleId kAsphalt{1};
+inline constexpr SurfaceStyleId kSidewalk{2};
+inline constexpr SurfaceStyleId kCurb{3};
+inline constexpr SurfaceStyleId kMedian{4};
+} // namespace builtin_surface_styles
+
+namespace builtin_marking_styles {
+inline constexpr MarkingStyleId kWhiteSolid{1};
+inline constexpr MarkingStyleId kCenterLine{2};
+inline constexpr MarkingStyleId kStopLine{3};
+inline constexpr MarkingStyleId kCrosswalk{4};
+} // namespace builtin_marking_styles
+
+[[nodiscard]] inline bool IsKnownSurfaceStyle(SurfaceStyleId id) {
+  return id == builtin_surface_styles::kAsphalt ||
+         id == builtin_surface_styles::kSidewalk ||
+         id == builtin_surface_styles::kCurb ||
+         id == builtin_surface_styles::kMedian;
+}
+
+[[nodiscard]] inline bool IsKnownMarkingStyle(MarkingStyleId id) {
+  return id == builtin_marking_styles::kWhiteSolid ||
+         id == builtin_marking_styles::kCenterLine ||
+         id == builtin_marking_styles::kStopLine ||
+         id == builtin_marking_styles::kCrosswalk;
+}
+
 enum class SurfaceRole { kCarriageway, kSidewalk, kMedian };
 enum class BoundaryRole { kOuterEdge, kCurb, kLaneDivider, kMedianEdge };
 enum class MarkingRule { kNone, kCenterLine, kOuterLine };
@@ -55,7 +95,7 @@ struct SurfaceBand {
   SurfaceRole role = SurfaceRole::kCarriageway;
   double width_m = 0.0;
   double cross_slope = 0.0;
-  std::string style{};
+  SurfaceStyleId style_id{};
 };
 struct BoundaryProfile {
   std::uint64_t boundary_id = 0;

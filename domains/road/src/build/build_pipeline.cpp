@@ -70,7 +70,7 @@ Result<bool> materialize(BuildContext& context) {
       }
       input.samples.push_back(materialization::SegmentSample{
           center.value, tangent.value, section->boundaries,
-          section->surface_materials});
+          section->surface_styles});
     }
     Result<materialization::SegmentOutput> output =
         materialization::MaterializeSegment(input);
@@ -79,8 +79,10 @@ Result<bool> materialize(BuildContext& context) {
         context.derived.segment_meshes.end(),
         std::make_move_iterator(output.value.surface_meshes.begin()),
         std::make_move_iterator(output.value.surface_meshes.end()));
-    context.derived.marking_meshes.push_back(
-        std::move(output.value.marking_mesh));
+    context.derived.marking_meshes.insert(
+        context.derived.marking_meshes.end(),
+        std::make_move_iterator(output.value.marking_meshes.begin()),
+        std::make_move_iterator(output.value.marking_meshes.end()));
     context.derived.terrain_masks.push_back(
         std::move(output.value.terrain_mask));
   }
@@ -115,11 +117,12 @@ Result<bool> materialize(BuildContext& context) {
     const Path* alignment =
         FindAlignment(context.derived, marking.owner_segment_id);
     if (alignment == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(ErrorKind::kInternal,
                                 "manual line owner alignment is missing");
     }
     materialization::ManualLineInput input{};
     input.marking_id = marking.id;
+    input.style = RenderStyleFromMarking(marking.style_id);
     const std::vector<Vec2d> points = FlattenPath(marking.path);
     constexpr double half_width = 0.05;
     for (std::size_t index = 0; index < points.size(); ++index) {
@@ -136,7 +139,7 @@ Result<bool> materialize(BuildContext& context) {
           context.derived, *alignment, marking.owner_segment_id,
           Add(points[index], Scale(normal, half_width)), 0.02);
       if (!left.ok || !right.ok) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(ErrorKind::kInternal,
                                   "manual line resolved geometry is invalid");
       }
       input.left.push_back(left.value);
@@ -152,11 +155,12 @@ Result<bool> materialize(BuildContext& context) {
     const Path* alignment =
         FindAlignment(context.derived, marking.owner_segment_id);
     if (alignment == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(ErrorKind::kInternal,
                                 "manual area owner alignment is missing");
     }
     materialization::ManualAreaInput input{};
     input.marking_id = marking.id;
+    input.style = RenderStyleFromMarking(marking.style_id);
     const double half_width = marking.width_m * 0.5;
     const double half_length = marking.length_m * 0.5;
     const std::array<Vec2d, 4> locals{
@@ -174,7 +178,7 @@ Result<bool> materialize(BuildContext& context) {
           context.derived, *alignment, marking.owner_segment_id, locals[index],
           0.025);
       if (!point.ok) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(ErrorKind::kInternal,
                                   "manual area resolved geometry is invalid");
       }
       input.corners[index] = point.value;

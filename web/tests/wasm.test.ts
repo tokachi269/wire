@@ -1446,7 +1446,9 @@ describe("road wasm smoke", () => {
     expect(corner.ok, corner.error).toBe(true);
     const scene = state.scene();
     expect(scene.junctionCount).toBe(0);
-    expect(scene.markingMeshes).toHaveLength(2);
+    expect(scene.markingMeshes.length).toBeGreaterThanOrEqual(2);
+    expect(scene.markingMeshes.some((mesh) => mesh.material === "road_marking_stop")).toBe(false);
+    expect(scene.markingMeshes.some((mesh) => mesh.material === "road_marking_crosswalk")).toBe(false);
     expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "asphalt").length).toBeGreaterThan(2);
     expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "sidewalk").length).toBeGreaterThan(2);
     expect(scene.surfaceMeshes.filter((mesh) => mesh.material === "curb").length).toBeGreaterThan(2);

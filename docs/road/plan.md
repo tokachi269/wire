@@ -106,14 +106,14 @@ RoadSurfaceEvaluator
 │    ← 自動NodeConnectionDecisionと自動交差点の存在は保存しない
 │
 ├─ UserPavedArea                     ← P5で追加
-│    { id、owner frame、outer、holes、surface style、connection gates }
+│    { id、owner frame、outer、holes、SurfaceStyleId、connection gates }
 │    ← ロータリー・駅前広場などユーザーが作る面
 │
 └─ ManualMarking                     ← 必要なphaseで追加
      ├─ ManualLineMarking
-     │    { owner_surface_id、anchor参照またはowner-local Path、style }
+     │    { owner_surface_id、anchor参照またはowner-local Path、MarkingStyleId }
      └─ ManualAreaMarking
-          { owner_surface_id、自前2D frame、形状パラメータ、style }
+          { owner_surface_id、自前2D frame、形状パラメータ、MarkingStyleId }
 ```
 
 ### 5.1 横断断面の役割
@@ -121,7 +121,7 @@ RoadSurfaceEvaluator
 ```text
 SurfaceBand
 - 車道、歩道、路肩、自転車帯、中央分離帯、排水用の浅い帯など
-- 幅、表面高さプロファイル、意味role、surface styleを持つ
+- 幅、表面高さプロファイル、意味role、SurfaceStyleIdを持つ
 
 BoundaryProfile
 - 隣接SurfaceBandの接続形状

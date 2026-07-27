@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -47,6 +48,34 @@ using city::wire::Vec3d;
   return result;
 }
 
+[[nodiscard]] std::string road_material_key(city::road::RenderStyleRef style) {
+  if (style.domain == city::road::RenderStyleDomain::kSurface) {
+    if (style.value == city::road::builtin_surface_styles::kAsphalt.value) return "asphalt";
+    if (style.value == city::road::builtin_surface_styles::kSidewalk.value) return "sidewalk";
+    if (style.value == city::road::builtin_surface_styles::kCurb.value) return "curb";
+    if (style.value == city::road::builtin_surface_styles::kMedian.value) return "median";
+  }
+  if (style.domain == city::road::RenderStyleDomain::kMarking) {
+    if (style.value == city::road::builtin_marking_styles::kWhiteSolid.value) return "road_marking";
+    if (style.value == city::road::builtin_marking_styles::kCenterLine.value) return "road_marking_center";
+    if (style.value == city::road::builtin_marking_styles::kStopLine.value) return "road_marking_stop";
+    if (style.value == city::road::builtin_marking_styles::kCrosswalk.value) return "road_marking_crosswalk";
+  }
+  throw std::runtime_error("unknown road render style id");
+}
+
+[[nodiscard]] std::optional<city::road::MarkingStyleId> road_marking_style_id(const std::string& key) {
+  if (key == "road_marking" || key == "white_solid" || key == "white") {
+    return city::road::builtin_marking_styles::kWhiteSolid;
+  }
+  if (key == "road_marking_center" || key == "center_line") return city::road::builtin_marking_styles::kCenterLine;
+  if (key == "road_marking_stop" || key == "stop_line") return city::road::builtin_marking_styles::kStopLine;
+  if (key == "road_marking_crosswalk" || key == "crosswalk" || key == "zebra") {
+    return city::road::builtin_marking_styles::kCrosswalk;
+  }
+  return std::nullopt;
+}
+
 [[nodiscard]] val road_mesh_value(const city::road::Mesh& mesh) {
   val vertices = val::array();
   for (const auto& vertex : mesh.vertices) {
@@ -59,7 +88,7 @@ using city::wire::Vec3d;
     indices.call<void>("push", index);
   }
   val result = val::object();
-  result.set("material", mesh.material);
+  result.set("material", road_material_key(mesh.style));
   result.set("vertices", vertices);
   result.set("indices", indices);
   return result;
@@ -1546,7 +1575,12 @@ public:
     marking.path = city::road::MakePath({city::road::MakeLine(
         {input["startStationM"].as<double>(), input["lateralM"].as<double>()},
         {input["endStationM"].as<double>(), input["lateralM"].as<double>()})});
-    marking.style = input["style"].as<std::string>();
+    const auto style = road_marking_style_id(input["style"].as<std::string>());
+    if (!style.has_value()) {
+      return road_result_value(false, "unknown road marking style",
+                               city::road::ErrorKind::kValidation);
+    }
+    marking.style_id = *style;
     const auto result = state_->AddManualLine(std::move(marking));
     return road_result_value(result.ok, result.error, result.error_kind);
   }
@@ -1557,7 +1591,12 @@ public:
     marking.frame_origin = {input["stationM"].as<double>(), input["lateralM"].as<double>()};
     marking.width_m = input["widthM"].as<double>();
     marking.length_m = input["lengthM"].as<double>();
-    marking.style = input["style"].as<std::string>();
+    const auto style = road_marking_style_id(input["style"].as<std::string>());
+    if (!style.has_value()) {
+      return road_result_value(false, "unknown road marking style",
+                               city::road::ErrorKind::kValidation);
+    }
+    marking.style_id = *style;
     const auto result = state_->AddManualArea(std::move(marking));
     return road_result_value(result.ok, result.error, result.error_kind);
   }

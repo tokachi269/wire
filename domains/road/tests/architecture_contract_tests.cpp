@@ -46,8 +46,9 @@ void append_gate(std::ostringstream& out, const ConnectionGate& value) {
 void append_meshes(std::ostringstream& out, const std::vector<Mesh>& meshes) {
   out << meshes.size() << ':';
   for (const auto& mesh : meshes) {
-    out << mesh.owner_segment_id << ',' << mesh.material.size() << ':' << mesh.material << ',' << mesh.vertices.size()
-        << ',' << mesh.indices.size() << ':';
+    out << mesh.owner_segment_id << ',' << static_cast<int>(mesh.style.domain)
+        << ':' << mesh.style.value << ',' << mesh.vertices.size() << ','
+        << mesh.indices.size() << ':';
     for (const auto& vertex : mesh.vertices) out << vertex.x << ',' << vertex.y << ',' << vertex.z << ';';
     for (const auto index : mesh.indices) out << index << ',';
   }
@@ -95,7 +96,9 @@ std::string derived_observation(const DerivedRoad& derived) {
     out << section.segment_id << ',' << section.station_m << ','
         << section.resolved_template_id << ':';
     for (const auto& boundary : section.boundaries) append_boundary(out, boundary);
-    for (const auto& material : section.surface_materials) out << material.size() << ':' << material << ';';
+    for (const auto& style : section.surface_styles) {
+      out << static_cast<int>(style.domain) << ':' << style.value << ';';
+    }
   }
   append_meshes(out, derived.segment_meshes);
   append_meshes(out, derived.marking_meshes);
@@ -115,7 +118,7 @@ std::string derived_observation(const DerivedRoad& derived) {
   for (const ConnectionGeometry& geometry : derived.connection_geometries) {
     out << geometry.node_id << ',' << geometry.surface_strips.size() << ':';
     for (const ResolvedSurfaceStrip& strip : geometry.surface_strips) {
-      out << strip.material.size() << ':' << strip.material << ','
+      out << static_cast<int>(strip.style.domain) << ':' << strip.style.value << ','
           << strip.left_boundary_id << ',' << strip.right_boundary_id << ':';
       for (const Vec3d& point : strip.left) {
         out << point.x << ',' << point.y << ',' << point.z << ';';
@@ -137,7 +140,7 @@ std::string derived_observation(const DerivedRoad& derived) {
         << geometry.surface_strips.size() << ','
         << geometry.auto_markings.size() << ':';
     for (const ResolvedSurfaceRegion& region : geometry.surface_regions) {
-      out << region.material.size() << ':' << region.material << ':';
+      out << static_cast<int>(region.style.domain) << ':' << region.style.value << ':';
       for (const Vec3d& point : region.perimeter) {
         out << point.x << ',' << point.y << ',' << point.z << ';';
       }
@@ -388,7 +391,7 @@ bool reverse_input_has_equivalent_geometry(std::string& failure) {
       }
       std::sort(vertices.begin(), vertices.end());
       std::ostringstream row;
-      row << mesh.material << ':';
+      row << static_cast<int>(mesh.style.domain) << ':' << mesh.style.value << ':';
       for (const auto& vertex : vertices) {
         row << vertex[0] << ',' << vertex[1] << ',' << vertex[2] << ';';
       }
@@ -411,11 +414,11 @@ bool reverse_input_has_equivalent_geometry(std::string& failure) {
     for (const Mesh& source : a) {
       const auto target = std::find_if(
           b.begin(), b.end(), [&source](const Mesh& candidate) {
-            return candidate.material == source.material &&
+            return candidate.style == source.style &&
                    candidate.vertices.size() == source.vertices.size();
           });
       if (target == b.end()) {
-        diagnostic = "material or vertex count";
+        diagnostic = "style or vertex count";
         return false;
       }
       std::vector<bool> matched(target->vertices.size(), false);
@@ -509,7 +512,7 @@ bool extension_semantic_boundaries_are_atomic(std::string& failure) {
   ROAD_CONTRACT_EXPECT(marked_base.ok, marked_base.error);
   const auto marking = marked.AddManualArea(
       ManualAreaRequest{marked_base.value, {10.0, 0.0}, 2.0, 2.0,
-                        "zebra"});
+                        builtin_marking_styles::kCrosswalk});
   ROAD_CONTRACT_EXPECT(marking.ok, marking.error);
   const RoadSegment marked_segment = marked.graph().segments.front();
   const Path prepend =
@@ -545,9 +548,9 @@ bool add_segment_build_failure_is_atomic(std::string& failure) {
   RoadState state{};
   CrossSectionTemplate unusable{};
   unusable.bands = {
-      SurfaceBand{10, SurfaceRole::kSidewalk, 1.0e308, 0.0, "sidewalk"},
-      SurfaceBand{20, SurfaceRole::kCarriageway, 1.0e308, 0.0, "asphalt"},
-      SurfaceBand{30, SurfaceRole::kSidewalk, 1.0e308, 0.0, "sidewalk"},
+      SurfaceBand{10, SurfaceRole::kSidewalk, 1.0e308, 0.0, builtin_surface_styles::kSidewalk},
+      SurfaceBand{20, SurfaceRole::kCarriageway, 1.0e308, 0.0, builtin_surface_styles::kAsphalt},
+      SurfaceBand{30, SurfaceRole::kSidewalk, 1.0e308, 0.0, builtin_surface_styles::kSidewalk},
   };
   unusable.boundaries = {
       BoundaryProfile{11, BoundaryRole::kCurb, 0.0, 0.15, MarkingRule::kNone},

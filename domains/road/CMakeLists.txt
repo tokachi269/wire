@@ -13,6 +13,7 @@ add_library(
   src/build/topology.cpp
   src/materialization/materialize.cpp
   src/operations/operation_plan.cpp
+  src/persistence/road_archive.cpp
 )
 
 target_include_directories(

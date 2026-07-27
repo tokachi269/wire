@@ -40,7 +40,7 @@ struct ManualLineMarking {
   ManualMarkingId id = 0;
   RoadSegmentId owner_segment_id = 0;
   Path path{};
-  std::string style{};
+  MarkingStyleId style_id{};
 };
 struct ManualAreaMarking {
   ManualMarkingId id = 0;
@@ -48,7 +48,7 @@ struct ManualAreaMarking {
   Vec2d frame_origin{};
   double width_m = 0.0;
   double length_m = 0.0;
-  std::string style{};
+  MarkingStyleId style_id{};
 };
 struct SavedRoadGraph {
   std::vector<RoadNode> nodes{};

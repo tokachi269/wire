@@ -174,6 +174,10 @@ export function roadSurfaceColor(material: string): number {
   if (material === "sidewalk") return 0x858b87;
   if (material === "curb") return 0xadb1ad;
   if (material === "median") return 0x747b72;
+  if (material === "road_marking") return 0xf7f4e8;
+  if (material === "road_marking_center") return 0xf2efe8;
+  if (material === "road_marking_stop") return 0xfff8e1;
+  if (material === "road_marking_crosswalk") return 0xffffff;
   return 0x3f4345;
 }
 

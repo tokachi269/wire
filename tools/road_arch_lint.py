@@ -53,13 +53,22 @@ def check_road_architecture(root: Path) -> list[str]:
             errors.append(f"{banned}: superseded road generation directory still exists")
 
     banned_tokens = (
+        "regenerate_road",
         "BuildDerived",
         "BuildContext",
         "BuildPipeline",
+        "BuildCanonicalAlignment",
         "StageOutput",
         "MaterializeSegment",
         "MaterializeJunction",
         "MaterializeMarkings",
+        "AutoNodeLayout",
+        "ResolvedNodeLayout",
+        "MarkingAnchor",
+        "MarkingIntent",
+        "ResolvedMarkingGraph",
+        "setback_calculation_count",
+        "section_evaluation_count",
     )
     stage_type = re.compile(r"\b(?:struct|class|enum(?:\s+class)?)\s+\w*Stage\b")
     for path in sources:
@@ -70,13 +79,17 @@ def check_road_architecture(root: Path) -> list[str]:
         if stage_type.search(text):
             errors.append(f"{relative(path)}: Stage must not be a road design unit")
 
-    # 3. One regenerate entry, and generation never writes the authority.
+    if (root / "domains/road/src/generation/regenerate.cpp").exists():
+        errors.append("domains/road/src/generation/regenerate.cpp: retired generation entry file exists")
+    # 3. One generate entry, and generation never writes the authority.
     road_source = source_text(root / "domains/road/src/road.cpp")
-    if "generation::regenerate_road(graph_)" not in road_source:
-        errors.append("domains/road/src/road.cpp: RoadState must regenerate through one entry")
+    if "RoadState::regenerate" in road_source:
+        errors.append("domains/road/src/road.cpp: RoadState::regenerate must not exist")
+    if "generation::generate_road(trial.graph_)" not in road_source:
+        errors.append("domains/road/src/road.cpp: RoadState must generate through one trial entry")
     generation_sources = [path for path in sources if "/generation/" in relative(path)]
-    if not any("regenerate_road" in source_text(path) for path in generation_sources):
-        errors.append("domains/road/src/generation: regenerate entry is missing")
+    if not any("generate_road" in source_text(path) for path in generation_sources):
+        errors.append("domains/road/src/generation: generate entry is missing")
     for path in generation_sources + [path for path in sources if "/geometry/" in relative(path)]:
         text = source_text(path)
         if re.search(r"\bSavedRoadGraph\s*&(?!\s*const)", text.replace("const SavedRoadGraph &", "")):
@@ -148,7 +161,7 @@ def check_road_architecture(root: Path) -> list[str]:
     # 7. Public operations do not call one another.
     operation_names = re.findall(r"Result<[^>]+> RoadState::(\w+)\(", road_source)
     public_operations = {
-        name for name in operation_names if name not in {"regenerate", "Execute", "Save", "Load"}
+        name for name in operation_names if name not in {"Execute", "Save", "Load"}
     }
     for name in sorted(public_operations):
         body_start = road_source.find(f"RoadState::{name}(")
@@ -171,6 +184,28 @@ def check_road_architecture(root: Path) -> list[str]:
         if token in save_region:
             errors.append(f"domains/road/src/road.cpp: Save/Load body must not remain in road.cpp: {token!r}")
 
+
+    # 10. Road docs describe the current generate structure, not retired internals.
+    doc_root = root / "docs/road"
+    doc_tokens = (
+        "regenerate_road",
+        "BuildDerived",
+        "BuildContext",
+        "BuildPipeline",
+        "BuildCanonicalAlignment",
+        "AutoNodeLayout",
+        "ResolvedNodeLayout",
+        "MarkingAnchor",
+        "MarkingIntent",
+        "ResolvedMarkingGraph",
+        "SectionEvaluationTable",
+        "SamplingPlanTable",
+    )
+    for path in doc_root.rglob("*.md"):
+        text = source_text(path)
+        for token in doc_tokens:
+            if token in text:
+                errors.append(f"{relative(path)}: retired road design vocabulary remains in docs: {token!r}")
     # 9. road never reaches into wire.
     for path in sources + list((root / "domains/road/include").rglob("*.hpp")):
         text = source_text(path)

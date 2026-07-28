@@ -1,6 +1,9 @@
 #include "lookup.hpp"
 
+#include "geometry/geometry.hpp"
+
 #include <algorithm>
+#include <cmath>
 
 namespace city::road::internal {
 
@@ -59,3 +62,57 @@ find_approach_override(const SavedRoadGraph &graph, const ApproachKey &key) {
 }
 
 } // namespace city::road::internal
+
+namespace city::road {
+
+const DerivedSegment *FindDerivedSegment(const DerivedRoad &derived,
+                                         RoadSegmentId segment_id) {
+  const auto found = std::find_if(derived.segments.begin(),
+                                  derived.segments.end(),
+                                  [segment_id](const DerivedSegment &segment) {
+                                    return segment.id == segment_id;
+                                  });
+  return found == derived.segments.end() ? nullptr : &*found;
+}
+
+const ResolvedConnection *FindResolvedConnection(const DerivedRoad &derived,
+                                                 RoadNodeId node_id) {
+  const auto found =
+      std::find_if(derived.connections.begin(), derived.connections.end(),
+                   [node_id](const ResolvedConnection &connection) {
+                     return connection.node_id == node_id;
+                   });
+  return found == derived.connections.end() ? nullptr : &*found;
+}
+
+const ResolvedApproach *FindResolvedApproach(const DerivedRoad &derived,
+                                             const ApproachKey &key) {
+  for (const ResolvedConnection &connection : derived.connections) {
+    for (const ResolvedApproach &approach : connection.approaches) {
+      if (approach.key == key)
+        return &approach;
+    }
+  }
+  return nullptr;
+}
+
+const SectionEvaluation *FindSectionAt(const DerivedSegment &segment,
+                                       double station_m) {
+  const SectionEvaluation *match = nullptr;
+  for (const SectionEvaluation &section : segment.sections) {
+    if (std::abs(section.station_m - station_m) > internal::station_epsilon)
+      continue;
+    if (match != nullptr)
+      return nullptr;
+    match = &section;
+  }
+  return match;
+}
+
+const Path *FindCanonicalAlignment(const DerivedRoad &derived,
+                                   RoadSegmentId segment_id) {
+  const DerivedSegment *segment = FindDerivedSegment(derived, segment_id);
+  return segment == nullptr ? nullptr : &segment->alignment;
+}
+
+} // namespace city::road

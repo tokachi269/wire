@@ -442,7 +442,7 @@ def check_architecture_documents(root: Path) -> list[str]:
             "# Road architecture",
             "## Naming",
             "## State ownership",
-            "## Regenerate",
+            "## Generate",
         ),
         "docs/road/operation_semantics.md": (
             "## 操作 x 状態",

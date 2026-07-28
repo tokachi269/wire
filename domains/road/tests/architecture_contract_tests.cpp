@@ -1,6 +1,8 @@
 #include "city/road/road.hpp"
 
 #include "derived_view.hpp"
+#include "../src/generation/generation.hpp"
+#include "../src/persistence/road_archive.hpp"
 
 #include <algorithm>
 #include <array>
@@ -66,7 +68,6 @@ std::string derived_observation(const DerivedRoad& derived) {
   std::ostringstream out;
   out.imbue(std::locale::classic());
   out << std::hexfloat;
-  out << derived.setback_calculation_count << ',' << derived.section_evaluation_count << ':';
   out << derived.segments.size() << ':';
   for (const DerivedSegment& segment : derived.segments) {
     out << segment.id << ',' << segment.length_m << ',' << segment.surface_start_m << ','
@@ -691,7 +692,44 @@ bool move_node_rederives_incident_alignment_endpoints(std::string& failure) {
   return true;
 }
 
-bool regenerate_is_deterministic(std::string& failure) {
+bool generate_road_is_pure(std::string& failure) {
+  RoadState state{};
+  const auto added = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(added.ok, added.error);
+
+  const SavedRoadGraph graph = state.graph();
+  const auto state_saved = state.Save();
+  ROAD_CONTRACT_EXPECT(state_saved.ok, state_saved.error);
+  const std::uint64_t graph_next_id = next_id_observation(state_saved.value);
+  const auto before = persistence::SaveRoad(graph, graph_next_id);
+  ROAD_CONTRACT_EXPECT(before.ok, before.error);
+  const auto first = generation::generate_road(graph);
+  const auto second = generation::generate_road(graph);
+  ROAD_CONTRACT_EXPECT(first.ok && second.ok, "generate_road failed for a valid graph");
+  ROAD_CONTRACT_EXPECT(derived_observation(first.value) == derived_observation(second.value),
+                       "generate_road is not deterministic for the same graph");
+  const auto after = persistence::SaveRoad(graph, graph_next_id);
+  ROAD_CONTRACT_EXPECT(after.ok && after.value == before.value,
+                       "generate_road changed its authoritative input");
+
+  SavedRoadGraph unsupported = RoadState{}.graph();
+  unsupported.nodes = {RoadNode{10, {0.0, 0.0}}, RoadNode{11, {20.0, 0.0}},
+                       RoadNode{12, {40.0, 0.0}}};
+  unsupported.segments = {
+      RoadSegment{20, 10, 11, {}, 1, std::nullopt},
+      RoadSegment{21, 11, 12, {}, 2, std::nullopt},
+  };
+  const auto unsupported_before = persistence::SaveRoad(unsupported, 22);
+  ROAD_CONTRACT_EXPECT(unsupported_before.ok, unsupported_before.error);
+  const auto failed = generation::generate_road(unsupported);
+  ROAD_CONTRACT_EXPECT(!failed.ok, "generate_road unexpectedly accepted an unsupported graph");
+  const auto unsupported_after = persistence::SaveRoad(unsupported, 22);
+  ROAD_CONTRACT_EXPECT(unsupported_after.ok && unsupported_after.value == unsupported_before.value,
+                       "failed generate_road changed its authoritative input");
+  return true;
+}
+bool generate_is_deterministic(std::string& failure) {
   RoadState state{};
   const auto base = state.AddSegment(
       AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
@@ -706,7 +744,7 @@ bool regenerate_is_deterministic(std::string& failure) {
   const auto reloaded = RoadState::Load(saved.value);
   ROAD_CONTRACT_EXPECT(reloaded.ok, reloaded.error);
   ROAD_CONTRACT_EXPECT(derived_observation(reloaded.value.derived()) == first,
-                       "regenerate from the same authoritative state was not deterministic");
+                       "generate from the same authoritative state was not deterministic");
   return true;
 }
 
@@ -736,9 +774,7 @@ bool connection_section_and_gate_have_single_owners(std::string& failure) {
   ROAD_CONTRACT_EXPECT(branch.ok, branch.error);
 
   const DerivedRoad& derived = state.derived();
-  std::size_t approach_count = 0;
   for (const ResolvedConnection& connection : derived.connections) {
-    approach_count += connection.approaches.size();
     ROAD_CONTRACT_EXPECT(connection.approaches.size() == connection.ordered_approaches.size(),
                          "resolved approaches and deterministic order differ in size");
     for (const ResolvedApproach& approach : connection.approaches) {
@@ -750,13 +786,6 @@ bool connection_section_and_gate_have_single_owners(std::string& failure) {
           "ApproachKey has more than one resolved row");
     }
   }
-  ROAD_CONTRACT_EXPECT(derived.setback_calculation_count == approach_count,
-                       "setback calculation count does not equal ApproachKey count");
-  std::size_t section_rows = 0;
-  for (const DerivedSegment& segment : derived.segments) section_rows += segment.sections.size();
-  ROAD_CONTRACT_EXPECT(derived.section_evaluation_count == section_rows,
-                       "section evaluation counter differs from the produced sections");
-
   for (const ResolvedConnection& connection : derived.connections) {
     for (const ResolvedApproach& approach : connection.approaches) {
       const DerivedSegment* segment = FindDerivedSegment(derived, approach.key.segment_id);
@@ -1023,7 +1052,8 @@ int main() {
       {"node_identity_does_not_come_from_position", node_identity_does_not_come_from_position},
       {"segment_shape_edit_does_not_move_endpoint_authority", segment_shape_edit_does_not_move_endpoint_authority},
       {"move_node_rederives_incident_alignment_endpoints", move_node_rederives_incident_alignment_endpoints},
-      {"regenerate_is_deterministic", regenerate_is_deterministic},
+      {"generate_road_is_pure", generate_road_is_pure},
+      {"generate_is_deterministic", generate_is_deterministic},
       {"extension_history_normalizes_to_one_segment",
        extension_history_normalizes_to_one_segment},
       {"reverse_input_has_equivalent_geometry",

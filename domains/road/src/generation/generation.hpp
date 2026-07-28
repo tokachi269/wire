@@ -4,7 +4,7 @@
 
 namespace city::road::generation {
 
-// Which segment endpoints meet at a node. Built once per regenerate and read by
+// Which segment endpoints meet at a node. Derived once per generation and read by
 // connection resolution; it is not part of the derived output.
 struct NodeEndpoint {
   RoadSegmentId segment_id = 0;
@@ -25,14 +25,12 @@ derive_segment_shapes(const SavedRoadGraph &graph);
 
 [[nodiscard]] Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
                                                    std::vector<DerivedSegment> &segments,
-                                                   const std::vector<ResolvedConnection> &connections,
-                                                   std::size_t &section_evaluation_count);
+                                                   const std::vector<ResolvedConnection> &connections);
 
 [[nodiscard]] Result<std::vector<ResolvedConnection>>
 resolve_connections(const SavedRoadGraph &graph,
                     const std::vector<NodeIncidence> &incidence,
-                    const std::vector<DerivedSegment> &segments,
-                    std::size_t &setback_calculation_count);
+                    const std::vector<DerivedSegment> &segments);
 
 [[nodiscard]] Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connections,
                                                        const std::vector<DerivedSegment> &segments);
@@ -43,8 +41,8 @@ derive_markings(const SavedRoadGraph &graph, const std::vector<DerivedSegment> &
 
 [[nodiscard]] Result<bool> emit_geometry(DerivedRoad &derived);
 
-// Regenerates every derived value from the authoritative graph. Pure: it does
+// Generates every derived value from the authoritative graph. Pure: it does
 // not touch RoadState and publishes nothing on failure.
-[[nodiscard]] Result<DerivedRoad> regenerate_road(const SavedRoadGraph &graph);
+[[nodiscard]] Result<DerivedRoad> generate_road(const SavedRoadGraph &graph);
 
 } // namespace city::road::generation

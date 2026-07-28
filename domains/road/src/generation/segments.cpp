@@ -129,7 +129,7 @@ derive_segment_shapes(const SavedRoadGraph &graph) {
       return Result<std::vector<DerivedSegment>>::Fail(
           ErrorKind::kValidation, "road segment endpoint node is missing");
     }
-    Result<Path> alignment = BuildCanonicalAlignment(
+    Result<Path> alignment = DeriveCanonicalAlignment(
         node_a->position, node_b->position, segment.shape);
     if (!alignment.ok) {
       return Result<std::vector<DerivedSegment>>::Fail(alignment.error_kind,
@@ -153,9 +153,7 @@ derive_segment_shapes(const SavedRoadGraph &graph) {
 
 Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
                                      std::vector<DerivedSegment> &segments,
-                                     const std::vector<ResolvedConnection> &connections,
-                                     std::size_t &section_evaluation_count) {
-  section_evaluation_count = 0;
+                                     const std::vector<ResolvedConnection> &connections) {
   for (DerivedSegment &derived : segments) {
     const RoadSegment *segment = internal::find_segment(graph, derived.id);
     if (segment == nullptr) {
@@ -218,7 +216,6 @@ Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
       if (!evaluated.ok) {
         return Result<bool>::Fail(evaluated.error_kind, evaluated.error);
       }
-      ++section_evaluation_count;
       derived.sections.push_back(std::move(evaluated.value));
     }
   }

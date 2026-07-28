@@ -65,7 +65,6 @@ public:
 
 private:
   [[nodiscard]] Result<bool> Execute(const operations::OperationPlan& plan);
-  [[nodiscard]] Result<bool> regenerate();
 
   SavedRoadGraph graph_{};
   DerivedRoad derived_{};
@@ -74,7 +73,7 @@ private:
 
 [[nodiscard]] Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedRoad& derived);
 [[nodiscard]] Result<SegmentShape> SegmentShapeFromPath(const Path& path);
-[[nodiscard]] Result<Path> BuildCanonicalAlignment(Vec2d start, Vec2d end, const SegmentShape& shape);
+[[nodiscard]] Result<Path> DeriveCanonicalAlignment(Vec2d start, Vec2d end, const SegmentShape& shape);
 [[nodiscard]] const Path* FindCanonicalAlignment(const DerivedRoad& derived, RoadSegmentId segment_id);
 [[nodiscard]] Result<bool> ValidatePath(const Path& path);
 [[nodiscard]] Result<double> PathLength(const Path& path);

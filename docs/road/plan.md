@@ -147,8 +147,8 @@ StructuralShell
 
 ```text
 導出(保存しない)
-├─ SectionEvaluationTable
-│    { stationごとの各boundary横位置・高さ・role・外周・anchor }
+├─ DerivedSegment.sections
+│    { stationごとの各boundary横位置・高さ・role・外周 }
 ├─ ConnectionGate
 ├─ SegmentSurfaceMesh / SideStructureMesh / StructuralShellMesh
 ├─ JunctionArea / JunctionAreaMesh
@@ -171,7 +171,7 @@ ConnectionGate
 ├─ 断面要素の順序
 ├─ 各boundaryの3D位置・法線・role・element ID
 ├─ surface外周
-└─ marking anchor
+└─ marking boundary
 ```
 
 所有境界:
@@ -179,21 +179,21 @@ ConnectionGate
 ```text
 segment mesh   = gate直前までを所有
 auto junction  = gate境界から内側を所有
-gate上の位置   = SectionEvaluationTableから一度だけ算出し、両方が共有
+gate上の位置   = DerivedSegment.sectionsから一度だけ取得し、両方が共有
 ```
 
 segment側とjunction側が別々に幅・高さ・頂点を計算してはならない。接続面の隙間、高さ差、法線差を不変量テストで検出する。
 
 ### 6.2 自動面とユーザー面
 
-- `JunctionArea`は`NodeConnectionDecision + ConnectionGate[]`から導出する。正本として保存しない。
+- `JunctionArea`は`ResolvedConnection`のgate情報から導出する。正本として保存しない。
 - `UserPavedArea`はユーザー入力そのものなので正本として保存する。
 - 自動交差点とユーザー広場を同じ正本型として扱わない。
 
 ### 6.3 自動マーキングと手動マーキング
 
-- 中央線・車線境界線・外側線などは断面要素間のBoundary roleと`AutoMarkingPolicy`から`MarkingIntent`へ導出する。
-- 停止線・ゼブラはNodeConnectionDecisionとConnectionGateから直接quad化せず、`MarkingIntent`経由で導出する。
+- 中央線・車線境界線・外側線などは断面要素間のBoundary roleと`AutoMarkingPolicy`から`DerivedMarking`へ導出する。
+- 停止線・ゼブラはconnection geometryから直接quad化せず、`DerivedMarking`として導出してからmesh化する。
 - ユーザーが編集・追加した自由線やAreaMarkingだけをManualMarkingとして保存する。
 - MarkingMeshは路面テクスチャへ焼き込まず、リボンメッシュ、デカール、シェーダー等の描画方式から独立した意味データを使う。
 
@@ -292,7 +292,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
   - 歩道2.0m | curb0.2m/段差0.15m | 車道6.0m(3.0m×2) | curb0.2m/段差0.15m | 歩道2.0m
   - 車道は中央から左右へ2%の横断勾配、歩道は外側へ1%の横断勾配
   - 浅い側溝はP0では独立SurfaceBandにしない。必要なら固定BoundaryProfileの見た目としてだけ扱い、編集可能な側溝種別はP2以降
-- SectionEvaluationTable
+- DerivedSegment.sections
 - SurfaceMesh、固定中央線・外側線、TerrainMask導出
 - alignment編集→全派生再生成
 - Path編集UIは初期からCities系道路ツール相当の引き方にする。開始点指定、ライブプレビュー、終点確定、直線/Bezier(S字含む)の作成とハンドル編集をP0対象に含める

@@ -5,7 +5,7 @@
 この表のscenario通過はarchitecture migration完了を意味しない。各public operationの実装契約は次で固定する。
 
 ```text
-Request -> Preflight -> OperationPlan -> trial Apply -> regenerate -> Validate -> Commit
+Request -> Preflight -> OperationPlan -> trial Apply -> generate_road -> Validate -> Commit
 ```
 
 失敗時はauthoritative bytes、derived hash、next ID、inspection / query結果を一切変更しない。
@@ -13,12 +13,12 @@ public operationから別public operationを呼ばない。
 
 Preflightはrequestの形式、ID存在、有限性、明白な値域と、planを作るために必要な局所構造だけを検証する。
 接続角度、endpoint section互換、branch / junction approach上限、接続setback、split後を含むtrial topologyの成立性は
-trial regenerateの`resolve_connections`以降が一度だけ決める。operationは同じgeometry / section policyを
-再実装せず、trial regenerateの`kUnsupported`を操作結果として返す。
+trial generateの`resolve_connections`以降が一度だけ決める。operationは同じgeometry / section policyを
+再実装せず、trial generateの`kUnsupported`を操作結果として返す。
 
 ## Public operation preflight audit
 
-| Operation | Request field | Preflight validation | regenerate decision |
+| Operation | Request field | Preflight validation | generate decision |
 |---|---|---|---|
 | AddSegment | alignment | finite、連続、非ゼロ、NormalizeRoadPath可能 | self-intersection、junction互換 |
 | AddSegment | section_template | ID exists | endpoint section互換 |
@@ -29,7 +29,7 @@ trial regenerateの`resolve_connections`以降が一度だけ決める。operati
 | AddSegmentConnectedTo | section_template / start_node | ID exists | endpoint section互換 |
 | AddSegmentConnectedToSegment | alignment | finite、連続、非ゼロ、明示station点と一致 | split後topology、junction互換 |
 | AddSegmentConnectedToSegment | start_segment / station_m / section_template | ID exists、station finite、station interior | transition付きsplit unsupported |
-| EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのregenerate可否 |
+| EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのgenerate可否 |
 | MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
 | SetApproachSetbackOverride | ApproachKey / setback_m | node exists、segment exists、endpoint role matches、finite、non-negative、layout target exists | gate overlap、segment length、junction quality |
@@ -105,10 +105,10 @@ trial regenerateの`resolve_connections`以降が一度だけ決める。operati
 ## Simple path
 
 - 単独segmentとdegree 1終端はjunction接続準備を要求しない。
-- `ApproachKey`、`NodeConnectionDecision`、`ConnectionGate`はdegree 2以上の明示接続nodeだけに生成する。
-- `AutoNodeLayout` / `ResolvedNodeLayout`はdegree 2以上のlayout対象だけに生成する。degree 1 endpoint overrideはunsupported。
+- `ApproachKey`と`ConnectionGate`はdegree 2以上の明示接続nodeだけに生成する。
+- auto値とmanual overrideは`resolve_connections`内で合成する。degree 1 endpoint overrideはunsupported。
 - segment内部の通常曲線は`CanonicalAlignment`とSectionEvaluationから直接生成し、junctionsへ渡さない。
-- `RoadGraph -> Build`の一回で必要な派生物を生成し、操作履歴や事前tableの有無でstage経路を変えない。
+- `RoadGraph -> generate_road`の一回で必要な派生物を生成し、操作履歴や事前tableの有無でstage経路を変えない。
 
 ## Approach geometry override
 
@@ -128,17 +128,15 @@ trial regenerateの`resolve_connections`以降が一度だけ決める。operati
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge のいずれか。
 - element対応は ID で行う。出現は `TaperIn`、消滅は `TaperOut` または `EndCap` を明示する。
 - 1 segmentに同時に接続できる transition は1個。短距離多重transitionはP2非対象。
-- 異なる断面をnodeへ直接接続しない。trial regenerateの`resolve_connections`が各approachのendpoint section IDを
+- 異なる断面をnodeへ直接接続しない。trial generateの`resolve_connections`が各approachのendpoint section IDを
   一度だけ解決し、全approachで完全一致する場合だけ接続する。operation preflightは断面を再評価しない。
 
 ## P2 marking semantics
 
-- boundary marking は SectionEvaluationTable の boundary ID / `AutoMarkingPolicy` を唯一の入力とし、
-  drawはsection ruleを読まない。
+- boundary marking は `DerivedSegment.sections` の boundary ID / `AutoMarkingPolicy` を唯一の入力とし、emitはsection ruleを読まない。
 - ManualLineMarking の Path と ManualAreaMarking の frame は owner segment local `(station, lateral)`。
   ManualAreaMarking は `rotation_rad` を持ち、0 はowner segment station方向を意味する。
-- 自動線は MarkingIntent / Continuation / ResolvedMarkingGraph を通ってからmesh化する。
-  segment、junction、manual のowner境界はgateとmanual entity IDで決め、位置近接で再bindしない。
+- 自動線は`DerivedMarking`へ導出してからmesh化する。segment、junction、manual のowner境界はgateとmanual entity IDで決め、位置近接で再bindしない。
 - 保存するのはlocal値で、world meshだけを派生する。segment alignment編集時はlocal値を維持して再導出する。
 - 境界への線要求は`BoundaryProfile.marking`と、carriageway `SurfaceBand`の`LaneSideMarkingPolicy`だけ。
   lane side要求は要素順序で隣接する`BoundaryProfile`へ解決し、断面外端側の要求はunsupportedとする。

@@ -168,8 +168,6 @@ struct DerivedMarking {
 };
 
 struct DerivedRoad {
-  std::size_t setback_calculation_count = 0;
-  std::size_t section_evaluation_count = 0;
   std::vector<DerivedSegment> segments{};
   std::vector<ResolvedConnection> connections{};
   std::vector<DerivedMarking> markings{};

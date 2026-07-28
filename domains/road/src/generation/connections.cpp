@@ -192,11 +192,9 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
 Result<std::vector<ResolvedConnection>>
 resolve_connections(const SavedRoadGraph &graph,
                     const std::vector<NodeIncidence> &incidence,
-                    const std::vector<DerivedSegment> &segments,
-                    std::size_t &setback_calculation_count) {
+                    const std::vector<DerivedSegment> &segments) {
   using Out = Result<std::vector<ResolvedConnection>>;
   std::vector<ResolvedConnection> connections{};
-  setback_calculation_count = 0;
   connections.reserve(incidence.size());
 
   for (const NodeIncidence &topo : incidence) {
@@ -336,7 +334,6 @@ resolve_connections(const SavedRoadGraph &graph,
                                  sine);
         }
       }
-      ++setback_calculation_count;
       if (!is_finite(setback) || setback < 0.0 ||
           setback > derived->length_m + station_epsilon) {
         return Out::Fail(ErrorKind::kUnsupported,

@@ -568,7 +568,7 @@ Result<SegmentShape> SegmentShapeFromPath(const Path& path) {
   return Result<SegmentShape>::Ok(std::move(shape));
 }
 
-Result<Path> BuildCanonicalAlignment(Vec2d start, Vec2d end, const SegmentShape& shape) {
+Result<Path> DeriveCanonicalAlignment(Vec2d start, Vec2d end, const SegmentShape& shape) {
   if (!finite(start) || !finite(end) || !finite(shape.start_handle) || !finite(shape.end_handle)) {
     return Result<Path>::Fail(ErrorKind::kValidation, "road segment shape contains a non-finite point");
   }
@@ -695,8 +695,13 @@ Result<bool> RoadState::Execute(const operations::OperationPlan& plan) {
   const Result<bool> authoritative_valid =
       persistence::ValidateAuthoritativeGraph(trial.graph_, trial.next_id_);
   if (!authoritative_valid.ok) return authoritative_valid;
-  const Result<bool> built = trial.regenerate();
-  if (!built.ok) return built;
+  Result<DerivedRoad> generated = generation::generate_road(trial.graph_);
+  if (!generated.ok) {
+    return Result<bool>::Fail(generated.error_kind, generated.error);
+  }
+  trial.derived_ = std::move(generated.value);
+  const Result<bool> derived_valid = ValidateGraphInvariants(trial.graph_, trial.derived_);
+  if (!derived_valid.ok) return derived_valid;
   *this = std::move(trial);
   return Result<bool>::Ok(true);
 }
@@ -957,7 +962,7 @@ Result<bool> RoadState::EditSegmentShape(EditSegmentShapeRequest request) {
   }
   const RoadNode* node_a = find_node(graph_, segment->node_a);
   const RoadNode* node_b = find_node(graph_, segment->node_b);
-  const Result<Path> alignment = BuildCanonicalAlignment(node_a->position, node_b->position, shape);
+  const Result<Path> alignment = DeriveCanonicalAlignment(node_a->position, node_b->position, shape);
   if (!alignment.ok) return Result<bool>::Fail(alignment.error_kind, alignment.error);
   operations::OperationPlan plan{};
   plan.next_id_after = next_id_;
@@ -1454,14 +1459,6 @@ Result<bool> RoadState::DeleteJunctionMarkingOverride(DeleteJunctionMarkingOverr
   return Execute(plan);
 }
 
-Result<bool> RoadState::regenerate() {
-  Result<DerivedRoad> regenerated = generation::regenerate_road(graph_);
-  if (!regenerated.ok) {
-    return Result<bool>::Fail(regenerated.error_kind, regenerated.error);
-  }
-  derived_ = std::move(regenerated.value);
-  return Result<bool>::Ok(true);
-}
 
 Result<std::string> RoadState::Save() const {
   return persistence::SaveRoad(graph_, next_id_);
@@ -1475,9 +1472,20 @@ Result<RoadState> RoadState::Load(const std::string& text) {
   RoadState state{};
   state.graph_ = std::move(loaded.value.graph);
   state.next_id_ = loaded.value.next_id;
-  Result<bool> rebuilt = state.regenerate();
-  if (!rebuilt.ok) {
-    return Result<RoadState>::Fail(rebuilt.error_kind, rebuilt.error);
+  const Result<bool> authoritative_valid =
+      persistence::ValidateAuthoritativeGraph(state.graph_, state.next_id_);
+  if (!authoritative_valid.ok) {
+    return Result<RoadState>::Fail(authoritative_valid.error_kind,
+                                   authoritative_valid.error);
+  }
+  Result<DerivedRoad> generated = generation::generate_road(state.graph_);
+  if (!generated.ok) {
+    return Result<RoadState>::Fail(generated.error_kind, generated.error);
+  }
+  state.derived_ = std::move(generated.value);
+  const Result<bool> derived_valid = ValidateGraphInvariants(state.graph_, state.derived_);
+  if (!derived_valid.ok) {
+    return Result<RoadState>::Fail(derived_valid.error_kind, derived_valid.error);
   }
   return Result<RoadState>::Ok(std::move(state));
 }
@@ -1585,19 +1593,15 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
       }
     }
   }
-  if (resolved_approaches != expected_approaches ||
-      derived.setback_calculation_count != expected_approaches) {
+  if (resolved_approaches != expected_approaches) {
     return Result<bool>::Fail(ErrorKind::kInternal,
-                              "road approach single-decision count invariant failed");
+                              "road approach coverage invariant failed");
   }
-
-  std::size_t section_rows = 0;
   for (const DerivedSegment& segment : derived.segments) {
     if (find_segment(graph, segment.id) == nullptr || !finite(segment.length_m) ||
         segment.length_m <= 0.0 || segment.alignment.spans.empty()) {
       return Result<bool>::Fail(ErrorKind::kInternal, "road derived segment invariant failed");
     }
-    section_rows += segment.sections.size();
     for (const SectionEvaluation& section : segment.sections) {
       if (section.segment_id != segment.id) {
         return Result<bool>::Fail(ErrorKind::kInternal, "road section owner invariant failed");
@@ -1610,10 +1614,6 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
         previous = boundary.lateral_m;
       }
     }
-  }
-  if (derived.section_evaluation_count != section_rows) {
-    return Result<bool>::Fail(ErrorKind::kInternal,
-                              "road section evaluation count invariant failed");
   }
 
   for (const DerivedMarking& marking : derived.markings) {

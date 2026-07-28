@@ -7,9 +7,7 @@
 
 ## Naming
 
-生成系の動詞は`../architecture_naming.md`に従う。roadの派生生成入口は`regenerate`であり、
-`generate` / `derive` / `resolve` / `emit` / `validate`を責務の名前として使う。
-`Build`、`Stage`、`Materialize`はroadの生成語彙として使わない。
+生成系の動詞は`../architecture_naming.md`に従う。roadの派生生成入口は`generate_road`であり、`derive` / `resolve` / `emit` / `validate`を責務の名前として使う。
 
 road固有の名詞(`RoadNode`、`RoadSegment`、`CrossSection`、`SectionTransition`、`Junction`、
 `ConnectionGate`、`ApproachKey`、`Marking`)はwireへ揃えない。
@@ -51,7 +49,7 @@ corner radius、meshは保存しない。
 - `DerivedMarking`: owner、boundary ID、role、style、幅、world points / polygon
 - `RenderStyleRef`付きsurface、curb、sidewalk、marking、terrain mask、mesh、viewer payload
 
-StraightとCurvedはinput modeだけである。Straight requestはoperation planで直線shapeへ正規化し、Build後の
+StraightとCurvedはinput modeだけである。Straight requestはoperation planで直線shapeへ正規化し、生成後の
 CanonicalAlignmentは他のcurveと同じcubic Bezier span列になる。
 
 同じPathを一括で追加した場合とdegree 1終端へ逐次延長した場合は、同じauthoritative `SegmentShape`へ正規化する。
@@ -66,12 +64,12 @@ Request
   -> Preflight(current authoritative, request)
   -> OperationPlan
   -> Apply(plan, trial authoritative + trial next_id)
-  -> regenerate(trial authoritative) exactly once
+  -> generate_road(trial authoritative)
   -> invariant
   -> Commit(authoritative + derived + next_id)
 ```
 
-validation、unsupported、build、invariantのどこで失敗しても、authoritative serialization bytes、
+validation、unsupported、generate、invariantのどこで失敗しても、authoritative serialization bytes、
 derived deterministic hash、next ID、inspection / query結果は操作前と完全一致する。
 
 public operationから別public operationを呼ばない。ApplyはplanにないID確保、接続判断、fallbackを行わない。
@@ -86,13 +84,13 @@ append / prependするPathは共通normalizerを通してから`SegmentShape`へ
 - `EditSegmentShape`: handle、internal knotだけを変更し、node位置を変更しない
 - `MoveNode`: `RoadNode.position`だけを変更し、接続segmentのCanonicalAlignmentを再導出する
 
-## Regenerate
+## Generate
 
 ```text
 authoritative graph
   -> edit plan
   -> trial
-  -> regenerate
+  -> generate_road
        derive_segments      canonical alignment / semantic stations / section evaluation
        resolve_connections  node decision / auto values / user override / gate / connection geometry
        derive_markings      boundary lines / manual markings / junction markings
@@ -101,7 +99,7 @@ authoritative graph
   -> commit
 ```
 
-`regenerate_road(graph)`は純粋関数であり、`RoadState`へ途中結果を書かない。完成した`DerivedRoad`だけを返し、
+`generate_road(graph)`は純粋関数であり、`RoadState`へ途中結果を書かない。完成した`DerivedRoad`だけを返し、
 失敗時は部分的な派生を公開しない。工程を細分するかどうかは実装都合であり、契約はownerと依存方向だけを固定する。
 
 ### derive_segments
@@ -164,7 +162,7 @@ authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / 
 - node move / shape edit: `ApproachKey`は維持され、`ResolvedConnection`だけを再導出する。
 - segment split: 元segment start側overrideは元segmentに残る。元segment end側overrideは新しい外側segment endへIDでmappingする。内部nodeへ複製しない。
 - segment delete / node delete: 該当segment/nodeのoverrideは同じOperationPlanで削除し、orphanを残さない。
-- connection kind変更: 同じ`ApproachKey`かつfieldが有効なら維持する。layout対象外になったmanual overrideはBuildでunsupportedになり、黙って無視しない。
+- connection kind変更: 同じ`ApproachKey`かつfieldが有効なら維持する。layout対象外になったmanual overrideはgenerateでunsupportedになり、黙って無視しない。
 
 ## Persistence target
 
@@ -177,7 +175,7 @@ top-level entityはID順にcanonical serializeする。順序に意味がある`
 doubleはload後に同じbinary doubleへ戻る表現で保存する。
 
 version 8以前と未知versionは明示rejectし、migrationしない。loadはparse、field構造検証、型変換、
-`ValidateAuthoritativeGraph`、regenerate、不変条件検査を通過した場合だけ新stateを返す。duplicate key、missing key、
+`ValidateAuthoritativeGraph`、`generate_road`、不変条件検査を通過した場合だけ新stateを返す。duplicate key、missing key、
 unknown key、count不一致、enum範囲外、非有限値、重複ID、欠損参照をrejectする。
 
 ## Preflight and validation
@@ -185,7 +183,7 @@ unknown key、count不一致、enum範囲外、非有限値、重複ID、欠損�
 operation preflightはrequestの全fieldについて、ID存在、有限性、enum範囲、style ID、正であるべき寸法を検査する。
 正しい入力だが現在扱えない接続形状・transition付きsplit・prepend station移動は`kUnsupported`に残す。
 valid authoritativeから派生が欠ける、emitへ不整合なresolved geometryが渡る等は`kInternal`とする。
-`ValidateAuthoritativeGraph`はloadとoperation trial後に共通利用し、保存正本の完全性だけを見る。regenerateでしか判断できない
+`ValidateAuthoritativeGraph`はloadとoperation trial後に共通利用し、保存正本の完全性だけを見る。generateでしか判断できない
 幾何対応可否は混ぜない。
 
 ## Module boundaries
@@ -194,7 +192,7 @@ valid authoritativeから派生が欠ける、emitへ不整合なresolved geomet
 include/city/road/input_types/
 include/city/road/authoritative_types/
 include/city/road/derived_types/
-src/generation/     regenerate, segments, connections, markings, emit
+src/generation/     generate, segments, connections, markings, emit
 src/geometry/       alignment / section / junction の純粋幾何
 src/operations/
 src/persistence/
@@ -202,9 +200,3 @@ src/persistence/
 
 物理分割はownerを固定するために行い、工程数と一致させない。emitはauthoritative headerをincludeせず、
 adapterはauthoritative型を構築しない。geometryはgraphを読むがderivedを書かない。
-
-## Migration status
-
-生成構造の再編は完了している。`src/build`と`src/draw`、Stage型、`BuildDerived`、
-`AutoNodeLayout` / `ResolvedNodeLayout`の二重table、`MarkingAnchor`、`SamplingPlan`table、
-`MarkingIntent` / `ResolvedMarkingGraph`は削除済みで、互換aliasも残していない。

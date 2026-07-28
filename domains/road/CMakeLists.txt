@@ -3,7 +3,7 @@ add_library(
   STATIC
   src/road.cpp
   src/lookup.cpp
-  src/generation/regenerate.cpp
+  src/generation/generate.cpp
   src/generation/segments.cpp
   src/generation/connections.cpp
   src/generation/markings.cpp

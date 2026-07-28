@@ -1,4 +1,5 @@
 # AGENTS.md
+In Code Mode, within each bounded stage, run independent, functions.exec-available tool calls concurrently in one functions.exec call. Use await Promise.allSettled([...]) when partial results are useful, and inspect every result; use await Promise.all([...]) only when any failure should abort the batch. Keep dependencies, waits/resumes, approvals, conflicting or interdependent mutations, and adaptive investigations where each result may change the next step sequential. Do not split otherwise batchable inspections across outer tool calls.
 
 ## 目的
 見た目の自然さと内部整合の両方を重視する。内部整合が取れていても、人間が見て不自然なら未完了とする。

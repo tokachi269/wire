@@ -433,6 +433,7 @@ bool C815_backbone_sharp_pair_height_is_operation_order_independent();
 bool C816_backbone_incremental_normal_pair_keeps_allocated_support_level();
 bool C834_backbone_sharp_pair_lowering_reaches_model_socket();
 bool C835_backbone_sharp_route_corner_uses_branch_down_level();
+bool C836_backbone_operation_matrix_executes_declared_states();
 bool C803_model_mount_graph_resolves_depth_four_chain();
 bool C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors();
 bool C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore();

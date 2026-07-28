@@ -6,6 +6,7 @@ import {
   buildDefaultModelBootstrap,
   ModelAssetCache
 } from "../src/render/modelAssets";
+import { missingBackboneEntryCells } from "./backbone_semantics_contract";
 
 function visualParts(state: WireStateHandle) {
   const scene = state.visualScene();
@@ -1005,6 +1006,7 @@ describe("wire wasm smoke", () => {
   });
 
   it("keeps HV when resolving a pole snap through the UI hit payload and excludes HV for midair branch", () => {
+    const coveredEntries = new Set<string>();
     const runState = createState();
     const configured = runState.configureModelAssemblies(modelBootstrap());
     expect(configured.ok, configured.error).toBe(true);
@@ -1072,6 +1074,7 @@ describe("wire wasm smoke", () => {
       .filter((part) => !beforePoleHvSpanIds.has(part.info.sourceSpanId));
     expect(newPoleHvParts).toHaveLength(3);
     expect(uniqueRounded(newPoleHvParts.map((part) => part.info.laneIndex))).toEqual([0, 1, 2]);
+    coveredEntries.add("BOS:add_one_edge:S1");
 
     const midairState = createState();
     const midairConfigured = midairState.configureModelAssemblies(modelBootstrap());
@@ -1123,6 +1126,8 @@ describe("wire wasm smoke", () => {
     const newMidairHvParts = hvEdgeBodies(midairState)
       .filter((part) => !beforeMidairHvSpanIds.has(part.info.sourceSpanId));
     expect(newMidairHvParts).toHaveLength(0);
+    coveredEntries.add("BOS:add_one_edge:SM");
+    expect(missingBackboneEntryCells("wasm_adapter", coveredEntries)).toEqual([]);
     midairState.delete();
     runState.delete();
   });

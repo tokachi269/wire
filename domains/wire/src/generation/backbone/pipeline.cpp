@@ -1533,6 +1533,14 @@ void pipeline::retire_untouched(route* route) {
     state_.runtime_.relation_index.attachments_by_span.erase(span_id);
     CoreState::add_unique_id(route->change_set.deleted_ids, span_id);
   }
+  retired_ports.erase(
+      std::remove_if(retired_ports.begin(), retired_ports.end(), [&](ObjectId port_id) {
+        const auto spans_it = state_.runtime_.connection_index.spans_by_port.find(port_id);
+        return spans_it != state_.runtime_.connection_index.spans_by_port.end() &&
+               std::any_of(spans_it->second.begin(), spans_it->second.end(),
+                           [&](ObjectId span_id) { return !contains_id(retired_spans, span_id); });
+      }),
+      retired_ports.end());
   for (ObjectId port_id : retired_ports) {
     const Port* port = state_.authoritative_.edit_state.ports.find(port_id);
     if (port == nullptr) {
@@ -1543,7 +1551,6 @@ void pipeline::retire_untouched(route* route) {
     state_.authoritative_.edit_state.ports.remove(port_id);
     CoreState::add_unique_id(route->change_set.deleted_ids, port_id);
   }
-
   SavedBackboneGraph& graph = state_.authoritative_.backbone;
   for (SavedBackboneEdgeBundle& item : graph.edge_bundles) {
     if (contains_id(route->scope_edge_bundle_ids, item.edge_bundle_id)) {
@@ -3611,6 +3618,26 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         const ObjectId existing_span_id = existing_span_for_lane(state_, existing_edge_bundle_id,
                                                                  static_cast<std::size_t>(lane));
         if (existing_span_id != kInvalidObjectId) {
+          Span* existing_span = state_.authoritative_.edit_state.spans.find(existing_span_id);
+          if (existing_span == nullptr) {
+            out.error = "backbone internal: backbone topology: existing span is missing";
+            return out;
+          }
+          if (existing_span->port_a_id != port_a || existing_span->port_b_id != port_b) {
+            const Span before = *existing_span;
+            state_.remove_span_from_indexes(before);
+            existing_span->port_a_id = port_a;
+            existing_span->port_b_id = port_b;
+            state_.add_span_to_index(*existing_span);
+            state_.touch_span(existing_span_id, true);
+            CoreState::add_unique_id(changes->updated_ids, existing_span_id);
+          }
+          EditResult<bool> endpoints = state_.set_span_endpoint_nodes(
+              existing_span_id, made->rows[edge.arow].pole, made->rows[edge.brow].pole);
+          if (!endpoints.ok) {
+            out.error = endpoints.error;
+            return out;
+          }
           made->spans.push_back(tspan{existing_span_id, edge.id, bundle_index, static_cast<std::size_t>(lane),
                                       edge.arow, edge.brow, false});
           continue;

@@ -46,100 +46,35 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 | `regenerate` regenerate | `K` | `K` | `K` | `K` | `K` | `K` | `K` |
 | `connect_two_open` 明示的に2 openを接続 | `-` | `-` | `-` | `-` | `-` | `D2` | `D2` |
 
-## セル必須観点
+## 実行時coverage契約
 
-`C` / `O` / `K` / `U` の各セルは、case ID の有無だけでなく、次の観点を
-`domains/wire/tests/spec_ledger.md` の aspect coverage で満たす。
-この表は「何を見ればそのセルを検証したと言えるか」の正本である。
+`C` / `O` / `K` / `U` の各セルは、test case ID や手書きタグではなく、test実行中に
+構築された `CoreState` から状態を分類してcoverageへ記録する。matrixに行または列を追加し、
+対応する実状態を構築しなければcore test全実行を失敗させる。
 
-| Cell | Required aspects |
+coverageとして認めるcaseは、次の独立evidenceを1つ以上持つ。
+
+- `oracle`: 手計算値または固定fixture期待値
+- `anchor`: 正本入力やstable IDとの関係
+- `presence`: 必須出力の存在数。silent dropを許可しない
+- `differential`: 同じ意味の別操作列、save/load前後等の比較
+
+派生値同士の一致だけを示す`derived_equality`は、単独ではcoverage evidenceにしない。
+source textを検査するcaseは`SourceGuard` familyへ分離し、操作×状態coverageには使用しない。
+
+## 入口境界
+
+core API の全required cellに加え、実アプリがbranch生成へ渡すpayloadは次のentryで検証する。
+この表はweb testが実行時に直接読み、required cellを実payloadで通さなければ失敗する。
+
+| Cell | Required entries |
 |---|---|
-| BOS:add_one_edge:S0 | `open_state` `support_level` |
-| BOS:add_one_edge:S1 | `pair_connectivity` `continuity_table` `support_level` `curve_endpoint` |
-| BOS:add_one_edge:S2 | `open_state` `support_level` |
-| BOS:add_one_edge:S3 | `open_state` `ambiguity_open` |
-| BOS:add_one_edge:S4 | `pair_connectivity` `continuity_table` `support_level` |
-| BOS:add_one_edge:S5 | `open_state` `ambiguity_open` |
-| BOS:add_one_edge:SM | `template_policy` `selected_policy` `source_projection` `open_state` |
-| BOS:add_two_edges:S0 | `pair_connectivity` `continuity_table` `port_identity` `curve_endpoint` |
-| BOS:add_two_edges:S1 | `open_state` `ambiguity_open` |
-| BOS:add_two_edges:S2 | `open_state` `ambiguity_open` |
-| BOS:add_two_edges:S3 | `open_state` `ambiguity_open` |
-| BOS:add_two_edges:S4 | `open_state` `ambiguity_open` |
-| BOS:add_two_edges:S5 | `open_state` `ambiguity_open` |
-| BOS:move_pole_angle:S1 | `open_state` `port_identity` `curve_endpoint` |
-| BOS:move_pole_angle:S2 | `continuity_table` `port_identity` `representation_switch` `row_fixture` `nodepatch` `curve_endpoint` |
-| BOS:move_pole_angle:S3 | `continuity_table` `port_identity` `representation_switch` `row_fixture` `jumper` `curve_endpoint` |
-| BOS:move_pole_angle:S4 | `continuity_table` `port_identity` `representation_switch` `support_level` |
-| BOS:move_pole_angle:S5 | `continuity_table` `port_identity` `representation_switch` `support_level` |
-| BOS:update_placement:S1 | `placement_identity` `support_level` `curve_endpoint` |
-| BOS:update_placement:S2 | `placement_identity` `support_level` `curve_endpoint` |
-| BOS:update_placement:S3 | `placement_identity` `support_level` `curve_endpoint` |
-| BOS:update_placement:S4 | `placement_identity` `support_level` `curve_endpoint` |
-| BOS:update_placement:S5 | `placement_identity` `support_level` `curve_endpoint` |
-| BOS:update_placement:SM | `placement_identity` `source_projection` `curve_endpoint` |
-| BOS:save_load:S0 | `save_load` `derived_equivalence` |
-| BOS:save_load:S1 | `save_load` `continuity_table` |
-| BOS:save_load:S2 | `save_load` `continuity_table` `port_identity` `derived_equivalence` |
-| BOS:save_load:S3 | `save_load` `continuity_table` `jumper` `derived_equivalence` |
-| BOS:save_load:S4 | `save_load` `continuity_table` `support_level` |
-| BOS:save_load:S5 | `save_load` `continuity_table` `support_level` |
-| BOS:save_load:SM | `save_load` `source_projection` |
-| BOS:regenerate:S0 | `regenerate` `derived_equivalence` |
-| BOS:regenerate:S1 | `regenerate` `continuity_table` |
-| BOS:regenerate:S2 | `regenerate` `continuity_table` `port_identity` `derived_equivalence` |
-| BOS:regenerate:S3 | `regenerate` `continuity_table` `jumper` `derived_equivalence` |
-| BOS:regenerate:S4 | `regenerate` `continuity_table` `support_level` |
-| BOS:regenerate:S5 | `regenerate` `continuity_table` `support_level` |
-| BOS:regenerate:SM | `regenerate` `source_projection` |
+| BOS:add_one_edge:S1 | `wasm_adapter` `viewer_action` |
+| BOS:add_one_edge:SM | `wasm_adapter` `viewer_action` |
 
-## セル必須入力代表
-
-`セル必須観点`は何を検査するかを定義する。この表は、どの入力形状・操作履歴を
-最低限通すかを定義する。case IDだけではなく、この代表集合を
-`domains/wire/tests/spec_ledger.md` の representative coverage で満たす。
-
-| Cell | Required representatives |
-|---|---|
-| BOS:add_one_edge:S0 | `single_edge` `no_existing_incident` |
-| BOS:add_one_edge:S1 | `incremental` `existing_open_one` `normal_angle` `sharp_angle` `draw_forward` `draw_reverse` `branch_down_enabled` `branch_down_disabled` |
-| BOS:add_one_edge:S2 | `incremental` `existing_pair_normal` `single_added_edge` `branch_down_enabled` |
-| BOS:add_one_edge:S3 | `incremental` `existing_pair_sharp` `single_added_edge` `ambiguity_candidates` |
-| BOS:add_one_edge:S4 | `incremental` `existing_pair_plus_open_one` `single_added_edge` `occupied_lower_levels` `branch_down_enabled` |
-| BOS:add_one_edge:S5 | `incremental` `existing_pair_plus_open_many` `ambiguity_candidates` |
-| BOS:add_one_edge:SM | `incremental` `source_edge_midspan` `selected_template_allowed` `selected_template_rejected` |
-| BOS:add_two_edges:S0 | `one_shot` `two_edge_same_operation` `normal_angle` `sharp_angle` `viewer_default_bundle_set` `branch_down_enabled` `branch_down_disabled` |
-| BOS:add_two_edges:S1 | `one_shot` `two_edge_same_operation` `existing_open_one` `ambiguity_candidates` |
-| BOS:add_two_edges:S2 | `one_shot` `two_edge_same_operation` `existing_pair_normal` `sharp_angle` `occupied_lower_levels` `branch_down_enabled` |
-| BOS:add_two_edges:S3 | `one_shot` `two_edge_same_operation` `existing_pair_sharp` `ambiguity_candidates` |
-| BOS:add_two_edges:S4 | `one_shot` `two_edge_same_operation` `existing_pair_plus_open_one` `ambiguity_candidates` |
-| BOS:add_two_edges:S5 | `one_shot` `two_edge_same_operation` `existing_pair_plus_open_many` `ambiguity_candidates` |
-| BOS:move_pole_angle:S1 | `move_pole` `existing_open_one` |
-| BOS:move_pole_angle:S2 | `move_pole` `existing_pair_normal` `move_to_sharp` `move_back_to_normal` `model_assembly` |
-| BOS:move_pole_angle:S3 | `move_pole` `existing_pair_sharp` `move_to_normal` `move_back_to_sharp` `model_assembly` |
-| BOS:move_pole_angle:S4 | `move_pole` `existing_pair_plus_open_one` `representation_switch` |
-| BOS:move_pole_angle:S5 | `move_pole` `existing_pair_plus_open_many` `representation_switch` |
-| BOS:update_placement:S1 | `placement_update` `existing_open_one` |
-| BOS:update_placement:S2 | `placement_update` `existing_pair_normal` `same_template_multi_placement` |
-| BOS:update_placement:S3 | `placement_update` `existing_pair_sharp` |
-| BOS:update_placement:S4 | `placement_update` `existing_pair_plus_open_one` `same_template_multi_placement` |
-| BOS:update_placement:S5 | `placement_update` `existing_pair_plus_open_many` |
-| BOS:update_placement:SM | `placement_update` `source_edge_midspan` |
-| BOS:save_load:S0 | `save_load` `no_existing_incident` |
-| BOS:save_load:S1 | `save_load` `existing_open_one` |
-| BOS:save_load:S2 | `save_load` `existing_pair_normal` `migration_shared_port` |
-| BOS:save_load:S3 | `save_load` `existing_pair_sharp` `migration_shared_port` |
-| BOS:save_load:S4 | `save_load` `existing_pair_plus_open_one` |
-| BOS:save_load:S5 | `save_load` `existing_pair_plus_open_many` |
-| BOS:save_load:SM | `save_load` `source_edge_midspan` |
-| BOS:regenerate:S0 | `regenerate` `no_existing_incident` |
-| BOS:regenerate:S1 | `regenerate` `existing_open_one` |
-| BOS:regenerate:S2 | `regenerate` `existing_pair_normal` |
-| BOS:regenerate:S3 | `regenerate` `existing_pair_sharp` |
-| BOS:regenerate:S4 | `regenerate` `existing_pair_plus_open_one` |
-| BOS:regenerate:S5 | `regenerate` `existing_pair_plus_open_many` |
-| BOS:regenerate:SM | `regenerate` `source_edge_midspan` |
-
+`wasm_adapter`は実WASM stateでpole snapとsource-edge midspanを解決し、生成結果まで検証する。
+`viewer_action`は`ViewerActions`へ同じhit payload形状を渡し、解決済みnode identityが
+node specへそのまま渡ることを検証する。adapter/viewerは位置や`hitId`からnode identityを再推測しない。
 ### 接続候補の規則
 
 生成操作の完了時に、影響nodeの未接続endpointを同じ解決処理へ渡す。

@@ -6,6 +6,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -24,6 +25,25 @@ std::vector<SuiteRegisterFn>& RegisteredSuites() {
 std::string& CurrentFailureReason() {
   static std::string reason;
   return reason;
+}
+
+std::string& ActiveCaseId() {
+  static std::string case_id;
+  return case_id;
+}
+
+TestFamily& ActiveFamily() {
+  static TestFamily family = TestFamily::kBehavior;
+  return family;
+}
+
+std::unordered_map<std::string, bool>& CompletedEvidence() {
+  static std::unordered_map<std::string, bool> evidence;
+  return evidence;
+}
+std::vector<AssertionKind>& CurrentAssertions() {
+  static std::vector<AssertionKind> assertions;
+  return assertions;
 }
 
 int CaseNumber(const char* case_id) {
@@ -75,9 +95,13 @@ std::string JoinSorted(const T& values) {
 
 void AddTest(TestRegistry& tests, const char* case_id, const char* intent, const char* oracle, bool abnormal,
              TestFn run) {
-  tests.push_back(TestCase{case_id, intent, oracle, abnormal, run});
+  tests.push_back(TestCase{case_id, intent, oracle, abnormal, TestFamily::kBehavior, run});
 }
 
+void AddSourceGuardTest(TestRegistry& tests, const char* case_id, const char* intent,
+                        const char* oracle, bool abnormal, TestFn run) {
+  tests.push_back(TestCase{case_id, intent, oracle, abnormal, TestFamily::kSourceGuard, run});
+}
 void RegisterSuite(SuiteRegisterFn register_fn) {
   RegisteredSuites().push_back(register_fn);
 }
@@ -88,6 +112,50 @@ SuiteRegistration::SuiteRegistration(SuiteRegisterFn register_fn) {
 
 void ClearFailureReason() {
   CurrentFailureReason().clear();
+}
+
+void BeginTestCase(const char* case_id, TestFamily family) {
+  ActiveCaseId() = case_id == nullptr ? "" : case_id;
+  ActiveFamily() = family;
+  CurrentAssertions().clear();
+}
+
+void EndTestCase() {
+  if (!ActiveCaseId().empty()) {
+    CompletedEvidence()[ActiveCaseId()] = CurrentTestHasIndependentAssertion();
+  }
+  ActiveCaseId().clear();
+  CurrentAssertions().clear();
+}
+
+void RecordAssertion(AssertionKind kind) {
+  std::vector<AssertionKind>& assertions = CurrentAssertions();
+  if (std::find(assertions.begin(), assertions.end(), kind) == assertions.end()) {
+    assertions.push_back(kind);
+  }
+}
+
+bool CurrentTestHasIndependentAssertion() {
+  return std::any_of(CurrentAssertions().begin(), CurrentAssertions().end(), [](AssertionKind kind) {
+    return kind == AssertionKind::kOracle || kind == AssertionKind::kAnchor ||
+           kind == AssertionKind::kPresence || kind == AssertionKind::kDifferential;
+  });
+}
+const std::string& CurrentTestCaseId() {
+  return ActiveCaseId();
+}
+
+TestFamily CurrentTestFamily() {
+  return ActiveFamily();
+}
+
+bool TestCaseHasIndependentAssertion(const std::string& case_id) {
+  const auto it = CompletedEvidence().find(case_id);
+  return it != CompletedEvidence().end() && it->second;
+}
+
+const std::vector<AssertionKind>& CurrentTestAssertions() {
+  return CurrentAssertions();
 }
 
 void SetFailureReason(std::string reason) {

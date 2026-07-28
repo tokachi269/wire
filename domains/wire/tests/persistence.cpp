@@ -721,11 +721,11 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "authoritative v2 load rejects broken row continuity references",
                          "Boundary", true,
                          C801_authoritative_v2_rejects_broken_row_continuity_reference);
-  test_registry::AddTest(tests, "C806_authoritative_v2_does_not_persist_backbone_route_order",
+  test_registry::AddSourceGuardTest(tests, "C806_authoritative_v2_does_not_persist_backbone_route_order",
                          "authoritative v2 does not persist backbone route/order helpers",
                          "Boundary", false,
                          C806_authoritative_v2_does_not_persist_backbone_route_order);
-  test_registry::AddTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
+  test_registry::AddSourceGuardTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
                          "persistence derives write and read from type archive visitors",
                          "Boundary", false, C756_persistence_has_no_type_specific_write_read_wrappers);
   test_registry::AddTest(tests, "C757_authoritative_roundtrip_compares_fields_directly",

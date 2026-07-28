@@ -755,17 +755,36 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
   };
 
   for (const city::wire::Span& span : state.view().spans().items()) {
-    if (state.view().ports().find(span.port_a_id) == nullptr) {
-      return fail("span " + std::to_string(span.id) + " has missing port_a");
-    }
-    if (state.view().ports().find(span.port_b_id) == nullptr) {
-      return fail("span " + std::to_string(span.id) + " has missing port_b");
+    const auto endpoint_exists = [&](city::wire::ObjectId port_id,
+                                     city::wire::ObjectId anchor_id,
+                                     const char* endpoint) {
+      const bool has_port = port_id != city::wire::kInvalidObjectId &&
+                            state.view().ports().find(port_id) != nullptr;
+      const bool has_anchor = anchor_id != city::wire::kInvalidObjectId &&
+                              state.view().anchors().find(anchor_id) != nullptr;
+      if (has_port == has_anchor) {
+        std::string binding_scope;
+        for (const city::wire::SavedBackbonePortBinding& binding : graph.port_bindings) {
+          if (binding.port_id == port_id) {
+            binding_scope += " edge_bundle=" + std::to_string(binding.edge_bundle_id) +
+                             " node=" + std::to_string(binding.row_key.node_id);
+          }
+        }
+        return fail("span " + std::to_string(span.id) + " endpoint " + endpoint +
+                    " must reference exactly one existing port or anchor (port=" +
+                    std::to_string(port_id) + ", anchor=" + std::to_string(anchor_id) +
+                    binding_scope + ")");
+      }
+      return true;
+    };
+    if (!endpoint_exists(span.port_a_id, span.anchor_a_id, "a") ||
+        !endpoint_exists(span.port_b_id, span.anchor_b_id, "b")) {
+      return false;
     }
     if (state.view().bundles().find(span.bundle_id) == nullptr) {
       return fail("span " + std::to_string(span.id) + " has missing bundle");
     }
   }
-
   for (const city::wire::SavedBackboneEdge& edge : graph.edges) {
     if (!saved_node_exists(edge.node_a) || !saved_node_exists(edge.node_b)) {
       return fail("saved edge " + std::to_string(edge.edge_id) + " references missing node");

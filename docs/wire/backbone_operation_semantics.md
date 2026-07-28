@@ -104,6 +104,13 @@ generated Portは常にedge endpointごとに別identityを持つ。通常角pai
 同じrow layout決定から導出して浮動小数bitまで一致させる。2つの独立計算結果を
 後段で近づけたり、一方を他方へコピーして補正したりしない。
 
+`add_one_edge`で`S1`のopen endpointを通常pairへ接続するpromotionでは、既存Port ID、
+edge endpoint別binding、continuityを維持する。一方、open時の物理frameは保存せず、
+通常pairの二等分frameを現在のincident edge幾何から再導出する。既存Port位置、
+bindingの`layout_yaw_deg`、row fixture、endpoint fixture、curve endpointはこの同じframeへ
+追従する。Port位置だけを旧open frameへ残すこと、またはbinding yawだけを更新することは
+禁止する。manual Portを移動する必要がある場合は推測で動かさず`unsupported`とする。
+
 endpoint fixtureはPort単位ではなく派生した`(row, lane)`単位で生成する。
 通常角pairでは2 Portに対して1 fixture、鋭角pairでは2つの派生open rowに対して
 2 fixtureを生成する。角度変更ではPort identityとcontinuityを維持し、row、fixture、

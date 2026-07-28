@@ -554,13 +554,13 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C780 | Behavior | Invariant | 同じtemplate・同じ数値配置でもplacement_keyが違えば別placementとして扱い、request順序に依存しない | `legacy_unclassified` | height/offset/spacingやrequest配列順でmatchingする回帰を防ぐ |
 | C781 | Behavior | Invariant | completed cross からさらにedgeを伸ばしても既存spanをretireしない | `legacy_unclassified` | 既存Bundle IDを継続したedge bundleをcontext edge側までretire scopeに含め、元のspanを削除する回帰を防ぐ |
 | C782 | Behavior | Invariant | 接続済みsharp pairがあるjunctionへさらに鋭角edgeを追加しても既存pairを奪わず新規edgeをopenで残す | `legacy_unclassified` | 接続済みedgeを候補へ戻す、角度で再pairする、または追加操作を拒否する回帰を防ぐ |
-| C785 | Behavior | Invariant | HV 3相のincremental pair promotionは既存open rowの物理frameを維持する | `legacy_unclassified` | lane対応反転、既存row移動、shared Port再導入を防ぐ |
+| C785 | Behavior | Invariant | HV 3相のincremental pair promotionは既存Port identityを維持し、通常pairの二等分frameへPort位置とbinding yawを再導出する | `legacy_unclassified` | lane対応反転、bindingとPortのframe分裂、shared Port再導入を防ぐ |
 | C786 | SourceGuard | Boundary | hash mix helper は production で1定義だけを持つ | `source_guard` | hash helper copy family が curve / geometry に再発することを防ぐ |
 | C787 | SourceGuard | Boundary | BundleTemplate category と既定配置は Core/WASM payload を正本にし、JS は layer から推測しない | `source_guard` | web が SpanLayer→category 対応表や band matching を複製し、Core/WASM の分類とdriftする回帰を防ぐ |
 | C788 | SourceGuard | Boundary | belt radial fit と endpoint socket placement は materialization が所有する | `source_guard` | curve_parts や renderer が socket/mesh geometry を再解釈する、またはbelt半径をmesh実体からCoreで読む回帰を防ぐ |
 | C791 | Behavior | Boundary | 大きめの既存sceneへrouteを1本追加してもfixture pipelineはoperation単位でだけ走る | `legacy_unclassified` | scene規模に比例してplan構築・materialization・fallbackが再発する回帰をwall-clockに依存せず検出する |
 | C792 | Behavior | Invariant | incrementalで新しい独立rowを追加しても既存rowは動かさず、新rowは空きstable slotへ入る | `legacy_unclassified` | active row優先reflowやshared Port前提への回帰を防ぐ |
-| C795 | Behavior | Invariant | model-aware HV pair promotionはPort/Span identityを維持し、continuityからrow/fixtureを再導出してNodePatch laneをcollapseさせない | `legacy_unclassified` | modelありpromotionでfixture二重化、3相collapse、shared Port再導入、open transformの誤永続化を防ぐ |
+| C795 | Behavior | Invariant | model-aware HV pair promotionはPort/Span identityを維持し、正本placement anchorから同一pair frameでPort/row fixture/endpoint fixture/curveを導出してNodePatch laneをcollapseさせない | `legacy_unclassified` | modelありpromotionでfixtureとPortのframe分裂、3相collapse、shared Port再導入を防ぐ |
 | C796 | Behavior | Invariant | explicit placement heightはincremental row reflowで変更されず、mixed bundleとsame-template duplicateを混同しない | `legacy_unclassified` | explicit heightをrow spacingやstable slotでband既定値へずらす、same-template duplicateが混ざる、pair promotionで既存row高さが変わる回帰を防ぐ |
 | C797 | Behavior | Boundary | row continuity table はrouteとpair promotionの各lane継続を保存する | `legacy_unclassified` | NodePatchの存在をcurve層がbundle/port/位置epsから推測し続ける回帰を防ぐ |
 | C798 | Behavior | Invariant | viewer既定T字branchはHVを生成し、branch-downはtemplate flagだけで決まる | `legacy_unclassified` | 画面上snap済みの端点をCoreの3D距離判定でmidair扱いしてHVを除外する、category名でloweringする、またはT追加で既存Port高さを動かす回帰を防ぐ |

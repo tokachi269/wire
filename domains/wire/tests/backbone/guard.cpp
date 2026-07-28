@@ -464,15 +464,11 @@ bool C465_backbone_duplicate_policy_does_not_read_existing_spans() {
 bool C470_backbone_row_port_identity_does_not_use_position_match() {
   const std::filesystem::path source = repo_root() / "domains" / "wire" / "src" / "state" / "backbone.cpp";
   std::string cpp;
-  if (!file_text(source, &cpp)) {
+  std::string body;
+  if (!file_text(source, &cpp) ||
+      !function_body(cpp, "EditResult<bool> CoreState::bind_backbone_port", &body)) {
     return false;
   }
-  const std::size_t fn_pos = cpp.find("EditResult<bool> CoreState::bind_backbone_port");
-  const std::size_t next_pos = cpp.find("PoleDetailInfo CoreState::GetPoleDetail", fn_pos);
-  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
-    return false;
-  }
-  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
   return contains_text(body, "edge_bundle_id") && contains_text(body, "row_key") &&
          !contains_text(body, "world_position") && !contains_text(body, "span_layout") &&
          !contains_text(body, "seed") && !contains_text(body, "position");

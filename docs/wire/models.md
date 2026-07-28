@@ -145,6 +145,12 @@ row/port配置軸をpole軸まわりに回す派生入力である。
 endpoint fixture、belt fitはこの`BuildPoleFrame`の`forward/lateral/up`を読む。adapter/viewer側で
 Euler順やlayout yaw合成を再解釈しない。
 
+同一の派生rowに属するPort位置、row fixture、endpoint fixture、wire socket、curve endpointは、
+同じ`layout_yaw_deg`から作った`PoleFrame`を使用する。pair promotionでrow frameが変わる場合は
+Port identityを維持したまま位置を再導出し、binding yawとPort位置を一つのexact frame更新として
+適用する。派生物同士の一致だけでなく、Portをそのframeへ戻したlocal lateralが正本のband、
+placement lateral、lane spacingから得るanchorと一致することを不変条件とする。
+
 templateの配置指定はbit flagではなく`PlacementRule`のリストとする。
 
 ```text

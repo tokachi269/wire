@@ -1213,10 +1213,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "fixture placement plan is built once per reposition operation and not per endpoint materialization",
                          "Boundary", false,
                          C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization);
-  test_registry::AddTest(tests, "C785_backbone_incremental_hv_promotion_preserves_existing_row_frame",
-                         "incremental HV promotion preserves the existing open row physical frame",
+  test_registry::AddTest(tests, "C785_backbone_incremental_hv_promotion_reframes_existing_ports",
+                         "incremental HV promotion preserves Port identity while reframing positions with the pair row",
                          "Invariant", false,
-                         C785_backbone_incremental_hv_promotion_preserves_existing_row_frame);
+                         C785_backbone_incremental_hv_promotion_reframes_existing_ports);
   test_registry::AddSourceGuardTest(tests, "C786_hash_mix_has_one_production_definition",
                          "hash mix helpers have one shared production definition",
                          "Boundary", false,
@@ -1274,7 +1274,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          C792_backbone_incremental_new_row_uses_empty_stable_slot);
   test_registry::AddTest(tests, "C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry",
-                         "incremental HV promotion preserves model fixture geometry and lane patch order",
+                         "incremental HV promotion keeps Port, row fixture, endpoint fixture, and curves in one resolved frame",
                          "Invariant", false,
                          C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry);
   test_registry::AddTest(tests, "C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed",

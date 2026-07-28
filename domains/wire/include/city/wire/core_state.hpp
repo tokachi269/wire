@@ -185,10 +185,11 @@ private:
                                       int support_group_id,
                                       double layout_yaw_deg,
                                       ObjectId port_id);
-  EditResult<bool> update_backbone_port_binding_layout_exact(
+  EditResult<bool> update_backbone_port_binding_frame_exact(
       ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
       std::size_t lane_index, double layout_yaw_deg,
-      int support_level, int support_group_id, ObjectId port_id);
+      int support_level, int support_group_id, ObjectId port_id,
+      const Vec3d& world_position);
   EditResult<bool> bind_backbone_row_continuity(ObjectId node_id,
                                                 ObjectId edge_bundle_a,
                                                 std::size_t lane_a,

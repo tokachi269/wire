@@ -228,6 +228,8 @@ private:
     ObjectId existing_bundle_id = kInvalidObjectId;
     std::uint64_t placement_key = 0;
     ObjectId port_id = kInvalidObjectId;
+    Vec3d resolved_world_position{};
+    bool frame_resolved = false;
   };
 
   struct route {

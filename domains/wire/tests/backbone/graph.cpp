@@ -9,6 +9,7 @@
 
 #include "../../src/generation/backbone/mount_graph.hpp"
 #include "../../src/generation/backbone/model_placement_rules.hpp"
+#include "../../src/generation/backbone/row_representation.hpp"
 #include "../../src/support/instrumentation.hpp"
 
 #include <algorithm>
@@ -900,19 +901,109 @@ std::vector<PortBindingSnapshot> port_binding_snapshot(const city::wire::CoreSta
   return out;
 }
 
-bool same_port_binding_snapshot(const std::vector<PortBindingSnapshot>& a,
+bool same_port_binding_identity(const std::vector<PortBindingSnapshot>& a,
                                 const std::vector<PortBindingSnapshot>& b) {
   if (a.size() != b.size()) {
     return false;
   }
   for (std::size_t i = 0; i < a.size(); ++i) {
-    if (a[i].lane != b[i].lane || a[i].port_id != b[i].port_id ||
-        !almost_equal(a[i].position, b[i].position, 1e-9) ||
-        std::abs(city::wire::NormalizeYawDeg(a[i].layout_yaw_deg - b[i].layout_yaw_deg)) > 1e-9) {
+    if (a[i].lane != b[i].lane || a[i].port_id != b[i].port_id) {
       return false;
     }
   }
   return true;
+}
+
+std::optional<city::wire::Transformd> endpoint_fixture_transform(
+    const city::wire::CoreState& state, city::wire::ObjectId port_id);
+
+bool port_positions_match_explicit_lane_anchors(
+    const city::wire::CoreState& state,
+    const std::vector<PortBindingSnapshot>& snapshots,
+    const std::vector<double>& layout_yaws_deg,
+    double lateral_m,
+    double spacing_m) {
+  if (snapshots.size() != layout_yaws_deg.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < snapshots.size(); ++i) {
+    const PortBindingSnapshot& snapshot = snapshots[i];
+    const city::wire::Port* port = state.view().ports().find(snapshot.port_id);
+    const city::wire::Pole* pole =
+        port == nullptr ? nullptr : state.view().poles().find(port->owner_pole_id);
+    if (port == nullptr || pole == nullptr) {
+      return false;
+    }
+    const city::wire::PoleFrame frame =
+        city::wire::BuildPoleFrame(pole->world_transform, layout_yaws_deg[i]);
+    const city::wire::Vec3d local =
+        city::wire::WorldPointToLocal(frame, port->world_position);
+    const double expected_lateral =
+        lateral_m +
+        (static_cast<double>(snapshot.lane) -
+         (static_cast<double>(snapshots.size() - 1) * 0.5)) *
+            spacing_m;
+    if (!almost_equal(local.y, expected_lateral, 1e-9)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool endpoint_fixtures_match_explicit_lane_anchors(
+    const city::wire::CoreState& state,
+    const std::vector<PortBindingSnapshot>& snapshots,
+    const std::vector<double>& layout_yaws_deg,
+    double lateral_m,
+    double spacing_m) {
+  if (snapshots.size() != layout_yaws_deg.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < snapshots.size(); ++i) {
+    const PortBindingSnapshot& snapshot = snapshots[i];
+    const city::wire::Port* port = state.view().ports().find(snapshot.port_id);
+    const city::wire::Pole* pole =
+        port == nullptr ? nullptr : state.view().poles().find(port->owner_pole_id);
+    const auto fixture = endpoint_fixture_transform(state, snapshot.port_id);
+    if (port == nullptr || pole == nullptr || !fixture.has_value()) {
+      return false;
+    }
+    const city::wire::PoleFrame frame =
+        city::wire::BuildPoleFrame(pole->world_transform, layout_yaws_deg[i]);
+    const city::wire::Vec3d local =
+        city::wire::WorldPointToLocal(frame, fixture->position);
+    const double expected_lateral =
+        lateral_m +
+        (static_cast<double>(snapshot.lane) -
+         (static_cast<double>(snapshots.size() - 1) * 0.5)) *
+            spacing_m;
+    if (!almost_equal(local.y, expected_lateral, 1e-9)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::optional<std::vector<double>> derived_row_yaws_for_ports(
+    const city::wire::CoreState& state,
+    const std::vector<PortBindingSnapshot>& snapshots) {
+  std::vector<double> yaws{};
+  yaws.reserve(snapshots.size());
+  for (const PortBindingSnapshot& snapshot : snapshots) {
+    const city::wire::SavedBackbonePortBinding* binding =
+        state.view().backbone_port_binding_for_port(snapshot.port_id);
+    if (binding == nullptr) {
+      return std::nullopt;
+    }
+    const auto representation =
+        city::wire::generation::backbone::DeriveEndpointRowRepresentation(
+            state, *binding);
+    if (!representation.ok) {
+      return std::nullopt;
+    }
+    yaws.push_back(representation.value.layout_yaw_deg);
+  }
+  return yaws;
 }
 
 bool same_port_binding_geometry(const std::vector<PortBindingSnapshot>& a,
@@ -1989,7 +2080,7 @@ bool C779_backbone_incremental_same_template_multi_placement_uses_placement_key(
          curve_endpoints_match_layout(state);
 }
 
-bool C785_backbone_incremental_hv_promotion_preserves_existing_row_frame() {
+bool C785_backbone_incremental_hv_promotion_reframes_existing_ports() {
   city::wire::CoreState state;
   const auto abc = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!abc.ok || abc.value.generated_pole_ids.size() != 3) return false;
@@ -2050,10 +2141,20 @@ bool C785_backbone_incremental_hv_promotion_preserves_existing_row_frame() {
   const std::vector<PortBindingSnapshot> be_after =
       port_binding_snapshot(state, be_edge_bundle, node_b->node_id);
   const JunctionRowSnapshot snapshot = junction_snapshot(state, b);
+  const bool frame_changed = std::any_of(
+      before.begin(), before.end(), [&](const PortBindingSnapshot& old_binding) {
+        const auto after = std::find_if(
+            bd_after.begin(), bd_after.end(), [&](const PortBindingSnapshot& new_binding) {
+              return new_binding.port_id == old_binding.port_id;
+            });
+        return after != bd_after.end() &&
+               std::abs(city::wire::NormalizeYawDeg(
+                   after->layout_yaw_deg - old_binding.layout_yaw_deg)) > 1e-9;
+      });
   return snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
          has_row_key(snapshot.row_keys, false, bd_edge, be_edge) &&
-         same_port_binding_snapshot(before, bd_after) &&
-         same_port_binding_geometry(before, be_after, true) &&
+         same_port_binding_identity(before, bd_after) && frame_changed &&
+         same_port_binding_geometry(bd_after, be_after, true) &&
          curve_endpoints_match_layout(state);
 }
 
@@ -2139,16 +2240,63 @@ bool C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry() {
       port_binding_snapshot(state, bd_edge_bundle, node_b->node_id);
   const std::vector<PortBindingSnapshot> be_after =
       port_binding_snapshot(state, be_edge_bundle, node_b->node_id);
-  if (!same_port_binding_snapshot(before, bd_after) ||
-      !same_port_binding_geometry(before, be_after, true)) {
+  if (!same_port_binding_identity(before, bd_after) ||
+      !same_port_binding_geometry(bd_after, be_after, true)) {
     return false;
   }
+  const auto derived_yaws = derived_row_yaws_for_ports(state, bd_after);
+  WIRE_TEST_EXPECT(derived_yaws.has_value(),
+                   "promoted pair row representation is missing");
+  const bool row_frame_changed = std::any_of(
+      before.begin(), before.end(), [&](const PortBindingSnapshot& old_binding) {
+        const auto after = std::find_if(
+            bd_after.begin(), bd_after.end(), [&](const PortBindingSnapshot& new_binding) {
+              return new_binding.port_id == old_binding.port_id;
+            });
+        if (after == bd_after.end()) {
+          return false;
+        }
+        const std::size_t index =
+            static_cast<std::size_t>(std::distance(bd_after.begin(), after));
+        return std::abs(city::wire::NormalizeYawDeg(
+                   (*derived_yaws)[index] - old_binding.layout_yaw_deg)) > 1e-9;
+      });
+  WIRE_TEST_EXPECT(
+      row_frame_changed,
+      "promotion fixture does not exercise a changed derived pair row frame");
+  WIRE_TEST_EXPECT(
+      port_positions_match_explicit_lane_anchors(
+          state, bd_after, *derived_yaws, -0.2, 0.45),
+      "promoted existing HV ports do not follow the resolved pair row frame");
+  const auto new_derived_yaws = derived_row_yaws_for_ports(state, be_after);
+  WIRE_TEST_EXPECT(new_derived_yaws.has_value(),
+                   "new pair row representation is missing");
+  WIRE_TEST_EXPECT(
+      port_positions_match_explicit_lane_anchors(
+          state, be_after, *new_derived_yaws, -0.2, 0.45),
+      "new HV ports do not follow the resolved pair row frame");
 
   const std::vector<city::wire::Transformd> row_transforms_after =
       row_fixture_transforms_on_pole(state, b);
   if (row_transforms_after.size() != row_transforms_before.size()) {
     return false;
   }
+  WIRE_TEST_EXPECT(
+      std::any_of(row_transforms_after.begin(), row_transforms_after.end(),
+                  [&](const city::wire::Transformd& transform) {
+                    return std::abs(city::wire::NormalizeYawDeg(
+                               transform.rotation_euler_deg.z -
+                               derived_yaws->front())) <= 1e-9;
+                  }),
+      "promoted HV row fixture does not use the resolved pair row frame");
+  WIRE_TEST_EXPECT(
+      endpoint_fixtures_match_explicit_lane_anchors(
+          state, bd_after, *derived_yaws, -0.2, 0.45),
+      "promoted existing HV endpoint fixtures do not follow the row fixture frame");
+  WIRE_TEST_EXPECT(
+      endpoint_fixtures_match_explicit_lane_anchors(
+          state, be_after, *new_derived_yaws, -0.2, 0.45),
+      "new HV endpoint fixtures do not follow the row fixture frame");
   for (const PortBindingSnapshot& snapshot : before) {
     const auto fixture = endpoint_fixture_transform(state, snapshot.port_id);
     const auto endpoint = layout_endpoint_for_port(state, snapshot.port_id);

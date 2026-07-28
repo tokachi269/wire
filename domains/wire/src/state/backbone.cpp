@@ -297,10 +297,11 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
   return out;
 }
 
-EditResult<bool> CoreState::update_backbone_port_binding_layout_exact(
+EditResult<bool> CoreState::update_backbone_port_binding_frame_exact(
     ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
     std::size_t lane_index, double layout_yaw_deg,
-    int support_level, int support_group_id, ObjectId port_id) {
+    int support_level, int support_group_id, ObjectId port_id,
+    const Vec3d& world_position) {
   EditResult<bool> out{};
   out.value = false;
   if (edge_bundle_id == kInvalidObjectId ||
@@ -328,15 +329,31 @@ EditResult<bool> CoreState::update_backbone_port_binding_layout_exact(
     out.ok = true;
     return out;
   }
+  Port* port = authoritative_.edit_state.ports.find(port_id);
+  if (port == nullptr) {
+    out.error = "backbone internal: promoted row frame Port is missing";
+    return out;
+  }
   SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[match_index];
   const double normalized_yaw = NormalizeYawDeg(layout_yaw_deg);
+  const bool moved =
+      DistanceSquared(port->world_position, world_position) >
+      kLengthToleranceM * kLengthToleranceM;
+  if (moved && (port->position_mode == PortPositionMode::kManual ||
+                port->user_edited_position)) {
+    out.error =
+        "backbone unsupported: promoted row frame requires moving manual ports";
+    return out;
+  }
   out.value = binding.support_level != support_level ||
               binding.support_group_id != support_group_id ||
               std::abs(NormalizeYawDeg(binding.layout_yaw_deg - normalized_yaw)) >
-                  kLengthToleranceM;
+                  kStrictAngleToleranceDeg ||
+              moved;
   binding.layout_yaw_deg = normalized_yaw;
   binding.support_level = support_level;
   binding.support_group_id = support_group_id;
+  port->world_position = world_position;
   out.ok = true;
   return out;
 }

@@ -38,7 +38,7 @@ void ResetRuntimeCoverage();
 #define WIRE_TEST_OBSERVE_BOS(operation, entry, state, pole_id, edge_bundle_id, lane_index) \
   do {                                                                                    \
     std::string wire_semantics_error;                                                     \
-    WIRE_TEST_EXPECT(                                                                     \
+    WIRE_TEST_EXPECT_ANCHOR(                                                              \
         ::backbone_tests::semantics_coverage::Observe(                                    \
             operation, entry, state, pole_id, edge_bundle_id, lane_index,                 \
             &wire_semantics_error),                                                       \
@@ -48,7 +48,7 @@ void ResetRuntimeCoverage();
 #define WIRE_TEST_OBSERVE_BOS_EMPTY(operation, entry, state)                     \
   do {                                                                    \
     std::string wire_semantics_error;                                     \
-    WIRE_TEST_EXPECT(                                                     \
+    WIRE_TEST_EXPECT_ANCHOR(                                              \
         ::backbone_tests::semantics_coverage::ObserveEmpty(               \
             operation, entry, state, &wire_semantics_error),                     \
         wire_semantics_error);                                            \
@@ -57,7 +57,7 @@ void ResetRuntimeCoverage();
 #define WIRE_TEST_OBSERVE_BOS_MIDSPAN(operation, entry, state, source_edge_id) \
   do {                                                                         \
     std::string wire_semantics_error;                                          \
-    WIRE_TEST_EXPECT(                                                          \
+    WIRE_TEST_EXPECT_ANCHOR(                                                   \
         ::backbone_tests::semantics_coverage::ObserveMidspan(                  \
             operation, entry, state, source_edge_id, &wire_semantics_error),   \
         wire_semantics_error);                                                 \

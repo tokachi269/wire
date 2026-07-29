@@ -4,6 +4,7 @@
 
 #include "../../collection_utils.hpp"
 #include "curve_parts.hpp"
+#include "model_assembly.hpp"
 #include "pipeline.hpp"
 
 #include <algorithm>
@@ -616,6 +617,9 @@ EditResult<bool> CoreState::regenerate_backbone_span_override(ObjectId span_id, 
 EditResult<bool> CoreState::rebuild_loaded_outputs() {
   EditResult<bool> result{};
   const SavedBackboneGraph saved = view().backbone();
+  const CoreState loaded_state = *this;
+  CoreState assembled = loaded_state;
+  assembled.runtime_.cache_state = {};
   EditResult<std::vector<std::vector<LoadedRouteEdge>>> saved_routes =
       continuity_routes_from_saved_graph(saved);
   if (!saved_routes.ok) {
@@ -752,15 +756,38 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       result.error = "authoritative invalid input: authoritative deserialization: saved route has no bundles";
       return result;
     }
-    generation::backbone::pipeline pipeline(*this, spec);
+    CoreState route_trial = loaded_state;
+    route_trial.runtime_.cache_state = assembled.runtime_.cache_state;
+    generation::backbone::pipeline pipeline(route_trial, spec);
     const auto replay = pipeline.build(
         pipeline.build_input_from_saved_scope(std::move(graph), std::move(active_bundle_indices), false, false));
     if (!replay.ok) {
-      result.error = replay.error;
+      result.error =
+          "backbone load route " +
+          std::to_string(edges.front().edge == nullptr
+                             ? kInvalidObjectId
+                             : edges.front().edge->edge_id) +
+          ": " + replay.error;
       return result;
     }
+
+    for (const SavedBackboneEdgeBundle& edge_bundle : saved.edge_bundles) {
+      if (!route_edge_ids.contains(edge_bundle.edge_id)) {
+        continue;
+      }
+      for (ObjectId span_id : edge_bundle.span_ids) {
+        EditResult<bool> merged =
+            assembled.merge_cached_span_outputs_from(route_trial, span_id);
+        if (!merged.ok) {
+          result.error = merged.error;
+          return result;
+        }
+      }
+    }
+    assembled.merge_cached_support_groups_from(route_trial);
   }
 
+  runtime_.cache_state = std::move(assembled.runtime_.cache_state);
   EditResult<VisualCurvePartCache> visual_curves =
       generation::backbone::make_visual_curve_parts(*this, {});
   if (!visual_curves.ok) {
@@ -768,6 +795,20 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
     return result;
   }
   cache_visual_curve_parts(std::move(visual_curves.value));
+  EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+      generation::backbone::fixture_placement_plan_from_cache(*this);
+  if (!fixture_plan.ok) {
+    result.error = fixture_plan.error;
+    return result;
+  }
+  EditResult<VisualModelInstanceCache> model_instances =
+      generation::backbone::materialize_model_assemblies(
+          *this, fixture_plan.value);
+  if (!model_instances.ok) {
+    result.error = model_instances.error;
+    return result;
+  }
+  cache_visual_model_instances(std::move(model_instances.value));
   result.ok = true;
   result.value = true;
   return result;

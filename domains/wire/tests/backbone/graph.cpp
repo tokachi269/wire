@@ -1266,6 +1266,18 @@ bool snapshots_match(const JunctionRowSnapshot& a, const JunctionRowSnapshot& b)
   return true;
 }
 
+std::string junction_snapshot_counts(const JunctionRowSnapshot& value) {
+  return "rows=" + std::to_string(value.row_keys.size()) +
+         " pairs=" + std::to_string(value.pair_rows) +
+         " opens=" + std::to_string(value.open_rows) +
+         " levels=" + std::to_string(value.support_levels) +
+         " patches=" + std::to_string(value.node_patch_edges.size()) +
+         " row_fixtures=" + std::to_string(value.row_fixture_instances) +
+         " endpoint_fixtures=" +
+         std::to_string(value.endpoint_fixture_instances) +
+         " ports=" + std::to_string(value.port_positions.size());
+}
+
 struct IncrementalCrossFixture {
   city::wire::CoreState state{};
   city::wire::ObjectId pole_b = city::wire::kInvalidObjectId;
@@ -1778,6 +1790,10 @@ bool C775_backbone_incremental_canonical_pair_survives_save_load() {
   WIRE_TEST_EXPECT(make_incremental_cross(&source), "incremental cross fixture generation failed");
   WIRE_TEST_EXPECT(source.completion.ok, source.completion.error);
   WIRE_TEST_EXPECT(canonical_cross_at_b(source), "incremental cross was not canonical at B before save");
+  std::string source_invariant_error{};
+  WIRE_TEST_EXPECT_ANCHOR(
+      backbone_common_invariants_pass(source.state, &source_invariant_error),
+      "before save: " + source_invariant_error);
   const JunctionRowSnapshot before = junction_snapshot(source.state, source.pole_b);
   std::string saved{};
   const auto serialized = source.state.SerializeAuthoritative(&saved);
@@ -1786,10 +1802,32 @@ bool C775_backbone_incremental_canonical_pair_survives_save_load() {
   const auto deserialized = loaded.DeserializeAuthoritative(saved);
   WIRE_TEST_EXPECT(deserialized.ok, deserialized.error);
   const JunctionRowSnapshot after = junction_snapshot(loaded, source.pole_b);
-  WIRE_TEST_EXPECT(snapshots_match(before, after), "junction row snapshot changed after save/load");
-  WIRE_TEST_EXPECT(curve_endpoints_match_layout(loaded), "curve endpoints do not match layout after save/load");
+  std::string visual_diagnostics{};
+  std::string patch_nodes{};
+  for (const city::wire::VisualCurveDiagnostic& diagnostic :
+       loaded.view().visual_curve_parts().diagnostics) {
+    visual_diagnostics +=
+        (visual_diagnostics.empty() ? "" : "; ") + diagnostic.reason;
+  }
+  for (const city::wire::VisualCurvePart& part :
+       loaded.view().visual_curve_parts().parts) {
+    if (part.kind != city::wire::VisualCurvePartKind::kNodePatch) continue;
+    patch_nodes += (patch_nodes.empty() ? "" : ",") +
+                   std::to_string(part.source_node_id);
+  }
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      snapshots_match(before, after),
+      "junction row snapshot changed after save/load: before " +
+          junction_snapshot_counts(before) + " after " +
+          junction_snapshot_counts(after) + " diagnostics=" +
+          visual_diagnostics + " patch_nodes=" + patch_nodes);
+  WIRE_TEST_EXPECT_ANCHOR(
+      curve_endpoints_match_layout(loaded),
+      "curve endpoints do not match layout after save/load");
   std::string invariant_error{};
-  WIRE_TEST_EXPECT(backbone_common_invariants_pass(loaded, &invariant_error), invariant_error);
+  WIRE_TEST_EXPECT_ANCHOR(
+      backbone_common_invariants_pass(loaded, &invariant_error),
+      invariant_error);
   return true;
 }
 

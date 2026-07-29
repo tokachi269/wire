@@ -218,6 +218,9 @@ private:
   [[nodiscard]] bool authoritative_equals(const CoreState& other) const;
   void cache_span_rules(const SpanLayoutRules& rules);
   void remove_span_from_caches(ObjectId span_id);
+  EditResult<bool> merge_cached_span_outputs_from(const CoreState& source,
+                                                   ObjectId span_id);
+  void merge_cached_support_groups_from(const CoreState& source);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
   [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;
   [[nodiscard]] SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) const;

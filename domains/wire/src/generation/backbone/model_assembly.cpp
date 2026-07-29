@@ -427,7 +427,7 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
       out.value.rows.push_back({pole, representation.value.row_key,
                                 edge_bundle->bundle_id,
                                 binding.bundle_template_id, row_assembly_id,
-                                representation.value.layout_yaw_deg,
+                                binding.layout_yaw_deg,
                                 {{port->id, {port->id}, binding.lane_index, binding.placement_band_id,
                                   edge->lateral_offset_m, bundle->placement_explicit,
                                   bundle->lateral_m,
@@ -435,7 +435,7 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
     } else {
       if (row_it->assembly_id != row_assembly_id ||
           std::abs(row_it->layout_yaw_deg -
-                   representation.value.layout_yaw_deg) > kStrictAngleToleranceDeg) {
+                   binding.layout_yaw_deg) > kStrictAngleToleranceDeg) {
         out.error = "model assembly unsupported: saved row resolves inconsistent fixture data";
         return out;
       }
@@ -717,7 +717,9 @@ void resolve_endpoint_fixture_placements(EditResult<FixturePlacementPlanByPort>*
     const Port* port = view.ports().find(port_id);
     if (port == nullptr) {
       out->ok = false;
-      out->error = "model assembly unsupported: endpoint fixture plan port is missing";
+      out->error =
+          "model assembly unsupported: endpoint fixture plan port is missing: " +
+          std::to_string(port_id);
       return;
     }
     const RowFixturePlacementPlan* row_fixture =
@@ -756,10 +758,30 @@ EditResult<FixturePlacementPlanByPort> fixture_placement_plan_from_cache(const C
   EditResult<FixturePlacementPlanByPort> out{};
   out.ok = true;
   state.view().cache_state().span_layout_cache.for_each_layout_record(
-      [&](ObjectId, const SpanLayoutCacheRecord& record, const SpanLayoutEntry&) {
+      [&](ObjectId span_id, const SpanLayoutCacheRecord& record,
+          const SpanLayoutEntry&) {
+        if (!out.ok) {
+          return;
+        }
         const SpanLayoutRule* rule = record.span_layout_rule();
         if (rule == nullptr) {
           return;
+        }
+        for (ObjectId port_id : {rule->start.port_id, rule->end.port_id}) {
+          if (port_id != kInvalidObjectId &&
+              state.view().ports().find(port_id) == nullptr) {
+            const Span* span = state.view().spans().find(span_id);
+            out.ok = false;
+            out.error =
+                "model assembly unsupported: span layout cache " +
+                std::to_string(span_id) + " references missing Port " +
+                std::to_string(port_id) + " while authoritative span is " +
+                (span == nullptr
+                     ? std::string("missing")
+                     : "present with ports " + std::to_string(span->port_a_id) +
+                           " and " + std::to_string(span->port_b_id));
+            return;
+          }
         }
         append_fixture_placement_plan(&out, state, rule->start);
         append_fixture_placement_plan(&out, state, rule->end);

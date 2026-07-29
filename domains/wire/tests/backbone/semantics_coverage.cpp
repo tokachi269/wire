@@ -1,4 +1,5 @@
 #include "semantics_coverage.hpp"
+#include "fixtures.hpp"
 
 #include "city/wire/core_authoritative_types.hpp"
 #include "city/wire/core_runtime_types.hpp"
@@ -243,6 +244,14 @@ bool Observe(Operation operation, Entry entry, const city::wire::CoreState& stat
              std::size_t lane_index, std::string* error) {
   State classified = State::kS0;
   if (!classify(state, pole_id, reference_edge_bundle_id, lane_index, &classified, error)) return false;
+  std::string invariant_error;
+  if (!backbone_common_invariants_pass(state, &invariant_error)) {
+    if (error != nullptr) {
+      *error = cell_id(operation, classified) + " entry:" + entry_name(entry) +
+               " invariant: " + invariant_error;
+    }
+    return false;
+  }
   add_observation(operation, classified, entry);
   return true;
 }
@@ -250,6 +259,14 @@ bool Observe(Operation operation, Entry entry, const city::wire::CoreState& stat
 bool ObserveEmpty(Operation operation, Entry entry, const city::wire::CoreState& state, std::string* error) {
   if (!state.view().backbone().port_bindings.empty()) {
     if (error != nullptr) *error = "S0 observation requires no existing endpoint bindings";
+    return false;
+  }
+  std::string invariant_error;
+  if (!backbone_common_invariants_pass(state, &invariant_error)) {
+    if (error != nullptr) {
+      *error = cell_id(operation, State::kS0) + " entry:" + entry_name(entry) +
+               " invariant: " + invariant_error;
+    }
     return false;
   }
   add_observation(operation, State::kS0, entry);
@@ -283,6 +300,14 @@ bool ObserveMidspan(Operation operation, Entry entry, city::wire::CoreState& sta
     if (error != nullptr) *error = "SM observation requires a matching pending or saved source node";
     return false;
   }
+  std::string invariant_error;
+  if (!backbone_common_invariants_pass(state, &invariant_error)) {
+    if (error != nullptr) {
+      *error = cell_id(operation, State::kSM) + " entry:" + entry_name(entry) +
+               " invariant: " + invariant_error;
+    }
+    return false;
+  }
   add_observation(operation, State::kSM, entry);
   return true;
 }
@@ -294,7 +319,12 @@ bool ValidateRuntimeCoverage(std::string* error) {
     if (error != nullptr) *error = parse_error;
     return false;
   }
-  std::set<std::string> covered;
+  using CoveredEntry = std::pair<std::string, Entry>;
+  std::set<CoveredEntry> required_entries;
+  for (const std::string& cell : required) {
+    required_entries.emplace(cell, Entry::kCoreApi);
+  }
+  std::set<CoveredEntry> covered;
   std::set<std::string> weak;
   for (const Observation& observation : observations()) {
     const std::string cell = cell_id(observation.operation, observation.state);
@@ -302,13 +332,14 @@ bool ValidateRuntimeCoverage(std::string* error) {
       weak.insert(cell + " case:" + observation.case_id + " is a SourceGuard");
       continue;
     }
-    if (observation.entry == Entry::kCoreApi) covered.insert(cell);
+    covered.emplace(cell, observation.entry);
     if (!test_registry::TestCaseHasIndependentAssertion(observation.case_id)) {
       weak.insert(cell + " case:" + observation.case_id + " entry:" + entry_name(observation.entry));
     }
   }
-  std::vector<std::string> missing;
-  std::set_difference(required.begin(), required.end(), covered.begin(), covered.end(), std::back_inserter(missing));
+  std::vector<CoveredEntry> missing;
+  std::set_difference(required_entries.begin(), required_entries.end(), covered.begin(), covered.end(),
+                      std::back_inserter(missing));
   if (missing.empty() && weak.empty()) return true;
   if (error != nullptr) {
     std::ostringstream out;
@@ -316,7 +347,7 @@ bool ValidateRuntimeCoverage(std::string* error) {
       out << "unreached cells: ";
       for (std::size_t i = 0; i < missing.size(); ++i) {
         if (i > 0) out << ", ";
-        out << missing[i];
+        out << missing[i].first << " entry:" << entry_name(missing[i].second);
       }
     }
     if (!weak.empty()) {

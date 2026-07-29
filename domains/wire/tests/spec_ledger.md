@@ -546,7 +546,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C772 | Behavior | Boundary | incremental pairing は複数の未接続候補を推測せず新edgeをopenで残す | `legacy_unclassified` | first-match、最小角度選択、曖昧時の操作拒否を防ぐ |
 | C773 | Behavior | Invariant | sharp corner の incremental completion はcontinuityを記録し2 dead-end rowとjumperを導出する | `legacy_unclassified` | sharp接続を未接続として保存する、または通常NodePatchとして描く回帰を防ぐ |
 | C774 | Behavior | Invariant | bundle/port scope が違う incremental completion は既存Portを誤共有しない | `legacy_unclassified` | row keyだけで異scopeのport bindingを再利用する回帰を防ぐ |
-| C775 | Behavior | Invariant | incremental canonical pair row は save/load 後も維持される | `legacy_unclassified` | 保存形式やload再派生でcanonical pairがopenへ戻る回帰を防ぐ |
+| C775 | Behavior | Invariant | incremental canonical pair row は save/load 後も維持される | `differential` `anchor` | 保存形式やload再派生でcanonical pairがopenへ戻る、または保存Spanと再導出endpointの向きが分裂する回帰を防ぐ |
 | C776 | Behavior | Invariant | incremental canonical pair row は regenerate 後も維持される | `legacy_unclassified` | regenerateがsaved open由来のpairを3rowへ戻す回帰を防ぐ |
 | C777 | Behavior | Invariant | reverse input direction でも incremental completion は同じcontinuityと派生rowへ収束する | `legacy_unclassified` | 入力方向によってcontinuityやrow配置が反転する回帰を防ぐ |
 | C778 | Behavior | Invariant | multi-template の incremental completion は各互換scopeを1回だけ接続し、別scopeや別openを曖昧扱いしない | `legacy_unclassified` | endpoint bindingをscope外まで汎用探索して曖昧化する回帰を防ぐ |
@@ -571,7 +571,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C808 | Behavior | Invariant | T字branch loweringはHV categoryではなくBundleTemplate flagだけに従う | `legacy_unclassified` | HV専用分岐で高さを変える、またはflagを無視して非対象templateのPort自体をrow reflowで下げる回帰を防ぐ |
 | C809 | Behavior | Invariant | 1 support levelは1 continuity pairまたは1未接続endpointだけを収容し、incremental追加では既存levelを維持して次の空きlevelへ進む | `legacy_unclassified` | 追加rowをすべて固定の2段目へ置く、接続時に段を変える、または通常stateの高さ・ID順から段を再推測する回帰を防ぐ |
 | C810 | Behavior | Invariant | 通常pairはedge endpoint別Portを持ち、共有row/fixtureだけを導出する | `legacy_unclassified` | shared Port、別計算の位置ずれ、fixture二重生成、通常repositionでのPort再生成を防ぐ |
-| C811 | Behavior | Invariant | 共有Portを含むv2 saveはedge endpoint別Portへ決定的に移行し、派生幾何を変えない | `legacy_unclassified` | 実workspaceを読めなくする、ID順や高さで誤分割する、またはmigrationで線・碍子・腕金の位置を変える回帰を防ぐ |
+| C811 | Behavior | Invariant | 共有Portを含むv2 saveはedge endpoint別Portへ決定的に移行し、派生幾何を変えない | `differential` `anchor` | 実workspaceを読めなくする、ID順や高さで誤分割する、またはmigrationで線・碍子・腕金の位置を変える回帰を防ぐ |
 | C812 | Behavior | Boundary | shared Port migrationはcontinuityで分割先を一意に特定できないv2 saveを部分適用しない | `legacy_unclassified` | 高さ、ID順、binding順による推測migrationや部分適用を防ぐ |
 | C813 | Behavior | Invariant | MovePoleで通常/鋭角閾値を跨いでもendpoint identityを維持し表現だけを再導出する | `legacy_unclassified` | 保存pair/open表現やcached ruleにより角度変更後も古いrow/fixture/patchが残る回帰を防ぐ |
 | C814 | Behavior | Invariant | 同一操作の2 edgeを既存openより優先して接続しない | `legacy_unclassified` | 操作内隣接を特別扱いして曖昧候補から勝手にpairを選ぶ回帰を防ぐ |
@@ -586,4 +586,4 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C794 | SourceGuard | Boundary | ViewerActionContextのtimer/cancel/interaction/persistence/factory状態はprivateで、action moduleはmethod経由で操作する | `source_guard` | 役割分割後に巨大共有contextへpublic mutable stateが戻り、action module間でtimerやcancel状態を自由変更する回帰を防ぐ |
 | C768 | Behavior | Boundary | 新field導入前のauthoritative stateは暗黙supportと既定Bundle placementを維持し現行形式へ移行できる | `legacy_unclassified` | IndexedDBに残る旧workspaceのrestore不能化、旧helixから必須supportが消える回帰を防ぐ |
 
-| C836 | Behavior | Symptom | 操作×状態表の各確定セルを実際の正本状態から分類して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする回帰を防ぐ |
+| C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |

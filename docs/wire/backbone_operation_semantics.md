@@ -62,10 +62,27 @@ coverageとして認めるcaseは、次の独立evidenceを1つ以上持つ。
 派生値同士の一致だけを示す`derived_equality`は、単独ではcoverage evidenceにしない。
 source textを検査するcaseは`SourceGuard` familyへ分離し、操作×状態coverageには使用しない。
 
+### coverageと不変条件
+
+coverageは「操作×状態のrequired cellへ到達したか」だけを表す。cellへ到達した状態が
+内部整合していることは、別の共通不変条件で検査する。
+
+`Observe` / `ObserveEmpty` / `ObserveMidspan`はcoverageを記録する前に、全bindingについて
+次を検査する。
+
+- 正本のplacement、band、laneから求めたPort anchorと、binding yawのpole frame上のPort位置
+- endpoint fixture anchorと対応Port
+- row fixture frameとbinding yaw
+- layout endpoint、model socket、curve endpoint
+
+不変条件違反は`anchor` evidenceとして、binding、Port、期待値、実測値を含む理由で失敗する。
+派生値同士が一致するだけでは、正本anchorとのずれを通過させない。
+
 ## 入口境界
 
-core API の全required cellに加え、実アプリがbranch生成へ渡すpayloadは次のentryで検証する。
-この表はweb testが実行時に直接読み、required cellを実payloadで通さなければ失敗する。
+core API の全required cellはCore testが`(cell, core_api)`として強制する。これに加え、
+実アプリがbranch生成へ渡すpayloadは次のentryで検証する。この表はweb testが実行時に
+直接読み、required cellを実payloadで通さなければ失敗する。
 
 | Cell | Required entries |
 |---|---|

@@ -186,6 +186,9 @@ valid authoritativeから派生が欠ける、emitへ不整合なresolved geomet
 `ValidateAuthoritativeGraph`はloadとoperation trial後に共通利用し、保存正本の完全性だけを見る。generateでしか判断できない
 幾何対応可否は混ぜない。
 
+testはproductionと同じ`ValidateGraphInvariants`を代表scenarioの観測点とseed付き操作列の
+各stepで呼ぶ。test専用の別invariantや、派生値同士だけを比較する代替検査を作らない。
+
 ## Module boundaries
 
 ```text

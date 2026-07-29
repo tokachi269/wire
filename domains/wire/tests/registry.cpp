@@ -37,8 +37,8 @@ TestFamily& ActiveFamily() {
   return family;
 }
 
-std::unordered_map<std::string, bool>& CompletedEvidence() {
-  static std::unordered_map<std::string, bool> evidence;
+std::unordered_map<std::string, std::vector<AssertionKind>>& CompletedEvidence() {
+  static std::unordered_map<std::string, std::vector<AssertionKind>> evidence;
   return evidence;
 }
 std::vector<AssertionKind>& CurrentAssertions() {
@@ -122,7 +122,7 @@ void BeginTestCase(const char* case_id, TestFamily family) {
 
 void EndTestCase() {
   if (!ActiveCaseId().empty()) {
-    CompletedEvidence()[ActiveCaseId()] = CurrentTestHasIndependentAssertion();
+    CompletedEvidence()[ActiveCaseId()] = CurrentAssertions();
   }
   ActiveCaseId().clear();
   CurrentAssertions().clear();
@@ -151,7 +151,31 @@ TestFamily CurrentTestFamily() {
 
 bool TestCaseHasIndependentAssertion(const std::string& case_id) {
   const auto it = CompletedEvidence().find(case_id);
-  return it != CompletedEvidence().end() && it->second;
+  if (it == CompletedEvidence().end()) return false;
+  return std::any_of(it->second.begin(), it->second.end(), [](AssertionKind kind) {
+    return kind == AssertionKind::kOracle || kind == AssertionKind::kAnchor ||
+           kind == AssertionKind::kPresence || kind == AssertionKind::kDifferential;
+  });
+}
+
+std::vector<std::string> TestCaseIdsWithOnlyDerivedEquality() {
+  std::vector<std::string> out{};
+  for (const auto& [case_id, assertions] : CompletedEvidence()) {
+    const bool has_derived = std::find(assertions.begin(), assertions.end(),
+                                       AssertionKind::kDerivedEquality) != assertions.end();
+    const bool has_independent = std::any_of(
+        assertions.begin(), assertions.end(), [](AssertionKind kind) {
+          return kind == AssertionKind::kOracle || kind == AssertionKind::kAnchor ||
+                 kind == AssertionKind::kPresence || kind == AssertionKind::kDifferential;
+        });
+    if (has_derived && !has_independent) out.push_back(case_id);
+  }
+  std::sort(out.begin(), out.end(), [](const std::string& a, const std::string& b) {
+    const int a_num = CaseNumber(a.c_str());
+    const int b_num = CaseNumber(b.c_str());
+    return a_num == b_num ? a < b : a_num < b_num;
+  });
+  return out;
 }
 
 const std::vector<AssertionKind>& CurrentTestAssertions() {

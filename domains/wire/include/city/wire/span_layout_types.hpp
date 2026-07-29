@@ -452,6 +452,8 @@ struct SpanLayoutCache {
     it->second.clear_layout();
     erase_record_if_empty(span_id);
   }
+
+  void erase_record(ObjectId span_id) { records_by_span.erase(span_id); }
 };
 
 } // namespace city::wire

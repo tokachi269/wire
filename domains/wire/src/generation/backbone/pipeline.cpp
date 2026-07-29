@@ -217,13 +217,17 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
     out.ok = true;
     return out;
   }
-  EditResult<std::vector<PromotionPlanEntry>> promotions =
-      timed(timing, &GenerationTiming::preflight_ms, [&] { return plan_promotions(ps.value); });
-  if (!promotions.ok) {
-    out.error = promotions.error;
-    return out;
+  promotion_plan_.clear();
+  if (write_row_continuity_) {
+    EditResult<std::vector<PromotionPlanEntry>> promotions =
+        timed(timing, &GenerationTiming::preflight_ms,
+              [&] { return plan_promotions(ps.value); });
+    if (!promotions.ok) {
+      out.error = promotions.error;
+      return out;
+    }
+    promotion_plan_ = std::move(promotions.value);
   }
-  promotion_plan_ = std::move(promotions.value);
 
   EditResult<groups> placement =
       timed(timing, &GenerationTiming::support_groups_ms, [&] { return make(ps.value, intents.value); });
@@ -925,7 +929,7 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
   EditResult<ObjectId> out{};
   out.value = kInvalidObjectId;
   out.ok = true;
-  if (edge_bundle_id == kInvalidObjectId || pole_id == kInvalidObjectId ||
+  if (edge_bundle_id == kInvalidObjectId ||
       row_key.node_id == kInvalidObjectId ||
       row_key.edge_id == kInvalidObjectId) {
     return out;
@@ -3476,6 +3480,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
               out.error = "backbone internal: backbone topology: resolved port missing";
               return out;
             }
+            const double layout_yaw_deg = PortLayoutYawDeg(r.axis);
             const bool moved = moved_more_than_epsilon(existing_port->world_position, p);
             bool height_reflow_required = moved;
             if (!ownerless) {
@@ -3484,25 +3489,60 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
                 out.error = "backbone internal: backbone topology: row pole missing";
                 return out;
               }
-              const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
+              const PoleFrame frame = BuildPoleFrame(pole->world_transform, layout_yaw_deg);
               height_reflow_required =
                   std::abs(WorldPointToLocal(frame, existing_port->world_position).z -
                            WorldPointToLocal(frame, p).z) > kLengthToleranceM;
             }
-            if (!promoted_endpoint && moved &&
+            if (write_row_continuity_ && !promoted_endpoint && moved &&
                 (existing_port->position_mode == PortPositionMode::kManual ||
                  existing_port->user_edited_position) &&
                 height_reflow_required) {
               out.error = "backbone unsupported: canonical row reflow requires moving manual ports";
               return out;
             }
-            if (!promoted_endpoint && moved &&
+            if (write_row_continuity_ && !promoted_endpoint &&
                 existing_port->position_mode != PortPositionMode::kManual &&
                 !existing_port->user_edited_position) {
-              existing_port->world_position = p;
+              const SavedBackbonePortBinding* exact_binding = nullptr;
+              for (const SavedBackbonePortBinding* candidate :
+                   state_.view().backbone_port_bindings_for_row(
+                       row_key, static_cast<std::size_t>(lane))) {
+                if (candidate == nullptr ||
+                    candidate->edge_bundle_id != edge_bundle_id ||
+                    candidate->port_id != existing_port->id) {
+                  continue;
+                }
+                if (exact_binding != nullptr) {
+                  out.error =
+                      "backbone unsupported: canonical row frame binding is ambiguous";
+                  return out;
+                }
+                exact_binding = candidate;
+              }
+              if (exact_binding == nullptr) {
+                out.error =
+                    "backbone internal: canonical row frame binding is missing";
+                return out;
+              }
+              const int support_level = exact_binding->support_level;
+              const int support_group_id = exact_binding->support_group_id;
+              EditResult<bool> frame_updated =
+                  state_.update_backbone_port_binding_frame_exact(
+                      edge_bundle_id, row_key, static_cast<std::size_t>(lane),
+                      layout_yaw_deg, support_level, support_group_id,
+                      existing_port->id, p);
+              if (!frame_updated.ok) {
+                out.error = frame_updated.error;
+                return out;
+              }
               ApplyPortBandTemplateFields(existing_port, band);
-              CoreState::add_unique_id(changes->updated_ids, existing_port->id);
-              state_.touch_connected_spans_from_port(existing_port->id, changes);
+              if (frame_updated.value) {
+                CoreState::add_unique_id(changes->updated_ids,
+                                         existing_port->id);
+                state_.touch_connected_spans_from_port(existing_port->id,
+                                                       changes);
+              }
             }
             endpoint.ports[bundle_index].push_back(resolved.value);
             continue;
@@ -3575,6 +3615,25 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
           if (existing_span == nullptr) {
             out.error = "backbone internal: backbone topology: existing span is missing";
             return out;
+          }
+          if (!write_row_continuity_) {
+            std::size_t span_arow = edge.arow;
+            std::size_t span_brow = edge.brow;
+            if (existing_span->port_a_id == port_b &&
+                existing_span->port_b_id == port_a) {
+              std::swap(span_arow, span_brow);
+            } else if (existing_span->port_a_id != port_a ||
+                       existing_span->port_b_id != port_b) {
+              out.error =
+                  "backbone internal: authoritative deserialization: saved "
+                  "span endpoints do not match either route direction";
+              return out;
+            }
+            made->spans.push_back(
+                tspan{existing_span_id, edge.id, bundle_index,
+                      static_cast<std::size_t>(lane), span_arow, span_brow,
+                      false});
+            continue;
           }
           if (existing_span->port_a_id != port_a || existing_span->port_b_id != port_b) {
             const Span before = *existing_span;

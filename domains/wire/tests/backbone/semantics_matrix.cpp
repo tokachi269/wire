@@ -17,11 +17,60 @@ using semantics_coverage::Operation;
 
 enum class MatrixState { kS1, kS2, kS3, kS4, kS5 };
 
+const char* matrix_state_name(MatrixState state) {
+  switch (state) {
+  case MatrixState::kS1: return "S1";
+  case MatrixState::kS2: return "S2";
+  case MatrixState::kS3: return "S3";
+  case MatrixState::kS4: return "S4";
+  case MatrixState::kS5: return "S5";
+  }
+  return "unknown";
+}
+
 struct MatrixFixture {
   city::wire::CoreState state{};
   city::wire::ObjectId pole_id = city::wire::kInvalidObjectId;
   city::wire::ObjectId reference_edge_bundle_id = city::wire::kInvalidObjectId;
 };
+
+bool configure_matrix_fixture_models(city::wire::CoreState* state) {
+  if (state == nullptr) return false;
+  constexpr city::wire::ModelAssemblyTemplateId kRowAssembly = 9836;
+  constexpr city::wire::ModelAssemblyTemplateId kEndpointAssembly = 9837;
+
+  city::wire::ModelAssemblyTemplate row{};
+  row.id = kRowAssembly;
+  city::wire::ModelAssemblyPart row_part{};
+  row_part.part_id = 1;
+  row_part.model_key = "semantics_row_fixture";
+  row_part.sockets.push_back(
+      {"endpoint_mount", {0.0, 0.0, 0.04}, {0.0, 0.0, 1.0}});
+  row.parts.push_back(row_part);
+  row.endpoint_mount_socket =
+      city::wire::AssemblySocketRef{1, "endpoint_mount"};
+
+  city::wire::ModelAssemblyTemplate endpoint{};
+  endpoint.id = kEndpointAssembly;
+  city::wire::ModelAssemblyPart endpoint_part{};
+  endpoint_part.part_id = 1;
+  endpoint_part.model_key = "semantics_endpoint_fixture";
+  endpoint_part.sockets.push_back(
+      {"wire", {0.0, 0.0, 0.20}, {1.0, 0.0, 0.0}});
+  endpoint.parts.push_back(endpoint_part);
+  endpoint.wire_socket = city::wire::AssemblySocketRef{1, "wire"};
+
+  if (!state->RegisterModelAssemblyTemplate(row).ok ||
+      !state->RegisterModelAssemblyTemplate(endpoint).ok) {
+    return false;
+  }
+  const city::wire::BundleTemplateId template_id =
+      city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kLowVoltage);
+  city::wire::BundleTemplate bundle = state->view().bundle_templates().at(template_id);
+  bundle.row_fixture_assembly_id = kRowAssembly;
+  bundle.endpoint_fixture_assembly_id = kEndpointAssembly;
+  return state->UpdateBundleTemplate(bundle).ok;
+}
 
 city::wire::ObjectId first_lane_edge_bundle_at_pole(const city::wire::CoreState& state,
                                                      city::wire::ObjectId pole_id) {
@@ -56,6 +105,7 @@ bool add_two_edges(MatrixFixture* fixture, const city::wire::Vec3d& a,
 
 bool make_matrix_fixture(MatrixState target, MatrixFixture* out) {
   if (out == nullptr) return false;
+  if (!configure_matrix_fixture_models(&out->state)) return false;
   city::wire::BackboneSpec request = poly3_req(out->state);
   switch (target) {
   case MatrixState::kS1:
@@ -88,14 +138,19 @@ bool make_matrix_fixture(MatrixState target, MatrixFixture* out) {
 
 bool observe(MatrixFixture& fixture, Operation operation) {
   std::string error;
-  return semantics_coverage::Observe(operation, Entry::kCoreApi, fixture.state,
-                                     fixture.pole_id, fixture.reference_edge_bundle_id,
-                                     0, &error);
+  WIRE_TEST_EXPECT_ANCHOR(
+      semantics_coverage::Observe(operation, Entry::kCoreApi, fixture.state,
+                                  fixture.pole_id, fixture.reference_edge_bundle_id,
+                                  0, &error),
+      error);
+  return true;
 }
 
-bool expect_common_invariants(const city::wire::CoreState& state) {
+bool expect_common_invariants(const city::wire::CoreState& state,
+                              const std::string& context) {
   std::string reason;
-  WIRE_TEST_EXPECT_ANCHOR(backbone_common_invariants_pass(state, &reason), reason);
+  WIRE_TEST_EXPECT_ANCHOR(backbone_common_invariants_pass(state, &reason),
+                          context + ": " + reason);
   return true;
 }
 
@@ -115,7 +170,8 @@ bool exercise_add_one(MatrixState initial) {
   WIRE_TEST_EXPECT_ANCHOR(
       fixture.state.view().backbone().row_continuities.size() == continuity_before + (connects ? 1U : 0U),
       "add_one_edge continuity delta does not match the semantics matrix");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state,
+                                  std::string("add_one_edge after ") + matrix_state_name(initial));
 }
 
 bool exercise_add_two(MatrixState initial) {
@@ -132,7 +188,8 @@ bool exercise_add_two(MatrixState initial) {
   WIRE_TEST_EXPECT_ANCHOR(
       fixture.state.view().backbone().row_continuities.size() == continuity_before + (connects ? 1U : 0U),
       "add_two_edges continuity delta does not match the semantics matrix");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state,
+                                  std::string("add_two_edges after ") + matrix_state_name(initial));
 }
 
 bool exercise_move(MatrixState initial) {
@@ -148,7 +205,8 @@ bool exercise_move(MatrixState initial) {
                             "move_pole_angle matrix operation failed");
   WIRE_TEST_EXPECT_ANCHOR(fixture.state.view().backbone().row_continuities.size() == continuity_before,
                           "move_pole_angle changed recorded connectivity");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state,
+                                  std::string("move_pole_angle after ") + matrix_state_name(initial));
 }
 
 bool exercise_update_placement(MatrixState initial) {
@@ -167,7 +225,8 @@ bool exercise_update_placement(MatrixState initial) {
       "update_placement matrix operation failed");
   WIRE_TEST_EXPECT_ANCHOR(fixture.state.view().backbone().row_continuities.size() == continuity_before,
                           "update_placement changed recorded connectivity");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state,
+                                  std::string("update_placement after ") + matrix_state_name(initial));
 }
 
 bool exercise_save_load(MatrixState initial) {
@@ -182,7 +241,8 @@ bool exercise_save_load(MatrixState initial) {
   WIRE_TEST_EXPECT_PRESENCE(loaded_result.ok, loaded_result.error);
   WIRE_TEST_EXPECT_ANCHOR(loaded.view().backbone().row_continuities.size() == continuity_before,
                           "save_load changed recorded connectivity");
-  return expect_common_invariants(loaded);
+  return expect_common_invariants(loaded,
+                                  std::string("save_load after ") + matrix_state_name(initial));
 }
 
 bool exercise_regenerate(MatrixState initial) {
@@ -196,7 +256,8 @@ bool exercise_regenerate(MatrixState initial) {
                             "regenerate matrix operation failed");
   WIRE_TEST_EXPECT_ANCHOR(fixture.state.view().backbone().row_continuities.size() == continuity_before,
                           "regenerate changed recorded connectivity");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state,
+                                  std::string("regenerate after ") + matrix_state_name(initial));
 }
 
 struct MidspanFixture {
@@ -261,8 +322,11 @@ bool source_node_is_saved(const city::wire::CoreState& state, const MidspanFixtu
 }
 bool observe_midspan(MidspanFixture& fixture, Operation operation) {
   std::string error;
-  return semantics_coverage::ObserveMidspan(operation, Entry::kCoreApi, fixture.state,
-                                             fixture.source_edge_id, &error);
+  WIRE_TEST_EXPECT_ANCHOR(
+      semantics_coverage::ObserveMidspan(operation, Entry::kCoreApi, fixture.state,
+                                         fixture.source_edge_id, &error),
+      error);
+  return true;
 }
 
 bool midspan_classifier_rejects_unbound_source() {
@@ -305,7 +369,7 @@ bool exercise_midspan_add_one() {
   WIRE_TEST_EXPECT_PRESENCE(fixture.state.view().spans().size() == spans_before + 1,
                             "SM add_one_edge silently dropped its span");
   WIRE_TEST_EXPECT_ANCHOR(source_node_is_saved(fixture.state, fixture), "SM add_one_edge did not preserve source identity");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, "SM add_one_edge");
 }
 
 bool exercise_midspan_update() {
@@ -321,7 +385,7 @@ bool exercise_midspan_update() {
       bundle->id, true, bundle->height_m + 0.05, bundle->lateral_m, bundle->phase_spacing_m);
   WIRE_TEST_EXPECT_PRESENCE(updated.ok, updated.error);
   WIRE_TEST_EXPECT_ANCHOR(source_node_is_saved(fixture.state, fixture), "SM update lost source identity");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, "SM update_placement");
 }
 
 bool exercise_midspan_save_load() {
@@ -336,7 +400,7 @@ bool exercise_midspan_save_load() {
   WIRE_TEST_EXPECT_PRESENCE(loaded_result.ok, loaded_result.error);
   WIRE_TEST_EXPECT_ANCHOR(source_node_is_saved(loaded, fixture),
                           "SM save_load lost source identity");
-  return expect_common_invariants(loaded);
+  return expect_common_invariants(loaded, "SM save_load");
 }
 
 bool exercise_midspan_regenerate() {
@@ -348,7 +412,7 @@ bool exercise_midspan_regenerate() {
   const auto updated = fixture.state.UpdateLayoutSettings(settings);
   WIRE_TEST_EXPECT_PRESENCE(updated.ok, updated.error);
   WIRE_TEST_EXPECT_ANCHOR(source_node_is_saved(fixture.state, fixture), "SM regenerate lost source identity");
-  return expect_common_invariants(fixture.state);
+  return expect_common_invariants(fixture.state, "SM regenerate");
 }
 bool exercise_empty(Operation operation) {
   city::wire::CoreState state;
@@ -382,7 +446,7 @@ bool exercise_empty(Operation operation) {
   } else {
     WIRE_TEST_EXPECT_ORACLE(false, "operation is not defined for S0");
   }
-  return expect_common_invariants(state);
+  return expect_common_invariants(state, "S0 result");
 }
 
 } // namespace

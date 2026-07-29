@@ -1026,6 +1026,13 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
                             continuity.a.lane_index) ||
           !has_any_endpoint(continuity.b.edge_bundle_id,
                             continuity.b.lane_index)) {
+        out.diagnostics.push_back(
+            {continuity.node_id, kInvalidObjectId, kInvalidBundleTemplateId, 0,
+             "continuity endpoint absent from derived sections: a=" +
+                 std::to_string(continuity.a.edge_bundle_id) + "/" +
+                 std::to_string(continuity.a.lane_index) + " b=" +
+                 std::to_string(continuity.b.edge_bundle_id) + "/" +
+                 std::to_string(continuity.b.lane_index)});
         continue;
       }
       if (!scoped_spans.empty()) {
@@ -1071,6 +1078,21 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
         }
         const curve_patch_key key = patch_key_for(endpoint_a);
         if (!same_key(key, patch_key_for(endpoint_b))) {
+          const curve_patch_key peer_key = patch_key_for(endpoint_b);
+          out.diagnostics.push_back(
+              {continuity.node_id, endpoint_a.section_key.logical_span_id,
+               endpoint_a.bundle_template_id, endpoint_a.lane_index,
+               "continuity patch key mismatch: pole=" +
+                   std::to_string(key.pole_type_id) + "/" +
+                   std::to_string(peer_key.pole_type_id) + " band=" +
+                   std::to_string(key.band_id) + "/" +
+                   std::to_string(peer_key.band_id) + " rule_owner=" +
+                   std::to_string(key.rule_owner_id) + "/" +
+                   std::to_string(peer_key.rule_owner_id) + " rule=" +
+                   std::to_string(key.rule_id) + "/" +
+                   std::to_string(peer_key.rule_id) + " instance=" +
+                   std::to_string(key.instance_index) + "/" +
+                   std::to_string(peer_key.instance_index)});
           continue;
         }
         continuity_pairs_by_patch_key[key].push_back({endpoint_a_index, endpoint_b_index});
@@ -1111,6 +1133,10 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       }
       if (patch_a.jumper_peer_port_id != kInvalidObjectId ||
           patch_b.jumper_peer_port_id != kInvalidObjectId) {
+        out.diagnostics.push_back(
+            {key.node_id, patch_a.section_key.logical_span_id,
+             key.bundle_template_id, key.lane_index,
+             "continuity node patch suppressed by sharp jumper peer"});
         continue;
       }
       const double a_len =

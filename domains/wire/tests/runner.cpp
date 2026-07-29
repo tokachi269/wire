@@ -42,6 +42,15 @@ int main(int argc, char** argv) {
       all_passed = false;
     }
   }
+  if (filter.empty()) {
+    const std::vector<std::string> derived_only =
+        test_registry::TestCaseIdsWithOnlyDerivedEquality();
+    std::cout << "derived-equality-only cases (" << derived_only.size() << "):";
+    for (const std::string& case_id : derived_only) {
+      std::cout << " " << case_id;
+    }
+    std::cout << "\n";
+  }
   if (!all_passed) {
     std::cerr << "core tests failed\n";
     return 1;

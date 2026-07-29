@@ -1659,31 +1659,52 @@ bool C727_backbone_pipeline_execution_entry_is_build_input() {
 bool C728_backbone_pipeline_has_no_run_mode_flags() {
   std::string source{};
   std::string header{};
-  if (!file_text(repo_root() / "domains/wire/src/generation/backbone/pipeline.cpp", &source) ||
-      !file_text(repo_root() / "domains/wire/src/generation/backbone/pipeline.hpp", &header)) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(
+      file_text(repo_root() / "domains/wire/src/generation/backbone/pipeline.cpp",
+                &source),
+      "pipeline.cpp is missing");
+  WIRE_TEST_EXPECT(
+      file_text(repo_root() / "domains/wire/src/generation/backbone/pipeline.hpp",
+                &header),
+      "pipeline.hpp is missing");
   const std::vector<std::string> banned = {
       "run_mode", "mode_", "include_new_poles", "run_preflight", "ready_", "bool ready"};
   for (const std::string& token : banned) {
-    if (contains_text(source, token) || contains_text(header, token)) {
-      return false;
-    }
+    WIRE_TEST_EXPECT(!contains_text(source, token) &&
+                         !contains_text(header, token),
+                     "pipeline run-mode token returned: " + token);
   }
-  if (!contains_text(source, "moved_more_than_epsilon(existing_port->world_position, p)") ||
-      !contains_text(source, "path_index_by_local[i] >= 0")) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(
+      contains_text(source,
+                    "moved_more_than_epsilon(existing_port->world_position, p)"),
+      "existing Port movement detection is missing");
+  WIRE_TEST_EXPECT(contains_text(source, "path_index_by_local[i] >= 0"),
+                   "path-local input detection is missing");
   std::string body{};
-  if (!function_body(source, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
-                     &body)) {
-    return false;
-  }
-  return contains_text(body, "Port* existing_port") &&
-         contains_text(body, "existing_port->world_position = p") &&
-         contains_text(body, "ApplyPortBandTemplateFields(existing_port, band)") &&
-         contains_text(body, "changes->updated_ids") &&
-         !contains_text(body, "mode_") && !contains_text(body, "run_mode");
+  WIRE_TEST_EXPECT(
+      function_body(
+          source,
+          "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+          &body),
+      "pipeline::emit_ports body is missing");
+  WIRE_TEST_EXPECT(contains_text(body, "Port* existing_port"),
+                   "existing Port resolution is missing");
+  WIRE_TEST_EXPECT(
+      contains_text(body,
+                    "state_.update_backbone_port_binding_frame_exact("),
+      "existing auto Port is not updated through the exact binding owner");
+  WIRE_TEST_EXPECT(
+      !contains_text(body, "existing_port->world_position = p"),
+      "pipeline bypasses the exact binding owner with a direct Port assignment");
+  WIRE_TEST_EXPECT(
+      contains_text(body, "ApplyPortBandTemplateFields(existing_port, band)"),
+      "existing Port band fields are not refreshed");
+  WIRE_TEST_EXPECT(contains_text(body, "changes->updated_ids"),
+                   "existing Port updates are not recorded");
+  WIRE_TEST_EXPECT(!contains_text(body, "mode_") &&
+                       !contains_text(body, "run_mode"),
+                   "pipeline::emit_ports contains a run-mode branch");
+  return true;
 }
 
 bool C729_backbone_regenerate_source_does_not_handbuild_outputs() {

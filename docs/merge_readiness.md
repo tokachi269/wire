@@ -16,6 +16,17 @@
 
 実行コマンドは[command_cheatsheet.md](command_cheatsheet.md)を参照する。
 
+## test evidence debt
+
+2026-07-29時点のfull core test実測:
+
+- `derived_equality`単独case: 0
+- `legacy_unclassified`: 419
+
+`legacy_unclassified`は一括書換えしない。matrix観測に使うcaseは即時分類し、その他は
+production/testを触った作業単位で分類する。case総数の増加ではなく、この残件数の減少を
+進捗として扱う。
+
 ## architecture条件
 
 - `SavedBackboneGraph`がtopology authorityである

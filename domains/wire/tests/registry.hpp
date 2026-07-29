@@ -47,6 +47,7 @@ bool CurrentTestHasIndependentAssertion();
 const std::string& CurrentTestCaseId();
 TestFamily CurrentTestFamily();
 bool TestCaseHasIndependentAssertion(const std::string& case_id);
+std::vector<std::string> TestCaseIdsWithOnlyDerivedEquality();
 const std::vector<AssertionKind>& CurrentTestAssertions();
 void ClearFailureReason();
 void SetFailureReason(std::string reason);

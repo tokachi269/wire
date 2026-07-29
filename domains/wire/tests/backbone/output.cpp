@@ -3585,43 +3585,63 @@ bool C810_backbone_normal_pair_uses_edge_ports_and_derived_fixture() {
 
 bool C811_authoritative_v2_migrates_shared_pair_ports_without_visual_change() {
   std::string legacy{};
-  if (!file_text(repo_root() / "domains" / "wire" / "tests" / "fixtures" /
-                     "legacy_shared_pair_v2.txt",
-                 &legacy)) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(
+      file_text(repo_root() / "domains" / "wire" / "tests" / "fixtures" /
+                    "legacy_shared_pair_v2.txt",
+                &legacy),
+      "legacy shared-port fixture is missing");
   city::wire::CoreState loaded;
-  if (!loaded.DeserializeAuthoritative(legacy).ok) return false;
+  const auto loaded_result = loaded.DeserializeAuthoritative(legacy);
+  WIRE_TEST_EXPECT(loaded_result.ok, loaded_result.error);
   const std::string actual_signature = d1_derived_signature(loaded);
-  if (actual_signature.empty()) return false;
+  WIRE_TEST_EXPECT(!actual_signature.empty(), "migrated derived signature is empty");
 
   const std::filesystem::path expected_path =
       repo_root() / "domains" / "wire" / "tests" / "fixtures" /
       "legacy_shared_pair_v2.expected.txt";
   std::string expected_signature{};
-  if (!file_text(expected_path, &expected_signature)) {
-    return false;
-  }
-  if (actual_signature != expected_signature) return false;
+  WIRE_TEST_EXPECT(file_text(expected_path, &expected_signature),
+                   "legacy expected signature is missing");
+  const std::size_t signature_difference =
+      std::mismatch(actual_signature.begin(), actual_signature.end(),
+                    expected_signature.begin(), expected_signature.end())
+          .first -
+      actual_signature.begin();
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      actual_signature == expected_signature,
+      "migrated derived signature changed at byte " +
+          std::to_string(signature_difference) + " actual_size=" +
+          std::to_string(actual_signature.size()) + " expected_size=" +
+          std::to_string(expected_signature.size()) + " actual=" +
+          actual_signature.substr(signature_difference, 96) + " expected=" +
+          expected_signature.substr(signature_difference, 96));
 
   for (const city::wire::SavedBackbonePortBinding& binding :
        loaded.view().backbone().port_bindings) {
-    if (loaded.view()
-            .backbone_port_bindings_for_port(binding.port_id)
-            .size() != 1) {
-      return false;
-    }
+    WIRE_TEST_EXPECT_ANCHOR(
+        loaded.view()
+                .backbone_port_bindings_for_port(binding.port_id)
+                .size() == 1,
+        "migrated Port " + std::to_string(binding.port_id) +
+            " is not owned by exactly one edge endpoint binding");
   }
   std::string migrated{};
-  if (!loaded.SerializeAuthoritative(&migrated).ok || migrated == legacy) {
-    return false;
-  }
+  const auto migrated_save = loaded.SerializeAuthoritative(&migrated);
+  WIRE_TEST_EXPECT(migrated_save.ok, migrated_save.error);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      migrated != legacy, "v2 shared-Port fixture was not migrated");
   city::wire::CoreState reloaded;
   std::string resaved{};
-  return reloaded.DeserializeAuthoritative(migrated).ok &&
-         d1_derived_signature(reloaded) == expected_signature &&
-         reloaded.SerializeAuthoritative(&resaved).ok &&
-         resaved == migrated;
+  const auto reloaded_result = reloaded.DeserializeAuthoritative(migrated);
+  WIRE_TEST_EXPECT(reloaded_result.ok, reloaded_result.error);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      d1_derived_signature(reloaded) == expected_signature,
+      "migrated signature changed after reload");
+  const auto resaved_result = reloaded.SerializeAuthoritative(&resaved);
+  WIRE_TEST_EXPECT(resaved_result.ok, resaved_result.error);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      resaved == migrated, "migrated authoritative bytes are not stable");
+  return true;
 }
 
 bool C812_authoritative_v2_rejects_ambiguous_shared_port_migration() {

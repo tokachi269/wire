@@ -119,6 +119,10 @@ def check_road_architecture(root: Path) -> list[str]:
     # 5. Identity never comes from position.
     marking_text = source_text(root / "domains/road/src/generation/markings.cpp")
     connection_text = source_text(root / "domains/road/src/generation/connections.cpp")
+    if "junction_control_factor" in connection_text or "connection_control_factor" in connection_text:
+        errors.append(
+            "domains/road/src/generation/connections.cpp: corner and junction curves must share one control factor"
+        )
     if "side_marking" in marking_text:
         errors.append(
             "domains/road/src/generation/markings.cpp: lane side policies must resolve during section evaluation"

@@ -37,8 +37,7 @@ struct policy {
   double maximum_connection_angle_rad = 135.0 * std::numbers::pi / 180.0;
   double corner_radius_m = 4.0;
   double minimum_junction_setback_m = 4.0;
-  double connection_control_factor = 0.55;
-  double junction_control_factor = 0.45;
+  double curve_control_factor = 0.45;
   double parallel_sine_tolerance = 1e-3;
   std::size_t maximum_approaches = 4;
 };
@@ -367,10 +366,9 @@ resolve_connections(const SavedRoadGraph &graph,
     }
     if (!std::isfinite(minimum_setback))
       minimum_setback = 0.0;
-    connection.corner_control_m =
-        minimum_setback * rules.connection_control_factor;
-    connection.junction_corner_control_m =
-        minimum_setback * rules.junction_control_factor;
+    const double curve_control_m = minimum_setback * rules.curve_control_factor;
+    connection.corner_control_m = curve_control_m;
+    connection.junction_corner_control_m = curve_control_m;
     connections.push_back(std::move(connection));
   }
   return Out::Ok(std::move(connections));

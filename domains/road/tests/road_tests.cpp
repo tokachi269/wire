@@ -354,6 +354,9 @@ bool P1_degree_two_corner_uses_a_curve_without_a_junction(std::string& failure) 
                    "degree-two connection derived stop or crosswalk markings");
   ROAD_TEST_EXPECT(road_test_view::corners(state.derived()).size() == 1,
                    "degree-two corner did not derive a separate connection area");
+  const auto& corner = *road_test_view::corners(state.derived()).front();
+  ROAD_TEST_EXPECT(std::abs(corner.corner_control_m - corner.junction_corner_control_m) < 1e-9,
+                   "corner and junction curve derivation use different control factors");
   std::set<RenderStyleRef> connection_styles{};
   bool has_curved_vertex = false;
   for (const auto& mesh : state.derived().connection_meshes) {
@@ -441,7 +444,10 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   ROAD_TEST_EXPECT(state.graph().nodes.size() == 4, "T junction did not create one shared middle node");
   ROAD_TEST_EXPECT(state.graph().connection_policy_overrides.empty(), "T junction saved an automatic decision");
   ROAD_TEST_EXPECT(road_test_view::junctions(state.derived()).size() == 1, "T junction did not derive one JunctionArea");
-  ROAD_TEST_EXPECT(road_test_view::gates_of(*road_test_view::junctions(state.derived()).front()).size() == 3, "T junction does not have three gates");
+  const auto& junction = *road_test_view::junctions(state.derived()).front();
+  ROAD_TEST_EXPECT(std::abs(junction.corner_control_m - junction.junction_corner_control_m) < 1e-9,
+                   "corner and junction curve derivation use different control factors");
+  ROAD_TEST_EXPECT(road_test_view::gates_of(junction).size() == 3, "T junction does not have three gates");
   ROAD_TEST_EXPECT(state.derived().junction_meshes.size() >= 3,
                    "T junction did not derive material-separated junction surface meshes");
   ROAD_TEST_EXPECT(!state.derived().junction_meshes.front().indices.empty(),
@@ -457,7 +463,6 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
                        junction_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kSidewalk)) &&
                        junction_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kCurb)),
                    "T junction does not connect carriageway, sidewalks, and curbs by style authority");
-  const auto& junction = *road_test_view::junctions(state.derived()).front();
   for (const auto& strip : junction.junction_geometry.surface_strips) {
     ROAD_TEST_EXPECT(strip.left.size() == strip.right.size(),
                      "T junction strip boundaries have different sample counts");
@@ -472,11 +477,11 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
     ROAD_TEST_EXPECT(mesh_faces_up(mesh),
                      "T junction mesh has downward-facing triangles");
   }
-  for (const auto& gate : road_test_view::gates_of(*road_test_view::junctions(state.derived()).front())) {
+  for (const auto& gate : road_test_view::gates_of(junction)) {
     ROAD_TEST_EXPECT(std::hypot(gate.position.x - 20.0, gate.position.y) >= 5.2 - 1e-6,
                      "T junction gate setback did not adapt to the approach width");
   }
-  const auto& gate = road_test_view::gates_of(*road_test_view::junctions(state.derived()).front()).front();
+  const auto& gate = road_test_view::gates_of(junction).front();
   const auto zebra_areas = road_test_view::marking_areas(state.derived());
   const auto zebra_it = std::find_if(
       zebra_areas.begin(), zebra_areas.end(), [](const auto* area) {

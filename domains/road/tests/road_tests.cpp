@@ -509,6 +509,65 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   }
   const auto& gate = road_test_view::gates_of(junction).front();
   const auto zebra_areas = road_test_view::marking_areas(state.derived());
+  for (const auto& mesh : state.derived().marking_meshes) {
+    if (mesh.style ==
+        RenderStyleFromMarking(builtin_marking_styles::kCrosswalk)) {
+      ROAD_TEST_EXPECT(mesh_faces_up(mesh),
+                       "T junction crosswalk mesh faces downward");
+    }
+  }
+  for (const auto& approach_gate : road_test_view::gates_of(junction)) {
+    const bool has_crosswalk = std::any_of(
+        zebra_areas.begin(), zebra_areas.end(),
+        [&approach_gate](const auto* area) {
+          if (area->owner.kind !=
+                  city::road::MarkingOwner::Kind::kJunction ||
+              area->role != MarkingRole::kCrosswalk ||
+              area->polygon.empty()) {
+            return false;
+          }
+          Vec2d center{};
+          for (const auto& point : area->polygon) {
+            center.x += point.x;
+            center.y += point.y;
+          }
+          center.x /= static_cast<double>(area->polygon.size());
+          center.y /= static_cast<double>(area->polygon.size());
+          const double expected_x =
+              approach_gate.position.x + approach_gate.tangent.x * 2.0;
+          const double expected_y =
+              approach_gate.position.y + approach_gate.tangent.y * 2.0;
+          return std::hypot(center.x - expected_x, center.y - expected_y) <
+                 0.5;
+        });
+    ROAD_TEST_EXPECT(has_crosswalk,
+                     "T junction approach has no crosswalk geometry");
+    const bool has_crosswalk_mesh = std::any_of(
+        state.derived().marking_meshes.begin(),
+        state.derived().marking_meshes.end(),
+        [&approach_gate](const auto& mesh) {
+          if (mesh.style != RenderStyleFromMarking(
+                                builtin_marking_styles::kCrosswalk) ||
+              mesh.vertices.empty()) {
+            return false;
+          }
+          Vec2d center{};
+          for (const auto& point : mesh.vertices) {
+            center.x += point.x;
+            center.y += point.y;
+          }
+          center.x /= static_cast<double>(mesh.vertices.size());
+          center.y /= static_cast<double>(mesh.vertices.size());
+          const double expected_x =
+              approach_gate.position.x + approach_gate.tangent.x * 2.0;
+          const double expected_y =
+              approach_gate.position.y + approach_gate.tangent.y * 2.0;
+          return std::hypot(center.x - expected_x, center.y - expected_y) <
+                 0.5;
+        });
+    ROAD_TEST_EXPECT(has_crosswalk_mesh,
+                     "T junction approach crosswalk was not emitted");
+  }
   const auto zebra_it = std::find_if(
       zebra_areas.begin(), zebra_areas.end(), [](const auto* area) {
         return area->owner.kind == city::road::MarkingOwner::Kind::kJunction &&
@@ -621,6 +680,32 @@ bool P1_cross_junction_accepts_opposite_approaches(std::string& failure) {
                    "cross junction does not have four approaches");
   ROAD_TEST_EXPECT(state.derived().junction_meshes.size() >= 3,
                    "cross junction did not derive material-separated shared surfaces");
+  return true;
+}
+
+bool P1_incremental_skew_cross_accepts_ordered_approaches(
+    std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto north = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({20.0, 0.0}, {25.0, 24.0})}), 1, base.value,
+          20.0});
+  ROAD_TEST_EXPECT(north.ok, north.error);
+  const auto junction_node =
+      road_test_view::junctions(state.derived()).front()->node_id;
+  const auto south = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({20.0, 0.0}, {25.0, -24.0})}), 1,
+          junction_node});
+  ROAD_TEST_EXPECT(south.ok, south.error);
+  ROAD_TEST_EXPECT(
+      road_test_view::gates_of(
+          *road_test_view::junctions(state.derived()).front())
+              .size() == 4,
+      "incremental skew cross does not have four approaches");
   return true;
 }
 
@@ -1243,6 +1328,8 @@ int main() {
       {"P1_segment_snap_splits_bezier_road_for_t_junction", P1_segment_snap_splits_bezier_road_for_t_junction},
       {"P1_segment_snap_splits_at_bezier_span_boundary", P1_segment_snap_splits_at_bezier_span_boundary},
       {"P1_cross_junction_accepts_opposite_approaches", P1_cross_junction_accepts_opposite_approaches},
+      {"P1_incremental_skew_cross_accepts_ordered_approaches",
+       P1_incremental_skew_cross_accepts_ordered_approaches},
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},

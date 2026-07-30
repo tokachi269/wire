@@ -247,17 +247,29 @@ resolve_connections(const SavedRoadGraph &graph,
     for (const ordered_approach &approach : ordered) {
       connection.ordered_approaches.push_back(approach.key);
     }
-    for (std::size_t a = 0; a < ordered.size(); ++a) {
-      for (std::size_t b = a + 1; b < ordered.size(); ++b) {
+    if (ordered.size() == 2) {
+      const double angle = std::acos(
+          std::clamp(dot(ordered[0].chord, ordered[1].chord), -1.0, 1.0));
+      const bool opposite = dot(ordered[0].tangent, ordered[1].tangent) <=
+                            -std::cos(rules.straight_tolerance_rad);
+      if (!opposite && (angle < rules.minimum_connection_angle_rad ||
+                        angle > rules.maximum_connection_angle_rad)) {
+        return Out::Fail(
+            ErrorKind::kUnsupported,
+            "road connected approach angle is outside supported range");
+      }
+    } else if (ordered.size() >= 3) {
+      for (std::size_t index = 0; index < ordered.size(); ++index) {
+        const ordered_approach &current = ordered[index];
+        const ordered_approach &next =
+            ordered[(index + 1) % ordered.size()];
         const double angle = std::acos(
-            std::clamp(dot(ordered[a].chord, ordered[b].chord), -1.0, 1.0));
-        const bool opposite = dot(ordered[a].tangent, ordered[b].tangent) <=
-                              -std::cos(rules.straight_tolerance_rad);
-        if (!opposite && (angle < rules.minimum_connection_angle_rad ||
-                          angle > rules.maximum_connection_angle_rad)) {
+            std::clamp(dot(current.chord, next.chord), -1.0, 1.0));
+        if (angle < rules.minimum_connection_angle_rad) {
           return Out::Fail(
               ErrorKind::kUnsupported,
-              "road connected approach angle is outside supported range");
+              "road adjacent junction approach angle is outside supported "
+              "range");
         }
       }
     }

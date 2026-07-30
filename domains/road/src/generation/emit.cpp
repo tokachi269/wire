@@ -241,7 +241,7 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
       mesh.style = RenderStyleFromMarking(marking.style_id);
       mesh.vertices = marking.polygon;
       for (std::uint32_t index = 1; index + 1 < marking.polygon.size(); ++index) {
-        mesh.indices.insert(mesh.indices.end(), {0, index, index + 1});
+        append_triangle_up(mesh, 0, index, index + 1);
       }
       output.push_back(std::move(mesh));
     }

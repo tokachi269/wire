@@ -174,6 +174,28 @@ const SectionBoundarySample *find_gate_boundary(const ConnectionGate &gate,
   return match;
 }
 
+const ResolvedApproach *
+find_connection_approach(const ResolvedConnection &connection,
+                         const ApproachKey &key) {
+  const auto found =
+      std::find_if(connection.approaches.begin(), connection.approaches.end(),
+                   [&key](const ResolvedApproach &approach) {
+                     return approach.key == key;
+                   });
+  return found == connection.approaches.end() ? nullptr : &*found;
+}
+
+std::vector<const SectionBoundarySample *>
+find_marked_gate_boundaries(const ConnectionGate &gate,
+                            std::uint64_t boundary_id) {
+  std::vector<const SectionBoundarySample *> matches{};
+  for (const SectionBoundarySample &boundary : gate.boundaries) {
+    if (boundary.boundary_id == boundary_id && boundary.marking.enabled)
+      matches.push_back(&boundary);
+  }
+  return matches;
+}
+
 // Classify the cases where a section transition cannot decide continuation by
 // boundary ID. Never rebind automatically to a nearby boundary.
 Result<bool> validate_transition_marking_mapping(const SavedRoadGraph &graph) {
@@ -350,6 +372,88 @@ Result<bool> derive_manual_markings(const SavedRoadGraph &graph,
   return Result<bool>::Ok(true);
 }
 
+Result<bool>
+derive_corner_markings(const SavedRoadGraph &graph,
+                       const std::vector<ResolvedConnection> &connections,
+                       std::vector<DerivedMarking> &markings) {
+  for (const ResolvedConnection &connection : connections) {
+    if (connection.kind != NodeConnectionKind::kCorner)
+      continue;
+    if (connection.approaches.size() != 2) {
+      return Result<bool>::Fail(ErrorKind::kInternal,
+                                "corner marking approaches are incomplete");
+    }
+    const ResolvedApproach *source = find_connection_approach(
+        connection, connection.connection_geometry.approaches[0]);
+    const ResolvedApproach *target = find_connection_approach(
+        connection, connection.connection_geometry.approaches[1]);
+    if (source == nullptr || target == nullptr) {
+      return Result<bool>::Fail(
+          ErrorKind::kInternal,
+          "corner marking geometry approach is missing");
+    }
+    const MarkingOwner owner{MarkingOwner::Kind::kJunction, 0,
+                             connection.node_id, 0};
+    for (const ResolvedBoundaryCurve &curve :
+         connection.connection_geometry.boundary_curves) {
+      const std::vector<const SectionBoundarySample *> source_boundaries =
+          find_marked_gate_boundaries(source->gate,
+                                      curve.source_boundary_id);
+      const std::vector<const SectionBoundarySample *> target_boundaries =
+          find_marked_gate_boundaries(target->gate,
+                                      curve.target_boundary_id);
+      if (source_boundaries.empty() && target_boundaries.empty())
+        continue;
+      if (source_boundaries.size() != 1 || target_boundaries.size() != 1) {
+        return Result<bool>::Fail(
+            ErrorKind::kUnsupported,
+            "corner marking boundary is not uniquely mapped");
+      }
+      const SectionBoundarySample *source_boundary = source_boundaries.front();
+      const SectionBoundarySample *target_boundary = target_boundaries.front();
+      const MarkingRole source_role =
+          role_from_boundary(source_boundary->role, source_boundary->marking);
+      const MarkingRole target_role =
+          role_from_boundary(target_boundary->role, target_boundary->marking);
+      if (source_role != target_role ||
+          source_boundary->marking.style_id !=
+              target_boundary->marking.style_id) {
+        return Result<bool>::Fail(
+            ErrorKind::kUnsupported,
+            "corner marking role or style changes across the connection");
+      }
+      const MarkingTrackKey source_track{
+          source->key.segment_id, curve.source_boundary_id, source_role};
+      const MarkingTrackKey target_track{
+          target->key.segment_id, curve.target_boundary_id, target_role};
+      const MarkingOwner source_owner{MarkingOwner::Kind::kRoadSegment,
+                                      source->key.segment_id, 0, 0};
+      const MarkingOwner target_owner{MarkingOwner::Kind::kRoadSegment,
+                                      target->key.segment_id, 0, 0};
+      if (suppressed(graph,
+                     AutoMarkingKey{source_owner, source_role, source_track,
+                                    std::nullopt}) ||
+          suppressed(graph,
+                     AutoMarkingKey{target_owner, target_role, target_track,
+                                    std::nullopt})) {
+        continue;
+      }
+      DerivedMarking marking{};
+      marking.owner = owner;
+      marking.boundary_id = curve.source_boundary_id;
+      marking.role = source_role;
+      marking.style_id = source_boundary->marking.style_id;
+      marking.width_m = marking_width_m(marking.style_id);
+      marking.points = curve.points;
+      for (Vec3d &point : marking.points)
+        point.z += kMarkingElevationM;
+      if (marking.points.size() >= 2)
+        markings.push_back(std::move(marking));
+    }
+  }
+  return Result<bool>::Ok(true);
+}
+
 Result<bool> derive_junction_markings(const SavedRoadGraph &graph,
                                       const std::vector<ResolvedConnection> &connections,
                                       std::vector<DerivedMarking> &markings) {
@@ -497,6 +601,9 @@ derive_markings(const SavedRoadGraph &graph,
   if (!step.ok)
     return Out::Fail(step.error_kind, step.error);
   step = derive_manual_markings(graph, segments, markings);
+  if (!step.ok)
+    return Out::Fail(step.error_kind, step.error);
+  step = derive_corner_markings(graph, connections, markings);
   if (!step.ok)
     return Out::Fail(step.error_kind, step.error);
   step = derive_junction_markings(graph, connections, markings);

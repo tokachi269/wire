@@ -107,8 +107,9 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
   split点を跨ぐmanual line、transition、意味を維持できないoverrideがある場合はunsupportedとする。
 - `DeleteRoadRange`でcorridorが分断された場合は始点側が元corridor IDを維持し、終点側へ新IDを付ける。
   corridor-owned参照を一意に移行できない場合はunsupportedとし、近接rebindや黙示削除を行わない。
-- degree 2 の自動decisionはPassThroughまたはCorner。対向する2本は幅を増やさず連続し、屈曲する2本は同じ断面を保った曲線connectorを派生する。停止線・ゼブラは生成しない。
+- degree 2 の自動decisionはPassThroughまたはCorner。対向する2本は幅を増やさず連続し、屈曲する2本はgate接線へG1接続する中心曲線を一度だけ導出し、その移動frameへ同じ断面を掃引する。停止線・ゼブラは生成しない。
   Straight segmentの正本はcornerのために曲げず、丸みはnode所有のderived connectorだけに置く。
+- Corner内のboundary markingは同じ掃引済みboundary curveを使用して両segmentの線を接続する。boundary配列順やworld位置で対応を推測しない。
 - degree 3/4 の自動decisionは対応範囲ならJunction。自動junctionの存在は保存しない。
 - ユーザーが明示した場合だけ`NodeConnectionPolicyOverride`を保存する。overrideを削除するとAutoへ戻る。
 - 実交差点の各gate位置は固定距離にしない。接続角と各approachの断面幅から、approach同士が重ならないsetbackを一度だけ決定する。

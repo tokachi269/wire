@@ -19,6 +19,10 @@ Vec3d scale3(Vec3d value, double factor) {
   return {value.x * factor, value.y * factor, value.z * factor};
 }
 
+Vec3d subtract3(Vec3d a, Vec3d b) {
+  return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
 Vec3d boundary_point(const ConnectionGate &gate,
                      const SectionBoundarySample &boundary) {
   const double lateral_m = gate.approach.endpoint_role == EndpointRole::kEnd
@@ -37,16 +41,83 @@ Vec3d cubic_point(Vec3d p0, Vec3d p1, Vec3d p2, Vec3d p3, double t) {
               add3(scale3(p2, 3.0 * u * t * t), scale3(p3, t * t * t)));
 }
 
+Vec3d cubic_tangent(Vec3d p0, Vec3d p1, Vec3d p2, Vec3d p3, double t) {
+  const double u = 1.0 - t;
+  return add3(
+      add3(scale3(subtract3(p1, p0), 3.0 * u * u),
+           scale3(subtract3(p2, p1), 6.0 * u * t)),
+      scale3(subtract3(p3, p2), 3.0 * t * t));
+}
+
+struct curve_frame {
+  Vec3d position{};
+  Vec3d tangent{};
+  Vec3d lateral{};
+};
+
+std::vector<curve_frame>
+resolved_curve_frames(Vec3d a, Vec3d b, Vec3d tangent_a, Vec3d tangent_b,
+                      double control_m, int samples) {
+  const Vec3d c1 = add3(a, scale3(tangent_a, -control_m));
+  const Vec3d c2 = add3(b, scale3(tangent_b, -control_m));
+  std::vector<curve_frame> frames{};
+  frames.reserve(static_cast<std::size_t>(samples) + 1);
+  for (int i = 0; i <= samples; ++i) {
+    const double t = static_cast<double>(i) / samples;
+    const Vec3d derivative = cubic_tangent(a, c1, c2, b, t);
+    const double horizontal_length =
+        std::hypot(derivative.x, derivative.y);
+    if (horizontal_length <= 1e-12)
+      return {};
+    const Vec3d tangent{derivative.x / horizontal_length,
+                        derivative.y / horizontal_length, 0.0};
+    frames.push_back(curve_frame{
+        cubic_point(a, c1, c2, b, t),
+        tangent,
+        Vec3d{-tangent.y, tangent.x, 0.0},
+    });
+  }
+  return frames;
+}
+
 std::vector<Vec3d> resolved_curve(Vec3d a, Vec3d b, Vec3d tangent_a,
                                   Vec3d tangent_b, double control_m,
                                   int samples) {
-  const Vec3d c1 = add3(a, scale3(tangent_a, -control_m));
-  const Vec3d c2 = add3(b, scale3(tangent_b, -control_m));
+  const std::vector<curve_frame> frames = resolved_curve_frames(
+      a, b, tangent_a, tangent_b, control_m, samples);
   std::vector<Vec3d> points{};
-  points.reserve(static_cast<std::size_t>(samples) + 1);
-  for (int i = 0; i <= samples; ++i) {
-    points.push_back(
-        cubic_point(a, c1, c2, b, static_cast<double>(i) / samples));
+  points.reserve(frames.size());
+  for (const curve_frame &frame : frames)
+    points.push_back(frame.position);
+  return points;
+}
+
+double projected_offset(Vec3d point, Vec3d origin, Vec3d axis) {
+  const Vec3d delta = subtract3(point, origin);
+  return delta.x * axis.x + delta.y * axis.y + delta.z * axis.z;
+}
+
+std::vector<Vec3d>
+sweep_boundary(const std::vector<curve_frame> &frames, Vec3d start,
+               Vec3d end) {
+  const double start_lateral =
+      projected_offset(start, frames.front().position, frames.front().lateral);
+  const double end_lateral =
+      projected_offset(end, frames.back().position, frames.back().lateral);
+  const double start_height = start.z - frames.front().position.z;
+  const double end_height = end.z - frames.back().position.z;
+  std::vector<Vec3d> points{};
+  points.reserve(frames.size());
+  for (std::size_t index = 0; index < frames.size(); ++index) {
+    const double t =
+        static_cast<double>(index) / static_cast<double>(frames.size() - 1);
+    const double lateral =
+        start_lateral + (end_lateral - start_lateral) * t;
+    const double height = start_height + (end_height - start_height) * t;
+    Vec3d point =
+        add3(frames[index].position, scale3(frames[index].lateral, lateral));
+    point.z += height;
+    points.push_back(point);
   }
   return points;
 }
@@ -96,6 +167,15 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
   ConnectionGeometry geometry{};
   geometry.node_id = node_id;
   geometry.approaches = {first.approach, second.approach};
+  const std::vector<curve_frame> frames = resolved_curve_frames(
+      first.position, second.position, first.tangent, second.tangent,
+      corner_control_m, kConnectionCurveSamples);
+  if (frames.size() !=
+      static_cast<std::size_t>(kConnectionCurveSamples + 1)) {
+    return Result<ConnectionGeometry>::Fail(
+        ErrorKind::kInternal,
+        "road connection center curve has a degenerate tangent");
+  }
   for (std::size_t index = 0; index < first.boundaries.size(); ++index) {
     const auto target = second_by_token.find(first_tokens[index]);
     if (target == second_by_token.end()) {
@@ -107,10 +187,9 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
         first.boundaries[index].boundary_id,
         target->second->boundary_id,
         first.boundaries[index].role,
-        resolved_curve(boundary_point(first, first.boundaries[index]),
-                       boundary_point(second, *target->second), first.tangent,
-                       second.tangent, corner_control_m,
-                       kConnectionCurveSamples),
+        sweep_boundary(
+            frames, boundary_point(first, first.boundaries[index]),
+            boundary_point(second, *target->second)),
     });
   }
   if (first_section.surface_styles.size() + 1 !=

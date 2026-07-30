@@ -409,6 +409,32 @@ bool P1_corner_preserves_endpoint_section_sides(std::string& failure) {
   const auto base_point = base_is_source ? curb->points.front() : curb->points.back();
   ROAD_TEST_EXPECT(base_point.y < base_gate->gate.position.y,
                    "segment end approach mirrored the left curb to the opposite side");
+  for (const auto& strip : corner.connection_geometry.surface_strips) {
+    ROAD_TEST_EXPECT(strip.left.size() == strip.right.size() &&
+                         strip.left.size() >= 2,
+                     "corner strip boundaries are incomplete");
+    const double expected_width =
+        std::hypot(strip.left.front().x - strip.right.front().x,
+                   strip.left.front().y - strip.right.front().y);
+    for (std::size_t index = 1; index < strip.left.size(); ++index) {
+      const double width =
+          std::hypot(strip.left[index].x - strip.right[index].x,
+                     strip.left[index].y - strip.right[index].y);
+      ROAD_TEST_EXPECT(std::abs(width - expected_width) <= 1e-6,
+                       "corner section width changed along its curve");
+    }
+  }
+  ROAD_TEST_EXPECT(
+      std::any_of(
+          state.derived().markings.begin(), state.derived().markings.end(),
+          [node](const auto& marking) {
+            return marking.owner.kind ==
+                       city::road::MarkingOwner::Kind::kJunction &&
+                   marking.owner.node_id == node &&
+                   marking.role == city::road::MarkingRole::kCenterLine &&
+                   marking.points.size() >= 2;
+          }),
+      "corner center line does not continue through the connection");
   for (const auto& mesh : state.derived().connection_meshes) {
     ROAD_TEST_EXPECT(mesh_faces_up(mesh),
                      "corner connection mesh has downward-facing triangles");

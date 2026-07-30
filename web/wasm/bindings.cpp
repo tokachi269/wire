@@ -1493,6 +1493,8 @@ public:
           segment.shape.intent == city::road::SegmentShapeIntent::kStraight;
       val item = val::object();
       item.set("id", static_cast<double>(segment.id));
+      item.set("nodeAId", static_cast<double>(segment.node_a));
+      item.set("nodeBId", static_cast<double>(segment.node_b));
       item.set("kind", linear ? "line" : "bezier");
       val points = val::array();
       const auto push_point = [&points](city::road::Vec2d point) {
@@ -1501,15 +1503,10 @@ public:
         value.set("y", point.y);
         points.call<void>("push", value);
       };
-      if (linear) {
-        push_point(span.p0);
-        push_point(span.p3);
-      } else {
-        push_point(span.p0);
-        push_point(span.p1);
-        push_point(span.p2);
-        push_point(span.p3);
-      }
+      push_point(span.p0);
+      push_point(span.p1);
+      push_point(span.p2);
+      push_point(span.p3);
       item.set("points", points);
       editable_segments.call<void>("push", item);
     }
@@ -1679,6 +1676,32 @@ public:
             input["startStationM"].as<double>(),
             input["endStationM"].as<double>()});
     return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val move_node(const val& input) {
+    const auto result = state_->MoveNode(city::road::MoveNodeRequest{
+        input["nodeId"].as<city::road::RoadNodeId>(),
+        city::road::Vec2d{input["x"].as<double>(), input["y"].as<double>()}});
+    return road_result_value(result.ok, result.error, result.error_kind);
+  }
+
+  val preview_move_node(const val& input) const {
+    city::road::RoadState trial = *state_;
+    const auto moved = trial.MoveNode(city::road::MoveNodeRequest{
+        input["nodeId"].as<city::road::RoadNodeId>(),
+        city::road::Vec2d{input["x"].as<double>(), input["y"].as<double>()}});
+    val result = road_result_value(moved.ok, moved.error, moved.error_kind);
+    val meshes = val::array();
+    if (moved.ok) {
+      for (const auto& mesh : trial.derived().segment_meshes)
+        meshes.call<void>("push", road_mesh_value(mesh));
+      for (const auto& mesh : trial.derived().connection_meshes)
+        meshes.call<void>("push", road_mesh_value(mesh));
+      for (const auto& mesh : trial.derived().junction_meshes)
+        meshes.call<void>("push", road_mesh_value(mesh));
+    }
+    result.set("meshes", meshes);
+    return result;
   }
 
   val set_approach_setback_override(const val& input) {
@@ -2022,6 +2045,8 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("splitSegmentAtStation",
                 &RoadStateBinding::split_segment_at_station)
       .function("deleteRoadRange", &RoadStateBinding::delete_road_range)
+      .function("moveNode", &RoadStateBinding::move_node)
+      .function("previewMoveNode", &RoadStateBinding::preview_move_node)
       .function("setApproachSetbackOverride", &RoadStateBinding::set_approach_setback_override)
       .function("setApproachLateralShiftOverride", &RoadStateBinding::set_approach_lateral_shift_override)
       .function("resetApproachOverrideField", &RoadStateBinding::reset_approach_override_field)

@@ -1406,11 +1406,12 @@ describe("road wasm smoke", () => {
     );
     expect(editedExtension).toMatchObject({
       kind: "line",
-      points: [
-        { x: 20, y: 0 },
-        { x: 32, y: 16 }
-      ]
+      nodeAId: first.endNodeId,
+      nodeBId: extended.endNodeId
     });
+    expect(editedExtension?.points).toHaveLength(4);
+    expect(editedExtension?.points[0]).toEqual({ x: 20, y: 0 });
+    expect(editedExtension?.points[3]).toEqual({ x: 32, y: 16 });
     expect(scene.corridors[0]).toMatchObject({
       id: first.corridorId,
       segments: [
@@ -1467,6 +1468,51 @@ describe("road wasm smoke", () => {
     expect(scene.segmentCount).toBe(3);
     expect(scene.corridorCount).toBe(2);
     expect(scene.corridors.map((corridor) => corridor.segments.length)).toEqual([2, 1]);
+  });
+
+  it("previews and commits endpoint movement through the node operation", () => {
+    state.clear();
+    const added = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 30,
+      endY: 0,
+      handleAX: 10,
+      handleAY: 0,
+      handleBX: 20,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startStationM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(added.ok, added.error).toBe(true);
+    const before = state.scene();
+    const editable = before.editableSegments.find(
+      (segment) => segment.id === added.segmentId
+    );
+    expect(editable).toBeDefined();
+
+    const preview = state.previewMoveNode({
+      nodeId: editable!.nodeBId,
+      x: 30,
+      y: 8
+    });
+    expect(preview.ok, preview.error).toBe(true);
+    expect(preview.meshes.length).toBeGreaterThan(0);
+    expect(state.scene().nodes.find((node) => node.id === editable!.nodeBId))
+      .toMatchObject({ x: 30, y: 0 });
+
+    const moved = state.moveNode({
+      nodeId: editable!.nodeBId,
+      x: 30,
+      y: 8
+    });
+    expect(moved.ok, moved.error).toBe(true);
+    expect(state.scene().nodes.find((node) => node.id === editable!.nodeBId))
+      .toMatchObject({ x: 30, y: 8 });
   });
 
   it("keeps the final cross section perpendicular to an angled road", () => {

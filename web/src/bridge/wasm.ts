@@ -146,7 +146,13 @@ export interface RoadScenePayload {
     segments: Array<{ segmentId: number; reversed: boolean }>;
   }>;
   sectionTemplates: RoadSectionTemplatePayload[];
-  editableSegments: Array<{ id: number; kind: "line" | "bezier"; points: Array<{ x: number; y: number }> }>;
+  editableSegments: Array<{
+    id: number;
+    nodeAId: number;
+    nodeBId: number;
+    kind: "line" | "bezier";
+    points: Array<{ x: number; y: number }>;
+  }>;
   surfaceMeshes: RoadMeshPayload[];
   markingMeshes: RoadMeshPayload[];
   approaches: RoadApproachLayoutPayload[];
@@ -243,6 +249,12 @@ export interface RoadStateHandle {
     startStationM: number;
     endStationM: number;
   }): OperationResult;
+  moveNode(input: { nodeId: number; x: number; y: number }): OperationResult;
+  previewMoveNode(input: {
+    nodeId: number;
+    x: number;
+    y: number;
+  }): OperationResult & { meshes: RoadMeshPayload[] };
   setApproachSetbackOverride(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1; setbackM: number }): OperationResult;
   setApproachLateralShiftOverride(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1; lateralShiftM: number }): OperationResult;
   resetApproachOverrideField(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1; field: 0 | 1 }): OperationResult;

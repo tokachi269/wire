@@ -574,6 +574,9 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     }),
     roadUndoSegment: () => ({ ok: true, error: "" }),
     roadDeleteSegment: () => ({ ok: true, error: "" }),
+    roadDeleteRange: () => ({ ok: true, error: "" }),
+    roadMoveNode: () => ({ ok: true, error: "" }),
+    roadPreviewMoveNode: () => ({ ok: true, error: "", meshes: [] }),
     roadEditSegment: () => ({ ok: true, error: "" }),
     roadPreviewEditSegment: () => ({ ok: true, error: "", meshes: [] }),
     roadUpdateSectionTemplate: () => ({ ok: true, error: "" }),
@@ -800,15 +803,15 @@ describe("viewport tool routing", () => {
     expect(dot).toBeGreaterThan(0);
   });
 
-  it("routes marking and delete tools from centerline picks", () => {
+  it("routes marking and local range deletion from centerline picks", () => {
     const roadAddManualLine = vi.fn(() => ({ ok: true, error: "" }));
     const roadAddManualArea = vi.fn(() => ({ ok: true, error: "" }));
-    const roadDeleteSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const roadDeleteRange = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({
       roadAddManualLine,
       roadAddManualArea,
-      roadDeleteSegment
+      roadDeleteRange
     }), store);
     actions.initialize();
     actions.setActiveTool("road");
@@ -827,13 +830,17 @@ describe("viewport tool routing", () => {
     expect(roadAddManualArea).toHaveBeenCalledWith(expect.objectContaining({ segmentId: 12, stationM: 15 }));
 
     actions.setRoadOperation("delete");
+    actions.addViewportPoint([8, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 8 });
+    expect(roadDeleteRange).not.toHaveBeenCalled();
     actions.addViewportPoint([15, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 15 });
-    expect(roadDeleteSegment).toHaveBeenCalledWith(12);
+    expect(roadDeleteRange).toHaveBeenCalledWith(12, 8, 15);
   });
 
-  it("previews and commits a dragged road alignment handle", () => {
+  it("routes endpoint and control handle edits to their owning operations", () => {
     const roadPreviewEditSegment = vi.fn(() => ({ ok: true, error: "", meshes: [] }));
     const roadEditSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const roadPreviewMoveNode = vi.fn(() => ({ ok: true, error: "", meshes: [] }));
+    const roadMoveNode = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
     const actions = new ViewerActions(actionBridge({
@@ -841,18 +848,30 @@ describe("viewport tool routing", () => {
         ...baseScene,
         editableSegments: [{
           id: 12,
-          kind: "bezier",
-          points: [{ x: 0, y: 0 }, { x: 6, y: 8 }, { x: 14, y: 8 }, { x: 20, y: 0 }]
+          nodeAId: 20,
+          nodeBId: 21,
+          kind: "line",
+          points: [{ x: 0, y: 0 }, { x: 6.6666666667, y: 0 }, { x: 13.3333333333, y: 0 }, { x: 20, y: 0 }]
         }]
       }),
       roadPreviewEditSegment,
-      roadEditSegment
+      roadEditSegment,
+      roadPreviewMoveNode,
+      roadMoveNode
     }), store);
     actions.initialize();
     actions.setActiveTool("road");
     actions.setRoadOperation("edit");
     actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 10 });
 
+    actions.previewRoadEditHandle(0, [-2, 3, 0]);
+    expect(roadPreviewMoveNode).toHaveBeenCalledWith(20, -2, 3);
+    actions.commitRoadEditHandle();
+    expect(roadMoveNode).toHaveBeenCalledWith(20, -2, 3);
+    expect(roadEditSegment).not.toHaveBeenCalled();
+
+    actions.setRoadOperation("edit");
+    actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 10 });
     actions.previewRoadEditHandle(1, [7, 10, 0]);
     expect(roadPreviewEditSegment).toHaveBeenCalledWith(12, expect.objectContaining({
       kind: "bezier",

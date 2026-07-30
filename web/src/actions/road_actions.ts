@@ -37,7 +37,11 @@ export class RoadActions {
         phase: "start",
         curveContinuationTangent: null,
         markingDraftSegmentId: 0,
+        deleteDraftSegmentId: 0,
         selectedEditSegmentId: 0,
+        selectedEditNodeAId: 0,
+        selectedEditNodeBId: 0,
+        activeEditPointIndex: -1,
         editPoints: [],
         previewMeshes: [],
         lastError: ""
@@ -49,8 +53,22 @@ export class RoadActions {
     const road = this.ctx.readSnapshot().road;
     if (road.operation !== "edit" || road.selectedEditSegmentId === 0 || handleIndex >= road.editPoints.length) return;
     const editPoints = road.editPoints.map((value, index) => index === handleIndex ? { x: point[0], y: point[1] } : value);
-    const edited = { ...road, editPoints };
-    const preview = this.ctx.bridge.roadPreviewEditSegment(road.selectedEditSegmentId, editInput(edited));
+    const endpoint = handleIndex === 0 || handleIndex === road.editPoints.length - 1;
+    const edited = {
+      ...road,
+      editPoints,
+      activeEditPointIndex: handleIndex,
+      editKind: endpoint ? road.editKind : "bezier" as const
+    };
+    const nodeId = handleIndex === 0
+      ? road.selectedEditNodeAId
+      : road.selectedEditNodeBId;
+    const preview = endpoint
+      ? this.ctx.bridge.roadPreviewMoveNode(nodeId, point[0], point[1])
+      : this.ctx.bridge.roadPreviewEditSegment(
+          road.selectedEditSegmentId,
+          editInput(edited)
+        );
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: {
@@ -64,8 +82,26 @@ export class RoadActions {
 
   commitEditHandle(): void {
     const road = this.ctx.readSnapshot().road;
-    if (road.operation !== "edit" || road.selectedEditSegmentId === 0) return;
-    this.finish(this.ctx.bridge.roadEditSegment(road.selectedEditSegmentId, editInput(road)), "road edit alignment");
+    if (road.operation !== "edit" || road.selectedEditSegmentId === 0 ||
+        road.activeEditPointIndex < 0) return;
+    const handleIndex = road.activeEditPointIndex;
+    const endpoint = handleIndex === 0 || handleIndex === road.editPoints.length - 1;
+    if (endpoint) {
+      const nodeId = handleIndex === 0
+        ? road.selectedEditNodeAId
+        : road.selectedEditNodeBId;
+      const point = road.editPoints[handleIndex];
+      this.finish(this.ctx.bridge.roadMoveNode(nodeId, point.x, point.y),
+                  "road move node");
+      return;
+    }
+    this.finish(
+      this.ctx.bridge.roadEditSegment(
+        road.selectedEditSegmentId,
+        editInput(road)
+      ),
+      "road edit alignment"
+    );
   }
 
   setSetting<K extends keyof RoadToolState>(key: K, value: RoadToolState[K]): void {
@@ -141,7 +177,34 @@ export class RoadActions {
       return;
     }
     if (road.operation === "delete") {
-      this.finish(this.ctx.bridge.roadDeleteSegment(snap.segmentId), "road delete segment");
+      if (road.deleteDraftSegmentId === 0 ||
+          road.deleteDraftSegmentId !== snap.segmentId) {
+        this.ctx.store.update((snapshot) => ({
+          ...snapshot,
+          road: {
+            ...snapshot.road,
+            deleteDraftSegmentId: snap.segmentId,
+            deleteDraftStationM: snap.stationM,
+            lastError: ""
+          },
+          error: ""
+        }));
+        return;
+      }
+      const startStationM = Math.min(road.deleteDraftStationM, snap.stationM);
+      const endStationM = Math.max(road.deleteDraftStationM, snap.stationM);
+      if (endStationM - startStationM <= 1e-6) {
+        this.ctx.store.setError("Select a different road point");
+        return;
+      }
+      this.finish(
+        this.ctx.bridge.roadDeleteRange(
+          snap.segmentId,
+          startStationM,
+          endStationM
+        ),
+        "road delete range"
+      );
       return;
     }
     if (road.operation === "edit") {
@@ -155,6 +218,9 @@ export class RoadActions {
         road: {
           ...snapshot.road,
           selectedEditSegmentId: editable.id,
+          selectedEditNodeAId: editable.nodeAId,
+          selectedEditNodeBId: editable.nodeBId,
+          activeEditPointIndex: -1,
           editKind: editable.kind,
           editPoints: editable.points.map((point) => ({ ...point })),
           previewMeshes: [],
@@ -310,6 +376,8 @@ export class RoadActions {
         ...snapshot.road,
         phase: "start",
         markingDraftSegmentId: 0,
+        deleteDraftSegmentId: 0,
+        activeEditPointIndex: -1,
         scene,
         previewMeshes: [],
         lastError: ""
@@ -323,12 +391,8 @@ export class RoadActions {
 function editInput(road: RoadToolState) {
   const start = road.editPoints[0] ?? { x: 0, y: 0 };
   const end = road.editPoints.at(-1) ?? start;
-  let handleA = start;
-  let handleB = end;
-  if (road.editKind === "bezier") {
-    handleA = road.editPoints[1] ?? start;
-    handleB = road.editPoints[2] ?? end;
-  }
+  const handleA = road.editPoints[1] ?? start;
+  const handleB = road.editPoints[2] ?? end;
   return {
     kind: road.editKind,
     startX: start.x,

@@ -137,6 +137,8 @@ export interface RoadSectionTemplateData {
 
 export interface RoadEditableSegmentData {
   id: number;
+  nodeAId: number;
+  nodeBId: number;
   kind: RoadToolMode;
   points: RoadPoint[];
 }
@@ -170,7 +172,12 @@ export interface RoadToolState {
   manualAreaLengthM: number;
   markingDraftSegmentId: number;
   markingDraftStationM: number;
+  deleteDraftSegmentId: number;
+  deleteDraftStationM: number;
   selectedEditSegmentId: number;
+  selectedEditNodeAId: number;
+  selectedEditNodeBId: number;
+  activeEditPointIndex: number;
   editKind: RoadToolMode;
   editPoints: RoadPoint[];
   scene: RoadSceneData;
@@ -200,7 +207,12 @@ export function createRoadToolState(): RoadToolState {
     manualAreaLengthM: 6,
     markingDraftSegmentId: 0,
     markingDraftStationM: 0,
+    deleteDraftSegmentId: 0,
+    deleteDraftStationM: 0,
     selectedEditSegmentId: 0,
+    selectedEditNodeAId: 0,
+    selectedEditNodeBId: 0,
+    activeEditPointIndex: -1,
     editKind: "line",
     editPoints: [],
     scene: emptyRoadScene(),

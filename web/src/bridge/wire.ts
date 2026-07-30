@@ -321,6 +321,31 @@ export class WireBridge {
     return this.roadState.deleteSegment(segmentId);
   }
 
+  roadDeleteRange(
+    segmentId: number,
+    startStationM: number,
+    endStationM: number
+  ): OperationResult {
+    return this.roadState.deleteRoadRange({
+      segmentId,
+      startStationM,
+      endStationM
+    });
+  }
+
+  roadMoveNode(nodeId: number, x: number, y: number): OperationResult {
+    return this.roadState.moveNode({ nodeId, x, y });
+  }
+
+  roadPreviewMoveNode(
+    nodeId: number,
+    x: number,
+    y: number
+  ): OperationResult & { meshes: RoadMeshData[] } {
+    const result = this.roadState.previewMoveNode({ nodeId, x, y });
+    return { ...result, meshes: result.meshes.map(copyRoadMesh) };
+  }
+
   roadEditSegment(segmentId: number, input: RoadSegmentInput): OperationResult {
     return this.roadState.editSegment(segmentId, input);
   }

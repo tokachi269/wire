@@ -77,6 +77,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | EditSegmentShape | validation | supported | node位置を変えずshapeだけ変更 | StationRef規則で再評価 | owner-local markingを追従 |
 | MoveNode | validation | endpoint nodeを移動 | 接続全segmentを再導出 | StationRef規則で再評価 | owner-local markingを追従 |
 | DeleteSegment | validation | supported | supported (不要junctionを除去) | transition参照を除去 | owned markingを除去 |
+| Viewer delete range | 同一segment上の2 station | `DeleteRoadRange` | 範囲外shapeとconnectionを再導出 | 範囲外参照を明示移行 | 範囲外markingを維持 |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
 | AttachSectionTransition | validation | supported | supported | replace supported | supported |
 | AddManualLine / AddManualArea | validation | supported | supported | supported | supported |
@@ -99,6 +100,11 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
   Bezier評価、sampling、emitはLine / Bezierで分岐しない。曲線segmentの分割はDe Casteljau分割を使う。
 - Bezierを連続描画するときは、viewerの一時入力状態が直前segmentの終端接線を保持し、次segmentの開始handleを
   その方向へsnapする。G1入力のためにCoreの接続種別、正本field、補正operationを追加しない。
+- Viewerのalignment編集では、segment端点handleは`MoveNode`、内部2 control handleは
+  `EditSegmentShape`へ送る。直線segmentもlinear cubic Bezierの4 control pointを表示し、
+  内部control handleを動かした時点でcurve intentへ変更する。
+- ViewerのDelete roadは1クリックの`DeleteSegment`ではなく、同一segment上の2点で
+  `DeleteRoadRange`を実行する。最初の点だけでは正本を変更しない。
 - Line segmentをnodeやsegment stationへsnapする場合は、snap後の始点と入力終点からlinear cubicを再作成する。
   始点だけを動かしてhandleを一部だけ補正しない。
 - `SplitSegmentAtStation`は元segment IDをstart側へ維持し、end側segmentとsplit nodeへ新IDを付ける。

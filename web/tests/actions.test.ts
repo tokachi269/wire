@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { ViewerActions } from "../src/actions/viewer";
 import type { SceneData, WireBridge } from "../src/bridge/wire";
+import type { RoadSegmentInput } from "../src/road";
 import type {
   BundleTemplateInfo,
   BundlePlacement,
@@ -750,6 +751,53 @@ describe("viewport tool routing", () => {
       handleBY: 6
     }));
     expect(current(store).road.phase).toBe("bend");
+  });
+
+  it("snaps a continued curve start handle to the previous end tangent", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({
+      ok: true,
+      error: "",
+      segmentId: 11,
+      endNodeId: 12,
+      corridorId: 21
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.setRoadMode("bezier");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.addViewportPoint([9, 9, 0]);
+    actions.addViewportPoint([18, 0, 0]);
+
+    actions.addViewportPoint([18, 12, 0]);
+    actions.addViewportPoint([30, -12, 0]);
+
+    const previous = roadAddSegment.mock.calls[0]?.[0];
+    const continued = roadAddSegment.mock.calls[1]?.[0];
+    expect(previous).toBeDefined();
+    expect(continued).toBeDefined();
+    if (previous === undefined || continued === undefined) {
+      throw new Error("continued curve inputs were not captured");
+    }
+    const previousEndTangent = {
+      x: previous.endX - previous.handleBX,
+      y: previous.endY - previous.handleBY
+    };
+    const continuedStartTangent = {
+      x: continued.handleAX - continued.startX,
+      y: continued.handleAY - continued.startY
+    };
+    const cross =
+      previousEndTangent.x * continuedStartTangent.y -
+      previousEndTangent.y * continuedStartTangent.x;
+    const dot =
+      previousEndTangent.x * continuedStartTangent.x +
+      previousEndTangent.y * continuedStartTangent.y;
+
+    expect(Math.abs(cross)).toBeLessThan(1e-9);
+    expect(dot).toBeGreaterThan(0);
   });
 
   it("routes marking and delete tools from centerline picks", () => {

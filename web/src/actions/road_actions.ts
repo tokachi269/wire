@@ -17,7 +17,14 @@ export class RoadActions {
   setMode(mode: RoadToolMode): void {
     this.ctx.store.update((current) => ({
       ...current,
-      road: { ...current.road, mode, phase: "start", previewMeshes: [], lastError: "" }
+      road: {
+        ...current.road,
+        mode,
+        phase: "start",
+        curveContinuationTangent: null,
+        previewMeshes: [],
+        lastError: ""
+      }
     }));
   }
 
@@ -28,6 +35,7 @@ export class RoadActions {
         ...current.road,
         operation,
         phase: "start",
+        curveContinuationTangent: null,
         markingDraftSegmentId: 0,
         selectedEditSegmentId: 0,
         editPoints: [],
@@ -201,7 +209,13 @@ export class RoadActions {
     if (current.phase !== "start") {
       this.ctx.store.update((snapshot) => ({
         ...snapshot,
-        road: { ...snapshot.road, phase: "start", previewMeshes: [], lastError: "" },
+        road: {
+          ...snapshot.road,
+          phase: "start",
+          curveContinuationTangent: null,
+          previewMeshes: [],
+          lastError: ""
+        },
         error: ""
       }));
       return;
@@ -227,6 +241,13 @@ export class RoadActions {
     }
     const nextStart = road.draftEnd;
     const phase = road.mode !== "line" ? "bend" : "end";
+    const curveContinuationTangent =
+      road.mode === "bezier"
+        ? {
+            x: road.draftEnd.x - road.handleB.x,
+            y: road.draftEnd.y - road.handleB.y
+          }
+        : null;
     const scene = this.ctx.bridge.roadScene();
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
@@ -235,6 +256,7 @@ export class RoadActions {
         phase,
         draftStart: nextStart,
         draftBend: nextStart,
+        curveContinuationTangent,
         draftStartNodeId: result.endNodeId ?? 0,
         draftStartSegmentId: 0,
         draftStartStationM: 0,
@@ -266,6 +288,7 @@ export class RoadActions {
         ...snapshot.road,
         draftStart: target,
         draftBend: target,
+        curveContinuationTangent: null,
         draftStartNodeId: snap?.nodeId ?? 0,
         draftStartSegmentId: snap?.segmentId ?? 0,
         draftStartStationM: snap?.stationM ?? 0,

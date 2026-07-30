@@ -97,6 +97,8 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - Line / Bezierは入力toolの区別に限定し、正本はendpointを含まない`SegmentShape`、完全Pathは派生`CanonicalAlignment`とする。
   Line入力は各spanをlinear cubic Bezierとして保存し、`SegmentShape.intent = Straight`を持つ。
   Bezier評価、sampling、emitはLine / Bezierで分岐しない。曲線segmentの分割はDe Casteljau分割を使う。
+- Bezierを連続描画するときは、viewerの一時入力状態が直前segmentの終端接線を保持し、次segmentの開始handleを
+  その方向へsnapする。G1入力のためにCoreの接続種別、正本field、補正operationを追加しない。
 - Line segmentをnodeやsegment stationへsnapする場合は、snap後の始点と入力終点からlinear cubicを再作成する。
   始点だけを動かしてhandleを一部だけ補正しない。
 - `SplitSegmentAtStation`は元segment IDをstart側へ維持し、end側segmentとsplit nodeへ新IDを付ける。

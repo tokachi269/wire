@@ -158,6 +158,7 @@ export interface RoadToolState {
   draftEnd: RoadPoint;
   handleA: RoadPoint;
   handleB: RoadPoint;
+  curveContinuationTangent: RoadPoint | null;
   draftStartNodeId: number;
   draftStartSegmentId: number;
   draftStartStationM: number;
@@ -187,6 +188,7 @@ export function createRoadToolState(): RoadToolState {
     draftEnd: { x: 0, y: 0 },
     handleA: { x: 0, y: 0 },
     handleB: { x: 0, y: 0 },
+    curveContinuationTangent: null,
     draftStartNodeId: 0,
     draftStartSegmentId: 0,
     draftStartStationM: 0,
@@ -242,7 +244,7 @@ export function withRoadEnd(state: RoadToolState, end: RoadPoint): RoadToolState
 export function withRoadBend(state: RoadToolState, bend: RoadPoint): RoadToolState {
   return {
     ...state,
-    draftBend: bend,
+    draftBend: snapBendToContinuation(state.draftStart, bend, state.curveContinuationTangent),
     lastError: ""
   };
 }
@@ -282,5 +284,22 @@ export function emptyRoadScene(): RoadSceneData {
     markingMeshes: [],
     approaches: [],
     junctions: []
+  };
+}
+
+function snapBendToContinuation(
+  start: RoadPoint,
+  bend: RoadPoint,
+  tangent: RoadPoint | null | undefined
+): RoadPoint {
+  if (tangent == null) return bend;
+  const tangentLength = Math.hypot(tangent.x, tangent.y);
+  const bendDistance = Math.hypot(bend.x - start.x, bend.y - start.y);
+  if (tangentLength <= Number.EPSILON || bendDistance <= Number.EPSILON) {
+    return bend;
+  }
+  return {
+    x: start.x + tangent.x / tangentLength * bendDistance,
+    y: start.y + tangent.y / tangentLength * bendDistance
   };
 }

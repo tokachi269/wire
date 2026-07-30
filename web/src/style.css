@@ -438,6 +438,12 @@ h1 {
   font-size: var(--sidebar-small-size);
 }
 
+.road-preview-issue {
+  margin: 0.55rem 0 0;
+  color: #c7b98a;
+  font-size: var(--sidebar-small-size);
+}
+
 .draw-panel-head {
   display: flex;
   align-items: center;

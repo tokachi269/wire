@@ -92,5 +92,7 @@
 
   {#if snapshot.road.lastError}
     <p class="road-error">{snapshot.road.lastError}</p>
+  {:else if snapshot.road.previewIssue}
+    <p class="road-preview-issue">{snapshot.road.previewIssue}</p>
   {/if}
 </section>

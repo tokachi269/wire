@@ -8,6 +8,7 @@ import {
   type RoadToolMode,
   type RoadToolState
 } from "../road";
+import { EditErrorKind } from "../model";
 import type { WorldPoint } from "../store/viewer";
 import { ViewerActionContext } from "./context";
 
@@ -23,6 +24,7 @@ export class RoadActions {
         phase: "start",
         curveContinuationTangent: null,
         previewMeshes: [],
+        previewIssue: "",
         lastError: ""
       }
     }));
@@ -44,6 +46,7 @@ export class RoadActions {
         activeEditPointIndex: -1,
         editPoints: [],
         previewMeshes: [],
+        previewIssue: "",
         lastError: ""
       }
     }));
@@ -69,15 +72,7 @@ export class RoadActions {
           road.selectedEditSegmentId,
           editInput(edited)
         );
-    this.ctx.store.update((snapshot) => ({
-      ...snapshot,
-      road: {
-        ...edited,
-        previewMeshes: preview.ok ? preview.meshes : [],
-        lastError: preview.ok ? "" : preview.error
-      },
-      error: preview.ok ? "" : preview.error
-    }));
+    this.applyPreview(edited, preview);
   }
 
   commitEditHandle(): void {
@@ -105,7 +100,15 @@ export class RoadActions {
   }
 
   setSetting<K extends keyof RoadToolState>(key: K, value: RoadToolState[K]): void {
-    this.ctx.store.update((current) => ({ ...current, road: { ...current.road, [key]: value, lastError: "" } }));
+    this.ctx.store.update((current) => ({
+      ...current,
+      road: {
+        ...current.road,
+        [key]: value,
+        previewIssue: "",
+        lastError: ""
+      }
+    }));
   }
 
   updateSelectedSectionTemplate(input: {
@@ -123,7 +126,12 @@ export class RoadActions {
   setConnectToFirstNode(value: boolean): void {
     this.ctx.store.update((current) => ({
       ...current,
-      road: { ...current.road, connectToFirstNode: value, lastError: "" }
+      road: {
+        ...current.road,
+        connectToFirstNode: value,
+        previewIssue: "",
+        lastError: ""
+      }
     }));
   }
 
@@ -160,15 +168,7 @@ export class RoadActions {
     const target: RoadPoint = { x: point[0], y: point[1] };
     const road = this.previewState(current, target);
     const preview = this.ctx.bridge.roadPreviewSegment(roadSegmentInput(road));
-    this.ctx.store.update((snapshot) => ({
-      ...snapshot,
-      road: {
-        ...road,
-        previewMeshes: preview.ok ? preview.meshes : [],
-        lastError: preview.ok ? "" : preview.error
-      },
-      error: preview.ok ? "" : preview.error
-    }));
+    this.applyPreview(road, preview);
   }
 
   private applyOperation(road: RoadToolState, snap?: RoadSnapInfo): void {
@@ -224,6 +224,7 @@ export class RoadActions {
           editKind: editable.kind,
           editPoints: editable.points.map((point) => ({ ...point })),
           previewMeshes: [],
+          previewIssue: "",
           lastError: ""
         },
         error: ""
@@ -280,6 +281,7 @@ export class RoadActions {
           phase: "start",
           curveContinuationTangent: null,
           previewMeshes: [],
+          previewIssue: "",
           lastError: ""
         },
         error: ""
@@ -300,7 +302,12 @@ export class RoadActions {
     if (!result.ok) {
       this.ctx.store.update((snapshot) => ({
         ...snapshot,
-        road: { ...road, lastError: result.error },
+        road: {
+          ...road,
+          previewMeshes: [],
+          previewIssue: "",
+          lastError: result.error
+        },
         error: result.error
       }));
       return;
@@ -329,6 +336,7 @@ export class RoadActions {
         draftExtensionCorridorId: result.corridorId ?? 0,
         scene,
         previewMeshes: [],
+        previewIssue: "",
         lastError: ""
       }, nextStart),
       error: "",
@@ -381,10 +389,36 @@ export class RoadActions {
         activeEditPointIndex: -1,
         scene,
         previewMeshes: [],
+        previewIssue: "",
         lastError: ""
       },
       error: "",
       logs: [...snapshot.logs, log]
+    }));
+  }
+
+  private applyPreview(
+    road: RoadToolState,
+    preview: {
+      ok: boolean;
+      error: string;
+      errorKind?: EditErrorKind;
+      meshes: RoadToolState["previewMeshes"];
+    }
+  ): void {
+    const expectedRejection =
+      !preview.ok &&
+      (preview.errorKind === EditErrorKind.Validation ||
+       preview.errorKind === EditErrorKind.Unsupported);
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      road: {
+        ...road,
+        previewMeshes: preview.ok ? preview.meshes : [],
+        previewIssue: expectedRejection ? preview.error : "",
+        lastError: !preview.ok && !expectedRejection ? preview.error : ""
+      },
+      error: !preview.ok && !expectedRejection ? preview.error : snapshot.error
     }));
   }
 }

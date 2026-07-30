@@ -182,6 +182,7 @@ export interface RoadToolState {
   editPoints: RoadPoint[];
   scene: RoadSceneData;
   previewMeshes: RoadMeshData[];
+  previewIssue: string;
   lastError: string;
 }
 
@@ -217,6 +218,7 @@ export function createRoadToolState(): RoadToolState {
     editPoints: [],
     scene: emptyRoadScene(),
     previewMeshes: [],
+    previewIssue: "",
     lastError: ""
   };
 }
@@ -249,6 +251,7 @@ export function withRoadEnd(state: RoadToolState, end: RoadPoint): RoadToolState
     draftEnd: end,
     handleA: { x: state.draftStart.x + dx / 3, y: state.draftStart.y + dy / 3 },
     handleB: { x: state.draftStart.x + dx * 2 / 3, y: state.draftStart.y + dy * 2 / 3 },
+    previewIssue: "",
     lastError: ""
   };
 }
@@ -257,6 +260,7 @@ export function withRoadBend(state: RoadToolState, bend: RoadPoint): RoadToolSta
   return {
     ...state,
     draftBend: snapBendToContinuation(state.draftStart, bend, state.curveContinuationTangent),
+    previewIssue: "",
     lastError: ""
   };
 }
@@ -274,6 +278,7 @@ export function withRoadCurveEnd(state: RoadToolState, end: RoadPoint): RoadTool
       x: end.x + (control.x - end.x) * 2 / 3,
       y: end.y + (control.y - end.y) * 2 / 3
     },
+    previewIssue: "",
     lastError: ""
   };
 }

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { ViewerActions } from "../src/actions/viewer";
 import type { SceneData, WireBridge } from "../src/bridge/wire";
+import { startConsoleLogging } from "../src/consoleLog";
+import { EditErrorKind } from "../src/model";
 import type { RoadSegmentInput } from "../src/road";
 import type {
   BundleTemplateInfo,
@@ -619,6 +621,67 @@ describe("viewport tool routing", () => {
     }));
     expect(current(store).pathPoints).toEqual([]);
     expect(current(store).road.phase).toBe("end");
+  });
+
+  it("does not report an expected road preview rejection as a global error", () => {
+    const roadPreviewSegment = vi.fn(() => ({
+      ok: false,
+      error: "road span has zero length",
+      errorKind: EditErrorKind.Validation,
+      meshes: []
+    }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const store = new ViewerStore();
+    const stopLogging = startConsoleLogging(store);
+    const actions = new ViewerActions(
+      actionBridge({ roadPreviewSegment }),
+      store
+    );
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([0.1, 0, 0]);
+
+    expect(roadPreviewSegment).toHaveBeenCalledTimes(2);
+    expect(current(store).error).toBe("");
+    expect(current(store).road.previewIssue).toBe("road span has zero length");
+    expect(current(store).road.lastError).toBe("");
+    expect(consoleError).not.toHaveBeenCalled();
+
+    stopLogging();
+    consoleError.mockRestore();
+  });
+
+  it("reports an internal road preview failure as a global error", () => {
+    const roadPreviewSegment = vi.fn(() => ({
+      ok: false,
+      error: "road preview internal failure",
+      errorKind: EditErrorKind.Internal,
+      meshes: []
+    }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const store = new ViewerStore();
+    const stopLogging = startConsoleLogging(store);
+    const actions = new ViewerActions(
+      actionBridge({ roadPreviewSegment }),
+      store
+    );
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([10, 0, 0]);
+
+    expect(current(store).error).toBe("road preview internal failure");
+    expect(current(store).road.previewIssue).toBe("");
+    expect(current(store).road.lastError).toBe("road preview internal failure");
+    expect(consoleError).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith("[wire] road preview internal failure");
+
+    stopLogging();
+    consoleError.mockRestore();
   });
 
   it("normalizes continuous road drawing to a new segment in the same corridor", () => {

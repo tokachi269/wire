@@ -21,9 +21,12 @@ Vec3d scale3(Vec3d value, double factor) {
 
 Vec3d boundary_point(const ConnectionGate &gate,
                      const SectionBoundarySample &boundary) {
+  const double lateral_m = gate.approach.endpoint_role == EndpointRole::kEnd
+                               ? -boundary.lateral_m
+                               : boundary.lateral_m;
   return {
-      gate.position.x + gate.lateral.x * boundary.lateral_m,
-      gate.position.y + gate.lateral.y * boundary.lateral_m,
+      gate.position.x + gate.lateral.x * lateral_m,
+      gate.position.y + gate.lateral.y * lateral_m,
       gate.position.z + boundary.height_m,
   };
 }
@@ -210,6 +213,11 @@ struct side {
   std::uint64_t curb_boundary_id = 0;
 };
 
+double lateral_projection(const ConnectionGate &gate, const side &value) {
+  return (value.carriageway.x - gate.position.x) * gate.lateral.x +
+         (value.carriageway.y - gate.position.y) * gate.lateral.y;
+}
+
 } // namespace
 
 Result<ConnectionGeometry>
@@ -261,8 +269,17 @@ generate_junction_geometry(RoadNodeId node_id,
           profile.carriageway->boundary_id,
       };
     };
-    sides.push_back(side_from(supported.value.right));
-    sides.push_back(side_from(supported.value.left));
+    std::array<side, 2> gate_sides{
+        side_from(supported.value.left),
+        side_from(supported.value.right),
+    };
+    std::sort(gate_sides.begin(), gate_sides.end(),
+              [&gate](const side &a, const side &b) {
+                return lateral_projection(gate, a) <
+                       lateral_projection(gate, b);
+              });
+    sides.push_back(gate_sides[0]);
+    sides.push_back(gate_sides[1]);
   }
   if (gates.size() < 3 || sides.size() < 6) {
     return Result<JunctionGeometry>::Fail(

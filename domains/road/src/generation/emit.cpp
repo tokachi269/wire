@@ -23,6 +23,24 @@ Vec2d normalize(Vec2d value) {
   return {value.x / length, value.y / length};
 }
 
+double triangle_normal_z(Vec3d a, Vec3d b, Vec3d c) {
+  const double ux = b.x - a.x;
+  const double uy = b.y - a.y;
+  const double vx = c.x - a.x;
+  const double vy = c.y - a.y;
+  return ux * vy - uy * vx;
+}
+
+void append_triangle_up(Mesh &mesh, std::uint32_t a, std::uint32_t b,
+                        std::uint32_t c) {
+  if (triangle_normal_z(mesh.vertices[a], mesh.vertices[b], mesh.vertices[c]) <
+      0.0) {
+    mesh.indices.insert(mesh.indices.end(), {a, c, b});
+  } else {
+    mesh.indices.insert(mesh.indices.end(), {a, b, c});
+  }
+}
+
 void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
                   const std::vector<Vec3d> &b) {
   if (a.size() != b.size() || a.size() < 2)
@@ -34,8 +52,8 @@ void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
   }
   for (std::uint32_t i = 0; i + 1 < a.size(); ++i) {
     const std::uint32_t p = base + i * 2;
-    mesh.indices.insert(mesh.indices.end(),
-                        {p, p + 2, p + 1, p + 1, p + 2, p + 3});
+    append_triangle_up(mesh, p, p + 2, p + 1);
+    append_triangle_up(mesh, p + 1, p + 2, p + 3);
   }
 }
 
@@ -154,11 +172,11 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
     mesh.vertices.insert(mesh.vertices.end(), region.perimeter.begin(),
                          region.perimeter.end());
     for (std::uint32_t index = 0; index < region.perimeter.size(); ++index) {
-      mesh.indices.insert(
-          mesh.indices.end(),
-          {0, index + 1,
-           static_cast<std::uint32_t>((index + 1) % region.perimeter.size()) +
-               1});
+      const std::uint32_t current = index + 1;
+      const std::uint32_t next =
+          static_cast<std::uint32_t>((index + 1) % region.perimeter.size()) +
+          1;
+      append_triangle_up(mesh, 0, current, next);
     }
     output.surface_meshes.push_back(std::move(mesh));
   }

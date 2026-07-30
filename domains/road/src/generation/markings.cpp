@@ -109,11 +109,14 @@ Result<Vec3d> segment_point(const DerivedSegment &segment, double station_m,
 
 Vec3d gate_point(const ConnectionGate &gate, double longitudinal_m,
                  double lateral_m) {
+  const double world_lateral_m =
+      gate.approach.endpoint_role == EndpointRole::kEnd ? -lateral_m
+                                                        : lateral_m;
   return Vec3d{
       gate.position.x + gate.tangent.x * longitudinal_m +
-          gate.lateral.x * lateral_m,
+          gate.lateral.x * world_lateral_m,
       gate.position.y + gate.tangent.y * longitudinal_m +
-          gate.lateral.y * lateral_m,
+          gate.lateral.y * world_lateral_m,
       gate.position.z + surface_height(gate.boundaries, lateral_m) +
           kMarkingElevationM,
   };

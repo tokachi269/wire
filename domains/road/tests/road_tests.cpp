@@ -38,6 +38,7 @@ using city::road::MakeLine;
 using city::road::MakePath;
 using city::road::ManualAreaRequest;
 using city::road::ManualLineRequest;
+using city::road::Mesh;
 using city::road::EvaluatePath;
 using city::road::Path;
 using city::road::PathLength;
@@ -62,6 +63,22 @@ using city::road::ValidateGraphInvariants;
 using city::road::Vec2d;
 namespace builtin_marking_styles = city::road::builtin_marking_styles;
 namespace builtin_surface_styles = city::road::builtin_surface_styles;
+
+bool mesh_faces_up(const Mesh& mesh) {
+  for (std::size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
+    const auto& a = mesh.vertices[mesh.indices[i]];
+    const auto& b = mesh.vertices[mesh.indices[i + 1]];
+    const auto& c = mesh.vertices[mesh.indices[i + 2]];
+    const double ux = b.x - a.x;
+    const double uy = b.y - a.y;
+    const double vx = c.x - a.x;
+    const double vy = c.y - a.y;
+    if (ux * vy - uy * vx < -1e-9) {
+      return false;
+    }
+  }
+  return true;
+}
 
 bool P0_generates_two_lane_segment(std::string& failure) {
   RoadState state{};
@@ -356,6 +373,46 @@ bool P1_degree_two_corner_uses_a_curve_without_a_junction(std::string& failure) 
   return true;
 }
 
+bool P1_corner_preserves_endpoint_section_sides(std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto node = state.graph().segments.front().node_b;
+  const auto branch = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), 1, node});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  const auto corners = road_test_view::corners(state.derived());
+  ROAD_TEST_EXPECT(corners.size() == 1, "end-start corner did not derive one connection");
+  const auto& corner = *corners.front();
+  const auto base_gate = std::find_if(
+      corner.approaches.begin(), corner.approaches.end(), [base](const auto& approach) {
+        return approach.key.segment_id == base.value &&
+               approach.key.endpoint_role == EndpointRole::kEnd;
+      });
+  ROAD_TEST_EXPECT(base_gate != corner.approaches.end(),
+                   "corner source end approach is missing");
+  const auto curb = std::find_if(
+      corner.connection_geometry.boundary_curves.begin(),
+      corner.connection_geometry.boundary_curves.end(), [](const auto& curve) {
+        return curve.source_boundary_id == 100 && curve.target_boundary_id == 100 &&
+               !curve.points.empty();
+      });
+  ROAD_TEST_EXPECT(curb != corner.connection_geometry.boundary_curves.end(),
+                   "corner left curb boundary curve is missing");
+  const bool base_is_source =
+      corner.connection_geometry.approaches[0] == base_gate->key;
+  const auto base_point = base_is_source ? curb->points.front() : curb->points.back();
+  ROAD_TEST_EXPECT(base_point.y < base_gate->gate.position.y,
+                   "segment end approach mirrored the left curb to the opposite side");
+  for (const auto& mesh : state.derived().connection_meshes) {
+    ROAD_TEST_EXPECT(mesh_faces_up(mesh),
+                     "corner connection mesh has downward-facing triangles");
+  }
+  return true;
+}
+
 bool P1_straight_connection_has_no_junction_area(std::string& failure) {
   RoadState state{};
   const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
@@ -400,6 +457,21 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
                        junction_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kSidewalk)) &&
                        junction_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kCurb)),
                    "T junction does not connect carriageway, sidewalks, and curbs by style authority");
+  const auto& junction = *road_test_view::junctions(state.derived()).front();
+  for (const auto& strip : junction.junction_geometry.surface_strips) {
+    ROAD_TEST_EXPECT(strip.left.size() == strip.right.size(),
+                     "T junction strip boundaries have different sample counts");
+    for (std::size_t index = 0; index < strip.left.size(); ++index) {
+      const double width = std::hypot(strip.left[index].x - strip.right[index].x,
+                                      strip.left[index].y - strip.right[index].y);
+      ROAD_TEST_EXPECT(width <= 2.2,
+                       "T junction connected a strip to a non-adjacent boundary");
+    }
+  }
+  for (const auto& mesh : state.derived().junction_meshes) {
+    ROAD_TEST_EXPECT(mesh_faces_up(mesh),
+                     "T junction mesh has downward-facing triangles");
+  }
   for (const auto& gate : road_test_view::gates_of(*road_test_view::junctions(state.derived()).front())) {
     ROAD_TEST_EXPECT(std::hypot(gate.position.x - 20.0, gate.position.y) >= 5.2 - 1e-6,
                      "T junction gate setback did not adapt to the approach width");
@@ -1134,6 +1206,7 @@ int main() {
       {"P0_straight_segments_stay_linear_after_snap_and_move", P0_straight_segments_stay_linear_after_snap_and_move},
       {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},
       {"P1_degree_two_corner_uses_a_curve_without_a_junction", P1_degree_two_corner_uses_a_curve_without_a_junction},
+      {"P1_corner_preserves_endpoint_section_sides", P1_corner_preserves_endpoint_section_sides},
       {"P1_straight_connection_has_no_junction_area", P1_straight_connection_has_no_junction_area},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
       {"P1_segment_snap_splits_bezier_road_for_t_junction", P1_segment_snap_splits_bezier_road_for_t_junction},

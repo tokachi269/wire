@@ -764,8 +764,16 @@ describe("viewport tool routing", () => {
       endNodeId: 12,
       corridorId: 21
     }));
+    const roadPreviewSegment = vi.fn((_input: RoadSegmentInput) => ({
+      ok: true,
+      error: "",
+      meshes: []
+    }));
     const store = new ViewerStore();
-    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    const actions = new ViewerActions(
+      actionBridge({ roadAddSegment, roadPreviewSegment }),
+      store
+    );
     actions.initialize();
 
     actions.setActiveTool("road");
@@ -773,6 +781,12 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([0, 0, 0]);
     actions.addViewportPoint([9, 9, 0]);
     actions.addViewportPoint([18, 0, 0]);
+
+    actions.previewViewportPoint([18, 12, 0]);
+    const hover = roadPreviewSegment.mock.calls.at(-1)?.[0];
+    expect(hover).toBeDefined();
+    expect(hover?.endX).toBeCloseTo(18 + 12 / Math.sqrt(2), 9);
+    expect(hover?.endY).toBeCloseTo(-12 / Math.sqrt(2), 9);
 
     actions.addViewportPoint([18, 12, 0]);
     actions.addViewportPoint([30, -12, 0]);

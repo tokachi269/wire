@@ -341,7 +341,8 @@ export class RoadActions {
       return withRoadEnd(current, target);
     }
     if (current.phase === "bend") {
-      return withRoadEnd(withRoadBend(current, target), target);
+      const bent = withRoadBend(current, target);
+      return withRoadEnd(bent, bent.draftBend);
     }
     return withRoadCurveEnd(current, target);
   }

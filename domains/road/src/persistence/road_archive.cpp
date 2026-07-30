@@ -344,6 +344,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
   std::set<std::uint64_t> all_ids{};
   std::set<std::uint64_t> node_ids{};
   std::set<std::uint64_t> segment_ids{};
+  std::set<std::uint64_t> corridor_ids{};
   std::set<std::uint64_t> template_ids{};
   std::set<std::uint64_t> transition_ids{};
   std::set<std::uint64_t> policy_ids{};
@@ -363,27 +364,48 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
   for (const CrossSectionTemplate& section : graph.section_templates) {
     Result<bool> id = add_id(section.id, &template_ids, "section_template");
     if (!id.ok) return id;
-    if (section.bands.empty() ||
-        section.boundaries.size() + 1 != section.bands.size()) {
+    if (section.strips.empty() ||
+        section.boundaries.size() + 1 != section.strips.size()) {
       return Result<bool>::Fail(ErrorKind::kValidation,
                                 "section template chain is incomplete");
     }
-    std::set<std::uint64_t> elements{};
-    for (const SurfaceBand& band : section.bands) {
-      if (band.element_id == 0 || !elements.insert(band.element_id).second ||
-          !finite(band.width_m) || !finite(band.cross_slope) ||
-          band.width_m <= 0.0 || !IsKnownSurfaceStyle(band.style_id)) {
+    std::set<SectionStripId> strips{};
+    for (const SectionStrip& strip : section.strips) {
+      if (strip.id == 0 || !strips.insert(strip.id).second ||
+          !finite(strip.width_m) || !finite(strip.cross_slope) ||
+          strip.width_m <= 0.0 ||
+          static_cast<int>(strip.function) < 0 ||
+          static_cast<int>(strip.function) > 3 ||
+          !IsKnownSurfaceStyle(strip.style_id)) {
         return Result<bool>::Fail(ErrorKind::kValidation,
-                                  "section template surface band is invalid");
+                                  "section template strip is invalid");
       }
       for (const AutoMarkingPolicy& side :
-           {band.side_marking.left, band.side_marking.right}) {
+           {strip.side_marking.left, strip.side_marking.right}) {
         if (static_cast<int>(side.role) < 0 || static_cast<int>(side.role) > 5 ||
             (side.enabled && !IsKnownMarkingStyle(side.style_id))) {
           return Result<bool>::Fail(
               ErrorKind::kValidation,
               "section template lane side marking is invalid");
         }
+      }
+    }
+    std::set<LaneBandId> lane_ids{};
+    for (const LaneBand& lane : section.lane_bands) {
+      const auto strip = std::find_if(
+          section.strips.begin(), section.strips.end(),
+          [&lane](const SectionStrip& candidate) {
+            return candidate.id == lane.surface_strip_id;
+          });
+      if (lane.id == 0 || !lane_ids.insert(lane.id).second ||
+          strip == section.strips.end() ||
+          strip->function != StripFunction::kCarriageway ||
+          !finite(lane.lateral_start_m) || !finite(lane.lateral_end_m) ||
+          lane.lateral_start_m < 0.0 ||
+          lane.lateral_end_m <= lane.lateral_start_m ||
+          lane.lateral_end_m > strip->width_m) {
+        return Result<bool>::Fail(ErrorKind::kValidation,
+                                  "section template lane allocation is invalid");
       }
     }
     std::set<std::uint64_t> boundaries{};
@@ -426,10 +448,10 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
       return Result<bool>::Fail(ErrorKind::kValidation,
                                 "section transition is invalid");
     }
-    std::set<std::uint64_t> rule_elements{};
+    std::set<SectionStripId> rule_strips{};
     for (const SectionTransitionRule& rule : transition.rules) {
-      if (rule.element_id == 0 ||
-          !rule_elements.insert(rule.element_id).second ||
+      if (rule.strip_id == 0 ||
+          !rule_strips.insert(rule.strip_id).second ||
           static_cast<int>(rule.action) < 0 ||
           static_cast<int>(rule.action) > 5) {
         return Result<bool>::Fail(ErrorKind::kValidation,
@@ -445,10 +467,56 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         !contains_id(template_ids, segment.section_template) ||
         (segment.transition.has_value() &&
          !contains_id(transition_ids, *segment.transition)) ||
-        !finite(segment.shape)) {
+        !finite(segment.shape) ||
+        static_cast<int>(segment.shape.intent) < 0 ||
+        static_cast<int>(segment.shape.intent) > 1) {
       return Result<bool>::Fail(ErrorKind::kValidation,
                                 "road segment is invalid");
     }
+  }
+  std::set<RoadSegmentId> corridor_segments{};
+  const auto segment_for = [&](RoadSegmentId id) -> const RoadSegment* {
+    const auto it =
+        std::find_if(graph.segments.begin(), graph.segments.end(),
+                     [id](const RoadSegment& segment) {
+                       return segment.id == id;
+                     });
+    return it == graph.segments.end() ? nullptr : &*it;
+  };
+  for (const RoadCorridor& corridor : graph.corridors) {
+    Result<bool> id = add_id(corridor.id, &corridor_ids, "corridor");
+    if (!id.ok) return id;
+    if (corridor.section_template_id == 0 || corridor.segments.empty()) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "road corridor is empty or untyped");
+    }
+    RoadNodeId expected_start = 0;
+    for (std::size_t index = 0; index < corridor.segments.size(); ++index) {
+      const DirectedSegmentRef& ref = corridor.segments[index];
+      const RoadSegment* segment = segment_for(ref.segment_id);
+      if (segment == nullptr ||
+          segment->section_template != corridor.section_template_id ||
+          !corridor_segments.insert(ref.segment_id).second) {
+        return Result<bool>::Fail(
+            ErrorKind::kValidation,
+            "road corridor segment reference is invalid or duplicated");
+      }
+      const RoadNodeId start =
+          ref.reversed ? segment->node_b : segment->node_a;
+      const RoadNodeId end =
+          ref.reversed ? segment->node_a : segment->node_b;
+      if (index != 0 && start != expected_start) {
+        return Result<bool>::Fail(
+            ErrorKind::kValidation,
+            "road corridor segment references are not endpoint-continuous");
+      }
+      expected_start = end;
+    }
+  }
+  if (corridor_segments.size() != graph.segments.size()) {
+    return Result<bool>::Fail(
+        ErrorKind::kValidation,
+        "road segment does not belong to exactly one corridor");
   }
   for (const NodeConnectionPolicyOverride& policy :
        graph.connection_policy_overrides) {
@@ -596,25 +664,36 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     const CrossSectionTemplate& section = *sections[i];
     const std::string prefix = "section_template." + std::to_string(i);
     writer.UInt(prefix + ".id", section.id);
-    writer.UInt(prefix + ".band.count", section.bands.size());
-    for (std::size_t j = 0; j < section.bands.size(); ++j) {
-      const SurfaceBand& band = section.bands[j];
-      const std::string band_prefix =
-          prefix + ".band." + std::to_string(j);
-      writer.UInt(band_prefix + ".element_id", band.element_id);
-      writer.Int(band_prefix + ".role", static_cast<int>(band.role));
-      writer.Double(band_prefix + ".width_m", band.width_m);
-      writer.Double(band_prefix + ".cross_slope", band.cross_slope);
-      writer.UInt(band_prefix + ".style_id", band.style_id.value);
+    writer.UInt(prefix + ".strip.count", section.strips.size());
+    for (std::size_t j = 0; j < section.strips.size(); ++j) {
+      const SectionStrip& strip = section.strips[j];
+      const std::string strip_prefix =
+          prefix + ".strip." + std::to_string(j);
+      writer.UInt(strip_prefix + ".id", strip.id);
+      writer.Int(strip_prefix + ".function",
+                 static_cast<int>(strip.function));
+      writer.Double(strip_prefix + ".width_m", strip.width_m);
+      writer.Double(strip_prefix + ".cross_slope", strip.cross_slope);
+      writer.UInt(strip_prefix + ".style_id", strip.style_id.value);
       for (const auto& [side_key, side] :
-           {std::pair{std::string_view{"left"}, band.side_marking.left},
-            std::pair{std::string_view{"right"}, band.side_marking.right}}) {
+           {std::pair{std::string_view{"left"}, strip.side_marking.left},
+            std::pair{std::string_view{"right"}, strip.side_marking.right}}) {
         const std::string side_prefix =
-            band_prefix + ".side_marking." + std::string(side_key);
+            strip_prefix + ".side_marking." + std::string(side_key);
         writer.Int(side_prefix + ".enabled", side.enabled ? 1 : 0);
         writer.Int(side_prefix + ".role", static_cast<int>(side.role));
         writer.UInt(side_prefix + ".style_id", side.style_id.value);
       }
+    }
+    writer.UInt(prefix + ".lane_band.count", section.lane_bands.size());
+    for (std::size_t j = 0; j < section.lane_bands.size(); ++j) {
+      const LaneBand& lane = section.lane_bands[j];
+      const std::string lane_prefix =
+          prefix + ".lane_band." + std::to_string(j);
+      writer.UInt(lane_prefix + ".id", lane.id);
+      writer.UInt(lane_prefix + ".surface_strip_id", lane.surface_strip_id);
+      writer.Double(lane_prefix + ".lateral_start_m", lane.lateral_start_m);
+      writer.Double(lane_prefix + ".lateral_end_m", lane.lateral_end_m);
     }
     writer.UInt(prefix + ".boundary.count", section.boundaries.size());
     for (std::size_t j = 0; j < section.boundaries.size(); ++j) {
@@ -649,12 +728,12 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     writer.Int(prefix + ".anchor", static_cast<int>(transition.anchor));
     std::vector<SectionTransitionRule> rules = transition.rules;
     std::sort(rules.begin(), rules.end(), [](const auto& a, const auto& b) {
-      return a.element_id < b.element_id;
+      return a.strip_id < b.strip_id;
     });
     writer.UInt(prefix + ".rule.count", rules.size());
     for (std::size_t j = 0; j < rules.size(); ++j) {
       const std::string rule_prefix = prefix + ".rule." + std::to_string(j);
-      writer.UInt(rule_prefix + ".element_id", rules[j].element_id);
+      writer.UInt(rule_prefix + ".strip_id", rules[j].strip_id);
       writer.Int(rule_prefix + ".action", static_cast<int>(rules[j].action));
     }
   }
@@ -751,6 +830,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     writer.UInt(prefix + ".node_b", segment.node_b);
     writer.UInt(prefix + ".section_template", segment.section_template);
     writer.UInt(prefix + ".transition", segment.transition.value_or(0));
+    writer.Int(prefix + ".shape.intent", static_cast<int>(segment.shape.intent));
     write_vec2(writer, prefix + ".shape.start_handle", segment.shape.start_handle);
     write_vec2(writer, prefix + ".shape.end_handle", segment.shape.end_handle);
     writer.UInt(prefix + ".shape.knot.count",
@@ -762,6 +842,23 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
       write_vec2(writer, knot_prefix + ".position", knot.position);
       write_vec2(writer, knot_prefix + ".handle_in", knot.handle_in);
       write_vec2(writer, knot_prefix + ".handle_out", knot.handle_out);
+    }
+  }
+
+  const auto corridors = sorted_by_id(graph.corridors);
+  writer.UInt("corridor.count", corridors.size());
+  for (std::size_t i = 0; i < corridors.size(); ++i) {
+    const RoadCorridor& corridor = *corridors[i];
+    const std::string prefix = "corridor." + std::to_string(i);
+    writer.UInt(prefix + ".id", corridor.id);
+    writer.UInt(prefix + ".section_template_id", corridor.section_template_id);
+    writer.UInt(prefix + ".segment.count", corridor.segments.size());
+    for (std::size_t j = 0; j < corridor.segments.size(); ++j) {
+      const DirectedSegmentRef& ref = corridor.segments[j];
+      const std::string ref_prefix =
+          prefix + ".segment." + std::to_string(j);
+      writer.UInt(ref_prefix + ".segment_id", ref.segment_id);
+      writer.Int(ref_prefix + ".reversed", ref.reversed ? 1 : 0);
     }
   }
 
@@ -833,24 +930,25 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
     CrossSectionTemplate section{};
     section.id = id.value;
-    Result<std::size_t> band_count = require_count(prefix + ".band.count");
-    if (!band_count.ok) return Result<LoadedRoad>::Fail(band_count.error_kind, band_count.error);
-    for (std::size_t j = 0; j < band_count.value; ++j) {
-      const std::string band_prefix = prefix + ".band." + std::to_string(j);
-      Result<std::uint64_t> element_id = reader.RequireU64(band_prefix + ".element_id");
-      Result<SurfaceRole> role = enum_value<SurfaceRole>(reader, band_prefix + ".role", 0, 2);
-      Result<double> width = reader.RequireDouble(band_prefix + ".width_m");
-      Result<double> slope = reader.RequireDouble(band_prefix + ".cross_slope");
-      Result<std::uint64_t> style = reader.RequireU64(band_prefix + ".style_id");
-      if (!element_id.ok) return Result<LoadedRoad>::Fail(element_id.error_kind, element_id.error);
-      if (!role.ok) return Result<LoadedRoad>::Fail(role.error_kind, role.error);
+    Result<std::size_t> strip_count = require_count(prefix + ".strip.count");
+    if (!strip_count.ok) return Result<LoadedRoad>::Fail(strip_count.error_kind, strip_count.error);
+    for (std::size_t j = 0; j < strip_count.value; ++j) {
+      const std::string strip_prefix = prefix + ".strip." + std::to_string(j);
+      Result<std::uint64_t> strip_id = reader.RequireU64(strip_prefix + ".id");
+      Result<StripFunction> function =
+          enum_value<StripFunction>(reader, strip_prefix + ".function", 0, 3);
+      Result<double> width = reader.RequireDouble(strip_prefix + ".width_m");
+      Result<double> slope = reader.RequireDouble(strip_prefix + ".cross_slope");
+      Result<std::uint64_t> style = reader.RequireU64(strip_prefix + ".style_id");
+      if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.error_kind, strip_id.error);
+      if (!function.ok) return Result<LoadedRoad>::Fail(function.error_kind, function.error);
       if (!width.ok) return Result<LoadedRoad>::Fail(width.error_kind, width.error);
       if (!slope.ok) return Result<LoadedRoad>::Fail(slope.error_kind, slope.error);
       if (!style.ok) return Result<LoadedRoad>::Fail(style.error_kind, style.error);
       LaneSideMarkingPolicy side_marking{};
       for (const std::string_view side_key : {std::string_view{"left"}, std::string_view{"right"}}) {
         const std::string side_prefix =
-            band_prefix + ".side_marking." + std::string(side_key);
+            strip_prefix + ".side_marking." + std::string(side_key);
         Result<int> enabled = reader.RequireInt(side_prefix + ".enabled");
         Result<MarkingRole> side_role =
             enum_value<MarkingRole>(reader, side_prefix + ".role", 0, 5);
@@ -874,8 +972,27 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           side_marking.right = policy;
         }
       }
-      section.bands.push_back(SurfaceBand{element_id.value, role.value, width.value, slope.value,
+      section.strips.push_back(SectionStrip{strip_id.value, function.value, width.value, slope.value,
                                           SurfaceStyleId{style.value}, side_marking});
+    }
+    Result<std::size_t> lane_count = require_count(prefix + ".lane_band.count");
+    if (!lane_count.ok) return Result<LoadedRoad>::Fail(lane_count.error_kind, lane_count.error);
+    for (std::size_t j = 0; j < lane_count.value; ++j) {
+      const std::string lane_prefix =
+          prefix + ".lane_band." + std::to_string(j);
+      Result<std::uint64_t> lane_id = reader.RequireU64(lane_prefix + ".id");
+      Result<std::uint64_t> strip_id =
+          reader.RequireU64(lane_prefix + ".surface_strip_id");
+      Result<double> start =
+          reader.RequireDouble(lane_prefix + ".lateral_start_m");
+      Result<double> end =
+          reader.RequireDouble(lane_prefix + ".lateral_end_m");
+      if (!lane_id.ok) return Result<LoadedRoad>::Fail(lane_id.error_kind, lane_id.error);
+      if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.error_kind, strip_id.error);
+      if (!start.ok) return Result<LoadedRoad>::Fail(start.error_kind, start.error);
+      if (!end.ok) return Result<LoadedRoad>::Fail(end.error_kind, end.error);
+      section.lane_bands.push_back(
+          LaneBand{lane_id.value, strip_id.value, start.value, end.value});
     }
     Result<std::size_t> boundary_count = require_count(prefix + ".boundary.count");
     if (!boundary_count.ok) return Result<LoadedRoad>::Fail(boundary_count.error_kind, boundary_count.error);
@@ -941,11 +1058,11 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     if (!rule_count.ok) return Result<LoadedRoad>::Fail(rule_count.error_kind, rule_count.error);
     for (std::size_t j = 0; j < rule_count.value; ++j) {
       const std::string rule_prefix = prefix + ".rule." + std::to_string(j);
-      Result<std::uint64_t> element_id = reader.RequireU64(rule_prefix + ".element_id");
+      Result<std::uint64_t> strip_id = reader.RequireU64(rule_prefix + ".strip_id");
       Result<TransitionAction> action = enum_value<TransitionAction>(reader, rule_prefix + ".action", 0, 5);
-      if (!element_id.ok) return Result<LoadedRoad>::Fail(element_id.error_kind, element_id.error);
+      if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.error_kind, strip_id.error);
       if (!action.ok) return Result<LoadedRoad>::Fail(action.error_kind, action.error);
-      transition.rules.push_back(SectionTransitionRule{element_id.value, action.value});
+      transition.rules.push_back(SectionTransitionRule{strip_id.value, action.value});
     }
     loaded.graph.transitions.push_back(std::move(transition));
   }
@@ -1090,6 +1207,8 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<std::uint64_t> node_b = reader.RequireU64(prefix + ".node_b");
     Result<std::uint64_t> section_template = reader.RequireU64(prefix + ".section_template");
     Result<std::uint64_t> transition = reader.RequireU64(prefix + ".transition");
+    Result<SegmentShapeIntent> intent =
+        enum_value<SegmentShapeIntent>(reader, prefix + ".shape.intent", 0, 1);
     Result<Vec2d> start_handle = vec2(reader, prefix + ".shape.start_handle");
     Result<Vec2d> end_handle = vec2(reader, prefix + ".shape.end_handle");
     if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
@@ -1097,10 +1216,12 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     if (!node_b.ok) return Result<LoadedRoad>::Fail(node_b.error_kind, node_b.error);
     if (!section_template.ok) return Result<LoadedRoad>::Fail(section_template.error_kind, section_template.error);
     if (!transition.ok) return Result<LoadedRoad>::Fail(transition.error_kind, transition.error);
+    if (!intent.ok) return Result<LoadedRoad>::Fail(intent.error_kind, intent.error);
     if (!start_handle.ok) return Result<LoadedRoad>::Fail(start_handle.error_kind, start_handle.error);
     if (!end_handle.ok) return Result<LoadedRoad>::Fail(end_handle.error_kind, end_handle.error);
     RoadSegment segment{id.value, node_a.value, node_b.value,
-                        SegmentShape{start_handle.value, {}, end_handle.value},
+                        SegmentShape{start_handle.value, {}, end_handle.value,
+                                     intent.value},
                         section_template.value,
                         transition.value == 0 ? std::nullopt
                                               : std::optional<SectionTransitionId>(transition.value)};
@@ -1118,6 +1239,47 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           SegmentKnot{position.value, handle_in.value, handle_out.value});
     }
     loaded.graph.segments.push_back(std::move(segment));
+  }
+
+  Result<std::size_t> corridor_count = require_count("corridor.count");
+  if (!corridor_count.ok) {
+    return Result<LoadedRoad>::Fail(corridor_count.error_kind,
+                                    corridor_count.error);
+  }
+  for (std::size_t i = 0; i < corridor_count.value; ++i) {
+    const std::string prefix = "corridor." + std::to_string(i);
+    Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
+    Result<std::uint64_t> section_template =
+        reader.RequireU64(prefix + ".section_template_id");
+    Result<std::size_t> ref_count =
+        require_count(prefix + ".segment.count");
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
+    if (!section_template.ok) {
+      return Result<LoadedRoad>::Fail(section_template.error_kind,
+                                      section_template.error);
+    }
+    if (!ref_count.ok) {
+      return Result<LoadedRoad>::Fail(ref_count.error_kind, ref_count.error);
+    }
+    RoadCorridor corridor{id.value, section_template.value, {}};
+    for (std::size_t j = 0; j < ref_count.value; ++j) {
+      const std::string ref_prefix =
+          prefix + ".segment." + std::to_string(j);
+      Result<std::uint64_t> segment =
+          reader.RequireU64(ref_prefix + ".segment_id");
+      Result<int> reversed = reader.RequireInt(ref_prefix + ".reversed");
+      if (!segment.ok) {
+        return Result<LoadedRoad>::Fail(segment.error_kind, segment.error);
+      }
+      if (!reversed.ok || (reversed.value != 0 && reversed.value != 1)) {
+        return Result<LoadedRoad>::Fail(
+            ErrorKind::kValidation,
+            "road corridor reversed flag is invalid");
+      }
+      corridor.segments.push_back(
+          DirectedSegmentRef{segment.value, reversed.value == 1});
+    }
+    loaded.graph.corridors.push_back(std::move(corridor));
   }
 
   Result<std::size_t> manual_line_count = require_count("manual_line.count");

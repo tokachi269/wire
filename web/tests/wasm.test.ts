@@ -1331,6 +1331,11 @@ describe("road wasm smoke", () => {
     expect(added.ok, added.error).toBe(true);
     const scene = state.scene();
     expect(scene.segmentCount).toBe(1);
+    expect(scene.corridorCount).toBe(1);
+    expect(scene.corridors).toHaveLength(1);
+    expect(scene.corridors[0].segments).toEqual([
+      { segmentId: added.segmentId, reversed: false }
+    ]);
     expect(new Set(scene.surfaceMeshes.map((mesh) => mesh.material))).toEqual(
       new Set(["asphalt", "sidewalk", "curb"])
     );
@@ -1347,7 +1352,7 @@ describe("road wasm smoke", () => {
     restored.delete();
   });
 
-  it("extends a degree-one endpoint without creating gesture boundaries", () => {
+  it("extends a degree-one corridor by adding a local segment", () => {
     state.clear();
     const first = state.addSegment({
       kind: "line",
@@ -1362,7 +1367,7 @@ describe("road wasm smoke", () => {
       startNodeId: 0,
       startSegmentId: 0,
       startStationM: 0,
-      extensionSegmentId: 0,
+      extensionCorridorId: 0,
       connectToFirstNode: false
     });
     expect(first.ok, first.error).toBe(true);
@@ -1371,7 +1376,7 @@ describe("road wasm smoke", () => {
 
     const extended = state.addSegment({
       kind: "line",
-      startX: 20,
+      startX: 20.2,
       startY: 0,
       endX: 32,
       endY: 16,
@@ -1382,25 +1387,86 @@ describe("road wasm smoke", () => {
       startNodeId: first.endNodeId!,
       startSegmentId: 0,
       startStationM: 0,
-      extensionSegmentId: first.segmentId!,
+      extensionCorridorId: first.corridorId!,
       connectToFirstNode: false
     });
     expect(extended.ok, extended.error).toBe(true);
-    expect(extended.segmentId).toBe(first.segmentId);
-    expect(extended.endNodeId).toBe(first.endNodeId);
+    expect(extended.segmentId).not.toBe(first.segmentId);
+    expect(extended.endNodeId).not.toBe(first.endNodeId);
+    expect(extended.corridorId).toBe(first.corridorId);
     const scene = state.scene();
-    expect(scene.segmentCount).toBe(1);
-    expect(scene.nodes).toHaveLength(2);
-    expect(scene.centerlineSegments.length).toBeGreaterThan(1);
+    expect(scene.segmentCount).toBe(2);
+    expect(scene.corridorCount).toBe(1);
+    expect(scene.nodes).toHaveLength(3);
     expect(new Set(scene.centerlineSegments.map((segment) => segment.id))).toEqual(
-      new Set([first.segmentId!])
+      new Set([first.segmentId!, extended.segmentId!])
     );
-    const endpoint = scene.nodes.find((node) => node.id === first.endNodeId);
+    const editedExtension = scene.editableSegments.find(
+      (segment) => segment.id === extended.segmentId
+    );
+    expect(editedExtension).toMatchObject({
+      kind: "line",
+      points: [
+        { x: 20, y: 0 },
+        { x: 32, y: 16 }
+      ]
+    });
+    expect(scene.corridors[0]).toMatchObject({
+      id: first.corridorId,
+      segments: [
+        { segmentId: first.segmentId, reversed: false },
+        { segmentId: extended.segmentId, reversed: false }
+      ]
+    });
+    const endpoint = scene.nodes.find((node) => node.id === extended.endNodeId);
     expect(endpoint).toMatchObject({
       x: 32,
       y: 16,
-      extensionSegmentId: first.segmentId
+      extensionCorridorId: first.corridorId
     });
+  });
+
+  it("exposes local split and range deletion through the wasm boundary", () => {
+    state.clear();
+    const added = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 60,
+      endY: 0,
+      handleAX: 20,
+      handleAY: 0,
+      handleBX: 40,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startStationM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(added.ok, added.error).toBe(true);
+
+    const split = state.splitSegmentAtStation({
+      segmentId: added.segmentId!,
+      stationM: 20
+    });
+    expect(split.ok, split.error).toBe(true);
+    let scene = state.scene();
+    expect(scene.segmentCount).toBe(2);
+    expect(scene.corridorCount).toBe(1);
+    expect(scene.corridors[0].segments).toHaveLength(2);
+
+    const endSegmentId = split.segmentId!;
+    const deleted = state.deleteRoadRange({
+      segmentId: endSegmentId,
+      startStationM: 10,
+      endStationM: 20
+    });
+    expect(deleted.ok, deleted.error).toBe(true);
+    scene = state.scene();
+    expect(scene.segmentCount).toBe(3);
+    expect(scene.corridorCount).toBe(2);
+    expect(scene.corridors.map((corridor) => corridor.segments.length)).toEqual([2, 1]);
   });
 
   it("keeps the final cross section perpendicular to an angled road", () => {
@@ -1750,21 +1816,21 @@ describe("road wasm smoke", () => {
     expect(added.ok, added.error).toBe(true);
     const before = state.scene().markingMeshes.length;
     expect(state.setLaneSideMarkingPolicy({
-      templateId: 1, bandElementId: 20, side: "right", enabled: true, role: 1, style: "center_line"
+      templateId: 1, stripId: 20, side: "right", enabled: true, role: 1, style: "center_line"
     }).ok).toBe(true);
     expect(state.setLaneSideMarkingPolicy({
-      templateId: 1, bandElementId: 30, side: "left", enabled: true, role: 1, style: "center_line"
+      templateId: 1, stripId: 30, side: "left", enabled: true, role: 1, style: "center_line"
     }).ok).toBe(true);
     expect(state.scene().markingMeshes.length).toBe(before);
 
     const conflict = state.setLaneSideMarkingPolicy({
-      templateId: 1, bandElementId: 30, side: "left", enabled: true, role: 0, style: "white"
+      templateId: 1, stripId: 30, side: "left", enabled: true, role: 0, style: "white"
     });
     expect(conflict.ok).toBe(false);
     expect(state.scene().markingMeshes.length).toBe(before);
 
     expect(state.resetLaneSideMarkingPolicy({
-      templateId: 1, bandElementId: 20, side: "right"
+      templateId: 1, stripId: 20, side: "right"
     }).ok).toBe(true);
   });
 });

@@ -20,7 +20,7 @@ export interface RoadSegmentInput {
   startNodeId: number;
   startSegmentId: number;
   startStationM: number;
-  extensionSegmentId?: number;
+  extensionCorridorId?: number;
   connectToFirstNode: boolean;
   sectionTemplateId?: number;
 }
@@ -38,14 +38,23 @@ export interface RoadSceneData {
   markingCount: number;
   connectionGateCount: number;
   junctionCount: number;
+  corridorCount: number;
   nodes: RoadNodeData[];
   centerlineSegments: RoadCenterlineSegmentData[];
+  corridors: RoadCorridorData[];
   sectionTemplates: RoadSectionTemplateData[];
   editableSegments: RoadEditableSegmentData[];
   surfaceMeshes: RoadMeshData[];
   markingMeshes: RoadMeshData[];
   approaches: RoadApproachLayoutData[];
   junctions: RoadJunctionData[];
+}
+
+export interface RoadCorridorData {
+  id: number;
+  sectionTemplateId: number;
+  lengthM: number;
+  segments: Array<{ segmentId: number; reversed: boolean }>;
 }
 
 export interface RoadJunctionMarkingBoundaryData {
@@ -97,7 +106,7 @@ export interface RoadNodeData {
   id: number;
   x: number;
   y: number;
-  extensionSegmentId?: number;
+  extensionCorridorId?: number;
 }
 
 export interface RoadCenterlineSegmentData {
@@ -113,7 +122,11 @@ export interface RoadCenterlineSegmentData {
 export interface RoadSectionTemplateData {
   id: number;
   name: string;
-  bands: Array<{ elementId: number; role: "sidewalk" | "carriageway" | "median"; widthM: number }>;
+  strips: Array<{
+    id: number;
+    function: "sidewalk" | "shoulder" | "carriageway" | "median";
+    widthM: number;
+  }>;
   sidewalkWidthM: number;
   laneWidthM: number;
   medianWidthM: number;
@@ -133,7 +146,7 @@ export interface RoadSnapInfo {
   nodeId: number;
   segmentId: number;
   stationM: number;
-  extensionSegmentId?: number;
+  extensionCorridorId?: number;
 }
 
 export interface RoadToolState {
@@ -148,7 +161,7 @@ export interface RoadToolState {
   draftStartNodeId: number;
   draftStartSegmentId: number;
   draftStartStationM: number;
-  draftExtensionSegmentId: number;
+  draftExtensionCorridorId: number;
   connectToFirstNode: boolean;
   selectedSectionTemplateId: number;
   manualLineOffsetM: number;
@@ -177,7 +190,7 @@ export function createRoadToolState(): RoadToolState {
     draftStartNodeId: 0,
     draftStartSegmentId: 0,
     draftStartStationM: 0,
-    draftExtensionSegmentId: 0,
+    draftExtensionCorridorId: 0,
     connectToFirstNode: false,
     selectedSectionTemplateId: 1,
     manualLineOffsetM: 0,
@@ -208,7 +221,7 @@ export function roadSegmentInput(state: RoadToolState): RoadSegmentInput {
     startNodeId: state.draftStartNodeId,
     startSegmentId: state.draftStartSegmentId,
     startStationM: state.draftStartStationM,
-    extensionSegmentId: state.draftExtensionSegmentId,
+    extensionCorridorId: state.draftExtensionCorridorId,
     connectToFirstNode: state.connectToFirstNode,
     sectionTemplateId: state.selectedSectionTemplateId
   };
@@ -259,8 +272,10 @@ export function emptyRoadScene(): RoadSceneData {
     markingCount: 0,
     connectionGateCount: 0,
     junctionCount: 0,
+    corridorCount: 0,
     nodes: [],
     centerlineSegments: [],
+    corridors: [],
     sectionTemplates: [],
     editableSegments: [],
     surfaceMeshes: [],

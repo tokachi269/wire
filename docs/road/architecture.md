@@ -26,16 +26,19 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 ### Authoritative
 
 - `RoadNode`: IDと確定world position。segment endpoint位置の唯一の正本
-- `RoadSegment`: ID、endpoint node ID、`SegmentShape`、section timeline参照
+- `RoadSegment`: 局所編集単位のID、endpoint node ID、局所`SegmentShape`、section timeline参照
+- `RoadCorridor`: 共通道路定義を参照する方向付き`RoadSegment`列。分岐を含まない
 - `SegmentShape`: endpointから出るhandle vector、内部knot、内部handle。endpoint座標は持たない
+- `SegmentShape.intent`: tool由来の編集意図。Straightはnode移動時のlinear handle再導出とinspectionだけに使い、generation / emitの別経路を作らない
 - `CrossSectionTemplate`と`SectionTransition`の意味入力
 - manual markingのowner IDとowner-local station / lateral値
 - surface / marking style identityは`SurfaceStyleId` / `MarkingStyleId`で保存する
 - ユーザーが明示した`NodeConnectionPolicyOverride`
 - next ID state
 
-`RoadSegment`へ完全Pathやendpoint座標を保存しない。自動junctionの存在、connection kind、gate、setback、
-corner radius、meshは保存しない。
+`RoadSegment`へ完全Pathやendpoint座標を保存しない。一つのsegmentは一つのcanonical spanを基本とし、
+連続描画や延長で無制限にinternal knotを蓄積しない。degree 2 nodeは局所segment境界として正当であり、
+同一道路定義でも自動統合しない。自動junctionの存在、connection kind、gate、setback、corner radius、meshは保存しない。
 
 ### Derived
 
@@ -49,11 +52,18 @@ corner radius、meshは保存しない。
 - `DerivedMarking`: owner、boundary ID、role、style、幅、world points / polygon
 - `RenderStyleRef`付きsurface、curb、sidewalk、marking、terrain mask、mesh、viewer payload
 
-StraightとCurvedはinput modeだけである。Straight requestはoperation planで直線shapeへ正規化し、生成後の
-CanonicalAlignmentは他のcurveと同じcubic Bezier span列になる。
+StraightとCurvedは同じ`SegmentShape`とcubic Bezier APIを使う。Straight requestはoperation planで、
+`P1 = P0 + (P3 - P0) / 3`、`P2 = P0 + 2 * (P3 - P0) / 3`のlinear cubicへ正規化する。
+`SegmentShape.intent`はStraightとして保存するが、sampling、connection、emitはBezierを共通に読む。
+後から直線かどうかを制御点の近接比較で判定して編集意味を決めない。
 
-同じPathを一括で追加した場合とdegree 1終端へ逐次延長した場合は、同じauthoritative `SegmentShape`へ正規化する。
-操作確定はnode / segment境界を作る理由にしない。branch、intersection、section境界、明示splitだけが境界を作る。
+角度を持つStraight segment同士の丸みは`RoadSegment.shape`へ混入しない。degree 2の屈曲nodeでは、
+各segmentをgate stationまで直線として使い、その間のcorner curveを`ResolvedConnection.connection_geometry`
+として導出する。corner生成は隣接segmentの制御点を書き換えない。
+
+同じPathを一括で追加した場合とcorridor終端へ逐次延長した場合は、同じnode列、局所segment列、
+`RoadCorridor.segments`へ正規化する。一括描画の各spanは一つの局所segmentとなり、延長は既存segmentを
+書き換えず新しいsegmentをcorridor末尾へ追加する。
 
 ## Operations
 
@@ -75,14 +85,15 @@ derived deterministic hash、next ID、inspection / query結果は操作前と�
 public operationから別public operationを呼ばない。ApplyはplanにないID確保、接続判断、fallbackを行わない。
 splitは`target_segment_id + station_m`を使い、target identityやstationを座標から再推測しない。
 
-degree 1終端への同一道路延長は`ExtendSegment`として既存segmentと終端nodeを同じplanでreplaceする。
-append / prependするPathは共通normalizerを通してから`SegmentShape`へ変換する。operationはcornerを別実装せず、
-一括追加と逐次延長が同じnormalizerを使う。
+degree 1のcorridor終端への同一道路延長は`ExtendCorridorFromEnd`として新しいnodeとsegmentを同じplanで追加する。
+既存segment、既存node位置、既存handleをreplaceしない。corridor先頭への延長は、既存corridor station参照の
+移行規則がないためunsupportedとする。segment間の滑らかさは隣接する二つのsegmentだけを入力とする
+derived connection geometryが担当する。
 
 `EditSegmentPath`相当の外部入力はcoreで次へ分ける。
 
 - `EditSegmentShape`: handle、internal knotだけを変更し、node位置を変更しない
-- `MoveNode`: `RoadNode.position`だけを変更し、接続segmentのCanonicalAlignmentを再導出する
+- `MoveNode`: `RoadNode.position`を変更する。Straight intentを持つincident segmentは新しい両端node位置からlinear handleを再導出し、Curve intentのhandleはそのsegment-local shapeとして維持する
 
 ## Generate
 
@@ -158,7 +169,8 @@ authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / 
 単独segmentとdegree 1 endpointにはconnection/overrideを要求しない。degree 2のCorner/PassThrough、degree 3/4のJunctionでだけ
 `ResolvedConnection`を導出する。
 
-- extension: 同一segmentを更新するため`ApproachKey`は維持される。manual fieldは維持し、Auto fieldは最新auto値へ追従する。
+- extension: 既存segmentの`ApproachKey`は不変で、新segment endpointに新しい`ApproachKey`を作る。
+  既存manual fieldは維持し、Auto fieldは最新auto値へ追従する。
 - node move / shape edit: `ApproachKey`は維持され、`ResolvedConnection`だけを再導出する。
 - segment split: 元segment start側overrideは元segmentに残る。元segment end側overrideは新しい外側segment endへIDでmappingする。内部nodeへ複製しない。
 - segment delete / node delete: 該当segment/nodeのoverrideは同じOperationPlanで削除し、orphanを残さない。
@@ -166,7 +178,7 @@ authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / 
 
 ## Persistence target
 
-road persistenceはversion 9とする。保存対象はauthoritative stateとnext IDだけとする。
+road persistenceは局所segment/corridor schemaの現行versionを使用する。保存対象はauthoritative stateとnext IDだけとする。
 CanonicalAlignment、connection、gate、section evaluation、junction geometry、mesh、mask、auto markingは保存しない。
 resolved connection、derived marking、mesh、maskも保存しない。ApproachGeometryOverrideはmanual fieldがある場合だけ保存する。
 
@@ -174,7 +186,7 @@ resolved connection、derived marking、mesh、maskも保存しない。Approach
 top-level entityはID順にcanonical serializeする。順序に意味がある`SegmentShape.internal_knots`やPath spanは保存順を維持する。
 doubleはload後に同じbinary doubleへ戻る表現で保存する。
 
-version 8以前と未知versionは明示rejectし、migrationしない。loadはparse、field構造検証、型変換、
+旧versionと未知versionは明示rejectし、migrationしない。loadはparse、field構造検証、型変換、
 `ValidateAuthoritativeGraph`、`generate_road`、不変条件検査を通過した場合だけ新stateを返す。duplicate key、missing key、
 unknown key、count不一致、enum範囲外、非有限値、重複ID、欠損参照をrejectする。
 
@@ -185,6 +197,57 @@ operation preflightはrequestの全fieldについて、ID存在、有限性、en
 valid authoritativeから派生が欠ける、emitへ不整合なresolved geometryが渡る等は`kInternal`とする。
 `ValidateAuthoritativeGraph`はloadとoperation trial後に共通利用し、保存正本の完全性だけを見る。generateでしか判断できない
 幾何対応可否は混ぜない。
+
+## Segment locality
+
+`RoadSegment`は局所追加、局所削除、split、shape編集、局所所有物の単位である。長い道路全体や一回の
+描画セッションを表さない。shape編集の意味上の影響範囲は対象segment、その両端connection、
+対象segmentを参照する局所所有物に限定する。
+
+## RoadCorridor
+
+`RoadCorridor`は`RoadCorridorId`、現行の共通道路定義である`section_template_id`、順序付き
+`DirectedSegmentRef`を正本として持つ。実体のない別`RoadDefinitionId`は作らない。
+`reversed=false`はsegment startからend、`true`はendからstartへ進む。corridor内のsegmentは端点IDで
+連続し、重複せず、他corridorへ重複所属しない。位置近接は連続性判定に使わない。
+
+corridor stationは先頭から単調増加する。内部segment境界は後続segmentのlocal 0、corridor終端は末尾
+segmentのlocal lengthへ解決する。reversed segmentでは`local = length - corridor-local`とする。
+長さ、累積station、解決結果は派生であり保存しない。
+
+分岐は既存corridorへ枝を混入せず、新しい`RoadCorridor`を作る。共有nodeは許可するが、本線corridorの
+segment列、方向、始点、station、周期配置位相は変更しない。
+
+## Corridor editing
+
+`SplitSegmentAtStation`はDe Casteljau分割を使い、元segment IDをstart側、新IDをend側へ割り当てる。
+corridor内では元参照を二つの向き付き参照へ置換し、reversed参照ではcorridor方向に沿う順序へ反転する。
+split前後でcorridor全長とworld位置を維持する。
+
+`DeleteRoadRange`は境界split後に中間segmentを削除する。corridorが分断される場合、始点側が元corridor IDを
+維持し、終点側へ新IDを割り当てる。空corridorは保存しない。segment-local markingはstationでstart/end側へ
+明示移行し、境界を跨ぐmanual lineは現段階ではunsupportedとする。approach overrideとjunction marking
+overrideはendpoint ID対応で移行し、一意に対応しないものはunsupportedとする。
+
+局所追従参照は`RoadSideRef` / `RoadSideIntervalRef`のsegment IDとlocal station、道路全長基準のpolicyは
+`CorridorSideRef`のcorridor IDとcorridor stationを使う。`RoadSideRef`の左右はsegment正本のstart-to-end方向、
+`CorridorSideRef`の左右はcorridor進行方向を基準とする。reversed segmentへcorridor参照を解決すると左右を反転する。
+
+## Periodic placement
+
+周期配置policy入力はcorridor単位の`spacing_m`と`phase_m`だけを持つ。候補stationはcorridor全長で
+`phase + n * spacing`として導出し、segment境界で位相をリセットしない。branch corridorは独自位相を持ち、
+本線から自動継承しない。個々の候補位置は保存しない。
+
+## Section axes
+
+断面は物理`SectionStrip`、利用上の`StripFunction`、表示`SurfaceStyleId`、`LaneBand`によるlane割当を
+別軸として扱う。styleからfunctionを推測しない。`Shoulder`はcurb幅や段差の代用ではなく独立した水平stripである。
+車道外側線はcarriageway利用領域とshoulderのsemantic boundaryへ置き、shoulderがない場合だけ外側boundaryを使う。
+
+現行persistence versionは10。局所segment、corridor、directed ref、section strip、lane allocationを
+named fieldで保存し、version 9以前はmigrationせず明示rejectする。corridor長、累積station、
+周期配置候補、connection geometryは派生なので保存しない。
 
 testはproductionと同じ`ValidateGraphInvariants`を代表scenarioの観測点とseed付き操作列の
 各stepで呼ぶ。test専用の別invariantや、派生値同士だけを比較する代替検査を作らない。

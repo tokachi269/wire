@@ -116,7 +116,11 @@ export interface RoadMeshPayload {
 export interface RoadSectionTemplatePayload {
   id: number;
   name: string;
-  bands: Array<{ elementId: number; role: "sidewalk" | "carriageway" | "median"; widthM: number }>;
+  strips: Array<{
+    id: number;
+    function: "sidewalk" | "shoulder" | "carriageway" | "median";
+    widthM: number;
+  }>;
   sidewalkWidthM: number;
   laneWidthM: number;
   medianWidthM: number;
@@ -132,8 +136,15 @@ export interface RoadScenePayload {
   markingCount: number;
   connectionGateCount: number;
   junctionCount: number;
+  corridorCount: number;
   nodes: RoadNodePayload[];
   centerlineSegments: RoadCenterlineSegmentPayload[];
+  corridors: Array<{
+    id: number;
+    sectionTemplateId: number;
+    lengthM: number;
+    segments: Array<{ segmentId: number; reversed: boolean }>;
+  }>;
   sectionTemplates: RoadSectionTemplatePayload[];
   editableSegments: Array<{ id: number; kind: "line" | "bezier"; points: Array<{ x: number; y: number }> }>;
   surfaceMeshes: RoadMeshPayload[];
@@ -199,7 +210,7 @@ export interface RoadNodePayload {
   id: number;
   x: number;
   y: number;
-  extensionSegmentId?: number;
+  extensionCorridorId?: number;
 }
 
 export interface RoadCenterlineSegmentPayload {
@@ -214,6 +225,7 @@ export interface RoadCenterlineSegmentPayload {
 
 export interface RoadSegmentResult extends OperationResult {
   segmentId?: number;
+  corridorId?: number;
   endNodeId?: number;
 }
 
@@ -222,6 +234,15 @@ export interface RoadStateHandle {
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   scene(): RoadScenePayload;
   deleteSegment(segmentId: number): OperationResult;
+  splitSegmentAtStation(input: {
+    segmentId: number;
+    stationM: number;
+  }): OperationResult & { segmentId?: number };
+  deleteRoadRange(input: {
+    segmentId: number;
+    startStationM: number;
+    endStationM: number;
+  }): OperationResult;
   setApproachSetbackOverride(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1; setbackM: number }): OperationResult;
   setApproachLateralShiftOverride(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1; lateralShiftM: number }): OperationResult;
   resetApproachOverrideField(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1; field: 0 | 1 }): OperationResult;
@@ -239,7 +260,7 @@ export interface RoadStateHandle {
   resetBoundaryMarkingPolicy(input: { templateId: number; boundaryId: number }): OperationResult;
   setLaneSideMarkingPolicy(input: {
     templateId: number;
-    bandElementId: number;
+    stripId: number;
     side: "left" | "right";
     enabled: boolean;
     role: number;
@@ -247,7 +268,7 @@ export interface RoadStateHandle {
   }): OperationResult;
   resetLaneSideMarkingPolicy(input: {
     templateId: number;
-    bandElementId: number;
+    stripId: number;
     side: "left" | "right";
   }): OperationResult;
   suppressSegmentMarking(input: { segmentId: number; boundaryId: number; role: number }): OperationResult;

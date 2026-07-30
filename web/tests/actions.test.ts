@@ -562,8 +562,10 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       markingCount: 0,
       connectionGateCount: 0,
       junctionCount: 0,
+      corridorCount: 0,
       nodes: [],
       centerlineSegments: [],
+      corridors: [],
       sectionTemplates: [],
       editableSegments: [],
       surfaceMeshes: [],
@@ -615,10 +617,22 @@ describe("viewport tool routing", () => {
     expect(current(store).road.phase).toBe("end");
   });
 
-  it("normalizes continuous road drawing to extension of the same segment", () => {
+  it("normalizes continuous road drawing to a new segment in the same corridor", () => {
     const roadAddSegment = vi.fn()
-      .mockReturnValueOnce({ ok: true, error: "", segmentId: 11, endNodeId: 12 })
-      .mockReturnValue({ ok: true, error: "", segmentId: 11, endNodeId: 12 });
+      .mockReturnValueOnce({
+        ok: true,
+        error: "",
+        segmentId: 11,
+        corridorId: 21,
+        endNodeId: 12
+      })
+      .mockReturnValue({
+        ok: true,
+        error: "",
+        segmentId: 13,
+        corridorId: 21,
+        endNodeId: 14
+      });
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
     actions.initialize();
@@ -634,7 +648,7 @@ describe("viewport tool routing", () => {
       endX: 32,
       endY: 16,
       startNodeId: 12,
-      extensionSegmentId: 11
+      extensionCorridorId: 21
     }));
   });
 
@@ -647,13 +661,13 @@ describe("viewport tool routing", () => {
     actions.setActiveTool("road");
     actions.addViewportPoint(
       [20, 0, 0],
-      { kind: "road", nodeId: 12, segmentId: 0, stationM: 0, extensionSegmentId: 11 }
+      { kind: "road", nodeId: 12, segmentId: 0, stationM: 0, extensionCorridorId: 11 }
     );
     actions.addViewportPoint([32, 16, 0]);
 
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       startNodeId: 12,
-      extensionSegmentId: 11
+      extensionCorridorId: 11
     }));
   });
 

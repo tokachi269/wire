@@ -238,7 +238,7 @@ export class RoadActions {
         draftStartNodeId: result.endNodeId ?? 0,
         draftStartSegmentId: 0,
         draftStartStationM: 0,
-        draftExtensionSegmentId: result.segmentId ?? 0,
+        draftExtensionCorridorId: result.corridorId ?? 0,
         scene,
         previewMeshes: [],
         lastError: ""
@@ -269,7 +269,7 @@ export class RoadActions {
         draftStartNodeId: snap?.nodeId ?? 0,
         draftStartSegmentId: snap?.segmentId ?? 0,
         draftStartStationM: snap?.stationM ?? 0,
-        draftExtensionSegmentId: snap?.extensionSegmentId ?? 0,
+        draftExtensionCorridorId: snap?.extensionCorridorId ?? 0,
         phase
       }, target)
     }));
@@ -319,7 +319,7 @@ function editInput(road: RoadToolState) {
     startNodeId: 0,
     startSegmentId: 0,
     startStationM: 0,
-    extensionSegmentId: 0,
+    extensionCorridorId: 0,
     connectToFirstNode: false,
     sectionTemplateId: road.selectedSectionTemplateId
   };

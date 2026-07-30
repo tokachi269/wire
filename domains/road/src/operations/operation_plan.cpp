@@ -88,6 +88,7 @@ Result<bool> remove_auto_marking_overrides(std::vector<AutoMarkingOverride>& tar
 Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std::uint64_t& next_id) {
   const auto node_id = [](const RoadNode& value) { return value.id; };
   const auto segment_id = [](const RoadSegment& value) { return value.id; };
+  const auto corridor_id = [](const RoadCorridor& value) { return value.id; };
   const auto section_id = [](const CrossSectionTemplate& value) { return value.id; };
   const auto transition_id = [](const SectionTransition& value) { return value.id; };
   const auto policy_override_id = [](const NodeConnectionPolicyOverride& value) { return value.id; };
@@ -116,6 +117,9 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   if (!result.ok) return result;
   result = remove_entities(authoritative.segments, plan.remove_segments, segment_id, "segment");
   if (!result.ok) return result;
+  result = remove_entities(authoritative.corridors, plan.remove_corridors,
+                           corridor_id, "corridor");
+  if (!result.ok) return result;
   result = remove_entities(authoritative.nodes, plan.remove_nodes, node_id, "node");
   if (!result.ok) return result;
 
@@ -123,12 +127,18 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   if (!result.ok) return result;
   result = replace_entities(authoritative.segments, plan.replace_segments, segment_id, "segment");
   if (!result.ok) return result;
+  result = replace_entities(authoritative.corridors, plan.replace_corridors,
+                            corridor_id, "corridor");
+  if (!result.ok) return result;
   result = replace_entities(authoritative.section_templates, plan.replace_section_templates, section_id, "section");
   if (!result.ok) return result;
 
   result = add_entities(authoritative.nodes, plan.add_nodes, node_id, "node");
   if (!result.ok) return result;
   result = add_entities(authoritative.segments, plan.add_segments, segment_id, "segment");
+  if (!result.ok) return result;
+  result = add_entities(authoritative.corridors, plan.add_corridors, corridor_id,
+                        "corridor");
   if (!result.ok) return result;
   result = add_entities(authoritative.section_templates, plan.add_section_templates, section_id, "section");
   if (!result.ok) return result;

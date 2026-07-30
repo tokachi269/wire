@@ -26,6 +26,7 @@ using city::road::AutoMarkingKey;
 using city::road::AutoMarkingPolicy;
 using city::road::EndpointRole;
 using city::road::JapaneseUrbanTwoLaneTemplate;
+using city::road::ShoulderedTwoLaneTemplate;
 using city::road::JunctionMarkingAction;
 using city::road::JunctionMarkingEndpoint;
 using city::road::JunctionMarkingOverride;
@@ -45,11 +46,15 @@ using city::road::RenderStyleFromMarking;
 using city::road::RenderStyleFromSurface;
 using city::road::RenderStyleRef;
 using city::road::RoadState;
+using city::road::RoadCorridorId;
+using city::road::RoadNodeId;
+using city::road::RoadSegment;
+using city::road::RoadSegmentId;
 using city::road::SectionTransitionRequest;
 using city::road::SectionTransitionRule;
 using city::road::StationRef;
 using city::road::StationRefKind;
-using city::road::SurfaceRole;
+using city::road::StripFunction;
 using city::road::ThreeLaneTemplate;
 using city::road::TransitionAnchor;
 using city::road::TransitionAction;
@@ -67,8 +72,8 @@ bool P0_generates_two_lane_segment(std::string& failure) {
   ROAD_TEST_EXPECT(!state.derived().segment_meshes.empty(), "P0 did not derive a surface mesh");
   ROAD_TEST_EXPECT(!state.derived().terrain_masks.empty(), "P0 did not derive a terrain mask");
   const auto section = JapaneseUrbanTwoLaneTemplate(1);
-  ROAD_TEST_EXPECT(section.bands.size() == 4, "Japanese two-lane template should have sidewalk/car/car/sidewalk");
-  ROAD_TEST_EXPECT(std::abs(section.bands[1].width_m - 3.0) < 1e-9, "lane width is not 3.0m");
+  ROAD_TEST_EXPECT(section.strips.size() == 4, "Japanese two-lane template should have sidewalk/car/car/sidewalk");
+  ROAD_TEST_EXPECT(std::abs(section.strips[1].width_m - 3.0) < 1e-9, "lane width is not 3.0m");
   ROAD_TEST_EXPECT(ValidateGraphInvariants(state.graph(), state.derived()).ok, "P0 invariants failed");
   return true;
 }
@@ -160,9 +165,11 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=9\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=10\n") &&
                        saved.value.find("primitive=") == std::string::npos &&
-                       saved.value.find("segment.0.shape.start_handle.x=") != std::string::npos,
+                       saved.value.find("segment.0.shape.intent=0") != std::string::npos &&
+                       saved.value.find("segment.0.shape.start_handle.x=") != std::string::npos &&
+                       saved.value.find("corridor.0.segment.0.segment_id=") != std::string::npos,
                    "road save did not use named canonical Bezier shape authority");
   const auto loaded = RoadState::Load(saved.value);
   ROAD_TEST_EXPECT(loaded.ok, loaded.error);
@@ -181,13 +188,13 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
     return archive;
   };
   std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=9").size(), "road_graph_version=4");
+  version4.replace(0, std::string("road_graph_version=10").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
   ROAD_TEST_EXPECT(!rejected.ok && rejected.error_kind == ErrorKind::kValidation,
                    "legacy road archive was not rejected");
   std::string truncated = saved.value;
   const std::size_t shape_row = truncated.find("segment.0.shape.start_handle.x=");
-  ROAD_TEST_EXPECT(shape_row != std::string::npos, "road v6 archive has no segment shape field");
+  ROAD_TEST_EXPECT(shape_row != std::string::npos, "road archive has no segment shape field");
   truncated.erase(shape_row, truncated.find('\n', shape_row) - shape_row + 1);
   ROAD_TEST_EXPECT(!RoadState::Load(truncated).ok, "truncated road archive was accepted");
   std::string duplicate = saved.value;
@@ -200,14 +207,14 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(!RoadState::Load(unknown).ok, "unknown road archive key was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "node.0.position.x", "nan")).ok,
                    "non-finite road archive double was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.band.0.style_id", "999")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.strip.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "10")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "11")).ok,
                    "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
-  for (int old_version = 1; old_version <= 8; ++old_version) {
+  for (int old_version = 1; old_version <= 9; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=9").size(),
+    legacy.replace(0, std::string("road_graph_version=10").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
@@ -223,6 +230,68 @@ bool P0_tool_preview_includes_bezier_handles(std::string& failure) {
   ROAD_TEST_EXPECT(std::abs(line.p1.x - 10.0) < 1e-9 && std::abs(line.p2.x - 20.0) < 1e-9 &&
                        std::abs(line.p3.x - 30.0) < 1e-9,
                    "straight input was not normalized to a cubic Bezier span");
+  return true;
+}
+
+bool P0_straight_segments_stay_linear_after_snap_and_move(std::string& failure) {
+  {
+    RoadState state{};
+    const auto base = state.AddSegment(
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const RoadSegmentId source = base.value;
+    const RoadNodeId endpoint = state.graph().segments.front().node_b;
+    const auto connected = state.AddSegmentConnectedTo(
+        city::road::AddSegmentConnectedToRequest{
+            MakePath({MakeLine({20.2, 0.0}, {20.0, 20.0})}), 1, endpoint});
+    ROAD_TEST_EXPECT(connected.ok, connected.error);
+    const Path* source_alignment = FindCanonicalAlignment(state.derived(), source);
+    const Path* connected_alignment = FindCanonicalAlignment(state.derived(), connected.value);
+    ROAD_TEST_EXPECT(source_alignment != nullptr && connected_alignment != nullptr,
+                     "connected straight alignment is missing");
+    ROAD_TEST_EXPECT(IsLinearSpan(source_alignment->spans.front()),
+                     "connecting a straight segment changed the previous segment");
+    ROAD_TEST_EXPECT(IsLinearSpan(connected_alignment->spans.front()),
+                     "snapped straight segment is no longer a linear Bezier");
+  }
+
+  {
+    RoadState state{};
+    const auto first = state.AddSegment(
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+    ROAD_TEST_EXPECT(first.ok, first.error);
+    const RoadSegment& segment = state.graph().segments.front();
+    const RoadNodeId endpoint = segment.node_b;
+    const RoadCorridorId corridor = state.graph().corridors.front().id;
+    const auto extended = state.ExtendCorridorFromEnd(
+        city::road::ExtendCorridorFromEndRequest{
+            corridor, endpoint,
+            MakePath({MakeLine({20.2, 0.0}, {20.0, 20.0})}), 1});
+    ROAD_TEST_EXPECT(extended.ok, extended.error);
+    const Path* extension_alignment = FindCanonicalAlignment(state.derived(), extended.value);
+    ROAD_TEST_EXPECT(extension_alignment != nullptr,
+                     "extended straight alignment is missing");
+    ROAD_TEST_EXPECT(IsLinearSpan(extension_alignment->spans.front()),
+                     "extended straight segment is no longer a linear Bezier");
+  }
+
+  {
+    RoadState state{};
+    const auto added = state.AddSegment(
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {30.0, 0.0})}), 1});
+    ROAD_TEST_EXPECT(added.ok, added.error);
+    const auto saved = state.Save();
+    ROAD_TEST_EXPECT(saved.ok, saved.error);
+    ROAD_TEST_EXPECT(saved.value.find("segment.0.shape.intent=1") != std::string::npos,
+                     "straight segment intent was not saved");
+    const RoadNodeId end_node = state.graph().segments.front().node_b;
+    const auto moved = state.MoveNode(city::road::MoveNodeRequest{end_node, {30.0, 10.0}});
+    ROAD_TEST_EXPECT(moved.ok, moved.error);
+    const Path* alignment = FindCanonicalAlignment(state.derived(), added.value);
+    ROAD_TEST_EXPECT(alignment != nullptr, "moved straight alignment is missing");
+    ROAD_TEST_EXPECT(IsLinearSpan(alignment->spans.front()),
+                     "moving a straight segment endpoint did not rederive linear Bezier controls");
+  }
   return true;
 }
 
@@ -414,10 +483,14 @@ bool P1_segment_snap_splits_at_bezier_span_boundary(std::string& failure) {
   const Path alignment = MakePath({first_span, second_span});
   const auto base = state.AddSegment(city::road::AddSegmentRequest{alignment, 1});
   ROAD_TEST_EXPECT(base.ok, base.error);
-  const auto boundary_station = PathLength(MakePath({first_span}));
-  ROAD_TEST_EXPECT(boundary_station.ok, boundary_station.error);
-  const auto branch = state.AddSegmentConnectedToSegment(city::road::AddSegmentConnectedToSegmentRequest{
-      MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), 1, base.value, boundary_station.value});
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 2,
+                   "multi-span path was not normalized to local segments");
+  const city::road::RoadNodeId boundary_node =
+      state.graph().segments.front().node_b;
+  const auto branch = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), 1,
+          boundary_node});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 3, "span-boundary split did not create three segments");
   for (const auto& segment : state.graph().segments) {
@@ -574,7 +647,7 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   {
     RoadState state{};
     auto no_left_sidewalk = JapaneseUrbanTwoLaneTemplate(0);
-    no_left_sidewalk.bands.erase(no_left_sidewalk.bands.begin());
+    no_left_sidewalk.strips.erase(no_left_sidewalk.strips.begin());
     no_left_sidewalk.boundaries.erase(no_left_sidewalk.boundaries.begin());
     const auto target = state.AddSectionTemplate(city::road::AddSectionTemplateRequest{no_left_sidewalk});
     ROAD_TEST_EXPECT(target.ok, target.error);
@@ -617,8 +690,8 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
     auto median = JapaneseUrbanTwoLaneTemplate(0);
     const city::road::AutoMarkingPolicy outer_line{
         true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid};
-    median.bands.insert(median.bands.begin() + 2,
-                        {25, SurfaceRole::kMedian, 2.0, 0.0, builtin_surface_styles::kMedian});
+    median.strips.insert(median.strips.begin() + 2,
+                        {25, StripFunction::kMedian, 2.0, 0.0, builtin_surface_styles::kMedian});
     median.boundaries = {
         {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
         {210, BoundaryRole::kMedianEdge, 0.2, 0.12, {}},
@@ -954,6 +1027,73 @@ bool M6_transition_without_boundary_mapping_is_unsupported(std::string& failure)
   return true;
 }
 
+bool RSL_section_axes_and_shoulder_are_independent(std::string& failure) {
+  const auto shoulder = ShoulderedTwoLaneTemplate(5);
+  ROAD_TEST_EXPECT(shoulder.strips.size() == 6,
+                   "shouldered template does not contain independent shoulder strips");
+  ROAD_TEST_EXPECT(
+      shoulder.strips[1].function == StripFunction::kShoulder &&
+          shoulder.strips[1].style_id == builtin_surface_styles::kAsphalt &&
+          shoulder.strips[2].function == StripFunction::kCarriageway &&
+          shoulder.strips[2].style_id == builtin_surface_styles::kAsphalt,
+      "strip function is still inferred from surface style");
+  ROAD_TEST_EXPECT(shoulder.lane_bands.size() == 2 &&
+                       shoulder.lane_bands[0].surface_strip_id == 20 &&
+                       shoulder.lane_bands[1].surface_strip_id == 30,
+                   "lane allocation is not independent from physical strips");
+
+  RoadState state{};
+  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const auto marking_count = [&](std::uint64_t boundary_id) {
+    return std::count_if(
+        state.derived().markings.begin(), state.derived().markings.end(),
+        [segment_id = segment.value, boundary_id](const auto& marking) {
+          return marking.owner.kind == MarkingOwner::Kind::kRoadSegment &&
+                 marking.owner.segment_id == segment_id &&
+                 marking.boundary_id == boundary_id;
+        });
+  };
+  ROAD_TEST_EXPECT(marking_count(150) == 1 && marking_count(250) == 1,
+                   "outer lines are not anchored to carriageway/shoulder boundaries");
+  ROAD_TEST_EXPECT(marking_count(100) == 0 && marking_count(300) == 0,
+                   "curb boundaries are still used as shoulder spacing");
+
+  city::road::CrossSectionTemplate continuous{};
+  continuous.strips = {
+      {10, StripFunction::kCarriageway, 6.0, 0.0,
+       builtin_surface_styles::kMedian},
+  };
+  continuous.lane_bands = {
+      {100, 10, 0.0, 3.0},
+      {200, 10, 3.0, 6.0},
+  };
+  const auto template_id =
+      state.AddSectionTemplate(city::road::AddSectionTemplateRequest{
+          std::move(continuous)});
+  ROAD_TEST_EXPECT(template_id.ok, template_id.error);
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  const auto restored = std::find_if(
+      loaded.value.graph().section_templates.begin(),
+      loaded.value.graph().section_templates.end(),
+      [id = template_id.value](const auto& section) {
+        return section.id == id;
+      });
+  ROAD_TEST_EXPECT(
+      restored != loaded.value.graph().section_templates.end() &&
+          restored->strips.size() == 1 &&
+          restored->lane_bands.size() == 2 &&
+          restored->strips.front().function == StripFunction::kCarriageway &&
+          restored->strips.front().style_id ==
+              builtin_surface_styles::kMedian,
+      "one physical strip with multiple lane bands did not round-trip");
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -991,6 +1131,7 @@ int main() {
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
+      {"P0_straight_segments_stay_linear_after_snap_and_move", P0_straight_segments_stay_linear_after_snap_and_move},
       {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},
       {"P1_degree_two_corner_uses_a_curve_without_a_junction", P1_degree_two_corner_uses_a_curve_without_a_junction},
       {"P1_straight_connection_has_no_junction_area", P1_straight_connection_has_no_junction_area},
@@ -1008,6 +1149,8 @@ int main() {
       {"M3_lane_count_change_begins_and_terminates_lines", M3_lane_count_change_begins_and_terminates_lines},
       {"M6_transition_without_boundary_mapping_is_unsupported",
        M6_transition_without_boundary_mapping_is_unsupported},
+      {"RSL_section_axes_and_shoulder_are_independent",
+       RSL_section_axes_and_shoulder_are_independent},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

@@ -17,6 +17,9 @@ struct OperationPlan {
   std::vector<RoadSegment> add_segments{};
   std::vector<RoadSegment> replace_segments{};
   std::vector<RoadSegmentId> remove_segments{};
+  std::vector<RoadCorridor> add_corridors{};
+  std::vector<RoadCorridor> replace_corridors{};
+  std::vector<RoadCorridorId> remove_corridors{};
 
   std::vector<CrossSectionTemplate> add_section_templates{};
   std::vector<CrossSectionTemplate> replace_section_templates{};

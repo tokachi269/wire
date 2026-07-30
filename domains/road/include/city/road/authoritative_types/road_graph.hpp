@@ -18,10 +18,15 @@ struct SectionTransition {
 };
 struct RoadNode { RoadNodeId id = 0; Vec2d position{}; };
 struct SegmentKnot { Vec2d position{}; Vec2d handle_in{}; Vec2d handle_out{}; };
+enum class SegmentShapeIntent {
+  kCurve,
+  kStraight,
+};
 struct SegmentShape {
   Vec2d start_handle{};
   std::vector<SegmentKnot> internal_knots{};
   Vec2d end_handle{};
+  SegmentShapeIntent intent = SegmentShapeIntent::kCurve;
 };
 struct RoadSegment {
   RoadSegmentId id = 0;
@@ -30,6 +35,11 @@ struct RoadSegment {
   SegmentShape shape{};
   CrossSectionTemplateId section_template = 0;
   std::optional<SectionTransitionId> transition{};
+};
+struct RoadCorridor {
+  RoadCorridorId id = 0;
+  CrossSectionTemplateId section_template_id = 0;
+  std::vector<DirectedSegmentRef> segments{};
 };
 enum class NodeConnectionPolicy { kForcePassThrough, kForceCorner, kForceJunction };
 struct NodeConnectionPolicyOverride {
@@ -87,6 +97,7 @@ struct JunctionMarkingOverride {
 struct SavedRoadGraph {
   std::vector<RoadNode> nodes{};
   std::vector<RoadSegment> segments{};
+  std::vector<RoadCorridor> corridors{};
   std::vector<CrossSectionTemplate> section_templates{};
   std::vector<SectionTransition> transitions{};
   std::vector<NodeConnectionPolicyOverride> connection_policy_overrides{};

@@ -11,6 +11,7 @@
 #include <iostream>
 #include <limits>
 #include <locale>
+#include <map>
 #include <random>
 #include <sstream>
 #include <string>
@@ -57,6 +58,18 @@ void append_meshes(std::ostringstream& out, const std::vector<Mesh>& meshes) {
     for (const auto& vertex : mesh.vertices) out << vertex.x << ',' << vertex.y << ',' << vertex.z << ';';
     for (const auto index : mesh.indices) out << index << ',';
   }
+}
+
+std::string path_observation(const Path& path) {
+  std::ostringstream out;
+  out.imbue(std::locale::classic());
+  out << std::hexfloat;
+  for (const BezierSpan& span : path.spans) {
+    out << span.p0.x << ',' << span.p0.y << ',' << span.p1.x << ','
+        << span.p1.y << ',' << span.p2.x << ',' << span.p2.y << ','
+        << span.p3.x << ',' << span.p3.y << ';';
+  }
+  return out.str();
 }
 
 void append_owner(std::ostringstream& out, const MarkingOwner& owner) {
@@ -211,10 +224,11 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state,
                            [&] {
-                             return state.ExtendSegment(
-                                 ExtendSegmentRequest{999999, 999998, line, 1});
+                              return state.ExtendCorridorFromEnd(
+                                  ExtendCorridorFromEndRequest{999999, 999998,
+                                                               line, 1});
                            },
-                           "ExtendSegment", failure),
+                           "ExtendCorridorFromEnd", failure),
                        failure);
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{line, 1, 999999}); },
@@ -222,6 +236,24 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.AddSegmentConnectedToSegment(city::road::AddSegmentConnectedToSegmentRequest{line, 1, 999999, 10.0}); },
                            "AddSegmentConnectedToSegment", failure), failure);
+  ROAD_CONTRACT_EXPECT(
+      expect_failed_unchanged(
+          state,
+          [&] {
+            return state.SplitSegmentAtStation(
+                SplitSegmentAtStationRequest{999999, 10.0});
+          },
+          "SplitSegmentAtStation", failure),
+      failure);
+  ROAD_CONTRACT_EXPECT(
+      expect_failed_unchanged(
+          state,
+          [&] {
+            return state.DeleteRoadRange(
+                DeleteRoadRangeRequest{999999, 1.0, 2.0});
+          },
+          "DeleteRoadRange", failure),
+      failure);
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.EditSegmentShape(city::road::EditSegmentShapeRequest{999999, {}}); }, "EditSegmentShape", failure),
                        failure);
@@ -267,7 +299,7 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
   return true;
 }
 
-bool extension_history_normalizes_to_one_segment(std::string& failure) {
+bool extension_history_normalizes_to_segment_chain(std::string& failure) {
   const Path first =
       MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})});
   const Path second =
@@ -285,42 +317,29 @@ bool extension_history_normalizes_to_one_segment(std::string& failure) {
       incremental.AddSegment(AddSegmentRequest{first, 1});
   ROAD_CONTRACT_EXPECT(first_added.ok, first_added.error);
   const RoadSegment& segment = incremental.graph().segments.front();
-  const auto extended = incremental.ExtendSegment(
-      ExtendSegmentRequest{segment.id, segment.node_b, second, 1});
+  const RoadCorridor* corridor =
+      FindCorridorForSegment(incremental.graph(), segment.id);
+  ROAD_CONTRACT_EXPECT(corridor != nullptr,
+                       "initial segment has no road corridor");
+  const auto extended = incremental.ExtendCorridorFromEnd(
+      ExtendCorridorFromEndRequest{corridor->id, segment.node_b, second, 1});
   ROAD_CONTRACT_EXPECT(extended.ok, extended.error);
-  ROAD_CONTRACT_EXPECT(extended.value == first_added.value,
-                       "extension changed the segment identity");
-  ROAD_CONTRACT_EXPECT(incremental.graph().segments.size() == 1 &&
-                           incremental.graph().nodes.size() == 2,
-                       "extension created a gesture-owned node or segment");
+  ROAD_CONTRACT_EXPECT(extended.value != first_added.value,
+                       "extension reused the existing segment identity");
+  ROAD_CONTRACT_EXPECT(incremental.graph().segments.size() == 2 &&
+                           incremental.graph().nodes.size() == 3 &&
+                           incremental.graph().corridors.size() == 1,
+                       "extension did not create a local segment chain");
   ROAD_CONTRACT_EXPECT(observe(incremental) == observe(one_operation),
                        "one-shot and incremental extension observations differ");
 
+  const auto before_first = observe(incremental);
   const Path prepend =
       MakePath({MakeLine({0.0, 0.0}, {-12.0, 16.0})});
-  const Path prepended_complete =
-      MakePath({BezierSpan{prepend.spans.front().p3,
-                           prepend.spans.front().p2,
-                           prepend.spans.front().p1,
-                           prepend.spans.front().p0},
-                first.spans.front()});
-  RoadState prepended_once{};
-  const auto prepended_once_added =
-      prepended_once.AddSegment(AddSegmentRequest{prepended_complete, 1});
-  ROAD_CONTRACT_EXPECT(prepended_once_added.ok, prepended_once_added.error);
-  RoadState prepended_incremental{};
-  const auto prepend_base =
-      prepended_incremental.AddSegment(AddSegmentRequest{first, 1});
-  ROAD_CONTRACT_EXPECT(prepend_base.ok, prepend_base.error);
-  const RoadSegment prepend_segment =
-      prepended_incremental.graph().segments.front();
-  const auto prepended = prepended_incremental.ExtendSegment(
-      ExtendSegmentRequest{prepend_segment.id, prepend_segment.node_a,
-                           prepend, 1});
-  ROAD_CONTRACT_EXPECT(prepended.ok, prepended.error);
-  ROAD_CONTRACT_EXPECT(observe(prepended_incremental) ==
-                           observe(prepended_once),
-                       "one-shot and prepend observations differ");
+  const auto prepended = incremental.ExtendCorridorFromEnd(
+      ExtendCorridorFromEndRequest{corridor->id, segment.node_a, prepend, 1});
+  ROAD_CONTRACT_EXPECT(!prepended.ok && observe(incremental) == before_first,
+                       "corridor start extension was not atomic unsupported");
   return true;
 }
 
@@ -343,25 +362,34 @@ bool reverse_input_has_equivalent_geometry(std::string& failure) {
       reverse.AddSegment(AddSegmentRequest{reverse_path, 1});
   ROAD_CONTRACT_EXPECT(forward_added.ok && reverse_added.ok,
                        "reverse geometry setup failed");
-  const Path* forward_alignment =
-      FindCanonicalAlignment(forward.derived(), forward_added.value);
-  const Path* reverse_alignment =
-      FindCanonicalAlignment(reverse.derived(), reverse_added.value);
-  ROAD_CONTRACT_EXPECT(forward_alignment != nullptr &&
-                           reverse_alignment != nullptr &&
-                           forward_alignment->spans.size() ==
-                               reverse_alignment->spans.size(),
-                       "reverse canonical alignment is missing");
+  ROAD_CONTRACT_EXPECT(forward.graph().corridors.size() == 1 &&
+                           reverse.graph().corridors.size() == 1,
+                       "reverse corridor is missing");
+  const RoadCorridor& forward_corridor = forward.graph().corridors.front();
+  const RoadCorridor& reverse_corridor = reverse.graph().corridors.front();
+  ROAD_CONTRACT_EXPECT(forward_corridor.segments.size() ==
+                           reverse_corridor.segments.size(),
+                       "reverse corridor segment count differs");
   const auto close = [](Vec2d a, Vec2d b) {
     return std::abs(a.x - b.x) <= 1e-9 &&
            std::abs(a.y - b.y) <= 1e-9;
   };
-  for (std::size_t index = 0; index < forward_alignment->spans.size();
+  for (std::size_t index = 0; index < forward_corridor.segments.size();
        ++index) {
-    const BezierSpan& a = forward_alignment->spans[index];
-    const BezierSpan& b =
-        reverse_alignment
-            ->spans[reverse_alignment->spans.size() - 1 - index];
+    const Path* forward_alignment = FindCanonicalAlignment(
+        forward.derived(), forward_corridor.segments[index].segment_id);
+    const Path* reverse_alignment = FindCanonicalAlignment(
+        reverse.derived(),
+        reverse_corridor
+            .segments[reverse_corridor.segments.size() - 1 - index]
+            .segment_id);
+    ROAD_CONTRACT_EXPECT(forward_alignment != nullptr &&
+                             reverse_alignment != nullptr &&
+                             forward_alignment->spans.size() == 1 &&
+                             reverse_alignment->spans.size() == 1,
+                         "reverse canonical alignment is missing");
+    const BezierSpan& a = forward_alignment->spans.front();
+    const BezierSpan& b = reverse_alignment->spans.front();
     ROAD_CONTRACT_EXPECT(
         close(a.p0, b.p3) && close(a.p1, b.p2) &&
             close(a.p2, b.p1) && close(a.p3, b.p0),
@@ -482,11 +510,15 @@ bool extension_semantic_boundaries_are_atomic(std::string& failure) {
       expect_failed_unchanged(
           connected,
           [&] {
-            return connected.ExtendSegment(ExtendSegmentRequest{
-                connected_segment.id, connected_segment.node_b,
-                extension, 1});
+            const RoadCorridor* corridor =
+                FindCorridorForSegment(connected.graph(),
+                                       connected_segment.id);
+            return connected.ExtendCorridorFromEnd(
+                ExtendCorridorFromEndRequest{
+                    corridor == nullptr ? 0 : corridor->id,
+                    connected_segment.node_b, extension, 1});
           },
-          "degree-two ExtendSegment", failure),
+          "degree-two ExtendCorridorFromEnd", failure),
       failure);
 
   RoadState mixed_section{};
@@ -502,11 +534,15 @@ bool extension_semantic_boundaries_are_atomic(std::string& failure) {
       expect_failed_unchanged(
           mixed_section,
           [&] {
-            return mixed_section.ExtendSegment(ExtendSegmentRequest{
-                mixed_segment.id, mixed_segment.node_b, extension,
-                section.value});
+            const RoadCorridor* corridor =
+                FindCorridorForSegment(mixed_section.graph(),
+                                       mixed_segment.id);
+            return mixed_section.ExtendCorridorFromEnd(
+                ExtendCorridorFromEndRequest{
+                    corridor == nullptr ? 0 : corridor->id,
+                    mixed_segment.node_b, extension, section.value});
           },
-          "mixed-section ExtendSegment", failure),
+          "mixed-section ExtendCorridorFromEnd", failure),
       failure);
 
   RoadState marked{};
@@ -524,10 +560,14 @@ bool extension_semantic_boundaries_are_atomic(std::string& failure) {
       expect_failed_unchanged(
           marked,
           [&] {
-            return marked.ExtendSegment(ExtendSegmentRequest{
-                marked_segment.id, marked_segment.node_a, prepend, 1});
+            const RoadCorridor* corridor =
+                FindCorridorForSegment(marked.graph(), marked_segment.id);
+            return marked.ExtendCorridorFromEnd(
+                ExtendCorridorFromEndRequest{
+                    corridor == nullptr ? 0 : corridor->id,
+                    marked_segment.node_a, prepend, 1});
           },
-          "marked prepend ExtendSegment", failure),
+          "corridor-start ExtendCorridorFromEnd", failure),
       failure);
   return true;
 }
@@ -617,10 +657,10 @@ bool approach_override_resolves_and_persists_manual_fields(std::string& failure)
 bool add_segment_build_failure_is_atomic(std::string& failure) {
   RoadState state{};
   CrossSectionTemplate unusable{};
-  unusable.bands = {
-      SurfaceBand{10, SurfaceRole::kSidewalk, 1.0e308, 0.0, builtin_surface_styles::kSidewalk},
-      SurfaceBand{20, SurfaceRole::kCarriageway, 1.0e308, 0.0, builtin_surface_styles::kAsphalt},
-      SurfaceBand{30, SurfaceRole::kSidewalk, 1.0e308, 0.0, builtin_surface_styles::kSidewalk},
+  unusable.strips = {
+      SectionStrip{10, StripFunction::kSidewalk, 1.0e308, 0.0, builtin_surface_styles::kSidewalk},
+      SectionStrip{20, StripFunction::kCarriageway, 1.0e308, 0.0, builtin_surface_styles::kAsphalt},
+      SectionStrip{30, StripFunction::kSidewalk, 1.0e308, 0.0, builtin_surface_styles::kSidewalk},
   };
   unusable.boundaries = {
       BoundaryProfile{11, BoundaryRole::kCurb, 0.0, 0.15, {}},
@@ -679,14 +719,17 @@ bool move_node_rederives_incident_alignment_endpoints(std::string& failure) {
   const RoadNodeId shared = state.graph().segments.front().node_b;
   const auto second = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({20.0, 0.0}, {40.0, 0.0})}), 1, shared});
   ROAD_CONTRACT_EXPECT(second.ok, second.error);
-  const auto moved = state.MoveNode(city::road::MoveNodeRequest{shared, {20.0, 5.0}});
+  const auto moved = state.MoveNode(city::road::MoveNodeRequest{shared, {20.0, 15.0}});
   ROAD_CONTRACT_EXPECT(moved.ok, moved.error);
   const Path* first_path = FindCanonicalAlignment(state.derived(), first.value);
   const Path* second_path = FindCanonicalAlignment(state.derived(), second.value);
   ROAD_CONTRACT_EXPECT(first_path != nullptr && second_path != nullptr, "incident canonical alignment is missing");
-  ROAD_CONTRACT_EXPECT(first_path->spans.back().p3.x == 20.0 && first_path->spans.back().p3.y == 5.0 &&
-                           second_path->spans.front().p0.x == 20.0 && second_path->spans.front().p0.y == 5.0,
+  ROAD_CONTRACT_EXPECT(first_path->spans.back().p3.x == 20.0 && first_path->spans.back().p3.y == 15.0 &&
+                           second_path->spans.front().p0.x == 20.0 && second_path->spans.front().p0.y == 15.0,
                        "MoveNode did not rederive every incident canonical endpoint");
+  ROAD_CONTRACT_EXPECT(IsLinearSpan(first_path->spans.back()) &&
+                           IsLinearSpan(second_path->spans.front()),
+                       "MoveNode did not preserve straight segment intent");
   ROAD_CONTRACT_EXPECT(state.graph().segments[0].node_b == shared && state.graph().segments[1].node_a == shared,
                        "MoveNode changed segment connectivity");
   return true;
@@ -720,11 +763,15 @@ bool generate_road_is_pure(std::string& failure) {
       RoadSegment{20, 10, 11, {}, 1, std::nullopt},
       RoadSegment{21, 11, 12, {}, 2, std::nullopt},
   };
-  const auto unsupported_before = persistence::SaveRoad(unsupported, 22);
+  unsupported.corridors = {
+      RoadCorridor{22, 1, {DirectedSegmentRef{20, false}}},
+      RoadCorridor{23, 2, {DirectedSegmentRef{21, false}}},
+  };
+  const auto unsupported_before = persistence::SaveRoad(unsupported, 24);
   ROAD_CONTRACT_EXPECT(unsupported_before.ok, unsupported_before.error);
   const auto failed = generation::generate_road(unsupported);
   ROAD_CONTRACT_EXPECT(!failed.ok, "generate_road unexpectedly accepted an unsupported graph");
-  const auto unsupported_after = persistence::SaveRoad(unsupported, 22);
+  const auto unsupported_after = persistence::SaveRoad(unsupported, 24);
   ROAD_CONTRACT_EXPECT(unsupported_after.ok && unsupported_after.value == unsupported_before.value,
                        "failed generate_road changed its authoritative input");
   return true;
@@ -962,8 +1009,8 @@ bool derived_segment_owns_all_semantic_stations(std::string& failure) {
   ROAD_CONTRACT_EXPECT(segment.ok, segment.error);
   SectionTransitionRequest transition{};
   transition.to_template = 2;
-  transition.start = StationRef{StationRefKind::kFromStart, 10.0};
-  transition.end = StationRef{StationRefKind::kFromStart, 30.0};
+  transition.start = StationRef{StationRefKind::kFromStart, 5.0};
+  transition.end = StationRef{StationRefKind::kFromStart, 20.0};
   transition.rules = {
       SectionTransitionRule{35, TransitionAction::kTaperIn},
   };
@@ -973,7 +1020,7 @@ bool derived_segment_owns_all_semantic_stations(std::string& failure) {
   const DerivedSegment* derived_segment =
       FindDerivedSegment(state.derived(), segment.value);
   ROAD_CONTRACT_EXPECT(derived_segment != nullptr, "derived segment is missing");
-  for (const double station : std::array<double, 5>{0.0, 10.0, 20.0, 30.0, 50.0}) {
+  for (const double station : std::array<double, 4>{0.0, 5.0, 20.0, 30.0}) {
     ROAD_CONTRACT_EXPECT(
         std::count(derived_segment->semantic_stations_m.begin(),
                    derived_segment->semantic_stations_m.end(), station) == 1,
@@ -990,6 +1037,388 @@ bool derived_segment_owns_all_semantic_stations(std::string& failure) {
       std::is_sorted(derived_segment->semantic_stations_m.begin(),
                      derived_segment->semantic_stations_m.end()),
       "semantic stations are not sorted");
+  return true;
+}
+
+bool corridor_station_and_periodic_placement_cross_segment_boundaries(
+    std::string& failure) {
+  RoadState state{};
+  const Path path = MakePath({
+      MakeLine({0.0, 0.0}, {15.0, 0.0}),
+      MakeLine({15.0, 0.0}, {40.0, 0.0}),
+  });
+  const auto added = state.AddSegment(AddSegmentRequest{path, 1});
+  ROAD_CONTRACT_EXPECT(added.ok, added.error);
+  ROAD_CONTRACT_EXPECT(state.graph().corridors.size() == 1 &&
+                           state.graph().corridors.front().segments.size() == 2,
+                       "multi-span road did not create one two-segment corridor");
+  const RoadCorridor& corridor = state.graph().corridors.front();
+  const auto boundary = ResolveCorridorStation(
+      state.graph(), state.derived(),
+      CorridorStationRef{corridor.id, 15.0});
+  ROAD_CONTRACT_EXPECT(
+      boundary.ok &&
+          boundary.value.segment_id == corridor.segments[1].segment_id &&
+          std::abs(boundary.value.local_station_m) <= 1e-9,
+      "internal corridor boundary did not resolve to following local zero");
+  const auto periodic = DeriveRepeatingPlacementStations(
+      state.graph(), state.derived(), corridor.id,
+      RepeatingPlacementPolicy{10.0, 0.0});
+  ROAD_CONTRACT_EXPECT(
+      periodic.ok &&
+          periodic.value == std::vector<double>({0.0, 10.0, 20.0, 30.0, 40.0}),
+      "periodic placement reset or drifted at a segment boundary");
+
+  SavedRoadGraph reversed_graph = state.graph();
+  std::reverse(reversed_graph.corridors.front().segments.begin(),
+               reversed_graph.corridors.front().segments.end());
+  for (DirectedSegmentRef& ref : reversed_graph.corridors.front().segments) {
+    ref.reversed = true;
+  }
+  const auto reversed_derived = city::road::generation::generate_road(reversed_graph);
+  ROAD_CONTRACT_EXPECT(reversed_derived.ok, reversed_derived.error);
+  const auto reversed_start = ResolveCorridorStation(
+      reversed_graph, reversed_derived.value,
+      CorridorStationRef{corridor.id, 0.0});
+  const DerivedSegment* original_last =
+      FindDerivedSegment(reversed_derived.value,
+                         reversed_graph.corridors.front().segments.front().segment_id);
+  ROAD_CONTRACT_EXPECT(
+      reversed_start.ok && original_last != nullptr &&
+          reversed_start.value.reversed &&
+          std::abs(reversed_start.value.local_station_m -
+                   original_last->length_m) <= 1e-9,
+      "reversed corridor start did not resolve to segment end");
+  const auto reversed_side = ResolveCorridorSideRef(
+      reversed_graph, reversed_derived.value,
+      CorridorSideRef{corridor.id, RoadSide::kLeft, 0.0, 2.0});
+  ROAD_CONTRACT_EXPECT(
+      reversed_side.ok && reversed_side.value.side == RoadSide::kRight,
+      "corridor left side did not flip on a reversed segment");
+  const auto side_position =
+      reversed_side.ok
+          ? ResolveRoadSidePosition(reversed_derived.value,
+                                    reversed_side.value)
+          : Result<Vec3d>::Fail(ErrorKind::kInternal, "side resolve failed");
+  ROAD_CONTRACT_EXPECT(
+      side_position.ok && std::abs(side_position.value.x - 40.0) <= 1e-9 &&
+          std::abs(side_position.value.y + 2.0) <= 1e-9,
+      "reversed corridor side did not resolve in corridor direction");
+  return true;
+}
+
+bool branch_and_tail_extension_preserve_existing_corridor(
+    std::string& failure) {
+  RoadState state{};
+  const auto added = state.AddSegment(AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {15.0, 0.0}),
+                MakeLine({15.0, 0.0}, {40.0, 0.0})}),
+      1});
+  ROAD_CONTRACT_EXPECT(added.ok, added.error);
+  const RoadCorridor main_before = state.graph().corridors.front();
+  std::map<RoadSegmentId, std::string> alignments_before{};
+  for (const DirectedSegmentRef& ref : main_before.segments) {
+    const Path* path = FindCanonicalAlignment(state.derived(), ref.segment_id);
+    ROAD_CONTRACT_EXPECT(path != nullptr, "main alignment is missing");
+    alignments_before.emplace(ref.segment_id, path_observation(*path));
+  }
+  const auto periodic_before = DeriveRepeatingPlacementStations(
+      state.graph(), state.derived(), main_before.id,
+      RepeatingPlacementPolicy{10.0, 0.0});
+  ROAD_CONTRACT_EXPECT(periodic_before.ok, periodic_before.error);
+
+  const RoadSegment& first =
+      *std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
+                    [id = main_before.segments.front().segment_id](
+                        const RoadSegment& segment) { return segment.id == id; });
+  const auto branch = state.AddSegmentConnectedTo(AddSegmentConnectedToRequest{
+      MakePath({MakeLine({15.0, 0.0}, {15.0, 20.0})}), 1, first.node_b});
+  ROAD_CONTRACT_EXPECT(branch.ok, branch.error);
+  const RoadCorridor* main_after_branch =
+      FindRoadCorridor(state.graph(), main_before.id);
+  ROAD_CONTRACT_EXPECT(
+      main_after_branch != nullptr &&
+          main_after_branch->segments == main_before.segments &&
+          state.graph().corridors.size() == 2,
+      "branch changed the main corridor or was inserted into it");
+  const auto periodic_after_branch = DeriveRepeatingPlacementStations(
+      state.graph(), state.derived(), main_before.id,
+      RepeatingPlacementPolicy{10.0, 0.0});
+  ROAD_CONTRACT_EXPECT(
+      periodic_after_branch.ok &&
+          periodic_after_branch.value == periodic_before.value,
+      "branch changed main corridor periodic placement");
+
+  const DirectedSegmentRef tail_ref = main_after_branch->segments.back();
+  const RoadSegment& tail =
+      *std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
+                    [id = tail_ref.segment_id](const RoadSegment& segment) {
+                      return segment.id == id;
+                    });
+  const RoadNodeId tail_node = tail_ref.reversed ? tail.node_a : tail.node_b;
+  const auto extended = state.ExtendCorridorFromEnd(
+      ExtendCorridorFromEndRequest{
+          main_before.id, tail_node,
+          MakePath({MakeLine({40.0, 0.0}, {60.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(extended.ok, extended.error);
+  for (const auto& [segment_id, observation] : alignments_before) {
+    const Path* path = FindCanonicalAlignment(state.derived(), segment_id);
+    ROAD_CONTRACT_EXPECT(
+        path != nullptr && path_observation(*path) == observation,
+        "tail extension changed an existing segment alignment");
+  }
+  const auto periodic_after_extension = DeriveRepeatingPlacementStations(
+      state.graph(), state.derived(), main_before.id,
+      RepeatingPlacementPolicy{10.0, 0.0});
+  ROAD_CONTRACT_EXPECT(
+      periodic_after_extension.ok &&
+          periodic_after_extension.value.size() >= periodic_before.value.size() &&
+          std::equal(periodic_before.value.begin(), periodic_before.value.end(),
+                     periodic_after_extension.value.begin()),
+      "tail extension moved existing periodic placement stations");
+  const RoadCorridor main_before_branch_delete =
+      *FindRoadCorridor(state.graph(), main_before.id);
+  const auto periodic_before_branch_delete =
+      periodic_after_extension.value;
+  const auto deleted_branch =
+      state.DeleteSegment(DeleteSegmentRequest{branch.value});
+  ROAD_CONTRACT_EXPECT(deleted_branch.ok, deleted_branch.error);
+  const RoadCorridor* main_after_branch_delete =
+      FindRoadCorridor(state.graph(), main_before.id);
+  const auto periodic_after_branch_delete = DeriveRepeatingPlacementStations(
+      state.graph(), state.derived(), main_before.id,
+      RepeatingPlacementPolicy{10.0, 0.0});
+  ROAD_CONTRACT_EXPECT(
+      main_after_branch_delete != nullptr &&
+          main_after_branch_delete->segments ==
+              main_before_branch_delete.segments &&
+          periodic_after_branch_delete.ok &&
+          periodic_after_branch_delete.value ==
+              periodic_before_branch_delete,
+      "branch deletion changed the main corridor or its periodic placement");
+  return true;
+}
+
+bool split_preserves_corridor_station_and_world_position(
+    std::string& failure) {
+  RoadState state{};
+  const auto added = state.AddSegment(AddSegmentRequest{
+      MakePath({MakeBezier({0.0, 0.0}, {12.0, 8.0}, {28.0, -8.0},
+                           {40.0, 0.0})}),
+      1});
+  ROAD_CONTRACT_EXPECT(added.ok, added.error);
+  const RoadCorridor& before_corridor = state.graph().corridors.front();
+  const RoadCorridorId corridor_id = before_corridor.id;
+  const auto stations_before = DeriveRepeatingPlacementStations(
+      state.graph(), state.derived(), before_corridor.id,
+      RepeatingPlacementPolicy{5.0, 0.0});
+  ROAD_CONTRACT_EXPECT(stations_before.ok, stations_before.error);
+  std::vector<Vec2d> world_before{};
+  for (const double station : stations_before.value) {
+    const auto resolved = ResolveCorridorStation(
+        state.graph(), state.derived(),
+        CorridorStationRef{corridor_id, station});
+    ROAD_CONTRACT_EXPECT(resolved.ok, resolved.error);
+    const Path* alignment =
+        FindCanonicalAlignment(state.derived(), resolved.value.segment_id);
+    ROAD_CONTRACT_EXPECT(alignment != nullptr,
+                         "split baseline alignment is missing");
+    const auto point =
+        EvaluatePath(*alignment, resolved.value.local_station_m);
+    ROAD_CONTRACT_EXPECT(point.ok, point.error);
+    world_before.push_back(point.value);
+  }
+  const auto split =
+      state.SplitSegmentAtStation(SplitSegmentAtStationRequest{added.value,
+                                                               17.0});
+  ROAD_CONTRACT_EXPECT(split.ok, split.error);
+  const RoadCorridor& after_corridor = state.graph().corridors.front();
+  ROAD_CONTRACT_EXPECT(after_corridor.id == corridor_id &&
+                           after_corridor.segments.size() == 2,
+                       "split changed corridor identity or segment count");
+  const auto stations_after = DeriveRepeatingPlacementStations(
+      state.graph(), state.derived(), after_corridor.id,
+      RepeatingPlacementPolicy{5.0, 0.0});
+  ROAD_CONTRACT_EXPECT(stations_after.ok &&
+                           stations_after.value == stations_before.value,
+                       "split changed corridor periodic stations");
+  for (std::size_t index = 0; index < stations_after.value.size(); ++index) {
+    const auto resolved = ResolveCorridorStation(
+        state.graph(), state.derived(),
+        CorridorStationRef{after_corridor.id, stations_after.value[index]});
+    ROAD_CONTRACT_EXPECT(resolved.ok, resolved.error);
+    const Path* alignment =
+        FindCanonicalAlignment(state.derived(), resolved.value.segment_id);
+    ROAD_CONTRACT_EXPECT(alignment != nullptr,
+                         "split result alignment is missing");
+    const auto point =
+        EvaluatePath(*alignment, resolved.value.local_station_m);
+    const double drift =
+        point.ok ? std::hypot(point.value.x - world_before[index].x,
+                              point.value.y - world_before[index].y)
+                 : std::numeric_limits<double>::infinity();
+    ROAD_CONTRACT_EXPECT(
+        point.ok && drift <= 1e-6,
+        "split changed a corridor-station world position by " +
+            std::to_string(drift));
+  }
+  return true;
+}
+
+bool delete_range_splits_corridor_without_touching_outer_shapes(
+    std::string& failure) {
+  RoadState state{};
+  const auto added = state.AddSegment(AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(added.ok, added.error);
+  const Path* before_alignment =
+      FindCanonicalAlignment(state.derived(), added.value);
+  ROAD_CONTRACT_EXPECT(before_alignment != nullptr,
+                       "range deletion baseline alignment is missing");
+  const auto before_point = EvaluatePath(*before_alignment, 5.0);
+  ROAD_CONTRACT_EXPECT(before_point.ok, before_point.error);
+  const RoadCorridorId corridor_id = state.graph().corridors.front().id;
+  const auto deleted = state.DeleteRoadRange(
+      DeleteRoadRangeRequest{added.value, 10.0, 20.0});
+  ROAD_CONTRACT_EXPECT(deleted.ok, deleted.error);
+  ROAD_CONTRACT_EXPECT(state.graph().segments.size() == 2 &&
+                           state.graph().corridors.size() == 2,
+                       "range deletion did not retain two local segments and split the corridor");
+  ROAD_CONTRACT_EXPECT(state.graph().corridors.front().id == corridor_id,
+                       "range deletion did not preserve the start-side corridor ID");
+  const Path* retained =
+      FindCanonicalAlignment(state.derived(), added.value);
+  ROAD_CONTRACT_EXPECT(retained != nullptr,
+                       "range deletion retained alignment is missing");
+  const auto after_point = EvaluatePath(*retained, 5.0);
+  ROAD_CONTRACT_EXPECT(
+      after_point.ok &&
+          std::hypot(after_point.value.x - before_point.value.x,
+                     after_point.value.y - before_point.value.y) <= 1e-6,
+      "range deletion changed unaffected world geometry");
+  return true;
+}
+
+bool delete_range_migrates_unaffected_segment_owned_state(
+    std::string& failure) {
+  RoadState state{};
+  const auto added = state.AddSegment(AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(added.ok, added.error);
+  const auto before_line = state.AddManualLine(ManualLineRequest{
+      added.value, MakePath({MakeLine({2.0, 0.5}, {5.0, 0.5})}),
+      builtin_marking_styles::kWhiteSolid});
+  const auto after_line = state.AddManualLine(ManualLineRequest{
+      added.value, MakePath({MakeLine({30.0, 0.5}, {35.0, 0.5})}),
+      builtin_marking_styles::kWhiteSolid});
+  const auto after_area = state.AddManualArea(ManualAreaRequest{
+      added.value, {34.0, 0.0}, 0.0, 2.0, 2.0,
+      builtin_marking_styles::kCrosswalk});
+  ROAD_CONTRACT_EXPECT(before_line.ok && after_line.ok && after_area.ok,
+                       "delete-range owner migration setup failed");
+  const AutoMarkingKey suppression{
+      MarkingOwner{MarkingOwner::Kind::kRoadSegment, added.value, 0, 0},
+      MarkingRole::kCenterLine,
+      MarkingTrackKey{added.value, 200, MarkingRole::kCenterLine},
+      std::nullopt};
+  const auto suppressed =
+      state.SuppressAutoMarking(SuppressAutoMarkingRequest{suppression});
+  ROAD_CONTRACT_EXPECT(suppressed.ok, suppressed.error);
+
+  const auto deleted =
+      state.DeleteRoadRange(DeleteRoadRangeRequest{added.value, 10.0, 20.0});
+  ROAD_CONTRACT_EXPECT(deleted.ok, deleted.error);
+  ROAD_CONTRACT_EXPECT(state.graph().segments.size() == 2,
+                       "delete range did not retain two outer segments");
+  const RoadSegmentId after_segment_id =
+      std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
+                   [id = added.value](const RoadSegment& segment) {
+                     return segment.id != id;
+                   })
+          ->id;
+  const auto restored_before = std::find_if(
+      state.graph().manual_lines.begin(), state.graph().manual_lines.end(),
+      [id = before_line.value](const ManualLineMarking& marking) {
+        return marking.id == id;
+      });
+  const auto restored_after = std::find_if(
+      state.graph().manual_lines.begin(), state.graph().manual_lines.end(),
+      [id = after_line.value](const ManualLineMarking& marking) {
+        return marking.id == id;
+      });
+  const auto restored_area = std::find_if(
+      state.graph().manual_areas.begin(), state.graph().manual_areas.end(),
+      [id = after_area.value](const ManualAreaMarking& marking) {
+        return marking.id == id;
+      });
+  ROAD_CONTRACT_EXPECT(
+      restored_before != state.graph().manual_lines.end() &&
+          restored_before->owner_segment_id == added.value &&
+          restored_before->path.spans.front().p0.x == 2.0,
+      "start-side manual owner moved during range deletion");
+  ROAD_CONTRACT_EXPECT(
+      restored_after != state.graph().manual_lines.end() &&
+          restored_after->owner_segment_id == after_segment_id &&
+          restored_after->path.spans.front().p0.x == 10.0,
+      "end-side manual line was not mapped by deleted range length");
+  ROAD_CONTRACT_EXPECT(
+      restored_area != state.graph().manual_areas.end() &&
+          restored_area->owner_segment_id == after_segment_id &&
+          restored_area->frame_origin.x == 14.0,
+      "end-side manual area was not mapped by deleted range length");
+  ROAD_CONTRACT_EXPECT(
+      state.graph().auto_marking_overrides.size() == 2 &&
+          std::any_of(
+              state.graph().auto_marking_overrides.begin(),
+              state.graph().auto_marking_overrides.end(),
+              [after_segment_id](const AutoMarkingOverride& value) {
+                return value.key.owner.segment_id == after_segment_id &&
+                       value.key.track.has_value() &&
+                       value.key.track->segment_id == after_segment_id;
+              }),
+      "segment-wide semantic suppression was not copied to both retained pieces");
+  return true;
+}
+
+bool marking_invalid_interval_splits_polyline_runs(std::string& failure) {
+  DerivedSegment segment{};
+  segment.id = 77;
+  segment.alignment =
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})});
+  segment.length_m = 40.0;
+  segment.surface_stations_m = {0.0, 10.0, 20.0, 30.0, 40.0};
+  for (const double station : segment.surface_stations_m) {
+    SectionBoundarySample boundary{};
+    boundary.boundary_id = 200;
+    boundary.role = BoundaryRole::kLaneDivider;
+    boundary.marking = AutoMarkingPolicy{
+        true, MarkingRole::kCenterLine,
+        builtin_marking_styles::kCenterLine};
+    boundary.left_strip_id = 20;
+    boundary.right_strip_id = 30;
+    boundary.left_strip_width_m = station == 20.0 ? 0.0 : 3.0;
+    boundary.right_strip_width_m = 3.0;
+    segment.sections.push_back(
+        SectionEvaluation{77, station, 1, {boundary}, {}});
+  }
+  const auto markings = city::road::generation::derive_markings(
+      SavedRoadGraph{}, {segment}, {});
+  std::ostringstream diagnostic;
+  diagnostic << "ok=" << markings.ok << " runs=" << markings.value.size();
+  for (std::size_t index = 0; index < markings.value.size(); ++index) {
+    const auto& points = markings.value[index].points;
+    diagnostic << " run[" << index << "]=" << points.size();
+    if (!points.empty()) {
+      diagnostic << ':' << points.front().x << "->" << points.back().x;
+    }
+  }
+  ROAD_CONTRACT_EXPECT(
+      markings.ok && markings.value.size() == 2 &&
+          markings.value[0].points.size() == 2 &&
+          markings.value[1].points.size() == 2 &&
+          std::abs(markings.value[0].points.back().x - 10.0) <= 1e-6 &&
+          std::abs(markings.value[1].points.front().x - 30.0) <= 1e-6,
+      "marking polyline bridged a degenerate interval: " + diagnostic.str());
   return true;
 }
 
@@ -1054,8 +1483,8 @@ int main() {
       {"move_node_rederives_incident_alignment_endpoints", move_node_rederives_incident_alignment_endpoints},
       {"generate_road_is_pure", generate_road_is_pure},
       {"generate_is_deterministic", generate_is_deterministic},
-      {"extension_history_normalizes_to_one_segment",
-       extension_history_normalizes_to_one_segment},
+      {"extension_history_normalizes_to_segment_chain",
+       extension_history_normalizes_to_segment_chain},
       {"reverse_input_has_equivalent_geometry",
        reverse_input_has_equivalent_geometry},
       {"extension_semantic_boundaries_are_atomic",
@@ -1073,6 +1502,18 @@ int main() {
        unsupported_junction_section_is_atomic},
       {"derived_segment_owns_all_semantic_stations",
        derived_segment_owns_all_semantic_stations},
+      {"corridor_station_and_periodic_placement_cross_segment_boundaries",
+       corridor_station_and_periodic_placement_cross_segment_boundaries},
+      {"branch_and_tail_extension_preserve_existing_corridor",
+       branch_and_tail_extension_preserve_existing_corridor},
+      {"split_preserves_corridor_station_and_world_position",
+       split_preserves_corridor_station_and_world_position},
+      {"delete_range_splits_corridor_without_touching_outer_shapes",
+       delete_range_splits_corridor_without_touching_outer_shapes},
+      {"delete_range_migrates_unaffected_segment_owned_state",
+       delete_range_migrates_unaffected_segment_owned_state},
+      {"marking_invalid_interval_splits_polyline_runs",
+       marking_invalid_interval_splits_polyline_runs},
       {"seeded_operation_sequences_preserve_contracts", seeded_operation_sequences_preserve_contracts},
   };
   int failed = 0;

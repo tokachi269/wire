@@ -69,6 +69,9 @@ def check_road_architecture(root: Path) -> list[str]:
         "ResolvedMarkingGraph",
         "setback_calculation_count",
         "section_evaluation_count",
+        "NormalizeRoadPath",
+        "SurfaceBand",
+        "SurfaceRole",
     )
     stage_type = re.compile(r"\b(?:struct|class|enum(?:\s+class)?)\s+\w*Stage\b")
     for path in sources:
@@ -125,11 +128,11 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "domains/road/src/geometry/section.cpp: lane side requests must merge into one boundary policy here"
         )
-    if "kDegenerateBandWidthM" not in marking_text:
+    if "kDegenerateStripWidthM" not in marking_text:
         errors.append(
             "domains/road/src/generation/markings.cpp: degenerate run activation must be decided here"
         )
-    if marking_text.count("kDegenerateBandWidthM") > 2:
+    if marking_text.count("kDegenerateStripWidthM") > 2:
         errors.append(
             "domains/road/src/generation/markings.cpp: degenerate run activation must stay a single decision site"
         )
@@ -176,6 +179,100 @@ def check_road_architecture(root: Path) -> list[str]:
                 errors.append(
                     f"domains/road/src/road.cpp: public operation {name} calls public operation {other}"
                 )
+
+    # 7a. Local segment and corridor operations stay local.
+    if re.search(r"\bExtendSegment(?:Request)?\b", road_source):
+        errors.append(
+            "domains/road/src/road.cpp: retired giant-segment extension API remains"
+        )
+    extension_start = road_source.find("RoadState::ExtendCorridorFromEnd(")
+    extension_end = (
+        road_source.find("\n}\n", extension_start)
+        if extension_start >= 0
+        else -1
+    )
+    extension_body = (
+        road_source[extension_start:extension_end]
+        if extension_start >= 0 and extension_end >= 0
+        else ""
+    )
+    for token in ("replace_segments", "replace_nodes", "internal_knots.push_back"):
+        if token in extension_body:
+            errors.append(
+                "domains/road/src/road.cpp: corridor extension mutates an existing segment: "
+                + repr(token)
+            )
+    for required in ("add_segments", "replace_corridors"):
+        if required not in extension_body:
+            errors.append(
+                "domains/road/src/road.cpp: corridor extension does not express local append: "
+                + repr(required)
+            )
+
+    authoritative_text = source_text(
+        root / "domains/road/include/city/road/authoritative_types/road_graph.hpp"
+    )
+    common_text = source_text(
+        root / "domains/road/include/city/road/common_types.hpp"
+    )
+    for token in ("struct RoadCorridor", "std::vector<DirectedSegmentRef> segments"):
+        if token not in authoritative_text:
+            errors.append(
+                "domains/road authoritative graph: corridor contract is missing: "
+                + repr(token)
+            )
+    for token in ("enum class SegmentShapeIntent", "SegmentShapeIntent intent"):
+        if token not in authoritative_text:
+            errors.append(
+                "domains/road authoritative graph: straight shape intent contract is missing: "
+                + repr(token)
+            )
+    for token in (
+        "struct SectionStrip",
+        "enum class StripFunction",
+        "struct LaneBand",
+        "kShoulder",
+    ):
+        if token not in common_text:
+            errors.append(
+                "domains/road common types: section-axis contract is missing: "
+                + repr(token)
+            )
+
+    adapter_text = source_text(root / "web/wasm/bindings.cpp")
+    for token in ("extensionSegmentId", "bandElementId"):
+        if token in adapter_text:
+            errors.append(
+                "web/wasm/bindings.cpp: retired road adapter identity remains: "
+                + repr(token)
+            )
+    if (
+        "segment.shape.intent == city::road::SegmentShapeIntent::kStraight"
+        not in adapter_text
+    ):
+        errors.append(
+            "web/wasm/bindings.cpp: road editable kind must come from SegmentShapeIntent"
+        )
+    if 'input["kind"].as<std::string>()' not in adapter_text:
+        errors.append(
+            "web/wasm/bindings.cpp: road adapter must pass the explicit tool kind into core path conversion"
+        )
+    if "align_first_span_start" not in road_source:
+        errors.append(
+            "domains/road/src/road.cpp: snapped road spans must use one start-alignment helper"
+        )
+    if "first_span.p0 =" in road_source.replace("first_span.p0 = start;", ""):
+        errors.append(
+            "domains/road/src/road.cpp: road snap correction must not patch only the Bezier start point"
+        )
+    if "segment.shape.intent != SegmentShapeIntent::kStraight" not in road_source:
+        errors.append(
+            "domains/road/src/road.cpp: MoveNode must preserve straight segment intent"
+        )
+    if re.search(r"(?:style_id|style)\s*==[^;\n]*StripFunction", road_source):
+        errors.append(
+            "domains/road/src/road.cpp: strip function must not be inferred from style"
+        )
 
     # 8. Persistence stays in its own layer.
     save_start = road_source.find("Result<std::string> RoadState::Save()")

@@ -782,7 +782,7 @@ export class WireScene {
             nodeId: node.id,
             segmentId: 0,
             stationM: 0,
-            extensionSegmentId: node.extensionSegmentId ?? 0
+            extensionCorridorId: node.extensionCorridorId ?? 0
           }
         };
       }

@@ -18,11 +18,20 @@ struct AddSegmentConnectedToSegmentRequest {
   RoadSegmentId start_segment = 0;
   double station_m = 0.0;
 };
-struct ExtendSegmentRequest {
-  RoadSegmentId segment_id = 0;
+struct ExtendCorridorFromEndRequest {
+  RoadCorridorId corridor_id = 0;
   RoadNodeId endpoint_node_id = 0;
   Path extension{};
   CrossSectionTemplateId section_template = 0;
+};
+struct SplitSegmentAtStationRequest {
+  RoadSegmentId segment_id = 0;
+  double station_m = 0.0;
+};
+struct DeleteRoadRangeRequest {
+  RoadSegmentId segment_id = 0;
+  double start_station_m = 0.0;
+  double end_station_m = 0.0;
 };
 struct EditSegmentShapeRequest { RoadSegmentId segment_id = 0; SegmentShape shape{}; };
 struct MoveNodeRequest { RoadNodeId node_id = 0; Vec2d position{}; };
@@ -63,13 +72,13 @@ enum class LaneSide {
 };
 struct SetLaneSideMarkingPolicyRequest {
   CrossSectionTemplateId section_template_id = 0;
-  std::uint64_t band_element_id = 0;
+  SectionStripId strip_id = 0;
   LaneSide side = LaneSide::kLeft;
   AutoMarkingPolicy policy{};
 };
 struct ResetLaneSideMarkingPolicyRequest {
   CrossSectionTemplateId section_template_id = 0;
-  std::uint64_t band_element_id = 0;
+  SectionStripId strip_id = 0;
   LaneSide side = LaneSide::kLeft;
 };
 struct SectionTransitionRequest {

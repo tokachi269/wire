@@ -56,7 +56,7 @@ CanonicalAlignment = RoadNode.position + SegmentShapeから導出するcubic Bez
 
 - 初期配置はroadモジュール内。別の実消費者が現れ、APIが安定してからfoundationへの抽出を判断する。
 - `RoadNode.position`がsegment endpoint位置の唯一の正本である。`RoadSegment`はendpoint座標や完全Pathを保存しない。
-- Line / Bezierは入力tool modeであり、正本のkindではない。Line入力はoperation planで直線`SegmentShape`へ正規化する。
+- Line / Bezierは同じcubic Bezier shape APIを使う。Line入力はoperation planでlinear cubic `SegmentShape`へ正規化し、編集用の`SegmentShape.intent`だけを保存する。生成・sampling・emitをLine専用経路へ分けない。
 - ManualMarking等の自由Pathは所有者ローカルの2D曲線として保存できるが、segmentのCanonicalAlignmentとは別ownerである。
 - 評価は弧長s。CanonicalAlignment自体は道路の高さ・roll・world-upフレームを決めない。
 - 3D位置と姿勢は所有者の評価器が決める。
@@ -84,15 +84,19 @@ RoadSurfaceEvaluator
 │    ← 接続点・端点のみ
 │
 ├─ RoadSegment
-│    { id, node_a, node_b, shape: SegmentShape, section_timeline }
+│    { id, node_a, node_b, local shape: SegmentShape, section_timeline }
 │    ← endpoint座標は持たない
+│
+├─ RoadCorridor
+│    { id, section_template_id, directed local segment refs }
+│    ← 分岐を含まない一本の論理経路と全長stationの基準
 │
 ├─ SectionTimeline
 │    { 区間ごとのCrossSectionTemplate参照、必要なphaseでSectionTransition参照 }
 │
 ├─ CrossSectionTemplate
 │    ├─ surface_chain
-│    │    └─ 横断方向に並ぶ[SurfaceBand, BoundaryProfile, SurfaceBand, ...]
+│    │    └─ 横断方向に並ぶ[SectionStrip, BoundaryProfile, SectionStrip, ...]
 │    ├─ edge_structures
 │    │    └─ 外周または指定境界へ付くSideStructure
 │    └─ structural_shells
@@ -123,12 +127,12 @@ RoadSurfaceEvaluator
 ### 5.1 横断断面の役割
 
 ```text
-SurfaceBand
+SectionStrip
 - 車道、歩道、路肩、自転車帯、中央分離帯、排水用の浅い帯など
 - 幅、表面高さプロファイル、意味role、SurfaceStyleIdを持つ
 
 BoundaryProfile
-- 隣接SurfaceBandの接続形状
+- 隣接SectionStripの接続形状
 - 段差なし、鋭角、縁石、浅い溝、丸みなど
 - P0は必要な固定形状だけ。未実装join種別のフィールドは先に置かない
 
@@ -291,7 +295,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 - 固定断面テンプレ1種(日本の一般的な都市部2車線):
   - 歩道2.0m | curb0.2m/段差0.15m | 車道6.0m(3.0m×2) | curb0.2m/段差0.15m | 歩道2.0m
   - 車道は中央から左右へ2%の横断勾配、歩道は外側へ1%の横断勾配
-  - 浅い側溝はP0では独立SurfaceBandにしない。必要なら固定BoundaryProfileの見た目としてだけ扱い、編集可能な側溝種別はP2以降
+  - 浅い側溝はP0では独立SectionStripにしない。必要なら固定BoundaryProfileの見た目としてだけ扱い、編集可能な側溝種別はP2以降
 - DerivedSegment.sections
 - SurfaceMesh、固定中央線・外側線、TerrainMask導出
 - alignment編集→全派生再生成
@@ -396,7 +400,9 @@ foundation変更時は両ドメインのテストを通す。namespaceは`city::
 - 部分更新reconcileの汎用化
 - Junction、SectionTransition、ConnectionGate等の道路概念
 
-`SegmentShape`と`CanonicalAlignment`は新規かつ初期消費者がroadだけなので、まずroad内に置く。別の実消費者が現れ、APIが収束した場合のみfoundationへ抽出する。
+`RoadSegment`は局所編集単位、`RoadCorridor`は分岐を含まない方向付きsegment列とする。連続描画と延長は
+巨大segmentではなく同じsegment chain/corridorへ正規化する。`SegmentShape`と`CanonicalAlignment`は
+初期消費者がroadだけなのでroad内に置き、別の実消費者が現れてAPIが収束した場合のみfoundationへ抽出する。
 
 viewerは共有前提(同一Svelte/threeシェル、bridge様式、workspace永続)。ドメイン別なのはscene部分と操作パネル。
 
@@ -436,7 +442,7 @@ P1ではConnectionGate共有、junctionとの隙間・重複・法線不一致�
 ## 17. 決定済み事項
 
 1. リポジトリ配置: `domains/wire` (`city::wire`)と`domains/road` (`city::road`)を独立配置する。roadからwireへのinclude依存ゼロをlintで強制する。共有実装は条件を満たしたものだけ`foundation` (`city::foundation`)へ置く
-2. P0固定断面: 日本の一般的な都市部2車線を初期値にする。車線3.0m×2、歩道2.0m×2、curb幅0.2m/段差0.15m、車道横断勾配2%、歩道横断勾配1%。浅い側溝はP0では独立SurfaceBandにしない
+2. P0固定断面: 日本の一般的な都市部2車線を初期値にする。車線3.0m×2、歩道2.0m×2、curb幅0.2m/段差0.15m、車道横断勾配2%、歩道横断勾配1%。浅い側溝はP0では独立SectionStripにしない
 3. P0の既存segment重なり: 判定しない。warningにもunsupportedにもせず、接続なしの独立segmentとして扱う
 4. Path編集UI: Bezierハンドル編集を後回しにしない。P0からCities系道路ツール相当のライブプレビュー、直線/Bezier作成、ハンドル編集を対象にする
 5. P1接続範囲: 同一断面のT字・十字だけを対象に、接続角度45〜135度、最小segment長8m、corner radius初期値4mとする

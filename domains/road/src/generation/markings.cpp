@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -28,9 +29,9 @@ constexpr double kCrosswalkCenterM = 2.0;
 constexpr double kCrosswalkHalfLengthM = 1.4;
 constexpr double kCrosswalkStripeHalfWidthM = 0.175;
 constexpr double kCrosswalkStripeStepM = 0.7;
-// No boundary line is emitted where an adjacent band is at most this wide.
+// No boundary line is emitted where an adjacent strip is at most this wide.
 // This is the single decision value for degenerate runs.
-constexpr double kDegenerateBandWidthM = 0.05;
+constexpr double kDegenerateStripWidthM = 0.05;
 
 // Marking width is resolved once, here, so emit only reads it.
 double marking_width_m(MarkingStyleId style_id) {
@@ -143,18 +144,19 @@ MarkingRole role_from_boundary(BoundaryRole role,
   return MarkingRole::kCarriagewayEdge;
 }
 
-// One station of a boundary-following line.
-struct line_sample {
-  double station_m = 0.0;
-  double min_adjacent_band_width_m = 0.0;
-  Vec3d position{};
-};
-
 struct line_track {
   MarkingStyleId style_id{};
   MarkingRole role = MarkingRole::kLaneSeparator;
-  std::vector<line_sample> samples{};
+  std::vector<Vec3d> active_run{};
+  std::vector<std::vector<Vec3d>> completed_runs{};
 };
+
+void finish_run(line_track &track) {
+  if (track.active_run.size() >= 2) {
+    track.completed_runs.push_back(std::move(track.active_run));
+  }
+  track.active_run.clear();
+}
 
 const SectionBoundarySample *find_gate_boundary(const ConnectionGate &gate,
                                                 std::uint64_t boundary_id) {
@@ -205,29 +207,6 @@ Result<bool> validate_transition_marking_mapping(const SavedRoadGraph &graph) {
                 " changes role and cannot continue markings");
       }
     }
-    for (const SectionTransitionRule &rule : transition->rules) {
-      if (rule.action != TransitionAction::kUnsupported)
-        continue;
-      const auto marked = std::find_if(
-          to->boundaries.begin(), to->boundaries.end(),
-          [&rule](const BoundaryProfile &candidate) {
-            return candidate.boundary_id == rule.element_id &&
-                   candidate.marking.enabled;
-          });
-      const auto marked_source = std::find_if(
-          from->boundaries.begin(), from->boundaries.end(),
-          [&rule](const BoundaryProfile &candidate) {
-            return candidate.boundary_id == rule.element_id &&
-                   candidate.marking.enabled;
-          });
-      if (marked != to->boundaries.end() ||
-          marked_source != from->boundaries.end()) {
-        return Result<bool>::Fail(
-            ErrorKind::kUnsupported,
-            "transition element " + std::to_string(rule.element_id) +
-                " has no supported marking mapping");
-      }
-    }
   }
   return Result<bool>::Ok(true);
 }
@@ -246,6 +225,7 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
         return Result<bool>::Fail(ErrorKind::kInternal,
                                   "marking section sample is missing");
       }
+      std::set<std::pair<std::uint64_t, MarkingRole>> active_groups{};
       for (const SectionBoundarySample &boundary : section->boundaries) {
         if (!boundary.marking.enabled)
           continue;
@@ -258,10 +238,6 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
                        AutoMarkingKey{owner, role, track_key, std::nullopt})) {
           continue;
         }
-        Result<Vec3d> point =
-            segment_point(segment, station, boundary.lateral_m);
-        if (!point.ok)
-          return Result<bool>::Fail(point.error_kind, point.error);
         const auto group = std::pair{boundary.boundary_id, role};
         auto [it, inserted] = tracks.emplace(group, line_track{});
         if (inserted) {
@@ -271,30 +247,38 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
           return Result<bool>::Fail(ErrorKind::kUnsupported,
                                     "conflicting marking policy on boundary");
         }
-        it->second.samples.push_back(line_sample{
-            station,
-            std::min(boundary.left_band_width_m, boundary.right_band_width_m),
-            point.value});
+        if (std::min(boundary.left_strip_width_m,
+                     boundary.right_strip_width_m) <=
+            kDegenerateStripWidthM) {
+          finish_run(it->second);
+          continue;
+        }
+        Result<Vec3d> point =
+            segment_point(segment, station, boundary.lateral_m);
+        if (!point.ok)
+          return Result<bool>::Fail(point.error_kind, point.error);
+        it->second.active_run.push_back(point.value);
+        active_groups.insert(group);
+      }
+      for (auto &[group, track] : tracks) {
+        if (!active_groups.contains(group)) {
+          finish_run(track);
+        }
       }
     }
     for (auto &[group, track] : tracks) {
-      std::vector<Vec3d> points{};
-      for (const line_sample &sample : track.samples) {
-        if (sample.min_adjacent_band_width_m > kDegenerateBandWidthM) {
-          points.push_back(sample.position);
-        }
+      finish_run(track);
+      for (std::vector<Vec3d> &run : track.completed_runs) {
+        DerivedMarking marking{};
+        marking.owner =
+            MarkingOwner{MarkingOwner::Kind::kRoadSegment, segment.id, 0, 0};
+        marking.boundary_id = group.first;
+        marking.role = track.role;
+        marking.style_id = track.style_id;
+        marking.width_m = marking_width_m(track.style_id);
+        marking.points = std::move(run);
+        markings.push_back(std::move(marking));
       }
-      if (points.size() < 2)
-        continue;
-      DerivedMarking marking{};
-      marking.owner =
-          MarkingOwner{MarkingOwner::Kind::kRoadSegment, segment.id, 0, 0};
-      marking.boundary_id = group.first;
-      marking.role = track.role;
-      marking.style_id = track.style_id;
-      marking.width_m = marking_width_m(track.style_id);
-      marking.points = std::move(points);
-      markings.push_back(std::move(marking));
     }
   }
   return Result<bool>::Ok(true);

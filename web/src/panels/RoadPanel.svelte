@@ -12,7 +12,7 @@
   const selectedTemplate = $derived(
     snapshot.road.scene.sectionTemplates.find((template) => template.id === snapshot.road.selectedSectionTemplateId)
   );
-  const selectedBands = $derived(selectedTemplate?.bands ?? []);
+  const selectedStrips = $derived(selectedTemplate?.strips ?? []);
 
   function updateTemplate(patch: Partial<{
     sidewalkWidthM: number;
@@ -51,9 +51,9 @@
 
   {#if selectedTemplate}
     <div class="road-profile" aria-label="Road cross section"
-      style:grid-template-columns={selectedBands.map((band) => `${band.widthM}fr`).join(" ")}>
-      {#each selectedBands as band}
-        <span class={band.role}>{band.widthM.toFixed(1)}m</span>
+      style:grid-template-columns={selectedStrips.map((strip) => `${strip.widthM}fr`).join(" ")}>
+      {#each selectedStrips as strip}
+        <span class={strip.function}>{strip.widthM.toFixed(1)}m</span>
       {/each}
     </div>
     <label><span>Sidewalk width</span><input type="number" min="0.5" step="0.1"

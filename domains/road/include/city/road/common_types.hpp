@@ -40,6 +40,9 @@ struct Path { std::vector<BezierSpan> spans{}; };
 
 using RoadNodeId = std::uint64_t;
 using RoadSegmentId = std::uint64_t;
+using RoadCorridorId = std::uint64_t;
+using SectionStripId = std::uint64_t;
+using LaneBandId = std::uint64_t;
 using CrossSectionTemplateId = std::uint64_t;
 using SectionTransitionId = std::uint64_t;
 using ManualMarkingId = std::uint64_t;
@@ -88,7 +91,7 @@ inline constexpr MarkingStyleId kWhiteDashed{5};
          id == builtin_marking_styles::kWhiteDashed;
 }
 
-enum class SurfaceRole { kCarriageway, kSidewalk, kMedian };
+enum class StripFunction { kCarriageway, kShoulder, kSidewalk, kMedian };
 enum class BoundaryRole { kOuterEdge, kCurb, kLaneDivider, kMedianEdge };
 enum class MarkingRole {
   kLaneSeparator,
@@ -119,6 +122,55 @@ enum class TransitionAnchor { kCenter, kLeftEdge, kRightEdge };
 enum class EndpointRole {
   kStart,
   kEnd,
+};
+
+struct DirectedSegmentRef {
+  RoadSegmentId segment_id = 0;
+  bool reversed = false;
+
+  bool operator==(const DirectedSegmentRef&) const = default;
+};
+
+struct CorridorStationRef {
+  RoadCorridorId corridor_id = 0;
+  double station_m = 0.0;
+};
+
+struct ResolvedSegmentStation {
+  RoadSegmentId segment_id = 0;
+  double local_station_m = 0.0;
+  bool reversed = false;
+};
+
+struct RepeatingPlacementPolicy {
+  double spacing_m = 0.0;
+  double phase_m = 0.0;
+};
+
+enum class RoadSide {
+  kLeft,
+  kRight,
+};
+
+struct RoadSideRef {
+  RoadSegmentId segment_id = 0;
+  RoadSide side = RoadSide::kLeft;
+  double station_m = 0.0;
+  double lateral_offset_m = 0.0;
+};
+
+struct RoadSideIntervalRef {
+  RoadSegmentId segment_id = 0;
+  RoadSide side = RoadSide::kLeft;
+  double start_station_m = 0.0;
+  double end_station_m = 0.0;
+};
+
+struct CorridorSideRef {
+  RoadCorridorId corridor_id = 0;
+  RoadSide side = RoadSide::kLeft;
+  double station_m = 0.0;
+  double lateral_offset_m = 0.0;
 };
 
 struct ApproachKey {
@@ -173,13 +225,19 @@ struct AutoMarkingKey {
   }
 };
 
-struct SurfaceBand {
-  std::uint64_t element_id = 0;
-  SurfaceRole role = SurfaceRole::kCarriageway;
+struct SectionStrip {
+  SectionStripId id = 0;
+  StripFunction function = StripFunction::kCarriageway;
   double width_m = 0.0;
   double cross_slope = 0.0;
   SurfaceStyleId style_id{};
   LaneSideMarkingPolicy side_marking{};
+};
+struct LaneBand {
+  LaneBandId id = 0;
+  SectionStripId surface_strip_id = 0;
+  double lateral_start_m = 0.0;
+  double lateral_end_m = 0.0;
 };
 struct BoundaryProfile {
   std::uint64_t boundary_id = 0;
@@ -190,12 +248,13 @@ struct BoundaryProfile {
 };
 struct CrossSectionTemplate {
   CrossSectionTemplateId id = 0;
-  std::vector<SurfaceBand> bands{};
+  std::vector<SectionStrip> strips{};
+  std::vector<LaneBand> lane_bands{};
   std::vector<BoundaryProfile> boundaries{};
 };
 struct StationRef { StationRefKind kind = StationRefKind::kFromStart; double value = 0.0; };
 struct SectionTransitionRule {
-  std::uint64_t element_id = 0;
+  SectionStripId strip_id = 0;
   TransitionAction action = TransitionAction::kContinue;
 };
 

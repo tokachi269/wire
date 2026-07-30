@@ -80,8 +80,8 @@ double endpoint_outer_half_width(const SavedRoadGraph &graph,
   if (section == nullptr)
     return 0.0;
   double width = 0.0;
-  for (const SurfaceBand &band : section->bands)
-    width += band.width_m;
+  for (const SectionStrip &strip : section->strips)
+    width += strip.width_m;
   for (const BoundaryProfile &boundary : section->boundaries)
     width += boundary.width_m;
   return width * 0.5;

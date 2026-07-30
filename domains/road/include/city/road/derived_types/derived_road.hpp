@@ -16,11 +16,11 @@ struct SectionBoundarySample {
   // Effective marking policy: the boundary policy and the adjacent lane side
   // policies merged into one during section evaluation.
   AutoMarkingPolicy marking{};
-  // Bands adjacent in element order; used to decide marking begin and end.
-  std::uint64_t left_element_id = 0;
-  std::uint64_t right_element_id = 0;
-  double left_band_width_m = 0.0;
-  double right_band_width_m = 0.0;
+  // Strips adjacent in template order; used to decide marking begin and end.
+  SectionStripId left_strip_id = 0;
+  SectionStripId right_strip_id = 0;
+  double left_strip_width_m = 0.0;
+  double right_strip_width_m = 0.0;
 };
 enum class RenderStyleDomain {
   kSurface,

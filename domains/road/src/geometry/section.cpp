@@ -10,12 +10,12 @@
 namespace city::road::internal {
 namespace {
 
-const SurfaceBand *find_band(const CrossSectionTemplate &section,
-                             std::uint64_t id) {
+const SectionStrip *find_strip(const CrossSectionTemplate &section,
+                               SectionStripId id) {
   const auto found = std::find_if(
-      section.bands.begin(), section.bands.end(),
-      [id](const SurfaceBand &band) { return band.element_id == id; });
-  return found == section.bands.end() ? nullptr : &*found;
+      section.strips.begin(), section.strips.end(),
+      [id](const SectionStrip &strip) { return strip.id == id; });
+  return found == section.strips.end() ? nullptr : &*found;
 }
 
 const BoundaryProfile *find_boundary(const CrossSectionTemplate &section,
@@ -40,22 +40,23 @@ CrossSectionTemplate interpolate_section(const CrossSectionTemplate &from,
                                          const CrossSectionTemplate &to,
                                          double t) {
   const CrossSectionTemplate &structure =
-      to.bands.size() >= from.bands.size() ? to : from;
+      to.strips.size() >= from.strips.size() ? to : from;
   CrossSectionTemplate out{};
   out.id = t < 1.0 ? from.id : to.id;
-  for (const SurfaceBand &structure_band : structure.bands) {
-    const SurfaceBand *a = find_band(from, structure_band.element_id);
-    const SurfaceBand *b = find_band(to, structure_band.element_id);
-    SurfaceBand band = b != nullptr ? *b : *a;
+  for (const SectionStrip &structure_strip : structure.strips) {
+    const SectionStrip *a = find_strip(from, structure_strip.id);
+    const SectionStrip *b = find_strip(to, structure_strip.id);
+    SectionStrip strip = b != nullptr ? *b : *a;
     const double a_width = a != nullptr ? a->width_m : 0.0;
     const double b_width = b != nullptr ? b->width_m : 0.0;
     const double a_slope =
         a != nullptr ? a->cross_slope : (b != nullptr ? b->cross_slope : 0.0);
     const double b_slope = b != nullptr ? b->cross_slope : a_slope;
-    band.width_m = a_width + (b_width - a_width) * t;
-    band.cross_slope = a_slope + (b_slope - a_slope) * t;
-    out.bands.push_back(std::move(band));
+    strip.width_m = a_width + (b_width - a_width) * t;
+    strip.cross_slope = a_slope + (b_slope - a_slope) * t;
+    out.strips.push_back(std::move(strip));
   }
+  out.lane_bands = t < 1.0 ? from.lane_bands : to.lane_bands;
   for (const BoundaryProfile &structure_boundary : structure.boundaries) {
     const BoundaryProfile *a =
         find_boundary(from, structure_boundary.boundary_id);
@@ -80,12 +81,12 @@ Result<std::vector<AutoMarkingPolicy>>
 merge_boundary_policies(const CrossSectionTemplate &section) {
   std::vector<AutoMarkingPolicy> merged(section.boundaries.size(),
                                         AutoMarkingPolicy{});
-  if (section.bands.empty()) {
+  if (section.strips.empty()) {
     return Result<std::vector<AutoMarkingPolicy>>::Ok(std::move(merged));
   }
   // The outermost sides have no adjacent boundary element to resolve to.
-  if (section.bands.front().side_marking.left.enabled ||
-      section.bands.back().side_marking.right.enabled) {
+  if (section.strips.front().side_marking.left.enabled ||
+      section.strips.back().side_marking.right.enabled) {
     return Result<std::vector<AutoMarkingPolicy>>::Fail(
         ErrorKind::kUnsupported,
         "lane side marking has no adjacent boundary element");
@@ -107,9 +108,9 @@ merge_boundary_policies(const CrossSectionTemplate &section) {
     };
     const bool compatible =
         accept(boundary.marking) &&
-        accept(section.bands[index].side_marking.right) &&
-        accept(index + 1 < section.bands.size()
-                   ? section.bands[index + 1].side_marking.left
+        accept(section.strips[index].side_marking.right) &&
+        accept(index + 1 < section.strips.size()
+                   ? section.strips[index + 1].side_marking.left
                    : AutoMarkingPolicy{});
     if (!compatible) {
       return Result<std::vector<AutoMarkingPolicy>>::Fail(
@@ -126,11 +127,11 @@ std::vector<SectionBoundarySample>
 build_boundaries(const CrossSectionTemplate &section,
                  const std::vector<AutoMarkingPolicy> &policies) {
   std::vector<SectionBoundarySample> samples{};
-  if (section.bands.empty())
+  if (section.strips.empty())
     return samples;
   double total_width = 0.0;
-  for (const SurfaceBand &band : section.bands)
-    total_width += band.width_m;
+  for (const SectionStrip &strip : section.strips)
+    total_width += strip.width_m;
   for (const BoundaryProfile &boundary : section.boundaries) {
     total_width += boundary.width_m;
   }
@@ -139,26 +140,26 @@ build_boundaries(const CrossSectionTemplate &section,
   double carriageway_floor = std::numeric_limits<double>::infinity();
   samples.push_back(
       SectionBoundarySample{1, BoundaryRole::kOuterEdge, lateral, height, {}});
-  for (std::size_t index = 0; index < section.bands.size(); ++index) {
-    const SurfaceBand &band = section.bands[index];
-    const double band_end_height = height + band.cross_slope * band.width_m;
-    if (band.role == SurfaceRole::kCarriageway) {
+  for (std::size_t index = 0; index < section.strips.size(); ++index) {
+    const SectionStrip &strip = section.strips[index];
+    const double strip_end_height = height + strip.cross_slope * strip.width_m;
+    if (strip.function == StripFunction::kCarriageway) {
       carriageway_floor =
-          std::min(carriageway_floor, std::min(height, band_end_height));
+          std::min(carriageway_floor, std::min(height, strip_end_height));
     }
-    lateral += band.width_m;
-    height = band_end_height;
+    lateral += strip.width_m;
+    height = strip_end_height;
     if (index >= section.boundaries.size())
       continue;
     const BoundaryProfile &boundary = section.boundaries[index];
     const AutoMarkingPolicy policy =
         index < policies.size() ? policies[index] : boundary.marking;
-    const SurfaceBand &right_band = section.bands[index + 1];
+    const SectionStrip &right_strip = section.strips[index + 1];
     const auto with_adjacency = [&](SectionBoundarySample sample) {
-      sample.left_element_id = band.element_id;
-      sample.right_element_id = right_band.element_id;
-      sample.left_band_width_m = band.width_m;
-      sample.right_band_width_m = right_band.width_m;
+      sample.left_strip_id = strip.id;
+      sample.right_strip_id = right_strip.id;
+      sample.left_strip_width_m = strip.width_m;
+      sample.right_strip_width_m = right_strip.width_m;
       return sample;
     };
     const bool structural_boundary = boundary.role == BoundaryRole::kCurb ||
@@ -172,8 +173,8 @@ build_boundaries(const CrossSectionTemplate &section,
     AutoMarkingPolicy before_rule{};
     AutoMarkingPolicy after_rule = policy;
     if (boundary.role == BoundaryRole::kCurb &&
-        band.role == SurfaceRole::kCarriageway &&
-        right_band.role == SurfaceRole::kSidewalk) {
+        strip.function == StripFunction::kCarriageway &&
+        right_strip.function == StripFunction::kSidewalk) {
       before_rule = policy;
       after_rule = {};
     }
@@ -205,9 +206,9 @@ SurfaceStyleId SurfaceStyleForBoundaryRole(BoundaryRole role) {
 std::vector<RenderStyleRef>
 build_surface_styles(const CrossSectionTemplate &section) {
   std::vector<RenderStyleRef> styles{};
-  for (std::size_t index = 0; index < section.bands.size(); ++index) {
-    const SurfaceBand &band = section.bands[index];
-    styles.push_back(RenderStyleFromSurface(band.style_id));
+  for (std::size_t index = 0; index < section.strips.size(); ++index) {
+    const SectionStrip &strip = section.strips[index];
+    styles.push_back(RenderStyleFromSurface(strip.style_id));
     if (index >= section.boundaries.size())
       continue;
     const BoundaryProfile &boundary = section.boundaries[index];

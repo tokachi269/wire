@@ -229,6 +229,11 @@ split前後でcorridor全長とworld位置を維持する。
 明示移行し、境界を跨ぐmanual lineは現段階ではunsupportedとする。approach overrideとjunction marking
 overrideはendpoint ID対応で移行し、一意に対応しないものはunsupportedとする。
 
+Viewerの通常削除は局所segmentを直接削除しない。pickしたsegmentから両方向へendpoint ID接続をたどり、
+degree 2 nodeを通過し、degree 1の端点またはdegree 3以上の交差点で止まる最大連続区間を
+`DeleteRoadSection`で原子的に削除する。局所segmentは編集・所有の単位であり、ユーザーの削除単位ではない。
+区間が複数segmentや複数corridor参照を含んでも一つのOperationPlanで処理し、位置近接で範囲を作らない。
+
 局所追従参照は`RoadSideRef` / `RoadSideIntervalRef`のsegment IDとlocal station、道路全長基準のpolicyは
 `CorridorSideRef`のcorridor IDとcorridor stationを使う。`RoadSideRef`の左右はsegment正本のstart-to-end方向、
 `CorridorSideRef`の左右はcorridor進行方向を基準とする。reversed segmentへcorridor参照を解決すると左右を反転する。

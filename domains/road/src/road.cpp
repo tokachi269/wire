@@ -10,6 +10,7 @@
 #include <cmath>
 #include <iterator>
 #include <limits>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace city::road {
@@ -1757,7 +1758,8 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
   const RoadSegmentId segment_id = request.segment_id;
   const RoadSegment* target = find_segment(graph_, segment_id);
   if (target == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road segment does not exist");
+    return Result<bool>::Fail(ErrorKind::kValidation,
+                              "road segment does not exist");
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -1794,28 +1796,44 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
     plan.replace_corridors.push_back(std::move(start_side));
     plan.add_corridors.push_back(std::move(end_side));
   }
-  for (const RoadNodeId node_id : std::array<RoadNodeId, 2>{target->node_a, target->node_b}) {
-    if (node_degree(graph_, node_id) == 1) plan.remove_nodes.push_back(node_id);
+  for (const RoadNodeId node_id :
+       std::array<RoadNodeId, 2>{target->node_a, target->node_b}) {
+    if (node_degree(graph_, node_id) == 1) {
+      plan.remove_nodes.push_back(node_id);
+    }
   }
-  for (const NodeConnectionPolicyOverride& policy : graph_.connection_policy_overrides) {
-    const std::size_t degree_after = node_degree(graph_, policy.node_id) -
-                                     ((target->node_a == policy.node_id || target->node_b == policy.node_id) ? 1 : 0);
-    if (degree_after == 0) plan.remove_connection_policy_overrides.push_back(policy.id);
+  for (const NodeConnectionPolicyOverride& policy :
+       graph_.connection_policy_overrides) {
+    const std::size_t degree_after =
+        node_degree(graph_, policy.node_id) -
+        ((target->node_a == policy.node_id ||
+          target->node_b == policy.node_id)
+             ? 1
+             : 0);
+    if (degree_after == 0) {
+      plan.remove_connection_policy_overrides.push_back(policy.id);
+    }
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
-    if (marking.owner_segment_id == segment_id) plan.remove_manual_lines.push_back(marking.id);
+    if (marking.owner_segment_id == segment_id) {
+      plan.remove_manual_lines.push_back(marking.id);
+    }
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
-    if (marking.owner_segment_id == segment_id) plan.remove_manual_areas.push_back(marking.id);
+    if (marking.owner_segment_id == segment_id) {
+      plan.remove_manual_areas.push_back(marking.id);
+    }
   }
-  for (const ApproachGeometryOverride& override : graph_.approach_geometry_overrides) {
+  for (const ApproachGeometryOverride& override :
+       graph_.approach_geometry_overrides) {
     if (override.key.segment_id == segment_id ||
         override.key.node_id == target->node_a ||
         override.key.node_id == target->node_b) {
       plan.remove_approach_geometry_overrides.push_back(override.key);
     }
   }
-  for (const AutoMarkingOverride& override : graph_.auto_marking_overrides) {
+  for (const AutoMarkingOverride& override :
+       graph_.auto_marking_overrides) {
     const bool segment_owner =
         override.key.owner.kind == MarkingOwner::Kind::kRoadSegment &&
         override.key.owner.segment_id == segment_id;
@@ -1833,21 +1851,217 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
       plan.remove_auto_marking_overrides.push_back(override.key);
     }
   }
-  for (const JunctionMarkingOverride& override : graph_.junction_marking_overrides) {
-    const bool node_owner = override.node_id == target->node_a || override.node_id == target->node_b;
-    const bool source_owner = override.source.approach.segment_id == segment_id;
+  for (const JunctionMarkingOverride& override :
+       graph_.junction_marking_overrides) {
+    const bool node_owner =
+        override.node_id == target->node_a ||
+        override.node_id == target->node_b;
+    const bool source_owner =
+        override.source.approach.segment_id == segment_id;
     const bool target_owner =
-        override.target.has_value() && override.target->approach.segment_id == segment_id;
+        override.target.has_value() &&
+        override.target->approach.segment_id == segment_id;
     if (node_owner || source_owner || target_owner) {
       plan.remove_junction_marking_overrides.push_back(override.id);
     }
   }
   const std::optional<SectionTransitionId> transition = target->transition;
   if (transition.has_value() &&
-      std::none_of(graph_.segments.begin(), graph_.segments.end(), [segment_id, transition](const RoadSegment& segment) {
-        return segment.id != segment_id && segment.transition == transition;
-      })) {
+      std::none_of(
+          graph_.segments.begin(), graph_.segments.end(),
+          [segment_id, transition](const RoadSegment& segment) {
+            return segment.id != segment_id &&
+                   segment.transition == transition;
+          })) {
     plan.remove_transitions.push_back(*transition);
+  }
+  plan.next_id_after = next_id;
+  return Execute(plan);
+}
+
+Result<bool> RoadState::DeleteRoadSection(DeleteRoadSectionRequest request) {
+  const RoadSegment* target = find_segment(graph_, request.segment_id);
+  if (target == nullptr) {
+    return Result<bool>::Fail(ErrorKind::kValidation,
+                              "road section segment does not exist");
+  }
+
+  std::unordered_map<RoadNodeId, std::vector<const RoadSegment*>> incidence{};
+  incidence.reserve(graph_.nodes.size());
+  for (const RoadSegment& segment : graph_.segments) {
+    incidence[segment.node_a].push_back(&segment);
+    incidence[segment.node_b].push_back(&segment);
+  }
+  std::unordered_set<RoadSegmentId> section{target->id};
+  const auto extend_to_boundary =
+      [&](RoadNodeId start_node, RoadSegmentId start_segment) -> Result<bool> {
+    RoadNodeId node_id = start_node;
+    RoadSegmentId segment_id = start_segment;
+    while (true) {
+      const auto incident = incidence.find(node_id);
+      if (incident == incidence.end()) {
+        return Result<bool>::Fail(
+            ErrorKind::kInternal,
+            "road section endpoint incidence is missing");
+      }
+      if (incident->second.size() != 2) break;
+      const RoadSegment* next = nullptr;
+      for (const RoadSegment* candidate : incident->second) {
+        if (candidate->id == segment_id) continue;
+        if (next != nullptr) {
+          return Result<bool>::Fail(
+              ErrorKind::kInternal,
+              "road section degree-two traversal is not unique");
+        }
+        next = candidate;
+      }
+      if (next == nullptr) {
+        return Result<bool>::Fail(
+            ErrorKind::kInternal,
+            "road section degree-two continuation is missing");
+      }
+      if (section.contains(next->id)) {
+        return Result<bool>::Fail(
+            ErrorKind::kUnsupported,
+            "deleting a closed road section is unsupported");
+      }
+      section.insert(next->id);
+      node_id = next->node_a == node_id ? next->node_b : next->node_a;
+      segment_id = next->id;
+    }
+    return Result<bool>::Ok(true);
+  };
+
+  Result<bool> traversed =
+      extend_to_boundary(target->node_a, target->id);
+  if (!traversed.ok) return traversed;
+  traversed = extend_to_boundary(target->node_b, target->id);
+  if (!traversed.ok) return traversed;
+
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  plan.remove_segments.assign(section.begin(), section.end());
+  std::sort(plan.remove_segments.begin(), plan.remove_segments.end());
+
+  for (const RoadCorridor& corridor : graph_.corridors) {
+    const bool affected =
+        std::any_of(corridor.segments.begin(), corridor.segments.end(),
+                    [&](const DirectedSegmentRef& ref) {
+                      return section.contains(ref.segment_id);
+                    });
+    if (!affected) continue;
+
+    std::vector<std::vector<DirectedSegmentRef>> runs{};
+    bool in_run = false;
+    for (const DirectedSegmentRef& ref : corridor.segments) {
+      if (section.contains(ref.segment_id)) {
+        in_run = false;
+        continue;
+      }
+      if (!in_run) {
+        runs.emplace_back();
+        in_run = true;
+      }
+      runs.back().push_back(ref);
+    }
+    if (runs.empty()) {
+      plan.remove_corridors.push_back(corridor.id);
+      continue;
+    }
+    RoadCorridor retained = corridor;
+    retained.segments = std::move(runs.front());
+    plan.replace_corridors.push_back(std::move(retained));
+    for (std::size_t index = 1; index < runs.size(); ++index) {
+      plan.add_corridors.push_back(
+          RoadCorridor{next_id++, corridor.section_template_id,
+                       std::move(runs[index])});
+    }
+  }
+
+  std::unordered_set<RoadNodeId> removed_nodes{};
+  for (const RoadNode& node : graph_.nodes) {
+    const auto incident = incidence.find(node.id);
+    if (incident == incidence.end()) continue;
+    std::size_t removed_incidence = 0;
+    for (const RoadSegment* segment : incident->second) {
+      if (section.contains(segment->id)) ++removed_incidence;
+    }
+    if (removed_incidence != 0 &&
+        removed_incidence == incident->second.size()) {
+      removed_nodes.insert(node.id);
+      plan.remove_nodes.push_back(node.id);
+    }
+  }
+
+  for (const NodeConnectionPolicyOverride& policy :
+       graph_.connection_policy_overrides) {
+    if (removed_nodes.contains(policy.node_id)) {
+      plan.remove_connection_policy_overrides.push_back(policy.id);
+    }
+  }
+  for (const ManualLineMarking& marking : graph_.manual_lines) {
+    if (section.contains(marking.owner_segment_id)) {
+      plan.remove_manual_lines.push_back(marking.id);
+    }
+  }
+  for (const ManualAreaMarking& marking : graph_.manual_areas) {
+    if (section.contains(marking.owner_segment_id)) {
+      plan.remove_manual_areas.push_back(marking.id);
+    }
+  }
+  for (const ApproachGeometryOverride& override :
+       graph_.approach_geometry_overrides) {
+    if (section.contains(override.key.segment_id) ||
+        removed_nodes.contains(override.key.node_id)) {
+      plan.remove_approach_geometry_overrides.push_back(override.key);
+    }
+  }
+  for (const AutoMarkingOverride& override :
+       graph_.auto_marking_overrides) {
+    const bool segment_owner =
+        override.key.owner.kind == MarkingOwner::Kind::kRoadSegment &&
+        section.contains(override.key.owner.segment_id);
+    const bool junction_owner =
+        override.key.owner.kind == MarkingOwner::Kind::kJunction &&
+        removed_nodes.contains(override.key.owner.node_id);
+    const bool approach_owner =
+        override.key.approach.has_value() &&
+        section.contains(override.key.approach->segment_id);
+    const bool track_owner =
+        override.key.track.has_value() &&
+        section.contains(override.key.track->segment_id);
+    if (segment_owner || junction_owner || approach_owner || track_owner) {
+      plan.remove_auto_marking_overrides.push_back(override.key);
+    }
+  }
+  for (const JunctionMarkingOverride& override :
+       graph_.junction_marking_overrides) {
+    const bool node_owner = removed_nodes.contains(override.node_id);
+    const bool source_owner =
+        section.contains(override.source.approach.segment_id);
+    const bool target_owner =
+        override.target.has_value() &&
+        section.contains(override.target->approach.segment_id);
+    if (node_owner || source_owner || target_owner) {
+      plan.remove_junction_marking_overrides.push_back(override.id);
+    }
+  }
+
+  std::unordered_set<SectionTransitionId> removed_transitions{};
+  for (const RoadSegment& segment : graph_.segments) {
+    if (!section.contains(segment.id) || !segment.transition.has_value()) {
+      continue;
+    }
+    const SectionTransitionId transition_id = *segment.transition;
+    const bool retained = std::any_of(
+        graph_.segments.begin(), graph_.segments.end(),
+        [&](const RoadSegment& candidate) {
+          return !section.contains(candidate.id) &&
+                 candidate.transition == transition_id;
+        });
+    if (!retained && removed_transitions.insert(transition_id).second) {
+      plan.remove_transitions.push_back(transition_id);
+    }
   }
   plan.next_id_after = next_id;
   return Execute(plan);

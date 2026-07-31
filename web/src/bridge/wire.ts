@@ -317,8 +317,8 @@ export class WireBridge {
     };
   }
 
-  roadDeleteSegment(segmentId: number): OperationResult {
-    return this.roadState.deleteSegment(segmentId);
+  roadDeleteSection(segmentId: number): OperationResult {
+    return this.roadState.deleteRoadSection(segmentId);
   }
 
   roadDeleteRange(

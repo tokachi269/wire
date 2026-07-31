@@ -16,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 
 namespace {
 
@@ -254,13 +255,22 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
           },
           "DeleteRoadRange", failure),
       failure);
+  ROAD_CONTRACT_EXPECT(
+      expect_failed_unchanged(
+          state,
+          [&] {
+            return state.DeleteRoadSection(
+                DeleteRoadSectionRequest{999999});
+          },
+          "DeleteRoadSection", failure),
+      failure);
+  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
+                           state, [&] { return state.DeleteSegment(city::road::DeleteSegmentRequest{999999}); }, "DeleteSegment", failure), failure);
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.EditSegmentShape(city::road::EditSegmentShapeRequest{999999, {}}); }, "EditSegmentShape", failure),
                        failure);
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.MoveNode(city::road::MoveNodeRequest{999999, {0.0, 0.0}}); }, "MoveNode", failure), failure);
-  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
-                           state, [&] { return state.DeleteSegment(city::road::DeleteSegmentRequest{999999}); }, "DeleteSegment", failure), failure);
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.AddSectionTemplate(city::road::AddSectionTemplateRequest{{}}); }, "AddSectionTemplate", failure),
                        failure);
@@ -1181,7 +1191,7 @@ bool branch_and_tail_extension_preserve_existing_corridor(
   const auto periodic_before_branch_delete =
       periodic_after_extension.value;
   const auto deleted_branch =
-      state.DeleteSegment(DeleteSegmentRequest{branch.value});
+      state.DeleteRoadSection(DeleteRoadSectionRequest{branch.value});
   ROAD_CONTRACT_EXPECT(deleted_branch.ok, deleted_branch.error);
   const RoadCorridor* main_after_branch_delete =
       FindRoadCorridor(state.graph(), main_before.id);
@@ -1380,6 +1390,157 @@ bool delete_range_migrates_unaffected_segment_owned_state(
   return true;
 }
 
+bool delete_road_section_uses_topology_boundaries_not_local_segments(
+    std::string& failure) {
+  RoadState state{};
+  const auto main = state.AddSegment(AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0}),
+                MakeLine({20.0, 0.0}, {40.0, 0.0})}),
+      1});
+  ROAD_CONTRACT_EXPECT(main.ok, main.error);
+  const RoadCorridorId main_corridor_id = state.graph().corridors.front().id;
+  const std::vector<DirectedSegmentRef> main_refs =
+      state.graph().corridors.front().segments;
+  ROAD_CONTRACT_EXPECT(main_refs.size() == 2,
+                       "road-section setup did not create local main segments");
+  const auto first_main =
+      std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
+                   [id = main_refs.front().segment_id](
+                       const RoadSegment& segment) {
+                     return segment.id == id;
+                   });
+  ROAD_CONTRACT_EXPECT(first_main != state.graph().segments.end(),
+                       "road-section setup main segment is missing");
+  const RoadNodeId junction_node = first_main->node_b;
+  const auto branch = state.AddSegmentConnectedTo(
+      AddSegmentConnectedToRequest{
+          MakePath({MakeLine({20.0, 0.0}, {20.0, 20.0})}),
+          1, junction_node});
+  ROAD_CONTRACT_EXPECT(branch.ok, branch.error);
+  auto branch_corridor =
+      std::find_if(state.graph().corridors.begin(),
+                   state.graph().corridors.end(),
+                   [main_corridor_id](const RoadCorridor& corridor) {
+                     return corridor.id != main_corridor_id;
+                   });
+  ROAD_CONTRACT_EXPECT(branch_corridor != state.graph().corridors.end(),
+                       "road-section branch corridor is missing");
+  const RoadCorridorId branch_corridor_id = branch_corridor->id;
+  const auto branch_segment =
+      std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
+                   [id = branch.value](const RoadSegment& segment) {
+                     return segment.id == id;
+                   });
+  ROAD_CONTRACT_EXPECT(branch_segment != state.graph().segments.end(),
+                       "road-section branch segment is missing");
+  const auto extended = state.ExtendCorridorFromEnd(
+      ExtendCorridorFromEndRequest{
+          branch_corridor_id, branch_segment->node_b,
+          MakePath({MakeLine({20.0, 20.0}, {20.0, 40.0})}), 1});
+  ROAD_CONTRACT_EXPECT(extended.ok, extended.error);
+  branch_corridor =
+      std::find_if(state.graph().corridors.begin(),
+                   state.graph().corridors.end(),
+                   [branch_corridor_id](const RoadCorridor& corridor) {
+                     return corridor.id == branch_corridor_id;
+                   });
+  ROAD_CONTRACT_EXPECT(state.graph().segments.size() == 4 &&
+                           state.graph().corridors.size() == 2,
+                       "road-section setup did not create a two-segment arm");
+  ROAD_CONTRACT_EXPECT(branch_corridor != state.graph().corridors.end() &&
+                           branch_corridor->segments.size() == 2,
+                       "road-section branch corridor is missing");
+
+  const auto deleted = state.DeleteRoadSection(
+      DeleteRoadSectionRequest{
+          branch_corridor->segments.front().segment_id});
+  ROAD_CONTRACT_EXPECT(deleted.ok, deleted.error);
+  ROAD_CONTRACT_EXPECT(
+      state.graph().segments.size() == 2 &&
+          state.graph().corridors.size() == 1 &&
+          state.graph().corridors.front().id == main_corridor_id &&
+          state.graph().corridors.front().segments == main_refs,
+      "one-click road-section deletion did not remove the full arm only");
+  ROAD_CONTRACT_EXPECT(
+      std::any_of(state.graph().nodes.begin(), state.graph().nodes.end(),
+                  [junction_node](const RoadNode& node) {
+                    return node.id == junction_node;
+                  }),
+      "road-section deletion removed the retained junction node");
+  ROAD_CONTRACT_EXPECT(
+      std::none_of(state.graph().nodes.begin(), state.graph().nodes.end(),
+                   [&state](const RoadNode& node) {
+                     return std::none_of(
+                         state.graph().segments.begin(),
+                         state.graph().segments.end(),
+                         [&node](const RoadSegment& segment) {
+                           return segment.node_a == node.id ||
+                                  segment.node_b == node.id;
+                         });
+                   }),
+      "road-section deletion left orphan local nodes");
+
+  RoadState between_junctions{};
+  const auto through = between_junctions.AddSegment(AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0}),
+                MakeLine({20.0, 0.0}, {40.0, 0.0}),
+                MakeLine({40.0, 0.0}, {60.0, 0.0}),
+                MakeLine({60.0, 0.0}, {80.0, 0.0})}),
+      1});
+  ROAD_CONTRACT_EXPECT(through.ok, through.error);
+  const RoadCorridor& through_corridor =
+      between_junctions.graph().corridors.front();
+  const std::vector<DirectedSegmentRef> through_refs =
+      through_corridor.segments;
+  ROAD_CONTRACT_EXPECT(through_refs.size() == 4,
+                       "junction-to-junction setup did not create four segments");
+  const auto segment_for_ref =
+      [&](const DirectedSegmentRef& ref) -> const RoadSegment* {
+    const auto found = std::find_if(
+        between_junctions.graph().segments.begin(),
+        between_junctions.graph().segments.end(),
+        [id = ref.segment_id](const RoadSegment& segment) {
+          return segment.id == id;
+        });
+    return found == between_junctions.graph().segments.end() ? nullptr
+                                                              : &*found;
+  };
+  const RoadSegment* first = segment_for_ref(through_refs.front());
+  const RoadSegment* third = segment_for_ref(through_refs[2]);
+  ROAD_CONTRACT_EXPECT(first != nullptr && third != nullptr,
+                       "junction-to-junction setup segment is missing");
+  const RoadNodeId first_junction_node = first->node_b;
+  const RoadNodeId second_junction_node = third->node_b;
+  const auto first_branch = between_junctions.AddSegmentConnectedTo(
+      AddSegmentConnectedToRequest{
+          MakePath({MakeLine({20.0, 0.0}, {20.0, 20.0})}), 1,
+          first_junction_node});
+  const auto second_branch = between_junctions.AddSegmentConnectedTo(
+      AddSegmentConnectedToRequest{
+          MakePath({MakeLine({60.0, 0.0}, {60.0, -20.0})}), 1,
+          second_junction_node});
+  ROAD_CONTRACT_EXPECT(first_branch.ok && second_branch.ok,
+                       first_branch.ok ? second_branch.error
+                                       : first_branch.error);
+
+  const auto deleted_middle = between_junctions.DeleteRoadSection(
+      DeleteRoadSectionRequest{through_refs[1].segment_id});
+  ROAD_CONTRACT_EXPECT(deleted_middle.ok, deleted_middle.error);
+  const std::unordered_set<RoadSegmentId> retained_ids{
+      through_refs.front().segment_id, through_refs.back().segment_id,
+      first_branch.value, second_branch.value};
+  ROAD_CONTRACT_EXPECT(
+      between_junctions.graph().segments.size() == retained_ids.size() &&
+          std::all_of(
+              between_junctions.graph().segments.begin(),
+              between_junctions.graph().segments.end(),
+              [&retained_ids](const RoadSegment& segment) {
+                return retained_ids.contains(segment.id);
+              }),
+      "junction-to-junction deletion crossed a topology boundary");
+  return true;
+}
+
 bool marking_invalid_interval_splits_polyline_runs(std::string& failure) {
   DerivedSegment segment{};
   segment.id = 77;
@@ -1512,6 +1673,8 @@ int main() {
        delete_range_splits_corridor_without_touching_outer_shapes},
       {"delete_range_migrates_unaffected_segment_owned_state",
        delete_range_migrates_unaffected_segment_owned_state},
+      {"delete_road_section_uses_topology_boundaries_not_local_segments",
+       delete_road_section_uses_topology_boundaries_not_local_segments},
       {"marking_invalid_interval_splits_polyline_runs",
        marking_invalid_interval_splits_polyline_runs},
       {"seeded_operation_sequences_preserve_contracts", seeded_operation_sequences_preserve_contracts},

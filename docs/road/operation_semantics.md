@@ -76,8 +76,9 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | AddSegmentConnectedToSegment | validation | 同一断面かつ明示`segment_id + station_m`ならsupported | 同一断面かつ明示`segment_id + station_m`ならsupported | unsupported | 同一断面かつ明示`segment_id + station_m`ならsupported |
 | EditSegmentShape | validation | supported | node位置を変えずshapeだけ変更 | StationRef規則で再評価 | owner-local markingを追従 |
 | MoveNode | validation | endpoint nodeを移動 | 接続全segmentを再導出 | StationRef規則で再評価 | owner-local markingを追従 |
-| DeleteSegment | validation | supported | supported (不要junctionを除去) | transition参照を除去 | owned markingを除去 |
-| Viewer delete range | 同一segment上の2 station | `DeleteRoadRange` | 範囲外shapeとconnectionを再導出 | 範囲外参照を明示移行 | 範囲外markingを維持 |
+| DeleteSegment (Undo内部用) | validation | 最後の局所segmentだけを戻す | Viewer削除からは使用しない | transition参照を除去 | owned markingを除去 |
+| DeleteRoadSection | validation | クリックsegmentを含む端点間区間を削除 | degree 3以上のnodeで停止し交差点を越えない | 区間内ownerを除去 | 区間内markingを除去 |
+| Viewer delete road | 1 segment pick | `DeleteRoadSection` | segment境界ではなくtopology境界で削除 | 位置や描画pieceから範囲を推測しない | 1クリックで実行 |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
 | AttachSectionTransition | validation | supported | supported | replace supported | supported |
 | AddManualLine / AddManualArea | validation | supported | supported | supported | supported |
@@ -104,8 +105,10 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - Viewerのalignment編集では、segment端点handleは`MoveNode`、内部2 control handleは
   `EditSegmentShape`へ送る。直線segmentもlinear cubic Bezierの4 control pointを表示し、
   内部control handleを動かした時点でcurve intentへ変更する。
-- ViewerのDelete roadは1クリックの`DeleteSegment`ではなく、同一segment上の2点で
-  `DeleteRoadRange`を実行する。最初の点だけでは正本を変更しない。
+- ViewerのDelete roadは、クリックしたsegmentを含む「次の交差点または端点まで」の最大連続区間を
+  `DeleteRoadSection`で一度に削除する。両方向へendpoint IDをたどり、degree 2 nodeだけを通過する。
+  degree 1 nodeとdegree 3以上のnodeで停止し、交差点を越えない。局所segment、sampling piece、world位置は
+  ユーザーの削除単位にしない。停止境界のない閉路は推測せずunsupportedとする。
 - Line segmentをnodeやsegment stationへsnapする場合は、snap後の始点と入力終点からlinear cubicを再作成する。
   始点だけを動かしてhandleを一部だけ補正しない。
 - `SplitSegmentAtStation`は元segment IDをstart側へ維持し、end側segmentとsplit nodeへ新IDを付ける。

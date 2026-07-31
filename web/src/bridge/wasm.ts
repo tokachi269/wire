@@ -239,7 +239,7 @@ export interface RoadStateHandle {
   addSegment(input: RoadSegmentInput): RoadSegmentResult;
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   scene(): RoadScenePayload;
-  deleteSegment(segmentId: number): OperationResult;
+  deleteRoadSection(segmentId: number): OperationResult;
   splitSegmentAtStation(input: {
     segmentId: number;
     stationM: number;

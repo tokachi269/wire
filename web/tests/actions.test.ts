@@ -575,7 +575,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       markingMeshes: []
     }),
     roadUndoSegment: () => ({ ok: true, error: "" }),
-    roadDeleteSegment: () => ({ ok: true, error: "" }),
+    roadDeleteSection: () => ({ ok: true, error: "" }),
     roadDeleteRange: () => ({ ok: true, error: "" }),
     roadMoveNode: () => ({ ok: true, error: "" }),
     roadPreviewMoveNode: () => ({ ok: true, error: "", meshes: [] }),
@@ -880,15 +880,15 @@ describe("viewport tool routing", () => {
     expect(dot).toBeGreaterThan(0);
   });
 
-  it("routes marking and local range deletion from centerline picks", () => {
+  it("routes marking and one-click road-section deletion from centerline picks", () => {
     const roadAddManualLine = vi.fn(() => ({ ok: true, error: "" }));
     const roadAddManualArea = vi.fn(() => ({ ok: true, error: "" }));
-    const roadDeleteRange = vi.fn(() => ({ ok: true, error: "" }));
+    const roadDeleteSection = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({
       roadAddManualLine,
       roadAddManualArea,
-      roadDeleteRange
+      roadDeleteSection
     }), store);
     actions.initialize();
     actions.setActiveTool("road");
@@ -908,9 +908,8 @@ describe("viewport tool routing", () => {
 
     actions.setRoadOperation("delete");
     actions.addViewportPoint([8, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 8 });
-    expect(roadDeleteRange).not.toHaveBeenCalled();
-    actions.addViewportPoint([15, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 15 });
-    expect(roadDeleteRange).toHaveBeenCalledWith(12, 8, 15);
+    expect(roadDeleteSection).toHaveBeenCalledOnce();
+    expect(roadDeleteSection).toHaveBeenCalledWith(12);
   });
 
   it("routes endpoint and control handle edits to their owning operations", () => {

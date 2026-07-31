@@ -39,7 +39,6 @@ export class RoadActions {
         phase: "start",
         curveContinuationTangent: null,
         markingDraftSegmentId: 0,
-        deleteDraftSegmentId: 0,
         selectedEditSegmentId: 0,
         selectedEditNodeAId: 0,
         selectedEditNodeBId: 0,
@@ -177,33 +176,9 @@ export class RoadActions {
       return;
     }
     if (road.operation === "delete") {
-      if (road.deleteDraftSegmentId === 0 ||
-          road.deleteDraftSegmentId !== snap.segmentId) {
-        this.ctx.store.update((snapshot) => ({
-          ...snapshot,
-          road: {
-            ...snapshot.road,
-            deleteDraftSegmentId: snap.segmentId,
-            deleteDraftStationM: snap.stationM,
-            lastError: ""
-          },
-          error: ""
-        }));
-        return;
-      }
-      const startStationM = Math.min(road.deleteDraftStationM, snap.stationM);
-      const endStationM = Math.max(road.deleteDraftStationM, snap.stationM);
-      if (endStationM - startStationM <= 1e-6) {
-        this.ctx.store.setError("Select a different road point");
-        return;
-      }
       this.finish(
-        this.ctx.bridge.roadDeleteRange(
-          snap.segmentId,
-          startStationM,
-          endStationM
-        ),
-        "road delete range"
+        this.ctx.bridge.roadDeleteSection(snap.segmentId),
+        "road delete section"
       );
       return;
     }
@@ -385,7 +360,6 @@ export class RoadActions {
         ...snapshot.road,
         phase: "start",
         markingDraftSegmentId: 0,
-        deleteDraftSegmentId: 0,
         activeEditPointIndex: -1,
         scene,
         previewMeshes: [],

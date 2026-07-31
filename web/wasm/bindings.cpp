@@ -1651,8 +1651,9 @@ public:
     return result;
   }
 
-  val delete_segment(std::uint64_t segment_id) {
-    const auto result = state_->DeleteSegment(city::road::DeleteSegmentRequest{segment_id});
+  val delete_road_section(std::uint64_t segment_id) {
+    const auto result = state_->DeleteRoadSection(
+        city::road::DeleteRoadSectionRequest{segment_id});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
@@ -2041,7 +2042,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("addSegment", &RoadStateBinding::add_segment)
       .function("previewSegment", &RoadStateBinding::preview_segment)
       .function("scene", &RoadStateBinding::scene)
-      .function("deleteSegment", &RoadStateBinding::delete_segment)
+      .function("deleteRoadSection", &RoadStateBinding::delete_road_section)
       .function("splitSegmentAtStation",
                 &RoadStateBinding::split_segment_at_station)
       .function("deleteRoadRange", &RoadStateBinding::delete_road_range)

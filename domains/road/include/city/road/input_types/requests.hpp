@@ -33,6 +33,7 @@ struct DeleteRoadRangeRequest {
   double start_station_m = 0.0;
   double end_station_m = 0.0;
 };
+struct DeleteRoadSectionRequest { RoadSegmentId segment_id = 0; };
 struct EditSegmentShapeRequest { RoadSegmentId segment_id = 0; SegmentShape shape{}; };
 struct MoveNodeRequest { RoadNodeId node_id = 0; Vec2d position{}; };
 struct DeleteSegmentRequest { RoadSegmentId segment_id = 0; };

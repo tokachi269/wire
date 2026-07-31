@@ -40,6 +40,7 @@ public:
   [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedToSegment(AddSegmentConnectedToSegmentRequest request);
   [[nodiscard]] Result<RoadSegmentId> SplitSegmentAtStation(SplitSegmentAtStationRequest request);
   [[nodiscard]] Result<bool> DeleteRoadRange(DeleteRoadRangeRequest request);
+  [[nodiscard]] Result<bool> DeleteRoadSection(DeleteRoadSectionRequest request);
   [[nodiscard]] Result<bool> EditSegmentShape(EditSegmentShapeRequest request);
   [[nodiscard]] Result<bool> MoveNode(MoveNodeRequest request);
   [[nodiscard]] Result<bool> DeleteSegment(DeleteSegmentRequest request);

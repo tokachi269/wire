@@ -278,6 +278,18 @@ def check_road_architecture(root: Path) -> list[str]:
             "domains/road/src/road.cpp: strip function must not be inferred from style"
         )
 
+    road_actions_text = source_text(root / "web/src/actions/road_actions.ts")
+    for token in ("deleteDraftSegmentId", "deleteDraftStationM", "roadDeleteRange("):
+        if token in road_actions_text:
+            errors.append(
+                "web/src/actions/road_actions.ts: retired two-point road deletion remains: "
+                + repr(token)
+            )
+    if "roadDeleteSection(snap.segmentId)" not in road_actions_text:
+        errors.append(
+            "web/src/actions/road_actions.ts: road deletion must use one picked segment to delete a topology section"
+        )
+
     # 8. Persistence stays in its own layer.
     save_start = road_source.find("Result<std::string> RoadState::Save()")
     save_region = road_source[save_start : save_start + 2000] if save_start >= 0 else ""

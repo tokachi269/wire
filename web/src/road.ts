@@ -172,8 +172,6 @@ export interface RoadToolState {
   manualAreaLengthM: number;
   markingDraftSegmentId: number;
   markingDraftStationM: number;
-  deleteDraftSegmentId: number;
-  deleteDraftStationM: number;
   selectedEditSegmentId: number;
   selectedEditNodeAId: number;
   selectedEditNodeBId: number;
@@ -208,8 +206,6 @@ export function createRoadToolState(): RoadToolState {
     manualAreaLengthM: 6,
     markingDraftSegmentId: 0,
     markingDraftStationM: 0,
-    deleteDraftSegmentId: 0,
-    deleteDraftStationM: 0,
     selectedEditSegmentId: 0,
     selectedEditNodeAId: 0,
     selectedEditNodeBId: 0,

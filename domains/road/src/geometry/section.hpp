@@ -9,11 +9,11 @@ namespace city::road::internal {
 // consumer reads one effective policy per boundary.
 [[nodiscard]] Result<CrossSectionTemplate> template_at(const SavedRoadGraph &graph,
                                                        const RoadSegment &segment,
-                                                       double station_m,
+                                                       double segment_distance_m,
                                                        double total_m);
 [[nodiscard]] Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
                                                    const RoadSegment &segment,
-                                                   double station_m,
+                                                   double segment_distance_m,
                                                    double total_m);
 
 } // namespace city::road::internal

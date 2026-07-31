@@ -38,9 +38,10 @@ public:
   [[nodiscard]] Result<RoadSegmentId> ExtendCorridorFromEnd(ExtendCorridorFromEndRequest request);
   [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedTo(AddSegmentConnectedToRequest request);
   [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedToSegment(AddSegmentConnectedToSegmentRequest request);
-  [[nodiscard]] Result<RoadSegmentId> SplitSegmentAtStation(SplitSegmentAtStationRequest request);
-  [[nodiscard]] Result<bool> DeleteRoadRange(DeleteRoadRangeRequest request);
-  [[nodiscard]] Result<bool> DeleteRoadSection(DeleteRoadSectionRequest request);
+  [[nodiscard]] Result<RoadSegmentId> SplitSegmentAtDistance(SplitSegmentAtDistanceRequest request);
+  // Advanced editing only. Standard editor deletion removes one complete
+  // RoadSegment through DeleteSegment.
+  [[nodiscard]] Result<bool> DeleteSegmentRange(DeleteSegmentRangeRequest request);
   [[nodiscard]] Result<bool> EditSegmentShape(EditSegmentShapeRequest request);
   [[nodiscard]] Result<bool> MoveNode(MoveNodeRequest request);
   [[nodiscard]] Result<bool> DeleteSegment(DeleteSegmentRequest request);
@@ -82,22 +83,23 @@ private:
                                                    RoadCorridorId corridor_id);
 [[nodiscard]] const RoadCorridor* FindCorridorForSegment(const SavedRoadGraph& graph,
                                                          RoadSegmentId segment_id);
-[[nodiscard]] Result<ResolvedSegmentStation>
-ResolveCorridorStation(const SavedRoadGraph& graph, const DerivedRoad& derived,
-                       CorridorStationRef station);
+[[nodiscard]] Result<ResolvedSegmentDistance>
+ResolveCorridorDistance(const SavedRoadGraph& graph, const DerivedRoad& derived,
+                       CorridorDistanceRef distance);
 [[nodiscard]] Result<RoadSideRef>
 ResolveCorridorSideRef(const SavedRoadGraph& graph, const DerivedRoad& derived,
                        CorridorSideRef reference);
 [[nodiscard]] Result<Vec3d>
 ResolveRoadSidePosition(const DerivedRoad& derived, RoadSideRef reference);
 [[nodiscard]] Result<std::vector<double>>
-DeriveRepeatingPlacementStations(const SavedRoadGraph& graph,
+DeriveRepeatingPlacementDistances(const SavedRoadGraph& graph,
                                  const DerivedRoad& derived,
                                  RoadCorridorId corridor_id,
                                  RepeatingPlacementPolicy policy);
 [[nodiscard]] Result<bool> ValidatePath(const Path& path);
 [[nodiscard]] Result<double> PathLength(const Path& path);
-[[nodiscard]] Result<Vec2d> EvaluatePath(const Path& path, double station_m);
+[[nodiscard]] Result<Vec2d> EvaluatePath(const Path& path,
+                                         double distance_along_path_m);
 [[nodiscard]] std::vector<Vec2d> FlattenPath(const Path& path);
 
 } // namespace city::road

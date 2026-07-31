@@ -4,7 +4,7 @@
 
 namespace city::road::internal {
 
-inline constexpr double station_epsilon = 1e-9;
+inline constexpr double distance_epsilon = 1e-9;
 inline constexpr double surface_sample_step_m = 2.0;
 
 [[nodiscard]] bool is_finite(double value);
@@ -22,8 +22,9 @@ inline constexpr double surface_sample_step_m = 2.0;
 [[nodiscard]] Result<Vec2d> inward_tangent(const RoadSegment &segment,
                                            const Path &alignment,
                                            const ApproachKey &key);
-[[nodiscard]] Result<Vec2d> tangent_at(const Path &alignment, double station_m);
-[[nodiscard]] double endpoint_station(const ApproachKey &key, double length_m);
-void sort_unique_stations(std::vector<double> &stations);
+[[nodiscard]] Result<Vec2d> tangent_at(const Path &alignment,
+                                       double distance_along_path_m);
+[[nodiscard]] double endpoint_distance(const ApproachKey &key, double length_m);
+void sort_unique_distances(std::vector<double> &distances);
 
 } // namespace city::road::internal

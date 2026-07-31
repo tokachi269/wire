@@ -108,6 +108,7 @@ export interface WireStateHandle {
 }
 
 export interface RoadMeshPayload {
+  ownerSegmentId: number;
   material: string;
   vertices: number[];
   indices: number[];
@@ -225,8 +226,8 @@ export interface RoadCenterlineSegmentPayload {
   startY: number;
   endX: number;
   endY: number;
-  startStationM: number;
-  endStationM: number;
+  startSegmentDistanceM: number;
+  endSegmentDistanceM: number;
 }
 
 export interface RoadSegmentResult extends OperationResult {
@@ -239,15 +240,15 @@ export interface RoadStateHandle {
   addSegment(input: RoadSegmentInput): RoadSegmentResult;
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   scene(): RoadScenePayload;
-  deleteRoadSection(segmentId: number): OperationResult;
-  splitSegmentAtStation(input: {
+  deleteSegment(segmentId: number): OperationResult;
+  splitSegmentAtDistance(input: {
     segmentId: number;
-    stationM: number;
+    segmentDistanceM: number;
   }): OperationResult & { segmentId?: number };
-  deleteRoadRange(input: {
+  deleteSegmentRange(input: {
     segmentId: number;
-    startStationM: number;
-    endStationM: number;
+    startSegmentDistanceM: number;
+    endSegmentDistanceM: number;
   }): OperationResult;
   moveNode(input: { nodeId: number; x: number; y: number }): OperationResult;
   previewMoveNode(input: {

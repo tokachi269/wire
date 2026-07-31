@@ -575,8 +575,8 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       markingMeshes: []
     }),
     roadUndoSegment: () => ({ ok: true, error: "" }),
-    roadDeleteSection: () => ({ ok: true, error: "" }),
-    roadDeleteRange: () => ({ ok: true, error: "" }),
+    roadDeleteSegment: () => ({ ok: true, error: "" }),
+    roadDeleteSegmentRange: () => ({ ok: true, error: "" }),
     roadMoveNode: () => ({ ok: true, error: "" }),
     roadPreviewMoveNode: () => ({ ok: true, error: "", meshes: [] }),
     roadEditSegment: () => ({ ok: true, error: "" }),
@@ -612,15 +612,24 @@ describe("viewport tool routing", () => {
 
     actions.addViewportPoint([18, 5, 0]);
 
+    expect(roadAddSegment).not.toHaveBeenCalled();
+    expect(current(store).road.draftSpans).toHaveLength(1);
+    actions.commitRoadPath();
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       kind: "line",
       startX: 2,
       startY: 3,
       endX: 18,
-      endY: 5
+      endY: 5,
+      spans: [expect.objectContaining({
+        startX: 2,
+        startY: 3,
+        endX: 18,
+        endY: 5
+      })]
     }));
     expect(current(store).pathPoints).toEqual([]);
-    expect(current(store).road.phase).toBe("end");
+    expect(current(store).road.phase).toBe("start");
   });
 
   it("does not report an expected road preview rejection as a global error", () => {
@@ -684,22 +693,14 @@ describe("viewport tool routing", () => {
     consoleError.mockRestore();
   });
 
-  it("normalizes continuous road drawing to a new segment in the same corridor", () => {
-    const roadAddSegment = vi.fn()
-      .mockReturnValueOnce({
-        ok: true,
-        error: "",
-        segmentId: 11,
-        corridorId: 21,
-        endNodeId: 12
-      })
-      .mockReturnValue({
-        ok: true,
-        error: "",
-        segmentId: 13,
-        corridorId: 21,
-        endNodeId: 14
-      });
+  it("commits one continuous drawing as one multi-span road segment", () => {
+    const roadAddSegment = vi.fn(() => ({
+      ok: true,
+      error: "",
+      segmentId: 11,
+      corridorId: 21,
+      endNodeId: 12
+    }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
     actions.initialize();
@@ -709,13 +710,17 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([20, 0, 0]);
     actions.addViewportPoint([32, 16, 0]);
 
-    expect(roadAddSegment).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      startX: 20,
-      startY: 0,
-      endX: 32,
-      endY: 16,
-      startNodeId: 12,
-      extensionCorridorId: 21
+    expect(roadAddSegment).not.toHaveBeenCalled();
+    expect(current(store).road.draftSpans).toHaveLength(2);
+    actions.commitRoadPath();
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startNodeId: 0,
+      extensionCorridorId: 0,
+      spans: [
+        expect.objectContaining({ startX: 0, startY: 0, endX: 20, endY: 0 }),
+        expect.objectContaining({ startX: 20, startY: 0, endX: 32, endY: 16 })
+      ]
     }));
   });
 
@@ -728,9 +733,10 @@ describe("viewport tool routing", () => {
     actions.setActiveTool("road");
     actions.addViewportPoint(
       [20, 0, 0],
-      { kind: "road", nodeId: 12, segmentId: 0, stationM: 0, extensionCorridorId: 11 }
+      { kind: "road", nodeId: 12, segmentId: 0, segmentDistanceM: 0, extensionCorridorId: 11 }
     );
     actions.addViewportPoint([32, 16, 0]);
+    actions.commitRoadPath();
 
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       startNodeId: 12,
@@ -745,8 +751,9 @@ describe("viewport tool routing", () => {
     actions.initialize();
 
     actions.setActiveTool("road");
-    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7, stationM: 20 });
+    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7, segmentDistanceM: 20 });
     actions.addViewportPoint([20, 24, 0]);
+    actions.commitRoadPath();
 
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       startX: 20,
@@ -755,7 +762,7 @@ describe("viewport tool routing", () => {
       endY: 24,
       startNodeId: 0,
       startSegmentId: 7,
-      startStationM: 20
+      startSegmentDistanceM: 20
     }));
   });
 
@@ -768,8 +775,10 @@ describe("viewport tool routing", () => {
     actions.setActiveTool("road");
     actions.addViewportPoint([0, 0, 0]);
     actions.addViewportPoint([40, 0, 0]);
-    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7, stationM: 20 });
+    actions.commitRoadPath();
+    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7, segmentDistanceM: 20 });
     actions.addViewportPoint([20, 24, 0]);
+    actions.commitRoadPath();
 
     expect(roadAddSegment).toHaveBeenLastCalledWith(expect.objectContaining({
       startX: 20,
@@ -778,10 +787,10 @@ describe("viewport tool routing", () => {
       endY: 24,
       startNodeId: 0,
       startSegmentId: 7,
-      startStationM: 20
+      startSegmentDistanceM: 20
     }));
     expect(current(store).road.draftStartSegmentId).toBe(0);
-    expect(current(store).road.draftStartStationM).toBe(0);
+    expect(current(store).road.draftStartSegmentDistanceM).toBe(0);
   });
 
   it("draws a curved road with a Cities-style bend point before the end point", () => {
@@ -805,6 +814,8 @@ describe("viewport tool routing", () => {
 
     actions.addViewportPoint([18, 0, 0]);
 
+    expect(roadAddSegment).not.toHaveBeenCalled();
+    actions.commitRoadPath();
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       kind: "bezier",
       startX: 0,
@@ -816,7 +827,7 @@ describe("viewport tool routing", () => {
       handleBX: 12,
       handleBY: 6
     }));
-    expect(current(store).road.phase).toBe("bend");
+    expect(current(store).road.phase).toBe("start");
   });
 
   it("snaps a continued curve start handle to the previous end tangent", () => {
@@ -847,15 +858,18 @@ describe("viewport tool routing", () => {
 
     actions.previewViewportPoint([18, 12, 0]);
     const hover = roadPreviewSegment.mock.calls.at(-1)?.[0];
+    const hoverSpan = hover?.spans?.at(-1);
     expect(hover).toBeDefined();
-    expect(hover?.endX).toBeCloseTo(18 + 12 / Math.sqrt(2), 9);
-    expect(hover?.endY).toBeCloseTo(-12 / Math.sqrt(2), 9);
+    expect(hoverSpan?.endX).toBeCloseTo(18 + 12 / Math.sqrt(2), 9);
+    expect(hoverSpan?.endY).toBeCloseTo(-12 / Math.sqrt(2), 9);
 
     actions.addViewportPoint([18, 12, 0]);
     actions.addViewportPoint([30, -12, 0]);
+    actions.commitRoadPath();
 
-    const previous = roadAddSegment.mock.calls[0]?.[0];
-    const continued = roadAddSegment.mock.calls[1]?.[0];
+    const path = roadAddSegment.mock.calls[0]?.[0];
+    const previous = path?.spans?.[0];
+    const continued = path?.spans?.[1];
     expect(previous).toBeDefined();
     expect(continued).toBeDefined();
     if (previous === undefined || continued === undefined) {
@@ -880,36 +894,42 @@ describe("viewport tool routing", () => {
     expect(dot).toBeGreaterThan(0);
   });
 
-  it("routes marking and one-click road-section deletion from centerline picks", () => {
+  it("routes marking and one-click whole-segment deletion from the hovered centerline pick", () => {
     const roadAddManualLine = vi.fn(() => ({ ok: true, error: "" }));
     const roadAddManualArea = vi.fn(() => ({ ok: true, error: "" }));
-    const roadDeleteSection = vi.fn(() => ({ ok: true, error: "" }));
+    const roadDeleteSegment = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({
       roadAddManualLine,
       roadAddManualArea,
-      roadDeleteSection
+      roadDeleteSegment
     }), store);
     actions.initialize();
     actions.setActiveTool("road");
 
     actions.setRoadOperation("line-marking");
-    actions.addViewportPoint([5, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 5 });
-    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 20 });
+    actions.addViewportPoint([5, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 5 });
+    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 20 });
     expect(roadAddManualLine).toHaveBeenCalledWith(expect.objectContaining({
       segmentId: 12,
-      startStationM: 5,
-      endStationM: 20
+      startSegmentDistanceM: 5,
+      endSegmentDistanceM: 20
     }));
 
     actions.setRoadOperation("area-marking");
-    actions.addViewportPoint([15, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 15 });
-    expect(roadAddManualArea).toHaveBeenCalledWith(expect.objectContaining({ segmentId: 12, stationM: 15 }));
+    actions.addViewportPoint([15, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 15 });
+    expect(roadAddManualArea).toHaveBeenCalledWith(expect.objectContaining({ segmentId: 12, segmentDistanceM: 15 }));
 
     actions.setRoadOperation("delete");
-    actions.addViewportPoint([8, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 8 });
-    expect(roadDeleteSection).toHaveBeenCalledOnce();
-    expect(roadDeleteSection).toHaveBeenCalledWith(12);
+    actions.previewViewportPoint(
+      [8, 0, 0],
+      { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 8 }
+    );
+    expect(current(store).road.hoveredDeleteSegmentId).toBe(12);
+    actions.addViewportPoint([8, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 8 });
+    expect(roadDeleteSegment).toHaveBeenCalledOnce();
+    expect(roadDeleteSegment).toHaveBeenCalledWith(12);
+    expect(current(store).road.hoveredDeleteSegmentId).toBe(0);
   });
 
   it("routes endpoint and control handle edits to their owning operations", () => {
@@ -938,7 +958,7 @@ describe("viewport tool routing", () => {
     actions.initialize();
     actions.setActiveTool("road");
     actions.setRoadOperation("edit");
-    actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 10 });
+    actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10 });
 
     actions.previewRoadEditHandle(0, [-2, 3, 0]);
     expect(roadPreviewMoveNode).toHaveBeenCalledWith(20, -2, 3);
@@ -947,7 +967,7 @@ describe("viewport tool routing", () => {
     expect(roadEditSegment).not.toHaveBeenCalled();
 
     actions.setRoadOperation("edit");
-    actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 10 });
+    actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10 });
     actions.previewRoadEditHandle(1, [7, 10, 0]);
     expect(roadPreviewEditSegment).toHaveBeenCalledWith(12, expect.objectContaining({
       kind: "bezier",

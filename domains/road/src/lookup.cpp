@@ -97,10 +97,11 @@ const ResolvedApproach *FindResolvedApproach(const DerivedRoad &derived,
 }
 
 const SectionEvaluation *FindSectionAt(const DerivedSegment &segment,
-                                       double station_m) {
+                                       double segment_distance_m) {
   const SectionEvaluation *match = nullptr;
   for (const SectionEvaluation &section : segment.sections) {
-    if (std::abs(section.station_m - station_m) > internal::station_epsilon)
+    if (std::abs(section.segment_distance_m - segment_distance_m) >
+        internal::distance_epsilon)
       continue;
     if (match != nullptr)
       return nullptr;

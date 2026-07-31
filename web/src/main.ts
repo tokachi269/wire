@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   const scene = new WireScene(
     store,
     (point, pick) => actions.addViewportPoint(point, pick),
-    (point) => actions.previewViewportPoint(point),
+    (point, pick) => actions.previewViewportPoint(point, pick),
     () => actions.undoActiveTool(),
     (deltaMs) => actions.recordFrame(deltaMs),
     (stats) => actions.recordSceneContentSync(stats),

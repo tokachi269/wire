@@ -16,7 +16,7 @@ struct AddSegmentConnectedToSegmentRequest {
   Path alignment{};
   CrossSectionTemplateId section_template = 0;
   RoadSegmentId start_segment = 0;
-  double station_m = 0.0;
+  double segment_distance_m = 0.0;
 };
 struct ExtendCorridorFromEndRequest {
   RoadCorridorId corridor_id = 0;
@@ -24,16 +24,15 @@ struct ExtendCorridorFromEndRequest {
   Path extension{};
   CrossSectionTemplateId section_template = 0;
 };
-struct SplitSegmentAtStationRequest {
+struct SplitSegmentAtDistanceRequest {
   RoadSegmentId segment_id = 0;
-  double station_m = 0.0;
+  double segment_distance_m = 0.0;
 };
-struct DeleteRoadRangeRequest {
+struct DeleteSegmentRangeRequest {
   RoadSegmentId segment_id = 0;
-  double start_station_m = 0.0;
-  double end_station_m = 0.0;
+  double start_segment_distance_m = 0.0;
+  double end_segment_distance_m = 0.0;
 };
-struct DeleteRoadSectionRequest { RoadSegmentId segment_id = 0; };
 struct EditSegmentShapeRequest { RoadSegmentId segment_id = 0; SegmentShape shape{}; };
 struct MoveNodeRequest { RoadNodeId node_id = 0; Vec2d position{}; };
 struct DeleteSegmentRequest { RoadSegmentId segment_id = 0; };
@@ -85,8 +84,8 @@ struct ResetLaneSideMarkingPolicyRequest {
 struct SectionTransitionRequest {
   CrossSectionTemplateId from_template = 0;
   CrossSectionTemplateId to_template = 0;
-  StationRef start{};
-  StationRef end{};
+  DistanceRef start{};
+  DistanceRef end{};
   TransitionAnchor anchor = TransitionAnchor::kCenter;
   std::vector<SectionTransitionRule> rules{};
 };

@@ -19,7 +19,7 @@ namespace {
 constexpr double kEpsilon = 1e-9;
 constexpr int kCurveSamples = 24;
 constexpr double kP1MinSegmentLengthM = 8.0;
-constexpr double kSnapStationPointToleranceM = 0.6;
+constexpr double kSnapDistancePointToleranceM = 0.6;
 
 [[nodiscard]] bool finite(double value) {
   return std::isfinite(value);
@@ -124,15 +124,17 @@ constexpr double kSnapStationPointToleranceM = 0.6;
   return span_length_between(span, 0.0, 1.0);
 }
 
-[[nodiscard]] double span_parameter_at_length(const BezierSpan& span, double station_m) {
-  if (station_m <= 0.0) return 0.0;
+[[nodiscard]] double span_parameter_at_length(
+    const BezierSpan& span, double distance_along_span_m) {
+  if (distance_along_span_m <= 0.0) return 0.0;
   const double total = span_length(span);
-  if (station_m >= total) return 1.0;
+  if (distance_along_span_m >= total) return 1.0;
   double low = 0.0;
   double high = 1.0;
   for (int iteration = 0; iteration < 40; ++iteration) {
     const double middle = (low + high) * 0.5;
-    if (span_length_between(span, 0.0, middle) < station_m) {
+    if (span_length_between(span, 0.0, middle) <
+        distance_along_span_m) {
       low = middle;
     } else {
       high = middle;
@@ -157,13 +159,16 @@ struct PathSplit {
   Vec2d point{};
 };
 
-[[nodiscard]] Result<PathSplit> split_path_at_station(const Path& path, double station_m) {
+[[nodiscard]] Result<PathSplit> split_path_at_distance(
+    const Path& path, double distance_along_path_m) {
   const Result<double> total = PathLength(path);
   if (!total.ok) return Result<PathSplit>::Fail(total.error_kind, total.error);
-  if (!finite(station_m) || station_m <= kEpsilon || station_m >= total.value - kEpsilon) {
-    return Result<PathSplit>::Fail(ErrorKind::kValidation, "road segment split station is outside its interior");
+  if (!finite(distance_along_path_m) ||
+      distance_along_path_m <= kEpsilon ||
+      distance_along_path_m >= total.value - kEpsilon) {
+    return Result<PathSplit>::Fail(ErrorKind::kValidation, "road segment split distance is outside its interior");
   }
-  double remaining = station_m;
+  double remaining = distance_along_path_m;
   for (std::size_t index = 0; index < path.spans.size(); ++index) {
     const BezierSpan& span = path.spans[index];
     const double length_m = span_length(span);
@@ -187,11 +192,11 @@ struct PathSplit {
     }
     remaining -= length_m;
   }
-  return Result<PathSplit>::Fail(ErrorKind::kInternal, "road segment split station resolution fell through");
+  return Result<PathSplit>::Fail(ErrorKind::kInternal, "road segment split distance resolution fell through");
 }
 
 [[nodiscard]] std::pair<double, double>
-manual_line_station_bounds(const ManualLineMarking& marking) {
+manual_line_distance_bounds(const ManualLineMarking& marking) {
   double minimum = std::numeric_limits<double>::infinity();
   double maximum = -std::numeric_limits<double>::infinity();
   for (const BezierSpan& span : marking.path.spans) {
@@ -205,7 +210,7 @@ manual_line_station_bounds(const ManualLineMarking& marking) {
 }
 
 [[nodiscard]] std::pair<double, double>
-manual_area_station_bounds(const ManualAreaMarking& marking) {
+manual_area_distance_bounds(const ManualAreaMarking& marking) {
   const double half_width = marking.width_m * 0.5;
   const double half_length = marking.length_m * 0.5;
   const double c = std::cos(marking.rotation_rad);
@@ -217,15 +222,15 @@ manual_area_station_bounds(const ManualAreaMarking& marking) {
                             Vec2d{half_length, -half_width},
                             Vec2d{half_length, half_width},
                             Vec2d{-half_length, half_width}}) {
-    const double station =
+    const double distance =
         marking.frame_origin.x + local.x * c - local.y * s;
-    minimum = std::min(minimum, station);
-    maximum = std::max(maximum, station);
+    minimum = std::min(minimum, distance);
+    maximum = std::max(maximum, distance);
   }
   return {minimum, maximum};
 }
 
-void shift_manual_line_station(ManualLineMarking& marking, double delta_m) {
+void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
   for (BezierSpan& span : marking.path.spans) {
     for (Vec2d* point :
          std::array<Vec2d*, 4>{&span.p0, &span.p1, &span.p2, &span.p3}) {
@@ -442,11 +447,11 @@ void shift_manual_line_station(ManualLineMarking& marking, double delta_m) {
 }
 
 
-[[nodiscard]] double station_value(StationRef ref, double total) {
-  if (ref.kind == StationRefKind::kFromEnd) {
+[[nodiscard]] double distance_value(DistanceRef ref, double total) {
+  if (ref.kind == DistanceRefKind::kFromEnd) {
     return total - ref.value;
   }
-  if (ref.kind == StationRefKind::kRatio) {
+  if (ref.kind == DistanceRefKind::kRatio) {
     return total * ref.value;
   }
   return ref.value;
@@ -470,14 +475,14 @@ void shift_manual_line_station(ManualLineMarking& marking, double delta_m) {
     return Result<bool>::Fail(ErrorKind::kValidation, "section transition references a missing template");
   }
   if (!finite(transition.start.value) || !finite(transition.end.value)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section transition station is not finite");
+    return Result<bool>::Fail(ErrorKind::kValidation, "section transition distance is not finite");
   }
-  const auto valid_station = [](StationRef station) {
-    return station.value >= 0.0 &&
-           (station.kind != StationRefKind::kRatio || station.value <= 1.0);
+  const auto valid_distance = [](DistanceRef distance) {
+    return distance.value >= 0.0 &&
+           (distance.kind != DistanceRefKind::kRatio || distance.value <= 1.0);
   };
-  if (!valid_station(transition.start) || !valid_station(transition.end)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section transition station reference is outside its range");
+  if (!valid_distance(transition.start) || !valid_distance(transition.end)) {
+    return Result<bool>::Fail(ErrorKind::kValidation, "section transition distance reference is outside its range");
   }
   if (transition.rules.empty()) {
     return Result<bool>::Fail(ErrorKind::kUnsupported, "section transition must define element actions");
@@ -594,17 +599,18 @@ const RoadCorridor* FindCorridorForSegment(const SavedRoadGraph& graph,
   return it == graph.corridors.end() ? nullptr : &*it;
 }
 
-Result<ResolvedSegmentStation>
-ResolveCorridorStation(const SavedRoadGraph& graph, const DerivedRoad& derived,
-                       CorridorStationRef station) {
-  if (!finite(station.station_m) || station.station_m < 0.0) {
-    return Result<ResolvedSegmentStation>::Fail(
-        ErrorKind::kValidation, "road corridor station is invalid");
+Result<ResolvedSegmentDistance>
+ResolveCorridorDistance(const SavedRoadGraph& graph, const DerivedRoad& derived,
+                       CorridorDistanceRef distance) {
+  if (!finite(distance.corridor_distance_m) ||
+      distance.corridor_distance_m < 0.0) {
+    return Result<ResolvedSegmentDistance>::Fail(
+        ErrorKind::kValidation, "road corridor distance is invalid");
   }
   const RoadCorridor* corridor =
-      FindRoadCorridor(graph, station.corridor_id);
+      FindRoadCorridor(graph, distance.corridor_id);
   if (corridor == nullptr || corridor->segments.empty()) {
-    return Result<ResolvedSegmentStation>::Fail(
+    return Result<ResolvedSegmentDistance>::Fail(
         ErrorKind::kValidation, "road corridor does not exist");
   }
   double accumulated = 0.0;
@@ -613,24 +619,25 @@ ResolveCorridorStation(const SavedRoadGraph& graph, const DerivedRoad& derived,
     const DerivedSegment* segment = FindDerivedSegment(derived, ref.segment_id);
     if (segment == nullptr || !finite(segment->length_m) ||
         segment->length_m <= 0.0) {
-      return Result<ResolvedSegmentStation>::Fail(
+      return Result<ResolvedSegmentDistance>::Fail(
           ErrorKind::kInternal, "road corridor segment length is missing");
     }
     const double end = accumulated + segment->length_m;
     const bool last = index + 1 == corridor->segments.size();
-    if (station.station_m < end ||
-        (last && station.station_m <= end + kEpsilon)) {
+    if (distance.corridor_distance_m < end ||
+        (last && distance.corridor_distance_m <= end + kEpsilon)) {
       const double corridor_local =
-          std::clamp(station.station_m - accumulated, 0.0, segment->length_m);
-      return Result<ResolvedSegmentStation>::Ok(ResolvedSegmentStation{
+          std::clamp(distance.corridor_distance_m - accumulated, 0.0,
+                     segment->length_m);
+      return Result<ResolvedSegmentDistance>::Ok(ResolvedSegmentDistance{
           ref.segment_id,
           ref.reversed ? segment->length_m - corridor_local : corridor_local,
           ref.reversed});
     }
     accumulated = end;
   }
-  return Result<ResolvedSegmentStation>::Fail(
-      ErrorKind::kValidation, "road corridor station exceeds its length");
+  return Result<ResolvedSegmentDistance>::Fail(
+      ErrorKind::kValidation, "road corridor distance exceeds its length");
 }
 
 Result<RoadSideRef>
@@ -641,9 +648,10 @@ ResolveCorridorSideRef(const SavedRoadGraph& graph, const DerivedRoad& derived,
     return Result<RoadSideRef>::Fail(
         ErrorKind::kValidation, "road corridor side offset is invalid");
   }
-  const Result<ResolvedSegmentStation> resolved = ResolveCorridorStation(
+  const Result<ResolvedSegmentDistance> resolved = ResolveCorridorDistance(
       graph, derived,
-      CorridorStationRef{reference.corridor_id, reference.station_m});
+      CorridorDistanceRef{reference.corridor_id,
+                          reference.corridor_distance_m});
   if (!resolved.ok) {
     return Result<RoadSideRef>::Fail(resolved.error_kind, resolved.error);
   }
@@ -654,14 +662,15 @@ ResolveCorridorSideRef(const SavedRoadGraph& graph, const DerivedRoad& derived,
           : reference.side;
   return Result<RoadSideRef>::Ok(
       RoadSideRef{resolved.value.segment_id, segment_side,
-                  resolved.value.local_station_m, reference.lateral_offset_m});
+                  resolved.value.segment_distance_m, reference.lateral_offset_m});
 }
 
 Result<Vec3d> ResolveRoadSidePosition(const DerivedRoad& derived,
                                       RoadSideRef reference) {
-  if (!finite(reference.station_m) ||
+  if (!finite(reference.segment_distance_m) ||
       !finite(reference.lateral_offset_m) ||
-      reference.station_m < 0.0 || reference.lateral_offset_m < 0.0) {
+      reference.segment_distance_m < 0.0 ||
+      reference.lateral_offset_m < 0.0) {
     return Result<Vec3d>::Fail(ErrorKind::kValidation,
                                "road side reference is invalid");
   }
@@ -671,9 +680,10 @@ Result<Vec3d> ResolveRoadSidePosition(const DerivedRoad& derived,
     return Result<Vec3d>::Fail(ErrorKind::kValidation,
                                "road side segment does not exist");
   }
-  const Result<Vec2d> center = EvaluatePath(*alignment, reference.station_m);
+  const Result<Vec2d> center =
+      EvaluatePath(*alignment, reference.segment_distance_m);
   const Result<Vec2d> tangent =
-      internal::tangent_at(*alignment, reference.station_m);
+      internal::tangent_at(*alignment, reference.segment_distance_m);
   if (!center.ok) {
     return Result<Vec3d>::Fail(center.error_kind, center.error);
   }
@@ -690,7 +700,7 @@ Result<Vec3d> ResolveRoadSidePosition(const DerivedRoad& derived,
 }
 
 Result<std::vector<double>>
-DeriveRepeatingPlacementStations(const SavedRoadGraph& graph,
+DeriveRepeatingPlacementDistances(const SavedRoadGraph& graph,
                                  const DerivedRoad& derived,
                                  RoadCorridorId corridor_id,
                                  RepeatingPlacementPolicy policy) {
@@ -714,17 +724,17 @@ DeriveRepeatingPlacementStations(const SavedRoadGraph& graph,
     }
     total += segment->length_m;
   }
-  std::vector<double> stations{};
+  std::vector<double> distances{};
   for (double value = policy.phase_m; value <= total + kEpsilon;
        value += policy.spacing_m) {
-    stations.push_back(std::min(value, total));
-    if (stations.size() > 1000000) {
+    distances.push_back(std::min(value, total));
+    if (distances.size() > 1000000) {
       return Result<std::vector<double>>::Fail(
           ErrorKind::kUnsupported,
           "road repeating placement count is unsupported");
     }
   }
-  return Result<std::vector<double>>::Ok(std::move(stations));
+  return Result<std::vector<double>>::Ok(std::move(distances));
 }
 
 BezierSpan MakeLine(Vec2d a, Vec2d b) {
@@ -976,45 +986,22 @@ Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
-  RoadNodeId node_a = next_id++;
-  RoadNodeId node_b = next_id++;
-  RoadSegmentId segment_id = next_id++;
+  const RoadNodeId node_a = next_id++;
+  const RoadNodeId node_b = next_id++;
+  const RoadSegmentId segment_id = next_id++;
   const RoadCorridorId corridor_id = next_id++;
   plan.add_nodes = {RoadNode{node_a, alignment.spans.front().p0},
-                    RoadNode{node_b, alignment.spans.front().p3}};
-  const Result<SegmentShape> first_shape =
-      SegmentShapeFromPath(Path{{alignment.spans.front()}});
-  if (!first_shape.ok) {
-    return Result<RoadSegmentId>::Fail(first_shape.error_kind,
-                                       first_shape.error);
+                    RoadNode{node_b, alignment.spans.back().p3}};
+  const Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
+  if (!shape.ok) {
+    return Result<RoadSegmentId>::Fail(shape.error_kind, shape.error);
   }
   plan.add_segments.push_back(RoadSegment{
-      segment_id, node_a, node_b, first_shape.value, section_template,
+      segment_id, node_a, node_b, shape.value, section_template,
       std::nullopt});
-  RoadCorridor corridor{corridor_id, section_template,
-                        {DirectedSegmentRef{segment_id, false}}};
-  for (std::size_t index = 1; index < alignment.spans.size(); ++index) {
-    const BezierSpan& span = alignment.spans[index];
-    if (!almost_same(span.p0, plan.add_nodes.back().position)) {
-      return Result<RoadSegmentId>::Fail(
-          ErrorKind::kValidation,
-          "road path spans are not position-continuous");
-    }
-    node_a = node_b;
-    node_b = next_id++;
-    segment_id = next_id++;
-    const Result<SegmentShape> shape =
-        SegmentShapeFromPath(Path{{span}});
-    if (!shape.ok) {
-      return Result<RoadSegmentId>::Fail(shape.error_kind, shape.error);
-    }
-    plan.add_nodes.push_back(RoadNode{node_b, span.p3});
-    plan.add_segments.push_back(RoadSegment{
-        segment_id, node_a, node_b, shape.value, section_template,
-        std::nullopt});
-    corridor.segments.push_back(DirectedSegmentRef{segment_id, false});
-  }
-  plan.add_corridors.push_back(std::move(corridor));
+  plan.add_corridors.push_back(RoadCorridor{
+      corridor_id, section_template,
+      {DirectedSegmentRef{segment_id, false}}});
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
@@ -1146,7 +1133,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   Path alignment = std::move(request.alignment);
   const CrossSectionTemplateId section_template = request.section_template;
   const RoadSegmentId start_segment = request.start_segment;
-  const double station_m = request.station_m;
+  const double segment_distance_m = request.segment_distance_m;
   const Result<bool> alignment_valid = ValidatePath(alignment);
   if (!alignment_valid.ok) {
     return Result<RoadSegmentId>::Fail(alignment_valid.error_kind, alignment_valid.error);
@@ -1168,19 +1155,20 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   if (source_path == nullptr) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
   }
-  const Result<PathSplit> path_split = split_path_at_station(*source_path, station_m);
+  const Result<PathSplit> path_split =
+      split_path_at_distance(*source_path, segment_distance_m);
   if (!path_split.ok) {
     return Result<RoadSegmentId>::Fail(path_split.error_kind, path_split.error);
   }
-  if (distance(path_start(alignment), path_split.value.point) > kSnapStationPointToleranceM) {
+  if (distance(path_start(alignment), path_split.value.point) > kSnapDistancePointToleranceM) {
     return Result<RoadSegmentId>::Fail(ErrorKind::kValidation,
-                                       "road segment input start does not match its explicit snap station");
+                                       "road segment input start does not match its explicit snap distance");
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id) continue;
-    const auto [minimum, maximum] = manual_line_station_bounds(marking);
-    if (minimum < station_m - kEpsilon &&
-        maximum > station_m + kEpsilon) {
+    const auto [minimum, maximum] = manual_line_distance_bounds(marking);
+    if (minimum < segment_distance_m - kEpsilon &&
+        maximum > segment_distance_m + kEpsilon) {
       return Result<RoadSegmentId>::Fail(
           ErrorKind::kUnsupported,
           "road branch split crosses a manual line marking");
@@ -1188,9 +1176,9 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id) continue;
-    const auto [minimum, maximum] = manual_area_station_bounds(marking);
-    if (minimum < station_m - kEpsilon &&
-        maximum > station_m + kEpsilon) {
+    const auto [minimum, maximum] = manual_area_distance_bounds(marking);
+    if (minimum < segment_distance_m - kEpsilon &&
+        maximum > segment_distance_m + kEpsilon) {
       return Result<RoadSegmentId>::Fail(
           ErrorKind::kUnsupported,
           "road branch split crosses a manual area marking");
@@ -1274,25 +1262,25 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id ||
-        manual_line_station_bounds(marking).first <
-            station_m - kEpsilon) {
+        manual_line_distance_bounds(marking).first <
+            segment_distance_m - kEpsilon) {
       continue;
     }
     ManualLineMarking mapped = marking;
     mapped.owner_segment_id = second_id;
-    shift_manual_line_station(mapped, -station_m);
+    shift_manual_line_distance(mapped, -segment_distance_m);
     plan.remove_manual_lines.push_back(marking.id);
     plan.add_manual_lines.push_back(std::move(mapped));
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id ||
-        manual_area_station_bounds(marking).first <
-            station_m - kEpsilon) {
+        manual_area_distance_bounds(marking).first <
+            segment_distance_m - kEpsilon) {
       continue;
     }
     ManualAreaMarking mapped = marking;
     mapped.owner_segment_id = second_id;
-    mapped.frame_origin.x -= station_m;
+    mapped.frame_origin.x -= segment_distance_m;
     plan.remove_manual_areas.push_back(marking.id);
     plan.add_manual_areas.push_back(std::move(mapped));
   }
@@ -1333,10 +1321,10 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   return Result<RoadSegmentId>::Ok(branch_id);
 }
 
-Result<RoadSegmentId> RoadState::SplitSegmentAtStation(
-    SplitSegmentAtStationRequest request) {
+Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
+    SplitSegmentAtDistanceRequest request) {
   const RoadSegment* source = find_segment(graph_, request.segment_id);
-  if (source == nullptr || !finite(request.station_m)) {
+  if (source == nullptr || !finite(request.segment_distance_m)) {
     return Result<RoadSegmentId>::Fail(
         ErrorKind::kValidation, "road split request is invalid");
   }
@@ -1352,7 +1340,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtStation(
         "road split canonical alignment is missing");
   }
   const Result<PathSplit> split =
-      split_path_at_station(*source_path, request.station_m);
+      split_path_at_distance(*source_path, request.segment_distance_m);
   if (!split.ok) {
     return Result<RoadSegmentId>::Fail(split.error_kind, split.error);
   }
@@ -1367,9 +1355,9 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtStation(
 
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id) continue;
-    const auto [minimum, maximum] = manual_line_station_bounds(marking);
-    if (minimum < request.station_m - kEpsilon &&
-        maximum > request.station_m + kEpsilon) {
+    const auto [minimum, maximum] = manual_line_distance_bounds(marking);
+    if (minimum < request.segment_distance_m - kEpsilon &&
+        maximum > request.segment_distance_m + kEpsilon) {
       return Result<RoadSegmentId>::Fail(
           ErrorKind::kUnsupported,
           "road split crosses a manual line marking");
@@ -1377,9 +1365,9 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtStation(
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id) continue;
-    const auto [minimum, maximum] = manual_area_station_bounds(marking);
-    if (minimum < request.station_m - kEpsilon &&
-        maximum > request.station_m + kEpsilon) {
+    const auto [minimum, maximum] = manual_area_distance_bounds(marking);
+    if (minimum < request.segment_distance_m - kEpsilon &&
+        maximum > request.segment_distance_m + kEpsilon) {
       return Result<RoadSegmentId>::Fail(
           ErrorKind::kUnsupported,
           "road split crosses a manual area marking");
@@ -1448,21 +1436,21 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtStation(
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id) continue;
-    const double minimum = manual_line_station_bounds(marking).first;
-    if (minimum + kEpsilon < request.station_m) continue;
+    const double minimum = manual_line_distance_bounds(marking).first;
+    if (minimum + kEpsilon < request.segment_distance_m) continue;
     ManualLineMarking mapped = marking;
     mapped.owner_segment_id = second_id;
-    shift_manual_line_station(mapped, -request.station_m);
+    shift_manual_line_distance(mapped, -request.segment_distance_m);
     plan.remove_manual_lines.push_back(marking.id);
     plan.add_manual_lines.push_back(std::move(mapped));
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id) continue;
-    const double minimum = manual_area_station_bounds(marking).first;
-    if (minimum + kEpsilon < request.station_m) continue;
+    const double minimum = manual_area_distance_bounds(marking).first;
+    if (minimum + kEpsilon < request.segment_distance_m) continue;
     ManualAreaMarking mapped = marking;
     mapped.owner_segment_id = second_id;
-    mapped.frame_origin.x -= request.station_m;
+    mapped.frame_origin.x -= request.segment_distance_m;
     plan.remove_manual_areas.push_back(marking.id);
     plan.add_manual_areas.push_back(std::move(mapped));
   }
@@ -1505,11 +1493,11 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtStation(
   return Result<RoadSegmentId>::Ok(second_id);
 }
 
-Result<bool> RoadState::DeleteRoadRange(DeleteRoadRangeRequest request) {
+Result<bool> RoadState::DeleteSegmentRange(DeleteSegmentRangeRequest request) {
   const RoadSegment* source = find_segment(graph_, request.segment_id);
-  if (source == nullptr || !finite(request.start_station_m) ||
-      !finite(request.end_station_m) ||
-      request.start_station_m >= request.end_station_m) {
+  if (source == nullptr || !finite(request.start_segment_distance_m) ||
+      !finite(request.end_segment_distance_m) ||
+      request.start_segment_distance_m >= request.end_segment_distance_m) {
     return Result<bool>::Fail(ErrorKind::kValidation,
                               "road delete range is invalid");
   }
@@ -1525,17 +1513,17 @@ Result<bool> RoadState::DeleteRoadRange(DeleteRoadRangeRequest request) {
         "road delete range canonical alignment is missing");
   }
   const Result<double> source_length = PathLength(*source_path);
-  if (!source_length.ok || request.start_station_m <= kEpsilon ||
-      request.end_station_m >= source_length.value - kEpsilon) {
+  if (!source_length.ok || request.start_segment_distance_m <= kEpsilon ||
+      request.end_segment_distance_m >= source_length.value - kEpsilon) {
     return Result<bool>::Fail(
         ErrorKind::kValidation,
         "road delete range must be inside one segment");
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id) continue;
-    const auto [minimum, maximum] = manual_line_station_bounds(marking);
-    if (maximum > request.start_station_m + kEpsilon &&
-        minimum < request.end_station_m - kEpsilon) {
+    const auto [minimum, maximum] = manual_line_distance_bounds(marking);
+    if (maximum > request.start_segment_distance_m + kEpsilon &&
+        minimum < request.end_segment_distance_m - kEpsilon) {
       return Result<bool>::Fail(
           ErrorKind::kUnsupported,
           "road delete range intersects a manual line marking");
@@ -1543,22 +1531,22 @@ Result<bool> RoadState::DeleteRoadRange(DeleteRoadRangeRequest request) {
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id) continue;
-    const auto [minimum, maximum] = manual_area_station_bounds(marking);
-    if (maximum > request.start_station_m + kEpsilon &&
-        minimum < request.end_station_m - kEpsilon) {
+    const auto [minimum, maximum] = manual_area_distance_bounds(marking);
+    if (maximum > request.start_segment_distance_m + kEpsilon &&
+        minimum < request.end_segment_distance_m - kEpsilon) {
       return Result<bool>::Fail(
           ErrorKind::kUnsupported,
           "road delete range intersects a manual area marking");
     }
   }
   const Result<PathSplit> at_start =
-      split_path_at_station(*source_path, request.start_station_m);
+      split_path_at_distance(*source_path, request.start_segment_distance_m);
   if (!at_start.ok) {
     return Result<bool>::Fail(at_start.error_kind, at_start.error);
   }
-  const Result<PathSplit> at_end = split_path_at_station(
+  const Result<PathSplit> at_end = split_path_at_distance(
       at_start.value.after,
-      request.end_station_m - request.start_station_m);
+      request.end_segment_distance_m - request.start_segment_distance_m);
   if (!at_end.ok) {
     return Result<bool>::Fail(at_end.error_kind, at_end.error);
   }
@@ -1663,25 +1651,25 @@ Result<bool> RoadState::DeleteRoadRange(DeleteRoadRangeRequest request) {
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id ||
-        manual_line_station_bounds(marking).first <
-            request.end_station_m - kEpsilon) {
+        manual_line_distance_bounds(marking).first <
+            request.end_segment_distance_m - kEpsilon) {
       continue;
     }
     ManualLineMarking mapped = marking;
     mapped.owner_segment_id = after_segment_id;
-    shift_manual_line_station(mapped, -request.end_station_m);
+    shift_manual_line_distance(mapped, -request.end_segment_distance_m);
     plan.remove_manual_lines.push_back(marking.id);
     plan.add_manual_lines.push_back(std::move(mapped));
   }
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id ||
-        manual_area_station_bounds(marking).first <
-            request.end_station_m - kEpsilon) {
+        manual_area_distance_bounds(marking).first <
+            request.end_segment_distance_m - kEpsilon) {
       continue;
     }
     ManualAreaMarking mapped = marking;
     mapped.owner_segment_id = after_segment_id;
-    mapped.frame_origin.x -= request.end_station_m;
+    mapped.frame_origin.x -= request.end_segment_distance_m;
     plan.remove_manual_areas.push_back(marking.id);
     plan.add_manual_areas.push_back(std::move(mapped));
   }
@@ -1824,11 +1812,13 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
       plan.remove_manual_areas.push_back(marking.id);
     }
   }
+  const auto removes_node = [&plan](RoadNodeId node_id) {
+    return std::find(plan.remove_nodes.begin(), plan.remove_nodes.end(),
+                     node_id) != plan.remove_nodes.end();
+  };
   for (const ApproachGeometryOverride& override :
        graph_.approach_geometry_overrides) {
-    if (override.key.segment_id == segment_id ||
-        override.key.node_id == target->node_a ||
-        override.key.node_id == target->node_b) {
+    if (override.key.segment_id == segment_id) {
       plan.remove_approach_geometry_overrides.push_back(override.key);
     }
   }
@@ -1837,31 +1827,29 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
     const bool segment_owner =
         override.key.owner.kind == MarkingOwner::Kind::kRoadSegment &&
         override.key.owner.segment_id == segment_id;
-    const bool junction_owner =
+    const bool removed_junction_owner =
         override.key.owner.kind == MarkingOwner::Kind::kJunction &&
-        (override.key.owner.node_id == target->node_a ||
-         override.key.owner.node_id == target->node_b);
+        removes_node(override.key.owner.node_id);
     const bool approach_owner =
         override.key.approach.has_value() &&
         override.key.approach->segment_id == segment_id;
     const bool track_owner =
         override.key.track.has_value() &&
         override.key.track->segment_id == segment_id;
-    if (segment_owner || junction_owner || approach_owner || track_owner) {
+    if (segment_owner || removed_junction_owner || approach_owner ||
+        track_owner) {
       plan.remove_auto_marking_overrides.push_back(override.key);
     }
   }
   for (const JunctionMarkingOverride& override :
        graph_.junction_marking_overrides) {
-    const bool node_owner =
-        override.node_id == target->node_a ||
-        override.node_id == target->node_b;
+    const bool removed_node_owner = removes_node(override.node_id);
     const bool source_owner =
         override.source.approach.segment_id == segment_id;
     const bool target_owner =
         override.target.has_value() &&
         override.target->approach.segment_id == segment_id;
-    if (node_owner || source_owner || target_owner) {
+    if (removed_node_owner || source_owner || target_owner) {
       plan.remove_junction_marking_overrides.push_back(override.id);
     }
   }
@@ -1874,194 +1862,6 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
                    segment.transition == transition;
           })) {
     plan.remove_transitions.push_back(*transition);
-  }
-  plan.next_id_after = next_id;
-  return Execute(plan);
-}
-
-Result<bool> RoadState::DeleteRoadSection(DeleteRoadSectionRequest request) {
-  const RoadSegment* target = find_segment(graph_, request.segment_id);
-  if (target == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation,
-                              "road section segment does not exist");
-  }
-
-  std::unordered_map<RoadNodeId, std::vector<const RoadSegment*>> incidence{};
-  incidence.reserve(graph_.nodes.size());
-  for (const RoadSegment& segment : graph_.segments) {
-    incidence[segment.node_a].push_back(&segment);
-    incidence[segment.node_b].push_back(&segment);
-  }
-  std::unordered_set<RoadSegmentId> section{target->id};
-  const auto extend_to_boundary =
-      [&](RoadNodeId start_node, RoadSegmentId start_segment) -> Result<bool> {
-    RoadNodeId node_id = start_node;
-    RoadSegmentId segment_id = start_segment;
-    while (true) {
-      const auto incident = incidence.find(node_id);
-      if (incident == incidence.end()) {
-        return Result<bool>::Fail(
-            ErrorKind::kInternal,
-            "road section endpoint incidence is missing");
-      }
-      if (incident->second.size() != 2) break;
-      const RoadSegment* next = nullptr;
-      for (const RoadSegment* candidate : incident->second) {
-        if (candidate->id == segment_id) continue;
-        if (next != nullptr) {
-          return Result<bool>::Fail(
-              ErrorKind::kInternal,
-              "road section degree-two traversal is not unique");
-        }
-        next = candidate;
-      }
-      if (next == nullptr) {
-        return Result<bool>::Fail(
-            ErrorKind::kInternal,
-            "road section degree-two continuation is missing");
-      }
-      if (section.contains(next->id)) {
-        return Result<bool>::Fail(
-            ErrorKind::kUnsupported,
-            "deleting a closed road section is unsupported");
-      }
-      section.insert(next->id);
-      node_id = next->node_a == node_id ? next->node_b : next->node_a;
-      segment_id = next->id;
-    }
-    return Result<bool>::Ok(true);
-  };
-
-  Result<bool> traversed =
-      extend_to_boundary(target->node_a, target->id);
-  if (!traversed.ok) return traversed;
-  traversed = extend_to_boundary(target->node_b, target->id);
-  if (!traversed.ok) return traversed;
-
-  operations::OperationPlan plan{};
-  std::uint64_t next_id = next_id_;
-  plan.remove_segments.assign(section.begin(), section.end());
-  std::sort(plan.remove_segments.begin(), plan.remove_segments.end());
-
-  for (const RoadCorridor& corridor : graph_.corridors) {
-    const bool affected =
-        std::any_of(corridor.segments.begin(), corridor.segments.end(),
-                    [&](const DirectedSegmentRef& ref) {
-                      return section.contains(ref.segment_id);
-                    });
-    if (!affected) continue;
-
-    std::vector<std::vector<DirectedSegmentRef>> runs{};
-    bool in_run = false;
-    for (const DirectedSegmentRef& ref : corridor.segments) {
-      if (section.contains(ref.segment_id)) {
-        in_run = false;
-        continue;
-      }
-      if (!in_run) {
-        runs.emplace_back();
-        in_run = true;
-      }
-      runs.back().push_back(ref);
-    }
-    if (runs.empty()) {
-      plan.remove_corridors.push_back(corridor.id);
-      continue;
-    }
-    RoadCorridor retained = corridor;
-    retained.segments = std::move(runs.front());
-    plan.replace_corridors.push_back(std::move(retained));
-    for (std::size_t index = 1; index < runs.size(); ++index) {
-      plan.add_corridors.push_back(
-          RoadCorridor{next_id++, corridor.section_template_id,
-                       std::move(runs[index])});
-    }
-  }
-
-  std::unordered_set<RoadNodeId> removed_nodes{};
-  for (const RoadNode& node : graph_.nodes) {
-    const auto incident = incidence.find(node.id);
-    if (incident == incidence.end()) continue;
-    std::size_t removed_incidence = 0;
-    for (const RoadSegment* segment : incident->second) {
-      if (section.contains(segment->id)) ++removed_incidence;
-    }
-    if (removed_incidence != 0 &&
-        removed_incidence == incident->second.size()) {
-      removed_nodes.insert(node.id);
-      plan.remove_nodes.push_back(node.id);
-    }
-  }
-
-  for (const NodeConnectionPolicyOverride& policy :
-       graph_.connection_policy_overrides) {
-    if (removed_nodes.contains(policy.node_id)) {
-      plan.remove_connection_policy_overrides.push_back(policy.id);
-    }
-  }
-  for (const ManualLineMarking& marking : graph_.manual_lines) {
-    if (section.contains(marking.owner_segment_id)) {
-      plan.remove_manual_lines.push_back(marking.id);
-    }
-  }
-  for (const ManualAreaMarking& marking : graph_.manual_areas) {
-    if (section.contains(marking.owner_segment_id)) {
-      plan.remove_manual_areas.push_back(marking.id);
-    }
-  }
-  for (const ApproachGeometryOverride& override :
-       graph_.approach_geometry_overrides) {
-    if (section.contains(override.key.segment_id) ||
-        removed_nodes.contains(override.key.node_id)) {
-      plan.remove_approach_geometry_overrides.push_back(override.key);
-    }
-  }
-  for (const AutoMarkingOverride& override :
-       graph_.auto_marking_overrides) {
-    const bool segment_owner =
-        override.key.owner.kind == MarkingOwner::Kind::kRoadSegment &&
-        section.contains(override.key.owner.segment_id);
-    const bool junction_owner =
-        override.key.owner.kind == MarkingOwner::Kind::kJunction &&
-        removed_nodes.contains(override.key.owner.node_id);
-    const bool approach_owner =
-        override.key.approach.has_value() &&
-        section.contains(override.key.approach->segment_id);
-    const bool track_owner =
-        override.key.track.has_value() &&
-        section.contains(override.key.track->segment_id);
-    if (segment_owner || junction_owner || approach_owner || track_owner) {
-      plan.remove_auto_marking_overrides.push_back(override.key);
-    }
-  }
-  for (const JunctionMarkingOverride& override :
-       graph_.junction_marking_overrides) {
-    const bool node_owner = removed_nodes.contains(override.node_id);
-    const bool source_owner =
-        section.contains(override.source.approach.segment_id);
-    const bool target_owner =
-        override.target.has_value() &&
-        section.contains(override.target->approach.segment_id);
-    if (node_owner || source_owner || target_owner) {
-      plan.remove_junction_marking_overrides.push_back(override.id);
-    }
-  }
-
-  std::unordered_set<SectionTransitionId> removed_transitions{};
-  for (const RoadSegment& segment : graph_.segments) {
-    if (!section.contains(segment.id) || !segment.transition.has_value()) {
-      continue;
-    }
-    const SectionTransitionId transition_id = *segment.transition;
-    const bool retained = std::any_of(
-        graph_.segments.begin(), graph_.segments.end(),
-        [&](const RoadSegment& candidate) {
-          return !section.contains(candidate.id) &&
-                 candidate.transition == transition_id;
-        });
-    if (!retained && removed_transitions.insert(transition_id).second) {
-      plan.remove_transitions.push_back(transition_id);
-    }
   }
   plan.next_id_after = next_id;
   return Execute(plan);
@@ -2311,10 +2111,10 @@ Result<bool> RoadState::AttachSectionTransition(AttachSectionTransitionRequest r
   if (alignment == nullptr) return Result<bool>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
   const auto total = PathLength(*alignment);
   if (!total.ok) return Result<bool>::Fail(total.error_kind, total.error);
-  const double start = station_value(transition->start, total.value);
-  const double end = station_value(transition->end, total.value);
+  const double start = distance_value(transition->start, total.value);
+  const double end = distance_value(transition->end, total.value);
   if (start < 0.0 || end > total.value || end - start <= kEpsilon) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road transition station range is invalid");
+    return Result<bool>::Fail(ErrorKind::kValidation, "road transition distance range is invalid");
   }
   operations::OperationPlan plan{};
   plan.next_id_after = next_id_;
@@ -2344,7 +2144,7 @@ Result<ManualMarkingId> RoadState::AddManualLine(ManualLineRequest request) {
   const auto length_result = PathLength(*alignment);
   for (const Vec2d point : FlattenPath(marking.path)) {
     if (!length_result.ok || point.x < 0.0 || point.x > length_result.value || !finite(point.y)) {
-      return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual line lies outside owner station range");
+      return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual line lies outside owner distance range");
     }
   }
   operations::OperationPlan plan{};
@@ -2381,7 +2181,7 @@ Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaRequest request) {
   const auto owner_length = PathLength(*alignment);
   if (!owner_length.ok || marking.frame_origin.x - marking.length_m * 0.5 < 0.0 ||
       marking.frame_origin.x + marking.length_m * 0.5 > owner_length.value) {
-    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area lies outside owner station range");
+    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area lies outside owner distance range");
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -2558,7 +2358,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
           !finite(approach.auto_setback_m) || approach.auto_setback_m < 0.0 ||
           !finite(approach.resolved_setback_m) || approach.resolved_setback_m < 0.0 ||
           !finite(approach.resolved_lateral_shift_m) ||
-          !finite(approach.gate_station_m)) {
+          !finite(approach.gate_segment_distance_m)) {
         return Result<bool>::Fail(ErrorKind::kInternal,
                                   "road resolved approach invariant failed");
       }
@@ -2587,7 +2387,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
       }
       const DerivedSegment* owner = FindDerivedSegment(derived, approach.key.segment_id);
       const SectionEvaluation* section =
-          owner == nullptr ? nullptr : FindSectionAt(*owner, approach.gate_station_m);
+          owner == nullptr ? nullptr : FindSectionAt(*owner, approach.gate_segment_distance_m);
       if (section == nullptr || section->boundaries.size() != gate.boundaries.size()) {
         return Result<bool>::Fail(
             ErrorKind::kInternal,
@@ -2736,12 +2536,13 @@ Result<double> PathLength(const Path& path) {
   return Result<double>::Ok(out);
 }
 
-Result<Vec2d> EvaluatePath(const Path& path, double station_m) {
+Result<Vec2d> EvaluatePath(const Path& path, double distance_along_path_m) {
   const Result<double> length_result = PathLength(path);
   if (!length_result.ok) {
     return Result<Vec2d>::Fail(length_result.error_kind, length_result.error);
   }
-  double remaining = std::clamp(station_m, 0.0, length_result.value);
+  double remaining =
+      std::clamp(distance_along_path_m, 0.0, length_result.value);
   for (const BezierSpan& span : path.spans) {
     const double len = span_length(span);
     if (remaining <= len || &span == &path.spans.back()) {

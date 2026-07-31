@@ -19,7 +19,7 @@ using internal::add;
 using internal::find_template;
 using internal::find_transition;
 using internal::scale;
-using internal::station_epsilon;
+using internal::distance_epsilon;
 using internal::tangent_at;
 
 constexpr double kMarkingElevationM = 0.025;
@@ -76,7 +76,7 @@ double surface_height(const std::vector<SectionBoundarySample> &boundaries,
       continue;
     const double width = b.lateral_m - a.lateral_m;
     const double t =
-        width <= station_epsilon ? 0.0 : (lateral_m - a.lateral_m) / width;
+        width <= distance_epsilon ? 0.0 : (lateral_m - a.lateral_m) / width;
     return a.height_m + (b.height_m - a.height_m) * t;
   }
   return boundaries.back().height_m;
@@ -91,11 +91,15 @@ const DerivedSegment *segment_of(const std::vector<DerivedSegment> &segments,
   return found == segments.end() ? nullptr : &*found;
 }
 
-Result<Vec3d> segment_point(const DerivedSegment &segment, double station_m,
+Result<Vec3d> segment_point(const DerivedSegment &segment,
+                            double segment_distance_m,
                             double lateral_m) {
-  const Result<Vec2d> center = EvaluatePath(segment.alignment, station_m);
-  const Result<Vec2d> tangent = tangent_at(segment.alignment, station_m);
-  const SectionEvaluation *section = FindSectionAt(segment, station_m);
+  const Result<Vec2d> center =
+      EvaluatePath(segment.alignment, segment_distance_m);
+  const Result<Vec2d> tangent =
+      tangent_at(segment.alignment, segment_distance_m);
+  const SectionEvaluation *section =
+      FindSectionAt(segment, segment_distance_m);
   if (!center.ok || !tangent.ok || section == nullptr) {
     return Result<Vec3d>::Fail(ErrorKind::kInternal,
                                "marking segment point is missing");
@@ -244,8 +248,8 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
                                      std::vector<DerivedMarking> &markings) {
   for (const DerivedSegment &segment : segments) {
     std::map<std::pair<std::uint64_t, MarkingRole>, line_track> tracks{};
-    for (const double station : segment.surface_stations_m) {
-      const SectionEvaluation *section = FindSectionAt(segment, station);
+    for (const double distance : segment.surface_segment_distances_m) {
+      const SectionEvaluation *section = FindSectionAt(segment, distance);
       if (section == nullptr) {
         return Result<bool>::Fail(ErrorKind::kInternal,
                                   "marking section sample is missing");
@@ -279,7 +283,7 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
           continue;
         }
         Result<Vec3d> point =
-            segment_point(segment, station, boundary.lateral_m);
+            segment_point(segment, distance, boundary.lateral_m);
         if (!point.ok)
           return Result<bool>::Fail(point.error_kind, point.error);
         it->second.active_run.push_back(point.value);

@@ -317,19 +317,19 @@ export class WireBridge {
     };
   }
 
-  roadDeleteSection(segmentId: number): OperationResult {
-    return this.roadState.deleteRoadSection(segmentId);
+  roadDeleteSegment(segmentId: number): OperationResult {
+    return this.roadState.deleteSegment(segmentId);
   }
 
-  roadDeleteRange(
+  roadDeleteSegmentRange(
     segmentId: number,
-    startStationM: number,
-    endStationM: number
+    startSegmentDistanceM: number,
+    endSegmentDistanceM: number
   ): OperationResult {
-    return this.roadState.deleteRoadRange({
+    return this.roadState.deleteSegmentRange({
       segmentId,
-      startStationM,
-      endStationM
+      startSegmentDistanceM,
+      endSegmentDistanceM
     });
   }
 
@@ -455,6 +455,7 @@ export class WireBridge {
 
 function copyRoadMesh(mesh: RoadMeshPayload): RoadMeshData {
   return {
+    ownerSegmentId: mesh.ownerSegmentId,
     material: mesh.material,
     vertices: new Float64Array(mesh.vertices),
     indices: new Uint32Array(mesh.indices)

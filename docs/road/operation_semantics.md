@@ -25,12 +25,12 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | ExtendCorridorFromEnd | corridor_id / endpoint_node_id | ID exists、corridor末尾nodeと一致、degree-one | corridor先頭延長はunsupported |
 | ExtendCorridorFromEnd | extension | finite、連続、非ゼロ、endpointへ補正可能 | 新しい局所segmentと隣接connection |
 | ExtendCorridorFromEnd | section_template | corridorのroad definitionと一致 | 異断面延長はunsupported |
-| SplitSegmentAtStation | segment_id / station_m | ID exists、finite、0とlengthを除く範囲内 | De Casteljau分割とowner移行 |
-| DeleteRoadRange | segment_id / start/end station | ID exists、finite、start < end、segment範囲内 | split、削除、corridor分断、owner移行 |
+| SplitSegmentAtDistance | segment_id / segment_distance_m | ID exists、finite、0とlengthを除く範囲内 | De Casteljau分割とowner移行 |
+| DeleteSegmentRange | segment_id / start/end segment distance | ID exists、finite、start < end、segment範囲内 | split、削除、corridor分断、owner移行 |
 | AddSegmentConnectedTo | alignment | finite、連続、非ゼロ、start nodeへ補正可能 | 接続角、degree、setback |
 | AddSegmentConnectedTo | section_template / start_node | ID exists | endpoint section互換 |
-| AddSegmentConnectedToSegment | alignment | finite、連続、非ゼロ、明示station点と一致 | split後topology、junction互換 |
-| AddSegmentConnectedToSegment | start_segment / station_m / section_template | ID exists、station finite、station interior | transition付きsplit unsupported |
+| AddSegmentConnectedToSegment | alignment | finite、連続、非ゼロ、明示distance点と一致 | split後topology、junction互換 |
+| AddSegmentConnectedToSegment | start_segment / segment_distance_m / section_template | ID exists、distance finite、distance interior | transition付きsplit unsupported |
 | EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのgenerate可否 |
 | MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
@@ -40,11 +40,11 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | ResetAllApproachOverrides | ApproachKey | node exists、segment exists、endpoint role matches | resolved layout rebuild |
 | AddSectionTemplate | section_template | ID一意、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId | trial section evaluation |
 | EditSectionTemplate | section_template | ID exists、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId | 既存segment再評価 |
-| AddTransition | from/to/start/end/anchor/rules | template exists、station finite/range、rule element exists、enum valid | element出現/消滅action対応 |
+| AddTransition | from/to/start/end/anchor/rules | template exists、distance finite/range、rule element exists、enum valid | element出現/消滅action対応 |
 | AddTransitionToSegment | segment_id + transition request | segment exists、transition preflight | 既存transition replace、segment section整合 |
-| AttachSectionTransition | segment_id / transition_id | ID exists、from_template matches segment、station range valid | segment再評価 |
-| AddManualLine | owner_segment_id / path / style_id | owner exists、path finite、owner-local station範囲、known MarkingStyleId | owner section上への投影 |
-| AddManualArea | owner_segment_id / frame_origin / width / length / style_id | owner exists、finite、width/length正、station範囲、known MarkingStyleId | owner section上への投影 |
+| AttachSectionTransition | segment_id / transition_id | ID exists、from_template matches segment、distance range valid | segment再評価 |
+| AddManualLine | owner_segment_id / path / style_id | owner exists、path finite、owner-local distance範囲、known MarkingStyleId | owner section上への投影 |
+| AddManualArea | owner_segment_id / frame_origin / width / length / style_id | owner exists、finite、width/length正、distance範囲、known MarkingStyleId | owner section上への投影 |
 | SetBoundaryMarkingPolicy | section_template_id / boundary_id / policy | template exists、boundary exists、role enum valid、known MarkingStyleId | 要求統合、継続再評価 |
 | SetLaneSideMarkingPolicy | section_template_id / strip_id / side / policy | template exists、strip exists、carriageway strip、role enum valid、known MarkingStyleId | 隣接boundaryへの解決、要求統合 |
 | ResetLaneSideMarkingPolicy | section_template_id / strip_id / side | 同上(policyは無効値) | 要求統合、継続再評価 |
@@ -70,32 +70,30 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 |---|---|---|---|---|---|
 | AddSegment | supported | supported | supported | supported | supported |
 | ExtendCorridorFromEnd | validation | corridor末尾かつ同一道路定義ならsupported | 対象終端がdegree 1ならsupported | 新segmentへ局所所有、既存segment不変 | 新segmentへ局所所有、既存segment不変 |
-| SplitSegmentAtStation | validation | 内部stationならsupported | 新degree 2 nodeを作りderived connection | stationで一意移行、境界跨ぎはunsupported | stationで一意移行、境界跨ぎはunsupported |
-| DeleteRoadRange | validation | 内部範囲ならsupported | 残存端点を再評価 | 範囲交差ownerはunsupported | 範囲交差ownerはunsupported |
+| SplitSegmentAtDistance | validation | 内部distanceならsupported | 新degree 2 nodeを作りderived connection | distanceで一意移行、境界跨ぎはunsupported | distanceで一意移行、境界跨ぎはunsupported |
+| DeleteSegmentRange | validation | 内部範囲ならsupported | 残存端点を再評価 | 範囲交差ownerはunsupported | 範囲交差ownerはunsupported |
 | AddSegmentConnectedTo | validation | gate断面ID一致のみsupported | gate断面ID一致かつdegree 4までsupported | 終端gateがto断面ならsupported | gate断面ID一致のみsupported |
-| AddSegmentConnectedToSegment | validation | 同一断面かつ明示`segment_id + station_m`ならsupported | 同一断面かつ明示`segment_id + station_m`ならsupported | unsupported | 同一断面かつ明示`segment_id + station_m`ならsupported |
-| EditSegmentShape | validation | supported | node位置を変えずshapeだけ変更 | StationRef規則で再評価 | owner-local markingを追従 |
-| MoveNode | validation | endpoint nodeを移動 | 接続全segmentを再導出 | StationRef規則で再評価 | owner-local markingを追従 |
-| DeleteSegment (Undo内部用) | validation | 最後の局所segmentだけを戻す | Viewer削除からは使用しない | transition参照を除去 | owned markingを除去 |
-| DeleteRoadSection | validation | クリックsegmentを含む端点間区間を削除 | degree 3以上のnodeで停止し交差点を越えない | 区間内ownerを除去 | 区間内markingを除去 |
-| Viewer delete road | 1 segment pick | `DeleteRoadSection` | segment境界ではなくtopology境界で削除 | 位置や描画pieceから範囲を推測しない | 1クリックで実行 |
+| AddSegmentConnectedToSegment | validation | 同一断面かつ明示`segment_id + segment_distance_m`ならsupported | 同一断面かつ明示`segment_id + segment_distance_m`ならsupported | unsupported | 同一断面かつ明示`segment_id + segment_distance_m`ならsupported |
+| EditSegmentShape | validation | supported | node位置を変えずshapeだけ変更 | DistanceRef規則で再評価 | owner-local markingを追従 |
+| MoveNode | validation | endpoint nodeを移動 | 接続全segmentを再導出 | DistanceRef規則で再評価 | owner-local markingを追従 |
+| DeleteSegment | validation | 選択したRoadSegment 1件だけを削除 | corridor分断は決定論的に処理 | 対象segmentのownerだけを除去 | 対象segmentのmarkingを除去 |
+| Viewer delete road | 1 segment pick | `DeleteSegment` | hoverしたRoadSegment全体を1クリックで削除 | hoverとclickは同じ明示segment IDを使う | splitやrange境界を作らない |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
 | AttachSectionTransition | validation | supported | supported | replace supported | supported |
 | AddManualLine / AddManualArea | validation | supported | supported | supported | supported |
 
 ## P1 node semantics
 
-- 同じ道路形状・接続関係を表す操作は、描画の確定回数にかかわらず同じ正規化結果になる。
-  `A -> B -> C`を一度に渡す場合と、`A -> B`を確定後にdegree 1終端から`B -> C`へ延長する場合は、
-  authoritative bytes、CanonicalAlignment、断面、mesh、marking、derived observationが一致する。
-- 最初の道路作成は局所segment列と一つの`RoadCorridor`を同じplanで作る。各input spanを一つのsegmentへ
-  正規化し、span間のnodeを正本として残す。
+- `RoadSegment`はユーザーが一つとして選択・編集・削除する確定区間である。一回で確定したPathは複数Bezier
+  spanを内部に持ってよく、span境界、sample、mesh分割、marking runをsegment境界へ昇格しない。
+- 一回で確定した`A -> B -> C`は1 RoadSegmentになり得る。`A -> B`を確定した後の`B -> C`延長は
+  新しいRoadSegmentを作る。確定境界が同じ操作同士について決定性を要求する。
 - degree 1のcorridor末尾から同じ道路定義を伸ばす既定操作は`ExtendCorridorFromEnd`とする。既存segmentと
   既存nodeを変更せず、新node、新segment、corridor末尾参照だけを追加する。
-- corridor先頭延長はcorridor-owned station参照の移行規則が未実装なのでunsupportedとする。
-- 逆方向入力はID、segment向き、station原点が異なるためraw serialization一致を要求しない。
+- corridor先頭延長はcorridor-owned distance参照の移行規則が未実装なのでunsupportedとする。
+- 逆方向入力はID、segment向き、distance原点が異なるためraw serialization一致を要求しない。
   CanonicalAlignmentを同じ向きへ正規化した形状、material別mesh頂点集合、marking形状の一致を要求する。
-- segment途中への接続は`target_segment_id + station_m`を入力とし、alignmentを該当stationで分割する。座標近接から対象segmentやstationを再推測しない。
+- segment途中への接続は`target_segment_id + segment_distance_m`を入力とし、alignmentを該当距離で分割する。座標近接から対象segmentや距離を再推測しない。
 - Line / Bezierは入力toolの区別に限定し、正本はendpointを含まない`SegmentShape`、完全Pathは派生`CanonicalAlignment`とする。
   Line入力は各spanをlinear cubic Bezierとして保存し、`SegmentShape.intent = Straight`を持つ。
   Bezier評価、sampling、emitはLine / Bezierで分岐しない。曲線segmentの分割はDe Casteljau分割を使う。
@@ -105,17 +103,16 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - Viewerのalignment編集では、segment端点handleは`MoveNode`、内部2 control handleは
   `EditSegmentShape`へ送る。直線segmentもlinear cubic Bezierの4 control pointを表示し、
   内部control handleを動かした時点でcurve intentへ変更する。
-- ViewerのDelete roadは、クリックしたsegmentを含む「次の交差点または端点まで」の最大連続区間を
-  `DeleteRoadSection`で一度に削除する。両方向へendpoint IDをたどり、degree 2 nodeだけを通過する。
-  degree 1 nodeとdegree 3以上のnodeで停止し、交差点を越えない。局所segment、sampling piece、world位置は
-  ユーザーの削除単位にしない。停止境界のない閉路は推測せずunsupportedとする。
-- Line segmentをnodeやsegment stationへsnapする場合は、snap後の始点と入力終点からlinear cubicを再作成する。
+- ViewerのDelete roadはhoverした`RoadSegmentId`をそのまま`DeleteSegment`へ渡し、1回のクリックで
+  そのユーザー区間全体を削除する。hover表示と削除対象は同じIDを使い、位置から再検索しない。
+- `DeleteSegmentRange`は明示距離範囲を切り取る高度編集であり、標準削除UIから呼ばない。
+- Line segmentをnodeやsegment distanceへsnapする場合は、snap後の始点と入力終点からlinear cubicを再作成する。
   始点だけを動かしてhandleを一部だけ補正しない。
-- `SplitSegmentAtStation`は元segment IDをstart側へ維持し、end側segmentとsplit nodeへ新IDを付ける。
+- `SplitSegmentAtDistance`は元segment IDをstart側へ維持し、end側segmentとsplit nodeへ新IDを付ける。
   corridor内がreversedなら、corridor進行方向を維持する順序で二参照へ置換する。
-- segment-local manual point/areaはstationがsplit点より前ならstart側、後ならend側へ移してstationを減算する。
+- segment-local manual point/areaはdistanceがsplit点より前ならstart側、後ならend側へ移してdistanceを減算する。
   split点を跨ぐmanual line、transition、意味を維持できないoverrideがある場合はunsupportedとする。
-- `DeleteRoadRange`でcorridorが分断された場合は始点側が元corridor IDを維持し、終点側へ新IDを付ける。
+- `DeleteSegmentRange`でcorridorが分断された場合は始点側が元corridor IDを維持し、終点側へ新IDを付ける。
   corridor-owned参照を一意に移行できない場合はunsupportedとし、近接rebindや黙示削除を行わない。
 - degree 2 の自動decisionはPassThroughまたはCorner。対向する2本は幅を増やさず連続し、屈曲する2本はgate接線へG1接続する中心曲線を一度だけ導出し、その移動frameへ同じ断面を掃引する。停止線・ゼブラは生成しない。
   Straight segmentの正本はcornerのために曲げず、丸みはnode所有のderived connectorだけに置く。
@@ -142,7 +139,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 ## Approach geometry override
 
 - `ApproachKey = node_id + segment_id + endpoint_role`だけをidentityとする。
-- setbackはnodeからsegment内部方向への非負距離。startは`station=setback`、endは`station=length-setback`。
+- setbackはnodeからsegment内部方向への非負距離。startは`distance=setback`、endは`distance=length-setback`。
 - lateral shiftはresolved approach lateral方向を正とする。
 - manual fieldだけを`ApproachGeometryOverride`へ保存する。auto setback / auto lateral shiftは保存しない。
 - reset fieldで該当manual fieldを消し、全fieldがAutoになったoverride entityは削除する。
@@ -151,7 +148,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 
 ## P2 transition semantics
 
-- `StationRef::FromStart(d)` は `d`、`FromEnd(d)` は `length-d`、`Ratio(u)` は `length*u` に解決する。
+- `DistanceRef::FromStart(d)` は `d`、`FromEnd(d)` は `length-d`、`Ratio(u)` は `length*u` に解決する。
 - 解決後は `0 <= start < end <= length` を満たす。満たさなければ validation で正本を変更しない。
 - transition前は `from_template`、transition後は `to_template`、区間内は線形補間する。
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge のいずれか。
@@ -163,8 +160,8 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 ## P2 marking semantics
 
 - boundary marking は `DerivedSegment.sections` の boundary ID / `AutoMarkingPolicy` を唯一の入力とし、emitはsection ruleを読まない。
-- ManualLineMarking の Path と ManualAreaMarking の frame は owner segment local `(station, lateral)`。
-  ManualAreaMarking は `rotation_rad` を持ち、0 はowner segment station方向を意味する。
+- ManualLineMarking の Path と ManualAreaMarking の frame は owner segment local `(distance, lateral)`。
+  ManualAreaMarking は `rotation_rad` を持ち、0 はowner segment distance方向を意味する。
 - 自動線は`DerivedMarking`へ導出してからmesh化する。segment、junction、manual のowner境界はgateとmanual entity IDで決め、位置近接で再bindしない。
 - 保存するのはlocal値で、world meshだけを派生する。segment alignment編集時はlocal値を維持して再導出する。
 - 境界への線要求は`BoundaryProfile.marking`と、carriageway `SectionStrip`の`LaneSideMarkingPolicy`だけ。

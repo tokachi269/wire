@@ -7,7 +7,7 @@ export interface RoadPoint {
   y: number;
 }
 
-export interface RoadSegmentInput {
+export interface RoadSpanInput {
   kind: RoadToolMode;
   startX: number;
   startY: number;
@@ -17,15 +17,20 @@ export interface RoadSegmentInput {
   handleAY: number;
   handleBX: number;
   handleBY: number;
+}
+
+export interface RoadSegmentInput extends RoadSpanInput {
+  spans?: RoadSpanInput[];
   startNodeId: number;
   startSegmentId: number;
-  startStationM: number;
+  startSegmentDistanceM: number;
   extensionCorridorId?: number;
   connectToFirstNode: boolean;
   sectionTemplateId?: number;
 }
 
 export interface RoadMeshData {
+  ownerSegmentId: number;
   material: string;
   vertices: Float64Array;
   indices: Uint32Array;
@@ -115,8 +120,8 @@ export interface RoadCenterlineSegmentData {
   startY: number;
   endX: number;
   endY: number;
-  startStationM: number;
-  endStationM: number;
+  startSegmentDistanceM: number;
+  endSegmentDistanceM: number;
 }
 
 export interface RoadSectionTemplateData {
@@ -147,7 +152,7 @@ export interface RoadSnapInfo {
   kind: "road";
   nodeId: number;
   segmentId: number;
-  stationM: number;
+  segmentDistanceM: number;
   extensionCorridorId?: number;
 }
 
@@ -161,9 +166,10 @@ export interface RoadToolState {
   handleA: RoadPoint;
   handleB: RoadPoint;
   curveContinuationTangent: RoadPoint | null;
+  draftSpans: RoadSpanInput[];
   draftStartNodeId: number;
   draftStartSegmentId: number;
-  draftStartStationM: number;
+  draftStartSegmentDistanceM: number;
   draftExtensionCorridorId: number;
   connectToFirstNode: boolean;
   selectedSectionTemplateId: number;
@@ -171,7 +177,8 @@ export interface RoadToolState {
   manualAreaWidthM: number;
   manualAreaLengthM: number;
   markingDraftSegmentId: number;
-  markingDraftStationM: number;
+  markingDraftSegmentDistanceM: number;
+  hoveredDeleteSegmentId: number;
   selectedEditSegmentId: number;
   selectedEditNodeAId: number;
   selectedEditNodeBId: number;
@@ -195,9 +202,10 @@ export function createRoadToolState(): RoadToolState {
     handleA: { x: 0, y: 0 },
     handleB: { x: 0, y: 0 },
     curveContinuationTangent: null,
+    draftSpans: [],
     draftStartNodeId: 0,
     draftStartSegmentId: 0,
-    draftStartStationM: 0,
+    draftStartSegmentDistanceM: 0,
     draftExtensionCorridorId: 0,
     connectToFirstNode: false,
     selectedSectionTemplateId: 1,
@@ -205,7 +213,8 @@ export function createRoadToolState(): RoadToolState {
     manualAreaWidthM: 4,
     manualAreaLengthM: 6,
     markingDraftSegmentId: 0,
-    markingDraftStationM: 0,
+    markingDraftSegmentDistanceM: 0,
+    hoveredDeleteSegmentId: 0,
     selectedEditSegmentId: 0,
     selectedEditNodeAId: 0,
     selectedEditNodeBId: 0,
@@ -219,7 +228,7 @@ export function createRoadToolState(): RoadToolState {
   };
 }
 
-export function roadSegmentInput(state: RoadToolState): RoadSegmentInput {
+export function roadSpanInput(state: RoadToolState): RoadSpanInput {
   return {
     kind: state.mode,
     startX: state.draftStart.x,
@@ -229,10 +238,24 @@ export function roadSegmentInput(state: RoadToolState): RoadSegmentInput {
     handleAX: state.handleA.x,
     handleAY: state.handleA.y,
     handleBX: state.handleB.x,
-    handleBY: state.handleB.y,
+    handleBY: state.handleB.y
+  };
+}
+
+export function roadSegmentInput(
+  state: RoadToolState,
+  includeCurrentSpan = true
+): RoadSegmentInput {
+  const spans = includeCurrentSpan
+    ? [...state.draftSpans, roadSpanInput(state)]
+    : [...state.draftSpans];
+  const first = spans[0] ?? roadSpanInput(state);
+  return {
+    ...first,
+    spans,
     startNodeId: state.draftStartNodeId,
     startSegmentId: state.draftStartSegmentId,
-    startStationM: state.draftStartStationM,
+    startSegmentDistanceM: state.draftStartSegmentDistanceM,
     extensionCorridorId: state.draftExtensionCorridorId,
     connectToFirstNode: state.connectToFirstNode,
     sectionTemplateId: state.selectedSectionTemplateId

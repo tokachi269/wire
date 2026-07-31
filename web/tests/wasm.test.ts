@@ -1324,7 +1324,7 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       connectToFirstNode: false
     });
 
@@ -1366,7 +1366,7 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       extensionCorridorId: 0,
       connectToFirstNode: false
     });
@@ -1386,7 +1386,7 @@ describe("road wasm smoke", () => {
       handleBY: 32 / 3,
       startNodeId: first.endNodeId!,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       extensionCorridorId: first.corridorId!,
       connectToFirstNode: false
     });
@@ -1441,15 +1441,15 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       extensionCorridorId: 0,
       connectToFirstNode: false
     });
     expect(added.ok, added.error).toBe(true);
 
-    const split = state.splitSegmentAtStation({
+    const split = state.splitSegmentAtDistance({
       segmentId: added.segmentId!,
-      stationM: 20
+      segmentDistanceM: 20
     });
     expect(split.ok, split.error).toBe(true);
     let scene = state.scene();
@@ -1458,16 +1458,164 @@ describe("road wasm smoke", () => {
     expect(scene.corridors[0].segments).toHaveLength(2);
 
     const endSegmentId = split.segmentId!;
-    const deleted = state.deleteRoadRange({
+    const deleted = state.deleteSegmentRange({
       segmentId: endSegmentId,
-      startStationM: 10,
-      endStationM: 20
+      startSegmentDistanceM: 10,
+      endSegmentDistanceM: 20
     });
     expect(deleted.ok, deleted.error).toBe(true);
     scene = state.scene();
     expect(scene.segmentCount).toBe(3);
     expect(scene.corridorCount).toBe(2);
     expect(scene.corridors.map((corridor) => corridor.segments.length)).toEqual([2, 1]);
+  });
+
+  it("exposes exact segment ownership and standard deletion through wasm", () => {
+    state.clear();
+    const first = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 20,
+      endY: 0,
+      handleAX: 20 / 3,
+      handleAY: 0,
+      handleBX: 40 / 3,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(first.ok, first.error).toBe(true);
+    const middle = state.addSegment({
+      kind: "line",
+      startX: 20,
+      startY: 0,
+      endX: 40,
+      endY: 0,
+      handleAX: 80 / 3,
+      handleAY: 0,
+      handleBX: 100 / 3,
+      handleBY: 0,
+      startNodeId: first.endNodeId!,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: first.corridorId!,
+      connectToFirstNode: false
+    });
+    expect(middle.ok, middle.error).toBe(true);
+    const last = state.addSegment({
+      kind: "line",
+      startX: 40,
+      startY: 0,
+      endX: 60,
+      endY: 0,
+      handleAX: 140 / 3,
+      handleAY: 0,
+      handleBX: 160 / 3,
+      handleBY: 0,
+      startNodeId: middle.endNodeId!,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: first.corridorId!,
+      connectToFirstNode: false
+    });
+    expect(last.ok, last.error).toBe(true);
+
+    const before = state.scene();
+    expect(before.surfaceMeshes.some(
+      (mesh) => mesh.ownerSegmentId === middle.segmentId
+    )).toBe(true);
+    expect(before.markingMeshes.some(
+      (mesh) => mesh.ownerSegmentId === middle.segmentId
+    )).toBe(true);
+
+    const deleted = state.deleteSegment(middle.segmentId!);
+    expect(deleted.ok, deleted.error).toBe(true);
+    const after = state.scene();
+    expect(after.segmentCount).toBe(2);
+    expect(after.corridorCount).toBe(2);
+    expect(after.centerlineSegments.map((segment) => segment.id)).toEqual(
+      expect.arrayContaining([first.segmentId!, last.segmentId!])
+    );
+    expect(after.centerlineSegments.some(
+      (segment) => segment.id === middle.segmentId
+    )).toBe(false);
+    expect(after.surfaceMeshes.some(
+      (mesh) => mesh.ownerSegmentId === middle.segmentId
+    )).toBe(false);
+    expect(after.markingMeshes.some(
+      (mesh) => mesh.ownerSegmentId === middle.segmentId
+    )).toBe(false);
+  });
+
+  it("keeps one continuous multi-span drawing as one deletion unit through wasm", () => {
+    state.clear();
+    const added = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 20,
+      endY: 0,
+      handleAX: 20 / 3,
+      handleAY: 0,
+      handleBX: 40 / 3,
+      handleBY: 0,
+      spans: [
+        {
+          kind: "line",
+          startX: 0,
+          startY: 0,
+          endX: 20,
+          endY: 0,
+          handleAX: 20 / 3,
+          handleAY: 0,
+          handleBX: 40 / 3,
+          handleBY: 0
+        },
+        {
+          kind: "line",
+          startX: 20,
+          startY: 0,
+          endX: 34,
+          endY: 12,
+          handleAX: 74 / 3,
+          handleAY: 4,
+          handleBX: 88 / 3,
+          handleBY: 8
+        }
+      ],
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(added.ok, added.error).toBe(true);
+
+    const before = state.scene();
+    expect(before.segmentCount).toBe(1);
+    expect(before.centerlineSegments.length).toBeGreaterThan(1);
+    expect(before.centerlineSegments.every(
+      (segment) => segment.id === added.segmentId
+    )).toBe(true);
+    expect(before.surfaceMeshes.length).toBeGreaterThan(0);
+    expect(before.surfaceMeshes.every(
+      (mesh) => mesh.ownerSegmentId === added.segmentId
+    )).toBe(true);
+    expect(before.markingMeshes.length).toBeGreaterThan(0);
+    expect(before.markingMeshes.every(
+      (mesh) => mesh.ownerSegmentId === added.segmentId
+    )).toBe(true);
+
+    const deleted = state.deleteSegment(added.segmentId!);
+    expect(deleted.ok, deleted.error).toBe(true);
+    const after = state.scene();
+    expect(after.segmentCount).toBe(0);
+    expect(after.surfaceMeshes).toHaveLength(0);
+    expect(after.markingMeshes).toHaveLength(0);
   });
 
   it("previews and commits endpoint movement through the node operation", () => {
@@ -1484,7 +1632,7 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       extensionCorridorId: 0,
       connectToFirstNode: false
     });
@@ -1529,7 +1677,7 @@ describe("road wasm smoke", () => {
       handleBY: 8,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       connectToFirstNode: false
     });
     expect(added.ok, added.error).toBe(true);
@@ -1550,7 +1698,7 @@ describe("road wasm smoke", () => {
     const base = state.addSegment({
       kind: "line", startX: 0, startY: 0, endX: 20, endY: 0,
       handleAX: 6, handleAY: 0, handleBX: 14, handleBY: 0,
-      startNodeId: 0, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
     const endpoint = state.scene().nodes.find((node) => Math.abs(node.x - 20) < 1e-6 && Math.abs(node.y) < 1e-6);
@@ -1558,7 +1706,7 @@ describe("road wasm smoke", () => {
     const corner = state.addSegment({
       kind: "line", startX: 20, startY: 0, endX: 20, endY: 24,
       handleAX: 20, handleAY: 8, handleBX: 20, handleBY: 16,
-      startNodeId: endpoint!.id, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: endpoint!.id, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(corner.ok, corner.error).toBe(true);
     const scene = state.scene();
@@ -1585,7 +1733,7 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
@@ -1602,7 +1750,7 @@ describe("road wasm smoke", () => {
       handleBY: 16,
       startNodeId: 0,
       startSegmentId: baseSegmentId,
-      startStationM: 20,
+      startSegmentDistanceM: 20,
       connectToFirstNode: false
     });
     expect(branch.ok, branch.error).toBe(true);
@@ -1620,7 +1768,7 @@ describe("road wasm smoke", () => {
     expect(scene.markingMeshes.length).toBeGreaterThanOrEqual(9);
   });
 
-  it("splits a Bezier segment at the explicit centerline station", () => {
+  it("splits a Bezier segment at the explicit centerline distance", () => {
     state.clear();
     const base = state.addSegment({
       kind: "bezier",
@@ -1634,14 +1782,14 @@ describe("road wasm smoke", () => {
       handleBY: 10,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
     const centerlines = state.scene().centerlineSegments;
-    const total = centerlines.at(-1)!.endStationM;
+    const total = centerlines.at(-1)!.endSegmentDistanceM;
     const target = centerlines.reduce((best, segment) =>
-      Math.abs(segment.startStationM - total * 0.5) < Math.abs(best.startStationM - total * 0.5)
+      Math.abs(segment.startSegmentDistanceM - total * 0.5) < Math.abs(best.startSegmentDistanceM - total * 0.5)
         ? segment
         : best
     );
@@ -1657,7 +1805,7 @@ describe("road wasm smoke", () => {
       handleBY: target.startY + 20,
       startNodeId: 0,
       startSegmentId: target.id,
-      startStationM: target.startStationM,
+      startSegmentDistanceM: target.startSegmentDistanceM,
       connectToFirstNode: false
     });
     expect(branch.ok, branch.error).toBe(true);
@@ -1679,7 +1827,7 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       connectToFirstNode: false,
       sectionTemplateId: 1
     });
@@ -1709,14 +1857,14 @@ describe("road wasm smoke", () => {
 
     expect(state.addManualLine({
       segmentId,
-      startStationM: 5,
-      endStationM: 20,
+      startSegmentDistanceM: 5,
+      endSegmentDistanceM: 20,
       lateralM: 0.8,
       style: "white"
     }).ok).toBe(true);
     expect(state.addManualArea({
       segmentId,
-      stationM: 30,
+      segmentDistanceM: 30,
       lateralM: 0,
       widthM: 4,
       lengthM: 6,
@@ -1735,7 +1883,7 @@ describe("road wasm smoke", () => {
     const base = state.addSegment({
       kind: "line", startX: 0, startY: 0, endX: 40, endY: 0,
       handleAX: 12, handleAY: 0, handleBX: 28, handleBY: 0,
-      startNodeId: 0, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
     const node = state.scene().nodes.find((item) => Math.abs(item.x - 40) < 1e-6 && Math.abs(item.y) < 1e-6);
@@ -1743,13 +1891,13 @@ describe("road wasm smoke", () => {
     const branch = state.addSegment({
       kind: "line", startX: 40, startY: 0, endX: 40, endY: 30,
       handleAX: 40, handleAY: 10, handleBX: 40, handleBY: 20,
-      startNodeId: node!.id, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: node!.id, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(branch.ok, branch.error).toBe(true);
     const straight = state.addSegment({
       kind: "line", startX: 40, startY: 0, endX: 70, endY: 0,
       handleAX: 50, handleAY: 0, handleBX: 60, handleBY: 0,
-      startNodeId: node!.id, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: node!.id, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(straight.ok, straight.error).toBe(true);
 
@@ -1811,20 +1959,20 @@ describe("road wasm smoke", () => {
     const base = state.addSegment({
       kind: "line", startX: 0, startY: 0, endX: 40, endY: 0,
       handleAX: 12, handleAY: 0, handleBX: 28, handleBY: 0,
-      startNodeId: 0, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
     const node = state.scene().nodes.find((item) => Math.abs(item.x - 40) < 1e-6 && Math.abs(item.y) < 1e-6);
     const branch = state.addSegment({
       kind: "line", startX: 40, startY: 0, endX: 40, endY: 30,
       handleAX: 40, handleAY: 10, handleBX: 40, handleBY: 20,
-      startNodeId: node!.id, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: node!.id, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(branch.ok, branch.error).toBe(true);
     const straight = state.addSegment({
       kind: "line", startX: 40, startY: 0, endX: 70, endY: 0,
       handleAX: 50, handleAY: 0, handleBX: 60, handleBY: 0,
-      startNodeId: node!.id, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: node!.id, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(straight.ok, straight.error).toBe(true);
 
@@ -1857,7 +2005,7 @@ describe("road wasm smoke", () => {
     const added = state.addSegment({
       kind: "line", startX: 0, startY: 0, endX: 40, endY: 0,
       handleAX: 12, handleAY: 0, handleBX: 28, handleBY: 0,
-      startNodeId: 0, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(added.ok, added.error).toBe(true);
     const before = state.scene().markingMeshes.length;

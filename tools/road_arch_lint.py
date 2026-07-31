@@ -273,22 +273,88 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "domains/road/src/road.cpp: MoveNode must preserve straight segment intent"
         )
+    retired_delete_api_text = "\n".join(
+        (
+            road_source,
+            source_text(root / "domains/road/include/city/road/road.hpp"),
+            source_text(
+                root
+                / "domains/road/include/city/road/input_types/requests.hpp"
+            ),
+        )
+    )
+    if "DeleteRoadSection" in retired_delete_api_text:
+        errors.append(
+            "domains/road: retired topology-section deletion API must not return"
+        )
     if re.search(r"(?:style_id|style)\s*==[^;\n]*StripFunction", road_source):
         errors.append(
             "domains/road/src/road.cpp: strip function must not be inferred from style"
         )
 
     road_actions_text = source_text(root / "web/src/actions/road_actions.ts")
-    for token in ("deleteDraftSegmentId", "deleteDraftStationM", "roadDeleteRange("):
+    for token in (
+        "deleteDraftSegmentId",
+        "deleteDraftDistanceM",
+        "roadDeleteSegmentRange(",
+        "roadDeleteSection(",
+    ):
         if token in road_actions_text:
             errors.append(
                 "web/src/actions/road_actions.ts: retired two-point road deletion remains: "
                 + repr(token)
             )
-    if "roadDeleteSection(snap.segmentId)" not in road_actions_text:
+    if "roadDeleteSegment(snap.segmentId)" not in road_actions_text:
         errors.append(
-            "web/src/actions/road_actions.ts: road deletion must use one picked segment to delete a topology section"
+            "web/src/actions/road_actions.ts: standard road deletion must delete the picked RoadSegment"
         )
+    if "hoveredDeleteSegmentId" not in road_actions_text:
+        errors.append(
+            "web/src/actions/road_actions.ts: standard road deletion must retain the hovered RoadSegment ID"
+        )
+
+    add_segment_start = road_source.find(
+        "Result<RoadSegmentId> RoadState::AddSegment("
+    )
+    add_segment_end = road_source.find(
+        "Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(",
+        add_segment_start,
+    )
+    add_segment_region = (
+        road_source[add_segment_start:add_segment_end]
+        if add_segment_start >= 0 and add_segment_end > add_segment_start
+        else ""
+    )
+    if "SegmentShapeFromPath(alignment)" not in add_segment_region:
+        errors.append(
+            "domains/road/src/road.cpp: one confirmed path must remain one multi-span RoadSegment"
+        )
+    if "alignment.spans[index]" in add_segment_region:
+        errors.append(
+            "domains/road/src/road.cpp: Bezier span boundaries must not create RoadSegment identities"
+        )
+
+    road_distance_paths = [
+        root / "domains/road",
+        root / "docs/road",
+        root / "web/src/road.ts",
+        root / "web/src/actions/road_actions.ts",
+        root / "web/src/bridge/wasm.ts",
+        root / "web/src/bridge/wire.ts",
+        root / "web/wasm/bindings.cpp",
+    ]
+    for path in road_distance_paths:
+        candidates = path.rglob("*") if path.is_dir() else [path]
+        for candidate in candidates:
+            if not candidate.is_file() or candidate.suffix not in {
+                ".cpp", ".hpp", ".ts", ".md"
+            }:
+                continue
+            text = source_text(candidate)
+            if re.search(r"Station|station_|_station|\bstationM\b|\bstation\b", text):
+                errors.append(
+                    f"{candidate.relative_to(root)}: road path distance uses retired Station terminology"
+                )
 
     # 8. Persistence stays in its own layer.
     save_start = road_source.find("Result<std::string> RoadState::Save()")

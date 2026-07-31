@@ -116,7 +116,7 @@ struct LaneSideMarkingPolicy {
 
   bool operator==(const LaneSideMarkingPolicy&) const = default;
 };
-enum class StationRefKind { kFromStart, kFromEnd, kRatio };
+enum class DistanceRefKind { kFromStart, kFromEnd, kRatio };
 enum class TransitionAction { kContinue, kChangeWidthHeightOffset, kTaperOut, kTaperIn, kEndCap, kUnsupported };
 enum class TransitionAnchor { kCenter, kLeftEdge, kRightEdge };
 enum class EndpointRole {
@@ -131,14 +131,14 @@ struct DirectedSegmentRef {
   bool operator==(const DirectedSegmentRef&) const = default;
 };
 
-struct CorridorStationRef {
+struct CorridorDistanceRef {
   RoadCorridorId corridor_id = 0;
-  double station_m = 0.0;
+  double corridor_distance_m = 0.0;
 };
 
-struct ResolvedSegmentStation {
+struct ResolvedSegmentDistance {
   RoadSegmentId segment_id = 0;
-  double local_station_m = 0.0;
+  double segment_distance_m = 0.0;
   bool reversed = false;
 };
 
@@ -155,21 +155,21 @@ enum class RoadSide {
 struct RoadSideRef {
   RoadSegmentId segment_id = 0;
   RoadSide side = RoadSide::kLeft;
-  double station_m = 0.0;
+  double segment_distance_m = 0.0;
   double lateral_offset_m = 0.0;
 };
 
 struct RoadSideIntervalRef {
   RoadSegmentId segment_id = 0;
   RoadSide side = RoadSide::kLeft;
-  double start_station_m = 0.0;
-  double end_station_m = 0.0;
+  double start_segment_distance_m = 0.0;
+  double end_segment_distance_m = 0.0;
 };
 
 struct CorridorSideRef {
   RoadCorridorId corridor_id = 0;
   RoadSide side = RoadSide::kLeft;
-  double station_m = 0.0;
+  double corridor_distance_m = 0.0;
   double lateral_offset_m = 0.0;
 };
 
@@ -252,7 +252,7 @@ struct CrossSectionTemplate {
   std::vector<LaneBand> lane_bands{};
   std::vector<BoundaryProfile> boundaries{};
 };
-struct StationRef { StationRefKind kind = StationRefKind::kFromStart; double value = 0.0; };
+struct DistanceRef { DistanceRefKind kind = DistanceRefKind::kFromStart; double value = 0.0; };
 struct SectionTransitionRule {
   SectionStripId strip_id = 0;
   TransitionAction action = TransitionAction::kContinue;

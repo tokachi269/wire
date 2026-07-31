@@ -89,7 +89,7 @@ RoadSurfaceEvaluator
 │
 ├─ RoadCorridor
 │    { id, section_template_id, directed local segment refs }
-│    ← 分岐を含まない一本の論理経路と全長stationの基準
+│    ← 分岐を含まない一本の論理経路と全長distanceの基準
 │
 ├─ SectionTimeline
 │    { 区間ごとのCrossSectionTemplate参照、必要なphaseでSectionTransition参照 }
@@ -103,7 +103,7 @@ RoadSurfaceEvaluator
 │         └─ 高架床版下面・箱桁など、路面チェーンと別所有の開/閉プロファイル
 │
 ├─ SectionTransition                 ← P2で追加
-│    { from/to、station範囲、要素対応表、anchor、各要素の開始/終了規則 }
+│    { from/to、distance範囲、要素対応表、anchor、各要素の開始/終了規則 }
 │
 ├─ NodeConnectionPolicyOverride      ← ユーザー指定時だけ保存
 │    { node_id、Auto / ForcePassThrough / ForceCorner / ForceJunction、許可されたpolicy値 }
@@ -152,7 +152,7 @@ StructuralShell
 ```text
 導出(保存しない)
 ├─ DerivedSegment.sections
-│    { stationごとの各boundary横位置・高さ・role・外周 }
+│    { distanceごとの各boundary横位置・高さ・role・外周 }
 ├─ ConnectionGate
 ├─ SegmentSurfaceMesh / SideStructureMesh / StructuralShellMesh
 ├─ JunctionArea / JunctionAreaMesh
@@ -170,7 +170,7 @@ StructuralShell
 ConnectionGate
 ├─ gate_id
 ├─ segment_id / end role
-├─ station
+├─ distance
 ├─ 3D frame(位置・接線・横方向・上方向)
 ├─ 断面要素の順序
 ├─ 各boundaryの3D位置・法線・role・element ID
@@ -235,12 +235,12 @@ segment側とjunction側が別々に幅・高さ・頂点を計算してはな�
 
 断面要素は頂点番号ではなく、安定したelement ID・role・boundary IDで対応付ける。
 
-## 8. station参照と編集意味論
+## 8. distance参照と編集意味論
 
 弧長sを保存する機能を導入するときは、alignment編集時の保持規則を明示する。単なる`double s`を正本へ置いて意味を曖昧にしない。
 
 ```text
-StationRef
+DistanceRef
 ├─ FromStart(distance)
 ├─ FromEnd(distance)
 └─ Ratio(u)
@@ -250,7 +250,7 @@ StationRef
 - 始点から固定距離の設備・遷移は`FromStart`
 - 道路全体に対する相対位置を保つものは`Ratio`
 - どの参照方式を使うかは操作APIが明示的に決定し、再生成時に推測しない
-- P0でStationRefの実消費者がなければ型を実装しない。P2導入前に意味論表を固定する
+- P0でDistanceRefの実消費者がなければ型を実装しない。P2導入前に意味論表を固定する
 
 ## 9. 要件→データ上の置き場所
 
@@ -318,7 +318,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 ### P2 prototype scenario — 断面の可変と手動マーキング
 
 - CrossSectionTemplate編集の正本化
-- StationRefの意味論と実装
+- DistanceRefの意味論と実装
 - SectionTransition
 - 歩道テーパ、片側拡幅、車線増減、分離帯先端終了
 - boundary別AutoMarkingPolicy

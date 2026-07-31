@@ -3,6 +3,8 @@ setlocal
 
 set "MODE=%~1"
 set "ROOT=%~dp0.."
+set "WASM_SOURCE=%ROOT%\wasm"
+set "WASM_BUILD=%WASM_SOURCE%\build-nmake"
 set "VCVARS=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
 
 if not exist "%VCVARS%" (
@@ -22,17 +24,16 @@ exit /b 1
 :found_nmake
 
 if "%MODE%"=="configure" (
-  cd /d "%ROOT%"
-  emcmake cmake -S wasm -B wasm/build-nmake -G "NMake Makefiles" -DCMAKE_MAKE_PROGRAM="%NMAKE%" -DBUILD_TESTING=OFF -DWIRE_ENABLE_PCH=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE=-O3
+  emcmake cmake -S "%WASM_SOURCE%" -B "%WASM_BUILD%" -G "NMake Makefiles" -DCMAKE_MAKE_PROGRAM="%NMAKE%" -DBUILD_TESTING=OFF -DWIRE_ENABLE_PCH=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE=-O3
   exit /b %errorlevel%
 )
 
 if "%MODE%"=="build" (
-  cd /d "%ROOT%"
-  emcmake cmake -S wasm -B wasm/build-nmake -G "NMake Makefiles" -DCMAKE_MAKE_PROGRAM="%NMAKE%" -DBUILD_TESTING=OFF -DWIRE_ENABLE_PCH=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE=-O3
+  emcmake cmake -S "%WASM_SOURCE%" -B "%WASM_BUILD%" -G "NMake Makefiles" -DCMAKE_MAKE_PROGRAM="%NMAKE%" -DBUILD_TESTING=OFF -DWIRE_ENABLE_PCH=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS_RELEASE=-O3
   if errorlevel 1 exit /b 1
-  cmake --build wasm/build-nmake --target wire_web_core
-  exit /b %errorlevel%
+  cmake --build "%WASM_BUILD%" --target wire_web_core
+  if errorlevel 1 exit /b 1
+  exit /b 0
 )
 
 echo Usage: wasm-nmake-build.cmd configure^|build 1>&2

@@ -69,9 +69,9 @@ export class ViewerActions {
     this.draw.addPathPoint(point, roadSnap === undefined ? pick as PathPickInfo | undefined : undefined);
   }
 
-  previewViewportPoint(point: WorldPoint): void {
+  previewViewportPoint(point: WorldPoint, pick?: RoadSnapInfo): void {
     if (this.ctx.readSnapshot().activeTool === "road") {
-      this.road.previewViewportPoint(point);
+      this.road.previewViewportPoint(point, pick);
     }
   }
 
@@ -169,6 +169,10 @@ export class ViewerActions {
 
   commitRoadEditHandle(): void {
     this.road.commitEditHandle();
+  }
+
+  commitRoadPath(): void {
+    this.road.commitPath();
   }
 
   setRoadConnectToFirstNode(value: boolean): void {

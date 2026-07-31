@@ -53,8 +53,8 @@ using city::road::RoadSegment;
 using city::road::RoadSegmentId;
 using city::road::SectionTransitionRequest;
 using city::road::SectionTransitionRule;
-using city::road::StationRef;
-using city::road::StationRefKind;
+using city::road::DistanceRef;
+using city::road::DistanceRefKind;
 using city::road::StripFunction;
 using city::road::ThreeLaneTemplate;
 using city::road::TransitionAnchor;
@@ -336,6 +336,34 @@ bool P0_edit_and_delete_preserve_graph_ownership(std::string& failure) {
   ROAD_TEST_EXPECT(state.graph().segments.size() == 1, "road delete removed the wrong segment");
   ROAD_TEST_EXPECT(state.graph().nodes.size() == 2, "road delete left an orphan endpoint node");
   ROAD_TEST_EXPECT(state.graph().connection_policy_overrides.empty(), "road delete left a connection policy override");
+  return true;
+}
+
+bool P0_multispan_segment_is_one_user_deletion_unit(std::string& failure) {
+  RoadState state{};
+  const Path input = MakePath({
+      MakeBezier({0.0, 0.0}, {5.0, 0.0}, {10.0, 5.0}, {15.0, 5.0}),
+      MakeBezier({15.0, 5.0}, {20.0, 5.0}, {25.0, 0.0}, {30.0, 0.0}),
+  });
+  const auto added =
+      state.AddSegment(city::road::AddSegmentRequest{input, 1});
+  ROAD_TEST_EXPECT(added.ok, added.error);
+  ROAD_TEST_EXPECT(
+      state.graph().segments.size() == 1 &&
+          state.graph().corridors.size() == 1 &&
+          state.graph().corridors.front().segments.size() == 1,
+      "one confirmed multi-span path was split into multiple RoadSegments");
+  const Path* alignment = FindCanonicalAlignment(state.derived(), added.value);
+  ROAD_TEST_EXPECT(alignment != nullptr && alignment->spans.size() == 2,
+                   "multi-span RoadSegment did not preserve both Bezier spans");
+
+  const auto deleted =
+      state.DeleteSegment(city::road::DeleteSegmentRequest{added.value});
+  ROAD_TEST_EXPECT(deleted.ok, deleted.error);
+  ROAD_TEST_EXPECT(state.graph().segments.empty() &&
+                       state.graph().corridors.empty() &&
+                       state.graph().nodes.empty(),
+                   "deleting a multi-span RoadSegment left part of the user unit");
   return true;
 }
 
@@ -638,23 +666,24 @@ bool P1_segment_snap_splits_bezier_road_for_t_junction(std::string& failure) {
   return true;
 }
 
-bool P1_segment_snap_splits_at_bezier_span_boundary(std::string& failure) {
+bool P1_segment_snap_splits_at_internal_bezier_span_boundary(std::string& failure) {
   RoadState state{};
   const auto first_span = MakeBezier({0.0, 0.0}, {10.0, 10.0}, {30.0, 10.0}, {40.0, 0.0});
   const auto second_span = MakeBezier({40.0, 0.0}, {50.0, -10.0}, {70.0, -10.0}, {80.0, 0.0});
   const Path alignment = MakePath({first_span, second_span});
   const auto base = state.AddSegment(city::road::AddSegmentRequest{alignment, 1});
   ROAD_TEST_EXPECT(base.ok, base.error);
-  ROAD_TEST_EXPECT(state.graph().segments.size() == 2,
-                   "multi-span path was not normalized to local segments");
-  const city::road::RoadNodeId boundary_node =
-      state.graph().segments.front().node_b;
-  const auto branch = state.AddSegmentConnectedTo(
-      city::road::AddSegmentConnectedToRequest{
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 1,
+                   "one multi-span draw was split before an explicit edit");
+  const auto first_length = PathLength(MakePath({first_span}));
+  ROAD_TEST_EXPECT(first_length.ok, first_length.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
           MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), 1,
-          boundary_node});
+          base.value, first_length.value});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
-  ROAD_TEST_EXPECT(state.graph().segments.size() == 3, "span-boundary split did not create three segments");
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 3,
+                   "explicit connection at an internal span boundary did not split once and add a branch");
   for (const auto& segment : state.graph().segments) {
     const Path* path = FindCanonicalAlignment(state.derived(), segment.id);
     ROAD_TEST_EXPECT(path != nullptr, "span-boundary split alignment is missing");
@@ -718,8 +747,8 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   SectionTransitionRequest transition{};
   transition.from_template = 1;
   transition.to_template = template_id.value;
-  transition.start = StationRef{StationRefKind::kFromEnd, 25.0};
-  transition.end = StationRef{StationRefKind::kFromEnd, 5.0};
+  transition.start = DistanceRef{DistanceRefKind::kFromEnd, 25.0};
+  transition.end = DistanceRef{DistanceRefKind::kFromEnd, 5.0};
   transition.anchor = TransitionAnchor::kLeftEdge;
   transition.rules = {
       SectionTransitionRule{35, TransitionAction::kTaperIn},
@@ -759,14 +788,14 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
                    "P2 transition is not attached to the segment authority");
 
   const auto sections = road_test_view::sections(state.derived());
-  const auto at_station = [&sections](double station) -> const city::road::SectionEvaluation* {
-    const auto it = std::find_if(sections.begin(), sections.end(), [station](const auto* item) {
-      return std::abs(item->station_m - station) < 1e-6;
+  const auto at_distance = [&sections](double distance) -> const city::road::SectionEvaluation* {
+    const auto it = std::find_if(sections.begin(), sections.end(), [distance](const auto* item) {
+      return std::abs(item->segment_distance_m - distance) < 1e-6;
     });
     return it == sections.end() ? nullptr : *it;
   };
-  const auto* before = at_station(0.0);
-  const auto* after = at_station(60.0);
+  const auto* before = at_distance(0.0);
+  const auto* after = at_distance(60.0);
   ROAD_TEST_EXPECT(before != nullptr && after != nullptr, "P2 transition endpoints were not evaluated");
   const double before_width = before->boundaries.back().lateral_m - before->boundaries.front().lateral_m;
   const double after_width = after->boundaries.back().lateral_m - after->boundaries.front().lateral_m;
@@ -844,8 +873,8 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
     SectionTransitionRequest transition{};
     transition.from_template = 1;
     transition.to_template = target.value;
-    transition.start = StationRef{StationRefKind::kFromStart, 10.0};
-    transition.end = StationRef{StationRefKind::kRatio, 0.5};
+    transition.start = DistanceRef{DistanceRefKind::kFromStart, 10.0};
+    transition.end = DistanceRef{DistanceRefKind::kRatio, 0.5};
     transition.anchor = TransitionAnchor::kRightEdge;
     transition.rules = {SectionTransitionRule{10, TransitionAction::kTaperOut}};
     const auto transition_id = state.AddTransition(transition);
@@ -864,8 +893,8 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
     SectionTransitionRequest transition{};
     transition.from_template = three_lane.value;
     transition.to_template = 1;
-    transition.start = StationRef{StationRefKind::kFromEnd, 30.0};
-    transition.end = StationRef{StationRefKind::kFromEnd, 5.0};
+    transition.start = DistanceRef{DistanceRefKind::kFromEnd, 30.0};
+    transition.end = DistanceRef{DistanceRefKind::kFromEnd, 5.0};
     transition.rules = {SectionTransitionRule{35, TransitionAction::kTaperOut}};
     const auto transition_id = state.AddTransition(transition);
     ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
@@ -893,8 +922,8 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
     SectionTransitionRequest invalid{};
     invalid.from_template = median_id.value;
     invalid.to_template = 1;
-    invalid.start = StationRef{StationRefKind::kFromStart, 10.0};
-    invalid.end = StationRef{StationRefKind::kFromStart, 30.0};
+    invalid.start = DistanceRef{DistanceRefKind::kFromStart, 10.0};
+    invalid.end = DistanceRef{DistanceRefKind::kFromStart, 30.0};
     invalid.rules = {SectionTransitionRule{25, TransitionAction::kTaperOut}};
     ROAD_TEST_EXPECT(!state.AddTransition(invalid).ok, "median disappearance accepted TaperOut instead of EndCap");
     invalid.rules = {SectionTransitionRule{25, TransitionAction::kEndCap}};
@@ -924,8 +953,8 @@ bool P2_requires_transition_for_mixed_section_connection(std::string& failure) {
     ROAD_TEST_EXPECT(base.ok, base.error);
     SectionTransitionRequest transition{};
     transition.to_template = 2;
-    transition.start = StationRef{StationRefKind::kFromEnd, 20.0};
-    transition.end = StationRef{StationRefKind::kFromEnd, 0.0};
+    transition.start = DistanceRef{DistanceRefKind::kFromEnd, 20.0};
+    transition.end = DistanceRef{DistanceRefKind::kFromEnd, 0.0};
     transition.rules = {SectionTransitionRule{35, TransitionAction::kTaperIn}};
     const auto transition_id = state.AddTransitionToSegment(city::road::AddTransitionToSegmentRequest{base.value, transition});
     ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
@@ -1119,7 +1148,7 @@ bool M1_lane_side_without_adjacent_boundary_is_unsupported(std::string& failure)
 }
 
 bool M3_lane_count_change_begins_and_terminates_lines(std::string& failure) {
-  // The roads run along +X from the origin, so a point's x is its station.
+  // The roads run along +X from the origin, so a point's x is its distance.
   {
     RoadState state{};
     const auto segment = state.AddSegment(
@@ -1128,8 +1157,8 @@ bool M3_lane_count_change_begins_and_terminates_lines(std::string& failure) {
     SectionTransitionRequest transition{};
     transition.from_template = 1;
     transition.to_template = 2;
-    transition.start = StationRef{StationRefKind::kFromStart, 20.0};
-    transition.end = StationRef{StationRefKind::kFromStart, 50.0};
+    transition.start = DistanceRef{DistanceRefKind::kFromStart, 20.0};
+    transition.end = DistanceRef{DistanceRefKind::kFromStart, 50.0};
     transition.rules = {SectionTransitionRule{35, TransitionAction::kTaperIn}};
     const auto transition_id = state.AddTransition(transition);
     ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
@@ -1160,8 +1189,8 @@ bool M3_lane_count_change_begins_and_terminates_lines(std::string& failure) {
     SectionTransitionRequest transition{};
     transition.from_template = 2;
     transition.to_template = 1;
-    transition.start = StationRef{StationRefKind::kFromStart, 30.0};
-    transition.end = StationRef{StationRefKind::kFromStart, 60.0};
+    transition.start = DistanceRef{DistanceRefKind::kFromStart, 30.0};
+    transition.end = DistanceRef{DistanceRefKind::kFromStart, 60.0};
     transition.rules = {SectionTransitionRule{35, TransitionAction::kTaperOut}};
     const auto transition_id = state.AddTransition(transition);
     ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
@@ -1198,8 +1227,8 @@ bool M6_transition_without_boundary_mapping_is_unsupported(std::string& failure)
   SectionTransitionRequest transition{};
   transition.from_template = 1;
   transition.to_template = target.value;
-  transition.start = StationRef{StationRefKind::kFromStart, 10.0};
-  transition.end = StationRef{StationRefKind::kFromStart, 40.0};
+  transition.start = DistanceRef{DistanceRefKind::kFromStart, 10.0};
+  transition.end = DistanceRef{DistanceRefKind::kFromStart, 40.0};
   transition.rules = {SectionTransitionRule{20, TransitionAction::kContinue}};
   const auto transition_id = state.AddTransition(transition);
   ROAD_TEST_EXPECT(transition_id.ok, transition_id.error);
@@ -1321,12 +1350,15 @@ int main() {
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
       {"P0_straight_segments_stay_linear_after_snap_and_move", P0_straight_segments_stay_linear_after_snap_and_move},
       {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},
+      {"P0_multispan_segment_is_one_user_deletion_unit",
+       P0_multispan_segment_is_one_user_deletion_unit},
       {"P1_degree_two_corner_uses_a_curve_without_a_junction", P1_degree_two_corner_uses_a_curve_without_a_junction},
       {"P1_corner_preserves_endpoint_section_sides", P1_corner_preserves_endpoint_section_sides},
       {"P1_straight_connection_has_no_junction_area", P1_straight_connection_has_no_junction_area},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
       {"P1_segment_snap_splits_bezier_road_for_t_junction", P1_segment_snap_splits_bezier_road_for_t_junction},
-      {"P1_segment_snap_splits_at_bezier_span_boundary", P1_segment_snap_splits_at_bezier_span_boundary},
+      {"P1_segment_snap_splits_at_internal_bezier_span_boundary",
+       P1_segment_snap_splits_at_internal_bezier_span_boundary},
       {"P1_cross_junction_accepts_opposite_approaches", P1_cross_junction_accepts_opposite_approaches},
       {"P1_incremental_skew_cross_accepts_ordered_approaches",
        P1_incremental_skew_cross_accepts_ordered_approaches},

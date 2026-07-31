@@ -11,8 +11,8 @@ struct SectionTransition {
   SectionTransitionId id = 0;
   CrossSectionTemplateId from_template = 0;
   CrossSectionTemplateId to_template = 0;
-  StationRef start{};
-  StationRef end{};
+  DistanceRef start{};
+  DistanceRef end{};
   TransitionAnchor anchor = TransitionAnchor::kCenter;
   std::vector<SectionTransitionRule> rules{};
 };

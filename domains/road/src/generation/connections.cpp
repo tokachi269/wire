@@ -26,7 +26,7 @@ using internal::inward_tangent;
 using internal::is_finite;
 using internal::normalize;
 using internal::scale;
-using internal::station_epsilon;
+using internal::distance_epsilon;
 using internal::subtract;
 using internal::tangent_at;
 using internal::to3;
@@ -148,17 +148,17 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
       lateral_shift = override->lateral_shift_m.value;
   }
   if (!is_finite(setback) || setback < 0.0 ||
-      setback > segment.length_m + station_epsilon ||
+      setback > segment.length_m + distance_epsilon ||
       !is_finite(lateral_shift)) {
     return Result<ResolvedApproach>::Fail(
         ErrorKind::kUnsupported,
         "road approach override exceeds supported layout range");
   }
-  const double station = key.endpoint_role == EndpointRole::kStart
+  const double distance = key.endpoint_role == EndpointRole::kStart
                              ? setback
                              : segment.length_m - setback;
-  const Result<Vec2d> position = EvaluatePath(segment.alignment, station);
-  const Result<Vec2d> path_tangent = tangent_at(segment.alignment, station);
+  const Result<Vec2d> position = EvaluatePath(segment.alignment, distance);
+  const Result<Vec2d> path_tangent = tangent_at(segment.alignment, distance);
   if (!position.ok || !path_tangent.ok) {
     return Result<ResolvedApproach>::Fail(
         ErrorKind::kInternal, "road approach frame could not be evaluated");
@@ -181,7 +181,7 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
   approach.resolved_setback_m = setback;
   approach.auto_lateral_shift_m = 0.0;
   approach.resolved_lateral_shift_m = lateral_shift;
-  approach.gate_station_m = station;
+  approach.gate_segment_distance_m = distance;
   approach.gate = gate_at(key, shifted, tangent, lateral);
   return Result<ResolvedApproach>::Ok(std::move(approach));
 }
@@ -346,7 +346,7 @@ resolve_connections(const SavedRoadGraph &graph,
         }
       }
       if (!is_finite(setback) || setback < 0.0 ||
-          setback > derived->length_m + station_epsilon) {
+          setback > derived->length_m + distance_epsilon) {
         return Out::Fail(ErrorKind::kUnsupported,
                          "road approach setback exceeds the segment length");
       }
@@ -398,7 +398,7 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
       const SectionEvaluation *section =
           segment == nullptr
               ? nullptr
-              : FindSectionAt(*segment, approach.gate_station_m);
+              : FindSectionAt(*segment, approach.gate_segment_distance_m);
       if (section == nullptr) {
         return Result<bool>::Fail(
             ErrorKind::kInternal,
@@ -433,11 +433,11 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
       const SectionEvaluation *first_section =
           first_segment == nullptr
               ? nullptr
-              : FindSectionAt(*first_segment, first->gate_station_m);
+              : FindSectionAt(*first_segment, first->gate_segment_distance_m);
       const SectionEvaluation *second_section =
           second_segment == nullptr
               ? nullptr
-              : FindSectionAt(*second_segment, second->gate_station_m);
+              : FindSectionAt(*second_segment, second->gate_segment_distance_m);
       if (first_section == nullptr || second_section == nullptr) {
         return Result<bool>::Fail(
             ErrorKind::kInternal,
@@ -470,7 +470,7 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
                                   "road junction approach is missing");
       }
       gates.push_back(approach->gate);
-      sections.push_back(FindSectionAt(*segment, approach->gate_station_m));
+      sections.push_back(FindSectionAt(*segment, approach->gate_segment_distance_m));
     }
     Result<JunctionGeometry> geometry = internal::generate_junction_geometry(
         connection.node_id, connection.ordered_approaches, gates, sections,

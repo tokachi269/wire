@@ -179,6 +179,9 @@
         if (snapshot.activeTool === "wire") {
           event.preventDefault();
           actions.generatePath();
+        } else if (snapshot.activeTool === "road") {
+          event.preventDefault();
+          actions.commitRoadPath();
         }
       }
     };

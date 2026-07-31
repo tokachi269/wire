@@ -43,7 +43,7 @@ struct RenderStyleRef {
 }
 struct SectionEvaluation {
   RoadSegmentId segment_id = 0;
-  double station_m = 0.0;
+  double segment_distance_m = 0.0;
   CrossSectionTemplateId resolved_template_id = 0;
   std::vector<SectionBoundarySample> boundaries{};
   std::vector<RenderStyleRef> surface_styles{};
@@ -110,15 +110,15 @@ struct JunctionGeometry {
 };
 
 // One segment resolved from the authoritative graph: canonical alignment, the
-// stations every consumer shares, and the section evaluated at those stations.
+// distances every consumer shares, and the section evaluated at those distances.
 struct DerivedSegment {
   RoadSegmentId id = 0;
   Path alignment{};
   double length_m = 0.0;
   double surface_start_m = 0.0;
   double surface_end_m = 0.0;
-  std::vector<double> semantic_stations_m{};
-  std::vector<double> surface_stations_m{};
+  std::vector<double> semantic_segment_distances_m{};
+  std::vector<double> surface_segment_distances_m{};
   std::vector<SectionEvaluation> sections{};
 };
 
@@ -135,7 +135,7 @@ struct ResolvedApproach {
   double resolved_setback_m = 0.0;
   double auto_lateral_shift_m = 0.0;
   double resolved_lateral_shift_m = 0.0;
-  double gate_station_m = 0.0;
+  double gate_segment_distance_m = 0.0;
   ConnectionGate gate{};
 };
 
@@ -185,6 +185,6 @@ struct DerivedRoad {
 [[nodiscard]] const ResolvedApproach* FindResolvedApproach(const DerivedRoad& derived,
                                                            const ApproachKey& key);
 [[nodiscard]] const SectionEvaluation* FindSectionAt(const DerivedSegment& segment,
-                                                     double station_m);
+                                                     double segment_distance_m);
 
 } // namespace city::road

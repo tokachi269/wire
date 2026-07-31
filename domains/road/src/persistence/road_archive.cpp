@@ -1037,9 +1037,9 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
     Result<std::uint64_t> from = reader.RequireU64(prefix + ".from_template");
     Result<std::uint64_t> to = reader.RequireU64(prefix + ".to_template");
-    Result<StationRefKind> start_kind = enum_value<StationRefKind>(reader, prefix + ".start.kind", 0, 2);
+    Result<DistanceRefKind> start_kind = enum_value<DistanceRefKind>(reader, prefix + ".start.kind", 0, 2);
     Result<double> start_value = reader.RequireDouble(prefix + ".start.value");
-    Result<StationRefKind> end_kind = enum_value<StationRefKind>(reader, prefix + ".end.kind", 0, 2);
+    Result<DistanceRefKind> end_kind = enum_value<DistanceRefKind>(reader, prefix + ".end.kind", 0, 2);
     Result<double> end_value = reader.RequireDouble(prefix + ".end.value");
     Result<TransitionAnchor> anchor = enum_value<TransitionAnchor>(reader, prefix + ".anchor", 0, 2);
     if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
@@ -1051,8 +1051,8 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     if (!end_value.ok) return Result<LoadedRoad>::Fail(end_value.error_kind, end_value.error);
     if (!anchor.ok) return Result<LoadedRoad>::Fail(anchor.error_kind, anchor.error);
     SectionTransition transition{id.value, from.value, to.value,
-                                 StationRef{start_kind.value, start_value.value},
-                                 StationRef{end_kind.value, end_value.value},
+                                 DistanceRef{start_kind.value, start_value.value},
+                                 DistanceRef{end_kind.value, end_value.value},
                                  anchor.value, {}};
     Result<std::size_t> rule_count = require_count(prefix + ".rule.count");
     if (!rule_count.ok) return Result<LoadedRoad>::Fail(rule_count.error_kind, rule_count.error);

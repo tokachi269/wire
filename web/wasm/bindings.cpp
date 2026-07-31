@@ -126,13 +126,15 @@ using city::wire::Vec3d;
     indices.call<void>("push", index);
   }
   val result = val::object();
+  result.set("ownerSegmentId",
+             static_cast<double>(mesh.owner_segment_id));
   result.set("material", road_material_key(mesh.style));
   result.set("vertices", vertices);
   result.set("indices", indices);
   return result;
 }
 
-[[nodiscard]] city::road::Path road_path_value(const val& input) {
+[[nodiscard]] city::road::BezierSpan road_span_value(const val& input) {
   const city::road::Vec2d start{
       input["startX"].as<double>(),
       input["startY"].as<double>(),
@@ -143,7 +145,7 @@ using city::wire::Vec3d;
   };
   const std::string kind = input["kind"].as<std::string>();
   if (kind == "line") {
-    return city::road::MakePath({city::road::MakeLine(start, end)});
+    return city::road::MakeLine(start, end);
   }
   if (kind == "bezier") {
     const city::road::Vec2d handle_a{
@@ -154,9 +156,23 @@ using city::wire::Vec3d;
         input["handleBX"].as<double>(),
         input["handleBY"].as<double>(),
     };
-    return city::road::MakePath({city::road::MakeBezier(start, handle_a, handle_b, end)});
+    return city::road::MakeBezier(start, handle_a, handle_b, end);
   }
-  return {};
+  return city::road::BezierSpan{};
+}
+
+[[nodiscard]] city::road::Path road_path_value(const val& input) {
+  const val spans = input["spans"];
+  if (!spans.isUndefined()) {
+    std::vector<city::road::BezierSpan> path_spans{};
+    const unsigned length = spans["length"].as<unsigned>();
+    path_spans.reserve(length);
+    for (unsigned index = 0; index < length; ++index) {
+      path_spans.push_back(road_span_value(spans[index]));
+    }
+    return city::road::MakePath(std::move(path_spans));
+  }
+  return city::road::MakePath({road_span_value(input)});
 }
 
 [[nodiscard]] val generation_timing_value(const GenerationTiming& timing) {
@@ -1279,7 +1295,7 @@ public:
         input["extensionCorridorId"].isUndefined()
             ? city::road::RoadCorridorId{0}
             : input["extensionCorridorId"].as<city::road::RoadCorridorId>();
-    const double start_station_m = input["startStationM"].as<double>();
+    const double start_segment_distance_m = input["startSegmentDistanceM"].as<double>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
@@ -1291,7 +1307,7 @@ public:
               section_template_id});
     } else if (start_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
-          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_station_m});
+          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m});
     } else if (start_node_id != 0) {
       result = state_->AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id});
@@ -1331,7 +1347,7 @@ public:
         input["extensionCorridorId"].isUndefined()
             ? city::road::RoadCorridorId{0}
             : input["extensionCorridorId"].as<city::road::RoadCorridorId>();
-    const double start_station_m = input["startStationM"].as<double>();
+    const double start_segment_distance_m = input["startSegmentDistanceM"].as<double>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
@@ -1343,7 +1359,7 @@ public:
               section_template_id});
     } else if (start_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
-          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_station_m});
+          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m});
     } else if (start_node_id != 0) {
       added = trial.AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id});
@@ -1413,18 +1429,18 @@ public:
                                   ? 1
                                   : std::max(2, static_cast<int>(std::ceil(total / 2.0)));
       for (int piece = 0; piece < piece_count; ++piece) {
-        const double start_station = total * piece / piece_count;
-        const double end_station = total * (piece + 1) / piece_count;
-        const city::road::Vec2d start = city::road::EvaluatePath(*alignment, start_station).value;
-        const city::road::Vec2d end = city::road::EvaluatePath(*alignment, end_station).value;
+        const double start_distance = total * piece / piece_count;
+        const double end_distance = total * (piece + 1) / piece_count;
+        const city::road::Vec2d start = city::road::EvaluatePath(*alignment, start_distance).value;
+        const city::road::Vec2d end = city::road::EvaluatePath(*alignment, end_distance).value;
         val item = val::object();
         item.set("id", static_cast<double>(segment.id));
         item.set("startX", start.x);
         item.set("startY", start.y);
         item.set("endX", end.x);
         item.set("endY", end.y);
-        item.set("startStationM", start_station);
-        item.set("endStationM", end_station);
+        item.set("startSegmentDistanceM", start_distance);
+        item.set("endSegmentDistanceM", end_distance);
         centerline_segments.call<void>("push", item);
       }
     }
@@ -1651,17 +1667,17 @@ public:
     return result;
   }
 
-  val delete_road_section(std::uint64_t segment_id) {
-    const auto result = state_->DeleteRoadSection(
-        city::road::DeleteRoadSectionRequest{segment_id});
+  val delete_segment(std::uint64_t segment_id) {
+    const auto result = state_->DeleteSegment(
+        city::road::DeleteSegmentRequest{segment_id});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
-  val split_segment_at_station(const val& input) {
-    const auto result = state_->SplitSegmentAtStation(
-        city::road::SplitSegmentAtStationRequest{
+  val split_segment_at_distance(const val& input) {
+    const auto result = state_->SplitSegmentAtDistance(
+        city::road::SplitSegmentAtDistanceRequest{
             input["segmentId"].as<city::road::RoadSegmentId>(),
-            input["stationM"].as<double>()});
+            input["segmentDistanceM"].as<double>()});
     val output =
         road_result_value(result.ok, result.error, result.error_kind);
     if (result.ok) {
@@ -1670,12 +1686,12 @@ public:
     return output;
   }
 
-  val delete_road_range(const val& input) {
-    const auto result = state_->DeleteRoadRange(
-        city::road::DeleteRoadRangeRequest{
+  val delete_segment_range(const val& input) {
+    const auto result = state_->DeleteSegmentRange(
+        city::road::DeleteSegmentRangeRequest{
             input["segmentId"].as<city::road::RoadSegmentId>(),
-            input["startStationM"].as<double>(),
-            input["endStationM"].as<double>()});
+            input["startSegmentDistanceM"].as<double>(),
+            input["endSegmentDistanceM"].as<double>()});
     return road_result_value(result.ok, result.error, result.error_kind);
   }
 
@@ -1912,9 +1928,9 @@ public:
                                      [segment](const auto& item) { return item.id == segment->section_template; });
     city::road::SectionTransitionRequest transition{};
     transition.to_template = target_id;
-    transition.start = {city::road::StationRefKind::kFromEnd,
+    transition.start = {city::road::DistanceRefKind::kFromEnd,
                         input["lengthM"].as<double>() + input["endOffsetM"].as<double>()};
-    transition.end = {city::road::StationRefKind::kFromEnd, input["endOffsetM"].as<double>()};
+    transition.end = {city::road::DistanceRefKind::kFromEnd, input["endOffsetM"].as<double>()};
     transition.anchor = static_cast<city::road::TransitionAnchor>(input["anchor"].as<int>());
     for (const auto& strip : source->strips) {
       const auto match = std::find_if(target->strips.begin(), target->strips.end(), [&strip](const auto& item) {
@@ -1941,8 +1957,8 @@ public:
     city::road::ManualLineRequest marking{};
     marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
     marking.path = city::road::MakePath({city::road::MakeLine(
-        {input["startStationM"].as<double>(), input["lateralM"].as<double>()},
-        {input["endStationM"].as<double>(), input["lateralM"].as<double>()})});
+        {input["startSegmentDistanceM"].as<double>(), input["lateralM"].as<double>()},
+        {input["endSegmentDistanceM"].as<double>(), input["lateralM"].as<double>()})});
     const auto style = road_marking_style_id(input["style"].as<std::string>());
     if (!style.has_value()) {
       return road_result_value(false, "unknown road marking style",
@@ -1956,7 +1972,7 @@ public:
   val add_manual_area(const val& input) {
     city::road::ManualAreaRequest marking{};
     marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
-    marking.frame_origin = {input["stationM"].as<double>(), input["lateralM"].as<double>()};
+    marking.frame_origin = {input["segmentDistanceM"].as<double>(), input["lateralM"].as<double>()};
     if (input.call<bool>("hasOwnProperty", std::string("rotationRad"))) {
       marking.rotation_rad = input["rotationRad"].as<double>();
     }
@@ -2042,10 +2058,10 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("addSegment", &RoadStateBinding::add_segment)
       .function("previewSegment", &RoadStateBinding::preview_segment)
       .function("scene", &RoadStateBinding::scene)
-      .function("deleteRoadSection", &RoadStateBinding::delete_road_section)
-      .function("splitSegmentAtStation",
-                &RoadStateBinding::split_segment_at_station)
-      .function("deleteRoadRange", &RoadStateBinding::delete_road_range)
+      .function("deleteSegment", &RoadStateBinding::delete_segment)
+      .function("splitSegmentAtDistance",
+                &RoadStateBinding::split_segment_at_distance)
+      .function("deleteSegmentRange", &RoadStateBinding::delete_segment_range)
       .function("moveNode", &RoadStateBinding::move_node)
       .function("previewMoveNode", &RoadStateBinding::preview_move_node)
       .function("setApproachSetbackOverride", &RoadStateBinding::set_approach_setback_override)

@@ -28,10 +28,10 @@ const BoundaryProfile *find_boundary(const CrossSectionTemplate &section,
   return found == section.boundaries.end() ? nullptr : &*found;
 }
 
-double station_value(StationRef ref, double total_m) {
-  if (ref.kind == StationRefKind::kFromEnd)
+double distance_value(DistanceRef ref, double total_m) {
+  if (ref.kind == DistanceRefKind::kFromEnd)
     return total_m - ref.value;
-  if (ref.kind == StationRefKind::kRatio)
+  if (ref.kind == DistanceRefKind::kRatio)
     return total_m * ref.value;
   return ref.value;
 }
@@ -164,8 +164,8 @@ build_boundaries(const CrossSectionTemplate &section,
     };
     const bool structural_boundary = boundary.role == BoundaryRole::kCurb ||
                                      boundary.role == BoundaryRole::kMedianEdge;
-    if (!structural_boundary && boundary.width_m <= station_epsilon &&
-        std::abs(boundary.height_m) <= station_epsilon) {
+    if (!structural_boundary && boundary.width_m <= distance_epsilon &&
+        std::abs(boundary.height_m) <= distance_epsilon) {
       samples.push_back(with_adjacency(SectionBoundarySample{
           boundary.boundary_id, boundary.role, lateral, height, policy}));
       continue;
@@ -214,8 +214,8 @@ build_surface_styles(const CrossSectionTemplate &section) {
     const BoundaryProfile &boundary = section.boundaries[index];
     if (boundary.role == BoundaryRole::kCurb ||
         boundary.role == BoundaryRole::kMedianEdge ||
-        boundary.width_m > station_epsilon ||
-        std::abs(boundary.height_m) > station_epsilon) {
+        boundary.width_m > distance_epsilon ||
+        std::abs(boundary.height_m) > distance_epsilon) {
       styles.push_back(
           RenderStyleFromSurface(SurfaceStyleForBoundaryRole(boundary.role)));
     }
@@ -225,9 +225,9 @@ build_surface_styles(const CrossSectionTemplate &section) {
 
 } // namespace
 
-Result<CrossSectionTemplate> template_at(const SavedRoadGraph &graph,
-                                         const RoadSegment &segment,
-                                         double station_m, double total_m) {
+Result<CrossSectionTemplate> template_at(
+    const SavedRoadGraph &graph, const RoadSegment &segment,
+    double segment_distance_m, double total_m) {
   const CrossSectionTemplate *base =
       find_template(graph, segment.section_template);
   if (base == nullptr) {
@@ -251,21 +251,23 @@ Result<CrossSectionTemplate> template_at(const SavedRoadGraph &graph,
     return Result<CrossSectionTemplate>::Fail(
         ErrorKind::kValidation, "road transition template is missing");
   }
-  const double start = station_value(transition->start, total_m);
-  const double end = station_value(transition->end, total_m);
-  if (start < 0.0 || end > total_m || end - start <= station_epsilon) {
+  const double start = distance_value(transition->start, total_m);
+  const double end = distance_value(transition->end, total_m);
+  if (start < 0.0 || end > total_m || end - start <= distance_epsilon) {
     return Result<CrossSectionTemplate>::Fail(
-        ErrorKind::kValidation, "road transition station range is invalid");
+        ErrorKind::kValidation, "road transition distance range is invalid");
   }
   return Result<CrossSectionTemplate>::Ok(interpolate_section(
-      *from, *to, std::clamp((station_m - start) / (end - start), 0.0, 1.0)));
+      *from, *to,
+      std::clamp((segment_distance_m - start) / (end - start), 0.0, 1.0)));
 }
 
 Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
                                      const RoadSegment &segment,
-                                     double station_m, double total_m) {
+                                     double segment_distance_m,
+                                     double total_m) {
   Result<CrossSectionTemplate> section =
-      template_at(graph, segment, station_m, total_m);
+      template_at(graph, segment, segment_distance_m, total_m);
   if (!section.ok) {
     return Result<SectionEvaluation>::Fail(section.error_kind, section.error);
   }
@@ -305,7 +307,7 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
     }
   }
   return Result<SectionEvaluation>::Ok(SectionEvaluation{
-      segment.id, station_m, section.value.id, std::move(boundaries),
+      segment.id, segment_distance_m, section.value.id, std::move(boundaries),
       build_surface_styles(section.value)});
 }
 

@@ -335,7 +335,7 @@ export class WireScene {
   constructor(
     private readonly store: ViewerStore,
     private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo) => void,
-    private readonly onGroundPreview: (point: WorldPoint) => void,
+    private readonly onGroundPreview: (point: WorldPoint, pick?: RoadSnapInfo) => void,
     private readonly onContextAction: () => void,
     private readonly onFrame: (deltaMs: number) => void,
     private readonly onContentSync?: (stats: SceneContentSyncStats) => void,
@@ -519,6 +519,7 @@ export class WireScene {
       pinch = null;
       pointerDown = null;
       this.clearSnapPreview();
+      this.onGroundPreview([0, 0, 0]);
     };
     const onContextMenu = (event: MouseEvent) => {
       event.preventDefault();
@@ -781,7 +782,7 @@ export class WireScene {
             kind: "road",
             nodeId: node.id,
             segmentId: 0,
-            stationM: 0,
+            segmentDistanceM: 0,
             extensionCorridorId: node.extensionCorridorId ?? 0
           }
         };
@@ -825,7 +826,7 @@ export class WireScene {
           kind: "road",
           nodeId: 0,
           segmentId: segment.id,
-          stationM: segment.startStationM + (segment.endStationM - segment.startStationM) * t
+          segmentDistanceM: segment.startSegmentDistanceM + (segment.endSegmentDistanceM - segment.startSegmentDistanceM) * t
         }
       };
     }
@@ -984,13 +985,14 @@ export class WireScene {
   }
 
   private sceneRoadSignature(snapshot: ViewerSnapshot): string {
-    const meshKey = (mesh: { material: string; vertices: Float64Array; indices: Uint32Array }) =>
-      `${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
+    const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array }) =>
+      `${mesh.ownerSegmentId}:${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
     return [
       ...snapshot.road.scene.surfaceMeshes.map(meshKey),
       ...snapshot.road.scene.markingMeshes.map(meshKey),
       "preview",
       ...snapshot.road.previewMeshes.map(meshKey),
+      `delete-hover:${snapshot.road.hoveredDeleteSegmentId}`,
       `edit:${snapshot.road.operation}:${snapshot.road.selectedEditSegmentId}:` +
         snapshot.road.editPoints.map((point) => `${point.x}:${point.y}`).join("|")
     ].join("|");
@@ -1007,8 +1009,12 @@ export class WireScene {
       polygonOffsetFactor: -2
     });
     for (const data of snapshot.road.scene.surfaceMeshes) {
+      const deleteHovered =
+        snapshot.road.operation === "delete" &&
+        data.ownerSegmentId === snapshot.road.hoveredDeleteSegmentId;
       const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), new THREE.MeshStandardMaterial({
-        color: roadSurfaceColor(data.material),
+        color: deleteHovered ? 0xe85d3f : roadSurfaceColor(data.material),
+        emissive: deleteHovered ? 0x522012 : 0x000000,
         roughness: data.material === "asphalt" ? 0.96 : 0.88,
         metalness: 0
       }));
@@ -1017,7 +1023,13 @@ export class WireScene {
       this.road.add(mesh);
     }
     for (const data of snapshot.road.scene.markingMeshes) {
-      this.road.add(new THREE.Mesh(makeRoadMeshGeometry(data), markingMaterial.clone()));
+      const material = markingMaterial.clone();
+      if (snapshot.road.operation === "delete" &&
+          data.ownerSegmentId === snapshot.road.hoveredDeleteSegmentId) {
+        material.color.setHex(0xffb13b);
+        material.emissive.setHex(0x4a2600);
+      }
+      this.road.add(new THREE.Mesh(makeRoadMeshGeometry(data), material));
     }
     for (const data of snapshot.road.previewMeshes) {
       const material = new THREE.MeshStandardMaterial({
@@ -1497,7 +1509,7 @@ export class WireScene {
         const point = new THREE.Vector3(roadHit.point[0], roadHit.point[1], roadHit.point[2] + 0.08);
         this.snapPreviewRing.position.copy(point);
         this.snapPreview.visible = true;
-        this.onGroundPreview(roadHit.point);
+        this.onGroundPreview(roadHit.point, roadHit.snap);
         return;
       }
       const ray = new THREE.Raycaster();

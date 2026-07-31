@@ -259,16 +259,16 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
   derived.terrain_masks.clear();
 
   for (const DerivedSegment &segment : derived.segments) {
-    if (segment.surface_stations_m.empty()) {
+    if (segment.surface_segment_distances_m.empty()) {
       return Result<bool>::Fail(ErrorKind::kInternal,
-                                "road segment has no surface stations");
+                                "road segment has no surface distances");
     }
     segment_input input{};
     input.segment_id = segment.id;
-    for (const double station : segment.surface_stations_m) {
-      const Result<Vec2d> center = EvaluatePath(segment.alignment, station);
-      const Result<Vec2d> tangent = internal::tangent_at(segment.alignment, station);
-      const SectionEvaluation *section = FindSectionAt(segment, station);
+    for (const double distance : segment.surface_segment_distances_m) {
+      const Result<Vec2d> center = EvaluatePath(segment.alignment, distance);
+      const Result<Vec2d> tangent = internal::tangent_at(segment.alignment, distance);
+      const SectionEvaluation *section = FindSectionAt(segment, distance);
       if (!center.ok || !tangent.ok || section == nullptr) {
         return Result<bool>::Fail(ErrorKind::kInternal,
                                   "road surface sample is missing");

@@ -17,8 +17,8 @@ struct NodeIncidence {
 
 [[nodiscard]] std::vector<NodeIncidence> derive_node_incidence(const SavedRoadGraph &graph);
 
-// Canonical alignment, the stations every consumer shares, and the section at
-// those stations. Connection resolution needs the alignments first, so segments
+// Canonical alignment, the distances every consumer shares, and the section at
+// those distances. Connection resolution needs the alignments first, so segments
 // are derived in two passes: shapes, then the sections that depend on gates.
 [[nodiscard]] Result<std::vector<DerivedSegment>>
 derive_segment_shapes(const SavedRoadGraph &graph);

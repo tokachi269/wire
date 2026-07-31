@@ -1,5 +1,6 @@
 import {
   roadSegmentInput,
+  roadSpanInput,
   withRoadBend,
   withRoadCurveEnd,
   withRoadEnd,
@@ -23,6 +24,7 @@ export class RoadActions {
         mode,
         phase: "start",
         curveContinuationTangent: null,
+        draftSpans: [],
         previewMeshes: [],
         previewIssue: "",
         lastError: ""
@@ -38,7 +40,9 @@ export class RoadActions {
         operation,
         phase: "start",
         curveContinuationTangent: null,
+        draftSpans: [],
         markingDraftSegmentId: 0,
+        hoveredDeleteSegmentId: 0,
         selectedEditSegmentId: 0,
         selectedEditNodeAId: 0,
         selectedEditNodeBId: 0,
@@ -146,6 +150,10 @@ export class RoadActions {
       return;
     }
     if (snap !== undefined && !sameRoadPoint(current.draftStart, target)) {
+      if (current.draftSpans.length !== 0) {
+        this.ctx.store.setError("Finish or cancel the current road before starting another");
+        return;
+      }
       this.beginAt(target, snap);
       return;
     }
@@ -157,11 +165,21 @@ export class RoadActions {
       return;
     }
     const road = current.mode !== "line" ? withRoadCurveEnd(current, target) : withRoadEnd(current, target);
-    this.commit(road);
+    this.stageSpan(road);
   }
 
-  previewViewportPoint(point: WorldPoint): void {
+  previewViewportPoint(point: WorldPoint, snap?: RoadSnapInfo): void {
     const current = this.ctx.readSnapshot().road;
+    if (current.operation === "delete") {
+      const hoveredDeleteSegmentId = snap?.segmentId ?? 0;
+      if (hoveredDeleteSegmentId !== current.hoveredDeleteSegmentId) {
+        this.ctx.store.update((snapshot) => ({
+          ...snapshot,
+          road: { ...snapshot.road, hoveredDeleteSegmentId }
+        }));
+      }
+      return;
+    }
     if (current.operation !== "draw") return;
     if (current.phase === "start") return;
     const target: RoadPoint = { x: point[0], y: point[1] };
@@ -177,8 +195,8 @@ export class RoadActions {
     }
     if (road.operation === "delete") {
       this.finish(
-        this.ctx.bridge.roadDeleteSection(snap.segmentId),
-        "road delete section"
+        this.ctx.bridge.roadDeleteSegment(snap.segmentId),
+        "road delete segment"
       );
       return;
     }
@@ -209,7 +227,7 @@ export class RoadActions {
     if (road.operation === "area-marking") {
       this.finish(this.ctx.bridge.roadAddManualArea({
         segmentId: snap.segmentId,
-        stationM: snap.stationM,
+        segmentDistanceM: snap.segmentDistanceM,
         lateralM: road.manualLineOffsetM,
         widthM: road.manualAreaWidthM,
         lengthM: road.manualAreaLengthM,
@@ -224,7 +242,7 @@ export class RoadActions {
           road: {
             ...snapshot.road,
             markingDraftSegmentId: snap.segmentId,
-            markingDraftStationM: snap.stationM,
+            markingDraftSegmentDistanceM: snap.segmentDistanceM,
             lastError: ""
           }
         }));
@@ -236,8 +254,8 @@ export class RoadActions {
       }
       this.finish(this.ctx.bridge.roadAddManualLine({
         segmentId: snap.segmentId,
-        startStationM: road.markingDraftStationM,
-        endStationM: snap.stationM,
+        startSegmentDistanceM: road.markingDraftSegmentDistanceM,
+        endSegmentDistanceM: snap.segmentDistanceM,
         lateralM: road.manualLineOffsetM,
         style: "white"
       }), "road add manual line marking");
@@ -248,6 +266,41 @@ export class RoadActions {
 
   undoOrCancel(): void {
     const current = this.ctx.readSnapshot().road;
+    if (current.draftSpans.length !== 0) {
+      const draftSpans = current.draftSpans.slice(0, -1);
+      if (draftSpans.length === 0) {
+        this.ctx.store.update((snapshot) => ({
+          ...snapshot,
+          road: {
+            ...snapshot.road,
+            phase: "start",
+            draftSpans: [],
+            curveContinuationTangent: null,
+            previewMeshes: [],
+            previewIssue: "",
+            lastError: ""
+          },
+          error: ""
+        }));
+        return;
+      }
+      const last = draftSpans[draftSpans.length - 1];
+      const next = withRoadEnd({
+        ...current,
+        draftSpans,
+        draftStart: { x: last.endX, y: last.endY },
+        draftBend: { x: last.endX, y: last.endY },
+        phase: current.mode === "line" ? "end" : "bend",
+        curveContinuationTangent: last.kind === "bezier"
+          ? { x: last.endX - last.handleBX, y: last.endY - last.handleBY }
+          : null
+      }, { x: last.endX, y: last.endY });
+      const preview = this.ctx.bridge.roadPreviewSegment(
+        roadSegmentInput(next, false)
+      );
+      this.applyPreview(next, preview);
+      return;
+    }
     if (current.phase !== "start") {
       this.ctx.store.update((snapshot) => ({
         ...snapshot,
@@ -272,8 +325,12 @@ export class RoadActions {
     this.finish(result, "road clear");
   }
 
-  private commit(road: RoadToolState): void {
-    const result = this.ctx.bridge.roadAddSegment(roadSegmentInput(road));
+  commitPath(): void {
+    const road = this.ctx.readSnapshot().road;
+    if (road.operation !== "draw" || road.draftSpans.length === 0) return;
+    const result = this.ctx.bridge.roadAddSegment(
+      roadSegmentInput(road, false)
+    );
     if (!result.ok) {
       this.ctx.store.update((snapshot) => ({
         ...snapshot,
@@ -287,6 +344,21 @@ export class RoadActions {
       }));
       return;
     }
+    this.finish(result, "road add segment");
+  }
+
+  private stageSpan(road: RoadToolState): void {
+    const candidate = {
+      ...road,
+      draftSpans: [...road.draftSpans, roadSpanInput(road)]
+    };
+    const preview = this.ctx.bridge.roadPreviewSegment(
+      roadSegmentInput(candidate, false)
+    );
+    if (!preview.ok) {
+      this.applyPreview(road, preview);
+      return;
+    }
     const nextStart = road.draftEnd;
     const phase = road.mode !== "line" ? "bend" : "end";
     const curveContinuationTangent =
@@ -296,26 +368,19 @@ export class RoadActions {
             y: road.draftEnd.y - road.handleB.y
           }
         : null;
-    const scene = this.ctx.bridge.roadScene();
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: withRoadEnd({
-        ...road,
+        ...candidate,
         phase,
         draftStart: nextStart,
         draftBend: nextStart,
         curveContinuationTangent,
-        draftStartNodeId: result.endNodeId ?? 0,
-        draftStartSegmentId: 0,
-        draftStartStationM: 0,
-        draftExtensionCorridorId: result.corridorId ?? 0,
-        scene,
-        previewMeshes: [],
+        previewMeshes: preview.meshes,
         previewIssue: "",
         lastError: ""
       }, nextStart),
-      error: "",
-      logs: [...snapshot.logs, "road add segment"]
+      error: ""
     }));
   }
 
@@ -341,7 +406,7 @@ export class RoadActions {
         curveContinuationTangent: null,
         draftStartNodeId: snap?.nodeId ?? 0,
         draftStartSegmentId: snap?.segmentId ?? 0,
-        draftStartStationM: snap?.stationM ?? 0,
+        draftStartSegmentDistanceM: snap?.segmentDistanceM ?? 0,
         draftExtensionCorridorId: snap?.extensionCorridorId ?? 0,
         phase
       }, target)
@@ -359,8 +424,15 @@ export class RoadActions {
       road: {
         ...snapshot.road,
         phase: "start",
+        draftSpans: [],
+        draftStartNodeId: 0,
+        draftStartSegmentId: 0,
+        draftStartSegmentDistanceM: 0,
+        draftExtensionCorridorId: 0,
+        curveContinuationTangent: null,
         markingDraftSegmentId: 0,
         activeEditPointIndex: -1,
+        hoveredDeleteSegmentId: 0,
         scene,
         previewMeshes: [],
         previewIssue: "",
@@ -414,7 +486,7 @@ function editInput(road: RoadToolState) {
     handleBY: handleB.y,
     startNodeId: 0,
     startSegmentId: 0,
-    startStationM: 0,
+    startSegmentDistanceM: 0,
     extensionCorridorId: 0,
     connectToFirstNode: false,
     sectionTemplateId: road.selectedSectionTemplateId

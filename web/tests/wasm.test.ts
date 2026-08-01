@@ -378,6 +378,38 @@ describe("wire wasm smoke", () => {
     runState.delete();
   });
 
+  it("previews one wire interval through the commit generator without mutating state", () => {
+    const runState = createState();
+    expect(runState.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const points = new Float64Array([0, 0, 0, 20, 4, 0]);
+    const placements = hvBundlePlacement();
+    const before = runState.saveState();
+
+    const preview = runState.previewPlacements(points, placements, 0, 1, 0, 12, []);
+    expect(preview.ok, preview.error).toBe(true);
+    expect(preview.generatedPoleIds).toHaveLength(2);
+    expect(preview.generatedSpanIds).toHaveLength(3);
+    expect(preview.parts.length).toBeGreaterThan(0);
+    expect(preview.poles).toHaveLength(2);
+    expect(runState.saveState()).toBe(before);
+    expect(runState.poleCount()).toBe(0);
+
+    const generated = runState.generatePlacements(points, placements, 0, 1, 0, 12, []);
+    expect(generated.ok, generated.error).toBe(true);
+    expect(generated.generatedPoleIds).toEqual(preview.generatedPoleIds);
+    expect(generated.generatedSpanIds).toEqual(preview.generatedSpanIds);
+    const committedParts = visualParts(runState);
+    const previewSamples = new Float64Array(preview.samples);
+    const previewByKey = new Map(preview.parts.map((part) => [
+      part.partKey,
+      [...previewSamples.subarray(part.sampleOffset, part.sampleOffset + part.sampleCount * 3)]
+    ]));
+    for (const part of committedParts) {
+      expect(previewByKey.get(part.info.partKey)).toEqual([...part.samples]);
+    }
+    runState.delete();
+  });
+
   it("bootstraps one straight communication fixture per Port", () => {
     const modelState = createState();
     const configured = modelState.configureModelAssemblies(modelBootstrap());

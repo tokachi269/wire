@@ -10,7 +10,8 @@ import type {
   BundlePlacement,
   CableTemplateInfo,
   GenerationTiming,
-  PoleTemplateInfo
+  PoleTemplateInfo,
+  WireIntervalRequest
 } from "../src/model";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 import { decodeWorkspaceText, WorkspaceCache, WORKSPACE_CACHE_KEY } from "../src/store/workspace";
@@ -601,6 +602,187 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
 }
 
 describe("viewport tool routing", () => {
+  it("previews and commits each wire interval without waiting for Enter", () => {
+    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true,
+      error: "",
+      generatedPoleCount: 2,
+      generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"],
+      generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"],
+      totalMs: 1,
+      timing: timing(1),
+      parts: [],
+      poles: [],
+      endpoint: request.points[1],
+      endpointSpec: null
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true,
+      error: "",
+      generatedPoleCount: 2,
+      generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"],
+      generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"],
+      totalMs: 1,
+      timing: timing(1),
+      endpoint: request.points[1],
+      endpointSpec: null
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval, generateWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 0, 0]);
+    expect(previewWireInterval).toHaveBeenCalledOnce();
+
+    actions.addViewportPoint([12, 0, 0]);
+    expect(generateWireInterval).toHaveBeenCalledOnce();
+    expect(generateWireInterval).toHaveBeenCalledWith(previewWireInterval.mock.calls[0][0]);
+    expect(current(store).pathPoints).toEqual([[12, 0, 0]]);
+    expect(current(store).pathPointSpecs).toEqual([{ supportKind: 0, nodeId: "102" }]);
+
+    actions.previewViewportPoint([24, 4, 0]);
+    actions.addViewportPoint([24, 4, 0]);
+    expect(generateWireInterval).toHaveBeenCalledTimes(2);
+    expect(generateWireInterval.mock.calls[1][0]).toEqual(previewWireInterval.mock.calls[1][0]);
+  });
+
+  it("commits the displayed wire interval with Enter and then ends the session", () => {
+    const requestResult = {
+      ok: true,
+      error: "",
+      generatedPoleCount: 2,
+      generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"],
+      generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"],
+      totalMs: 1,
+      timing: timing(1)
+    };
+    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ...requestResult, parts: [], poles: [], endpoint: request.points[1], endpointSpec: null
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ...requestResult, endpoint: request.points[1], endpointSpec: null
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval, generateWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 3, 0]);
+    actions.finishDrawSession();
+
+    expect(generateWireInterval).toHaveBeenCalledOnce();
+    expect(generateWireInterval).toHaveBeenCalledWith(previewWireInterval.mock.calls[0][0]);
+    expect(current(store).pathPoints).toEqual([]);
+    expect(current(store).wirePreview.state).toBe("none");
+  });
+
+  it("keeps an invalid wire preview and reason when Enter cannot commit", () => {
+    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: false,
+      error: "wire connection needs more length",
+      generatedPoleCount: 0,
+      generatedSpanCount: 0,
+      totalMs: 0,
+      timing: timing(0),
+      parts: [],
+      poles: [],
+      endpoint: request.points[1],
+      endpointSpec: null
+    }));
+    const generateWireInterval = vi.fn();
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval, generateWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([0.1, 0, 0]);
+    actions.finishDrawSession();
+
+    expect(generateWireInterval).not.toHaveBeenCalled();
+    expect(current(store).pathPoints).toEqual([[0, 0, 0]]);
+    expect(current(store).wirePreview.state).toBe("invalid");
+    expect(current(store).wirePreview.issue).toBe("wire connection needs more length");
+  });
+
+  it("keeps committed wire intervals when Escape cancels the next preview", () => {
+    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"], totalMs: 1, timing: timing(1), parts: [], poles: [],
+      endpoint: request.points[1], endpointSpec: null
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"], totalMs: 1, timing: timing(1),
+      endpoint: request.points[1], endpointSpec: null
+    }));
+    const loadState = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval, generateWireInterval, loadState }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 0, 0]);
+    actions.addViewportPoint([12, 0, 0]);
+    actions.previewViewportPoint([24, 4, 0]);
+    actions.cancelDrawSession();
+    actions.cancelDrawSession();
+
+    expect(generateWireInterval).toHaveBeenCalledOnce();
+    expect(loadState).not.toHaveBeenCalled();
+    expect(current(store).pathPoints).toEqual([]);
+    expect(current(store).wirePreview.state).toBe("none");
+  });
+
+  it("undoes only the last committed wire interval with the operation snapshot", () => {
+    let coreState = "before-wire-interval";
+    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"], totalMs: 1, timing: timing(1), parts: [], poles: [],
+      endpoint: request.points[1], endpointSpec: null
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => {
+      coreState = "after-wire-interval";
+      return {
+        ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+        generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"],
+        generatedBundleIds: ["301"], totalMs: 1, timing: timing(1),
+        endpoint: request.points[1], endpointSpec: null
+      };
+    });
+    const loadState = vi.fn((text: string) => {
+      coreState = text;
+      return { ok: true, error: "" };
+    });
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({
+      previewWireInterval,
+      generateWireInterval,
+      saveState: () => coreState,
+      loadState
+    }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 0, 0]);
+    actions.addViewportPoint([12, 0, 0]);
+    actions.undoActiveTool();
+
+    expect(loadState).toHaveBeenCalledOnce();
+    expect(loadState).toHaveBeenCalledWith("before-wire-interval");
+    expect(coreState).toBe("before-wire-interval");
+    expect(current(store).pathPoints).toEqual([]);
+  });
+
   it("commits a complete straight road interval on the second viewport click", () => {
     const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "" }));
     const store = new ViewerStore();

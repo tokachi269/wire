@@ -28,6 +28,8 @@ export interface EditResult {
   generatedPoleCount: number;
   generatedSpanCount: number;
   generatedBundleIds?: string[];
+  generatedPoleIds?: string[];
+  generatedSpanIds?: string[];
   totalMs: number;
   timing: GenerationTiming;
 }
@@ -36,6 +38,22 @@ export interface OperationResult {
   ok: boolean;
   error: string;
   errorKind?: EditErrorKind;
+}
+
+export interface WireIntervalRequest {
+  points: [[number, number, number], [number, number, number]];
+  pointSpecs: Array<{ supportKind: number; nodeId: string } | null>;
+  targetPick?: PathPickInfo;
+  bundlePlacements: BundlePlacement[];
+  intervalM: number;
+  poleTypeId: number;
+  directionMode: number;
+  maxTiltDeg: number;
+}
+
+export interface WireIntervalResult extends EditResult {
+  endpoint: [number, number, number];
+  endpointSpec: { supportKind: number; nodeId: string } | null;
 }
 
 export interface VisualPartInfo {

@@ -29,7 +29,9 @@ import type {
   SupportNodeInfo,
   VisualPartInfo,
   VisualModelInstanceInfo,
-  VisualSettings
+  VisualSettings,
+  WireIntervalRequest,
+  WireIntervalResult
 } from "../model";
 import type { RoadMeshData, RoadSceneData, RoadSegmentInput } from "../road";
 
@@ -47,6 +49,11 @@ export interface SceneData {
   supportNodes: SupportNodeInfo[];
   backboneEdges: BackboneEdgeInfo[];
   lastGenerationTiming?: GenerationTiming | null;
+}
+
+export interface WireIntervalPreview extends WireIntervalResult {
+  parts: VisualPartData[];
+  poles: PoleInfo[];
 }
 
 export class WireBridge {
@@ -133,6 +140,95 @@ export class WireBridge {
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo {
     return this.state.resolveBranchPick(input, selectedBundleTemplateIds);
+  }
+
+  previewWireInterval(input: WireIntervalRequest): WireIntervalPreview {
+    const prepared = this.prepareWireInterval(input, true);
+    if (!prepared.ok) return { ...prepared, parts: [], poles: [] };
+    const preview = this.state.previewPlacements(
+      prepared.points,
+      input.bundlePlacements,
+      input.intervalM,
+      input.poleTypeId,
+      input.directionMode,
+      input.maxTiltDeg,
+      prepared.nodeSpecs
+    );
+    if (!preview.ok) {
+      return {
+        ...preview,
+        endpoint: prepared.endpoint,
+        endpointSpec: prepared.endpointSpec,
+        parts: [],
+        poles: []
+      };
+    }
+    const sceneSamples = new Float64Array(preview.samples);
+    const generatedSpanIds = new Set(preview.generatedSpanIds ?? []);
+    return {
+      ...preview,
+      endpoint: prepared.endpoint,
+      endpointSpec: prepared.endpointSpec,
+      parts: preview.parts
+        .filter((info) => generatedSpanIds.has(info.sourceSpanId))
+        .map((info) => ({
+          info,
+          samples: sceneSamples.subarray(info.sampleOffset, info.sampleOffset + info.sampleCount * 3)
+        })),
+      poles: preview.poles
+    };
+  }
+
+  generateWireInterval(input: WireIntervalRequest): WireIntervalResult {
+    const prepared = this.prepareWireInterval(input, false);
+    if (!prepared.ok) return prepared;
+    const generated = this.state.generatePlacements(
+      prepared.points,
+      input.bundlePlacements,
+      input.intervalM,
+      input.poleTypeId,
+      input.directionMode,
+      input.maxTiltDeg,
+      prepared.nodeSpecs
+    );
+    return {
+      ...generated,
+      endpoint: prepared.endpoint,
+      endpointSpec: prepared.endpointSpec
+    };
+  }
+
+  private prepareWireInterval(input: WireIntervalRequest, preview: boolean): WireIntervalResult & {
+    points: Float64Array;
+    nodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }>;
+  } {
+    let endpoint = input.points[1];
+    let endpointSpec = input.pointSpecs[1];
+    if (input.targetPick !== undefined) {
+      const selected = [...new Set(input.bundlePlacements.map((placement) => placement.bundleTemplateId))];
+      const resolved = preview
+        ? this.state.previewResolveBranchPick(input.targetPick, selected)
+        : this.state.resolveBranchPick(input.targetPick, selected);
+      if (!resolved.ok) {
+        return {
+          ...emptyWireIntervalResult(endpoint, endpointSpec, resolved.error),
+          points: new Float64Array(),
+          nodeSpecs: []
+        };
+      }
+      endpoint = [resolved.positionX, resolved.positionY, resolved.positionZ];
+      endpointSpec = { supportKind: resolved.supportKind, nodeId: resolved.nodeId };
+    }
+    const points = new Float64Array([...input.points[0], ...endpoint]);
+    const nodeSpecs = [input.pointSpecs[0], endpointSpec]
+      .map((spec, pointIndex) => spec === null ? null : ({ pointIndex, ...spec }))
+      .filter((spec): spec is { pointIndex: number; supportKind: number; nodeId: string } => spec !== null);
+    return {
+      ...emptyWireIntervalResult(endpoint, endpointSpec, ""),
+      ok: true,
+      points,
+      nodeSpecs
+    };
   }
 
   clearPendingSupportNodes(): OperationResult {
@@ -479,5 +575,36 @@ function copyRoadMesh(mesh: RoadMeshPayload): RoadMeshData {
     material: mesh.material,
     vertices: new Float64Array(mesh.vertices),
     indices: new Uint32Array(mesh.indices)
+  };
+}
+
+function emptyWireIntervalResult(
+  endpoint: [number, number, number],
+  endpointSpec: { supportKind: number; nodeId: string } | null,
+  error: string
+): WireIntervalResult {
+  return {
+    ok: error.length === 0,
+    error,
+    generatedPoleCount: 0,
+    generatedSpanCount: 0,
+    totalMs: 0,
+    timing: {
+      prepareMs: 0,
+      checkMs: 0,
+      pairsMs: 0,
+      preflightMs: 0,
+      intentMs: 0,
+      supportGroupsMs: 0,
+      emitMs: 0,
+      saveGraphMs: 0,
+      rulesMs: 0,
+      layoutMs: 0,
+      geomMs: 0,
+      drawMs: 0,
+      totalMs: 0
+    },
+    endpoint,
+    endpointSpec
   };
 }

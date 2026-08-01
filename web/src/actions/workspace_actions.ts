@@ -300,7 +300,8 @@ export class WorkspaceActions {
           : current.drawBundlePlacements,
         showGroundGrid: preferences.showGroundGrid ?? current.showGroundGrid,
         pathPoints: [],
-        pathPointSpecs: []
+        pathPointSpecs: [],
+        wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null }
       };
     });
     if (defaultPlacementError.length > 0) {

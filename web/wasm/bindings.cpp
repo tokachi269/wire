@@ -464,6 +464,31 @@ public:
   val generate_placements(const val& flat_points, const val& bundle_placements, double interval_m,
                           int pole_type_id, int direction_mode, double max_tilt_deg,
                           const val& node_specs = val::undefined()) {
+    return run_placements(*state_, flat_points, bundle_placements, interval_m, pole_type_id,
+                          direction_mode, max_tilt_deg, node_specs, false);
+  }
+
+  val preview_placements(const val& flat_points, const val& bundle_placements, double interval_m,
+                         int pole_type_id, int direction_mode, double max_tilt_deg,
+                         const val& node_specs = val::undefined()) {
+    CoreState trial = *state_;
+    return run_placements(trial, flat_points, bundle_placements, interval_m, pole_type_id,
+                          direction_mode, max_tilt_deg, node_specs, true);
+  }
+
+  val resolve_branch_pick(const val& input, const val& selected_bundle_template_ids) {
+    return resolve_branch_pick_on(*state_, input, selected_bundle_template_ids);
+  }
+
+  val preview_resolve_branch_pick(const val& input, const val& selected_bundle_template_ids) {
+    CoreState trial = *state_;
+    return resolve_branch_pick_on(trial, input, selected_bundle_template_ids);
+  }
+
+private:
+  val run_placements(CoreState& target, const val& flat_points, const val& bundle_placements,
+                     double interval_m, int pole_type_id, int direction_mode, double max_tilt_deg,
+                     const val& node_specs, bool include_preview_scene) {
     const std::size_t value_count = flat_points["length"].as<std::size_t>();
     if (value_count % 3 != 0) {
       return result_value(false, "point array length must be divisible by 3");
@@ -506,8 +531,8 @@ public:
       if (id == city::wire::kInvalidBundleTemplateId) {
         return result_value(false, "bundle template id is invalid");
       }
-      const auto template_it = CoreView(*state_).bundle_templates().find(id);
-      if (template_it == CoreView(*state_).bundle_templates().end()) {
+      const auto template_it = CoreView(target).bundle_templates().find(id);
+      if (template_it == CoreView(target).bundle_templates().end()) {
         return result_value(false, "bundle template is missing");
       }
       BackboneBundleSpec bundle{};
@@ -532,7 +557,7 @@ public:
       spec.bundles.push_back(bundle);
     }
 
-    const auto generated = state_->GenerateFromBackboneSpec(spec);
+    const auto generated = target.GenerateFromBackboneSpec(spec);
     val result = result_value(generated.ok, generated.error);
     result.set("generatedPoleCount", generated.value.generated_pole_ids.size());
     result.set("generatedSpanCount", generated.value.generated_span_ids.size());
@@ -541,12 +566,36 @@ public:
       generated_bundle_ids.set(index, std::to_string(generated.value.bundle_ids[index]));
     }
     result.set("generatedBundleIds", generated_bundle_ids);
+    val generated_pole_ids = val::array();
+    for (std::size_t index = 0; index < generated.value.generated_pole_ids.size(); ++index) {
+      generated_pole_ids.set(index, std::to_string(generated.value.generated_pole_ids[index]));
+    }
+    result.set("generatedPoleIds", generated_pole_ids);
+    val generated_span_ids = val::array();
+    for (std::size_t index = 0; index < generated.value.generated_span_ids.size(); ++index) {
+      generated_span_ids.set(index, std::to_string(generated.value.generated_span_ids[index]));
+    }
+    result.set("generatedSpanIds", generated_span_ids);
     result.set("totalMs", generated.value.timing.total_ms);
     result.set("timing", generation_timing_value(generated.value.timing));
+    if (include_preview_scene && generated.ok) {
+      const val scene = visual_scene_for(target);
+      result.set("parts", scene["parts"]);
+      result.set("models", scene["models"]);
+      result.set("samples", scene["samples"]);
+      val poles = val::array();
+      std::size_t pole_index = 0;
+      for (ObjectId pole_id : generated.value.generated_pole_ids) {
+        const auto* pole = CoreView(target).poles().find(pole_id);
+        if (pole == nullptr) continue;
+        poles.set(pole_index++, pole_value(*pole));
+      }
+      result.set("poles", poles);
+    }
     return result;
   }
 
-  val resolve_branch_pick(const val& input, const val& selected_bundle_template_ids) {
+  val resolve_branch_pick_on(CoreState& target, const val& input, const val& selected_bundle_template_ids) {
     PickResult pick{};
     pick.hit_kind = static_cast<PickHitKind>(property<int>(input, "hitKind"));
     const std::string hit_id = property<std::string>(input, "hitId");
@@ -590,7 +639,7 @@ public:
       }
     }
 
-    const auto resolved = state_->ResolveBranchPick(pick, options);
+    const auto resolved = target.ResolveBranchPick(pick, options);
     val output = result_value(resolved.ok, resolved.error);
     output.set("positionX", resolved.value.position.x);
     output.set("positionY", resolved.value.position.y);
@@ -599,6 +648,8 @@ public:
     output.set("nodeId", std::to_string(resolved.value.resolved_node_id));
     return output;
   }
+
+public:
 
   [[nodiscard]] val clear_pending_support_nodes() {
     const auto cleared = state_->ClearPendingSupportNodes();
@@ -612,8 +663,13 @@ public:
 
 
   val visual_scene() {
-    const auto& parts = state_->visual_curve_parts().parts;
-    const CoreView view(*state_);
+    return visual_scene_for(*state_);
+  }
+
+private:
+  val visual_scene_for(const CoreState& source) {
+    const auto& parts = source.visual_curve_parts().parts;
+    const CoreView view(source);
     sample_buffer_.clear();
     std::size_t sample_value_count = 0;
     for (const auto& part : parts) {
@@ -670,7 +726,7 @@ public:
     val result = val::object();
     result.set("parts", descriptors);
     val models = val::array();
-    const auto& model_instances = state_->visual_model_instances().instances;
+    const auto& model_instances = source.visual_model_instances().instances;
     for (std::size_t index = 0; index < model_instances.size(); ++index) {
       const auto& instance = model_instances[index];
       val output = val::object();
@@ -693,6 +749,25 @@ public:
     return result;
   }
 
+  static val pole_value(const city::wire::Pole& pole) {
+    val output = val::object();
+    output.set("id", std::to_string(pole.id));
+    output.set("poleTypeId", static_cast<int>(pole.pole_type_id));
+    output.set("height", pole.height_m);
+    output.set("positionX", pole.world_transform.position.x);
+    output.set("positionY", pole.world_transform.position.y);
+    output.set("positionZ", pole.world_transform.position.z);
+    output.set("rotationX", pole.world_transform.rotation_euler_deg.x);
+    output.set("rotationY", pole.world_transform.rotation_euler_deg.y);
+    output.set("rotationZ", pole.world_transform.rotation_euler_deg.z);
+    output.set("scaleX", pole.world_transform.scale.x);
+    output.set("scaleY", pole.world_transform.scale.y);
+    output.set("scaleZ", pole.world_transform.scale.z);
+    return output;
+  }
+
+public:
+
   val configure_model_assemblies(const val& input) {
     const auto configured = apply_model_bootstrap(*state_, input);
     return result_value(configured.ok, configured.error);
@@ -708,20 +783,7 @@ public:
     if (pole == nullptr) {
       throw std::out_of_range("pole index is out of range");
     }
-    val output = val::object();
-    output.set("id", std::to_string(pole->id));
-    output.set("poleTypeId", static_cast<int>(pole->pole_type_id));
-    output.set("height", pole->height_m);
-    output.set("positionX", pole->world_transform.position.x);
-    output.set("positionY", pole->world_transform.position.y);
-    output.set("positionZ", pole->world_transform.position.z);
-    output.set("rotationX", pole->world_transform.rotation_euler_deg.x);
-    output.set("rotationY", pole->world_transform.rotation_euler_deg.y);
-    output.set("rotationZ", pole->world_transform.rotation_euler_deg.z);
-    output.set("scaleX", pole->world_transform.scale.x);
-    output.set("scaleY", pole->world_transform.scale.y);
-    output.set("scaleZ", pole->world_transform.scale.z);
-    return output;
+    return pole_value(*pole);
   }
 
   [[nodiscard]] std::size_t port_count() const {
@@ -2296,7 +2358,9 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .constructor<>()
       .function("generate", &WireState::generate)
       .function("generatePlacements", &WireState::generate_placements)
+      .function("previewPlacements", &WireState::preview_placements)
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
+      .function("previewResolveBranchPick", &WireState::preview_resolve_branch_pick)
       .function("clearPendingSupportNodes", &WireState::clear_pending_support_nodes)
       .function("lastGenerationTiming", &WireState::last_generation_timing)
       .function("visualScene", &WireState::visual_scene)

@@ -336,7 +336,7 @@ export class WireScene {
   constructor(
     private readonly store: ViewerStore,
     private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo) => void,
-    private readonly onGroundPreview: (point: WorldPoint, pick?: RoadSnapInfo) => void,
+    private readonly onGroundPreview: (point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo) => void,
     private readonly onContextAction: () => void,
     private readonly onFrame: (deltaMs: number) => void,
     private readonly onContentSync?: (stats: SceneContentSyncStats) => void,
@@ -1021,7 +1021,15 @@ export class WireScene {
     const specs = snapshot.pathPointSpecs.map((spec) =>
       spec === null ? "null" : `${spec.supportKind}:${spec.nodeId}`
     ).join("|");
-    return `${points};${specs}`;
+    const preview = snapshot.wirePreview;
+    const previewParts = preview.parts.map((part) =>
+      `${part.info.partKey}:${part.info.sourceVersion}:${part.samples.length}`
+    ).join("|");
+    const previewPoles = preview.poles.map((pole) =>
+      `${pole.id}:${pole.positionX}:${pole.positionY}:${pole.positionZ}`
+    ).join("|");
+    const request = preview.request?.points.map((point) => point.join(":")).join("|") ?? "";
+    return `${points};${specs};${preview.state};${previewParts};${previewPoles};${request}`;
   }
 
   private sceneRoadSignature(snapshot: ViewerSnapshot): string {
@@ -1505,6 +1513,46 @@ export class WireScene {
   private rebuildGuide(snapshot: ViewerSnapshot): void {
     this.disposeGroup(this.guide);
     this.buildPathGuide(snapshot);
+    this.buildWirePreview(snapshot);
+  }
+
+  private buildWirePreview(snapshot: ViewerSnapshot): void {
+    const preview = snapshot.wirePreview;
+    if (preview.state === "none" || preview.request === null) return;
+    const color = preview.state === "valid" ? 0x39b8d4 : 0xe85d3f;
+    const candidate = preview.request.points.map(
+      (point) => new THREE.Vector3(point[0], point[1], point[2] + 0.08)
+    );
+    const candidateLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(candidate),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false })
+    );
+    candidateLine.renderOrder = 45;
+    this.guide.add(candidateLine);
+
+    for (const part of preview.parts) {
+      const points: THREE.Vector3[] = [];
+      for (let index = 0; index + 2 < part.samples.length; index += 3) {
+        points.push(new THREE.Vector3(part.samples[index], part.samples[index + 1], part.samples[index + 2]));
+      }
+      if (points.length < 2) continue;
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.78, depthTest: false })
+      );
+      line.renderOrder = 46;
+      this.guide.add(line);
+    }
+    for (const pole of preview.poles) {
+      const marker = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.12, 0.18, Math.max(0.5, pole.height), 8),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthTest: false })
+      );
+      marker.rotateX(Math.PI / 2);
+      marker.position.set(pole.positionX, pole.positionY, pole.positionZ + pole.height / 2);
+      marker.renderOrder = 46;
+      this.guide.add(marker);
+    }
   }
 
   private buildPathGuide(snapshot: ViewerSnapshot): void {
@@ -1582,11 +1630,20 @@ export class WireScene {
       return;
     }
     const hit = this.pickBackbonePoint(event.clientX, event.clientY);
-    if (hit === null) return;
-
-    const point = new THREE.Vector3(hit.point[0], hit.point[1], hit.point[2] + 0.08);
-    this.snapPreviewRing.position.copy(point);
-    this.snapPreview.visible = true;
+    if (hit !== null) {
+      const point = new THREE.Vector3(hit.point[0], hit.point[1], hit.point[2] + 0.08);
+      this.snapPreviewRing.position.copy(point);
+      this.snapPreview.visible = true;
+      this.onGroundPreview(hit.point, hit.pick);
+      return;
+    }
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(this.pointerFromClient(event.clientX, event.clientY), this.camera);
+    const point = new THREE.Vector3();
+    const planeZ = this.snapshot?.drawPlaneZ ?? 0;
+    if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ), point)) {
+      this.onGroundPreview([point.x, point.y, point.z]);
+    }
   }
 
   private clearSnapPreview(): void {

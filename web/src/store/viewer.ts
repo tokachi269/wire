@@ -14,7 +14,8 @@ import type {
   SupportNodeInfo,
   VisualModelInstanceInfo,
   VisualPartInfo,
-  VisualSettings
+  VisualSettings,
+  WireIntervalRequest
 } from "../model";
 import { createRoadToolState, type RoadToolState } from "../road";
 
@@ -33,6 +34,14 @@ export interface PathPointSpec {
   nodeId: string;
 }
 
+export interface WirePreviewState {
+  state: "none" | "valid" | "invalid";
+  parts: VisualPart[];
+  poles: PoleInfo[];
+  issue: string;
+  request: WireIntervalRequest | null;
+}
+
 export interface ViewerSnapshot {
   parts: VisualPart[];
   models: VisualModelInstanceInfo[];
@@ -49,6 +58,7 @@ export interface ViewerSnapshot {
   viewerUpdateMs: number | null;
   pathPoints: WorldPoint[];
   pathPointSpecs: Array<PathPointSpec | null>;
+  wirePreview: WirePreviewState;
   bundleTemplates: BundleTemplateInfo[];
   selectedBundleTemplateId: number | null;
   drawBundlePlacements: BundlePlacement[];
@@ -111,6 +121,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     viewerUpdateMs: null,
     pathPoints: [],
     pathPointSpecs: [],
+    wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
     bundleTemplates: [],
     selectedBundleTemplateId: null,
     drawBundlePlacements: [],

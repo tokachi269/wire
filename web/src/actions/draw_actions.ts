@@ -1,9 +1,99 @@
 import type { ViewerActionContext } from "./context";
-import type { BundleTemplateInfo, PathPickInfo } from "../model";
+import type { BundleTemplateInfo, PathPickInfo, WireIntervalRequest } from "../model";
 import type { PathPointSpec, WorldPoint } from "../store/viewer";
 
 export class DrawActions {
+  private readonly committedHistory: Array<{ before: string; after: string }> = [];
+
   constructor(private readonly ctx: ViewerActionContext) {}
+
+  primaryViewportPoint(point: WorldPoint, pick?: PathPickInfo): void {
+    const current = this.ctx.readSnapshot();
+    if (current.pathPoints.length === 0) {
+      const anchor = this.resolveAnchor(point, pick);
+      if (anchor === null) return;
+      this.ctx.store.update((snapshot) => ({
+        ...snapshot,
+        pathPoints: [anchor.point],
+        pathPointSpecs: [anchor.spec],
+        wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
+        error: ""
+      }));
+      return;
+    }
+
+    const request = this.samePreviewTarget(current.wirePreview.request, point, pick)
+      ? current.wirePreview.request
+      : this.intervalRequest(point, pick);
+    if (request === null) return;
+    if (request !== current.wirePreview.request) {
+      const preview = this.ctx.bridge.previewWireInterval(request);
+      this.applyWirePreview(request, preview);
+      if (!preview.ok) return;
+    } else if (current.wirePreview.state !== "valid") {
+      return;
+    }
+    this.commitWireInterval(request, false);
+  }
+
+  previewViewportPoint(point: WorldPoint, pick?: PathPickInfo): void {
+    const request = this.intervalRequest(point, pick);
+    if (request === null) return;
+    this.applyWirePreview(request, this.ctx.bridge.previewWireInterval(request));
+  }
+
+  finishSession(): void {
+    const preview = this.ctx.readSnapshot().wirePreview;
+    if (preview.state === "invalid") return;
+    if (preview.state === "valid" && preview.request !== null) {
+      this.commitWireInterval(preview.request, true);
+      return;
+    }
+    this.cancelSession();
+  }
+
+  cancelSession(): void {
+    const cleared = this.ctx.bridge.clearPendingSupportNodes();
+    if (!cleared.ok) {
+      this.ctx.store.setError(cleared.error);
+      return;
+    }
+    this.ctx.store.update((current) => ({
+      ...current,
+      pathPoints: [],
+      pathPointSpecs: [],
+      wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
+      error: ""
+    }));
+  }
+
+  undoCommitted(clearSelection: () => void): void {
+    const saved = this.committedHistory.at(-1);
+    if (saved === undefined) {
+      clearSelection();
+      return;
+    }
+    if (this.ctx.bridge.saveState() !== saved.after) {
+      this.committedHistory.length = 0;
+      clearSelection();
+      return;
+    }
+    const loaded = this.ctx.bridge.loadState(saved.before);
+    if (!loaded.ok) {
+      this.ctx.store.setError(loaded.error);
+      return;
+    }
+    this.committedHistory.pop();
+    this.ctx.refreshScene();
+    this.ctx.store.update((current) => ({
+      ...current,
+      pathPoints: [],
+      pathPointSpecs: [],
+      wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
+      drawBundlePlacements: current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement),
+      error: ""
+    }));
+  }
 
   addPathPoint(point: WorldPoint, pick?: PathPickInfo): void {
     const previousPointCount = this.ctx.readSnapshot().pathPoints.length;
@@ -125,6 +215,105 @@ export class DrawActions {
     });
     unsubscribe();
     this.generatePoints(points, specs);
+  }
+
+  private resolveAnchor(
+    point: WorldPoint,
+    pick?: PathPickInfo
+  ): { point: WorldPoint; spec: PathPointSpec | null } | null {
+    if (pick === undefined) return { point, spec: null };
+    const current = this.ctx.readSnapshot();
+    const resolved = this.ctx.bridge.resolveBranchPick(
+      pick,
+      [...new Set(current.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
+    );
+    if (!resolved.ok) {
+      this.ctx.store.setError(resolved.error);
+      return null;
+    }
+    return {
+      point: [resolved.positionX, resolved.positionY, resolved.positionZ],
+      spec: { supportKind: resolved.supportKind, nodeId: resolved.nodeId }
+    };
+  }
+
+  private intervalRequest(point: WorldPoint, pick?: PathPickInfo): WireIntervalRequest | null {
+    const current = this.ctx.readSnapshot();
+    const anchor = current.pathPoints[0];
+    if (anchor === undefined) return null;
+    const dx = point[0] - anchor[0];
+    const dy = point[1] - anchor[1];
+    const dz = point[2] - anchor[2];
+    if (dx * dx + dy * dy + dz * dz <= 1e-18) return null;
+    return {
+      points: [anchor, point],
+      pointSpecs: [current.pathPointSpecs[0] ?? null, null],
+      targetPick: pick,
+      bundlePlacements: current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement),
+      intervalM: current.clickedPointsOnly ? 0 : current.intervalM,
+      poleTypeId: current.selectedPoleTemplateId ?? 1,
+      directionMode: current.directionMode,
+      maxTiltDeg: current.maxTiltDeg
+    };
+  }
+
+  private samePreviewTarget(
+    request: WireIntervalRequest | null,
+    point: WorldPoint,
+    pick?: PathPickInfo
+  ): request is WireIntervalRequest {
+    if (request === null) return false;
+    return request.points[1][0] === point[0] && request.points[1][1] === point[1] &&
+      request.points[1][2] === point[2] && JSON.stringify(request.targetPick) === JSON.stringify(pick);
+  }
+
+  private applyWirePreview(
+    request: WireIntervalRequest,
+    preview: ReturnType<ViewerActionContext["bridge"]["previewWireInterval"]>
+  ): void {
+    this.ctx.store.update((current) => ({
+      ...current,
+      wirePreview: {
+        state: preview.ok ? "valid" : "invalid",
+        parts: preview.ok ? preview.parts : [],
+        poles: preview.ok ? preview.poles : [],
+        issue: preview.ok ? "" : preview.error,
+        request
+      },
+      error: ""
+    }));
+  }
+
+  private commitWireInterval(request: WireIntervalRequest, endSession: boolean): void {
+    const beforeState = this.ctx.bridge.saveState();
+    const result = this.ctx.bridge.generateWireInterval(request);
+    if (!result.ok) {
+      this.ctx.store.update((current) => ({
+        ...current,
+        wirePreview: { ...current.wirePreview, state: "invalid", issue: result.error, request },
+        error: ""
+      }));
+      return;
+    }
+    this.committedHistory.push({ before: beforeState, after: this.ctx.bridge.saveState() });
+    this.ctx.refreshScene();
+    const endpoint = result.endpoint ?? request.points[1];
+    const generatedEndpointId = result.generatedPoleIds?.at(-1);
+    const endpointSpec = result.endpointSpec ?? (generatedEndpointId === undefined
+      ? null
+      : { supportKind: 0, nodeId: generatedEndpointId });
+    const generatedBundleIds = result.generatedBundleIds ?? [];
+    this.ctx.store.update((current) => ({
+      ...current,
+      pathPoints: endSession ? [] : [endpoint],
+      pathPointSpecs: endSession ? [] : [endpointSpec],
+      wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
+      drawBundlePlacements: current.drawBundlePlacements.map((placement, index) => ({
+        ...placement,
+        generatedBundleId: generatedBundleIds[index] ?? placement.generatedBundleId
+      })),
+      error: ""
+    }));
   }
 
   private generatePoints(

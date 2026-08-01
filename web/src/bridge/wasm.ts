@@ -48,7 +48,25 @@ export interface WireStateHandle {
     maxTiltDeg: number,
     nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
   ): EditResult;
+  previewPlacements(
+    points: Float64Array,
+    bundlePlacements: BundlePlacement[],
+    intervalM: number,
+    poleTypeId: number,
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult & {
+    parts: VisualPartInfo[];
+    models: VisualModelInstanceInfo[];
+    samples: Float64Array;
+    poles: PoleInfo[];
+  };
   resolveBranchPick(
+    input: PathPickInfo,
+    selectedBundleTemplateIds: number[]
+  ): ResolvedPathPointInfo;
+  previewResolveBranchPick(
     input: PathPickInfo,
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo;

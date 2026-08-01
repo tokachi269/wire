@@ -52,11 +52,11 @@ export class ViewerActions {
           undo: () => this.road.undoCommitted()
         },
         wire: {
-          primary: (point, pick) => this.draw.addPathPoint(point, wirePick(pick)),
-          preview: () => undefined,
-          enter: () => this.draw.generatePath(),
-          escape: () => this.draw.clearPath(),
-          undo: () => this.draw.undoPathPointOrClearSelection(() => this.selection.clearSelection())
+          primary: (point, pick) => this.draw.primaryViewportPoint(point, wirePick(pick)),
+          preview: (point, pick) => this.draw.previewViewportPoint(point, wirePick(pick)),
+          enter: () => this.draw.finishSession(),
+          escape: () => this.draw.cancelSession(),
+          undo: () => this.draw.undoCommitted(() => this.selection.clearSelection())
         }
       }
     );

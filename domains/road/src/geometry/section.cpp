@@ -272,6 +272,28 @@ bool equivalent_section_definition(const CrossSectionTemplate &a,
                     b.boundaries.begin(), equivalent_boundary);
 }
 
+Result<double> lane_template_lateral(const CrossSectionTemplate &section,
+                                     const LaneBand &lane) {
+  double total_width = 0.0;
+  for (const SectionStrip &strip : section.strips)
+    total_width += strip.width_m;
+  for (const BoundaryProfile &boundary : section.boundaries)
+    total_width += boundary.width_m;
+  double lateral = -total_width * 0.5;
+  for (std::size_t index = 0; index < section.strips.size(); ++index) {
+    const SectionStrip &strip = section.strips[index];
+    if (strip.id == lane.surface_strip_id) {
+      return Result<double>::Ok(
+          lateral + (lane.lateral_start_m + lane.lateral_end_m) * 0.5);
+    }
+    lateral += strip.width_m;
+    if (index < section.boundaries.size())
+      lateral += section.boundaries[index].width_m;
+  }
+  return Result<double>::Fail(CommitFailureCategory::kInternalError,
+                              "lane allocation strip is missing");
+}
+
 Result<CrossSectionTemplate> template_at(
     const SavedRoadGraph &graph, const RoadSegment &segment,
     double segment_distance_m, double total_m) {

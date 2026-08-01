@@ -23,6 +23,7 @@ namespace {
 
 using city::road::CommitFailureCategory;
 using city::road::BoundaryRole;
+using city::road::BoundaryId;
 using city::road::AutoMarkingKey;
 using city::road::AutoMarkingPolicy;
 using city::road::EndpointRole;
@@ -31,6 +32,7 @@ using city::road::ShoulderedTwoLaneTemplate;
 using city::road::JunctionMarkingAction;
 using city::road::JunctionMarkingEndpoint;
 using city::road::JunctionMarkingOverride;
+using city::road::LaneId;
 using city::road::MarkingRole;
 using city::road::MarkingOwner;
 using city::road::MarkingTrackKey;
@@ -1528,6 +1530,162 @@ bool add_lane_reaches_mixed_section_junction(std::string& failure) {
   ROAD_TEST_EXPECT(incoming_approach != junction->approaches.end() &&
                        incoming_approach->endpoint_template_id != 1,
                    "ADD4 junction did not consume the added-lane endpoint section");
+  ROAD_TEST_EXPECT(state.graph().lane_connections.empty() &&
+                       state.graph().boundary_continuations.empty(),
+                   "ADD4 inferred a junction destination where no unique lane-count match exists");
+  return true;
+}
+
+bool add_lane_connects_the_only_matching_junction_approach(
+    std::string& failure) {
+  RoadState state{};
+  const auto two_lane = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 2)});
+  const auto three_lane = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 3)});
+  ROAD_TEST_EXPECT(two_lane.ok && three_lane.ok,
+                   "ADD9 fixture templates could not be created");
+  const auto incoming = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-80.0, 0.0}, {0.0, 0.0})}), two_lane.value});
+  ROAD_TEST_EXPECT(incoming.ok, incoming.error);
+  const auto incoming_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&incoming](const auto& segment) { return segment.id == incoming.value; });
+  ROAD_TEST_EXPECT(incoming_segment != state.graph().segments.end(),
+                   "ADD9 incoming segment is missing");
+  const RoadNodeId junction_node = incoming_segment->node_b;
+  const auto branch = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 80.0})}), two_lane.value,
+          junction_node});
+  const auto straight = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), three_lane.value,
+          junction_node});
+  ROAD_TEST_EXPECT(branch.ok && straight.ok,
+                   branch.ok ? straight.error : branch.error);
+  for (const auto& pair :
+       std::array<std::pair<LaneId, LaneId>, 2>{{{1000, 1020},
+                                                 {1010, 1010}}}) {
+    const auto connection = state.AddLaneConnection(
+        city::road::AddLaneConnectionRequest{
+            {incoming.value, pair.first, EndpointRole::kEnd},
+            {straight.value, pair.second, EndpointRole::kStart},
+            city::road::LaneConnectionKind::kJunctionMovement});
+    ROAD_TEST_EXPECT(connection.ok,
+                     "ADD9 existing lane topology failed: " +
+                         connection.error);
+  }
+  for (const auto& pair :
+       std::array<std::pair<BoundaryId, BoundaryId>, 3>{{{900, 100},
+                                                         {200, 300},
+                                                         {100, 900}}}) {
+    const auto continuation = state.AddBoundaryContinuation(
+        city::road::AddBoundaryContinuationRequest{
+            {incoming.value, pair.first, EndpointRole::kEnd},
+            {straight.value, pair.second, EndpointRole::kStart},
+            city::road::BoundaryContinuationKind::kContinuation});
+    ROAD_TEST_EXPECT(continuation.ok,
+                     "ADD9 existing boundary topology failed: " +
+                         continuation.error);
+  }
+  const auto* corridor = FindCorridorForSegment(state.graph(), incoming.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "ADD9 incoming corridor is missing");
+
+  city::road::AddLaneRequest request{};
+  request.corridor_id = corridor->id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
+  request.lane_width_m = 3.0;
+  const auto added = state.AddLane(request);
+  ROAD_TEST_EXPECT(added.ok, "ADD9 lane addition failed: " + added.error);
+
+  const auto* updated_corridor =
+      FindRoadCorridor(state.graph(), request.corridor_id);
+  ROAD_TEST_EXPECT(updated_corridor != nullptr &&
+                       !updated_corridor->segments.empty(),
+                   "ADD9 updated corridor is missing");
+  const RoadSegmentId source_segment =
+      updated_corridor->segments.back().segment_id;
+  const auto added_connection = std::find_if(
+      state.graph().lane_connections.begin(),
+      state.graph().lane_connections.end(),
+      [source_segment, &added, &straight](const auto& connection) {
+        return connection.source.segment_id == source_segment &&
+               connection.source.lane_id == added.value &&
+               connection.target.segment_id == straight.value &&
+               connection.kind ==
+                   city::road::LaneConnectionKind::kJunctionMovement;
+      });
+  ROAD_TEST_EXPECT(added_connection != state.graph().lane_connections.end(),
+                   "ADD9 added lane was not connected to the only matching approach");
+  ROAD_TEST_EXPECT(state.graph().lane_connections.size() == 3,
+                   "ADD9 did not resolve every lane in the unique 3-to-3 movement");
+  ROAD_TEST_EXPECT(state.graph().boundary_continuations.size() == 4,
+                   "ADD9 did not resolve every boundary in the unique 3-to-3 movement");
+  ROAD_TEST_EXPECT(state.derived().lane_paths.size() == 3 &&
+                       state.derived().boundary_paths.size() == 4,
+                   "ADD9 unique junction topology was not derived");
+  return true;
+}
+
+bool add_lane_rejects_ambiguous_junction_destinations(
+    std::string& failure) {
+  RoadState state{};
+  const auto two_lane = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 2)});
+  const auto three_lane = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 3)});
+  ROAD_TEST_EXPECT(two_lane.ok && three_lane.ok,
+                   "ADD10 fixture templates could not be created");
+  const auto incoming = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-80.0, 0.0}, {0.0, 0.0})}), two_lane.value});
+  ROAD_TEST_EXPECT(incoming.ok, incoming.error);
+  const auto incoming_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&incoming](const auto& segment) { return segment.id == incoming.value; });
+  ROAD_TEST_EXPECT(incoming_segment != state.graph().segments.end(),
+                   "ADD10 incoming segment is missing");
+  const RoadNodeId node = incoming_segment->node_b;
+  const auto narrow = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 80.0})}), two_lane.value,
+          node});
+  const auto first_wide = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), three_lane.value,
+          node});
+  const auto second_wide = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, -80.0})}), three_lane.value,
+          node});
+  ROAD_TEST_EXPECT(narrow.ok && first_wide.ok && second_wide.ok,
+                   !narrow.ok ? narrow.error
+                              : (!first_wide.ok ? first_wide.error
+                                                : second_wide.error));
+  const auto before = state.Save();
+  const auto* corridor = FindCorridorForSegment(state.graph(), incoming.value);
+  ROAD_TEST_EXPECT(before.ok && corridor != nullptr,
+                   "ADD10 preflight state is missing");
+  city::road::AddLaneRequest request{};
+  request.corridor_id = corridor->id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
+  request.lane_width_m = 3.0;
+  const auto added = state.AddLane(request);
+  ROAD_TEST_EXPECT(!added.ok &&
+                       added.failure_category ==
+                           city::road::CommitFailureCategory::kNotImplemented &&
+                       added.error.find("destination is ambiguous") !=
+                           std::string::npos,
+                   "ADD10 ambiguous junction destination was not reported concretely");
+  const auto after = state.Save();
+  ROAD_TEST_EXPECT(after.ok && after.value == before.value,
+                   "ADD10 ambiguous junction failure mutated authoritative state");
   return true;
 }
 
@@ -2909,6 +3067,10 @@ int main() {
        add_lane_normalizes_reversed_corridor_direction},
       {"add_lane_reaches_mixed_section_junction",
        add_lane_reaches_mixed_section_junction},
+      {"add_lane_connects_the_only_matching_junction_approach",
+       add_lane_connects_the_only_matching_junction_approach},
+      {"add_lane_rejects_ambiguous_junction_destinations",
+       add_lane_rejects_ambiguous_junction_destinations},
       {"add_lane_allows_a_later_non_overlapping_addition",
        add_lane_allows_a_later_non_overlapping_addition},
       {"add_lane_allows_a_later_addition_after_cross_segment_taper",

@@ -9,6 +9,8 @@ namespace city::road::internal {
 // decide whether two connected endpoints carry the same section.
 [[nodiscard]] bool equivalent_section_definition(
     const CrossSectionTemplate &a, const CrossSectionTemplate &b);
+[[nodiscard]] Result<double> lane_template_lateral(
+    const CrossSectionTemplate &section, const LaneBand &lane);
 
 // Cross section evaluated from the authoritative template and, when the segment
 // carries one, its transition. Marking requests are merged here so every

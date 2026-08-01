@@ -307,28 +307,6 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
   return Result<ResolvedApproach>::Ok(std::move(approach));
 }
 
-Result<double> template_lane_lateral(const CrossSectionTemplate &section,
-                                     const LaneBand &lane) {
-  double total_width = 0.0;
-  for (const SectionStrip &strip : section.strips)
-    total_width += strip.width_m;
-  for (const BoundaryProfile &boundary : section.boundaries)
-    total_width += boundary.width_m;
-  double lateral = -total_width * 0.5;
-  for (std::size_t index = 0; index < section.strips.size(); ++index) {
-    const SectionStrip &strip = section.strips[index];
-    if (strip.id == lane.surface_strip_id) {
-      return Result<double>::Ok(
-          lateral + (lane.lateral_start_m + lane.lateral_end_m) * 0.5);
-    }
-    lateral += strip.width_m;
-    if (index < section.boundaries.size())
-      lateral += section.boundaries[index].width_m;
-  }
-  return Result<double>::Fail(CommitFailureCategory::kInternalError,
-                              "lane allocation strip is missing");
-}
-
 const ordered_approach *ordered_approach_of(
     const std::vector<ordered_approach> &ordered, RoadSegmentId segment_id,
     EndpointRole endpoint_role) {
@@ -370,9 +348,11 @@ Result<double> auto_lateral_shift_for(
       continue;
     }
     const Result<double> source_lateral =
-        template_lane_lateral(*source_lookup.section, *source_lookup.lane);
+        internal::lane_template_lateral(*source_lookup.section,
+                                        *source_lookup.lane);
     const Result<double> target_lateral =
-        template_lane_lateral(*target_lookup.section, *target_lookup.lane);
+        internal::lane_template_lateral(*target_lookup.section,
+                                        *target_lookup.lane);
     if (!source_lateral.ok || !target_lateral.ok) {
       return Result<double>::Fail(
           CommitFailureCategory::kInternalError,

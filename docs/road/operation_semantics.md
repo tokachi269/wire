@@ -214,3 +214,4 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
   横・長手方向の単調性を検証する。mainline Continuationはbranchのために曲げない。
 - branchへ明示した2本のBoundaryContinuationから有限なseparation areaを派生する。lane centerから境界を推測しない。
 - Mergeはbranch lane centerから明示したmainline lane centerへG1接続する。straightなmainline mappingだけでtarget approachの共通shiftを決め、角度を持つbranch mappingはmainlineを曲げる入力にしない。
+- 対向断面のbranchは選択した`LaneEndpointKey`と境界だけをSplitへ載せる。反対方向laneはContinuationのまま維持し、median boundaryをbranchへ暗黙流用しない。

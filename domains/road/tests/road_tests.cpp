@@ -117,6 +117,53 @@ city::road::CrossSectionTemplate OneWayLaneTemplate(
   return section;
 }
 
+city::road::CrossSectionTemplate OpposingFourLaneTemplate(
+    city::road::CrossSectionTemplateId id) {
+  const AutoMarkingPolicy edge{
+      true, MarkingRole::kCarriagewayEdge,
+      builtin_marking_styles::kWhiteSolid};
+  const AutoMarkingPolicy divider{
+      true, MarkingRole::kLaneSeparator,
+      builtin_marking_styles::kWhiteDashed};
+  city::road::CrossSectionTemplate section{};
+  section.id = id;
+  section.strips = {
+      {10, StripFunction::kShoulder, 0.75, 0.0,
+       builtin_surface_styles::kAsphalt},
+      {20, StripFunction::kCarriageway, 3.0, 0.0,
+       builtin_surface_styles::kAsphalt},
+      {30, StripFunction::kCarriageway, 3.0, 0.0,
+       builtin_surface_styles::kAsphalt},
+      {40, StripFunction::kMedian, 2.0, 0.0,
+       builtin_surface_styles::kMedian},
+      {50, StripFunction::kCarriageway, 3.0, 0.0,
+       builtin_surface_styles::kAsphalt},
+      {60, StripFunction::kCarriageway, 3.0, 0.0,
+       builtin_surface_styles::kAsphalt},
+      {70, StripFunction::kShoulder, 0.75, 0.0,
+       builtin_surface_styles::kAsphalt},
+  };
+  section.lane_bands = {
+      {1000, 20, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAgainstSegment},
+      {1010, 30, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAgainstSegment},
+      {2000, 50, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAlongSegment},
+      {2010, 60, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAlongSegment},
+  };
+  section.boundaries = {
+      {100, BoundaryRole::kOuterEdge, 0.0, 0.0, edge},
+      {150, BoundaryRole::kLaneDivider, 0.0, 0.0, divider},
+      {200, BoundaryRole::kMedianEdge, 0.0, 0.0, {}},
+      {210, BoundaryRole::kMedianEdge, 0.0, 0.0, {}},
+      {250, BoundaryRole::kLaneDivider, 0.0, 0.0, divider},
+      {300, BoundaryRole::kOuterEdge, 0.0, 0.0, edge},
+  };
+  return section;
+}
+
 bool P0_generates_two_lane_segment(std::string& failure) {
   RoadState state{};
   const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
@@ -1390,6 +1437,152 @@ bool LAN5_one_lane_road_merges_into_outer_mainline_lane(
   return true;
 }
 
+bool LAN6_opposing_lanes_and_median_survive_one_direction_branch(
+    std::string& failure) {
+  RoadState state{};
+  const auto mainline_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OpposingFourLaneTemplate(0)});
+  const auto branch_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 1)});
+  ROAD_TEST_EXPECT(mainline_template.ok && branch_template.ok,
+                   "LAN6 fixture templates could not be created");
+  const auto incoming = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-60.0, 0.0}, {0.0, 0.0})}),
+      mainline_template.value});
+  ROAD_TEST_EXPECT(incoming.ok, incoming.error);
+  const auto incoming_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&incoming](const auto& segment) { return segment.id == incoming.value; });
+  ROAD_TEST_EXPECT(incoming_segment != state.graph().segments.end(),
+                   "LAN6 incoming segment is missing");
+  const RoadNodeId split_node = incoming_segment->node_b;
+
+  city::road::AddConnectedLaneSegmentRequest outgoing{};
+  outgoing.start_node = split_node;
+  outgoing.alignment = MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})});
+  outgoing.section_template = mainline_template.value;
+  outgoing.lane_connections = {
+      {{incoming.value, 2000, EndpointRole::kEnd}, 2000,
+       city::road::LaneConnectionKind::kContinuation},
+      {{incoming.value, 2010, EndpointRole::kEnd}, 2010,
+       city::road::LaneConnectionKind::kSplit},
+  };
+  outgoing.source_lane_connections = {
+      {1000, {incoming.value, 1000, EndpointRole::kEnd},
+       city::road::LaneConnectionKind::kContinuation},
+      {1010, {incoming.value, 1010, EndpointRole::kEnd},
+       city::road::LaneConnectionKind::kContinuation},
+  };
+  outgoing.boundary_continuations = {
+      {{incoming.value, 100, EndpointRole::kEnd}, 100},
+      {{incoming.value, 150, EndpointRole::kEnd}, 150},
+      {{incoming.value, 200, EndpointRole::kEnd}, 200},
+      {{incoming.value, 210, EndpointRole::kEnd}, 210},
+      {{incoming.value, 250, EndpointRole::kEnd}, 250,
+       city::road::BoundaryContinuationKind::kSplit},
+      {{incoming.value, 300, EndpointRole::kEnd}, 300,
+       city::road::BoundaryContinuationKind::kSplit},
+  };
+  const auto outgoing_segment_id =
+      state.AddConnectedLaneSegment(std::move(outgoing));
+  ROAD_TEST_EXPECT(outgoing_segment_id.ok, outgoing_segment_id.error);
+
+  city::road::AddConnectedLaneSegmentRequest branch{};
+  branch.start_node = split_node;
+  branch.alignment = MakePath({MakeLine({0.0, 0.0}, {42.0, -42.0})});
+  branch.section_template = branch_template.value;
+  branch.lane_connections = {
+      {{incoming.value, 2010, EndpointRole::kEnd}, 1000,
+       city::road::LaneConnectionKind::kSplit},
+  };
+  branch.boundary_continuations = {
+      {{incoming.value, 250, EndpointRole::kEnd}, 100,
+       city::road::BoundaryContinuationKind::kSplit},
+      {{incoming.value, 300, EndpointRole::kEnd}, 900,
+       city::road::BoundaryContinuationKind::kSplit},
+  };
+  const auto branch_segment_id =
+      state.AddConnectedLaneSegment(std::move(branch));
+  ROAD_TEST_EXPECT(branch_segment_id.ok, branch_segment_id.error);
+
+  const auto template_after = std::find_if(
+      state.graph().section_templates.begin(),
+      state.graph().section_templates.end(), [&mainline_template](const auto& t) {
+        return t.id == mainline_template.value;
+      });
+  ROAD_TEST_EXPECT(template_after != state.graph().section_templates.end() &&
+                       template_after->lane_bands.size() == 4 &&
+                       template_after->boundaries.size() == 6,
+                   "LAN6 branch changed the opposing mainline section shape");
+  const auto median = std::find_if(
+      template_after->strips.begin(), template_after->strips.end(),
+      [](const auto& strip) { return strip.id == 40; });
+  const auto median_left = std::find_if(
+      template_after->boundaries.begin(), template_after->boundaries.end(),
+      [](const auto& boundary) { return boundary.boundary_id == 200; });
+  const auto median_right = std::find_if(
+      template_after->boundaries.begin(), template_after->boundaries.end(),
+      [](const auto& boundary) { return boundary.boundary_id == 210; });
+  ROAD_TEST_EXPECT(
+      median != template_after->strips.end() && median->width_m == 2.0 &&
+          median->function == StripFunction::kMedian &&
+          median_left != template_after->boundaries.end() &&
+          median_left->role == BoundaryRole::kMedianEdge &&
+          median_right != template_after->boundaries.end() &&
+          median_right->role == BoundaryRole::kMedianEdge,
+      "LAN6 branch changed the median strip or its stable boundaries");
+  for (const auto& connection : state.graph().lane_connections) {
+    const auto is_opposing_mainline = [&](const auto& endpoint) {
+      return (endpoint.segment_id == incoming.value ||
+              endpoint.segment_id == outgoing_segment_id.value) &&
+             (endpoint.lane_id == 1000 || endpoint.lane_id == 1010);
+    };
+    const bool touches_opposing = is_opposing_mainline(connection.source) ||
+                                  is_opposing_mainline(connection.target);
+    if (touches_opposing) {
+      ROAD_TEST_EXPECT(
+          connection.kind == city::road::LaneConnectionKind::kContinuation &&
+              connection.source.segment_id == outgoing_segment_id.value &&
+              connection.target.segment_id == incoming.value,
+          "LAN6 branch consumed or redirected an opposing lane");
+    }
+  }
+  for (const auto& continuation : state.graph().boundary_continuations) {
+    const bool touches_median = continuation.source.boundary_id == 200 ||
+                                continuation.source.boundary_id == 210 ||
+                                continuation.target.boundary_id == 200 ||
+                                continuation.target.boundary_id == 210;
+    if (touches_median) {
+      ROAD_TEST_EXPECT(
+          continuation.kind ==
+                  city::road::BoundaryContinuationKind::kContinuation &&
+              continuation.source.segment_id == incoming.value &&
+              continuation.target.segment_id == outgoing_segment_id.value,
+          "LAN6 branch consumed or redirected a median boundary");
+    }
+  }
+  const auto split = std::find_if(
+      state.graph().lane_connections.begin(),
+      state.graph().lane_connections.end(), [&branch_segment_id](const auto& c) {
+        return c.target.segment_id == branch_segment_id.value;
+      });
+  ROAD_TEST_EXPECT(split != state.graph().lane_connections.end() &&
+                       split->source.lane_id == 2010 &&
+                       split->target.lane_id == 1000 &&
+                       split->kind == city::road::LaneConnectionKind::kSplit,
+                   "LAN6 did not branch only the selected travel direction");
+  const auto branch_path = std::find_if(
+      state.derived().lane_paths.begin(), state.derived().lane_paths.end(),
+      [&split](const auto& path) {
+        return path.connection_id == split->id;
+      });
+  ROAD_TEST_EXPECT(branch_path != state.derived().lane_paths.end() &&
+                       branch_path->centerline.spans.size() == 1 &&
+                       std::isfinite(branch_path->minimum_radius_m),
+                   "LAN6 selected lane branch path is missing or non-finite");
+  return true;
+}
+
 bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   {
     RoadState state{};
@@ -1900,6 +2093,8 @@ int main() {
        LAN4_selected_outer_lane_branches_to_one_lane_road},
       {"LAN5_one_lane_road_merges_into_outer_mainline_lane",
        LAN5_one_lane_road_merges_into_outer_mainline_lane},
+      {"LAN6_opposing_lanes_and_median_survive_one_direction_branch",
+       LAN6_opposing_lanes_and_median_survive_one_direction_branch},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},

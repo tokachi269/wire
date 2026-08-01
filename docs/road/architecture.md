@@ -193,6 +193,8 @@ source/target endpointを保存し、generation時にgeometryの近さから作�
 
 laneとboundaryの多重度は同じ意味に揃える。Continuationは一対一、Splitは同一sourceから複数target、Mergeは複数sourceから
 同一targetを許可する。同一source-target pairは常に重複としてrejectする。
+対向道路でも接続単位は`LaneEndpointKey`であり、道路全体の方向分類からbranch対象を広げない。選択方向と反対のlaneおよび
+median boundaryは、明示された接続以外では既存mainline上に維持する。
 
 ## Approach override lifecycle
 

@@ -186,6 +186,11 @@ source/target endpointを保存し、generation時にgeometryの近さから作�
 近接再bindは行わない。新laneの幅はtransition中に0から指定幅へ単調に増加し、既存shoulder幅は維持したまま
 外側へ移動する。
 
+ADD LANEのtaper開始と通常幅位置はsection意味境界である。同一segment内に両方がある場合は形状を変えずにsegmentを
+分割し、transitionはtaper区間だけが所有する。boundary anchorで決まった横方向原点はcorridorの後続segmentへ派生伝播し、
+追加前から存在するlaneを再中心化しない。通常幅以降のsegmentはtransitionを所有しないため、後続の非重複ADD LANEを
+同じcorridorへ適用できる。
+
 `AddConnectedLaneSegment`は道路segmentの追加と、選択済みlane/boundary endpointの接続を同じtrialへ適用する。
 接続可否はtemplate IDではなくendpointの実断面で判定する。同じ物理・意味定義なら別template IDでも接続し、
 degree 2でlane layoutが異なる場合はnode手前のsection transitionを要求する。junctionでは各approachの断面を独立して

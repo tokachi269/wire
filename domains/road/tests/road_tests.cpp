@@ -1171,8 +1171,12 @@ bool add_lane_preserves_existing_lanes(std::string& failure) {
                      "LAN3 existing boundary is missing");
     for (const auto* section : sections) {
       const auto current = lateral(*section, id);
-      ROAD_TEST_EXPECT(current.has_value() && *current == *a,
-                       "LAN3 moved an existing lane boundary inside the anchor");
+      ROAD_TEST_EXPECT(
+          current.has_value() && *current == *a,
+          "LAN3 moved boundary " + std::to_string(id) + " from " +
+              std::to_string(*a) + " to " +
+              (current.has_value() ? std::to_string(*current) : "missing") +
+              " on segment " + std::to_string(section->segment_id));
     }
   }
   const auto outer_before = lateral(*before, 250);
@@ -1270,14 +1274,27 @@ bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   const auto updated_first = segment_by_id(first.value);
   const auto updated_second = segment_by_id(second.value);
   const auto updated_third = segment_by_id(third.value);
-  ROAD_TEST_EXPECT(updated_first->transition.has_value(),
-                   "ADD1 taper segment has no transition");
+  const auto* updated_corridor =
+      FindCorridorForSegment(state.graph(), first.value);
+  ROAD_TEST_EXPECT(
+      updated_corridor != nullptr &&
+          std::any_of(updated_corridor->segments.begin(),
+                      updated_corridor->segments.end(),
+                      [&state](const auto& ref) {
+                        const auto segment = std::find_if(
+                            state.graph().segments.begin(),
+                            state.graph().segments.end(),
+                            [&ref](const auto& item) {
+                              return item.id == ref.segment_id;
+                            });
+                        return segment != state.graph().segments.end() &&
+                               segment->transition.has_value();
+                      }),
+      "ADD1 taper segment has no transition");
   ROAD_TEST_EXPECT(updated_second->section_template ==
                        updated_third->section_template &&
                        updated_second->section_template != 5,
                    "ADD1 added section did not propagate to following segments");
-  const auto* updated_corridor =
-      FindCorridorForSegment(state.graph(), first.value);
   ROAD_TEST_EXPECT(updated_corridor != nullptr &&
                        updated_corridor->section_template_id ==
                            updated_third->section_template,
@@ -1454,14 +1471,64 @@ bool add_lane_reaches_mixed_section_junction(std::string& failure) {
                    "ADD4 junction approaches were not regenerated");
   ROAD_TEST_EXPECT(!junction->junction_geometry.surface_regions.empty(),
                    "ADD4 mixed-section junction surface is missing");
+  const auto* updated_corridor =
+      FindCorridorForSegment(state.graph(), incoming.value);
+  ROAD_TEST_EXPECT(updated_corridor != nullptr &&
+                       !updated_corridor->segments.empty(),
+                   "ADD4 updated corridor is missing");
+  const RoadSegmentId terminal_segment_id =
+      updated_corridor->segments.back().segment_id;
   const auto incoming_approach = std::find_if(
       junction->approaches.begin(), junction->approaches.end(),
-      [&incoming](const auto& approach) {
-        return approach.key.segment_id == incoming.value;
+      [terminal_segment_id](const auto& approach) {
+        return approach.key.segment_id == terminal_segment_id;
       });
   ROAD_TEST_EXPECT(incoming_approach != junction->approaches.end() &&
                        incoming_approach->endpoint_template_id != 1,
                    "ADD4 junction did not consume the added-lane endpoint section");
+  return true;
+}
+
+bool add_lane_allows_a_later_non_overlapping_addition(std::string& failure) {
+  RoadState state{};
+  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {160.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const auto* corridor = FindCorridorForSegment(state.graph(), segment.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "ADD5 corridor is missing");
+
+  city::road::AddLaneRequest first{};
+  first.corridor_id = corridor->id;
+  first.direction = city::road::LaneTravelDirection::kAlongSegment;
+  first.side = city::road::RoadSide::kRight;
+  first.taper_start_corridor_distance_m = 20.0;
+  first.full_width_corridor_distance_m = 50.0;
+  first.lane_width_m = 3.0;
+  const auto first_lane = state.AddLane(first);
+  ROAD_TEST_EXPECT(first_lane.ok, first_lane.error);
+
+  city::road::AddLaneRequest second = first;
+  second.taper_start_corridor_distance_m = 80.0;
+  second.full_width_corridor_distance_m = 110.0;
+  const auto second_lane = state.AddLane(second);
+  ROAD_TEST_EXPECT(
+      second_lane.ok,
+      "ADD5 non-overlapping lane addition was rejected: " + second_lane.error);
+  ROAD_TEST_EXPECT(first_lane.value != second_lane.value,
+                   "ADD5 reused the first lane identity");
+  const auto terminal = std::find_if(
+      state.graph().section_templates.begin(),
+      state.graph().section_templates.end(),
+      [&state, &second_lane](const auto& section) {
+        return std::any_of(section.lane_bands.begin(),
+                           section.lane_bands.end(),
+                           [&second_lane](const auto& lane) {
+                             return lane.id == second_lane.value;
+                           });
+      });
+  ROAD_TEST_EXPECT(terminal != state.graph().section_templates.end() &&
+                       terminal->lane_bands.size() == 4,
+                   "ADD5 second lane did not reach the terminal section");
   return true;
 }
 
@@ -2685,6 +2752,8 @@ int main() {
        add_lane_normalizes_reversed_corridor_direction},
       {"add_lane_reaches_mixed_section_junction",
        add_lane_reaches_mixed_section_junction},
+      {"add_lane_allows_a_later_non_overlapping_addition",
+       add_lane_allows_a_later_non_overlapping_addition},
       {"selected_outer_lane_branches_to_one_lane_road",
        selected_outer_lane_branches_to_one_lane_road},
       {"one_lane_road_merges_into_outer_mainline_lane",

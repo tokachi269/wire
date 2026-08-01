@@ -31,6 +31,9 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 - `SegmentShape`: endpointから出るhandle vector、内部knot、内部handle。endpoint座標は持たない
 - `SegmentShape.intent`: tool由来の編集意図。Straightはnode移動時のlinear handle再導出とinspectionだけに使い、generation / emitの別経路を作らない
 - `CrossSectionTemplate`と`SectionTransition`の意味入力
+- `LaneBand`: template内で安定した`LaneId`、所属surface、横方向範囲、segment正本方向に対する進行方向
+- `LaneConnection`: `LaneEndpointKey(segment_id, lane_id, endpoint_role)`間の確定した車線接続
+- `BoundaryContinuation`: `BoundaryEndpointKey(segment_id, boundary_id, endpoint_role)`間の確定した境界継続
 - manual markingのowner IDとowner-local distance / lateral値
 - surface / marking style identityは`SurfaceStyleId` / `MarkingStyleId`で保存する
 - ユーザーが明示した`NodeConnectionPolicyOverride`
@@ -160,8 +163,20 @@ BoundaryProfileには個別style fieldを持たせない。curb等の描画style
 - segment端のidentityは`ApproachKey(node_id, segment_id, endpoint_role)`の完全一致だけで決める。
   node移動、shape編集、approach角度順、segment格納順で変化しない。
 - boundary / element対応はstable ID、role、explicit transition mappingで決める。
+- lane endpointは`LaneEndpointKey`、boundary endpointは`BoundaryEndpointKey`の完全一致だけで識別する。
+  lane/boundaryの横方向順序、world位置、距離、sample indexから接続先を推測しない。
 - `almost_same`やdistance-epsはBezier連続性、ゼロ長、平行性など数値幾何だけに使える。
 - 同位置に複数nodeが存在しても別identityである。
+
+## Lane topology ownership
+
+`LaneConnection`と`BoundaryContinuation`はauthoritativeである。ユーザー操作またはoperationで確定した
+source/target endpointを保存し、generation時にgeometryの近さから作り直さない。`LaneConnectionKind`は
+生成とinspectionの意味を補助するが、identityの代わりにはしない。高速道路、出口、合流専用の保存型は作らず、
+一般道の車線追加、分岐、合流、交差点movementも同じlane/boundary接続で表す。
+
+車線中心と道路境界は別の正本である。lane接続からshoulderや道路外端の継続を暗黙導出せず、必要な境界は
+`BoundaryContinuation`で明示する。lane/boundaryのworld pathはこれらの正本から派生し、保存しない。
 
 ## Approach override lifecycle
 
@@ -178,9 +193,10 @@ authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / 
 
 ## Persistence target
 
-road persistenceは局所segment/corridor schemaの現行versionを使用する。保存対象はauthoritative stateとnext IDだけとする。
+road persistence version 11は局所segment/corridorに加えてlane/boundary topologyを保存する。保存対象はauthoritative stateとnext IDだけとする。
 CanonicalAlignment、connection、gate、section evaluation、junction geometry、mesh、mask、auto markingは保存しない。
 resolved connection、derived marking、mesh、maskも保存しない。ApproachGeometryOverrideはmanual fieldがある場合だけ保存する。
+`LaneConnection`と`BoundaryContinuation`はID順に保存し、lane/boundary path geometryは保存しない。
 
 形式は一行一fieldのnamed indexed `key=value`で、カンマ位置に意味を持たせない。save field順は固定し、
 top-level entityはID順にcanonical serializeする。順序に意味がある`SegmentShape.internal_knots`やPath spanは保存順を維持する。
@@ -254,9 +270,9 @@ Viewerの通常削除はhover hitが持つ`RoadSegmentId`のsegment全体をハ�
 別軸として扱う。styleからfunctionを推測しない。`Shoulder`はcurb幅や段差の代用ではなく独立した水平stripである。
 車道外側線はcarriageway利用領域とshoulderのsemantic boundaryへ置き、shoulderがない場合だけ外側boundaryを使う。
 
-現行persistence versionは10。局所segment、corridor、directed ref、section strip、lane allocationを
-named fieldで保存し、version 9以前はmigrationせず明示rejectする。corridor長、累積distance、
-周期配置候補、connection geometryは派生なので保存しない。
+現行persistence versionは11。局所segment、corridor、directed ref、section strip、lane allocation、
+lane connection、boundary continuationをnamed fieldで保存し、version 10以前はmigrationせず明示rejectする。
+corridor長、累積distance、周期配置候補、connection geometryは派生なので保存しない。
 
 testはproductionと同じ`ValidateGraphInvariants`を代表scenarioの観測点とseed付き操作列の
 各stepで呼ぶ。test専用の別invariantや、派生値同士だけを比較する代替検査を作らない。

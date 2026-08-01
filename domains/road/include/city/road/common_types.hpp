@@ -42,7 +42,10 @@ using RoadNodeId = std::uint64_t;
 using RoadSegmentId = std::uint64_t;
 using RoadCorridorId = std::uint64_t;
 using SectionStripId = std::uint64_t;
-using LaneBandId = std::uint64_t;
+using LaneId = std::uint64_t;
+using BoundaryId = std::uint64_t;
+using LaneConnectionId = std::uint64_t;
+using BoundaryContinuationId = std::uint64_t;
 using CrossSectionTemplateId = std::uint64_t;
 using SectionTransitionId = std::uint64_t;
 using ManualMarkingId = std::uint64_t;
@@ -122,6 +125,41 @@ enum class TransitionAnchor { kCenter, kLeftEdge, kRightEdge };
 enum class EndpointRole {
   kStart,
   kEnd,
+};
+enum class LaneTravelDirection {
+  kAlongSegment,
+  kAgainstSegment,
+};
+enum class LaneConnectionKind {
+  kContinuation,
+  kTransition,
+  kMerge,
+  kSplit,
+  kJunctionMovement,
+};
+
+struct LaneEndpointKey {
+  RoadSegmentId segment_id = 0;
+  LaneId lane_id = 0;
+  EndpointRole endpoint_role = EndpointRole::kStart;
+
+  bool operator==(const LaneEndpointKey&) const = default;
+  bool operator<(const LaneEndpointKey& other) const {
+    return std::tie(segment_id, lane_id, endpoint_role) <
+           std::tie(other.segment_id, other.lane_id, other.endpoint_role);
+  }
+};
+
+struct BoundaryEndpointKey {
+  RoadSegmentId segment_id = 0;
+  BoundaryId boundary_id = 0;
+  EndpointRole endpoint_role = EndpointRole::kStart;
+
+  bool operator==(const BoundaryEndpointKey&) const = default;
+  bool operator<(const BoundaryEndpointKey& other) const {
+    return std::tie(segment_id, boundary_id, endpoint_role) <
+           std::tie(other.segment_id, other.boundary_id, other.endpoint_role);
+  }
 };
 
 struct DirectedSegmentRef {
@@ -203,7 +241,7 @@ struct MarkingOwner {
 };
 struct MarkingTrackKey {
   RoadSegmentId segment_id = 0;
-  std::uint64_t boundary_id = 0;
+  BoundaryId boundary_id = 0;
   MarkingRole role = MarkingRole::kLaneSeparator;
 
   bool operator==(const MarkingTrackKey&) const = default;
@@ -234,13 +272,14 @@ struct SectionStrip {
   LaneSideMarkingPolicy side_marking{};
 };
 struct LaneBand {
-  LaneBandId id = 0;
+  LaneId id = 0;
   SectionStripId surface_strip_id = 0;
   double lateral_start_m = 0.0;
   double lateral_end_m = 0.0;
+  LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
 };
 struct BoundaryProfile {
-  std::uint64_t boundary_id = 0;
+  BoundaryId boundary_id = 0;
   BoundaryRole role = BoundaryRole::kCurb;
   double width_m = 0.0;
   double height_m = 0.0;

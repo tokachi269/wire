@@ -4,8 +4,8 @@
 
 namespace city::road::persistence {
 
-inline constexpr int kVersion = 10;
-inline constexpr std::string_view kHeader = "road_graph_version=10\n";
+inline constexpr int kVersion = 11;
+inline constexpr std::string_view kHeader = "road_graph_version=11\n";
 
 [[nodiscard]] inline bool HasCurrentHeader(std::string_view text) {
   return text.starts_with(kHeader);

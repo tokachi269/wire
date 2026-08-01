@@ -182,8 +182,11 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=10\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=11\n") &&
                        saved.value.find("primitive=") == std::string::npos &&
+                       saved.value.find("section_template.0.lane_band.0.direction=") != std::string::npos &&
+                       saved.value.find("lane_connection.count=0") != std::string::npos &&
+                       saved.value.find("boundary_continuation.count=0") != std::string::npos &&
                        saved.value.find("segment.0.shape.intent=0") != std::string::npos &&
                        saved.value.find("segment.0.shape.start_handle.x=") != std::string::npos &&
                        saved.value.find("corridor.0.segment.0.segment_id=") != std::string::npos,
@@ -205,7 +208,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
     return archive;
   };
   std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=10").size(), "road_graph_version=4");
+  version4.replace(0, std::string("road_graph_version=11").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
   ROAD_TEST_EXPECT(!rejected.ok && rejected.error_kind == ErrorKind::kValidation,
                    "legacy road archive was not rejected");
@@ -226,15 +229,102 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
                    "non-finite road archive double was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.strip.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "11")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "12")).ok,
                    "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
-  for (int old_version = 1; old_version <= 9; ++old_version) {
+  for (int old_version = 1; old_version <= 10; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=10").size(),
+    legacy.replace(0, std::string("road_graph_version=11").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
+  return true;
+}
+
+bool LAN1_lane_and_boundary_topology_round_trip(std::string& failure) {
+  RoadState state{};
+  const auto first = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(first.ok, first.error);
+  const RoadCorridorId corridor = state.graph().corridors.front().id;
+  const RoadNodeId endpoint = state.graph().segments.front().node_b;
+  const auto second = state.ExtendCorridorFromEnd(
+      city::road::ExtendCorridorFromEndRequest{
+          corridor, endpoint,
+          MakePath({MakeLine({20.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(second.ok, second.error);
+
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  std::uint64_t maximum_id = 0;
+  for (const auto& node : state.graph().nodes) maximum_id = std::max(maximum_id, node.id);
+  for (const auto& segment : state.graph().segments) maximum_id = std::max(maximum_id, segment.id);
+  for (const auto& road_corridor : state.graph().corridors) {
+    maximum_id = std::max(maximum_id, road_corridor.id);
+  }
+  for (const auto& section : state.graph().section_templates) {
+    maximum_id = std::max(maximum_id, section.id);
+  }
+
+  auto replace_value = [&failure](std::string* archive, const std::string& key,
+                                  const std::string& value) {
+    const std::string prefix = key + "=";
+    const std::size_t begin = archive->find(prefix);
+    if (begin == std::string::npos) {
+      failure = "test archive key is missing: " + key;
+      return;
+    }
+    const std::size_t end = archive->find('\n', begin);
+    archive->replace(begin, end - begin, prefix + value);
+  };
+
+  std::string with_topology = saved.value;
+  replace_value(&with_topology, "next_id", std::to_string(maximum_id + 3));
+  replace_value(&with_topology, "lane_connection.count", "1");
+  replace_value(&with_topology, "boundary_continuation.count", "1");
+  ROAD_TEST_EXPECT(failure.empty(), failure);
+  with_topology +=
+      "lane_connection.0.id=" + std::to_string(maximum_id + 1) + "\n" +
+      "lane_connection.0.source.segment_id=" + std::to_string(first.value) + "\n" +
+      "lane_connection.0.source.lane_id=1010\n"
+      "lane_connection.0.source.endpoint_role=1\n" +
+      "lane_connection.0.target.segment_id=" + std::to_string(second.value) + "\n" +
+      "lane_connection.0.target.lane_id=1010\n"
+      "lane_connection.0.target.endpoint_role=0\n"
+      "lane_connection.0.kind=0\n" +
+      "boundary_continuation.0.id=" + std::to_string(maximum_id + 2) + "\n" +
+      "boundary_continuation.0.source.segment_id=" + std::to_string(first.value) + "\n" +
+      "boundary_continuation.0.source.boundary_id=200\n"
+      "boundary_continuation.0.source.endpoint_role=1\n" +
+      "boundary_continuation.0.target.segment_id=" + std::to_string(second.value) + "\n" +
+      "boundary_continuation.0.target.boundary_id=200\n"
+      "boundary_continuation.0.target.endpoint_role=0\n";
+
+  const auto loaded = RoadState::Load(with_topology);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  ROAD_TEST_EXPECT(loaded.value.graph().lane_connections.size() == 1,
+                   "lane connection was not restored");
+  ROAD_TEST_EXPECT(loaded.value.graph().boundary_continuations.size() == 1,
+                   "boundary continuation was not restored");
+  const auto& lane = loaded.value.graph().lane_connections.front();
+  ROAD_TEST_EXPECT(lane.source.segment_id == first.value &&
+                       lane.source.lane_id == 1010 &&
+                       lane.target.segment_id == second.value &&
+                       lane.target.lane_id == 1010 &&
+                       lane.kind == city::road::LaneConnectionKind::kContinuation,
+                   "lane connection identity changed during load");
+  const auto& boundary = loaded.value.graph().boundary_continuations.front();
+  ROAD_TEST_EXPECT(boundary.source.boundary_id == 200 &&
+                       boundary.target.boundary_id == 200,
+                   "boundary continuation identity changed during load");
+  const auto canonical = loaded.value.Save();
+  ROAD_TEST_EXPECT(canonical.ok, canonical.error);
+  const auto loaded_again = RoadState::Load(canonical.value);
+  ROAD_TEST_EXPECT(loaded_again.ok, loaded_again.error);
+  const auto canonical_again = loaded_again.value.Save();
+  ROAD_TEST_EXPECT(canonical_again.ok, canonical_again.error);
+  ROAD_TEST_EXPECT(canonical.value == canonical_again.value,
+                   "lane topology archive was not canonical");
   return true;
 }
 
@@ -1347,6 +1437,7 @@ int main() {
       {"P0_angled_segment_keeps_final_section_perpendicular", P0_angled_segment_keeps_final_section_perpendicular},
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
+      {"LAN1_lane_and_boundary_topology_round_trip", LAN1_lane_and_boundary_topology_round_trip},
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
       {"P0_straight_segments_stay_linear_after_snap_and_move", P0_straight_segments_stay_linear_after_snap_and_move},
       {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},

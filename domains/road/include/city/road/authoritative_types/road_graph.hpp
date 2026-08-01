@@ -75,9 +75,20 @@ struct AutoMarkingOverride {
   AutoMarkingKey key{};
   bool suppressed = false;
 };
+struct LaneConnection {
+  LaneConnectionId id = 0;
+  LaneEndpointKey source{};
+  LaneEndpointKey target{};
+  LaneConnectionKind kind = LaneConnectionKind::kContinuation;
+};
+struct BoundaryContinuation {
+  BoundaryContinuationId id = 0;
+  BoundaryEndpointKey source{};
+  BoundaryEndpointKey target{};
+};
 struct JunctionMarkingEndpoint {
   ApproachKey approach{};
-  std::uint64_t boundary_id = 0;
+  BoundaryId boundary_id = 0;
   MarkingRole role = MarkingRole::kCenterLine;
 
   bool operator==(const JunctionMarkingEndpoint&) const = default;
@@ -100,6 +111,8 @@ struct SavedRoadGraph {
   std::vector<RoadCorridor> corridors{};
   std::vector<CrossSectionTemplate> section_templates{};
   std::vector<SectionTransition> transitions{};
+  std::vector<LaneConnection> lane_connections{};
+  std::vector<BoundaryContinuation> boundary_continuations{};
   std::vector<NodeConnectionPolicyOverride> connection_policy_overrides{};
   std::vector<ApproachGeometryOverride> approach_geometry_overrides{};
   std::vector<JunctionMarkingOverride> junction_marking_overrides{};

@@ -543,7 +543,7 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
       }
     }
   }
-  std::unordered_set<LaneBandId> lane_ids{};
+  std::unordered_set<LaneId> lane_ids{};
   for (const LaneBand& lane : section.lane_bands) {
     const SectionStrip* strip = find_strip(section, lane.surface_strip_id);
     if (lane.id == 0 || !lane_ids.insert(lane.id).second || strip == nullptr ||
@@ -841,8 +841,8 @@ CrossSectionTemplate JapaneseUrbanTwoLaneTemplate(CrossSectionTemplateId id) {
       {40, StripFunction::kSidewalk, 2.0, -0.01, builtin_surface_styles::kSidewalk},
   };
   section.lane_bands = {
-      {1000, 20, 0.0, 3.0},
-      {1010, 30, 0.0, 3.0},
+      {1000, 20, 0.0, 3.0, LaneTravelDirection::kAgainstSegment},
+      {1010, 30, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
   };
   section.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
@@ -866,9 +866,9 @@ CrossSectionTemplate ThreeLaneTemplate(CrossSectionTemplateId id) {
       {40, StripFunction::kSidewalk, 2.0, -0.01, builtin_surface_styles::kSidewalk},
   };
   section.lane_bands = {
-      {1000, 20, 0.0, 3.0},
-      {1010, 30, 0.0, 3.0},
-      {1020, 35, 0.0, 3.0},
+      {1000, 20, 0.0, 3.0, LaneTravelDirection::kAgainstSegment},
+      {1010, 30, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
+      {1020, 35, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
   };
   section.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
@@ -925,8 +925,8 @@ CrossSectionTemplate ShoulderedTwoLaneTemplate(CrossSectionTemplateId id) {
        builtin_surface_styles::kSidewalk},
   };
   section.lane_bands = {
-      {1000, 20, 0.0, 3.0},
-      {1010, 30, 0.0, 3.0},
+      {1000, 20, 0.0, 3.0, LaneTravelDirection::kAgainstSegment},
+      {1010, 30, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
   };
   section.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, {}},

@@ -259,6 +259,46 @@ Result<ApproachKey> read_approach_key(ArchiveReader& reader,
                                              endpoint_role.value});
 }
 
+void write_lane_endpoint_key(ArchiveWriter& writer, const std::string& prefix,
+                             LaneEndpointKey key) {
+  writer.UInt(prefix + ".segment_id", key.segment_id);
+  writer.UInt(prefix + ".lane_id", key.lane_id);
+  writer.Int(prefix + ".endpoint_role", static_cast<int>(key.endpoint_role));
+}
+
+Result<LaneEndpointKey> read_lane_endpoint_key(ArchiveReader& reader,
+                                                const std::string& prefix) {
+  Result<std::uint64_t> segment_id = reader.RequireU64(prefix + ".segment_id");
+  Result<std::uint64_t> lane_id = reader.RequireU64(prefix + ".lane_id");
+  Result<EndpointRole> endpoint_role =
+      enum_value<EndpointRole>(reader, prefix + ".endpoint_role", 0, 1);
+  if (!segment_id.ok) return Result<LaneEndpointKey>::Fail(segment_id.error_kind, segment_id.error);
+  if (!lane_id.ok) return Result<LaneEndpointKey>::Fail(lane_id.error_kind, lane_id.error);
+  if (!endpoint_role.ok) return Result<LaneEndpointKey>::Fail(endpoint_role.error_kind, endpoint_role.error);
+  return Result<LaneEndpointKey>::Ok(
+      LaneEndpointKey{segment_id.value, lane_id.value, endpoint_role.value});
+}
+
+void write_boundary_endpoint_key(ArchiveWriter& writer, const std::string& prefix,
+                                 BoundaryEndpointKey key) {
+  writer.UInt(prefix + ".segment_id", key.segment_id);
+  writer.UInt(prefix + ".boundary_id", key.boundary_id);
+  writer.Int(prefix + ".endpoint_role", static_cast<int>(key.endpoint_role));
+}
+
+Result<BoundaryEndpointKey> read_boundary_endpoint_key(
+    ArchiveReader& reader, const std::string& prefix) {
+  Result<std::uint64_t> segment_id = reader.RequireU64(prefix + ".segment_id");
+  Result<std::uint64_t> boundary_id = reader.RequireU64(prefix + ".boundary_id");
+  Result<EndpointRole> endpoint_role =
+      enum_value<EndpointRole>(reader, prefix + ".endpoint_role", 0, 1);
+  if (!segment_id.ok) return Result<BoundaryEndpointKey>::Fail(segment_id.error_kind, segment_id.error);
+  if (!boundary_id.ok) return Result<BoundaryEndpointKey>::Fail(boundary_id.error_kind, boundary_id.error);
+  if (!endpoint_role.ok) return Result<BoundaryEndpointKey>::Fail(endpoint_role.error_kind, endpoint_role.error);
+  return Result<BoundaryEndpointKey>::Ok(
+      BoundaryEndpointKey{segment_id.value, boundary_id.value, endpoint_role.value});
+}
+
 void write_marking_owner(ArchiveWriter& writer, const std::string& prefix,
                          MarkingOwner owner) {
   writer.Int(prefix + ".kind", static_cast<int>(owner.kind));
@@ -350,6 +390,8 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
   std::set<std::uint64_t> policy_ids{};
   std::set<std::uint64_t> marking_ids{};
   std::set<std::uint64_t> junction_marking_ids{};
+  std::set<std::uint64_t> lane_connection_ids{};
+  std::set<std::uint64_t> boundary_continuation_ids{};
   std::uint64_t max_id = 0;
   const auto add_id = [&](std::uint64_t id, std::set<std::uint64_t>* domain,
                           std::string_view label) -> Result<bool> {
@@ -390,7 +432,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         }
       }
     }
-    std::set<LaneBandId> lane_ids{};
+    std::set<LaneId> lane_ids{};
     for (const LaneBand& lane : section.lane_bands) {
       const auto strip = std::find_if(
           section.strips.begin(), section.strips.end(),
@@ -401,6 +443,8 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
           strip == section.strips.end() ||
           strip->function != StripFunction::kCarriageway ||
           !finite(lane.lateral_start_m) || !finite(lane.lateral_end_m) ||
+          static_cast<int>(lane.direction) < 0 ||
+          static_cast<int>(lane.direction) > 1 ||
           lane.lateral_start_m < 0.0 ||
           lane.lateral_end_m <= lane.lateral_start_m ||
           lane.lateral_end_m > strip->width_m) {
@@ -472,6 +516,35 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         static_cast<int>(segment.shape.intent) > 1) {
       return Result<bool>::Fail(ErrorKind::kValidation,
                                 "road segment is invalid");
+    }
+  }
+  for (const LaneConnection& connection : graph.lane_connections) {
+    Result<bool> id = add_id(connection.id, &lane_connection_ids, "lane_connection");
+    if (!id.ok) return id;
+    if (connection.source.segment_id == 0 || connection.source.lane_id == 0 ||
+        connection.target.segment_id == 0 || connection.target.lane_id == 0 ||
+        static_cast<int>(connection.source.endpoint_role) < 0 ||
+        static_cast<int>(connection.source.endpoint_role) > 1 ||
+        static_cast<int>(connection.target.endpoint_role) < 0 ||
+        static_cast<int>(connection.target.endpoint_role) > 1 ||
+        static_cast<int>(connection.kind) < 0 ||
+        static_cast<int>(connection.kind) > 4) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "lane connection identity is invalid");
+    }
+  }
+  for (const BoundaryContinuation& continuation : graph.boundary_continuations) {
+    Result<bool> id = add_id(continuation.id, &boundary_continuation_ids,
+                             "boundary_continuation");
+    if (!id.ok) return id;
+    if (continuation.source.segment_id == 0 || continuation.source.boundary_id == 0 ||
+        continuation.target.segment_id == 0 || continuation.target.boundary_id == 0 ||
+        static_cast<int>(continuation.source.endpoint_role) < 0 ||
+        static_cast<int>(continuation.source.endpoint_role) > 1 ||
+        static_cast<int>(continuation.target.endpoint_role) < 0 ||
+        static_cast<int>(continuation.target.endpoint_role) > 1) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "boundary continuation identity is invalid");
     }
   }
   std::set<RoadSegmentId> corridor_segments{};
@@ -694,6 +767,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
       writer.UInt(lane_prefix + ".surface_strip_id", lane.surface_strip_id);
       writer.Double(lane_prefix + ".lateral_start_m", lane.lateral_start_m);
       writer.Double(lane_prefix + ".lateral_end_m", lane.lateral_end_m);
+      writer.Int(lane_prefix + ".direction", static_cast<int>(lane.direction));
     }
     writer.UInt(prefix + ".boundary.count", section.boundaries.size());
     for (std::size_t j = 0; j < section.boundaries.size(); ++j) {
@@ -845,6 +919,27 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     }
   }
 
+  const auto lane_connections = sorted_by_id(graph.lane_connections);
+  writer.UInt("lane_connection.count", lane_connections.size());
+  for (std::size_t i = 0; i < lane_connections.size(); ++i) {
+    const LaneConnection& connection = *lane_connections[i];
+    const std::string prefix = "lane_connection." + std::to_string(i);
+    writer.UInt(prefix + ".id", connection.id);
+    write_lane_endpoint_key(writer, prefix + ".source", connection.source);
+    write_lane_endpoint_key(writer, prefix + ".target", connection.target);
+    writer.Int(prefix + ".kind", static_cast<int>(connection.kind));
+  }
+
+  const auto boundary_continuations = sorted_by_id(graph.boundary_continuations);
+  writer.UInt("boundary_continuation.count", boundary_continuations.size());
+  for (std::size_t i = 0; i < boundary_continuations.size(); ++i) {
+    const BoundaryContinuation& continuation = *boundary_continuations[i];
+    const std::string prefix = "boundary_continuation." + std::to_string(i);
+    writer.UInt(prefix + ".id", continuation.id);
+    write_boundary_endpoint_key(writer, prefix + ".source", continuation.source);
+    write_boundary_endpoint_key(writer, prefix + ".target", continuation.target);
+  }
+
   const auto corridors = sorted_by_id(graph.corridors);
   writer.UInt("corridor.count", corridors.size());
   for (std::size_t i = 0; i < corridors.size(); ++i) {
@@ -987,12 +1082,16 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           reader.RequireDouble(lane_prefix + ".lateral_start_m");
       Result<double> end =
           reader.RequireDouble(lane_prefix + ".lateral_end_m");
+      Result<LaneTravelDirection> direction = enum_value<LaneTravelDirection>(
+          reader, lane_prefix + ".direction", 0, 1);
       if (!lane_id.ok) return Result<LoadedRoad>::Fail(lane_id.error_kind, lane_id.error);
       if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.error_kind, strip_id.error);
       if (!start.ok) return Result<LoadedRoad>::Fail(start.error_kind, start.error);
       if (!end.ok) return Result<LoadedRoad>::Fail(end.error_kind, end.error);
+      if (!direction.ok) return Result<LoadedRoad>::Fail(direction.error_kind, direction.error);
       section.lane_bands.push_back(
-          LaneBand{lane_id.value, strip_id.value, start.value, end.value});
+          LaneBand{lane_id.value, strip_id.value, start.value, end.value,
+                   direction.value});
     }
     Result<std::size_t> boundary_count = require_count(prefix + ".boundary.count");
     if (!boundary_count.ok) return Result<LoadedRoad>::Fail(boundary_count.error_kind, boundary_count.error);
@@ -1239,6 +1338,46 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           SegmentKnot{position.value, handle_in.value, handle_out.value});
     }
     loaded.graph.segments.push_back(std::move(segment));
+  }
+
+  Result<std::size_t> lane_connection_count = require_count("lane_connection.count");
+  if (!lane_connection_count.ok) {
+    return Result<LoadedRoad>::Fail(lane_connection_count.error_kind,
+                                    lane_connection_count.error);
+  }
+  for (std::size_t i = 0; i < lane_connection_count.value; ++i) {
+    const std::string prefix = "lane_connection." + std::to_string(i);
+    Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
+    Result<LaneEndpointKey> source = read_lane_endpoint_key(reader, prefix + ".source");
+    Result<LaneEndpointKey> target = read_lane_endpoint_key(reader, prefix + ".target");
+    Result<LaneConnectionKind> kind =
+        enum_value<LaneConnectionKind>(reader, prefix + ".kind", 0, 4);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
+    if (!source.ok) return Result<LoadedRoad>::Fail(source.error_kind, source.error);
+    if (!target.ok) return Result<LoadedRoad>::Fail(target.error_kind, target.error);
+    if (!kind.ok) return Result<LoadedRoad>::Fail(kind.error_kind, kind.error);
+    loaded.graph.lane_connections.push_back(
+        LaneConnection{id.value, source.value, target.value, kind.value});
+  }
+
+  Result<std::size_t> boundary_continuation_count =
+      require_count("boundary_continuation.count");
+  if (!boundary_continuation_count.ok) {
+    return Result<LoadedRoad>::Fail(boundary_continuation_count.error_kind,
+                                    boundary_continuation_count.error);
+  }
+  for (std::size_t i = 0; i < boundary_continuation_count.value; ++i) {
+    const std::string prefix = "boundary_continuation." + std::to_string(i);
+    Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
+    Result<BoundaryEndpointKey> source =
+        read_boundary_endpoint_key(reader, prefix + ".source");
+    Result<BoundaryEndpointKey> target =
+        read_boundary_endpoint_key(reader, prefix + ".target");
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
+    if (!source.ok) return Result<LoadedRoad>::Fail(source.error_kind, source.error);
+    if (!target.ok) return Result<LoadedRoad>::Fail(target.error_kind, target.error);
+    loaded.graph.boundary_continuations.push_back(
+        BoundaryContinuation{id.value, source.value, target.value});
   }
 
   Result<std::size_t> corridor_count = require_count("corridor.count");

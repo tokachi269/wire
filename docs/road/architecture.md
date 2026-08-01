@@ -188,7 +188,9 @@ source/target endpointを保存し、generation時にgeometryの近さから作�
 
 `AddConnectedLaneSegment`は道路segmentの追加と、選択済みlane/boundary endpointの接続を同じtrialへ適用する。
 接続可否はtemplate IDではなくendpointの実断面で判定する。同じ物理・意味定義なら別template IDでも接続し、
-lane layoutが異なる場合だけ明示lane topologyを要求する。道路中心や最寄りlaneから接続先を補わない。
+degree 2でlane layoutが異なる場合はnode手前のsection transitionを要求する。junctionでは各approachの断面を独立して
+解決し、未指定laneはgateで終了する。1件のLaneConnectionを全断面の解決済み判定には使わない。
+道路中心や最寄りlaneから接続先を補わない。
 新segmentをtargetにする分岐と、新segmentをsourceにする合流は同じoperation契約を使う。
 `resolve_connections`はstraight ContinuationまたはMergeのlane center対応からtarget approachの共通lateral shiftを一度だけ導出し、
 角度を持つbranch sourceはmainline shiftの決定入力から除外する。

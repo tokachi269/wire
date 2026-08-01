@@ -163,9 +163,9 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - transition前は `from_template`、transition後は `to_template`、区間内は線形補間する。
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge / 明示BoundaryIdのいずれか。
 - `AddLane`は方向と側から外側laneと固定boundaryをCoreで一意に解決する。利用者へboundary IDを要求せず、固定boundary内側の既存laneを移動しない。
-- taperはcorridor距離上の一つの変化率として解決する。segment境界では同じ中間断面を前segmentの終端と次segmentの開始に使い、追加後断面をcorridorの後続segmentへ伝播する。reversed corridorと既存transitionとの競合は未解決のまま明示拒否し、単一segment primitiveへfallbackしない。
+- taperはcorridor距離上の一つの変化率として解決する。segment境界では同じ中間断面を前segmentの終端と次segmentの開始に使い、追加後断面をcorridorの後続segmentへ伝播する。reversed corridorはcorridor方向からsegment localへ正規化する。既存transitionとの競合は未解決のまま明示拒否し、単一segment primitiveへfallbackしない。
   追加lane幅だけを0から指定幅へ単調に増やし、その外側のshoulderとcurbを外へ移す。断面全体を再中心化しない。
-- 最初の対応範囲は、1本のforward corridor segment内で完結し、既存transitionと重ならないlane追加である。
+- 対応範囲はforward/reversedを含むcorridor内の複数segmentで、既存transitionと重ならないlane追加である。
   複数segmentまたぎ、reversed segment、既存transitionとの合成は推測せずunsupportedとする。
 - element対応は ID で行う。出現は `TaperIn`、消滅は `TaperOut` または `EndCap` を明示する。
 - 1 segmentに同時に接続できる transition は1個。短距離多重transitionはP2非対象。

@@ -570,18 +570,48 @@ resolve_connections(const SavedRoadGraph &graph,
                    !internal::equivalent_section_definition(*expected,
                                                             *candidate);
           });
-      const bool has_explicit_lane_topology = std::any_of(
-          graph.lane_connections.begin(), graph.lane_connections.end(),
-          [&graph, &connection](const LaneConnection &lane) {
-            return internal::find_lane_endpoint(graph, lane.source).node_id ==
-                       connection.node_id &&
-                   internal::find_lane_endpoint(graph, lane.target).node_id ==
-                       connection.node_id;
-          });
-      if (mixed && !has_explicit_lane_topology) {
+      const RoadSegmentId first_segment_id =
+          connection.approaches.front().key.segment_id;
+      const RoadSegmentId second_segment_id =
+          connection.approaches.size() == 2
+              ? connection.approaches.back().key.segment_id
+              : 0;
+      const auto connects_approach_pair =
+          [first_segment_id,
+           second_segment_id](RoadSegmentId source, RoadSegmentId target) {
+            return (source == first_segment_id &&
+                    target == second_segment_id) ||
+                   (source == second_segment_id &&
+                    target == first_segment_id);
+          };
+      const bool has_pair_lane_topology =
+          second_segment_id != 0 &&
+          std::any_of(graph.lane_connections.begin(),
+                      graph.lane_connections.end(),
+                      [&connects_approach_pair](const LaneConnection &lane) {
+                        return connects_approach_pair(lane.source.segment_id,
+                                                      lane.target.segment_id);
+                      });
+      const bool has_pair_boundary_topology =
+          second_segment_id != 0 &&
+          std::any_of(graph.boundary_continuations.begin(),
+                      graph.boundary_continuations.end(),
+                      [&connects_approach_pair](
+                          const BoundaryContinuation &boundary) {
+                        return connects_approach_pair(
+                            boundary.source.segment_id,
+                            boundary.target.segment_id);
+                      });
+      // Junction approaches may intentionally terminate at their gates. An
+      // explicit JunctionMovement opts individual lanes into a movement; it is
+      // not evidence that every lane/boundary has been mapped. Degree-two
+      // connections, however, imply continuity and must not hide a section
+      // change at the node.
+      if (mixed && connection.kind != NodeConnectionKind::kJunction &&
+          !(has_pair_lane_topology && has_pair_boundary_topology)) {
         return Out::Fail(CommitFailureCategory::kNotImplemented,
-                         "road connected endpoint sections need explicit lane "
-                         "topology because their lane layouts differ");
+                         "road degree-two connection lane layouts differ; add "
+                         "a section transition before the node");
       }
     }
     if (!std::isfinite(minimum_setback))

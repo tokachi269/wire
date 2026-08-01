@@ -1408,6 +1408,63 @@ bool add_lane_normalizes_reversed_corridor_direction(std::string& failure) {
   return true;
 }
 
+bool add_lane_reaches_mixed_section_junction(std::string& failure) {
+  RoadState state{};
+  const auto incoming = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-80.0, 0.0}, {0.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(incoming.ok, incoming.error);
+  const auto incoming_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&incoming](const auto& segment) { return segment.id == incoming.value; });
+  ROAD_TEST_EXPECT(incoming_segment != state.graph().segments.end(),
+                   "ADD4 incoming segment is missing");
+  const RoadNodeId junction_node = incoming_segment->node_b;
+  const auto straight = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 1,
+          junction_node});
+  const auto branch = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 80.0})}), 1,
+          junction_node});
+  ROAD_TEST_EXPECT(straight.ok && branch.ok,
+                   straight.ok ? branch.error : straight.error);
+  const auto* corridor =
+      FindCorridorForSegment(state.graph(), incoming.value);
+  ROAD_TEST_EXPECT(corridor != nullptr,
+                   "ADD4 incoming corridor is missing");
+
+  city::road::AddLaneRequest request{};
+  request.corridor_id = corridor->id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
+  request.lane_width_m = 3.0;
+  const auto added = state.AddLane(request);
+  ROAD_TEST_EXPECT(added.ok,
+                   "ADD4 lane could not reach a mixed-section junction: " +
+                       added.error);
+  const auto* junction =
+      city::road::FindResolvedConnection(state.derived(), junction_node);
+  ROAD_TEST_EXPECT(junction != nullptr &&
+                       junction->kind ==
+                           city::road::NodeConnectionKind::kJunction &&
+                       junction->approaches.size() == 3,
+                   "ADD4 junction approaches were not regenerated");
+  ROAD_TEST_EXPECT(!junction->junction_geometry.surface_regions.empty(),
+                   "ADD4 mixed-section junction surface is missing");
+  const auto incoming_approach = std::find_if(
+      junction->approaches.begin(), junction->approaches.end(),
+      [&incoming](const auto& approach) {
+        return approach.key.segment_id == incoming.value;
+      });
+  ROAD_TEST_EXPECT(incoming_approach != junction->approaches.end() &&
+                       incoming_approach->endpoint_template_id != 1,
+                   "ADD4 junction did not consume the added-lane endpoint section");
+  return true;
+}
+
 bool selected_outer_lane_branches_to_one_lane_road(
     std::string& failure) {
   RoadState state{};
@@ -2626,6 +2683,8 @@ int main() {
        add_lane_taper_crosses_segment_boundary},
       {"add_lane_normalizes_reversed_corridor_direction",
        add_lane_normalizes_reversed_corridor_direction},
+      {"add_lane_reaches_mixed_section_junction",
+       add_lane_reaches_mixed_section_junction},
       {"selected_outer_lane_branches_to_one_lane_road",
        selected_outer_lane_branches_to_one_lane_road},
       {"one_lane_road_merges_into_outer_mainline_lane",

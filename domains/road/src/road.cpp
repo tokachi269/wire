@@ -722,12 +722,6 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
           CommitFailureCategory::kInvalidInput,
           "section transition anchor boundary is missing");
     }
-    if (!IsSinglePositionBoundary(*from_anchor) ||
-        !IsSinglePositionBoundary(*to_anchor)) {
-      return Result<bool>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "section transition anchor boundary must have one position");
-    }
   } else if (transition.anchor_boundary_id != 0) {
     return Result<bool>::Fail(
         CommitFailureCategory::kInvalidInput,
@@ -2627,31 +2621,23 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
                                     ? *extremes.second
                                     : *extremes.first;
   const std::size_t lane_strip_index = selected.strip_index;
-  std::optional<std::size_t> anchor_index{};
-  if (local_side == RoadSide::kRight) {
-    for (std::size_t index = lane_strip_index; index > 0; --index) {
-      const std::size_t candidate = index - 1;
-      if (IsSinglePositionBoundary(source->boundaries[candidate])) {
-        anchor_index = candidate;
-        break;
-      }
-    }
-  } else {
-    for (std::size_t candidate = lane_strip_index;
-         candidate < source->boundaries.size(); ++candidate) {
-      if (IsSinglePositionBoundary(source->boundaries[candidate])) {
-        anchor_index = candidate;
-        break;
-      }
-    }
-  }
-  if (!anchor_index.has_value()) {
-    return Result<LaneId>::Fail(
-        CommitFailureCategory::kNotImplemented,
-        "selected side has no stable boundary for a lane taper");
-  }
+  const std::optional<std::size_t> anchor_index =
+      local_side == RoadSide::kRight
+          ? (lane_strip_index > 0
+                 ? std::optional<std::size_t>{lane_strip_index - 1}
+                 : std::nullopt)
+          : (lane_strip_index < source->boundaries.size()
+                 ? std::optional<std::size_t>{lane_strip_index}
+                 : std::nullopt);
+  const TransitionAnchor anchor =
+      anchor_index.has_value()
+          ? TransitionAnchor::kBoundary
+          : (local_side == RoadSide::kRight ? TransitionAnchor::kLeftEdge
+                                             : TransitionAnchor::kRightEdge);
   const BoundaryId anchor_boundary_id =
-      source->boundaries[*anchor_index].boundary_id;
+      anchor_index.has_value()
+          ? source->boundaries[*anchor_index].boundary_id
+          : 0;
 
   CrossSectionTemplate target = *source;
   std::uint64_t next_local_id = 1;
@@ -2922,7 +2908,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           transition_id, local_taper_from, local_taper_to,
           DistanceRef{DistanceRefKind::kRatio, 0.0},
           DistanceRef{DistanceRefKind::kRatio, 1.0},
-          TransitionAnchor::kBoundary, anchor_boundary_id,
+          anchor, anchor_boundary_id,
           {SectionTransitionRule{added_strip_id, action}}});
 
       CrossSectionTemplateId propagated_terminal_template_id = target.id;
@@ -3283,7 +3269,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           transition_id, local_from_template_id, local_to_template_id,
           DistanceRef{DistanceRefKind::kRatio, 0.0},
           DistanceRef{DistanceRefKind::kRatio, 1.0},
-          TransitionAnchor::kBoundary, anchor_boundary_id,
+          anchor, anchor_boundary_id,
           {SectionTransitionRule{added_strip_id, action}}});
 
       const ApproachKey old_end{current->node_b, current->id,
@@ -3446,7 +3432,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           transition_id, local_from_template_id, local_to_template_id,
           DistanceRef{DistanceRefKind::kRatio, 0.0},
           DistanceRef{DistanceRefKind::kRatio, 1.0},
-          TransitionAnchor::kBoundary, anchor_boundary_id,
+          anchor, anchor_boundary_id,
           {SectionTransitionRule{added_strip_id, action}}});
 
       const ApproachKey old_end{current->node_b, current->id,
@@ -3547,7 +3533,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           transition_id, local_from_template_id, local_to_template_id,
           DistanceRef{DistanceRefKind::kFromStart, local_start},
           DistanceRef{DistanceRefKind::kFromStart, local_end},
-          TransitionAnchor::kBoundary, anchor_boundary_id,
+          anchor, anchor_boundary_id,
           {SectionTransitionRule{added_strip_id, action}}});
       RoadSegment replacement = *current;
       replacement.section_template = local_from_template_id;

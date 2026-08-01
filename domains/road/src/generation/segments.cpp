@@ -228,6 +228,7 @@ Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
   // recenter lanes that existed before the transition.
   for (const RoadCorridor &corridor : graph.corridors) {
     const SectionEvaluation *previous_exit = nullptr;
+    std::optional<TransitionAnchor> carried_anchor{};
     BoundaryId carried_boundary_id = 0;
     for (const DirectedSegmentRef &ref : corridor.segments) {
       auto derived_it = std::find_if(
@@ -249,32 +250,42 @@ Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
               CommitFailureCategory::kInternalError,
               "road corridor section transition is missing");
         }
-        if (transition->anchor == TransitionAnchor::kBoundary) {
+        if (transition->anchor == TransitionAnchor::kBoundary ||
+            transition->anchor == TransitionAnchor::kLeftEdge ||
+            transition->anchor == TransitionAnchor::kRightEdge) {
+          carried_anchor = transition->anchor;
           carried_boundary_id = transition->anchor_boundary_id;
         }
       }
       SectionEvaluation &entry =
           ref.reversed ? derived_it->sections.back()
                        : derived_it->sections.front();
-      if (previous_exit != nullptr && carried_boundary_id != 0) {
-        const auto previous_boundary = std::find_if(
-            previous_exit->boundaries.begin(), previous_exit->boundaries.end(),
-            [carried_boundary_id](const SectionBoundarySample &boundary) {
-              return boundary.boundary_id == carried_boundary_id;
-            });
-        const auto current_boundary = std::find_if(
-            entry.boundaries.begin(), entry.boundaries.end(),
-            [carried_boundary_id](const SectionBoundarySample &boundary) {
-              return boundary.boundary_id == carried_boundary_id;
-            });
-        if (previous_boundary == previous_exit->boundaries.end() ||
-            current_boundary == entry.boundaries.end()) {
+      if (previous_exit != nullptr && carried_anchor.has_value()) {
+        const auto anchor_lateral =
+            [carried_anchor, carried_boundary_id](
+                const SectionEvaluation &section) -> std::optional<double> {
+          if (*carried_anchor == TransitionAnchor::kLeftEdge)
+            return section.boundaries.front().lateral_m;
+          if (*carried_anchor == TransitionAnchor::kRightEdge)
+            return section.boundaries.back().lateral_m;
+          const auto boundary = std::find_if(
+              section.boundaries.begin(), section.boundaries.end(),
+              [carried_boundary_id](const SectionBoundarySample &item) {
+                return item.boundary_id == carried_boundary_id;
+              });
+          return boundary == section.boundaries.end()
+                     ? std::nullopt
+                     : std::optional<double>{boundary->lateral_m};
+        };
+        const std::optional<double> previous_lateral =
+            anchor_lateral(*previous_exit);
+        const std::optional<double> current_lateral = anchor_lateral(entry);
+        if (!previous_lateral.has_value() || !current_lateral.has_value()) {
           return Result<bool>::Fail(
               CommitFailureCategory::kInternalError,
-              "road corridor carried section boundary is missing");
+              "road corridor carried section anchor is missing");
         }
-        const double shift = previous_boundary->lateral_m -
-                             current_boundary->lateral_m;
+        const double shift = *previous_lateral - *current_lateral;
         for (SectionEvaluation &section : derived_it->sections) {
           for (SectionBoundarySample &boundary : section.boundaries) {
             boundary.lateral_m += shift;

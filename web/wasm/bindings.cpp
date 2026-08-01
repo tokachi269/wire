@@ -1705,8 +1705,7 @@ public:
         val boundary_item = val::object();
         boundary_item.set("id", static_cast<double>(boundary.boundary_id));
         boundary_item.set("role", static_cast<int>(boundary.role));
-        boundary_item.set("canAnchorTransition",
-                          city::road::IsSinglePositionBoundary(boundary));
+        boundary_item.set("canAnchorTransition", true);
         boundaries.call<void>("push", boundary_item);
       }
       item.set("lanes", lanes);

@@ -1847,6 +1847,72 @@ bool add_lane_accepts_multiple_lanes_on_one_carriageway_strip(
   return true;
 }
 
+bool add_lane_supports_every_builtin_section_outer_side(
+    std::string& failure) {
+  for (const city::road::CrossSectionTemplateId template_id :
+       {1ULL, 2ULL, 3ULL, 4ULL, 5ULL}) {
+    for (const auto [direction, side] : {
+             std::pair{city::road::LaneTravelDirection::kAgainstSegment,
+                       city::road::RoadSide::kLeft},
+             std::pair{city::road::LaneTravelDirection::kAlongSegment,
+                       city::road::RoadSide::kRight}}) {
+      RoadState state{};
+      const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), template_id});
+      ROAD_TEST_EXPECT(segment.ok, segment.error);
+      const auto* corridor =
+          city::road::FindCorridorForSegment(state.graph(), segment.value);
+      ROAD_TEST_EXPECT(corridor != nullptr,
+                       "ADD11 builtin corridor is missing");
+
+      city::road::AddLaneRequest request{};
+      request.corridor_id = corridor->id;
+      request.direction = direction;
+      request.side = side;
+      request.taper_start_corridor_distance_m = 20.0;
+      request.full_width_corridor_distance_m = 60.0;
+      request.lane_width_m = 3.0;
+      const auto added = state.AddLane(request);
+      ROAD_TEST_EXPECT(
+          added.ok,
+          "ADD11 builtin template " + std::to_string(template_id) +
+              " rejected an outer lane: " + added.error);
+    }
+  }
+
+  RoadState single_strip_state{};
+  city::road::CrossSectionTemplate single_strip{};
+  single_strip.strips = {
+      {10, StripFunction::kCarriageway, 3.0, 0.0,
+       builtin_surface_styles::kAsphalt}};
+  single_strip.lane_bands = {
+      {1000, 10, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAlongSegment}};
+  const auto section = single_strip_state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{single_strip});
+  ROAD_TEST_EXPECT(section.ok, section.error);
+  const auto segment = single_strip_state.AddSegment(
+      city::road::AddSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), section.value});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const auto* corridor = city::road::FindCorridorForSegment(
+      single_strip_state.graph(), segment.value);
+  ROAD_TEST_EXPECT(corridor != nullptr,
+                   "ADD11 single-strip corridor is missing");
+  city::road::AddLaneRequest request{};
+  request.corridor_id = corridor->id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
+  request.lane_width_m = 3.0;
+  const auto added = single_strip_state.AddLane(request);
+  ROAD_TEST_EXPECT(added.ok,
+                   "ADD11 single-strip lane addition was rejected: " +
+                       added.error);
+  return true;
+}
+
 bool selected_outer_lane_branches_to_one_lane_road(
     std::string& failure) {
   RoadState state{};
@@ -3079,6 +3145,8 @@ int main() {
        add_lane_allows_an_earlier_non_overlapping_addition},
       {"add_lane_accepts_multiple_lanes_on_one_carriageway_strip",
        add_lane_accepts_multiple_lanes_on_one_carriageway_strip},
+      {"add_lane_supports_every_builtin_section_outer_side",
+       add_lane_supports_every_builtin_section_outer_side},
       {"selected_outer_lane_branches_to_one_lane_road",
        selected_outer_lane_branches_to_one_lane_road},
       {"one_lane_road_merges_into_outer_mainline_lane",

@@ -181,7 +181,9 @@ source/target endpointを保存し、generation時にgeometryの近さから作�
 車線中心と道路境界は別の正本である。lane接続からshoulderや道路外端の継続を暗黙導出せず、必要な境界は
 `BoundaryContinuation`で明示する。lane/boundaryのworld pathはこれらの正本から派生し、保存しない。
 
-外側lane追加は`SectionTransition`へ明示した`anchor_boundary_id`を固定点とする。既存laneの内側境界を
+外側lane追加は、追加側と反対にある直近の断面境界を`SectionTransition`の固定基準とする。
+curbやmedian edgeのように幅と高さを持つ境界も、その境界の断面順で左側のsampleを固定する。
+反対側に境界がない単一strip断面では断面外端を固定する。既存laneの内側境界を
 同じIDの断面sampleから一度だけ解決し、その外側にだけ新laneを展開する。全断面の中心合わせやworld位置の
 近接再bindは行わない。新laneの幅はtransition中に0から指定幅へ単調に増加し、既存shoulder幅は維持したまま
 外側へ移動する。
@@ -238,10 +240,10 @@ resolved connection、derived marking、mesh、maskも保存しない。Approach
 `LaneConnection`と`BoundaryContinuation`はID順に保存し、lane/boundary path geometryは保存しない。
 
 Web/WASM境界はCoreが返す軽量なlane world pathをhoverと選択表示にだけ使う。編集requestは選択済みの
-`LaneEndpointKey` / `BoundaryEndpointKey`と、AddLaneのcorridor distanceおよびanchor boundary IDをそのまま渡す。
+`LaneEndpointKey` / `BoundaryEndpointKey`と、AddLaneのcorridor distanceをそのまま渡す。
 Webはlane接続curve、境界対応、接続相手を再計算しない。標準道路描画のpointer moveは入力Bezierと断面幅からローカルguideだけを表示し、Core operationを実行しない。ClickまたはEnterの明示commitで初めてCore generationとvalidationを行う。
 control-point編集やlane編集の明示previewはtrial stateで対応するCore operationを実行できる。preview結果は確定結果と同じresolved mesh経路を使い、preview前後でauthoritative stateを変更しない。
-AddLaneのanchor候補可否はCoreの単一点boundary判定をWASMが公開する。Webはrole、配列順、数値IDから候補を推測しない。
+AddLaneの固定基準はCoreがlaneの方向・追加側・断面順から決める。Webはrole、配列順、数値IDから候補を推測しない。
 
 形式は一行一fieldのnamed indexed `key=value`で、カンマ位置に意味を持たせない。save field順は固定し、
 top-level entityはID順にcanonical serializeする。順序に意味がある`SegmentShape.internal_knots`やPath spanは保存順を維持する。

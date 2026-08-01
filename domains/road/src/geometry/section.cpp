@@ -370,6 +370,8 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
     } else if (transition->anchor == TransitionAnchor::kRightEdge) {
       shift = from_boundaries.back().lateral_m - boundaries.back().lateral_m;
     } else if (transition->anchor == TransitionAnchor::kBoundary) {
+      // Structural boundaries have two samples. The first sample is the
+      // boundary's left edge in section order and is the stable anchor.
       const auto source = std::find_if(
           from_boundaries.begin(), from_boundaries.end(),
           [transition](const SectionBoundarySample &boundary) {

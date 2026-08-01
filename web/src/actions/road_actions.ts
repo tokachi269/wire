@@ -26,6 +26,8 @@ export class RoadActions {
         curveContinuationTangent: null,
         draftSpans: [],
         previewMeshes: [],
+        previewState: "none",
+        previewRequest: null,
         previewIssue: "",
         lastError: ""
       }
@@ -55,6 +57,8 @@ export class RoadActions {
         activeEditPointIndex: -1,
         editPoints: [],
         previewMeshes: [],
+        previewState: "none",
+        previewRequest: null,
         previewIssue: "",
         lastError: ""
       }
@@ -188,6 +192,21 @@ export class RoadActions {
       return;
     }
     const road = current.mode !== "line" ? withRoadCurveEnd(current, target) : withRoadEnd(current, target);
+    if (current.mode === "line") {
+      const request = current.previewState === "valid" && current.previewRequest !== null &&
+          sameRoadPoint({ x: current.previewRequest.endX, y: current.previewRequest.endY }, target)
+        ? current.previewRequest
+        : roadSegmentInput(road);
+      if (request !== current.previewRequest) {
+        const preview = this.ctx.bridge.roadPreviewSegment(request);
+        if (!preview.ok) {
+          this.applyPreview(road, preview, request);
+          return;
+        }
+      }
+      this.commitInterval(request, target, true);
+      return;
+    }
     this.stageSpan(road);
   }
 
@@ -229,8 +248,9 @@ export class RoadActions {
     if (current.phase === "start") return;
     const target: RoadPoint = { x: point[0], y: point[1] };
     const road = this.previewState(current, target);
-    const preview = this.ctx.bridge.roadPreviewSegment(roadSegmentInput(road));
-    this.applyPreview(road, preview);
+    const request = roadSegmentInput(road);
+    const preview = this.ctx.bridge.roadPreviewSegment(request);
+    this.applyPreview(road, preview, request);
   }
 
   private applyOperation(road: RoadToolState, point: RoadPoint, snap?: RoadSnapInfo): void {
@@ -405,6 +425,8 @@ export class RoadActions {
         draftExtensionCorridorId: 0,
         curveContinuationTangent: null,
         previewMeshes: [],
+        previewState: "none",
+        previewRequest: null,
         previewIssue: "",
         lastError: ""
       },
@@ -424,7 +446,24 @@ export class RoadActions {
 
   commitPath(): void {
     const road = this.ctx.readSnapshot().road;
-    if (road.operation !== "draw" || road.draftSpans.length === 0) return;
+    if (road.operation !== "draw") return;
+    if (road.mode === "line") {
+      if (road.previewState === "invalid") return;
+      if (road.previewState !== "valid" || road.previewRequest === null) {
+        this.cancelSession();
+        return;
+      }
+      this.commitInterval(
+        road.previewRequest,
+        { x: road.previewRequest.endX, y: road.previewRequest.endY },
+        false
+      );
+      return;
+    }
+    if (road.draftSpans.length === 0) {
+      this.cancelSession();
+      return;
+    }
     const result = this.ctx.bridge.roadAddSegment(
       roadSegmentInput(road, false)
     );
@@ -442,6 +481,70 @@ export class RoadActions {
       return;
     }
     this.finish(result, "road add segment");
+  }
+
+  private commitInterval(
+    request: ReturnType<typeof roadSegmentInput>,
+    endpoint: RoadPoint,
+    continueSession: boolean
+  ): void {
+    const result = this.ctx.bridge.roadAddSegment(request);
+    if (!result.ok) {
+      this.ctx.store.update((snapshot) => ({
+        ...snapshot,
+        road: {
+          ...snapshot.road,
+          previewState: "invalid",
+          previewRequest: request,
+          previewIssue: result.error,
+          lastError: ""
+        }
+      }));
+      return;
+    }
+    const scene = this.ctx.bridge.roadScene();
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      road: continueSession
+        ? withRoadEnd({
+            ...snapshot.road,
+            phase: snapshot.road.mode === "line" ? "end" : "bend",
+            draftStart: endpoint,
+            draftBend: endpoint,
+            draftSpans: [],
+            draftStartNodeId: result.endNodeId ?? 0,
+            draftStartSegmentId: 0,
+            draftStartSegmentDistanceM: 0,
+            draftExtensionCorridorId: result.corridorId ?? 0,
+            curveContinuationTangent: request.kind === "bezier"
+              ? { x: request.endX - request.handleBX, y: request.endY - request.handleBY }
+              : null,
+            scene,
+            previewMeshes: [],
+            previewState: "none",
+            previewRequest: null,
+            previewIssue: "",
+            lastError: ""
+          }, endpoint)
+        : {
+            ...snapshot.road,
+            phase: "start",
+            draftSpans: [],
+            draftStartNodeId: 0,
+            draftStartSegmentId: 0,
+            draftStartSegmentDistanceM: 0,
+            draftExtensionCorridorId: 0,
+            curveContinuationTangent: null,
+            scene,
+            previewMeshes: [],
+            previewState: "none",
+            previewRequest: null,
+            previewIssue: "",
+            lastError: ""
+          },
+      error: "",
+      logs: [...snapshot.logs, "road add segment"]
+    }));
   }
 
   private stageSpan(road: RoadToolState): void {
@@ -538,6 +641,8 @@ export class RoadActions {
         laneEditStage: "select",
         scene,
         previewMeshes: [],
+        previewState: "none",
+        previewRequest: null,
         previewIssue: "",
         lastError: ""
       },
@@ -553,7 +658,8 @@ export class RoadActions {
       error: string;
       errorKind?: EditErrorKind;
       meshes: RoadToolState["previewMeshes"];
-    }
+    },
+    request: ReturnType<typeof roadSegmentInput> = roadSegmentInput(road)
   ): void {
     const expectedRejection =
       !preview.ok &&
@@ -564,6 +670,8 @@ export class RoadActions {
       road: {
         ...road,
         previewMeshes: preview.ok ? preview.meshes : [],
+        previewState: preview.ok ? "valid" : "invalid",
+        previewRequest: request,
         previewIssue: expectedRejection ? preview.error : "",
         lastError: !preview.ok && !expectedRejection ? preview.error : ""
       },

@@ -269,9 +269,6 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).road.previewMeshes.length).toBeGreaterThan(0);
     mounted.actions.addViewportPoint([24, 0, 0]);
     await tick();
-    expect(current(mounted.store).road.scene.segmentCount).toBe(0);
-    mounted.actions.commitRoadPath();
-    await tick();
     expect(current(mounted.store).road.scene.segmentCount).toBe(1);
     expect(current(mounted.store).road.scene.surfaceMeshes.length).toBeGreaterThan(0);
 

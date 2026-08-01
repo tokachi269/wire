@@ -225,6 +225,8 @@ export interface RoadToolState {
   editPoints: RoadPoint[];
   scene: RoadSceneData;
   previewMeshes: RoadMeshData[];
+  previewState: "none" | "valid" | "invalid";
+  previewRequest: RoadSegmentInput | null;
   previewIssue: string;
   lastError: string;
 }
@@ -279,6 +281,8 @@ export function createRoadToolState(): RoadToolState {
     editPoints: [],
     scene: emptyRoadScene(),
     previewMeshes: [],
+    previewState: "none",
+    previewRequest: null,
     previewIssue: "",
     lastError: ""
   };

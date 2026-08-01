@@ -601,7 +601,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
 }
 
 describe("viewport tool routing", () => {
-  it("draws a road through two viewport clicks without adding Wire path points", () => {
+  it("commits a complete straight road interval on the second viewport click", () => {
     const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
@@ -617,9 +617,7 @@ describe("viewport tool routing", () => {
 
     actions.addViewportPoint([18, 5, 0]);
 
-    expect(roadAddSegment).not.toHaveBeenCalled();
-    expect(current(store).road.draftSpans).toHaveLength(1);
-    actions.commitRoadPath();
+    expect(roadAddSegment).toHaveBeenCalledOnce();
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       kind: "line",
       startX: 2,
@@ -634,7 +632,8 @@ describe("viewport tool routing", () => {
       })]
     }));
     expect(current(store).pathPoints).toEqual([]);
-    expect(current(store).road.phase).toBe("start");
+    expect(current(store).road.phase).toBe("end");
+    expect(current(store).road.draftStart).toEqual({ x: 18, y: 5 });
   });
 
   it("does not report an expected road preview rejection as a global error", () => {
@@ -698,7 +697,7 @@ describe("viewport tool routing", () => {
     consoleError.mockRestore();
   });
 
-  it("commits one continuous drawing as one multi-span road segment", () => {
+  it("commits each straight interval as one operation while continuing the session", () => {
     const roadAddSegment = vi.fn(() => ({
       ok: true,
       error: "",
@@ -715,18 +714,79 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([20, 0, 0]);
     actions.addViewportPoint([32, 16, 0]);
 
-    expect(roadAddSegment).not.toHaveBeenCalled();
-    expect(current(store).road.draftSpans).toHaveLength(2);
-    actions.commitRoadPath();
-    expect(roadAddSegment).toHaveBeenCalledOnce();
-    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+    expect(roadAddSegment).toHaveBeenCalledTimes(2);
+    expect(roadAddSegment).toHaveBeenNthCalledWith(1, expect.objectContaining({
       startNodeId: 0,
       extensionCorridorId: 0,
-      spans: [
-        expect.objectContaining({ startX: 0, startY: 0, endX: 20, endY: 0 }),
-        expect.objectContaining({ startX: 20, startY: 0, endX: 32, endY: 16 })
-      ]
+      spans: [expect.objectContaining({ startX: 0, startY: 0, endX: 20, endY: 0 })]
     }));
+    expect(roadAddSegment).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      spans: [expect.objectContaining({ startX: 20, startY: 0, endX: 32, endY: 16 })]
+    }));
+    expect(current(store).road.phase).toBe("end");
+  });
+
+  it("commits the current straight preview with Enter and then ends the session", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "", segmentId: 11, corridorId: 21, endNodeId: 12 }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 4, 0]);
+    actions.finishDrawSession();
+
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startX: 0,
+      startY: 0,
+      endX: 12,
+      endY: 4
+    }));
+    expect(current(store).road.phase).toBe("start");
+  });
+
+  it("keeps committed road intervals when Escape cancels the next preview", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "", segmentId: 11, corridorId: 21, endNodeId: 12 }));
+    const roadUndoSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment, roadUndoSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([10, 0, 0]);
+    actions.addViewportPoint([10, 0, 0]);
+    actions.previewViewportPoint([20, 4, 0]);
+    actions.cancelDrawSession();
+    actions.cancelDrawSession();
+
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadUndoSegment).not.toHaveBeenCalled();
+    expect(current(store).road.phase).toBe("start");
+    expect(current(store).road.previewState).toBe("none");
+  });
+
+  it("retains the straight anchor and preview request when commit fails", () => {
+    const roadAddSegment = vi.fn(() => ({
+      ok: false,
+      error: "road connection needs more length",
+      errorKind: EditErrorKind.Unsupported
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([10, 2, 0]);
+    actions.addViewportPoint([10, 2, 0]);
+
+    expect(current(store).road.phase).toBe("end");
+    expect(current(store).road.previewState).toBe("invalid");
+    expect(current(store).road.previewRequest).not.toBeNull();
+    expect(current(store).road.previewIssue).toBe("road connection needs more length");
   });
 
   it("normalizes a resumed degree-one endpoint to extension", () => {

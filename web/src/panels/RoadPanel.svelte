@@ -27,6 +27,22 @@
   const selectedLaneTemplate = $derived(
     snapshot.road.scene.sectionTemplates.find((template) => template.id === selectedLaneTemplateId)
   );
+  const selectedLaneCorridor = $derived(
+    snapshot.road.scene.corridors.find((corridor) =>
+      corridor.segments.some((segment) => segment.segmentId === snapshot.road.selectedLaneSegmentId)
+    )
+  );
+  const addLaneDirections = $derived.by(() => {
+    if (snapshot.road.laneEditStage === "select") return [0, 1] as Array<0 | 1>;
+    const fromPaths = snapshot.road.scene.lanePaths
+      .filter((lane) => lane.segmentId === snapshot.road.selectedLaneSegmentId)
+      .map((lane) => lane.direction);
+    const fromTemplate = snapshot.road.scene.sectionTemplates
+      .find((template) => template.id === selectedLaneCorridor?.sectionTemplateId)
+      ?.lanes.map((lane) => lane.direction) ?? [];
+    const available = Array.from(new Set(fromPaths.length > 0 ? fromPaths : fromTemplate));
+    return available.length > 0 ? available : [snapshot.road.selectedLaneDirection];
+  });
 
   function updateTemplate(patch: Partial<{
     sidewalkWidthM: number;
@@ -92,7 +108,9 @@
     <div class="road-grid">
       <label><span>Direction</span><select value={snapshot.road.selectedLaneDirection}
         onchange={(event) => actions.setRoadSetting("selectedLaneDirection", Number(event.currentTarget.value) as 0 | 1)}>
-        <option value={0}>Along</option><option value={1}>Against</option>
+        {#each addLaneDirections as direction}
+          <option value={direction}>{direction === 0 ? "Along" : "Against"}</option>
+        {/each}
       </select></label>
       <label><span>Side</span><select value={snapshot.road.laneSide}
         onchange={(event) => actions.setRoadSetting("laneSide", event.currentTarget.value as "left" | "right")}>

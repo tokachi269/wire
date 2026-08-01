@@ -205,8 +205,14 @@ export class RoadActions {
         if (current.operation === "add-lane" && snap !== undefined) {
           const distance = corridorDistanceForSnap(current, snap);
           if (distance !== null && distance.corridorId === current.laneCorridorId) {
-            road = { ...road, laneFullWidthCorridorDistanceM: distance.distanceM };
-            this.applyPreview(road, this.ctx.bridge.roadPreviewAddLane(laneTransitionInput(road)));
+            road = {
+              ...road,
+              laneFullWidthCorridorDistanceM: distance.distanceM,
+              previewMeshes: [],
+              previewState: "guide",
+              previewIssue: ""
+            };
+            this.ctx.store.update((snapshot) => ({ ...snapshot, road }));
             return;
           }
         } else if (current.operation !== "add-lane") {
@@ -339,12 +345,31 @@ export class RoadActions {
           this.ctx.store.setError("Selected road is not in a corridor");
           return;
         }
+        const corridor = road.scene.corridors.find(
+          (item) => item.id === distance.corridorId
+        );
+        const endpointDirections = road.scene.lanePaths
+          .filter((lane) => lane.segmentId === snap.segmentId)
+          .map((lane) => lane.direction);
+        const templateDirections = road.scene.sectionTemplates
+          .find((template) => template.id === corridor?.sectionTemplateId)
+          ?.lanes.map((lane) => lane.direction) ?? [];
+        const availableDirections = Array.from(new Set(
+          endpointDirections.length > 0 ? endpointDirections : templateDirections
+        ));
+        const selectedLaneDirection = availableDirections.includes(
+          road.selectedLaneDirection
+        )
+          ? road.selectedLaneDirection
+          : availableDirections[0] ?? road.selectedLaneDirection;
         this.ctx.store.update((snapshot) => ({
           ...snapshot,
           road: {
             ...snapshot.road,
             laneEditStage: "target",
             laneCorridorId: distance.corridorId,
+            selectedLaneSegmentId: snap.segmentId,
+            selectedLaneDirection,
             laneStartCorridorDistanceM: distance.distanceM,
             laneFullWidthCorridorDistanceM: distance.distanceM,
             previewIssue: "",

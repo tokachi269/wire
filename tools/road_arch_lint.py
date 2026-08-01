@@ -334,7 +334,6 @@ def check_road_architecture(root: Path) -> list[str]:
             "web/src/actions/road_actions.ts: standard road deletion must retain the hovered RoadSegment ID"
         )
     for token in (
-        "roadPreviewAddLane",
         "roadPreviewConnectedLaneSegment",
         "selectedLaneSegmentId",
         "selectedLaneEndpointRole",
@@ -344,6 +343,10 @@ def check_road_architecture(root: Path) -> list[str]:
                 "web/src/actions/road_actions.ts: lane editing contract is missing: "
                 + repr(token)
             )
+    if "roadPreviewAddLane" in road_actions_text:
+        errors.append(
+            "web/src/actions/road_actions.ts: Add Lane pointer movement must remain a local guide"
+        )
     for token in ("nearestLane", "closestLane", "inferLaneConnection"):
         if token in road_actions_text:
             errors.append(

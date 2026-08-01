@@ -1377,7 +1377,7 @@ describe("viewport tool routing", () => {
         id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
         laneWidthM: 3, medianWidthM: 0, laneCount: 2,
         hasCenterLine: true, hasOuterLines: true,
-        lanes: [{ id: 1010, direction: 0 as const }],
+        lanes: [{ id: 1010, direction: 1 as const }],
         boundaries: [
           { id: 100, role: 1, canAnchorTransition: false },
           { id: 200, role: 2, canAnchorTransition: true }
@@ -1395,18 +1395,21 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([10, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
+    expect(current(store).road.selectedLaneDirection).toBe(1);
     actions.previewViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
-    expect(preview).toHaveBeenCalledWith(expect.objectContaining({
-      corridorId: 30,
-      startCorridorDistanceM: 10,
-      fullWidthCorridorDistanceM: 30
-    }));
+    expect(preview).not.toHaveBeenCalled();
+    expect(current(store).road.laneFullWidthCorridorDistanceM).toBe(30);
     actions.addViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
-    expect(commit).toHaveBeenCalledWith(preview.mock.calls[0][0]);
+    expect(commit).toHaveBeenCalledWith(expect.objectContaining({
+      corridorId: 30,
+      direction: 1,
+      startCorridorDistanceM: 10,
+      fullWidthCorridorDistanceM: 30
+    }));
   });
   it("normalizes add-lane picks against the hidden corridor direction", () => {
     const preview = vi.fn((_input: unknown) => ({ ok: true, error: "", meshes: [] }));
@@ -1443,16 +1446,17 @@ describe("viewport tool routing", () => {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
 
-    expect(preview).toHaveBeenCalledWith(expect.objectContaining({
-      corridorId: 30,
-      startCorridorDistanceM: 10,
-      fullWidthCorridorDistanceM: 30
-    }));
+    expect(preview).not.toHaveBeenCalled();
+    expect(current(store).road.laneFullWidthCorridorDistanceM).toBe(10);
 
     actions.addViewportPoint([10, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
-    expect(commit).toHaveBeenCalledWith(preview.mock.calls[0][0]);
+    expect(commit).toHaveBeenCalledWith(expect.objectContaining({
+      corridorId: 30,
+      startCorridorDistanceM: 10,
+      fullWidthCorridorDistanceM: 30
+    }));
   });
 });
 describe("P1 action contracts", () => {

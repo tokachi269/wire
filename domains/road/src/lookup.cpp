@@ -61,6 +61,70 @@ find_approach_override(const SavedRoadGraph &graph, const ApproachKey &key) {
   return found == graph.approach_geometry_overrides.end() ? nullptr : &*found;
 }
 
+const CrossSectionTemplate *
+find_endpoint_template(const SavedRoadGraph &graph, const RoadSegment &segment,
+                       EndpointRole endpoint_role) {
+  if (!segment.transition.has_value()) {
+    return find_template(graph, segment.section_template);
+  }
+  const SectionTransition *transition =
+      find_transition(graph, *segment.transition);
+  if (transition == nullptr) {
+    return nullptr;
+  }
+  return find_template(graph, endpoint_role == EndpointRole::kStart
+                                  ? transition->from_template
+                                  : transition->to_template);
+}
+
+LaneEndpointLookup find_lane_endpoint(const SavedRoadGraph &graph,
+                                      const LaneEndpointKey &key) {
+  LaneEndpointLookup result{};
+  result.segment = find_segment(graph, key.segment_id);
+  if (result.segment == nullptr) {
+    return result;
+  }
+  result.node_id = key.endpoint_role == EndpointRole::kStart
+                       ? result.segment->node_a
+                       : result.segment->node_b;
+  result.section = find_endpoint_template(graph, *result.segment,
+                                          key.endpoint_role);
+  if (result.section == nullptr) {
+    return result;
+  }
+  const auto lane = std::find_if(
+      result.section->lane_bands.begin(), result.section->lane_bands.end(),
+      [&key](const LaneBand &candidate) { return candidate.id == key.lane_id; });
+  result.lane = lane == result.section->lane_bands.end() ? nullptr : &*lane;
+  return result;
+}
+
+BoundaryEndpointLookup
+find_boundary_endpoint(const SavedRoadGraph &graph,
+                       const BoundaryEndpointKey &key) {
+  BoundaryEndpointLookup result{};
+  result.segment = find_segment(graph, key.segment_id);
+  if (result.segment == nullptr) {
+    return result;
+  }
+  result.node_id = key.endpoint_role == EndpointRole::kStart
+                       ? result.segment->node_a
+                       : result.segment->node_b;
+  result.section = find_endpoint_template(graph, *result.segment,
+                                          key.endpoint_role);
+  if (result.section == nullptr) {
+    return result;
+  }
+  const auto boundary = std::find_if(
+      result.section->boundaries.begin(), result.section->boundaries.end(),
+      [&key](const BoundaryProfile &candidate) {
+        return candidate.boundary_id == key.boundary_id;
+      });
+  result.boundary =
+      boundary == result.section->boundaries.end() ? nullptr : &*boundary;
+  return result;
+}
+
 } // namespace city::road::internal
 
 namespace city::road {

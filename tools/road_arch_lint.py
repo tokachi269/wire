@@ -17,9 +17,13 @@ def source_text(path: Path) -> str:
 
 
 def road_sources(root: Path) -> list[Path]:
-    source_root = root / "domains/road/src"
+    source_roots = (
+        root / "domains/road/src",
+        root / "domains/road/include",
+    )
     return [
         path
+        for source_root in source_roots
         for path in source_root.rglob("*")
         if path.is_file() and path.suffix in {".cpp", ".hpp"}
     ]
@@ -72,6 +76,11 @@ def check_road_architecture(root: Path) -> list[str]:
         "NormalizeRoadPath",
         "SurfaceBand",
         "SurfaceRole",
+        "LaneBandId",
+        "HighwayConnectionType",
+        "HighwayExit",
+        "RampType",
+        "RampAsset",
     )
     stage_type = re.compile(r"\b(?:struct|class|enum(?:\s+class)?)\s+\w*Stage\b")
     for path in sources:

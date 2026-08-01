@@ -190,5 +190,8 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - lane endpointは`LaneEndpointKey(segment_id, lane_id, endpoint_role)`、boundary endpointは`BoundaryEndpointKey(segment_id, boundary_id, endpoint_role)`で指定する。
 - 確定したlane接続は`LaneConnection`、境界継続は`BoundaryContinuation`として保存する。world位置や近さから保存接続を再構成しない。
 - `LaneTravelDirection`はsegment正本方向に対する`AlongSegment` / `AgainstSegment`であり、接続時の方向整合に使う。
+- `LaneConnection.source`はsource laneの退出端、`target`はtarget laneの進入端でなければならず、両端は同じ`RoadNodeId`を共有する。
+- Continuation / Transitionは一対一、Splitは同一sourceから複数target、Mergeは複数sourceから同一targetを許可する。JunctionMovementは明示された複数movementを許可する。同一source-targetの重複は常にvalidation rejectする。
+- 同一surface strip内のlane lateral intervalは重複させない。vector順はidentityに使わず、横方向順序はintervalから検証する。
 - 高速道路、出口、合流専用の正本型を追加せず、車線追加、分岐、合流、交差点movementを同じ接続型で表す。
 - lane center接続からshoulder、車道端、白線の継続を推測しない。必要なboundary接続は別に明示する。

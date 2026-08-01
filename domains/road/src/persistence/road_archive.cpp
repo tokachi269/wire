@@ -1,5 +1,6 @@
 #include "road_archive.hpp"
 
+#include "../lookup.hpp"
 #include "schema.hpp"
 
 #include <algorithm>
@@ -452,6 +453,20 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
                                   "section template lane allocation is invalid");
       }
     }
+    for (std::size_t i = 0; i < section.lane_bands.size(); ++i) {
+      for (std::size_t j = i + 1; j < section.lane_bands.size(); ++j) {
+        const LaneBand& a = section.lane_bands[i];
+        const LaneBand& b = section.lane_bands[j];
+        if (a.surface_strip_id != b.surface_strip_id) continue;
+        const bool overlaps =
+            std::max(a.lateral_start_m, b.lateral_start_m) <
+            std::min(a.lateral_end_m, b.lateral_end_m);
+        if (overlaps) {
+          return Result<bool>::Fail(ErrorKind::kValidation,
+                                    "section template lane allocations overlap");
+        }
+      }
+    }
     std::set<std::uint64_t> boundaries{};
     for (const BoundaryProfile& boundary : section.boundaries) {
       if (boundary.boundary_id == 0 ||
@@ -518,6 +533,25 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
                                 "road segment is invalid");
     }
   }
+  std::set<std::pair<LaneEndpointKey, LaneEndpointKey>> lane_pairs{};
+  std::map<LaneEndpointKey, LaneConnectionKind> lane_sources{};
+  std::map<LaneEndpointKey, LaneConnectionKind> lane_targets{};
+  const auto lane_exits = [](const internal::LaneEndpointLookup& endpoint,
+                             EndpointRole role) {
+    return endpoint.lane != nullptr &&
+           ((endpoint.lane->direction == LaneTravelDirection::kAlongSegment &&
+             role == EndpointRole::kEnd) ||
+            (endpoint.lane->direction == LaneTravelDirection::kAgainstSegment &&
+             role == EndpointRole::kStart));
+  };
+  const auto lane_enters = [](const internal::LaneEndpointLookup& endpoint,
+                              EndpointRole role) {
+    return endpoint.lane != nullptr &&
+           ((endpoint.lane->direction == LaneTravelDirection::kAlongSegment &&
+             role == EndpointRole::kStart) ||
+            (endpoint.lane->direction == LaneTravelDirection::kAgainstSegment &&
+             role == EndpointRole::kEnd));
+  };
   for (const LaneConnection& connection : graph.lane_connections) {
     Result<bool> id = add_id(connection.id, &lane_connection_ids, "lane_connection");
     if (!id.ok) return id;
@@ -532,7 +566,38 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
       return Result<bool>::Fail(ErrorKind::kValidation,
                                 "lane connection identity is invalid");
     }
+    const internal::LaneEndpointLookup source =
+        internal::find_lane_endpoint(graph, connection.source);
+    const internal::LaneEndpointLookup target =
+        internal::find_lane_endpoint(graph, connection.target);
+    if (!lane_exits(source, connection.source.endpoint_role) ||
+        !lane_enters(target, connection.target.endpoint_role) ||
+        source.node_id == 0 || source.node_id != target.node_id ||
+        !lane_pairs.insert({connection.source, connection.target}).second) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "lane connection endpoints are invalid");
+    }
+    const auto source_use = lane_sources.find(connection.source);
+    if (source_use != lane_sources.end() &&
+        (source_use->second != connection.kind ||
+         (connection.kind != LaneConnectionKind::kSplit &&
+          connection.kind != LaneConnectionKind::kJunctionMovement))) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "lane connection source is ambiguous");
+    }
+    lane_sources.emplace(connection.source, connection.kind);
+    const auto target_use = lane_targets.find(connection.target);
+    if (target_use != lane_targets.end() &&
+        (target_use->second != connection.kind ||
+         (connection.kind != LaneConnectionKind::kMerge &&
+          connection.kind != LaneConnectionKind::kJunctionMovement))) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "lane connection target is ambiguous");
+    }
+    lane_targets.emplace(connection.target, connection.kind);
   }
+  std::set<BoundaryEndpointKey> boundary_sources{};
+  std::set<BoundaryEndpointKey> boundary_targets{};
   for (const BoundaryContinuation& continuation : graph.boundary_continuations) {
     Result<bool> id = add_id(continuation.id, &boundary_continuation_ids,
                              "boundary_continuation");
@@ -545,6 +610,17 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         static_cast<int>(continuation.target.endpoint_role) > 1) {
       return Result<bool>::Fail(ErrorKind::kValidation,
                                 "boundary continuation identity is invalid");
+    }
+    const internal::BoundaryEndpointLookup source =
+        internal::find_boundary_endpoint(graph, continuation.source);
+    const internal::BoundaryEndpointLookup target =
+        internal::find_boundary_endpoint(graph, continuation.target);
+    if (source.boundary == nullptr || target.boundary == nullptr ||
+        source.node_id == 0 || source.node_id != target.node_id ||
+        !boundary_sources.insert(continuation.source).second ||
+        !boundary_targets.insert(continuation.target).second) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "boundary continuation endpoints are invalid");
     }
   }
   std::set<RoadSegmentId> corridor_segments{};

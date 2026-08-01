@@ -2,6 +2,7 @@
 
 #include "derived_view.hpp"
 #include "../src/generation/generation.hpp"
+#include "../src/lookup.hpp"
 #include "../src/persistence/road_archive.hpp"
 
 #include <algorithm>
@@ -1545,6 +1546,48 @@ bool marking_invalid_interval_splits_polyline_runs(std::string& failure) {
   return true;
 }
 
+bool lane_endpoint_identity_ignores_template_order(std::string& failure) {
+  RoadState state{};
+  const auto added = state.AddSegment(AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(added.ok, added.error);
+  const RoadSegment& segment = state.graph().segments.front();
+  SavedRoadGraph reordered = state.graph();
+  auto section = std::find_if(
+      reordered.section_templates.begin(), reordered.section_templates.end(),
+      [&segment](const CrossSectionTemplate& candidate) {
+        return candidate.id == segment.section_template;
+      });
+  ROAD_CONTRACT_EXPECT(section != reordered.section_templates.end(),
+                       "lane endpoint template is missing");
+  std::reverse(section->lane_bands.begin(), section->lane_bands.end());
+
+  const LaneEndpointKey lane_key{
+      segment.id, 1010, EndpointRole::kEnd};
+  const auto lane = city::road::internal::find_lane_endpoint(reordered, lane_key);
+  ROAD_CONTRACT_EXPECT(
+      lane.segment != nullptr && lane.section != nullptr &&
+          lane.lane != nullptr && lane.lane->id == 1010 &&
+          lane.node_id == segment.node_b &&
+          lane.lane->direction == LaneTravelDirection::kAlongSegment,
+      "lane endpoint lookup depended on lane array order");
+
+  const BoundaryEndpointKey boundary_key{
+      segment.id, 200, EndpointRole::kEnd};
+  const auto boundary =
+      city::road::internal::find_boundary_endpoint(reordered, boundary_key);
+  ROAD_CONTRACT_EXPECT(
+      boundary.boundary != nullptr && boundary.boundary->boundary_id == 200 &&
+          boundary.node_id == segment.node_b,
+      "boundary endpoint lookup did not use stable boundary identity");
+  ROAD_CONTRACT_EXPECT(
+      city::road::internal::find_lane_endpoint(
+          reordered, LaneEndpointKey{segment.id, 999999, EndpointRole::kEnd})
+              .lane == nullptr,
+      "lane endpoint lookup guessed a missing lane");
+  return true;
+}
+
 bool seeded_operation_sequences_preserve_contracts(std::string& failure) {
   for (std::uint32_t seed = 1; seed <= 4; ++seed) {
     std::mt19937 random(seed);
@@ -1641,6 +1684,8 @@ int main() {
        standard_delete_preserves_unrelated_approach_override},
       {"marking_invalid_interval_splits_polyline_runs",
        marking_invalid_interval_splits_polyline_runs},
+      {"lane_endpoint_identity_ignores_template_order",
+       lane_endpoint_identity_ignores_template_order},
       {"seeded_operation_sequences_preserve_contracts", seeded_operation_sequences_preserve_contracts},
   };
   int failed = 0;

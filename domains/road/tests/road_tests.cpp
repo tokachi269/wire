@@ -241,7 +241,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   return true;
 }
 
-bool LAN1_lane_and_boundary_topology_round_trip(std::string& failure) {
+bool LAN2_lane_topology_validation_and_round_trip(std::string& failure) {
   RoadState state{};
   const auto first = state.AddSegment(city::road::AddSegmentRequest{
       MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
@@ -325,6 +325,45 @@ bool LAN1_lane_and_boundary_topology_round_trip(std::string& failure) {
   ROAD_TEST_EXPECT(canonical_again.ok, canonical_again.error);
   ROAD_TEST_EXPECT(canonical.value == canonical_again.value,
                    "lane topology archive was not canonical");
+
+  std::string missing_lane = canonical.value;
+  replace_value(&missing_lane, "lane_connection.0.target.lane_id", "999999");
+  ROAD_TEST_EXPECT(!RoadState::Load(missing_lane).ok,
+                   "lane connection accepted a missing target lane");
+
+  std::string wrong_direction = canonical.value;
+  replace_value(&wrong_direction,
+                "lane_connection.0.source.endpoint_role", "0");
+  ROAD_TEST_EXPECT(!RoadState::Load(wrong_direction).ok,
+                   "lane connection accepted a non-exit source endpoint");
+
+  std::string missing_boundary = canonical.value;
+  replace_value(&missing_boundary,
+                "boundary_continuation.0.target.boundary_id", "999999");
+  ROAD_TEST_EXPECT(!RoadState::Load(missing_boundary).ok,
+                   "boundary continuation accepted a missing target boundary");
+
+  std::string duplicate_connection = canonical.value;
+  replace_value(&duplicate_connection, "next_id",
+                std::to_string(maximum_id + 4));
+  replace_value(&duplicate_connection, "lane_connection.count", "2");
+  duplicate_connection +=
+      "lane_connection.1.id=" + std::to_string(maximum_id + 3) + "\n" +
+      "lane_connection.1.source.segment_id=" + std::to_string(first.value) + "\n" +
+      "lane_connection.1.source.lane_id=1010\n"
+      "lane_connection.1.source.endpoint_role=1\n" +
+      "lane_connection.1.target.segment_id=" + std::to_string(second.value) + "\n" +
+      "lane_connection.1.target.lane_id=1010\n"
+      "lane_connection.1.target.endpoint_role=0\n"
+      "lane_connection.1.kind=0\n";
+  ROAD_TEST_EXPECT(!RoadState::Load(duplicate_connection).ok,
+                   "duplicate lane connection was accepted");
+
+  std::string overlapping_lanes = saved.value;
+  replace_value(&overlapping_lanes,
+                "section_template.0.lane_band.1.surface_strip_id", "20");
+  ROAD_TEST_EXPECT(!RoadState::Load(overlapping_lanes).ok,
+                   "overlapping lane allocations were accepted");
   return true;
 }
 
@@ -1437,7 +1476,7 @@ int main() {
       {"P0_angled_segment_keeps_final_section_perpendicular", P0_angled_segment_keeps_final_section_perpendicular},
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
-      {"LAN1_lane_and_boundary_topology_round_trip", LAN1_lane_and_boundary_topology_round_trip},
+      {"LAN2_lane_topology_validation_and_round_trip", LAN2_lane_topology_validation_and_round_trip},
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
       {"P0_straight_segments_stay_linear_after_snap_and_move", P0_straight_segments_stay_linear_after_snap_and_move},
       {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},

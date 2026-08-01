@@ -595,7 +595,8 @@ aside {
 
 aside > span,
 aside > .metric-button,
-.error {
+.error,
+.commit-failure {
   border: 1px solid var(--line);
   background: var(--panel);
   padding: 0.3rem 0.5rem;
@@ -944,6 +945,31 @@ summary {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.4rem;
+}
+
+.commit-failure {
+  display: grid;
+  max-width: min(620px, calc(100vw - 12px));
+  gap: 0.18rem;
+  border-color: #b3763d;
+  border-left: 3px solid #e3a45f;
+  color: #e8ecea;
+  background: rgba(50, 37, 27, 0.96);
+  pointer-events: auto;
+}
+
+.commit-failure strong {
+  color: #ffd0a0;
+}
+
+.commit-failure span,
+.commit-failure code {
+  overflow-wrap: anywhere;
+}
+
+.commit-failure code {
+  color: #b9c2bf;
+  font-size: 0.72rem;
 }
 
 .settings button {

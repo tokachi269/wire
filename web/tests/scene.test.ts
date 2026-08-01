@@ -9,6 +9,8 @@ import {
   distanceToScreenSegmentPx,
   makeSampledTubeGeometry,
   makeRoadMeshGeometry,
+  roadGuideHalfWidth,
+  roadGuidePoints,
   roadSurfaceColor,
   makeBackbonePick,
   poleAxisEndpoints,
@@ -92,6 +94,46 @@ describe("road rendering", () => {
     expect(geometry.getAttribute("color")).toBeUndefined();
     expect(roadSurfaceColor("sidewalk")).not.toBe(roadSurfaceColor("asphalt"));
     expect(roadSurfaceColor("curb")).not.toBe(roadSurfaceColor("asphalt"));
+  });
+
+  it("builds a local width guide from the same cubic request used for commit", () => {
+    const points = roadGuidePoints({
+      kind: "bezier",
+      startX: 0,
+      startY: 0,
+      endX: 9,
+      endY: 0,
+      handleAX: 3,
+      handleAY: 4,
+      handleBX: 6,
+      handleBY: 4,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      connectToFirstNode: false,
+      sectionTemplateId: 7
+    }, 8);
+    expect(points).toHaveLength(9);
+    expect(points[0].toArray()).toEqual([0, 0, 0]);
+    expect(points.at(-1)?.toArray()).toEqual([9, 0, 0]);
+    expect(points[4].y).toBeGreaterThan(0);
+    expect(roadGuideHalfWidth([{
+      id: 7,
+      name: "test",
+      strips: [
+        { id: 1, function: "sidewalk", widthM: 2 },
+        { id: 2, function: "carriageway", widthM: 7 },
+        { id: 3, function: "sidewalk", widthM: 2 }
+      ],
+      sidewalkWidthM: 2,
+      laneWidthM: 3.5,
+      medianWidthM: 0,
+      laneCount: 2,
+      hasCenterLine: true,
+      hasOuterLines: false,
+      lanes: [],
+      boundaries: []
+    }], 7)).toBe(5.5);
   });
 });
 

@@ -1,5 +1,5 @@
 import type { ViewerActionContext } from "./context";
-import type { BundleTemplateInfo, PathPickInfo, WireIntervalRequest } from "../model";
+import { CommitFailureCategory, type BundleTemplateInfo, type PathPickInfo, type WireIntervalRequest } from "../model";
 import type { PathPointSpec, WorldPoint } from "../store/viewer";
 
 export class DrawActions {
@@ -17,7 +17,8 @@ export class DrawActions {
         pathPoints: [anchor.point],
         pathPointSpecs: [anchor.spec],
         wirePreview: { state: "none", request: null },
-        error: ""
+        error: "",
+        lastCommitFailure: null
       }));
       return;
     }
@@ -26,7 +27,12 @@ export class DrawActions {
       ? current.wirePreview.request
       : this.intervalRequest(point, pick);
     if (request === null) {
-      this.ctx.store.setError("wire endpoint must differ from the current anchor");
+      this.ctx.store.setCommitFailure({
+        ok: false,
+        error: "wire endpoint must differ from the current anchor",
+        failureCategory: CommitFailureCategory.InvalidInput,
+        reasonCode: "wire_endpoint_matches_anchor"
+      }, "wire interval", point);
       return;
     }
     this.commitWireInterval(request, false);
@@ -65,7 +71,8 @@ export class DrawActions {
       pathPoints: [],
       pathPointSpecs: [],
       wirePreview: { state: "none", request: null },
-      error: ""
+      error: "",
+      lastCommitFailure: null
     }));
   }
 
@@ -230,7 +237,7 @@ export class DrawActions {
       [...new Set(current.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
     );
     if (!resolved.ok) {
-      this.ctx.store.setError(resolved.error);
+      this.ctx.store.setCommitFailure(resolved, "wire anchor", point);
       return null;
     }
     return {
@@ -284,8 +291,9 @@ export class DrawActions {
       this.ctx.store.update((current) => ({
         ...current,
         wirePreview: { state: "guide", request },
-        error: result.error
+        error: ""
       }));
+      this.ctx.store.setCommitFailure(result, "wire interval", request.points[1]);
       return;
     }
     this.committedHistory.push({ before: beforeState, after: this.ctx.bridge.saveState() });
@@ -305,7 +313,8 @@ export class DrawActions {
         ...placement,
         generatedBundleId: generatedBundleIds[index] ?? placement.generatedBundleId
       })),
-      error: ""
+      error: "",
+      lastCommitFailure: null
     }));
   }
 

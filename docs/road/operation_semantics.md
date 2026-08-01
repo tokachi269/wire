@@ -2,7 +2,7 @@
 
 Road drawing follows the shared contract in `docs/editor/draw_interaction.md`.
 After the start anchor, each Click commits the displayed interval immediately.
-Enter optionally commits the current valid preview and ends the session. Escape
+Enter commits the current lightweight guide when one exists and ends the session after success. Escape
 discards only transient drawing state and never calls road undo or deletion.
 
 `city::road` の supported scenario を操作と状態の組で固定する。

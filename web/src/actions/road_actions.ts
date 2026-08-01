@@ -30,6 +30,7 @@ export class RoadActions {
   setMode(mode: RoadToolMode): void {
     this.ctx.store.update((current) => ({
       ...current,
+      lastCommitFailure: null,
       road: {
         ...current.road,
         mode,
@@ -47,6 +48,7 @@ export class RoadActions {
   setOperation(operation: RoadToolState["operation"]): void {
     this.ctx.store.update((current) => ({
       ...current,
+      lastCommitFailure: null,
       road: {
         ...current.road,
         operation,
@@ -185,22 +187,11 @@ export class RoadActions {
       this.beginAt(target, snap);
       return;
     }
-    if (snap !== undefined && !sameRoadPoint(current.draftStart, target)) {
-      this.beginAt(target, snap);
-      return;
-    }
     const road = current.mode !== "line" ? withRoadCurveEnd(current, target) : withRoadEnd(current, target);
-    const request = current.previewState === "valid" && current.previewRequest !== null &&
+    const request = current.previewState === "guide" && current.previewRequest !== null &&
         sameRoadPoint({ x: current.previewRequest.endX, y: current.previewRequest.endY }, target)
       ? current.previewRequest
       : roadSegmentInput(road);
-    if (request !== current.previewRequest) {
-      const preview = this.ctx.bridge.roadPreviewSegment(request);
-      if (!preview.ok) {
-        this.applyPreview(road, preview, request);
-        return;
-      }
-    }
     this.commitInterval(request, target, true);
   }
 
@@ -243,8 +234,17 @@ export class RoadActions {
     const target: RoadPoint = { x: point[0], y: point[1] };
     const road = this.previewState(current, target);
     const request = roadSegmentInput(road);
-    const preview = this.ctx.bridge.roadPreviewSegment(request);
-    this.applyPreview(road, preview, request);
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      road: {
+        ...road,
+        previewMeshes: [],
+        previewState: "guide",
+        previewRequest: request,
+        previewIssue: "",
+        lastError: ""
+      }
+    }));
   }
 
   private applyOperation(road: RoadToolState, point: RoadPoint, snap?: RoadSnapInfo): void {
@@ -423,7 +423,8 @@ export class RoadActions {
         previewIssue: "",
         lastError: ""
       },
-      error: ""
+      error: "",
+      lastCommitFailure: null
     }));
   }
 
@@ -440,14 +441,18 @@ export class RoadActions {
   commitPath(): void {
     const road = this.ctx.readSnapshot().road;
     if (road.operation !== "draw") return;
-    if (road.previewState === "invalid") return;
-    if (road.previewState !== "valid" || road.previewRequest === null) {
+    if (road.phase === "start") {
       this.cancelSession();
       return;
     }
+    if (road.previewRequest === null) {
+      this.cancelSession();
+      return;
+    }
+    const request = road.previewRequest;
     this.commitInterval(
-      road.previewRequest,
-      { x: road.previewRequest.endX, y: road.previewRequest.endY },
+      request,
+      { x: request.endX, y: request.endY },
       false
     );
   }
@@ -463,12 +468,13 @@ export class RoadActions {
         ...snapshot,
         road: {
           ...snapshot.road,
-          previewState: "invalid",
+          previewState: "guide",
           previewRequest: request,
-          previewIssue: result.error,
+          previewIssue: "",
           lastError: ""
         }
       }));
+      this.ctx.store.setCommitFailure(result, "road segment", [endpoint.x, endpoint.y, 0]);
       return;
     }
     const scene = this.ctx.bridge.roadScene();
@@ -509,6 +515,7 @@ export class RoadActions {
             lastError: ""
           },
       error: "",
+      lastCommitFailure: null,
       logs: [...snapshot.logs, "road add segment"]
     }));
   }
@@ -532,13 +539,14 @@ export class RoadActions {
         draftStartSegmentDistanceM: snap?.segmentDistanceM ?? 0,
         draftExtensionCorridorId: snap?.extensionCorridorId ?? 0,
         phase: "end"
-      }, target)
+      }, target),
+      lastCommitFailure: null
     }));
   }
 
-  private finish(result: { ok: boolean; error: string }, log: string): void {
+  private finish(result: { ok: boolean; error: string; failureCategory?: CommitFailureCategory; reasonCode?: string }, log: string): void {
     if (!result.ok) {
-      this.ctx.store.setError(result.error);
+      this.ctx.store.setCommitFailure(result, log);
       return;
     }
     const scene = this.ctx.bridge.roadScene();
@@ -569,6 +577,7 @@ export class RoadActions {
         lastError: ""
       },
       error: "",
+      lastCommitFailure: null,
       logs: [...snapshot.logs, log]
     }));
   }
@@ -583,21 +592,16 @@ export class RoadActions {
     },
     request: ReturnType<typeof roadSegmentInput> = roadSegmentInput(road)
   ): void {
-    const expectedRejection =
-      !preview.ok &&
-      (preview.failureCategory === CommitFailureCategory.InvalidInput ||
-       preview.failureCategory === CommitFailureCategory.NotImplemented);
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: {
         ...road,
-        previewMeshes: preview.ok ? preview.meshes : [],
-        previewState: preview.ok ? "valid" : "invalid",
+        previewMeshes: preview.ok ? preview.meshes : road.previewMeshes,
+        previewState: preview.ok ? "valid" : road.previewState,
         previewRequest: request,
-        previewIssue: expectedRejection ? preview.error : "",
-        lastError: !preview.ok && !expectedRejection ? preview.error : ""
-      },
-      error: !preview.ok && !expectedRejection ? preview.error : snapshot.error
+        previewIssue: "",
+        lastError: ""
+      }
     }));
   }
 }

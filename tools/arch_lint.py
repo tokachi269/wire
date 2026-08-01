@@ -324,6 +324,7 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
     forbidden = {
         "web/src/App.svelte": ("Generate Path", "actions.undoPathPoint()"),
         "web/src/actions/draw_actions.ts": ("this.ctx.bridge.previewWireInterval",),
+        "web/src/actions/road_actions.ts": ("this.ctx.bridge.roadPreviewSegment",),
         "web/src/actions/viewer.ts": (
             "preview: () => undefined",
             "enter: () => this.draw.generatePath()",

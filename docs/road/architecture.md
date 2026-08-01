@@ -229,8 +229,8 @@ resolved connection、derived marking、mesh、maskも保存しない。Approach
 
 Web/WASM境界はCoreが返す軽量なlane world pathをhoverと選択表示にだけ使う。編集requestは選択済みの
 `LaneEndpointKey` / `BoundaryEndpointKey`と、AddLaneのcorridor distanceおよびanchor boundary IDをそのまま渡す。
-Webはlane接続curve、境界対応、接続相手を再計算せず、previewはtrial stateで同じCore operationを実行する。
-preview結果は確定結果と同じresolved mesh経路を使い、preview前後でauthoritative stateを変更しない。
+Webはlane接続curve、境界対応、接続相手を再計算しない。標準道路描画のpointer moveは入力Bezierと断面幅からローカルguideだけを表示し、Core operationを実行しない。ClickまたはEnterの明示commitで初めてCore generationとvalidationを行う。
+control-point編集やlane編集の明示previewはtrial stateで対応するCore operationを実行できる。preview結果は確定結果と同じresolved mesh経路を使い、preview前後でauthoritative stateを変更しない。
 AddLaneのanchor候補可否はCoreの単一点boundary判定をWASMが公開する。Webはrole、配列順、数値IDから候補を推測しない。
 
 形式は一行一fieldのnamed indexed `key=value`で、カンマ位置に意味を持たせない。save field順は固定し、

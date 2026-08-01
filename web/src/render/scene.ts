@@ -9,6 +9,7 @@ import type {
 import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
 import type { RoadSnapInfo } from "../road";
+import type { RoadSegmentInput, RoadSectionTemplateData } from "../road";
 import {
   type LoadedModelAsset,
   modelAssetCache
@@ -180,6 +181,35 @@ export function roadSurfaceColor(material: string): number {
   if (material === "road_marking_crosswalk") return 0xffffff;
   if (material === "road_marking_dashed") return 0xf7f4e8;
   return 0x3f4345;
+}
+
+export function roadGuideHalfWidth(
+  sectionTemplates: RoadSectionTemplateData[],
+  sectionTemplateId: number | undefined
+): number {
+  const section = sectionTemplates.find((item) => item.id === sectionTemplateId);
+  const width = section?.strips.reduce((sum, strip) => sum + strip.widthM, 0) ?? 0;
+  return Math.max(0.5, width * 0.5);
+}
+
+export function roadGuidePoints(request: RoadSegmentInput, sampleCount = 32): THREE.Vector3[] {
+  const points: THREE.Vector3[] = [];
+  const spans = request.spans?.length ? request.spans : [request];
+  for (const [spanIndex, span] of spans.entries()) {
+    const count = span.kind === "line" ? 1 : sampleCount;
+    for (let index = spanIndex === 0 ? 0 : 1; index <= count; index += 1) {
+      const t = count === 0 ? 0 : index / count;
+      const inverse = 1 - t;
+      points.push(new THREE.Vector3(
+        inverse ** 3 * span.startX + 3 * inverse ** 2 * t * span.handleAX +
+          3 * inverse * t ** 2 * span.handleBX + t ** 3 * span.endX,
+        inverse ** 3 * span.startY + 3 * inverse ** 2 * t * span.handleAY +
+          3 * inverse * t ** 2 * span.handleBY + t ** 3 * span.endY,
+        0
+      ));
+    }
+  }
+  return points;
 }
 
 function makeSampledTubeBuffers(pointCount: number): SampledTubeBuffers {
@@ -1035,6 +1065,10 @@ export class WireScene {
       ...snapshot.road.scene.markingMeshes.map(meshKey),
       "preview",
       ...snapshot.road.previewMeshes.map(meshKey),
+      `guide:${snapshot.road.previewState}:` +
+        (snapshot.road.previewRequest === null
+          ? ""
+          : JSON.stringify(snapshot.road.previewRequest)),
       `delete-hover:${snapshot.road.hoveredDeleteSegmentId}`,
       `lane-hover:${snapshot.road.hoveredLaneSegmentId}:${snapshot.road.hoveredLaneId}`,
       `lane-selected:${snapshot.road.selectedLaneSegmentId}:${snapshot.road.selectedLaneId}`,
@@ -1088,16 +1122,39 @@ export class WireScene {
       mesh.position.z += 0.03;
       this.roadPreview.add(mesh);
     }
-    if (snapshot.road.operation === "draw" && snapshot.road.previewState === "invalid") {
-      const points = [snapshot.road.draftStart, snapshot.road.draftEnd].map(
-        (point) => new THREE.Vector3(point.x, point.y, snapshot.drawPlaneZ + 0.08)
+    if (snapshot.road.operation === "draw" && snapshot.road.previewState === "guide" &&
+        snapshot.road.previewRequest !== null) {
+      const centerline = roadGuidePoints(snapshot.road.previewRequest);
+      const halfWidth = roadGuideHalfWidth(
+        snapshot.road.scene.sectionTemplates,
+        snapshot.road.previewRequest.sectionTemplateId
       );
-      const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(points),
-        new THREE.LineBasicMaterial({ color: 0xe85d3f, depthTest: false, transparent: true, opacity: 0.9 })
-      );
-      line.renderOrder = 45;
-      this.roadPreview.add(line);
+      const left: THREE.Vector3[] = [];
+      const right: THREE.Vector3[] = [];
+      centerline.forEach((point, index) => {
+        const previous = centerline[Math.max(0, index - 1)];
+        const next = centerline[Math.min(centerline.length - 1, index + 1)];
+        const tangent = next.clone().sub(previous);
+        const lateral = tangent.lengthSq() > 1e-12
+          ? new THREE.Vector3(-tangent.y, tangent.x, 0).normalize().multiplyScalar(halfWidth)
+          : new THREE.Vector3();
+        const raised = point.clone();
+        raised.z = snapshot.drawPlaneZ + 0.08;
+        left.push(raised.clone().add(lateral));
+        right.push(raised.clone().sub(lateral));
+      });
+      const material = new THREE.LineBasicMaterial({
+        color: 0x66a8d8,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.9
+      });
+      for (const points of [left, right]) {
+        if (points.length < 2) continue;
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), material.clone());
+        line.renderOrder = 45;
+        this.roadPreview.add(line);
+      }
     }
     for (const lane of snapshot.road.scene.lanePaths) {
       const hovered = lane.segmentId === snapshot.road.hoveredLaneSegmentId &&

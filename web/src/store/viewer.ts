@@ -17,6 +17,7 @@ import type {
   VisualSettings,
   WireIntervalRequest
 } from "../model";
+import { CommitFailureCategory, type CommitFailure, type OperationResult } from "../model";
 import { createRoadToolState, type RoadToolState } from "../road";
 
 export type WorldPoint = [number, number, number];
@@ -48,6 +49,7 @@ export interface ViewerSnapshot {
   supportNodes: SupportNodeInfo[];
   backboneEdges: BackboneEdgeInfo[];
   error: string;
+  lastCommitFailure: CommitFailure | null;
   generationMs: number | null;
   generationTiming: GenerationTiming | null;
   generationCallMs: number | null;
@@ -111,6 +113,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     supportNodes: [],
     backboneEdges: [],
     error: "",
+    lastCommitFailure: null,
     generationMs: null,
     generationTiming: null,
     generationCallMs: null,
@@ -185,6 +188,24 @@ export class ViewerStore {
 
   setError(error: string): void {
     this.writable.update((current) => ({ ...current, error }));
+  }
+
+  setCommitFailure(
+    result: OperationResult,
+    operation: string,
+    attemptedPosition: WorldPoint | null = null
+  ): void {
+    const category = result.failureCategory ?? CommitFailureCategory.InternalError;
+    this.writable.update((current) => ({
+      ...current,
+      lastCommitFailure: {
+        category,
+        reasonCode: result.reasonCode || "internal_error",
+        message: result.error || "The operation could not be completed",
+        operation,
+        attemptedPosition
+      }
+    }));
   }
 
   update(change: (current: ViewerSnapshot) => ViewerSnapshot): void {

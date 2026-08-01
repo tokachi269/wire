@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import App from "../src/App.svelte";
 import { ViewerActions } from "../src/actions/viewer";
 import { WireBridge } from "../src/bridge/wire";
+import { CommitFailureCategory } from "../src/model";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 
 describe("viewer numeric inputs", () => {
@@ -266,7 +267,12 @@ describe("viewer numeric inputs", () => {
 
     mounted.actions.addViewportPoint([0, 0, 0]);
     mounted.actions.previewViewportPoint([24, 0, 0]);
-    expect(current(mounted.store).road.previewMeshes.length).toBeGreaterThan(0);
+    expect(current(mounted.store).road.previewState).toBe("guide");
+    expect(current(mounted.store).road.previewRequest).toEqual(expect.objectContaining({
+      startX: 0,
+      endX: 24
+    }));
+    expect(current(mounted.store).road.previewMeshes).toEqual([]);
     mounted.actions.addViewportPoint([24, 0, 0]);
     await tick();
     expect(current(mounted.store).road.scene.segmentCount).toBe(1);
@@ -283,6 +289,30 @@ describe("viewer numeric inputs", () => {
     await tick();
     expect(current(mounted.store).activeTool).toBe("wire");
     expect(current(mounted.store).rightPanelMode).toBe("road");
+  });
+
+  it("shows one categorized commit failure without turning pointer movement into an error", async () => {
+    const mounted = await mountViewer(false);
+    mounted.actions.setActiveTool("road");
+    mounted.actions.addViewportPoint([0, 0, 0]);
+    mounted.store.setCommitFailure({
+      ok: false,
+      error: "road connection needs more length",
+      failureCategory: CommitFailureCategory.NotImplemented,
+      reasonCode: "road_connection_too_short"
+    }, "road segment", [12, 4, 0]);
+    await tick();
+
+    const failure = document.querySelector(".commit-failure");
+    expect(failure?.textContent).toContain("Not implemented");
+    expect(failure?.textContent).toContain("road connection needs more length");
+    expect(failure?.textContent).toContain("road_connection_too_short");
+    expect(document.querySelectorAll(".commit-failure")).toHaveLength(1);
+
+    mounted.actions.previewViewportPoint([20, 0, 0]);
+    await tick();
+    expect(document.querySelector(".commit-failure")?.textContent)
+      .toContain("road_connection_too_short");
   });
 
   it("resets both core state and viewer settings", async () => {

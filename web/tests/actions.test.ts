@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { ViewerActions } from "../src/actions/viewer";
 import type { SceneData, WireBridge } from "../src/bridge/wire";
-import { startConsoleLogging } from "../src/consoleLog";
 import { CommitFailureCategory } from "../src/model";
 import type { RoadSegmentInput } from "../src/road";
 import type {
@@ -707,7 +706,11 @@ describe("viewport tool routing", () => {
     expect(generateWireInterval).toHaveBeenCalledOnce();
     expect(current(store).pathPoints).toEqual([[0, 0, 0]]);
     expect(current(store).wirePreview.state).toBe("guide");
-    expect(current(store).error).toBe("wire connection needs more length");
+    expect(current(store).error).toBe("");
+    expect(current(store).lastCommitFailure).toEqual(expect.objectContaining({
+      message: "wire connection needs more length",
+      operation: "wire interval"
+    }));
   });
 
   it("updates the lightweight wire guide without asking Core to validate it", () => {
@@ -833,16 +836,14 @@ describe("viewport tool routing", () => {
     expect(current(store).road.draftStart).toEqual({ x: 18, y: 5 });
   });
 
-  it("does not report an expected road preview rejection as a global error", () => {
+  it("uses a local road guide without calling Core during pointer movement", () => {
     const roadPreviewSegment = vi.fn(() => ({
       ok: false,
       error: "road span has zero length",
       failureCategory: CommitFailureCategory.InvalidInput,
       meshes: []
     }));
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const store = new ViewerStore();
-    const stopLogging = startConsoleLogging(store);
     const actions = new ViewerActions(
       actionBridge({ roadPreviewSegment }),
       store
@@ -854,26 +855,27 @@ describe("viewport tool routing", () => {
     actions.previewViewportPoint([0, 0, 0]);
     actions.previewViewportPoint([0.1, 0, 0]);
 
-    expect(roadPreviewSegment).toHaveBeenCalledTimes(2);
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
     expect(current(store).error).toBe("");
-    expect(current(store).road.previewIssue).toBe("road span has zero length");
+    expect(current(store).road.previewState).toBe("guide");
+    expect(current(store).road.previewRequest).toEqual(expect.objectContaining({
+      startX: 0,
+      startY: 0,
+      endX: 0.1,
+      endY: 0
+    }));
+    expect(current(store).road.previewIssue).toBe("");
     expect(current(store).road.lastError).toBe("");
-    expect(consoleError).not.toHaveBeenCalled();
-
-    stopLogging();
-    consoleError.mockRestore();
   });
 
-  it("reports an internal road preview failure as a global error", () => {
+  it("does not let pointer movement replace a prior commit failure", () => {
     const roadPreviewSegment = vi.fn(() => ({
       ok: false,
       error: "road preview internal failure",
       failureCategory: CommitFailureCategory.InternalError,
       meshes: []
     }));
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const store = new ViewerStore();
-    const stopLogging = startConsoleLogging(store);
     const actions = new ViewerActions(
       actionBridge({ roadPreviewSegment }),
       store
@@ -882,16 +884,22 @@ describe("viewport tool routing", () => {
 
     actions.setActiveTool("road");
     actions.addViewportPoint([0, 0, 0]);
+    store.setCommitFailure({
+      ok: false,
+      error: "commit failed",
+      failureCategory: CommitFailureCategory.StateConflict,
+      reasonCode: "stale_road_anchor"
+    }, "road segment", [2, 3, 0]);
     actions.previewViewportPoint([10, 0, 0]);
 
-    expect(current(store).error).toBe("road preview internal failure");
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
+    expect(current(store).error).toBe("");
     expect(current(store).road.previewIssue).toBe("");
-    expect(current(store).road.lastError).toBe("road preview internal failure");
-    expect(consoleError).toHaveBeenCalledOnce();
-    expect(consoleError).toHaveBeenCalledWith("[wire] road preview internal failure");
-
-    stopLogging();
-    consoleError.mockRestore();
+    expect(current(store).lastCommitFailure).toEqual(expect.objectContaining({
+      category: CommitFailureCategory.StateConflict,
+      reasonCode: "stale_road_anchor",
+      message: "commit failed"
+    }));
   });
 
   it("commits each straight interval as one operation while continuing the session", () => {
@@ -981,9 +989,15 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([10, 2, 0]);
 
     expect(current(store).road.phase).toBe("end");
-    expect(current(store).road.previewState).toBe("invalid");
+    expect(current(store).road.previewState).toBe("guide");
     expect(current(store).road.previewRequest).not.toBeNull();
-    expect(current(store).road.previewIssue).toBe("road connection needs more length");
+    expect(current(store).road.previewIssue).toBe("");
+    expect(current(store).lastCommitFailure).toEqual(expect.objectContaining({
+      category: CommitFailureCategory.NotImplemented,
+      message: "road connection needs more length",
+      operation: "road segment",
+      attemptedPosition: [10, 2, 0]
+    }));
   });
 
   it("normalizes a resumed degree-one endpoint to extension", () => {
@@ -1070,10 +1084,12 @@ describe("viewport tool routing", () => {
 
     actions.previewViewportPoint([9, 9, 0]);
     actions.previewViewportPoint([18, 0, 0]);
+    const displayedRequest = current(store).road.previewRequest;
     actions.addViewportPoint([18, 0, 0]);
 
     expect(roadAddSegment).toHaveBeenCalledOnce();
-    expect(roadAddSegment.mock.calls[0]?.[0]).toEqual(roadPreviewSegment.mock.calls.at(-1)?.[0]);
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
+    expect(roadAddSegment.mock.calls[0]?.[0]).toEqual(displayedRequest);
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       kind: "bezier",
       startX: 0,
@@ -1103,7 +1119,7 @@ describe("viewport tool routing", () => {
     actions.finishDrawSession();
 
     expect(roadAddSegment).toHaveBeenCalledOnce();
-    expect(roadAddSegment.mock.calls[0]?.[0]).toEqual(roadPreviewSegment.mock.calls.at(-1)?.[0]);
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
     expect(current(store).road.phase).toBe("start");
   });
 
@@ -1137,6 +1153,7 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([30, -12, 0]);
 
     expect(roadAddSegment).toHaveBeenCalledTimes(2);
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
     const previous = roadAddSegment.mock.calls[0]?.[0].spans?.[0];
     const continued = roadAddSegment.mock.calls[1]?.[0].spans?.[0];
     expect(previous).toBeDefined();

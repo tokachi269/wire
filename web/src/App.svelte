@@ -21,7 +21,7 @@
   import SelectionInspector from "./panels/SelectionInspector.svelte";
   import { buildInfo } from "./buildInfo";
   import { categoryShort, drawIssueText } from "./labels";
-  import type { GenerationTiming } from "./model";
+  import { CommitFailureCategory, type CommitFailure, type GenerationTiming } from "./model";
   import {
     createViewerSnapshot,
     type ViewerSnapshot,
@@ -78,6 +78,30 @@
       return null;
     }
     return Math.max(0, total - core);
+  }
+
+  function commitFailureLabel(category: CommitFailureCategory): string {
+    if (category === CommitFailureCategory.RequirementConstraint) return "Requirement constraint";
+    if (category === CommitFailureCategory.InvalidInput) return "Invalid input";
+    if (category === CommitFailureCategory.NotImplemented) return "Not implemented";
+    if (category === CommitFailureCategory.StateConflict) return "State conflict";
+    return "Internal error";
+  }
+
+  function commitFailureRecovery(failure: CommitFailure): string {
+    if (failure.category === CommitFailureCategory.RequirementConstraint) {
+      return "Adjust the endpoint or connection and try again.";
+    }
+    if (failure.category === CommitFailureCategory.InvalidInput) {
+      return "Correct the selected points or numeric input and try again.";
+    }
+    if (failure.category === CommitFailureCategory.NotImplemented) {
+      return "This shape is not supported yet. Use a simpler connection.";
+    }
+    if (failure.category === CommitFailureCategory.StateConflict) {
+      return "Refresh the selection from the current scene, then try again.";
+    }
+    return "The operation detected an internal inconsistency. Keep this reason code for diagnosis.";
   }
 
   function beginResize(side: "left" | "right", event: PointerEvent): void {
@@ -530,6 +554,15 @@
 
     {#if snapshot.error}
       <div class="error" role="alert">{snapshot.error}</div>
+    {/if}
+
+    {#if snapshot.lastCommitFailure}
+      <div class="commit-failure" role="alert">
+        <strong>{commitFailureLabel(snapshot.lastCommitFailure.category)} · {snapshot.lastCommitFailure.operation}</strong>
+        <span>{snapshot.lastCommitFailure.message}</span>
+        <span>{commitFailureRecovery(snapshot.lastCommitFailure)}</span>
+        <code>{snapshot.lastCommitFailure.reasonCode}</code>
+      </div>
     {/if}
 
     {#if snapshot.logs.length > 0}

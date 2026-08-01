@@ -44,6 +44,14 @@ export interface OperationResult {
   reasonCode?: string;
 }
 
+export interface CommitFailure {
+  category: CommitFailureCategory;
+  reasonCode: string;
+  message: string;
+  operation: string;
+  attemptedPosition: [number, number, number] | null;
+}
+
 export interface WireIntervalRequest {
   points: [[number, number, number], [number, number, number]];
   pointSpecs: Array<{ supportKind: number; nodeId: string } | null>;

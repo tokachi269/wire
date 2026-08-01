@@ -223,7 +223,7 @@ export interface RoadToolState {
   editPoints: RoadPoint[];
   scene: RoadSceneData;
   previewMeshes: RoadMeshData[];
-  previewState: "none" | "valid" | "invalid";
+  previewState: "none" | "guide" | "valid" | "invalid";
   previewRequest: RoadSegmentInput | null;
   previewIssue: string;
   lastError: string;

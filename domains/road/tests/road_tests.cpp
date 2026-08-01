@@ -1380,14 +1380,31 @@ bool add_lane_taper_crosses_segment_boundary(std::string& failure) {
   const auto second_after = std::find_if(
       state.graph().segments.begin(), state.graph().segments.end(),
       [&second](const auto& segment) { return segment.id == second.value; });
-  ROAD_TEST_EXPECT(first_after->transition.has_value() &&
-                       second_after->transition.has_value(),
+  const auto* updated_corridor =
+      FindCorridorForSegment(state.graph(), first.value);
+  const std::size_t transitioning_segments =
+      updated_corridor == nullptr
+          ? 0
+          : static_cast<std::size_t>(std::count_if(
+                updated_corridor->segments.begin(),
+                updated_corridor->segments.end(), [&state](const auto& ref) {
+                  const auto segment = std::find_if(
+                      state.graph().segments.begin(),
+                      state.graph().segments.end(), [&ref](const auto& item) {
+                        return item.id == ref.segment_id;
+                      });
+                  return segment != state.graph().segments.end() &&
+                         segment->transition.has_value();
+                }));
+  ROAD_TEST_EXPECT(!first_after->transition.has_value() &&
+                       second_after->transition.has_value() &&
+                       transitioning_segments == 2,
                    "ADD2 did not resolve both sides of the segment boundary");
   const auto sections = road_test_view::sections(state.derived());
   const auto at_boundary = std::find_if(
-      sections.begin(), sections.end(), [&first](const auto* section) {
-        return section->segment_id == first.value &&
-               std::abs(section->segment_distance_m - 80.0) < 1e-6;
+      sections.begin(), sections.end(), [&second](const auto* section) {
+        return section->segment_id == second.value &&
+               std::abs(section->segment_distance_m) < 1e-6;
       });
   ROAD_TEST_EXPECT(at_boundary != sections.end(),
                    "ADD2 boundary section sample is missing");
@@ -1597,6 +1614,50 @@ bool add_lane_allows_a_later_addition_after_cross_segment_taper(
   ROAD_TEST_EXPECT(
       second_lane.ok,
       "ADD6 lane after cross-segment taper was rejected: " +
+          second_lane.error);
+  return true;
+}
+
+bool add_lane_allows_an_earlier_non_overlapping_addition(
+    std::string& failure) {
+  RoadState state{};
+  const auto first_segment = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(first_segment.ok, first_segment.error);
+  const auto first = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&first_segment](const auto& segment) {
+        return segment.id == first_segment.value;
+      });
+  const auto* initial_corridor =
+      FindCorridorForSegment(state.graph(), first_segment.value);
+  ROAD_TEST_EXPECT(first != state.graph().segments.end() &&
+                       initial_corridor != nullptr,
+                   "ADD7 initial corridor is missing");
+  const RoadCorridorId corridor_id = initial_corridor->id;
+  const auto second_segment = state.ExtendCorridorFromEnd(
+      city::road::ExtendCorridorFromEndRequest{
+          corridor_id, first->node_b,
+          MakePath({MakeLine({80.0, 0.0}, {180.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(second_segment.ok, second_segment.error);
+
+  city::road::AddLaneRequest first_add{};
+  first_add.corridor_id = corridor_id;
+  first_add.direction = city::road::LaneTravelDirection::kAlongSegment;
+  first_add.side = city::road::RoadSide::kRight;
+  first_add.taper_start_corridor_distance_m = 60.0;
+  first_add.full_width_corridor_distance_m = 100.0;
+  first_add.lane_width_m = 3.0;
+  const auto first_lane = state.AddLane(first_add);
+  ROAD_TEST_EXPECT(first_lane.ok, first_lane.error);
+
+  city::road::AddLaneRequest second_add = first_add;
+  second_add.taper_start_corridor_distance_m = 10.0;
+  second_add.full_width_corridor_distance_m = 40.0;
+  const auto second_lane = state.AddLane(second_add);
+  ROAD_TEST_EXPECT(
+      second_lane.ok,
+      "ADD8 earlier non-overlapping lane addition was rejected: " +
           second_lane.error);
   return true;
 }
@@ -2852,6 +2913,8 @@ int main() {
        add_lane_allows_a_later_non_overlapping_addition},
       {"add_lane_allows_a_later_addition_after_cross_segment_taper",
        add_lane_allows_a_later_addition_after_cross_segment_taper},
+      {"add_lane_allows_an_earlier_non_overlapping_addition",
+       add_lane_allows_an_earlier_non_overlapping_addition},
       {"add_lane_accepts_multiple_lanes_on_one_carriageway_strip",
        add_lane_accepts_multiple_lanes_on_one_carriageway_strip},
       {"selected_outer_lane_branches_to_one_lane_road",

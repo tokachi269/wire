@@ -121,7 +121,7 @@ struct LaneSideMarkingPolicy {
 };
 enum class DistanceRefKind { kFromStart, kFromEnd, kRatio };
 enum class TransitionAction { kContinue, kChangeWidthHeightOffset, kTaperOut, kTaperIn, kEndCap, kUnsupported };
-enum class TransitionAnchor { kCenter, kLeftEdge, kRightEdge };
+enum class TransitionAnchor { kCenter, kLeftEdge, kRightEdge, kBoundary };
 enum class EndpointRole {
   kStart,
   kEnd,

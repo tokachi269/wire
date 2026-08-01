@@ -484,6 +484,30 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
   if (!valid_distance(transition.start) || !valid_distance(transition.end)) {
     return Result<bool>::Fail(ErrorKind::kValidation, "section transition distance reference is outside its range");
   }
+  if (transition.anchor == TransitionAnchor::kBoundary) {
+    const BoundaryProfile* from_anchor =
+        find_boundary(*from, transition.anchor_boundary_id);
+    const BoundaryProfile* to_anchor =
+        find_boundary(*to, transition.anchor_boundary_id);
+    if (transition.anchor_boundary_id == 0 || from_anchor == nullptr ||
+        to_anchor == nullptr) {
+      return Result<bool>::Fail(
+          ErrorKind::kValidation,
+          "section transition anchor boundary is missing");
+    }
+    if (from_anchor->width_m > kEpsilon ||
+        std::abs(from_anchor->height_m) > kEpsilon ||
+        to_anchor->width_m > kEpsilon ||
+        std::abs(to_anchor->height_m) > kEpsilon) {
+      return Result<bool>::Fail(
+          ErrorKind::kUnsupported,
+          "section transition anchor boundary must have one position");
+    }
+  } else if (transition.anchor_boundary_id != 0) {
+    return Result<bool>::Fail(
+        ErrorKind::kValidation,
+        "section transition boundary anchor is set for a different anchor mode");
+  }
   if (transition.rules.empty()) {
     return Result<bool>::Fail(ErrorKind::kUnsupported, "section transition must define element actions");
   }
@@ -2050,8 +2074,10 @@ Result<bool> RoadState::ResetLaneSideMarkingPolicy(ResetLaneSideMarkingPolicyReq
 }
 
 Result<SectionTransitionId> RoadState::AddTransition(SectionTransitionRequest request) {
-  SectionTransition transition{0, request.from_template, request.to_template, request.start, request.end,
-                               request.anchor, std::move(request.rules)};
+  SectionTransition transition{0, request.from_template, request.to_template,
+                               request.start, request.end, request.anchor,
+                               request.anchor_boundary_id,
+                               std::move(request.rules)};
   const Result<bool> valid = validate_transition(graph_, transition);
   if (!valid.ok) {
     return Result<SectionTransitionId>::Fail(valid.error_kind, valid.error);
@@ -2074,8 +2100,10 @@ Result<SectionTransitionId> RoadState::AddTransitionToSegment(AddTransitionToSeg
   if (segment == nullptr) {
     return Result<SectionTransitionId>::Fail(ErrorKind::kValidation, "road transition segment does not exist");
   }
-  SectionTransition transition{0, segment->section_template, request.to_template, request.start, request.end,
-                               request.anchor, std::move(request.rules)};
+  SectionTransition transition{0, segment->section_template,
+                               request.to_template, request.start, request.end,
+                               request.anchor, request.anchor_boundary_id,
+                               std::move(request.rules)};
   const Result<bool> valid = validate_transition(graph_, transition);
   if (!valid.ok) return Result<SectionTransitionId>::Fail(valid.error_kind, valid.error);
   operations::OperationPlan plan{};
@@ -2094,6 +2122,194 @@ Result<SectionTransitionId> RoadState::AddTransitionToSegment(AddTransitionToSeg
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) return Result<SectionTransitionId>::Fail(executed.error_kind, executed.error);
   return Result<SectionTransitionId>::Ok(id);
+}
+
+Result<LaneId> RoadState::AddLaneTransition(
+    AddLaneTransitionRequest request) {
+  if (!finite(request.start_corridor_distance_m) ||
+      !finite(request.full_width_corridor_distance_m) ||
+      !finite(request.lane_width_m) || request.start_corridor_distance_m < 0.0 ||
+      request.full_width_corridor_distance_m <=
+          request.start_corridor_distance_m ||
+      request.lane_width_m <= 0.0 || request.anchor_boundary_id == 0) {
+    return Result<LaneId>::Fail(ErrorKind::kValidation,
+                                "lane transition request is invalid");
+  }
+  const RoadCorridor* corridor =
+      FindRoadCorridor(graph_, request.corridor_id);
+  if (corridor == nullptr || corridor->segments.empty()) {
+    return Result<LaneId>::Fail(ErrorKind::kValidation,
+                                "lane transition corridor does not exist");
+  }
+  const Result<ResolvedSegmentDistance> start = ResolveCorridorDistance(
+      graph_, derived_, CorridorDistanceRef{request.corridor_id,
+                                            request.start_corridor_distance_m});
+  const Result<ResolvedSegmentDistance> full = ResolveCorridorDistance(
+      graph_, derived_, CorridorDistanceRef{
+                            request.corridor_id,
+                            request.full_width_corridor_distance_m});
+  if (!start.ok) {
+    return Result<LaneId>::Fail(start.error_kind, start.error);
+  }
+  if (!full.ok) {
+    return Result<LaneId>::Fail(full.error_kind, full.error);
+  }
+  if (start.value.segment_id != full.value.segment_id ||
+      start.value.reversed || full.value.reversed) {
+    return Result<LaneId>::Fail(
+        ErrorKind::kUnsupported,
+        "lane transition must fit one forward corridor segment");
+  }
+  const RoadSegment* segment = find_segment(graph_, start.value.segment_id);
+  if (segment == nullptr) {
+    return Result<LaneId>::Fail(ErrorKind::kInternal,
+                                "lane transition segment is missing");
+  }
+  const CrossSectionTemplate* source =
+      find_template(graph_, segment->section_template);
+  if (source == nullptr) {
+    return Result<LaneId>::Fail(ErrorKind::kInternal,
+                                "lane transition section is missing");
+  }
+  const auto anchor = std::find_if(
+      source->boundaries.begin(), source->boundaries.end(),
+      [&request](const BoundaryProfile& boundary) {
+        return boundary.boundary_id == request.anchor_boundary_id;
+      });
+  if (anchor == source->boundaries.end()) {
+    return Result<LaneId>::Fail(ErrorKind::kValidation,
+                                "lane transition anchor boundary is missing");
+  }
+  if (segment->transition.has_value()) {
+    return Result<LaneId>::Fail(
+        ErrorKind::kUnsupported,
+        "lane transition cannot overlap an existing section transition");
+  }
+  if (anchor->width_m > kEpsilon || std::abs(anchor->height_m) > kEpsilon) {
+    return Result<LaneId>::Fail(
+        ErrorKind::kUnsupported,
+        "lane transition anchor boundary must have one position");
+  }
+  const std::size_t anchor_index =
+      static_cast<std::size_t>(std::distance(source->boundaries.begin(), anchor));
+  const std::size_t lane_strip_index =
+      request.side == RoadSide::kRight ? anchor_index + 1 : anchor_index;
+  if (lane_strip_index >= source->strips.size()) {
+    return Result<LaneId>::Fail(ErrorKind::kValidation,
+                                "lane transition side has no source lane");
+  }
+  const SectionStripId lane_strip_id = source->strips[lane_strip_index].id;
+  const auto source_lane = std::find_if(
+      source->lane_bands.begin(), source->lane_bands.end(),
+      [&](const LaneBand& lane) {
+        return lane.surface_strip_id == lane_strip_id &&
+               lane.direction == request.direction;
+      });
+  if (source_lane == source->lane_bands.end() ||
+      source_lane->lateral_start_m != 0.0 ||
+      source_lane->lateral_end_m !=
+          source->strips[lane_strip_index].width_m) {
+    return Result<LaneId>::Fail(
+        ErrorKind::kUnsupported,
+        "lane transition requires one full-width lane beside the anchor");
+  }
+  const auto lane_is_farther_out = [&](const LaneBand& lane) {
+    if (lane.direction != request.direction)
+      return false;
+    const auto strip = std::find_if(
+        source->strips.begin(), source->strips.end(),
+        [&lane](const SectionStrip& candidate) {
+          return candidate.id == lane.surface_strip_id;
+        });
+    if (strip == source->strips.end())
+      return false;
+    const std::size_t index = static_cast<std::size_t>(
+        std::distance(source->strips.begin(), strip));
+    return request.side == RoadSide::kRight ? index > lane_strip_index
+                                            : index < lane_strip_index;
+  };
+  if (std::any_of(source->lane_bands.begin(), source->lane_bands.end(),
+                  lane_is_farther_out)) {
+    return Result<LaneId>::Fail(
+        ErrorKind::kValidation,
+        "lane transition anchor does not select the outermost lane");
+  }
+
+  CrossSectionTemplate target = *source;
+  std::uint64_t next_local_id = 1;
+  for (const SectionStrip& strip : target.strips)
+    next_local_id = std::max(next_local_id, strip.id + 1);
+  for (const LaneBand& lane : target.lane_bands)
+    next_local_id = std::max(next_local_id, lane.id + 1);
+  for (const BoundaryProfile& boundary : target.boundaries)
+    next_local_id = std::max(next_local_id, boundary.boundary_id + 1);
+  const SectionStripId added_strip_id = next_local_id++;
+  const LaneId added_lane_id = next_local_id++;
+  const BoundaryId added_boundary_id = next_local_id++;
+  SectionStrip added_strip = source->strips[lane_strip_index];
+  added_strip.id = added_strip_id;
+  added_strip.width_m = request.lane_width_m;
+  added_strip.side_marking = {};
+  const AutoMarkingPolicy lane_divider{
+      true, MarkingRole::kLaneSeparator,
+      builtin_marking_styles::kWhiteDashed};
+  const BoundaryProfile added_boundary{added_boundary_id,
+                                       BoundaryRole::kLaneDivider, 0.0, 0.0,
+                                       lane_divider};
+  if (request.side == RoadSide::kRight) {
+    target.strips.insert(target.strips.begin() + lane_strip_index + 1,
+                         added_strip);
+    target.boundaries.insert(target.boundaries.begin() + lane_strip_index,
+                             added_boundary);
+  } else {
+    target.strips.insert(target.strips.begin() + lane_strip_index, added_strip);
+    target.boundaries.insert(target.boundaries.begin() + lane_strip_index,
+                             added_boundary);
+  }
+  target.lane_bands.push_back(
+      LaneBand{added_lane_id, added_strip_id, 0.0, request.lane_width_m,
+               request.direction});
+
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  target.id = next_id++;
+  const SectionTransitionId transition_id = next_id++;
+  const SectionTransition transition{
+      transition_id,
+      source->id,
+      target.id,
+      DistanceRef{DistanceRefKind::kFromStart,
+                  start.value.segment_distance_m},
+      DistanceRef{DistanceRefKind::kFromStart,
+                  full.value.segment_distance_m},
+      TransitionAnchor::kBoundary,
+      request.anchor_boundary_id,
+      {SectionTransitionRule{added_strip_id, TransitionAction::kTaperIn}}};
+  RoadSegment transitioned = *segment;
+  transitioned.transition = transition_id;
+  plan.replace_segments.push_back(transitioned);
+  const auto selected_ref = std::find_if(
+      corridor->segments.begin(), corridor->segments.end(),
+      [segment](const DirectedSegmentRef& ref) {
+        return ref.segment_id == segment->id;
+      });
+  if (selected_ref == corridor->segments.end()) {
+    return Result<LaneId>::Fail(ErrorKind::kInternal,
+                                "lane transition segment is not in its corridor");
+  }
+  if (selected_ref + 1 != corridor->segments.end()) {
+    return Result<LaneId>::Fail(
+        ErrorKind::kUnsupported,
+        "lane transition across following corridor segments is unsupported");
+  }
+  plan.add_section_templates.push_back(std::move(target));
+  plan.add_transitions.push_back(transition);
+  plan.next_id_after = next_id;
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) {
+    return Result<LaneId>::Fail(executed.error_kind, executed.error);
+  }
+  return Result<LaneId>::Ok(added_lane_id);
 }
 
 Result<bool> RoadState::AttachSectionTransition(AttachSectionTransitionRequest request) {

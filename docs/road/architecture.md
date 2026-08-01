@@ -178,6 +178,11 @@ source/target endpointを保存し、generation時にgeometryの近さから作�
 車線中心と道路境界は別の正本である。lane接続からshoulderや道路外端の継続を暗黙導出せず、必要な境界は
 `BoundaryContinuation`で明示する。lane/boundaryのworld pathはこれらの正本から派生し、保存しない。
 
+外側lane追加は`SectionTransition`へ明示した`anchor_boundary_id`を固定点とする。既存laneの内側境界を
+同じIDの断面sampleから一度だけ解決し、その外側にだけ新laneを展開する。全断面の中心合わせやworld位置の
+近接再bindは行わない。新laneの幅はtransition中に0から指定幅へ単調に増加し、既存shoulder幅は維持したまま
+外側へ移動する。
+
 ## Approach override lifecycle
 
 authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / manual lateral shiftだけである。全fieldがAutoの空overrideは保存しない。

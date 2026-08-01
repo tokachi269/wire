@@ -14,6 +14,7 @@ struct SectionTransition {
   DistanceRef start{};
   DistanceRef end{};
   TransitionAnchor anchor = TransitionAnchor::kCenter;
+  BoundaryId anchor_boundary_id = 0;
   std::vector<SectionTransitionRule> rules{};
 };
 struct RoadNode { RoadNodeId id = 0; Vec2d position{}; };

@@ -503,9 +503,33 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         static_cast<int>(transition.end.kind) < 0 ||
         static_cast<int>(transition.end.kind) > 2 ||
         static_cast<int>(transition.anchor) < 0 ||
-        static_cast<int>(transition.anchor) > 2) {
+        static_cast<int>(transition.anchor) > 3 ||
+        (transition.anchor == TransitionAnchor::kBoundary) !=
+            (transition.anchor_boundary_id != 0)) {
       return Result<bool>::Fail(ErrorKind::kValidation,
                                 "section transition is invalid");
+    }
+    if (transition.anchor == TransitionAnchor::kBoundary) {
+      const auto has_anchor = [&graph, &transition](CrossSectionTemplateId id) {
+        const auto section = std::find_if(
+            graph.section_templates.begin(), graph.section_templates.end(),
+            [id](const CrossSectionTemplate& candidate) {
+              return candidate.id == id;
+            });
+        return section != graph.section_templates.end() &&
+               std::any_of(section->boundaries.begin(),
+                           section->boundaries.end(),
+                           [&transition](const BoundaryProfile& boundary) {
+                             return boundary.boundary_id ==
+                                    transition.anchor_boundary_id;
+                           });
+      };
+      if (!has_anchor(transition.from_template) ||
+          !has_anchor(transition.to_template)) {
+        return Result<bool>::Fail(
+            ErrorKind::kValidation,
+            "section transition anchor boundary reference is invalid");
+      }
     }
     std::set<SectionStripId> rule_strips{};
     for (const SectionTransitionRule& rule : transition.rules) {
@@ -876,6 +900,8 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     writer.Int(prefix + ".end.kind", static_cast<int>(transition.end.kind));
     writer.Double(prefix + ".end.value", transition.end.value);
     writer.Int(prefix + ".anchor", static_cast<int>(transition.anchor));
+    writer.UInt(prefix + ".anchor_boundary_id",
+                transition.anchor_boundary_id);
     std::vector<SectionTransitionRule> rules = transition.rules;
     std::sort(rules.begin(), rules.end(), [](const auto& a, const auto& b) {
       return a.strip_id < b.strip_id;
@@ -1216,7 +1242,9 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<double> start_value = reader.RequireDouble(prefix + ".start.value");
     Result<DistanceRefKind> end_kind = enum_value<DistanceRefKind>(reader, prefix + ".end.kind", 0, 2);
     Result<double> end_value = reader.RequireDouble(prefix + ".end.value");
-    Result<TransitionAnchor> anchor = enum_value<TransitionAnchor>(reader, prefix + ".anchor", 0, 2);
+    Result<TransitionAnchor> anchor = enum_value<TransitionAnchor>(reader, prefix + ".anchor", 0, 3);
+    Result<std::uint64_t> anchor_boundary_id =
+        reader.RequireU64(prefix + ".anchor_boundary_id");
     if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
     if (!from.ok) return Result<LoadedRoad>::Fail(from.error_kind, from.error);
     if (!to.ok) return Result<LoadedRoad>::Fail(to.error_kind, to.error);
@@ -1225,10 +1253,14 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     if (!end_kind.ok) return Result<LoadedRoad>::Fail(end_kind.error_kind, end_kind.error);
     if (!end_value.ok) return Result<LoadedRoad>::Fail(end_value.error_kind, end_value.error);
     if (!anchor.ok) return Result<LoadedRoad>::Fail(anchor.error_kind, anchor.error);
+    if (!anchor_boundary_id.ok) {
+      return Result<LoadedRoad>::Fail(anchor_boundary_id.error_kind,
+                                      anchor_boundary_id.error);
+    }
     SectionTransition transition{id.value, from.value, to.value,
                                  DistanceRef{start_kind.value, start_value.value},
                                  DistanceRef{end_kind.value, end_value.value},
-                                 anchor.value, {}};
+                                 anchor.value, anchor_boundary_id.value, {}};
     Result<std::size_t> rule_count = require_count(prefix + ".rule.count");
     if (!rule_count.ok) return Result<LoadedRoad>::Fail(rule_count.error_kind, rule_count.error);
     for (std::size_t j = 0; j < rule_count.value; ++j) {

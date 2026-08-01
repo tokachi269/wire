@@ -42,6 +42,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | EditSectionTemplate | section_template | ID exists、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId | 既存segment再評価 |
 | AddTransition | from/to/start/end/anchor/rules | template exists、distance finite/range、rule element exists、enum valid | element出現/消滅action対応 |
 | AddTransitionToSegment | segment_id + transition request | segment exists、transition preflight | 既存transition replace、segment section整合 |
+| AddLaneTransition | corridor/direction/side/distances/lane width/anchor boundary | corridor exists、finite、正の幅、同一forward segment、anchorが選択方向の外側laneの内側境界 | anchor内側を固定し、追加laneと外側shoulderだけを単調に展開 |
 | AttachSectionTransition | segment_id / transition_id | ID exists、from_template matches segment、distance range valid | segment再評価 |
 | AddManualLine | owner_segment_id / path / style_id | owner exists、path finite、owner-local distance範囲、known MarkingStyleId | owner section上への投影 |
 | AddManualArea | owner_segment_id / frame_origin / width / length / style_id | owner exists、finite、width/length正、distance範囲、known MarkingStyleId | owner section上への投影 |
@@ -80,6 +81,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | Viewer delete road | 1 segment pick | `DeleteSegment` | hoverしたRoadSegment全体を1クリックで削除 | hoverとclickは同じ明示segment IDを使う | splitやrange境界を作らない |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
 | AttachSectionTransition | validation | supported | supported | replace supported | supported |
+| AddLaneTransition | validation | corridor末尾segment内ならsupported | corridor末尾segment内ならsupported | overlapはunsupported | supported |
 | AddManualLine / AddManualArea | validation | supported | supported | supported | supported |
 
 ## P1 node semantics
@@ -151,7 +153,11 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - `DistanceRef::FromStart(d)` は `d`、`FromEnd(d)` は `length-d`、`Ratio(u)` は `length*u` に解決する。
 - 解決後は `0 <= start < end <= length` を満たす。満たさなければ validation で正本を変更しない。
 - transition前は `from_template`、transition後は `to_template`、区間内は線形補間する。
-- `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge のいずれか。
+- `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge / 明示BoundaryIdのいずれか。
+- `AddLaneTransition`は明示`anchor_boundary_id`の両側位置を同じ断面評価から導出し、anchor内側の既存laneを移動しない。
+  追加lane幅だけを0から指定幅へ単調に増やし、その外側のshoulderとcurbを外へ移す。断面全体を再中心化しない。
+- 最初の対応範囲は、1本のforward corridor segment内で完結し、既存transitionと重ならないlane追加である。
+  複数segmentまたぎ、reversed segment、既存transitionとの合成は推測せずunsupportedとする。
 - element対応は ID で行う。出現は `TaperIn`、消滅は `TaperOut` または `EndCap` を明示する。
 - 1 segmentに同時に接続できる transition は1個。短距離多重transitionはP2非対象。
 - 異なる断面をnodeへ直接接続しない。trial generateの`resolve_connections`が各approachのendpoint section IDを

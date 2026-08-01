@@ -989,6 +989,97 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   return true;
 }
 
+bool LAN3_outer_lane_transition_preserves_existing_lanes(std::string& failure) {
+  RoadState state{};
+  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const auto corridor = city::road::FindCorridorForSegment(state.graph(), segment.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "LAN3 fixture corridor is missing");
+
+  city::road::AddLaneTransitionRequest request{};
+  request.corridor_id = corridor->id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  request.start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
+  request.lane_width_m = 3.0;
+  request.anchor_boundary_id = 200;
+  const auto added_lane = state.AddLaneTransition(request);
+  ROAD_TEST_EXPECT(added_lane.ok, added_lane.error);
+
+  const auto sections = road_test_view::sections(state.derived());
+  const auto lateral = [](const city::road::SectionEvaluation& section,
+                          city::road::BoundaryId id) -> std::optional<double> {
+    const auto found = std::find_if(
+        section.boundaries.begin(), section.boundaries.end(),
+        [id](const auto& boundary) { return boundary.boundary_id == id; });
+    return found == section.boundaries.end()
+               ? std::nullopt
+               : std::optional<double>(found->lateral_m);
+  };
+  ROAD_TEST_EXPECT(sections.size() >= 3, "LAN3 transition samples are missing");
+  const auto* before = sections.front();
+  const auto* after = sections.back();
+  for (const city::road::BoundaryId id : {150ULL, 200ULL}) {
+    const auto a = lateral(*before, id);
+    const auto c = lateral(*after, id);
+    ROAD_TEST_EXPECT(a.has_value() && c.has_value(),
+                     "LAN3 existing boundary is missing");
+    for (const auto* section : sections) {
+      const auto current = lateral(*section, id);
+      ROAD_TEST_EXPECT(current.has_value() && *current == *a,
+                       "LAN3 moved an existing lane boundary inside the anchor");
+    }
+  }
+  const auto outer_before = lateral(*before, 250);
+  const auto outer_after = lateral(*after, 250);
+  ROAD_TEST_EXPECT(outer_before && outer_after,
+                   "LAN3 shoulder boundary is missing");
+  double previous = *outer_before;
+  for (const auto* section : sections) {
+    const auto current = lateral(*section, 250);
+    ROAD_TEST_EXPECT(current.has_value() && *current + 1e-9 >= previous,
+                     "LAN3 added lane width is not monotonic");
+    previous = *current;
+  }
+  ROAD_TEST_EXPECT(std::abs((*outer_after - *outer_before) - 3.0) < 1e-6,
+                   "LAN3 added lane did not reach its requested width");
+  const auto target_template = std::max_element(
+      state.graph().section_templates.begin(),
+      state.graph().section_templates.end(), [](const auto& a, const auto& b) {
+        return a.id < b.id;
+      });
+  ROAD_TEST_EXPECT(target_template != state.graph().section_templates.end(),
+                   "LAN3 target template is missing");
+  const auto added = std::find_if(
+      target_template->lane_bands.begin(), target_template->lane_bands.end(),
+      [&added_lane](const auto& lane) { return lane.id == added_lane.value; });
+  ROAD_TEST_EXPECT(added != target_template->lane_bands.end() &&
+                       added->direction ==
+                           city::road::LaneTravelDirection::kAlongSegment,
+                   "LAN3 added lane lost its identity or direction");
+  const auto shoulder = std::find_if(
+      target_template->strips.begin(), target_template->strips.end(),
+      [](const auto& strip) { return strip.id == 35; });
+  ROAD_TEST_EXPECT(shoulder != target_template->strips.end() &&
+                       shoulder->function == city::road::StripFunction::kShoulder &&
+                       shoulder->width_m == 0.75,
+                   "LAN3 changed the existing shoulder width");
+
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  request.anchor_boundary_id = 999999;
+  const auto rejected = state.AddLaneTransition(request);
+  ROAD_TEST_EXPECT(!rejected.ok &&
+                       rejected.error_kind == city::road::ErrorKind::kValidation,
+                   "LAN3 accepted an unknown anchor boundary");
+  const auto after_reject = state.Save();
+  ROAD_TEST_EXPECT(after_reject.ok && after_reject.value == saved.value,
+                   "LAN3 invalid request mutated authoritative state");
+  return true;
+}
+
 bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   {
     RoadState state{};
@@ -1493,6 +1584,8 @@ int main() {
       {"P1_incremental_skew_cross_accepts_ordered_approaches",
        P1_incremental_skew_cross_accepts_ordered_approaches},
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
+      {"LAN3_outer_lane_transition_preserves_existing_lanes",
+       LAN3_outer_lane_transition_preserves_existing_lanes},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},

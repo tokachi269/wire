@@ -87,7 +87,17 @@ struct SectionTransitionRequest {
   DistanceRef start{};
   DistanceRef end{};
   TransitionAnchor anchor = TransitionAnchor::kCenter;
+  BoundaryId anchor_boundary_id = 0;
   std::vector<SectionTransitionRule> rules{};
+};
+struct AddLaneTransitionRequest {
+  RoadCorridorId corridor_id = 0;
+  LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
+  RoadSide side = RoadSide::kRight;
+  double start_corridor_distance_m = 0.0;
+  double full_width_corridor_distance_m = 0.0;
+  double lane_width_m = 0.0;
+  BoundaryId anchor_boundary_id = 0;
 };
 struct AddTransitionToSegmentRequest {
   RoadSegmentId segment_id = 0;

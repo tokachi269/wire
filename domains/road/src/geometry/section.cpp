@@ -56,7 +56,21 @@ CrossSectionTemplate interpolate_section(const CrossSectionTemplate &from,
     strip.cross_slope = a_slope + (b_slope - a_slope) * t;
     out.strips.push_back(std::move(strip));
   }
-  out.lane_bands = t < 1.0 ? from.lane_bands : to.lane_bands;
+  out.lane_bands = from.lane_bands;
+  for (const LaneBand &target_lane : to.lane_bands) {
+    const auto existing = std::find_if(
+        out.lane_bands.begin(), out.lane_bands.end(),
+        [&target_lane](const LaneBand &lane) { return lane.id == target_lane.id; });
+    if (existing != out.lane_bands.end())
+      continue;
+    const SectionStrip *strip = find_strip(out, target_lane.surface_strip_id);
+    if (strip == nullptr || strip->width_m <= distance_epsilon)
+      continue;
+    LaneBand lane = target_lane;
+    lane.lateral_start_m = 0.0;
+    lane.lateral_end_m = strip->width_m;
+    out.lane_bands.push_back(lane);
+  }
   for (const BoundaryProfile &structure_boundary : structure.boundaries) {
     const BoundaryProfile *a =
         find_boundary(from, structure_boundary.boundary_id);
@@ -295,13 +309,29 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
     const std::vector<SectionBoundarySample> from_boundaries = build_boundaries(
         *from, std::vector<AutoMarkingPolicy>(from->boundaries.size(),
                                               AutoMarkingPolicy{}));
-    const double shift =
-        transition->anchor == TransitionAnchor::kLeftEdge
-            ? from_boundaries.front().lateral_m - boundaries.front().lateral_m
-            : (transition->anchor == TransitionAnchor::kRightEdge
-                   ? from_boundaries.back().lateral_m -
-                         boundaries.back().lateral_m
-                   : 0.0);
+    double shift = 0.0;
+    if (transition->anchor == TransitionAnchor::kLeftEdge) {
+      shift = from_boundaries.front().lateral_m - boundaries.front().lateral_m;
+    } else if (transition->anchor == TransitionAnchor::kRightEdge) {
+      shift = from_boundaries.back().lateral_m - boundaries.back().lateral_m;
+    } else if (transition->anchor == TransitionAnchor::kBoundary) {
+      const auto source = std::find_if(
+          from_boundaries.begin(), from_boundaries.end(),
+          [transition](const SectionBoundarySample &boundary) {
+            return boundary.boundary_id == transition->anchor_boundary_id;
+          });
+      const auto current = std::find_if(
+          boundaries.begin(), boundaries.end(),
+          [transition](const SectionBoundarySample &boundary) {
+            return boundary.boundary_id == transition->anchor_boundary_id;
+          });
+      if (source == from_boundaries.end() || current == boundaries.end()) {
+        return Result<SectionEvaluation>::Fail(
+            ErrorKind::kInternal,
+            "road transition anchor boundary sample is missing");
+      }
+      shift = source->lateral_m - current->lateral_m;
+    }
     for (SectionBoundarySample &boundary : boundaries) {
       boundary.lateral_m += shift;
     }

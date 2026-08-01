@@ -27,6 +27,10 @@ derive_segment_shapes(const SavedRoadGraph &graph);
                                                    std::vector<DerivedSegment> &segments,
                                                    const std::vector<ResolvedConnection> &connections);
 
+[[nodiscard]] Result<std::vector<DerivedSegmentLanePath>>
+derive_segment_lane_paths(const SavedRoadGraph &graph,
+                          const std::vector<DerivedSegment> &segments);
+
 [[nodiscard]] Result<std::vector<ResolvedConnection>>
 resolve_connections(const SavedRoadGraph &graph,
                     const std::vector<NodeIncidence> &incidence,

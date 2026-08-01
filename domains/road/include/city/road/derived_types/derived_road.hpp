@@ -162,6 +162,19 @@ struct DerivedLanePath {
   double minimum_radius_m = 0.0;
 };
 
+// A segment-owned lane centerline for inspection and editing. It reuses the
+// segment section samples; it is not a render mesh or an authoritative path.
+struct DerivedSegmentLanePath {
+  RoadSegmentId segment_id = 0;
+  LaneId lane_id = 0;
+  LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
+  CrossSectionTemplateId start_template_id = 0;
+  CrossSectionTemplateId end_template_id = 0;
+  double start_segment_distance_m = 0.0;
+  double end_segment_distance_m = 0.0;
+  std::vector<Vec3d> points{};
+};
+
 struct DerivedBoundaryPath {
   BoundaryContinuationId continuation_id = 0;
   Path path{};
@@ -188,6 +201,7 @@ struct DerivedMarking {
 struct DerivedRoad {
   std::vector<DerivedSegment> segments{};
   std::vector<ResolvedConnection> connections{};
+  std::vector<DerivedSegmentLanePath> segment_lane_paths{};
   std::vector<DerivedLanePath> lane_paths{};
   std::vector<DerivedBoundaryPath> boundary_paths{};
   std::vector<DerivedSeparationArea> separation_areas{};

@@ -1334,7 +1334,7 @@ describe("road wasm smoke", () => {
     expect(scene.corridorCount).toBe(1);
     expect(scene.corridors).toHaveLength(1);
     expect(scene.corridors[0].segments).toEqual([
-      { segmentId: added.segmentId, reversed: false }
+      expect.objectContaining({ segmentId: added.segmentId, reversed: false })
     ]);
     expect(new Set(scene.surfaceMeshes.map((mesh) => mesh.material))).toEqual(
       new Set(["asphalt", "sidewalk", "curb"])
@@ -1350,6 +1350,119 @@ describe("road wasm smoke", () => {
     expect(loaded.ok, loaded.error).toBe(true);
     expect(restored.scene().segmentCount).toBe(1);
     restored.delete();
+  });
+
+  it("exposes stable lane paths and previews an outer lane without mutating state", () => {
+    state.clear();
+    const added = state.addSegment({
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 60,
+      endY: 0,
+      handleAX: 20,
+      handleAY: 0,
+      handleBX: 40,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    expect(added.ok, added.error).toBe(true);
+
+    const initial = state.scene();
+    const section = initial.sectionTemplates.find((item) => item.id === 1);
+    expect(section?.boundaries.find((boundary) => boundary.id === 100)?.canAnchorTransition).toBe(false);
+    expect(section?.boundaries.find((boundary) => boundary.id === 200)?.canAnchorTransition).toBe(true);
+    expect(initial.lanePaths).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        segmentId: added.segmentId,
+        laneId: 1000,
+        direction: 1,
+        startSectionTemplateId: 1,
+        endSectionTemplateId: 1
+      }),
+      expect.objectContaining({
+        segmentId: added.segmentId,
+        laneId: 1010,
+        direction: 0,
+        startSectionTemplateId: 1,
+        endSectionTemplateId: 1
+      })
+    ]));
+    for (const lane of initial.lanePaths) {
+      expect(lane.points.length).toBeGreaterThanOrEqual(6);
+      expect(lane.points.every(Number.isFinite)).toBe(true);
+    }
+
+    const request = {
+      corridorId: added.corridorId!,
+      direction: 0 as const,
+      side: "right" as const,
+      startCorridorDistanceM: 10,
+      fullWidthCorridorDistanceM: 40,
+      laneWidthM: 3,
+      anchorBoundaryId: 200
+    };
+    const savedBeforePreview = state.saveState();
+    const preview = state.previewLaneTransition(request);
+    expect(preview.ok, preview.error).toBe(true);
+    expect(preview.meshes.length).toBeGreaterThan(0);
+    expect(state.saveState()).toBe(savedBeforePreview);
+    expect(state.scene().transitionCount).toBe(0);
+
+    const committed = state.addLaneTransition(request);
+    expect(committed.ok, committed.error).toBe(true);
+    expect(committed.laneId).toBeGreaterThan(0);
+    const after = state.scene();
+    expect(after.transitionCount).toBe(1);
+    expect(after.lanePaths.some((lane) =>
+      lane.segmentId === added.segmentId && lane.laneId === committed.laneId
+    )).toBe(true);
+  });
+
+  it("previews and commits a branch from one explicit lane endpoint", () => {
+    state.clear();
+    const base = state.addSegment({
+      kind: "line", startX: 0, startY: 0, endX: 40, endY: 0,
+      handleAX: 40 / 3, handleAY: 0, handleBX: 80 / 3, handleBY: 0,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    expect(base.ok, base.error).toBe(true);
+    const request = {
+      kind: "line" as const,
+      startX: 40, startY: 0, endX: 60, endY: -20,
+      handleAX: 40 + 20 / 3, handleAY: -20 / 3,
+      handleBX: 40 + 40 / 3, handleBY: -40 / 3,
+      startNodeId: base.endNodeId!, startSegmentId: 0,
+      startSegmentDistanceM: 0, extensionCorridorId: 0,
+      connectToFirstNode: false, sectionTemplateId: 1,
+      laneConnections: [{
+        source: { segmentId: base.segmentId!, laneId: 1010, endpointRole: 1 as const },
+        targetLaneId: 1010,
+        kind: 3
+      }],
+      boundaryContinuations: [],
+      sourceLaneConnections: [],
+      sourceBoundaryContinuations: []
+    };
+    const savedBeforePreview = state.saveState();
+    const preview = state.previewConnectedLaneSegment(request);
+    expect(preview.ok, preview.error).toBe(true);
+    expect(preview.meshes.length).toBeGreaterThan(0);
+    expect(state.saveState()).toBe(savedBeforePreview);
+    expect(state.scene().segmentCount).toBe(1);
+
+    const committed = state.addConnectedLaneSegment(request);
+    expect(committed.ok, committed.error).toBe(true);
+    expect(committed.segmentId).toBeGreaterThan(0);
+    const after = state.scene();
+    expect(after.segmentCount).toBe(2);
+    expect(after.lanePaths.some((lane) =>
+      lane.segmentId === committed.segmentId && lane.laneId === 1010
+    )).toBe(true);
   });
 
   it("extends a degree-one corridor by adding a local segment", () => {

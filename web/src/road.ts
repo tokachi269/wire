@@ -1,6 +1,7 @@
 export type RoadToolMode = "line" | "bezier";
 export type RoadToolPhase = "start" | "end" | "bend";
-export type RoadOperation = "draw" | "edit" | "delete" | "line-marking" | "area-marking";
+export type RoadOperation = "draw" | "edit" | "delete" | "line-marking" | "area-marking" |
+  "add-lane" | "branch-lane" | "merge-lane";
 
 export interface RoadPoint {
   x: number;
@@ -46,6 +47,7 @@ export interface RoadSceneData {
   corridorCount: number;
   nodes: RoadNodeData[];
   centerlineSegments: RoadCenterlineSegmentData[];
+  lanePaths: RoadLanePathData[];
   corridors: RoadCorridorData[];
   sectionTemplates: RoadSectionTemplateData[];
   editableSegments: RoadEditableSegmentData[];
@@ -55,11 +57,24 @@ export interface RoadSceneData {
   junctions: RoadJunctionData[];
 }
 
+export interface RoadLanePathData {
+  segmentId: number;
+  laneId: number;
+  direction: 0 | 1;
+  startSectionTemplateId: number;
+  endSectionTemplateId: number;
+  startSegmentDistanceM: number;
+  endSegmentDistanceM: number;
+  nodeAId: number;
+  nodeBId: number;
+  points: number[];
+}
+
 export interface RoadCorridorData {
   id: number;
   sectionTemplateId: number;
   lengthM: number;
-  segments: Array<{ segmentId: number; reversed: boolean }>;
+  segments: Array<{ segmentId: number; reversed: boolean; lengthM: number }>;
 }
 
 export interface RoadJunctionMarkingBoundaryData {
@@ -138,6 +153,8 @@ export interface RoadSectionTemplateData {
   laneCount: number;
   hasCenterLine: boolean;
   hasOuterLines: boolean;
+  lanes: Array<{ id: number; direction: 0 | 1 }>;
+  boundaries: Array<{ id: number; role: number; canAnchorTransition: boolean }>;
 }
 
 export interface RoadEditableSegmentData {
@@ -154,6 +171,9 @@ export interface RoadSnapInfo {
   segmentId: number;
   segmentDistanceM: number;
   extensionCorridorId?: number;
+  laneId?: number;
+  laneDirection?: 0 | 1;
+  endpointRole?: 0 | 1;
 }
 
 export interface RoadToolState {
@@ -179,6 +199,24 @@ export interface RoadToolState {
   markingDraftSegmentId: number;
   markingDraftSegmentDistanceM: number;
   hoveredDeleteSegmentId: number;
+  hoveredLaneSegmentId: number;
+  hoveredLaneId: number;
+  selectedLaneSegmentId: number;
+  selectedLaneId: number;
+  selectedLaneEndpointRole: 0 | 1;
+  selectedLaneNodeId: number;
+  selectedLaneDirection: 0 | 1;
+  laneEditStage: "select" | "target";
+  laneSide: "left" | "right";
+  laneWidthM: number;
+  laneStartCorridorDistanceM: number;
+  laneFullWidthCorridorDistanceM: number;
+  laneCorridorId: number;
+  laneAnchorBoundaryId: number;
+  laneTargetTemplateId: number;
+  laneTargetLaneId: number;
+  laneSourceBoundaryId: number;
+  laneTargetBoundaryId: number;
   selectedEditSegmentId: number;
   selectedEditNodeAId: number;
   selectedEditNodeBId: number;
@@ -215,6 +253,24 @@ export function createRoadToolState(): RoadToolState {
     markingDraftSegmentId: 0,
     markingDraftSegmentDistanceM: 0,
     hoveredDeleteSegmentId: 0,
+    hoveredLaneSegmentId: 0,
+    hoveredLaneId: 0,
+    selectedLaneSegmentId: 0,
+    selectedLaneId: 0,
+    selectedLaneEndpointRole: 0,
+    selectedLaneNodeId: 0,
+    selectedLaneDirection: 0,
+    laneEditStage: "select",
+    laneSide: "right",
+    laneWidthM: 3,
+    laneStartCorridorDistanceM: 0,
+    laneFullWidthCorridorDistanceM: 20,
+    laneCorridorId: 0,
+    laneAnchorBoundaryId: 0,
+    laneTargetTemplateId: 1,
+    laneTargetLaneId: 0,
+    laneSourceBoundaryId: 0,
+    laneTargetBoundaryId: 0,
     selectedEditSegmentId: 0,
     selectedEditNodeAId: 0,
     selectedEditNodeBId: 0,
@@ -313,6 +369,7 @@ export function emptyRoadScene(): RoadSceneData {
     corridorCount: 0,
     nodes: [],
     centerlineSegments: [],
+    lanePaths: [],
     corridors: [],
     sectionTemplates: [],
     editableSegments: [],

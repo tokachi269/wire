@@ -218,3 +218,5 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - `JunctionMovement`はdegree 3/4のjunctionでだけsupportedとする。同一source laneから複数target laneを明示できるが、source退出・target進入・同一nodeを満たさない接続はvalidation、junction以外へのmovement指定はunsupportedとする。
 - movement geometryはsource/target gate上のlane centerをG1 cubicで結ぶ。直進のminimum radiusは正の無限大を許可し、turnは有限かつ正のradiusを要求する。
 - Split/Mergeの接続白線は対応する`DerivedBoundaryPath`へ追従する。Splitではsource marking policy、Mergeではtarget marking policyを接続区間へ使い、線専用の自由Bezierやlane centerからの境界推測を行わない。
+- ViewerのAddLaneは対象corridorのsection templateからCoreが単一点と判定したanchor boundary候補だけを表示し、開始・完成位置をcorridor distanceでCoreへ渡す。BranchLane / MergeLaneはCore payloadのlane pathをhoverし、選択した`LaneEndpointKey`をpreviewと確定の両方へ同一値で渡す。
+- Viewerはlane/boundary接続先や接続geometryを推測しない。previewはtrial state上の`AddLaneTransition` / `AddConnectedLaneSegment`であり、失敗時を含め現在のauthoritative stateを変更しない。

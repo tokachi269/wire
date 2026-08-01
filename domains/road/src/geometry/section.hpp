@@ -16,4 +16,13 @@ namespace city::road::internal {
                                                    double segment_distance_m,
                                                    double total_m);
 
+struct LaneSectionPosition {
+  double lateral_m = 0.0;
+  double height_m = 0.0;
+};
+
+[[nodiscard]] Result<LaneSectionPosition>
+lane_position(const CrossSectionTemplate &section, const LaneBand &lane,
+              const SectionEvaluation &evaluation);
+
 } // namespace city::road::internal

@@ -29,6 +29,14 @@ Result<DerivedRoad> generate_road(const SavedRoadGraph &graph) {
     return Result<DerivedRoad>::Fail(sections.error_kind, sections.error);
   }
 
+  Result<std::vector<DerivedSegmentLanePath>> segment_lane_paths =
+      derive_segment_lane_paths(graph, segments.value);
+  if (!segment_lane_paths.ok) {
+    return Result<DerivedRoad>::Fail(segment_lane_paths.error_kind,
+                                     segment_lane_paths.error);
+  }
+  derived.segment_lane_paths = std::move(segment_lane_paths.value);
+
   const Result<bool> geometry =
       resolve_connection_geometry(connections.value, segments.value);
   if (!geometry.ok) {

@@ -2,6 +2,9 @@
   import { onMount } from "svelte";
   import {
     Cable,
+    GitBranch,
+    ListPlus,
+    Merge,
     Minus,
     PenLine,
     Pencil,
@@ -304,6 +307,18 @@
             aria-label="Add area marking" title="Add area marking"
             onclick={() => actions.setRoadOperation("area-marking")}
           ><SquareDashed size={19} aria-hidden="true" /></button>
+          <button class:active={snapshot.road.operation === "add-lane"} type="button"
+            aria-label="Add lane" title="Add lane"
+            onclick={() => actions.setRoadOperation("add-lane")}
+          ><ListPlus size={19} aria-hidden="true" /></button>
+          <button class:active={snapshot.road.operation === "branch-lane"} type="button"
+            aria-label="Branch lane" title="Branch lane"
+            onclick={() => actions.setRoadOperation("branch-lane")}
+          ><GitBranch size={19} aria-hidden="true" /></button>
+          <button class:active={snapshot.road.operation === "merge-lane"} type="button"
+            aria-label="Merge lane" title="Merge lane"
+            onclick={() => actions.setRoadOperation("merge-lane")}
+          ><Merge size={19} aria-hidden="true" /></button>
         </div>
       {/if}
       {#if snapshot.activeTool === "road" && snapshot.road.operation === "draw"}

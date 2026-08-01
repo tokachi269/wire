@@ -341,4 +341,38 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
       build_surface_styles(section.value)});
 }
 
+Result<LaneSectionPosition>
+lane_position(const CrossSectionTemplate &section, const LaneBand &lane,
+              const SectionEvaluation &evaluation) {
+  const auto strip = std::find_if(
+      section.strips.begin(), section.strips.end(),
+      [&lane](const SectionStrip &candidate) {
+        return candidate.id == lane.surface_strip_id;
+      });
+  if (strip == section.strips.end()) {
+    return Result<LaneSectionPosition>::Fail(
+        ErrorKind::kInternal, "lane allocation strip is missing");
+  }
+  const SectionBoundarySample *left = nullptr;
+  for (const SectionBoundarySample &boundary : evaluation.boundaries) {
+    if (boundary.right_strip_id != lane.surface_strip_id)
+      continue;
+    if (left == nullptr || boundary.lateral_m > left->lateral_m)
+      left = &boundary;
+  }
+  if (left == nullptr && strip == section.strips.begin() &&
+      !evaluation.boundaries.empty()) {
+    left = &evaluation.boundaries.front();
+  }
+  if (left == nullptr) {
+    return Result<LaneSectionPosition>::Fail(
+        ErrorKind::kInternal, "lane strip left boundary is missing");
+  }
+  const double offset =
+      (lane.lateral_start_m + lane.lateral_end_m) * 0.5;
+  return Result<LaneSectionPosition>::Ok(
+      LaneSectionPosition{left->lateral_m + offset,
+                          left->height_m + strip->cross_slope * offset});
+}
+
 } // namespace city::road::internal

@@ -128,6 +128,21 @@ export interface RoadSectionTemplatePayload {
   laneCount: number;
   hasCenterLine: boolean;
   hasOuterLines: boolean;
+  lanes: Array<{ id: number; direction: 0 | 1 }>;
+  boundaries: Array<{ id: number; role: number; canAnchorTransition: boolean }>;
+}
+
+export interface RoadLanePathPayload {
+  segmentId: number;
+  laneId: number;
+  direction: 0 | 1;
+  startSectionTemplateId: number;
+  endSectionTemplateId: number;
+  startSegmentDistanceM: number;
+  endSegmentDistanceM: number;
+  nodeAId: number;
+  nodeBId: number;
+  points: number[];
 }
 
 export interface RoadScenePayload {
@@ -140,11 +155,12 @@ export interface RoadScenePayload {
   corridorCount: number;
   nodes: RoadNodePayload[];
   centerlineSegments: RoadCenterlineSegmentPayload[];
+  lanePaths: RoadLanePathPayload[];
   corridors: Array<{
     id: number;
     sectionTemplateId: number;
     lengthM: number;
-    segments: Array<{ segmentId: number; reversed: boolean }>;
+    segments: Array<{ segmentId: number; reversed: boolean; lengthM: number }>;
   }>;
   sectionTemplates: RoadSectionTemplatePayload[];
   editableSegments: Array<{
@@ -239,6 +255,10 @@ export interface RoadSegmentResult extends OperationResult {
 export interface RoadStateHandle {
   addSegment(input: RoadSegmentInput): RoadSegmentResult;
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
+  addLaneTransition(input: RoadLaneTransitionInput): OperationResult & { laneId?: number };
+  previewLaneTransition(input: RoadLaneTransitionInput): OperationResult & { meshes: RoadMeshPayload[] };
+  addConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { segmentId?: number };
+  previewConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   scene(): RoadScenePayload;
   deleteSegment(segmentId: number): OperationResult;
   splitSegmentAtDistance(input: {
@@ -318,6 +338,36 @@ export interface RoadStateHandle {
   saveState(): string;
   loadState(text: string): OperationResult;
   delete(): void;
+}
+
+export interface RoadLaneEndpointInput {
+  segmentId: number;
+  laneId: number;
+  endpointRole: 0 | 1;
+}
+
+export interface RoadBoundaryEndpointInput {
+  segmentId: number;
+  boundaryId: number;
+  endpointRole: 0 | 1;
+}
+
+export interface RoadLaneTransitionInput {
+  corridorId: number;
+  direction: 0 | 1;
+  side: "left" | "right";
+  startCorridorDistanceM: number;
+  fullWidthCorridorDistanceM: number;
+  laneWidthM: number;
+  anchorBoundaryId: number;
+}
+
+export interface RoadConnectedLaneSegmentInput extends RoadSegmentInput {
+  sectionTemplateId: number;
+  laneConnections: Array<{ source: RoadLaneEndpointInput; targetLaneId: number; kind: number }>;
+  boundaryContinuations: Array<{ source: RoadBoundaryEndpointInput; targetBoundaryId: number; kind: number }>;
+  sourceLaneConnections: Array<{ sourceLaneId: number; target: RoadLaneEndpointInput; kind: number }>;
+  sourceBoundaryContinuations: Array<{ sourceBoundaryId: number; target: RoadBoundaryEndpointInput; kind: number }>;
 }
 
 export interface WireModule {

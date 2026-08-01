@@ -60,6 +60,7 @@ using city::wire::Vec3d;
     if (style.value == city::road::builtin_marking_styles::kCenterLine.value) return "road_marking_center";
     if (style.value == city::road::builtin_marking_styles::kStopLine.value) return "road_marking_stop";
     if (style.value == city::road::builtin_marking_styles::kCrosswalk.value) return "road_marking_crosswalk";
+    if (style.value == city::road::builtin_marking_styles::kWhiteDashed.value) return "road_marking_dashed";
   }
   throw std::runtime_error("unknown road render style id");
 }
@@ -88,6 +89,52 @@ using city::wire::Vec3d;
 [[nodiscard]] city::road::LaneSide road_lane_side_value(const val& input) {
   return input["side"].as<std::string>() == "right" ? city::road::LaneSide::kRight
                                                     : city::road::LaneSide::kLeft;
+}
+
+[[nodiscard]] city::road::RoadSide road_side_value(const val& input) {
+  return input["side"].as<std::string>() == "right"
+             ? city::road::RoadSide::kRight
+             : city::road::RoadSide::kLeft;
+}
+
+[[nodiscard]] city::road::EndpointRole road_endpoint_role(int value) {
+  return value == 1 ? city::road::EndpointRole::kEnd
+                    : city::road::EndpointRole::kStart;
+}
+
+[[nodiscard]] city::road::LaneTravelDirection road_lane_direction(int value) {
+  return value == 1 ? city::road::LaneTravelDirection::kAgainstSegment
+                    : city::road::LaneTravelDirection::kAlongSegment;
+}
+
+[[nodiscard]] city::road::LaneConnectionKind road_lane_connection_kind(int value) {
+  if (value == 1) return city::road::LaneConnectionKind::kTransition;
+  if (value == 2) return city::road::LaneConnectionKind::kMerge;
+  if (value == 3) return city::road::LaneConnectionKind::kSplit;
+  if (value == 4) return city::road::LaneConnectionKind::kJunctionMovement;
+  return city::road::LaneConnectionKind::kContinuation;
+}
+
+[[nodiscard]] city::road::BoundaryContinuationKind
+road_boundary_continuation_kind(int value) {
+  if (value == 1) return city::road::BoundaryContinuationKind::kMerge;
+  if (value == 2) return city::road::BoundaryContinuationKind::kSplit;
+  return city::road::BoundaryContinuationKind::kContinuation;
+}
+
+[[nodiscard]] city::road::LaneEndpointKey road_lane_endpoint_value(const val& input) {
+  return city::road::LaneEndpointKey{
+      input["segmentId"].as<city::road::RoadSegmentId>(),
+      input["laneId"].as<city::road::LaneId>(),
+      road_endpoint_role(input["endpointRole"].as<int>())};
+}
+
+[[nodiscard]] city::road::BoundaryEndpointKey
+road_boundary_endpoint_value(const val& input) {
+  return city::road::BoundaryEndpointKey{
+      input["segmentId"].as<city::road::RoadSegmentId>(),
+      input["boundaryId"].as<city::road::BoundaryId>(),
+      road_endpoint_role(input["endpointRole"].as<int>())};
 }
 
 [[nodiscard]] city::road::JunctionMarkingAction road_junction_marking_action(int value) {
@@ -132,6 +179,19 @@ using city::wire::Vec3d;
   result.set("vertices", vertices);
   result.set("indices", indices);
   return result;
+}
+
+[[nodiscard]] val road_preview_meshes(const city::road::RoadState& state) {
+  val meshes = val::array();
+  const auto append = [&meshes](const auto& source) {
+    for (const auto& mesh : source)
+      meshes.call<void>("push", road_mesh_value(mesh));
+  };
+  append(state.derived().segment_meshes);
+  append(state.derived().connection_meshes);
+  append(state.derived().junction_meshes);
+  append(state.derived().marking_meshes);
+  return meshes;
 }
 
 [[nodiscard]] city::road::BezierSpan road_span_value(const val& input) {
@@ -1284,6 +1344,45 @@ class RoadStateBinding {
 public:
   RoadStateBinding() : state_(std::make_unique<city::road::RoadState>()) {}
 
+  val add_lane_transition(const val& input) {
+    const auto result = state_->AddLaneTransition(
+        city::road::AddLaneTransitionRequest{
+            input["corridorId"].as<city::road::RoadCorridorId>(),
+            road_lane_direction(input["direction"].as<int>()),
+            road_side_value(input),
+            input["startCorridorDistanceM"].as<double>(),
+            input["fullWidthCorridorDistanceM"].as<double>(),
+            input["laneWidthM"].as<double>(),
+            input["anchorBoundaryId"].as<city::road::BoundaryId>()});
+    val output = road_result_value(result.ok, result.error, result.error_kind);
+    if (result.ok) output.set("laneId", static_cast<double>(result.value));
+    return output;
+  }
+
+  val preview_lane_transition(const val& input) const {
+    city::road::RoadState trial = *state_;
+    const auto result = trial.AddLaneTransition(
+        city::road::AddLaneTransitionRequest{
+            input["corridorId"].as<city::road::RoadCorridorId>(),
+            road_lane_direction(input["direction"].as<int>()),
+            road_side_value(input),
+            input["startCorridorDistanceM"].as<double>(),
+            input["fullWidthCorridorDistanceM"].as<double>(),
+            input["laneWidthM"].as<double>(),
+            input["anchorBoundaryId"].as<city::road::BoundaryId>()});
+    val output = road_result_value(result.ok, result.error, result.error_kind);
+    output.set("meshes", result.ok ? road_preview_meshes(trial) : val::array());
+    return output;
+  }
+
+  val add_connected_lane_segment(const val& input) {
+    return connected_lane_segment(input, false);
+  }
+
+  val preview_connected_lane_segment(const val& input) const {
+    return connected_lane_segment(input, true);
+  }
+
   val add_segment(const val& input) {
     const auto path = road_path_value(input);
     if (path.spans.empty()) {
@@ -1444,6 +1543,30 @@ public:
         centerline_segments.call<void>("push", item);
       }
     }
+    val lane_paths = val::array();
+    for (const auto& lane : derived.segment_lane_paths) {
+      val item = val::object();
+      item.set("segmentId", static_cast<double>(lane.segment_id));
+      item.set("laneId", static_cast<double>(lane.lane_id));
+      item.set("direction", lane.direction == city::road::LaneTravelDirection::kAgainstSegment ? 1 : 0);
+      item.set("startSectionTemplateId", static_cast<double>(lane.start_template_id));
+      item.set("endSectionTemplateId", static_cast<double>(lane.end_template_id));
+      item.set("startSegmentDistanceM", lane.start_segment_distance_m);
+      item.set("endSegmentDistanceM", lane.end_segment_distance_m);
+      const auto source_segment = std::find_if(
+          graph.segments.begin(), graph.segments.end(),
+          [&lane](const auto& segment) { return segment.id == lane.segment_id; });
+      item.set("nodeAId", static_cast<double>(source_segment == graph.segments.end() ? 0 : source_segment->node_a));
+      item.set("nodeBId", static_cast<double>(source_segment == graph.segments.end() ? 0 : source_segment->node_b));
+      val points = val::array();
+      for (const auto& point : lane.points) {
+        points.call<void>("push", point.x);
+        points.call<void>("push", point.y);
+        points.call<void>("push", point.z);
+      }
+      item.set("points", points);
+      lane_paths.call<void>("push", item);
+    }
     val section_templates = val::array();
     for (const auto& section : graph.section_templates) {
       val item = val::object();
@@ -1490,6 +1613,24 @@ public:
       item.set("laneWidthM", lane_count == 0 ? 0.0 : lane_width / lane_count);
       item.set("medianWidthM", median_width);
       item.set("laneCount", lane_count);
+      val lanes = val::array();
+      for (const auto& lane : section.lane_bands) {
+        val lane_item = val::object();
+        lane_item.set("id", static_cast<double>(lane.id));
+        lane_item.set("direction", lane.direction == city::road::LaneTravelDirection::kAgainstSegment ? 1 : 0);
+        lanes.call<void>("push", lane_item);
+      }
+      val boundaries = val::array();
+      for (const auto& boundary : section.boundaries) {
+        val boundary_item = val::object();
+        boundary_item.set("id", static_cast<double>(boundary.boundary_id));
+        boundary_item.set("role", static_cast<int>(boundary.role));
+        boundary_item.set("canAnchorTransition",
+                          city::road::IsSinglePositionBoundary(boundary));
+        boundaries.call<void>("push", boundary_item);
+      }
+      item.set("lanes", lanes);
+      item.set("boundaries", boundaries);
       item.set("hasCenterLine", std::any_of(section.boundaries.begin(), section.boundaries.end(), [](const auto& boundary) {
         return boundary.marking.enabled &&
                boundary.marking.role == city::road::MarkingRole::kCenterLine;
@@ -1633,9 +1774,10 @@ public:
         val ref_item = val::object();
         ref_item.set("segmentId", static_cast<double>(ref.segment_id));
         ref_item.set("reversed", ref.reversed);
-        segment_refs.call<void>("push", ref_item);
         const auto* segment =
             city::road::FindDerivedSegment(derived, ref.segment_id);
+        ref_item.set("lengthM", segment == nullptr ? 0.0 : segment->length_m);
+        segment_refs.call<void>("push", ref_item);
         if (segment != nullptr) length_m += segment->length_m;
       }
       item.set("lengthM", length_m);
@@ -1658,6 +1800,7 @@ public:
     result.set("corridorCount", graph.corridors.size());
     result.set("nodes", nodes);
     result.set("centerlineSegments", centerline_segments);
+    result.set("lanePaths", lane_paths);
     result.set("corridors", corridors);
     result.set("sectionTemplates", section_templates);
     result.set("editableSegments", editable_segments);
@@ -1666,6 +1809,62 @@ public:
     result.set("approaches", approaches);
     return result;
   }
+
+private:
+  val connected_lane_segment(const val& input, bool preview) const {
+    city::road::AddConnectedLaneSegmentRequest request{};
+    request.start_node = input["startNodeId"].as<city::road::RoadNodeId>();
+    request.alignment = road_path_value(input);
+    request.section_template =
+        input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
+    const val lane_targets = input["laneConnections"];
+    for (unsigned index = 0; index < lane_targets["length"].as<unsigned>(); ++index) {
+      const val item = lane_targets[index];
+      request.lane_connections.push_back(city::road::LaneTargetConnection{
+          road_lane_endpoint_value(item["source"]),
+          item["targetLaneId"].as<city::road::LaneId>(),
+          road_lane_connection_kind(item["kind"].as<int>())});
+    }
+    const val boundary_targets = input["boundaryContinuations"];
+    for (unsigned index = 0; index < boundary_targets["length"].as<unsigned>(); ++index) {
+      const val item = boundary_targets[index];
+      request.boundary_continuations.push_back(
+          city::road::BoundaryTargetContinuation{
+              road_boundary_endpoint_value(item["source"]),
+              item["targetBoundaryId"].as<city::road::BoundaryId>(),
+              road_boundary_continuation_kind(item["kind"].as<int>())});
+    }
+    const val lane_sources = input["sourceLaneConnections"];
+    for (unsigned index = 0; index < lane_sources["length"].as<unsigned>(); ++index) {
+      const val item = lane_sources[index];
+      request.source_lane_connections.push_back(city::road::LaneSourceConnection{
+          item["sourceLaneId"].as<city::road::LaneId>(),
+          road_lane_endpoint_value(item["target"]),
+          road_lane_connection_kind(item["kind"].as<int>())});
+    }
+    const val boundary_sources = input["sourceBoundaryContinuations"];
+    for (unsigned index = 0; index < boundary_sources["length"].as<unsigned>(); ++index) {
+      const val item = boundary_sources[index];
+      request.source_boundary_continuations.push_back(
+          city::road::BoundarySourceContinuation{
+              item["sourceBoundaryId"].as<city::road::BoundaryId>(),
+              road_boundary_endpoint_value(item["target"]),
+              road_boundary_continuation_kind(item["kind"].as<int>())});
+    }
+    if (preview) {
+      city::road::RoadState trial = *state_;
+      const auto result = trial.AddConnectedLaneSegment(std::move(request));
+      val output = road_result_value(result.ok, result.error, result.error_kind);
+      output.set("meshes", result.ok ? road_preview_meshes(trial) : val::array());
+      return output;
+    }
+    const auto result = state_->AddConnectedLaneSegment(std::move(request));
+    val output = road_result_value(result.ok, result.error, result.error_kind);
+    if (result.ok) output.set("segmentId", static_cast<double>(result.value));
+    return output;
+  }
+
+public:
 
   val delete_segment(std::uint64_t segment_id) {
     const auto result = state_->DeleteSegment(
@@ -2057,6 +2256,10 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .constructor<>()
       .function("addSegment", &RoadStateBinding::add_segment)
       .function("previewSegment", &RoadStateBinding::preview_segment)
+      .function("addLaneTransition", &RoadStateBinding::add_lane_transition)
+      .function("previewLaneTransition", &RoadStateBinding::preview_lane_transition)
+      .function("addConnectedLaneSegment", &RoadStateBinding::add_connected_lane_segment)
+      .function("previewConnectedLaneSegment", &RoadStateBinding::preview_connected_lane_segment)
       .function("scene", &RoadStateBinding::scene)
       .function("deleteSegment", &RoadStateBinding::delete_segment)
       .function("splitSegmentAtDistance",

@@ -153,6 +153,10 @@ export class ViewerActions {
     this.road.setSetting(key, value);
   }
 
+  setRoadLaneTargetTemplate(templateId: number): void {
+    this.road.setLaneTargetTemplate(templateId);
+  }
+
   updateSelectedRoadSectionTemplate(input: {
     sidewalkWidthM: number;
     laneWidthM: number;

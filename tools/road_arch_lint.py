@@ -333,6 +333,41 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "web/src/actions/road_actions.ts: standard road deletion must retain the hovered RoadSegment ID"
         )
+    for token in (
+        "roadPreviewLaneTransition",
+        "roadPreviewConnectedLaneSegment",
+        "selectedLaneSegmentId",
+        "selectedLaneEndpointRole",
+    ):
+        if token not in road_actions_text:
+            errors.append(
+                "web/src/actions/road_actions.ts: lane editing contract is missing: "
+                + repr(token)
+            )
+    for token in ("nearestLane", "closestLane", "inferLaneConnection"):
+        if token in road_actions_text:
+            errors.append(
+                "web/src/actions/road_actions.ts: adapter must not infer lane topology: "
+                + repr(token)
+            )
+    if "laneAnchorBoundaryId: snapshot.road.laneAnchorBoundaryId || section?.boundaries[0]" in road_actions_text:
+        errors.append(
+            "web/src/actions/road_actions.ts: Add lane must not infer its transition anchor from boundary order"
+        )
+    for token in (
+        'result.set("lanePaths", lane_paths)',
+        'builtin_marking_styles::kWhiteDashed.value',
+        'boundary_item.set("canAnchorTransition",',
+        '.function("addLaneTransition"',
+        '.function("previewLaneTransition"',
+        '.function("addConnectedLaneSegment"',
+        '.function("previewConnectedLaneSegment"',
+    ):
+        if token not in adapter_text:
+            errors.append(
+                "web/wasm/bindings.cpp: lane editing boundary is missing: "
+                + repr(token)
+            )
 
     add_segment_start = road_source.find(
         "Result<RoadSegmentId> RoadState::AddSegment("

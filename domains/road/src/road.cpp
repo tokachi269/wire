@@ -496,10 +496,8 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
           ErrorKind::kValidation,
           "section transition anchor boundary is missing");
     }
-    if (from_anchor->width_m > kEpsilon ||
-        std::abs(from_anchor->height_m) > kEpsilon ||
-        to_anchor->width_m > kEpsilon ||
-        std::abs(to_anchor->height_m) > kEpsilon) {
+    if (!IsSinglePositionBoundary(*from_anchor) ||
+        !IsSinglePositionBoundary(*to_anchor)) {
       return Result<bool>::Fail(
           ErrorKind::kUnsupported,
           "section transition anchor boundary must have one position");

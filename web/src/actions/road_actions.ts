@@ -43,6 +43,12 @@ export class RoadActions {
         draftSpans: [],
         markingDraftSegmentId: 0,
         hoveredDeleteSegmentId: 0,
+        hoveredLaneSegmentId: 0,
+        hoveredLaneId: 0,
+        selectedLaneSegmentId: 0,
+        selectedLaneId: 0,
+        selectedLaneNodeId: 0,
+        laneEditStage: "select",
         selectedEditSegmentId: 0,
         selectedEditNodeAId: 0,
         selectedEditNodeBId: 0,
@@ -114,6 +120,23 @@ export class RoadActions {
     }));
   }
 
+  setLaneTargetTemplate(templateId: number): void {
+    this.ctx.store.update((current) => {
+      const template = current.road.scene.sectionTemplates.find((item) => item.id === templateId);
+      return {
+        ...current,
+        road: {
+          ...current.road,
+          laneTargetTemplateId: templateId,
+          laneTargetLaneId: template?.lanes[0]?.id ?? 0,
+          laneTargetBoundaryId: template?.boundaries[0]?.id ?? 0,
+          previewIssue: "",
+          lastError: ""
+        }
+      };
+    });
+  }
+
   updateSelectedSectionTemplate(input: {
     sidewalkWidthM: number;
     laneWidthM: number;
@@ -142,7 +165,7 @@ export class RoadActions {
     const target = { x: point[0], y: point[1] };
     const current = this.ctx.readSnapshot().road;
     if (current.operation !== "draw") {
-      this.applyOperation(current, snap);
+      this.applyOperation(current, target, snap);
       return;
     }
     if (current.phase === "start") {
@@ -170,6 +193,28 @@ export class RoadActions {
 
   previewViewportPoint(point: WorldPoint, snap?: RoadSnapInfo): void {
     const current = this.ctx.readSnapshot().road;
+    if (["add-lane", "branch-lane", "merge-lane"].includes(current.operation)) {
+      const hoveredLaneSegmentId = snap?.laneId === undefined ? 0 : snap.segmentId;
+      const hoveredLaneId = snap?.laneId ?? 0;
+      let road = { ...current, hoveredLaneSegmentId, hoveredLaneId };
+      if (current.laneEditStage === "target") {
+        if (current.operation === "add-lane" && snap !== undefined) {
+          const distance = corridorDistanceForSnap(current, snap);
+          if (distance !== null && distance.corridorId === current.laneCorridorId) {
+            road = { ...road, laneFullWidthCorridorDistanceM: distance.distanceM };
+            this.applyPreview(road, this.ctx.bridge.roadPreviewLaneTransition(laneTransitionInput(road)));
+            return;
+          }
+        } else if (current.operation !== "add-lane") {
+          this.applyPreview(road, this.ctx.bridge.roadPreviewConnectedLaneSegment(
+            connectedLaneInput(road, { x: point[0], y: point[1] })
+          ));
+          return;
+        }
+      }
+      this.ctx.store.update((snapshot) => ({ ...snapshot, road }));
+      return;
+    }
     if (current.operation === "delete") {
       const hoveredDeleteSegmentId = snap?.segmentId ?? 0;
       if (hoveredDeleteSegmentId !== current.hoveredDeleteSegmentId) {
@@ -188,7 +233,11 @@ export class RoadActions {
     this.applyPreview(road, preview);
   }
 
-  private applyOperation(road: RoadToolState, snap?: RoadSnapInfo): void {
+  private applyOperation(road: RoadToolState, point: RoadPoint, snap?: RoadSnapInfo): void {
+    if (["add-lane", "branch-lane", "merge-lane"].includes(road.operation)) {
+      this.applyLaneOperation(road, point, snap);
+      return;
+    }
     if (snap === undefined || snap.segmentId === 0) {
       this.ctx.store.setError("Select a road segment");
       return;
@@ -262,6 +311,82 @@ export class RoadActions {
       return;
     }
     this.ctx.store.setError("Select and drag a road control point");
+  }
+
+  private applyLaneOperation(road: RoadToolState, point: RoadPoint, snap?: RoadSnapInfo): void {
+    if (road.operation === "add-lane") {
+      if (road.laneEditStage === "select") {
+        if (snap === undefined || snap.segmentId === 0) {
+          this.ctx.store.setError("Select the road where the lane begins");
+          return;
+        }
+        const distance = corridorDistanceForSnap(road, snap);
+        if (distance === null) {
+          this.ctx.store.setError("Selected road is not in a corridor");
+          return;
+        }
+        const corridor = road.scene.corridors.find((item) => item.id === distance.corridorId);
+        const section = road.scene.sectionTemplates.find((item) => item.id === corridor?.sectionTemplateId);
+        const anchorBoundary = section?.boundaries.find((boundary) => boundary.canAnchorTransition);
+        this.ctx.store.update((snapshot) => ({
+          ...snapshot,
+          road: {
+            ...snapshot.road,
+            laneEditStage: "target",
+            laneCorridorId: distance.corridorId,
+            laneStartCorridorDistanceM: distance.distanceM,
+            laneFullWidthCorridorDistanceM: distance.distanceM,
+            laneAnchorBoundaryId:
+              section?.boundaries.some((boundary) =>
+                boundary.id === snapshot.road.laneAnchorBoundaryId && boundary.canAnchorTransition)
+                ? snapshot.road.laneAnchorBoundaryId
+                : anchorBoundary?.id ?? 0,
+            previewIssue: "",
+            lastError: ""
+          }
+        }));
+        return;
+      }
+      this.finish(this.ctx.bridge.roadAddLaneTransition(laneTransitionInput(road)), "road add lane");
+      return;
+    }
+    if (road.laneEditStage === "select") {
+      if (snap?.laneId === undefined || snap.endpointRole === undefined || snap.nodeId === 0) {
+        this.ctx.store.setError("Select a lane endpoint");
+        return;
+      }
+      const path = road.scene.lanePaths.find((item) =>
+        item.segmentId === snap.segmentId && item.laneId === snap.laneId);
+      const sourceTemplateId = snap.endpointRole === 0
+        ? path?.startSectionTemplateId
+        : path?.endSectionTemplateId;
+      const sourceTemplate = road.scene.sectionTemplates.find((item) => item.id === sourceTemplateId);
+      const targetTemplate = road.scene.sectionTemplates.find((item) => item.id === road.laneTargetTemplateId) ??
+        road.scene.sectionTemplates[0];
+      this.ctx.store.update((snapshot) => ({
+        ...snapshot,
+        road: {
+          ...snapshot.road,
+          selectedLaneSegmentId: snap.segmentId,
+          selectedLaneId: snap.laneId ?? 0,
+          selectedLaneEndpointRole: snap.endpointRole ?? 0,
+          selectedLaneNodeId: snap.nodeId,
+          selectedLaneDirection: snap.laneDirection ?? 0,
+          laneEditStage: "target",
+          laneTargetTemplateId: targetTemplate?.id ?? snapshot.road.selectedSectionTemplateId,
+          laneTargetLaneId: snapshot.road.laneTargetLaneId || targetTemplate?.lanes[0]?.id || 0,
+          laneSourceBoundaryId: snapshot.road.laneSourceBoundaryId || sourceTemplate?.boundaries[0]?.id || 0,
+          laneTargetBoundaryId: snapshot.road.laneTargetBoundaryId || targetTemplate?.boundaries[0]?.id || 0,
+          previewIssue: "",
+          lastError: ""
+        }
+      }));
+      return;
+    }
+    this.finish(
+      this.ctx.bridge.roadAddConnectedLaneSegment(connectedLaneInput(road, point)),
+      road.operation === "branch-lane" ? "road branch lane" : "road merge lane"
+    );
   }
 
   undoOrCancel(): void {
@@ -433,6 +558,12 @@ export class RoadActions {
         markingDraftSegmentId: 0,
         activeEditPointIndex: -1,
         hoveredDeleteSegmentId: 0,
+        hoveredLaneSegmentId: 0,
+        hoveredLaneId: 0,
+        selectedLaneSegmentId: 0,
+        selectedLaneId: 0,
+        selectedLaneNodeId: 0,
+        laneEditStage: "select",
         scene,
         previewMeshes: [],
         previewIssue: "",
@@ -495,4 +626,92 @@ function editInput(road: RoadToolState) {
 
 function sameRoadPoint(a: RoadPoint, b: RoadPoint): boolean {
   return Math.hypot(a.x - b.x, a.y - b.y) <= 1e-6;
+}
+
+function laneTransitionInput(road: RoadToolState) {
+  return {
+    corridorId: road.laneCorridorId,
+    direction: road.selectedLaneDirection,
+    side: road.laneSide,
+    startCorridorDistanceM: road.laneStartCorridorDistanceM,
+    fullWidthCorridorDistanceM: road.laneFullWidthCorridorDistanceM,
+    laneWidthM: road.laneWidthM,
+    anchorBoundaryId: road.laneAnchorBoundaryId
+  };
+}
+
+function connectedLaneInput(road: RoadToolState, end: RoadPoint) {
+  const node = road.scene.nodes.find((item) => item.id === road.selectedLaneNodeId);
+  const start = node === undefined ? end : { x: node.x, y: node.y };
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const selectedEndpoint = {
+    segmentId: road.selectedLaneSegmentId,
+    laneId: road.selectedLaneId,
+    endpointRole: road.selectedLaneEndpointRole
+  };
+  const selectedBoundary = {
+    segmentId: road.selectedLaneSegmentId,
+    boundaryId: road.laneSourceBoundaryId,
+    endpointRole: road.selectedLaneEndpointRole
+  };
+  const branch = road.operation === "branch-lane";
+  return {
+    kind: "line" as const,
+    startX: start.x,
+    startY: start.y,
+    endX: end.x,
+    endY: end.y,
+    handleAX: start.x + dx / 3,
+    handleAY: start.y + dy / 3,
+    handleBX: start.x + dx * 2 / 3,
+    handleBY: start.y + dy * 2 / 3,
+    startNodeId: road.selectedLaneNodeId,
+    startSegmentId: 0,
+    startSegmentDistanceM: 0,
+    extensionCorridorId: 0,
+    connectToFirstNode: false,
+    sectionTemplateId: road.laneTargetTemplateId,
+    laneConnections: branch ? [{
+      source: selectedEndpoint,
+      targetLaneId: road.laneTargetLaneId,
+      kind: 3
+    }] : [],
+    boundaryContinuations: branch && road.laneSourceBoundaryId !== 0 && road.laneTargetBoundaryId !== 0 ? [{
+      source: selectedBoundary,
+      targetBoundaryId: road.laneTargetBoundaryId,
+      kind: 2
+    }] : [],
+    sourceLaneConnections: branch ? [] : [{
+      sourceLaneId: road.laneTargetLaneId,
+      target: selectedEndpoint,
+      kind: 2
+    }],
+    sourceBoundaryContinuations: !branch && road.laneSourceBoundaryId !== 0 && road.laneTargetBoundaryId !== 0 ? [{
+      sourceBoundaryId: road.laneTargetBoundaryId,
+      target: selectedBoundary,
+      kind: 1
+    }] : []
+  };
+}
+
+function corridorDistanceForSnap(
+  road: RoadToolState,
+  snap: RoadSnapInfo
+): { corridorId: number; distanceM: number } | null {
+  for (const corridor of road.scene.corridors) {
+    let offset = 0;
+    for (const segment of corridor.segments) {
+      if (segment.segmentId === snap.segmentId) {
+        return {
+          corridorId: corridor.id,
+          distanceM: offset + (segment.reversed
+            ? segment.lengthM - snap.segmentDistanceM
+            : snap.segmentDistanceM)
+        };
+      }
+      offset += segment.lengthM;
+    }
+  }
+  return null;
 }

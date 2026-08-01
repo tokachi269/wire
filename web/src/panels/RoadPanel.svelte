@@ -13,6 +13,28 @@
     snapshot.road.scene.sectionTemplates.find((template) => template.id === snapshot.road.selectedSectionTemplateId)
   );
   const selectedStrips = $derived(selectedTemplate?.strips ?? []);
+  const laneTargetTemplate = $derived(
+    snapshot.road.scene.sectionTemplates.find((template) => template.id === snapshot.road.laneTargetTemplateId)
+  );
+  const laneCorridor = $derived(
+    snapshot.road.scene.corridors.find((corridor) => corridor.id === snapshot.road.laneCorridorId)
+  );
+  const laneAnchorTemplate = $derived(
+    snapshot.road.scene.sectionTemplates.find((template) => template.id === laneCorridor?.sectionTemplateId)
+  );
+  const laneAnchorBoundaries = $derived(
+    laneAnchorTemplate?.boundaries.filter((boundary) => boundary.canAnchorTransition) ?? []
+  );
+  const selectedLanePath = $derived(
+    snapshot.road.scene.lanePaths.find((lane) =>
+      lane.segmentId === snapshot.road.selectedLaneSegmentId && lane.laneId === snapshot.road.selectedLaneId)
+  );
+  const selectedLaneTemplateId = $derived(snapshot.road.selectedLaneEndpointRole === 0
+    ? selectedLanePath?.startSectionTemplateId
+    : selectedLanePath?.endSectionTemplateId);
+  const selectedLaneTemplate = $derived(
+    snapshot.road.scene.sectionTemplates.find((template) => template.id === selectedLaneTemplateId)
+  );
 
   function updateTemplate(patch: Partial<{
     sidewalkWidthM: number;
@@ -71,6 +93,46 @@
       onchange={(event) => updateTemplate({ hasCenterLine: event.currentTarget.checked })} />Center / lane lines</label>
     <label class="check"><input type="checkbox" checked={selectedTemplate.hasOuterLines}
       onchange={(event) => updateTemplate({ hasOuterLines: event.currentTarget.checked })} />Outer lines</label>
+  {/if}
+
+  {#if snapshot.road.operation === "add-lane"}
+    <div class="draw-panel-head"><p class="panel-label">ADD LANE</p><strong class="point-count">{snapshot.road.laneEditStage}</strong></div>
+    <div class="road-grid">
+      <label><span>Direction</span><select value={snapshot.road.selectedLaneDirection}
+        onchange={(event) => actions.setRoadSetting("selectedLaneDirection", Number(event.currentTarget.value) as 0 | 1)}>
+        <option value={0}>Along</option><option value={1}>Against</option>
+      </select></label>
+      <label><span>Side</span><select value={snapshot.road.laneSide}
+        onchange={(event) => actions.setRoadSetting("laneSide", event.currentTarget.value as "left" | "right")}>
+        <option value="left">Left</option><option value="right">Right</option>
+      </select></label>
+      <label><span>Width</span><input type="number" min="2.5" step="0.1" value={snapshot.road.laneWidthM}
+        onchange={(event) => actions.setRoadSetting("laneWidthM", Number(event.currentTarget.value))} /></label>
+      <label><span>Anchor boundary</span><select value={snapshot.road.laneAnchorBoundaryId}
+        onchange={(event) => actions.setRoadSetting("laneAnchorBoundaryId", Number(event.currentTarget.value))}>
+        {#each laneAnchorBoundaries as boundary}<option value={boundary.id}>{boundary.id}</option>{/each}
+      </select></label>
+    </div>
+  {:else if snapshot.road.operation === "branch-lane" || snapshot.road.operation === "merge-lane"}
+    <div class="draw-panel-head"><p class="panel-label">{snapshot.road.operation === "branch-lane" ? "BRANCH LANE" : "MERGE LANE"}</p><strong class="point-count">{snapshot.road.laneEditStage}</strong></div>
+    <label><span>New road section</span><select value={snapshot.road.laneTargetTemplateId}
+      onchange={(event) => actions.setRoadLaneTargetTemplate(Number(event.currentTarget.value))}>
+      {#each snapshot.road.scene.sectionTemplates as template}<option value={template.id}>{template.name}</option>{/each}
+    </select></label>
+    <div class="road-grid">
+      <label><span>New lane</span><select value={snapshot.road.laneTargetLaneId}
+        onchange={(event) => actions.setRoadSetting("laneTargetLaneId", Number(event.currentTarget.value))}>
+        {#each laneTargetTemplate?.lanes ?? [] as lane}<option value={lane.id}>{lane.id} / {lane.direction === 0 ? "along" : "against"}</option>{/each}
+      </select></label>
+      <label><span>New boundary</span><select value={snapshot.road.laneTargetBoundaryId}
+        onchange={(event) => actions.setRoadSetting("laneTargetBoundaryId", Number(event.currentTarget.value))}>
+        {#each laneTargetTemplate?.boundaries ?? [] as boundary}<option value={boundary.id}>{boundary.id}</option>{/each}
+      </select></label>
+      <label><span>Existing boundary</span><select value={snapshot.road.laneSourceBoundaryId}
+        onchange={(event) => actions.setRoadSetting("laneSourceBoundaryId", Number(event.currentTarget.value))}>
+        {#each selectedLaneTemplate?.boundaries ?? [] as boundary}<option value={boundary.id}>{boundary.id}</option>{/each}
+      </select></label>
+    </div>
   {/if}
 
   <div class="draw-panel-head"><p class="panel-label">MARKING</p></div>

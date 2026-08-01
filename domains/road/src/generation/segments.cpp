@@ -224,4 +224,61 @@ Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
   return Result<bool>::Ok(true);
 }
 
+Result<std::vector<DerivedSegmentLanePath>>
+derive_segment_lane_paths(const SavedRoadGraph &graph,
+                          const std::vector<DerivedSegment> &segments) {
+  using Out = Result<std::vector<DerivedSegmentLanePath>>;
+  std::vector<DerivedSegmentLanePath> paths{};
+  for (const DerivedSegment &segment : segments) {
+    const RoadSegment *source = internal::find_segment(graph, segment.id);
+    if (source == nullptr) {
+      return Out::Fail(ErrorKind::kInternal,
+                       "lane inspection source segment is missing");
+    }
+    for (const SectionEvaluation &evaluation : segment.sections) {
+      Result<CrossSectionTemplate> section = internal::template_at(
+          graph, *source, evaluation.segment_distance_m, segment.length_m);
+      if (!section.ok) {
+        return Out::Fail(section.error_kind, section.error);
+      }
+      const Result<Vec2d> center =
+          EvaluatePath(segment.alignment, evaluation.segment_distance_m);
+      const Result<Vec2d> tangent =
+          internal::tangent_at(segment.alignment,
+                               evaluation.segment_distance_m);
+      if (!center.ok || !tangent.ok) {
+        return Out::Fail(ErrorKind::kInternal,
+                         "lane inspection alignment sample is missing");
+      }
+      const Vec2d lateral{-tangent.value.y, tangent.value.x};
+      for (const LaneBand &lane : section.value.lane_bands) {
+        const Result<internal::LaneSectionPosition> position =
+            internal::lane_position(section.value, lane, evaluation);
+        if (!position.ok) {
+          return Out::Fail(position.error_kind, position.error);
+        }
+        auto found = std::find_if(
+            paths.begin(), paths.end(), [&segment, &lane](const auto &path) {
+              return path.segment_id == segment.id && path.lane_id == lane.id;
+            });
+        if (found == paths.end()) {
+          paths.push_back(DerivedSegmentLanePath{
+              segment.id, lane.id, lane.direction,
+              section.value.id, section.value.id,
+              evaluation.segment_distance_m, evaluation.segment_distance_m,
+              {}});
+          found = paths.end() - 1;
+        }
+        found->end_segment_distance_m = evaluation.segment_distance_m;
+        found->end_template_id = section.value.id;
+        found->points.push_back(Vec3d{
+            center.value.x + lateral.x * position.value.lateral_m,
+            center.value.y + lateral.y * position.value.lateral_m,
+            position.value.height_m});
+      }
+    }
+  }
+  return Out::Ok(std::move(paths));
+}
+
 } // namespace city::road::generation

@@ -224,6 +224,12 @@ CanonicalAlignment、connection、gate、section evaluation、junction geometry�
 resolved connection、derived marking、mesh、maskも保存しない。ApproachGeometryOverrideはmanual fieldがある場合だけ保存する。
 `LaneConnection`と`BoundaryContinuation`はID順に保存し、lane/boundary path geometryは保存しない。
 
+Web/WASM境界はCoreが返す軽量なlane world pathをhoverと選択表示にだけ使う。編集requestは選択済みの
+`LaneEndpointKey` / `BoundaryEndpointKey`と、AddLaneのcorridor distanceおよびanchor boundary IDをそのまま渡す。
+Webはlane接続curve、境界対応、接続相手を再計算せず、previewはtrial stateで同じCore operationを実行する。
+preview結果は確定結果と同じresolved mesh経路を使い、preview前後でauthoritative stateを変更しない。
+AddLaneのanchor候補可否はCoreの単一点boundary判定をWASMが公開する。Webはrole、配列順、数値IDから候補を推測しない。
+
 形式は一行一fieldのnamed indexed `key=value`で、カンマ位置に意味を持たせない。save field順は固定し、
 top-level entityはID順にcanonical serializeする。順序に意味がある`SegmentShape.internal_knots`やPath spanは保存順を維持する。
 doubleはload後に同じbinary doubleへ戻る表現で保存する。

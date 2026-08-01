@@ -290,6 +290,14 @@ struct BoundaryProfile {
   double height_m = 0.0;
   AutoMarkingPolicy marking{};
 };
+[[nodiscard]] inline bool IsSinglePositionBoundary(
+    const BoundaryProfile& boundary) {
+  constexpr double kPositionEpsilonM = 1e-9;
+  return boundary.width_m >= -kPositionEpsilonM &&
+         boundary.width_m <= kPositionEpsilonM &&
+         boundary.height_m >= -kPositionEpsilonM &&
+         boundary.height_m <= kPositionEpsilonM;
+}
 struct CrossSectionTemplate {
   CrossSectionTemplateId id = 0;
   std::vector<SectionStrip> strips{};

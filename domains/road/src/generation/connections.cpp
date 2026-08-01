@@ -2,6 +2,7 @@
 
 #include "../geometry/geometry.hpp"
 #include "../geometry/junction.hpp"
+#include "../geometry/section.hpp"
 #include "../lookup.hpp"
 
 #include <algorithm>
@@ -128,28 +129,15 @@ const ResolvedConnection *connection_of(
   return found == connections.end() ? nullptr : &*found;
 }
 
-Result<double> strip_left_lateral(const SectionEvaluation &section,
-                                  SectionStripId strip_id) {
-  double value = -std::numeric_limits<double>::infinity();
-  for (const SectionBoundarySample &boundary : section.boundaries) {
-    if (boundary.right_strip_id == strip_id)
-      value = std::max(value, boundary.lateral_m);
-  }
-  if (!std::isfinite(value)) {
-    return Result<double>::Fail(ErrorKind::kInternal,
-                                "lane strip left boundary is missing");
-  }
-  return Result<double>::Ok(value);
-}
-
 Result<double> lane_lateral(const LaneBand &lane,
                             const SectionEvaluation &section) {
-  const Result<double> left =
-      strip_left_lateral(section, lane.surface_strip_id);
-  if (!left.ok)
-    return left;
-  return Result<double>::Ok(
-      left.value + (lane.lateral_start_m + lane.lateral_end_m) * 0.5);
+  CrossSectionTemplate resolved{};
+  resolved.strips.push_back(SectionStrip{lane.surface_strip_id});
+  const Result<internal::LaneSectionPosition> position =
+      internal::lane_position(resolved, lane, section);
+  return position.ok
+             ? Result<double>::Ok(position.value.lateral_m)
+             : Result<double>::Fail(position.error_kind, position.error);
 }
 
 Result<double> boundary_lateral(BoundaryId id,

@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { ViewerActions } from "../src/actions/viewer";
 import type { SceneData, WireBridge } from "../src/bridge/wire";
 import { CommitFailureCategory } from "../src/model";
-import type { RoadSegmentInput } from "../src/road";
+import {
+  createRoadToolState,
+  withRoadCurveEnd,
+  type RoadSegmentInput
+} from "../src/road";
 import type {
   BundleTemplateInfo,
   BundlePlacement,
@@ -601,6 +605,26 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
 }
 
 describe("viewport tool routing", () => {
+  it("derives curved road handles independently of pointer motion history", () => {
+    const base = {
+      ...createRoadToolState(),
+      mode: "bezier" as const,
+      phase: "end" as const,
+      draftStart: { x: 0, y: 0 },
+      curveContinuationTangent: { x: 1, y: 0 }
+    };
+    const fromAbove = withRoadCurveEnd(
+      { ...base, draftEnd: { x: 7, y: 12 } },
+      { x: 20, y: 20 }
+    );
+    const fromBelow = withRoadCurveEnd(
+      { ...base, draftEnd: { x: 12, y: 3 } },
+      { x: 20, y: 20 }
+    );
+    expect(fromAbove.handleA).toEqual(fromBelow.handleA);
+    expect(fromAbove.handleB).toEqual(fromBelow.handleB);
+  });
+
   it("uses a lightweight wire guide and commits each interval without preview validation", () => {
     const previewWireInterval = vi.fn(() => ({
       ok: false,

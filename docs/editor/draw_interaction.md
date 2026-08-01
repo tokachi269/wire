@@ -64,6 +64,12 @@ an older candidate must not remain visible as though it were current.
 Road guide shows the input path and width envelope needed to understand the
 candidate. Wire guide shows the input route and snap marker. Domain geometry,
 support placement, junction generation, and model assembly are commit work.
+Add Lane pointer movement updates only the selected corridor distance guide;
+the section plan and transition validation run on Click.
+
+Bezier road handles depend on the start anchor, inherited start tangent, end
+point, and chord length. The previous pointer frame is not an input, so two
+pointer paths ending at the same point produce the same guide and commit shape.
 
 ## Atomicity
 

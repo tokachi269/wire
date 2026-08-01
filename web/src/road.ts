@@ -340,12 +340,7 @@ export function withRoadCurveEnd(state: RoadToolState, end: RoadPoint): RoadTool
         y: state.curveContinuationTangent.y / continuationLength
       }
     : fallback;
-  const pointerDelta = { x: end.x - state.draftEnd.x, y: end.y - state.draftEnd.y };
-  const pointerLength = Math.hypot(pointerDelta.x, pointerDelta.y);
-  const endTangent = pointerLength > 1e-9 &&
-      Math.hypot(state.draftEnd.x - state.draftStart.x, state.draftEnd.y - state.draftStart.y) > 1e-9
-    ? { x: pointerDelta.x / pointerLength, y: pointerDelta.y / pointerLength }
-    : fallback;
+  const endTangent = fallback;
   const handleLength = chordLength / 3;
   return {
     ...state,

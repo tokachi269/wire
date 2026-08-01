@@ -365,6 +365,11 @@ def check_road_architecture(root: Path) -> list[str]:
                 "web/src/App.svelte: incomplete lane topology tool remains in the standard toolbar: "
                 + repr(token)
             )
+    road_tool_text = source_text(root / "web/src/road.ts")
+    if "pointerDelta" in road_tool_text or "previousPointer" in road_tool_text:
+        errors.append(
+            "web/src/road.ts: curve tangent must not depend on pointer motion history"
+        )
     if "anchor->width_m > kEpsilon" in road_source:
         errors.append(
             "domains/road/src/road.cpp: lane transition must reuse the single-position boundary decision"

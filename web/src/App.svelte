@@ -136,6 +136,7 @@
       }
     };
     const handleKey = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
       if (event.key === "Escape") {
         event.preventDefault();
         const active = event.target;
@@ -160,11 +161,7 @@
             active.checked = editStart.checked;
           }
         } else if (!editing) {
-          if (snapshot.activeTool === "wire" && snapshot.pathPoints.length > 0) {
-            actions.clearPath();
-          } else if (snapshot.activeTool === "road") {
-            actions.undoActiveTool();
-          }
+          actions.cancelDrawSession();
         }
         actions.cancel(editing);
         if (editing) {
@@ -178,14 +175,14 @@
         target instanceof HTMLSelectElement ||
         target instanceof HTMLTextAreaElement ||
         target?.isContentEditable;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !editing) {
+        event.preventDefault();
+        actions.undoActiveTool();
+        return;
+      }
       if (event.key === "Enter" && !editing) {
-        if (snapshot.activeTool === "wire") {
-          event.preventDefault();
-          actions.generatePath();
-        } else if (snapshot.activeTool === "road") {
-          event.preventDefault();
-          actions.commitRoadPath();
-        }
+        event.preventDefault();
+        actions.finishDrawSession();
       }
     };
     window.addEventListener("focusin", handleFocusIn);

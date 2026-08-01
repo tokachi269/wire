@@ -389,58 +389,30 @@ export class RoadActions {
     );
   }
 
-  undoOrCancel(): void {
+  cancelSession(): void {
     const current = this.ctx.readSnapshot().road;
-    if (current.draftSpans.length !== 0) {
-      const draftSpans = current.draftSpans.slice(0, -1);
-      if (draftSpans.length === 0) {
-        this.ctx.store.update((snapshot) => ({
-          ...snapshot,
-          road: {
-            ...snapshot.road,
-            phase: "start",
-            draftSpans: [],
-            curveContinuationTangent: null,
-            previewMeshes: [],
-            previewIssue: "",
-            lastError: ""
-          },
-          error: ""
-        }));
-        return;
-      }
-      const last = draftSpans[draftSpans.length - 1];
-      const next = withRoadEnd({
-        ...current,
-        draftSpans,
-        draftStart: { x: last.endX, y: last.endY },
-        draftBend: { x: last.endX, y: last.endY },
-        phase: current.mode === "line" ? "end" : "bend",
-        curveContinuationTangent: last.kind === "bezier"
-          ? { x: last.endX - last.handleBX, y: last.endY - last.handleBY }
-          : null
-      }, { x: last.endX, y: last.endY });
-      const preview = this.ctx.bridge.roadPreviewSegment(
-        roadSegmentInput(next, false)
-      );
-      this.applyPreview(next, preview);
-      return;
-    }
-    if (current.phase !== "start") {
-      this.ctx.store.update((snapshot) => ({
-        ...snapshot,
-        road: {
-          ...snapshot.road,
-          phase: "start",
-          curveContinuationTangent: null,
-          previewMeshes: [],
-          previewIssue: "",
-          lastError: ""
-        },
-        error: ""
-      }));
-      return;
-    }
+    if (current.phase === "start" && current.draftSpans.length === 0 &&
+        current.previewMeshes.length === 0 && current.previewIssue === "") return;
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      road: {
+        ...snapshot.road,
+        phase: "start",
+        draftSpans: [],
+        draftStartNodeId: 0,
+        draftStartSegmentId: 0,
+        draftStartSegmentDistanceM: 0,
+        draftExtensionCorridorId: 0,
+        curveContinuationTangent: null,
+        previewMeshes: [],
+        previewIssue: "",
+        lastError: ""
+      },
+      error: ""
+    }));
+  }
+
+  undoCommitted(): void {
     const result = this.ctx.bridge.roadUndoSegment();
     this.finish(result, "road undo");
   }

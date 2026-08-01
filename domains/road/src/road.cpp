@@ -2370,6 +2370,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   struct IndexedLane {
     const LaneBand* lane = nullptr;
     std::size_t strip_index = 0;
+    double center_in_strip_m = 0.0;
   };
   std::vector<IndexedLane> candidates{};
   for (const LaneBand& lane : source->lane_bands) {
@@ -2386,7 +2387,8 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     }
     candidates.push_back(IndexedLane{
         &lane, static_cast<std::size_t>(
-                   std::distance(source->strips.begin(), strip))});
+                   std::distance(source->strips.begin(), strip)),
+        (lane.lateral_start_m + lane.lateral_end_m) * 0.5});
   }
   if (candidates.empty()) {
     return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
@@ -2394,36 +2396,39 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   }
   const auto extremes = std::minmax_element(
       candidates.begin(), candidates.end(),
-      [](const IndexedLane& a, const IndexedLane& b) {
-        return a.strip_index < b.strip_index;
-      });
+       [](const IndexedLane& a, const IndexedLane& b) {
+         return std::tie(a.strip_index, a.center_in_strip_m) <
+                std::tie(b.strip_index, b.center_in_strip_m);
+       });
   const IndexedLane selected = local_side == RoadSide::kRight
-                                   ? *extremes.second
-                                   : *extremes.first;
+                                    ? *extremes.second
+                                    : *extremes.first;
   const std::size_t lane_strip_index = selected.strip_index;
-  if (selected.lane->lateral_start_m != 0.0 ||
-      selected.lane->lateral_end_m !=
-          source->strips[lane_strip_index].width_m) {
+  std::optional<std::size_t> anchor_index{};
+  if (local_side == RoadSide::kRight) {
+    for (std::size_t index = lane_strip_index; index > 0; --index) {
+      const std::size_t candidate = index - 1;
+      if (IsSinglePositionBoundary(source->boundaries[candidate])) {
+        anchor_index = candidate;
+        break;
+      }
+    }
+  } else {
+    for (std::size_t candidate = lane_strip_index;
+         candidate < source->boundaries.size(); ++candidate) {
+      if (IsSinglePositionBoundary(source->boundaries[candidate])) {
+        anchor_index = candidate;
+        break;
+      }
+    }
+  }
+  if (!anchor_index.has_value()) {
     return Result<LaneId>::Fail(
         CommitFailureCategory::kNotImplemented,
-        "lane transition requires one full-width lane beside the anchor");
-  }
-  if (local_side == RoadSide::kRight && lane_strip_index == 0) {
-    return Result<LaneId>::Fail(
-        CommitFailureCategory::kInternalError,
-        "selected lane has no fixed inner boundary");
-  }
-  const std::size_t anchor_index = local_side == RoadSide::kRight
-                                       ? lane_strip_index - 1
-                                       : lane_strip_index;
-  if (anchor_index >= source->boundaries.size() ||
-      !IsSinglePositionBoundary(source->boundaries[anchor_index])) {
-    return Result<LaneId>::Fail(
-        CommitFailureCategory::kNotImplemented,
-        "the fixed edge of the selected lane is not a single boundary");
+        "selected side has no stable boundary for a lane taper");
   }
   const BoundaryId anchor_boundary_id =
-      source->boundaries[anchor_index].boundary_id;
+      source->boundaries[*anchor_index].boundary_id;
 
   CrossSectionTemplate target = *source;
   std::uint64_t next_local_id = 1;

@@ -118,6 +118,31 @@ city::road::CrossSectionTemplate OneWayLaneTemplate(
   return section;
 }
 
+city::road::CrossSectionTemplate SharedCarriagewayLaneTemplate(
+    city::road::CrossSectionTemplateId id) {
+  city::road::CrossSectionTemplate section{};
+  section.id = id;
+  section.strips = {
+      {10, StripFunction::kShoulder, 0.75, 0.0,
+       builtin_surface_styles::kAsphalt},
+      {20, StripFunction::kCarriageway, 6.0, 0.0,
+       builtin_surface_styles::kAsphalt},
+      {30, StripFunction::kShoulder, 0.75, 0.0,
+       builtin_surface_styles::kAsphalt},
+  };
+  section.lane_bands = {
+      {1000, 20, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAlongSegment},
+      {1010, 20, 3.0, 6.0,
+       city::road::LaneTravelDirection::kAlongSegment},
+  };
+  section.boundaries = {
+      {100, BoundaryRole::kOuterEdge, 0.0, 0.0, {}},
+      {900, BoundaryRole::kOuterEdge, 0.0, 0.0, {}},
+  };
+  return section;
+}
+
 city::road::CrossSectionTemplate OpposingFourLaneTemplate(
     city::road::CrossSectionTemplateId id) {
   const AutoMarkingPolicy edge{
@@ -1576,6 +1601,33 @@ bool add_lane_allows_a_later_addition_after_cross_segment_taper(
   return true;
 }
 
+bool add_lane_accepts_multiple_lanes_on_one_carriageway_strip(
+    std::string& failure) {
+  RoadState state{};
+  const auto section = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{
+          SharedCarriagewayLaneTemplate(0)});
+  ROAD_TEST_EXPECT(section.ok, section.error);
+  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), section.value});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const auto* corridor = FindCorridorForSegment(state.graph(), segment.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "ADD7 corridor is missing");
+
+  city::road::AddLaneRequest request{};
+  request.corridor_id = corridor->id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
+  request.lane_width_m = 3.0;
+  const auto added = state.AddLane(request);
+  ROAD_TEST_EXPECT(
+      added.ok,
+      "ADD7 shared carriageway lane addition was rejected: " + added.error);
+  return true;
+}
+
 bool selected_outer_lane_branches_to_one_lane_road(
     std::string& failure) {
   RoadState state{};
@@ -2800,6 +2852,8 @@ int main() {
        add_lane_allows_a_later_non_overlapping_addition},
       {"add_lane_allows_a_later_addition_after_cross_segment_taper",
        add_lane_allows_a_later_addition_after_cross_segment_taper},
+      {"add_lane_accepts_multiple_lanes_on_one_carriageway_strip",
+       add_lane_accepts_multiple_lanes_on_one_carriageway_strip},
       {"selected_outer_lane_branches_to_one_lane_road",
        selected_outer_lane_branches_to_one_lane_road},
       {"one_lane_road_merges_into_outer_mainline_lane",

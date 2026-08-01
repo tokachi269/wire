@@ -559,12 +559,16 @@ resolve_connections(const SavedRoadGraph &graph,
       minimum_setback = std::min(minimum_setback, setback);
     }
     if (connection.approaches.size() > 1) {
-      const CrossSectionTemplateId expected =
-          connection.approaches.front().endpoint_template_id;
-      const bool mixed = std::any_of(
+      const CrossSectionTemplate *expected = find_template(
+          graph, connection.approaches.front().endpoint_template_id);
+      const bool mixed = expected == nullptr || std::any_of(
           connection.approaches.begin() + 1, connection.approaches.end(),
-          [expected](const ResolvedApproach &approach) {
-            return approach.endpoint_template_id != expected;
+          [&graph, expected](const ResolvedApproach &approach) {
+            const CrossSectionTemplate *candidate =
+                find_template(graph, approach.endpoint_template_id);
+            return candidate == nullptr ||
+                   !internal::equivalent_section_definition(*expected,
+                                                            *candidate);
           });
       const bool has_explicit_lane_topology = std::any_of(
           graph.lane_connections.begin(), graph.lane_connections.end(),
@@ -576,9 +580,8 @@ resolve_connections(const SavedRoadGraph &graph,
           });
       if (mixed && !has_explicit_lane_topology) {
         return Out::Fail(CommitFailureCategory::kNotImplemented,
-                         "road connected approaches require identical "
-                         "endpoint section template IDs unless explicit lane "
-                         "topology resolves a junction");
+                         "road connected endpoint sections need explicit lane "
+                         "topology because their lane layouts differ");
       }
     }
     if (!std::isfinite(minimum_setback))

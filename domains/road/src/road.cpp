@@ -2,6 +2,7 @@
 
 #include "generation/generation.hpp"
 #include "geometry/geometry.hpp"
+#include "geometry/section.hpp"
 #include "lookup.hpp"
 #include "operations/operation_plan.hpp"
 #include "persistence/road_archive.hpp"
@@ -1063,11 +1064,22 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
         CommitFailureCategory::kNotImplemented,
         "road extension requires a degree-one endpoint");
   }
-  if (source_corridor->section_template_id != request.section_template ||
-      source->section_template != request.section_template) {
+  const EndpointRole source_endpoint_role =
+      last_ref.reversed ? EndpointRole::kStart : EndpointRole::kEnd;
+  const CrossSectionTemplate* source_endpoint_section =
+      internal::find_endpoint_template(graph_, *source, source_endpoint_role);
+  const CrossSectionTemplate* extension_section =
+      find_template(graph_, request.section_template);
+  if (source_endpoint_section == nullptr || extension_section == nullptr) {
+    return Result<RoadSegmentId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "road extension endpoint section does not exist");
+  }
+  if (!internal::equivalent_section_definition(*source_endpoint_section,
+                                               *extension_section)) {
     return Result<RoadSegmentId>::Fail(
         CommitFailureCategory::kNotImplemented,
-        "road extension requires the existing section template");
+        "road extension endpoint lane layouts differ");
   }
   if (find_connection_policy_override(graph_, endpoint->id) != nullptr) {
     return Result<RoadSegmentId>::Fail(
@@ -1101,6 +1113,7 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
       RoadSegment{segment_id, endpoint->id, end_node, shape.value,
                   request.section_template, std::nullopt});
   RoadCorridor replacement = *source_corridor;
+  replacement.section_template_id = request.section_template;
   replacement.segments.push_back(DirectedSegmentRef{segment_id, false});
   plan.replace_corridors.push_back(std::move(replacement));
   plan.next_id_after = next_id;

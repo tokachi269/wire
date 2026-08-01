@@ -2110,6 +2110,58 @@ bool P2_requires_transition_for_mixed_section_connection(std::string& failure) {
   return true;
 }
 
+bool equivalent_endpoint_sections_ignore_template_identity(
+    std::string& failure) {
+  {
+    RoadState state{};
+    const auto equivalent = state.AddSectionTemplate(
+        city::road::AddSectionTemplateRequest{
+            JapaneseUrbanTwoLaneTemplate(0)});
+    ROAD_TEST_EXPECT(equivalent.ok, equivalent.error);
+    ROAD_TEST_EXPECT(equivalent.value != 1,
+                     "equivalent section did not receive a distinct ID");
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const RoadNodeId endpoint = state.graph().segments.front().node_b;
+    const auto connected = state.AddSegmentConnectedTo(
+        city::road::AddSegmentConnectedToRequest{
+            MakePath({MakeLine({60.0, 0.0}, {60.0, 30.0})}),
+            equivalent.value, endpoint});
+    ROAD_TEST_EXPECT(
+        connected.ok,
+        "equivalent endpoint sections were rejected by template identity: " +
+            connected.error);
+  }
+
+  {
+    RoadState state{};
+    const auto equivalent = state.AddSectionTemplate(
+        city::road::AddSectionTemplateRequest{
+            JapaneseUrbanTwoLaneTemplate(0)});
+    ROAD_TEST_EXPECT(equivalent.ok, equivalent.error);
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const RoadSegment source = state.graph().segments.front();
+    const auto* corridor =
+        FindCorridorForSegment(state.graph(), source.id);
+    ROAD_TEST_EXPECT(corridor != nullptr,
+                     "equivalent section extension corridor is missing");
+    const auto extended = state.ExtendCorridorFromEnd(
+        city::road::ExtendCorridorFromEndRequest{
+            corridor->id, source.node_b,
+            MakePath({MakeLine({40.0, 0.0}, {80.0, 0.0})}),
+            equivalent.value});
+    ROAD_TEST_EXPECT(
+        extended.ok,
+        "equivalent endpoint section extension was rejected by template "
+        "identity: " +
+            extended.error);
+  }
+  return true;
+}
+
 bool P2_marking_policy_suppression_and_junction_override(std::string& failure) {
   RoadState state{};
   const auto base = state.AddSegment(
@@ -2528,6 +2580,8 @@ int main() {
        branch_markings_follow_explicit_boundary_paths},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
+      {"equivalent_endpoint_sections_ignore_template_identity",
+       equivalent_endpoint_sections_ignore_template_identity},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},
       {"M1_lane_side_requests_share_one_boundary_line", M1_lane_side_requests_share_one_boundary_line},
       {"M1_lane_side_without_adjacent_boundary_is_unsupported",

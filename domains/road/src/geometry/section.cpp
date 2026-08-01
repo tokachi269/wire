@@ -10,6 +10,25 @@
 namespace city::road::internal {
 namespace {
 
+bool equivalent_strip(const SectionStrip &a, const SectionStrip &b) {
+  return a.id == b.id && a.function == b.function && a.width_m == b.width_m &&
+         a.cross_slope == b.cross_slope && a.style_id == b.style_id &&
+         a.side_marking == b.side_marking;
+}
+
+bool equivalent_lane(const LaneBand &a, const LaneBand &b) {
+  return a.id == b.id && a.surface_strip_id == b.surface_strip_id &&
+         a.lateral_start_m == b.lateral_start_m &&
+         a.lateral_end_m == b.lateral_end_m && a.direction == b.direction;
+}
+
+bool equivalent_boundary(const BoundaryProfile &a,
+                         const BoundaryProfile &b) {
+  return a.boundary_id == b.boundary_id && a.role == b.role &&
+         a.width_m == b.width_m && a.height_m == b.height_m &&
+         a.marking == b.marking;
+}
+
 const SectionStrip *find_strip(const CrossSectionTemplate &section,
                                SectionStripId id) {
   const auto found = std::find_if(
@@ -238,6 +257,20 @@ build_surface_styles(const CrossSectionTemplate &section) {
 }
 
 } // namespace
+
+bool equivalent_section_definition(const CrossSectionTemplate &a,
+                                   const CrossSectionTemplate &b) {
+  return a.strips.size() == b.strips.size() &&
+         a.lane_bands.size() == b.lane_bands.size() &&
+         a.boundaries.size() == b.boundaries.size() &&
+         std::equal(a.strips.begin(), a.strips.end(), b.strips.begin(),
+                    equivalent_strip) &&
+         std::is_permutation(a.lane_bands.begin(), a.lane_bands.end(),
+                             b.lane_bands.begin(), b.lane_bands.end(),
+                             equivalent_lane) &&
+         std::equal(a.boundaries.begin(), a.boundaries.end(),
+                    b.boundaries.begin(), equivalent_boundary);
+}
 
 Result<CrossSectionTemplate> template_at(
     const SavedRoadGraph &graph, const RoadSegment &segment,

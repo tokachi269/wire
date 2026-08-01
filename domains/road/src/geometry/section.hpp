@@ -4,6 +4,12 @@
 
 namespace city::road::internal {
 
+// Compares the physical and semantic section definition while deliberately
+// ignoring the catalog identity. Template IDs select definitions; they do not
+// decide whether two connected endpoints carry the same section.
+[[nodiscard]] bool equivalent_section_definition(
+    const CrossSectionTemplate &a, const CrossSectionTemplate &b);
+
 // Cross section evaluated from the authoritative template and, when the segment
 // carries one, its transition. Marking requests are merged here so every
 // consumer reads one effective policy per boundary.

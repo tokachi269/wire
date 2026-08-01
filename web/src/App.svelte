@@ -20,8 +20,7 @@
   import RoadPanel from "./panels/RoadPanel.svelte";
   import SelectionInspector from "./panels/SelectionInspector.svelte";
   import { buildInfo } from "./buildInfo";
-  import { categoryShort } from "./labels";
-  import { drawIssueText } from "./draw_feedback";
+  import { categoryShort, drawIssueText } from "./labels";
   import type { GenerationTiming } from "./model";
   import {
     createViewerSnapshot,
@@ -213,10 +212,10 @@
       <h1>Viewer</h1>
     </div>
     <div class="header-actions">
-      <button class="secondary mini-action" type="button" onclick={() => actions.undoPathPoint()}>
+      <button class="secondary mini-action" type="button" onclick={() => actions.undoActiveTool()}>
         Undo
       </button>
-      <button class="secondary mini-action" type="button" onclick={() => actions.clearPath()}>
+      <button class="secondary mini-action" type="button" onclick={() => actions.clearActiveTool()}>
         Clear
       </button>
       <button class="secondary mini-action" type="button" onclick={() => void actions.exportWorkspaceFile()}>
@@ -224,9 +223,6 @@
       </button>
       <button class="secondary" type="button" onclick={() => actions.resetWorkspace()}>
         Reset
-      </button>
-      <button type="button" onclick={() => actions.generatePath()}>
-        Generate Path
       </button>
     </div>
   </header>

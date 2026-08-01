@@ -275,6 +275,67 @@ def check_architecture_documents(root: Path) -> list[str]:
     return errors
 
 
+def check_draw_interaction_contract(root: Path) -> list[str]:
+    errors: list[str] = []
+    required = {
+        "docs/editor/draw_interaction.md": (
+            "## Click",
+            "## Pointer move",
+            "## Enter",
+            "## Escape",
+            "## Undo",
+            "## Tool switch",
+        ),
+        "web/src/actions/viewer.ts": (
+            "this.draw.primaryViewportPoint",
+            "this.draw.previewViewportPoint",
+            "this.draw.finishSession",
+            "this.draw.cancelSession",
+            "this.draw.undoCommitted",
+            "this.road.commitPath",
+            "this.road.cancelSession",
+            "this.road.undoCommitted",
+        ),
+        "web/wasm/bindings.cpp": (
+            "preview_placements",
+            "CoreState trial = *state_",
+            "GenerateFromBackboneSpec(spec)",
+        ),
+    }
+    for source, tokens in required.items():
+        path = root / source
+        if not path.exists():
+            errors.append(f"{source}: shared draw interaction source is missing")
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for token in tokens:
+            if token not in text:
+                errors.append(f"{source}: shared draw interaction contract is missing {token!r}")
+
+    forbidden = {
+        "web/src/App.svelte": ("Generate Path", "actions.undoPathPoint()"),
+        "web/src/actions/viewer.ts": (
+            "preview: () => undefined",
+            "enter: () => this.draw.generatePath()",
+            "escape: () => this.draw.clearPath()",
+        ),
+        "web/src/road.ts": ('"bend"', "draftBend", "draftSpans", "withRoadBend"),
+        "domains/road/src/generation/connections.cpp": (
+            "connected approach angle is outside supported range",
+            "adjacent junction approach angle is outside supported range",
+        ),
+    }
+    for source, tokens in forbidden.items():
+        path = root / source
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for token in tokens:
+            if token in text:
+                errors.append(f"{source}: obsolete draw interaction path remains: {token!r}")
+    return errors
+
+
 def excluded(path: str, patterns: list[str]) -> bool:
     return any(
         matches(path, pattern)
@@ -346,6 +407,7 @@ def main() -> int:
 
     errors.extend(check_architecture_documents(root))
     errors.extend(check_backbone_semantics_coverage(root))
+    errors.extend(check_draw_interaction_contract(root))
     errors.extend(check_road_architecture(root))
 
     if errors:

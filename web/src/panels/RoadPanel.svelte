@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ViewerActions } from "../actions/viewer";
-  import { drawIssueText } from "../draw_feedback";
+  import { drawIssueText } from "../labels";
   import type { ViewerSnapshot } from "../store/viewer";
 
   interface Props {

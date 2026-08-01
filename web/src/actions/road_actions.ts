@@ -35,7 +35,6 @@ export class RoadActions {
         mode,
         phase: "start",
         curveContinuationTangent: null,
-        draftSpans: [],
         previewMeshes: [],
         previewState: "none",
         previewRequest: null,
@@ -53,7 +52,6 @@ export class RoadActions {
         operation,
         phase: "start",
         curveContinuationTangent: null,
-        draftSpans: [],
         markingDraftSegmentId: 0,
         hoveredDeleteSegmentId: 0,
         hoveredLaneSegmentId: 0,
@@ -188,10 +186,6 @@ export class RoadActions {
       return;
     }
     if (snap !== undefined && !sameRoadPoint(current.draftStart, target)) {
-      if (current.draftSpans.length !== 0) {
-        this.ctx.store.setError("Finish or cancel the current road before starting another");
-        return;
-      }
       this.beginAt(target, snap);
       return;
     }
@@ -411,14 +405,13 @@ export class RoadActions {
 
   cancelSession(): void {
     const current = this.ctx.readSnapshot().road;
-    if (current.phase === "start" && current.draftSpans.length === 0 &&
+    if (current.phase === "start" &&
         current.previewMeshes.length === 0 && current.previewIssue === "") return;
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: {
         ...snapshot.road,
         phase: "start",
-        draftSpans: [],
         draftStartNodeId: 0,
         draftStartSegmentId: 0,
         draftStartSegmentDistanceM: 0,
@@ -486,8 +479,6 @@ export class RoadActions {
             ...snapshot.road,
             phase: "end",
             draftStart: endpoint,
-            draftBend: endpoint,
-            draftSpans: [],
             draftStartNodeId: result.endNodeId ?? 0,
             draftStartSegmentId: 0,
             draftStartSegmentDistanceM: 0,
@@ -505,7 +496,6 @@ export class RoadActions {
         : {
             ...snapshot.road,
             phase: "start",
-            draftSpans: [],
             draftStartNodeId: 0,
             draftStartSegmentId: 0,
             draftStartSegmentDistanceM: 0,
@@ -536,7 +526,6 @@ export class RoadActions {
       road: withRoadEnd({
         ...snapshot.road,
         draftStart: target,
-        draftBend: target,
         curveContinuationTangent: null,
         draftStartNodeId: snap?.nodeId ?? 0,
         draftStartSegmentId: snap?.segmentId ?? 0,
@@ -558,7 +547,6 @@ export class RoadActions {
       road: {
         ...snapshot.road,
         phase: "start",
-        draftSpans: [],
         draftStartNodeId: 0,
         draftStartSegmentId: 0,
         draftStartSegmentDistanceM: 0,

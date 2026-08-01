@@ -1,5 +1,5 @@
 export type RoadToolMode = "line" | "bezier";
-export type RoadToolPhase = "start" | "end" | "bend";
+export type RoadToolPhase = "start" | "end";
 export type RoadOperation = "draw" | "edit" | "delete" | "line-marking" | "area-marking" |
   "add-lane" | "branch-lane" | "merge-lane";
 
@@ -181,12 +181,10 @@ export interface RoadToolState {
   operation: RoadOperation;
   phase: RoadToolPhase;
   draftStart: RoadPoint;
-  draftBend: RoadPoint;
   draftEnd: RoadPoint;
   handleA: RoadPoint;
   handleB: RoadPoint;
   curveContinuationTangent: RoadPoint | null;
-  draftSpans: RoadSpanInput[];
   draftStartNodeId: number;
   draftStartSegmentId: number;
   draftStartSegmentDistanceM: number;
@@ -237,12 +235,10 @@ export function createRoadToolState(): RoadToolState {
     operation: "draw",
     phase: "start",
     draftStart: { x: 0, y: 0 },
-    draftBend: { x: 0, y: 0 },
     draftEnd: { x: 0, y: 0 },
     handleA: { x: 0, y: 0 },
     handleB: { x: 0, y: 0 },
     curveContinuationTangent: null,
-    draftSpans: [],
     draftStartNodeId: 0,
     draftStartSegmentId: 0,
     draftStartSegmentDistanceM: 0,
@@ -303,16 +299,12 @@ export function roadSpanInput(state: RoadToolState): RoadSpanInput {
 }
 
 export function roadSegmentInput(
-  state: RoadToolState,
-  includeCurrentSpan = true
+  state: RoadToolState
 ): RoadSegmentInput {
-  const spans = includeCurrentSpan
-    ? [...state.draftSpans, roadSpanInput(state)]
-    : [...state.draftSpans];
-  const first = spans[0] ?? roadSpanInput(state);
+  const first = roadSpanInput(state);
   return {
     ...first,
-    spans,
+    spans: [first],
     startNodeId: state.draftStartNodeId,
     startSegmentId: state.draftStartSegmentId,
     startSegmentDistanceM: state.draftStartSegmentDistanceM,
@@ -330,15 +322,6 @@ export function withRoadEnd(state: RoadToolState, end: RoadPoint): RoadToolState
     draftEnd: end,
     handleA: { x: state.draftStart.x + dx / 3, y: state.draftStart.y + dy / 3 },
     handleB: { x: state.draftStart.x + dx * 2 / 3, y: state.draftStart.y + dy * 2 / 3 },
-    previewIssue: "",
-    lastError: ""
-  };
-}
-
-export function withRoadBend(state: RoadToolState, bend: RoadPoint): RoadToolState {
-  return {
-    ...state,
-    draftBend: snapBendToContinuation(state.draftStart, bend, state.curveContinuationTangent),
     previewIssue: "",
     lastError: ""
   };
@@ -401,22 +384,5 @@ export function emptyRoadScene(): RoadSceneData {
     markingMeshes: [],
     approaches: [],
     junctions: []
-  };
-}
-
-function snapBendToContinuation(
-  start: RoadPoint,
-  bend: RoadPoint,
-  tangent: RoadPoint | null | undefined
-): RoadPoint {
-  if (tangent == null) return bend;
-  const tangentLength = Math.hypot(tangent.x, tangent.y);
-  const bendDistance = Math.hypot(bend.x - start.x, bend.y - start.y);
-  if (tangentLength <= Number.EPSILON || bendDistance <= Number.EPSILON) {
-    return bend;
-  }
-  return {
-    x: start.x + tangent.x / tangentLength * bendDistance,
-    y: start.y + tangent.y / tangentLength * bendDistance
   };
 }

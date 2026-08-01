@@ -48,7 +48,7 @@ an undo shortcut.
 Changing tools discards only transient draw-session state. It does not commit a
 preview and does not remove previously committed entities.
 
-## Preview
+## Pointer move
 
 Pointer movement after anchoring produces one of `valid preview`, `invalid
 preview`, or `no candidate`. A valid preview is the exact Core result that the

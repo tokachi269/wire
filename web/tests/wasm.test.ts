@@ -482,6 +482,56 @@ describe("wire wasm smoke", () => {
     runState.delete();
   });
 
+  it("creates twelve independent model-aware wire routes without stale session state", () => {
+    const runState = createState();
+    const configured = runState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+
+    for (let routeIndex = 0; routeIndex < 12; routeIndex += 1) {
+      const originX = routeIndex * 30;
+      let placements = defaultBundlePlacements();
+      const first = runState.generatePlacements(
+        new Float64Array([originX, 0, 0, originX + 12, 0, 0]),
+        placements,
+        0,
+        2,
+        0,
+        12,
+        []
+      );
+      expect(first.ok, `route ${routeIndex} first: ${first.error}`).toBe(true);
+      expect(first.generatedPoleIds, `route ${routeIndex} first poles`).toHaveLength(2);
+      expect(first.generatedBundleIds, `route ${routeIndex} bundle ids`).toBeDefined();
+      placements = placements.map((placement, index) => ({
+        ...placement,
+        generatedBundleId: first.generatedBundleIds![index]
+      }));
+
+      const secondStart = first.generatedPoleIds!.at(-1)!;
+      const beforePreview = runState.saveState();
+      const secondPoints = new Float64Array([
+        originX + 12, 0, 0,
+        originX + 12, 10, 0
+      ]);
+      const nodeSpecs = [{ pointIndex: 0, supportKind: 0, nodeId: secondStart }];
+      const preview = runState.previewPlacements(
+        secondPoints, placements, 0, 2, 0, 12, nodeSpecs
+      );
+      expect(preview.ok, `route ${routeIndex} preview: ${preview.error}`).toBe(true);
+      expect(runState.saveState(), `route ${routeIndex} preview atomicity`).toBe(beforePreview);
+
+      const second = runState.generatePlacements(
+        secondPoints, placements, 0, 2, 0, 12, nodeSpecs
+      );
+      expect(second.ok, `route ${routeIndex} second: ${second.error}`).toBe(true);
+      expect(second.generatedPoleIds, `route ${routeIndex} second poles`).toHaveLength(1);
+    }
+
+    expect(runState.poleCount()).toBe(36);
+    expect(runState.visualScene().models.length).toBeGreaterThan(36);
+    runState.delete();
+  });
+
   it("bootstraps one straight communication fixture per Port", () => {
     const modelState = createState();
     const configured = modelState.configureModelAssemblies(modelBootstrap());

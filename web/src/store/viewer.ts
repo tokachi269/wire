@@ -24,6 +24,13 @@ export type WorldPoint = [number, number, number];
 export type SelectionKind = "pole" | "port" | "span" | "supportNode";
 export type RightPanelMode = "wire" | "road";
 export type ActiveTool = "wire" | "road";
+export type DrawActionResult =
+  | { kind: "anchor-accepted" }
+  | { kind: "commit-succeeded" }
+  | { kind: "commit-rejected"; reasonCode: string }
+  | { kind: "session-ended" }
+  | { kind: "operation-applied" }
+  | { kind: "ignored"; reasonCode: string };
 
 export interface VisualPart {
   info: VisualPartInfo;
@@ -50,6 +57,7 @@ export interface ViewerSnapshot {
   backboneEdges: BackboneEdgeInfo[];
   error: string;
   lastCommitFailure: CommitFailure | null;
+  lastDrawActionResult: DrawActionResult | null;
   buildMismatch: { webCommit: string; webVersion: string; wasmCommit: string; wasmVersion: string } | null;
   generationMs: number | null;
   generationTiming: GenerationTiming | null;
@@ -115,6 +123,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     backboneEdges: [],
     error: "",
     lastCommitFailure: null,
+    lastDrawActionResult: null,
     buildMismatch: null,
     generationMs: null,
     generationTiming: null,

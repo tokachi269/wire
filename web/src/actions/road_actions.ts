@@ -8,7 +8,7 @@ import {
   type RoadToolState
 } from "../road";
 import { CommitFailureCategory } from "../model";
-import type { WorldPoint } from "../store/viewer";
+import type { DrawActionResult, WorldPoint } from "../store/viewer";
 import { ViewerActionContext } from "./context";
 
 export class RoadActions {
@@ -176,23 +176,23 @@ export class RoadActions {
     }));
   }
 
-  addViewportPoint(point: WorldPoint, snap?: RoadSnapInfo): void {
+  addViewportPoint(point: WorldPoint, snap?: RoadSnapInfo): DrawActionResult {
     const target = { x: point[0], y: point[1] };
     const current = this.ctx.readSnapshot().road;
     if (current.operation !== "draw") {
       this.applyOperation(current, target, snap);
-      return;
+      return { kind: "operation-applied" };
     }
     if (current.phase === "start") {
       this.beginAt(target, snap);
-      return;
+      return { kind: "anchor-accepted" };
     }
     const road = current.mode !== "line" ? withRoadCurveEnd(current, target) : withRoadEnd(current, target);
     const request = current.previewState === "guide" && current.previewRequest !== null &&
         sameRoadPoint({ x: current.previewRequest.endX, y: current.previewRequest.endY }, target)
       ? current.previewRequest
       : roadSegmentInput(road);
-    this.commitInterval(request, target, true);
+    return this.commitInterval(request, target, true);
   }
 
   previewViewportPoint(point: WorldPoint, snap?: RoadSnapInfo): void {
@@ -403,10 +403,12 @@ export class RoadActions {
     );
   }
 
-  cancelSession(): void {
+  cancelSession(): DrawActionResult {
     const current = this.ctx.readSnapshot().road;
     if (current.phase === "start" &&
-        current.previewMeshes.length === 0 && current.previewIssue === "") return;
+        current.previewMeshes.length === 0 && current.previewIssue === "") {
+      return { kind: "ignored", reasonCode: "session-inactive" };
+    }
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: {
@@ -426,6 +428,7 @@ export class RoadActions {
       error: "",
       lastCommitFailure: null
     }));
+    return { kind: "session-ended" };
   }
 
   undoCommitted(): void {
@@ -438,19 +441,17 @@ export class RoadActions {
     this.finish(result, "road clear");
   }
 
-  commitPath(): void {
+  commitPath(): DrawActionResult {
     const road = this.ctx.readSnapshot().road;
-    if (road.operation !== "draw") return;
+    if (road.operation !== "draw") return { kind: "ignored", reasonCode: "non-draw-operation" };
     if (road.phase === "start") {
-      this.cancelSession();
-      return;
+      return { kind: "ignored", reasonCode: "session-inactive" };
     }
     if (road.previewRequest === null) {
-      this.cancelSession();
-      return;
+      return this.cancelSession();
     }
     const request = road.previewRequest;
-    this.commitInterval(
+    return this.commitInterval(
       request,
       { x: request.endX, y: request.endY },
       false
@@ -461,7 +462,7 @@ export class RoadActions {
     request: ReturnType<typeof roadSegmentInput>,
     endpoint: RoadPoint,
     continueSession: boolean
-  ): void {
+  ): DrawActionResult {
     const result = this.ctx.bridge.roadAddSegment(request);
     if (!result.ok) {
       this.ctx.store.update((snapshot) => ({
@@ -475,7 +476,7 @@ export class RoadActions {
         }
       }));
       this.ctx.store.setCommitFailure(result, "road segment", [endpoint.x, endpoint.y, 0]);
-      return;
+      return { kind: "commit-rejected", reasonCode: result.reasonCode || "road_commit_rejected" };
     }
     const scene = this.ctx.bridge.roadScene();
     this.ctx.store.update((snapshot) => ({
@@ -518,6 +519,7 @@ export class RoadActions {
       lastCommitFailure: null,
       logs: [...snapshot.logs, "road add segment"]
     }));
+    return { kind: "commit-succeeded" };
   }
 
   private previewState(current: RoadToolState, target: RoadPoint): RoadToolState {

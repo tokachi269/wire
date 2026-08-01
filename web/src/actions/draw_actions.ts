@@ -1,17 +1,22 @@
 import type { ViewerActionContext } from "./context";
 import { CommitFailureCategory, type BundleTemplateInfo, type PathPickInfo, type WireIntervalRequest } from "../model";
-import type { PathPointSpec, WorldPoint } from "../store/viewer";
+import type { DrawActionResult, PathPointSpec, WorldPoint } from "../store/viewer";
 
 export class DrawActions {
   private readonly committedHistory: Array<{ before: string; after: string }> = [];
 
   constructor(private readonly ctx: ViewerActionContext) {}
 
-  primaryViewportPoint(point: WorldPoint, pick?: PathPickInfo): void {
+  primaryViewportPoint(point: WorldPoint, pick?: PathPickInfo): DrawActionResult {
     const current = this.ctx.readSnapshot();
     if (current.pathPoints.length === 0) {
       const anchor = this.resolveAnchor(point, pick);
-      if (anchor === null) return;
+      if (anchor === null) {
+        return {
+          kind: "commit-rejected",
+          reasonCode: this.ctx.readSnapshot().lastCommitFailure?.reasonCode ?? "wire_anchor_rejected"
+        };
+      }
       this.ctx.store.update((snapshot) => ({
         ...snapshot,
         pathPoints: [anchor.point],
@@ -20,7 +25,7 @@ export class DrawActions {
         error: "",
         lastCommitFailure: null
       }));
-      return;
+      return { kind: "anchor-accepted" };
     }
 
     const request = this.samePreviewTarget(current.wirePreview.request, point, pick)
@@ -33,9 +38,9 @@ export class DrawActions {
         failureCategory: CommitFailureCategory.InvalidInput,
         reasonCode: "wire_endpoint_matches_anchor"
       }, "wire interval", point);
-      return;
+      return { kind: "commit-rejected", reasonCode: "wire_endpoint_matches_anchor" };
     }
-    this.commitWireInterval(request, false);
+    return this.commitWireInterval(request, false);
   }
 
   previewViewportPoint(point: WorldPoint, pick?: PathPickInfo): void {
@@ -51,20 +56,19 @@ export class DrawActions {
     }));
   }
 
-  finishSession(): void {
+  finishSession(): DrawActionResult {
     const preview = this.ctx.readSnapshot().wirePreview;
     if (preview.state === "guide" && preview.request !== null) {
-      this.commitWireInterval(preview.request, true);
-      return;
+      return this.commitWireInterval(preview.request, true);
     }
-    this.cancelSession();
+    return this.cancelSession();
   }
 
-  cancelSession(): void {
+  cancelSession(): DrawActionResult {
     const cleared = this.ctx.bridge.clearPendingSupportNodes();
     if (!cleared.ok) {
       this.ctx.store.setError(cleared.error);
-      return;
+      return { kind: "commit-rejected", reasonCode: cleared.reasonCode || "wire_session_clear_failed" };
     }
     this.ctx.store.update((current) => ({
       ...current,
@@ -74,6 +78,7 @@ export class DrawActions {
       error: "",
       lastCommitFailure: null
     }));
+    return { kind: "session-ended" };
   }
 
   undoCommitted(clearSelection: () => void): void {
@@ -284,7 +289,7 @@ export class DrawActions {
     }));
   }
 
-  private commitWireInterval(request: WireIntervalRequest, endSession: boolean): void {
+  private commitWireInterval(request: WireIntervalRequest, endSession: boolean): DrawActionResult {
     const beforeState = this.ctx.bridge.saveState();
     const result = this.ctx.bridge.generateWireInterval(request);
     if (!result.ok) {
@@ -294,7 +299,7 @@ export class DrawActions {
         error: ""
       }));
       this.ctx.store.setCommitFailure(result, "wire interval", request.points[1]);
-      return;
+      return { kind: "commit-rejected", reasonCode: result.reasonCode || "wire_commit_rejected" };
     }
     this.committedHistory.push({ before: beforeState, after: this.ctx.bridge.saveState() });
     this.ctx.refreshScene();
@@ -316,6 +321,7 @@ export class DrawActions {
       error: "",
       lastCommitFailure: null
     }));
+    return { kind: "commit-succeeded" };
   }
 
   private generatePoints(

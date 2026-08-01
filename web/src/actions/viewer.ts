@@ -10,7 +10,7 @@ import type {
   SceneContentSyncStats,
   VisualSettings
 } from "../model";
-import type { SelectionKind, ViewerStore, WorldPoint } from "../store/viewer";
+import type { DrawActionResult, SelectionKind, ViewerStore, WorldPoint } from "../store/viewer";
 import type { WorkspaceCache } from "../store/workspace";
 import { ViewerActionContext } from "./context";
 import { DrawActions } from "./draw_actions";
@@ -83,8 +83,8 @@ export class ViewerActions {
     this.drawSession.switchTool(tool, (next) => this.settings.setDrawOption("activeTool", next));
   }
 
-  addViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): void {
-    this.drawSession.primary(point, pick);
+  addViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): DrawActionResult {
+    return this.recordDrawAction(this.drawSession.primary(point, pick));
   }
 
   previewViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): void {
@@ -99,12 +99,12 @@ export class ViewerActions {
     this.drawSession.undo();
   }
 
-  cancelDrawSession(): void {
-    this.drawSession.escape();
+  cancelDrawSession(): DrawActionResult {
+    return this.recordDrawAction(this.drawSession.escape());
   }
 
-  finishDrawSession(): void {
-    this.drawSession.enter();
+  finishDrawSession(): DrawActionResult {
+    return this.recordDrawAction(this.drawSession.enter());
   }
 
   clearActiveTool(): void {
@@ -200,7 +200,12 @@ export class ViewerActions {
   }
 
   commitRoadPath(): void {
-    this.road.commitPath();
+    this.recordDrawAction(this.road.commitPath());
+  }
+
+  private recordDrawAction(result: DrawActionResult): DrawActionResult {
+    this.ctx.store.update((snapshot) => ({ ...snapshot, lastDrawActionResult: result }));
+    return result;
   }
 
   setRoadConnectToFirstNode(value: boolean): void {

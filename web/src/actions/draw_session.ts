@@ -1,16 +1,16 @@
 import type { PathPickInfo } from "../model";
 import type { RoadSnapInfo } from "../road";
-import type { WorldPoint } from "../store/viewer";
+import type { DrawActionResult, WorldPoint } from "../store/viewer";
 
 export type DrawTool = "wire" | "road";
 export type DrawPick = PathPickInfo | RoadSnapInfo | undefined;
 
 export interface DrawSessionDomain {
-  primary(point: WorldPoint, pick: DrawPick): void;
+  primary(point: WorldPoint, pick: DrawPick): DrawActionResult;
   preview(point: WorldPoint, pick: DrawPick): void;
   leave(): void;
-  enter(): void;
-  escape(): void;
+  enter(): DrawActionResult;
+  escape(): DrawActionResult;
   undo(): void;
 }
 
@@ -20,8 +20,8 @@ export class DrawSessionController {
     private readonly domains: Record<DrawTool, DrawSessionDomain>
   ) {}
 
-  primary(point: WorldPoint, pick?: DrawPick): void {
-    this.domains[this.activeTool()].primary(point, pick);
+  primary(point: WorldPoint, pick?: DrawPick): DrawActionResult {
+    return this.domains[this.activeTool()].primary(point, pick);
   }
 
   preview(point: WorldPoint, pick?: DrawPick): void {
@@ -32,12 +32,12 @@ export class DrawSessionController {
     this.domains[this.activeTool()].leave();
   }
 
-  enter(): void {
-    this.domains[this.activeTool()].enter();
+  enter(): DrawActionResult {
+    return this.domains[this.activeTool()].enter();
   }
 
-  escape(): void {
-    this.domains[this.activeTool()].escape();
+  escape(): DrawActionResult {
+    return this.domains[this.activeTool()].escape();
   }
 
   undo(): void {

@@ -315,6 +315,80 @@ describe("viewer numeric inputs", () => {
       .toContain("road_connection_too_short");
   });
 
+  it("returns an explicit outcome for every primary click and Enter action", async () => {
+    const mounted = await mountViewer(false);
+
+    expect(mounted.actions.addViewportPoint([0, 0, 0])).toEqual({ kind: "anchor-accepted" });
+    mounted.actions.previewViewportPoint([12, 0, 0]);
+    expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+    expect(current(mounted.store).lastDrawActionResult).toEqual({ kind: "commit-succeeded" });
+
+    mounted.actions.setActiveTool("road");
+    expect(mounted.actions.finishDrawSession()).toEqual({
+      kind: "ignored",
+      reasonCode: "session-inactive"
+    });
+    expect(mounted.actions.addViewportPoint([0, 40, 0])).toEqual({ kind: "anchor-accepted" });
+    expect(mounted.actions.finishDrawSession()).toEqual({ kind: "session-ended" });
+    expect(current(mounted.store).road.phase).toBe("start");
+  });
+
+  it("runs repeated wire and road sessions through ViewerActions and the real wasm bridge", async () => {
+    const mounted = await mountViewer(false);
+
+    for (let index = 0; index < 12; index += 1) {
+      const x = index * 30;
+      expect(mounted.actions.addViewportPoint([x, 0, 0])).toEqual({ kind: "anchor-accepted" });
+      mounted.actions.previewViewportPoint([x + 12, 0, 0]);
+      expect(mounted.actions.addViewportPoint([x + 12, 0, 0])).toEqual({ kind: "commit-succeeded" });
+      mounted.actions.previewViewportPoint([x + 12, 10, 0]);
+      expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+      expect(current(mounted.store).pathPoints).toEqual([]);
+      expect(current(mounted.store).lastCommitFailure).toBeNull();
+    }
+    expect(current(mounted.store).poles).toHaveLength(36);
+
+    mounted.actions.setActiveTool("road");
+    for (let index = 0; index < 10; index += 1) {
+      const y = 40 + index * 12;
+      expect(mounted.actions.addViewportPoint([0, y, 0])).toEqual({ kind: "anchor-accepted" });
+      mounted.actions.previewViewportPoint([18, y, 0]);
+      expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+    }
+    expect(current(mounted.store).road.scene.segmentCount).toBe(10);
+
+    mounted.actions.setRoadMode("bezier");
+    for (let index = 0; index < 10; index += 1) {
+      const y = 260 + index * 12;
+      expect(mounted.actions.addViewportPoint([0, y, 0])).toEqual({ kind: "anchor-accepted" });
+      mounted.actions.previewViewportPoint([18, y + 4, 0]);
+      expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+    }
+    expect(current(mounted.store).road.scene.segmentCount).toBe(20);
+
+    mounted.actions.setRoadMode("line");
+    expect(mounted.actions.addViewportPoint([0, 400, 0])).toEqual({ kind: "anchor-accepted" });
+    mounted.actions.previewViewportPoint([0, 400, 0]);
+    expect(mounted.actions.finishDrawSession()).toEqual({
+      kind: "commit-rejected",
+      reasonCode: "invalid_input"
+    });
+    expect(current(mounted.store).road.phase).toBe("end");
+    mounted.actions.previewViewportPoint([18, 400, 0]);
+    expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+    expect(current(mounted.store).lastCommitFailure).toBeNull();
+
+    expect(mounted.actions.addViewportPoint([0, 180, 0])).toEqual({ kind: "anchor-accepted" });
+    expect(mounted.actions.cancelDrawSession()).toEqual({ kind: "session-ended" });
+    mounted.actions.setActiveTool("wire");
+    expect(mounted.actions.addViewportPoint([0, 200, 0])).toEqual({ kind: "anchor-accepted" });
+    mounted.actions.setActiveTool("road");
+    expect(current(mounted.store).pathPoints).toEqual([]);
+    expect(mounted.actions.addViewportPoint([0, 220, 0])).toEqual({ kind: "anchor-accepted" });
+    mounted.actions.previewViewportPoint([18, 220, 0]);
+    expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+  }, 15_000);
+
   it("blocks the editor when the Web and WASM build identities differ", async () => {
     const mounted = await mountViewer(false);
     mounted.store.update((snapshot) => ({

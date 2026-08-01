@@ -200,6 +200,10 @@ median boundaryは、明示された接続以外では既存mainline上に維持
 `resolve_junction_movement_path`がjunction gate間だけに生成する。merge/splitの長い接続区間resolverとは分け、
 共通のG1 cubic primitiveだけを共有する。source/targetは常に`LaneEndpointKey`で明示し、turn roleや角度から推測しない。
 
+segment間の接続白線は`DerivedBoundaryPath`を唯一のgeometry入力とする。marking生成はboundary endpointやlane centerから
+別Bezierを作らない。Split区間はsource boundaryのrole/style、Merge区間はtarget boundaryのrole/styleを使い、
+Continuationでrole/styleが変わる場合はunsupportedとする。接続線はjunction ownershipでgate間だけを所有する。
+
 ## Approach override lifecycle
 
 authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / manual lateral shiftだけである。全fieldがAutoの空overrideは保存しない。

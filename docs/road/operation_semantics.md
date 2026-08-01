@@ -217,3 +217,4 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - 対向断面のbranchは選択した`LaneEndpointKey`と境界だけをSplitへ載せる。反対方向laneはContinuationのまま維持し、median boundaryをbranchへ暗黙流用しない。
 - `JunctionMovement`はdegree 3/4のjunctionでだけsupportedとする。同一source laneから複数target laneを明示できるが、source退出・target進入・同一nodeを満たさない接続はvalidation、junction以外へのmovement指定はunsupportedとする。
 - movement geometryはsource/target gate上のlane centerをG1 cubicで結ぶ。直進のminimum radiusは正の無限大を許可し、turnは有限かつ正のradiusを要求する。
+- Split/Mergeの接続白線は対応する`DerivedBoundaryPath`へ追従する。Splitではsource marking policy、Mergeではtarget marking policyを接続区間へ使い、線専用の自由Bezierやlane centerからの境界推測を行わない。

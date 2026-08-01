@@ -44,7 +44,8 @@ Result<DerivedRoad> generate_road(const SavedRoadGraph &graph) {
   }
 
   Result<std::vector<DerivedMarking>> markings =
-      derive_markings(graph, segments.value, connections.value);
+      derive_markings(graph, segments.value, connections.value,
+                      derived.boundary_paths);
   if (!markings.ok) {
     return Result<DerivedRoad>::Fail(markings.error_kind, markings.error);
   }

@@ -458,6 +458,131 @@ derive_corner_markings(const SavedRoadGraph &graph,
   return Result<bool>::Ok(true);
 }
 
+Result<bool> derive_boundary_continuation_markings(
+    const SavedRoadGraph &graph,
+    const std::vector<ResolvedConnection> &connections,
+    const std::vector<DerivedBoundaryPath> &boundary_paths,
+    std::vector<DerivedMarking> &markings) {
+  for (const BoundaryContinuation &continuation :
+       graph.boundary_continuations) {
+    const auto path = std::find_if(
+        boundary_paths.begin(), boundary_paths.end(),
+        [&continuation](const DerivedBoundaryPath &candidate) {
+          return candidate.continuation_id == continuation.id;
+        });
+    if (path == boundary_paths.end()) {
+      return Result<bool>::Fail(
+          ErrorKind::kInternal,
+          "boundary continuation marking path is missing");
+    }
+    if (path->path.spans.empty())
+      continue;
+    const internal::BoundaryEndpointLookup source_lookup =
+        internal::find_boundary_endpoint(graph, continuation.source);
+    const internal::BoundaryEndpointLookup target_lookup =
+        internal::find_boundary_endpoint(graph, continuation.target);
+    const auto connection = std::find_if(
+        connections.begin(), connections.end(),
+        [&source_lookup](const ResolvedConnection &candidate) {
+          return candidate.node_id == source_lookup.node_id;
+        });
+    if (source_lookup.boundary == nullptr || target_lookup.boundary == nullptr ||
+        connection == connections.end()) {
+      return Result<bool>::Fail(
+          ErrorKind::kInternal,
+          "boundary continuation marking endpoint is missing");
+    }
+    const ResolvedApproach *source = find_connection_approach(
+        *connection,
+        ApproachKey{source_lookup.node_id, continuation.source.segment_id,
+                    continuation.source.endpoint_role});
+    const ResolvedApproach *target = find_connection_approach(
+        *connection,
+        ApproachKey{target_lookup.node_id, continuation.target.segment_id,
+                    continuation.target.endpoint_role});
+    if (source == nullptr || target == nullptr) {
+      return Result<bool>::Fail(
+          ErrorKind::kInternal,
+          "boundary continuation marking approach is missing");
+    }
+    const auto source_boundaries = find_marked_gate_boundaries(
+        source->gate, continuation.source.boundary_id);
+    const auto target_boundaries = find_marked_gate_boundaries(
+        target->gate, continuation.target.boundary_id);
+    if (source_boundaries.empty() && target_boundaries.empty())
+      continue;
+    if (source_boundaries.size() != 1 || target_boundaries.size() != 1) {
+      return Result<bool>::Fail(
+          ErrorKind::kUnsupported,
+          "boundary continuation marking is not uniquely mapped");
+    }
+    const SectionBoundarySample &source_boundary = *source_boundaries.front();
+    const SectionBoundarySample &target_boundary = *target_boundaries.front();
+    const MarkingRole source_role =
+        role_from_boundary(source_boundary.role, source_boundary.marking);
+    const MarkingRole target_role =
+        role_from_boundary(target_boundary.role, target_boundary.marking);
+    if (continuation.kind == BoundaryContinuationKind::kContinuation &&
+        (source_role != target_role ||
+         source_boundary.marking.style_id != target_boundary.marking.style_id)) {
+      return Result<bool>::Fail(
+          ErrorKind::kUnsupported,
+          "continued boundary marking changes role or style");
+    }
+    const SectionBoundarySample &policy_boundary =
+        continuation.kind == BoundaryContinuationKind::kMerge
+            ? target_boundary
+            : source_boundary;
+    const MarkingRole role = continuation.kind == BoundaryContinuationKind::kMerge
+                                 ? target_role
+                                 : source_role;
+    const MarkingOwner source_owner{MarkingOwner::Kind::kRoadSegment,
+                                    continuation.source.segment_id, 0, 0};
+    const MarkingOwner target_owner{MarkingOwner::Kind::kRoadSegment,
+                                    continuation.target.segment_id, 0, 0};
+    if (suppressed(graph,
+                   AutoMarkingKey{
+                       source_owner, source_role,
+                       MarkingTrackKey{continuation.source.segment_id,
+                                       continuation.source.boundary_id,
+                                       source_role},
+                       std::nullopt}) ||
+        suppressed(graph,
+                   AutoMarkingKey{
+                       target_owner, target_role,
+                       MarkingTrackKey{continuation.target.segment_id,
+                                       continuation.target.boundary_id,
+                                       target_role},
+                       std::nullopt})) {
+      continue;
+    }
+    const std::vector<Vec2d> points = FlattenPath(path->path);
+    if (points.size() < 2)
+      continue;
+    const double source_z =
+        gate_point(source->gate, 0.0, source_boundary.lateral_m).z;
+    const double target_z =
+        gate_point(target->gate, 0.0, target_boundary.lateral_m).z;
+    DerivedMarking marking{};
+    marking.owner = MarkingOwner{MarkingOwner::Kind::kJunction, 0,
+                                 source_lookup.node_id, 0};
+    marking.boundary_id = continuation.source.boundary_id;
+    marking.role = role;
+    marking.style_id = policy_boundary.marking.style_id;
+    marking.width_m = marking_width_m(marking.style_id);
+    marking.points.reserve(points.size());
+    for (std::size_t index = 0; index < points.size(); ++index) {
+      const double t = static_cast<double>(index) /
+                       static_cast<double>(points.size() - 1);
+      marking.points.push_back(
+          Vec3d{points[index].x, points[index].y,
+                source_z + (target_z - source_z) * t});
+    }
+    markings.push_back(std::move(marking));
+  }
+  return Result<bool>::Ok(true);
+}
+
 Result<bool> derive_junction_markings(const SavedRoadGraph &graph,
                                       const std::vector<ResolvedConnection> &connections,
                                       std::vector<DerivedMarking> &markings) {
@@ -598,7 +723,8 @@ derive_junction_override_markings(const SavedRoadGraph &graph,
 Result<std::vector<DerivedMarking>>
 derive_markings(const SavedRoadGraph &graph,
                 const std::vector<DerivedSegment> &segments,
-                const std::vector<ResolvedConnection> &connections) {
+                const std::vector<ResolvedConnection> &connections,
+                const std::vector<DerivedBoundaryPath> &boundary_paths) {
   using Out = Result<std::vector<DerivedMarking>>;
   const Result<bool> mapping = validate_transition_marking_mapping(graph);
   if (!mapping.ok)
@@ -612,6 +738,10 @@ derive_markings(const SavedRoadGraph &graph,
   if (!step.ok)
     return Out::Fail(step.error_kind, step.error);
   step = derive_corner_markings(graph, connections, markings);
+  if (!step.ok)
+    return Out::Fail(step.error_kind, step.error);
+  step = derive_boundary_continuation_markings(
+      graph, connections, boundary_paths, markings);
   if (!step.ok)
     return Out::Fail(step.error_kind, step.error);
   step = derive_junction_markings(graph, connections, markings);

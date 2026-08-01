@@ -153,6 +153,10 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "domains/road/src/generation/markings.cpp: degenerate run activation must be decided here"
         )
+    if "derive_boundary_continuation_markings" not in marking_text or "DerivedBoundaryPath" not in marking_text:
+        errors.append(
+            "domains/road/src/generation/markings.cpp: connected markings must consume resolved boundary paths"
+        )
     if marking_text.count("kDegenerateStripWidthM") > 2:
         errors.append(
             "domains/road/src/generation/markings.cpp: degenerate run activation must stay a single decision site"

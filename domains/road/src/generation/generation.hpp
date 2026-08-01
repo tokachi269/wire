@@ -45,7 +45,8 @@ resolve_connections(const SavedRoadGraph &graph,
 
 [[nodiscard]] Result<std::vector<DerivedMarking>>
 derive_markings(const SavedRoadGraph &graph, const std::vector<DerivedSegment> &segments,
-                const std::vector<ResolvedConnection> &connections);
+                const std::vector<ResolvedConnection> &connections,
+                const std::vector<DerivedBoundaryPath> &boundary_paths);
 
 [[nodiscard]] Result<bool> emit_geometry(DerivedRoad &derived);
 

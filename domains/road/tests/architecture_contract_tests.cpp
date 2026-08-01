@@ -1526,7 +1526,7 @@ bool marking_invalid_interval_splits_polyline_runs(std::string& failure) {
         SectionEvaluation{77, distance, 1, {boundary}, {}});
   }
   const auto markings = city::road::generation::derive_markings(
-      SavedRoadGraph{}, {segment}, {});
+      SavedRoadGraph{}, {segment}, {}, {});
   std::ostringstream diagnostic;
   diagnostic << "ok=" << markings.ok << " runs=" << markings.value.size();
   for (std::size_t index = 0; index < markings.value.size(); ++index) {

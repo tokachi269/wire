@@ -1214,8 +1214,10 @@ bool LAN4_selected_outer_lane_branches_to_one_lane_road(
        city::road::LaneConnectionKind::kSplit},
   };
   branch.boundary_continuations = {
-      {{incoming.value, 300, EndpointRole::kEnd}, 100},
-      {{incoming.value, 900, EndpointRole::kEnd}, 900},
+      {{incoming.value, 300, EndpointRole::kEnd}, 100,
+       city::road::BoundaryContinuationKind::kSplit},
+      {{incoming.value, 900, EndpointRole::kEnd}, 900,
+       city::road::BoundaryContinuationKind::kSplit},
   };
   const auto branch_segment =
       state.AddConnectedLaneSegment(std::move(branch));
@@ -1717,6 +1719,101 @@ bool LAN7_junction_movements_are_explicit_lane_connections(
   ROAD_TEST_EXPECT(after_non_junction.ok &&
                        after_non_junction.value == before_non_junction.value,
                    "LAN7 non-junction movement failure mutated state");
+  return true;
+}
+
+bool LAN8_branch_markings_follow_explicit_boundary_paths(
+    std::string& failure) {
+  RoadState state{};
+  const auto source_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 3)});
+  const auto mainline_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 2)});
+  const auto branch_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 1)});
+  ROAD_TEST_EXPECT(source_template.ok && mainline_template.ok &&
+                       branch_template.ok,
+                   "LAN8 fixture templates could not be created");
+  const auto source = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-60.0, 0.0}, {0.0, 0.0})}),
+      source_template.value});
+  ROAD_TEST_EXPECT(source.ok, source.error);
+  const auto source_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&source](const auto& segment) { return segment.id == source.value; });
+  ROAD_TEST_EXPECT(source_segment != state.graph().segments.end(),
+                   "LAN8 source segment is missing");
+  const RoadNodeId split_node = source_segment->node_b;
+
+  city::road::AddConnectedLaneSegmentRequest mainline{};
+  mainline.start_node = split_node;
+  mainline.alignment = MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})});
+  mainline.section_template = mainline_template.value;
+  mainline.lane_connections = {
+      {{source.value, 1000, EndpointRole::kEnd}, 1000,
+       city::road::LaneConnectionKind::kContinuation},
+      {{source.value, 1010, EndpointRole::kEnd}, 1010,
+       city::road::LaneConnectionKind::kContinuation},
+  };
+  mainline.boundary_continuations = {
+      {{source.value, 100, EndpointRole::kEnd}, 100},
+      {{source.value, 200, EndpointRole::kEnd}, 200},
+  };
+  const auto mainline_segment =
+      state.AddConnectedLaneSegment(std::move(mainline));
+  ROAD_TEST_EXPECT(mainline_segment.ok, mainline_segment.error);
+
+  city::road::AddConnectedLaneSegmentRequest branch{};
+  branch.start_node = split_node;
+  branch.alignment = MakePath({MakeLine({0.0, 0.0}, {42.0, -42.0})});
+  branch.section_template = branch_template.value;
+  branch.lane_connections = {
+      {{source.value, 1020, EndpointRole::kEnd}, 1000,
+       city::road::LaneConnectionKind::kSplit},
+  };
+  branch.boundary_continuations = {
+      {{source.value, 300, EndpointRole::kEnd}, 100,
+       city::road::BoundaryContinuationKind::kSplit},
+      {{source.value, 900, EndpointRole::kEnd}, 900,
+       city::road::BoundaryContinuationKind::kSplit},
+  };
+  const auto branch_segment = state.AddConnectedLaneSegment(std::move(branch));
+  ROAD_TEST_EXPECT(branch_segment.ok, branch_segment.error);
+
+  for (const auto boundary_id : {300ULL, 900ULL}) {
+    const auto topology = std::find_if(
+        state.graph().boundary_continuations.begin(),
+        state.graph().boundary_continuations.end(),
+        [boundary_id, &branch_segment](const auto& continuation) {
+          return continuation.source.boundary_id == boundary_id &&
+                 continuation.target.segment_id == branch_segment.value;
+        });
+    ROAD_TEST_EXPECT(topology != state.graph().boundary_continuations.end(),
+                     "LAN8 explicit branch boundary topology is missing");
+    const auto boundary_path = std::find_if(
+        state.derived().boundary_paths.begin(),
+        state.derived().boundary_paths.end(), [&topology](const auto& path) {
+          return path.continuation_id == topology->id;
+        });
+    const auto marking = road_test_view::find_marking_line(
+        state.derived(), [boundary_id, split_node](const auto& candidate) {
+          return candidate.owner.kind == MarkingOwner::Kind::kJunction &&
+                 candidate.owner.node_id == split_node &&
+                 candidate.boundary_id == boundary_id;
+        });
+    ROAD_TEST_EXPECT(boundary_path != state.derived().boundary_paths.end() &&
+                         boundary_path->path.spans.size() == 1 &&
+                         marking != nullptr && marking->points.size() >= 2,
+                     "LAN8 branch boundary did not produce a marking path");
+    const auto boundary_points = FlattenPath(boundary_path->path);
+    ROAD_TEST_EXPECT(
+        !boundary_points.empty() &&
+            marking->points.front().x == boundary_points.front().x &&
+            marking->points.front().y == boundary_points.front().y &&
+            marking->points.back().x == boundary_points.back().x &&
+            marking->points.back().y == boundary_points.back().y,
+        "LAN8 marking does not follow its DerivedBoundaryPath");
+  }
   return true;
 }
 
@@ -2234,6 +2331,8 @@ int main() {
        LAN6_opposing_lanes_and_median_survive_one_direction_branch},
       {"LAN7_junction_movements_are_explicit_lane_connections",
        LAN7_junction_movements_are_explicit_lane_connections},
+      {"LAN8_branch_markings_follow_explicit_boundary_paths",
+       LAN8_branch_markings_follow_explicit_boundary_paths},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},

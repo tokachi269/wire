@@ -47,6 +47,7 @@ export class ViewerActions {
         road: {
           primary: (point, pick) => this.road.addViewportPoint(point, roadPick(pick)),
           preview: (point, pick) => this.road.previewViewportPoint(point, roadPick(pick)),
+          leave: () => this.road.clearPreview(),
           enter: () => this.road.commitPath(),
           escape: () => this.road.cancelSession(),
           undo: () => this.road.undoCommitted()
@@ -54,6 +55,7 @@ export class ViewerActions {
         wire: {
           primary: (point, pick) => this.draw.primaryViewportPoint(point, wirePick(pick)),
           preview: (point, pick) => this.draw.previewViewportPoint(point, wirePick(pick)),
+          leave: () => this.draw.clearPreview(),
           enter: () => this.draw.finishSession(),
           escape: () => this.draw.cancelSession(),
           undo: () => this.draw.undoCommitted(() => this.selection.clearSelection())
@@ -87,6 +89,10 @@ export class ViewerActions {
 
   previewViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): void {
     this.drawSession.preview(point, pick);
+  }
+
+  clearViewportPreview(): void {
+    this.drawSession.leave();
   }
 
   undoActiveTool(): void {

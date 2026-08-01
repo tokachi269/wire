@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     store,
     (point, pick) => actions.addViewportPoint(point, pick),
     (point, pick) => actions.previewViewportPoint(point, pick),
+    () => actions.clearViewportPreview(),
     () => actions.cancelDrawSession(),
     (deltaMs) => actions.recordFrame(deltaMs),
     (stats) => actions.recordSceneContentSync(stats),

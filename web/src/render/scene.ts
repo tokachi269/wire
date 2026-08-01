@@ -337,6 +337,7 @@ export class WireScene {
     private readonly store: ViewerStore,
     private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo) => void,
     private readonly onGroundPreview: (point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo) => void,
+    private readonly onGroundPreviewCancel: () => void,
     private readonly onContextAction: () => void,
     private readonly onFrame: (deltaMs: number) => void,
     private readonly onContentSync?: (stats: SceneContentSyncStats) => void,
@@ -520,7 +521,7 @@ export class WireScene {
       pinch = null;
       pointerDown = null;
       this.clearSnapPreview();
-      this.onGroundPreview([0, 0, 0]);
+      this.onGroundPreviewCancel();
     };
     const onContextMenu = (event: MouseEvent) => {
       event.preventDefault();
@@ -1092,6 +1093,17 @@ export class WireScene {
       const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), material);
       mesh.position.z += 0.03;
       this.roadPreview.add(mesh);
+    }
+    if (snapshot.road.operation === "draw" && snapshot.road.previewState === "invalid") {
+      const points = [snapshot.road.draftStart, snapshot.road.draftEnd].map(
+        (point) => new THREE.Vector3(point.x, point.y, snapshot.drawPlaneZ + 0.08)
+      );
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({ color: 0xe85d3f, depthTest: false, transparent: true, opacity: 0.9 })
+      );
+      line.renderOrder = 45;
+      this.roadPreview.add(line);
     }
     for (const lane of snapshot.road.scene.lanePaths) {
       const hovered = lane.segmentId === snapshot.road.hoveredLaneSegmentId &&

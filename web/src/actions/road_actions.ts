@@ -14,6 +14,19 @@ import { ViewerActionContext } from "./context";
 export class RoadActions {
   constructor(private readonly ctx: ViewerActionContext) {}
 
+  clearPreview(): void {
+    this.ctx.store.update((current) => ({
+      ...current,
+      road: {
+        ...current.road,
+        previewMeshes: [],
+        previewState: "none",
+        previewRequest: null,
+        previewIssue: ""
+      }
+    }));
+  }
+
   setMode(mode: RoadToolMode): void {
     this.ctx.store.update((current) => ({
       ...current,

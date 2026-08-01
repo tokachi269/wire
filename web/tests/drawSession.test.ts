@@ -5,6 +5,7 @@ function domain(): DrawSessionDomain {
   return {
     primary: vi.fn(),
     preview: vi.fn(),
+    leave: vi.fn(),
     enter: vi.fn(),
     escape: vi.fn(),
     undo: vi.fn()
@@ -20,12 +21,14 @@ describe("shared draw session input", () => {
 
     session.primary([1, 2, 3]);
     session.preview([4, 5, 6]);
+    session.leave();
     session.enter();
     session.escape();
     session.undo();
 
     expect(road.primary).toHaveBeenCalledOnce();
     expect(road.preview).toHaveBeenCalledOnce();
+    expect(road.leave).toHaveBeenCalledOnce();
     expect(road.enter).toHaveBeenCalledOnce();
     expect(road.escape).toHaveBeenCalledOnce();
     expect(road.undo).toHaveBeenCalledOnce();

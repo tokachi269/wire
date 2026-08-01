@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ViewerActions } from "../actions/viewer";
+  import { drawIssueText } from "../draw_feedback";
   import type { ViewerSnapshot } from "../store/viewer";
 
   interface Props {
@@ -155,6 +156,6 @@
   {#if snapshot.road.lastError}
     <p class="road-error">{snapshot.road.lastError}</p>
   {:else if snapshot.road.previewIssue}
-    <p class="road-preview-issue">{snapshot.road.previewIssue}</p>
+    <p class="road-preview-issue">{drawIssueText(snapshot.road.previewIssue)}</p>
   {/if}
 </section>

@@ -42,6 +42,13 @@ export class DrawActions {
     this.applyWirePreview(request, this.ctx.bridge.previewWireInterval(request));
   }
 
+  clearPreview(): void {
+    this.ctx.store.update((current) => ({
+      ...current,
+      wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null }
+    }));
+  }
+
   finishSession(): void {
     const preview = this.ctx.readSnapshot().wirePreview;
     if (preview.state === "invalid") return;
@@ -271,16 +278,17 @@ export class DrawActions {
     request: WireIntervalRequest,
     preview: ReturnType<ViewerActionContext["bridge"]["previewWireInterval"]>
   ): void {
+    const internalFailure = !preview.ok && preview.errorKind === 3;
     this.ctx.store.update((current) => ({
       ...current,
       wirePreview: {
         state: preview.ok ? "valid" : "invalid",
         parts: preview.ok ? preview.parts : [],
         poles: preview.ok ? preview.poles : [],
-        issue: preview.ok ? "" : preview.error,
+        issue: preview.ok || internalFailure ? "" : preview.error,
         request
       },
-      error: ""
+      error: internalFailure ? preview.error : ""
     }));
   }
 

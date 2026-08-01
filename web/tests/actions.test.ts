@@ -711,6 +711,29 @@ describe("viewport tool routing", () => {
     expect(current(store).wirePreview.issue).toBe("wire connection needs more length");
   });
 
+  it("replaces an invalid wire preview with the current valid candidate", () => {
+    const previewWireInterval = vi.fn((request: WireIntervalRequest) => request.points[1][0] < 2
+      ? {
+          ok: false, error: "wire interval is too short", generatedPoleCount: 0, generatedSpanCount: 0,
+          totalMs: 0, timing: timing(0), parts: [], poles: [], endpoint: request.points[1], endpointSpec: null
+        }
+      : {
+          ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+          generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"], totalMs: 1,
+          timing: timing(1), parts: [], poles: [], endpoint: request.points[1], endpointSpec: null
+        });
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([1, 0, 0]);
+    expect(current(store).wirePreview.state).toBe("invalid");
+    actions.previewViewportPoint([10, 0, 0]);
+    expect(current(store).wirePreview.state).toBe("valid");
+    expect(current(store).wirePreview.issue).toBe("");
+  });
+
   it("keeps committed wire intervals when Escape cancels the next preview", () => {
     const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
       ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,

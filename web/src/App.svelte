@@ -21,6 +21,7 @@
   import SelectionInspector from "./panels/SelectionInspector.svelte";
   import { buildInfo } from "./buildInfo";
   import { categoryShort } from "./labels";
+  import { drawIssueText } from "./draw_feedback";
   import type { GenerationTiming } from "./model";
   import {
     createViewerSnapshot,
@@ -443,7 +444,7 @@
                 onchange={(event) => actions.setDrawOption("drawPlaneZ", Number(event.currentTarget.value))} />
             </label>
             {#if snapshot.wirePreview.issue}
-              <p class="road-preview-issue">{snapshot.wirePreview.issue}</p>
+              <p class="road-preview-issue">{drawIssueText(snapshot.wirePreview.issue)}</p>
             {/if}
             <p class="hint">LMB: commit interval / Enter: commit and finish / Esc: cancel preview</p>
           </div>

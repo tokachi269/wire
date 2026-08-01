@@ -421,21 +421,24 @@ describe("wire wasm smoke", () => {
     );
     expect(first.ok, first.error).toBe(true);
     expect(first.generatedPoleIds).toHaveLength(2);
+    expect(first.generatedBundleIds).toBeDefined();
+    expect(first.generatedPoleIds).toBeDefined();
     placements = placements.map((placement, index) => ({
       ...placement,
-      generatedBundleId: first.generatedBundleIds[index]
+      generatedBundleId: first.generatedBundleIds![index]
     }));
 
-    const secondStart = first.generatedPoleIds.at(-1)!;
+    const secondStart = first.generatedPoleIds!.at(-1)!;
     const second = runState.generatePlacements(
       new Float64Array([12, 0, 0, 12, 10, 0]), placements, 0, 2, 0, 12,
       [{ pointIndex: 0, supportKind: 0, nodeId: secondStart }]
     );
     expect(second.ok, second.error).toBe(true);
     expect(second.generatedPoleIds).toHaveLength(1);
+    expect(second.generatedPoleIds).toBeDefined();
 
     const beforeThird = runState.saveState();
-    const thirdStart = second.generatedPoleIds.at(-1)!;
+    const thirdStart = second.generatedPoleIds!.at(-1)!;
     const third = runState.previewPlacements(
       new Float64Array([12, 10, 0, 0, 10, 0]), placements, 0, 2, 0, 12,
       [{ pointIndex: 0, supportKind: 0, nodeId: thirdStart }]
@@ -449,17 +452,19 @@ describe("wire wasm smoke", () => {
     );
     expect(thirdCommitted.ok, thirdCommitted.error).toBe(true);
     expect(thirdCommitted.generatedPoleIds).toHaveLength(1);
+    expect(thirdCommitted.generatedPoleIds).toBeDefined();
 
-    const fourthStart = thirdCommitted.generatedPoleIds.at(-1)!;
+    const fourthStart = thirdCommitted.generatedPoleIds!.at(-1)!;
     const fourth = runState.generatePlacements(
       new Float64Array([0, 10, 0, 0, 20, 0]), placements, 0, 2, 0, 12,
       [{ pointIndex: 0, supportKind: 0, nodeId: fourthStart }]
     );
     expect(fourth.ok, fourth.error).toBe(true);
     expect(fourth.generatedPoleIds).toHaveLength(1);
+    expect(fourth.generatedPoleIds).toBeDefined();
 
     const beforeFifth = runState.saveState();
-    const fifthStart = fourth.generatedPoleIds.at(-1)!;
+    const fifthStart = fourth.generatedPoleIds!.at(-1)!;
     const fifth = runState.previewPlacements(
       new Float64Array([0, 20, 0, 10, 20, 0]), placements, 0, 2, 0, 12,
       [{ pointIndex: 0, supportKind: 0, nodeId: fifthStart }]

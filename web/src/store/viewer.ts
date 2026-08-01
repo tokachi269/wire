@@ -35,10 +35,7 @@ export interface PathPointSpec {
 }
 
 export interface WirePreviewState {
-  state: "none" | "valid" | "invalid";
-  parts: VisualPart[];
-  poles: PoleInfo[];
-  issue: string;
+  state: "none" | "guide";
   request: WireIntervalRequest | null;
 }
 
@@ -121,7 +118,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     viewerUpdateMs: null,
     pathPoints: [],
     pathPointSpecs: [],
-    wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
+    wirePreview: { state: "none", request: null },
     bundleTemplates: [],
     selectedBundleTemplateId: null,
     drawBundlePlacements: [],

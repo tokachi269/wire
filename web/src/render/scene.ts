@@ -1023,14 +1023,8 @@ export class WireScene {
       spec === null ? "null" : `${spec.supportKind}:${spec.nodeId}`
     ).join("|");
     const preview = snapshot.wirePreview;
-    const previewParts = preview.parts.map((part) =>
-      `${part.info.partKey}:${part.info.sourceVersion}:${part.samples.length}`
-    ).join("|");
-    const previewPoles = preview.poles.map((pole) =>
-      `${pole.id}:${pole.positionX}:${pole.positionY}:${pole.positionZ}`
-    ).join("|");
     const request = preview.request?.points.map((point) => point.join(":")).join("|") ?? "";
-    return `${points};${specs};${preview.state};${previewParts};${previewPoles};${request}`;
+    return `${points};${specs};${preview.state};${request}`;
   }
 
   private sceneRoadSignature(snapshot: ViewerSnapshot): string {
@@ -1531,7 +1525,7 @@ export class WireScene {
   private buildWirePreview(snapshot: ViewerSnapshot): void {
     const preview = snapshot.wirePreview;
     if (preview.state === "none" || preview.request === null) return;
-    const color = preview.state === "valid" ? 0x39b8d4 : 0xe85d3f;
+    const color = 0x39b8d4;
     const candidate = preview.request.points.map(
       (point) => new THREE.Vector3(point[0], point[1], point[2] + 0.08)
     );
@@ -1542,29 +1536,6 @@ export class WireScene {
     candidateLine.renderOrder = 45;
     this.guide.add(candidateLine);
 
-    for (const part of preview.parts) {
-      const points: THREE.Vector3[] = [];
-      for (let index = 0; index + 2 < part.samples.length; index += 3) {
-        points.push(new THREE.Vector3(part.samples[index], part.samples[index + 1], part.samples[index + 2]));
-      }
-      if (points.length < 2) continue;
-      const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(points),
-        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.78, depthTest: false })
-      );
-      line.renderOrder = 46;
-      this.guide.add(line);
-    }
-    for (const pole of preview.poles) {
-      const marker = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.12, 0.18, Math.max(0.5, pole.height), 8),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthTest: false })
-      );
-      marker.rotateX(Math.PI / 2);
-      marker.position.set(pole.positionX, pole.positionY, pole.positionZ + pole.height / 2);
-      marker.renderOrder = 46;
-      this.guide.add(marker);
-    }
   }
 
   private buildPathGuide(snapshot: ViewerSnapshot): void {

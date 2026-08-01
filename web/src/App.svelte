@@ -439,9 +439,6 @@
               <input type="number" step="0.1" value={snapshot.drawPlaneZ}
                 onchange={(event) => actions.setDrawOption("drawPlaneZ", Number(event.currentTarget.value))} />
             </label>
-            {#if snapshot.wirePreview.issue}
-              <p class="road-preview-issue">{drawIssueText(snapshot.wirePreview.issue)}</p>
-            {/if}
             <p class="hint">LMB: commit interval / Enter: commit and finish / Esc: cancel preview</p>
           </div>
           <SelectionInspector {actions} {snapshot} />

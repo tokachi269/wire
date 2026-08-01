@@ -16,7 +16,7 @@ export class DrawActions {
         ...snapshot,
         pathPoints: [anchor.point],
         pathPointSpecs: [anchor.spec],
-        wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
+        wirePreview: { state: "none", request: null },
         error: ""
       }));
       return;
@@ -25,12 +25,8 @@ export class DrawActions {
     const request = this.samePreviewTarget(current.wirePreview.request, point, pick)
       ? current.wirePreview.request
       : this.intervalRequest(point, pick);
-    if (request === null) return;
-    if (request !== current.wirePreview.request) {
-      const preview = this.ctx.bridge.previewWireInterval(request);
-      this.applyWirePreview(request, preview);
-      if (!preview.ok) return;
-    } else if (current.wirePreview.state !== "valid") {
+    if (request === null) {
+      this.ctx.store.setError("wire endpoint must differ from the current anchor");
       return;
     }
     this.commitWireInterval(request, false);
@@ -39,20 +35,19 @@ export class DrawActions {
   previewViewportPoint(point: WorldPoint, pick?: PathPickInfo): void {
     const request = this.intervalRequest(point, pick);
     if (request === null) return;
-    this.applyWirePreview(request, this.ctx.bridge.previewWireInterval(request));
+    this.applyWireGuide(request);
   }
 
   clearPreview(): void {
     this.ctx.store.update((current) => ({
       ...current,
-      wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null }
+      wirePreview: { state: "none", request: null }
     }));
   }
 
   finishSession(): void {
     const preview = this.ctx.readSnapshot().wirePreview;
-    if (preview.state === "invalid") return;
-    if (preview.state === "valid" && preview.request !== null) {
+    if (preview.state === "guide" && preview.request !== null) {
       this.commitWireInterval(preview.request, true);
       return;
     }
@@ -69,7 +64,7 @@ export class DrawActions {
       ...current,
       pathPoints: [],
       pathPointSpecs: [],
-      wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
+      wirePreview: { state: "none", request: null },
       error: ""
     }));
   }
@@ -96,7 +91,7 @@ export class DrawActions {
       ...current,
       pathPoints: [],
       pathPointSpecs: [],
-      wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
+      wirePreview: { state: "none", request: null },
       drawBundlePlacements: current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement),
       error: ""
     }));
@@ -274,21 +269,11 @@ export class DrawActions {
       request.points[1][2] === point[2] && JSON.stringify(request.targetPick) === JSON.stringify(pick);
   }
 
-  private applyWirePreview(
-    request: WireIntervalRequest,
-    preview: ReturnType<ViewerActionContext["bridge"]["previewWireInterval"]>
-  ): void {
-    const internalFailure = !preview.ok && preview.errorKind === 3;
+  private applyWireGuide(request: WireIntervalRequest): void {
     this.ctx.store.update((current) => ({
       ...current,
-      wirePreview: {
-        state: preview.ok ? "valid" : "invalid",
-        parts: preview.ok ? preview.parts : [],
-        poles: preview.ok ? preview.poles : [],
-        issue: preview.ok || internalFailure ? "" : preview.error,
-        request
-      },
-      error: internalFailure ? preview.error : ""
+      wirePreview: { state: "guide", request },
+      error: ""
     }));
   }
 
@@ -298,8 +283,8 @@ export class DrawActions {
     if (!result.ok) {
       this.ctx.store.update((current) => ({
         ...current,
-        wirePreview: { ...current.wirePreview, state: "invalid", issue: result.error, request },
-        error: ""
+        wirePreview: { state: "guide", request },
+        error: result.error
       }));
       return;
     }
@@ -315,7 +300,7 @@ export class DrawActions {
       ...current,
       pathPoints: endSession ? [] : [endpoint],
       pathPointSpecs: endSession ? [] : [endpointSpec],
-      wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null },
+      wirePreview: { state: "none", request: null },
       drawBundlePlacements: current.drawBundlePlacements.map((placement, index) => ({
         ...placement,
         generatedBundleId: generatedBundleIds[index] ?? placement.generatedBundleId

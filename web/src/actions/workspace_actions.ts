@@ -301,7 +301,7 @@ export class WorkspaceActions {
         showGroundGrid: preferences.showGroundGrid ?? current.showGroundGrid,
         pathPoints: [],
         pathPointSpecs: [],
-        wirePreview: { state: "none", parts: [], poles: [], issue: "", request: null }
+        wirePreview: { state: "none", request: null }
       };
     });
     if (defaultPlacementError.length > 0) {

@@ -5,12 +5,12 @@ validation, and commit requests remain owned by each domain.
 
 ## State
 
-A draw session is in one of four transient states:
+A draw session is in one of three transient states:
 
 - `idle`: no start anchor exists.
 - `anchored`: a start anchor exists, but there is no candidate interval.
-- `valid preview`: the current candidate can be committed.
-- `invalid preview`: the current candidate cannot be committed and carries a reason.
+- `guide`: the current pointer input defines a candidate interval. The guide does
+  not claim that full domain generation will succeed.
 
 Committed domain entities are not draw-session state. A preview, guide, pointer
 gesture, or start anchor is never persisted.
@@ -18,19 +18,19 @@ gesture, or start anchor is never persisted.
 ## Click
 
 The first primary action establishes the start anchor. Once an anchor exists, a
-primary action commits the currently displayed valid interval. A successful
+primary action submits the currently displayed guide to the domain operation.
+Full generation and validation run only at this commit boundary. A successful
 commit makes its endpoint the next start anchor and starts previewing the next
 interval.
 
-The committed request is the request produced by the preview. Click does not
-rebuild the candidate through another shape or validation path.
+The committed request and guide share the same input request. The guide does not
+run the full operation in advance and its presence never gates a primary action.
 
 ## Enter
 
-When a valid preview exists, Enter commits that interval through the same path
-as Click and then ends the draw session. With no preview, Enter ends the session.
-With an invalid preview, Enter does not commit or end the session; it preserves
-the candidate and its reason.
+When a guide exists, Enter submits that interval through the same path as Click
+and ends the draw session only after success. With no guide, Enter ends the
+session. A failed commit preserves the guide and reports the commit failure.
 
 ## Escape
 
@@ -50,15 +50,14 @@ preview and does not remove previously committed entities.
 
 ## Pointer move
 
-Pointer movement after anchoring produces one of `valid preview`, `invalid
-preview`, or `no candidate`. A valid preview is the exact Core result that the
-next Click or Enter will request. An invalid candidate remains visible with an
-invalid treatment, a problem location, and a concise reason. The last valid
-preview must not be presented as the current candidate.
+Pointer movement after anchoring produces a lightweight guide or no candidate.
+It must not execute full Core generation, classify a future commit failure, or
+publish a user-facing commit error. The guide is replaced by the current input;
+an older candidate must not remain visible as though it were current.
 
-Road preview includes the surface and affected local connection. Wire preview
-includes the route and support candidates. Hover guides are separate scene
-objects and never substitute for a Core preview.
+Road guide shows the input path and width envelope needed to understand the
+candidate. Wire guide shows the input route and snap marker. Domain geometry,
+support placement, junction generation, and model assembly are commit work.
 
 ## Atomicity
 

@@ -602,20 +602,17 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
 }
 
 describe("viewport tool routing", () => {
-  it("previews and commits each wire interval without waiting for Enter", () => {
-    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
-      ok: true,
-      error: "",
-      generatedPoleCount: 2,
-      generatedSpanCount: 1,
-      generatedPoleIds: ["101", "102"],
-      generatedSpanIds: ["201"],
-      generatedBundleIds: ["301"],
-      totalMs: 1,
-      timing: timing(1),
+  it("uses a lightweight wire guide and commits each interval without preview validation", () => {
+    const previewWireInterval = vi.fn(() => ({
+      ok: false,
+      error: "preview generation must not gate a primary click",
+      generatedPoleCount: 0,
+      generatedSpanCount: 0,
+      totalMs: 0,
+      timing: timing(0),
       parts: [],
       poles: [],
-      endpoint: request.points[1],
+      endpoint: [0, 0, 0] as [number, number, number],
       endpointSpec: null
     }));
     const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
@@ -637,18 +634,20 @@ describe("viewport tool routing", () => {
 
     actions.addViewportPoint([0, 0, 0]);
     actions.previewViewportPoint([12, 0, 0]);
-    expect(previewWireInterval).toHaveBeenCalledOnce();
+    expect(previewWireInterval).not.toHaveBeenCalled();
+    expect(current(store).wirePreview.request?.points).toEqual([[0, 0, 0], [12, 0, 0]]);
 
     actions.addViewportPoint([12, 0, 0]);
     expect(generateWireInterval).toHaveBeenCalledOnce();
-    expect(generateWireInterval).toHaveBeenCalledWith(previewWireInterval.mock.calls[0][0]);
+    expect(generateWireInterval.mock.calls[0][0].points).toEqual([[0, 0, 0], [12, 0, 0]]);
     expect(current(store).pathPoints).toEqual([[12, 0, 0]]);
     expect(current(store).pathPointSpecs).toEqual([{ supportKind: 0, nodeId: "102" }]);
 
     actions.previewViewportPoint([24, 4, 0]);
     actions.addViewportPoint([24, 4, 0]);
     expect(generateWireInterval).toHaveBeenCalledTimes(2);
-    expect(generateWireInterval.mock.calls[1][0]).toEqual(previewWireInterval.mock.calls[1][0]);
+    expect(generateWireInterval.mock.calls[1][0].points).toEqual([[12, 0, 0], [24, 4, 0]]);
+    expect(previewWireInterval).not.toHaveBeenCalled();
   });
 
   it("commits the displayed wire interval with Enter and then ends the session", () => {
@@ -678,25 +677,24 @@ describe("viewport tool routing", () => {
     actions.finishDrawSession();
 
     expect(generateWireInterval).toHaveBeenCalledOnce();
-    expect(generateWireInterval).toHaveBeenCalledWith(previewWireInterval.mock.calls[0][0]);
+    expect(generateWireInterval.mock.calls[0][0].points).toEqual([[0, 0, 0], [12, 3, 0]]);
+    expect(previewWireInterval).not.toHaveBeenCalled();
     expect(current(store).pathPoints).toEqual([]);
     expect(current(store).wirePreview.state).toBe("none");
   });
 
-  it("keeps an invalid wire preview and reason when Enter cannot commit", () => {
-    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
+  it("keeps the wire guide and reports the commit reason when Enter fails", () => {
+    const previewWireInterval = vi.fn();
+    const generateWireInterval = vi.fn(() => ({
       ok: false,
       error: "wire connection needs more length",
       generatedPoleCount: 0,
       generatedSpanCount: 0,
       totalMs: 0,
       timing: timing(0),
-      parts: [],
-      poles: [],
-      endpoint: request.points[1],
+      endpoint: [0.1, 0, 0] as [number, number, number],
       endpointSpec: null
     }));
-    const generateWireInterval = vi.fn();
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ previewWireInterval, generateWireInterval }), store);
     actions.initialize();
@@ -705,33 +703,27 @@ describe("viewport tool routing", () => {
     actions.previewViewportPoint([0.1, 0, 0]);
     actions.finishDrawSession();
 
-    expect(generateWireInterval).not.toHaveBeenCalled();
+    expect(previewWireInterval).not.toHaveBeenCalled();
+    expect(generateWireInterval).toHaveBeenCalledOnce();
     expect(current(store).pathPoints).toEqual([[0, 0, 0]]);
-    expect(current(store).wirePreview.state).toBe("invalid");
-    expect(current(store).wirePreview.issue).toBe("wire connection needs more length");
+    expect(current(store).wirePreview.state).toBe("guide");
+    expect(current(store).error).toBe("wire connection needs more length");
   });
 
-  it("replaces an invalid wire preview with the current valid candidate", () => {
-    const previewWireInterval = vi.fn((request: WireIntervalRequest) => request.points[1][0] < 2
-      ? {
-          ok: false, error: "wire interval is too short", generatedPoleCount: 0, generatedSpanCount: 0,
-          totalMs: 0, timing: timing(0), parts: [], poles: [], endpoint: request.points[1], endpointSpec: null
-        }
-      : {
-          ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
-          generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"], totalMs: 1,
-          timing: timing(1), parts: [], poles: [], endpoint: request.points[1], endpointSpec: null
-        });
+  it("updates the lightweight wire guide without asking Core to validate it", () => {
+    const previewWireInterval = vi.fn();
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ previewWireInterval }), store);
     actions.initialize();
 
     actions.addViewportPoint([0, 0, 0]);
     actions.previewViewportPoint([1, 0, 0]);
-    expect(current(store).wirePreview.state).toBe("invalid");
+    expect(current(store).wirePreview.state).toBe("guide");
+    expect(current(store).wirePreview.request?.points[1]).toEqual([1, 0, 0]);
     actions.previewViewportPoint([10, 0, 0]);
-    expect(current(store).wirePreview.state).toBe("valid");
-    expect(current(store).wirePreview.issue).toBe("");
+    expect(current(store).wirePreview.state).toBe("guide");
+    expect(current(store).wirePreview.request?.points[1]).toEqual([10, 0, 0]);
+    expect(previewWireInterval).not.toHaveBeenCalled();
   });
 
   it("keeps committed wire intervals when Escape cancels the next preview", () => {

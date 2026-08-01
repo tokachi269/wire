@@ -1304,6 +1304,54 @@ bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   return true;
 }
 
+bool add_lane_taper_crosses_segment_boundary(std::string& failure) {
+  RoadState state{};
+  const auto first = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(first.ok, first.error);
+  const auto first_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&first](const auto& segment) { return segment.id == first.value; });
+  const auto* corridor = FindCorridorForSegment(state.graph(), first.value);
+  ROAD_TEST_EXPECT(first_segment != state.graph().segments.end() &&
+                       corridor != nullptr,
+                   "ADD2 initial corridor is missing");
+  const auto corridor_id = corridor->id;
+  const auto second = state.ExtendCorridorFromEnd(
+      city::road::ExtendCorridorFromEndRequest{
+          corridor_id, first_segment->node_b,
+          MakePath({MakeLine({80.0, 0.0}, {160.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(second.ok, second.error);
+
+  city::road::AddLaneRequest request{};
+  request.corridor_id = corridor_id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  request.taper_start_corridor_distance_m = 60.0;
+  request.full_width_corridor_distance_m = 100.0;
+  request.lane_width_m = 3.0;
+  const auto added = state.AddLane(request);
+  ROAD_TEST_EXPECT(added.ok, added.error);
+  const auto first_after = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&first](const auto& segment) { return segment.id == first.value; });
+  const auto second_after = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&second](const auto& segment) { return segment.id == second.value; });
+  ROAD_TEST_EXPECT(first_after->transition.has_value() &&
+                       second_after->transition.has_value(),
+                   "ADD2 did not resolve both sides of the segment boundary");
+  const auto sections = road_test_view::sections(state.derived());
+  const auto at_boundary = std::find_if(
+      sections.begin(), sections.end(), [&first](const auto* section) {
+        return section->segment_id == first.value &&
+               std::abs(section->segment_distance_m - 80.0) < 1e-6;
+      });
+  ROAD_TEST_EXPECT(at_boundary != sections.end(),
+                   "ADD2 boundary section sample is missing");
+  return true;
+}
+
 bool selected_outer_lane_branches_to_one_lane_road(
     std::string& failure) {
   RoadState state{};
@@ -2466,6 +2514,8 @@ int main() {
        add_lane_preserves_existing_lanes},
       {"add_lane_propagates_from_middle_corridor_segment",
        add_lane_propagates_from_middle_corridor_segment},
+      {"add_lane_taper_crosses_segment_boundary",
+       add_lane_taper_crosses_segment_boundary},
       {"selected_outer_lane_branches_to_one_lane_road",
        selected_outer_lane_branches_to_one_lane_road},
       {"one_lane_road_merges_into_outer_mainline_lane",

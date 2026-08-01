@@ -89,7 +89,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | Viewer delete road | 1 segment pick | `DeleteSegment` | hoverしたRoadSegment全体を1クリックで削除 | hoverとclickは同じ明示segment IDを使う | splitやrange境界を作らない |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
 | AttachSectionTransition | validation | supported | supported | replace supported | supported |
-| AddLane | validation | 同一segment内taperはsupported | corridor途中から後続segmentへの伝播はsupported | 既存transitionとの競合は範囲解決までunsupported | supported |
+| AddLane | validation | 同一segment内taperはsupported | segment境界をまたぐtaperと後続segmentへの伝播はsupported | 既存transitionとの競合は範囲解決までunsupported | supported |
 | AddManualLine / AddManualArea | validation | supported | supported | supported | supported |
 
 ## P1 node semantics
@@ -163,7 +163,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - transition前は `from_template`、transition後は `to_template`、区間内は線形補間する。
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge / 明示BoundaryIdのいずれか。
 - `AddLane`は方向と側から外側laneと固定boundaryをCoreで一意に解決する。利用者へboundary IDを要求せず、固定boundary内側の既存laneを移動しない。
-- taper開始と通常幅位置が同一segment内にある場合、追加後断面はcorridorの後続segmentへ伝播する。segmentをまたぐtaper、reversed corridor、既存transitionとの競合は未解決のまま明示拒否し、単一segment primitiveへfallbackしない。
+- taperはcorridor距離上の一つの変化率として解決する。segment境界では同じ中間断面を前segmentの終端と次segmentの開始に使い、追加後断面をcorridorの後続segmentへ伝播する。reversed corridorと既存transitionとの競合は未解決のまま明示拒否し、単一segment primitiveへfallbackしない。
   追加lane幅だけを0から指定幅へ単調に増やし、その外側のshoulderとcurbを外へ移す。断面全体を再中心化しない。
 - 最初の対応範囲は、1本のforward corridor segment内で完結し、既存transitionと重ならないlane追加である。
   複数segmentまたぎ、reversed segment、既存transitionとの合成は推測せずunsupportedとする。

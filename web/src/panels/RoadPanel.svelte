@@ -158,9 +158,7 @@
     <span>junctions <strong>{snapshot.road.scene.junctionCount}</strong></span>
   </div>
 
-  {#if snapshot.road.lastError}
-    <p class="road-error">{snapshot.road.lastError}</p>
-  {:else if snapshot.road.previewIssue}
+  {#if snapshot.road.previewIssue}
     <p class="road-preview-issue">{drawIssueText(snapshot.road.previewIssue)}</p>
   {/if}
 </section>

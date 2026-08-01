@@ -542,7 +542,7 @@
       </button>
     </aside>
 
-    {#if snapshot.error}
+    {#if snapshot.error && !snapshot.lastCommitFailure}
       <div class="error" role="alert">{snapshot.error}</div>
     {/if}
 
@@ -551,7 +551,10 @@
         <strong>{commitFailureLabel(snapshot.lastCommitFailure.category)} · {snapshot.lastCommitFailure.operation}</strong>
         <span>{snapshot.lastCommitFailure.message}</span>
         <span>{commitFailureRecovery(snapshot.lastCommitFailure)}</span>
-        <code>{snapshot.lastCommitFailure.reasonCode}</code>
+        <details>
+          <summary>Details</summary>
+          <code>{snapshot.lastCommitFailure.reasonCode}</code>
+        </details>
       </div>
     {/if}
 

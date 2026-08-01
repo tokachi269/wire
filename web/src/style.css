@@ -432,12 +432,6 @@ h1 {
   font-size: var(--sidebar-small-size);
 }
 
-.road-error {
-  margin: 0.55rem 0 0;
-  color: #ffb4a8;
-  font-size: var(--sidebar-small-size);
-}
-
 .road-preview-issue {
   margin: 0.55rem 0 0;
   color: #c7b98a;
@@ -969,6 +963,16 @@ summary {
 
 .commit-failure code {
   color: #b9c2bf;
+  font-size: 0.72rem;
+}
+
+.commit-failure details {
+  margin-top: 0.2rem;
+  padding-top: 0.25rem;
+}
+
+.commit-failure summary {
+  color: #cbd3d0;
   font-size: 0.72rem;
 }
 

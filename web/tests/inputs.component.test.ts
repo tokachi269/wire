@@ -315,6 +315,30 @@ describe("viewer numeric inputs", () => {
       .toContain("road_connection_too_short");
   });
 
+  it("uses one operation error surface and keeps the reason code in details", async () => {
+    const mounted = await mountViewer(false);
+    mounted.store.update((snapshot) => ({
+      ...snapshot,
+      error: "legacy operation error",
+      road: { ...snapshot.road, lastError: "legacy road panel error" }
+    }));
+    mounted.store.setCommitFailure({
+      ok: false,
+      error: "the selected lane cannot be extended",
+      failureCategory: CommitFailureCategory.NotImplemented,
+      reasonCode: "lane_destination_ambiguous"
+    }, "road add lane");
+    await tick();
+
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(document.querySelector(".road-error")).toBeNull();
+    const details = document.querySelector(".commit-failure details");
+    expect(details).toBeInstanceOf(HTMLDetailsElement);
+    expect(details?.hasAttribute("open")).toBe(false);
+    expect(details?.querySelector("code")?.textContent)
+      .toContain("lane_destination_ambiguous");
+  });
+
   it("returns an explicit outcome for every primary click and Enter action", async () => {
     const mounted = await mountViewer(false);
 

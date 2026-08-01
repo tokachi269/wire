@@ -209,6 +209,7 @@ export class ViewerStore {
     const category = result.failureCategory ?? CommitFailureCategory.InternalError;
     this.writable.update((current) => ({
       ...current,
+      error: "",
       lastCommitFailure: {
         category,
         reasonCode: result.reasonCode || "internal_error",

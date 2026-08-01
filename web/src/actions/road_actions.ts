@@ -259,7 +259,8 @@ export class RoadActions {
       return;
     }
     if (snap === undefined || snap.segmentId === 0) {
-      this.ctx.store.setError("Select a road segment");
+      this.rejectInput("road operation", "Select a road segment",
+                       "road_segment_not_selected");
       return;
     }
     if (road.operation === "delete") {
@@ -272,7 +273,8 @@ export class RoadActions {
     if (road.operation === "edit") {
       const editable = road.scene.editableSegments.find((segment) => segment.id === snap.segmentId);
       if (editable === undefined) {
-        this.ctx.store.setError("Road alignment is not editable");
+        this.rejectInput("road edit", "Road alignment is not editable",
+                         "road_alignment_not_editable");
         return;
       }
       this.ctx.store.update((snapshot) => ({
@@ -318,7 +320,9 @@ export class RoadActions {
         return;
       }
       if (road.markingDraftSegmentId !== snap.segmentId) {
-        this.ctx.store.setError("Manual line endpoints must use the same road segment");
+        this.rejectInput("road add manual line",
+                         "Manual line endpoints must use the same road segment",
+                         "manual_line_segment_mismatch");
         return;
       }
       this.finish(this.ctx.bridge.roadAddManualLine({
@@ -330,19 +334,24 @@ export class RoadActions {
       }), "road add manual line marking");
       return;
     }
-    this.ctx.store.setError("Select and drag a road control point");
+    this.rejectInput("road edit", "Select and drag a road control point",
+                     "road_control_point_not_selected");
   }
 
   private applyLaneOperation(road: RoadToolState, point: RoadPoint, snap?: RoadSnapInfo): void {
     if (road.operation === "add-lane") {
       if (road.laneEditStage === "select") {
         if (snap === undefined || snap.segmentId === 0) {
-          this.ctx.store.setError("Select the road where the lane begins");
+          this.rejectInput("road add lane",
+                           "Select the road where the lane begins",
+                           "lane_start_not_selected");
           return;
         }
         const distance = corridorDistanceForSnap(road, snap);
         if (distance === null) {
-          this.ctx.store.setError("Selected road is not in a corridor");
+          this.rejectInput("road add lane",
+                           "Selected road is not in a corridor",
+                           "lane_corridor_not_found");
           return;
         }
         const corridor = road.scene.corridors.find(
@@ -383,7 +392,8 @@ export class RoadActions {
     }
     if (road.laneEditStage === "select") {
       if (snap?.laneId === undefined || snap.endpointRole === undefined || snap.nodeId === 0) {
-        this.ctx.store.setError("Select a lane endpoint");
+        this.rejectInput("road lane connection", "Select a lane endpoint",
+                         "lane_endpoint_not_selected");
         return;
       }
       const path = road.scene.lanePaths.find((item) =>
@@ -599,6 +609,16 @@ export class RoadActions {
       lastCommitFailure: null,
       logs: [...snapshot.logs, log]
     }));
+  }
+
+  private rejectInput(operation: string, error: string,
+                      reasonCode: string): void {
+    this.ctx.store.setCommitFailure({
+      ok: false,
+      error,
+      failureCategory: CommitFailureCategory.InvalidInput,
+      reasonCode
+    }, operation);
   }
 
   private applyPreview(

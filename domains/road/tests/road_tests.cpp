@@ -1352,6 +1352,62 @@ bool add_lane_taper_crosses_segment_boundary(std::string& failure) {
   return true;
 }
 
+bool add_lane_normalizes_reversed_corridor_direction(std::string& failure) {
+  RoadState forward{};
+  const auto segment = forward.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const auto saved = forward.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  std::string reversed_archive = saved.value;
+  const std::string old_value = "corridor.0.segment.0.reversed=0";
+  const std::string new_value = "corridor.0.segment.0.reversed=1";
+  const std::size_t position = reversed_archive.find(old_value);
+  ROAD_TEST_EXPECT(position != std::string::npos,
+                   "ADD3 reversed corridor archive field is missing");
+  reversed_archive.replace(position, old_value.size(), new_value);
+  auto loaded = RoadState::Load(reversed_archive);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  const auto* corridor =
+      FindCorridorForSegment(loaded.value.graph(), segment.value);
+  ROAD_TEST_EXPECT(corridor != nullptr &&
+                       corridor->segments.front().reversed,
+                   "ADD3 reversed corridor did not load");
+
+  city::road::AddLaneRequest request{};
+  request.corridor_id = corridor->id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
+  request.lane_width_m = 3.0;
+  const auto added = loaded.value.AddLane(request);
+  ROAD_TEST_EXPECT(added.ok,
+                   "ADD3 reversed corridor lane addition failed: " +
+                       added.error);
+  const auto lane = std::find_if(
+      loaded.value.graph().section_templates.begin(),
+      loaded.value.graph().section_templates.end(),
+      [&added](const auto& section) {
+        return std::any_of(section.lane_bands.begin(),
+                           section.lane_bands.end(),
+                           [&added](const auto& candidate) {
+                             return candidate.id == added.value;
+                           });
+      });
+  ROAD_TEST_EXPECT(lane != loaded.value.graph().section_templates.end(),
+                   "ADD3 generated lane section is missing");
+  const auto added_lane = std::find_if(
+      lane->lane_bands.begin(), lane->lane_bands.end(),
+      [&added](const auto& candidate) { return candidate.id == added.value; });
+  ROAD_TEST_EXPECT(
+      added_lane != lane->lane_bands.end() &&
+          added_lane->direction ==
+              city::road::LaneTravelDirection::kAgainstSegment,
+      "ADD3 corridor direction was not normalized to segment direction");
+  return true;
+}
+
 bool selected_outer_lane_branches_to_one_lane_road(
     std::string& failure) {
   RoadState state{};
@@ -2568,6 +2624,8 @@ int main() {
        add_lane_propagates_from_middle_corridor_segment},
       {"add_lane_taper_crosses_segment_boundary",
        add_lane_taper_crosses_segment_boundary},
+      {"add_lane_normalizes_reversed_corridor_direction",
+       add_lane_normalizes_reversed_corridor_direction},
       {"selected_outer_lane_branches_to_one_lane_road",
        selected_outer_lane_branches_to_one_lane_road},
       {"one_lane_road_merges_into_outer_mainline_lane",

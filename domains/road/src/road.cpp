@@ -2293,14 +2293,24 @@ Result<SectionTransitionId> RoadState::AddTransitionToSegment(AddTransitionToSeg
 
 Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   if (!finite(request.taper_start_corridor_distance_m) ||
-      !finite(request.full_width_corridor_distance_m) ||
-      !finite(request.lane_width_m) ||
-      request.taper_start_corridor_distance_m < 0.0 ||
-      request.full_width_corridor_distance_m <=
-          request.taper_start_corridor_distance_m ||
-      request.lane_width_m <= 0.0) {
+      !finite(request.full_width_corridor_distance_m)) {
     return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
-                                "lane transition request is invalid");
+                                "lane addition distances must be finite");
+  }
+  if (request.taper_start_corridor_distance_m < 0.0) {
+    return Result<LaneId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "lane addition start is before the corridor start");
+  }
+  if (request.full_width_corridor_distance_m <=
+      request.taper_start_corridor_distance_m) {
+    return Result<LaneId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "lane full-width point must be after the taper start");
+  }
+  if (!finite(request.lane_width_m) || request.lane_width_m <= 0.0) {
+    return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
+                                "lane width must be finite and positive");
   }
   const RoadCorridor* corridor =
       FindRoadCorridor(graph_, request.corridor_id);
@@ -2321,16 +2331,31 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   if (!full.ok) {
     return Result<LaneId>::Fail(full.failure_category, full.error);
   }
-  if (start.value.reversed || full.value.reversed) {
-    return Result<LaneId>::Fail(
-        CommitFailureCategory::kNotImplemented,
-        "lane transition on a reversed corridor segment is unsupported");
-  }
   const RoadSegment* segment = find_segment(graph_, start.value.segment_id);
   if (segment == nullptr) {
     return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
                                 "lane transition segment is missing");
   }
+  const auto selected_ref = std::find_if(
+      corridor->segments.begin(), corridor->segments.end(),
+      [segment](const DirectedSegmentRef& ref) {
+        return ref.segment_id == segment->id;
+      });
+  if (selected_ref == corridor->segments.end()) {
+    return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
+                                "lane transition segment is not in its corridor");
+  }
+  const LaneTravelDirection local_direction =
+      selected_ref->reversed
+          ? (request.direction == LaneTravelDirection::kAlongSegment
+                 ? LaneTravelDirection::kAgainstSegment
+                 : LaneTravelDirection::kAlongSegment)
+          : request.direction;
+  const RoadSide local_side =
+      selected_ref->reversed
+          ? (request.side == RoadSide::kLeft ? RoadSide::kRight
+                                             : RoadSide::kLeft)
+          : request.side;
   const CrossSectionTemplate* source =
       find_template(graph_, segment->section_template);
   if (source == nullptr) {
@@ -2348,7 +2373,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   };
   std::vector<IndexedLane> candidates{};
   for (const LaneBand& lane : source->lane_bands) {
-    if (lane.direction != request.direction) continue;
+    if (lane.direction != local_direction) continue;
     const auto strip = std::find_if(
         source->strips.begin(), source->strips.end(),
         [&lane](const SectionStrip& candidate) {
@@ -2372,7 +2397,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
       [](const IndexedLane& a, const IndexedLane& b) {
         return a.strip_index < b.strip_index;
       });
-  const IndexedLane selected = request.side == RoadSide::kRight
+  const IndexedLane selected = local_side == RoadSide::kRight
                                    ? *extremes.second
                                    : *extremes.first;
   const std::size_t lane_strip_index = selected.strip_index;
@@ -2383,12 +2408,12 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         CommitFailureCategory::kNotImplemented,
         "lane transition requires one full-width lane beside the anchor");
   }
-  if (request.side == RoadSide::kRight && lane_strip_index == 0) {
+  if (local_side == RoadSide::kRight && lane_strip_index == 0) {
     return Result<LaneId>::Fail(
         CommitFailureCategory::kInternalError,
         "selected lane has no fixed inner boundary");
   }
-  const std::size_t anchor_index = request.side == RoadSide::kRight
+  const std::size_t anchor_index = local_side == RoadSide::kRight
                                        ? lane_strip_index - 1
                                        : lane_strip_index;
   if (anchor_index >= source->boundaries.size() ||
@@ -2421,7 +2446,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   const BoundaryProfile added_boundary{added_boundary_id,
                                        BoundaryRole::kLaneDivider, 0.0, 0.0,
                                        lane_divider};
-  if (request.side == RoadSide::kRight) {
+  if (local_side == RoadSide::kRight) {
     target.strips.insert(target.strips.begin() + lane_strip_index + 1,
                          added_strip);
     target.boundaries.insert(target.boundaries.begin() + lane_strip_index,
@@ -2433,20 +2458,11 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   }
   target.lane_bands.push_back(
       LaneBand{added_lane_id, added_strip_id, 0.0, request.lane_width_m,
-               request.direction});
+               local_direction});
 
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
   target.id = next_id++;
-  const auto selected_ref = std::find_if(
-      corridor->segments.begin(), corridor->segments.end(),
-      [segment](const DirectedSegmentRef& ref) {
-        return ref.segment_id == segment->id;
-      });
-  if (selected_ref == corridor->segments.end()) {
-    return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
-                                "lane transition segment is not in its corridor");
-  }
   const auto full_ref = std::find_if(
       selected_ref, corridor->segments.end(),
       [&full](const DirectedSegmentRef& ref) {
@@ -2490,11 +2506,20 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           "added lane reaches a different unresolved section");
     }
     const double corridor_end = corridor_begin + current_derived->length_m;
+    const double corridor_overlap_start = std::max(
+        corridor_begin, request.taper_start_corridor_distance_m);
+    const double corridor_overlap_end =
+        std::min(corridor_end, request.full_width_corridor_distance_m);
+    const double corridor_local_start = corridor_overlap_start - corridor_begin;
+    const double corridor_local_end = corridor_overlap_end - corridor_begin;
     const double local_start =
-        std::max(0.0, request.taper_start_corridor_distance_m - corridor_begin);
-    const double local_end = std::min(
-        current_derived->length_m,
-        request.full_width_corridor_distance_m - corridor_begin);
+        ref->reversed
+            ? current_derived->length_m - corridor_local_end
+            : corridor_local_start;
+    const double local_end =
+        ref->reversed
+            ? current_derived->length_m - corridor_local_start
+            : corridor_local_end;
     const double end_fraction = std::clamp(
         (std::min(corridor_end, request.full_width_corridor_distance_m) -
          request.taper_start_corridor_distance_m) /
@@ -2519,22 +2544,35 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
       to_template_id = intermediate.id;
       plan.add_section_templates.push_back(std::move(intermediate));
     }
+    const CrossSectionTemplateId corridor_entry_template_id =
+        from_template_id;
+    const CrossSectionTemplateId corridor_exit_template_id = to_template_id;
+    const CrossSectionTemplateId local_from_template_id =
+        ref->reversed ? corridor_exit_template_id
+                      : corridor_entry_template_id;
+    const CrossSectionTemplateId local_to_template_id =
+        ref->reversed ? corridor_entry_template_id
+                      : corridor_exit_template_id;
+    const bool local_from_has_lane = local_from_template_id != source->id;
+    const bool local_to_has_lane = local_to_template_id != source->id;
+    const TransitionAction action =
+        !local_from_has_lane && local_to_has_lane
+            ? TransitionAction::kTaperIn
+            : (local_from_has_lane && !local_to_has_lane
+                   ? TransitionAction::kTaperOut
+                   : TransitionAction::kChangeWidthHeightOffset);
     const SectionTransitionId transition_id = next_id++;
     plan.add_transitions.push_back(SectionTransition{
-        transition_id, from_template_id, to_template_id,
+        transition_id, local_from_template_id, local_to_template_id,
         DistanceRef{DistanceRefKind::kFromStart, local_start},
         DistanceRef{DistanceRefKind::kFromStart, local_end},
         TransitionAnchor::kBoundary, anchor_boundary_id,
-        {SectionTransitionRule{
-            added_strip_id,
-            from_template_id == source->id
-                ? TransitionAction::kTaperIn
-                : TransitionAction::kChangeWidthHeightOffset}}});
+        {SectionTransitionRule{added_strip_id, action}}});
     RoadSegment replacement = *current;
-    replacement.section_template = from_template_id;
+    replacement.section_template = local_from_template_id;
     replacement.transition = transition_id;
     plan.replace_segments.push_back(std::move(replacement));
-    from_template_id = to_template_id;
+    from_template_id = corridor_exit_template_id;
     corridor_begin = corridor_end;
   }
   for (auto ref = full_ref + 1; ref != corridor->segments.end(); ++ref) {

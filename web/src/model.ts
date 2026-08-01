@@ -14,17 +14,20 @@ export interface GenerationTiming {
   totalMs: number;
 }
 
-export enum EditErrorKind {
+export enum CommitFailureCategory {
   None = 0,
-  Validation = 1,
-  Unsupported = 2,
-  Internal = 3
+  RequirementConstraint = 1,
+  InvalidInput = 2,
+  NotImplemented = 3,
+  StateConflict = 4,
+  InternalError = 5
 }
 
 export interface EditResult {
   ok: boolean;
   error: string;
-  errorKind?: EditErrorKind;
+  failureCategory?: CommitFailureCategory;
+  reasonCode?: string;
   generatedPoleCount: number;
   generatedSpanCount: number;
   generatedBundleIds?: string[];
@@ -37,7 +40,8 @@ export interface EditResult {
 export interface OperationResult {
   ok: boolean;
   error: string;
-  errorKind?: EditErrorKind;
+  failureCategory?: CommitFailureCategory;
+  reasonCode?: string;
 }
 
 export interface WireIntervalRequest {

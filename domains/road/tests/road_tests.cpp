@@ -21,7 +21,7 @@ namespace {
     }                                        \
   } while (false)
 
-using city::road::ErrorKind;
+using city::road::CommitFailureCategory;
 using city::road::BoundaryRole;
 using city::road::AutoMarkingKey;
 using city::road::AutoMarkingPolicy;
@@ -256,7 +256,10 @@ bool P0_rejects_self_intersection_without_mutation(std::string& failure) {
       MakePath({MakeLine({0.0, 0.0}, {10.0, 10.0}), MakeLine({10.0, 10.0}, {0.0, 10.0}),
                 MakeLine({0.0, 10.0}, {10.0, 0.0})}),
       1});
-  ROAD_TEST_EXPECT(!bad.ok && bad.error_kind == ErrorKind::kUnsupported, "self-intersection was not unsupported");
+  ROAD_TEST_EXPECT(!bad.ok &&
+                       bad.failure_category == CommitFailureCategory::kRequirementConstraint &&
+                       bad.reason_code == "road_path_self_intersection",
+                   "self-intersection was not classified as a documented requirement constraint");
   ROAD_TEST_EXPECT(state.graph().segments.size() == before_segments, "failed preflight mutated authoritative graph");
   return true;
 }
@@ -295,7 +298,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   std::string version4 = saved.value;
   version4.replace(0, std::string("road_graph_version=11").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
-  ROAD_TEST_EXPECT(!rejected.ok && rejected.error_kind == ErrorKind::kValidation,
+  ROAD_TEST_EXPECT(!rejected.ok && rejected.failure_category == CommitFailureCategory::kInvalidInput,
                    "legacy road archive was not rejected");
   std::string truncated = saved.value;
   const std::size_t shape_row = truncated.find("segment.0.shape.start_handle.x=");
@@ -1122,7 +1125,7 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   ManualLineRequest bad_line = line;
   bad_line.style_id = city::road::MarkingStyleId{999};
   const auto rejected_line = state.AddManualLine(bad_line);
-  ROAD_TEST_EXPECT(!rejected_line.ok && rejected_line.error_kind == ErrorKind::kValidation,
+  ROAD_TEST_EXPECT(!rejected_line.ok && rejected_line.failure_category == CommitFailureCategory::kInvalidInput,
                    "P2 accepted an unknown manual line style");
   const auto after_bad_style = state.Save();
   ROAD_TEST_EXPECT(after_bad_style.ok && after_bad_style.value == before_bad_style.value,
@@ -1213,7 +1216,7 @@ bool outer_lane_transition_preserves_existing_lanes(std::string& failure) {
   request.anchor_boundary_id = 999999;
   const auto rejected = state.AddLaneTransition(request);
   ROAD_TEST_EXPECT(!rejected.ok &&
-                       rejected.error_kind == city::road::ErrorKind::kValidation,
+                       rejected.failure_category == city::road::CommitFailureCategory::kInvalidInput,
                    "LAN3 accepted an unknown anchor boundary");
   const auto after_reject = state.Save();
   ROAD_TEST_EXPECT(after_reject.ok && after_reject.value == saved.value,
@@ -1479,7 +1482,7 @@ bool one_lane_road_merges_into_outer_mainline_lane(
   const auto rejected =
       state.AddConnectedLaneSegment(std::move(wrong_direction));
   ROAD_TEST_EXPECT(!rejected.ok &&
-                       rejected.error_kind == city::road::ErrorKind::kValidation,
+                       rejected.failure_category == city::road::CommitFailureCategory::kInvalidInput,
                    "LAN5 accepted a lane whose travel direction does not exit the node");
   const auto after_reject = state.Save();
   ROAD_TEST_EXPECT(after_reject.ok && after_reject.value == saved.value,
@@ -1741,7 +1744,7 @@ bool junction_movements_are_explicit_lane_connections(
           wrong_source, targets.front(),
           city::road::LaneConnectionKind::kJunctionMovement});
   ROAD_TEST_EXPECT(!rejected.ok &&
-                       rejected.error_kind == city::road::ErrorKind::kValidation,
+                       rejected.failure_category == city::road::CommitFailureCategory::kInvalidInput,
                    "LAN7 accepted a wrong-way junction movement");
   const auto after_reject = state.Save();
   ROAD_TEST_EXPECT(after_reject.ok && after_reject.value == saved.value,
@@ -1768,8 +1771,8 @@ bool junction_movements_are_explicit_lane_connections(
           city::road::LaneConnectionKind::kJunctionMovement});
   ROAD_TEST_EXPECT(
       !rejected_non_junction.ok &&
-          rejected_non_junction.error_kind ==
-              city::road::ErrorKind::kUnsupported,
+          rejected_non_junction.failure_category ==
+              city::road::CommitFailureCategory::kNotImplemented,
       "LAN7 accepted junction movement topology outside a junction");
   const auto after_non_junction = non_junction.Save();
   ROAD_TEST_EXPECT(after_non_junction.ok &&
@@ -1956,7 +1959,7 @@ bool P2_requires_transition_for_mixed_section_connection(std::string& failure) {
     const auto endpoint = state.graph().segments.front().node_b;
     const auto direct = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{
         MakePath({MakeLine({60.0, 0.0}, {60.0, 20.0})}), 2, endpoint});
-    ROAD_TEST_EXPECT(!direct.ok && direct.error_kind == ErrorKind::kUnsupported,
+    ROAD_TEST_EXPECT(!direct.ok && direct.failure_category == CommitFailureCategory::kNotImplemented,
                      "P2 accepted a mixed-section node connection without a transition");
   }
 
@@ -2075,7 +2078,7 @@ bool P2_marking_policy_suppression_and_junction_override(std::string& failure) {
       city::road::SetBoundaryMarkingPolicyRequest{
           1, 200, AutoMarkingPolicy{true, MarkingRole::kCenterLine,
                                     city::road::MarkingStyleId{9999}}});
-  ROAD_TEST_EXPECT(!unknown_style.ok && unknown_style.error_kind == ErrorKind::kValidation,
+  ROAD_TEST_EXPECT(!unknown_style.ok && unknown_style.failure_category == CommitFailureCategory::kInvalidInput,
                    "unknown boundary marking style was not validation rejected");
   return true;
 }
@@ -2118,7 +2121,7 @@ bool M1_lane_side_requests_share_one_boundary_line(std::string& failure) {
                                       builtin_marking_styles::kWhiteDashed};
   const auto conflict = state.SetLaneSideMarkingPolicy(
       city::road::SetLaneSideMarkingPolicyRequest{1, 30, city::road::LaneSide::kLeft, conflicting});
-  ROAD_TEST_EXPECT(!conflict.ok && conflict.error_kind == ErrorKind::kUnsupported,
+  ROAD_TEST_EXPECT(!conflict.ok && conflict.failure_category == CommitFailureCategory::kNotImplemented,
                    "conflicting lane side requests were not unsupported");
   const auto saved_after = state.Save();
   ROAD_TEST_EXPECT(saved_after.ok && saved_after.value == saved_before.value,
@@ -2144,7 +2147,7 @@ bool M1_lane_side_without_adjacent_boundary_is_unsupported(std::string& failure)
           3, 20, city::road::LaneSide::kLeft,
           AutoMarkingPolicy{true, MarkingRole::kCarriagewayEdge,
                             builtin_marking_styles::kWhiteSolid}});
-  ROAD_TEST_EXPECT(!request.ok && request.error_kind == ErrorKind::kUnsupported,
+  ROAD_TEST_EXPECT(!request.ok && request.failure_category == CommitFailureCategory::kNotImplemented,
                    "outermost lane side request was not unsupported");
   const auto saved_after = state.Save();
   ROAD_TEST_EXPECT(saved_after.ok && saved_after.value == saved_before.value,
@@ -2155,7 +2158,7 @@ bool M1_lane_side_without_adjacent_boundary_is_unsupported(std::string& failure)
           1, 10, city::road::LaneSide::kRight,
           AutoMarkingPolicy{true, MarkingRole::kCarriagewayEdge,
                             builtin_marking_styles::kWhiteSolid}});
-  ROAD_TEST_EXPECT(!non_carriageway.ok && non_carriageway.error_kind == ErrorKind::kValidation,
+  ROAD_TEST_EXPECT(!non_carriageway.ok && non_carriageway.failure_category == CommitFailureCategory::kInvalidInput,
                    "lane side policy on a sidewalk band was not rejected");
   return true;
 }
@@ -2249,7 +2252,7 @@ bool M6_transition_without_boundary_mapping_is_unsupported(std::string& failure)
   ROAD_TEST_EXPECT(saved_before.ok, saved_before.error);
   const auto attached = state.AttachSectionTransition(
       city::road::AttachSectionTransitionRequest{segment.value, transition_id.value});
-  ROAD_TEST_EXPECT(!attached.ok && attached.error_kind == ErrorKind::kUnsupported,
+  ROAD_TEST_EXPECT(!attached.ok && attached.failure_category == CommitFailureCategory::kNotImplemented,
                    "boundary role change was not reported as unsupported");
   const auto saved_after = state.Save();
   ROAD_TEST_EXPECT(saved_after.ok && saved_after.value == saved_before.value,

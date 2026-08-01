@@ -9,7 +9,7 @@ bool C371_backbone_rejects_unsupported();
 bool C819_backbone_rejects_nonfinite_path_point_before_mutation();
 bool C820_backbone_rejects_nonfinite_tilt_before_mutation();
 bool C821_backbone_external_input_validation_lists_numeric_fields();
-bool C822_edit_result_error_kind_classifies_core_error_prefixes();
+bool C822_edit_result_failure_category_classifies_core_error_prefixes();
 bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios();
 bool C824_backbone_seeded_route_fuzz_preserves_common_invariants();
 bool C372_backbone_rules_do_not_seed();

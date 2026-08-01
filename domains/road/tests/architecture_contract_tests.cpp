@@ -1112,7 +1112,7 @@ bool corridor_distance_and_periodic_placement_cross_segment_boundaries(
       reversed_side.ok
           ? ResolveRoadSidePosition(reversed_derived.value,
                                     reversed_side.value)
-          : Result<Vec3d>::Fail(ErrorKind::kInternal, "side resolve failed");
+          : Result<Vec3d>::Fail(CommitFailureCategory::kInternalError, "side resolve failed");
   ROAD_CONTRACT_EXPECT(
       side_position.ok && std::abs(side_position.value.x - 40.0) <= 1e-9 &&
           std::abs(side_position.value.y + 2.0) <= 1e-9,

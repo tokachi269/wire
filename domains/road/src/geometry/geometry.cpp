@@ -48,7 +48,7 @@ Result<Vec2d> inward_tangent(const RoadSegment &segment, const Path &alignment,
       (key.endpoint_role == EndpointRole::kEnd &&
        key.node_id != segment.node_b)) {
     return Result<Vec2d>::Fail(
-        ErrorKind::kInternal,
+        CommitFailureCategory::kInternalError,
         "road approach key does not match segment endpoint");
   }
   const BezierSpan &span = key.endpoint_role == EndpointRole::kStart
@@ -68,7 +68,7 @@ Result<Vec2d> inward_tangent(const RoadSegment &segment, const Path &alignment,
       return Result<Vec2d>::Ok(tangent);
     }
   }
-  return Result<Vec2d>::Fail(ErrorKind::kUnsupported,
+  return Result<Vec2d>::Fail(CommitFailureCategory::kNotImplemented,
                              "road approach tangent is degenerate");
 }
 
@@ -76,20 +76,20 @@ Result<Vec2d> tangent_at(const Path &alignment,
                          double distance_along_path_m) {
   const Result<double> length = PathLength(alignment);
   if (!length.ok)
-    return Result<Vec2d>::Fail(length.error_kind, length.error);
+    return Result<Vec2d>::Fail(length.failure_category, length.error);
   const double delta = std::min(0.1, length.value);
   const double before_distance =
       std::max(0.0, distance_along_path_m - delta);
   const double after_distance =
       std::min(length.value, distance_along_path_m + delta);
   if (after_distance - before_distance <= distance_epsilon) {
-    return Result<Vec2d>::Fail(ErrorKind::kInternal,
+    return Result<Vec2d>::Fail(CommitFailureCategory::kInternalError,
                                "road tangent distance is degenerate");
   }
   const Result<Vec2d> before = EvaluatePath(alignment, before_distance);
   const Result<Vec2d> after = EvaluatePath(alignment, after_distance);
   if (!before.ok || !after.ok) {
-    return Result<Vec2d>::Fail(ErrorKind::kInternal,
+    return Result<Vec2d>::Fail(CommitFailureCategory::kInternalError,
                                "road tangent could not be evaluated");
   }
   return Result<Vec2d>::Ok(normalize(subtract(after.value, before.value)));

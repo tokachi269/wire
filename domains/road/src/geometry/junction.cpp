@@ -152,7 +152,7 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
     const SectionEvaluation &second_section, double corner_control_m) {
   if (first_section.surface_styles != second_section.surface_styles) {
     return Result<ConnectionGeometry>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road connection requires identical explicit surface mappings");
   }
   const std::vector<boundary_token> first_tokens =
@@ -173,14 +173,14 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
   if (frames.size() !=
       static_cast<std::size_t>(kConnectionCurveSamples + 1)) {
     return Result<ConnectionGeometry>::Fail(
-        ErrorKind::kInternal,
+        CommitFailureCategory::kInternalError,
         "road connection center curve has a degenerate tangent");
   }
   for (std::size_t index = 0; index < first.boundaries.size(); ++index) {
     const auto target = second_by_token.find(first_tokens[index]);
     if (target == second_by_token.end()) {
       return Result<ConnectionGeometry>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road connection boundary ID/role mapping is incomplete");
     }
     geometry.boundary_curves.push_back(ResolvedBoundaryCurve{
@@ -195,7 +195,7 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
   if (first_section.surface_styles.size() + 1 !=
       geometry.boundary_curves.size()) {
     return Result<ConnectionGeometry>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road connection surface mapping does not match boundary mapping");
   }
   for (std::size_t index = 0; index < first_section.surface_styles.size();
@@ -250,7 +250,7 @@ validate_supported_junction_section(const ConnectionGate &gate,
     }
     if (road_outer.size() != 2 || carriageway_edges.size() != 2) {
       return Result<junction_section>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road junction shoulder section requires two carriageway and two "
           "road outer edges");
     }
@@ -271,14 +271,14 @@ validate_supported_junction_section(const ConnectionGate &gate,
         resolved.right.carriageway->lateral_m;
     if (resolved.carriageway_right_m <= resolved.carriageway_left_m) {
       return Result<junction_section>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road junction shoulder carriageway mapping is inverted");
     }
     return Result<junction_section>::Ok(resolved);
   }
   if (curb_groups.size() != 2 || outer_edges.size() != 2) {
     return Result<junction_section>::Fail(
-        ErrorKind::kUnsupported, "road junction section requires two explicit "
+        CommitFailureCategory::kNotImplemented, "road junction section requires two explicit "
                                  "curb boundary IDs and two outer edges");
   }
   std::vector<std::vector<const SectionBoundarySample *>> curbs{};
@@ -286,7 +286,7 @@ validate_supported_junction_section(const ConnectionGate &gate,
     (void)id;
     if (samples.size() != 2) {
       return Result<junction_section>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road junction curb boundary mapping requires two profile samples");
     }
     std::sort(samples.begin(), samples.end(), [](const auto *a, const auto *b) {
@@ -309,7 +309,7 @@ validate_supported_junction_section(const ConnectionGate &gate,
   resolved.carriageway_right_m = resolved.right.carriageway->lateral_m;
   if (resolved.carriageway_right_m <= resolved.carriageway_left_m) {
     return Result<junction_section>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road junction carriageway boundary mapping is inverted");
   }
   return Result<junction_section>::Ok(resolved);
@@ -352,7 +352,7 @@ generate_junction_geometry(RoadNodeId node_id,
   if (gates.size() != ordered_approaches.size() ||
       sections.size() != gates.size()) {
     return Result<JunctionGeometry>::Fail(
-        ErrorKind::kInternal, "road junction geometry input is incomplete");
+        CommitFailureCategory::kInternalError, "road junction geometry input is incomplete");
   }
   JunctionGeometry geometry{};
   geometry.node_id = node_id;
@@ -361,13 +361,13 @@ generate_junction_geometry(RoadNodeId node_id,
   for (std::size_t index = 0; index < gates.size(); ++index) {
     const ConnectionGate &gate = gates[index];
     if (sections[index] == nullptr) {
-      return Result<JunctionGeometry>::Fail(ErrorKind::kInternal,
+      return Result<JunctionGeometry>::Fail(CommitFailureCategory::kInternalError,
                                             "road junction section is missing");
     }
     Result<junction_section> supported =
         validate_supported_junction_section(gate, *sections[index]);
     if (!supported.ok) {
-      return Result<JunctionGeometry>::Fail(supported.error_kind,
+      return Result<JunctionGeometry>::Fail(supported.failure_category,
                                             supported.error);
     }
     const ApproachKey key = gate.approach;
@@ -397,7 +397,7 @@ generate_junction_geometry(RoadNodeId node_id,
   }
   if (gates.size() < 3 || sides.size() < 6) {
     return Result<JunctionGeometry>::Fail(
-        ErrorKind::kInternal, "road junction resolved geometry is incomplete");
+        CommitFailureCategory::kInternalError, "road junction resolved geometry is incomplete");
   }
 
   std::vector<Vec3d> asphalt_perimeter{};

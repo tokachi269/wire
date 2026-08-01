@@ -7,7 +7,7 @@ import {
   type RoadToolMode,
   type RoadToolState
 } from "../road";
-import { EditErrorKind } from "../model";
+import { CommitFailureCategory } from "../model";
 import type { WorldPoint } from "../store/viewer";
 import { ViewerActionContext } from "./context";
 
@@ -578,15 +578,15 @@ export class RoadActions {
     preview: {
       ok: boolean;
       error: string;
-      errorKind?: EditErrorKind;
+      failureCategory?: CommitFailureCategory;
       meshes: RoadToolState["previewMeshes"];
     },
     request: ReturnType<typeof roadSegmentInput> = roadSegmentInput(road)
   ): void {
     const expectedRejection =
       !preview.ok &&
-      (preview.errorKind === EditErrorKind.Validation ||
-       preview.errorKind === EditErrorKind.Unsupported);
+      (preview.failureCategory === CommitFailureCategory.InvalidInput ||
+       preview.failureCategory === CommitFailureCategory.NotImplemented);
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: {

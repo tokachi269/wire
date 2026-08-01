@@ -135,7 +135,7 @@ Result<double> lane_lateral(const LaneBand &lane,
       internal::lane_position(resolved, lane, section);
   return position.ok
              ? Result<double>::Ok(position.value.lateral_m)
-             : Result<double>::Fail(position.error_kind, position.error);
+             : Result<double>::Fail(position.failure_category, position.error);
 }
 
 Result<double> boundary_lateral(BoundaryId id,
@@ -149,7 +149,7 @@ Result<double> boundary_lateral(BoundaryId id,
     maximum = std::max(maximum, boundary.lateral_m);
   }
   if (!std::isfinite(minimum) || !std::isfinite(maximum)) {
-    return Result<double>::Fail(ErrorKind::kInternal,
+    return Result<double>::Fail(CommitFailureCategory::kInternalError,
                                 "connected boundary sample is missing");
   }
   return Result<double>::Ok((minimum + maximum) * 0.5);
@@ -192,7 +192,7 @@ Result<Path> resolve_junction_movement_path(
     double target_lateral_m) {
   if (connection.kind != NodeConnectionKind::kJunction) {
     return Result<Path>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "lane junction movement requires a junction connection");
   }
   return Result<Path>::Ok(connect_g1_endpoint_points(
@@ -272,7 +272,7 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
       setback > segment.length_m + distance_epsilon ||
       !is_finite(lateral_shift)) {
     return Result<ResolvedApproach>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road approach override exceeds supported layout range");
   }
   const double distance = key.endpoint_role == EndpointRole::kStart
@@ -282,7 +282,7 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
   const Result<Vec2d> path_tangent = tangent_at(segment.alignment, distance);
   if (!position.ok || !path_tangent.ok) {
     return Result<ResolvedApproach>::Fail(
-        ErrorKind::kInternal, "road approach frame could not be evaluated");
+        CommitFailureCategory::kInternalError, "road approach frame could not be evaluated");
   }
   const Vec2d tangent = key.endpoint_role == EndpointRole::kStart
                             ? path_tangent.value
@@ -325,7 +325,7 @@ Result<double> template_lane_lateral(const CrossSectionTemplate &section,
     if (index < section.boundaries.size())
       lateral += section.boundaries[index].width_m;
   }
-  return Result<double>::Fail(ErrorKind::kInternal,
+  return Result<double>::Fail(CommitFailureCategory::kInternalError,
                               "lane allocation strip is missing");
 }
 
@@ -362,7 +362,7 @@ Result<double> auto_lateral_shift_for(
         target_lookup.lane == nullptr || target_lookup.section == nullptr ||
         source == nullptr) {
       return Result<double>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "lane continuation auto layout input is missing");
     }
     if (dot(source->tangent, target.tangent) >
@@ -375,7 +375,7 @@ Result<double> auto_lateral_shift_for(
         template_lane_lateral(*target_lookup.section, *target_lookup.lane);
     if (!source_lateral.ok || !target_lateral.ok) {
       return Result<double>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "lane continuation lateral position is missing");
     }
     const double source_sign =
@@ -393,7 +393,7 @@ Result<double> auto_lateral_shift_for(
     if (resolved.has_value() &&
         std::abs(*resolved - shift) > distance_epsilon) {
       return Result<double>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "lane continuations require conflicting target lateral shifts");
     }
     resolved = shift;
@@ -433,20 +433,20 @@ resolve_connections(const SavedRoadGraph &graph,
           derived = &candidate;
       }
       if (segment == nullptr || derived == nullptr) {
-        return Out::Fail(ErrorKind::kInternal,
+        return Out::Fail(CommitFailureCategory::kInternalError,
                          "road approach read model is missing");
       }
       const Result<Vec2d> tangent =
           inward_tangent(*segment, derived->alignment, key);
       if (!tangent.ok)
-        return Out::Fail(tangent.error_kind, tangent.error);
+        return Out::Fail(tangent.failure_category, tangent.error);
       const RoadNode *node = find_node(graph, key.node_id);
       const RoadNodeId other_id = key.endpoint_role == EndpointRole::kStart
                                       ? segment->node_b
                                       : segment->node_a;
       const RoadNode *other = find_node(graph, other_id);
       if (node == nullptr || other == nullptr) {
-        return Out::Fail(ErrorKind::kInternal,
+        return Out::Fail(CommitFailureCategory::kInternalError,
                          "road approach chord endpoint is missing");
       }
       const Vec2d chord = normalize(subtract(other->position, node->position));
@@ -489,7 +489,7 @@ resolve_connections(const SavedRoadGraph &graph,
     } else {
       connection.kind = NodeConnectionKind::kUnsupported;
       connection.reason = "more than four approaches";
-      return Out::Fail(ErrorKind::kUnsupported,
+      return Out::Fail(CommitFailureCategory::kNotImplemented,
                        "road node has more than four approaches");
     }
 
@@ -502,7 +502,7 @@ resolve_connections(const SavedRoadGraph &graph,
           derived = &candidate;
       }
       if (segment == nullptr || derived == nullptr) {
-        return Out::Fail(ErrorKind::kInternal, "road approach source is missing");
+        return Out::Fail(CommitFailureCategory::kInternalError, "road approach source is missing");
       }
 
       double setback = 0.0;
@@ -524,7 +524,7 @@ resolve_connections(const SavedRoadGraph &graph,
           const RoadSegment *other_segment =
               find_segment(graph, other.key.segment_id);
           if (other_segment == nullptr) {
-            return Out::Fail(ErrorKind::kInternal,
+            return Out::Fail(CommitFailureCategory::kInternalError,
                              "road setback source segment is missing");
           }
           setback = std::max(setback,
@@ -535,26 +535,26 @@ resolve_connections(const SavedRoadGraph &graph,
       }
       if (!is_finite(setback) || setback < 0.0 ||
           setback > derived->length_m + distance_epsilon) {
-        return Out::Fail(ErrorKind::kUnsupported,
+        return Out::Fail(CommitFailureCategory::kNotImplemented,
                          "road approach setback exceeds the segment length");
       }
       const CrossSectionTemplateId endpoint_section =
           endpoint_template_id(graph, *segment, approach.key);
       if (endpoint_section == 0) {
-        return Out::Fail(ErrorKind::kValidation,
+        return Out::Fail(CommitFailureCategory::kInvalidInput,
                          "road approach endpoint section template is missing");
       }
       const Result<double> auto_lateral_shift =
           auto_lateral_shift_for(graph, ordered, approach);
       if (!auto_lateral_shift.ok) {
-        return Out::Fail(auto_lateral_shift.error_kind,
+        return Out::Fail(auto_lateral_shift.failure_category,
                          auto_lateral_shift.error);
       }
       Result<ResolvedApproach> resolved = resolve_approach(
           graph, *derived, approach.key, endpoint_section, setback,
           auto_lateral_shift.value);
       if (!resolved.ok)
-        return Out::Fail(resolved.error_kind, resolved.error);
+        return Out::Fail(resolved.failure_category, resolved.error);
       connection.approaches.push_back(std::move(resolved.value));
       minimum_setback = std::min(minimum_setback, setback);
     }
@@ -575,7 +575,7 @@ resolve_connections(const SavedRoadGraph &graph,
                        connection.node_id;
           });
       if (mixed && !has_explicit_lane_topology) {
-        return Out::Fail(ErrorKind::kUnsupported,
+        return Out::Fail(CommitFailureCategory::kNotImplemented,
                          "road connected approaches require identical "
                          "endpoint section template IDs unless explicit lane "
                          "topology resolves a junction");
@@ -606,7 +606,7 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
               : FindSectionAt(*segment, approach.gate_segment_distance_m);
       if (section == nullptr) {
         return Result<bool>::Fail(
-            ErrorKind::kInternal,
+            CommitFailureCategory::kInternalError,
             "road connection gate has no unique section evaluation");
       }
       approach.gate.boundaries = section->boundaries;
@@ -616,7 +616,7 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
       continue;
     if (connection.kind == NodeConnectionKind::kCorner) {
       if (connection.approaches.size() != 2) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road corner approach order is invalid");
       }
       const ResolvedApproach *first = approach_of(
@@ -624,7 +624,7 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
       const ResolvedApproach *second = approach_of(
           connection, connection.ordered_approaches[1]);
       if (first == nullptr || second == nullptr) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road corner approach is missing");
       }
       const DerivedSegment *first_segment = nullptr;
@@ -645,19 +645,19 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
               : FindSectionAt(*second_segment, second->gate_segment_distance_m);
       if (first_section == nullptr || second_section == nullptr) {
         return Result<bool>::Fail(
-            ErrorKind::kInternal,
+            CommitFailureCategory::kInternalError,
             "road connection section read model is missing");
       }
       Result<ConnectionGeometry> geometry = internal::generate_connection_geometry(
           connection.node_id, first->gate, second->gate, *first_section,
           *second_section, connection.corner_control_m);
       if (!geometry.ok)
-        return Result<bool>::Fail(geometry.error_kind, geometry.error);
+        return Result<bool>::Fail(geometry.failure_category, geometry.error);
       connection.connection_geometry = std::move(geometry.value);
       continue;
     }
     if (connection.kind != NodeConnectionKind::kJunction) {
-      return Result<bool>::Fail(ErrorKind::kUnsupported,
+      return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
                                 "road connection decision is unsupported");
     }
 
@@ -671,7 +671,7 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
           segment = &candidate;
       }
       if (approach == nullptr || segment == nullptr) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road junction approach is missing");
       }
       gates.push_back(approach->gate);
@@ -681,7 +681,7 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
         connection.node_id, connection.ordered_approaches, gates, sections,
         connection.junction_corner_control_m);
     if (!geometry.ok)
-      return Result<bool>::Fail(geometry.error_kind, geometry.error);
+      return Result<bool>::Fail(geometry.failure_category, geometry.error);
     connection.junction_geometry = std::move(geometry.value);
   }
   return Result<bool>::Ok(true);
@@ -734,7 +734,7 @@ Result<bool> derive_topology_paths(
         source == nullptr || target == nullptr || source_section == nullptr ||
         target_section == nullptr) {
       return Result<bool>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "lane connection path input is missing from resolved road");
     }
     const Result<double> source_lateral =
@@ -743,7 +743,7 @@ Result<bool> derive_topology_paths(
         lane_lateral(*target_lookup.lane, *target_section);
     if (!source_lateral.ok || !target_lateral.ok) {
       return Result<bool>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "lane connection path cannot resolve a lane center");
     }
     Result<Path> resolved_path =
@@ -755,7 +755,7 @@ Result<bool> derive_topology_paths(
                   *source, source_lateral.value, *target,
                   target_lateral.value));
     if (!resolved_path.ok) {
-      return Result<bool>::Fail(resolved_path.error_kind,
+      return Result<bool>::Fail(resolved_path.failure_category,
                                 resolved_path.error);
     }
     Path path = std::move(resolved_path.value);
@@ -769,7 +769,7 @@ Result<bool> derive_topology_paths(
     }
     const Result<double> length = PathLength(path);
     if (!length.ok) {
-      return Result<bool>::Fail(length.error_kind, length.error);
+      return Result<bool>::Fail(length.failure_category, length.error);
     }
     lane_paths.push_back(DerivedLanePath{topology.id, std::move(path),
                                          length.value, 0.0});
@@ -816,7 +816,7 @@ Result<bool> derive_topology_paths(
         target == nullptr || source_section == nullptr ||
         target_section == nullptr) {
       return Result<bool>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "boundary continuation path input is missing from resolved road");
     }
     const Result<double> source_lateral =
@@ -825,7 +825,7 @@ Result<bool> derive_topology_paths(
         boundary_lateral(topology.target.boundary_id, *target_section);
     if (!source_lateral.ok || !target_lateral.ok) {
       return Result<bool>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "boundary continuation path cannot resolve a boundary");
     }
     Path path = resolve_lane_transition_path(
@@ -839,7 +839,7 @@ Result<bool> derive_topology_paths(
     }
     const Result<double> length = PathLength(path);
     if (!length.ok) {
-      return Result<bool>::Fail(length.error_kind, length.error);
+      return Result<bool>::Fail(length.failure_category, length.error);
     }
     boundary_paths.push_back(
         DerivedBoundaryPath{topology.id, std::move(path), length.value});

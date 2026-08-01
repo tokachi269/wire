@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { ViewerActions } from "../src/actions/viewer";
 import type { SceneData, WireBridge } from "../src/bridge/wire";
 import { startConsoleLogging } from "../src/consoleLog";
-import { EditErrorKind } from "../src/model";
+import { CommitFailureCategory } from "../src/model";
 import type { RoadSegmentInput } from "../src/road";
 import type {
   BundleTemplateInfo,
@@ -837,7 +837,7 @@ describe("viewport tool routing", () => {
     const roadPreviewSegment = vi.fn(() => ({
       ok: false,
       error: "road span has zero length",
-      errorKind: EditErrorKind.Validation,
+      failureCategory: CommitFailureCategory.InvalidInput,
       meshes: []
     }));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -868,7 +868,7 @@ describe("viewport tool routing", () => {
     const roadPreviewSegment = vi.fn(() => ({
       ok: false,
       error: "road preview internal failure",
-      errorKind: EditErrorKind.Internal,
+      failureCategory: CommitFailureCategory.InternalError,
       meshes: []
     }));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -969,7 +969,7 @@ describe("viewport tool routing", () => {
     const roadAddSegment = vi.fn(() => ({
       ok: false,
       error: "road connection needs more length",
-      errorKind: EditErrorKind.Unsupported
+      failureCategory: CommitFailureCategory.NotImplemented
     }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);

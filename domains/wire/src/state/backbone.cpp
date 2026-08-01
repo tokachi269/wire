@@ -653,7 +653,9 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                   return selected.allow_midair_path;
                                                 });
       if (!any_allow_midair) {
-        result.error = "backbone invalid input: no selected bundle template allows midair branch";
+        result.error = "backbone requirement constraint: no selected bundle template allows midair branch";
+        result.failure_category = CommitFailureCategory::kRequirementConstraint;
+        result.reason_code = "midair_branch_disabled";
         return;
       }
     }
@@ -821,7 +823,9 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                 return selected.allow_midair_path;
                                               });
     if (!any_allow_midair) {
-      result.error = "backbone invalid input: no selected bundle template allows midair branch";
+      result.error = "backbone requirement constraint: no selected bundle template allows midair branch";
+      result.failure_category = CommitFailureCategory::kRequirementConstraint;
+      result.reason_code = "midair_branch_disabled";
       return result;
     }
   }

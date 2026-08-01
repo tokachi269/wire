@@ -101,7 +101,7 @@ Result<Vec3d> segment_point(const DerivedSegment &segment,
   const SectionEvaluation *section =
       FindSectionAt(segment, segment_distance_m);
   if (!center.ok || !tangent.ok || section == nullptr) {
-    return Result<Vec3d>::Fail(ErrorKind::kInternal,
+    return Result<Vec3d>::Fail(CommitFailureCategory::kInternalError,
                                "marking segment point is missing");
   }
   const Vec2d lateral{-tangent.value.y, tangent.value.x};
@@ -209,7 +209,7 @@ Result<bool> validate_transition_marking_mapping(const SavedRoadGraph &graph) {
     const SectionTransition *transition =
         find_transition(graph, *segment.transition);
     if (transition == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road segment transition is missing");
     }
     const CrossSectionTemplate *from =
@@ -217,7 +217,7 @@ Result<bool> validate_transition_marking_mapping(const SavedRoadGraph &graph) {
     const CrossSectionTemplate *to =
         find_template(graph, transition->to_template);
     if (from == nullptr || to == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road transition template is missing");
     }
     for (const BoundaryProfile &source_boundary : from->boundaries) {
@@ -230,7 +230,7 @@ Result<bool> validate_transition_marking_mapping(const SavedRoadGraph &graph) {
         continue;
       if (target->role != source_boundary.role) {
         return Result<bool>::Fail(
-            ErrorKind::kUnsupported,
+            CommitFailureCategory::kNotImplemented,
             "transition boundary " +
                 std::to_string(source_boundary.boundary_id) +
                 " changes role and cannot continue markings");
@@ -251,7 +251,7 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
     for (const double distance : segment.surface_segment_distances_m) {
       const SectionEvaluation *section = FindSectionAt(segment, distance);
       if (section == nullptr) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "marking section sample is missing");
       }
       std::set<std::pair<std::uint64_t, MarkingRole>> active_groups{};
@@ -273,7 +273,7 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
           it->second.style_id = boundary.marking.style_id;
           it->second.role = role;
         } else if (it->second.style_id != boundary.marking.style_id) {
-          return Result<bool>::Fail(ErrorKind::kUnsupported,
+          return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
                                     "conflicting marking policy on boundary");
         }
         if (std::min(boundary.left_strip_width_m,
@@ -285,7 +285,7 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
         Result<Vec3d> point =
             segment_point(segment, distance, boundary.lateral_m);
         if (!point.ok)
-          return Result<bool>::Fail(point.error_kind, point.error);
+          return Result<bool>::Fail(point.failure_category, point.error);
         it->second.active_run.push_back(point.value);
         active_groups.insert(group);
       }
@@ -320,7 +320,7 @@ Result<bool> derive_manual_markings(const SavedRoadGraph &graph,
     const DerivedSegment *segment =
         segment_of(segments, source.owner_segment_id);
     if (segment == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                 "manual line owner alignment is missing");
     }
     DerivedMarking marking{};
@@ -331,7 +331,7 @@ Result<bool> derive_manual_markings(const SavedRoadGraph &graph,
     for (const Vec2d local : FlattenPath(source.path)) {
       Result<Vec3d> point = segment_point(*segment, local.x, local.y);
       if (!point.ok)
-        return Result<bool>::Fail(point.error_kind, point.error);
+        return Result<bool>::Fail(point.failure_category, point.error);
       marking.points.push_back(point.value);
     }
     if (marking.points.size() >= 2) {
@@ -343,7 +343,7 @@ Result<bool> derive_manual_markings(const SavedRoadGraph &graph,
     const DerivedSegment *segment =
         segment_of(segments, source.owner_segment_id);
     if (segment == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                 "manual area owner alignment is missing");
     }
     const double half_width = source.width_m * 0.5;
@@ -368,7 +368,7 @@ Result<bool> derive_manual_markings(const SavedRoadGraph &graph,
     for (const Vec2d local : locals) {
       Result<Vec3d> point = segment_point(*segment, local.x, local.y);
       if (!point.ok)
-        return Result<bool>::Fail(point.error_kind, point.error);
+        return Result<bool>::Fail(point.failure_category, point.error);
       marking.polygon.push_back(point.value);
     }
     markings.push_back(std::move(marking));
@@ -384,7 +384,7 @@ derive_corner_markings(const SavedRoadGraph &graph,
     if (connection.kind != NodeConnectionKind::kCorner)
       continue;
     if (connection.approaches.size() != 2) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                 "corner marking approaches are incomplete");
     }
     const ResolvedApproach *source = find_connection_approach(
@@ -393,7 +393,7 @@ derive_corner_markings(const SavedRoadGraph &graph,
         connection, connection.connection_geometry.approaches[1]);
     if (source == nullptr || target == nullptr) {
       return Result<bool>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "corner marking geometry approach is missing");
     }
     const MarkingOwner owner{MarkingOwner::Kind::kJunction, 0,
@@ -410,7 +410,7 @@ derive_corner_markings(const SavedRoadGraph &graph,
         continue;
       if (source_boundaries.size() != 1 || target_boundaries.size() != 1) {
         return Result<bool>::Fail(
-            ErrorKind::kUnsupported,
+            CommitFailureCategory::kNotImplemented,
             "corner marking boundary is not uniquely mapped");
       }
       const SectionBoundarySample *source_boundary = source_boundaries.front();
@@ -423,7 +423,7 @@ derive_corner_markings(const SavedRoadGraph &graph,
           source_boundary->marking.style_id !=
               target_boundary->marking.style_id) {
         return Result<bool>::Fail(
-            ErrorKind::kUnsupported,
+            CommitFailureCategory::kNotImplemented,
             "corner marking role or style changes across the connection");
       }
       const MarkingTrackKey source_track{
@@ -472,7 +472,7 @@ Result<bool> derive_boundary_continuation_markings(
         });
     if (path == boundary_paths.end()) {
       return Result<bool>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "boundary continuation marking path is missing");
     }
     if (path->path.spans.empty())
@@ -489,7 +489,7 @@ Result<bool> derive_boundary_continuation_markings(
     if (source_lookup.boundary == nullptr || target_lookup.boundary == nullptr ||
         connection == connections.end()) {
       return Result<bool>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "boundary continuation marking endpoint is missing");
     }
     const ResolvedApproach *source = find_connection_approach(
@@ -502,7 +502,7 @@ Result<bool> derive_boundary_continuation_markings(
                     continuation.target.endpoint_role});
     if (source == nullptr || target == nullptr) {
       return Result<bool>::Fail(
-          ErrorKind::kInternal,
+          CommitFailureCategory::kInternalError,
           "boundary continuation marking approach is missing");
     }
     const auto source_boundaries = find_marked_gate_boundaries(
@@ -513,7 +513,7 @@ Result<bool> derive_boundary_continuation_markings(
       continue;
     if (source_boundaries.size() != 1 || target_boundaries.size() != 1) {
       return Result<bool>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "boundary continuation marking is not uniquely mapped");
     }
     const SectionBoundarySample &source_boundary = *source_boundaries.front();
@@ -526,7 +526,7 @@ Result<bool> derive_boundary_continuation_markings(
         (source_role != target_role ||
          source_boundary.marking.style_id != target_boundary.marking.style_id)) {
       return Result<bool>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "continued boundary marking changes role or style");
     }
     const SectionBoundarySample &policy_boundary =
@@ -596,7 +596,7 @@ Result<bool> derive_junction_markings(const SavedRoadGraph &graph,
                                         return approach.key == key;
                                       });
       if (found == connection.approaches.end()) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "junction marking approach is missing");
       }
       const ConnectionGate &gate = found->gate;
@@ -617,7 +617,7 @@ Result<bool> derive_junction_markings(const SavedRoadGraph &graph,
       if (left == nullptr || right == nullptr ||
           right->lateral_m <= left->lateral_m) {
         return Result<bool>::Fail(
-            ErrorKind::kUnsupported,
+            CommitFailureCategory::kNotImplemented,
             "junction marking requires carriageway edge boundaries");
       }
       const double center = (left->lateral_m + right->lateral_m) * 0.5;
@@ -668,7 +668,7 @@ derive_junction_override_markings(const SavedRoadGraph &graph,
     if (override.action != JunctionMarkingAction::kConnectToApproach)
       continue;
     if (!override.target.has_value()) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "junction marking override target is missing");
     }
     const auto connection =
@@ -678,7 +678,7 @@ derive_junction_override_markings(const SavedRoadGraph &graph,
                               candidate.kind == NodeConnectionKind::kJunction;
                      });
     if (connection == connections.end()) {
-      return Result<bool>::Fail(ErrorKind::kUnsupported,
+      return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
                                 "junction marking override has no junction");
     }
     const auto approach_of = [&connection](const ApproachKey &key) {
@@ -692,7 +692,7 @@ derive_junction_override_markings(const SavedRoadGraph &graph,
     const auto target = approach_of(override.target->approach);
     if (source == connection->approaches.end() ||
         target == connection->approaches.end()) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "junction marking override gate is missing");
     }
     const SectionBoundarySample *source_boundary =
@@ -700,7 +700,7 @@ derive_junction_override_markings(const SavedRoadGraph &graph,
     const SectionBoundarySample *target_boundary =
         find_gate_boundary(target->gate, override.target->boundary_id);
     if (source_boundary == nullptr || target_boundary == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "junction marking endpoint boundary is missing");
     }
     DerivedMarking marking{};
@@ -728,32 +728,32 @@ derive_markings(const SavedRoadGraph &graph,
   using Out = Result<std::vector<DerivedMarking>>;
   const Result<bool> mapping = validate_transition_marking_mapping(graph);
   if (!mapping.ok)
-    return Out::Fail(mapping.error_kind, mapping.error);
+    return Out::Fail(mapping.failure_category, mapping.error);
 
   std::vector<DerivedMarking> markings{};
   Result<bool> step = derive_segment_markings(graph, segments, markings);
   if (!step.ok)
-    return Out::Fail(step.error_kind, step.error);
+    return Out::Fail(step.failure_category, step.error);
   step = derive_manual_markings(graph, segments, markings);
   if (!step.ok)
-    return Out::Fail(step.error_kind, step.error);
+    return Out::Fail(step.failure_category, step.error);
   step = derive_corner_markings(graph, connections, markings);
   if (!step.ok)
-    return Out::Fail(step.error_kind, step.error);
+    return Out::Fail(step.failure_category, step.error);
   step = derive_boundary_continuation_markings(
       graph, connections, boundary_paths, markings);
   if (!step.ok)
-    return Out::Fail(step.error_kind, step.error);
+    return Out::Fail(step.failure_category, step.error);
   step = derive_junction_markings(graph, connections, markings);
   if (!step.ok)
-    return Out::Fail(step.error_kind, step.error);
+    return Out::Fail(step.failure_category, step.error);
   step = derive_junction_override_markings(graph, connections, markings);
   if (!step.ok)
-    return Out::Fail(step.error_kind, step.error);
+    return Out::Fail(step.failure_category, step.error);
 
   for (const DerivedMarking &marking : markings) {
     if (!IsKnownMarkingStyle(marking.style_id)) {
-      return Out::Fail(ErrorKind::kInternal, "derived marking style is unknown");
+      return Out::Fail(CommitFailureCategory::kInternalError, "derived marking style is unknown");
     }
   }
   return Out::Ok(std::move(markings));

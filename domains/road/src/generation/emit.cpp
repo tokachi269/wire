@@ -61,21 +61,21 @@ void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
 
 Result<segment_output> emit_segment(const segment_input &input) {
   if (input.samples.empty()) {
-    return Result<segment_output>::Fail(ErrorKind::kInternal,
+    return Result<segment_output>::Fail(CommitFailureCategory::kInternalError,
                                         "road draw input has no samples");
   }
   const std::size_t width = input.samples.front().boundaries.size();
   const std::vector<RenderStyleRef> &styles =
       input.samples.front().surface_styles;
   if (width < 2 || styles.size() + 1 != width) {
-    return Result<segment_output>::Fail(ErrorKind::kInternal,
+    return Result<segment_output>::Fail(CommitFailureCategory::kInternalError,
                                         "road draw section width is invalid");
   }
   std::vector<Vec3d> vertices{};
   for (const segment_sample &sample : input.samples) {
     if (sample.boundaries.size() != width || sample.surface_styles != styles) {
       return Result<segment_output>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road draw section topology changes between samples");
     }
     const Vec2d lateral{-sample.tangent.y, sample.tangent.x};
@@ -126,14 +126,14 @@ Result<segment_output> emit_segment(const segment_input &input) {
 Result<std::vector<Mesh>> emit_connection(const ConnectionGeometry &input) {
   if (input.surface_strips.empty()) {
     return Result<std::vector<Mesh>>::Fail(
-        ErrorKind::kInternal,
+        CommitFailureCategory::kInternalError,
         "connection resolved geometry has no surface strips");
   }
   std::vector<Mesh> meshes{};
   for (const ResolvedSurfaceStrip &strip : input.surface_strips) {
     if (strip.left.size() < 2 || strip.left.size() != strip.right.size()) {
       return Result<std::vector<Mesh>>::Fail(
-          ErrorKind::kInternal, "connection resolved strip is invalid");
+          CommitFailureCategory::kInternalError, "connection resolved strip is invalid");
     }
     auto found =
         std::find_if(meshes.begin(), meshes.end(), [&strip](const Mesh &mesh) {
@@ -154,7 +154,7 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
   for (const ResolvedSurfaceRegion &region : input.surface_regions) {
     if (region.perimeter.size() < 3) {
       return Result<junction_output>::Fail(
-          ErrorKind::kInternal, "junction resolved surface region is invalid");
+          CommitFailureCategory::kInternalError, "junction resolved surface region is invalid");
     }
     Mesh mesh{};
     mesh.style = region.style;
@@ -183,7 +183,7 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
   for (const ResolvedSurfaceStrip &strip : input.surface_strips) {
     if (strip.left.size() < 2 || strip.left.size() != strip.right.size()) {
       return Result<junction_output>::Fail(
-          ErrorKind::kInternal, "junction resolved surface strip is invalid");
+          CommitFailureCategory::kInternalError, "junction resolved surface strip is invalid");
     }
     auto found = std::find_if(
         output.surface_meshes.begin(), output.surface_meshes.end(),
@@ -204,7 +204,7 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
   for (const DerivedMarking &marking : markings) {
     if (!marking.points.empty()) {
       if (marking.points.size() < 2 || marking.width_m <= 0.0) {
-        return Result<std::vector<Mesh>>::Fail(ErrorKind::kInternal,
+        return Result<std::vector<Mesh>>::Fail(CommitFailureCategory::kInternalError,
                                                "derived marking line is invalid");
       }
       Mesh mesh{};
@@ -233,7 +233,7 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
     }
     if (!marking.polygon.empty()) {
       if (marking.polygon.size() < 3) {
-        return Result<std::vector<Mesh>>::Fail(ErrorKind::kInternal,
+        return Result<std::vector<Mesh>>::Fail(CommitFailureCategory::kInternalError,
                                                "derived marking area is invalid");
       }
       Mesh mesh{};
@@ -260,7 +260,7 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
 
   for (const DerivedSegment &segment : derived.segments) {
     if (segment.surface_segment_distances_m.empty()) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                 "road segment has no surface distances");
     }
     segment_input input{};
@@ -270,7 +270,7 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
       const Result<Vec2d> tangent = internal::tangent_at(segment.alignment, distance);
       const SectionEvaluation *section = FindSectionAt(segment, distance);
       if (!center.ok || !tangent.ok || section == nullptr) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road surface sample is missing");
       }
       input.samples.push_back(segment_sample{center.value, tangent.value,
@@ -279,7 +279,7 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
     }
     Result<segment_output> output = emit_segment(input);
     if (!output.ok)
-      return Result<bool>::Fail(output.error_kind, output.error);
+      return Result<bool>::Fail(output.failure_category, output.error);
     derived.segment_meshes.insert(
         derived.segment_meshes.end(),
         std::make_move_iterator(output.value.surface_meshes.begin()),
@@ -292,7 +292,7 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
       Result<std::vector<Mesh>> meshes =
           emit_connection(connection.connection_geometry);
       if (!meshes.ok)
-        return Result<bool>::Fail(meshes.error_kind, meshes.error);
+        return Result<bool>::Fail(meshes.failure_category, meshes.error);
       derived.connection_meshes.insert(
           derived.connection_meshes.end(),
           std::make_move_iterator(meshes.value.begin()),
@@ -301,7 +301,7 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
       Result<junction_output> output =
           emit_junction(connection.junction_geometry);
       if (!output.ok)
-        return Result<bool>::Fail(output.error_kind, output.error);
+        return Result<bool>::Fail(output.failure_category, output.error);
       derived.junction_meshes.insert(
           derived.junction_meshes.end(),
           std::make_move_iterator(output.value.surface_meshes.begin()),
@@ -311,7 +311,7 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
 
   Result<std::vector<Mesh>> marking_meshes = emit_markings(derived.markings);
   if (!marking_meshes.ok) {
-    return Result<bool>::Fail(marking_meshes.error_kind, marking_meshes.error);
+    return Result<bool>::Fail(marking_meshes.failure_category, marking_meshes.error);
   }
   derived.marking_meshes = std::move(marking_meshes.value);
   return Result<bool>::Ok(true);

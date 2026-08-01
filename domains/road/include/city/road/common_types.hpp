@@ -12,14 +12,34 @@ namespace city::road {
 struct Vec2d { double x = 0.0; double y = 0.0; };
 struct Vec3d { double x = 0.0; double y = 0.0; double z = 0.0; };
 
-enum class ErrorKind { kNone, kValidation, kUnsupported, kInternal };
+enum class CommitFailureCategory : std::uint8_t {
+  kNone = 0,
+  kRequirementConstraint = 1,
+  kInvalidInput = 2,
+  kNotImplemented = 3,
+  kStateConflict = 4,
+  kInternalError = 5,
+};
+
+[[nodiscard]] inline const char* DefaultReasonCode(CommitFailureCategory category) {
+  switch (category) {
+    case CommitFailureCategory::kNone: return "";
+    case CommitFailureCategory::kRequirementConstraint: return "requirement_constraint";
+    case CommitFailureCategory::kInvalidInput: return "invalid_input";
+    case CommitFailureCategory::kNotImplemented: return "not_implemented";
+    case CommitFailureCategory::kStateConflict: return "state_conflict";
+    case CommitFailureCategory::kInternalError: return "internal_error";
+  }
+  return "internal_error";
+}
 
 template <typename T>
 struct Result {
   bool ok = false;
   T value{};
-  ErrorKind error_kind = ErrorKind::kNone;
+  CommitFailureCategory failure_category = CommitFailureCategory::kNone;
   std::string error{};
+  std::string reason_code{};
 
   [[nodiscard]] static Result<T> Ok(T value) {
     Result<T> result{};
@@ -27,10 +47,13 @@ struct Result {
     result.value = std::move(value);
     return result;
   }
-  [[nodiscard]] static Result<T> Fail(ErrorKind kind, std::string error) {
+  [[nodiscard]] static Result<T> Fail(CommitFailureCategory kind,
+                                      std::string error,
+                                      std::string reason_code = {}) {
     Result<T> result{};
-    result.error_kind = kind;
+    result.failure_category = kind;
     result.error = std::move(error);
+    result.reason_code = reason_code.empty() ? DefaultReasonCode(kind) : std::move(reason_code);
     return result;
   }
 };

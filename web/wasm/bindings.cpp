@@ -27,7 +27,7 @@ using city::wire::BundleKind;
 using city::wire::BundleTemplateId;
 using city::wire::CoreState;
 using city::wire::CoreView;
-using city::wire::EditErrorKind;
+using city::wire::CommitFailureCategory;
 using city::wire::GenerationTiming;
 using city::wire::ObjectId;
 using city::wire::PickHitKind;
@@ -40,11 +40,14 @@ using city::wire::Vec3d;
 
 [[nodiscard]] val road_result_value(bool ok,
                                     const std::string& error,
-                                    city::road::ErrorKind error_kind = city::road::ErrorKind::kNone) {
+                                    city::road::CommitFailureCategory failure_category = city::road::CommitFailureCategory::kNone,
+                                    const std::string& reason_code = {}) {
   val result = val::object();
   result.set("ok", ok);
   result.set("error", error);
-  result.set("errorKind", static_cast<int>(error_kind));
+  result.set("failureCategory", static_cast<int>(failure_category));
+  result.set("reasonCode", ok ? std::string{} :
+      (reason_code.empty() ? city::road::DefaultReasonCode(failure_category) : reason_code));
   return result;
 }
 
@@ -255,14 +258,17 @@ road_boundary_endpoint_value(const val& input) {
 
 [[nodiscard]] val result_value(bool ok,
                                const std::string& error,
-                               EditErrorKind error_kind = EditErrorKind::kNone) {
+                               CommitFailureCategory failure_category = CommitFailureCategory::kNone,
+                               const std::string& reason_code = {}) {
   val result = val::object();
   result.set("ok", ok);
   result.set("error", error);
-  const EditErrorKind effective_kind =
-      ok ? EditErrorKind::kNone
-         : (error_kind == EditErrorKind::kNone ? city::wire::ClassifyEditError(error) : error_kind);
-  result.set("errorKind", static_cast<int>(effective_kind));
+  const CommitFailureCategory effective_kind =
+      ok ? CommitFailureCategory::kNone
+         : (failure_category == CommitFailureCategory::kNone ? city::wire::ClassifyCommitFailure(error) : failure_category);
+  result.set("failureCategory", static_cast<int>(effective_kind));
+  result.set("reasonCode", ok ? std::string{} :
+      (reason_code.empty() ? city::wire::DefaultReasonCode(effective_kind) : reason_code));
   return result;
 }
 
@@ -558,7 +564,8 @@ private:
     }
 
     const auto generated = target.GenerateFromBackboneSpec(spec);
-    val result = result_value(generated.ok, generated.error);
+    val result = result_value(generated.ok, generated.error,
+                              generated.effective_failure_category(), generated.reason_code);
     result.set("generatedPoleCount", generated.value.generated_pole_ids.size());
     result.set("generatedSpanCount", generated.value.generated_span_ids.size());
     val generated_bundle_ids = val::array();
@@ -640,7 +647,8 @@ private:
     }
 
     const auto resolved = target.ResolveBranchPick(pick, options);
-    val output = result_value(resolved.ok, resolved.error);
+    val output = result_value(resolved.ok, resolved.error,
+                              resolved.effective_failure_category(), resolved.reason_code);
     output.set("positionX", resolved.value.position.x);
     output.set("positionY", resolved.value.position.y);
     output.set("positionZ", resolved.value.position.z);
@@ -653,7 +661,8 @@ public:
 
   [[nodiscard]] val clear_pending_support_nodes() {
     const auto cleared = state_->ClearPendingSupportNodes();
-    return result_value(cleared.ok, cleared.error);
+    return result_value(cleared.ok, cleared.error,
+                        cleared.effective_failure_category(), cleared.reason_code);
   }
 
   [[nodiscard]] val last_generation_timing() const {
@@ -1416,7 +1425,7 @@ public:
             input["fullWidthCorridorDistanceM"].as<double>(),
             input["laneWidthM"].as<double>(),
             input["anchorBoundaryId"].as<city::road::BoundaryId>()});
-    val output = road_result_value(result.ok, result.error, result.error_kind);
+    val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) output.set("laneId", static_cast<double>(result.value));
     return output;
   }
@@ -1432,7 +1441,7 @@ public:
             input["fullWidthCorridorDistanceM"].as<double>(),
             input["laneWidthM"].as<double>(),
             input["anchorBoundaryId"].as<city::road::BoundaryId>()});
-    val output = road_result_value(result.ok, result.error, result.error_kind);
+    val output = road_result_value(result.ok, result.error, result.failure_category);
     output.set("meshes", result.ok ? road_preview_meshes(trial) : val::array());
     return output;
   }
@@ -1448,7 +1457,7 @@ public:
   val add_segment(const val& input) {
     const auto path = road_path_value(input);
     if (path.spans.empty()) {
-      return road_result_value(false, "unsupported road primitive", city::road::ErrorKind::kUnsupported);
+      return road_result_value(false, "unsupported road primitive", city::road::CommitFailureCategory::kNotImplemented);
     }
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
@@ -1475,7 +1484,7 @@ public:
     } else {
       result = state_->AddSegment(city::road::AddSegmentRequest{path, section_template_id});
     }
-    val output = road_result_value(result.ok, result.error, result.error_kind);
+    val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) {
       output.set("segmentId", static_cast<double>(result.value));
       const auto segment = std::find_if(
@@ -1498,7 +1507,7 @@ public:
     city::road::RoadState trial = *state_;
     const auto path = road_path_value(input);
     if (path.spans.empty()) {
-      val result = road_result_value(false, "unsupported road primitive", city::road::ErrorKind::kUnsupported);
+      val result = road_result_value(false, "unsupported road primitive", city::road::CommitFailureCategory::kNotImplemented);
       result.set("meshes", val::array());
       return result;
     }
@@ -1527,7 +1536,7 @@ public:
     } else {
       added = trial.AddSegment(city::road::AddSegmentRequest{path, section_template_id});
     }
-    val result = road_result_value(added.ok, added.error, added.error_kind);
+    val result = road_result_value(added.ok, added.error, added.failure_category);
     val meshes = val::array();
     if (added.ok) {
       for (const auto& mesh : trial.derived().segment_meshes) {
@@ -1916,12 +1925,12 @@ private:
     if (preview) {
       city::road::RoadState trial = *state_;
       const auto result = trial.AddConnectedLaneSegment(std::move(request));
-      val output = road_result_value(result.ok, result.error, result.error_kind);
+      val output = road_result_value(result.ok, result.error, result.failure_category);
       output.set("meshes", result.ok ? road_preview_meshes(trial) : val::array());
       return output;
     }
     const auto result = state_->AddConnectedLaneSegment(std::move(request));
-    val output = road_result_value(result.ok, result.error, result.error_kind);
+    val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) output.set("segmentId", static_cast<double>(result.value));
     return output;
   }
@@ -1931,7 +1940,7 @@ public:
   val delete_segment(std::uint64_t segment_id) {
     const auto result = state_->DeleteSegment(
         city::road::DeleteSegmentRequest{segment_id});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val split_segment_at_distance(const val& input) {
@@ -1940,7 +1949,7 @@ public:
             input["segmentId"].as<city::road::RoadSegmentId>(),
             input["segmentDistanceM"].as<double>()});
     val output =
-        road_result_value(result.ok, result.error, result.error_kind);
+        road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) {
       output.set("segmentId", static_cast<double>(result.value));
     }
@@ -1953,14 +1962,14 @@ public:
             input["segmentId"].as<city::road::RoadSegmentId>(),
             input["startSegmentDistanceM"].as<double>(),
             input["endSegmentDistanceM"].as<double>()});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val move_node(const val& input) {
     const auto result = state_->MoveNode(city::road::MoveNodeRequest{
         input["nodeId"].as<city::road::RoadNodeId>(),
         city::road::Vec2d{input["x"].as<double>(), input["y"].as<double>()}});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val preview_move_node(const val& input) const {
@@ -1968,7 +1977,7 @@ public:
     const auto moved = trial.MoveNode(city::road::MoveNodeRequest{
         input["nodeId"].as<city::road::RoadNodeId>(),
         city::road::Vec2d{input["x"].as<double>(), input["y"].as<double>()}});
-    val result = road_result_value(moved.ok, moved.error, moved.error_kind);
+    val result = road_result_value(moved.ok, moved.error, moved.failure_category);
     val meshes = val::array();
     if (moved.ok) {
       for (const auto& mesh : trial.derived().segment_meshes)
@@ -1986,14 +1995,14 @@ public:
     const auto result = state_->SetApproachSetbackOverride(
         city::road::SetApproachSetbackOverrideRequest{
             road_approach_key_value(input), input["setbackM"].as<double>()});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val set_approach_lateral_shift_override(const val& input) {
     const auto result = state_->SetApproachLateralShiftOverride(
         city::road::SetApproachLateralShiftOverrideRequest{
             road_approach_key_value(input), input["lateralShiftM"].as<double>()});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val reset_approach_override_field(const val& input) {
@@ -2003,28 +2012,28 @@ public:
             road_approach_key_value(input),
             field == 1 ? city::road::ApproachOverrideField::kLateralShift
                        : city::road::ApproachOverrideField::kSetback});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val reset_all_approach_overrides(const val& input) {
     const auto result = state_->ResetAllApproachOverrides(
         city::road::ResetAllApproachOverridesRequest{road_approach_key_value(input)});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val edit_segment(std::uint64_t segment_id, const val& input) {
     const auto shape = city::road::SegmentShapeFromPath(road_path_value(input));
-    if (!shape.ok) return road_result_value(false, shape.error, shape.error_kind);
+    if (!shape.ok) return road_result_value(false, shape.error, shape.failure_category);
     const auto result = state_->EditSegmentShape(city::road::EditSegmentShapeRequest{segment_id, shape.value});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val preview_edit_segment(std::uint64_t segment_id, const val& input) const {
     city::road::RoadState trial = *state_;
     const auto shape = city::road::SegmentShapeFromPath(road_path_value(input));
-    if (!shape.ok) return road_result_value(false, shape.error, shape.error_kind);
+    if (!shape.ok) return road_result_value(false, shape.error, shape.failure_category);
     const auto edited = trial.EditSegmentShape(city::road::EditSegmentShapeRequest{segment_id, shape.value});
-    val result = road_result_value(edited.ok, edited.error, edited.error_kind);
+    val result = road_result_value(edited.ok, edited.error, edited.failure_category);
     val meshes = val::array();
     if (edited.ok) {
       for (const auto& mesh : trial.derived().segment_meshes) {
@@ -2040,7 +2049,7 @@ public:
     const auto it = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
                                  [id](const auto& section) { return section.id == id; });
     if (it == state_->graph().section_templates.end()) {
-      return road_result_value(false, "section template does not exist", city::road::ErrorKind::kValidation);
+      return road_result_value(false, "section template does not exist", city::road::CommitFailureCategory::kInvalidInput);
     }
     city::road::CrossSectionTemplate section = *it;
     const double sidewalk_width = input["sidewalkWidthM"].as<double>();
@@ -2083,14 +2092,14 @@ public:
       }
     }
     const auto result = state_->EditSectionTemplate(city::road::EditSectionTemplateRequest{std::move(section)});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val set_boundary_marking_policy(const val& input) {
     const auto style = road_marking_style_id(input["style"].as<std::string>());
     if (!style.has_value()) {
       return road_result_value(false, "unknown road marking style",
-                               city::road::ErrorKind::kValidation);
+                               city::road::CommitFailureCategory::kInvalidInput);
     }
     city::road::SetBoundaryMarkingPolicyRequest request{};
     request.section_template_id =
@@ -2100,7 +2109,7 @@ public:
     request.policy.role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
     request.policy.style_id = *style;
     const auto result = state_->SetBoundaryMarkingPolicy(request);
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val reset_boundary_marking_policy(const val& input) {
@@ -2108,14 +2117,14 @@ public:
         city::road::ResetBoundaryMarkingPolicyRequest{
             input["templateId"].as<city::road::CrossSectionTemplateId>(),
             input["boundaryId"].as<std::uint64_t>()});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val set_lane_side_marking_policy(const val& input) {
     const auto style = road_marking_style_id(input["style"].as<std::string>());
     if (!style.has_value()) {
       return road_result_value(false, "unknown road marking style",
-                               city::road::ErrorKind::kValidation);
+                               city::road::CommitFailureCategory::kInvalidInput);
     }
     city::road::SetLaneSideMarkingPolicyRequest request{};
     request.section_template_id =
@@ -2126,7 +2135,7 @@ public:
     request.policy.role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
     request.policy.style_id = *style;
     const auto result = state_->SetLaneSideMarkingPolicy(request);
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val reset_lane_side_marking_policy(const val& input) {
@@ -2135,19 +2144,19 @@ public:
             input["templateId"].as<city::road::CrossSectionTemplateId>(),
             input["stripId"].as<city::road::SectionStripId>(),
             road_lane_side_value(input)});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val suppress_junction_marking(const val& input) {
     const auto result = state_->SuppressAutoMarking(
         city::road::SuppressAutoMarkingRequest{road_junction_marking_key(input)});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val reset_junction_marking_suppression(const val& input) {
     const auto result = state_->ResetAutoMarkingSuppression(
         city::road::ResetAutoMarkingSuppressionRequest{road_junction_marking_key(input)});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val set_junction_marking_override(const val& input) {
@@ -2163,7 +2172,7 @@ public:
     }
     const auto result = state_->SetJunctionMarkingOverride(
         city::road::SetJunctionMarkingOverrideRequest{std::move(override)});
-    val output = road_result_value(result.ok, result.error, result.error_kind);
+    val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) output.set("overrideId", static_cast<double>(result.value));
     return output;
   }
@@ -2172,7 +2181,7 @@ public:
     const auto result = state_->DeleteJunctionMarkingOverride(
         city::road::DeleteJunctionMarkingOverrideRequest{
             input["overrideId"].as<city::road::JunctionMarkingOverrideId>()});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val apply_transition(const val& input) {
@@ -2183,7 +2192,7 @@ public:
     const auto target = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
                                      [target_id](const auto& item) { return item.id == target_id; });
     if (segment == state_->graph().segments.end() || target == state_->graph().section_templates.end()) {
-      return road_result_value(false, "road transition reference is missing", city::road::ErrorKind::kValidation);
+      return road_result_value(false, "road transition reference is missing", city::road::CommitFailureCategory::kInvalidInput);
     }
     const auto source = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
                                      [segment](const auto& item) { return item.id == segment->section_template; });
@@ -2211,7 +2220,7 @@ public:
     }
     const auto result = state_->AddTransitionToSegment(
         city::road::AddTransitionToSegmentRequest{segment_id, std::move(transition)});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val add_manual_line(const val& input) {
@@ -2223,11 +2232,11 @@ public:
     const auto style = road_marking_style_id(input["style"].as<std::string>());
     if (!style.has_value()) {
       return road_result_value(false, "unknown road marking style",
-                               city::road::ErrorKind::kValidation);
+                               city::road::CommitFailureCategory::kInvalidInput);
     }
     marking.style_id = *style;
     const auto result = state_->AddManualLine(std::move(marking));
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val add_manual_area(const val& input) {
@@ -2242,11 +2251,11 @@ public:
     const auto style = road_marking_style_id(input["style"].as<std::string>());
     if (!style.has_value()) {
       return road_result_value(false, "unknown road marking style",
-                               city::road::ErrorKind::kValidation);
+                               city::road::CommitFailureCategory::kInvalidInput);
     }
     marking.style_id = *style;
     const auto result = state_->AddManualArea(std::move(marking));
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val suppress_segment_marking(const val& input) {
@@ -2260,7 +2269,7 @@ public:
         city::road::MarkingTrackKey{segment_id, boundary_id, role},
         std::nullopt};
     const auto result = state_->SuppressAutoMarking(city::road::SuppressAutoMarkingRequest{key});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val reset_segment_marking_suppression(const val& input) {
@@ -2275,7 +2284,7 @@ public:
         std::nullopt};
     const auto result = state_->ResetAutoMarkingSuppression(
         city::road::ResetAutoMarkingSuppressionRequest{key});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val undo_segment() {
@@ -2284,7 +2293,7 @@ public:
     }
     const auto result = state_->DeleteSegment(
         city::road::DeleteSegmentRequest{state_->graph().segments.back().id});
-    return road_result_value(result.ok, result.error, result.error_kind);
+    return road_result_value(result.ok, result.error, result.failure_category);
   }
 
   val clear() {
@@ -2301,7 +2310,7 @@ public:
   val load_state(const std::string& text) {
     const auto loaded = city::road::RoadState::Load(text);
     if (!loaded.ok) {
-      return road_result_value(false, loaded.error, loaded.error_kind);
+      return road_result_value(false, loaded.error, loaded.failure_category);
     }
     *state_ = loaded.value;
     return road_result_value(true, {});

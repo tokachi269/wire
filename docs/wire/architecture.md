@@ -75,13 +75,13 @@ NaN / inf、負のinterval、負のavoid radius、負のmax tilt、負のspacing
 
 ### EditResult error kind
 
-`EditResult` は人間向けの `error` 文字列に加えて、機械可読な `EditErrorKind` を返す。
+`EditResult` は人間向けの `error` 文字列に加えて、機械可読な `CommitFailureCategory` と `reason_code` を返す。
 
 - `kValidation`: 外部入力が不正で、ユーザー入力またはadapter payloadを直せばよいもの。
 - `kUnsupported`: 入力は読めたが、現在の仕様で扱わないもの。分類に迷う既存エラーはここへ倒す。
 - `kInternal`: 保存済み正本や派生再構築の整合が壊れており、通常操作では起きてはいけないもの。
 
-既存の `error` 文字列は互換のため維持する。境界adapterは `effective_error_kind()` で分類済み値を読み、
+既存の `error` 文字列は診断情報として維持する。境界adapterは `effective_failure_category()` で分類済み値を読み、
 表示層は文字列prefixを再解釈しない。
 
 処理順は次の通り。

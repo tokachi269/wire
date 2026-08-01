@@ -151,7 +151,7 @@ bool C371_backbone_rejects_unsupported() {
   empty.bundles.clear();
   const auto empty_out = state.GenerateFromBackboneSpec(empty);
   if (empty_out.ok || !contains_text(empty_out.error, "unsupported") ||
-      empty_out.error_kind != city::wire::EditErrorKind::kUnsupported) {
+      empty_out.failure_category != city::wire::CommitFailureCategory::kNotImplemented) {
     return false;
   }
 
@@ -162,7 +162,8 @@ bool C371_backbone_rejects_unsupported() {
   node.node_id = 1;
   building.path.node_specs.push_back(node);
   const auto building_out = state.GenerateFromBackboneSpec(building);
-  return !building_out.ok && contains_text(building_out.error, "unsupported");
+  return !building_out.ok && contains_text(building_out.error, "state conflict") &&
+         building_out.failure_category == city::wire::CommitFailureCategory::kStateConflict;
 }
 
 bool C819_backbone_rejects_nonfinite_path_point_before_mutation() {
@@ -173,7 +174,7 @@ bool C819_backbone_rejects_nonfinite_path_point_before_mutation() {
   const CoreCounts before = snapshot_counts(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   return !out.ok && contains_text(out.error, "invalid input") &&
-         out.error_kind == city::wire::EditErrorKind::kValidation &&
+         out.failure_category == city::wire::CommitFailureCategory::kInvalidInput &&
          same_counts(before, snapshot_counts(state));
 }
 
@@ -186,7 +187,7 @@ bool C820_backbone_rejects_nonfinite_tilt_before_mutation() {
   const CoreCounts before = snapshot_counts(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   return !out.ok && contains_text(out.error, "invalid input") &&
-         out.error_kind == city::wire::EditErrorKind::kValidation &&
+         out.failure_category == city::wire::CommitFailureCategory::kInvalidInput &&
          same_counts(before, snapshot_counts(state));
 }
 
@@ -438,11 +439,15 @@ bool C381_backbone_m1_no_recalc_contract() {
   return C370_backbone_no_v1_deps();
 }
 
-bool C822_edit_result_error_kind_classifies_core_error_prefixes() {
+bool C822_edit_result_failure_category_classifies_core_error_prefixes() {
   city::wire::EditResult<bool> validation{};
   validation.error = "backbone invalid input: path.polyline";
   city::wire::EditResult<bool> unsupported{};
   unsupported.error = "backbone unsupported: empty bundles";
+  city::wire::EditResult<bool> requirement{};
+  requirement.error = "backbone requirement constraint: midair branch is disabled";
+  city::wire::EditResult<bool> conflict{};
+  conflict.error = "backbone state conflict: unknown node reference";
   city::wire::EditResult<bool> internal{};
   internal.error = "backbone internal: row continuity endpoint is missing";
   city::wire::EditResult<bool> unknown{};
@@ -451,11 +456,13 @@ bool C822_edit_result_error_kind_classifies_core_error_prefixes() {
   ok.ok = true;
   ok.error = "backbone internal: ignored on success";
 
-  return validation.effective_error_kind() == city::wire::EditErrorKind::kValidation &&
-         unsupported.effective_error_kind() == city::wire::EditErrorKind::kUnsupported &&
-         internal.effective_error_kind() == city::wire::EditErrorKind::kInternal &&
-         unknown.effective_error_kind() == city::wire::EditErrorKind::kInternal &&
-         ok.effective_error_kind() == city::wire::EditErrorKind::kNone;
+  return validation.effective_failure_category() == city::wire::CommitFailureCategory::kInvalidInput &&
+         unsupported.effective_failure_category() == city::wire::CommitFailureCategory::kNotImplemented &&
+         requirement.effective_failure_category() == city::wire::CommitFailureCategory::kRequirementConstraint &&
+         conflict.effective_failure_category() == city::wire::CommitFailureCategory::kStateConflict &&
+         internal.effective_failure_category() == city::wire::CommitFailureCategory::kInternalError &&
+         unknown.effective_failure_category() == city::wire::CommitFailureCategory::kInternalError &&
+         ok.effective_failure_category() == city::wire::CommitFailureCategory::kNone;
 }
 
 bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
@@ -802,7 +809,9 @@ bool C397_backbone_rejects_missing_saved_midair_node_spec() {
   node.node_id = 1;
   req.path.node_specs.push_back(node);
   const auto out = state.GenerateFromBackboneSpec(req);
-  return !out.ok && contains_text(out.error, "unsupported");
+  return !out.ok && contains_text(out.error, "state conflict") &&
+         out.failure_category == city::wire::CommitFailureCategory::kStateConflict &&
+         out.reason_code == "stale_anchor_reference";
 }
 
 bool C398_backbone_rejects_missing_existing_pole() {
@@ -814,7 +823,9 @@ bool C398_backbone_rejects_missing_existing_pole() {
   node.node_id = 999999;
   req.path.node_specs.push_back(node);
   const auto out = state.GenerateFromBackboneSpec(req);
-  return !out.ok && contains_text(out.error, "unsupported");
+  return !out.ok && contains_text(out.error, "state conflict") &&
+         out.failure_category == city::wire::CommitFailureCategory::kStateConflict &&
+         out.reason_code == "stale_anchor_reference";
 }
 
 bool C399_backbone_existing_pole_sequence_is_deterministic() {

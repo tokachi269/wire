@@ -102,7 +102,7 @@ merge_boundary_policies(const CrossSectionTemplate &section) {
   if (section.strips.front().side_marking.left.enabled ||
       section.strips.back().side_marking.right.enabled) {
     return Result<std::vector<AutoMarkingPolicy>>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "lane side marking has no adjacent boundary element");
   }
   for (std::size_t index = 0; index < section.boundaries.size(); ++index) {
@@ -128,7 +128,7 @@ merge_boundary_policies(const CrossSectionTemplate &section) {
                    : AutoMarkingPolicy{});
     if (!compatible) {
       return Result<std::vector<AutoMarkingPolicy>>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "conflicting marking requests on section boundary " +
               std::to_string(boundary.boundary_id));
     }
@@ -246,7 +246,7 @@ Result<CrossSectionTemplate> template_at(
       find_template(graph, segment.section_template);
   if (base == nullptr) {
     return Result<CrossSectionTemplate>::Fail(
-        ErrorKind::kValidation, "road segment section template is missing");
+        CommitFailureCategory::kInvalidInput, "road segment section template is missing");
   }
   if (!segment.transition.has_value()) {
     return Result<CrossSectionTemplate>::Ok(*base);
@@ -255,7 +255,7 @@ Result<CrossSectionTemplate> template_at(
       find_transition(graph, *segment.transition);
   if (transition == nullptr) {
     return Result<CrossSectionTemplate>::Fail(
-        ErrorKind::kValidation, "road segment transition is missing");
+        CommitFailureCategory::kInvalidInput, "road segment transition is missing");
   }
   const CrossSectionTemplate *from =
       find_template(graph, transition->from_template);
@@ -263,13 +263,13 @@ Result<CrossSectionTemplate> template_at(
       find_template(graph, transition->to_template);
   if (from == nullptr || to == nullptr) {
     return Result<CrossSectionTemplate>::Fail(
-        ErrorKind::kValidation, "road transition template is missing");
+        CommitFailureCategory::kInvalidInput, "road transition template is missing");
   }
   const double start = distance_value(transition->start, total_m);
   const double end = distance_value(transition->end, total_m);
   if (start < 0.0 || end > total_m || end - start <= distance_epsilon) {
     return Result<CrossSectionTemplate>::Fail(
-        ErrorKind::kValidation, "road transition distance range is invalid");
+        CommitFailureCategory::kInvalidInput, "road transition distance range is invalid");
   }
   return Result<CrossSectionTemplate>::Ok(interpolate_section(
       *from, *to,
@@ -283,18 +283,18 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
   Result<CrossSectionTemplate> section =
       template_at(graph, segment, segment_distance_m, total_m);
   if (!section.ok) {
-    return Result<SectionEvaluation>::Fail(section.error_kind, section.error);
+    return Result<SectionEvaluation>::Fail(section.failure_category, section.error);
   }
   Result<std::vector<AutoMarkingPolicy>> policies =
       merge_boundary_policies(section.value);
   if (!policies.ok) {
-    return Result<SectionEvaluation>::Fail(policies.error_kind, policies.error);
+    return Result<SectionEvaluation>::Fail(policies.failure_category, policies.error);
   }
   std::vector<SectionBoundarySample> boundaries =
       build_boundaries(section.value, policies.value);
   if (boundaries.empty()) {
     return Result<SectionEvaluation>::Fail(
-        ErrorKind::kInternal, "road section evaluation produced no boundaries");
+        CommitFailureCategory::kInternalError, "road section evaluation produced no boundaries");
   }
   if (segment.transition.has_value()) {
     const SectionTransition *transition =
@@ -304,7 +304,7 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
                               : find_template(graph, transition->from_template);
     if (transition == nullptr || from == nullptr) {
       return Result<SectionEvaluation>::Fail(
-          ErrorKind::kValidation, "road transition anchor source is missing");
+          CommitFailureCategory::kInvalidInput, "road transition anchor source is missing");
     }
     const std::vector<SectionBoundarySample> from_boundaries = build_boundaries(
         *from, std::vector<AutoMarkingPolicy>(from->boundaries.size(),
@@ -327,7 +327,7 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
           });
       if (source == from_boundaries.end() || current == boundaries.end()) {
         return Result<SectionEvaluation>::Fail(
-            ErrorKind::kInternal,
+            CommitFailureCategory::kInternalError,
             "road transition anchor boundary sample is missing");
       }
       shift = source->lateral_m - current->lateral_m;
@@ -351,7 +351,7 @@ lane_position(const CrossSectionTemplate &section, const LaneBand &lane,
       });
   if (strip == section.strips.end()) {
     return Result<LaneSectionPosition>::Fail(
-        ErrorKind::kInternal, "lane allocation strip is missing");
+        CommitFailureCategory::kInternalError, "lane allocation strip is missing");
   }
   const SectionBoundarySample *left = nullptr;
   for (const SectionBoundarySample &boundary : evaluation.boundaries) {
@@ -366,7 +366,7 @@ lane_position(const CrossSectionTemplate &section, const LaneBand &lane,
   }
   if (left == nullptr) {
     return Result<LaneSectionPosition>::Fail(
-        ErrorKind::kInternal, "lane strip left boundary is missing");
+        CommitFailureCategory::kInternalError, "lane strip left boundary is missing");
   }
   const double offset =
       (lane.lateral_start_m + lane.lateral_end_m) * 0.5;

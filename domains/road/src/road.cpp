@@ -163,11 +163,11 @@ struct PathSplit {
 [[nodiscard]] Result<PathSplit> split_path_at_distance(
     const Path& path, double distance_along_path_m) {
   const Result<double> total = PathLength(path);
-  if (!total.ok) return Result<PathSplit>::Fail(total.error_kind, total.error);
+  if (!total.ok) return Result<PathSplit>::Fail(total.failure_category, total.error);
   if (!finite(distance_along_path_m) ||
       distance_along_path_m <= kEpsilon ||
       distance_along_path_m >= total.value - kEpsilon) {
-    return Result<PathSplit>::Fail(ErrorKind::kValidation, "road segment split distance is outside its interior");
+    return Result<PathSplit>::Fail(CommitFailureCategory::kInvalidInput, "road segment split distance is outside its interior");
   }
   double remaining = distance_along_path_m;
   for (std::size_t index = 0; index < path.spans.size(); ++index) {
@@ -193,7 +193,7 @@ struct PathSplit {
     }
     remaining -= length_m;
   }
-  return Result<PathSplit>::Fail(ErrorKind::kInternal, "road segment split distance resolution fell through");
+  return Result<PathSplit>::Fail(CommitFailureCategory::kInternalError, "road segment split distance resolution fell through");
 }
 
 [[nodiscard]] std::pair<double, double>
@@ -274,7 +274,9 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
         continue;
       }
       if (segments_intersect(points[i], points[i + 1], points[j], points[j + 1])) {
-        return Result<bool>::Fail(ErrorKind::kUnsupported, "road path self-intersection is unsupported");
+        return Result<bool>::Fail(CommitFailureCategory::kRequirementConstraint,
+                                  "road path self-intersection is prohibited",
+                                  "road_path_self_intersection");
       }
     }
   }
@@ -369,7 +371,7 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
 [[nodiscard]] Result<bool> validate_marking_policy(const AutoMarkingPolicy& policy) {
   if (!valid_marking_role(policy.role) ||
       (policy.enabled && !IsKnownMarkingStyle(policy.style_id))) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "marking policy is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "marking policy is invalid");
   }
   return Result<bool>::Ok(true);
 }
@@ -377,52 +379,52 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
 [[nodiscard]] Result<bool> validate_auto_marking_key(const SavedRoadGraph& graph,
                                                      const AutoMarkingKey& key) {
   if (!valid_marking_role(key.role)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "auto marking key role is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "auto marking key role is invalid");
   }
   if (key.owner.kind == MarkingOwner::Kind::kRoadSegment) {
     const RoadSegment* segment = find_segment(graph, key.owner.segment_id);
     if (segment == nullptr || key.owner.node_id != 0 || key.owner.manual_id != 0) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking segment owner is invalid");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "auto marking segment owner is invalid");
     }
     if (!key.track.has_value() || key.approach.has_value() ||
         key.track->segment_id != segment->id || key.track->role != key.role) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking segment key is invalid");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "auto marking segment key is invalid");
     }
     const CrossSectionTemplate* section = find_template(graph, segment->section_template);
     if (section == nullptr || find_boundary(*section, key.track->boundary_id) == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking boundary is missing");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "auto marking boundary is missing");
     }
     return Result<bool>::Ok(true);
   }
   if (key.owner.kind == MarkingOwner::Kind::kJunction) {
     if (find_node(graph, key.owner.node_id) == nullptr || key.owner.segment_id != 0 ||
         key.owner.manual_id != 0 || key.track.has_value() || !key.approach.has_value()) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking junction key is invalid");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "auto marking junction key is invalid");
     }
     const RoadSegment* segment = find_segment(graph, key.approach->segment_id);
     if (segment == nullptr || !endpoint_matches(*segment, *key.approach) ||
         key.approach->node_id != key.owner.node_id) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "auto marking junction approach is invalid");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "auto marking junction approach is invalid");
     }
     return Result<bool>::Ok(true);
   }
-  return Result<bool>::Fail(ErrorKind::kValidation, "auto marking manual owner cannot be suppressed");
+  return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "auto marking manual owner cannot be suppressed");
 }
 
 [[nodiscard]] Result<bool> validate_junction_marking_endpoint(const SavedRoadGraph& graph,
                                                               RoadNodeId node_id,
                                                               const JunctionMarkingEndpoint& endpoint) {
   if (!valid_marking_role(endpoint.role)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking endpoint role is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "junction marking endpoint role is invalid");
   }
   const RoadSegment* segment = find_segment(graph, endpoint.approach.segment_id);
   if (segment == nullptr || endpoint.approach.node_id != node_id ||
       !endpoint_matches(*segment, endpoint.approach)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking endpoint approach is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "junction marking endpoint approach is invalid");
   }
   const CrossSectionTemplate* section = find_template(graph, segment->section_template);
   if (section == nullptr || find_boundary(*section, endpoint.boundary_id) == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking endpoint boundary is missing");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "junction marking endpoint boundary is missing");
   }
   return Result<bool>::Ok(true);
 }
@@ -431,18 +433,18 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
                                                               const JunctionMarkingOverride& override) {
   if (override.id == 0 || find_node(graph, override.node_id) == nullptr ||
       static_cast<int>(override.action) < 0 || static_cast<int>(override.action) > 2) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking override is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "junction marking override is invalid");
   }
   Result<bool> source = validate_junction_marking_endpoint(graph, override.node_id, override.source);
   if (!source.ok) return source;
   if (override.action == JunctionMarkingAction::kConnectToApproach) {
     if (!override.target.has_value()) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "junction marking override target is missing");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "junction marking override target is missing");
     }
     return validate_junction_marking_endpoint(graph, override.node_id, *override.target);
   }
   if (override.target.has_value()) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking override target is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "junction marking override target is invalid");
   }
   return Result<bool>::Ok(true);
 }
@@ -473,17 +475,17 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
   const CrossSectionTemplate* from = find_template(graph, transition.from_template);
   const CrossSectionTemplate* to = find_template(graph, transition.to_template);
   if (from == nullptr || to == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section transition references a missing template");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section transition references a missing template");
   }
   if (!finite(transition.start.value) || !finite(transition.end.value)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section transition distance is not finite");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section transition distance is not finite");
   }
   const auto valid_distance = [](DistanceRef distance) {
     return distance.value >= 0.0 &&
            (distance.kind != DistanceRefKind::kRatio || distance.value <= 1.0);
   };
   if (!valid_distance(transition.start) || !valid_distance(transition.end)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section transition distance reference is outside its range");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section transition distance reference is outside its range");
   }
   if (transition.anchor == TransitionAnchor::kBoundary) {
     const BoundaryProfile* from_anchor =
@@ -493,31 +495,31 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
     if (transition.anchor_boundary_id == 0 || from_anchor == nullptr ||
         to_anchor == nullptr) {
       return Result<bool>::Fail(
-          ErrorKind::kValidation,
+          CommitFailureCategory::kInvalidInput,
           "section transition anchor boundary is missing");
     }
     if (!IsSinglePositionBoundary(*from_anchor) ||
         !IsSinglePositionBoundary(*to_anchor)) {
       return Result<bool>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "section transition anchor boundary must have one position");
     }
   } else if (transition.anchor_boundary_id != 0) {
     return Result<bool>::Fail(
-        ErrorKind::kValidation,
+        CommitFailureCategory::kInvalidInput,
         "section transition boundary anchor is set for a different anchor mode");
   }
   if (transition.rules.empty()) {
-    return Result<bool>::Fail(ErrorKind::kUnsupported, "section transition must define element actions");
+    return Result<bool>::Fail(CommitFailureCategory::kNotImplemented, "section transition must define element actions");
   }
   std::unordered_set<SectionStripId> ruled_strips{};
   for (const SectionTransitionRule& rule : transition.rules) {
     if (rule.strip_id == 0 || !ruled_strips.insert(rule.strip_id).second ||
         (find_strip(*from, rule.strip_id) == nullptr && find_strip(*to, rule.strip_id) == nullptr)) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "section transition rule strip is invalid");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section transition rule strip is invalid");
     }
     if (rule.action == TransitionAction::kUnsupported) {
-      return Result<bool>::Fail(ErrorKind::kUnsupported, "section transition contains unsupported element action");
+      return Result<bool>::Fail(CommitFailureCategory::kNotImplemented, "section transition contains unsupported element action");
     }
   }
   const auto action_for = [&transition](SectionStripId id) -> std::optional<TransitionAction> {
@@ -527,7 +529,7 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
   };
   for (const SectionStrip& strip : to->strips) {
     if (find_strip(*from, strip.id) == nullptr && action_for(strip.id) != TransitionAction::kTaperIn) {
-      return Result<bool>::Fail(ErrorKind::kUnsupported, "appearing section strip requires TaperIn");
+      return Result<bool>::Fail(CommitFailureCategory::kNotImplemented, "appearing section strip requires TaperIn");
     }
   }
   for (const SectionStrip& strip : from->strips) {
@@ -536,7 +538,7 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
     const TransitionAction required = strip.function == StripFunction::kMedian ? TransitionAction::kEndCap
                                                                               : TransitionAction::kTaperOut;
     if (action != required) {
-      return Result<bool>::Fail(ErrorKind::kUnsupported,
+      return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
                                 strip.function == StripFunction::kMedian
                                     ? "disappearing median requires EndCap"
                                     : "disappearing section strip requires TaperOut");
@@ -547,21 +549,21 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
 
 [[nodiscard]] Result<bool> validate_section_template(const CrossSectionTemplate& section) {
   if (section.strips.empty() || section.boundaries.size() + 1 != section.strips.size()) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section template chain is incomplete");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template chain is incomplete");
   }
   std::unordered_set<SectionStripId> ids{};
   for (const SectionStrip& strip : section.strips) {
     if (strip.id == 0 || !ids.insert(strip.id).second || !finite(strip.width_m) ||
         !finite(strip.cross_slope) || strip.width_m <= 0.0 ||
         static_cast<int>(strip.function) < 0 || static_cast<int>(strip.function) > 3) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "section template strip is invalid");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template strip is invalid");
     }
     if (!IsKnownSurfaceStyle(strip.style_id)) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "section template surface style is unknown");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template surface style is unknown");
     }
     for (const AutoMarkingPolicy& side : {strip.side_marking.left, strip.side_marking.right}) {
       if (!validate_marking_policy(side).ok) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "section template lane side marking policy is invalid");
       }
     }
@@ -575,7 +577,7 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
         lane.lateral_start_m < 0.0 ||
         lane.lateral_end_m <= lane.lateral_start_m ||
         lane.lateral_end_m > strip->width_m) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "section template lane allocation is invalid");
     }
   }
@@ -583,13 +585,13 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
   for (const BoundaryProfile& boundary : section.boundaries) {
     if (boundary.boundary_id == 0 || !ids.insert(boundary.boundary_id).second || !finite(boundary.width_m) ||
         !finite(boundary.height_m) || boundary.width_m < 0.0) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "section template boundary is invalid");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template boundary is invalid");
     }
     if (static_cast<int>(boundary.marking.role) < 0 ||
         static_cast<int>(boundary.marking.role) > 5 ||
         (boundary.marking.enabled &&
          !IsKnownMarkingStyle(boundary.marking.style_id))) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "section template marking policy is invalid");
     }
   }
@@ -628,13 +630,13 @@ ResolveCorridorDistance(const SavedRoadGraph& graph, const DerivedRoad& derived,
   if (!finite(distance.corridor_distance_m) ||
       distance.corridor_distance_m < 0.0) {
     return Result<ResolvedSegmentDistance>::Fail(
-        ErrorKind::kValidation, "road corridor distance is invalid");
+        CommitFailureCategory::kInvalidInput, "road corridor distance is invalid");
   }
   const RoadCorridor* corridor =
       FindRoadCorridor(graph, distance.corridor_id);
   if (corridor == nullptr || corridor->segments.empty()) {
     return Result<ResolvedSegmentDistance>::Fail(
-        ErrorKind::kValidation, "road corridor does not exist");
+        CommitFailureCategory::kInvalidInput, "road corridor does not exist");
   }
   double accumulated = 0.0;
   for (std::size_t index = 0; index < corridor->segments.size(); ++index) {
@@ -643,7 +645,7 @@ ResolveCorridorDistance(const SavedRoadGraph& graph, const DerivedRoad& derived,
     if (segment == nullptr || !finite(segment->length_m) ||
         segment->length_m <= 0.0) {
       return Result<ResolvedSegmentDistance>::Fail(
-          ErrorKind::kInternal, "road corridor segment length is missing");
+          CommitFailureCategory::kInternalError, "road corridor segment length is missing");
     }
     const double end = accumulated + segment->length_m;
     const bool last = index + 1 == corridor->segments.size();
@@ -660,7 +662,7 @@ ResolveCorridorDistance(const SavedRoadGraph& graph, const DerivedRoad& derived,
     accumulated = end;
   }
   return Result<ResolvedSegmentDistance>::Fail(
-      ErrorKind::kValidation, "road corridor distance exceeds its length");
+      CommitFailureCategory::kInvalidInput, "road corridor distance exceeds its length");
 }
 
 Result<RoadSideRef>
@@ -669,14 +671,14 @@ ResolveCorridorSideRef(const SavedRoadGraph& graph, const DerivedRoad& derived,
   if (!finite(reference.lateral_offset_m) ||
       reference.lateral_offset_m < 0.0) {
     return Result<RoadSideRef>::Fail(
-        ErrorKind::kValidation, "road corridor side offset is invalid");
+        CommitFailureCategory::kInvalidInput, "road corridor side offset is invalid");
   }
   const Result<ResolvedSegmentDistance> resolved = ResolveCorridorDistance(
       graph, derived,
       CorridorDistanceRef{reference.corridor_id,
                           reference.corridor_distance_m});
   if (!resolved.ok) {
-    return Result<RoadSideRef>::Fail(resolved.error_kind, resolved.error);
+    return Result<RoadSideRef>::Fail(resolved.failure_category, resolved.error);
   }
   const RoadSide segment_side =
       resolved.value.reversed
@@ -694,13 +696,13 @@ Result<Vec3d> ResolveRoadSidePosition(const DerivedRoad& derived,
       !finite(reference.lateral_offset_m) ||
       reference.segment_distance_m < 0.0 ||
       reference.lateral_offset_m < 0.0) {
-    return Result<Vec3d>::Fail(ErrorKind::kValidation,
+    return Result<Vec3d>::Fail(CommitFailureCategory::kInvalidInput,
                                "road side reference is invalid");
   }
   const Path* alignment =
       FindCanonicalAlignment(derived, reference.segment_id);
   if (alignment == nullptr) {
-    return Result<Vec3d>::Fail(ErrorKind::kValidation,
+    return Result<Vec3d>::Fail(CommitFailureCategory::kInvalidInput,
                                "road side segment does not exist");
   }
   const Result<Vec2d> center =
@@ -708,10 +710,10 @@ Result<Vec3d> ResolveRoadSidePosition(const DerivedRoad& derived,
   const Result<Vec2d> tangent =
       internal::tangent_at(*alignment, reference.segment_distance_m);
   if (!center.ok) {
-    return Result<Vec3d>::Fail(center.error_kind, center.error);
+    return Result<Vec3d>::Fail(center.failure_category, center.error);
   }
   if (!tangent.ok) {
-    return Result<Vec3d>::Fail(tangent.error_kind, tangent.error);
+    return Result<Vec3d>::Fail(tangent.failure_category, tangent.error);
   }
   const double sign = reference.side == RoadSide::kLeft ? 1.0 : -1.0;
   return Result<Vec3d>::Ok(
@@ -730,12 +732,12 @@ DeriveRepeatingPlacementDistances(const SavedRoadGraph& graph,
   if (!finite(policy.spacing_m) || !finite(policy.phase_m) ||
       policy.spacing_m <= 0.0 || policy.phase_m < 0.0) {
     return Result<std::vector<double>>::Fail(
-        ErrorKind::kValidation, "road repeating placement policy is invalid");
+        CommitFailureCategory::kInvalidInput, "road repeating placement policy is invalid");
   }
   const RoadCorridor* corridor = FindRoadCorridor(graph, corridor_id);
   if (corridor == nullptr || corridor->segments.empty()) {
     return Result<std::vector<double>>::Fail(
-        ErrorKind::kValidation, "road corridor does not exist");
+        CommitFailureCategory::kInvalidInput, "road corridor does not exist");
   }
   double total = 0.0;
   for (const DirectedSegmentRef& ref : corridor->segments) {
@@ -743,7 +745,7 @@ DeriveRepeatingPlacementDistances(const SavedRoadGraph& graph,
     if (segment == nullptr || !finite(segment->length_m) ||
         segment->length_m <= 0.0) {
       return Result<std::vector<double>>::Fail(
-          ErrorKind::kInternal, "road corridor segment length is missing");
+          CommitFailureCategory::kInternalError, "road corridor segment length is missing");
     }
     total += segment->length_m;
   }
@@ -753,7 +755,7 @@ DeriveRepeatingPlacementDistances(const SavedRoadGraph& graph,
     distances.push_back(std::min(value, total));
     if (distances.size() > 1000000) {
       return Result<std::vector<double>>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road repeating placement count is unsupported");
     }
   }
@@ -777,7 +779,7 @@ Path MakePath(std::vector<BezierSpan> spans) {
 
 Result<SegmentShape> SegmentShapeFromPath(const Path& path) {
   const Result<bool> valid = ValidatePath(path);
-  if (!valid.ok) return Result<SegmentShape>::Fail(valid.error_kind, valid.error);
+  if (!valid.ok) return Result<SegmentShape>::Fail(valid.failure_category, valid.error);
   SegmentShape shape{};
   if (path.spans.size() == 1 &&
       linear_span_controls_match(path.spans.front().p0, path.spans.front().p3,
@@ -798,14 +800,14 @@ Result<SegmentShape> SegmentShapeFromPath(const Path& path) {
 
 Result<Path> DeriveCanonicalAlignment(Vec2d start, Vec2d end, const SegmentShape& shape) {
   if (!finite(start) || !finite(end) || !finite(shape.start_handle) || !finite(shape.end_handle)) {
-    return Result<Path>::Fail(ErrorKind::kValidation, "road segment shape contains a non-finite point");
+    return Result<Path>::Fail(CommitFailureCategory::kInvalidInput, "road segment shape contains a non-finite point");
   }
   Path path{};
   Vec2d span_start = start;
   Vec2d handle_out = shape.start_handle;
   for (const SegmentKnot& knot : shape.internal_knots) {
     if (!finite(knot.position) || !finite(knot.handle_in) || !finite(knot.handle_out)) {
-      return Result<Path>::Fail(ErrorKind::kValidation, "road segment shape contains a non-finite knot");
+      return Result<Path>::Fail(CommitFailureCategory::kInvalidInput, "road segment shape contains a non-finite knot");
     }
     path.spans.push_back(
         MakeBezier(span_start, add(span_start, handle_out), add(knot.position, knot.handle_in), knot.position));
@@ -814,7 +816,7 @@ Result<Path> DeriveCanonicalAlignment(Vec2d start, Vec2d end, const SegmentShape
   }
   path.spans.push_back(MakeBezier(span_start, add(span_start, handle_out), add(end, shape.end_handle), end));
   const Result<bool> valid = ValidatePath(path);
-  if (!valid.ok) return Result<Path>::Fail(valid.error_kind, valid.error);
+  if (!valid.ok) return Result<Path>::Fail(valid.failure_category, valid.error);
   return Result<Path>::Ok(std::move(path));
 }
 
@@ -987,7 +989,7 @@ Result<bool> RoadState::Execute(const operations::OperationPlan& plan) {
   if (!authoritative_valid.ok) return authoritative_valid;
   Result<DerivedRoad> generated = generation::generate_road(trial.graph_);
   if (!generated.ok) {
-    return Result<bool>::Fail(generated.error_kind, generated.error);
+    return Result<bool>::Fail(generated.failure_category, generated.error);
   }
   trial.derived_ = std::move(generated.value);
   const Result<bool> derived_valid = ValidateGraphInvariants(trial.graph_, trial.derived_);
@@ -1001,11 +1003,11 @@ Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
   const CrossSectionTemplateId section_template = request.section_template;
   const Result<bool> path_valid = ValidatePath(alignment);
   if (!path_valid.ok) {
-    return Result<RoadSegmentId>::Fail(path_valid.error_kind,
+    return Result<RoadSegmentId>::Fail(path_valid.failure_category,
                                        path_valid.error);
   }
   if (find_template(graph_, section_template) == nullptr) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment references a missing section template");
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput, "road segment references a missing section template");
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -1017,7 +1019,7 @@ Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
                     RoadNode{node_b, alignment.spans.back().p3}};
   const Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
   if (!shape.ok) {
-    return Result<RoadSegmentId>::Fail(shape.error_kind, shape.error);
+    return Result<RoadSegmentId>::Fail(shape.failure_category, shape.error);
   }
   plan.add_segments.push_back(RoadSegment{
       segment_id, node_a, node_b, shape.value, section_template,
@@ -1027,7 +1029,7 @@ Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
       {DirectedSegmentRef{segment_id, false}}});
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
-  if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
+  if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.failure_category, executed.error);
   return Result<RoadSegmentId>::Ok(segment_id);
 }
 
@@ -1039,54 +1041,54 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
   if (source_corridor == nullptr || source_corridor->segments.empty() ||
       endpoint == nullptr) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kValidation,
+        CommitFailureCategory::kInvalidInput,
         "road extension corridor or endpoint does not exist");
   }
   const DirectedSegmentRef last_ref = source_corridor->segments.back();
   const RoadSegment* source = find_segment(graph_, last_ref.segment_id);
   if (source == nullptr) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kInternal, "road corridor terminal segment is missing");
+        CommitFailureCategory::kInternalError, "road corridor terminal segment is missing");
   }
   const RoadNodeId corridor_end =
       last_ref.reversed ? source->node_a : source->node_b;
   if (corridor_end != endpoint->id) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kValidation,
+        CommitFailureCategory::kInvalidInput,
         "road extension node is not the corridor end");
   }
   if (node_degree(graph_, endpoint->id) != 1) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road extension requires a degree-one endpoint");
   }
   if (source_corridor->section_template_id != request.section_template ||
       source->section_template != request.section_template) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road extension requires the existing section template");
   }
   if (find_connection_policy_override(graph_, endpoint->id) != nullptr) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road extension endpoint has an explicit connection policy");
   }
   Path extension = std::move(request.extension);
   const Result<bool> extension_valid = ValidatePath(extension);
   if (!extension_valid.ok) {
-    return Result<RoadSegmentId>::Fail(extension_valid.error_kind,
+    return Result<RoadSegmentId>::Fail(extension_valid.failure_category,
                                        extension_valid.error);
   }
   align_first_span_start(extension, endpoint->position);
 
   if (extension.spans.size() != 1) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road corridor extension requires one local span");
   }
   Result<SegmentShape> shape = SegmentShapeFromPath(extension);
   if (!shape.ok) {
-    return Result<RoadSegmentId>::Fail(shape.error_kind, shape.error);
+    return Result<RoadSegmentId>::Fail(shape.failure_category, shape.error);
   }
 
   operations::OperationPlan plan{};
@@ -1103,7 +1105,7 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) {
-    return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
+    return Result<RoadSegmentId>::Fail(executed.failure_category, executed.error);
   }
   return Result<RoadSegmentId>::Ok(segment_id);
 }
@@ -1114,27 +1116,27 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequ
   const RoadNodeId start_node = request.start_node;
   const RoadNode* node = find_node(graph_, start_node);
   if (node == nullptr) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment start node does not exist");
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput, "road segment start node does not exist");
   }
   if (find_template(graph_, section_template) == nullptr) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation,
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput,
                                        "connected road references a missing section template");
   }
   const Result<double> length_result = PathLength(alignment);
   if (!length_result.ok) {
-    return Result<RoadSegmentId>::Fail(length_result.error_kind, length_result.error);
+    return Result<RoadSegmentId>::Fail(length_result.failure_category, length_result.error);
   }
   if (length_result.value < kP1MinSegmentLengthM) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "connected road segment is shorter than P1 minimum");
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kNotImplemented, "connected road segment is shorter than P1 minimum");
   }
   if (alignment.spans.size() != 1) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road branch creation requires one local span");
   }
   align_first_span_start(alignment, node->position);
   const Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
-  if (!shape.ok) return Result<RoadSegmentId>::Fail(shape.error_kind, shape.error);
+  if (!shape.ok) return Result<RoadSegmentId>::Fail(shape.failure_category, shape.error);
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
   const RoadNodeId end_node = next_id++;
@@ -1148,7 +1150,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequ
                    {DirectedSegmentRef{segment_id, false}}});
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
-  if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
+  if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.failure_category, executed.error);
   return Result<RoadSegmentId>::Ok(segment_id);
 }
 
@@ -1159,30 +1161,30 @@ Result<RoadSegmentId> RoadState::AddConnectedLaneSegment(
       find_template(graph_, request.section_template);
   if (node == nullptr || target_template == nullptr) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kValidation,
+        CommitFailureCategory::kInvalidInput,
         "connected lane road node or section template does not exist");
   }
   if (request.lane_connections.empty() &&
       request.source_lane_connections.empty()) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kValidation,
+        CommitFailureCategory::kInvalidInput,
         "connected lane road requires explicit lane topology");
   }
   const Result<bool> path_valid = ValidatePath(request.alignment);
   if (!path_valid.ok) {
-    return Result<RoadSegmentId>::Fail(path_valid.error_kind,
+    return Result<RoadSegmentId>::Fail(path_valid.failure_category,
                                        path_valid.error);
   }
   if (request.alignment.spans.size() != 1) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "connected lane road requires one local span");
   }
   align_first_span_start(request.alignment, node->position);
   const Result<double> length = PathLength(request.alignment);
   if (!length.ok || length.value < kP1MinSegmentLengthM) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "connected lane road is shorter than the supported minimum");
   }
   for (const LaneTargetConnection& connection : request.lane_connections) {
@@ -1196,7 +1198,7 @@ Result<RoadSegmentId> RoadState::AddConnectedLaneSegment(
     if (source.lane == nullptr || source.node_id != request.start_node ||
         target_lane == target_template->lane_bands.end()) {
       return Result<RoadSegmentId>::Fail(
-          ErrorKind::kValidation,
+          CommitFailureCategory::kInvalidInput,
           "connected lane road lane endpoint is invalid");
     }
   }
@@ -1212,7 +1214,7 @@ Result<RoadSegmentId> RoadState::AddConnectedLaneSegment(
     if (source.boundary == nullptr || source.node_id != request.start_node ||
         target_boundary == target_template->boundaries.end()) {
       return Result<RoadSegmentId>::Fail(
-          ErrorKind::kValidation,
+          CommitFailureCategory::kInvalidInput,
           "connected lane road boundary endpoint is invalid");
     }
   }
@@ -1228,7 +1230,7 @@ Result<RoadSegmentId> RoadState::AddConnectedLaneSegment(
     if (source_lane == target_template->lane_bands.end() ||
         target.lane == nullptr || target.node_id != request.start_node) {
       return Result<RoadSegmentId>::Fail(
-          ErrorKind::kValidation,
+          CommitFailureCategory::kInvalidInput,
           "connected lane road source lane endpoint is invalid");
     }
   }
@@ -1244,13 +1246,13 @@ Result<RoadSegmentId> RoadState::AddConnectedLaneSegment(
     if (source_boundary == target_template->boundaries.end() ||
         target.boundary == nullptr || target.node_id != request.start_node) {
       return Result<RoadSegmentId>::Fail(
-          ErrorKind::kValidation,
+          CommitFailureCategory::kInvalidInput,
           "connected lane road source boundary endpoint is invalid");
     }
   }
   const Result<SegmentShape> shape = SegmentShapeFromPath(request.alignment);
   if (!shape.ok) {
-    return Result<RoadSegmentId>::Fail(shape.error_kind, shape.error);
+    return Result<RoadSegmentId>::Fail(shape.failure_category, shape.error);
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -1298,7 +1300,7 @@ Result<RoadSegmentId> RoadState::AddConnectedLaneSegment(
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) {
-    return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
+    return Result<RoadSegmentId>::Fail(executed.failure_category, executed.error);
   }
   return Result<RoadSegmentId>::Ok(segment_id);
 }
@@ -1310,32 +1312,32 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   const double segment_distance_m = request.segment_distance_m;
   const Result<bool> alignment_valid = ValidatePath(alignment);
   if (!alignment_valid.ok) {
-    return Result<RoadSegmentId>::Fail(alignment_valid.error_kind, alignment_valid.error);
+    return Result<RoadSegmentId>::Fail(alignment_valid.failure_category, alignment_valid.error);
   }
   if (alignment.spans.size() != 1) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "road branch creation requires one local span");
   }
   const RoadSegment* source = find_segment(graph_, start_segment);
   if (source == nullptr) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment snap target does not exist");
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput, "road segment snap target does not exist");
   }
   if (source->transition.has_value()) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported,
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kNotImplemented,
                                        "splitting a transitioning road segment is unsupported");
   }
   const Path* source_path = FindCanonicalAlignment(derived_, source->id);
   if (source_path == nullptr) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInternalError, "road segment canonical alignment is missing");
   }
   const Result<PathSplit> path_split =
       split_path_at_distance(*source_path, segment_distance_m);
   if (!path_split.ok) {
-    return Result<RoadSegmentId>::Fail(path_split.error_kind, path_split.error);
+    return Result<RoadSegmentId>::Fail(path_split.failure_category, path_split.error);
   }
   if (distance(path_start(alignment), path_split.value.point) > kSnapDistancePointToleranceM) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation,
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput,
                                        "road segment input start does not match its explicit snap distance");
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
@@ -1344,7 +1346,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
     if (minimum < segment_distance_m - kEpsilon &&
         maximum > segment_distance_m + kEpsilon) {
       return Result<RoadSegmentId>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road branch split crosses a manual line marking");
     }
   }
@@ -1354,15 +1356,15 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
     if (minimum < segment_distance_m - kEpsilon &&
         maximum > segment_distance_m + kEpsilon) {
       return Result<RoadSegmentId>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road branch split crosses a manual area marking");
     }
   }
   align_first_span_start(alignment, path_split.value.point);
   const Result<double> branch_length = PathLength(alignment);
-  if (!branch_length.ok) return Result<RoadSegmentId>::Fail(branch_length.error_kind, branch_length.error);
+  if (!branch_length.ok) return Result<RoadSegmentId>::Fail(branch_length.failure_category, branch_length.error);
   if (branch_length.value < kP1MinSegmentLengthM) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kUnsupported, "connected road segment is shorter than P1 minimum");
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kNotImplemented, "connected road segment is shorter than P1 minimum");
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -1375,7 +1377,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   const Result<SegmentShape> second_shape = SegmentShapeFromPath(path_split.value.after);
   const Result<SegmentShape> branch_shape = SegmentShapeFromPath(alignment);
   if (!first_shape.ok || !second_shape.ok || !branch_shape.ok) {
-    return Result<RoadSegmentId>::Fail(ErrorKind::kValidation, "road segment split shape is invalid");
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput, "road segment split shape is invalid");
   }
   RoadSegment first = *source;
   first.node_b = split_node;
@@ -1391,7 +1393,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
       FindCorridorForSegment(graph_, source->id);
   if (source_corridor == nullptr) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kInternal, "road split source corridor is missing");
+        CommitFailureCategory::kInternalError, "road split source corridor is missing");
   }
   RoadCorridor updated_corridor = *source_corridor;
   const auto source_ref =
@@ -1402,7 +1404,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
                    });
   if (source_ref == updated_corridor.segments.end()) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kInternal, "road split corridor reference is missing");
+        CommitFailureCategory::kInternalError, "road split corridor reference is missing");
   }
   const bool reversed = source_ref->reversed;
   const std::size_t source_index =
@@ -1491,7 +1493,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   }
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
-  if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
+  if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.failure_category, executed.error);
   return Result<RoadSegmentId>::Ok(branch_id);
 }
 
@@ -1500,23 +1502,23 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   const RoadSegment* source = find_segment(graph_, request.segment_id);
   if (source == nullptr || !finite(request.segment_distance_m)) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kValidation, "road split request is invalid");
+        CommitFailureCategory::kInvalidInput, "road split request is invalid");
   }
   if (source->transition.has_value()) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "splitting a transitioning road segment is unsupported");
   }
   const Path* source_path = FindCanonicalAlignment(derived_, source->id);
   if (source_path == nullptr) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kInternal,
+        CommitFailureCategory::kInternalError,
         "road split canonical alignment is missing");
   }
   const Result<PathSplit> split =
       split_path_at_distance(*source_path, request.segment_distance_m);
   if (!split.ok) {
-    return Result<RoadSegmentId>::Fail(split.error_kind, split.error);
+    return Result<RoadSegmentId>::Fail(split.failure_category, split.error);
   }
   const Result<SegmentShape> first_shape =
       SegmentShapeFromPath(split.value.before);
@@ -1524,7 +1526,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
       SegmentShapeFromPath(split.value.after);
   if (!first_shape.ok || !second_shape.ok) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kInternal, "road split shape derivation failed");
+        CommitFailureCategory::kInternalError, "road split shape derivation failed");
   }
 
   for (const ManualLineMarking& marking : graph_.manual_lines) {
@@ -1533,7 +1535,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
     if (minimum < request.segment_distance_m - kEpsilon &&
         maximum > request.segment_distance_m + kEpsilon) {
       return Result<RoadSegmentId>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road split crosses a manual line marking");
     }
   }
@@ -1543,7 +1545,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
     if (minimum < request.segment_distance_m - kEpsilon &&
         maximum > request.segment_distance_m + kEpsilon) {
       return Result<RoadSegmentId>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road split crosses a manual area marking");
     }
   }
@@ -1552,7 +1554,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
       FindCorridorForSegment(graph_, source->id);
   if (corridor == nullptr) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kInternal, "road split source corridor is missing");
+        CommitFailureCategory::kInternalError, "road split source corridor is missing");
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -1576,7 +1578,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
                    });
   if (ref_it == corridor_replacement.segments.end()) {
     return Result<RoadSegmentId>::Fail(
-        ErrorKind::kInternal, "road split corridor reference is missing");
+        CommitFailureCategory::kInternalError, "road split corridor reference is missing");
   }
   const std::size_t index = static_cast<std::size_t>(
       std::distance(corridor_replacement.segments.begin(), ref_it));
@@ -1662,7 +1664,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) {
-    return Result<RoadSegmentId>::Fail(executed.error_kind, executed.error);
+    return Result<RoadSegmentId>::Fail(executed.failure_category, executed.error);
   }
   return Result<RoadSegmentId>::Ok(second_id);
 }
@@ -1672,25 +1674,25 @@ Result<bool> RoadState::DeleteSegmentRange(DeleteSegmentRangeRequest request) {
   if (source == nullptr || !finite(request.start_segment_distance_m) ||
       !finite(request.end_segment_distance_m) ||
       request.start_segment_distance_m >= request.end_segment_distance_m) {
-    return Result<bool>::Fail(ErrorKind::kValidation,
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                               "road delete range is invalid");
   }
   if (source->transition.has_value()) {
     return Result<bool>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "deleting a range from a transitioning segment is unsupported");
   }
   const Path* source_path = FindCanonicalAlignment(derived_, source->id);
   if (source_path == nullptr) {
     return Result<bool>::Fail(
-        ErrorKind::kInternal,
+        CommitFailureCategory::kInternalError,
         "road delete range canonical alignment is missing");
   }
   const Result<double> source_length = PathLength(*source_path);
   if (!source_length.ok || request.start_segment_distance_m <= kEpsilon ||
       request.end_segment_distance_m >= source_length.value - kEpsilon) {
     return Result<bool>::Fail(
-        ErrorKind::kValidation,
+        CommitFailureCategory::kInvalidInput,
         "road delete range must be inside one segment");
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
@@ -1699,7 +1701,7 @@ Result<bool> RoadState::DeleteSegmentRange(DeleteSegmentRangeRequest request) {
     if (maximum > request.start_segment_distance_m + kEpsilon &&
         minimum < request.end_segment_distance_m - kEpsilon) {
       return Result<bool>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road delete range intersects a manual line marking");
     }
   }
@@ -1709,20 +1711,20 @@ Result<bool> RoadState::DeleteSegmentRange(DeleteSegmentRangeRequest request) {
     if (maximum > request.start_segment_distance_m + kEpsilon &&
         minimum < request.end_segment_distance_m - kEpsilon) {
       return Result<bool>::Fail(
-          ErrorKind::kUnsupported,
+          CommitFailureCategory::kNotImplemented,
           "road delete range intersects a manual area marking");
     }
   }
   const Result<PathSplit> at_start =
       split_path_at_distance(*source_path, request.start_segment_distance_m);
   if (!at_start.ok) {
-    return Result<bool>::Fail(at_start.error_kind, at_start.error);
+    return Result<bool>::Fail(at_start.failure_category, at_start.error);
   }
   const Result<PathSplit> at_end = split_path_at_distance(
       at_start.value.after,
       request.end_segment_distance_m - request.start_segment_distance_m);
   if (!at_end.ok) {
-    return Result<bool>::Fail(at_end.error_kind, at_end.error);
+    return Result<bool>::Fail(at_end.failure_category, at_end.error);
   }
   const Result<SegmentShape> before_shape =
       SegmentShapeFromPath(at_start.value.before);
@@ -1730,13 +1732,13 @@ Result<bool> RoadState::DeleteSegmentRange(DeleteSegmentRangeRequest request) {
       SegmentShapeFromPath(at_end.value.after);
   if (!before_shape.ok || !after_shape.ok) {
     return Result<bool>::Fail(
-        ErrorKind::kInternal, "road delete range shape derivation failed");
+        CommitFailureCategory::kInternalError, "road delete range shape derivation failed");
   }
   const RoadCorridor* corridor =
       FindCorridorForSegment(graph_, source->id);
   if (corridor == nullptr) {
     return Result<bool>::Fail(
-        ErrorKind::kInternal, "road delete range corridor is missing");
+        CommitFailureCategory::kInternalError, "road delete range corridor is missing");
   }
   const auto ref_it =
       std::find_if(corridor->segments.begin(), corridor->segments.end(),
@@ -1745,7 +1747,7 @@ Result<bool> RoadState::DeleteSegmentRange(DeleteSegmentRangeRequest request) {
                    });
   if (ref_it == corridor->segments.end()) {
     return Result<bool>::Fail(
-        ErrorKind::kInternal,
+        CommitFailureCategory::kInternalError,
         "road delete range corridor reference is missing");
   }
 
@@ -1867,12 +1869,12 @@ Result<bool> RoadState::EditSegmentShape(EditSegmentShapeRequest request) {
   SegmentShape shape = std::move(request.shape);
   const RoadSegment* segment = find_segment(graph_, segment_id);
   if (segment == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road segment does not exist");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road segment does not exist");
   }
   const RoadNode* node_a = find_node(graph_, segment->node_a);
   const RoadNode* node_b = find_node(graph_, segment->node_b);
   const Result<Path> alignment = DeriveCanonicalAlignment(node_a->position, node_b->position, shape);
-  if (!alignment.ok) return Result<bool>::Fail(alignment.error_kind, alignment.error);
+  if (!alignment.ok) return Result<bool>::Fail(alignment.failure_category, alignment.error);
   operations::OperationPlan plan{};
   plan.next_id_after = next_id_;
   RoadSegment replacement = *segment;
@@ -1884,9 +1886,9 @@ Result<bool> RoadState::EditSegmentShape(EditSegmentShapeRequest request) {
 Result<bool> RoadState::MoveNode(MoveNodeRequest request) {
   const RoadNodeId node_id = request.node_id;
   const Vec2d position = request.position;
-  if (!finite(position)) return Result<bool>::Fail(ErrorKind::kValidation, "road node position is non-finite");
+  if (!finite(position)) return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road node position is non-finite");
   const RoadNode* node = find_node(graph_, node_id);
-  if (node == nullptr) return Result<bool>::Fail(ErrorKind::kValidation, "road node does not exist");
+  if (node == nullptr) return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road node does not exist");
   operations::OperationPlan plan{};
   plan.next_id_after = next_id_;
   RoadNode replacement = *node;
@@ -1900,14 +1902,14 @@ Result<bool> RoadState::MoveNode(MoveNodeRequest request) {
     const RoadNode* node_a = find_node(graph_, segment.node_a);
     const RoadNode* node_b = find_node(graph_, segment.node_b);
     if (node_a == nullptr || node_b == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                 "road segment endpoint node is missing");
     }
     const Vec2d start = segment.node_a == node_id ? position : node_a->position;
     const Vec2d end = segment.node_b == node_id ? position : node_b->position;
     Result<SegmentShape> linear_shape = make_linear_shape(start, end);
     if (!linear_shape.ok) {
-      return Result<bool>::Fail(linear_shape.error_kind, linear_shape.error);
+      return Result<bool>::Fail(linear_shape.failure_category, linear_shape.error);
     }
     RoadSegment updated = segment;
     updated.shape = std::move(linear_shape.value);
@@ -1920,7 +1922,7 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
   const RoadSegmentId segment_id = request.segment_id;
   const RoadSegment* target = find_segment(graph_, segment_id);
   if (target == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation,
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                               "road segment does not exist");
   }
   operations::OperationPlan plan{};
@@ -1929,7 +1931,7 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
   const RoadCorridor* corridor = FindCorridorForSegment(graph_, segment_id);
   if (corridor == nullptr) {
     return Result<bool>::Fail(
-        ErrorKind::kInternal, "road segment corridor is missing");
+        CommitFailureCategory::kInternalError, "road segment corridor is missing");
   }
   const auto ref_it =
       std::find_if(corridor->segments.begin(), corridor->segments.end(),
@@ -1938,7 +1940,7 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
                    });
   if (ref_it == corridor->segments.end()) {
     return Result<bool>::Fail(
-        ErrorKind::kInternal, "road corridor segment reference is missing");
+        CommitFailureCategory::kInternalError, "road corridor segment reference is missing");
   }
   std::vector<DirectedSegmentRef> before(corridor->segments.begin(), ref_it);
   std::vector<DirectedSegmentRef> after(ref_it + 1,
@@ -2043,15 +2045,15 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
 
 Result<bool> RoadState::SetApproachSetbackOverride(SetApproachSetbackOverrideRequest request) {
   if (!finite(request.setback_m) || request.setback_m < 0.0) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road approach setback override is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road approach setback override is invalid");
   }
   const RoadSegment* segment = find_segment(graph_, request.key.segment_id);
   if (segment == nullptr || find_node(graph_, request.key.node_id) == nullptr ||
       !endpoint_matches(*segment, request.key)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road approach override key is invalid");
   }
   if (FindResolvedApproach(derived_, request.key) == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved connection");
+    return Result<bool>::Fail(CommitFailureCategory::kNotImplemented, "road approach has no resolved connection");
   }
   ApproachGeometryOverride override =
       find_approach_geometry_override(graph_, request.key) != nullptr
@@ -2069,15 +2071,15 @@ Result<bool> RoadState::SetApproachSetbackOverride(SetApproachSetbackOverrideReq
 
 Result<bool> RoadState::SetApproachLateralShiftOverride(SetApproachLateralShiftOverrideRequest request) {
   if (!finite(request.lateral_shift_m)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road approach lateral shift override is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road approach lateral shift override is invalid");
   }
   const RoadSegment* segment = find_segment(graph_, request.key.segment_id);
   if (segment == nullptr || find_node(graph_, request.key.node_id) == nullptr ||
       !endpoint_matches(*segment, request.key)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road approach override key is invalid");
   }
   if (FindResolvedApproach(derived_, request.key) == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kUnsupported, "road approach has no resolved connection");
+    return Result<bool>::Fail(CommitFailureCategory::kNotImplemented, "road approach has no resolved connection");
   }
   ApproachGeometryOverride override =
       find_approach_geometry_override(graph_, request.key) != nullptr
@@ -2097,7 +2099,7 @@ Result<bool> RoadState::ResetApproachOverrideField(ResetApproachOverrideFieldReq
   const RoadSegment* segment = find_segment(graph_, request.key.segment_id);
   if (segment == nullptr || find_node(graph_, request.key.node_id) == nullptr ||
       !endpoint_matches(*segment, request.key)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road approach override key is invalid");
   }
   const ApproachGeometryOverride* existing = find_approach_geometry_override(graph_, request.key);
   if (existing == nullptr) return Result<bool>::Ok(true);
@@ -2120,7 +2122,7 @@ Result<bool> RoadState::ResetAllApproachOverrides(ResetAllApproachOverridesReque
   const RoadSegment* segment = find_segment(graph_, request.key.segment_id);
   if (segment == nullptr || find_node(graph_, request.key.node_id) == nullptr ||
       !endpoint_matches(*segment, request.key)) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road approach override key is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road approach override key is invalid");
   }
   if (find_approach_geometry_override(graph_, request.key) == nullptr) return Result<bool>::Ok(true);
   operations::OperationPlan plan{};
@@ -2133,10 +2135,10 @@ Result<CrossSectionTemplateId> RoadState::AddSectionTemplate(AddSectionTemplateR
   CrossSectionTemplate section_template = std::move(request.section_template);
   const Result<bool> valid = validate_section_template(section_template);
   if (!valid.ok) {
-    return Result<CrossSectionTemplateId>::Fail(valid.error_kind, valid.error);
+    return Result<CrossSectionTemplateId>::Fail(valid.failure_category, valid.error);
   }
   if (section_template.id != 0 && find_template(graph_, section_template.id) != nullptr) {
-    return Result<CrossSectionTemplateId>::Fail(ErrorKind::kValidation, "section template id already exists");
+    return Result<CrossSectionTemplateId>::Fail(CommitFailureCategory::kInvalidInput, "section template id already exists");
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -2145,7 +2147,7 @@ Result<CrossSectionTemplateId> RoadState::AddSectionTemplate(AddSectionTemplateR
   plan.next_id_after = next_id;
   plan.add_section_templates.push_back(std::move(section_template));
   const Result<bool> executed = Execute(plan);
-  if (!executed.ok) return Result<CrossSectionTemplateId>::Fail(executed.error_kind, executed.error);
+  if (!executed.ok) return Result<CrossSectionTemplateId>::Fail(executed.failure_category, executed.error);
   return Result<CrossSectionTemplateId>::Ok(id);
 }
 
@@ -2156,7 +2158,7 @@ Result<bool> RoadState::EditSectionTemplate(EditSectionTemplateRequest request) 
   auto it = std::find_if(graph_.section_templates.begin(), graph_.section_templates.end(),
                          [&section_template](const CrossSectionTemplate& item) { return item.id == section_template.id; });
   if (it == graph_.section_templates.end()) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section template does not exist");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template does not exist");
   }
   operations::OperationPlan plan{};
   plan.next_id_after = next_id_;
@@ -2169,12 +2171,12 @@ Result<bool> RoadState::SetBoundaryMarkingPolicy(SetBoundaryMarkingPolicyRequest
   if (!valid_policy.ok) return valid_policy;
   const CrossSectionTemplate* existing = find_template(graph_, request.section_template_id);
   if (existing == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section template does not exist");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template does not exist");
   }
   CrossSectionTemplate replacement = *existing;
   BoundaryProfile* boundary = find_boundary(replacement, request.boundary_id);
   if (boundary == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section boundary does not exist");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section boundary does not exist");
   }
   boundary->marking = request.policy;
   operations::OperationPlan plan{};
@@ -2193,7 +2195,7 @@ Result<bool> RoadState::SetLaneSideMarkingPolicy(SetLaneSideMarkingPolicyRequest
   if (!valid_policy.ok) return valid_policy;
   const CrossSectionTemplate* existing = find_template(graph_, request.section_template_id);
   if (existing == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section template does not exist");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template does not exist");
   }
   CrossSectionTemplate replacement = *existing;
   const auto strip = std::find_if(replacement.strips.begin(), replacement.strips.end(),
@@ -2201,10 +2203,10 @@ Result<bool> RoadState::SetLaneSideMarkingPolicy(SetLaneSideMarkingPolicyRequest
                                     return candidate.id == request.strip_id;
                                   });
   if (strip == replacement.strips.end()) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "section strip does not exist");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section strip does not exist");
   }
   if (strip->function != StripFunction::kCarriageway) {
-    return Result<bool>::Fail(ErrorKind::kValidation,
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                               "lane side marking requires a carriageway strip");
   }
   if (request.side == LaneSide::kLeft) {
@@ -2230,7 +2232,7 @@ Result<SectionTransitionId> RoadState::AddTransition(SectionTransitionRequest re
                                std::move(request.rules)};
   const Result<bool> valid = validate_transition(graph_, transition);
   if (!valid.ok) {
-    return Result<SectionTransitionId>::Fail(valid.error_kind, valid.error);
+    return Result<SectionTransitionId>::Fail(valid.failure_category, valid.error);
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -2239,7 +2241,7 @@ Result<SectionTransitionId> RoadState::AddTransition(SectionTransitionRequest re
   plan.next_id_after = next_id;
   plan.add_transitions.push_back(std::move(transition));
   const Result<bool> executed = Execute(plan);
-  if (!executed.ok) return Result<SectionTransitionId>::Fail(executed.error_kind, executed.error);
+  if (!executed.ok) return Result<SectionTransitionId>::Fail(executed.failure_category, executed.error);
   return Result<SectionTransitionId>::Ok(id);
 }
 
@@ -2248,14 +2250,14 @@ Result<SectionTransitionId> RoadState::AddTransitionToSegment(AddTransitionToSeg
   SectionTransitionRequest request = std::move(operation.transition);
   const RoadSegment* segment = find_segment(graph_, segment_id);
   if (segment == nullptr) {
-    return Result<SectionTransitionId>::Fail(ErrorKind::kValidation, "road transition segment does not exist");
+    return Result<SectionTransitionId>::Fail(CommitFailureCategory::kInvalidInput, "road transition segment does not exist");
   }
   SectionTransition transition{0, segment->section_template,
                                request.to_template, request.start, request.end,
                                request.anchor, request.anchor_boundary_id,
                                std::move(request.rules)};
   const Result<bool> valid = validate_transition(graph_, transition);
-  if (!valid.ok) return Result<SectionTransitionId>::Fail(valid.error_kind, valid.error);
+  if (!valid.ok) return Result<SectionTransitionId>::Fail(valid.failure_category, valid.error);
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
   if (transition.id == 0) transition.id = next_id++;
@@ -2270,7 +2272,7 @@ Result<SectionTransitionId> RoadState::AddTransitionToSegment(AddTransitionToSeg
   }
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
-  if (!executed.ok) return Result<SectionTransitionId>::Fail(executed.error_kind, executed.error);
+  if (!executed.ok) return Result<SectionTransitionId>::Fail(executed.failure_category, executed.error);
   return Result<SectionTransitionId>::Ok(id);
 }
 
@@ -2282,13 +2284,13 @@ Result<LaneId> RoadState::AddLaneTransition(
       request.full_width_corridor_distance_m <=
           request.start_corridor_distance_m ||
       request.lane_width_m <= 0.0 || request.anchor_boundary_id == 0) {
-    return Result<LaneId>::Fail(ErrorKind::kValidation,
+    return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
                                 "lane transition request is invalid");
   }
   const RoadCorridor* corridor =
       FindRoadCorridor(graph_, request.corridor_id);
   if (corridor == nullptr || corridor->segments.empty()) {
-    return Result<LaneId>::Fail(ErrorKind::kValidation,
+    return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
                                 "lane transition corridor does not exist");
   }
   const Result<ResolvedSegmentDistance> start = ResolveCorridorDistance(
@@ -2299,26 +2301,26 @@ Result<LaneId> RoadState::AddLaneTransition(
                             request.corridor_id,
                             request.full_width_corridor_distance_m});
   if (!start.ok) {
-    return Result<LaneId>::Fail(start.error_kind, start.error);
+    return Result<LaneId>::Fail(start.failure_category, start.error);
   }
   if (!full.ok) {
-    return Result<LaneId>::Fail(full.error_kind, full.error);
+    return Result<LaneId>::Fail(full.failure_category, full.error);
   }
   if (start.value.segment_id != full.value.segment_id ||
       start.value.reversed || full.value.reversed) {
     return Result<LaneId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "lane transition must fit one forward corridor segment");
   }
   const RoadSegment* segment = find_segment(graph_, start.value.segment_id);
   if (segment == nullptr) {
-    return Result<LaneId>::Fail(ErrorKind::kInternal,
+    return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
                                 "lane transition segment is missing");
   }
   const CrossSectionTemplate* source =
       find_template(graph_, segment->section_template);
   if (source == nullptr) {
-    return Result<LaneId>::Fail(ErrorKind::kInternal,
+    return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
                                 "lane transition section is missing");
   }
   const auto anchor = std::find_if(
@@ -2327,17 +2329,17 @@ Result<LaneId> RoadState::AddLaneTransition(
         return boundary.boundary_id == request.anchor_boundary_id;
       });
   if (anchor == source->boundaries.end()) {
-    return Result<LaneId>::Fail(ErrorKind::kValidation,
+    return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
                                 "lane transition anchor boundary is missing");
   }
   if (segment->transition.has_value()) {
     return Result<LaneId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "lane transition cannot overlap an existing section transition");
   }
   if (!IsSinglePositionBoundary(*anchor)) {
     return Result<LaneId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "lane transition anchor boundary must have one position");
   }
   const std::size_t anchor_index =
@@ -2345,7 +2347,7 @@ Result<LaneId> RoadState::AddLaneTransition(
   const std::size_t lane_strip_index =
       request.side == RoadSide::kRight ? anchor_index + 1 : anchor_index;
   if (lane_strip_index >= source->strips.size()) {
-    return Result<LaneId>::Fail(ErrorKind::kValidation,
+    return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
                                 "lane transition side has no source lane");
   }
   const SectionStripId lane_strip_id = source->strips[lane_strip_index].id;
@@ -2360,7 +2362,7 @@ Result<LaneId> RoadState::AddLaneTransition(
       source_lane->lateral_end_m !=
           source->strips[lane_strip_index].width_m) {
     return Result<LaneId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "lane transition requires one full-width lane beside the anchor");
   }
   const auto lane_is_farther_out = [&](const LaneBand& lane) {
@@ -2381,7 +2383,7 @@ Result<LaneId> RoadState::AddLaneTransition(
   if (std::any_of(source->lane_bands.begin(), source->lane_bands.end(),
                   lane_is_farther_out)) {
     return Result<LaneId>::Fail(
-        ErrorKind::kValidation,
+        CommitFailureCategory::kInvalidInput,
         "lane transition anchor does not select the outermost lane");
   }
 
@@ -2444,12 +2446,12 @@ Result<LaneId> RoadState::AddLaneTransition(
         return ref.segment_id == segment->id;
       });
   if (selected_ref == corridor->segments.end()) {
-    return Result<LaneId>::Fail(ErrorKind::kInternal,
+    return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
                                 "lane transition segment is not in its corridor");
   }
   if (selected_ref + 1 != corridor->segments.end()) {
     return Result<LaneId>::Fail(
-        ErrorKind::kUnsupported,
+        CommitFailureCategory::kNotImplemented,
         "lane transition across following corridor segments is unsupported");
   }
   plan.add_section_templates.push_back(std::move(target));
@@ -2457,7 +2459,7 @@ Result<LaneId> RoadState::AddLaneTransition(
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) {
-    return Result<LaneId>::Fail(executed.error_kind, executed.error);
+    return Result<LaneId>::Fail(executed.failure_category, executed.error);
   }
   return Result<LaneId>::Ok(added_lane_id);
 }
@@ -2470,12 +2472,12 @@ Result<LaneConnectionId> RoadState::AddLaneConnection(
       internal::find_lane_endpoint(graph_, request.target);
   if (source.lane == nullptr || target.lane == nullptr) {
     return Result<LaneConnectionId>::Fail(
-        ErrorKind::kValidation, "lane connection endpoint does not exist");
+        CommitFailureCategory::kInvalidInput, "lane connection endpoint does not exist");
   }
   if (static_cast<int>(request.kind) < 0 ||
       static_cast<int>(request.kind) > 4) {
     return Result<LaneConnectionId>::Fail(
-        ErrorKind::kValidation, "lane connection kind is invalid");
+        CommitFailureCategory::kInvalidInput, "lane connection kind is invalid");
   }
   operations::OperationPlan plan{};
   const LaneConnectionId id = next_id_;
@@ -2484,7 +2486,7 @@ Result<LaneConnectionId> RoadState::AddLaneConnection(
   plan.next_id_after = next_id_ + 1;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) {
-    return Result<LaneConnectionId>::Fail(executed.error_kind,
+    return Result<LaneConnectionId>::Fail(executed.failure_category,
                                           executed.error);
   }
   return Result<LaneConnectionId>::Ok(id);
@@ -2498,7 +2500,7 @@ Result<BoundaryContinuationId> RoadState::AddBoundaryContinuation(
       internal::find_boundary_endpoint(graph_, request.target);
   if (source.boundary == nullptr || target.boundary == nullptr) {
     return Result<BoundaryContinuationId>::Fail(
-        ErrorKind::kValidation,
+        CommitFailureCategory::kInvalidInput,
         "boundary continuation endpoint does not exist");
   }
   operations::OperationPlan plan{};
@@ -2508,7 +2510,7 @@ Result<BoundaryContinuationId> RoadState::AddBoundaryContinuation(
   plan.next_id_after = next_id_ + 1;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) {
-    return Result<BoundaryContinuationId>::Fail(executed.error_kind,
+    return Result<BoundaryContinuationId>::Fail(executed.failure_category,
                                                 executed.error);
   }
   return Result<BoundaryContinuationId>::Ok(id);
@@ -2520,19 +2522,19 @@ Result<bool> RoadState::AttachSectionTransition(AttachSectionTransitionRequest r
   const RoadSegment* segment = find_segment(graph_, segment_id);
   const SectionTransition* transition = find_transition(graph_, transition_id);
   if (segment == nullptr || transition == nullptr) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road transition attachment reference is missing");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road transition attachment reference is missing");
   }
   if (segment->section_template != transition->from_template) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road transition from-template does not match segment");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road transition from-template does not match segment");
   }
   const Path* alignment = FindCanonicalAlignment(derived_, segment_id);
-  if (alignment == nullptr) return Result<bool>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+  if (alignment == nullptr) return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road segment canonical alignment is missing");
   const auto total = PathLength(*alignment);
-  if (!total.ok) return Result<bool>::Fail(total.error_kind, total.error);
+  if (!total.ok) return Result<bool>::Fail(total.failure_category, total.error);
   const double start = distance_value(transition->start, total.value);
   const double end = distance_value(transition->end, total.value);
   if (start < 0.0 || end > total.value || end - start <= kEpsilon) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road transition distance range is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road transition distance range is invalid");
   }
   operations::OperationPlan plan{};
   plan.next_id_after = next_id_;
@@ -2545,24 +2547,24 @@ Result<bool> RoadState::AttachSectionTransition(AttachSectionTransitionRequest r
 Result<ManualMarkingId> RoadState::AddManualLine(ManualLineRequest request) {
   ManualLineMarking marking{0, request.owner_segment_id, std::move(request.path), request.style_id};
   if (!IsKnownMarkingStyle(marking.style_id)) {
-    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual line style is unknown");
+    return Result<ManualMarkingId>::Fail(CommitFailureCategory::kInvalidInput, "manual line style is unknown");
   }
   const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
   if (owner == nullptr) {
-    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual line owner segment does not exist");
+    return Result<ManualMarkingId>::Fail(CommitFailureCategory::kInvalidInput, "manual line owner segment does not exist");
   }
   const Result<bool> valid = ValidatePath(marking.path);
   if (!valid.ok) {
-    return Result<ManualMarkingId>::Fail(valid.error_kind, valid.error);
+    return Result<ManualMarkingId>::Fail(valid.failure_category, valid.error);
   }
   const Path* alignment = FindCanonicalAlignment(derived_, owner->id);
   if (alignment == nullptr) {
-    return Result<ManualMarkingId>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+    return Result<ManualMarkingId>::Fail(CommitFailureCategory::kInternalError, "road segment canonical alignment is missing");
   }
   const auto length_result = PathLength(*alignment);
   for (const Vec2d point : FlattenPath(marking.path)) {
     if (!length_result.ok || point.x < 0.0 || point.x > length_result.value || !finite(point.y)) {
-      return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual line lies outside owner distance range");
+      return Result<ManualMarkingId>::Fail(CommitFailureCategory::kInvalidInput, "manual line lies outside owner distance range");
     }
   }
   operations::OperationPlan plan{};
@@ -2572,7 +2574,7 @@ Result<ManualMarkingId> RoadState::AddManualLine(ManualLineRequest request) {
   plan.next_id_after = next_id;
   plan.add_manual_lines.push_back(std::move(marking));
   const Result<bool> executed = Execute(plan);
-  if (!executed.ok) return Result<ManualMarkingId>::Fail(executed.error_kind, executed.error);
+  if (!executed.ok) return Result<ManualMarkingId>::Fail(executed.failure_category, executed.error);
   return Result<ManualMarkingId>::Ok(id);
 }
 
@@ -2581,25 +2583,25 @@ Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaRequest request) {
                             request.rotation_rad, request.width_m,
                             request.length_m, request.style_id};
   if (!IsKnownMarkingStyle(marking.style_id)) {
-    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area style is unknown");
+    return Result<ManualMarkingId>::Fail(CommitFailureCategory::kInvalidInput, "manual area style is unknown");
   }
   const RoadSegment* owner = find_segment(graph_, marking.owner_segment_id);
   if (owner == nullptr) {
-    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area owner segment does not exist");
+    return Result<ManualMarkingId>::Fail(CommitFailureCategory::kInvalidInput, "manual area owner segment does not exist");
   }
   if (!finite(marking.frame_origin) || !finite(marking.rotation_rad) ||
       !finite(marking.width_m) || !finite(marking.length_m) ||
       marking.width_m <= 0.0 || marking.length_m <= 0.0) {
-    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area shape is invalid");
+    return Result<ManualMarkingId>::Fail(CommitFailureCategory::kInvalidInput, "manual area shape is invalid");
   }
   const Path* alignment = FindCanonicalAlignment(derived_, owner->id);
   if (alignment == nullptr) {
-    return Result<ManualMarkingId>::Fail(ErrorKind::kInternal, "road segment canonical alignment is missing");
+    return Result<ManualMarkingId>::Fail(CommitFailureCategory::kInternalError, "road segment canonical alignment is missing");
   }
   const auto owner_length = PathLength(*alignment);
   if (!owner_length.ok || marking.frame_origin.x - marking.length_m * 0.5 < 0.0 ||
       marking.frame_origin.x + marking.length_m * 0.5 > owner_length.value) {
-    return Result<ManualMarkingId>::Fail(ErrorKind::kValidation, "manual area lies outside owner distance range");
+    return Result<ManualMarkingId>::Fail(CommitFailureCategory::kInvalidInput, "manual area lies outside owner distance range");
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -2608,7 +2610,7 @@ Result<ManualMarkingId> RoadState::AddManualArea(ManualAreaRequest request) {
   plan.next_id_after = next_id;
   plan.add_manual_areas.push_back(std::move(marking));
   const Result<bool> executed = Execute(plan);
-  if (!executed.ok) return Result<ManualMarkingId>::Fail(executed.error_kind, executed.error);
+  if (!executed.ok) return Result<ManualMarkingId>::Fail(executed.failure_category, executed.error);
   return Result<ManualMarkingId>::Ok(id);
 }
 
@@ -2655,7 +2657,7 @@ Result<JunctionMarkingOverrideId> RoadState::SetJunctionMarkingOverride(
   }
   const Result<bool> valid = validate_junction_marking_override(graph_, override);
   if (!valid.ok) {
-    return Result<JunctionMarkingOverrideId>::Fail(valid.error_kind, valid.error);
+    return Result<JunctionMarkingOverrideId>::Fail(valid.failure_category, valid.error);
   }
   operations::OperationPlan plan{};
   plan.next_id_after = next_id;
@@ -2670,14 +2672,14 @@ Result<JunctionMarkingOverrideId> RoadState::SetJunctionMarkingOverride(
   const JunctionMarkingOverrideId id = plan.add_junction_marking_overrides.front().id;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) {
-    return Result<JunctionMarkingOverrideId>::Fail(executed.error_kind, executed.error);
+    return Result<JunctionMarkingOverrideId>::Fail(executed.failure_category, executed.error);
   }
   return Result<JunctionMarkingOverrideId>::Ok(id);
 }
 
 Result<bool> RoadState::DeleteJunctionMarkingOverride(DeleteJunctionMarkingOverrideRequest request) {
   if (request.id == 0) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "junction marking override id is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "junction marking override id is invalid");
   }
   if (std::none_of(graph_.junction_marking_overrides.begin(),
                    graph_.junction_marking_overrides.end(),
@@ -2700,7 +2702,7 @@ Result<std::string> RoadState::Save() const {
 Result<RoadState> RoadState::Load(const std::string& text) {
   Result<persistence::LoadedRoad> loaded = persistence::LoadRoad(text);
   if (!loaded.ok) {
-    return Result<RoadState>::Fail(loaded.error_kind, loaded.error);
+    return Result<RoadState>::Fail(loaded.failure_category, loaded.error);
   }
   RoadState state{};
   state.graph_ = std::move(loaded.value.graph);
@@ -2708,17 +2710,17 @@ Result<RoadState> RoadState::Load(const std::string& text) {
   const Result<bool> authoritative_valid =
       persistence::ValidateAuthoritativeGraph(state.graph_, state.next_id_);
   if (!authoritative_valid.ok) {
-    return Result<RoadState>::Fail(authoritative_valid.error_kind,
+    return Result<RoadState>::Fail(authoritative_valid.failure_category,
                                    authoritative_valid.error);
   }
   Result<DerivedRoad> generated = generation::generate_road(state.graph_);
   if (!generated.ok) {
-    return Result<RoadState>::Fail(generated.error_kind, generated.error);
+    return Result<RoadState>::Fail(generated.failure_category, generated.error);
   }
   state.derived_ = std::move(generated.value);
   const Result<bool> derived_valid = ValidateGraphInvariants(state.graph_, state.derived_);
   if (!derived_valid.ok) {
-    return Result<RoadState>::Fail(derived_valid.error_kind, derived_valid.error);
+    return Result<RoadState>::Fail(derived_valid.failure_category, derived_valid.error);
   }
   return Result<RoadState>::Ok(std::move(state));
 }
@@ -2727,21 +2729,21 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
   std::unordered_set<std::uint64_t> ids{};
   for (const CrossSectionTemplate& section : graph.section_templates) {
     if (!ids.insert(section.id).second) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road section template ID invariant failed");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road section template ID invariant failed");
     }
   }
   for (const RoadNode& node : graph.nodes) {
     if (!ids.insert(node.id).second || !finite(node.position)) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road node invariant failed");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road node invariant failed");
     }
   }
   for (const RoadSegment& segment : graph.segments) {
     if (!ids.insert(segment.id).second || find_node(graph, segment.node_a) == nullptr ||
         find_node(graph, segment.node_b) == nullptr || find_template(graph, segment.section_template) == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road segment reference invariant failed");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road segment reference invariant failed");
     }
     if (FindDerivedSegment(derived, segment.id) == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road derived segment is missing");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road derived segment is missing");
     }
   }
 
@@ -2760,7 +2762,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
   for (const ResolvedConnection& connection : derived.connections) {
     if (find_node(graph, connection.node_id) == nullptr ||
         connection.approaches.size() != connection.ordered_approaches.size()) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                 "road resolved connection invariant failed");
     }
     resolved_approaches += connection.approaches.size();
@@ -2777,7 +2779,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
           !finite(approach.resolved_setback_m) || approach.resolved_setback_m < 0.0 ||
           !finite(approach.resolved_lateral_shift_m) ||
           !finite(approach.gate_segment_distance_m)) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road resolved approach invariant failed");
       }
       const std::size_t same_approach_rows = static_cast<std::size_t>(
@@ -2789,7 +2791,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
           std::count(connection.ordered_approaches.begin(),
                      connection.ordered_approaches.end(), approach.key));
       if (same_approach_rows != 1 || same_order_rows != 1) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road ApproachKey identity invariant failed");
       }
 
@@ -2800,7 +2802,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
           !finite(gate.tangent.x) || !finite(gate.tangent.y) || !finite(gate.tangent.z) ||
           !finite(gate.lateral.x) || !finite(gate.lateral.y) || !finite(gate.lateral.z) ||
           !finite(gate.normal.x) || !finite(gate.normal.y) || !finite(gate.normal.z)) {
-        return Result<bool>::Fail(ErrorKind::kInternal,
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road connection gate frame invariant failed");
       }
       const DerivedSegment* owner = FindDerivedSegment(derived, approach.key.segment_id);
@@ -2808,7 +2810,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
           owner == nullptr ? nullptr : FindSectionAt(*owner, approach.gate_segment_distance_m);
       if (section == nullptr || section->boundaries.size() != gate.boundaries.size()) {
         return Result<bool>::Fail(
-            ErrorKind::kInternal,
+            CommitFailureCategory::kInternalError,
             "road connection gate section evaluation invariant failed");
       }
       for (std::size_t index = 0; index < gate.boundaries.size(); ++index) {
@@ -2820,29 +2822,29 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
             gate_boundary.height_m != section_boundary.height_m ||
             gate_boundary.marking != section_boundary.marking) {
           return Result<bool>::Fail(
-              ErrorKind::kInternal,
+              CommitFailureCategory::kInternalError,
               "road connection gate boundary copy invariant failed");
         }
       }
     }
   }
   if (resolved_approaches != expected_approaches) {
-    return Result<bool>::Fail(ErrorKind::kInternal,
+    return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                               "road approach coverage invariant failed");
   }
   for (const DerivedSegment& segment : derived.segments) {
     if (find_segment(graph, segment.id) == nullptr || !finite(segment.length_m) ||
         segment.length_m <= 0.0 || segment.alignment.spans.empty()) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road derived segment invariant failed");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road derived segment invariant failed");
     }
     for (const SectionEvaluation& section : segment.sections) {
       if (section.segment_id != segment.id) {
-        return Result<bool>::Fail(ErrorKind::kInternal, "road section owner invariant failed");
+        return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road section owner invariant failed");
       }
       double previous = -std::numeric_limits<double>::infinity();
       for (const SectionBoundarySample& boundary : section.boundaries) {
         if (!finite(boundary.lateral_m) || !finite(boundary.height_m) || boundary.lateral_m < previous) {
-          return Result<bool>::Fail(ErrorKind::kInternal, "section boundary order invariant failed");
+          return Result<bool>::Fail(CommitFailureCategory::kInternalError, "section boundary order invariant failed");
         }
         previous = boundary.lateral_m;
       }
@@ -2859,13 +2861,13 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
     if (!owner_exists || !IsKnownMarkingStyle(marking.style_id) ||
         !finite(marking.width_m) || marking.width_m <= 0.0 ||
         (marking.points.empty() && marking.polygon.empty())) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road derived marking invariant failed");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road derived marking invariant failed");
     }
   }
 
   for (const NodeConnectionPolicyOverride& policy : graph.connection_policy_overrides) {
     if (!ids.insert(policy.id).second || find_node(graph, policy.node_id) == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road connection policy override invariant failed");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road connection policy override invariant failed");
     }
   }
   for (const ApproachGeometryOverride& override : graph.approach_geometry_overrides) {
@@ -2882,23 +2884,23 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
          (!finite(override.setback_m.value) || override.setback_m.value < 0.0)) ||
         (override.lateral_shift_m.has_value &&
          !finite(override.lateral_shift_m.value))) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                 "road approach geometry override invariant failed");
     }
   }
   for (const SectionTransition& transition : graph.transitions) {
     if (!ids.insert(transition.id).second) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road transition ID invariant failed");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road transition ID invariant failed");
     }
   }
   for (const ManualLineMarking& marking : graph.manual_lines) {
     if (!ids.insert(marking.id).second || find_segment(graph, marking.owner_segment_id) == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "manual line ID or owner invariant failed");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "manual line ID or owner invariant failed");
     }
   }
   for (const ManualAreaMarking& marking : graph.manual_areas) {
     if (!ids.insert(marking.id).second || find_segment(graph, marking.owner_segment_id) == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "manual area ID or owner invariant failed");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "manual area ID or owner invariant failed");
     }
   }
   const auto valid_mesh = [](const Mesh& mesh) {
@@ -2917,7 +2919,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
       &derived.junction_meshes};
   for (const auto* family : mesh_families) {
     if (std::any_of(family->begin(), family->end(), [&valid_mesh](const Mesh& mesh) { return !valid_mesh(mesh); })) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "road mesh contains invalid geometry");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road mesh contains invalid geometry");
     }
   }
   return Result<bool>::Ok(true);
@@ -2925,18 +2927,18 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
 
 Result<bool> ValidatePath(const Path& path) {
   if (path.spans.empty()) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road path has no spans");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road path has no spans");
   }
   for (std::size_t i = 0; i < path.spans.size(); ++i) {
     const BezierSpan& span = path.spans[i];
     if (!finite(span.p0) || !finite(span.p1) || !finite(span.p2) || !finite(span.p3)) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "road path contains a non-finite control point");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road path contains a non-finite control point");
     }
     if (span_length(span) <= kEpsilon) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "road span has zero length");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road span has zero length");
     }
     if (i > 0 && !almost_same(span_start(span), span_end(path.spans[i - 1]))) {
-      return Result<bool>::Fail(ErrorKind::kValidation, "road path spans are not continuous");
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road path spans are not continuous");
     }
   }
   return validate_no_self_intersection(path);
@@ -2945,7 +2947,7 @@ Result<bool> ValidatePath(const Path& path) {
 Result<double> PathLength(const Path& path) {
   const Result<bool> valid = ValidatePath(path);
   if (!valid.ok) {
-    return Result<double>::Fail(valid.error_kind, valid.error);
+    return Result<double>::Fail(valid.failure_category, valid.error);
   }
   double out = 0.0;
   for (const BezierSpan& span : path.spans) {
@@ -2957,7 +2959,7 @@ Result<double> PathLength(const Path& path) {
 Result<Vec2d> EvaluatePath(const Path& path, double distance_along_path_m) {
   const Result<double> length_result = PathLength(path);
   if (!length_result.ok) {
-    return Result<Vec2d>::Fail(length_result.error_kind, length_result.error);
+    return Result<Vec2d>::Fail(length_result.failure_category, length_result.error);
   }
   double remaining =
       std::clamp(distance_along_path_m, 0.0, length_result.value);
@@ -2968,7 +2970,7 @@ Result<Vec2d> EvaluatePath(const Path& path, double distance_along_path_m) {
     }
     remaining -= len;
   }
-  return Result<Vec2d>::Fail(ErrorKind::kInternal, "road path evaluation fell through");
+  return Result<Vec2d>::Fail(CommitFailureCategory::kInternalError, "road path evaluation fell through");
 }
 
 std::vector<Vec2d> FlattenPath(const Path& path) {

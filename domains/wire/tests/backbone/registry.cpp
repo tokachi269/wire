@@ -21,9 +21,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddSourceGuardTest(tests, "C821_backbone_external_input_validation_lists_numeric_fields",
                          "backbone external input validation lists every numeric BackboneSpec field", "Boundary", false,
                          C821_backbone_external_input_validation_lists_numeric_fields);
-  test_registry::AddTest(tests, "C822_edit_result_error_kind_classifies_core_error_prefixes",
-                         "EditResult classifies validation, unsupported, and internal error prefixes", "Boundary", false,
-                         C822_edit_result_error_kind_classifies_core_error_prefixes);
+  test_registry::AddTest(tests, "C822_edit_result_failure_category_classifies_core_error_prefixes",
+                         "EditResult classifies all commit failure category prefixes", "Boundary", false,
+                         C822_edit_result_failure_category_classifies_core_error_prefixes);
   test_registry::AddSourceGuardTest(tests, "C823_test_failure_diagnostics_are_available_for_backbone_scenarios",
                          "test failure diagnostics are available and used by representative backbone scenarios",
                          "Boundary", false,

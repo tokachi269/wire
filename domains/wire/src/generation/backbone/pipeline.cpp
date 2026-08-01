@@ -1866,7 +1866,7 @@ EditResult<bool> pipeline::prepare() {
           continue;
         }
         if (saved == nullptr || saved->pole_id != kInvalidObjectId || saved->support_kind != n.support) {
-          out.error = "backbone unsupported: unknown node reference";
+          out.error = "backbone state conflict: unknown node reference";
           return out;
         }
       }
@@ -1891,7 +1891,7 @@ EditResult<bool> pipeline::prepare() {
       }
       const Pole* pole = state_.view().poles().find(pole_id);
       if (pole == nullptr) {
-        out.error = "backbone unsupported: unknown node reference";
+        out.error = "backbone state conflict: unknown node reference";
         return out;
       }
       n.pole = pole->id;

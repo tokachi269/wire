@@ -127,14 +127,14 @@ public:
   }
 
   Result<bool> Status() const {
-    if (!error_.empty()) return Result<bool>::Fail(ErrorKind::kValidation, error_);
+    if (!error_.empty()) return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, error_);
     return Result<bool>::Ok(true);
   }
 
   Result<std::string> RequireString(const std::string& key) {
     auto found = fields_.find(key);
     if (found == fields_.end()) {
-      return Result<std::string>::Fail(ErrorKind::kValidation,
+      return Result<std::string>::Fail(CommitFailureCategory::kInvalidInput,
                                        "missing road archive key: " + key);
     }
     consumed_.insert(key);
@@ -143,10 +143,10 @@ public:
 
   Result<std::uint64_t> RequireU64(const std::string& key) {
     Result<std::string> text = RequireString(key);
-    if (!text.ok) return Result<std::uint64_t>::Fail(text.error_kind, text.error);
+    if (!text.ok) return Result<std::uint64_t>::Fail(text.failure_category, text.error);
     std::optional<std::uint64_t> parsed = parse_u64(text.value);
     if (!parsed.has_value()) {
-      return Result<std::uint64_t>::Fail(ErrorKind::kValidation,
+      return Result<std::uint64_t>::Fail(CommitFailureCategory::kInvalidInput,
                                          "invalid integer road archive key: " + key);
     }
     return Result<std::uint64_t>::Ok(*parsed);
@@ -154,10 +154,10 @@ public:
 
   Result<int> RequireInt(const std::string& key) {
     Result<std::string> text = RequireString(key);
-    if (!text.ok) return Result<int>::Fail(text.error_kind, text.error);
+    if (!text.ok) return Result<int>::Fail(text.failure_category, text.error);
     std::optional<int> parsed = parse_int(text.value);
     if (!parsed.has_value()) {
-      return Result<int>::Fail(ErrorKind::kValidation,
+      return Result<int>::Fail(CommitFailureCategory::kInvalidInput,
                                "invalid enum road archive key: " + key);
     }
     return Result<int>::Ok(*parsed);
@@ -165,10 +165,10 @@ public:
 
   Result<double> RequireDouble(const std::string& key) {
     Result<std::string> text = RequireString(key);
-    if (!text.ok) return Result<double>::Fail(text.error_kind, text.error);
+    if (!text.ok) return Result<double>::Fail(text.failure_category, text.error);
     std::optional<double> parsed = parse_double(text.value);
     if (!parsed.has_value()) {
-      return Result<double>::Fail(ErrorKind::kValidation,
+      return Result<double>::Fail(CommitFailureCategory::kInvalidInput,
                                   "invalid double road archive key: " + key);
     }
     return Result<double>::Ok(*parsed);
@@ -178,7 +178,7 @@ public:
     for (const auto& [key, value] : fields_) {
       (void)value;
       if (!consumed_.contains(key)) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "unknown road archive key: " + key);
       }
     }
@@ -195,9 +195,9 @@ template <typename Enum>
 Result<Enum> enum_value(ArchiveReader& reader, const std::string& key,
                         int min_value, int max_value) {
   Result<int> parsed = reader.RequireInt(key);
-  if (!parsed.ok) return Result<Enum>::Fail(parsed.error_kind, parsed.error);
+  if (!parsed.ok) return Result<Enum>::Fail(parsed.failure_category, parsed.error);
   if (parsed.value < min_value || parsed.value > max_value) {
-    return Result<Enum>::Fail(ErrorKind::kValidation,
+    return Result<Enum>::Fail(CommitFailureCategory::kInvalidInput,
                               "enum road archive key is out of range: " + key);
   }
   return Result<Enum>::Ok(static_cast<Enum>(parsed.value));
@@ -206,8 +206,8 @@ Result<Enum> enum_value(ArchiveReader& reader, const std::string& key,
 Result<Vec2d> vec2(ArchiveReader& reader, const std::string& prefix) {
   Result<double> x = reader.RequireDouble(prefix + ".x");
   Result<double> y = reader.RequireDouble(prefix + ".y");
-  if (!x.ok) return Result<Vec2d>::Fail(x.error_kind, x.error);
-  if (!y.ok) return Result<Vec2d>::Fail(y.error_kind, y.error);
+  if (!x.ok) return Result<Vec2d>::Fail(x.failure_category, x.error);
+  if (!y.ok) return Result<Vec2d>::Fail(y.failure_category, y.error);
   return Result<Vec2d>::Ok(Vec2d{x.value, y.value});
 }
 
@@ -229,10 +229,10 @@ Result<BezierSpan> read_span(ArchiveReader& reader, const std::string& prefix) {
   Result<Vec2d> p1 = vec2(reader, prefix + ".p1");
   Result<Vec2d> p2 = vec2(reader, prefix + ".p2");
   Result<Vec2d> p3 = vec2(reader, prefix + ".p3");
-  if (!p0.ok) return Result<BezierSpan>::Fail(p0.error_kind, p0.error);
-  if (!p1.ok) return Result<BezierSpan>::Fail(p1.error_kind, p1.error);
-  if (!p2.ok) return Result<BezierSpan>::Fail(p2.error_kind, p2.error);
-  if (!p3.ok) return Result<BezierSpan>::Fail(p3.error_kind, p3.error);
+  if (!p0.ok) return Result<BezierSpan>::Fail(p0.failure_category, p0.error);
+  if (!p1.ok) return Result<BezierSpan>::Fail(p1.failure_category, p1.error);
+  if (!p2.ok) return Result<BezierSpan>::Fail(p2.failure_category, p2.error);
+  if (!p3.ok) return Result<BezierSpan>::Fail(p3.failure_category, p3.error);
   return Result<BezierSpan>::Ok(BezierSpan{p0.value, p1.value, p2.value, p3.value});
 }
 
@@ -253,9 +253,9 @@ Result<ApproachKey> read_approach_key(ArchiveReader& reader,
   Result<std::uint64_t> segment_id = reader.RequireU64(prefix + ".segment_id");
   Result<EndpointRole> endpoint_role =
       enum_value<EndpointRole>(reader, prefix + ".endpoint_role", 0, 1);
-  if (!node_id.ok) return Result<ApproachKey>::Fail(node_id.error_kind, node_id.error);
-  if (!segment_id.ok) return Result<ApproachKey>::Fail(segment_id.error_kind, segment_id.error);
-  if (!endpoint_role.ok) return Result<ApproachKey>::Fail(endpoint_role.error_kind, endpoint_role.error);
+  if (!node_id.ok) return Result<ApproachKey>::Fail(node_id.failure_category, node_id.error);
+  if (!segment_id.ok) return Result<ApproachKey>::Fail(segment_id.failure_category, segment_id.error);
+  if (!endpoint_role.ok) return Result<ApproachKey>::Fail(endpoint_role.failure_category, endpoint_role.error);
   return Result<ApproachKey>::Ok(ApproachKey{node_id.value, segment_id.value,
                                              endpoint_role.value});
 }
@@ -273,9 +273,9 @@ Result<LaneEndpointKey> read_lane_endpoint_key(ArchiveReader& reader,
   Result<std::uint64_t> lane_id = reader.RequireU64(prefix + ".lane_id");
   Result<EndpointRole> endpoint_role =
       enum_value<EndpointRole>(reader, prefix + ".endpoint_role", 0, 1);
-  if (!segment_id.ok) return Result<LaneEndpointKey>::Fail(segment_id.error_kind, segment_id.error);
-  if (!lane_id.ok) return Result<LaneEndpointKey>::Fail(lane_id.error_kind, lane_id.error);
-  if (!endpoint_role.ok) return Result<LaneEndpointKey>::Fail(endpoint_role.error_kind, endpoint_role.error);
+  if (!segment_id.ok) return Result<LaneEndpointKey>::Fail(segment_id.failure_category, segment_id.error);
+  if (!lane_id.ok) return Result<LaneEndpointKey>::Fail(lane_id.failure_category, lane_id.error);
+  if (!endpoint_role.ok) return Result<LaneEndpointKey>::Fail(endpoint_role.failure_category, endpoint_role.error);
   return Result<LaneEndpointKey>::Ok(
       LaneEndpointKey{segment_id.value, lane_id.value, endpoint_role.value});
 }
@@ -293,9 +293,9 @@ Result<BoundaryEndpointKey> read_boundary_endpoint_key(
   Result<std::uint64_t> boundary_id = reader.RequireU64(prefix + ".boundary_id");
   Result<EndpointRole> endpoint_role =
       enum_value<EndpointRole>(reader, prefix + ".endpoint_role", 0, 1);
-  if (!segment_id.ok) return Result<BoundaryEndpointKey>::Fail(segment_id.error_kind, segment_id.error);
-  if (!boundary_id.ok) return Result<BoundaryEndpointKey>::Fail(boundary_id.error_kind, boundary_id.error);
-  if (!endpoint_role.ok) return Result<BoundaryEndpointKey>::Fail(endpoint_role.error_kind, endpoint_role.error);
+  if (!segment_id.ok) return Result<BoundaryEndpointKey>::Fail(segment_id.failure_category, segment_id.error);
+  if (!boundary_id.ok) return Result<BoundaryEndpointKey>::Fail(boundary_id.failure_category, boundary_id.error);
+  if (!endpoint_role.ok) return Result<BoundaryEndpointKey>::Fail(endpoint_role.failure_category, endpoint_role.error);
   return Result<BoundaryEndpointKey>::Ok(
       BoundaryEndpointKey{segment_id.value, boundary_id.value, endpoint_role.value});
 }
@@ -315,10 +315,10 @@ Result<MarkingOwner> read_marking_owner(ArchiveReader& reader,
   Result<std::uint64_t> segment_id = reader.RequireU64(prefix + ".segment_id");
   Result<std::uint64_t> node_id = reader.RequireU64(prefix + ".node_id");
   Result<std::uint64_t> manual_id = reader.RequireU64(prefix + ".manual_id");
-  if (!kind.ok) return Result<MarkingOwner>::Fail(kind.error_kind, kind.error);
-  if (!segment_id.ok) return Result<MarkingOwner>::Fail(segment_id.error_kind, segment_id.error);
-  if (!node_id.ok) return Result<MarkingOwner>::Fail(node_id.error_kind, node_id.error);
-  if (!manual_id.ok) return Result<MarkingOwner>::Fail(manual_id.error_kind, manual_id.error);
+  if (!kind.ok) return Result<MarkingOwner>::Fail(kind.failure_category, kind.error);
+  if (!segment_id.ok) return Result<MarkingOwner>::Fail(segment_id.failure_category, segment_id.error);
+  if (!node_id.ok) return Result<MarkingOwner>::Fail(node_id.failure_category, node_id.error);
+  if (!manual_id.ok) return Result<MarkingOwner>::Fail(manual_id.failure_category, manual_id.error);
   return Result<MarkingOwner>::Ok(
       MarkingOwner{kind.value, segment_id.value, node_id.value, manual_id.value});
 }
@@ -345,13 +345,13 @@ Result<AutoMarkingKey> read_auto_marking_key(ArchiveReader& reader,
   Result<MarkingRole> role = enum_value<MarkingRole>(reader, prefix + ".role", 0, 5);
   Result<int> track_has = reader.RequireInt(prefix + ".track.has_value");
   Result<int> approach_has = reader.RequireInt(prefix + ".approach.has_value");
-  if (!owner.ok) return Result<AutoMarkingKey>::Fail(owner.error_kind, owner.error);
-  if (!role.ok) return Result<AutoMarkingKey>::Fail(role.error_kind, role.error);
-  if (!track_has.ok) return Result<AutoMarkingKey>::Fail(track_has.error_kind, track_has.error);
-  if (!approach_has.ok) return Result<AutoMarkingKey>::Fail(approach_has.error_kind, approach_has.error);
+  if (!owner.ok) return Result<AutoMarkingKey>::Fail(owner.failure_category, owner.error);
+  if (!role.ok) return Result<AutoMarkingKey>::Fail(role.failure_category, role.error);
+  if (!track_has.ok) return Result<AutoMarkingKey>::Fail(track_has.failure_category, track_has.error);
+  if (!approach_has.ok) return Result<AutoMarkingKey>::Fail(approach_has.failure_category, approach_has.error);
   if ((track_has.value != 0 && track_has.value != 1) ||
       (approach_has.value != 0 && approach_has.value != 1)) {
-    return Result<AutoMarkingKey>::Fail(ErrorKind::kValidation,
+    return Result<AutoMarkingKey>::Fail(CommitFailureCategory::kInvalidInput,
                                         "auto marking key optional flag is invalid");
   }
   AutoMarkingKey key{};
@@ -362,14 +362,14 @@ Result<AutoMarkingKey> read_auto_marking_key(ArchiveReader& reader,
     Result<std::uint64_t> boundary_id = reader.RequireU64(prefix + ".track.boundary_id");
     Result<MarkingRole> track_role =
         enum_value<MarkingRole>(reader, prefix + ".track.role", 0, 5);
-    if (!segment_id.ok) return Result<AutoMarkingKey>::Fail(segment_id.error_kind, segment_id.error);
-    if (!boundary_id.ok) return Result<AutoMarkingKey>::Fail(boundary_id.error_kind, boundary_id.error);
-    if (!track_role.ok) return Result<AutoMarkingKey>::Fail(track_role.error_kind, track_role.error);
+    if (!segment_id.ok) return Result<AutoMarkingKey>::Fail(segment_id.failure_category, segment_id.error);
+    if (!boundary_id.ok) return Result<AutoMarkingKey>::Fail(boundary_id.failure_category, boundary_id.error);
+    if (!track_role.ok) return Result<AutoMarkingKey>::Fail(track_role.failure_category, track_role.error);
     key.track = MarkingTrackKey{segment_id.value, boundary_id.value, track_role.value};
   }
   if (approach_has.value == 1) {
     Result<ApproachKey> approach = read_approach_key(reader, prefix + ".approach");
-    if (!approach.ok) return Result<AutoMarkingKey>::Fail(approach.error_kind, approach.error);
+    if (!approach.ok) return Result<AutoMarkingKey>::Fail(approach.failure_category, approach.error);
     key.approach = approach.value;
   }
   return Result<AutoMarkingKey>::Ok(key);
@@ -380,7 +380,7 @@ Result<AutoMarkingKey> read_auto_marking_key(ArchiveReader& reader,
 Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
                                         std::uint64_t next_id) {
   if (next_id == 0) {
-    return Result<bool>::Fail(ErrorKind::kValidation, "road next_id is invalid");
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road next_id is invalid");
   }
   std::set<std::uint64_t> all_ids{};
   std::set<std::uint64_t> node_ids{};
@@ -397,7 +397,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
   const auto add_id = [&](std::uint64_t id, std::set<std::uint64_t>* domain,
                           std::string_view label) -> Result<bool> {
     if (id == 0 || !all_ids.insert(id).second || !domain->insert(id).second) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 std::string("road duplicate or zero ID: ") +
                                     std::string(label));
     }
@@ -409,7 +409,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     if (!id.ok) return id;
     if (section.strips.empty() ||
         section.boundaries.size() + 1 != section.strips.size()) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "section template chain is incomplete");
     }
     std::set<SectionStripId> strips{};
@@ -420,7 +420,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
           static_cast<int>(strip.function) < 0 ||
           static_cast<int>(strip.function) > 3 ||
           !IsKnownSurfaceStyle(strip.style_id)) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "section template strip is invalid");
       }
       for (const AutoMarkingPolicy& side :
@@ -428,7 +428,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         if (static_cast<int>(side.role) < 0 || static_cast<int>(side.role) > 5 ||
             (side.enabled && !IsKnownMarkingStyle(side.style_id))) {
           return Result<bool>::Fail(
-              ErrorKind::kValidation,
+              CommitFailureCategory::kInvalidInput,
               "section template lane side marking is invalid");
         }
       }
@@ -449,7 +449,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
           lane.lateral_start_m < 0.0 ||
           lane.lateral_end_m <= lane.lateral_start_m ||
           lane.lateral_end_m > strip->width_m) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "section template lane allocation is invalid");
       }
     }
@@ -462,7 +462,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
             std::max(a.lateral_start_m, b.lateral_start_m) <
             std::min(a.lateral_end_m, b.lateral_end_m);
         if (overlaps) {
-          return Result<bool>::Fail(ErrorKind::kValidation,
+          return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                     "section template lane allocations overlap");
         }
       }
@@ -479,7 +479,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
           static_cast<int>(boundary.marking.role) > 5 ||
           (boundary.marking.enabled &&
            !IsKnownMarkingStyle(boundary.marking.style_id))) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "section template boundary is invalid");
       }
     }
@@ -488,7 +488,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     Result<bool> id = add_id(node.id, &node_ids, "node");
     if (!id.ok) return id;
     if (!finite(node.position)) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road node position is non-finite");
     }
   }
@@ -506,7 +506,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         static_cast<int>(transition.anchor) > 3 ||
         (transition.anchor == TransitionAnchor::kBoundary) !=
             (transition.anchor_boundary_id != 0)) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "section transition is invalid");
     }
     if (transition.anchor == TransitionAnchor::kBoundary) {
@@ -527,7 +527,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
       if (!has_anchor(transition.from_template) ||
           !has_anchor(transition.to_template)) {
         return Result<bool>::Fail(
-            ErrorKind::kValidation,
+            CommitFailureCategory::kInvalidInput,
             "section transition anchor boundary reference is invalid");
       }
     }
@@ -537,7 +537,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
           !rule_strips.insert(rule.strip_id).second ||
           static_cast<int>(rule.action) < 0 ||
           static_cast<int>(rule.action) > 5) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "section transition rule is invalid");
       }
     }
@@ -553,7 +553,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         !finite(segment.shape) ||
         static_cast<int>(segment.shape.intent) < 0 ||
         static_cast<int>(segment.shape.intent) > 1) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road segment is invalid");
     }
   }
@@ -587,7 +587,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         static_cast<int>(connection.target.endpoint_role) > 1 ||
         static_cast<int>(connection.kind) < 0 ||
         static_cast<int>(connection.kind) > 4) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "lane connection identity is invalid");
     }
     const internal::LaneEndpointLookup source =
@@ -598,7 +598,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         !lane_enters(target, connection.target.endpoint_role) ||
         source.node_id == 0 || source.node_id != target.node_id ||
         !lane_pairs.insert({connection.source, connection.target}).second) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "lane connection endpoints are invalid");
     }
     const auto source_use = lane_sources.find(connection.source);
@@ -606,7 +606,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         (source_use->second != connection.kind ||
          (connection.kind != LaneConnectionKind::kSplit &&
           connection.kind != LaneConnectionKind::kJunctionMovement))) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "lane connection source is ambiguous");
     }
     lane_sources.emplace(connection.source, connection.kind);
@@ -615,7 +615,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         (target_use->second != connection.kind ||
          (connection.kind != LaneConnectionKind::kMerge &&
           connection.kind != LaneConnectionKind::kJunctionMovement))) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "lane connection target is ambiguous");
     }
     lane_targets.emplace(connection.target, connection.kind);
@@ -635,7 +635,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         static_cast<int>(continuation.target.endpoint_role) > 1 ||
         static_cast<int>(continuation.kind) < 0 ||
         static_cast<int>(continuation.kind) > 2) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "boundary continuation identity is invalid");
     }
     const internal::BoundaryEndpointLookup source =
@@ -645,14 +645,14 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     if (source.boundary == nullptr || target.boundary == nullptr ||
         source.node_id == 0 || source.node_id != target.node_id ||
         !boundary_pairs.insert({continuation.source, continuation.target}).second) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "boundary continuation endpoints are invalid");
     }
     const auto source_use = boundary_sources.find(continuation.source);
     if (source_use != boundary_sources.end() &&
         (source_use->second != continuation.kind ||
          continuation.kind != BoundaryContinuationKind::kSplit)) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "boundary continuation source is ambiguous");
     }
     boundary_sources.emplace(continuation.source, continuation.kind);
@@ -660,7 +660,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     if (target_use != boundary_targets.end() &&
         (target_use->second != continuation.kind ||
          continuation.kind != BoundaryContinuationKind::kMerge)) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "boundary continuation target is ambiguous");
     }
     boundary_targets.emplace(continuation.target, continuation.kind);
@@ -678,7 +678,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     Result<bool> id = add_id(corridor.id, &corridor_ids, "corridor");
     if (!id.ok) return id;
     if (corridor.section_template_id == 0 || corridor.segments.empty()) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road corridor is empty or untyped");
     }
     RoadNodeId expected_start = 0;
@@ -689,7 +689,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
           segment->section_template != corridor.section_template_id ||
           !corridor_segments.insert(ref.segment_id).second) {
         return Result<bool>::Fail(
-            ErrorKind::kValidation,
+            CommitFailureCategory::kInvalidInput,
             "road corridor segment reference is invalid or duplicated");
       }
       const RoadNodeId start =
@@ -698,7 +698,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
           ref.reversed ? segment->node_a : segment->node_b;
       if (index != 0 && start != expected_start) {
         return Result<bool>::Fail(
-            ErrorKind::kValidation,
+            CommitFailureCategory::kInvalidInput,
             "road corridor segment references are not endpoint-continuous");
       }
       expected_start = end;
@@ -706,7 +706,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
   }
   if (corridor_segments.size() != graph.segments.size()) {
     return Result<bool>::Fail(
-        ErrorKind::kValidation,
+        CommitFailureCategory::kInvalidInput,
         "road segment does not belong to exactly one corridor");
   }
   for (const NodeConnectionPolicyOverride& policy :
@@ -716,7 +716,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     if (!contains_id(node_ids, policy.node_id) ||
         static_cast<int>(policy.policy) < 0 ||
         static_cast<int>(policy.policy) > 2) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "connection policy override is invalid");
     }
   }
@@ -741,7 +741,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
          (!finite(override.setback_m.value) || override.setback_m.value < 0.0)) ||
         (override.lateral_shift_m.has_value &&
          !finite(override.lateral_shift_m.value))) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "approach geometry override is invalid");
     }
   }
@@ -750,7 +750,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     if (!auto_marking_keys.insert(override.key).second ||
         static_cast<int>(override.key.role) < 0 ||
         static_cast<int>(override.key.role) > 5) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "auto marking override is invalid");
     }
     if (override.key.owner.kind == MarkingOwner::Kind::kRoadSegment) {
@@ -759,18 +759,18 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
           !override.key.track.has_value() || override.key.approach.has_value() ||
           override.key.track->segment_id != override.key.owner.segment_id ||
           override.key.track->role != override.key.role) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "auto marking segment override is invalid");
       }
     } else if (override.key.owner.kind == MarkingOwner::Kind::kJunction) {
       if (!contains_id(node_ids, override.key.owner.node_id) ||
           override.key.owner.segment_id != 0 || override.key.owner.manual_id != 0 ||
           override.key.track.has_value() || !override.key.approach.has_value()) {
-        return Result<bool>::Fail(ErrorKind::kValidation,
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "auto marking junction override is invalid");
       }
     } else {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "auto marking manual override is invalid");
     }
   }
@@ -782,7 +782,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     if (!contains_id(node_ids, override.node_id) ||
         static_cast<int>(override.action) < 0 ||
         static_cast<int>(override.action) > 2) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "junction marking override is invalid");
     }
     const auto valid_endpoint = [&](const JunctionMarkingEndpoint& endpoint) {
@@ -806,7 +806,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
          (!override.target.has_value() || !valid_endpoint(*override.target))) ||
         (override.action != JunctionMarkingAction::kConnectToApproach &&
          override.target.has_value())) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "junction marking endpoint is invalid");
     }
   }
@@ -817,7 +817,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         !IsKnownMarkingStyle(marking.style_id) || marking.path.spans.empty() ||
         !std::all_of(marking.path.spans.begin(), marking.path.spans.end(),
                      [](const BezierSpan& span) { return finite(span); })) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "manual line marking is invalid");
     }
   }
@@ -830,12 +830,12 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         !finite(marking.width_m) ||
         !finite(marking.length_m) || marking.width_m <= 0.0 ||
         marking.length_m <= 0.0) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "manual area marking is invalid");
     }
   }
   if (next_id <= max_id) {
-    return Result<bool>::Fail(ErrorKind::kValidation,
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                               "road next_id does not exceed existing IDs");
   }
   return Result<bool>::Ok(true);
@@ -844,7 +844,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
 Result<std::string> SaveRoad(const SavedRoadGraph& graph,
                              std::uint64_t next_id) {
   Result<bool> valid = ValidateAuthoritativeGraph(graph, next_id);
-  if (!valid.ok) return Result<std::string>::Fail(valid.error_kind, valid.error);
+  if (!valid.ok) return Result<std::string>::Fail(valid.failure_category, valid.error);
   ArchiveWriter writer{};
   writer.UInt("road_graph_version", kVersion);
   writer.UInt("next_id", next_id);
@@ -1112,42 +1112,42 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
 Result<LoadedRoad> LoadRoad(const std::string& text) {
   if (!HasCurrentHeader(text)) {
     if (HasRoadHeader(text)) {
-      return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+      return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                       "legacy road graph version is unsupported");
     }
-    return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+    return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                     "unknown road graph version");
   }
   ArchiveReader reader{text};
   Result<bool> status = reader.Status();
-  if (!status.ok) return Result<LoadedRoad>::Fail(status.error_kind, status.error);
+  if (!status.ok) return Result<LoadedRoad>::Fail(status.failure_category, status.error);
   Result<std::uint64_t> version = reader.RequireU64("road_graph_version");
-  if (!version.ok) return Result<LoadedRoad>::Fail(version.error_kind, version.error);
+  if (!version.ok) return Result<LoadedRoad>::Fail(version.failure_category, version.error);
   if (version.value != kVersion) {
-    return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+    return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                     "unknown road graph version");
   }
   Result<std::uint64_t> next_id = reader.RequireU64("next_id");
-  if (!next_id.ok) return Result<LoadedRoad>::Fail(next_id.error_kind, next_id.error);
+  if (!next_id.ok) return Result<LoadedRoad>::Fail(next_id.failure_category, next_id.error);
 
   LoadedRoad loaded{};
   loaded.next_id = next_id.value;
   auto require_count = [&reader](const std::string& key) -> Result<std::size_t> {
     Result<std::uint64_t> count = reader.RequireU64(key);
-    if (!count.ok) return Result<std::size_t>::Fail(count.error_kind, count.error);
+    if (!count.ok) return Result<std::size_t>::Fail(count.failure_category, count.error);
     return Result<std::size_t>::Ok(static_cast<std::size_t>(count.value));
   };
 
   Result<std::size_t> section_count = require_count("section_template.count");
-  if (!section_count.ok) return Result<LoadedRoad>::Fail(section_count.error_kind, section_count.error);
+  if (!section_count.ok) return Result<LoadedRoad>::Fail(section_count.failure_category, section_count.error);
   for (std::size_t i = 0; i < section_count.value; ++i) {
     const std::string prefix = "section_template." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
     CrossSectionTemplate section{};
     section.id = id.value;
     Result<std::size_t> strip_count = require_count(prefix + ".strip.count");
-    if (!strip_count.ok) return Result<LoadedRoad>::Fail(strip_count.error_kind, strip_count.error);
+    if (!strip_count.ok) return Result<LoadedRoad>::Fail(strip_count.failure_category, strip_count.error);
     for (std::size_t j = 0; j < strip_count.value; ++j) {
       const std::string strip_prefix = prefix + ".strip." + std::to_string(j);
       Result<std::uint64_t> strip_id = reader.RequireU64(strip_prefix + ".id");
@@ -1156,11 +1156,11 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
       Result<double> width = reader.RequireDouble(strip_prefix + ".width_m");
       Result<double> slope = reader.RequireDouble(strip_prefix + ".cross_slope");
       Result<std::uint64_t> style = reader.RequireU64(strip_prefix + ".style_id");
-      if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.error_kind, strip_id.error);
-      if (!function.ok) return Result<LoadedRoad>::Fail(function.error_kind, function.error);
-      if (!width.ok) return Result<LoadedRoad>::Fail(width.error_kind, width.error);
-      if (!slope.ok) return Result<LoadedRoad>::Fail(slope.error_kind, slope.error);
-      if (!style.ok) return Result<LoadedRoad>::Fail(style.error_kind, style.error);
+      if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.failure_category, strip_id.error);
+      if (!function.ok) return Result<LoadedRoad>::Fail(function.failure_category, function.error);
+      if (!width.ok) return Result<LoadedRoad>::Fail(width.failure_category, width.error);
+      if (!slope.ok) return Result<LoadedRoad>::Fail(slope.failure_category, slope.error);
+      if (!style.ok) return Result<LoadedRoad>::Fail(style.failure_category, style.error);
       LaneSideMarkingPolicy side_marking{};
       for (const std::string_view side_key : {std::string_view{"left"}, std::string_view{"right"}}) {
         const std::string side_prefix =
@@ -1169,17 +1169,17 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
         Result<MarkingRole> side_role =
             enum_value<MarkingRole>(reader, side_prefix + ".role", 0, 5);
         Result<std::uint64_t> side_style = reader.RequireU64(side_prefix + ".style_id");
-        if (!enabled.ok) return Result<LoadedRoad>::Fail(enabled.error_kind, enabled.error);
-        if (!side_role.ok) return Result<LoadedRoad>::Fail(side_role.error_kind, side_role.error);
-        if (!side_style.ok) return Result<LoadedRoad>::Fail(side_style.error_kind, side_style.error);
+        if (!enabled.ok) return Result<LoadedRoad>::Fail(enabled.failure_category, enabled.error);
+        if (!side_role.ok) return Result<LoadedRoad>::Fail(side_role.failure_category, side_role.error);
+        if (!side_style.ok) return Result<LoadedRoad>::Fail(side_style.failure_category, side_style.error);
         if (enabled.value != 0 && enabled.value != 1) {
-          return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+          return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                           "lane side marking enabled flag is invalid");
         }
         AutoMarkingPolicy policy{enabled.value == 1, side_role.value,
                                  MarkingStyleId{side_style.value}};
         if (policy.enabled && !IsKnownMarkingStyle(policy.style_id)) {
-          return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+          return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                           "lane side marking style is unknown");
         }
         if (side_key == "left") {
@@ -1192,7 +1192,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
                                           SurfaceStyleId{style.value}, side_marking});
     }
     Result<std::size_t> lane_count = require_count(prefix + ".lane_band.count");
-    if (!lane_count.ok) return Result<LoadedRoad>::Fail(lane_count.error_kind, lane_count.error);
+    if (!lane_count.ok) return Result<LoadedRoad>::Fail(lane_count.failure_category, lane_count.error);
     for (std::size_t j = 0; j < lane_count.value; ++j) {
       const std::string lane_prefix =
           prefix + ".lane_band." + std::to_string(j);
@@ -1205,17 +1205,17 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           reader.RequireDouble(lane_prefix + ".lateral_end_m");
       Result<LaneTravelDirection> direction = enum_value<LaneTravelDirection>(
           reader, lane_prefix + ".direction", 0, 1);
-      if (!lane_id.ok) return Result<LoadedRoad>::Fail(lane_id.error_kind, lane_id.error);
-      if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.error_kind, strip_id.error);
-      if (!start.ok) return Result<LoadedRoad>::Fail(start.error_kind, start.error);
-      if (!end.ok) return Result<LoadedRoad>::Fail(end.error_kind, end.error);
-      if (!direction.ok) return Result<LoadedRoad>::Fail(direction.error_kind, direction.error);
+      if (!lane_id.ok) return Result<LoadedRoad>::Fail(lane_id.failure_category, lane_id.error);
+      if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.failure_category, strip_id.error);
+      if (!start.ok) return Result<LoadedRoad>::Fail(start.failure_category, start.error);
+      if (!end.ok) return Result<LoadedRoad>::Fail(end.failure_category, end.error);
+      if (!direction.ok) return Result<LoadedRoad>::Fail(direction.failure_category, direction.error);
       section.lane_bands.push_back(
           LaneBand{lane_id.value, strip_id.value, start.value, end.value,
                    direction.value});
     }
     Result<std::size_t> boundary_count = require_count(prefix + ".boundary.count");
-    if (!boundary_count.ok) return Result<LoadedRoad>::Fail(boundary_count.error_kind, boundary_count.error);
+    if (!boundary_count.ok) return Result<LoadedRoad>::Fail(boundary_count.failure_category, boundary_count.error);
     for (std::size_t j = 0; j < boundary_count.value; ++j) {
       const std::string boundary_prefix = prefix + ".boundary." + std::to_string(j);
       Result<std::uint64_t> boundary_id = reader.RequireU64(boundary_prefix + ".boundary_id");
@@ -1227,17 +1227,17 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           enum_value<MarkingRole>(reader, boundary_prefix + ".marking.role", 0, 5);
       Result<std::uint64_t> marking_style =
           reader.RequireU64(boundary_prefix + ".marking.style_id");
-      if (!boundary_id.ok) return Result<LoadedRoad>::Fail(boundary_id.error_kind, boundary_id.error);
-      if (!role.ok) return Result<LoadedRoad>::Fail(role.error_kind, role.error);
-      if (!width.ok) return Result<LoadedRoad>::Fail(width.error_kind, width.error);
-      if (!height.ok) return Result<LoadedRoad>::Fail(height.error_kind, height.error);
+      if (!boundary_id.ok) return Result<LoadedRoad>::Fail(boundary_id.failure_category, boundary_id.error);
+      if (!role.ok) return Result<LoadedRoad>::Fail(role.failure_category, role.error);
+      if (!width.ok) return Result<LoadedRoad>::Fail(width.failure_category, width.error);
+      if (!height.ok) return Result<LoadedRoad>::Fail(height.failure_category, height.error);
       if (!marking_enabled.ok) {
-        return Result<LoadedRoad>::Fail(marking_enabled.error_kind, marking_enabled.error);
+        return Result<LoadedRoad>::Fail(marking_enabled.failure_category, marking_enabled.error);
       }
-      if (!marking_role.ok) return Result<LoadedRoad>::Fail(marking_role.error_kind, marking_role.error);
-      if (!marking_style.ok) return Result<LoadedRoad>::Fail(marking_style.error_kind, marking_style.error);
+      if (!marking_role.ok) return Result<LoadedRoad>::Fail(marking_role.failure_category, marking_role.error);
+      if (!marking_style.ok) return Result<LoadedRoad>::Fail(marking_style.failure_category, marking_style.error);
       if (marking_enabled.value != 0 && marking_enabled.value != 1) {
-        return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+        return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                         "boundary marking enabled flag is invalid");
       }
       section.boundaries.push_back(BoundaryProfile{boundary_id.value, role.value, width.value,
@@ -1251,7 +1251,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   }
 
   Result<std::size_t> transition_count = require_count("transition.count");
-  if (!transition_count.ok) return Result<LoadedRoad>::Fail(transition_count.error_kind, transition_count.error);
+  if (!transition_count.ok) return Result<LoadedRoad>::Fail(transition_count.failure_category, transition_count.error);
   for (std::size_t i = 0; i < transition_count.value; ++i) {
     const std::string prefix = "transition." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
@@ -1264,16 +1264,16 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<TransitionAnchor> anchor = enum_value<TransitionAnchor>(reader, prefix + ".anchor", 0, 3);
     Result<std::uint64_t> anchor_boundary_id =
         reader.RequireU64(prefix + ".anchor_boundary_id");
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
-    if (!from.ok) return Result<LoadedRoad>::Fail(from.error_kind, from.error);
-    if (!to.ok) return Result<LoadedRoad>::Fail(to.error_kind, to.error);
-    if (!start_kind.ok) return Result<LoadedRoad>::Fail(start_kind.error_kind, start_kind.error);
-    if (!start_value.ok) return Result<LoadedRoad>::Fail(start_value.error_kind, start_value.error);
-    if (!end_kind.ok) return Result<LoadedRoad>::Fail(end_kind.error_kind, end_kind.error);
-    if (!end_value.ok) return Result<LoadedRoad>::Fail(end_value.error_kind, end_value.error);
-    if (!anchor.ok) return Result<LoadedRoad>::Fail(anchor.error_kind, anchor.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
+    if (!from.ok) return Result<LoadedRoad>::Fail(from.failure_category, from.error);
+    if (!to.ok) return Result<LoadedRoad>::Fail(to.failure_category, to.error);
+    if (!start_kind.ok) return Result<LoadedRoad>::Fail(start_kind.failure_category, start_kind.error);
+    if (!start_value.ok) return Result<LoadedRoad>::Fail(start_value.failure_category, start_value.error);
+    if (!end_kind.ok) return Result<LoadedRoad>::Fail(end_kind.failure_category, end_kind.error);
+    if (!end_value.ok) return Result<LoadedRoad>::Fail(end_value.failure_category, end_value.error);
+    if (!anchor.ok) return Result<LoadedRoad>::Fail(anchor.failure_category, anchor.error);
     if (!anchor_boundary_id.ok) {
-      return Result<LoadedRoad>::Fail(anchor_boundary_id.error_kind,
+      return Result<LoadedRoad>::Fail(anchor_boundary_id.failure_category,
                                       anchor_boundary_id.error);
     }
     SectionTransition transition{id.value, from.value, to.value,
@@ -1281,70 +1281,70 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
                                  DistanceRef{end_kind.value, end_value.value},
                                  anchor.value, anchor_boundary_id.value, {}};
     Result<std::size_t> rule_count = require_count(prefix + ".rule.count");
-    if (!rule_count.ok) return Result<LoadedRoad>::Fail(rule_count.error_kind, rule_count.error);
+    if (!rule_count.ok) return Result<LoadedRoad>::Fail(rule_count.failure_category, rule_count.error);
     for (std::size_t j = 0; j < rule_count.value; ++j) {
       const std::string rule_prefix = prefix + ".rule." + std::to_string(j);
       Result<std::uint64_t> strip_id = reader.RequireU64(rule_prefix + ".strip_id");
       Result<TransitionAction> action = enum_value<TransitionAction>(reader, rule_prefix + ".action", 0, 5);
-      if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.error_kind, strip_id.error);
-      if (!action.ok) return Result<LoadedRoad>::Fail(action.error_kind, action.error);
+      if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.failure_category, strip_id.error);
+      if (!action.ok) return Result<LoadedRoad>::Fail(action.failure_category, action.error);
       transition.rules.push_back(SectionTransitionRule{strip_id.value, action.value});
     }
     loaded.graph.transitions.push_back(std::move(transition));
   }
 
   Result<std::size_t> node_count = require_count("node.count");
-  if (!node_count.ok) return Result<LoadedRoad>::Fail(node_count.error_kind, node_count.error);
+  if (!node_count.ok) return Result<LoadedRoad>::Fail(node_count.failure_category, node_count.error);
   for (std::size_t i = 0; i < node_count.value; ++i) {
     const std::string prefix = "node." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
     Result<Vec2d> position = vec2(reader, prefix + ".position");
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
-    if (!position.ok) return Result<LoadedRoad>::Fail(position.error_kind, position.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
+    if (!position.ok) return Result<LoadedRoad>::Fail(position.failure_category, position.error);
     loaded.graph.nodes.push_back(RoadNode{id.value, position.value});
   }
 
   Result<std::size_t> policy_count = require_count("connection_policy_override.count");
-  if (!policy_count.ok) return Result<LoadedRoad>::Fail(policy_count.error_kind, policy_count.error);
+  if (!policy_count.ok) return Result<LoadedRoad>::Fail(policy_count.failure_category, policy_count.error);
   for (std::size_t i = 0; i < policy_count.value; ++i) {
     const std::string prefix = "connection_policy_override." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
     Result<std::uint64_t> node_id = reader.RequireU64(prefix + ".node_id");
     Result<NodeConnectionPolicy> policy = enum_value<NodeConnectionPolicy>(reader, prefix + ".policy", 0, 2);
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
-    if (!node_id.ok) return Result<LoadedRoad>::Fail(node_id.error_kind, node_id.error);
-    if (!policy.ok) return Result<LoadedRoad>::Fail(policy.error_kind, policy.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
+    if (!node_id.ok) return Result<LoadedRoad>::Fail(node_id.failure_category, node_id.error);
+    if (!policy.ok) return Result<LoadedRoad>::Fail(policy.failure_category, policy.error);
     loaded.graph.connection_policy_overrides.push_back(
         NodeConnectionPolicyOverride{id.value, node_id.value, policy.value});
   }
 
   Result<std::size_t> approach_override_count = require_count("approach_geometry_override.count");
   if (!approach_override_count.ok) {
-    return Result<LoadedRoad>::Fail(approach_override_count.error_kind, approach_override_count.error);
+    return Result<LoadedRoad>::Fail(approach_override_count.failure_category, approach_override_count.error);
   }
   for (std::size_t i = 0; i < approach_override_count.value; ++i) {
     const std::string prefix = "approach_geometry_override." + std::to_string(i);
     Result<ApproachKey> key = read_approach_key(reader, prefix);
     Result<int> setback_mode = reader.RequireInt(prefix + ".setback.mode");
     Result<int> lateral_mode = reader.RequireInt(prefix + ".lateral_shift.mode");
-    if (!key.ok) return Result<LoadedRoad>::Fail(key.error_kind, key.error);
-    if (!setback_mode.ok) return Result<LoadedRoad>::Fail(setback_mode.error_kind, setback_mode.error);
-    if (!lateral_mode.ok) return Result<LoadedRoad>::Fail(lateral_mode.error_kind, lateral_mode.error);
+    if (!key.ok) return Result<LoadedRoad>::Fail(key.failure_category, key.error);
+    if (!setback_mode.ok) return Result<LoadedRoad>::Fail(setback_mode.failure_category, setback_mode.error);
+    if (!lateral_mode.ok) return Result<LoadedRoad>::Fail(lateral_mode.failure_category, lateral_mode.error);
     if ((setback_mode.value != 0 && setback_mode.value != 1) ||
         (lateral_mode.value != 0 && lateral_mode.value != 1)) {
-      return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+      return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                       "approach geometry override mode is invalid");
     }
     ApproachGeometryOverride override{};
     override.key = key.value;
     if (setback_mode.value == 1) {
       Result<double> value = reader.RequireDouble(prefix + ".setback.value");
-      if (!value.ok) return Result<LoadedRoad>::Fail(value.error_kind, value.error);
+      if (!value.ok) return Result<LoadedRoad>::Fail(value.failure_category, value.error);
       override.setback_m = ManualDoubleOverride{true, value.value};
     }
     if (lateral_mode.value == 1) {
       Result<double> value = reader.RequireDouble(prefix + ".lateral_shift.value");
-      if (!value.ok) return Result<LoadedRoad>::Fail(value.error_kind, value.error);
+      if (!value.ok) return Result<LoadedRoad>::Fail(value.failure_category, value.error);
       override.lateral_shift_m = ManualDoubleOverride{true, value.value};
     }
     loaded.graph.approach_geometry_overrides.push_back(override);
@@ -1353,17 +1353,17 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   Result<std::size_t> auto_marking_override_count =
       require_count("auto_marking_override.count");
   if (!auto_marking_override_count.ok) {
-    return Result<LoadedRoad>::Fail(auto_marking_override_count.error_kind,
+    return Result<LoadedRoad>::Fail(auto_marking_override_count.failure_category,
                                     auto_marking_override_count.error);
   }
   for (std::size_t i = 0; i < auto_marking_override_count.value; ++i) {
     const std::string prefix = "auto_marking_override." + std::to_string(i);
     Result<AutoMarkingKey> key = read_auto_marking_key(reader, prefix + ".key");
     Result<int> suppressed = reader.RequireInt(prefix + ".suppressed");
-    if (!key.ok) return Result<LoadedRoad>::Fail(key.error_kind, key.error);
-    if (!suppressed.ok) return Result<LoadedRoad>::Fail(suppressed.error_kind, suppressed.error);
+    if (!key.ok) return Result<LoadedRoad>::Fail(key.failure_category, key.error);
+    if (!suppressed.ok) return Result<LoadedRoad>::Fail(suppressed.failure_category, suppressed.error);
     if (suppressed.value != 0 && suppressed.value != 1) {
-      return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+      return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                       "auto marking override suppressed flag is invalid");
     }
     loaded.graph.auto_marking_overrides.push_back(
@@ -1373,7 +1373,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   Result<std::size_t> junction_marking_override_count =
       require_count("junction_marking_override.count");
   if (!junction_marking_override_count.ok) {
-    return Result<LoadedRoad>::Fail(junction_marking_override_count.error_kind,
+    return Result<LoadedRoad>::Fail(junction_marking_override_count.failure_category,
                                     junction_marking_override_count.error);
   }
   for (std::size_t i = 0; i < junction_marking_override_count.value; ++i) {
@@ -1389,15 +1389,15 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<JunctionMarkingAction> action =
         enum_value<JunctionMarkingAction>(reader, prefix + ".action", 0, 2);
     Result<int> target_has = reader.RequireInt(prefix + ".target.has_value");
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
-    if (!node_id.ok) return Result<LoadedRoad>::Fail(node_id.error_kind, node_id.error);
-    if (!source_approach.ok) return Result<LoadedRoad>::Fail(source_approach.error_kind, source_approach.error);
-    if (!source_boundary.ok) return Result<LoadedRoad>::Fail(source_boundary.error_kind, source_boundary.error);
-    if (!source_role.ok) return Result<LoadedRoad>::Fail(source_role.error_kind, source_role.error);
-    if (!action.ok) return Result<LoadedRoad>::Fail(action.error_kind, action.error);
-    if (!target_has.ok) return Result<LoadedRoad>::Fail(target_has.error_kind, target_has.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
+    if (!node_id.ok) return Result<LoadedRoad>::Fail(node_id.failure_category, node_id.error);
+    if (!source_approach.ok) return Result<LoadedRoad>::Fail(source_approach.failure_category, source_approach.error);
+    if (!source_boundary.ok) return Result<LoadedRoad>::Fail(source_boundary.failure_category, source_boundary.error);
+    if (!source_role.ok) return Result<LoadedRoad>::Fail(source_role.failure_category, source_role.error);
+    if (!action.ok) return Result<LoadedRoad>::Fail(action.failure_category, action.error);
+    if (!target_has.ok) return Result<LoadedRoad>::Fail(target_has.failure_category, target_has.error);
     if (target_has.value != 0 && target_has.value != 1) {
-      return Result<LoadedRoad>::Fail(ErrorKind::kValidation,
+      return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                       "junction marking override target flag is invalid");
     }
     JunctionMarkingOverride override{};
@@ -1414,9 +1414,9 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           reader.RequireU64(prefix + ".target.boundary_id");
       Result<MarkingRole> target_role =
           enum_value<MarkingRole>(reader, prefix + ".target.role", 0, 5);
-      if (!target_approach.ok) return Result<LoadedRoad>::Fail(target_approach.error_kind, target_approach.error);
-      if (!target_boundary.ok) return Result<LoadedRoad>::Fail(target_boundary.error_kind, target_boundary.error);
-      if (!target_role.ok) return Result<LoadedRoad>::Fail(target_role.error_kind, target_role.error);
+      if (!target_approach.ok) return Result<LoadedRoad>::Fail(target_approach.failure_category, target_approach.error);
+      if (!target_boundary.ok) return Result<LoadedRoad>::Fail(target_boundary.failure_category, target_boundary.error);
+      if (!target_role.ok) return Result<LoadedRoad>::Fail(target_role.failure_category, target_role.error);
       override.target = JunctionMarkingEndpoint{target_approach.value,
                                                 target_boundary.value,
                                                 target_role.value};
@@ -1425,7 +1425,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   }
 
   Result<std::size_t> segment_count = require_count("segment.count");
-  if (!segment_count.ok) return Result<LoadedRoad>::Fail(segment_count.error_kind, segment_count.error);
+  if (!segment_count.ok) return Result<LoadedRoad>::Fail(segment_count.failure_category, segment_count.error);
   for (std::size_t i = 0; i < segment_count.value; ++i) {
     const std::string prefix = "segment." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
@@ -1437,14 +1437,14 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
         enum_value<SegmentShapeIntent>(reader, prefix + ".shape.intent", 0, 1);
     Result<Vec2d> start_handle = vec2(reader, prefix + ".shape.start_handle");
     Result<Vec2d> end_handle = vec2(reader, prefix + ".shape.end_handle");
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
-    if (!node_a.ok) return Result<LoadedRoad>::Fail(node_a.error_kind, node_a.error);
-    if (!node_b.ok) return Result<LoadedRoad>::Fail(node_b.error_kind, node_b.error);
-    if (!section_template.ok) return Result<LoadedRoad>::Fail(section_template.error_kind, section_template.error);
-    if (!transition.ok) return Result<LoadedRoad>::Fail(transition.error_kind, transition.error);
-    if (!intent.ok) return Result<LoadedRoad>::Fail(intent.error_kind, intent.error);
-    if (!start_handle.ok) return Result<LoadedRoad>::Fail(start_handle.error_kind, start_handle.error);
-    if (!end_handle.ok) return Result<LoadedRoad>::Fail(end_handle.error_kind, end_handle.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
+    if (!node_a.ok) return Result<LoadedRoad>::Fail(node_a.failure_category, node_a.error);
+    if (!node_b.ok) return Result<LoadedRoad>::Fail(node_b.failure_category, node_b.error);
+    if (!section_template.ok) return Result<LoadedRoad>::Fail(section_template.failure_category, section_template.error);
+    if (!transition.ok) return Result<LoadedRoad>::Fail(transition.failure_category, transition.error);
+    if (!intent.ok) return Result<LoadedRoad>::Fail(intent.failure_category, intent.error);
+    if (!start_handle.ok) return Result<LoadedRoad>::Fail(start_handle.failure_category, start_handle.error);
+    if (!end_handle.ok) return Result<LoadedRoad>::Fail(end_handle.failure_category, end_handle.error);
     RoadSegment segment{id.value, node_a.value, node_b.value,
                         SegmentShape{start_handle.value, {}, end_handle.value,
                                      intent.value},
@@ -1452,15 +1452,15 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
                         transition.value == 0 ? std::nullopt
                                               : std::optional<SectionTransitionId>(transition.value)};
     Result<std::size_t> knot_count = require_count(prefix + ".shape.knot.count");
-    if (!knot_count.ok) return Result<LoadedRoad>::Fail(knot_count.error_kind, knot_count.error);
+    if (!knot_count.ok) return Result<LoadedRoad>::Fail(knot_count.failure_category, knot_count.error);
     for (std::size_t j = 0; j < knot_count.value; ++j) {
       const std::string knot_prefix = prefix + ".shape.knot." + std::to_string(j);
       Result<Vec2d> position = vec2(reader, knot_prefix + ".position");
       Result<Vec2d> handle_in = vec2(reader, knot_prefix + ".handle_in");
       Result<Vec2d> handle_out = vec2(reader, knot_prefix + ".handle_out");
-      if (!position.ok) return Result<LoadedRoad>::Fail(position.error_kind, position.error);
-      if (!handle_in.ok) return Result<LoadedRoad>::Fail(handle_in.error_kind, handle_in.error);
-      if (!handle_out.ok) return Result<LoadedRoad>::Fail(handle_out.error_kind, handle_out.error);
+      if (!position.ok) return Result<LoadedRoad>::Fail(position.failure_category, position.error);
+      if (!handle_in.ok) return Result<LoadedRoad>::Fail(handle_in.failure_category, handle_in.error);
+      if (!handle_out.ok) return Result<LoadedRoad>::Fail(handle_out.failure_category, handle_out.error);
       segment.shape.internal_knots.push_back(
           SegmentKnot{position.value, handle_in.value, handle_out.value});
     }
@@ -1469,7 +1469,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
 
   Result<std::size_t> lane_connection_count = require_count("lane_connection.count");
   if (!lane_connection_count.ok) {
-    return Result<LoadedRoad>::Fail(lane_connection_count.error_kind,
+    return Result<LoadedRoad>::Fail(lane_connection_count.failure_category,
                                     lane_connection_count.error);
   }
   for (std::size_t i = 0; i < lane_connection_count.value; ++i) {
@@ -1479,10 +1479,10 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<LaneEndpointKey> target = read_lane_endpoint_key(reader, prefix + ".target");
     Result<LaneConnectionKind> kind =
         enum_value<LaneConnectionKind>(reader, prefix + ".kind", 0, 4);
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
-    if (!source.ok) return Result<LoadedRoad>::Fail(source.error_kind, source.error);
-    if (!target.ok) return Result<LoadedRoad>::Fail(target.error_kind, target.error);
-    if (!kind.ok) return Result<LoadedRoad>::Fail(kind.error_kind, kind.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
+    if (!source.ok) return Result<LoadedRoad>::Fail(source.failure_category, source.error);
+    if (!target.ok) return Result<LoadedRoad>::Fail(target.failure_category, target.error);
+    if (!kind.ok) return Result<LoadedRoad>::Fail(kind.failure_category, kind.error);
     loaded.graph.lane_connections.push_back(
         LaneConnection{id.value, source.value, target.value, kind.value});
   }
@@ -1490,7 +1490,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   Result<std::size_t> boundary_continuation_count =
       require_count("boundary_continuation.count");
   if (!boundary_continuation_count.ok) {
-    return Result<LoadedRoad>::Fail(boundary_continuation_count.error_kind,
+    return Result<LoadedRoad>::Fail(boundary_continuation_count.failure_category,
                                     boundary_continuation_count.error);
   }
   for (std::size_t i = 0; i < boundary_continuation_count.value; ++i) {
@@ -1501,10 +1501,10 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<BoundaryEndpointKey> target =
         read_boundary_endpoint_key(reader, prefix + ".target");
     Result<int> kind = reader.RequireInt(prefix + ".kind");
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
-    if (!source.ok) return Result<LoadedRoad>::Fail(source.error_kind, source.error);
-    if (!target.ok) return Result<LoadedRoad>::Fail(target.error_kind, target.error);
-    if (!kind.ok) return Result<LoadedRoad>::Fail(kind.error_kind, kind.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
+    if (!source.ok) return Result<LoadedRoad>::Fail(source.failure_category, source.error);
+    if (!target.ok) return Result<LoadedRoad>::Fail(target.failure_category, target.error);
+    if (!kind.ok) return Result<LoadedRoad>::Fail(kind.failure_category, kind.error);
     loaded.graph.boundary_continuations.push_back(
         BoundaryContinuation{id.value, source.value, target.value,
                              static_cast<BoundaryContinuationKind>(kind.value)});
@@ -1512,7 +1512,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
 
   Result<std::size_t> corridor_count = require_count("corridor.count");
   if (!corridor_count.ok) {
-    return Result<LoadedRoad>::Fail(corridor_count.error_kind,
+    return Result<LoadedRoad>::Fail(corridor_count.failure_category,
                                     corridor_count.error);
   }
   for (std::size_t i = 0; i < corridor_count.value; ++i) {
@@ -1522,13 +1522,13 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
         reader.RequireU64(prefix + ".section_template_id");
     Result<std::size_t> ref_count =
         require_count(prefix + ".segment.count");
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
     if (!section_template.ok) {
-      return Result<LoadedRoad>::Fail(section_template.error_kind,
+      return Result<LoadedRoad>::Fail(section_template.failure_category,
                                       section_template.error);
     }
     if (!ref_count.ok) {
-      return Result<LoadedRoad>::Fail(ref_count.error_kind, ref_count.error);
+      return Result<LoadedRoad>::Fail(ref_count.failure_category, ref_count.error);
     }
     RoadCorridor corridor{id.value, section_template.value, {}};
     for (std::size_t j = 0; j < ref_count.value; ++j) {
@@ -1538,11 +1538,11 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           reader.RequireU64(ref_prefix + ".segment_id");
       Result<int> reversed = reader.RequireInt(ref_prefix + ".reversed");
       if (!segment.ok) {
-        return Result<LoadedRoad>::Fail(segment.error_kind, segment.error);
+        return Result<LoadedRoad>::Fail(segment.failure_category, segment.error);
       }
       if (!reversed.ok || (reversed.value != 0 && reversed.value != 1)) {
         return Result<LoadedRoad>::Fail(
-            ErrorKind::kValidation,
+            CommitFailureCategory::kInvalidInput,
             "road corridor reversed flag is invalid");
       }
       corridor.segments.push_back(
@@ -1552,28 +1552,28 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   }
 
   Result<std::size_t> manual_line_count = require_count("manual_line.count");
-  if (!manual_line_count.ok) return Result<LoadedRoad>::Fail(manual_line_count.error_kind, manual_line_count.error);
+  if (!manual_line_count.ok) return Result<LoadedRoad>::Fail(manual_line_count.failure_category, manual_line_count.error);
   for (std::size_t i = 0; i < manual_line_count.value; ++i) {
     const std::string prefix = "manual_line." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
     Result<std::uint64_t> owner = reader.RequireU64(prefix + ".owner_segment_id");
     Result<std::uint64_t> style = reader.RequireU64(prefix + ".style_id");
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
-    if (!owner.ok) return Result<LoadedRoad>::Fail(owner.error_kind, owner.error);
-    if (!style.ok) return Result<LoadedRoad>::Fail(style.error_kind, style.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
+    if (!owner.ok) return Result<LoadedRoad>::Fail(owner.failure_category, owner.error);
+    if (!style.ok) return Result<LoadedRoad>::Fail(style.failure_category, style.error);
     ManualLineMarking marking{id.value, owner.value, {}, MarkingStyleId{style.value}};
     Result<std::size_t> span_count = require_count(prefix + ".path.span.count");
-    if (!span_count.ok) return Result<LoadedRoad>::Fail(span_count.error_kind, span_count.error);
+    if (!span_count.ok) return Result<LoadedRoad>::Fail(span_count.failure_category, span_count.error);
     for (std::size_t j = 0; j < span_count.value; ++j) {
       Result<BezierSpan> span = read_span(reader, prefix + ".path.span." + std::to_string(j));
-      if (!span.ok) return Result<LoadedRoad>::Fail(span.error_kind, span.error);
+      if (!span.ok) return Result<LoadedRoad>::Fail(span.failure_category, span.error);
       marking.path.spans.push_back(span.value);
     }
     loaded.graph.manual_lines.push_back(std::move(marking));
   }
 
   Result<std::size_t> manual_area_count = require_count("manual_area.count");
-  if (!manual_area_count.ok) return Result<LoadedRoad>::Fail(manual_area_count.error_kind, manual_area_count.error);
+  if (!manual_area_count.ok) return Result<LoadedRoad>::Fail(manual_area_count.failure_category, manual_area_count.error);
   for (std::size_t i = 0; i < manual_area_count.value; ++i) {
     const std::string prefix = "manual_area." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
@@ -1583,22 +1583,22 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<double> width = reader.RequireDouble(prefix + ".width_m");
     Result<double> length = reader.RequireDouble(prefix + ".length_m");
     Result<std::uint64_t> style = reader.RequireU64(prefix + ".style_id");
-    if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
-    if (!owner.ok) return Result<LoadedRoad>::Fail(owner.error_kind, owner.error);
-    if (!frame_origin.ok) return Result<LoadedRoad>::Fail(frame_origin.error_kind, frame_origin.error);
-    if (!rotation.ok) return Result<LoadedRoad>::Fail(rotation.error_kind, rotation.error);
-    if (!width.ok) return Result<LoadedRoad>::Fail(width.error_kind, width.error);
-    if (!length.ok) return Result<LoadedRoad>::Fail(length.error_kind, length.error);
-    if (!style.ok) return Result<LoadedRoad>::Fail(style.error_kind, style.error);
+    if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
+    if (!owner.ok) return Result<LoadedRoad>::Fail(owner.failure_category, owner.error);
+    if (!frame_origin.ok) return Result<LoadedRoad>::Fail(frame_origin.failure_category, frame_origin.error);
+    if (!rotation.ok) return Result<LoadedRoad>::Fail(rotation.failure_category, rotation.error);
+    if (!width.ok) return Result<LoadedRoad>::Fail(width.failure_category, width.error);
+    if (!length.ok) return Result<LoadedRoad>::Fail(length.failure_category, length.error);
+    if (!style.ok) return Result<LoadedRoad>::Fail(style.failure_category, style.error);
     loaded.graph.manual_areas.push_back(ManualAreaMarking{
         id.value, owner.value, frame_origin.value, rotation.value, width.value, length.value,
         MarkingStyleId{style.value}});
   }
 
   Result<bool> finish = reader.Finish();
-  if (!finish.ok) return Result<LoadedRoad>::Fail(finish.error_kind, finish.error);
+  if (!finish.ok) return Result<LoadedRoad>::Fail(finish.failure_category, finish.error);
   Result<bool> valid = ValidateAuthoritativeGraph(loaded.graph, loaded.next_id);
-  if (!valid.ok) return Result<LoadedRoad>::Fail(valid.error_kind, valid.error);
+  if (!valid.ok) return Result<LoadedRoad>::Fail(valid.failure_category, valid.error);
   return Result<LoadedRoad>::Ok(std::move(loaded));
 }
 

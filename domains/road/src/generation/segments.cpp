@@ -49,7 +49,7 @@ Result<bool> append_semantic_distances(const SavedRoadGraph &graph,
     const Result<double> span_length =
         PathLength(MakePath({derived.alignment.spans[index]}));
     if (!span_length.ok) {
-      return Result<bool>::Fail(span_length.error_kind, span_length.error);
+      return Result<bool>::Fail(span_length.failure_category, span_length.error);
     }
     span_boundary += span_length.value;
     derived.semantic_segment_distances_m.push_back(span_boundary);
@@ -59,7 +59,7 @@ Result<bool> append_semantic_distances(const SavedRoadGraph &graph,
     const SectionTransition *transition =
         find_transition(graph, *segment.transition);
     if (transition == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kValidation,
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road segment transition is missing");
     }
     append_if_in_range(derived.semantic_segment_distances_m,
@@ -129,17 +129,17 @@ derive_segment_shapes(const SavedRoadGraph &graph) {
     const RoadNode *node_b = find_node(graph, segment.node_b);
     if (node_a == nullptr || node_b == nullptr) {
       return Result<std::vector<DerivedSegment>>::Fail(
-          ErrorKind::kValidation, "road segment endpoint node is missing");
+          CommitFailureCategory::kInvalidInput, "road segment endpoint node is missing");
     }
     Result<Path> alignment = DeriveCanonicalAlignment(
         node_a->position, node_b->position, segment.shape);
     if (!alignment.ok) {
-      return Result<std::vector<DerivedSegment>>::Fail(alignment.error_kind,
+      return Result<std::vector<DerivedSegment>>::Fail(alignment.failure_category,
                                                        alignment.error);
     }
     const Result<double> length = PathLength(alignment.value);
     if (!length.ok) {
-      return Result<std::vector<DerivedSegment>>::Fail(length.error_kind,
+      return Result<std::vector<DerivedSegment>>::Fail(length.failure_category,
                                                        length.error);
     }
     DerivedSegment derived{};
@@ -159,7 +159,7 @@ Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
   for (DerivedSegment &derived : segments) {
     const RoadSegment *segment = internal::find_segment(graph, derived.id);
     if (segment == nullptr) {
-      return Result<bool>::Fail(ErrorKind::kInternal,
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                 "road segment source is missing");
     }
     const Result<bool> semantic =
@@ -181,7 +181,7 @@ Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
       }
     }
     if (surface_end < surface_start - distance_epsilon) {
-      return Result<bool>::Fail(ErrorKind::kUnsupported,
+      return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
                                 "road segment connection gates overlap");
     }
     derived.surface_start_m = surface_start;
@@ -216,7 +216,7 @@ Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
       Result<SectionEvaluation> evaluated =
           internal::section_at(graph, *segment, distance, derived.length_m);
       if (!evaluated.ok) {
-        return Result<bool>::Fail(evaluated.error_kind, evaluated.error);
+        return Result<bool>::Fail(evaluated.failure_category, evaluated.error);
       }
       derived.sections.push_back(std::move(evaluated.value));
     }
@@ -232,14 +232,14 @@ derive_segment_lane_paths(const SavedRoadGraph &graph,
   for (const DerivedSegment &segment : segments) {
     const RoadSegment *source = internal::find_segment(graph, segment.id);
     if (source == nullptr) {
-      return Out::Fail(ErrorKind::kInternal,
+      return Out::Fail(CommitFailureCategory::kInternalError,
                        "lane inspection source segment is missing");
     }
     for (const SectionEvaluation &evaluation : segment.sections) {
       Result<CrossSectionTemplate> section = internal::template_at(
           graph, *source, evaluation.segment_distance_m, segment.length_m);
       if (!section.ok) {
-        return Out::Fail(section.error_kind, section.error);
+        return Out::Fail(section.failure_category, section.error);
       }
       const Result<Vec2d> center =
           EvaluatePath(segment.alignment, evaluation.segment_distance_m);
@@ -247,7 +247,7 @@ derive_segment_lane_paths(const SavedRoadGraph &graph,
           internal::tangent_at(segment.alignment,
                                evaluation.segment_distance_m);
       if (!center.ok || !tangent.ok) {
-        return Out::Fail(ErrorKind::kInternal,
+        return Out::Fail(CommitFailureCategory::kInternalError,
                          "lane inspection alignment sample is missing");
       }
       const Vec2d lateral{-tangent.value.y, tangent.value.x};
@@ -255,7 +255,7 @@ derive_segment_lane_paths(const SavedRoadGraph &graph,
         const Result<internal::LaneSectionPosition> position =
             internal::lane_position(section.value, lane, evaluation);
         if (!position.ok) {
-          return Out::Fail(position.error_kind, position.error);
+          return Out::Fail(position.failure_category, position.error);
         }
         auto found = std::find_if(
             paths.begin(), paths.end(), [&segment, &lane](const auto &path) {

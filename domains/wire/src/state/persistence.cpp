@@ -2130,7 +2130,7 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   const auto rebuilt = trial.rebuild_loaded_outputs();
   if (!rebuilt.ok) {
     result.error = rebuilt.error;
-    result.error_kind = rebuilt.effective_error_kind();
+    result.failure_category = rebuilt.effective_failure_category();
     return result;
   }
   trial.identity_ = persisted_identity;

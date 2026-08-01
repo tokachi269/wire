@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { loadWireModule, type RoadStateHandle, type WireStateHandle } from "../src/bridge/wasm";
-import { EditErrorKind, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
+import { CommitFailureCategory, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
 import {
   buildDefaultModelBootstrap,
   ModelAssetCache
@@ -362,7 +362,8 @@ describe("wire wasm smoke", () => {
       []
     );
     expect(validation.ok).toBe(false);
-    expect(validation.errorKind).toBe(EditErrorKind.Validation);
+    expect(validation.failureCategory).toBe(CommitFailureCategory.InvalidInput);
+    expect(validation.reasonCode).toBe("invalid_input");
 
     const unsupported = runState.generatePlacements(
       new Float64Array([0, 0, 0, 12, 0, 0]),
@@ -374,7 +375,8 @@ describe("wire wasm smoke", () => {
       []
     );
     expect(unsupported.ok).toBe(false);
-    expect(unsupported.errorKind).toBe(EditErrorKind.Unsupported);
+    expect(unsupported.failureCategory).toBe(CommitFailureCategory.NotImplemented);
+    expect(unsupported.reasonCode).toBe("not_implemented");
     runState.delete();
   });
 

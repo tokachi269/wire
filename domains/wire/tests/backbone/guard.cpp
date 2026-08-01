@@ -2080,9 +2080,13 @@ bool C829_core_policy_constants_are_classified() {
 bool C830_edit_errors_require_registered_prefixes() {
   const std::vector<std::string> prefixes = {
       "backbone invalid input:",
+      "backbone requirement constraint:",
+      "backbone state conflict:",
       "backbone unsupported:",
       "backbone internal:",
       "core invalid input:",
+      "core requirement constraint:",
+      "core state conflict:",
       "core unsupported:",
       "core internal:",
       "authoritative invalid input:",
@@ -2102,7 +2106,7 @@ bool C830_edit_errors_require_registered_prefixes() {
   };
   city::wire::EditResult<bool> unknown{};
   unknown.error = "missing prefix example";
-  WIRE_TEST_EXPECT(unknown.effective_error_kind() == city::wire::EditErrorKind::kInternal,
+  WIRE_TEST_EXPECT(unknown.effective_failure_category() == city::wire::CommitFailureCategory::kInternalError,
                    "missing edit error prefix must be internal, not unsupported");
 
   const std::filesystem::path root = repo_root() / "domains/wire/src";

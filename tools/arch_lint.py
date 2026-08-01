@@ -300,6 +300,15 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
             "preview_placements",
             "CoreState trial = *state_",
             "GenerateFromBackboneSpec(spec)",
+            'result.set("failureCategory"',
+            'result.set("reasonCode"',
+        ),
+        "docs/editor/commit_failure_categories.md": (
+            "RequirementConstraint",
+            "InvalidInput",
+            "NotImplemented",
+            "StateConflict",
+            "InternalError",
         ),
     }
     for source, tokens in required.items():
@@ -325,6 +334,9 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
             "connected approach angle is outside supported range",
             "adjacent junction approach angle is outside supported range",
         ),
+        "domains/road/include/city/road/common_types.hpp": ("enum class ErrorKind", "error_kind"),
+        "domains/wire/include/city/wire/core_edit_types.hpp": ("enum class EditErrorKind", "error_kind"),
+        "web/src/model.ts": ("enum EditErrorKind", "errorKind"),
     }
     for source, tokens in forbidden.items():
         path = root / source

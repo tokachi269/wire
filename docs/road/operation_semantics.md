@@ -25,7 +25,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 
 | Operation | Request field | Preflight validation | generate decision |
 |---|---|---|---|
-| AddSegment | alignment | finite、span端点がID作成順に連続、非ゼロ | self-intersection、junction互換 |
+| AddSegment | alignment | finite、span端点がID作成順に連続、非ゼロ | self-intersectionは文書化されたRequirementConstraint、junction互換限界はNotImplemented |
 | AddSegment | section_template | ID exists | endpoint section互換 |
 | ExtendCorridorFromEnd | corridor_id / endpoint_node_id | ID exists、corridor末尾nodeと一致、degree-one | corridor先頭延長はunsupported |
 | ExtendCorridorFromEnd | extension | finite、連続、非ゼロ、endpointへ補正可能 | 新しい局所segmentと隣接connection |

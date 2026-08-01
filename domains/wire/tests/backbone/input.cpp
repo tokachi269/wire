@@ -2257,7 +2257,9 @@ bool C575_backbone_stale_segment_pick_midair_duplicate_rejected_unchanged() {
   const std::size_t saved_edge_count = state.view().backbone().edges.size();
   const std::size_t saved_edge_bundle_count = state.view().backbone().edge_bundles.size();
   const auto dup = state.GenerateFromBackboneSpec(duplicate);
-  return !dup.ok && contains_text(dup.error, "unsupported") && state.view().poles().size() == pole_count &&
+  return !dup.ok && contains_text(dup.error, "state conflict") &&
+         dup.failure_category == city::wire::CommitFailureCategory::kStateConflict &&
+         dup.reason_code == "stale_anchor_reference" && state.view().poles().size() == pole_count &&
          state.view().ports().size() == port_count && state.view().bundles().size() == bundle_count_before &&
          state.view().spans().size() == span_count && state.view().backbone().nodes.size() == saved_node_count &&
          state.view().backbone().edges.size() == saved_edge_count &&

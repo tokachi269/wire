@@ -18,7 +18,7 @@ Result<bool> add_entities(std::vector<Entity>& target,
                           std::string_view label) {
   for (const Entity& addition : additions) {
     if (contains_id(target, get_id(addition), get_id)) {
-      return Result<bool>::Fail(ErrorKind::kInternal, std::string(label) + " add id already exists");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, std::string(label) + " add id already exists");
     }
     target.push_back(addition);
   }
@@ -34,7 +34,7 @@ Result<bool> replace_entities(std::vector<Entity>& target,
     const auto it = std::find_if(target.begin(), target.end(),
                                  [&](const Entity& entity) { return get_id(entity) == get_id(replacement); });
     if (it == target.end()) {
-      return Result<bool>::Fail(ErrorKind::kInternal, std::string(label) + " replacement id is missing");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, std::string(label) + " replacement id is missing");
     }
     *it = replacement;
   }
@@ -50,7 +50,7 @@ Result<bool> remove_entities(std::vector<Entity>& target,
     const auto it = std::find_if(target.begin(), target.end(),
                                  [&](const Entity& entity) { return get_id(entity) == id; });
     if (it == target.end()) {
-      return Result<bool>::Fail(ErrorKind::kInternal, std::string(label) + " removal id is missing");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, std::string(label) + " removal id is missing");
     }
     target.erase(it);
   }
@@ -63,7 +63,7 @@ Result<bool> remove_approach_overrides(std::vector<ApproachGeometryOverride>& ta
     const auto it = std::find_if(target.begin(), target.end(),
                                  [&](const ApproachGeometryOverride& entity) { return entity.key == key; });
     if (it == target.end()) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "approach geometry override removal key is missing");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "approach geometry override removal key is missing");
     }
     target.erase(it);
   }
@@ -76,7 +76,7 @@ Result<bool> remove_auto_marking_overrides(std::vector<AutoMarkingOverride>& tar
     const auto it = std::find_if(target.begin(), target.end(),
                                  [&](const AutoMarkingOverride& entity) { return entity.key == key; });
     if (it == target.end()) {
-      return Result<bool>::Fail(ErrorKind::kInternal, "auto marking override removal key is missing");
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError, "auto marking override removal key is missing");
     }
     target.erase(it);
   }

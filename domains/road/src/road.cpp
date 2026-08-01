@@ -1164,7 +1164,8 @@ Result<RoadSegmentId> RoadState::AddConnectedLaneSegment(
         ErrorKind::kValidation,
         "connected lane road node or section template does not exist");
   }
-  if (request.lane_connections.empty()) {
+  if (request.lane_connections.empty() &&
+      request.source_lane_connections.empty()) {
     return Result<RoadSegmentId>::Fail(
         ErrorKind::kValidation,
         "connected lane road requires explicit lane topology");
@@ -1217,6 +1218,38 @@ Result<RoadSegmentId> RoadState::AddConnectedLaneSegment(
           "connected lane road boundary endpoint is invalid");
     }
   }
+  for (const LaneSourceConnection& connection :
+       request.source_lane_connections) {
+    const auto source_lane = std::find_if(
+        target_template->lane_bands.begin(), target_template->lane_bands.end(),
+        [&connection](const LaneBand& lane) {
+          return lane.id == connection.source_lane_id;
+        });
+    const internal::LaneEndpointLookup target =
+        internal::find_lane_endpoint(graph_, connection.target);
+    if (source_lane == target_template->lane_bands.end() ||
+        target.lane == nullptr || target.node_id != request.start_node) {
+      return Result<RoadSegmentId>::Fail(
+          ErrorKind::kValidation,
+          "connected lane road source lane endpoint is invalid");
+    }
+  }
+  for (const BoundarySourceContinuation& continuation :
+       request.source_boundary_continuations) {
+    const auto source_boundary = std::find_if(
+        target_template->boundaries.begin(), target_template->boundaries.end(),
+        [&continuation](const BoundaryProfile& boundary) {
+          return boundary.boundary_id == continuation.source_boundary_id;
+        });
+    const internal::BoundaryEndpointLookup target =
+        internal::find_boundary_endpoint(graph_, continuation.target);
+    if (source_boundary == target_template->boundaries.end() ||
+        target.boundary == nullptr || target.node_id != request.start_node) {
+      return Result<RoadSegmentId>::Fail(
+          ErrorKind::kValidation,
+          "connected lane road source boundary endpoint is invalid");
+    }
+  }
   const Result<SegmentShape> shape = SegmentShapeFromPath(request.alignment);
   if (!shape.ok) {
     return Result<RoadSegmentId>::Fail(shape.error_kind, shape.error);
@@ -1245,7 +1278,24 @@ Result<RoadSegmentId> RoadState::AddConnectedLaneSegment(
     plan.add_boundary_continuations.push_back(BoundaryContinuation{
         next_id++, continuation.source,
         BoundaryEndpointKey{segment_id, continuation.target_boundary_id,
-                            EndpointRole::kStart}});
+                            EndpointRole::kStart},
+        continuation.kind});
+  }
+  for (const LaneSourceConnection& connection :
+       request.source_lane_connections) {
+    plan.add_lane_connections.push_back(LaneConnection{
+        next_id++,
+        LaneEndpointKey{segment_id, connection.source_lane_id,
+                        EndpointRole::kStart},
+        connection.target, connection.kind});
+  }
+  for (const BoundarySourceContinuation& continuation :
+       request.source_boundary_continuations) {
+    plan.add_boundary_continuations.push_back(BoundaryContinuation{
+        next_id++,
+        BoundaryEndpointKey{segment_id, continuation.source_boundary_id,
+                            EndpointRole::kStart},
+        continuation.target, continuation.kind});
   }
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
@@ -2456,7 +2506,7 @@ Result<BoundaryContinuationId> RoadState::AddBoundaryContinuation(
   operations::OperationPlan plan{};
   const BoundaryContinuationId id = next_id_;
   plan.add_boundary_continuations.push_back(
-      BoundaryContinuation{id, request.source, request.target});
+      BoundaryContinuation{id, request.source, request.target, request.kind});
   plan.next_id_after = next_id_ + 1;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) {

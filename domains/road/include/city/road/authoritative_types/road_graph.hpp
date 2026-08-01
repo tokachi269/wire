@@ -86,6 +86,7 @@ struct BoundaryContinuation {
   BoundaryContinuationId id = 0;
   BoundaryEndpointKey source{};
   BoundaryEndpointKey target{};
+  BoundaryContinuationKind kind = BoundaryContinuationKind::kContinuation;
 };
 struct JunctionMarkingEndpoint {
   ApproachKey approach{};

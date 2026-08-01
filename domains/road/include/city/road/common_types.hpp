@@ -137,6 +137,11 @@ enum class LaneConnectionKind {
   kSplit,
   kJunctionMovement,
 };
+enum class BoundaryContinuationKind {
+  kContinuation,
+  kMerge,
+  kSplit,
+};
 
 struct LaneEndpointKey {
   RoadSegmentId segment_id = 0;

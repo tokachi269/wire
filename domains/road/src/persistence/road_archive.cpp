@@ -620,8 +620,9 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     }
     lane_targets.emplace(connection.target, connection.kind);
   }
-  std::set<BoundaryEndpointKey> boundary_sources{};
-  std::set<BoundaryEndpointKey> boundary_targets{};
+  std::map<BoundaryEndpointKey, BoundaryContinuationKind> boundary_sources{};
+  std::map<BoundaryEndpointKey, BoundaryContinuationKind> boundary_targets{};
+  std::set<std::pair<BoundaryEndpointKey, BoundaryEndpointKey>> boundary_pairs{};
   for (const BoundaryContinuation& continuation : graph.boundary_continuations) {
     Result<bool> id = add_id(continuation.id, &boundary_continuation_ids,
                              "boundary_continuation");
@@ -631,7 +632,9 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         static_cast<int>(continuation.source.endpoint_role) < 0 ||
         static_cast<int>(continuation.source.endpoint_role) > 1 ||
         static_cast<int>(continuation.target.endpoint_role) < 0 ||
-        static_cast<int>(continuation.target.endpoint_role) > 1) {
+        static_cast<int>(continuation.target.endpoint_role) > 1 ||
+        static_cast<int>(continuation.kind) < 0 ||
+        static_cast<int>(continuation.kind) > 2) {
       return Result<bool>::Fail(ErrorKind::kValidation,
                                 "boundary continuation identity is invalid");
     }
@@ -641,11 +644,26 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         internal::find_boundary_endpoint(graph, continuation.target);
     if (source.boundary == nullptr || target.boundary == nullptr ||
         source.node_id == 0 || source.node_id != target.node_id ||
-        !boundary_sources.insert(continuation.source).second ||
-        !boundary_targets.insert(continuation.target).second) {
+        !boundary_pairs.insert({continuation.source, continuation.target}).second) {
       return Result<bool>::Fail(ErrorKind::kValidation,
                                 "boundary continuation endpoints are invalid");
     }
+    const auto source_use = boundary_sources.find(continuation.source);
+    if (source_use != boundary_sources.end() &&
+        (source_use->second != continuation.kind ||
+         continuation.kind != BoundaryContinuationKind::kSplit)) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "boundary continuation source is ambiguous");
+    }
+    boundary_sources.emplace(continuation.source, continuation.kind);
+    const auto target_use = boundary_targets.find(continuation.target);
+    if (target_use != boundary_targets.end() &&
+        (target_use->second != continuation.kind ||
+         continuation.kind != BoundaryContinuationKind::kMerge)) {
+      return Result<bool>::Fail(ErrorKind::kValidation,
+                                "boundary continuation target is ambiguous");
+    }
+    boundary_targets.emplace(continuation.target, continuation.kind);
   }
   std::set<RoadSegmentId> corridor_segments{};
   const auto segment_for = [&](RoadSegmentId id) -> const RoadSegment* {
@@ -1040,6 +1058,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     writer.UInt(prefix + ".id", continuation.id);
     write_boundary_endpoint_key(writer, prefix + ".source", continuation.source);
     write_boundary_endpoint_key(writer, prefix + ".target", continuation.target);
+    writer.Int(prefix + ".kind", static_cast<int>(continuation.kind));
   }
 
   const auto corridors = sorted_by_id(graph.corridors);
@@ -1481,11 +1500,14 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
         read_boundary_endpoint_key(reader, prefix + ".source");
     Result<BoundaryEndpointKey> target =
         read_boundary_endpoint_key(reader, prefix + ".target");
+    Result<int> kind = reader.RequireInt(prefix + ".kind");
     if (!id.ok) return Result<LoadedRoad>::Fail(id.error_kind, id.error);
     if (!source.ok) return Result<LoadedRoad>::Fail(source.error_kind, source.error);
     if (!target.ok) return Result<LoadedRoad>::Fail(target.error_kind, target.error);
+    if (!kind.ok) return Result<LoadedRoad>::Fail(kind.error_kind, kind.error);
     loaded.graph.boundary_continuations.push_back(
-        BoundaryContinuation{id.value, source.value, target.value});
+        BoundaryContinuation{id.value, source.value, target.value,
+                             static_cast<BoundaryContinuationKind>(kind.value)});
   }
 
   Result<std::size_t> corridor_count = require_count("corridor.count");

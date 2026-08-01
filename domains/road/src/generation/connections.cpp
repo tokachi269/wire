@@ -339,7 +339,8 @@ Result<double> auto_lateral_shift_for(
     const ordered_approach &target) {
   std::optional<double> resolved{};
   for (const LaneConnection &connection : graph.lane_connections) {
-    if (connection.kind != LaneConnectionKind::kContinuation ||
+    if ((connection.kind != LaneConnectionKind::kContinuation &&
+         connection.kind != LaneConnectionKind::kMerge) ||
         connection.target.segment_id != target.key.segment_id ||
         connection.target.endpoint_role != target.key.endpoint_role)
       continue;

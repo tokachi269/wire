@@ -171,7 +171,7 @@ BoundaryProfileには個別style fieldを持たせない。curb等の描画style
 ## Lane topology ownership
 
 `LaneConnection`と`BoundaryContinuation`はauthoritativeである。ユーザー操作またはoperationで確定した
-source/target endpointを保存し、generation時にgeometryの近さから作り直さない。`LaneConnectionKind`は
+source/target endpointを保存し、generation時にgeometryの近さから作り直さない。`LaneConnectionKind`と`BoundaryContinuationKind`は
 生成とinspectionの意味を補助するが、identityの代わりにはしない。高速道路、出口、合流専用の保存型は作らず、
 一般道の車線追加、分岐、合流、交差点movementも同じlane/boundary接続で表す。
 
@@ -185,9 +185,14 @@ source/target endpointを保存し、generation時にgeometryの近さから作�
 
 `AddConnectedLaneSegment`は道路segmentの追加と、選択済みlane/boundary endpointの接続を同じtrialへ適用する。
 異断面connectionは明示lane topologyがある場合だけ解決し、道路中心や最寄りlaneから接続先を補わない。
-`resolve_connections`はstraight Continuationのlane center対応からtarget approachの共通lateral shiftを一度だけ導出する。
+新segmentをtargetにする分岐と、新segmentをsourceにする合流は同じoperation契約を使う。
+`resolve_connections`はstraight ContinuationまたはMergeのlane center対応からtarget approachの共通lateral shiftを一度だけ導出し、
+角度を持つbranch sourceはmainline shiftの決定入力から除外する。
 `DerivedLanePath`と`DerivedBoundaryPath`は保存せず、authoritative connection IDから毎回生成する。Splitの両側境界から
 `DerivedSeparationArea`を作るが、lane connectionから境界接続を逆算しない。
+
+laneとboundaryの多重度は同じ意味に揃える。Continuationは一対一、Splitは同一sourceから複数target、Mergeは複数sourceから
+同一targetを許可する。同一source-target pairは常に重複としてrejectする。
 
 ## Approach override lifecycle
 

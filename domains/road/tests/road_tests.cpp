@@ -81,7 +81,9 @@ bool mesh_faces_up(const Mesh& mesh) {
 }
 
 city::road::CrossSectionTemplate OneWayLaneTemplate(
-    city::road::CrossSectionTemplateId id, std::size_t lane_count) {
+    city::road::CrossSectionTemplateId id, std::size_t lane_count,
+    city::road::LaneTravelDirection direction =
+        city::road::LaneTravelDirection::kAlongSegment) {
   const AutoMarkingPolicy edge{
       true, MarkingRole::kCarriagewayEdge,
       builtin_marking_styles::kWhiteSolid};
@@ -99,7 +101,7 @@ city::road::CrossSectionTemplate OneWayLaneTemplate(
                               0.0, builtin_surface_styles::kAsphalt});
     section.lane_bands.push_back(
         {lane_id, strip_id, 0.0, 3.0,
-         city::road::LaneTravelDirection::kAlongSegment});
+         direction});
   }
   section.strips.push_back({90, StripFunction::kShoulder, 0.75, 0.0,
                             builtin_surface_styles::kAsphalt});
@@ -333,7 +335,8 @@ bool LAN2_lane_topology_validation_and_round_trip(std::string& failure) {
       "boundary_continuation.0.source.endpoint_role=1\n" +
       "boundary_continuation.0.target.segment_id=" + std::to_string(second.value) + "\n" +
       "boundary_continuation.0.target.boundary_id=200\n"
-      "boundary_continuation.0.target.endpoint_role=0\n";
+      "boundary_continuation.0.target.endpoint_role=0\n"
+      "boundary_continuation.0.kind=0\n";
 
   const auto loaded = RoadState::Load(with_topology);
   ROAD_TEST_EXPECT(loaded.ok, loaded.error);
@@ -1255,6 +1258,138 @@ bool LAN4_selected_outer_lane_branches_to_one_lane_road(
   return true;
 }
 
+bool LAN5_one_lane_road_merges_into_outer_mainline_lane(
+    std::string& failure) {
+  RoadState state{};
+  const auto outgoing_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 2)});
+  const auto incoming_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(
+          0, 2, city::road::LaneTravelDirection::kAgainstSegment)});
+  const auto branch_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(
+          0, 1, city::road::LaneTravelDirection::kAgainstSegment)});
+  ROAD_TEST_EXPECT(outgoing_template.ok && incoming_template.ok &&
+                       branch_template.ok,
+                   "LAN5 fixture templates could not be created");
+
+  const auto outgoing = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}),
+      outgoing_template.value});
+  ROAD_TEST_EXPECT(outgoing.ok, outgoing.error);
+  const auto outgoing_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&outgoing](const auto& segment) { return segment.id == outgoing.value; });
+  ROAD_TEST_EXPECT(outgoing_segment != state.graph().segments.end(),
+                   "LAN5 outgoing segment is missing");
+  const RoadNodeId merge_node = outgoing_segment->node_a;
+
+  city::road::AddConnectedLaneSegmentRequest incoming{};
+  incoming.start_node = merge_node;
+  incoming.alignment = MakePath({MakeLine({0.0, 0.0}, {-60.0, 0.0})});
+  incoming.section_template = incoming_template.value;
+  incoming.source_lane_connections = {
+      {1000, {outgoing.value, 1010, EndpointRole::kStart},
+       city::road::LaneConnectionKind::kMerge},
+      {1010, {outgoing.value, 1000, EndpointRole::kStart},
+       city::road::LaneConnectionKind::kMerge},
+  };
+  incoming.source_boundary_continuations = {
+      {100, {outgoing.value, 900, EndpointRole::kStart},
+       city::road::BoundaryContinuationKind::kMerge},
+      {200, {outgoing.value, 200, EndpointRole::kStart},
+       city::road::BoundaryContinuationKind::kMerge},
+      {900, {outgoing.value, 100, EndpointRole::kStart},
+       city::road::BoundaryContinuationKind::kMerge},
+  };
+  const auto incoming_segment_id =
+      state.AddConnectedLaneSegment(std::move(incoming));
+  ROAD_TEST_EXPECT(incoming_segment_id.ok, incoming_segment_id.error);
+
+  city::road::AddConnectedLaneSegmentRequest branch{};
+  branch.start_node = merge_node;
+  branch.alignment = MakePath({MakeLine({0.0, 0.0}, {-42.0, -42.0})});
+  branch.section_template = branch_template.value;
+  branch.source_lane_connections = {
+      {1000, {outgoing.value, 1010, EndpointRole::kStart},
+       city::road::LaneConnectionKind::kMerge},
+  };
+  branch.source_boundary_continuations = {
+      {100, {outgoing.value, 200, EndpointRole::kStart},
+       city::road::BoundaryContinuationKind::kMerge},
+      {900, {outgoing.value, 900, EndpointRole::kStart},
+       city::road::BoundaryContinuationKind::kMerge},
+  };
+  const auto branch_segment_id =
+      state.AddConnectedLaneSegment(std::move(branch));
+  ROAD_TEST_EXPECT(branch_segment_id.ok, branch_segment_id.error);
+
+  ROAD_TEST_EXPECT(state.graph().lane_connections.size() == 3,
+                   "LAN5 did not save all merge lane connections");
+  const auto branch_merge = std::find_if(
+      state.graph().lane_connections.begin(),
+      state.graph().lane_connections.end(), [&branch_segment_id](const auto& c) {
+        return c.source.segment_id == branch_segment_id.value;
+      });
+  ROAD_TEST_EXPECT(
+      branch_merge != state.graph().lane_connections.end() &&
+          branch_merge->source.lane_id == 1000 &&
+          branch_merge->target.segment_id == outgoing.value &&
+          branch_merge->target.lane_id == 1010 &&
+          branch_merge->kind == city::road::LaneConnectionKind::kMerge,
+      "LAN5 branch did not merge into the selected outer mainline lane");
+  ROAD_TEST_EXPECT(state.derived().lane_paths.size() == 3 &&
+                       state.derived().boundary_paths.size() == 5,
+                   "LAN5 did not derive all explicit merge paths");
+  const auto branch_path = std::find_if(
+      state.derived().lane_paths.begin(), state.derived().lane_paths.end(),
+      [&branch_merge](const auto& path) {
+        return path.connection_id == branch_merge->id;
+      });
+  ROAD_TEST_EXPECT(branch_path != state.derived().lane_paths.end() &&
+                       !branch_path->centerline.spans.empty() &&
+                       std::isfinite(branch_path->minimum_radius_m) &&
+                       branch_path->minimum_radius_m > 0.0,
+                   "LAN5 branch merge path is missing or degenerate");
+  const auto& merge_span = branch_path->centerline.spans.front();
+  const Vec2d start_tangent{merge_span.p1.x - merge_span.p0.x,
+                            merge_span.p1.y - merge_span.p0.y};
+  const Vec2d end_tangent{merge_span.p3.x - merge_span.p2.x,
+                          merge_span.p3.y - merge_span.p2.y};
+  ROAD_TEST_EXPECT(start_tangent.x > 0.0 && start_tangent.y > 0.0 &&
+                       end_tangent.x > 0.0 && std::abs(end_tangent.y) < 1e-9,
+                   "LAN5 merge path is not G1 with its source and target lanes");
+
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  city::road::AddConnectedLaneSegmentRequest wrong_direction{};
+  wrong_direction.start_node = merge_node;
+  wrong_direction.alignment =
+      MakePath({MakeLine({0.0, 0.0}, {-30.0, 30.0})});
+  wrong_direction.section_template = outgoing_template.value;
+  wrong_direction.source_lane_connections = {
+      {1000, {outgoing.value, 1010, EndpointRole::kStart},
+       city::road::LaneConnectionKind::kMerge},
+  };
+  const auto rejected =
+      state.AddConnectedLaneSegment(std::move(wrong_direction));
+  ROAD_TEST_EXPECT(!rejected.ok &&
+                       rejected.error_kind == city::road::ErrorKind::kValidation,
+                   "LAN5 accepted a lane whose travel direction does not exit the node");
+  const auto after_reject = state.Save();
+  ROAD_TEST_EXPECT(after_reject.ok && after_reject.value == saved.value,
+                   "LAN5 invalid merge request mutated authoritative state");
+
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  const auto resaved = loaded.value.Save();
+  ROAD_TEST_EXPECT(resaved.ok && resaved.value == saved.value &&
+                       loaded.value.derived().lane_paths.size() == 3 &&
+                       loaded.value.derived().boundary_paths.size() == 5,
+                   "LAN5 merge topology did not round-trip deterministically");
+  return true;
+}
+
 bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   {
     RoadState state{};
@@ -1763,6 +1898,8 @@ int main() {
        LAN3_outer_lane_transition_preserves_existing_lanes},
       {"LAN4_selected_outer_lane_branches_to_one_lane_road",
        LAN4_selected_outer_lane_branches_to_one_lane_road},
+      {"LAN5_one_lane_road_merges_into_outer_mainline_lane",
+       LAN5_one_lane_road_merges_into_outer_mainline_lane},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},

@@ -107,6 +107,7 @@ struct AddLaneConnectionRequest {
 struct AddBoundaryContinuationRequest {
   BoundaryEndpointKey source{};
   BoundaryEndpointKey target{};
+  BoundaryContinuationKind kind = BoundaryContinuationKind::kContinuation;
 };
 struct LaneTargetConnection {
   LaneEndpointKey source{};
@@ -116,6 +117,17 @@ struct LaneTargetConnection {
 struct BoundaryTargetContinuation {
   BoundaryEndpointKey source{};
   BoundaryId target_boundary_id = 0;
+  BoundaryContinuationKind kind = BoundaryContinuationKind::kContinuation;
+};
+struct LaneSourceConnection {
+  LaneId source_lane_id = 0;
+  LaneEndpointKey target{};
+  LaneConnectionKind kind = LaneConnectionKind::kContinuation;
+};
+struct BoundarySourceContinuation {
+  BoundaryId source_boundary_id = 0;
+  BoundaryEndpointKey target{};
+  BoundaryContinuationKind kind = BoundaryContinuationKind::kContinuation;
 };
 struct AddConnectedLaneSegmentRequest {
   RoadNodeId start_node = 0;
@@ -123,6 +135,8 @@ struct AddConnectedLaneSegmentRequest {
   CrossSectionTemplateId section_template = 0;
   std::vector<LaneTargetConnection> lane_connections{};
   std::vector<BoundaryTargetContinuation> boundary_continuations{};
+  std::vector<LaneSourceConnection> source_lane_connections{};
+  std::vector<BoundarySourceContinuation> source_boundary_continuations{};
 };
 struct AddTransitionToSegmentRequest {
   RoadSegmentId segment_id = 0;

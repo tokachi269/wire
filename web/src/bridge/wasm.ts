@@ -273,8 +273,8 @@ export interface RoadSegmentResult extends OperationResult {
 export interface RoadStateHandle {
   addSegment(input: RoadSegmentInput): RoadSegmentResult;
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
-  addLaneTransition(input: RoadLaneTransitionInput): OperationResult & { laneId?: number };
-  previewLaneTransition(input: RoadLaneTransitionInput): OperationResult & { meshes: RoadMeshPayload[] };
+  addLane(input: RoadAddLaneInput): OperationResult & { laneId?: number };
+  previewAddLane(input: RoadAddLaneInput): OperationResult & { meshes: RoadMeshPayload[] };
   addConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { segmentId?: number };
   previewConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   scene(): RoadScenePayload;
@@ -370,14 +370,13 @@ export interface RoadBoundaryEndpointInput {
   endpointRole: 0 | 1;
 }
 
-export interface RoadLaneTransitionInput {
+export interface RoadAddLaneInput {
   corridorId: number;
   direction: 0 | 1;
   side: "left" | "right";
   startCorridorDistanceM: number;
   fullWidthCorridorDistanceM: number;
   laneWidthM: number;
-  anchorBoundaryId: number;
 }
 
 export interface RoadConnectedLaneSegmentInput extends RoadSegmentInput {

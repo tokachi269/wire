@@ -334,7 +334,7 @@ def check_road_architecture(root: Path) -> list[str]:
             "web/src/actions/road_actions.ts: standard road deletion must retain the hovered RoadSegment ID"
         )
     for token in (
-        "roadPreviewLaneTransition",
+        "roadPreviewAddLane",
         "roadPreviewConnectedLaneSegment",
         "selectedLaneSegmentId",
         "selectedLaneEndpointRole",
@@ -367,8 +367,8 @@ def check_road_architecture(root: Path) -> list[str]:
         'result.set("lanePaths", lane_paths)',
         'builtin_marking_styles::kWhiteDashed.value',
         'boundary_item.set("canAnchorTransition",',
-        '.function("addLaneTransition"',
-        '.function("previewLaneTransition"',
+        '.function("addLane"',
+        '.function("previewAddLane"',
         '.function("addConnectedLaneSegment"',
         '.function("previewConnectedLaneSegment"',
     ):

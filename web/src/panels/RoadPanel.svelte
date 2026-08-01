@@ -17,15 +17,6 @@
   const laneTargetTemplate = $derived(
     snapshot.road.scene.sectionTemplates.find((template) => template.id === snapshot.road.laneTargetTemplateId)
   );
-  const laneCorridor = $derived(
-    snapshot.road.scene.corridors.find((corridor) => corridor.id === snapshot.road.laneCorridorId)
-  );
-  const laneAnchorTemplate = $derived(
-    snapshot.road.scene.sectionTemplates.find((template) => template.id === laneCorridor?.sectionTemplateId)
-  );
-  const laneAnchorBoundaries = $derived(
-    laneAnchorTemplate?.boundaries.filter((boundary) => boundary.canAnchorTransition) ?? []
-  );
   const selectedLanePath = $derived(
     snapshot.road.scene.lanePaths.find((lane) =>
       lane.segmentId === snapshot.road.selectedLaneSegmentId && lane.laneId === snapshot.road.selectedLaneId)
@@ -109,10 +100,6 @@
       </select></label>
       <label><span>Width</span><input type="number" min="2.5" step="0.1" value={snapshot.road.laneWidthM}
         onchange={(event) => actions.setRoadSetting("laneWidthM", Number(event.currentTarget.value))} /></label>
-      <label><span>Anchor boundary</span><select value={snapshot.road.laneAnchorBoundaryId}
-        onchange={(event) => actions.setRoadSetting("laneAnchorBoundaryId", Number(event.currentTarget.value))}>
-        {#each laneAnchorBoundaries as boundary}<option value={boundary.id}>{boundary.id}</option>{/each}
-      </select></label>
     </div>
   {:else if snapshot.road.operation === "branch-lane" || snapshot.road.operation === "merge-lane"}
     <div class="draw-panel-head"><p class="panel-label">{snapshot.road.operation === "branch-lane" ? "BRANCH LANE" : "MERGE LANE"}</p><strong class="point-count">{snapshot.road.laneEditStage}</strong></div>

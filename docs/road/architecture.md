@@ -257,10 +257,12 @@ valid authoritativeから派生が欠ける、emitへ不整合なresolved geomet
 
 ## RoadCorridor
 
-`RoadCorridor`は`RoadCorridorId`、現行の共通道路定義である`section_template_id`、順序付き
+`RoadCorridor`は`RoadCorridorId`、終端延長時の既定断面である`section_template_id`、順序付き
 `DirectedSegmentRef`を正本として持つ。実体のない別`RoadDefinitionId`は作らない。
 `reversed=false`はsegment startからend、`true`はendからstartへ進む。corridor内のsegmentは端点IDで
 連続し、重複せず、他corridorへ重複所属しない。位置近接は連続性判定に使わない。
+断面変更を含むcorridorではsegmentごとの`section_template`が異なってよい。template IDの一致を
+接続可否やcorridor所属の判定に使わない。
 
 corridor distanceは先頭から単調増加する。内部segment境界は後続segmentのlocal 0、corridor終端は末尾
 segmentのlocal lengthへ解決する。reversed segmentでは`local = length - corridor-local`とする。

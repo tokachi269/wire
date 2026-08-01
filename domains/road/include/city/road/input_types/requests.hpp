@@ -90,14 +90,13 @@ struct SectionTransitionRequest {
   BoundaryId anchor_boundary_id = 0;
   std::vector<SectionTransitionRule> rules{};
 };
-struct AddLaneTransitionRequest {
+struct AddLaneRequest {
   RoadCorridorId corridor_id = 0;
   LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
   RoadSide side = RoadSide::kRight;
-  double start_corridor_distance_m = 0.0;
+  double taper_start_corridor_distance_m = 0.0;
   double full_width_corridor_distance_m = 0.0;
   double lane_width_m = 0.0;
-  BoundaryId anchor_boundary_id = 0;
 };
 struct AddLaneConnectionRequest {
   LaneEndpointKey source{};

@@ -206,7 +206,7 @@ export class RoadActions {
           const distance = corridorDistanceForSnap(current, snap);
           if (distance !== null && distance.corridorId === current.laneCorridorId) {
             road = { ...road, laneFullWidthCorridorDistanceM: distance.distanceM };
-            this.applyPreview(road, this.ctx.bridge.roadPreviewLaneTransition(laneTransitionInput(road)));
+            this.applyPreview(road, this.ctx.bridge.roadPreviewAddLane(laneTransitionInput(road)));
             return;
           }
         } else if (current.operation !== "add-lane") {
@@ -339,9 +339,6 @@ export class RoadActions {
           this.ctx.store.setError("Selected road is not in a corridor");
           return;
         }
-        const corridor = road.scene.corridors.find((item) => item.id === distance.corridorId);
-        const section = road.scene.sectionTemplates.find((item) => item.id === corridor?.sectionTemplateId);
-        const anchorBoundary = section?.boundaries.find((boundary) => boundary.canAnchorTransition);
         this.ctx.store.update((snapshot) => ({
           ...snapshot,
           road: {
@@ -350,18 +347,13 @@ export class RoadActions {
             laneCorridorId: distance.corridorId,
             laneStartCorridorDistanceM: distance.distanceM,
             laneFullWidthCorridorDistanceM: distance.distanceM,
-            laneAnchorBoundaryId:
-              section?.boundaries.some((boundary) =>
-                boundary.id === snapshot.road.laneAnchorBoundaryId && boundary.canAnchorTransition)
-                ? snapshot.road.laneAnchorBoundaryId
-                : anchorBoundary?.id ?? 0,
             previewIssue: "",
             lastError: ""
           }
         }));
         return;
       }
-      this.finish(this.ctx.bridge.roadAddLaneTransition(laneTransitionInput(road)), "road add lane");
+      this.finish(this.ctx.bridge.roadAddLane(laneTransitionInput(road)), "road add lane");
       return;
     }
     if (road.laneEditStage === "select") {
@@ -637,14 +629,21 @@ function sameRoadPoint(a: RoadPoint, b: RoadPoint): boolean {
 }
 
 function laneTransitionInput(road: RoadToolState) {
+  const startCorridorDistanceM = Math.min(
+    road.laneStartCorridorDistanceM,
+    road.laneFullWidthCorridorDistanceM
+  );
+  const fullWidthCorridorDistanceM = Math.max(
+    road.laneStartCorridorDistanceM,
+    road.laneFullWidthCorridorDistanceM
+  );
   return {
     corridorId: road.laneCorridorId,
     direction: road.selectedLaneDirection,
     side: road.laneSide,
-    startCorridorDistanceM: road.laneStartCorridorDistanceM,
-    fullWidthCorridorDistanceM: road.laneFullWidthCorridorDistanceM,
-    laneWidthM: road.laneWidthM,
-    anchorBoundaryId: road.laneAnchorBoundaryId
+    startCorridorDistanceM,
+    fullWidthCorridorDistanceM,
+    laneWidthM: road.laneWidthM
   };
 }
 

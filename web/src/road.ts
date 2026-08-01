@@ -210,7 +210,6 @@ export interface RoadToolState {
   laneStartCorridorDistanceM: number;
   laneFullWidthCorridorDistanceM: number;
   laneCorridorId: number;
-  laneAnchorBoundaryId: number;
   laneTargetTemplateId: number;
   laneTargetLaneId: number;
   laneSourceBoundaryId: number;
@@ -264,7 +263,6 @@ export function createRoadToolState(): RoadToolState {
     laneStartCorridorDistanceM: 0,
     laneFullWidthCorridorDistanceM: 20,
     laneCorridorId: 0,
-    laneAnchorBoundaryId: 0,
     laneTargetTemplateId: 1,
     laneTargetLaneId: 0,
     laneSourceBoundaryId: 0,

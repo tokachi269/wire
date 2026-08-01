@@ -1426,32 +1426,30 @@ class RoadStateBinding {
 public:
   RoadStateBinding() : state_(std::make_unique<city::road::RoadState>()) {}
 
-  val add_lane_transition(const val& input) {
-    const auto result = state_->AddLaneTransition(
-        city::road::AddLaneTransitionRequest{
+  val add_lane(const val& input) {
+    const auto result = state_->AddLane(
+        city::road::AddLaneRequest{
             input["corridorId"].as<city::road::RoadCorridorId>(),
             road_lane_direction(input["direction"].as<int>()),
             road_side_value(input),
             input["startCorridorDistanceM"].as<double>(),
             input["fullWidthCorridorDistanceM"].as<double>(),
-            input["laneWidthM"].as<double>(),
-            input["anchorBoundaryId"].as<city::road::BoundaryId>()});
+            input["laneWidthM"].as<double>()});
     val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) output.set("laneId", static_cast<double>(result.value));
     return output;
   }
 
-  val preview_lane_transition(const val& input) const {
+  val preview_add_lane(const val& input) const {
     city::road::RoadState trial = *state_;
-    const auto result = trial.AddLaneTransition(
-        city::road::AddLaneTransitionRequest{
+    const auto result = trial.AddLane(
+        city::road::AddLaneRequest{
             input["corridorId"].as<city::road::RoadCorridorId>(),
             road_lane_direction(input["direction"].as<int>()),
             road_side_value(input),
             input["startCorridorDistanceM"].as<double>(),
             input["fullWidthCorridorDistanceM"].as<double>(),
-            input["laneWidthM"].as<double>(),
-            input["anchorBoundaryId"].as<city::road::BoundaryId>()});
+            input["laneWidthM"].as<double>()});
     val output = road_result_value(result.ok, result.error, result.failure_category);
     output.set("meshes", result.ok ? road_preview_meshes(trial) : val::array());
     return output;
@@ -2340,8 +2338,8 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .constructor<>()
       .function("addSegment", &RoadStateBinding::add_segment)
       .function("previewSegment", &RoadStateBinding::preview_segment)
-      .function("addLaneTransition", &RoadStateBinding::add_lane_transition)
-      .function("previewLaneTransition", &RoadStateBinding::preview_lane_transition)
+      .function("addLane", &RoadStateBinding::add_lane)
+      .function("previewAddLane", &RoadStateBinding::preview_add_lane)
       .function("addConnectedLaneSegment", &RoadStateBinding::add_connected_lane_segment)
       .function("previewConnectedLaneSegment", &RoadStateBinding::preview_connected_lane_segment)
       .function("scene", &RoadStateBinding::scene)

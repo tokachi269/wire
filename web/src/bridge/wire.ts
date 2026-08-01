@@ -2,7 +2,7 @@ import {
   loadWireModule,
   type RoadMeshPayload,
   type RoadConnectedLaneSegmentInput,
-  type RoadLaneTransitionInput,
+  type RoadAddLaneInput,
   type RoadSegmentResult,
   type RoadStateHandle,
   type WireModuleOptions,
@@ -430,12 +430,12 @@ export class WireBridge {
     return this.roadState.deleteSegment(segmentId);
   }
 
-  roadAddLaneTransition(input: RoadLaneTransitionInput): OperationResult & { laneId?: number } {
-    return this.roadState.addLaneTransition(input);
+  roadAddLane(input: RoadAddLaneInput): OperationResult & { laneId?: number } {
+    return this.roadState.addLane(input);
   }
 
-  roadPreviewLaneTransition(input: RoadLaneTransitionInput): OperationResult & { meshes: RoadMeshData[] } {
-    const result = this.roadState.previewLaneTransition(input);
+  roadPreviewAddLane(input: RoadAddLaneInput): OperationResult & { meshes: RoadMeshData[] } {
+    const result = this.roadState.previewAddLane(input);
     return { ...result, meshes: result.meshes.map(copyRoadMesh) };
   }
 

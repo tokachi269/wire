@@ -57,7 +57,7 @@ public:
   [[nodiscard]] Result<bool> ResetLaneSideMarkingPolicy(ResetLaneSideMarkingPolicyRequest request);
   [[nodiscard]] Result<SectionTransitionId> AddTransition(SectionTransitionRequest request);
   [[nodiscard]] Result<SectionTransitionId> AddTransitionToSegment(AddTransitionToSegmentRequest request);
-  [[nodiscard]] Result<LaneId> AddLaneTransition(AddLaneTransitionRequest request);
+  [[nodiscard]] Result<LaneId> AddLane(AddLaneRequest request);
   [[nodiscard]] Result<LaneConnectionId> AddLaneConnection(AddLaneConnectionRequest request);
   [[nodiscard]] Result<BoundaryContinuationId> AddBoundaryContinuation(AddBoundaryContinuationRequest request);
   [[nodiscard]] Result<RoadSegmentId> AddConnectedLaneSegment(AddConnectedLaneSegmentRequest request);

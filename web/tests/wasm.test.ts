@@ -1556,17 +1556,16 @@ describe("road wasm smoke", () => {
       side: "right" as const,
       startCorridorDistanceM: 10,
       fullWidthCorridorDistanceM: 40,
-      laneWidthM: 3,
-      anchorBoundaryId: 200
+      laneWidthM: 3
     };
     const savedBeforePreview = state.saveState();
-    const preview = state.previewLaneTransition(request);
+    const preview = state.previewAddLane(request);
     expect(preview.ok, preview.error).toBe(true);
     expect(preview.meshes.length).toBeGreaterThan(0);
     expect(state.saveState()).toBe(savedBeforePreview);
     expect(state.scene().transitionCount).toBe(0);
 
-    const committed = state.addLaneTransition(request);
+    const committed = state.addLane(request);
     expect(committed.ok, committed.error).toBe(true);
     expect(committed.laneId).toBeGreaterThan(0);
     const after = state.scene();

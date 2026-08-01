@@ -558,8 +558,8 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     clearPendingSupportNodes: () => ({ ok: true, error: "" }),
     roadAddSegment: () => ({ ok: true, error: "" }),
     roadPreviewSegment: () => ({ ok: true, error: "", meshes: [] }),
-    roadAddLaneTransition: () => ({ ok: true, error: "" }),
-    roadPreviewLaneTransition: () => ({ ok: true, error: "", meshes: [] }),
+    roadAddLane: () => ({ ok: true, error: "" }),
+    roadPreviewAddLane: () => ({ ok: true, error: "", meshes: [] }),
     roadAddConnectedLaneSegment: () => ({ ok: true, error: "" }),
     roadPreviewConnectedLaneSegment: () => ({ ok: true, error: "", meshes: [] }),
     roadScene: () => ({
@@ -1386,8 +1386,8 @@ describe("viewport tool routing", () => {
     };
     const actions = new ViewerActions(actionBridge({
       roadScene: () => scene,
-      roadPreviewLaneTransition: preview,
-      roadAddLaneTransition: commit
+      roadPreviewAddLane: preview,
+      roadAddLane: commit
     }), store);
     actions.initialize();
     actions.setActiveTool("road");
@@ -1401,16 +1401,60 @@ describe("viewport tool routing", () => {
     expect(preview).toHaveBeenCalledWith(expect.objectContaining({
       corridorId: 30,
       startCorridorDistanceM: 10,
-      fullWidthCorridorDistanceM: 30,
-      anchorBoundaryId: 200
+      fullWidthCorridorDistanceM: 30
     }));
     actions.addViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
     expect(commit).toHaveBeenCalledWith(preview.mock.calls[0][0]);
   });
-});
+  it("normalizes add-lane picks against the hidden corridor direction", () => {
+    const preview = vi.fn((_input: unknown) => ({ ok: true, error: "", meshes: [] }));
+    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [{ id: 30, sectionTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
+      sectionTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 0 as const }],
+        boundaries: [
+          { id: 100, role: 1, canAnchorTransition: false },
+          { id: 200, role: 2, canAnchorTransition: true }
+        ]
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene,
+      roadPreviewAddLane: preview,
+      roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    });
+    actions.previewViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
 
+    expect(preview).toHaveBeenCalledWith(expect.objectContaining({
+      corridorId: 30,
+      startCorridorDistanceM: 10,
+      fullWidthCorridorDistanceM: 30
+    }));
+
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+    expect(commit).toHaveBeenCalledWith(preview.mock.calls[0][0]);
+  });
+});
 describe("P1 action contracts", () => {
   it("uses the desktop viewer template defaults", () => {
     const store = new ViewerStore();

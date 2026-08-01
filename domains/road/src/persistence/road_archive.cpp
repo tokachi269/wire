@@ -686,7 +686,6 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
       const DirectedSegmentRef& ref = corridor.segments[index];
       const RoadSegment* segment = segment_for(ref.segment_id);
       if (segment == nullptr ||
-          segment->section_template != corridor.section_template_id ||
           !corridor_segments.insert(ref.segment_id).second) {
         return Result<bool>::Fail(
             CommitFailureCategory::kInvalidInput,

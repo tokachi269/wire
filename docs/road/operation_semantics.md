@@ -47,7 +47,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | EditSectionTemplate | section_template | ID exists、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId | 既存segment再評価 |
 | AddTransition | from/to/start/end/anchor/rules | template exists、distance finite/range、rule element exists、enum valid | element出現/消滅action対応 |
 | AddTransitionToSegment | segment_id + transition request | segment exists、transition preflight | 既存transition replace、segment section整合 |
-| AddLaneTransition | corridor/direction/side/distances/lane width/anchor boundary | corridor exists、finite、正の幅、同一forward segment、anchorが選択方向の外側laneの内側境界 | anchor内側を固定し、追加laneと外側shoulderだけを単調に展開 |
+| AddLane | corridor/direction/side/taper start/full-width distances/lane width | corridor exists、finite、正の幅、距離順が有効 | Coreが外側laneと固定boundaryを解決し、追加後断面を後続segmentへ伝播 |
 | AddLaneConnection | source/target LaneEndpointKey / kind | 両endpoint ID存在、source退出、target進入、同一node、kind enum valid | cardinalityと方向を検証しDerivedLanePathを生成 |
 | AddBoundaryContinuation | source/target BoundaryEndpointKey / kind | 両endpoint ID存在、同一node、kind enum valid | cardinalityを検証し明示した境界間だけDerivedBoundaryPathを生成 |
 | AddConnectedLaneSegment | node/path/template/lane mappings/boundary mappings | node/template/全endpoint ID存在、path finite、target lane/boundary存在 | 新segmentと全topologyを同一trialで生成し、異断面junctionを明示mappingで解決 |
@@ -89,7 +89,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | Viewer delete road | 1 segment pick | `DeleteSegment` | hoverしたRoadSegment全体を1クリックで削除 | hoverとclickは同じ明示segment IDを使う | splitやrange境界を作らない |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
 | AttachSectionTransition | validation | supported | supported | replace supported | supported |
-| AddLaneTransition | validation | corridor末尾segment内ならsupported | corridor末尾segment内ならsupported | overlapはunsupported | supported |
+| AddLane | validation | 同一segment内taperはsupported | corridor途中から後続segmentへの伝播はsupported | 既存transitionとの競合は範囲解決までunsupported | supported |
 | AddManualLine / AddManualArea | validation | supported | supported | supported | supported |
 
 ## P1 node semantics
@@ -162,7 +162,8 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - 解決後は `0 <= start < end <= length` を満たす。満たさなければ validation で正本を変更しない。
 - transition前は `from_template`、transition後は `to_template`、区間内は線形補間する。
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge / 明示BoundaryIdのいずれか。
-- `AddLaneTransition`は明示`anchor_boundary_id`の両側位置を同じ断面評価から導出し、anchor内側の既存laneを移動しない。
+- `AddLane`は方向と側から外側laneと固定boundaryをCoreで一意に解決する。利用者へboundary IDを要求せず、固定boundary内側の既存laneを移動しない。
+- taper開始と通常幅位置が同一segment内にある場合、追加後断面はcorridorの後続segmentへ伝播する。segmentをまたぐtaper、reversed corridor、既存transitionとの競合は未解決のまま明示拒否し、単一segment primitiveへfallbackしない。
   追加lane幅だけを0から指定幅へ単調に増やし、その外側のshoulderとcurbを外へ移す。断面全体を再中心化しない。
 - 最初の対応範囲は、1本のforward corridor segment内で完結し、既存transitionと重ならないlane追加である。
   複数segmentまたぎ、reversed segment、既存transitionとの合成は推測せずunsupportedとする。
@@ -224,4 +225,4 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - movement geometryはsource/target gate上のlane centerをG1 cubicで結ぶ。直進のminimum radiusは正の無限大を許可し、turnは有限かつ正のradiusを要求する。
 - Split/Mergeの接続白線は対応する`DerivedBoundaryPath`へ追従する。Splitではsource marking policy、Mergeではtarget marking policyを接続区間へ使い、線専用の自由Bezierやlane centerからの境界推測を行わない。
 - ViewerのAddLaneは対象corridorのsection templateからCoreが単一点と判定したanchor boundary候補だけを表示し、開始・完成位置をcorridor distanceでCoreへ渡す。BranchLane / MergeLaneはCore payloadのlane pathをhoverし、選択した`LaneEndpointKey`をpreviewと確定の両方へ同一値で渡す。
-- Viewerはlane/boundary接続先や接続geometryを推測しない。previewはtrial state上の`AddLaneTransition` / `AddConnectedLaneSegment`であり、失敗時を含め現在のauthoritative stateを変更しない。
+- Viewerはlane/boundary接続先や接続geometryを推測しない。previewはtrial state上の`AddLane` / `AddConnectedLaneSegment`であり、失敗時を含め現在のauthoritative stateを変更しない。

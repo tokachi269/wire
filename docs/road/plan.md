@@ -105,6 +105,9 @@ RoadSurfaceEvaluator
 ├─ SectionTransition                 ← P2で追加
 │    { from/to、distance範囲、要素対応表、anchor、各要素の開始/終了規則 }
 │
+├─ LaneConnection / BoundaryContinuation
+│    { stable endpoint ID同士の明示接続。接続curveは保存しない }
+│
 ├─ NodeConnectionPolicyOverride      ← ユーザー指定時だけ保存
 │    { node_id、Auto / ForcePassThrough / ForceCorner / ForceJunction、許可されたpolicy値 }
 │    ← 自動NodeConnectionDecisionと自動交差点の存在は保存しない
@@ -159,7 +162,8 @@ StructuralShell
 ├─ UserPavedAreaMesh
 ├─ AutoMarking / MarkingMesh
 ├─ TerrainMaskPolygon
-└─ LanePath(将来。交通対応時のみ)
+├─ DerivedSegmentLanePath
+└─ DerivedLaneConnectionPath
 ```
 
 ### 6.1 ConnectionGate
@@ -269,8 +273,9 @@ DistanceRef
 | ロータリー・駅前広場・中央島 | `UserPavedArea(holesあり)`。segmentで偽装しない |
 | 地面非表示 | 最終Section/Area外周から導出する`TerrainMaskPolygon` |
 | 高さの違う道路の非接続交差 | P3のvertical評価+接続明示。XY交差だけでnodeを作らない |
+| 車線の分岐・合流・交差点movement | `LaneConnection` / `BoundaryContinuation`からlane/boundary pathを導出 |
 
-## 10. アウト・イン・アウトとLanePath
+## 10. 車線形状と走行経路
 
 「道路の車線形状」と「車両が車線内を通る経路」を分ける。
 
@@ -279,13 +284,17 @@ A. 車線境界自体がアウト・イン・アウト形状
    → boundary lateral offsetの道路形状
    → 白線・車線中心も追従
 
-B. 白線は通常形状で、車両だけ車線内をアウト・イン・アウト
-   → 将来のLanePath
-   → 交通シミュレーション非目標の間は実装しない
+B. 車線中心と明示的な分岐・合流・交差点movement
+   → DerivedSegmentLanePath / DerivedLaneConnectionPath
+   → 編集時のhoverと接続geometryに使用する
+
+C. 車両がどのmovementを選ぶかという走行経路
+   → 交通シミュレーション導入時に別途導出する
 ```
 
 - Aは`boundary lateral offset = f(s)`のようなデータで将来表現可能だが、初期実装しない。
-- Bは交通機能が必要になった時点で導出物として追加する。専用正本や専用曲線型を先に置かない。
+- Bのidentityは`LaneEndpointKey`と`LaneConnection`が所有し、位置やlane配列順から接続相手を推測しない。
+- Cのroute choice、交通量、車線変更は未実装であり、Bの幾何pathへ意味を混ぜない。
 
 ## 11. フェーズ計画(挙動の段階導入)
 
@@ -358,7 +367,7 @@ B. 白線は通常形状で、車両だけ車線内をアウト・イン・ア�
 
 ## 12. 保留・却下の記録
 
-- LanePath・右左折経路: 交通対応時の導出物。専用正本・専用曲線型を先に作らない
+- 車両のroute choice・右左折判断: 交通対応時の導出物。既存のlane geometry pathへ交通判断を混ぜない
 - アウトインアウト: 道路境界を動かす場合と車両経路だけを動かす場合を分離。両方とも実装保留
 - BoundaryProfileの丸み種別: P0は必要な固定断面だけ。未使用join欄は置かず、丸み編集を実装するphaseで追加
 - NodeConnectionPolicyOverride: Auto / ForcePassThrough / ForceCorner / ForceJunction以外の未使用overrideを先に定義しない

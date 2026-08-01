@@ -2335,7 +2335,7 @@ Result<LaneId> RoadState::AddLaneTransition(
         ErrorKind::kUnsupported,
         "lane transition cannot overlap an existing section transition");
   }
-  if (anchor->width_m > kEpsilon || std::abs(anchor->height_m) > kEpsilon) {
+  if (!IsSinglePositionBoundary(*anchor)) {
     return Result<LaneId>::Fail(
         ErrorKind::kUnsupported,
         "lane transition anchor boundary must have one position");

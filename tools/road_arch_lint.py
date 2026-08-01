@@ -354,6 +354,15 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "web/src/actions/road_actions.ts: Add lane must not infer its transition anchor from boundary order"
         )
+    if "anchor->width_m > kEpsilon" in road_source:
+        errors.append(
+            "domains/road/src/road.cpp: lane transition must reuse the single-position boundary decision"
+        )
+    road_tests_text = source_text(root / "domains/road/tests/road_tests.cpp")
+    if re.search(r'bool LAN\d+_|\{"LAN\d+_', road_tests_text):
+        errors.append(
+            "domains/road/tests/road_tests.cpp: lane behavior tests must not expose implementation phase names"
+        )
     for token in (
         'result.set("lanePaths", lane_paths)',
         'builtin_marking_styles::kWhiteDashed.value',

@@ -325,7 +325,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   return true;
 }
 
-bool LAN2_lane_topology_validation_and_round_trip(std::string& failure) {
+bool lane_topology_validation_and_round_trip(std::string& failure) {
   RoadState state{};
   const auto first = state.AddSegment(city::road::AddSegmentRequest{
       MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
@@ -1074,7 +1074,7 @@ bool P2_section_transition_and_manual_markings(std::string& failure) {
   return true;
 }
 
-bool LAN3_outer_lane_transition_preserves_existing_lanes(std::string& failure) {
+bool outer_lane_transition_preserves_existing_lanes(std::string& failure) {
   RoadState state{};
   const auto segment = state.AddSegment(city::road::AddSegmentRequest{
       MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
@@ -1165,7 +1165,7 @@ bool LAN3_outer_lane_transition_preserves_existing_lanes(std::string& failure) {
   return true;
 }
 
-bool LAN4_selected_outer_lane_branches_to_one_lane_road(
+bool selected_outer_lane_branches_to_one_lane_road(
     std::string& failure) {
   RoadState state{};
   const auto three_lane_template = state.AddSectionTemplate(
@@ -1307,7 +1307,7 @@ bool LAN4_selected_outer_lane_branches_to_one_lane_road(
   return true;
 }
 
-bool LAN5_one_lane_road_merges_into_outer_mainline_lane(
+bool one_lane_road_merges_into_outer_mainline_lane(
     std::string& failure) {
   RoadState state{};
   const auto outgoing_template = state.AddSectionTemplate(
@@ -1439,7 +1439,7 @@ bool LAN5_one_lane_road_merges_into_outer_mainline_lane(
   return true;
 }
 
-bool LAN6_opposing_lanes_and_median_survive_one_direction_branch(
+bool opposing_lanes_and_median_survive_one_direction_branch(
     std::string& failure) {
   RoadState state{};
   const auto mainline_template = state.AddSectionTemplate(
@@ -1585,7 +1585,7 @@ bool LAN6_opposing_lanes_and_median_survive_one_direction_branch(
   return true;
 }
 
-bool LAN7_junction_movements_are_explicit_lane_connections(
+bool junction_movements_are_explicit_lane_connections(
     std::string& failure) {
   RoadState state{};
   const auto base = state.AddSegment(city::road::AddSegmentRequest{
@@ -1722,7 +1722,7 @@ bool LAN7_junction_movements_are_explicit_lane_connections(
   return true;
 }
 
-bool LAN8_branch_markings_follow_explicit_boundary_paths(
+bool branch_markings_follow_explicit_boundary_paths(
     std::string& failure) {
   RoadState state{};
   const auto source_template = state.AddSectionTemplate(
@@ -2304,7 +2304,7 @@ int main() {
       {"P0_angled_segment_keeps_final_section_perpendicular", P0_angled_segment_keeps_final_section_perpendicular},
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
-      {"LAN2_lane_topology_validation_and_round_trip", LAN2_lane_topology_validation_and_round_trip},
+      {"lane_topology_validation_and_round_trip", lane_topology_validation_and_round_trip},
       {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
       {"P0_straight_segments_stay_linear_after_snap_and_move", P0_straight_segments_stay_linear_after_snap_and_move},
       {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},
@@ -2321,18 +2321,18 @@ int main() {
       {"P1_incremental_skew_cross_accepts_ordered_approaches",
        P1_incremental_skew_cross_accepts_ordered_approaches},
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
-      {"LAN3_outer_lane_transition_preserves_existing_lanes",
-       LAN3_outer_lane_transition_preserves_existing_lanes},
-      {"LAN4_selected_outer_lane_branches_to_one_lane_road",
-       LAN4_selected_outer_lane_branches_to_one_lane_road},
-      {"LAN5_one_lane_road_merges_into_outer_mainline_lane",
-       LAN5_one_lane_road_merges_into_outer_mainline_lane},
-      {"LAN6_opposing_lanes_and_median_survive_one_direction_branch",
-       LAN6_opposing_lanes_and_median_survive_one_direction_branch},
-      {"LAN7_junction_movements_are_explicit_lane_connections",
-       LAN7_junction_movements_are_explicit_lane_connections},
-      {"LAN8_branch_markings_follow_explicit_boundary_paths",
-       LAN8_branch_markings_follow_explicit_boundary_paths},
+      {"outer_lane_transition_preserves_existing_lanes",
+       outer_lane_transition_preserves_existing_lanes},
+      {"selected_outer_lane_branches_to_one_lane_road",
+       selected_outer_lane_branches_to_one_lane_road},
+      {"one_lane_road_merges_into_outer_mainline_lane",
+       one_lane_road_merges_into_outer_mainline_lane},
+      {"opposing_lanes_and_median_survive_one_direction_branch",
+       opposing_lanes_and_median_survive_one_direction_branch},
+      {"junction_movements_are_explicit_lane_connections",
+       junction_movements_are_explicit_lane_connections},
+      {"branch_markings_follow_explicit_boundary_paths",
+       branch_markings_follow_explicit_boundary_paths},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},

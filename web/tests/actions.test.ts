@@ -602,7 +602,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
 
 describe("viewport tool routing", () => {
   it("commits a complete straight road interval on the second viewport click", () => {
-    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
     actions.initialize();
@@ -727,7 +727,7 @@ describe("viewport tool routing", () => {
   });
 
   it("commits the current straight preview with Enter and then ends the session", () => {
-    const roadAddSegment = vi.fn(() => ({ ok: true, error: "", segmentId: 11, corridorId: 21, endNodeId: 12 }));
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "", segmentId: 11, corridorId: 21, endNodeId: 12 }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
     actions.initialize();
@@ -858,40 +858,55 @@ describe("viewport tool routing", () => {
     expect(current(store).road.draftStartSegmentDistanceM).toBe(0);
   });
 
-  it("draws a curved road with a Cities-style bend point before the end point", () => {
-    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+  it("commits one curved road interval with one primary action after the anchor", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "" }));
+    const roadPreviewSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "", meshes: [] }));
     const store = new ViewerStore();
-    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    const actions = new ViewerActions(actionBridge({ roadAddSegment, roadPreviewSegment }), store);
     actions.initialize();
 
     actions.setActiveTool("road");
     actions.setRoadMode("bezier");
     actions.addViewportPoint([0, 0, 0]);
 
-    expect(current(store).road.phase).toBe("bend");
-
-    actions.previewViewportPoint([9, 9, 0]);
-    expect(current(store).road.draftBend).toEqual({ x: 9, y: 9 });
-
-    actions.addViewportPoint([9, 9, 0]);
-    expect(roadAddSegment).not.toHaveBeenCalled();
     expect(current(store).road.phase).toBe("end");
 
+    actions.previewViewportPoint([9, 9, 0]);
+    actions.previewViewportPoint([18, 0, 0]);
     actions.addViewportPoint([18, 0, 0]);
 
-    expect(roadAddSegment).not.toHaveBeenCalled();
-    actions.commitRoadPath();
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment.mock.calls[0]?.[0]).toEqual(roadPreviewSegment.mock.calls.at(-1)?.[0]);
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       kind: "bezier",
       startX: 0,
       startY: 0,
       endX: 18,
       endY: 0,
-      handleAX: 6,
-      handleAY: 6,
-      handleBX: 12,
-      handleBY: 6
+      handleAX: expect.any(Number),
+      handleAY: expect.any(Number),
+      handleBX: expect.any(Number),
+      handleBY: expect.any(Number)
     }));
+    expect(current(store).road.phase).toBe("end");
+  });
+
+  it("commits the displayed curved preview with Enter and ends the session", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "", segmentId: 11, corridorId: 21, endNodeId: 12 }));
+    const roadPreviewSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "", meshes: [] }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment, roadPreviewSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.setRoadMode("bezier");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([8, 6, 0]);
+    actions.previewViewportPoint([18, 0, 0]);
+    actions.finishDrawSession();
+
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment.mock.calls[0]?.[0]).toEqual(roadPreviewSegment.mock.calls.at(-1)?.[0]);
     expect(current(store).road.phase).toBe("start");
   });
 
@@ -918,23 +933,15 @@ describe("viewport tool routing", () => {
     actions.setActiveTool("road");
     actions.setRoadMode("bezier");
     actions.addViewportPoint([0, 0, 0]);
-    actions.addViewportPoint([9, 9, 0]);
+    actions.previewViewportPoint([9, 9, 0]);
+    actions.previewViewportPoint([18, 0, 0]);
     actions.addViewportPoint([18, 0, 0]);
-
-    actions.previewViewportPoint([18, 12, 0]);
-    const hover = roadPreviewSegment.mock.calls.at(-1)?.[0];
-    const hoverSpan = hover?.spans?.at(-1);
-    expect(hover).toBeDefined();
-    expect(hoverSpan?.endX).toBeCloseTo(18 + 12 / Math.sqrt(2), 9);
-    expect(hoverSpan?.endY).toBeCloseTo(-12 / Math.sqrt(2), 9);
-
-    actions.addViewportPoint([18, 12, 0]);
+    actions.previewViewportPoint([24, -6, 0]);
     actions.addViewportPoint([30, -12, 0]);
-    actions.commitRoadPath();
 
-    const path = roadAddSegment.mock.calls[0]?.[0];
-    const previous = path?.spans?.[0];
-    const continued = path?.spans?.[1];
+    expect(roadAddSegment).toHaveBeenCalledTimes(2);
+    const previous = roadAddSegment.mock.calls[0]?.[0].spans?.[0];
+    const continued = roadAddSegment.mock.calls[1]?.[0].spans?.[0];
     expect(previous).toBeDefined();
     expect(continued).toBeDefined();
     if (previous === undefined || continued === undefined) {

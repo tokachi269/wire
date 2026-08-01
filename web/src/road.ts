@@ -345,17 +345,37 @@ export function withRoadBend(state: RoadToolState, bend: RoadPoint): RoadToolSta
 }
 
 export function withRoadCurveEnd(state: RoadToolState, end: RoadPoint): RoadToolState {
-  const control = state.draftBend;
+  const chord = { x: end.x - state.draftStart.x, y: end.y - state.draftStart.y };
+  const chordLength = Math.hypot(chord.x, chord.y);
+  const fallback = chordLength > 1e-9
+    ? { x: chord.x / chordLength, y: chord.y / chordLength }
+    : { x: 1, y: 0 };
+  const continuationLength = state.curveContinuationTangent === null
+    ? 0
+    : Math.hypot(state.curveContinuationTangent.x, state.curveContinuationTangent.y);
+  const startTangent = continuationLength > 1e-9 && state.curveContinuationTangent !== null
+    ? {
+        x: state.curveContinuationTangent.x / continuationLength,
+        y: state.curveContinuationTangent.y / continuationLength
+      }
+    : fallback;
+  const pointerDelta = { x: end.x - state.draftEnd.x, y: end.y - state.draftEnd.y };
+  const pointerLength = Math.hypot(pointerDelta.x, pointerDelta.y);
+  const endTangent = pointerLength > 1e-9 &&
+      Math.hypot(state.draftEnd.x - state.draftStart.x, state.draftEnd.y - state.draftStart.y) > 1e-9
+    ? { x: pointerDelta.x / pointerLength, y: pointerDelta.y / pointerLength }
+    : fallback;
+  const handleLength = chordLength / 3;
   return {
     ...state,
     draftEnd: end,
     handleA: {
-      x: state.draftStart.x + (control.x - state.draftStart.x) * 2 / 3,
-      y: state.draftStart.y + (control.y - state.draftStart.y) * 2 / 3
+      x: state.draftStart.x + startTangent.x * handleLength,
+      y: state.draftStart.y + startTangent.y * handleLength
     },
     handleB: {
-      x: end.x + (control.x - end.x) * 2 / 3,
-      y: end.y + (control.y - end.y) * 2 / 3
+      x: end.x - endTangent.x * handleLength,
+      y: end.y - endTangent.y * handleLength
     },
     previewIssue: "",
     lastError: ""

@@ -1,7 +1,5 @@
 import {
   roadSegmentInput,
-  roadSpanInput,
-  withRoadBend,
   withRoadCurveEnd,
   withRoadEnd,
   type RoadSnapInfo,
@@ -184,30 +182,19 @@ export class RoadActions {
       this.beginAt(target, snap);
       return;
     }
-    if (current.mode !== "line" && current.phase === "bend") {
-      this.ctx.store.update((snapshot) => ({
-        ...snapshot,
-        road: { ...withRoadBend(snapshot.road, target), phase: "end" }
-      }));
-      return;
-    }
     const road = current.mode !== "line" ? withRoadCurveEnd(current, target) : withRoadEnd(current, target);
-    if (current.mode === "line") {
-      const request = current.previewState === "valid" && current.previewRequest !== null &&
-          sameRoadPoint({ x: current.previewRequest.endX, y: current.previewRequest.endY }, target)
-        ? current.previewRequest
-        : roadSegmentInput(road);
-      if (request !== current.previewRequest) {
-        const preview = this.ctx.bridge.roadPreviewSegment(request);
-        if (!preview.ok) {
-          this.applyPreview(road, preview, request);
-          return;
-        }
+    const request = current.previewState === "valid" && current.previewRequest !== null &&
+        sameRoadPoint({ x: current.previewRequest.endX, y: current.previewRequest.endY }, target)
+      ? current.previewRequest
+      : roadSegmentInput(road);
+    if (request !== current.previewRequest) {
+      const preview = this.ctx.bridge.roadPreviewSegment(request);
+      if (!preview.ok) {
+        this.applyPreview(road, preview, request);
+        return;
       }
-      this.commitInterval(request, target, true);
-      return;
     }
-    this.stageSpan(road);
+    this.commitInterval(request, target, true);
   }
 
   previewViewportPoint(point: WorldPoint, snap?: RoadSnapInfo): void {
@@ -447,40 +434,16 @@ export class RoadActions {
   commitPath(): void {
     const road = this.ctx.readSnapshot().road;
     if (road.operation !== "draw") return;
-    if (road.mode === "line") {
-      if (road.previewState === "invalid") return;
-      if (road.previewState !== "valid" || road.previewRequest === null) {
-        this.cancelSession();
-        return;
-      }
-      this.commitInterval(
-        road.previewRequest,
-        { x: road.previewRequest.endX, y: road.previewRequest.endY },
-        false
-      );
-      return;
-    }
-    if (road.draftSpans.length === 0) {
+    if (road.previewState === "invalid") return;
+    if (road.previewState !== "valid" || road.previewRequest === null) {
       this.cancelSession();
       return;
     }
-    const result = this.ctx.bridge.roadAddSegment(
-      roadSegmentInput(road, false)
+    this.commitInterval(
+      road.previewRequest,
+      { x: road.previewRequest.endX, y: road.previewRequest.endY },
+      false
     );
-    if (!result.ok) {
-      this.ctx.store.update((snapshot) => ({
-        ...snapshot,
-        road: {
-          ...road,
-          previewMeshes: [],
-          previewIssue: "",
-          lastError: result.error
-        },
-        error: result.error
-      }));
-      return;
-    }
-    this.finish(result, "road add segment");
   }
 
   private commitInterval(
@@ -508,7 +471,7 @@ export class RoadActions {
       road: continueSession
         ? withRoadEnd({
             ...snapshot.road,
-            phase: snapshot.road.mode === "line" ? "end" : "bend",
+            phase: "end",
             draftStart: endpoint,
             draftBend: endpoint,
             draftSpans: [],
@@ -547,56 +510,14 @@ export class RoadActions {
     }));
   }
 
-  private stageSpan(road: RoadToolState): void {
-    const candidate = {
-      ...road,
-      draftSpans: [...road.draftSpans, roadSpanInput(road)]
-    };
-    const preview = this.ctx.bridge.roadPreviewSegment(
-      roadSegmentInput(candidate, false)
-    );
-    if (!preview.ok) {
-      this.applyPreview(road, preview);
-      return;
-    }
-    const nextStart = road.draftEnd;
-    const phase = road.mode !== "line" ? "bend" : "end";
-    const curveContinuationTangent =
-      road.mode === "bezier"
-        ? {
-            x: road.draftEnd.x - road.handleB.x,
-            y: road.draftEnd.y - road.handleB.y
-          }
-        : null;
-    this.ctx.store.update((snapshot) => ({
-      ...snapshot,
-      road: withRoadEnd({
-        ...candidate,
-        phase,
-        draftStart: nextStart,
-        draftBend: nextStart,
-        curveContinuationTangent,
-        previewMeshes: preview.meshes,
-        previewIssue: "",
-        lastError: ""
-      }, nextStart),
-      error: ""
-    }));
-  }
-
   private previewState(current: RoadToolState, target: RoadPoint): RoadToolState {
     if (current.mode === "line") {
       return withRoadEnd(current, target);
-    }
-    if (current.phase === "bend") {
-      const bent = withRoadBend(current, target);
-      return withRoadEnd(bent, bent.draftBend);
     }
     return withRoadCurveEnd(current, target);
   }
 
   private beginAt(target: RoadPoint, snap?: RoadSnapInfo): void {
-    const phase = this.ctx.readSnapshot().road.mode !== "line" ? "bend" : "end";
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: withRoadEnd({
@@ -608,7 +529,7 @@ export class RoadActions {
         draftStartSegmentId: snap?.segmentId ?? 0,
         draftStartSegmentDistanceM: snap?.segmentDistanceM ?? 0,
         draftExtensionCorridorId: snap?.extensionCorridorId ?? 0,
-        phase
+        phase: "end"
       }, target)
     }));
   }

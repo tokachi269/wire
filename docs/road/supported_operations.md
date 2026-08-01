@@ -46,6 +46,12 @@ merge/split cases. These remain `NotImplemented` until their semantic operation
 and geometry resolver are implemented. No nearest approach, nearest boundary,
 or fallback shape is selected.
 
+Lane Branch and Merge remain Core topology primitives, but are not standard
+toolbar operations. Their current editor requires raw lane and boundary IDs and
+can present choices that cannot commit. They may return to the standard toolbar
+only after lane selection, route input, preview, and touch completion work
+without exposing those IDs or requiring the user to infer endpoint direction.
+
 ## Session behavior
 
 Click and Enter return an explicit draw action outcome. A rejected commit keeps

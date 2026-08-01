@@ -357,6 +357,14 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "web/src/actions/road_actions.ts: Add lane must not infer its transition anchor from boundary order"
         )
+    app_text = source_text(root / "web/src/App.svelte")
+    for token in ('setRoadOperation("branch-lane")',
+                  'setRoadOperation("merge-lane")'):
+        if token in app_text:
+            errors.append(
+                "web/src/App.svelte: incomplete lane topology tool remains in the standard toolbar: "
+                + repr(token)
+            )
     if "anchor->width_m > kEpsilon" in road_source:
         errors.append(
             "domains/road/src/road.cpp: lane transition must reuse the single-position boundary decision"

@@ -328,7 +328,14 @@ export class WireScene {
   private lastFrameTime: number | null = null;
   private backboneSignature = "";
   private guideSignature = "";
-  private roadSignature = "";
+  private roadContentSignature = "";
+  private roadOverlaySignature = "";
+  private contentParts: ViewerSnapshot["parts"] | null = null;
+  private contentModels: ViewerSnapshot["models"] | null = null;
+  private contentPoles: ViewerSnapshot["poles"] | null = null;
+  private contentSolidSupportRender: boolean | null = null;
+  private roadSurfaceMeshes: ViewerSnapshot["road"]["scene"]["surfaceMeshes"] | null = null;
+  private roadMarkingMeshes: ViewerSnapshot["road"]["scene"]["markingMeshes"] | null = null;
   private cameraFov: number | null = null;
   private readonly partMeshes = new Map<string, {
     mesh: THREE.Mesh;
@@ -1005,7 +1012,7 @@ export class WireScene {
       this.camera.updateProjectionMatrix();
     }
 
-    if (this.syncContent(snapshot)) {
+    if (this.wireContentSourcesChanged(snapshot) && this.syncContent(snapshot)) {
       this.clearSnapPreview();
     }
     this.onContentSync?.(this.contentSyncStats);
@@ -1023,10 +1030,17 @@ export class WireScene {
       this.rebuildGuide(snapshot);
     }
 
-    const nextRoadSignature = this.sceneRoadSignature(snapshot);
-    if (this.roadSignature !== nextRoadSignature) {
-      this.roadSignature = nextRoadSignature;
-      this.rebuildRoad(snapshot);
+    if (this.roadContentSourcesChanged(snapshot)) {
+      const nextRoadContentSignature = this.sceneRoadContentSignature(snapshot);
+      if (this.roadContentSignature !== nextRoadContentSignature) {
+        this.roadContentSignature = nextRoadContentSignature;
+        this.rebuildRoadContent(snapshot);
+      }
+    }
+    const nextRoadOverlaySignature = this.sceneRoadOverlaySignature(snapshot);
+    if (this.roadOverlaySignature !== nextRoadOverlaySignature) {
+      this.roadOverlaySignature = nextRoadOverlaySignature;
+      this.rebuildRoadOverlay(snapshot);
     }
   }
 
@@ -1057,13 +1071,39 @@ export class WireScene {
     return `${points};${specs};${preview.state};${request}`;
   }
 
-  private sceneRoadSignature(snapshot: ViewerSnapshot): string {
+  private wireContentSourcesChanged(snapshot: ViewerSnapshot): boolean {
+    const changed = this.contentParts !== snapshot.parts ||
+      this.contentModels !== snapshot.models ||
+      this.contentPoles !== snapshot.poles ||
+      this.contentSolidSupportRender !== snapshot.solidSupportRender;
+    this.contentParts = snapshot.parts;
+    this.contentModels = snapshot.models;
+    this.contentPoles = snapshot.poles;
+    this.contentSolidSupportRender = snapshot.solidSupportRender;
+    return changed;
+  }
+
+  private roadContentSourcesChanged(snapshot: ViewerSnapshot): boolean {
+    const changed = this.roadSurfaceMeshes !== snapshot.road.scene.surfaceMeshes ||
+      this.roadMarkingMeshes !== snapshot.road.scene.markingMeshes;
+    this.roadSurfaceMeshes = snapshot.road.scene.surfaceMeshes;
+    this.roadMarkingMeshes = snapshot.road.scene.markingMeshes;
+    return changed;
+  }
+
+  private sceneRoadContentSignature(snapshot: ViewerSnapshot): string {
     const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array }) =>
       `${mesh.ownerSegmentId}:${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
     return [
       ...snapshot.road.scene.surfaceMeshes.map(meshKey),
-      ...snapshot.road.scene.markingMeshes.map(meshKey),
-      "preview",
+      ...snapshot.road.scene.markingMeshes.map(meshKey)
+    ].join("|");
+  }
+
+  private sceneRoadOverlaySignature(snapshot: ViewerSnapshot): string {
+    const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array }) =>
+      `${mesh.ownerSegmentId}:${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
+    return [
       ...snapshot.road.previewMeshes.map(meshKey),
       `guide:${snapshot.road.previewState}:` +
         (snapshot.road.previewRequest === null
@@ -1072,15 +1112,15 @@ export class WireScene {
       `delete-hover:${snapshot.road.hoveredDeleteSegmentId}`,
       `lane-hover:${snapshot.road.hoveredLaneSegmentId}:${snapshot.road.hoveredLaneId}`,
       `lane-selected:${snapshot.road.selectedLaneSegmentId}:${snapshot.road.selectedLaneId}`,
+      `lane-range:${snapshot.road.laneCorridorId}:${snapshot.road.laneEditStage}:` +
+        `${snapshot.road.laneStartCorridorDistanceM}:${snapshot.road.laneFullWidthCorridorDistanceM}`,
       `edit:${snapshot.road.operation}:${snapshot.road.selectedEditSegmentId}:` +
         snapshot.road.editPoints.map((point) => `${point.x}:${point.y}`).join("|")
     ].join("|");
   }
 
-  private rebuildRoad(snapshot: ViewerSnapshot): void {
+  private rebuildRoadContent(snapshot: ViewerSnapshot): void {
     this.disposeGroup(this.road);
-    this.disposeGroup(this.roadPreview);
-    this.disposeGroup(this.roadEditHandles);
     const markingMaterial = new THREE.MeshStandardMaterial({
       color: 0xf2f0d9,
       roughness: 0.75,
@@ -1088,12 +1128,9 @@ export class WireScene {
       polygonOffsetFactor: -2
     });
     for (const data of snapshot.road.scene.surfaceMeshes) {
-      const deleteHovered =
-        snapshot.road.operation === "delete" &&
-        data.ownerSegmentId === snapshot.road.hoveredDeleteSegmentId;
       const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), new THREE.MeshStandardMaterial({
-        color: deleteHovered ? 0xe85d3f : roadSurfaceColor(data.material),
-        emissive: deleteHovered ? 0x522012 : 0x000000,
+        color: roadSurfaceColor(data.material),
+        emissive: 0x000000,
         roughness: data.material === "asphalt" ? 0.96 : 0.88,
         metalness: 0
       }));
@@ -1103,12 +1140,109 @@ export class WireScene {
     }
     for (const data of snapshot.road.scene.markingMeshes) {
       const material = markingMaterial.clone();
-      if (snapshot.road.operation === "delete" &&
-          data.ownerSegmentId === snapshot.road.hoveredDeleteSegmentId) {
-        material.color.setHex(0xffb13b);
-        material.emissive.setHex(0x4a2600);
-      }
       this.road.add(new THREE.Mesh(makeRoadMeshGeometry(data), material));
+    }
+    markingMaterial.dispose();
+  }
+
+  private rebuildRoadOverlay(snapshot: ViewerSnapshot): void {
+    this.disposeGroup(this.roadPreview);
+    this.disposeGroup(this.roadEditHandles);
+    if (snapshot.road.operation === "delete" &&
+        snapshot.road.hoveredDeleteSegmentId !== 0) {
+      for (const data of snapshot.road.scene.surfaceMeshes) {
+        if (data.ownerSegmentId !== snapshot.road.hoveredDeleteSegmentId)
+          continue;
+        const mesh = new THREE.Mesh(
+          makeRoadMeshGeometry(data),
+          new THREE.MeshStandardMaterial({
+            color: 0xe85d3f,
+            emissive: 0x522012,
+            roughness: 0.9,
+            transparent: true,
+            opacity: 0.82,
+            depthWrite: false
+          })
+        );
+        mesh.position.z += 0.025;
+        mesh.renderOrder = 75;
+        this.roadPreview.add(mesh);
+      }
+      for (const data of snapshot.road.scene.markingMeshes) {
+        if (data.ownerSegmentId !== snapshot.road.hoveredDeleteSegmentId)
+          continue;
+        const mesh = new THREE.Mesh(
+          makeRoadMeshGeometry(data),
+          new THREE.MeshStandardMaterial({
+            color: 0xffb13b,
+            emissive: 0x4a2600,
+            transparent: true,
+            opacity: 0.9,
+            depthWrite: false
+          })
+        );
+        mesh.position.z += 0.03;
+        mesh.renderOrder = 76;
+        this.roadPreview.add(mesh);
+      }
+    }
+    if (snapshot.road.operation === "add-lane" &&
+        snapshot.road.laneEditStage === "target") {
+      const corridor = snapshot.road.scene.corridors.find(
+        (item) => item.id === snapshot.road.laneCorridorId
+      );
+      if (corridor !== undefined) {
+        const rangeStart = Math.min(
+          snapshot.road.laneStartCorridorDistanceM,
+          snapshot.road.laneFullWidthCorridorDistanceM
+        );
+        const rangeEnd = Math.max(
+          snapshot.road.laneStartCorridorDistanceM,
+          snapshot.road.laneFullWidthCorridorDistanceM
+        );
+        let corridorOffset = 0;
+        const material = new THREE.LineBasicMaterial({
+          color: 0x66a8d8,
+          depthTest: false,
+          transparent: true,
+          opacity: 0.95
+        });
+        for (const ref of corridor.segments) {
+          for (const segment of snapshot.road.scene.centerlineSegments) {
+            if (segment.id !== ref.segmentId) continue;
+            const globalStart = corridorOffset + (ref.reversed
+              ? ref.lengthM - segment.startSegmentDistanceM
+              : segment.startSegmentDistanceM);
+            const globalEnd = corridorOffset + (ref.reversed
+              ? ref.lengthM - segment.endSegmentDistanceM
+              : segment.endSegmentDistanceM);
+            const pieceMinimum = Math.min(globalStart, globalEnd);
+            const pieceMaximum = Math.max(globalStart, globalEnd);
+            const overlapStart = Math.max(rangeStart, pieceMinimum);
+            const overlapEnd = Math.min(rangeEnd, pieceMaximum);
+            if (overlapEnd <= overlapStart ||
+                Math.abs(globalEnd - globalStart) <= 1e-9) continue;
+            const pointAt = (distance: number) => {
+              const t = (distance - globalStart) / (globalEnd - globalStart);
+              return new THREE.Vector3(
+                THREE.MathUtils.lerp(segment.startX, segment.endX, t),
+                THREE.MathUtils.lerp(segment.startY, segment.endY, t),
+                snapshot.drawPlaneZ + 0.1
+              );
+            };
+            const line = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints([
+                pointAt(overlapStart), pointAt(overlapEnd)
+              ]),
+              material.clone()
+            );
+            line.renderOrder = 80;
+            this.roadPreview.add(line);
+          }
+          corridorOffset += ref.lengthM;
+        }
+        material.dispose();
+      }
     }
     for (const data of snapshot.road.previewMeshes) {
       const material = new THREE.MeshStandardMaterial({

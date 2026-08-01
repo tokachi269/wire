@@ -82,6 +82,40 @@ describe("sampled wire curve", () => {
 });
 
 describe("road rendering", () => {
+  it("keeps authoritative road content stable across transient pointer updates", () => {
+    const scene = Object.create(WireScene.prototype) as any;
+    const snapshot = createViewerSnapshot();
+    snapshot.road.scene.surfaceMeshes = [{
+      ownerSegmentId: 7,
+      material: "asphalt",
+      vertices: new Float64Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+      indices: new Uint32Array([0, 1, 2])
+    }];
+    expect(scene.roadContentSourcesChanged(snapshot)).toBe(true);
+    const contentSignature = scene.sceneRoadContentSignature(snapshot);
+    const firstOverlay = scene.sceneRoadOverlaySignature(snapshot);
+    for (let index = 1; index <= 100; ++index) {
+      snapshot.road.previewState = "guide";
+      snapshot.road.laneFullWidthCorridorDistanceM = index;
+      snapshot.road.hoveredDeleteSegmentId = index % 2 === 0 ? 7 : 0;
+      expect(scene.roadContentSourcesChanged(snapshot)).toBe(false);
+    }
+    expect(scene.sceneRoadContentSignature(snapshot)).toBe(contentSignature);
+    expect(scene.sceneRoadOverlaySignature(snapshot)).not.toBe(firstOverlay);
+  });
+
+  it("does not rescan wire content for pointer-only snapshot updates", () => {
+    const scene = Object.create(WireScene.prototype) as any;
+    const snapshot = createViewerSnapshot();
+    expect(scene.wireContentSourcesChanged(snapshot)).toBe(true);
+    for (let index = 1; index <= 100; ++index) {
+      snapshot.road.laneFullWidthCorridorDistanceM = index;
+      expect(scene.wireContentSourcesChanged(snapshot)).toBe(false);
+    }
+    snapshot.parts = [...snapshot.parts];
+    expect(scene.wireContentSourcesChanged(snapshot)).toBe(true);
+  });
+
   it("uses core material keys instead of deriving materials from vertex height", () => {
     const geometry = makeRoadMeshGeometry({
       vertices: new Float64Array([

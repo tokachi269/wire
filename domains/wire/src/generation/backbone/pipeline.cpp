@@ -3362,6 +3362,16 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             AllowsBranchHeightOffset(bundle_spec, *v.value.tmpl);
         const Vec3d row_offset =
             (!allow_branch_height_offset || r.id >= row_offsets.size()) ? Vec3d{} : row_offsets[r.id];
+        const double lane_offset =
+            uses_lane_bands
+                ? 0.0
+                : LaneOffset(static_cast<std::size_t>(lane), v.value.count,
+                             v.value.spacing_m);
+        PortPlacementBand placement_band = band;
+        if (bundle_spec.placement_explicit) {
+          placement_band.height_center_m = bundle_spec.height_m;
+          placement_band.lateral_center_m = bundle_spec.lateral_m;
+        }
         Vec3d p{};
         if (ownerless) {
           if (g_.nodes[r.node].has_source_edge) {
@@ -3380,15 +3390,6 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           if (pole == nullptr) {
             out.error = "backbone internal: backbone topology: row pole missing";
             return out;
-          }
-          const double lane_offset = uses_lane_bands
-                                         ? 0.0
-                                         : LaneOffset(static_cast<std::size_t>(lane), v.value.count,
-                                                      v.value.spacing_m);
-          PortPlacementBand placement_band = band;
-          if (bundle_spec.placement_explicit) {
-            placement_band.height_center_m = bundle_spec.height_m;
-            placement_band.lateral_center_m = bundle_spec.lateral_m;
           }
           p = PortWorldPosition(*pole, r.axis, placement_band, lane_offset,
                                 spec_.constraints.lateral_offset_m, row_offset);
@@ -3480,7 +3481,56 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
               out.error = "backbone internal: backbone topology: resolved port missing";
               return out;
             }
-            const double layout_yaw_deg = PortLayoutYawDeg(r.axis);
+            const SavedBackbonePortBinding* exact_binding = nullptr;
+            if (write_row_continuity_ && !promoted_endpoint) {
+              for (const SavedBackbonePortBinding* candidate :
+                   state_.view().backbone_port_bindings_for_row(
+                       row_key, static_cast<std::size_t>(lane))) {
+                if (candidate == nullptr ||
+                    candidate->edge_bundle_id != edge_bundle_id ||
+                    candidate->port_id != existing_port->id) {
+                  continue;
+                }
+                if (exact_binding != nullptr) {
+                  out.error =
+                      "backbone unsupported: canonical row frame binding is ambiguous";
+                  return out;
+                }
+                exact_binding = candidate;
+              }
+              if (exact_binding == nullptr) {
+                out.error =
+                    "backbone internal: canonical row frame binding is missing";
+                return out;
+              }
+            }
+            const bool saved_connected =
+                exact_binding != nullptr &&
+                binding_is_connected(state_, *exact_binding);
+            Vec3d resolved_row_axis = r.axis;
+            if (saved_connected) {
+              const EditResult<EndpointRowRepresentation> representation =
+                  DeriveEndpointRowRepresentation(state_, *exact_binding);
+              if (!representation.ok) {
+                out.error = representation.error;
+                return out;
+              }
+              resolved_row_axis = representation.value.row_axis;
+              if (!ownerless) {
+                const Pole* pole =
+                    state_.authoritative_.edit_state.poles.find(tr.pole);
+                if (pole == nullptr) {
+                  out.error =
+                      "backbone internal: backbone topology: row pole missing";
+                  return out;
+                }
+                p = PortWorldPosition(
+                    *pole, resolved_row_axis, placement_band, lane_offset,
+                    spec_.constraints.lateral_offset_m, row_offset);
+              }
+            }
+            const double layout_yaw_deg =
+                PortLayoutYawDeg(resolved_row_axis);
             const bool moved = moved_more_than_epsilon(existing_port->world_position, p);
             bool height_reflow_required = moved;
             if (!ownerless) {
@@ -3504,27 +3554,6 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             if (write_row_continuity_ && !promoted_endpoint &&
                 existing_port->position_mode != PortPositionMode::kManual &&
                 !existing_port->user_edited_position) {
-              const SavedBackbonePortBinding* exact_binding = nullptr;
-              for (const SavedBackbonePortBinding* candidate :
-                   state_.view().backbone_port_bindings_for_row(
-                       row_key, static_cast<std::size_t>(lane))) {
-                if (candidate == nullptr ||
-                    candidate->edge_bundle_id != edge_bundle_id ||
-                    candidate->port_id != existing_port->id) {
-                  continue;
-                }
-                if (exact_binding != nullptr) {
-                  out.error =
-                      "backbone unsupported: canonical row frame binding is ambiguous";
-                  return out;
-                }
-                exact_binding = candidate;
-              }
-              if (exact_binding == nullptr) {
-                out.error =
-                    "backbone internal: canonical row frame binding is missing";
-                return out;
-              }
               const int support_level = exact_binding->support_level;
               const int support_group_id = exact_binding->support_group_id;
               EditResult<bool> frame_updated =

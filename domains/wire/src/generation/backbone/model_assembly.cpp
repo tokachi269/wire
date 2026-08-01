@@ -436,7 +436,20 @@ EditResult<RowFixtureContexts> row_fixture_contexts(const CoreState& state) {
       if (row_it->assembly_id != row_assembly_id ||
           std::abs(row_it->layout_yaw_deg -
                    binding.layout_yaw_deg) > kStrictAngleToleranceDeg) {
-        out.error = "model assembly unsupported: saved row resolves inconsistent fixture data";
+        std::ostringstream error;
+        error << "model assembly unsupported: saved row resolves inconsistent fixture data"
+              << " row=" << row_key_text(representation.value.row_key)
+              << " bundle=" << edge_bundle->bundle_id
+              << " first_assembly=" << row_it->assembly_id
+              << " binding_assembly=" << row_assembly_id
+              << " first_yaw=" << row_it->layout_yaw_deg
+              << " binding_yaw=" << binding.layout_yaw_deg
+              << " first_port=" << row_it->members.front().port_id
+              << " first_lane=" << row_it->members.front().lane_index
+              << " binding_edge=" << edge->edge_id
+              << " binding_lane=" << binding.lane_index
+              << " port=" << port->id;
+        out.error = error.str();
         return out;
       }
       const auto member_it = std::find_if(

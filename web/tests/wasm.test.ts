@@ -410,6 +410,65 @@ describe("wire wasm smoke", () => {
     runState.delete();
   });
 
+  it("continues previewing and committing wire intervals after two committed corners", () => {
+    const runState = createState();
+    const configured = runState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+
+    let placements = defaultBundlePlacements();
+    const first = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0]), placements, 0, 2, 0, 12, []
+    );
+    expect(first.ok, first.error).toBe(true);
+    expect(first.generatedPoleIds).toHaveLength(2);
+    placements = placements.map((placement, index) => ({
+      ...placement,
+      generatedBundleId: first.generatedBundleIds[index]
+    }));
+
+    const secondStart = first.generatedPoleIds.at(-1)!;
+    const second = runState.generatePlacements(
+      new Float64Array([12, 0, 0, 12, 10, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: secondStart }]
+    );
+    expect(second.ok, second.error).toBe(true);
+    expect(second.generatedPoleIds).toHaveLength(1);
+
+    const beforeThird = runState.saveState();
+    const thirdStart = second.generatedPoleIds.at(-1)!;
+    const third = runState.previewPlacements(
+      new Float64Array([12, 10, 0, 0, 10, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: thirdStart }]
+    );
+    expect(third.ok, third.error).toBe(true);
+    expect(runState.saveState()).toBe(beforeThird);
+
+    const thirdCommitted = runState.generatePlacements(
+      new Float64Array([12, 10, 0, 0, 10, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: thirdStart }]
+    );
+    expect(thirdCommitted.ok, thirdCommitted.error).toBe(true);
+    expect(thirdCommitted.generatedPoleIds).toHaveLength(1);
+
+    const fourthStart = thirdCommitted.generatedPoleIds.at(-1)!;
+    const fourth = runState.generatePlacements(
+      new Float64Array([0, 10, 0, 0, 20, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: fourthStart }]
+    );
+    expect(fourth.ok, fourth.error).toBe(true);
+    expect(fourth.generatedPoleIds).toHaveLength(1);
+
+    const beforeFifth = runState.saveState();
+    const fifthStart = fourth.generatedPoleIds.at(-1)!;
+    const fifth = runState.previewPlacements(
+      new Float64Array([0, 20, 0, 10, 20, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: fifthStart }]
+    );
+    expect(fifth.ok, fifth.error).toBe(true);
+    expect(runState.saveState()).toBe(beforeFifth);
+    runState.delete();
+  });
+
   it("bootstraps one straight communication fixture per Port", () => {
     const modelState = createState();
     const configured = modelState.configureModelAssemblies(modelBootstrap());

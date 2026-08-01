@@ -178,10 +178,10 @@ Vec2d endpoint_point(const ResolvedApproach &approach, double lateral_m) {
                    approach.gate.lateral.y * lateral_m * section_sign};
 }
 
-Path connect_endpoint_points(const ResolvedApproach &source,
-                             double source_lateral_m,
-                             const ResolvedApproach &target,
-                             double target_lateral_m) {
+Path connect_g1_endpoint_points(const ResolvedApproach &source,
+                                double source_lateral_m,
+                                const ResolvedApproach &target,
+                                double target_lateral_m) {
   const Vec2d start = endpoint_point(source, source_lateral_m);
   const Vec2d end = endpoint_point(target, target_lateral_m);
   const Vec2d source_motion{-source.tangent.x, -source.tangent.y};
@@ -190,6 +190,27 @@ Path connect_endpoint_points(const ResolvedApproach &source,
   return MakePath({MakeBezier(
       start, internal::add(start, scale(source_motion, control)),
       subtract(end, scale(target_motion, control)), end)});
+}
+
+Path resolve_lane_transition_path(const ResolvedApproach &source,
+                                  double source_lateral_m,
+                                  const ResolvedApproach &target,
+                                  double target_lateral_m) {
+  return connect_g1_endpoint_points(source, source_lateral_m, target,
+                                    target_lateral_m);
+}
+
+Result<Path> resolve_junction_movement_path(
+    const ResolvedConnection &connection, const ResolvedApproach &source,
+    double source_lateral_m, const ResolvedApproach &target,
+    double target_lateral_m) {
+  if (connection.kind != NodeConnectionKind::kJunction) {
+    return Result<Path>::Fail(
+        ErrorKind::kUnsupported,
+        "lane junction movement requires a junction connection");
+  }
+  return Result<Path>::Ok(connect_g1_endpoint_points(
+      source, source_lateral_m, target, target_lateral_m));
 }
 
 double minimum_radius(const Path &path) {
@@ -766,8 +787,19 @@ Result<bool> derive_topology_paths(
           ErrorKind::kInternal,
           "lane connection path cannot resolve a lane center");
     }
-    Path path = connect_endpoint_points(*source, source_lateral.value, *target,
-                                        target_lateral.value);
+    Result<Path> resolved_path =
+        topology.kind == LaneConnectionKind::kJunctionMovement
+            ? resolve_junction_movement_path(
+                  *connection, *source, source_lateral.value, *target,
+                  target_lateral.value)
+            : Result<Path>::Ok(resolve_lane_transition_path(
+                  *source, source_lateral.value, *target,
+                  target_lateral.value));
+    if (!resolved_path.ok) {
+      return Result<bool>::Fail(resolved_path.error_kind,
+                                resolved_path.error);
+    }
+    Path path = std::move(resolved_path.value);
     if (std::hypot(path.spans.front().p3.x - path.spans.front().p0.x,
                    path.spans.front().p3.y - path.spans.front().p0.y) <=
         distance_epsilon) {
@@ -837,8 +869,8 @@ Result<bool> derive_topology_paths(
           ErrorKind::kInternal,
           "boundary continuation path cannot resolve a boundary");
     }
-    Path path = connect_endpoint_points(*source, source_lateral.value, *target,
-                                        target_lateral.value);
+    Path path = resolve_lane_transition_path(
+        *source, source_lateral.value, *target, target_lateral.value);
     if (std::hypot(path.spans.front().p3.x - path.spans.front().p0.x,
                    path.spans.front().p3.y - path.spans.front().p0.y) <=
         distance_epsilon) {

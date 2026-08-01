@@ -215,3 +215,5 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - branchへ明示した2本のBoundaryContinuationから有限なseparation areaを派生する。lane centerから境界を推測しない。
 - Mergeはbranch lane centerから明示したmainline lane centerへG1接続する。straightなmainline mappingだけでtarget approachの共通shiftを決め、角度を持つbranch mappingはmainlineを曲げる入力にしない。
 - 対向断面のbranchは選択した`LaneEndpointKey`と境界だけをSplitへ載せる。反対方向laneはContinuationのまま維持し、median boundaryをbranchへ暗黙流用しない。
+- `JunctionMovement`はdegree 3/4のjunctionでだけsupportedとする。同一source laneから複数target laneを明示できるが、source退出・target進入・同一nodeを満たさない接続はvalidation、junction以外へのmovement指定はunsupportedとする。
+- movement geometryはsource/target gate上のlane centerをG1 cubicで結ぶ。直進のminimum radiusは正の無限大を許可し、turnは有限かつ正のradiusを要求する。

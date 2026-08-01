@@ -132,6 +132,14 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "domains/road/src/generation/connections.cpp: corner and junction curves must share one control factor"
         )
+    if "resolve_junction_movement_path" not in connection_text:
+        errors.append(
+            "domains/road/src/generation/connections.cpp: junction lane movements need their own resolver"
+        )
+    if "topology.kind == LaneConnectionKind::kJunctionMovement" not in connection_text:
+        errors.append(
+            "domains/road/src/generation/connections.cpp: junction movement topology is not dispatched explicitly"
+        )
     if "side_marking" in marking_text:
         errors.append(
             "domains/road/src/generation/markings.cpp: lane side policies must resolve during section evaluation"

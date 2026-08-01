@@ -196,6 +196,10 @@ laneとboundaryの多重度は同じ意味に揃える。Continuationは一対�
 対向道路でも接続単位は`LaneEndpointKey`であり、道路全体の方向分類からbranch対象を広げない。選択方向と反対のlaneおよび
 median boundaryは、明示された接続以外では既存mainline上に維持する。
 
+交差点内の進行は`LaneConnectionKind::kJunctionMovement`として同じauthoritative topologyへ保存するが、geometryは
+`resolve_junction_movement_path`がjunction gate間だけに生成する。merge/splitの長い接続区間resolverとは分け、
+共通のG1 cubic primitiveだけを共有する。source/targetは常に`LaneEndpointKey`で明示し、turn roleや角度から推測しない。
+
 ## Approach override lifecycle
 
 authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / manual lateral shiftだけである。全fieldがAutoの空overrideは保存しない。

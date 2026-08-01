@@ -1583,6 +1583,143 @@ bool LAN6_opposing_lanes_and_median_survive_one_direction_branch(
   return true;
 }
 
+bool LAN7_junction_movements_are_explicit_lane_connections(
+    std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto north = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({30.0, 0.0}, {30.0, 30.0})}), 1,
+          base.value, 30.0});
+  ROAD_TEST_EXPECT(north.ok, north.error);
+  ROAD_TEST_EXPECT(!road_test_view::junctions(state.derived()).empty(),
+                   "LAN7 T junction was not generated");
+  const RoadNodeId node =
+      road_test_view::junctions(state.derived()).front()->node_id;
+  const auto south = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({30.0, 0.0}, {30.0, -30.0})}), 1, node});
+  ROAD_TEST_EXPECT(south.ok, south.error);
+
+  RoadSegmentId west_segment = 0;
+  RoadSegmentId east_segment = 0;
+  for (const auto& segment : state.graph().segments) {
+    if (segment.id == north.value || segment.id == south.value)
+      continue;
+    const RoadNodeId other_id = segment.node_a == node ? segment.node_b
+                                                       : segment.node_a;
+    const auto other = std::find_if(
+        state.graph().nodes.begin(), state.graph().nodes.end(),
+        [other_id](const auto& candidate) { return candidate.id == other_id; });
+    ROAD_TEST_EXPECT(other != state.graph().nodes.end(),
+                     "LAN7 cross approach endpoint is missing");
+    if (other->position.x < 30.0)
+      west_segment = segment.id;
+    if (other->position.x > 30.0)
+      east_segment = segment.id;
+  }
+  ROAD_TEST_EXPECT(west_segment != 0 && east_segment != 0,
+                   "LAN7 could not identify west/east approaches by fixture IDs");
+  const auto role_at = [&](RoadSegmentId id) {
+    const auto segment = std::find_if(
+        state.graph().segments.begin(), state.graph().segments.end(),
+        [id](const auto& candidate) { return candidate.id == id; });
+    return segment->node_a == node ? EndpointRole::kStart
+                                   : EndpointRole::kEnd;
+  };
+  const city::road::LaneEndpointKey source{
+      west_segment, 1010, role_at(west_segment)};
+  const std::array<city::road::LaneEndpointKey, 3> targets{
+      city::road::LaneEndpointKey{east_segment, 1010,
+                                  role_at(east_segment)},
+      city::road::LaneEndpointKey{north.value, 1010,
+                                  role_at(north.value)},
+      city::road::LaneEndpointKey{south.value, 1010,
+                                  role_at(south.value)},
+  };
+  std::vector<city::road::LaneConnectionId> movement_ids{};
+  for (const auto& target : targets) {
+    const auto movement = state.AddLaneConnection(
+        city::road::AddLaneConnectionRequest{
+            source, target, city::road::LaneConnectionKind::kJunctionMovement});
+    ROAD_TEST_EXPECT(movement.ok, movement.error);
+    movement_ids.push_back(movement.value);
+  }
+  ROAD_TEST_EXPECT(state.derived().lane_paths.size() == 3,
+                   "LAN7 did not derive all explicit junction movements");
+  for (const auto id : movement_ids) {
+    const auto movement = std::find_if(
+        state.graph().lane_connections.begin(),
+        state.graph().lane_connections.end(),
+        [id](const auto& candidate) { return candidate.id == id; });
+    const auto path = std::find_if(
+        state.derived().lane_paths.begin(), state.derived().lane_paths.end(),
+        [id](const auto& candidate) { return candidate.connection_id == id; });
+    ROAD_TEST_EXPECT(movement != state.graph().lane_connections.end() &&
+                         movement->kind ==
+                             city::road::LaneConnectionKind::kJunctionMovement &&
+                         path != state.derived().lane_paths.end() &&
+                         path->centerline.spans.size() == 1 &&
+                         std::isfinite(path->length_m) && path->length_m > 0.0 &&
+                         !std::isnan(path->minimum_radius_m) &&
+                         path->minimum_radius_m > 0.0,
+                     "LAN7 junction movement is missing or degenerate");
+    const auto& span = path->centerline.spans.front();
+    const Vec2d start_tangent{span.p1.x - span.p0.x,
+                              span.p1.y - span.p0.y};
+    ROAD_TEST_EXPECT(start_tangent.x > 0.0 &&
+                         std::abs(start_tangent.y) < 1e-9,
+                     "LAN7 movement is not G1 with the incoming west lane");
+  }
+
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  const city::road::LaneEndpointKey wrong_source{
+      west_segment, 1000, role_at(west_segment)};
+  const auto rejected = state.AddLaneConnection(
+      city::road::AddLaneConnectionRequest{
+          wrong_source, targets.front(),
+          city::road::LaneConnectionKind::kJunctionMovement});
+  ROAD_TEST_EXPECT(!rejected.ok &&
+                       rejected.error_kind == city::road::ErrorKind::kValidation,
+                   "LAN7 accepted a wrong-way junction movement");
+  const auto after_reject = state.Save();
+  ROAD_TEST_EXPECT(after_reject.ok && after_reject.value == saved.value,
+                   "LAN7 wrong-way movement mutated authoritative state");
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok && loaded.value.derived().lane_paths.size() == 3,
+                   "LAN7 junction movements did not survive save/load");
+
+  RoadState non_junction{};
+  const auto first = non_junction.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {30.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(first.ok, first.error);
+  const RoadNodeId pass_node = non_junction.graph().segments.front().node_b;
+  const auto second = non_junction.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({30.0, 0.0}, {60.0, 0.0})}), 1, pass_node});
+  ROAD_TEST_EXPECT(second.ok, second.error);
+  const auto before_non_junction = non_junction.Save();
+  ROAD_TEST_EXPECT(before_non_junction.ok, before_non_junction.error);
+  const auto rejected_non_junction = non_junction.AddLaneConnection(
+      city::road::AddLaneConnectionRequest{
+          {first.value, 1010, EndpointRole::kEnd},
+          {second.value, 1010, EndpointRole::kStart},
+          city::road::LaneConnectionKind::kJunctionMovement});
+  ROAD_TEST_EXPECT(
+      !rejected_non_junction.ok &&
+          rejected_non_junction.error_kind ==
+              city::road::ErrorKind::kUnsupported,
+      "LAN7 accepted junction movement topology outside a junction");
+  const auto after_non_junction = non_junction.Save();
+  ROAD_TEST_EXPECT(after_non_junction.ok &&
+                       after_non_junction.value == before_non_junction.value,
+                   "LAN7 non-junction movement failure mutated state");
+  return true;
+}
+
 bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   {
     RoadState state{};
@@ -2095,6 +2232,8 @@ int main() {
        LAN5_one_lane_road_merges_into_outer_mainline_lane},
       {"LAN6_opposing_lanes_and_median_survive_one_direction_branch",
        LAN6_opposing_lanes_and_median_survive_one_direction_branch},
+      {"LAN7_junction_movements_are_explicit_lane_connections",
+       LAN7_junction_movements_are_explicit_lane_connections},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},

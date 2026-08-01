@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <numbers>
 #include <set>
 #include <string>
 
@@ -612,9 +613,64 @@ bool P1_degree_two_corner_uses_a_curve_without_a_junction(std::string& failure) 
                        connection_styles.contains(RenderStyleFromSurface(builtin_surface_styles::kCurb)),
                    "degree-two corner does not preserve the road section styles");
   ROAD_TEST_EXPECT(has_curved_vertex, "degree-two corner connector is not curved between its gates");
-  const auto too_sharp = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({0.0, 0.0}, {30.0, 1.0})}), 1, node});
-  ROAD_TEST_EXPECT(!too_sharp.ok && too_sharp.error_kind == ErrorKind::kUnsupported,
-                   "P1 accepted a connection angle outside the fixed range");
+  return true;
+}
+
+bool P1_common_skew_angles_are_resolved_from_geometry(std::string& failure) {
+  for (const double degrees : {30.0, 45.0, 60.0}) {
+    RoadState corner_state{};
+    const auto base = corner_state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const auto node = corner_state.graph().segments.front().node_a;
+    const double radians = degrees * std::numbers::pi / 180.0;
+    const auto branch = corner_state.AddSegmentConnectedTo(
+        city::road::AddSegmentConnectedToRequest{
+            MakePath({MakeLine({0.0, 0.0},
+                               {40.0 * std::cos(radians),
+                                40.0 * std::sin(radians)})}),
+            1, node});
+    ROAD_TEST_EXPECT(branch.ok,
+                     "degree-two skew angle was rejected: " + branch.error);
+    ROAD_TEST_EXPECT(road_test_view::corners(corner_state.derived()).size() == 1,
+                     "degree-two skew angle did not produce one corner");
+    ROAD_TEST_EXPECT(ValidateGraphInvariants(corner_state.graph(),
+                                             corner_state.derived()).ok,
+                     "degree-two skew angle violated derived invariants");
+  }
+
+  RoadState junction_state{};
+  const auto base = junction_state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const double radians = 30.0 * std::numbers::pi / 180.0;
+  const auto branch = junction_state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0},
+                             {40.0 * std::cos(radians),
+                              40.0 * std::sin(radians)})}),
+          1, base.value, 40.0});
+  ROAD_TEST_EXPECT(branch.ok, "skew T junction was rejected: " + branch.error);
+  ROAD_TEST_EXPECT(road_test_view::junctions(junction_state.derived()).size() == 1,
+                   "skew T junction did not produce one junction");
+  const auto junction_node =
+      road_test_view::junctions(junction_state.derived()).front()->node_id;
+  const auto opposite = junction_state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0},
+                             {-40.0 * std::cos(radians),
+                              -40.0 * std::sin(radians)})}),
+          1, junction_node});
+  ROAD_TEST_EXPECT(opposite.ok,
+                   "skew cross junction was rejected: " + opposite.error);
+  ROAD_TEST_EXPECT(
+      road_test_view::gates_of(
+          *road_test_view::junctions(junction_state.derived()).front())
+              .size() == 4,
+      "skew cross junction does not have four approaches");
+  ROAD_TEST_EXPECT(ValidateGraphInvariants(junction_state.graph(),
+                                           junction_state.derived()).ok,
+                   "skew cross junction violated derived invariants");
   return true;
 }
 
@@ -2311,6 +2367,8 @@ int main() {
       {"P0_multispan_segment_is_one_user_deletion_unit",
        P0_multispan_segment_is_one_user_deletion_unit},
       {"P1_degree_two_corner_uses_a_curve_without_a_junction", P1_degree_two_corner_uses_a_curve_without_a_junction},
+      {"P1_common_skew_angles_are_resolved_from_geometry",
+       P1_common_skew_angles_are_resolved_from_geometry},
       {"P1_corner_preserves_endpoint_section_sides", P1_corner_preserves_endpoint_section_sides},
       {"P1_straight_connection_has_no_junction_area", P1_straight_connection_has_no_junction_area},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},

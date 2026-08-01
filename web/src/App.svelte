@@ -575,4 +575,20 @@
       editing {snapshot.interaction.param} · Esc to cancel
     </div>
   {/if}
+
+  {#if snapshot.buildMismatch}
+    <div class="build-mismatch" role="alertdialog" aria-modal="true">
+      <section>
+        <strong>Web and WASM builds do not match</strong>
+        <p>Editing is disabled. Restart the local server after rebuilding both outputs.</p>
+        <dl>
+          <dt>Web</dt><dd>{snapshot.buildMismatch.webCommit} · v{snapshot.buildMismatch.webVersion}</dd>
+          <dt>WASM</dt><dd>{snapshot.buildMismatch.wasmCommit} · v{snapshot.buildMismatch.wasmVersion}</dd>
+          <dt>Tool</dt><dd>{snapshot.activeTool}</dd>
+          <dt>Session</dt><dd>{snapshot.activeTool === "road" ? snapshot.road.phase : snapshot.wirePreview.state}</dd>
+          <dt>Failure</dt><dd>{snapshot.lastCommitFailure?.category ?? "none"} · {snapshot.lastCommitFailure?.reasonCode ?? "none"}</dd>
+        </dl>
+      </section>
+    </div>
+  {/if}
 </main>

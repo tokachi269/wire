@@ -12,3 +12,16 @@ export const buildInfo =
         packageVersion: "0.2.0"
       }
     : __WIRE_BUILD_INFO__;
+
+export interface WasmBuildIdentity {
+  commit: string;
+  version: string;
+}
+
+export function buildIdentitiesMatch(
+  web: Pick<typeof buildInfo, "commit" | "packageVersion">,
+  wasm: WasmBuildIdentity
+): boolean {
+  if (web.commit === "dev") return true;
+  return web.commit === wasm.commit && web.packageVersion === wasm.version;
+}

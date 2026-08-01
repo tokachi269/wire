@@ -336,15 +336,21 @@ function expectSamplesChangedOnlyWithVersionChange(
 describe("wire wasm smoke", () => {
   let state: WireStateHandle;
   let createState: () => WireStateHandle;
+  let wasmBuildCommit = "";
+  let wasmBuildVersion = "";
 
   beforeAll(async () => {
     const module = await loadWireModule();
     createState = () => new module.WireState();
+    wasmBuildCommit = module.wireBuildCommit();
+    wasmBuildVersion = module.wireBuildVersion();
     state = new module.WireState();
   });
 
   it("loads the generated wasm module", () => {
     expect(createState).toBeTypeOf("function");
+    expect(wasmBuildCommit).toMatch(/^(unknown|[0-9a-f]{12})$/);
+    expect(wasmBuildVersion).toMatch(/^(unknown|\d+\.\d+\.\d+)$/);
     const loaded = createState();
     expect(loaded.poleCount()).toBe(0);
     loaded.delete();

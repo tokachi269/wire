@@ -310,6 +310,14 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
             "StateConflict",
             "InternalError",
         ),
+        "web/src/main.ts": (
+            "buildIdentitiesMatch",
+            "buildMismatch",
+        ),
+        "web/wasm/bindings.cpp": (
+            "wireBuildCommit",
+            "wireBuildVersion",
+        ),
     }
     for source, tokens in required.items():
         path = root / source
@@ -338,6 +346,7 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
         "domains/road/include/city/road/common_types.hpp": ("enum class ErrorKind", "error_kind"),
         "domains/wire/include/city/wire/core_edit_types.hpp": ("enum class EditErrorKind", "error_kind"),
         "web/src/model.ts": ("enum EditErrorKind", "errorKind"),
+        "web/src/bridge/wire.ts": ("regenerateBuildIdentity",),
     }
     for source, tokens in forbidden.items():
         path = root / source

@@ -61,12 +61,23 @@ export class WireBridge {
 
   private constructor(
     private readonly state: WireStateHandle,
-    private readonly roadState: RoadStateHandle
+    private readonly roadState: RoadStateHandle,
+    private readonly wasmBuildCommit: string,
+    private readonly wasmBuildVersion: string
   ) {}
 
   static async create(options?: WireModuleOptions): Promise<WireBridge> {
     const module = await loadWireModule(options);
-    return new WireBridge(new module.WireState(), new module.RoadState());
+    return new WireBridge(
+      new module.WireState(),
+      new module.RoadState(),
+      module.wireBuildCommit(),
+      module.wireBuildVersion()
+    );
+  }
+
+  buildIdentity(): { commit: string; version: string } {
+    return { commit: this.wasmBuildCommit, version: this.wasmBuildVersion };
   }
 
   generate(

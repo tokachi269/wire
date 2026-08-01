@@ -315,6 +315,26 @@ describe("viewer numeric inputs", () => {
       .toContain("road_connection_too_short");
   });
 
+  it("blocks the editor when the Web and WASM build identities differ", async () => {
+    const mounted = await mountViewer(false);
+    mounted.store.update((snapshot) => ({
+      ...snapshot,
+      buildMismatch: {
+        webCommit: "web123",
+        webVersion: "0.2.0",
+        wasmCommit: "wasm456",
+        wasmVersion: "0.2.0"
+      }
+    }));
+    await tick();
+
+    const mismatch = document.querySelector(".build-mismatch");
+    expect(mismatch?.getAttribute("role")).toBe("alertdialog");
+    expect(mismatch?.textContent).toContain("Web and WASM builds do not match");
+    expect(mismatch?.textContent).toContain("web123");
+    expect(mismatch?.textContent).toContain("wasm456");
+  });
+
   it("resets both core state and viewer settings", async () => {
     const mounted = await mountViewer();
     const factorySagFactor = mounted.bridge.geometrySettings().sagFactor;

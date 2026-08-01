@@ -6,6 +6,7 @@ import { startConsoleLogging } from "./consoleLog";
 import { loadDefaultModelBootstrap } from "./render/modelAssets";
 import { WireScene } from "./render/scene";
 import { ViewerStore } from "./store/viewer";
+import { buildIdentitiesMatch, buildInfo } from "./buildInfo";
 import {
   IndexedDbWorkspaceStorage,
   WORKSPACE_CACHE_KEY,
@@ -24,6 +25,29 @@ async function main(): Promise<void> {
   const stopConsoleLogging = startConsoleLogging(store);
   const modelBootstrap = await loadDefaultModelBootstrap();
   const bridge = await WireBridge.create();
+  const wasmBuild = bridge.buildIdentity();
+  if (!buildIdentitiesMatch(buildInfo, wasmBuild)) {
+    store.update((snapshot) => ({
+      ...snapshot,
+      buildMismatch: {
+        webCommit: buildInfo.commit,
+        webVersion: buildInfo.packageVersion,
+        wasmCommit: wasmBuild.commit,
+        wasmVersion: wasmBuild.version
+      }
+    }));
+    const actions = new ViewerActions(bridge, store);
+    mount(App, {
+      target: mountTarget,
+      props: { actions, store, mountScene: () => undefined }
+    });
+    window.addEventListener("beforeunload", () => {
+      stopConsoleLogging();
+      actions.dispose();
+      bridge.dispose();
+    });
+    return;
+  }
   const modelBootstrapResult = bridge.configureModelAssemblies(modelBootstrap);
   if (!modelBootstrapResult.ok) {
     throw new Error(`Model bootstrap failed: ${modelBootstrapResult.error}`);

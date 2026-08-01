@@ -66,5 +66,12 @@ nodes, corridor membership, connection, surface, and marking together. Wire
 commits its route topology, support binding, and generated wire geometry
 together. Guide and topology are not separate commit phases.
 
+## Build identity
+
+The Web bundle and WASM module embed the same Git commit and package version.
+Startup compares both values before loading the workspace or mounting the scene.
+A mismatch blocks editing and reports both identities; it is not treated as a
+domain commit failure.
+
 Text controls own Enter and Escape while focused. IME composition does not send
 draw commands. Keyboard input is dispatched to exactly one active draw domain.

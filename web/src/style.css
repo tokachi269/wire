@@ -989,6 +989,48 @@ summary {
   font-size: var(--sidebar-control-size);
 }
 
+.build-mismatch {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(13, 16, 18, 0.82);
+}
+
+.build-mismatch section {
+  width: min(520px, 100%);
+  padding: 1rem;
+  border: 1px solid #a55047;
+  border-radius: 4px;
+  background: #242a2d;
+  color: #e4e8e6;
+}
+
+.build-mismatch section > strong {
+  color: #ffb4a8;
+  font-size: 1rem;
+}
+
+.build-mismatch dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0.75rem 0 0;
+}
+
+.build-mismatch dt {
+  color: var(--muted);
+}
+
+.build-mismatch dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: "JetBrains Mono", monospace;
+}
+
 .last-log {
   border-left: 3px solid var(--accent);
   padding: 0.3rem 0.5rem;

@@ -24,6 +24,14 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../domains/road" road)
 
 add_executable(wire_web_core bindings.cpp)
 target_link_libraries(wire_web_core PRIVATE wire_core road)
+set(WIRE_BUILD_COMMIT "unknown" CACHE STRING "Git commit embedded in the WebAssembly module")
+set(WIRE_BUILD_VERSION "unknown" CACHE STRING "Package version embedded in the WebAssembly module")
+target_compile_definitions(
+  wire_web_core
+  PRIVATE
+  WIRE_BUILD_COMMIT="${WIRE_BUILD_COMMIT}"
+  WIRE_BUILD_VERSION="${WIRE_BUILD_VERSION}"
+)
 
 target_link_options(
   wire_web_core

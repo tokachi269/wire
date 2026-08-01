@@ -391,6 +391,8 @@ export interface RoadConnectedLaneSegmentInput extends RoadSegmentInput {
 export interface WireModule {
   WireState: new () => WireStateHandle;
   RoadState: new () => RoadStateHandle;
+  wireBuildCommit(): string;
+  wireBuildVersion(): string;
 }
 
 export interface WireModuleOptions {

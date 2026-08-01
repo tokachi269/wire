@@ -50,6 +50,7 @@ export interface ViewerSnapshot {
   backboneEdges: BackboneEdgeInfo[];
   error: string;
   lastCommitFailure: CommitFailure | null;
+  buildMismatch: { webCommit: string; webVersion: string; wasmCommit: string; wasmVersion: string } | null;
   generationMs: number | null;
   generationTiming: GenerationTiming | null;
   generationCallMs: number | null;
@@ -114,6 +115,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     backboneEdges: [],
     error: "",
     lastCommitFailure: null,
+    buildMismatch: null,
     generationMs: null,
     generationTiming: null,
     generationCallMs: null,

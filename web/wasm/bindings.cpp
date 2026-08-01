@@ -19,6 +19,14 @@
 
 namespace {
 
+#ifndef WIRE_BUILD_COMMIT
+#define WIRE_BUILD_COMMIT "unknown"
+#endif
+
+#ifndef WIRE_BUILD_VERSION
+#define WIRE_BUILD_VERSION "unknown"
+#endif
+
 using emscripten::val;
 using city::wire::BackboneBundleSpec;
 using city::wire::BackboneInputSpec;
@@ -37,6 +45,9 @@ using city::wire::ResolveBranchPickOptions;
 using city::wire::SpanLayer;
 using city::wire::SupportKind;
 using city::wire::Vec3d;
+
+[[nodiscard]] std::string wire_build_commit() { return WIRE_BUILD_COMMIT; }
+[[nodiscard]] std::string wire_build_version() { return WIRE_BUILD_VERSION; }
 
 [[nodiscard]] val road_result_value(bool ok,
                                     const std::string& error,
@@ -2323,6 +2334,8 @@ private:
 } // namespace
 
 EMSCRIPTEN_BINDINGS(wire_web_core) {
+  emscripten::function("wireBuildCommit", &wire_build_commit);
+  emscripten::function("wireBuildVersion", &wire_build_version);
   emscripten::class_<RoadStateBinding>("RoadState")
       .constructor<>()
       .function("addSegment", &RoadStateBinding::add_segment)

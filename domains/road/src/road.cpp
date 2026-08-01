@@ -2737,8 +2737,10 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     }
   }
   const double taper_length = request.full_width_corridor_distance_m -
-                              request.taper_start_corridor_distance_m;
+                               request.taper_start_corridor_distance_m;
   CrossSectionTemplateId from_template_id = source->id;
+  RoadSegmentId full_width_split_segment_id = 0;
+  bool full_width_split_reversed = false;
   double corridor_begin = 0.0;
   for (auto ref = corridor->segments.begin(); ref != selected_ref; ++ref) {
     const DerivedSegment* before = FindDerivedSegment(derived_, ref->segment_id);
@@ -2763,7 +2765,14 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           CommitFailureCategory::kNotImplemented,
           "lane transition cannot overlap an existing section transition");
     }
-    if (current->section_template != source->id) {
+    const CrossSectionTemplate* current_section =
+        find_template(graph_, current->section_template);
+    if (current_section == nullptr) {
+      return Result<LaneId>::Fail(
+          CommitFailureCategory::kInternalError,
+          "lane transition corridor section is missing");
+    }
+    if (!internal::equivalent_section_definition(*current_section, *source)) {
       return Result<LaneId>::Fail(
           CommitFailureCategory::kNotImplemented,
           "added lane reaches a different unresolved section");
@@ -2825,16 +2834,185 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
                    ? TransitionAction::kTaperOut
                    : TransitionAction::kChangeWidthHeightOffset);
     const SectionTransitionId transition_id = next_id++;
-    plan.add_transitions.push_back(SectionTransition{
-        transition_id, local_from_template_id, local_to_template_id,
-        DistanceRef{DistanceRefKind::kFromStart, local_start},
-        DistanceRef{DistanceRefKind::kFromStart, local_end},
-        TransitionAnchor::kBoundary, anchor_boundary_id,
-        {SectionTransitionRule{added_strip_id, action}}});
-    RoadSegment replacement = *current;
-    replacement.section_template = local_from_template_id;
-    replacement.transition = transition_id;
-    plan.replace_segments.push_back(std::move(replacement));
+    const bool split_at_full_width =
+        ref == full_ref &&
+        ((!ref->reversed && local_end < current_derived->length_m - kEpsilon) ||
+         (ref->reversed && local_start > kEpsilon));
+    if (split_at_full_width) {
+      const double split_distance = ref->reversed ? local_start : local_end;
+      const Path* current_path = FindCanonicalAlignment(derived_, current->id);
+      if (current_path == nullptr) {
+        return Result<LaneId>::Fail(
+            CommitFailureCategory::kInternalError,
+            "lane full-width split geometry is missing");
+      }
+      for (const ManualLineMarking& marking : graph_.manual_lines) {
+        if (marking.owner_segment_id != current->id) continue;
+        const auto [minimum, maximum] = manual_line_distance_bounds(marking);
+        if (minimum < split_distance - kEpsilon &&
+            maximum > split_distance + kEpsilon) {
+          return Result<LaneId>::Fail(
+              CommitFailureCategory::kNotImplemented,
+              "lane full-width boundary crosses a manual line marking");
+        }
+      }
+      for (const ManualAreaMarking& marking : graph_.manual_areas) {
+        if (marking.owner_segment_id != current->id) continue;
+        const auto [minimum, maximum] = manual_area_distance_bounds(marking);
+        if (minimum < split_distance - kEpsilon &&
+            maximum > split_distance + kEpsilon) {
+          return Result<LaneId>::Fail(
+              CommitFailureCategory::kNotImplemented,
+              "lane full-width boundary crosses a manual area marking");
+        }
+      }
+      const Result<PathSplit> split =
+          split_path_at_distance(*current_path, split_distance);
+      if (!split.ok) {
+        return Result<LaneId>::Fail(split.failure_category, split.error);
+      }
+      const Result<SegmentShape> before_shape =
+          SegmentShapeFromPath(split.value.before);
+      const Result<SegmentShape> after_shape =
+          SegmentShapeFromPath(split.value.after);
+      if (!before_shape.ok || !after_shape.ok) {
+        return Result<LaneId>::Fail(
+            CommitFailureCategory::kInternalError,
+            "lane full-width split shape derivation failed");
+      }
+      const RoadNodeId split_node = next_id++;
+      full_width_split_segment_id = next_id++;
+      full_width_split_reversed = ref->reversed;
+      plan.add_nodes.push_back(RoadNode{split_node, split.value.point});
+      RoadSegment before = *current;
+      before.node_b = split_node;
+      before.shape = before_shape.value;
+      RoadSegment after{full_width_split_segment_id, split_node,
+                        current->node_b, after_shape.value, target.id,
+                        std::nullopt};
+      if (ref->reversed) {
+        before.section_template = target.id;
+        before.transition.reset();
+        after.section_template = local_from_template_id;
+        after.transition = transition_id;
+      } else {
+        before.section_template = local_from_template_id;
+        before.transition = transition_id;
+      }
+      plan.replace_segments.push_back(std::move(before));
+      plan.add_segments.push_back(std::move(after));
+      plan.add_transitions.push_back(SectionTransition{
+          transition_id, local_from_template_id, local_to_template_id,
+          DistanceRef{DistanceRefKind::kRatio, 0.0},
+          DistanceRef{DistanceRefKind::kRatio, 1.0},
+          TransitionAnchor::kBoundary, anchor_boundary_id,
+          {SectionTransitionRule{added_strip_id, action}}});
+
+      const ApproachKey old_end{current->node_b, current->id,
+                                EndpointRole::kEnd};
+      const ApproachKey new_end{current->node_b,
+                                full_width_split_segment_id,
+                                EndpointRole::kEnd};
+      if (const ApproachGeometryOverride* override =
+              find_approach_geometry_override(graph_, old_end)) {
+        ApproachGeometryOverride mapped = *override;
+        mapped.key = new_end;
+        plan.remove_approach_geometry_overrides.push_back(old_end);
+        plan.add_approach_geometry_overrides.push_back(std::move(mapped));
+      }
+      for (const JunctionMarkingOverride& override :
+           graph_.junction_marking_overrides) {
+        const bool source_end = override.source.approach == old_end;
+        const bool target_end = override.target.has_value() &&
+                                override.target->approach == old_end;
+        if (!source_end && !target_end) continue;
+        JunctionMarkingOverride mapped = override;
+        if (source_end) mapped.source.approach = new_end;
+        if (target_end) mapped.target->approach = new_end;
+        plan.remove_junction_marking_overrides.push_back(override.id);
+        plan.add_junction_marking_overrides.push_back(std::move(mapped));
+      }
+      for (const ManualLineMarking& marking : graph_.manual_lines) {
+        if (marking.owner_segment_id != current->id ||
+            manual_line_distance_bounds(marking).first + kEpsilon <
+                split_distance) {
+          continue;
+        }
+        ManualLineMarking mapped = marking;
+        mapped.owner_segment_id = full_width_split_segment_id;
+        shift_manual_line_distance(mapped, -split_distance);
+        plan.remove_manual_lines.push_back(marking.id);
+        plan.add_manual_lines.push_back(std::move(mapped));
+      }
+      for (const ManualAreaMarking& marking : graph_.manual_areas) {
+        if (marking.owner_segment_id != current->id ||
+            manual_area_distance_bounds(marking).first + kEpsilon <
+                split_distance) {
+          continue;
+        }
+        ManualAreaMarking mapped = marking;
+        mapped.owner_segment_id = full_width_split_segment_id;
+        mapped.frame_origin.x -= split_distance;
+        plan.remove_manual_areas.push_back(marking.id);
+        plan.add_manual_areas.push_back(std::move(mapped));
+      }
+      for (const AutoMarkingOverride& override :
+           graph_.auto_marking_overrides) {
+        if (override.key.owner.kind != MarkingOwner::Kind::kRoadSegment ||
+            override.key.owner.segment_id != current->id ||
+            !override.key.track.has_value()) {
+          continue;
+        }
+        AutoMarkingOverride mapped = override;
+        mapped.key.owner.segment_id = full_width_split_segment_id;
+        mapped.key.track->segment_id = full_width_split_segment_id;
+        plan.add_auto_marking_overrides.push_back(std::move(mapped));
+      }
+      for (const LaneConnection& connection : graph_.lane_connections) {
+        const bool source_end =
+            connection.source.segment_id == current->id &&
+            connection.source.endpoint_role == EndpointRole::kEnd;
+        const bool target_end =
+            connection.target.segment_id == current->id &&
+            connection.target.endpoint_role == EndpointRole::kEnd;
+        if (!source_end && !target_end) continue;
+        LaneConnection mapped = connection;
+        if (source_end)
+          mapped.source.segment_id = full_width_split_segment_id;
+        if (target_end)
+          mapped.target.segment_id = full_width_split_segment_id;
+        plan.remove_lane_connections.push_back(connection.id);
+        plan.add_lane_connections.push_back(std::move(mapped));
+      }
+      for (const BoundaryContinuation& continuation :
+           graph_.boundary_continuations) {
+        const bool source_end =
+            continuation.source.segment_id == current->id &&
+            continuation.source.endpoint_role == EndpointRole::kEnd;
+        const bool target_end =
+            continuation.target.segment_id == current->id &&
+            continuation.target.endpoint_role == EndpointRole::kEnd;
+        if (!source_end && !target_end) continue;
+        BoundaryContinuation mapped = continuation;
+        if (source_end)
+          mapped.source.segment_id = full_width_split_segment_id;
+        if (target_end)
+          mapped.target.segment_id = full_width_split_segment_id;
+        plan.remove_boundary_continuations.push_back(continuation.id);
+        plan.add_boundary_continuations.push_back(std::move(mapped));
+      }
+    } else {
+      plan.add_transitions.push_back(SectionTransition{
+          transition_id, local_from_template_id, local_to_template_id,
+          DistanceRef{DistanceRefKind::kFromStart, local_start},
+          DistanceRef{DistanceRefKind::kFromStart, local_end},
+          TransitionAnchor::kBoundary, anchor_boundary_id,
+          {SectionTransitionRule{added_strip_id, action}}});
+      RoadSegment replacement = *current;
+      replacement.section_template = local_from_template_id;
+      replacement.transition = transition_id;
+      plan.replace_segments.push_back(std::move(replacement));
+    }
     from_template_id = corridor_exit_template_id;
     corridor_begin = corridor_end;
   }
@@ -2850,7 +3028,14 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           CommitFailureCategory::kNotImplemented,
           "added lane conflicts with a later section transition");
     }
-    if (following->section_template != source->id) {
+    const CrossSectionTemplate* following_section =
+        find_template(graph_, following->section_template);
+    if (following_section == nullptr) {
+      return Result<LaneId>::Fail(
+          CommitFailureCategory::kInternalError,
+          "lane addition following corridor section is missing");
+    }
+    if (!internal::equivalent_section_definition(*following_section, *source)) {
       return Result<LaneId>::Fail(
           CommitFailureCategory::kNotImplemented,
           "added lane reaches a different unresolved section");
@@ -2860,6 +3045,34 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     plan.replace_segments.push_back(std::move(replacement));
   }
   RoadCorridor corridor_replacement = *corridor;
+  if (full_width_split_segment_id != 0) {
+    const auto split_ref = std::find_if(
+        corridor_replacement.segments.begin(),
+        corridor_replacement.segments.end(),
+        [full_ref](const DirectedSegmentRef& ref) {
+          return ref.segment_id == full_ref->segment_id;
+        });
+    if (split_ref == corridor_replacement.segments.end()) {
+      return Result<LaneId>::Fail(
+          CommitFailureCategory::kInternalError,
+          "lane full-width corridor reference is missing");
+    }
+    const std::size_t split_index = static_cast<std::size_t>(std::distance(
+        corridor_replacement.segments.begin(), split_ref));
+    corridor_replacement.segments.erase(split_ref);
+    const std::array<DirectedSegmentRef, 2> split_refs =
+        full_width_split_reversed
+            ? std::array<DirectedSegmentRef, 2>{
+                  DirectedSegmentRef{full_width_split_segment_id, true},
+                  DirectedSegmentRef{full_ref->segment_id, true}}
+            : std::array<DirectedSegmentRef, 2>{
+                  DirectedSegmentRef{full_ref->segment_id, false},
+                  DirectedSegmentRef{full_width_split_segment_id, false}};
+    corridor_replacement.segments.insert(
+        corridor_replacement.segments.begin() +
+            static_cast<std::ptrdiff_t>(split_index),
+        split_refs.begin(), split_refs.end());
+  }
   corridor_replacement.section_template_id = target.id;
   plan.replace_corridors.push_back(std::move(corridor_replacement));
   plan.add_section_templates.push_back(std::move(target));

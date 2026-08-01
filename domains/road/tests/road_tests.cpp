@@ -1532,6 +1532,50 @@ bool add_lane_allows_a_later_non_overlapping_addition(std::string& failure) {
   return true;
 }
 
+bool add_lane_allows_a_later_addition_after_cross_segment_taper(
+    std::string& failure) {
+  RoadState state{};
+  const auto first_segment = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(first_segment.ok, first_segment.error);
+  const auto first = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&first_segment](const auto& segment) {
+        return segment.id == first_segment.value;
+      });
+  const auto* initial_corridor =
+      FindCorridorForSegment(state.graph(), first_segment.value);
+  ROAD_TEST_EXPECT(first != state.graph().segments.end() &&
+                       initial_corridor != nullptr,
+                   "ADD6 initial corridor is missing");
+  const RoadCorridorId corridor_id = initial_corridor->id;
+  const auto second_segment = state.ExtendCorridorFromEnd(
+      city::road::ExtendCorridorFromEndRequest{
+          corridor_id, first->node_b,
+          MakePath({MakeLine({80.0, 0.0}, {180.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(second_segment.ok, second_segment.error);
+
+  city::road::AddLaneRequest first_add{};
+  first_add.corridor_id = corridor_id;
+  first_add.direction = city::road::LaneTravelDirection::kAlongSegment;
+  first_add.side = city::road::RoadSide::kRight;
+  first_add.taper_start_corridor_distance_m = 60.0;
+  first_add.full_width_corridor_distance_m = 100.0;
+  first_add.lane_width_m = 3.0;
+  const auto first_lane = state.AddLane(first_add);
+  ROAD_TEST_EXPECT(first_lane.ok, first_lane.error);
+
+  city::road::AddLaneRequest second_add = first_add;
+  second_add.taper_start_corridor_distance_m = 130.0;
+  second_add.full_width_corridor_distance_m = 160.0;
+  const auto second_lane = state.AddLane(second_add);
+  ROAD_TEST_EXPECT(
+      second_lane.ok,
+      "ADD6 lane after cross-segment taper was rejected: " +
+          second_lane.error);
+  return true;
+}
+
 bool selected_outer_lane_branches_to_one_lane_road(
     std::string& failure) {
   RoadState state{};
@@ -2754,6 +2798,8 @@ int main() {
        add_lane_reaches_mixed_section_junction},
       {"add_lane_allows_a_later_non_overlapping_addition",
        add_lane_allows_a_later_non_overlapping_addition},
+      {"add_lane_allows_a_later_addition_after_cross_segment_taper",
+       add_lane_allows_a_later_addition_after_cross_segment_taper},
       {"selected_outer_lane_branches_to_one_lane_road",
        selected_outer_lane_branches_to_one_lane_road},
       {"one_lane_road_merges_into_outer_mainline_lane",

@@ -1,5 +1,10 @@
 # Road operation semantics (P0-P2 prototype scenarios)
 
+Road drawing follows the shared contract in `docs/editor/draw_interaction.md`.
+After the start anchor, each Click commits the displayed interval immediately.
+Enter optionally commits the current valid preview and ends the session. Escape
+discards only transient drawing state and never calls road undo or deletion.
+
 `city::road` の supported scenario を操作と状態の組で固定する。
 表にない組み合わせは推測せず `unsupported` とする。
 この表のscenario通過はarchitecture migration完了を意味しない。各public operationの実装契約は次で固定する。

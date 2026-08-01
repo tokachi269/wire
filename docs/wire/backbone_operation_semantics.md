@@ -1,5 +1,9 @@
 # Backbone 操作意味論
 
+標準wire描画は`docs/editor/draw_interaction.md`に従う。開始anchor後の各Clickは
+完全なroute区間を1つ確定し、Enterは有効previewを必要なら確定してsessionを終了する。
+Escapeは未確定previewだけを破棄し、確定済みwire topologyはUndoだけで取り消す。
+
 この文書は、操作前の状態と操作の組合せごとに、期待する状態遷移を定義する。
 実装済みコードやtest結果ではなく、実装前に合意する要件の正本である。
 実装の回帰一覧は`domains/wire/tests/spec_ledger.md`、未実装の保留条件は

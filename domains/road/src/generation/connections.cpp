@@ -118,6 +118,119 @@ const DerivedSegment *segment_of(const std::vector<DerivedSegment> &segments,
   return found == segments.end() ? nullptr : &*found;
 }
 
+const ResolvedConnection *connection_of(
+    const std::vector<ResolvedConnection> &connections, RoadNodeId node_id) {
+  const auto found = std::find_if(
+      connections.begin(), connections.end(),
+      [node_id](const ResolvedConnection &connection) {
+        return connection.node_id == node_id;
+      });
+  return found == connections.end() ? nullptr : &*found;
+}
+
+Result<double> strip_left_lateral(const SectionEvaluation &section,
+                                  SectionStripId strip_id) {
+  double value = -std::numeric_limits<double>::infinity();
+  for (const SectionBoundarySample &boundary : section.boundaries) {
+    if (boundary.right_strip_id == strip_id)
+      value = std::max(value, boundary.lateral_m);
+  }
+  if (!std::isfinite(value)) {
+    return Result<double>::Fail(ErrorKind::kInternal,
+                                "lane strip left boundary is missing");
+  }
+  return Result<double>::Ok(value);
+}
+
+Result<double> lane_lateral(const LaneBand &lane,
+                            const SectionEvaluation &section) {
+  const Result<double> left =
+      strip_left_lateral(section, lane.surface_strip_id);
+  if (!left.ok)
+    return left;
+  return Result<double>::Ok(
+      left.value + (lane.lateral_start_m + lane.lateral_end_m) * 0.5);
+}
+
+Result<double> boundary_lateral(BoundaryId id,
+                                const SectionEvaluation &section) {
+  double minimum = std::numeric_limits<double>::infinity();
+  double maximum = -std::numeric_limits<double>::infinity();
+  for (const SectionBoundarySample &boundary : section.boundaries) {
+    if (boundary.boundary_id != id)
+      continue;
+    minimum = std::min(minimum, boundary.lateral_m);
+    maximum = std::max(maximum, boundary.lateral_m);
+  }
+  if (!std::isfinite(minimum) || !std::isfinite(maximum)) {
+    return Result<double>::Fail(ErrorKind::kInternal,
+                                "connected boundary sample is missing");
+  }
+  return Result<double>::Ok((minimum + maximum) * 0.5);
+}
+
+Vec2d endpoint_point(const ResolvedApproach &approach, double lateral_m) {
+  const double section_sign =
+      approach.key.endpoint_role == EndpointRole::kStart ? 1.0 : -1.0;
+  return Vec2d{approach.gate.position.x +
+                   approach.gate.lateral.x * lateral_m * section_sign,
+               approach.gate.position.y +
+                   approach.gate.lateral.y * lateral_m * section_sign};
+}
+
+Path connect_endpoint_points(const ResolvedApproach &source,
+                             double source_lateral_m,
+                             const ResolvedApproach &target,
+                             double target_lateral_m) {
+  const Vec2d start = endpoint_point(source, source_lateral_m);
+  const Vec2d end = endpoint_point(target, target_lateral_m);
+  const Vec2d source_motion{-source.tangent.x, -source.tangent.y};
+  const Vec2d target_motion{target.tangent.x, target.tangent.y};
+  const double control = std::hypot(end.x - start.x, end.y - start.y) / 3.0;
+  return MakePath({MakeBezier(
+      start, internal::add(start, scale(source_motion, control)),
+      subtract(end, scale(target_motion, control)), end)});
+}
+
+double minimum_radius(const Path &path) {
+  if (path.spans.empty())
+    return 0.0;
+  const BezierSpan &span = path.spans.front();
+  double minimum = std::numeric_limits<double>::infinity();
+  for (int index = 0; index <= 24; ++index) {
+    const double t = static_cast<double>(index) / 24.0;
+    const double u = 1.0 - t;
+    const Vec2d first{
+        3.0 * u * u * (span.p1.x - span.p0.x) +
+            6.0 * u * t * (span.p2.x - span.p1.x) +
+            3.0 * t * t * (span.p3.x - span.p2.x),
+        3.0 * u * u * (span.p1.y - span.p0.y) +
+            6.0 * u * t * (span.p2.y - span.p1.y) +
+            3.0 * t * t * (span.p3.y - span.p2.y)};
+    const Vec2d second{
+        6.0 * u * (span.p2.x - 2.0 * span.p1.x + span.p0.x) +
+            6.0 * t * (span.p3.x - 2.0 * span.p2.x + span.p1.x),
+        6.0 * u * (span.p2.y - 2.0 * span.p1.y + span.p0.y) +
+            6.0 * t * (span.p3.y - 2.0 * span.p2.y + span.p1.y)};
+    const double speed = std::hypot(first.x, first.y);
+    const double bend = std::abs(cross(first, second));
+    if (speed <= distance_epsilon || bend <= distance_epsilon)
+      continue;
+    minimum = std::min(minimum, speed * speed * speed / bend);
+  }
+  return std::isfinite(minimum) ? minimum
+                                : std::numeric_limits<double>::infinity();
+}
+
+Vec2d evaluate_span(const BezierSpan &span, double t) {
+  const double u = 1.0 - t;
+  return Vec2d{
+      u * u * u * span.p0.x + 3.0 * u * u * t * span.p1.x +
+          3.0 * u * t * t * span.p2.x + t * t * t * span.p3.x,
+      u * u * u * span.p0.y + 3.0 * u * u * t * span.p1.y +
+          3.0 * u * t * t * span.p2.y + t * t * t * span.p3.y};
+}
+
 ConnectionGate gate_at(const ApproachKey &key, Vec2d position, Vec2d tangent,
                        Vec2d lateral) {
   ConnectionGate gate{};
@@ -137,9 +250,10 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
                                           const DerivedSegment &segment,
                                           const ApproachKey &key,
                                           CrossSectionTemplateId endpoint_section,
-                                          double auto_setback_m) {
+                                          double auto_setback_m,
+                                          double auto_lateral_shift_m) {
   double setback = auto_setback_m;
-  double lateral_shift = 0.0;
+  double lateral_shift = auto_lateral_shift_m;
   if (const ApproachGeometryOverride *override =
           find_approach_override(graph, key)) {
     if (override->setback_m.has_value)
@@ -179,11 +293,104 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
   approach.normal = Vec3d{0.0, 0.0, 1.0};
   approach.auto_setback_m = auto_setback_m;
   approach.resolved_setback_m = setback;
-  approach.auto_lateral_shift_m = 0.0;
+  approach.auto_lateral_shift_m = auto_lateral_shift_m;
   approach.resolved_lateral_shift_m = lateral_shift;
   approach.gate_segment_distance_m = distance;
   approach.gate = gate_at(key, shifted, tangent, lateral);
   return Result<ResolvedApproach>::Ok(std::move(approach));
+}
+
+Result<double> template_lane_lateral(const CrossSectionTemplate &section,
+                                     const LaneBand &lane) {
+  double total_width = 0.0;
+  for (const SectionStrip &strip : section.strips)
+    total_width += strip.width_m;
+  for (const BoundaryProfile &boundary : section.boundaries)
+    total_width += boundary.width_m;
+  double lateral = -total_width * 0.5;
+  for (std::size_t index = 0; index < section.strips.size(); ++index) {
+    const SectionStrip &strip = section.strips[index];
+    if (strip.id == lane.surface_strip_id) {
+      return Result<double>::Ok(
+          lateral + (lane.lateral_start_m + lane.lateral_end_m) * 0.5);
+    }
+    lateral += strip.width_m;
+    if (index < section.boundaries.size())
+      lateral += section.boundaries[index].width_m;
+  }
+  return Result<double>::Fail(ErrorKind::kInternal,
+                              "lane allocation strip is missing");
+}
+
+const ordered_approach *ordered_approach_of(
+    const std::vector<ordered_approach> &ordered, RoadSegmentId segment_id,
+    EndpointRole endpoint_role) {
+  const auto found = std::find_if(
+      ordered.begin(), ordered.end(),
+      [segment_id, endpoint_role](const ordered_approach &approach) {
+        return approach.key.segment_id == segment_id &&
+               approach.key.endpoint_role == endpoint_role;
+      });
+  return found == ordered.end() ? nullptr : &*found;
+}
+
+Result<double> auto_lateral_shift_for(
+    const SavedRoadGraph &graph, const std::vector<ordered_approach> &ordered,
+    const ordered_approach &target) {
+  std::optional<double> resolved{};
+  for (const LaneConnection &connection : graph.lane_connections) {
+    if (connection.kind != LaneConnectionKind::kContinuation ||
+        connection.target.segment_id != target.key.segment_id ||
+        connection.target.endpoint_role != target.key.endpoint_role)
+      continue;
+    const internal::LaneEndpointLookup source_lookup =
+        internal::find_lane_endpoint(graph, connection.source);
+    const internal::LaneEndpointLookup target_lookup =
+        internal::find_lane_endpoint(graph, connection.target);
+    const ordered_approach *source = ordered_approach_of(
+        ordered, connection.source.segment_id,
+        connection.source.endpoint_role);
+    if (source_lookup.lane == nullptr || source_lookup.section == nullptr ||
+        target_lookup.lane == nullptr || target_lookup.section == nullptr ||
+        source == nullptr) {
+      return Result<double>::Fail(
+          ErrorKind::kInternal,
+          "lane continuation auto layout input is missing");
+    }
+    if (dot(source->tangent, target.tangent) >
+        -std::cos(rules.straight_tolerance_rad)) {
+      continue;
+    }
+    const Result<double> source_lateral =
+        template_lane_lateral(*source_lookup.section, *source_lookup.lane);
+    const Result<double> target_lateral =
+        template_lane_lateral(*target_lookup.section, *target_lookup.lane);
+    if (!source_lateral.ok || !target_lateral.ok) {
+      return Result<double>::Fail(
+          ErrorKind::kInternal,
+          "lane continuation lateral position is missing");
+    }
+    const double source_sign =
+        connection.source.endpoint_role == EndpointRole::kStart ? 1.0 : -1.0;
+    const double target_sign =
+        connection.target.endpoint_role == EndpointRole::kStart ? 1.0 : -1.0;
+    const Vec2d source_axis{-source->tangent.y * source_sign,
+                            source->tangent.x * source_sign};
+    const Vec2d target_axis{-target.tangent.y * target_sign,
+                            target.tangent.x * target_sign};
+    const Vec2d target_gate_lateral{-target.tangent.y, target.tangent.x};
+    const Vec2d delta = subtract(scale(source_axis, source_lateral.value),
+                                 scale(target_axis, target_lateral.value));
+    const double shift = dot(delta, target_gate_lateral);
+    if (resolved.has_value() &&
+        std::abs(*resolved - shift) > distance_epsilon) {
+      return Result<double>::Fail(
+          ErrorKind::kUnsupported,
+          "lane continuations require conflicting target lateral shifts");
+    }
+    resolved = shift;
+  }
+  return Result<double>::Ok(resolved.value_or(0.0));
 }
 
 } // namespace
@@ -356,8 +563,15 @@ resolve_connections(const SavedRoadGraph &graph,
         return Out::Fail(ErrorKind::kValidation,
                          "road approach endpoint section template is missing");
       }
+      const Result<double> auto_lateral_shift =
+          auto_lateral_shift_for(graph, ordered, approach);
+      if (!auto_lateral_shift.ok) {
+        return Out::Fail(auto_lateral_shift.error_kind,
+                         auto_lateral_shift.error);
+      }
       Result<ResolvedApproach> resolved = resolve_approach(
-          graph, *derived, approach.key, endpoint_section, setback);
+          graph, *derived, approach.key, endpoint_section, setback,
+          auto_lateral_shift.value);
       if (!resolved.ok)
         return Out::Fail(resolved.error_kind, resolved.error);
       connection.approaches.push_back(std::move(resolved.value));
@@ -366,14 +580,24 @@ resolve_connections(const SavedRoadGraph &graph,
     if (connection.approaches.size() > 1) {
       const CrossSectionTemplateId expected =
           connection.approaches.front().endpoint_template_id;
-      if (std::any_of(connection.approaches.begin() + 1,
-                      connection.approaches.end(),
-                      [expected](const ResolvedApproach &approach) {
-                        return approach.endpoint_template_id != expected;
-                      })) {
+      const bool mixed = std::any_of(
+          connection.approaches.begin() + 1, connection.approaches.end(),
+          [expected](const ResolvedApproach &approach) {
+            return approach.endpoint_template_id != expected;
+          });
+      const bool has_explicit_lane_topology = std::any_of(
+          graph.lane_connections.begin(), graph.lane_connections.end(),
+          [&graph, &connection](const LaneConnection &lane) {
+            return internal::find_lane_endpoint(graph, lane.source).node_id ==
+                       connection.node_id &&
+                   internal::find_lane_endpoint(graph, lane.target).node_id ==
+                       connection.node_id;
+          });
+      if (mixed && !has_explicit_lane_topology) {
         return Out::Fail(ErrorKind::kUnsupported,
                          "road connected approaches require identical "
-                         "endpoint section template IDs");
+                         "endpoint section template IDs unless explicit lane "
+                         "topology resolves a junction");
       }
     }
     if (!std::isfinite(minimum_setback))
@@ -478,6 +702,191 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
     if (!geometry.ok)
       return Result<bool>::Fail(geometry.error_kind, geometry.error);
     connection.junction_geometry = std::move(geometry.value);
+  }
+  return Result<bool>::Ok(true);
+}
+
+Result<bool> derive_topology_paths(
+    const SavedRoadGraph &graph,
+    const std::vector<ResolvedConnection> &connections,
+    const std::vector<DerivedSegment> &segments,
+    std::vector<DerivedLanePath> &lane_paths,
+    std::vector<DerivedBoundaryPath> &boundary_paths,
+    std::vector<DerivedSeparationArea> &separation_areas) {
+  lane_paths.clear();
+  boundary_paths.clear();
+  separation_areas.clear();
+  for (const LaneConnection &topology : graph.lane_connections) {
+    const internal::LaneEndpointLookup source_lookup =
+        internal::find_lane_endpoint(graph, topology.source);
+    const internal::LaneEndpointLookup target_lookup =
+        internal::find_lane_endpoint(graph, topology.target);
+    const ResolvedConnection *connection =
+        connection_of(connections, source_lookup.node_id);
+    const ResolvedApproach *source =
+        connection == nullptr ? nullptr
+                              : approach_of(*connection,
+                                            ApproachKey{source_lookup.node_id,
+                                                        topology.source.segment_id,
+                                                        topology.source.endpoint_role});
+    const ResolvedApproach *target =
+        connection == nullptr ? nullptr
+                              : approach_of(*connection,
+                                            ApproachKey{target_lookup.node_id,
+                                                        topology.target.segment_id,
+                                                        topology.target.endpoint_role});
+    const DerivedSegment *source_segment =
+        segment_of(segments, topology.source.segment_id);
+    const DerivedSegment *target_segment =
+        segment_of(segments, topology.target.segment_id);
+    const SectionEvaluation *source_section =
+        source_segment == nullptr || source == nullptr
+            ? nullptr
+            : FindSectionAt(*source_segment,
+                            source->gate_segment_distance_m);
+    const SectionEvaluation *target_section =
+        target_segment == nullptr || target == nullptr
+            ? nullptr
+            : FindSectionAt(*target_segment,
+                            target->gate_segment_distance_m);
+    if (source_lookup.lane == nullptr || target_lookup.lane == nullptr ||
+        source == nullptr || target == nullptr || source_section == nullptr ||
+        target_section == nullptr) {
+      return Result<bool>::Fail(
+          ErrorKind::kInternal,
+          "lane connection path input is missing from resolved road");
+    }
+    const Result<double> source_lateral =
+        lane_lateral(*source_lookup.lane, *source_section);
+    const Result<double> target_lateral =
+        lane_lateral(*target_lookup.lane, *target_section);
+    if (!source_lateral.ok || !target_lateral.ok) {
+      return Result<bool>::Fail(
+          ErrorKind::kInternal,
+          "lane connection path cannot resolve a lane center");
+    }
+    Path path = connect_endpoint_points(*source, source_lateral.value, *target,
+                                        target_lateral.value);
+    if (std::hypot(path.spans.front().p3.x - path.spans.front().p0.x,
+                   path.spans.front().p3.y - path.spans.front().p0.y) <=
+        distance_epsilon) {
+      lane_paths.push_back(DerivedLanePath{
+          topology.id, Path{}, 0.0,
+          std::numeric_limits<double>::infinity()});
+      continue;
+    }
+    const Result<double> length = PathLength(path);
+    if (!length.ok) {
+      return Result<bool>::Fail(length.error_kind, length.error);
+    }
+    lane_paths.push_back(DerivedLanePath{topology.id, std::move(path),
+                                         length.value, 0.0});
+    lane_paths.back().minimum_radius_m =
+        minimum_radius(lane_paths.back().centerline);
+  }
+
+  for (const BoundaryContinuation &topology :
+       graph.boundary_continuations) {
+    const internal::BoundaryEndpointLookup source_lookup =
+        internal::find_boundary_endpoint(graph, topology.source);
+    const internal::BoundaryEndpointLookup target_lookup =
+        internal::find_boundary_endpoint(graph, topology.target);
+    const ResolvedConnection *connection =
+        connection_of(connections, source_lookup.node_id);
+    const ResolvedApproach *source =
+        connection == nullptr ? nullptr
+                              : approach_of(*connection,
+                                            ApproachKey{source_lookup.node_id,
+                                                        topology.source.segment_id,
+                                                        topology.source.endpoint_role});
+    const ResolvedApproach *target =
+        connection == nullptr ? nullptr
+                              : approach_of(*connection,
+                                            ApproachKey{target_lookup.node_id,
+                                                        topology.target.segment_id,
+                                                        topology.target.endpoint_role});
+    const DerivedSegment *source_segment =
+        segment_of(segments, topology.source.segment_id);
+    const DerivedSegment *target_segment =
+        segment_of(segments, topology.target.segment_id);
+    const SectionEvaluation *source_section =
+        source_segment == nullptr || source == nullptr
+            ? nullptr
+            : FindSectionAt(*source_segment,
+                            source->gate_segment_distance_m);
+    const SectionEvaluation *target_section =
+        target_segment == nullptr || target == nullptr
+            ? nullptr
+            : FindSectionAt(*target_segment,
+                            target->gate_segment_distance_m);
+    if (source_lookup.boundary == nullptr ||
+        target_lookup.boundary == nullptr || source == nullptr ||
+        target == nullptr || source_section == nullptr ||
+        target_section == nullptr) {
+      return Result<bool>::Fail(
+          ErrorKind::kInternal,
+          "boundary continuation path input is missing from resolved road");
+    }
+    const Result<double> source_lateral =
+        boundary_lateral(topology.source.boundary_id, *source_section);
+    const Result<double> target_lateral =
+        boundary_lateral(topology.target.boundary_id, *target_section);
+    if (!source_lateral.ok || !target_lateral.ok) {
+      return Result<bool>::Fail(
+          ErrorKind::kInternal,
+          "boundary continuation path cannot resolve a boundary");
+    }
+    Path path = connect_endpoint_points(*source, source_lateral.value, *target,
+                                        target_lateral.value);
+    if (std::hypot(path.spans.front().p3.x - path.spans.front().p0.x,
+                   path.spans.front().p3.y - path.spans.front().p0.y) <=
+        distance_epsilon) {
+      boundary_paths.push_back(
+          DerivedBoundaryPath{topology.id, Path{}, 0.0});
+      continue;
+    }
+    const Result<double> length = PathLength(path);
+    if (!length.ok) {
+      return Result<bool>::Fail(length.error_kind, length.error);
+    }
+    boundary_paths.push_back(
+        DerivedBoundaryPath{topology.id, std::move(path), length.value});
+  }
+  for (const LaneConnection &connection : graph.lane_connections) {
+    if (connection.kind != LaneConnectionKind::kSplit)
+      continue;
+    std::vector<const DerivedBoundaryPath *> sides{};
+    for (const BoundaryContinuation &boundary :
+         graph.boundary_continuations) {
+      if (boundary.source.segment_id != connection.source.segment_id ||
+          boundary.target.segment_id != connection.target.segment_id)
+        continue;
+      const auto path = std::find_if(
+          boundary_paths.begin(), boundary_paths.end(),
+          [&boundary](const DerivedBoundaryPath &candidate) {
+            return candidate.continuation_id == boundary.id;
+          });
+      if (path != boundary_paths.end() && path->path.spans.size() == 1)
+        sides.push_back(&*path);
+    }
+    if (sides.size() != 2)
+      continue;
+    DerivedSeparationArea area{};
+    area.connection_id = connection.id;
+    constexpr int samples = 12;
+    for (int index = 0; index <= samples; ++index) {
+      const Vec2d point = evaluate_span(
+          sides[0]->path.spans.front(),
+          static_cast<double>(index) / static_cast<double>(samples));
+      area.perimeter.push_back(to3(point));
+    }
+    for (int index = samples; index >= 0; --index) {
+      const Vec2d point = evaluate_span(
+          sides[1]->path.spans.front(),
+          static_cast<double>(index) / static_cast<double>(samples));
+      area.perimeter.push_back(to3(point));
+    }
+    separation_areas.push_back(std::move(area));
   }
   return Result<bool>::Ok(true);
 }

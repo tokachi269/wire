@@ -80,6 +80,41 @@ bool mesh_faces_up(const Mesh& mesh) {
   return true;
 }
 
+city::road::CrossSectionTemplate OneWayLaneTemplate(
+    city::road::CrossSectionTemplateId id, std::size_t lane_count) {
+  const AutoMarkingPolicy edge{
+      true, MarkingRole::kCarriagewayEdge,
+      builtin_marking_styles::kWhiteSolid};
+  const AutoMarkingPolicy divider{
+      true, MarkingRole::kLaneSeparator,
+      builtin_marking_styles::kWhiteDashed};
+  city::road::CrossSectionTemplate section{};
+  section.id = id;
+  section.strips.push_back({10, StripFunction::kShoulder, 0.75, 0.0,
+                            builtin_surface_styles::kAsphalt});
+  for (std::size_t index = 0; index < lane_count; ++index) {
+    const auto strip_id = static_cast<city::road::SectionStripId>(20 + index * 10);
+    const auto lane_id = static_cast<city::road::LaneId>(1000 + index * 10);
+    section.strips.push_back({strip_id, StripFunction::kCarriageway, 3.0,
+                              0.0, builtin_surface_styles::kAsphalt});
+    section.lane_bands.push_back(
+        {lane_id, strip_id, 0.0, 3.0,
+         city::road::LaneTravelDirection::kAlongSegment});
+  }
+  section.strips.push_back({90, StripFunction::kShoulder, 0.75, 0.0,
+                            builtin_surface_styles::kAsphalt});
+  section.boundaries.push_back(
+      {100, BoundaryRole::kOuterEdge, 0.0, 0.0, edge});
+  for (std::size_t index = 1; index < lane_count; ++index) {
+    section.boundaries.push_back(
+        {static_cast<city::road::BoundaryId>(100 + index * 100),
+         BoundaryRole::kLaneDivider, 0.0, 0.0, divider});
+  }
+  section.boundaries.push_back(
+      {900, BoundaryRole::kOuterEdge, 0.0, 0.0, edge});
+  return section;
+}
+
 bool P0_generates_two_lane_segment(std::string& failure) {
   RoadState state{};
   const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
@@ -1080,6 +1115,146 @@ bool LAN3_outer_lane_transition_preserves_existing_lanes(std::string& failure) {
   return true;
 }
 
+bool LAN4_selected_outer_lane_branches_to_one_lane_road(
+    std::string& failure) {
+  RoadState state{};
+  const auto three_lane_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 3)});
+  const auto two_lane_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 2)});
+  const auto one_lane_template = state.AddSectionTemplate(
+      city::road::AddSectionTemplateRequest{OneWayLaneTemplate(0, 1)});
+  ROAD_TEST_EXPECT(three_lane_template.ok && two_lane_template.ok &&
+                       one_lane_template.ok,
+                   "LAN4 fixture templates could not be created");
+  const auto incoming = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-60.0, 0.0}, {0.0, 0.0})}),
+      three_lane_template.value});
+  ROAD_TEST_EXPECT(incoming.ok, incoming.error);
+  const auto incoming_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&incoming](const auto& segment) { return segment.id == incoming.value; });
+  ROAD_TEST_EXPECT(incoming_segment != state.graph().segments.end(),
+                   "LAN4 incoming segment is missing");
+  const RoadNodeId split_node = incoming_segment->node_b;
+
+  city::road::AddConnectedLaneSegmentRequest mainline{};
+  mainline.start_node = split_node;
+  mainline.alignment = MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})});
+  mainline.section_template = two_lane_template.value;
+  mainline.lane_connections = {
+      {{incoming.value, 1000, EndpointRole::kEnd}, 1000,
+       city::road::LaneConnectionKind::kContinuation},
+      {{incoming.value, 1010, EndpointRole::kEnd}, 1010,
+       city::road::LaneConnectionKind::kContinuation},
+  };
+  mainline.boundary_continuations = {
+      {{incoming.value, 100, EndpointRole::kEnd}, 100},
+      {{incoming.value, 200, EndpointRole::kEnd}, 200},
+  };
+  const auto outgoing = state.AddConnectedLaneSegment(std::move(mainline));
+  ROAD_TEST_EXPECT(outgoing.ok, outgoing.error);
+
+  city::road::AddConnectedLaneSegmentRequest branch{};
+  branch.start_node = split_node;
+  branch.alignment = MakePath({MakeLine({0.0, 0.0}, {42.0, -42.0})});
+  branch.section_template = one_lane_template.value;
+  branch.lane_connections = {
+      {{incoming.value, 1020, EndpointRole::kEnd}, 1000,
+       city::road::LaneConnectionKind::kSplit},
+  };
+  branch.boundary_continuations = {
+      {{incoming.value, 300, EndpointRole::kEnd}, 100},
+      {{incoming.value, 900, EndpointRole::kEnd}, 900},
+  };
+  const auto branch_segment =
+      state.AddConnectedLaneSegment(std::move(branch));
+  ROAD_TEST_EXPECT(branch_segment.ok, branch_segment.error);
+
+  ROAD_TEST_EXPECT(state.graph().lane_connections.size() == 3,
+                   "LAN4 did not save all explicit lane connections");
+  ROAD_TEST_EXPECT(state.graph().boundary_continuations.size() == 4,
+                   "LAN4 did not save explicit mainline and branch boundaries");
+  ROAD_TEST_EXPECT(state.derived().lane_paths.size() == 3,
+                   "LAN4 did not derive one path per lane connection");
+  ROAD_TEST_EXPECT(state.derived().boundary_paths.size() == 4,
+                   "LAN4 did not derive one path per boundary continuation");
+  const auto split = std::find_if(
+      state.graph().lane_connections.begin(),
+      state.graph().lane_connections.end(), [](const auto& connection) {
+        return connection.kind == city::road::LaneConnectionKind::kSplit;
+      });
+  ROAD_TEST_EXPECT(split != state.graph().lane_connections.end() &&
+                       split->source.lane_id == 1020 &&
+                       split->target.segment_id == branch_segment.value &&
+                       split->target.lane_id == 1000,
+                   "LAN4 connected a lane other than the selected outer lane");
+  const auto split_path = std::find_if(
+      state.derived().lane_paths.begin(), state.derived().lane_paths.end(),
+      [&split](const auto& path) { return path.connection_id == split->id; });
+  ROAD_TEST_EXPECT(split_path != state.derived().lane_paths.end() &&
+                       split_path->centerline.spans.size() == 1,
+                   "LAN4 split lane path is missing");
+  const auto& curve = split_path->centerline.spans.front();
+  ROAD_TEST_EXPECT(std::abs(curve.p0.y - 3.0) < 1e-6,
+                   "LAN4 branch starts at the road center instead of lane 2");
+  ROAD_TEST_EXPECT(split_path->length_m > 0.0 &&
+                       split_path->minimum_radius_m > 0.0 &&
+                       std::isfinite(split_path->minimum_radius_m),
+                   "LAN4 branch lane path is degenerate");
+  const Vec2d start_tangent{curve.p1.x - curve.p0.x,
+                            curve.p1.y - curve.p0.y};
+  const Vec2d end_tangent{curve.p3.x - curve.p2.x,
+                          curve.p3.y - curve.p2.y};
+  ROAD_TEST_EXPECT(start_tangent.x > 0.0 &&
+                       std::abs(start_tangent.y) < 1e-9 &&
+                       end_tangent.x > 0.0 && end_tangent.y < 0.0,
+                   "LAN4 branch path is not G1 with its source and target lanes");
+  const auto samples = city::road::FlattenPath(split_path->centerline);
+  for (std::size_t index = 1; index < samples.size(); ++index) {
+    ROAD_TEST_EXPECT(samples[index].x + 1e-9 >= samples[index - 1].x &&
+                         samples[index].y <= samples[index - 1].y + 1e-9,
+                     "LAN4 branch path reverses lateral or longitudinal direction");
+  }
+  ROAD_TEST_EXPECT(state.derived().separation_areas.size() == 1 &&
+                       state.derived().separation_areas.front().perimeter.size() >= 6 &&
+                       std::all_of(
+                           state.derived().separation_areas.front().perimeter.begin(),
+                           state.derived().separation_areas.front().perimeter.end(),
+                           [](const auto& point) {
+                             return std::isfinite(point.x) &&
+                                    std::isfinite(point.y) &&
+                                    std::isfinite(point.z);
+                           }),
+                   "LAN4 separation area is missing or non-finite");
+  for (const auto& connection : state.graph().lane_connections) {
+    if (connection.kind != city::road::LaneConnectionKind::kContinuation)
+      continue;
+    const auto path = std::find_if(
+        state.derived().lane_paths.begin(), state.derived().lane_paths.end(),
+        [&connection](const auto& candidate) {
+          return candidate.connection_id == connection.id;
+        });
+    ROAD_TEST_EXPECT(path != state.derived().lane_paths.end(),
+                     "LAN4 mainline lane path is missing");
+    const auto& main_curve = path->centerline.spans.front();
+    ROAD_TEST_EXPECT(main_curve.p0.y == main_curve.p1.y &&
+                         main_curve.p1.y == main_curve.p2.y &&
+                         main_curve.p2.y == main_curve.p3.y,
+                     "LAN4 bent an unaffected mainline lane");
+  }
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  const auto resaved = loaded.value.Save();
+  ROAD_TEST_EXPECT(resaved.ok && resaved.value == saved.value &&
+                       loaded.value.derived().lane_paths.size() == 3 &&
+                       loaded.value.derived().boundary_paths.size() == 4,
+                   "LAN4 topology or derived paths changed across save/load");
+  return true;
+}
+
 bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   {
     RoadState state{};
@@ -1586,6 +1761,8 @@ int main() {
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
       {"LAN3_outer_lane_transition_preserves_existing_lanes",
        LAN3_outer_lane_transition_preserves_existing_lanes},
+      {"LAN4_selected_outer_lane_branches_to_one_lane_road",
+       LAN4_selected_outer_lane_branches_to_one_lane_road},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},

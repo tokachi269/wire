@@ -35,6 +35,14 @@ Result<DerivedRoad> generate_road(const SavedRoadGraph &graph) {
     return Result<DerivedRoad>::Fail(geometry.error_kind, geometry.error);
   }
 
+  const Result<bool> topology_paths = derive_topology_paths(
+      graph, connections.value, segments.value, derived.lane_paths,
+      derived.boundary_paths, derived.separation_areas);
+  if (!topology_paths.ok) {
+    return Result<DerivedRoad>::Fail(topology_paths.error_kind,
+                                     topology_paths.error);
+  }
+
   Result<std::vector<DerivedMarking>> markings =
       derive_markings(graph, segments.value, connections.value);
   if (!markings.ok) {

@@ -91,6 +91,8 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   const auto corridor_id = [](const RoadCorridor& value) { return value.id; };
   const auto section_id = [](const CrossSectionTemplate& value) { return value.id; };
   const auto transition_id = [](const SectionTransition& value) { return value.id; };
+  const auto lane_connection_id = [](const LaneConnection& value) { return value.id; };
+  const auto boundary_continuation_id = [](const BoundaryContinuation& value) { return value.id; };
   const auto policy_override_id = [](const NodeConnectionPolicyOverride& value) { return value.id; };
   const auto line_id = [](const ManualLineMarking& value) { return value.id; };
   const auto area_id = [](const ManualAreaMarking& value) { return value.id; };
@@ -114,6 +116,15 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
                            "junction marking override");
   if (!result.ok) return result;
   result = remove_entities(authoritative.transitions, plan.remove_transitions, transition_id, "transition");
+  if (!result.ok) return result;
+  result = remove_entities(authoritative.lane_connections,
+                           plan.remove_lane_connections, lane_connection_id,
+                           "lane connection");
+  if (!result.ok) return result;
+  result = remove_entities(authoritative.boundary_continuations,
+                           plan.remove_boundary_continuations,
+                           boundary_continuation_id,
+                           "boundary continuation");
   if (!result.ok) return result;
   result = remove_entities(authoritative.segments, plan.remove_segments, segment_id, "segment");
   if (!result.ok) return result;
@@ -143,6 +154,15 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   result = add_entities(authoritative.section_templates, plan.add_section_templates, section_id, "section");
   if (!result.ok) return result;
   result = add_entities(authoritative.transitions, plan.add_transitions, transition_id, "transition");
+  if (!result.ok) return result;
+  result = add_entities(authoritative.lane_connections,
+                        plan.add_lane_connections, lane_connection_id,
+                        "lane connection");
+  if (!result.ok) return result;
+  result = add_entities(authoritative.boundary_continuations,
+                        plan.add_boundary_continuations,
+                        boundary_continuation_id,
+                        "boundary continuation");
   if (!result.ok) return result;
   result = add_entities(authoritative.connection_policy_overrides, plan.add_connection_policy_overrides,
                         policy_override_id, "connection policy override");

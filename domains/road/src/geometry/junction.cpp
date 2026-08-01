@@ -215,6 +215,7 @@ struct curb {
   const SectionBoundarySample *outer = nullptr;
   const SectionBoundarySample *sidewalk = nullptr;
   const SectionBoundarySample *carriageway = nullptr;
+  bool shoulder_only = false;
 };
 
 struct junction_section {
@@ -227,12 +228,6 @@ struct junction_section {
 Result<junction_section>
 validate_supported_junction_section(const ConnectionGate &gate,
                                     const SectionEvaluation &section) {
-  if (section.surface_styles.size() < 5) {
-    return Result<junction_section>::Fail(
-        ErrorKind::kUnsupported,
-        "road junction supports only sidewalk-curb-carriageway-curb-sidewalk "
-        "sections");
-  }
   std::map<std::uint64_t, std::vector<const SectionBoundarySample *>>
       curb_groups{};
   std::vector<const SectionBoundarySample *> outer_edges{};
@@ -242,6 +237,44 @@ validate_supported_junction_section(const ConnectionGate &gate,
     } else if (boundary.role == BoundaryRole::kOuterEdge) {
       outer_edges.push_back(&boundary);
     }
+  }
+  if (curb_groups.empty()) {
+    std::vector<const SectionBoundarySample *> road_outer{};
+    std::vector<const SectionBoundarySample *> carriageway_edges{};
+    for (const SectionBoundarySample *boundary : outer_edges) {
+      if (boundary->left_strip_id == 0 && boundary->right_strip_id == 0) {
+        road_outer.push_back(boundary);
+      } else {
+        carriageway_edges.push_back(boundary);
+      }
+    }
+    if (road_outer.size() != 2 || carriageway_edges.size() != 2) {
+      return Result<junction_section>::Fail(
+          ErrorKind::kUnsupported,
+          "road junction shoulder section requires two carriageway and two "
+          "road outer edges");
+    }
+    const auto lateral_less = [](const auto *a, const auto *b) {
+      return a->lateral_m < b->lateral_m;
+    };
+    std::sort(road_outer.begin(), road_outer.end(), lateral_less);
+    std::sort(carriageway_edges.begin(), carriageway_edges.end(),
+              lateral_less);
+    junction_section resolved{};
+    resolved.left = curb{road_outer.front(), road_outer.front(),
+                         carriageway_edges.front(), true};
+    resolved.right = curb{road_outer.back(), road_outer.back(),
+                          carriageway_edges.back(), true};
+    resolved.carriageway_left_m =
+        resolved.left.carriageway->lateral_m;
+    resolved.carriageway_right_m =
+        resolved.right.carriageway->lateral_m;
+    if (resolved.carriageway_right_m <= resolved.carriageway_left_m) {
+      return Result<junction_section>::Fail(
+          ErrorKind::kUnsupported,
+          "road junction shoulder carriageway mapping is inverted");
+    }
+    return Result<junction_section>::Ok(resolved);
   }
   if (curb_groups.size() != 2 || outer_edges.size() != 2) {
     return Result<junction_section>::Fail(
@@ -290,6 +323,7 @@ struct side {
   Vec3d carriageway{};
   std::uint64_t outer_boundary_id = 0;
   std::uint64_t curb_boundary_id = 0;
+  bool shoulder_only = false;
 };
 
 double lateral_projection(const ConnectionGate &gate, const side &value) {
@@ -346,6 +380,7 @@ generate_junction_geometry(RoadNodeId node_id,
           boundary_point(gate, *profile.carriageway),
           profile.outer->boundary_id,
           profile.carriageway->boundary_id,
+          profile.shoulder_only,
       };
     };
     std::array<side, 2> gate_sides{
@@ -386,6 +421,12 @@ generate_junction_geometry(RoadNodeId node_id,
     geometry.perimeter_curves.push_back(
         ResolvedBoundaryCurve{a.curb_boundary_id, b.curb_boundary_id,
                               BoundaryRole::kCurb, carriageway});
+    if (a.shoulder_only || b.shoulder_only) {
+      geometry.surface_strips.push_back(ResolvedSurfaceStrip{
+          RenderStyleFromSurface(builtin_surface_styles::kAsphalt),
+          a.curb_boundary_id, b.outer_boundary_id, carriageway, outer});
+      continue;
+    }
     geometry.surface_strips.push_back(ResolvedSurfaceStrip{
         RenderStyleFromSurface(builtin_surface_styles::kCurb),
         a.curb_boundary_id, b.curb_boundary_id, carriageway, sidewalk});

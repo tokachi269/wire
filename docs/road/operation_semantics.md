@@ -43,6 +43,9 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | AddTransition | from/to/start/end/anchor/rules | template exists、distance finite/range、rule element exists、enum valid | element出現/消滅action対応 |
 | AddTransitionToSegment | segment_id + transition request | segment exists、transition preflight | 既存transition replace、segment section整合 |
 | AddLaneTransition | corridor/direction/side/distances/lane width/anchor boundary | corridor exists、finite、正の幅、同一forward segment、anchorが選択方向の外側laneの内側境界 | anchor内側を固定し、追加laneと外側shoulderだけを単調に展開 |
+| AddLaneConnection | source/target LaneEndpointKey / kind | 両endpoint ID存在、source退出、target進入、同一node、kind enum valid | cardinalityと方向を検証しDerivedLanePathを生成 |
+| AddBoundaryContinuation | source/target BoundaryEndpointKey | 両endpoint ID存在、同一node | 明示した境界間だけDerivedBoundaryPathを生成 |
+| AddConnectedLaneSegment | node/path/template/lane mappings/boundary mappings | node/template/全endpoint ID存在、path finite、target lane/boundary存在 | 新segmentと全topologyを同一trialで生成し、異断面junctionを明示mappingで解決 |
 | AttachSectionTransition | segment_id / transition_id | ID exists、from_template matches segment、distance range valid | segment再評価 |
 | AddManualLine | owner_segment_id / path / style_id | owner exists、path finite、owner-local distance範囲、known MarkingStyleId | owner section上への投影 |
 | AddManualArea | owner_segment_id / frame_origin / width / length / style_id | owner exists、finite、width/length正、distance範囲、known MarkingStyleId | owner section上への投影 |
@@ -201,3 +204,10 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - 同一surface strip内のlane lateral intervalは重複させない。vector順はidentityに使わず、横方向順序はintervalから検証する。
 - 高速道路、出口、合流専用の正本型を追加せず、車線追加、分岐、合流、交差点movementを同じ接続型で表す。
 - lane center接続からshoulder、車道端、白線の継続を推測しない。必要なboundary接続は別に明示する。
+- `AddConnectedLaneSegment`は新segmentと`LaneConnection` / `BoundaryContinuation`を一つのOperationPlanへ載せる。
+  異なる断面を接続する場合も、source laneとtarget laneをIDで明示しない操作はunsupportedのままとする。
+- straightなContinuationのtarget approach lateral shiftは、明示された全lane center対応が要求する共通値を一度だけ導出する。
+  複数mappingが異なるshiftを要求する場合は形状を曲げて合わせずunsupportedとする。
+- Splitの`DerivedLanePath`はsource lane centerからbranch lane centerへG1接続する1本のBezierで、endpoint接線と
+  横・長手方向の単調性を検証する。mainline Continuationはbranchのために曲げない。
+- branchへ明示した2本のBoundaryContinuationから有限なseparation areaを派生する。lane centerから境界を推測しない。

@@ -478,7 +478,11 @@ Result<bool> derive_junction_markings(const SavedRoadGraph &graph,
       const SectionBoundarySample *left = nullptr;
       const SectionBoundarySample *right = nullptr;
       for (const SectionBoundarySample &boundary : gate.boundaries) {
-        if (boundary.role != BoundaryRole::kCurb)
+        const bool carriageway_edge =
+            boundary.role == BoundaryRole::kCurb ||
+            (boundary.role == BoundaryRole::kOuterEdge &&
+             boundary.left_strip_id != 0 && boundary.right_strip_id != 0);
+        if (!carriageway_edge)
           continue;
         if (left == nullptr || boundary.lateral_m < left->lateral_m)
           left = &boundary;
@@ -489,7 +493,7 @@ Result<bool> derive_junction_markings(const SavedRoadGraph &graph,
           right->lateral_m <= left->lateral_m) {
         return Result<bool>::Fail(
             ErrorKind::kUnsupported,
-            "junction marking requires carriageway curb boundaries");
+            "junction marking requires carriageway edge boundaries");
       }
       const double center = (left->lateral_m + right->lateral_m) * 0.5;
       const double half = (right->lateral_m - left->lateral_m) * 0.5;

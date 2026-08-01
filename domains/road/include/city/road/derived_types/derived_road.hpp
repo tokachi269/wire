@@ -155,6 +155,24 @@ struct ResolvedConnection {
   JunctionGeometry junction_geometry{};
 };
 
+struct DerivedLanePath {
+  LaneConnectionId connection_id = 0;
+  Path centerline{};
+  double length_m = 0.0;
+  double minimum_radius_m = 0.0;
+};
+
+struct DerivedBoundaryPath {
+  BoundaryContinuationId continuation_id = 0;
+  Path path{};
+  double length_m = 0.0;
+};
+
+struct DerivedSeparationArea {
+  LaneConnectionId connection_id = 0;
+  std::vector<Vec3d> perimeter{};
+};
+
 // One marking line or area, already placed in world space. The owner keeps
 // identity explicit; emit only turns points into meshes.
 struct DerivedMarking {
@@ -170,6 +188,9 @@ struct DerivedMarking {
 struct DerivedRoad {
   std::vector<DerivedSegment> segments{};
   std::vector<ResolvedConnection> connections{};
+  std::vector<DerivedLanePath> lane_paths{};
+  std::vector<DerivedBoundaryPath> boundary_paths{};
+  std::vector<DerivedSeparationArea> separation_areas{};
   std::vector<DerivedMarking> markings{};
   std::vector<Mesh> segment_meshes{};
   std::vector<Mesh> connection_meshes{};

@@ -58,6 +58,9 @@ public:
   [[nodiscard]] Result<SectionTransitionId> AddTransition(SectionTransitionRequest request);
   [[nodiscard]] Result<SectionTransitionId> AddTransitionToSegment(AddTransitionToSegmentRequest request);
   [[nodiscard]] Result<LaneId> AddLaneTransition(AddLaneTransitionRequest request);
+  [[nodiscard]] Result<LaneConnectionId> AddLaneConnection(AddLaneConnectionRequest request);
+  [[nodiscard]] Result<BoundaryContinuationId> AddBoundaryContinuation(AddBoundaryContinuationRequest request);
+  [[nodiscard]] Result<RoadSegmentId> AddConnectedLaneSegment(AddConnectedLaneSegmentRequest request);
   [[nodiscard]] Result<bool> AttachSectionTransition(AttachSectionTransitionRequest request);
   [[nodiscard]] Result<ManualMarkingId> AddManualLine(ManualLineRequest request);
   [[nodiscard]] Result<ManualMarkingId> AddManualArea(ManualAreaRequest request);

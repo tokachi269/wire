@@ -99,6 +99,31 @@ struct AddLaneTransitionRequest {
   double lane_width_m = 0.0;
   BoundaryId anchor_boundary_id = 0;
 };
+struct AddLaneConnectionRequest {
+  LaneEndpointKey source{};
+  LaneEndpointKey target{};
+  LaneConnectionKind kind = LaneConnectionKind::kContinuation;
+};
+struct AddBoundaryContinuationRequest {
+  BoundaryEndpointKey source{};
+  BoundaryEndpointKey target{};
+};
+struct LaneTargetConnection {
+  LaneEndpointKey source{};
+  LaneId target_lane_id = 0;
+  LaneConnectionKind kind = LaneConnectionKind::kContinuation;
+};
+struct BoundaryTargetContinuation {
+  BoundaryEndpointKey source{};
+  BoundaryId target_boundary_id = 0;
+};
+struct AddConnectedLaneSegmentRequest {
+  RoadNodeId start_node = 0;
+  Path alignment{};
+  CrossSectionTemplateId section_template = 0;
+  std::vector<LaneTargetConnection> lane_connections{};
+  std::vector<BoundaryTargetContinuation> boundary_continuations{};
+};
 struct AddTransitionToSegmentRequest {
   RoadSegmentId segment_id = 0;
   SectionTransitionRequest transition{};

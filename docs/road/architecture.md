@@ -183,6 +183,12 @@ source/target endpointを保存し、generation時にgeometryの近さから作�
 近接再bindは行わない。新laneの幅はtransition中に0から指定幅へ単調に増加し、既存shoulder幅は維持したまま
 外側へ移動する。
 
+`AddConnectedLaneSegment`は道路segmentの追加と、選択済みlane/boundary endpointの接続を同じtrialへ適用する。
+異断面connectionは明示lane topologyがある場合だけ解決し、道路中心や最寄りlaneから接続先を補わない。
+`resolve_connections`はstraight Continuationのlane center対応からtarget approachの共通lateral shiftを一度だけ導出する。
+`DerivedLanePath`と`DerivedBoundaryPath`は保存せず、authoritative connection IDから毎回生成する。Splitの両側境界から
+`DerivedSeparationArea`を作るが、lane connectionから境界接続を逆算しない。
+
 ## Approach override lifecycle
 
 authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / manual lateral shiftだけである。全fieldがAutoの空overrideは保存しない。

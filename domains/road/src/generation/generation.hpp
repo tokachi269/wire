@@ -35,6 +35,14 @@ resolve_connections(const SavedRoadGraph &graph,
 [[nodiscard]] Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connections,
                                                        const std::vector<DerivedSegment> &segments);
 
+[[nodiscard]] Result<bool> derive_topology_paths(
+    const SavedRoadGraph &graph,
+    const std::vector<ResolvedConnection> &connections,
+    const std::vector<DerivedSegment> &segments,
+    std::vector<DerivedLanePath> &lane_paths,
+    std::vector<DerivedBoundaryPath> &boundary_paths,
+    std::vector<DerivedSeparationArea> &separation_areas);
+
 [[nodiscard]] Result<std::vector<DerivedMarking>>
 derive_markings(const SavedRoadGraph &graph, const std::vector<DerivedSegment> &segments,
                 const std::vector<ResolvedConnection> &connections);

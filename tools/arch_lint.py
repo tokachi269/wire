@@ -310,6 +310,24 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
             "StateConflict",
             "InternalError",
         ),
+        "docs/road/supported_operations.md": (
+            "## Normal drawing fixtures",
+            "## Requirement constraints",
+            "## Failure ownership",
+            "road_path_self_intersection",
+        ),
+        "docs/wire/supported_operations.md": (
+            "## Normal drawing fixtures",
+            "## Requirement constraints",
+            "## Failure ownership",
+            "twelve independent model-aware routes",
+        ),
+        "web/src/store/viewer.ts": (
+            "DrawActionResult",
+            'kind: "commit-rejected"',
+            'kind: "ignored"',
+            "lastDrawActionResult",
+        ),
         "web/src/main.ts": (
             "buildIdentitiesMatch",
             "buildMismatch",

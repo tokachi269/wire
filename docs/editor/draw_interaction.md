@@ -26,11 +26,17 @@ interval.
 The committed request and guide share the same input request. The guide does not
 run the full operation in advance and its presence never gates a primary action.
 
+Every primary Click records and returns one of `anchor-accepted`,
+`commit-succeeded`, `commit-rejected`, `operation-applied`, or an explicit
+`ignored` reason. A plain early return is not an interaction result.
+
 ## Enter
 
 When a guide exists, Enter submits that interval through the same path as Click
 and ends the draw session only after success. With no guide, Enter ends the
 session. A failed commit preserves the guide and reports the commit failure.
+Enter also records its explicit action result; an inactive session is reported
+as `ignored/session-inactive` rather than disappearing silently.
 
 ## Escape
 

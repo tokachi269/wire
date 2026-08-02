@@ -987,19 +987,34 @@ bool same_angle_approaches_use_id_tie_break(std::string& failure) {
 
 bool unsupported_junction_section_is_atomic(std::string& failure) {
   RoadState state{};
+  CrossSectionTemplate ambiguous = ShoulderedTwoLaneTemplate(0);
+  ambiguous.strips.insert(
+      ambiguous.strips.begin() + 2,
+      SectionStrip{16, StripFunction::kShoulder, 0.25, 0.02,
+                   builtin_surface_styles::kAsphalt});
+  ambiguous.boundaries.insert(
+      ambiguous.boundaries.begin() + 2,
+      BoundaryProfile{160, BoundaryRole::kOuterEdge, 0.0, 0.0, {}});
+  const auto template_id = state.AddSectionTemplate(
+      AddSectionTemplateRequest{std::move(ambiguous)});
+  ROAD_CONTRACT_EXPECT(template_id.ok,
+                       "ambiguous junction fixture could not be created");
   const auto base = state.AddSegment(
-      AddSegmentRequest{MakePath({MakeLine({-20.0, 0.0}, {0.0, 0.0})}), 3});
+      AddSegmentRequest{MakePath({MakeLine({-20.0, 0.0}, {0.0, 0.0})}),
+                        template_id.value});
   ROAD_CONTRACT_EXPECT(base.ok, base.error);
   const RoadNodeId shared = state.graph().segments.front().node_b;
   const auto first = state.AddSegmentConnectedTo(AddSegmentConnectedToRequest{
-      MakePath({MakeLine({0.0, 0.0}, {20.0, 20.0})}), 3, shared});
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 20.0})}), template_id.value,
+      shared});
   ROAD_CONTRACT_EXPECT(first.ok, first.error);
   ROAD_CONTRACT_EXPECT(
       expect_failed_unchanged(
           state,
           [&] {
             return state.AddSegmentConnectedTo(AddSegmentConnectedToRequest{
-                MakePath({MakeLine({0.0, 0.0}, {20.0, -20.0})}), 3, shared});
+                MakePath({MakeLine({0.0, 0.0}, {20.0, -20.0})}),
+                template_id.value, shared});
           },
           "unsupported junction section", failure),
       failure);

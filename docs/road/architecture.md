@@ -133,6 +133,9 @@ degree 0/1のnodeにはconnection entity、gate、layoutを作らない。
 一般的な斜交接続を固定の最小・最大角度だけで拒否しない。junctionのauto setbackは各approachの
 実断面外半幅と隣接approachとの交差角から個別に導出し、必要距離をsegment内へ確保できない場合や
 有限な境界geometryを生成できない場合だけを`unsupported`とする。
+Junction geometryはtemplate IDや表示styleで断面を分類しない。gateごとに左右のroad outer、curb、
+shoulder、carriageway edgeをboundary roleとstrip adjacencyから解決し、存在する帯だけを生成する。
+片側だけcurbがある断面も同じ解決器を通し、候補が複数で意味が一意にならない側だけをunsupportedとする。
 
 ### derive_markings
 

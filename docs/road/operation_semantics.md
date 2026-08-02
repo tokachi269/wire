@@ -128,6 +128,10 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
   Straight segmentの正本はcornerのために曲げず、丸みはnode所有のderived connectorだけに置く。
 - Corner内のboundary markingは同じ掃引済みboundary curveを使用して両segmentの線を接続する。boundary配列順やworld位置で対応を推測しない。
 - degree 3/4 の自動decisionは対応範囲ならJunction。自動junctionの存在は保存しない。
+- Junctionの断面側はtemplate IDで分岐せず、各approachの左右についてroad outer、任意のcurb、
+  任意のshoulder境界、carriageway edgeをboundary roleとstrip adjacencyから一度だけ解決する。
+  片側歩道なし、shoulderあり、curbなしも同じ規則で扱う。同じ側にcarriageway edge候補が複数あり
+  意味を一意に解けない断面だけをunsupportedとする。
 - degree 3/4の角度検査は接線順で隣接するapproachの道路本体chord角だけを検査する。
   非隣接approachをdegree 2 cornerの45–135度制限へ通さない。同じ接線から別方向へ
   分かれるBezier approachは、chord角が対応範囲ならstable ID順で扱う。

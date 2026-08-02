@@ -211,77 +211,53 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
   return Result<ConnectionGeometry>::Ok(std::move(geometry));
 }
 
-struct curb {
-  const SectionBoundarySample *outer = nullptr;
-  const SectionBoundarySample *sidewalk = nullptr;
+struct junction_side {
+  const SectionBoundarySample *road_outer = nullptr;
+  const SectionBoundarySample *curb_outer = nullptr;
+  const SectionBoundarySample *curb_inner = nullptr;
   const SectionBoundarySample *carriageway = nullptr;
-  bool shoulder_only = false;
+  bool has_curb = false;
 };
 
 struct junction_section {
-  curb left{};
-  curb right{};
+  junction_side left{};
+  junction_side right{};
   double carriageway_left_m = 0.0;
   double carriageway_right_m = 0.0;
 };
 
 Result<junction_section>
-validate_supported_junction_section(const ConnectionGate &gate,
-                                    const SectionEvaluation &section) {
+resolve_junction_section(const ConnectionGate &gate) {
   std::map<std::uint64_t, std::vector<const SectionBoundarySample *>>
       curb_groups{};
-  std::vector<const SectionBoundarySample *> outer_edges{};
+  std::vector<const SectionBoundarySample *> road_outer_edges{};
+  std::vector<const SectionBoundarySample *> carriageway_edges{};
   for (const SectionBoundarySample &boundary : gate.boundaries) {
     if (boundary.role == BoundaryRole::kCurb) {
       curb_groups[boundary.boundary_id].push_back(&boundary);
     } else if (boundary.role == BoundaryRole::kOuterEdge) {
-      outer_edges.push_back(&boundary);
-    }
-  }
-  if (curb_groups.empty()) {
-    std::vector<const SectionBoundarySample *> road_outer{};
-    std::vector<const SectionBoundarySample *> carriageway_edges{};
-    for (const SectionBoundarySample *boundary : outer_edges) {
-      if (boundary->left_strip_id == 0 && boundary->right_strip_id == 0) {
-        road_outer.push_back(boundary);
+      if (boundary.left_strip_id == 0 && boundary.right_strip_id == 0) {
+        road_outer_edges.push_back(&boundary);
       } else {
-        carriageway_edges.push_back(boundary);
+        carriageway_edges.push_back(&boundary);
       }
     }
-    if (road_outer.size() != 2 || carriageway_edges.size() != 2) {
-      return Result<junction_section>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "road junction shoulder section requires two carriageway and two "
-          "road outer edges");
-    }
-    const auto lateral_less = [](const auto *a, const auto *b) {
-      return a->lateral_m < b->lateral_m;
-    };
-    std::sort(road_outer.begin(), road_outer.end(), lateral_less);
-    std::sort(carriageway_edges.begin(), carriageway_edges.end(),
-              lateral_less);
-    junction_section resolved{};
-    resolved.left = curb{road_outer.front(), road_outer.front(),
-                         carriageway_edges.front(), true};
-    resolved.right = curb{road_outer.back(), road_outer.back(),
-                          carriageway_edges.back(), true};
-    resolved.carriageway_left_m =
-        resolved.left.carriageway->lateral_m;
-    resolved.carriageway_right_m =
-        resolved.right.carriageway->lateral_m;
-    if (resolved.carriageway_right_m <= resolved.carriageway_left_m) {
-      return Result<junction_section>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "road junction shoulder carriageway mapping is inverted");
-    }
-    return Result<junction_section>::Ok(resolved);
   }
-  if (curb_groups.size() != 2 || outer_edges.size() != 2) {
+  const auto lateral_less = [](const auto *a, const auto *b) {
+    return a->lateral_m < b->lateral_m;
+  };
+  std::sort(road_outer_edges.begin(), road_outer_edges.end(), lateral_less);
+  std::sort(carriageway_edges.begin(), carriageway_edges.end(), lateral_less);
+  if (road_outer_edges.size() != 2) {
     return Result<junction_section>::Fail(
-        CommitFailureCategory::kNotImplemented, "road junction section requires two explicit "
-                                 "curb boundary IDs and two outer edges");
+        CommitFailureCategory::kNotImplemented,
+        "road junction section requires two road outer edges");
   }
-  std::vector<std::vector<const SectionBoundarySample *>> curbs{};
+  const double section_center_m =
+      (road_outer_edges.front()->lateral_m +
+       road_outer_edges.back()->lateral_m) *
+      0.5;
+  std::array<std::vector<const SectionBoundarySample *>, 2> side_curbs{};
   for (auto &[id, samples] : curb_groups) {
     (void)id;
     if (samples.size() != 2) {
@@ -292,19 +268,47 @@ validate_supported_junction_section(const ConnectionGate &gate,
     std::sort(samples.begin(), samples.end(), [](const auto *a, const auto *b) {
       return a->lateral_m < b->lateral_m;
     });
-    curbs.push_back(samples);
+    const double midpoint =
+        (samples.front()->lateral_m + samples.back()->lateral_m) * 0.5;
+    side_curbs[midpoint < section_center_m ? 0 : 1].push_back(samples.front());
+    side_curbs[midpoint < section_center_m ? 0 : 1].push_back(samples.back());
   }
-  std::sort(curbs.begin(), curbs.end(), [](const auto &a, const auto &b) {
-    return a.front()->lateral_m < b.front()->lateral_m;
-  });
-  std::sort(
-      outer_edges.begin(), outer_edges.end(),
-      [](const auto *a, const auto *b) { return a->lateral_m < b->lateral_m; });
+  std::array<std::vector<const SectionBoundarySample *>, 2>
+      side_carriageway_edges{};
+  for (const SectionBoundarySample *boundary : carriageway_edges) {
+    side_carriageway_edges[boundary->lateral_m < section_center_m ? 0 : 1]
+        .push_back(boundary);
+  }
+  if (side_curbs[0].size() > 2 || side_curbs[1].size() > 2 ||
+      side_carriageway_edges[0].size() > 1 ||
+      side_carriageway_edges[1].size() > 1) {
+    return Result<junction_section>::Fail(
+        CommitFailureCategory::kNotImplemented,
+        "road junction section side boundaries are ambiguous");
+  }
+  const auto resolve_side = [&](std::size_t index) {
+    const bool left = index == 0;
+    junction_side resolved{};
+    resolved.road_outer =
+        left ? road_outer_edges.front() : road_outer_edges.back();
+    if (side_curbs[index].size() == 2) {
+      resolved.has_curb = true;
+      resolved.curb_outer = left ? side_curbs[index].front()
+                                 : side_curbs[index].back();
+      resolved.curb_inner = left ? side_curbs[index].back()
+                                 : side_curbs[index].front();
+    } else {
+      resolved.curb_outer = resolved.road_outer;
+      resolved.curb_inner = resolved.road_outer;
+    }
+    resolved.carriageway = side_carriageway_edges[index].empty()
+                               ? resolved.curb_inner
+                               : side_carriageway_edges[index].front();
+    return resolved;
+  };
   junction_section resolved{};
-  resolved.left =
-      curb{outer_edges.front(), curbs.front().front(), curbs.front().back()};
-  resolved.right =
-      curb{outer_edges.back(), curbs.back().back(), curbs.back().front()};
+  resolved.left = resolve_side(0);
+  resolved.right = resolve_side(1);
   resolved.carriageway_left_m = resolved.left.carriageway->lateral_m;
   resolved.carriageway_right_m = resolved.right.carriageway->lateral_m;
   if (resolved.carriageway_right_m <= resolved.carriageway_left_m) {
@@ -319,11 +323,16 @@ struct side {
   ApproachKey approach{};
   Vec3d tangent{};
   Vec3d outer{};
-  Vec3d sidewalk{};
+  Vec3d curb_outer{};
+  Vec3d curb_inner{};
   Vec3d carriageway{};
   std::uint64_t outer_boundary_id = 0;
   std::uint64_t curb_boundary_id = 0;
-  bool shoulder_only = false;
+  std::uint64_t carriageway_boundary_id = 0;
+  BoundaryRole carriageway_boundary_role = BoundaryRole::kOuterEdge;
+  bool has_curb = false;
+  bool has_shoulder = false;
+  bool has_sidewalk = false;
 };
 
 double lateral_projection(const ConnectionGate &gate, const side &value) {
@@ -364,23 +373,27 @@ generate_junction_geometry(RoadNodeId node_id,
       return Result<JunctionGeometry>::Fail(CommitFailureCategory::kInternalError,
                                             "road junction section is missing");
     }
-    Result<junction_section> supported =
-        validate_supported_junction_section(gate, *sections[index]);
+    Result<junction_section> supported = resolve_junction_section(gate);
     if (!supported.ok) {
       return Result<JunctionGeometry>::Fail(supported.failure_category,
                                             supported.error);
     }
     const ApproachKey key = gate.approach;
-    const auto side_from = [&gate, &key](const curb &profile) {
+    const auto side_from = [&gate, &key](const junction_side &profile) {
       return side{
           key,
           gate.tangent,
-          boundary_point(gate, *profile.outer),
-          boundary_point(gate, *profile.sidewalk),
+          boundary_point(gate, *profile.road_outer),
+          boundary_point(gate, *profile.curb_outer),
+          boundary_point(gate, *profile.curb_inner),
           boundary_point(gate, *profile.carriageway),
-          profile.outer->boundary_id,
+          profile.road_outer->boundary_id,
+          profile.curb_inner->boundary_id,
           profile.carriageway->boundary_id,
-          profile.shoulder_only,
+          profile.carriageway->role,
+          profile.has_curb,
+          profile.carriageway != profile.curb_inner,
+          profile.curb_outer != profile.road_outer,
       };
     };
     std::array<side, 2> gate_sides{
@@ -410,8 +423,11 @@ generate_junction_geometry(RoadNodeId node_id,
     const std::vector<Vec3d> carriageway = resolved_curve(
         a.carriageway, b.carriageway, a.tangent, b.tangent,
         junction_corner_control_m, kJunctionCurveSamples);
-    const std::vector<Vec3d> sidewalk =
-        resolved_curve(a.sidewalk, b.sidewalk, a.tangent, b.tangent,
+    const std::vector<Vec3d> curb_inner =
+        resolved_curve(a.curb_inner, b.curb_inner, a.tangent, b.tangent,
+                       junction_corner_control_m, kJunctionCurveSamples);
+    const std::vector<Vec3d> curb_outer =
+        resolved_curve(a.curb_outer, b.curb_outer, a.tangent, b.tangent,
                        junction_corner_control_m, kJunctionCurveSamples);
     const std::vector<Vec3d> outer =
         resolved_curve(a.outer, b.outer, a.tangent, b.tangent,
@@ -419,20 +435,29 @@ generate_junction_geometry(RoadNodeId node_id,
     asphalt_perimeter.insert(asphalt_perimeter.end(), carriageway.begin() + 1,
                              carriageway.end() - 1);
     geometry.perimeter_curves.push_back(
-        ResolvedBoundaryCurve{a.curb_boundary_id, b.curb_boundary_id,
-                              BoundaryRole::kCurb, carriageway});
-    if (a.shoulder_only || b.shoulder_only) {
+        ResolvedBoundaryCurve{a.carriageway_boundary_id,
+                              b.carriageway_boundary_id,
+                              a.carriageway_boundary_role ==
+                                      b.carriageway_boundary_role
+                                  ? a.carriageway_boundary_role
+                                  : BoundaryRole::kOuterEdge,
+                              carriageway});
+    if (a.has_shoulder || b.has_shoulder) {
       geometry.surface_strips.push_back(ResolvedSurfaceStrip{
           RenderStyleFromSurface(builtin_surface_styles::kAsphalt),
-          a.curb_boundary_id, b.outer_boundary_id, carriageway, outer});
-      continue;
+          a.carriageway_boundary_id, b.curb_boundary_id, carriageway,
+          curb_inner});
     }
-    geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-        RenderStyleFromSurface(builtin_surface_styles::kCurb),
-        a.curb_boundary_id, b.curb_boundary_id, carriageway, sidewalk});
-    geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-        RenderStyleFromSurface(builtin_surface_styles::kSidewalk),
-        a.outer_boundary_id, b.outer_boundary_id, sidewalk, outer});
+    if (a.has_curb || b.has_curb) {
+      geometry.surface_strips.push_back(ResolvedSurfaceStrip{
+          RenderStyleFromSurface(builtin_surface_styles::kCurb),
+          a.curb_boundary_id, b.curb_boundary_id, curb_inner, curb_outer});
+    }
+    if (a.has_sidewalk || b.has_sidewalk) {
+      geometry.surface_strips.push_back(ResolvedSurfaceStrip{
+          RenderStyleFromSurface(builtin_surface_styles::kSidewalk),
+          a.outer_boundary_id, b.outer_boundary_id, curb_outer, outer});
+    }
   }
   geometry.surface_regions.push_back(ResolvedSurfaceRegion{
       RenderStyleFromSurface(builtin_surface_styles::kAsphalt),

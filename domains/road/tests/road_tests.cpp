@@ -998,6 +998,33 @@ bool P1_end_segment_snap_splits_straight_road_for_t_junction(
   return true;
 }
 
+bool P1_all_builtin_sections_form_t_junctions(std::string& failure) {
+  for (const city::road::CrossSectionTemplateId template_id :
+       std::array<city::road::CrossSectionTemplateId, 5>{1, 2, 3, 4, 5}) {
+    RoadState state{};
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({-30.0, 0.0}, {30.0, 0.0})}), template_id});
+    ROAD_TEST_EXPECT(base.ok,
+                     "built-in edge-section base road could not be created");
+    const auto branch = state.AddSegmentConnectedToSegment(
+        city::road::AddSegmentConnectedToSegmentRequest{
+            MakePath({MakeLine({0.0, 0.0}, {0.0, 30.0})}), template_id,
+            base.value, 30.0});
+    ROAD_TEST_EXPECT(
+        branch.ok,
+        "built-in edge-section T junction was rejected: " + branch.error);
+    ROAD_TEST_EXPECT(
+        road_test_view::junctions(state.derived()).size() == 1 &&
+            !state.derived().junction_meshes.empty(),
+        "built-in edge-section T junction geometry is missing");
+    for (const Mesh& mesh : state.derived().junction_meshes) {
+      ROAD_TEST_EXPECT(mesh_faces_up(mesh),
+                       "built-in edge-section junction mesh is inverted");
+    }
+  }
+  return true;
+}
+
 bool P1_segment_snap_splits_bezier_road_for_t_junction(std::string& failure) {
   RoadState state{};
   const Path curve = MakePath({MakeBezier({0.0, 0.0}, {20.0, 10.0}, {60.0, 10.0}, {80.0, 0.0})});
@@ -3573,6 +3600,8 @@ int main() {
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
       {"P1_end_segment_snap_splits_straight_road_for_t_junction",
        P1_end_segment_snap_splits_straight_road_for_t_junction},
+      {"P1_all_builtin_sections_form_t_junctions",
+       P1_all_builtin_sections_form_t_junctions},
       {"P1_segment_snap_splits_bezier_road_for_t_junction", P1_segment_snap_splits_bezier_road_for_t_junction},
       {"P1_segment_snap_splits_at_internal_bezier_span_boundary",
        P1_segment_snap_splits_at_internal_bezier_span_boundary},

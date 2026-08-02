@@ -136,8 +136,8 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
   非隣接approachをdegree 2 cornerの45–135度制限へ通さない。同じ接線から別方向へ
   分かれるBezier approachは、chord角が対応範囲ならstable ID順で扱う。
 - ユーザーが明示した場合だけ`NodeConnectionPolicyOverride`を保存する。overrideを削除するとAutoへ戻る。
-- 実交差点の各gate位置は固定距離にしない。接続角と各approachの断面幅から、approach同士が重ならないsetbackを一度だけ決定する。
-- 実交差点はcarriagewayだけでなく、gate断面のsidewalkとcurbを隣接approach間へ接続する。
+- 実交差点の各gate位置は固定距離にしない。接続角と各approachの断面幅に加え、共通corner radiusを置くための接線長から、approach同士と丸め面が重ならないsetbackを一度だけ決定する。
+- 実交差点はcarriagewayだけでなく、gate断面のshoulder境界、sidewalk、curbを隣接approach間へ接続する。同じAsphaltであるcarriagewayとshoulderは交差点内で一つのsurface regionが所有し、重複meshを作らない。
 - 交差点cornerとdegree 2の屈曲connectorは、gate接線を共有するBezier形状として派生する。segment側とconnector側で接線を再解釈しない。
 - MoveNodeではStraight intentを持つincident segmentだけを新node位置からlinear handleへ再導出する。Curve intentのcontrol handlesは維持する。nodeに接続しない遠方segmentは変更しない。
 - 自動停止線・ゼブラは実交差点だけに生成する。向きと高さはgate frameおよびSectionEvaluationの横断勾配から導出する。
@@ -192,7 +192,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
   隣接band幅が退化している区間には線を出さない。
 - transition前後でboundary IDのroleが変わる場合、および`TransitionAction::kUnsupported`がmarking付き要素を
   指す場合はunsupportedとする。近い新boundaryへ自動でrebindしない。
-- junction markingのdefaultはgate終了。`JunctionMarkingOverride`で明示した場合だけ交差点内接続を作る。
+- junction markingのうちCenterLineとLaneSeparatorはdefaultでgate終了し、`JunctionMarkingOverride`で明示した場合だけ交差点内接続を作る。shoulderを区切るCarriagewayEdgeは、隣接する2 approachの対応boundaryでrole/styleが一致する場合、sidewalkと同じjunction perimeter curveへ自動接続する。片側に線がなければgateで終了し、明示`BoundaryContinuation`があるendpoint pairへ自動線を重ねない。
   targetは明示IDのみで、最寄り・正面・角度差から推測しない。
 
 ### 操作 x marking状態

@@ -131,11 +131,13 @@ degree 0/1のnodeにはconnection entity、gate、layoutを作らない。
 
 接続前にpair、mapping、gateを正本へ用意する構造は持たない。必要な接続はgraphから導出する。
 一般的な斜交接続を固定の最小・最大角度だけで拒否しない。junctionのauto setbackは各approachの
-実断面外半幅と隣接approachとの交差角から個別に導出し、必要距離をsegment内へ確保できない場合や
+実断面外半幅、隣接approachとの交差角、共通corner radiusの接線長から個別に導出し、必要距離をsegment内へ確保できない場合や
 有限な境界geometryを生成できない場合だけを`unsupported`とする。
 Junction geometryはtemplate IDや表示styleで断面を分類しない。gateごとに左右のroad outer、curb、
 shoulder、carriageway edgeをboundary roleとstrip adjacencyから解決し、存在する帯だけを生成する。
 片側だけcurbがある断面も同じ解決器を通し、候補が複数で意味が一意にならない側だけをunsupportedとする。
+carriagewayとshoulderは同じAsphalt surface regionとしてcurb innerまで一度だけemitし、
+carriageway edgeはsurface分割ではなくshoulderを示すsemantic markingとして保持する。
 
 ### derive_markings
 
@@ -143,7 +145,9 @@ shoulder、carriageway edgeをboundary roleとstrip adjacencyから解決し、�
 現れた位置で開始、消えた位置で終了する。隣接車線が退化している区間には線を出さない。
 配列indexや位置近接で別boundaryへつなぎ替えない。
 
-交差点内はdefaultでgate終了とし、`JunctionMarkingOverride`が明示したsource / targetだけが接続線を作る。
+CenterLineとLaneSeparatorは交差点内でdefault gate終了とし、`JunctionMarkingOverride`が明示したsource / targetだけが接続線を作る。
+CarriagewayEdgeは隣接sideのrole/styleが一致する場合、解決済みjunction perimeter curveへ自動接続する。
+片側だけに存在する線はgate終了とし、明示`BoundaryContinuation`と同じendpoint pairへ自動線を重複生成しない。
 最も近い線や角度差最小の線を自動選択しない。
 
 ### emit_geometry

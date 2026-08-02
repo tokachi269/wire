@@ -501,16 +501,24 @@ resolve_connections(const SavedRoadGraph &graph,
           const double sine = std::abs(cross(approach.tangent, other.tangent));
           if (sine <= rules.parallel_sine_tolerance)
             continue;
+          const double angle = std::acos(std::clamp(
+              dot(approach.tangent, other.tangent), -1.0, 1.0));
+          const double half_angle_tangent = std::tan(angle * 0.5);
+          if (half_angle_tangent <= rules.parallel_sine_tolerance)
+            continue;
           const RoadSegment *other_segment =
               find_segment(graph, other.key.segment_id);
           if (other_segment == nullptr) {
             return Out::Fail(CommitFailureCategory::kInternalError,
                              "road setback source segment is missing");
           }
+          const double section_clearance_m =
+              endpoint_outer_half_width(graph, *other_segment, other.key) /
+              sine;
+          const double corner_clearance_m =
+              rules.corner_radius_m / half_angle_tangent;
           setback = std::max(setback,
-                             endpoint_outer_half_width(graph, *other_segment,
-                                                       other.key) /
-                                 sine);
+                             section_clearance_m + corner_clearance_m);
         }
       }
       if (!is_finite(setback) || setback < 0.0 ||

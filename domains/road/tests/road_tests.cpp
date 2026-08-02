@@ -8,6 +8,8 @@
 #include <fstream>
 #include <iostream>
 #include <numbers>
+#include <optional>
+#include <sstream>
 #include <set>
 #include <string>
 
@@ -58,12 +60,14 @@ using city::road::SectionTransitionRequest;
 using city::road::SectionTransitionRule;
 using city::road::DistanceRef;
 using city::road::DistanceRefKind;
+using city::road::DerivedMarking;
 using city::road::StripFunction;
 using city::road::ThreeLaneTemplate;
 using city::road::TransitionAnchor;
 using city::road::TransitionAction;
 using city::road::ValidateGraphInvariants;
 using city::road::Vec2d;
+using city::road::Vec3d;
 namespace builtin_marking_styles = city::road::builtin_marking_styles;
 namespace builtin_surface_styles = city::road::builtin_surface_styles;
 
@@ -120,6 +124,135 @@ bool mesh_faces_up(const Mesh& mesh) {
     if (ux * vy - uy * vx < -1e-9) {
       return false;
     }
+  }
+  return true;
+}
+
+double orient_2d(const Vec3d& a, const Vec3d& b, const Vec3d& c) {
+  return (b.x - a.x) * (c.y - a.y) -
+         (b.y - a.y) * (c.x - a.x);
+}
+
+bool point_inside_triangle_2d(const Vec3d& point, const Vec3d& a,
+                              const Vec3d& b, const Vec3d& c) {
+  constexpr double epsilon = 1e-9;
+  const double ab = orient_2d(a, b, point);
+  const double bc = orient_2d(b, c, point);
+  const double ca = orient_2d(c, a, point);
+  return (ab > epsilon && bc > epsilon && ca > epsilon) ||
+         (ab < -epsilon && bc < -epsilon && ca < -epsilon);
+}
+
+bool segments_cross_2d(const Vec3d& a, const Vec3d& b, const Vec3d& c,
+                       const Vec3d& d) {
+  constexpr double epsilon = 1e-9;
+  const double ab_c = orient_2d(a, b, c);
+  const double ab_d = orient_2d(a, b, d);
+  const double cd_a = orient_2d(c, d, a);
+  const double cd_b = orient_2d(c, d, b);
+  return ab_c * ab_d < -epsilon && cd_a * cd_b < -epsilon;
+}
+
+std::optional<std::pair<std::size_t, std::size_t>>
+polygon_self_intersection_2d(const std::vector<Vec3d>& polygon) {
+  for (std::size_t first = 0; first < polygon.size(); ++first) {
+    const std::size_t first_next = (first + 1) % polygon.size();
+    for (std::size_t second = first + 1; second < polygon.size(); ++second) {
+      const std::size_t second_next = (second + 1) % polygon.size();
+      if (first == second || first_next == second || second_next == first)
+        continue;
+      if (segments_cross_2d(polygon[first], polygon[first_next],
+                            polygon[second], polygon[second_next]))
+        return std::pair{first, second};
+    }
+  }
+  return std::nullopt;
+}
+
+bool triangles_overlap_2d(const Vec3d& a, const Vec3d& b, const Vec3d& c,
+                          const Vec3d& d, const Vec3d& e, const Vec3d& f) {
+  const std::array<std::pair<Vec3d, Vec3d>, 3> first_edges{
+      std::pair{a, b}, std::pair{b, c}, std::pair{c, a}};
+  const std::array<std::pair<Vec3d, Vec3d>, 3> second_edges{
+      std::pair{d, e}, std::pair{e, f}, std::pair{f, d}};
+  for (const auto& first : first_edges) {
+    for (const auto& second : second_edges) {
+      if (segments_cross_2d(first.first, first.second, second.first,
+                            second.second)) {
+        return true;
+      }
+    }
+  }
+  const Vec3d first_center{(a.x + b.x + c.x) / 3.0,
+                           (a.y + b.y + c.y) / 3.0, 0.0};
+  const Vec3d second_center{(d.x + e.x + f.x) / 3.0,
+                            (d.y + e.y + f.y) / 3.0, 0.0};
+  return point_inside_triangle_2d(first_center, d, e, f) ||
+         point_inside_triangle_2d(second_center, a, b, c);
+}
+
+std::optional<std::pair<std::size_t, std::size_t>>
+overlapping_face_pair(const Mesh& mesh) {
+  for (std::size_t first = 0; first + 2 < mesh.indices.size(); first += 3) {
+    const Vec3d& a = mesh.vertices[mesh.indices[first]];
+    const Vec3d& b = mesh.vertices[mesh.indices[first + 1]];
+    const Vec3d& c = mesh.vertices[mesh.indices[first + 2]];
+    if (std::abs(orient_2d(a, b, c)) <= 1e-9)
+      continue;
+    for (std::size_t second = first + 3; second + 2 < mesh.indices.size();
+         second += 3) {
+      const Vec3d& d = mesh.vertices[mesh.indices[second]];
+      const Vec3d& e = mesh.vertices[mesh.indices[second + 1]];
+      const Vec3d& f = mesh.vertices[mesh.indices[second + 2]];
+      if (std::abs(orient_2d(d, e, f)) <= 1e-9)
+        continue;
+      if (triangles_overlap_2d(a, b, c, d, e, f))
+        return std::pair{first / 3, second / 3};
+    }
+  }
+  return std::nullopt;
+}
+
+std::string face_points(const Mesh& mesh, std::size_t face) {
+  std::ostringstream text;
+  for (std::size_t corner = 0; corner < 3; ++corner) {
+    const Vec3d& point = mesh.vertices[mesh.indices[face * 3 + corner]];
+    if (corner != 0)
+      text << ';';
+    text << point.x << ',' << point.y;
+  }
+  return text.str();
+}
+
+bool junction_mesh_is_non_overlapping(const RoadState& state,
+                                      const std::string& label,
+                                      std::string& failure) {
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1 &&
+                       junctions.front()->junction_geometry.surface_regions.size() == 1,
+                   label + " junction geometry is missing");
+  const auto& road_region =
+      junctions.front()->junction_geometry.surface_regions.front().perimeter;
+  const auto perimeter_crossing = polygon_self_intersection_2d(road_region);
+  ROAD_TEST_EXPECT(
+      !perimeter_crossing.has_value(),
+      label + " central road perimeter self-intersects between edges " +
+          (perimeter_crossing.has_value()
+               ? std::to_string(perimeter_crossing->first) + " and " +
+                     std::to_string(perimeter_crossing->second)
+               : "unknown"));
+  for (const Mesh& mesh : state.derived().junction_meshes) {
+    const auto overlap = overlapping_face_pair(mesh);
+    ROAD_TEST_EXPECT(
+        !overlap.has_value(),
+        label + " junction mesh overlaps in style " +
+            std::to_string(mesh.style.value) +
+            (overlap.has_value()
+                 ? " between triangles " + std::to_string(overlap->first) +
+                       " [" + face_points(mesh, overlap->first) + "] and " +
+                       std::to_string(overlap->second) + " [" +
+                       face_points(mesh, overlap->second) + "]"
+                 : ""));
   }
   return true;
 }
@@ -1025,6 +1158,48 @@ bool P1_all_builtin_sections_form_t_junctions(std::string& failure) {
   return true;
 }
 
+bool P1_skew_shoulder_junction_connects_outer_lines(std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const double radians = 30.0 * std::numbers::pi / 180.0;
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0},
+                             {40.0 * std::cos(radians),
+                              40.0 * std::sin(radians)})}),
+          5, base.value, 40.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  const std::size_t junction_outer_lines = std::count_if(
+      state.derived().markings.begin(), state.derived().markings.end(),
+      [](const DerivedMarking& marking) {
+        return marking.owner.kind == MarkingOwner::Kind::kJunction &&
+               marking.role == MarkingRole::kCarriagewayEdge &&
+               marking.points.size() >= 2;
+      });
+  ROAD_TEST_EXPECT(junction_outer_lines == 3,
+                   "skew shoulder T junction does not connect all three "
+                   "adjacent outer-line pairs");
+  return true;
+}
+
+bool P1_skew_shoulder_junction_mesh_does_not_overlap(std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const double radians = 30.0 * std::numbers::pi / 180.0;
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0},
+                             {40.0 * std::cos(radians),
+                              40.0 * std::sin(radians)})}),
+          5, base.value, 40.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  return junction_mesh_is_non_overlapping(state, "skew shoulder T", failure);
+}
+
 bool P1_segment_snap_splits_bezier_road_for_t_junction(std::string& failure) {
   RoadState state{};
   const Path curve = MakePath({MakeBezier({0.0, 0.0}, {20.0, 10.0}, {60.0, 10.0}, {80.0, 0.0})});
@@ -1138,6 +1313,39 @@ bool P1_incremental_skew_cross_accepts_ordered_approaches(
               .size() == 4,
       "incremental skew cross does not have four approaches");
   return true;
+}
+
+bool P1_skew_shoulder_cross_has_connected_lines_without_overlap(
+    std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), 5});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto first_diagonal = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {35.0, 20.0})}), 5, base.value,
+          40.0});
+  ROAD_TEST_EXPECT(first_diagonal.ok, first_diagonal.error);
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1,
+                   "skew shoulder cross T state has no junction");
+  const auto second_diagonal = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {-35.0, -20.0})}), 5,
+          junctions.front()->node_id});
+  ROAD_TEST_EXPECT(second_diagonal.ok, second_diagonal.error);
+  const std::size_t junction_outer_lines = std::count_if(
+      state.derived().markings.begin(), state.derived().markings.end(),
+      [](const DerivedMarking& marking) {
+        return marking.owner.kind == MarkingOwner::Kind::kJunction &&
+               marking.role == MarkingRole::kCarriagewayEdge &&
+               marking.points.size() >= 2;
+      });
+  ROAD_TEST_EXPECT(junction_outer_lines == 4,
+                   "skew shoulder cross does not connect all four adjacent "
+                   "outer-line pairs");
+  return junction_mesh_is_non_overlapping(state, "skew shoulder cross",
+                                          failure);
 }
 
 bool P2_section_transition_and_manual_markings(std::string& failure) {
@@ -3025,17 +3233,26 @@ bool branch_markings_follow_explicit_boundary_paths(
         state.derived().boundary_paths.end(), [&topology](const auto& path) {
           return path.continuation_id == topology->id;
         });
+    const auto boundary_points =
+        boundary_path == state.derived().boundary_paths.end()
+            ? std::vector<Vec2d>{}
+            : FlattenPath(boundary_path->path);
     const auto marking = road_test_view::find_marking_line(
-        state.derived(), [boundary_id, split_node](const auto& candidate) {
+        state.derived(),
+        [boundary_id, split_node, &boundary_points](const auto& candidate) {
           return candidate.owner.kind == MarkingOwner::Kind::kJunction &&
                  candidate.owner.node_id == split_node &&
-                 candidate.boundary_id == boundary_id;
+                 candidate.boundary_id == boundary_id &&
+                 !boundary_points.empty() && candidate.points.size() >= 2 &&
+                 candidate.points.front().x == boundary_points.front().x &&
+                 candidate.points.front().y == boundary_points.front().y &&
+                 candidate.points.back().x == boundary_points.back().x &&
+                 candidate.points.back().y == boundary_points.back().y;
         });
     ROAD_TEST_EXPECT(boundary_path != state.derived().boundary_paths.end() &&
                          boundary_path->path.spans.size() == 1 &&
                          marking != nullptr && marking->points.size() >= 2,
                      "LAN8 branch boundary did not produce a marking path");
-    const auto boundary_points = FlattenPath(boundary_path->path);
     ROAD_TEST_EXPECT(
         !boundary_points.empty() &&
             marking->points.front().x == boundary_points.front().x &&
@@ -3602,12 +3819,18 @@ int main() {
        P1_end_segment_snap_splits_straight_road_for_t_junction},
       {"P1_all_builtin_sections_form_t_junctions",
        P1_all_builtin_sections_form_t_junctions},
+      {"P1_skew_shoulder_junction_connects_outer_lines",
+       P1_skew_shoulder_junction_connects_outer_lines},
+      {"P1_skew_shoulder_junction_mesh_does_not_overlap",
+       P1_skew_shoulder_junction_mesh_does_not_overlap},
       {"P1_segment_snap_splits_bezier_road_for_t_junction", P1_segment_snap_splits_bezier_road_for_t_junction},
       {"P1_segment_snap_splits_at_internal_bezier_span_boundary",
        P1_segment_snap_splits_at_internal_bezier_span_boundary},
       {"P1_cross_junction_accepts_opposite_approaches", P1_cross_junction_accepts_opposite_approaches},
       {"P1_incremental_skew_cross_accepts_ordered_approaches",
        P1_incremental_skew_cross_accepts_ordered_approaches},
+      {"P1_skew_shoulder_cross_has_connected_lines_without_overlap",
+       P1_skew_shoulder_cross_has_connected_lines_without_overlap},
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
       {"add_lane_preserves_existing_lanes",
        add_lane_preserves_existing_lanes},

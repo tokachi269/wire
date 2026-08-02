@@ -79,6 +79,8 @@ struct ResolvedBoundaryCurve {
   std::uint64_t target_boundary_id = 0;
   BoundaryRole role = BoundaryRole::kOuterEdge;
   std::vector<Vec3d> points{};
+  ApproachKey source_approach{};
+  ApproachKey target_approach{};
 };
 
 struct ResolvedSurfaceStrip {

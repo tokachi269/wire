@@ -377,42 +377,61 @@ Result<bool> derive_manual_markings(const SavedRoadGraph &graph,
 }
 
 Result<bool>
-derive_corner_markings(const SavedRoadGraph &graph,
-                       const std::vector<ResolvedConnection> &connections,
-                       std::vector<DerivedMarking> &markings) {
+derive_connection_boundary_markings(
+    const SavedRoadGraph &graph,
+    const std::vector<ResolvedConnection> &connections,
+    std::vector<DerivedMarking> &markings) {
   for (const ResolvedConnection &connection : connections) {
-    if (connection.kind != NodeConnectionKind::kCorner)
+    const std::vector<ResolvedBoundaryCurve> *curves = nullptr;
+    if (connection.kind == NodeConnectionKind::kCorner) {
+      curves = &connection.connection_geometry.boundary_curves;
+    } else if (connection.kind == NodeConnectionKind::kJunction) {
+      curves = &connection.junction_geometry.perimeter_curves;
+    } else {
       continue;
-    if (connection.approaches.size() != 2) {
-      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
-                                "corner marking approaches are incomplete");
-    }
-    const ResolvedApproach *source = find_connection_approach(
-        connection, connection.connection_geometry.approaches[0]);
-    const ResolvedApproach *target = find_connection_approach(
-        connection, connection.connection_geometry.approaches[1]);
-    if (source == nullptr || target == nullptr) {
-      return Result<bool>::Fail(
-          CommitFailureCategory::kInternalError,
-          "corner marking geometry approach is missing");
     }
     const MarkingOwner owner{MarkingOwner::Kind::kJunction, 0,
                              connection.node_id, 0};
-    for (const ResolvedBoundaryCurve &curve :
-         connection.connection_geometry.boundary_curves) {
+    for (const ResolvedBoundaryCurve &curve : *curves) {
+      const BoundaryEndpointKey source_endpoint{
+          curve.source_approach.segment_id, curve.source_boundary_id,
+          curve.source_approach.endpoint_role};
+      const BoundaryEndpointKey target_endpoint{
+          curve.target_approach.segment_id, curve.target_boundary_id,
+          curve.target_approach.endpoint_role};
+      const bool explicitly_connected = std::any_of(
+          graph.boundary_continuations.begin(),
+          graph.boundary_continuations.end(),
+          [&source_endpoint, &target_endpoint](const auto &continuation) {
+            return (continuation.source == source_endpoint &&
+                    continuation.target == target_endpoint) ||
+                   (continuation.source == target_endpoint &&
+                    continuation.target == source_endpoint);
+          });
+      if (explicitly_connected)
+        continue;
+      const ResolvedApproach *source =
+          find_connection_approach(connection, curve.source_approach);
+      const ResolvedApproach *target =
+          find_connection_approach(connection, curve.target_approach);
+      if (source == nullptr || target == nullptr) {
+        return Result<bool>::Fail(
+            CommitFailureCategory::kInternalError,
+            "connection boundary marking approach is missing");
+      }
       const std::vector<const SectionBoundarySample *> source_boundaries =
           find_marked_gate_boundaries(source->gate,
                                       curve.source_boundary_id);
       const std::vector<const SectionBoundarySample *> target_boundaries =
           find_marked_gate_boundaries(target->gate,
                                       curve.target_boundary_id);
-      if (source_boundaries.empty() && target_boundaries.empty())
-        continue;
-      if (source_boundaries.size() != 1 || target_boundaries.size() != 1) {
+      if (source_boundaries.size() > 1 || target_boundaries.size() > 1) {
         return Result<bool>::Fail(
             CommitFailureCategory::kNotImplemented,
-            "corner marking boundary is not uniquely mapped");
+            "connection marking boundary is not uniquely mapped");
       }
+      if (source_boundaries.empty() || target_boundaries.empty())
+        continue;
       const SectionBoundarySample *source_boundary = source_boundaries.front();
       const SectionBoundarySample *target_boundary = target_boundaries.front();
       const MarkingRole source_role =
@@ -424,7 +443,7 @@ derive_corner_markings(const SavedRoadGraph &graph,
               target_boundary->marking.style_id) {
         return Result<bool>::Fail(
             CommitFailureCategory::kNotImplemented,
-            "corner marking role or style changes across the connection");
+            "connection marking role or style changes across the connection");
       }
       const MarkingTrackKey source_track{
           source->key.segment_id, curve.source_boundary_id, source_role};
@@ -737,7 +756,7 @@ derive_markings(const SavedRoadGraph &graph,
   step = derive_manual_markings(graph, segments, markings);
   if (!step.ok)
     return Out::Fail(step.failure_category, step.error);
-  step = derive_corner_markings(graph, connections, markings);
+  step = derive_connection_boundary_markings(graph, connections, markings);
   if (!step.ok)
     return Out::Fail(step.failure_category, step.error);
   step = derive_boundary_continuation_markings(

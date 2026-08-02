@@ -58,8 +58,11 @@ struct curve_frame {
 std::vector<curve_frame>
 resolved_curve_frames(Vec3d a, Vec3d b, Vec3d tangent_a, Vec3d tangent_b,
                       double control_m, int samples) {
-  const Vec3d c1 = add3(a, scale3(tangent_a, -control_m));
-  const Vec3d c2 = add3(b, scale3(tangent_b, -control_m));
+  const double chord_m = std::hypot(b.x - a.x, b.y - a.y);
+  const Vec3d start_tangent = scale3(tangent_a, -1.0);
+  const double effective_control_m = std::min(control_m, chord_m / 3.0);
+  const Vec3d c1 = add3(a, scale3(start_tangent, effective_control_m));
+  const Vec3d c2 = add3(b, scale3(tangent_b, -effective_control_m));
   std::vector<curve_frame> frames{};
   frames.reserve(static_cast<std::size_t>(samples) + 1);
   for (int i = 0; i <= samples; ++i) {
@@ -78,18 +81,6 @@ resolved_curve_frames(Vec3d a, Vec3d b, Vec3d tangent_a, Vec3d tangent_b,
     });
   }
   return frames;
-}
-
-std::vector<Vec3d> resolved_curve(Vec3d a, Vec3d b, Vec3d tangent_a,
-                                  Vec3d tangent_b, double control_m,
-                                  int samples) {
-  const std::vector<curve_frame> frames = resolved_curve_frames(
-      a, b, tangent_a, tangent_b, control_m, samples);
-  std::vector<Vec3d> points{};
-  points.reserve(frames.size());
-  for (const curve_frame &frame : frames)
-    points.push_back(frame.position);
-  return points;
 }
 
 double projected_offset(Vec3d point, Vec3d origin, Vec3d axis) {
@@ -190,6 +181,8 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
         sweep_boundary(
             frames, boundary_point(first, first.boundaries[index]),
             boundary_point(second, *target->second)),
+        first.approach,
+        second.approach,
     });
   }
   if (first_section.surface_styles.size() + 1 !=
@@ -331,7 +324,6 @@ struct side {
   std::uint64_t carriageway_boundary_id = 0;
   BoundaryRole carriageway_boundary_role = BoundaryRole::kOuterEdge;
   bool has_curb = false;
-  bool has_shoulder = false;
   bool has_sidewalk = false;
 };
 
@@ -392,7 +384,6 @@ generate_junction_geometry(RoadNodeId node_id,
           profile.carriageway->boundary_id,
           profile.carriageway->role,
           profile.has_curb,
-          profile.carriageway != profile.curb_inner,
           profile.curb_outer != profile.road_outer,
       };
     };
@@ -417,23 +408,34 @@ generate_junction_geometry(RoadNodeId node_id,
   for (std::size_t index = 0; index < sides.size(); ++index) {
     const side &a = sides[index];
     const side &b = sides[(index + 1) % sides.size()];
-    asphalt_perimeter.push_back(a.carriageway);
+    asphalt_perimeter.push_back(a.curb_inner);
     if (a.approach == b.approach)
       continue;
-    const std::vector<Vec3d> carriageway = resolved_curve(
-        a.carriageway, b.carriageway, a.tangent, b.tangent,
-        junction_corner_control_m, kJunctionCurveSamples);
+    const auto curve_points = [&](Vec3d start, Vec3d end) {
+      const std::vector<curve_frame> frames = resolved_curve_frames(
+          start, end, a.tangent, b.tangent, junction_corner_control_m,
+          kJunctionCurveSamples);
+      std::vector<Vec3d> points{};
+      points.reserve(frames.size());
+      for (const curve_frame &frame : frames)
+        points.push_back(frame.position);
+      return points;
+    };
+    const std::vector<Vec3d> carriageway =
+        curve_points(a.carriageway, b.carriageway);
     const std::vector<Vec3d> curb_inner =
-        resolved_curve(a.curb_inner, b.curb_inner, a.tangent, b.tangent,
-                       junction_corner_control_m, kJunctionCurveSamples);
+        curve_points(a.curb_inner, b.curb_inner);
     const std::vector<Vec3d> curb_outer =
-        resolved_curve(a.curb_outer, b.curb_outer, a.tangent, b.tangent,
-                       junction_corner_control_m, kJunctionCurveSamples);
-    const std::vector<Vec3d> outer =
-        resolved_curve(a.outer, b.outer, a.tangent, b.tangent,
-                       junction_corner_control_m, kJunctionCurveSamples);
-    asphalt_perimeter.insert(asphalt_perimeter.end(), carriageway.begin() + 1,
-                             carriageway.end() - 1);
+        curve_points(a.curb_outer, b.curb_outer);
+    const std::vector<Vec3d> outer = curve_points(a.outer, b.outer);
+    if (carriageway.empty() || curb_inner.empty() || curb_outer.empty() ||
+        outer.empty()) {
+      return Result<JunctionGeometry>::Fail(
+          CommitFailureCategory::kNotImplemented,
+          "road junction boundary curve is degenerate");
+    }
+    asphalt_perimeter.insert(asphalt_perimeter.end(), curb_inner.begin() + 1,
+                             curb_inner.end() - 1);
     geometry.perimeter_curves.push_back(
         ResolvedBoundaryCurve{a.carriageway_boundary_id,
                               b.carriageway_boundary_id,
@@ -441,13 +443,9 @@ generate_junction_geometry(RoadNodeId node_id,
                                       b.carriageway_boundary_role
                                   ? a.carriageway_boundary_role
                                   : BoundaryRole::kOuterEdge,
-                              carriageway});
-    if (a.has_shoulder || b.has_shoulder) {
-      geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-          RenderStyleFromSurface(builtin_surface_styles::kAsphalt),
-          a.carriageway_boundary_id, b.curb_boundary_id, carriageway,
-          curb_inner});
-    }
+                              carriageway,
+                              a.approach,
+                              b.approach});
     if (a.has_curb || b.has_curb) {
       geometry.surface_strips.push_back(ResolvedSurfaceStrip{
           RenderStyleFromSurface(builtin_surface_styles::kCurb),

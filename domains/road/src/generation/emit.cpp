@@ -57,6 +57,80 @@ void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
   }
 }
 
+double polygon_area_2d(const std::vector<Vec3d> &points) {
+  double twice_area = 0.0;
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    const Vec3d &a = points[index];
+    const Vec3d &b = points[(index + 1) % points.size()];
+    twice_area += a.x * b.y - b.x * a.y;
+  }
+  return twice_area * 0.5;
+}
+
+bool point_in_triangle_2d(Vec3d point, Vec3d a, Vec3d b, Vec3d c,
+                          double orientation) {
+  constexpr double epsilon = 1e-9;
+  return triangle_normal_z(a, b, point) * orientation >= -epsilon &&
+         triangle_normal_z(b, c, point) * orientation >= -epsilon &&
+         triangle_normal_z(c, a, point) * orientation >= -epsilon;
+}
+
+Result<bool> append_polygon(Mesh &mesh, const std::vector<Vec3d> &perimeter) {
+  constexpr double epsilon = 1e-9;
+  const double area = polygon_area_2d(perimeter);
+  if (std::abs(area) <= epsilon) {
+    return Result<bool>::Fail(CommitFailureCategory::kInternalError,
+                              "junction surface polygon has zero area");
+  }
+  const double orientation = area > 0.0 ? 1.0 : -1.0;
+  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
+  mesh.vertices.insert(mesh.vertices.end(), perimeter.begin(), perimeter.end());
+  std::vector<std::uint32_t> remaining(perimeter.size());
+  for (std::uint32_t index = 0; index < remaining.size(); ++index)
+    remaining[index] = index;
+
+  while (remaining.size() > 3) {
+    bool clipped = false;
+    for (std::size_t index = 0; index < remaining.size(); ++index) {
+      const std::uint32_t previous =
+          remaining[(index + remaining.size() - 1) % remaining.size()];
+      const std::uint32_t current = remaining[index];
+      const std::uint32_t next = remaining[(index + 1) % remaining.size()];
+      if (triangle_normal_z(perimeter[previous], perimeter[current],
+                            perimeter[next]) *
+              orientation <=
+          epsilon) {
+        continue;
+      }
+      bool contains_point = false;
+      for (const std::uint32_t candidate : remaining) {
+        if (candidate == previous || candidate == current || candidate == next)
+          continue;
+        if (point_in_triangle_2d(perimeter[candidate], perimeter[previous],
+                                 perimeter[current], perimeter[next],
+                                 orientation)) {
+          contains_point = true;
+          break;
+        }
+      }
+      if (contains_point)
+        continue;
+      append_triangle_up(mesh, base + previous, base + current, base + next);
+      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(index));
+      clipped = true;
+      break;
+    }
+    if (!clipped) {
+      return Result<bool>::Fail(
+          CommitFailureCategory::kInternalError,
+          "junction surface polygon cannot be triangulated");
+    }
+  }
+  append_triangle_up(mesh, base + remaining[0], base + remaining[1],
+                     base + remaining[2]);
+  return Result<bool>::Ok(true);
+}
+
 } // namespace
 
 Result<segment_output> emit_segment(const segment_input &input) {
@@ -158,26 +232,10 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
     }
     Mesh mesh{};
     mesh.style = region.style;
-    Vec3d center{};
-    for (const Vec3d &point : region.perimeter) {
-      center.x += point.x;
-      center.y += point.y;
-      center.z += point.z;
-    }
-    const double count = static_cast<double>(region.perimeter.size());
-    center.x /= count;
-    center.y /= count;
-    center.z /= count;
-    mesh.vertices.push_back(center);
-    mesh.vertices.insert(mesh.vertices.end(), region.perimeter.begin(),
-                         region.perimeter.end());
-    for (std::uint32_t index = 0; index < region.perimeter.size(); ++index) {
-      const std::uint32_t current = index + 1;
-      const std::uint32_t next =
-          static_cast<std::uint32_t>((index + 1) % region.perimeter.size()) +
-          1;
-      append_triangle_up(mesh, 0, current, next);
-    }
+    Result<bool> emitted = append_polygon(mesh, region.perimeter);
+    if (!emitted.ok)
+      return Result<junction_output>::Fail(emitted.failure_category,
+                                           emitted.error);
     output.surface_meshes.push_back(std::move(mesh));
   }
   for (const ResolvedSurfaceStrip &strip : input.surface_strips) {

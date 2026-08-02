@@ -35,7 +35,6 @@ export class RoadActions {
         ...current.road,
         mode,
         phase: "start",
-        curveContinuationTangent: null,
         previewMeshes: [],
         previewState: "none",
         previewRequest: null,
@@ -53,7 +52,6 @@ export class RoadActions {
         ...current.road,
         operation,
         phase: "start",
-        curveContinuationTangent: null,
         markingDraftSegmentId: 0,
         hoveredDeleteSegmentId: 0,
         hoveredLaneSegmentId: 0,
@@ -246,7 +244,14 @@ export class RoadActions {
     if (current.phase === "start") return;
     const target: RoadPoint = { x: point[0], y: point[1] };
     const road = this.previewState(current, target);
-    const request = roadSegmentInput(road, snap);
+    // Core owns the curve rule, so the guide asks for the interval it would
+    // commit instead of shaping one of its own.
+    const shaped = this.ctx.bridge.roadPreviewInterval(roadSegmentInput(road, snap));
+    const request = roadSegmentInput({
+      ...road,
+      handleA: { x: shaped.handleAX, y: shaped.handleAY },
+      handleB: { x: shaped.handleBX, y: shaped.handleBY }
+    }, snap);
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: {
@@ -495,7 +500,6 @@ export class RoadActions {
         draftStartSegmentId: 0,
         draftStartSegmentDistanceM: 0,
         draftExtensionCorridorId: 0,
-        curveContinuationTangent: null,
         laneEditStage: "select",
         laneCorridorId: 0,
         selectedLaneSegmentId: 0,
@@ -608,9 +612,7 @@ export class RoadActions {
             draftStartSegmentId: 0,
             draftStartSegmentDistanceM: 0,
             draftExtensionCorridorId: result.corridorId ?? 0,
-            curveContinuationTangent: request.kind === "bezier"
-              ? { x: request.endX - request.handleBX, y: request.endY - request.handleBY }
-              : null,
+
             scene,
             previewMeshes: [],
             previewState: "none",
@@ -625,7 +627,6 @@ export class RoadActions {
             draftStartSegmentId: 0,
             draftStartSegmentDistanceM: 0,
             draftExtensionCorridorId: 0,
-            curveContinuationTangent: null,
             scene,
             previewMeshes: [],
             previewState: "none",
@@ -653,7 +654,6 @@ export class RoadActions {
       road: withRoadEnd({
         ...snapshot.road,
         draftStart: target,
-        curveContinuationTangent: null,
         draftStartNodeId: snap?.nodeId ?? 0,
         draftStartSegmentId: snap?.segmentId ?? 0,
         draftStartSegmentDistanceM: snap?.segmentDistanceM ?? 0,
@@ -679,7 +679,6 @@ export class RoadActions {
         draftStartSegmentId: 0,
         draftStartSegmentDistanceM: 0,
         draftExtensionCorridorId: 0,
-        curveContinuationTangent: null,
         markingDraftSegmentId: 0,
         activeEditPointIndex: -1,
         hoveredDeleteSegmentId: 0,

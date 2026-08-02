@@ -562,6 +562,16 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     clearPendingSupportNodes: () => ({ ok: true, error: "" }),
     roadAddSegment: () => ({ ok: true, error: "" }),
     roadPreviewSegment: () => ({ ok: true, error: "", meshes: [] }),
+    roadPreviewInterval: (input: RoadSegmentInput) => ({
+      startX: input.startX,
+      startY: input.startY,
+      handleAX: input.handleAX,
+      handleAY: input.handleAY,
+      handleBX: input.handleBX,
+      handleBY: input.handleBY,
+      endX: input.endX,
+      endY: input.endY
+    }),
     roadAddLane: () => ({ ok: true, error: "" }),
     roadPreviewAddLane: () => ({ ok: true, error: "", meshes: [] }),
     roadAddConnectedLaneSegment: () => ({ ok: true, error: "" }),
@@ -1171,7 +1181,7 @@ describe("viewport tool routing", () => {
     expect(current(store).road.phase).toBe("start");
   });
 
-  it("snaps a continued curve start handle to the previous end tangent", () => {
+  it("reports the drawing mode on every interval of a continued curve", () => {
     const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({
       ok: true,
       error: "",
@@ -1202,30 +1212,14 @@ describe("viewport tool routing", () => {
 
     expect(roadAddSegment).toHaveBeenCalledTimes(2);
     expect(roadPreviewSegment).not.toHaveBeenCalled();
-    const previous = roadAddSegment.mock.calls[0]?.[0].spans?.[0];
-    const continued = roadAddSegment.mock.calls[1]?.[0].spans?.[0];
-    expect(previous).toBeDefined();
-    expect(continued).toBeDefined();
-    if (previous === undefined || continued === undefined) {
-      throw new Error("continued curve inputs were not captured");
-    }
-    const previousEndTangent = {
-      x: previous.endX - previous.handleBX,
-      y: previous.endY - previous.handleBY
-    };
-    const continuedStartTangent = {
-      x: continued.handleAX - continued.startX,
-      y: continued.handleAY - continued.startY
-    };
-    const cross =
-      previousEndTangent.x * continuedStartTangent.y -
-      previousEndTangent.y * continuedStartTangent.x;
-    const dot =
-      previousEndTangent.x * continuedStartTangent.x +
-      previousEndTangent.y * continuedStartTangent.y;
-
-    expect(Math.abs(cross)).toBeLessThan(1e-9);
-    expect(dot).toBeGreaterThan(0);
+    // The tangent at a shared point needs the points on both sides of it, which
+    // only core has. The viewer has to say which mode was drawn so core can
+    // decide; it must not decide the shape itself.
+    const first = roadAddSegment.mock.calls[0]?.[0];
+    const continued = roadAddSegment.mock.calls[1]?.[0];
+    expect(first?.kind).toBe("bezier");
+    expect(continued?.kind).toBe("bezier");
+    expect(continued?.extensionCorridorId).toBe(21);
   });
 
   it("routes marking and one-click whole-segment deletion from the hovered centerline pick", () => {

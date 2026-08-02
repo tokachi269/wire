@@ -1465,6 +1465,71 @@ describe("road wasm smoke", () => {
     state.delete();
   });
 
+  it("previews a continued curve as a curve, matching what it commits", () => {
+    const road = createRoadState();
+    try {
+      const first = road.addSegment({
+        kind: "bezier",
+        startX: 0,
+        startY: 0,
+        endX: 40,
+        endY: 0,
+        handleAX: 40 / 3,
+        handleAY: 0,
+        handleBX: (40 * 2) / 3,
+        handleBY: 0,
+        startNodeId: 0,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        connectToFirstNode: false
+      });
+      expect(first.ok, first.error).toBe(true);
+      const corridorId = road.scene().corridors[0].id;
+      const endNodeId = first.endNodeId ?? 0;
+
+      // The chord the viewer reports for the pending interval.
+      const pending = {
+        kind: "bezier" as const,
+        startX: 40,
+        startY: 0,
+        endX: 70,
+        endY: 22,
+        handleAX: 50,
+        handleAY: 22 / 3,
+        handleBX: 60,
+        handleBY: (22 * 2) / 3,
+        startNodeId: endNodeId,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        extensionCorridorId: corridorId,
+        connectToFirstNode: false
+      };
+
+      const preview = road.previewInterval(pending);
+      const chordHandleAX = 40 + (70 - 40) / 3;
+      const chordHandleAY = 0 + 22 / 3;
+      // A straight guide would sit exactly on the chord.
+      expect(
+        Math.hypot(preview.handleAX - chordHandleAX, preview.handleAY - chordHandleAY)
+      ).toBeGreaterThan(0.5);
+
+      const committed = road.addSegment(pending);
+      expect(committed.ok, committed.error).toBe(true);
+      const editable = road
+        .scene()
+        .editableSegments.find((segment) => segment.id === committed.segmentId);
+      expect(editable).toBeDefined();
+      // The guide and the committed road are the same four control points.
+      expect(editable?.points).toHaveLength(4);
+      expect(Math.abs((editable?.points[1].x ?? 0) - preview.handleAX)).toBeLessThan(1e-6);
+      expect(Math.abs((editable?.points[1].y ?? 0) - preview.handleAY)).toBeLessThan(1e-6);
+      expect(Math.abs((editable?.points[2].x ?? 0) - preview.handleBX)).toBeLessThan(1e-6);
+      expect(Math.abs((editable?.points[2].y ?? 0) - preview.handleBY)).toBeLessThan(1e-6);
+    } finally {
+      road.delete();
+    }
+  });
+
   it("builds the Japanese two-lane surface from a clicked line", () => {
     const added = state.addSegment({
       kind: "line",

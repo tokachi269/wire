@@ -47,7 +47,6 @@ using city::road::Mesh;
 using city::road::EvaluatePath;
 using city::road::Path;
 using city::road::PathLength;
-using city::road::PreviewRoadToolPath;
 using city::road::RenderStyleFromMarking;
 using city::road::RenderStyleFromSurface;
 using city::road::RenderStyleRef;
@@ -657,15 +656,46 @@ bool lane_topology_validation_and_round_trip(std::string& failure) {
   return true;
 }
 
-bool P0_tool_preview_includes_bezier_handles(std::string& failure) {
-  const auto draft = PreviewRoadToolPath({0.0, 0.0}, {40.0, 0.0}, Vec2d{10.0, 15.0}, Vec2d{30.0, -15.0});
-  ROAD_TEST_EXPECT(draft.has_live_preview, "road tool lacks live preview");
-  ROAD_TEST_EXPECT(draft.supports_bezier_handles, "road tool does not expose Bezier handles");
-  ROAD_TEST_EXPECT(draft.preview_path.spans.size() == 1, "road tool did not produce a preview span");
-  const auto line = MakeLine({0.0, 0.0}, {30.0, 0.0});
-  ROAD_TEST_EXPECT(std::abs(line.p1.x - 10.0) < 1e-9 && std::abs(line.p2.x - 20.0) < 1e-9 &&
-                       std::abs(line.p3.x - 30.0) < 1e-9,
-                   "straight input was not normalized to a cubic Bezier span");
+bool P0_tool_preview_matches_the_committed_interval(std::string& failure) {
+  RoadState state{};
+  city::road::AddSegmentRequest first{};
+  first.alignment = MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})});
+  first.section_template = 1;
+  first.intent = city::road::SegmentShapeIntent::kCurve;
+  const auto added = state.AddSegment(first);
+  ROAD_TEST_EXPECT(added.ok, added.error);
+  const auto* corridor = FindCorridorForSegment(state.graph(), added.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "preview corridor is missing");
+  const auto segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&added](const auto& item) { return item.id == added.value; });
+  ROAD_TEST_EXPECT(segment != state.graph().segments.end(), "preview segment is missing");
+
+  const Vec2d start{40.0, 0.0};
+  const Vec2d end{70.0, 22.0};
+  const Path preview = city::road::PreviewDrawnInterval(
+      state.graph(), corridor->id, segment->node_b, start, end,
+      city::road::SegmentShapeIntent::kCurve);
+  ROAD_TEST_EXPECT(preview.spans.size() == 1, "preview did not produce one interval");
+  ROAD_TEST_EXPECT(!IsLinearSpan(preview.spans.front()),
+                   "curve preview stayed straight");
+
+  city::road::ExtendCorridorFromEndRequest extension{};
+  extension.corridor_id = corridor->id;
+  extension.endpoint_node_id = segment->node_b;
+  extension.extension = MakePath({MakeLine(start, end)});
+  extension.section_template = 1;
+  extension.intent = city::road::SegmentShapeIntent::kCurve;
+  const auto extended = state.ExtendCorridorFromEnd(extension);
+  ROAD_TEST_EXPECT(extended.ok, extended.error);
+  const Path* committed = FindCanonicalAlignment(state.derived(), extended.value);
+  ROAD_TEST_EXPECT(committed != nullptr && committed->spans.size() == 1,
+                   "committed interval is missing");
+  const auto& a = preview.spans.front();
+  const auto& b = committed->spans.front();
+  ROAD_TEST_EXPECT(std::abs(a.p1.x - b.p1.x) < 1e-9 && std::abs(a.p1.y - b.p1.y) < 1e-9 &&
+                       std::abs(a.p2.x - b.p2.x) < 1e-9 && std::abs(a.p2.y - b.p2.y) < 1e-9,
+                   "preview and committed interval disagree");
   return true;
 }
 
@@ -3767,6 +3797,89 @@ bool RSL_section_axes_and_shoulder_are_independent(std::string& failure) {
   return true;
 }
 
+// A drawn interval must bend one way only. An interval that leaves in one
+// heading and arrives along its own chord reverses its bend in the middle,
+// which is the S the curve tool used to draw.
+bool CRV_drawn_curve_bends_one_way_per_interval(std::string& failure) {
+  const auto turn_sign_flips = [](const city::road::BezierSpan& span) {
+    const auto first_derivative = [&span](double t) {
+      const double u = 1.0 - t;
+      return Vec2d{3.0 * u * u * (span.p1.x - span.p0.x) + 6.0 * u * t * (span.p2.x - span.p1.x) +
+                       3.0 * t * t * (span.p3.x - span.p2.x),
+                   3.0 * u * u * (span.p1.y - span.p0.y) + 6.0 * u * t * (span.p2.y - span.p1.y) +
+                       3.0 * t * t * (span.p3.y - span.p2.y)};
+    };
+    const auto second_derivative = [&span](double t) {
+      const double u = 1.0 - t;
+      return Vec2d{6.0 * u * (span.p2.x - 2.0 * span.p1.x + span.p0.x) +
+                       6.0 * t * (span.p3.x - 2.0 * span.p2.x + span.p1.x),
+                   6.0 * u * (span.p2.y - 2.0 * span.p1.y + span.p0.y) +
+                       6.0 * t * (span.p3.y - 2.0 * span.p2.y + span.p1.y)};
+    };
+    int flips = 0;
+    int previous = 0;
+    for (int sample = 0; sample <= 20; ++sample) {
+      const double t = sample / 20.0;
+      const Vec2d d1 = first_derivative(t);
+      const Vec2d d2 = second_derivative(t);
+      const double turn = d1.x * d2.y - d1.y * d2.x;
+      if (std::abs(turn) < 1e-9) continue;
+      const int sign = turn > 0.0 ? 1 : -1;
+      if (previous != 0 && sign != previous) ++flips;
+      previous = sign;
+    }
+    return flips;
+  };
+
+  // A hand-drawn arc: every point turns the same way.
+  const std::array<Vec2d, 5> points{Vec2d{0.0, 0.0}, Vec2d{40.0, 0.0}, Vec2d{70.0, 22.0},
+                                    Vec2d{86.0, 54.0}, Vec2d{88.0, 90.0}};
+  RoadState state{};
+  city::road::AddSegmentRequest first{};
+  first.alignment = MakePath({MakeLine(points[0], points[1])});
+  first.section_template = 1;
+  first.intent = city::road::SegmentShapeIntent::kCurve;
+  const auto added = state.AddSegment(first);
+  ROAD_TEST_EXPECT(added.ok, added.error);
+  const auto* corridor = FindCorridorForSegment(state.graph(), added.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "drawn curve corridor is missing");
+  const city::road::RoadCorridorId corridor_id = corridor->id;
+
+  city::road::RoadSegmentId last_segment = added.value;
+  for (std::size_t index = 1; index + 1 < points.size(); ++index) {
+    const auto previous = std::find_if(
+        state.graph().segments.begin(), state.graph().segments.end(),
+        [last_segment](const auto& segment) { return segment.id == last_segment; });
+    ROAD_TEST_EXPECT(previous != state.graph().segments.end(), "drawn curve terminal segment is missing");
+    city::road::ExtendCorridorFromEndRequest extension{};
+    extension.corridor_id = corridor_id;
+    extension.endpoint_node_id = previous->node_b;
+    extension.extension = MakePath({MakeLine(points[index], points[index + 1])});
+    extension.section_template = 1;
+    extension.intent = city::road::SegmentShapeIntent::kCurve;
+    const auto extended = state.ExtendCorridorFromEnd(extension);
+    ROAD_TEST_EXPECT(extended.ok, extended.error);
+    last_segment = extended.value;
+  }
+
+  for (const auto& segment : state.graph().segments) {
+    const Path* alignment = FindCanonicalAlignment(state.derived(), segment.id);
+    ROAD_TEST_EXPECT(alignment != nullptr, "drawn curve alignment is missing");
+    for (const auto& span : alignment->spans) {
+      ROAD_TEST_EXPECT(turn_sign_flips(span) == 0,
+                       "drawn interval reverses its bend: segment " + std::to_string(segment.id));
+    }
+  }
+
+  // Consecutive intervals meet without a corner, so the drawn road reads as one
+  // continuous curve rather than a chain of hinges.
+  for (const auto& connection : state.derived().connections) {
+    ROAD_TEST_EXPECT(connection.kind != city::road::NodeConnectionKind::kCorner,
+                     "drawn curve produced a corner between two intervals");
+  }
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -3804,7 +3917,7 @@ int main() {
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},
       {"lane_topology_validation_and_round_trip", lane_topology_validation_and_round_trip},
-      {"P0_tool_preview_includes_bezier_handles", P0_tool_preview_includes_bezier_handles},
+      {"P0_tool_preview_matches_the_committed_interval", P0_tool_preview_matches_the_committed_interval},
       {"P0_straight_segments_stay_linear_after_snap_and_move", P0_straight_segments_stay_linear_after_snap_and_move},
       {"P0_edit_and_delete_preserve_graph_ownership", P0_edit_and_delete_preserve_graph_ownership},
       {"P0_multispan_segment_is_one_user_deletion_unit",
@@ -3881,6 +3994,7 @@ int main() {
        M6_transition_without_boundary_mapping_is_unsupported},
       {"RSL_section_axes_and_shoulder_are_independent",
        RSL_section_axes_and_shoulder_are_independent},
+      {"CRV_drawn_curve_bends_one_way_per_interval", CRV_drawn_curve_bends_one_way_per_interval},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

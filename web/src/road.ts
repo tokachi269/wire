@@ -187,7 +187,6 @@ export interface RoadToolState {
   draftEnd: RoadPoint;
   handleA: RoadPoint;
   handleB: RoadPoint;
-  curveContinuationTangent: RoadPoint | null;
   draftStartNodeId: number;
   draftStartSegmentId: number;
   draftStartSegmentDistanceM: number;
@@ -243,7 +242,6 @@ export function createRoadToolState(): RoadToolState {
     draftEnd: { x: 0, y: 0 },
     handleA: { x: 0, y: 0 },
     handleB: { x: 0, y: 0 },
-    curveContinuationTangent: null,
     draftStartNodeId: 0,
     draftStartSegmentId: 0,
     draftStartSegmentDistanceM: 0,
@@ -338,37 +336,10 @@ export function withRoadEnd(state: RoadToolState, end: RoadPoint): RoadToolState
   };
 }
 
+// The curve tangent at a shared point is decided by core, which sees the points
+// on both sides of it. The viewer only reports where the interval ends.
 export function withRoadCurveEnd(state: RoadToolState, end: RoadPoint): RoadToolState {
-  const chord = { x: end.x - state.draftStart.x, y: end.y - state.draftStart.y };
-  const chordLength = Math.hypot(chord.x, chord.y);
-  const fallback = chordLength > 1e-9
-    ? { x: chord.x / chordLength, y: chord.y / chordLength }
-    : { x: 1, y: 0 };
-  const continuationLength = state.curveContinuationTangent === null
-    ? 0
-    : Math.hypot(state.curveContinuationTangent.x, state.curveContinuationTangent.y);
-  const startTangent = continuationLength > 1e-9 && state.curveContinuationTangent !== null
-    ? {
-        x: state.curveContinuationTangent.x / continuationLength,
-        y: state.curveContinuationTangent.y / continuationLength
-      }
-    : fallback;
-  const endTangent = fallback;
-  const handleLength = chordLength / 3;
-  return {
-    ...state,
-    draftEnd: end,
-    handleA: {
-      x: state.draftStart.x + startTangent.x * handleLength,
-      y: state.draftStart.y + startTangent.y * handleLength
-    },
-    handleB: {
-      x: end.x - endTangent.x * handleLength,
-      y: end.y - endTangent.y * handleLength
-    },
-    previewIssue: "",
-    lastError: ""
-  };
+  return withRoadEnd(state, end);
 }
 
 export function emptyRoadScene(): RoadSceneData {

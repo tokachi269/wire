@@ -235,6 +235,15 @@ road_boundary_endpoint_value(const val& input) {
   return city::road::BezierSpan{};
 }
 
+[[nodiscard]] std::optional<city::road::SegmentShapeIntent> road_shape_intent(const val& input) {
+  const val kind = input["kind"];
+  if (kind.isUndefined()) return std::nullopt;
+  const std::string value = kind.as<std::string>();
+  if (value == "line") return city::road::SegmentShapeIntent::kStraight;
+  if (value == "bezier") return city::road::SegmentShapeIntent::kCurve;
+  return std::nullopt;
+}
+
 [[nodiscard]] city::road::Path road_path_value(const val& input) {
   const val spans = input["spans"];
   if (!spans.isUndefined()) {
@@ -1518,7 +1527,7 @@ public:
       result = state_->ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
               extension_corridor_id, start_node_id, path,
-              section_template_id});
+              section_template_id, road_shape_intent(input)});
     } else if (start_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m,
@@ -1528,7 +1537,7 @@ public:
           city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id,
                                                    city::road::EndpointRole::kStart});
     } else {
-      result = state_->AddSegment(city::road::AddSegmentRequest{path, section_template_id});
+      result = state_->AddSegment(city::road::AddSegmentRequest{path, section_template_id, road_shape_intent(input)});
     }
     val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) {
@@ -1547,6 +1556,34 @@ public:
       output.set("corridorId", static_cast<double>(
           connected_at_end || corridor == nullptr ? 0 : corridor->id));
     }
+    return output;
+  }
+
+  // The guide the draw tool shows before committing. Core owns the curve rule so
+  // the guide cannot disagree with the road the same points produce.
+  val preview_interval(const val& input) const {
+    const city::road::Vec2d start{input["startX"].as<double>(), input["startY"].as<double>()};
+    const city::road::Vec2d end{input["endX"].as<double>(), input["endY"].as<double>()};
+    const auto corridor_id = input["extensionCorridorId"].isUndefined()
+                                 ? city::road::RoadCorridorId{0}
+                                 : input["extensionCorridorId"].as<city::road::RoadCorridorId>();
+    const auto endpoint_node_id = input["startNodeId"].isUndefined()
+                                      ? city::road::RoadNodeId{0}
+                                      : input["startNodeId"].as<city::road::RoadNodeId>();
+    const std::optional<city::road::SegmentShapeIntent> intent = road_shape_intent(input);
+    const city::road::Path path = city::road::PreviewDrawnInterval(
+        state_->graph(), corridor_id, endpoint_node_id, start, end,
+        intent.value_or(city::road::SegmentShapeIntent::kCurve));
+    val output = val::object();
+    const city::road::BezierSpan& span = path.spans.front();
+    output.set("startX", span.p0.x);
+    output.set("startY", span.p0.y);
+    output.set("handleAX", span.p1.x);
+    output.set("handleAY", span.p1.y);
+    output.set("handleBX", span.p2.x);
+    output.set("handleBY", span.p2.y);
+    output.set("endX", span.p3.x);
+    output.set("endY", span.p3.y);
     return output;
   }
 
@@ -1598,7 +1635,7 @@ public:
       added = trial.ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
               extension_corridor_id, start_node_id, path,
-              section_template_id});
+              section_template_id, road_shape_intent(input)});
     } else if (start_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m,
@@ -1608,7 +1645,7 @@ public:
           city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id,
                                                    city::road::EndpointRole::kStart});
     } else {
-      added = trial.AddSegment(city::road::AddSegmentRequest{path, section_template_id});
+      added = trial.AddSegment(city::road::AddSegmentRequest{path, section_template_id, road_shape_intent(input)});
     }
     val result = road_result_value(added.ok, added.error, added.failure_category);
     val meshes = val::array();
@@ -2401,6 +2438,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .constructor<>()
       .function("addSegment", &RoadStateBinding::add_segment)
       .function("previewSegment", &RoadStateBinding::preview_segment)
+      .function("previewInterval", &RoadStateBinding::preview_interval)
       .function("addLane", &RoadStateBinding::add_lane)
       .function("previewAddLane", &RoadStateBinding::preview_add_lane)
       .function("addConnectedLaneSegment", &RoadStateBinding::add_connected_lane_segment)

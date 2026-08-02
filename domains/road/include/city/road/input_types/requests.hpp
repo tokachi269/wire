@@ -6,7 +6,13 @@
 
 namespace city::road {
 
-struct AddSegmentRequest { Path alignment{}; CrossSectionTemplateId section_template = 0; };
+struct AddSegmentRequest {
+  Path alignment{};
+  CrossSectionTemplateId section_template = 0;
+  // The drawing mode the user chose. Left empty the intent is read back from
+  // the control points, which cannot tell a drawn curve from a drawn line.
+  std::optional<SegmentShapeIntent> intent{};
+};
 struct AddSegmentConnectedToRequest {
   Path alignment{};
   CrossSectionTemplateId section_template = 0;
@@ -25,6 +31,7 @@ struct ExtendCorridorFromEndRequest {
   RoadNodeId endpoint_node_id = 0;
   Path extension{};
   CrossSectionTemplateId section_template = 0;
+  std::optional<SegmentShapeIntent> intent{};
 };
 struct SplitSegmentAtDistanceRequest {
   RoadSegmentId segment_id = 0;
@@ -173,10 +180,4 @@ struct SetJunctionMarkingOverrideRequest {
 struct DeleteJunctionMarkingOverrideRequest {
   JunctionMarkingOverrideId id = 0;
 };
-struct RoadToolDraft {
-  Path preview_path{};
-  bool has_live_preview = false;
-  bool supports_bezier_handles = false;
-};
-
 } // namespace city::road

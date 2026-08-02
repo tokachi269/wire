@@ -18,8 +18,11 @@ struct OperationPlan;
 [[nodiscard]] BezierSpan MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3);
 [[nodiscard]] Path MakePath(std::vector<BezierSpan> spans);
 [[nodiscard]] bool IsLinearSpan(const BezierSpan& span);
-[[nodiscard]] RoadToolDraft PreviewRoadToolPath(Vec2d start, Vec2d end, std::optional<Vec2d> handle_a,
-                                                std::optional<Vec2d> handle_b);
+// The interval the draw tool would commit next. Preview and commit read the
+// same rule, so the guide cannot disagree with the road it produces.
+[[nodiscard]] Path PreviewDrawnInterval(const SavedRoadGraph& graph, RoadCorridorId corridor_id,
+                                        RoadNodeId endpoint_node_id, Vec2d start, Vec2d end,
+                                        SegmentShapeIntent intent);
 
 [[nodiscard]] CrossSectionTemplate JapaneseUrbanTwoLaneTemplate(CrossSectionTemplateId id);
 [[nodiscard]] CrossSectionTemplate ShoulderedTwoLaneTemplate(CrossSectionTemplateId id);

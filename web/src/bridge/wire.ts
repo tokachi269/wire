@@ -34,6 +34,7 @@ import type {
   WireIntervalResult
 } from "../model";
 import type { RoadMeshData, RoadSceneData, RoadSegmentInput } from "../road";
+import type { RoadIntervalPreview } from "./wasm";
 
 export interface VisualPartData {
   info: VisualPartInfo;
@@ -415,6 +416,10 @@ export class WireBridge {
   roadPreviewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshData[] } {
     const result = this.roadState.previewSegment(input);
     return { ...result, meshes: result.meshes.map(copyRoadMesh) };
+  }
+
+  roadPreviewInterval(input: RoadSegmentInput): RoadIntervalPreview {
+    return this.roadState.previewInterval(input);
   }
 
   roadScene(): RoadSceneData {

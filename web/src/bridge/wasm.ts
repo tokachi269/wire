@@ -270,9 +270,21 @@ export interface RoadSegmentResult extends OperationResult {
   endNodeId?: number;
 }
 
+export interface RoadIntervalPreview {
+  startX: number;
+  startY: number;
+  handleAX: number;
+  handleAY: number;
+  handleBX: number;
+  handleBY: number;
+  endX: number;
+  endY: number;
+}
+
 export interface RoadStateHandle {
   addSegment(input: RoadSegmentInput): RoadSegmentResult;
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
+  previewInterval(input: RoadSegmentInput): RoadIntervalPreview;
   addLane(input: RoadAddLaneInput): OperationResult & { laneId?: number };
   previewAddLane(input: RoadAddLaneInput): OperationResult & { meshes: RoadMeshPayload[] };
   addConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { segmentId?: number };

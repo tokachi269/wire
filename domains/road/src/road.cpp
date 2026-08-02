@@ -1165,6 +1165,52 @@ Path MakePath(std::vector<BezierSpan> spans) {
   return out;
 }
 
+namespace {
+
+// The tangent an interval needs at its far end to stay on the same arc as the
+// tangent already decided at this end. A terminal endpoint has no neighbour to
+// average with, so it follows the interval instead of its own chord.
+[[nodiscard]] Vec2d mirror_tangent_across(Vec2d tangent, Vec2d chord);
+
+// The heading the next interval inherits at a corridor end, expressed as the
+// terminal handle of the interval that already ends there.
+[[nodiscard]] std::optional<Vec2d> corridor_terminal_handle(const SavedRoadGraph& graph,
+                                                            RoadCorridorId corridor_id,
+                                                            RoadNodeId endpoint_node_id) {
+  const RoadCorridor* corridor = FindRoadCorridor(graph, corridor_id);
+  if (corridor == nullptr || corridor->segments.empty()) return std::nullopt;
+  const DirectedSegmentRef last_ref = corridor->segments.back();
+  const RoadSegment* source = find_segment(graph, last_ref.segment_id);
+  if (source == nullptr) return std::nullopt;
+  const RoadNodeId corridor_end = last_ref.reversed ? source->node_a : source->node_b;
+  if (corridor_end != endpoint_node_id) return std::nullopt;
+  if (source->shape.intent != SegmentShapeIntent::kCurve) return std::nullopt;
+  return last_ref.reversed ? source->shape.start_handle : source->shape.end_handle;
+}
+
+// An interval leaves in the heading it inherits and turns to the new point as
+// one arc, so the drawn curve keeps a single bend instead of an S.
+[[nodiscard]] bool apply_inherited_arc(Vec2d inherited, Vec2d chord, SegmentShape* shape) {
+  const double inherited_length = length(inherited);
+  const double chord_length = length(chord);
+  if (inherited_length <= kEpsilon || chord_length <= kEpsilon) return false;
+  const Vec2d heading = mul(inherited, -1.0 / inherited_length);
+  shape->start_handle = mul(heading, chord_length / 3.0);
+  shape->end_handle = mul(mirror_tangent_across(heading, chord), -chord_length / 3.0);
+  return true;
+}
+
+[[nodiscard]] Vec2d mirror_tangent_across(Vec2d tangent, Vec2d chord) {
+  const double chord_length = length(chord);
+  if (chord_length <= kEpsilon) return tangent;
+  const Vec2d axis = mul(chord, 1.0 / chord_length);
+  const double projection = tangent.x * axis.x + tangent.y * axis.y;
+  return Vec2d{2.0 * projection * axis.x - tangent.x,
+               2.0 * projection * axis.y - tangent.y};
+}
+
+} // namespace
+
 Result<SegmentShape> SegmentShapeFromPath(const Path& path) {
   const Result<bool> valid = ValidatePath(path);
   if (!valid.ok) return Result<SegmentShape>::Fail(valid.failure_category, valid.error);
@@ -1239,16 +1285,22 @@ Result<SegmentShape> make_linear_shape(Vec2d start, Vec2d end) {
   return SegmentShapeFromPath(MakePath({MakeLine(start, end)}));
 }
 
-RoadToolDraft PreviewRoadToolPath(Vec2d start, Vec2d end, std::optional<Vec2d> handle_a, std::optional<Vec2d> handle_b) {
-  RoadToolDraft draft{};
-  draft.has_live_preview = true;
-  draft.supports_bezier_handles = true;
-  if (handle_a.has_value() && handle_b.has_value()) {
-    draft.preview_path = MakePath({MakeBezier(start, *handle_a, *handle_b, end)});
-  } else {
-    draft.preview_path = MakePath({MakeLine(start, end)});
+Path PreviewDrawnInterval(const SavedRoadGraph& graph, RoadCorridorId corridor_id,
+                          RoadNodeId endpoint_node_id, Vec2d start, Vec2d end,
+                          SegmentShapeIntent intent) {
+  const Vec2d chord = sub(end, start);
+  SegmentShape shape{};
+  shape.intent = intent;
+  shape.start_handle = mul(chord, 1.0 / 3.0);
+  shape.end_handle = mul(chord, -1.0 / 3.0);
+  if (intent == SegmentShapeIntent::kCurve) {
+    if (const std::optional<Vec2d> inherited =
+            corridor_terminal_handle(graph, corridor_id, endpoint_node_id)) {
+      apply_inherited_arc(*inherited, chord, &shape);
+    }
   }
-  return draft;
+  return MakePath({MakeBezier(start, add(start, shape.start_handle),
+                              add(end, shape.end_handle), end)});
 }
 
 CrossSectionTemplate JapaneseUrbanTwoLaneTemplate(CrossSectionTemplateId id) {
@@ -1417,9 +1469,12 @@ Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
   const RoadCorridorId corridor_id = next_id++;
   plan.add_nodes = {RoadNode{node_a, alignment.spans.front().p0},
                     RoadNode{node_b, alignment.spans.back().p3}};
-  const Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
+  Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
   if (!shape.ok) {
     return Result<RoadSegmentId>::Fail(shape.failure_category, shape.error);
+  }
+  if (request.intent.has_value()) {
+    shape.value.intent = *request.intent;
   }
   plan.add_segments.push_back(RoadSegment{
       segment_id, node_a, node_b, shape.value, section_template,
@@ -1501,11 +1556,25 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
   if (!shape.ok) {
     return Result<RoadSegmentId>::Fail(shape.failure_category, shape.error);
   }
+  if (request.intent.has_value()) {
+    shape.value.intent = *request.intent;
+  }
 
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
   const RoadNodeId end_node = next_id++;
   const RoadSegmentId segment_id = next_id++;
+
+  // The interval leaves in the heading it arrived with and turns to the new
+  // point as one arc, so the drawn curve keeps a single bend instead of an S.
+  if (shape.value.intent == SegmentShapeIntent::kCurve) {
+    if (const std::optional<Vec2d> inherited =
+            corridor_terminal_handle(graph_, request.corridor_id, endpoint->id)) {
+      apply_inherited_arc(*inherited, sub(path_end(extension), endpoint->position),
+                          &shape.value);
+    }
+  }
+
   plan.add_nodes.push_back(RoadNode{end_node, path_end(extension)});
   plan.add_segments.push_back(
       RoadSegment{segment_id, endpoint->id, end_node, shape.value,

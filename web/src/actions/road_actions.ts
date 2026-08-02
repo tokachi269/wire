@@ -433,6 +433,7 @@ export class RoadActions {
   cancelSession(): DrawActionResult {
     const current = this.ctx.readSnapshot().road;
     if (current.phase === "start" &&
+        current.laneEditStage === "select" &&
         current.previewMeshes.length === 0 && current.previewIssue === "") {
       return { kind: "ignored", reasonCode: "session-inactive" };
     }
@@ -446,6 +447,9 @@ export class RoadActions {
         draftStartSegmentDistanceM: 0,
         draftExtensionCorridorId: 0,
         curveContinuationTangent: null,
+        laneEditStage: "select",
+        laneCorridorId: 0,
+        selectedLaneSegmentId: 0,
         previewMeshes: [],
         previewState: "none",
         previewRequest: null,
@@ -456,6 +460,20 @@ export class RoadActions {
       lastCommitFailure: null
     }));
     return { kind: "session-ended" };
+  }
+
+  confirmSession(): DrawActionResult {
+    const road = this.ctx.readSnapshot().road;
+    if (road.operation === "add-lane") return this.commitLane(road);
+    if (road.operation !== "draw" || road.previewRequest === null) {
+      return { kind: "ignored", reasonCode: "preview-unavailable" };
+    }
+    const request = road.previewRequest;
+    return this.commitInterval(
+      request,
+      { x: request.endX, y: request.endY },
+      true
+    );
   }
 
   undoCommitted(): void {
@@ -470,6 +488,7 @@ export class RoadActions {
 
   commitPath(): DrawActionResult {
     const road = this.ctx.readSnapshot().road;
+    if (road.operation === "add-lane") return this.commitLane(road);
     if (road.operation !== "draw") return { kind: "ignored", reasonCode: "non-draw-operation" };
     if (road.phase === "start") {
       return { kind: "ignored", reasonCode: "session-inactive" };
@@ -483,6 +502,22 @@ export class RoadActions {
       { x: request.endX, y: request.endY },
       false
     );
+  }
+
+  private commitLane(road: RoadToolState): DrawActionResult {
+    if (road.laneEditStage !== "target" ||
+        Math.abs(road.laneFullWidthCorridorDistanceM -
+                 road.laneStartCorridorDistanceM) <= 1e-9) {
+      return { kind: "ignored", reasonCode: "lane-range-incomplete" };
+    }
+    const result = this.ctx.bridge.roadAddLane(laneTransitionInput(road));
+    this.finish(result, "road add lane");
+    return result.ok
+      ? { kind: "commit-succeeded" }
+      : {
+          kind: "commit-rejected",
+          reasonCode: result.reasonCode || "road_add_lane_rejected"
+        };
   }
 
   private commitInterval(

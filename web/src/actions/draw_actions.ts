@@ -49,6 +49,14 @@ export class DrawActions {
     this.applyWireGuide(request);
   }
 
+  confirmSession(): DrawActionResult {
+    const preview = this.ctx.readSnapshot().wirePreview;
+    if (preview.state !== "guide" || preview.request === null) {
+      return { kind: "ignored", reasonCode: "preview-unavailable" };
+    }
+    return this.commitWireInterval(preview.request, false);
+  }
+
   clearPreview(): void {
     this.ctx.store.update((current) => ({
       ...current,

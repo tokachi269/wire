@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import {
     Cable,
+    Check,
+    CheckCheck,
     ListPlus,
     Minus,
     PenLine,
@@ -9,7 +11,9 @@
     Route,
     Spline,
     SquareDashed,
-    Trash2
+    Trash2,
+    Undo2,
+    X
   } from "@lucide/svelte";
   import type { ViewerActions } from "./actions/viewer";
   import Settings from "./panels/Settings.svelte";
@@ -100,6 +104,23 @@
       return "Refresh the selection from the current scene, then try again.";
     }
     return "The operation detected an internal inconsistency. Keep this reason code for diagnosis.";
+  }
+
+  function hasSession(value: ViewerSnapshot): boolean {
+    if (value.activeTool === "wire") return value.pathPoints.length > 0;
+    return value.road.phase !== "start" || value.road.laneEditStage === "target";
+  }
+
+  function canConfirm(value: ViewerSnapshot): boolean {
+    if (value.activeTool === "wire") {
+      return value.wirePreview.state === "guide" && value.wirePreview.request !== null;
+    }
+    if (value.road.operation === "add-lane") {
+      return value.road.laneEditStage === "target" &&
+        Math.abs(value.road.laneFullWidthCorridorDistanceM -
+          value.road.laneStartCorridorDistanceM) > 1e-9;
+    }
+    return value.road.operation === "draw" && value.road.previewRequest !== null;
   }
 
   function beginResize(side: "left" | "right", event: PointerEvent): void {
@@ -347,6 +368,25 @@
           ><Spline size={20} aria-hidden="true" /></button>
         </div>
       {/if}
+    </div>
+
+    <div class="session-controls" aria-label="Drawing session controls">
+      <button type="button" aria-label="Confirm" title="Confirm and continue"
+        disabled={!canConfirm(snapshot)} onclick={() => actions.confirmDrawStep()}>
+        <Check size={17} aria-hidden="true" />Confirm
+      </button>
+      <button type="button" aria-label="Finish" title="Confirm and finish"
+        disabled={!hasSession(snapshot)} onclick={() => actions.finishDrawSession()}>
+        <CheckCheck size={17} aria-hidden="true" />Finish
+      </button>
+      <button class="secondary" type="button" aria-label="Cancel" title="Cancel"
+        disabled={!hasSession(snapshot)} onclick={() => actions.cancelDrawSession()}>
+        <X size={17} aria-hidden="true" />Cancel
+      </button>
+      <button class="secondary" type="button" aria-label="Undo" title="Undo"
+        onclick={() => actions.undoActiveTool()}>
+        <Undo2 size={17} aria-hidden="true" />Undo
+      </button>
     </div>
 
     {#if snapshot.showRightPanel}

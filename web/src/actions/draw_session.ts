@@ -7,6 +7,7 @@ export type DrawPick = PathPickInfo | RoadSnapInfo | undefined;
 
 export interface DrawSessionDomain {
   primary(point: WorldPoint, pick: DrawPick): DrawActionResult;
+  confirm(): DrawActionResult;
   preview(point: WorldPoint, pick: DrawPick): void;
   leave(): void;
   enter(): DrawActionResult;
@@ -22,6 +23,10 @@ export class DrawSessionController {
 
   primary(point: WorldPoint, pick?: DrawPick): DrawActionResult {
     return this.domains[this.activeTool()].primary(point, pick);
+  }
+
+  confirm(): DrawActionResult {
+    return this.domains[this.activeTool()].confirm();
   }
 
   preview(point: WorldPoint, pick?: DrawPick): void {

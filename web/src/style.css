@@ -299,6 +299,35 @@ h1 {
   pointer-events: none;
 }
 
+.session-controls {
+  position: absolute;
+  z-index: 17;
+  left: 50%;
+  bottom: 48px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(83, 96, 102, 0.85);
+  border-radius: 3px;
+  background: rgba(27, 32, 35, 0.9);
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
+}
+
+.session-controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.session-controls button:disabled {
+  cursor: default;
+  opacity: 0.42;
+  transform: none;
+}
+
 .tool-group {
   display: flex;
   gap: 3px;
@@ -1087,6 +1116,16 @@ summary {
     max-width: calc(100vw - 12px);
     flex-wrap: wrap;
     justify-content: center;
+  }
+
+  .session-controls {
+    bottom: 48px;
+    width: min-content;
+    max-width: calc(100vw - 8px);
+  }
+
+  .session-controls button {
+    padding: 0.42rem;
   }
 
   .right-region {

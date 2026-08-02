@@ -4,6 +4,7 @@ import { DrawSessionController, type DrawSessionDomain } from "../src/actions/dr
 function domain(): DrawSessionDomain {
   return {
     primary: vi.fn(),
+    confirm: vi.fn(),
     preview: vi.fn(),
     leave: vi.fn(),
     enter: vi.fn(),

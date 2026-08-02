@@ -357,6 +357,40 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).road.phase).toBe("start");
   });
 
+  it("offers the same confirm finish cancel and undo controls on screen", async () => {
+    const mounted = await mountViewer(false);
+    mounted.actions.setActiveTool("road");
+    mounted.actions.addViewportPoint([0, 0, 0]);
+    mounted.actions.previewViewportPoint([20, 0, 0]);
+    await tick();
+
+    const controls = document.querySelector('[aria-label="Drawing session controls"]');
+    expect(controls).toBeInstanceOf(HTMLElement);
+    const button = (label: string) => controls?.querySelector(
+      `button[aria-label="${label}"]`
+    ) as HTMLButtonElement;
+    expect(button("Confirm").disabled).toBe(false);
+    expect(button("Finish").disabled).toBe(false);
+    expect(button("Cancel").disabled).toBe(false);
+    expect(button("Undo")).toBeInstanceOf(HTMLButtonElement);
+
+    button("Confirm").click();
+    await tick();
+    expect(current(mounted.store).road.scene.segmentCount).toBe(1);
+    expect(current(mounted.store).road.phase).toBe("end");
+
+    mounted.actions.previewViewportPoint([40, 0, 0]);
+    await tick();
+    button("Finish").click();
+    await tick();
+    expect(current(mounted.store).road.scene.segmentCount).toBe(2);
+    expect(current(mounted.store).road.phase).toBe("start");
+
+    button("Undo").click();
+    await tick();
+    expect(current(mounted.store).road.scene.segmentCount).toBe(1);
+  });
+
   it("runs repeated wire and road sessions through ViewerActions and the real wasm bridge", async () => {
     const mounted = await mountViewer(false);
 

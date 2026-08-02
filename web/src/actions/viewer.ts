@@ -46,6 +46,7 @@ export class ViewerActions {
       {
         road: {
           primary: (point, pick) => this.road.addViewportPoint(point, roadPick(pick)),
+          confirm: () => this.road.confirmSession(),
           preview: (point, pick) => this.road.previewViewportPoint(point, roadPick(pick)),
           leave: () => this.road.clearPreview(),
           enter: () => this.road.commitPath(),
@@ -54,6 +55,7 @@ export class ViewerActions {
         },
         wire: {
           primary: (point, pick) => this.draw.primaryViewportPoint(point, wirePick(pick)),
+          confirm: () => this.draw.confirmSession(),
           preview: (point, pick) => this.draw.previewViewportPoint(point, wirePick(pick)),
           leave: () => this.draw.clearPreview(),
           enter: () => this.draw.finishSession(),
@@ -85,6 +87,10 @@ export class ViewerActions {
 
   addViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): DrawActionResult {
     return this.recordDrawAction(this.drawSession.primary(point, pick));
+  }
+
+  confirmDrawStep(): DrawActionResult {
+    return this.recordDrawAction(this.drawSession.confirm());
   }
 
   previewViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): void {

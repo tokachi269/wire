@@ -197,7 +197,7 @@ export class RoadActions {
     const request = current.previewState === "guide" && current.previewRequest !== null &&
         sameRoadPoint({ x: current.previewRequest.endX, y: current.previewRequest.endY }, target)
       ? current.previewRequest
-      : roadSegmentInput(road);
+      : roadSegmentInput(road, snap);
     return this.commitInterval(request, target, true);
   }
 
@@ -246,7 +246,7 @@ export class RoadActions {
     if (current.phase === "start") return;
     const target: RoadPoint = { x: point[0], y: point[1] };
     const road = this.previewState(current, target);
-    const request = roadSegmentInput(road);
+    const request = roadSegmentInput(road, snap);
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: {
@@ -753,6 +753,9 @@ function editInput(road: RoadToolState) {
     startNodeId: 0,
     startSegmentId: 0,
     startSegmentDistanceM: 0,
+    endNodeId: 0,
+    endSegmentId: 0,
+    endSegmentDistanceM: 0,
     extensionCorridorId: 0,
     connectToFirstNode: false,
     sectionTemplateId: road.selectedSectionTemplateId
@@ -819,6 +822,9 @@ function connectedLaneInput(road: RoadToolState, end: RoadPoint) {
     startNodeId: road.selectedLaneNodeId,
     startSegmentId: 0,
     startSegmentDistanceM: 0,
+    endNodeId: 0,
+    endSegmentId: 0,
+    endSegmentDistanceM: 0,
     extensionCorridorId: 0,
     connectToFirstNode: false,
     sectionTemplateId: road.laneTargetTemplateId,

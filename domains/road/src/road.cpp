@@ -1224,6 +1224,17 @@ void align_first_span_start(Path& path, Vec2d start) {
   first_span.p1 = add(first_span.p1, correction);
 }
 
+void align_last_span_end(Path& path, Vec2d end) {
+  BezierSpan& last_span = path.spans.back();
+  if (IsLinearSpan(last_span)) {
+    last_span = MakeLine(last_span.p0, end);
+    return;
+  }
+  const Vec2d correction = sub(end, last_span.p3);
+  last_span.p2 = add(last_span.p2, correction);
+  last_span.p3 = end;
+}
+
 Result<SegmentShape> make_linear_shape(Vec2d start, Vec2d end) {
   return SegmentShapeFromPath(MakePath({MakeLine(start, end)}));
 }
@@ -1514,8 +1525,8 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
 Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequest request) {
   Path alignment = std::move(request.alignment);
   const CrossSectionTemplateId section_template = request.section_template;
-  const RoadNodeId start_node = request.start_node;
-  const RoadNode* node = find_node(graph_, start_node);
+  const RoadNodeId connected_node = request.start_node;
+  const RoadNode* node = find_node(graph_, connected_node);
   if (node == nullptr) {
     return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput, "road segment start node does not exist");
   }
@@ -1535,17 +1546,27 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequ
         CommitFailureCategory::kNotImplemented,
         "road branch creation requires one local span");
   }
-  align_first_span_start(alignment, node->position);
+  if (request.connected_endpoint == EndpointRole::kStart) {
+    align_first_span_start(alignment, node->position);
+  } else {
+    align_last_span_end(alignment, node->position);
+  }
   const Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
   if (!shape.ok) return Result<RoadSegmentId>::Fail(shape.failure_category, shape.error);
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
-  const RoadNodeId end_node = next_id++;
+  const RoadNodeId free_node = next_id++;
   const RoadSegmentId segment_id = next_id++;
   const RoadCorridorId corridor_id = next_id++;
-  plan.add_nodes.push_back(RoadNode{end_node, path_end(alignment)});
-  plan.add_segments.push_back(
-      RoadSegment{segment_id, start_node, end_node, shape.value, section_template, std::nullopt});
+  const bool connects_at_start =
+      request.connected_endpoint == EndpointRole::kStart;
+  plan.add_nodes.push_back(RoadNode{
+      free_node, connects_at_start ? path_end(alignment) : path_start(alignment)});
+  plan.add_segments.push_back(RoadSegment{
+      segment_id,
+      connects_at_start ? connected_node : free_node,
+      connects_at_start ? free_node : connected_node,
+      shape.value, section_template, std::nullopt});
   plan.add_corridors.push_back(
       RoadCorridor{corridor_id, section_template,
                    {DirectedSegmentRef{segment_id, false}}});
@@ -1738,9 +1759,13 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   if (!path_split.ok) {
     return Result<RoadSegmentId>::Fail(path_split.failure_category, path_split.error);
   }
-  if (distance(path_start(alignment), path_split.value.point) > kSnapDistancePointToleranceM) {
+  const bool connects_at_start =
+      request.connected_endpoint == EndpointRole::kStart;
+  const Vec2d connected_point =
+      connects_at_start ? path_start(alignment) : path_end(alignment);
+  if (distance(connected_point, path_split.value.point) > kSnapDistancePointToleranceM) {
     return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput,
-                                       "road segment input start does not match its explicit snap distance");
+                                       "road segment input endpoint does not match its explicit snap distance");
   }
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id) continue;
@@ -1762,7 +1787,11 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
           "road branch split crosses a manual area marking");
     }
   }
-  align_first_span_start(alignment, path_split.value.point);
+  if (connects_at_start) {
+    align_first_span_start(alignment, path_split.value.point);
+  } else {
+    align_last_span_end(alignment, path_split.value.point);
+  }
   const Result<double> branch_length = PathLength(alignment);
   if (!branch_length.ok) return Result<RoadSegmentId>::Fail(branch_length.failure_category, branch_length.error);
   if (branch_length.value < kP1MinSegmentLengthM) {
@@ -1772,7 +1801,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   std::uint64_t next_id = next_id_;
   const RoadNodeId split_node = next_id++;
   const RoadSegmentId second_id = next_id++;
-  const RoadNodeId branch_end_node = next_id++;
+  const RoadNodeId branch_free_node = next_id++;
   const RoadSegmentId branch_id = next_id++;
   const RoadCorridorId branch_corridor_id = next_id++;
   const Result<SegmentShape> first_shape = SegmentShapeFromPath(path_split.value.before);
@@ -1785,11 +1814,17 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   first.node_b = split_node;
   first.shape = first_shape.value;
   plan.replace_segments.push_back(std::move(first));
-  plan.add_nodes = {RoadNode{split_node, path_split.value.point}, RoadNode{branch_end_node, path_end(alignment)}};
+  plan.add_nodes = {
+      RoadNode{split_node, path_split.value.point},
+      RoadNode{branch_free_node,
+               connects_at_start ? path_end(alignment) : path_start(alignment)}};
   plan.add_segments = {
       RoadSegment{second_id, split_node, source->node_b, second_shape.value, source->section_template,
                   source->transition},
-      RoadSegment{branch_id, split_node, branch_end_node, branch_shape.value, section_template, std::nullopt},
+      RoadSegment{branch_id,
+                  connects_at_start ? split_node : branch_free_node,
+                  connects_at_start ? branch_free_node : split_node,
+                  branch_shape.value, section_template, std::nullopt},
   };
   const RoadCorridor* source_corridor =
       FindCorridorForSegment(graph_, source->id);

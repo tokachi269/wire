@@ -32,10 +32,10 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | ExtendCorridorFromEnd | section_template | corridorのroad definitionと一致 | 異断面延長はunsupported |
 | SplitSegmentAtDistance | segment_id / segment_distance_m | ID exists、finite、0とlengthを除く範囲内 | De Casteljau分割とowner移行 |
 | DeleteSegmentRange | segment_id / start/end segment distance | ID exists、finite、start < end、segment範囲内 | split、削除、corridor分断、owner移行 |
-| AddSegmentConnectedTo | alignment | finite、連続、非ゼロ、start nodeへ補正可能 | 接続角、degree、setback |
-| AddSegmentConnectedTo | section_template / start_node | ID exists | endpoint section互換 |
-| AddSegmentConnectedToSegment | alignment | finite、連続、非ゼロ、明示distance点と一致 | split後topology、junction互換 |
-| AddSegmentConnectedToSegment | start_segment / segment_distance_m / section_template | ID exists、distance finite、distance interior | transition付きsplit unsupported |
+| AddSegmentConnectedTo | alignment / connected_endpoint | finite、連続、非ゼロ、指定したstart/end endpointをnodeへ補正可能 | 接続角、degree、setback |
+| AddSegmentConnectedTo | section_template / connected_node | ID exists | endpoint section互換 |
+| AddSegmentConnectedToSegment | alignment / connected_endpoint | finite、連続、非ゼロ、指定したstart/end endpointが明示distance点と一致 | split後topology、junction互換 |
+| AddSegmentConnectedToSegment | target_segment / segment_distance_m / section_template | ID exists、distance finite、distance interior | transition付きsplit unsupported |
 | EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのgenerate可否 |
 | MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
@@ -103,7 +103,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - corridor先頭延長はcorridor-owned distance参照の移行規則が未実装なのでunsupportedとする。
 - 逆方向入力はID、segment向き、distance原点が異なるためraw serialization一致を要求しない。
   CanonicalAlignmentを同じ向きへ正規化した形状、material別mesh頂点集合、marking形状の一致を要求する。
-- segment途中への接続は`target_segment_id + segment_distance_m`を入力とし、alignmentを該当距離で分割する。座標近接から対象segmentや距離を再推測しない。
+- segment途中への接続は`target_segment_id + segment_distance_m + connected_endpoint`を入力とし、alignmentの指定endpointをsplit nodeへ接続する。座標近接から対象segment、距離、接続端を再推測しない。
 - Line / Bezierは入力toolの区別に限定し、正本はendpointを含まない`SegmentShape`、完全Pathは派生`CanonicalAlignment`とする。
   Line入力は各spanをlinear cubic Bezierとして保存し、`SegmentShape.intent = Straight`を持つ。
   Bezier評価、sampling、emitはLine / Bezierで分岐しない。曲線segmentの分割はDe Casteljau分割を使う。

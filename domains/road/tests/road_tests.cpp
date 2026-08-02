@@ -964,6 +964,40 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   return true;
 }
 
+bool P1_end_segment_snap_splits_straight_road_for_t_junction(
+    std::string& failure) {
+  RoadState state{};
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({20.0, 24.0}, {20.0, 0.0})}), 1,
+          base.value, 20.0, EndpointRole::kEnd});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 3,
+                   "end-snapped T junction did not split the base road");
+  const auto branch_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [branch](const auto& segment) { return segment.id == branch.value; });
+  ROAD_TEST_EXPECT(branch_segment != state.graph().segments.end(),
+                   "end-snapped branch segment is missing");
+  ROAD_TEST_EXPECT(
+      state.graph().nodes.end() != std::find_if(
+          state.graph().nodes.begin(), state.graph().nodes.end(),
+          [&branch_segment](const auto& node) {
+            return node.id == branch_segment->node_b &&
+                   std::hypot(node.position.x - 20.0, node.position.y) < 1e-9;
+          }),
+      "end-snapped branch did not preserve its input direction to the junction");
+  ROAD_TEST_EXPECT(road_test_view::junctions(state.derived()).size() == 1,
+                   "end-snapped T junction did not derive one junction");
+  ROAD_TEST_EXPECT(
+      road_test_view::gates_of(*road_test_view::junctions(state.derived()).front()).size() == 3,
+      "end-snapped T junction does not have three approaches");
+  return true;
+}
+
 bool P1_segment_snap_splits_bezier_road_for_t_junction(std::string& failure) {
   RoadState state{};
   const Path curve = MakePath({MakeBezier({0.0, 0.0}, {20.0, 10.0}, {60.0, 10.0}, {80.0, 0.0})});
@@ -3537,6 +3571,8 @@ int main() {
       {"P1_corner_preserves_endpoint_section_sides", P1_corner_preserves_endpoint_section_sides},
       {"P1_straight_connection_has_no_junction_area", P1_straight_connection_has_no_junction_area},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
+      {"P1_end_segment_snap_splits_straight_road_for_t_junction",
+       P1_end_segment_snap_splits_straight_road_for_t_junction},
       {"P1_segment_snap_splits_bezier_road_for_t_junction", P1_segment_snap_splits_bezier_road_for_t_junction},
       {"P1_segment_snap_splits_at_internal_bezier_span_boundary",
        P1_segment_snap_splits_at_internal_bezier_span_boundary},

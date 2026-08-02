@@ -25,6 +25,9 @@ export interface RoadSegmentInput extends RoadSpanInput {
   startNodeId: number;
   startSegmentId: number;
   startSegmentDistanceM: number;
+  endNodeId?: number;
+  endSegmentId?: number;
+  endSegmentDistanceM?: number;
   extensionCorridorId?: number;
   connectToFirstNode: boolean;
   sectionTemplateId?: number;
@@ -303,7 +306,8 @@ export function roadSpanInput(state: RoadToolState): RoadSpanInput {
 }
 
 export function roadSegmentInput(
-  state: RoadToolState
+  state: RoadToolState,
+  endSnap?: RoadSnapInfo
 ): RoadSegmentInput {
   const first = roadSpanInput(state);
   return {
@@ -312,6 +316,9 @@ export function roadSegmentInput(
     startNodeId: state.draftStartNodeId,
     startSegmentId: state.draftStartSegmentId,
     startSegmentDistanceM: state.draftStartSegmentDistanceM,
+    endNodeId: endSnap?.nodeId ?? 0,
+    endSegmentId: endSnap?.segmentId ?? 0,
+    endSegmentDistanceM: endSnap?.segmentDistanceM ?? 0,
     extensionCorridorId: state.draftExtensionCorridorId,
     connectToFirstNode: state.connectToFirstNode,
     sectionTemplateId: state.selectedSectionTemplateId

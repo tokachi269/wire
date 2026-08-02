@@ -11,12 +11,14 @@ struct AddSegmentConnectedToRequest {
   Path alignment{};
   CrossSectionTemplateId section_template = 0;
   RoadNodeId start_node = 0;
+  EndpointRole connected_endpoint = EndpointRole::kStart;
 };
 struct AddSegmentConnectedToSegmentRequest {
   Path alignment{};
   CrossSectionTemplateId section_template = 0;
   RoadSegmentId start_segment = 0;
   double segment_distance_m = 0.0;
+  EndpointRole connected_endpoint = EndpointRole::kStart;
 };
 struct ExtendCorridorFromEndRequest {
   RoadCorridorId corridor_id = 0;

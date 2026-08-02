@@ -1480,26 +1480,53 @@ public:
     }
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
+    const auto end_node_id = input["endNodeId"].isUndefined()
+                                 ? city::road::RoadNodeId{0}
+                                 : input["endNodeId"].as<city::road::RoadNodeId>();
+    const auto end_segment_id = input["endSegmentId"].isUndefined()
+                                    ? city::road::RoadSegmentId{0}
+                                    : input["endSegmentId"].as<city::road::RoadSegmentId>();
     const auto extension_corridor_id =
         input["extensionCorridorId"].isUndefined()
             ? city::road::RoadCorridorId{0}
             : input["extensionCorridorId"].as<city::road::RoadCorridorId>();
     const double start_segment_distance_m = input["startSegmentDistanceM"].as<double>();
+    const double end_segment_distance_m = input["endSegmentDistanceM"].isUndefined()
+                                              ? 0.0
+                                              : input["endSegmentDistanceM"].as<double>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> result{};
-    if (extension_corridor_id != 0) {
+    if ((start_node_id != 0 || start_segment_id != 0 ||
+         extension_corridor_id != 0) &&
+        (end_node_id != 0 || end_segment_id != 0)) {
+      result = city::road::Result<city::road::RoadSegmentId>::Fail(
+          city::road::CommitFailureCategory::kNotImplemented,
+          "connecting both road endpoints in one interval is unsupported");
+    } else if (end_segment_id != 0) {
+      result = state_->AddSegmentConnectedToSegment(
+          city::road::AddSegmentConnectedToSegmentRequest{
+              path, section_template_id, end_segment_id,
+              end_segment_distance_m, city::road::EndpointRole::kEnd});
+    } else if (end_node_id != 0) {
+      result = state_->AddSegmentConnectedTo(
+          city::road::AddSegmentConnectedToRequest{
+              path, section_template_id, end_node_id,
+              city::road::EndpointRole::kEnd});
+    } else if (extension_corridor_id != 0) {
       result = state_->ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
               extension_corridor_id, start_node_id, path,
               section_template_id});
     } else if (start_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
-          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m});
+          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m,
+                                                          city::road::EndpointRole::kStart});
     } else if (start_node_id != 0) {
       result = state_->AddSegmentConnectedTo(
-          city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id});
+          city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id,
+                                                   city::road::EndpointRole::kStart});
     } else {
       result = state_->AddSegment(city::road::AddSegmentRequest{path, section_template_id});
     }
@@ -1511,13 +1538,14 @@ public:
           [&result](const city::road::RoadSegment& item) {
             return item.id == result.value;
           });
-      const city::road::RoadNodeId end_node_id =
+      const city::road::RoadNodeId output_end_node_id =
           segment == state_->graph().segments.end() ? 0 : segment->node_b;
-      output.set("endNodeId", static_cast<double>(end_node_id));
+      output.set("endNodeId", static_cast<double>(output_end_node_id));
       const city::road::RoadCorridor* corridor =
           city::road::FindCorridorForSegment(state_->graph(), result.value);
-      output.set("corridorId",
-                 static_cast<double>(corridor == nullptr ? 0 : corridor->id));
+      const bool connected_at_end = end_node_id != 0 || end_segment_id != 0;
+      output.set("corridorId", static_cast<double>(
+          connected_at_end || corridor == nullptr ? 0 : corridor->id));
     }
     return output;
   }
@@ -1532,26 +1560,53 @@ public:
     }
     const auto start_node_id = input["startNodeId"].as<std::uint64_t>();
     const auto start_segment_id = input["startSegmentId"].as<std::uint64_t>();
+    const auto end_node_id = input["endNodeId"].isUndefined()
+                                 ? city::road::RoadNodeId{0}
+                                 : input["endNodeId"].as<city::road::RoadNodeId>();
+    const auto end_segment_id = input["endSegmentId"].isUndefined()
+                                    ? city::road::RoadSegmentId{0}
+                                    : input["endSegmentId"].as<city::road::RoadSegmentId>();
     const auto extension_corridor_id =
         input["extensionCorridorId"].isUndefined()
             ? city::road::RoadCorridorId{0}
             : input["extensionCorridorId"].as<city::road::RoadCorridorId>();
     const double start_segment_distance_m = input["startSegmentDistanceM"].as<double>();
+    const double end_segment_distance_m = input["endSegmentDistanceM"].isUndefined()
+                                              ? 0.0
+                                              : input["endSegmentDistanceM"].as<double>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
                                          ? city::road::CrossSectionTemplateId{1}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> added{};
-    if (extension_corridor_id != 0) {
+    if ((start_node_id != 0 || start_segment_id != 0 ||
+         extension_corridor_id != 0) &&
+        (end_node_id != 0 || end_segment_id != 0)) {
+      added = city::road::Result<city::road::RoadSegmentId>::Fail(
+          city::road::CommitFailureCategory::kNotImplemented,
+          "connecting both road endpoints in one interval is unsupported");
+    } else if (end_segment_id != 0) {
+      added = trial.AddSegmentConnectedToSegment(
+          city::road::AddSegmentConnectedToSegmentRequest{
+              path, section_template_id, end_segment_id,
+              end_segment_distance_m, city::road::EndpointRole::kEnd});
+    } else if (end_node_id != 0) {
+      added = trial.AddSegmentConnectedTo(
+          city::road::AddSegmentConnectedToRequest{
+              path, section_template_id, end_node_id,
+              city::road::EndpointRole::kEnd});
+    } else if (extension_corridor_id != 0) {
       added = trial.ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
               extension_corridor_id, start_node_id, path,
               section_template_id});
     } else if (start_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
-          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m});
+          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m,
+                                                          city::road::EndpointRole::kStart});
     } else if (start_node_id != 0) {
       added = trial.AddSegmentConnectedTo(
-          city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id});
+          city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id,
+                                                   city::road::EndpointRole::kStart});
     } else {
       added = trial.AddSegment(city::road::AddSegmentRequest{path, section_template_id});
     }

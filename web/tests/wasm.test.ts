@@ -2034,6 +2034,33 @@ describe("road wasm smoke", () => {
     expect(scene.markingMeshes.length).toBeGreaterThanOrEqual(9);
   });
 
+  it("splits a straight segment when a branch ends at a centerline snap", () => {
+    state.clear();
+    const base = state.addSegment({
+      kind: "line",
+      startX: 0, startY: 0, endX: 40, endY: 0,
+      handleAX: 13, handleAY: 0, handleBX: 27, handleBY: 0,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    expect(base.ok, base.error).toBe(true);
+    const baseSegmentId = state.scene().centerlineSegments[0].id;
+    const branch = state.addSegment({
+      kind: "line",
+      startX: 20, startY: 24, endX: 20, endY: 0,
+      handleAX: 20, handleAY: 16, handleBX: 20, handleBY: 8,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      endNodeId: 0, endSegmentId: baseSegmentId, endSegmentDistanceM: 20,
+      connectToFirstNode: false
+    });
+    expect(branch.ok, branch.error).toBe(true);
+    const scene = state.scene();
+    expect(scene.segmentCount).toBe(3);
+    expect(scene.nodes.length).toBe(4);
+    expect(scene.connectionGateCount).toBe(3);
+    expect(scene.junctionCount).toBe(1);
+  });
+
   it("splits a Bezier segment at the explicit centerline distance", () => {
     state.clear();
     const base = state.addSegment({

@@ -1066,6 +1066,30 @@ describe("viewport tool routing", () => {
     }));
   });
 
+  it("passes an end road segment snap target to the authoritative road state", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([20, 24, 0]);
+    actions.addViewportPoint(
+      [20, 0, 0],
+      { kind: "road", nodeId: 0, segmentId: 7, segmentDistanceM: 20 }
+    );
+
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startX: 20,
+      startY: 24,
+      endX: 20,
+      endY: 0,
+      endNodeId: 0,
+      endSegmentId: 7,
+      endSegmentDistanceM: 20
+    }));
+  });
+
   it("starts a new road branch when an existing road segment is snapped during continuous drawing", () => {
     const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();

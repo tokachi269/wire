@@ -1354,6 +1354,34 @@ bool add_lane_stores_one_segment_local_transition(std::string& failure) {
                        moved_transition->start.value == 0.2 &&
                        moved_transition->end.value == 0.6,
                    "segment resize rewrote segment-local transition t");
+  const auto curved_shape = city::road::SegmentShapeFromPath(MakePath({
+      MakeBezier({0.0, 0.0}, {35.0, 30.0}, {110.0, 30.0},
+                 {150.0, 0.0})}));
+  ROAD_TEST_EXPECT(curved_shape.ok, curved_shape.error);
+  const auto edited = state.EditSegmentShape(
+      city::road::EditSegmentShapeRequest{segment.value, curved_shape.value});
+  ROAD_TEST_EXPECT(edited.ok, edited.error);
+  const auto edited_transition = std::find_if(
+      state.graph().transitions.begin(), state.graph().transitions.end(),
+      [id = transition_id](const auto& item) { return item.id == id; });
+  ROAD_TEST_EXPECT(edited_transition != state.graph().transitions.end() &&
+                       edited_transition->start.value == 0.2 &&
+                       edited_transition->end.value == 0.6,
+                   "segment shape editing rewrote segment-local transition t");
+  const auto* edited_segment =
+      city::road::FindDerivedSegment(state.derived(), segment.value);
+  ROAD_TEST_EXPECT(edited_segment != nullptr,
+                   "edited transition segment is missing from derived road");
+  const auto has_semantic_distance = [edited_segment](double expected) {
+    return std::any_of(
+        edited_segment->semantic_segment_distances_m.begin(),
+        edited_segment->semantic_segment_distances_m.end(),
+        [expected](double actual) { return std::abs(actual - expected) < 1e-8; });
+  };
+  ROAD_TEST_EXPECT(
+      has_semantic_distance(edited_segment->length_m * 0.2) &&
+          has_semantic_distance(edited_segment->length_m * 0.6),
+      "segment shape editing did not re-evaluate transition t on the new curve");
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
   const auto loaded = RoadState::Load(saved.value);
@@ -1366,6 +1394,114 @@ bool add_lane_stores_one_segment_local_transition(std::string& failure) {
                        loaded_transition->start.value == 0.2 &&
                        loaded_transition->end.value == 0.6,
                    "save/load rewrote segment-local transition t");
+  return true;
+}
+
+bool add_lane_preserves_unrelated_corridor_geometry(std::string& failure) {
+  RoadState state{};
+  const auto affected = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), 5});
+  const auto unrelated = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeBezier({0.0, 80.0}, {30.0, 95.0}, {70.0, 95.0},
+                           {100.0, 80.0})}), 5});
+  ROAD_TEST_EXPECT(affected.ok && unrelated.ok,
+                   affected.ok ? unrelated.error : affected.error);
+  const auto* corridor =
+      FindCorridorForSegment(state.graph(), affected.value);
+  const auto affected_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [id = affected.value](const RoadSegment& item) { return item.id == id; });
+  const auto unrelated_segment = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [id = unrelated.value](const RoadSegment& item) { return item.id == id; });
+  ROAD_TEST_EXPECT(corridor != nullptr &&
+                       affected_segment != state.graph().segments.end() &&
+                       unrelated_segment != state.graph().segments.end(),
+                   "locality fixture is incomplete");
+  const RoadSegment unrelated_authoritative = *unrelated_segment;
+  std::vector<Mesh> unrelated_meshes{};
+  for (const Mesh& mesh : state.derived().segment_meshes) {
+    if (mesh.owner_segment_id == unrelated.value) unrelated_meshes.push_back(mesh);
+  }
+  std::vector<city::road::DerivedMarking> unrelated_markings{};
+  for (const auto& marking : state.derived().markings) {
+    if (marking.owner.kind == MarkingOwner::Kind::kRoadSegment &&
+        marking.owner.segment_id == unrelated.value) {
+      unrelated_markings.push_back(marking);
+    }
+  }
+
+  city::road::AddLaneRequest request{
+      corridor->id, city::road::LaneTravelDirection::kAlongSegment,
+      city::road::RoadSide::kRight, {affected.value, 0.3},
+      {affected.value, 0.7}, affected_segment->node_b, 3.0};
+  const auto added = state.AddLane(request);
+  ROAD_TEST_EXPECT(added.ok, added.error);
+  const auto unrelated_after = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [id = unrelated.value](const RoadSegment& item) { return item.id == id; });
+  ROAD_TEST_EXPECT(unrelated_after != state.graph().segments.end() &&
+                       unrelated_after->node_a == unrelated_authoritative.node_a &&
+                       unrelated_after->node_b == unrelated_authoritative.node_b &&
+                       unrelated_after->section_template ==
+                           unrelated_authoritative.section_template &&
+                       unrelated_after->transition == unrelated_authoritative.transition &&
+                       unrelated_after->shape.start_handle.x ==
+                           unrelated_authoritative.shape.start_handle.x &&
+                       unrelated_after->shape.start_handle.y ==
+                           unrelated_authoritative.shape.start_handle.y &&
+                       unrelated_after->shape.end_handle.x ==
+                           unrelated_authoritative.shape.end_handle.x &&
+                       unrelated_after->shape.end_handle.y ==
+                           unrelated_authoritative.shape.end_handle.y,
+                   "ADD LANE changed unrelated authoritative segment data");
+
+  std::vector<Mesh> meshes_after{};
+  for (const Mesh& mesh : state.derived().segment_meshes) {
+    if (mesh.owner_segment_id == unrelated.value) meshes_after.push_back(mesh);
+  }
+  ROAD_TEST_EXPECT(meshes_after.size() == unrelated_meshes.size(),
+                   "ADD LANE changed unrelated surface mesh count");
+  for (std::size_t index = 0; index < unrelated_meshes.size(); ++index) {
+    const Mesh& before = unrelated_meshes[index];
+    const Mesh& after = meshes_after[index];
+    ROAD_TEST_EXPECT(before.style == after.style &&
+                         before.indices == after.indices &&
+                         before.vertices.size() == after.vertices.size(),
+                     "ADD LANE changed unrelated surface mesh structure");
+    for (std::size_t vertex = 0; vertex < before.vertices.size(); ++vertex) {
+      ROAD_TEST_EXPECT(before.vertices[vertex].x == after.vertices[vertex].x &&
+                           before.vertices[vertex].y == after.vertices[vertex].y &&
+                           before.vertices[vertex].z == after.vertices[vertex].z,
+                       "ADD LANE changed unrelated surface mesh geometry");
+    }
+  }
+  std::vector<city::road::DerivedMarking> markings_after{};
+  for (const auto& marking : state.derived().markings) {
+    if (marking.owner.kind == MarkingOwner::Kind::kRoadSegment &&
+        marking.owner.segment_id == unrelated.value) {
+      markings_after.push_back(marking);
+    }
+  }
+  ROAD_TEST_EXPECT(markings_after.size() == unrelated_markings.size(),
+                   "ADD LANE changed unrelated marking count");
+  for (std::size_t index = 0; index < unrelated_markings.size(); ++index) {
+    const auto& before = unrelated_markings[index];
+    const auto& after = markings_after[index];
+    ROAD_TEST_EXPECT(before.owner == after.owner &&
+                         before.boundary_id == after.boundary_id &&
+                         before.role == after.role &&
+                         before.style_id == after.style_id &&
+                         before.width_m == after.width_m &&
+                         before.points.size() == after.points.size(),
+                     "ADD LANE changed unrelated marking semantics");
+    for (std::size_t point = 0; point < before.points.size(); ++point) {
+      ROAD_TEST_EXPECT(before.points[point].x == after.points[point].x &&
+                           before.points[point].y == after.points[point].y &&
+                           before.points[point].z == after.points[point].z,
+                       "ADD LANE changed unrelated marking geometry");
+    }
+  }
   return true;
 }
 
@@ -3412,6 +3548,8 @@ int main() {
        add_lane_preserves_existing_lanes},
       {"add_lane_stores_one_segment_local_transition",
        add_lane_stores_one_segment_local_transition},
+      {"add_lane_preserves_unrelated_corridor_geometry",
+       add_lane_preserves_unrelated_corridor_geometry},
       {"add_lane_stops_at_the_explicit_corridor_endpoint",
        add_lane_stops_at_the_explicit_corridor_endpoint},
       {"add_lane_conflict_is_specific_and_atomic",

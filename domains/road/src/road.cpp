@@ -286,6 +286,176 @@ struct OrderedBoundaryEndpoint {
   return Result<bool>::Ok(true);
 }
 
+struct OuterLaneSelection {
+  std::size_t strip_index = 0;
+};
+
+[[nodiscard]] Result<OuterLaneSelection> select_outer_lane_strip(
+    const CrossSectionTemplate& section, LaneTravelDirection direction,
+    RoadSide side, CommitFailureCategory empty_category,
+    const char* empty_error, const char* missing_strip_error) {
+  struct Candidate {
+    std::size_t strip_index = 0;
+    double center_in_strip_m = 0.0;
+  };
+  std::vector<Candidate> candidates{};
+  for (const LaneBand& lane : section.lane_bands) {
+    if (lane.direction != direction) continue;
+    const auto strip = std::find_if(
+        section.strips.begin(), section.strips.end(),
+        [&lane](const SectionStrip& item) {
+          return item.id == lane.surface_strip_id;
+        });
+    if (strip == section.strips.end()) {
+      return Result<OuterLaneSelection>::Fail(
+          CommitFailureCategory::kInternalError, missing_strip_error);
+    }
+    candidates.push_back(Candidate{
+        static_cast<std::size_t>(
+            std::distance(section.strips.begin(), strip)),
+        (lane.lateral_start_m + lane.lateral_end_m) * 0.5});
+  }
+  if (candidates.empty()) {
+    return Result<OuterLaneSelection>::Fail(empty_category, empty_error);
+  }
+  const auto extremes = std::minmax_element(
+      candidates.begin(), candidates.end(),
+      [](const Candidate& a, const Candidate& b) {
+        return std::tie(a.strip_index, a.center_in_strip_m) <
+               std::tie(b.strip_index, b.center_in_strip_m);
+      });
+  return Result<OuterLaneSelection>::Ok(
+      OuterLaneSelection{side == RoadSide::kRight
+                             ? extremes.second->strip_index
+                             : extremes.first->strip_index});
+}
+
+struct LaneSectionIds {
+  SectionStripId strip_id = 0;
+  LaneId lane_id = 0;
+  BoundaryId boundary_id = 0;
+};
+
+[[nodiscard]] std::uint64_t next_section_member_id(
+    const SavedRoadGraph& graph) {
+  std::uint64_t next_id = 1;
+  for (const CrossSectionTemplate& section : graph.section_templates) {
+    for (const SectionStrip& strip : section.strips)
+      next_id = std::max(next_id, strip.id + 1);
+    for (const LaneBand& lane : section.lane_bands)
+      next_id = std::max(next_id, lane.id + 1);
+    for (const BoundaryProfile& boundary : section.boundaries)
+      next_id = std::max(next_id, boundary.boundary_id + 1);
+  }
+  return next_id;
+}
+
+[[nodiscard]] Result<CrossSectionTemplate> make_extended_lane_section(
+    const CrossSectionTemplate& base, LaneTravelDirection direction,
+    RoadSide side, double lane_width_m, LaneSectionIds ids,
+    CommitFailureCategory empty_category, const char* empty_error,
+    const char* missing_strip_error) {
+  const Result<OuterLaneSelection> selected = select_outer_lane_strip(
+      base, direction, side, empty_category, empty_error,
+      missing_strip_error);
+  if (!selected.ok) {
+    return Result<CrossSectionTemplate>::Fail(selected.failure_category,
+                                               selected.error);
+  }
+
+  CrossSectionTemplate extended = base;
+  SectionStrip strip = base.strips[selected.value.strip_index];
+  strip.id = ids.strip_id;
+  strip.width_m = lane_width_m;
+  strip.side_marking = {};
+  const BoundaryProfile divider{
+      ids.boundary_id, BoundaryRole::kLaneDivider, 0.0, 0.0,
+      AutoMarkingPolicy{true, MarkingRole::kLaneSeparator,
+                        builtin_marking_styles::kWhiteDashed}};
+  if (side == RoadSide::kRight) {
+    extended.strips.insert(
+        extended.strips.begin() + selected.value.strip_index + 1, strip);
+    extended.boundaries.insert(
+        extended.boundaries.begin() + selected.value.strip_index, divider);
+  } else {
+    extended.strips.insert(
+        extended.strips.begin() + selected.value.strip_index, strip);
+    extended.boundaries.insert(
+        extended.boundaries.begin() + selected.value.strip_index, divider);
+  }
+  extended.lane_bands.push_back(
+      LaneBand{ids.lane_id, ids.strip_id, 0.0, lane_width_m, direction});
+  return Result<CrossSectionTemplate>::Ok(std::move(extended));
+}
+
+struct LaneSectionExtension {
+  CrossSectionTemplateId source_id = 0;
+  LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
+  RoadSide side = RoadSide::kRight;
+  CrossSectionTemplateId target_id = 0;
+};
+
+[[nodiscard]] Result<CrossSectionTemplateId> ensure_extended_lane_section(
+    const CrossSectionTemplate& base, LaneTravelDirection direction,
+    RoadSide side, double lane_width_m, LaneSectionIds ids,
+    std::vector<LaneSectionExtension>& extensions,
+    operations::OperationPlan& plan, std::uint64_t& next_id) {
+  const auto existing = std::find_if(
+      extensions.begin(), extensions.end(),
+      [&base, direction, side](const LaneSectionExtension& extension) {
+        return extension.source_id == base.id &&
+               extension.direction == direction && extension.side == side;
+      });
+  if (existing != extensions.end()) {
+    return Result<CrossSectionTemplateId>::Ok(existing->target_id);
+  }
+  Result<CrossSectionTemplate> extended = make_extended_lane_section(
+      base, direction, side, lane_width_m, ids,
+      CommitFailureCategory::kNotImplemented,
+      "later section has no lane in the selected direction",
+      "lane extension source strip is missing");
+  if (!extended.ok) {
+    return Result<CrossSectionTemplateId>::Fail(extended.failure_category,
+                                                extended.error);
+  }
+  extended.value.id = next_id++;
+  const CrossSectionTemplateId id = extended.value.id;
+  plan.add_section_templates.push_back(std::move(extended.value));
+  extensions.push_back(LaneSectionExtension{base.id, direction, side, id});
+  return Result<CrossSectionTemplateId>::Ok(id);
+}
+
+[[nodiscard]] Result<bool> validate_add_lane_request(
+    const AddLaneRequest& request) {
+  if (!finite(request.transition_start.t) ||
+      !finite(request.transition_complete.t)) {
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                              "lane transition positions must be finite");
+  }
+  if (request.transition_start.segment_id == 0 ||
+      request.transition_complete.segment_id == 0 ||
+      request.continuation_end_node_id == 0 ||
+      request.transition_start.t < 0.0 ||
+      request.transition_start.t > 1.0 ||
+      request.transition_complete.t < 0.0 ||
+      request.transition_complete.t > 1.0) {
+    return Result<bool>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "lane transition positions or continuation endpoint are invalid");
+  }
+  if (request.transition_start.segment_id !=
+      request.transition_complete.segment_id) {
+    return Result<bool>::Fail(
+        CommitFailureCategory::kNotImplemented,
+        "lane transition start and completion must use the same road segment");
+  }
+  if (!finite(request.lane_width_m) || request.lane_width_m <= 0.0) {
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                              "lane width must be finite and positive");
+  }
+  return Result<bool>::Ok(true);
+}
+
 [[nodiscard]] bool linear_span_controls_match(Vec2d start, Vec2d end,
                                               const BezierSpan& span) {
   const Vec2d delta = sub(end, start);
@@ -2554,31 +2724,10 @@ Result<SectionTransitionId> RoadState::AddTransitionToSegment(AddTransitionToSeg
 }
 
 Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
-  if (!finite(request.transition_start.t) ||
-      !finite(request.transition_complete.t)) {
-    return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
-                                "lane transition positions must be finite");
-  }
-  if (request.transition_start.segment_id == 0 ||
-      request.transition_complete.segment_id == 0 ||
-      request.continuation_end_node_id == 0 ||
-      request.transition_start.t < 0.0 ||
-      request.transition_start.t > 1.0 ||
-      request.transition_complete.t < 0.0 ||
-      request.transition_complete.t > 1.0) {
-    return Result<LaneId>::Fail(
-        CommitFailureCategory::kInvalidInput,
-        "lane transition positions or continuation endpoint are invalid");
-  }
-  if (request.transition_start.segment_id !=
-      request.transition_complete.segment_id) {
-    return Result<LaneId>::Fail(
-        CommitFailureCategory::kNotImplemented,
-        "lane transition start and completion must use the same road segment");
-  }
-  if (!finite(request.lane_width_m) || request.lane_width_m <= 0.0) {
-    return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
-                                "lane width must be finite and positive");
+  const Result<bool> valid_request = validate_add_lane_request(request);
+  if (!valid_request.ok) {
+    return Result<LaneId>::Fail(valid_request.failure_category,
+                                valid_request.error);
   }
   const RoadCorridor* corridor =
       FindRoadCorridor(graph_, request.corridor_id);
@@ -2623,43 +2772,15 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         CommitFailureCategory::kInvalidInput,
         "this road segment already has a section transition; overlapping lane changes are not supported");
   }
-  struct IndexedLane {
-    const LaneBand* lane = nullptr;
-    std::size_t strip_index = 0;
-    double center_in_strip_m = 0.0;
-  };
-  std::vector<IndexedLane> candidates{};
-  for (const LaneBand& lane : source->lane_bands) {
-    if (lane.direction != local_direction) continue;
-    const auto strip = std::find_if(
-        source->strips.begin(), source->strips.end(),
-        [&lane](const SectionStrip& candidate) {
-          return candidate.id == lane.surface_strip_id;
-        });
-    if (strip == source->strips.end()) {
-      return Result<LaneId>::Fail(
-          CommitFailureCategory::kInternalError,
-          "lane transition source lane strip is missing");
-    }
-    candidates.push_back(IndexedLane{
-        &lane, static_cast<std::size_t>(
-                   std::distance(source->strips.begin(), strip)),
-        (lane.lateral_start_m + lane.lateral_end_m) * 0.5});
+  const Result<OuterLaneSelection> selected = select_outer_lane_strip(
+      *source, local_direction, local_side,
+      CommitFailureCategory::kInvalidInput,
+      "selected direction has no lane to extend",
+      "lane transition source lane strip is missing");
+  if (!selected.ok) {
+    return Result<LaneId>::Fail(selected.failure_category, selected.error);
   }
-  if (candidates.empty()) {
-    return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
-                                "selected direction has no lane to extend");
-  }
-  const auto extremes = std::minmax_element(
-      candidates.begin(), candidates.end(),
-       [](const IndexedLane& a, const IndexedLane& b) {
-         return std::tie(a.strip_index, a.center_in_strip_m) <
-                std::tie(b.strip_index, b.center_in_strip_m);
-       });
-  const IndexedLane selected = local_side == RoadSide::kRight
-                                    ? *extremes.second
-                                    : *extremes.first;
-  const std::size_t lane_strip_index = selected.strip_index;
+  const std::size_t lane_strip_index = selected.value.strip_index;
   const std::optional<std::size_t> anchor_index =
       local_side == RoadSide::kRight
           ? (lane_strip_index > 0
@@ -2678,42 +2799,20 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           ? source->boundaries[*anchor_index].boundary_id
           : 0;
 
-  CrossSectionTemplate target = *source;
-  std::uint64_t next_local_id = 1;
-  for (const CrossSectionTemplate& section : graph_.section_templates) {
-    for (const SectionStrip& strip : section.strips)
-      next_local_id = std::max(next_local_id, strip.id + 1);
-    for (const LaneBand& lane : section.lane_bands)
-      next_local_id = std::max(next_local_id, lane.id + 1);
-    for (const BoundaryProfile& boundary : section.boundaries)
-      next_local_id = std::max(next_local_id, boundary.boundary_id + 1);
+  std::uint64_t next_local_id = next_section_member_id(graph_);
+  const LaneSectionIds lane_ids{next_local_id++, next_local_id++,
+                                next_local_id++};
+  Result<CrossSectionTemplate> target_result = make_extended_lane_section(
+      *source, local_direction, local_side, request.lane_width_m, lane_ids,
+      CommitFailureCategory::kInvalidInput,
+      "selected direction has no lane to extend",
+      "lane transition source lane strip is missing");
+  if (!target_result.ok) {
+    return Result<LaneId>::Fail(target_result.failure_category,
+                                target_result.error);
   }
-  const SectionStripId added_strip_id = next_local_id++;
-  const LaneId added_lane_id = next_local_id++;
-  const BoundaryId added_boundary_id = next_local_id++;
-  SectionStrip added_strip = source->strips[lane_strip_index];
-  added_strip.id = added_strip_id;
-  added_strip.width_m = request.lane_width_m;
-  added_strip.side_marking = {};
-  const AutoMarkingPolicy lane_divider{
-      true, MarkingRole::kLaneSeparator,
-      builtin_marking_styles::kWhiteDashed};
-  const BoundaryProfile added_boundary{added_boundary_id,
-                                       BoundaryRole::kLaneDivider, 0.0, 0.0,
-                                       lane_divider};
-  if (local_side == RoadSide::kRight) {
-    target.strips.insert(target.strips.begin() + lane_strip_index + 1,
-                         added_strip);
-    target.boundaries.insert(target.boundaries.begin() + lane_strip_index,
-                             added_boundary);
-  } else {
-    target.strips.insert(target.strips.begin() + lane_strip_index, added_strip);
-    target.boundaries.insert(target.boundaries.begin() + lane_strip_index,
-                             added_boundary);
-  }
-  target.lane_bands.push_back(
-      LaneBand{added_lane_id, added_strip_id, 0.0, request.lane_width_m,
-               local_direction});
+  CrossSectionTemplate target = std::move(target_result.value);
+  const LaneId added_lane_id = lane_ids.lane_id;
 
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
@@ -2728,90 +2827,9 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         CommitFailureCategory::kInternalError,
         "lane transition completion segment is not in its corridor");
   }
-  struct SectionLaneExtension {
-    CrossSectionTemplateId source_id = 0;
-    LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
-    RoadSide side = RoadSide::kRight;
-    CrossSectionTemplateId target_id = 0;
-  };
-  std::vector<SectionLaneExtension> section_extensions{
-      SectionLaneExtension{source->id, local_direction, local_side, target.id}};
-  const auto extend_section =
-      [&](const CrossSectionTemplate& base, LaneTravelDirection direction,
-          RoadSide side) -> Result<CrossSectionTemplateId> {
-    const auto existing = std::find_if(
-        section_extensions.begin(), section_extensions.end(),
-        [&base, direction, side](const SectionLaneExtension& extension) {
-          return extension.source_id == base.id &&
-                 extension.direction == direction && extension.side == side;
-        });
-    if (existing != section_extensions.end()) {
-      return Result<CrossSectionTemplateId>::Ok(existing->target_id);
-    }
-
-    struct Candidate {
-      const LaneBand* lane = nullptr;
-      std::size_t strip_index = 0;
-      double center_in_strip_m = 0.0;
-    };
-    std::vector<Candidate> lanes{};
-    for (const LaneBand& lane : base.lane_bands) {
-      if (lane.direction != direction) continue;
-      const auto strip = std::find_if(
-          base.strips.begin(), base.strips.end(),
-          [&lane](const SectionStrip& item) {
-            return item.id == lane.surface_strip_id;
-          });
-      if (strip == base.strips.end()) {
-        return Result<CrossSectionTemplateId>::Fail(
-            CommitFailureCategory::kInternalError,
-            "lane extension source strip is missing");
-      }
-      lanes.push_back(Candidate{
-          &lane,
-          static_cast<std::size_t>(std::distance(base.strips.begin(), strip)),
-          (lane.lateral_start_m + lane.lateral_end_m) * 0.5});
-    }
-    if (lanes.empty()) {
-      return Result<CrossSectionTemplateId>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "later section has no lane in the selected direction");
-    }
-    const auto outer = std::minmax_element(
-        lanes.begin(), lanes.end(), [](const Candidate& a, const Candidate& b) {
-          return std::tie(a.strip_index, a.center_in_strip_m) <
-                 std::tie(b.strip_index, b.center_in_strip_m);
-        });
-    const Candidate selected_lane =
-        side == RoadSide::kRight ? *outer.second : *outer.first;
-    CrossSectionTemplate extended = base;
-    SectionStrip strip = base.strips[selected_lane.strip_index];
-    strip.id = added_strip_id;
-    strip.width_m = request.lane_width_m;
-    strip.side_marking = {};
-    if (side == RoadSide::kRight) {
-      extended.strips.insert(
-          extended.strips.begin() + selected_lane.strip_index + 1, strip);
-      extended.boundaries.insert(
-          extended.boundaries.begin() + selected_lane.strip_index,
-          added_boundary);
-    } else {
-      extended.strips.insert(
-          extended.strips.begin() + selected_lane.strip_index, strip);
-      extended.boundaries.insert(
-          extended.boundaries.begin() + selected_lane.strip_index,
-          added_boundary);
-    }
-    extended.lane_bands.push_back(
-        LaneBand{added_lane_id, added_strip_id, 0.0, request.lane_width_m,
-                 direction});
-    extended.id = next_id++;
-    const CrossSectionTemplateId id = extended.id;
-    plan.add_section_templates.push_back(std::move(extended));
-    section_extensions.push_back(
-        SectionLaneExtension{base.id, direction, side, id});
-    return Result<CrossSectionTemplateId>::Ok(id);
-  };
+  std::vector<LaneSectionExtension> section_extensions{
+      LaneSectionExtension{source->id, local_direction, local_side,
+                           target.id}};
   const auto continuation_ref = std::find_if(
       full_ref, corridor->segments.end(), [&](const DirectedSegmentRef& ref) {
         const RoadSegment* item = find_segment(graph_, ref.segment_id);
@@ -2900,7 +2918,8 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         transition_id, local_from_template_id, local_to_template_id,
         DistanceRef{DistanceRefKind::kRatio, transition_start_t},
         DistanceRef{DistanceRefKind::kRatio, transition_complete_t}, anchor,
-        anchor_boundary_id, {SectionTransitionRule{added_strip_id, action}}});
+        anchor_boundary_id,
+        {SectionTransitionRule{lane_ids.strip_id, action}}});
     RoadSegment replacement = *segment;
     replacement.section_template = local_from_template_id;
     replacement.transition = transition_id;
@@ -2937,8 +2956,11 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
               ? (request.side == RoadSide::kLeft ? RoadSide::kRight
                                                  : RoadSide::kLeft)
               : request.side;
-      const Result<CrossSectionTemplateId> mapped = extend_section(
-          *following_section, following_direction, following_side);
+      const Result<CrossSectionTemplateId> mapped =
+          ensure_extended_lane_section(
+              *following_section, following_direction, following_side,
+              request.lane_width_m, lane_ids, section_extensions, plan,
+              next_id);
       if (!mapped.ok) {
         return Result<LaneId>::Fail(mapped.failure_category, mapped.error);
       }

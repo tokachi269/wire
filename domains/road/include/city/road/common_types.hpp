@@ -208,11 +208,6 @@ struct ResolvedSegmentDistance {
   bool reversed = false;
 };
 
-struct SegmentPosition {
-  RoadSegmentId segment_id = 0;
-  double t = 0.0;
-};
-
 struct RepeatingPlacementPolicy {
   double spacing_m = 0.0;
   double phase_m = 0.0;

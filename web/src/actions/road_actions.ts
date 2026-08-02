@@ -62,12 +62,6 @@ export class RoadActions {
         selectedLaneId: 0,
         selectedLaneNodeId: 0,
         laneEditStage: "select",
-        laneCorridorId: 0,
-        laneTransitionStartSegmentId: 0,
-        laneTransitionStartT: 0,
-        laneTransitionCompleteSegmentId: 0,
-        laneTransitionCompleteT: 0,
-        laneContinuationEndNodeId: 0,
         selectedEditSegmentId: 0,
         selectedEditNodeAId: 0,
         selectedEditNodeBId: 0,
@@ -207,14 +201,13 @@ export class RoadActions {
       const hoveredLaneSegmentId = snap?.laneId === undefined ? 0 : snap.segmentId;
       const hoveredLaneId = snap?.laneId ?? 0;
       let road = { ...current, hoveredLaneSegmentId, hoveredLaneId };
-      if (current.operation === "add-lane") {
-        if (current.laneEditStage === "transition-complete" && snap !== undefined) {
-          const position = segmentPositionForSnap(current, snap);
-          if (position !== null && position.segmentId === current.laneTransitionStartSegmentId) {
+      if (current.laneEditStage === "target") {
+        if (current.operation === "add-lane" && snap !== undefined) {
+          const distance = corridorDistanceForSnap(current, snap);
+          if (distance !== null && distance.corridorId === current.laneCorridorId) {
             road = {
               ...road,
-              laneTransitionCompleteSegmentId: position.segmentId,
-              laneTransitionCompleteT: position.t,
+              laneFullWidthCorridorDistanceM: distance.distanceM,
               previewMeshes: [],
               previewState: "guide",
               previewIssue: ""
@@ -222,12 +215,12 @@ export class RoadActions {
             this.ctx.store.update((snapshot) => ({ ...snapshot, road }));
             return;
           }
+        } else if (current.operation !== "add-lane") {
+          this.applyPreview(road, this.ctx.bridge.roadPreviewConnectedLaneSegment(
+            connectedLaneInput(road, { x: point[0], y: point[1] })
+          ));
+          return;
         }
-      } else if (current.laneEditStage === "target") {
-        this.applyPreview(road, this.ctx.bridge.roadPreviewConnectedLaneSegment(
-          connectedLaneInput(road, { x: point[0], y: point[1] })
-        ));
-        return;
       }
       this.ctx.store.update((snapshot) => ({ ...snapshot, road }));
       return;
@@ -354,16 +347,16 @@ export class RoadActions {
                            "lane_start_not_selected");
           return;
         }
-        const position = segmentPositionForSnap(road, snap);
-        const corridor = road.scene.corridors.find((item) =>
-          item.segments.some((ref) => ref.segmentId === snap.segmentId)
-        );
-        if (position === null || corridor === undefined) {
+        const distance = corridorDistanceForSnap(road, snap);
+        if (distance === null) {
           this.rejectInput("road add lane",
                            "Selected road is not in a corridor",
                            "lane_corridor_not_found");
           return;
         }
+        const corridor = road.scene.corridors.find(
+          (item) => item.id === distance.corridorId
+        );
         const endpointDirections = road.scene.lanePaths
           .filter((lane) => lane.segmentId === snap.segmentId)
           .map((lane) => lane.direction);
@@ -382,61 +375,19 @@ export class RoadActions {
           ...snapshot,
           road: {
             ...snapshot.road,
-            laneEditStage: "transition-complete",
-            laneCorridorId: corridor.id,
+            laneEditStage: "target",
+            laneCorridorId: distance.corridorId,
             selectedLaneSegmentId: snap.segmentId,
             selectedLaneDirection,
-            laneTransitionStartSegmentId: position.segmentId,
-            laneTransitionStartT: position.t,
-            laneTransitionCompleteSegmentId: position.segmentId,
-            laneTransitionCompleteT: position.t,
-            laneContinuationEndNodeId: 0,
+            laneStartCorridorDistanceM: distance.distanceM,
+            laneFullWidthCorridorDistanceM: distance.distanceM,
             previewIssue: "",
             lastError: ""
           }
         }));
         return;
       }
-      if (road.laneEditStage === "transition-complete") {
-        const position = snap === undefined ? null : segmentPositionForSnap(road, snap);
-        if (position === null || position.segmentId !== road.laneTransitionStartSegmentId ||
-            Math.abs(position.t - road.laneTransitionStartT) <= 1e-9) {
-          this.rejectInput("road add lane", "3車線が完成する位置を同じ道路区間上で選択してください",
-                           "lane_transition_complete_not_selected");
-          return;
-        }
-        this.ctx.store.update((snapshot) => ({
-          ...snapshot,
-          road: {
-            ...snapshot.road,
-            laneEditStage: "continuation-end",
-            laneTransitionCompleteSegmentId: position.segmentId,
-            laneTransitionCompleteT: position.t,
-            laneContinuationEndNodeId: 0,
-            previewIssue: "",
-            lastError: ""
-          }
-        }));
-        return;
-      }
-      if (road.laneEditStage === "continuation-end") {
-        if (snap === undefined || snap.nodeId === 0) {
-          this.rejectInput("road add lane", "3車線を維持する終点ノードを選択してください",
-                           "lane_continuation_end_not_selected");
-          return;
-        }
-        this.ctx.store.update((snapshot) => ({
-          ...snapshot,
-          road: {
-            ...snapshot.road,
-            laneContinuationEndNodeId: snap.nodeId,
-            previewState: "guide",
-            previewIssue: "",
-            lastError: ""
-          }
-        }));
-        return;
-      }
+      this.finish(this.ctx.bridge.roadAddLane(laneTransitionInput(road)), "road add lane");
       return;
     }
     if (road.laneEditStage === "select") {
@@ -499,11 +450,6 @@ export class RoadActions {
         laneEditStage: "select",
         laneCorridorId: 0,
         selectedLaneSegmentId: 0,
-        laneTransitionStartSegmentId: 0,
-        laneTransitionStartT: 0,
-        laneTransitionCompleteSegmentId: 0,
-        laneTransitionCompleteT: 0,
-        laneContinuationEndNodeId: 0,
         previewMeshes: [],
         previewState: "none",
         previewRequest: null,
@@ -559,11 +505,9 @@ export class RoadActions {
   }
 
   private commitLane(road: RoadToolState): DrawActionResult {
-    if (road.laneEditStage !== "continuation-end" ||
-        road.laneContinuationEndNodeId === 0 ||
-        road.laneTransitionStartSegmentId === 0 ||
-        road.laneTransitionCompleteSegmentId === 0 ||
-        Math.abs(road.laneTransitionCompleteT - road.laneTransitionStartT) <= 1e-9) {
+    if (road.laneEditStage !== "target" ||
+        Math.abs(road.laneFullWidthCorridorDistanceM -
+                 road.laneStartCorridorDistanceM) <= 1e-9) {
       return { kind: "ignored", reasonCode: "lane-range-incomplete" };
     }
     const result = this.ctx.bridge.roadAddLane(laneTransitionInput(road));
@@ -735,6 +679,7 @@ export class RoadActions {
     }));
   }
 }
+
 function editInput(road: RoadToolState) {
   const start = road.editPoints[0] ?? { x: 0, y: 0 };
   const end = road.editPoints.at(-1) ?? start;
@@ -764,29 +709,21 @@ function sameRoadPoint(a: RoadPoint, b: RoadPoint): boolean {
 }
 
 function laneTransitionInput(road: RoadToolState) {
+  const startCorridorDistanceM = Math.min(
+    road.laneStartCorridorDistanceM,
+    road.laneFullWidthCorridorDistanceM
+  );
+  const fullWidthCorridorDistanceM = Math.max(
+    road.laneStartCorridorDistanceM,
+    road.laneFullWidthCorridorDistanceM
+  );
   return {
     corridorId: road.laneCorridorId,
     direction: road.selectedLaneDirection,
     side: road.laneSide,
-    startSegmentId: road.laneTransitionStartSegmentId,
-    startT: road.laneTransitionStartT,
-    completeSegmentId: road.laneTransitionCompleteSegmentId,
-    completeT: road.laneTransitionCompleteT,
-    continuationEndNodeId: road.laneContinuationEndNodeId,
+    startCorridorDistanceM,
+    fullWidthCorridorDistanceM,
     laneWidthM: road.laneWidthM
-  };
-}
-function segmentPositionForSnap(
-  road: RoadToolState,
-  snap: RoadSnapInfo
-): { segmentId: number; t: number } | null {
-  const ref = road.scene.corridors
-    .flatMap((corridor) => corridor.segments)
-    .find((item) => item.segmentId === snap.segmentId);
-  if (ref === undefined || ref.lengthM <= 1e-9) return null;
-  return {
-    segmentId: snap.segmentId,
-    t: Math.max(0, Math.min(1, snap.segmentDistanceM / ref.lengthM))
   };
 }
 
@@ -843,4 +780,25 @@ function connectedLaneInput(road: RoadToolState, end: RoadPoint) {
       kind: 1
     }] : []
   };
+}
+
+function corridorDistanceForSnap(
+  road: RoadToolState,
+  snap: RoadSnapInfo
+): { corridorId: number; distanceM: number } | null {
+  for (const corridor of road.scene.corridors) {
+    let offset = 0;
+    for (const segment of corridor.segments) {
+      if (segment.segmentId === snap.segmentId) {
+        return {
+          corridorId: corridor.id,
+          distanceM: offset + (segment.reversed
+            ? segment.lengthM - snap.segmentDistanceM
+            : snap.segmentDistanceM)
+        };
+      }
+      offset += segment.lengthM;
+    }
+  }
+  return null;
 }

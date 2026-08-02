@@ -374,11 +374,8 @@ export interface RoadAddLaneInput {
   corridorId: number;
   direction: 0 | 1;
   side: "left" | "right";
-  startSegmentId: number;
-  startT: number;
-  completeSegmentId: number;
-  completeT: number;
-  continuationEndNodeId: number;
+  startCorridorDistanceM: number;
+  fullWidthCorridorDistanceM: number;
   laneWidthM: number;
 }
 

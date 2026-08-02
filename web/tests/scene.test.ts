@@ -96,7 +96,7 @@ describe("road rendering", () => {
     const firstOverlay = scene.sceneRoadOverlaySignature(snapshot);
     for (let index = 1; index <= 100; ++index) {
       snapshot.road.previewState = "guide";
-      snapshot.road.laneTransitionCompleteT = index / 100;
+      snapshot.road.laneFullWidthCorridorDistanceM = index;
       snapshot.road.hoveredDeleteSegmentId = index % 2 === 0 ? 7 : 0;
       expect(scene.roadContentSourcesChanged(snapshot)).toBe(false);
     }
@@ -109,7 +109,7 @@ describe("road rendering", () => {
     const snapshot = createViewerSnapshot();
     expect(scene.wireContentSourcesChanged(snapshot)).toBe(true);
     for (let index = 1; index <= 100; ++index) {
-      snapshot.road.laneTransitionCompleteT = index / 100;
+      snapshot.road.laneFullWidthCorridorDistanceM = index;
       expect(scene.wireContentSourcesChanged(snapshot)).toBe(false);
     }
     snapshot.parts = [...snapshot.parts];

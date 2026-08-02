@@ -94,9 +94,8 @@ struct AddLaneRequest {
   RoadCorridorId corridor_id = 0;
   LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
   RoadSide side = RoadSide::kRight;
-  SegmentPosition transition_start{};
-  SegmentPosition transition_complete{};
-  RoadNodeId continuation_end_node_id = 0;
+  double taper_start_corridor_distance_m = 0.0;
+  double full_width_corridor_distance_m = 0.0;
   double lane_width_m = 0.0;
 };
 struct AddLaneConnectionRequest {

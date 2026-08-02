@@ -64,11 +64,8 @@ an older candidate must not remain visible as though it were current.
 Road guide shows the input path and width envelope needed to understand the
 candidate. Wire guide shows the input route and snap marker. Domain geometry,
 support placement, junction generation, and model assembly are commit work.
-Add Lane selects `2車線から3車線への変化開始位置`, `3車線が完成する位置`, and
-`3車線を維持する終点` in that order. Pointer movement updates only the local
-position and affected-range guide. The editor converts the selected road points
-to segment-local `t`; the section plan and transition validation run only on
-Confirm. A rejected confirmation preserves all three selections.
+Add Lane pointer movement updates only the selected corridor distance guide;
+the section plan and transition validation run on Click.
 
 Bezier road handles depend on the start anchor, inherited start tangent, end
 point, and chord length. The previous pointer frame is not an input, so two

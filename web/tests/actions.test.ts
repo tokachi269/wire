@@ -1388,7 +1388,7 @@ describe("viewport tool routing", () => {
     expect(commit).toHaveBeenCalledWith(preview.mock.calls[0][0]);
   });
 
-  it("collects segment-local lane positions and an explicit continuation endpoint", () => {
+  it("previews and commits an added lane with corridor distances", () => {
     const preview = vi.fn((_input: unknown) => ({ ok: true, error: "", meshes: [] }));
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
     const store = new ViewerStore();
@@ -1424,28 +1424,15 @@ describe("viewport tool routing", () => {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
     expect(preview).not.toHaveBeenCalled();
-    expect(current(store).road.laneTransitionCompleteT).toBe(0.5);
+    expect(current(store).road.laneFullWidthCorridorDistanceM).toBe(30);
     actions.addViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
-    expect(current(store).road.laneEditStage).toBe("continuation-end");
-    actions.previewViewportPoint([60, 0, 0], {
-      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 60
-    });
-    expect(current(store).road.laneContinuationEndNodeId).toBe(0);
-    actions.addViewportPoint([60, 0, 0], {
-      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 60
-    });
-    expect(commit).not.toHaveBeenCalled();
-    actions.confirmDrawStep();
     expect(commit).toHaveBeenCalledWith(expect.objectContaining({
       corridorId: 30,
       direction: 1,
-      startSegmentId: 12,
-      startT: 10 / 60,
-      completeSegmentId: 12,
-      completeT: 0.5,
-      continuationEndNodeId: 22
+      startCorridorDistanceM: 10,
+      fullWidthCorridorDistanceM: 30
     }));
   });
   it("normalizes add-lane picks against the hidden corridor direction", () => {
@@ -1456,7 +1443,7 @@ describe("viewport tool routing", () => {
     const scene = {
       ...baseScene,
       corridors: [{ id: 30, sectionTemplateId: 1, lengthM: 60,
-        segments: [{ segmentId: 12, reversed: true, lengthM: 60 }] }],
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
       sectionTemplates: [{
         id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
         laneWidthM: 3, medianWidthM: 0, laneCount: 2,
@@ -1484,76 +1471,16 @@ describe("viewport tool routing", () => {
     });
 
     expect(preview).not.toHaveBeenCalled();
-    expect(current(store).road.laneTransitionCompleteT).toBe(10 / 60);
+    expect(current(store).road.laneFullWidthCorridorDistanceM).toBe(10);
 
     actions.addViewportPoint([10, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
-    actions.addViewportPoint([0, 0, 0], {
-      kind: "road", nodeId: 21, segmentId: 12, segmentDistanceM: 0,
-      endpointRole: 0
-    });
-    actions.confirmDrawStep();
     expect(commit).toHaveBeenCalledWith(expect.objectContaining({
       corridorId: 30,
-      startT: 0.5,
-      completeT: 10 / 60,
-      continuationEndNodeId: 21
+      startCorridorDistanceM: 10,
+      fullWidthCorridorDistanceM: 30
     }));
-  });
-  it("keeps all add-lane selections after one rejected confirmation", () => {
-    const commit = vi.fn(() => ({
-      ok: false,
-      error: "this road segment already has a section transition",
-      failureCategory: CommitFailureCategory.InvalidInput,
-      reasonCode: "road_add_lane_transition_conflict"
-    }));
-    const store = new ViewerStore();
-    const scene = {
-      ...actionBridge().roadScene(),
-      corridors: [{ id: 30, sectionTemplateId: 1, lengthM: 60,
-        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
-      sectionTemplates: [{
-        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
-        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
-        hasCenterLine: true, hasOuterLines: true,
-        lanes: [{ id: 1010, direction: 0 as const }],
-        boundaries: [{ id: 200, role: 2 }]
-      }]
-    };
-    const actions = new ViewerActions(actionBridge({
-      roadScene: () => scene,
-      roadAddLane: commit
-    }), store);
-    actions.initialize();
-    actions.setActiveTool("road");
-    actions.setRoadOperation("add-lane");
-    actions.addViewportPoint([10, 0, 0], {
-      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
-    });
-    actions.addViewportPoint([30, 0, 0], {
-      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
-    });
-    actions.addViewportPoint([60, 0, 0], {
-      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 60,
-      endpointRole: 1
-    });
-    expect(actions.confirmDrawStep()).toEqual({
-      kind: "commit-rejected",
-      reasonCode: "road_add_lane_transition_conflict"
-    });
-    const rejected = current(store);
-    expect(rejected.road.laneEditStage).toBe("continuation-end");
-    expect(rejected.road.laneTransitionStartT).toBe(10 / 60);
-    expect(rejected.road.laneTransitionCompleteT).toBe(0.5);
-    expect(rejected.road.laneContinuationEndNodeId).toBe(22);
-    actions.previewViewportPoint([55, 0, 0], {
-      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 55,
-      endpointRole: 1
-    });
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(current(store).lastCommitFailure?.reasonCode)
-      .toBe("road_add_lane_transition_conflict");
   });
 });
 describe("P1 action contracts", () => {

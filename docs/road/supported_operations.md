@@ -40,15 +40,11 @@ invariant failures must not be converted to a requirement constraint.
 
 ## Unsupported families
 
-Current implementation limits include splits inside a section transition, connection
+Current implementation limits include transition-bearing splits, connection
 layouts outside the implemented section combinations, and unresolved marking
 merge/split cases. These remain `NotImplemented` until their semantic operation
 and geometry resolver are implemented. No nearest approach, nearest boundary,
 or fallback shape is selected.
-
-Splits before or after a ratio-based section transition are supported and
-re-normalize the transition `t` onto the segment that retains it. A split inside
-the transition is rejected with a specific reason and leaves state unchanged.
 
 Lane Branch and Merge remain Core topology primitives, but are not standard
 toolbar operations. Their current editor requires raw lane and boundary IDs and

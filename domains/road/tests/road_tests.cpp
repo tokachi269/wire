@@ -67,47 +67,6 @@ using city::road::Vec2d;
 namespace builtin_marking_styles = city::road::builtin_marking_styles;
 namespace builtin_surface_styles = city::road::builtin_surface_styles;
 
-bool SetAddLaneRange(RoadState& state, city::road::AddLaneRequest& request,
-                     double start_distance_m, double complete_distance_m) {
-  const auto start = city::road::ResolveCorridorDistance(
-      state.graph(), state.derived(),
-      city::road::CorridorDistanceRef{request.corridor_id, start_distance_m});
-  const auto complete = city::road::ResolveCorridorDistance(
-      state.graph(), state.derived(), city::road::CorridorDistanceRef{
-                                          request.corridor_id,
-                                          complete_distance_m});
-  const auto* start_segment = start.ok
-                                  ? city::road::FindDerivedSegment(
-                                        state.derived(), start.value.segment_id)
-                                  : nullptr;
-  const auto* complete_segment = complete.ok
-                                     ? city::road::FindDerivedSegment(
-                                           state.derived(),
-                                           complete.value.segment_id)
-                                     : nullptr;
-  const auto* corridor =
-      city::road::FindRoadCorridor(state.graph(), request.corridor_id);
-  if (!start.ok || !complete.ok || start_segment == nullptr ||
-      complete_segment == nullptr || corridor == nullptr ||
-      corridor->segments.empty()) return false;
-  request.transition_start = {
-      start.value.segment_id,
-      start.value.segment_distance_m / start_segment->length_m};
-  request.transition_complete = {
-      complete.value.segment_id,
-      complete.value.segment_distance_m / complete_segment->length_m};
-  const auto& terminal_ref = corridor->segments.back();
-  const auto terminal = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [&terminal_ref](const RoadSegment& item) {
-        return item.id == terminal_ref.segment_id;
-      });
-  if (terminal == state.graph().segments.end()) return false;
-  request.continuation_end_node_id =
-      terminal_ref.reversed ? terminal->node_a : terminal->node_b;
-  return true;
-}
-
 bool mesh_faces_up(const Mesh& mesh) {
   for (std::size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
     const auto& a = mesh.vertices[mesh.indices[i]];
@@ -1213,8 +1172,8 @@ bool add_lane_preserves_existing_lanes(std::string& failure) {
   request.corridor_id = corridor->id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
   request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
-                   "ADD LANE test range could not be resolved");
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
   request.lane_width_m = 3.0;
   const auto added_lane = state.AddLane(request);
   ROAD_TEST_EXPECT(added_lane.ok, added_lane.error);
@@ -1295,250 +1254,6 @@ bool add_lane_preserves_existing_lanes(std::string& failure) {
   return true;
 }
 
-bool add_lane_stores_one_segment_local_transition(std::string& failure) {
-  RoadState state{};
-  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), 5});
-  ROAD_TEST_EXPECT(segment.ok, segment.error);
-  const auto* corridor =
-      city::road::FindCorridorForSegment(state.graph(), segment.value);
-  ROAD_TEST_EXPECT(corridor != nullptr,
-                   "LANE0 fixture corridor is missing");
-  const auto source = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [id = segment.value](const RoadSegment& item) { return item.id == id; });
-  ROAD_TEST_EXPECT(source != state.graph().segments.end(),
-                   "LANE0 source segment is missing");
-  const std::size_t segment_count = state.graph().segments.size();
-  const std::size_t section_count = state.graph().section_templates.size();
-  const RoadNodeId segment_end_node = source->node_b;
-
-  city::road::AddLaneRequest request{};
-  request.corridor_id = corridor->id;
-  request.direction = city::road::LaneTravelDirection::kAlongSegment;
-  request.side = city::road::RoadSide::kRight;
-  request.transition_start = {segment.value, 0.2};
-  request.transition_complete = {segment.value, 0.6};
-  request.continuation_end_node_id = segment_end_node;
-  request.lane_width_m = 3.0;
-  const auto added = state.AddLane(request);
-  ROAD_TEST_EXPECT(added.ok, added.error);
-  ROAD_TEST_EXPECT(state.graph().segments.size() == segment_count,
-                   "LANE0 Add Lane split the selected RoadSegment");
-  const auto updated = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [id = segment.value](const RoadSegment& item) { return item.id == id; });
-  ROAD_TEST_EXPECT(updated != state.graph().segments.end() &&
-                       updated->transition.has_value(),
-                   "LANE0 segment identity or transition was lost");
-  const auto transition = std::find_if(
-      state.graph().transitions.begin(), state.graph().transitions.end(),
-      [id = *updated->transition](const auto& item) { return item.id == id; });
-  ROAD_TEST_EXPECT(
-      transition != state.graph().transitions.end() &&
-          transition->start.kind == DistanceRefKind::kRatio &&
-          transition->start.value == 0.2 &&
-          transition->end.kind == DistanceRefKind::kRatio &&
-          transition->end.value == 0.6,
-      "LANE0 transition did not preserve segment-local t");
-  const auto transition_id = transition->id;
-  ROAD_TEST_EXPECT(state.graph().section_templates.size() == section_count + 1,
-                   "LANE0 stored an intermediate section template");
-  const auto moved = state.MoveNode(
-      city::road::MoveNodeRequest{segment_end_node, {150.0, 0.0}});
-  ROAD_TEST_EXPECT(moved.ok, moved.error);
-  const auto moved_transition = std::find_if(
-      state.graph().transitions.begin(), state.graph().transitions.end(),
-      [id = transition_id](const auto& item) { return item.id == id; });
-  ROAD_TEST_EXPECT(moved_transition != state.graph().transitions.end() &&
-                       moved_transition->start.value == 0.2 &&
-                       moved_transition->end.value == 0.6,
-                   "segment resize rewrote segment-local transition t");
-  const auto saved = state.Save();
-  ROAD_TEST_EXPECT(saved.ok, saved.error);
-  const auto loaded = RoadState::Load(saved.value);
-  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
-  const auto loaded_transition = std::find_if(
-      loaded.value.graph().transitions.begin(),
-      loaded.value.graph().transitions.end(),
-      [id = transition_id](const auto& item) { return item.id == id; });
-  ROAD_TEST_EXPECT(loaded_transition != loaded.value.graph().transitions.end() &&
-                       loaded_transition->start.value == 0.2 &&
-                       loaded_transition->end.value == 0.6,
-                   "save/load rewrote segment-local transition t");
-  return true;
-}
-
-bool add_lane_stops_at_the_explicit_corridor_endpoint(std::string& failure) {
-  RoadState state{};
-  const auto first = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
-  ROAD_TEST_EXPECT(first.ok, first.error);
-  const auto* corridor = FindCorridorForSegment(state.graph(), first.value);
-  const RoadSegment* first_segment = corridor == nullptr
-      ? nullptr
-      : &state.graph().segments.front();
-  ROAD_TEST_EXPECT(corridor != nullptr && first_segment != nullptr,
-                   "explicit endpoint fixture corridor is missing");
-  const RoadCorridorId corridor_id = corridor->id;
-  const auto second = state.ExtendCorridorFromEnd(
-      city::road::ExtendCorridorFromEndRequest{
-          corridor_id, first_segment->node_b,
-          MakePath({MakeLine({60.0, 0.0}, {120.0, 0.0})}), 1});
-  ROAD_TEST_EXPECT(second.ok, second.error);
-  const auto second_segment = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [id = second.value](const RoadSegment& item) { return item.id == id; });
-  ROAD_TEST_EXPECT(second_segment != state.graph().segments.end(),
-                   "explicit endpoint fixture second segment is missing");
-  const RoadNodeId continuation_end_node = second_segment->node_b;
-  const auto third = state.ExtendCorridorFromEnd(
-      city::road::ExtendCorridorFromEndRequest{
-          corridor_id, continuation_end_node,
-          MakePath({MakeLine({120.0, 0.0}, {180.0, 0.0})}), 1});
-  ROAD_TEST_EXPECT(third.ok, third.error);
-  const auto branch = state.AddSegmentConnectedTo(
-      city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({120.0, 0.0}, {120.0, 60.0})}), 1,
-          continuation_end_node});
-  ROAD_TEST_EXPECT(branch.ok, branch.error);
-
-  city::road::AddLaneRequest request{};
-  request.corridor_id = corridor_id;
-  request.direction = city::road::LaneTravelDirection::kAlongSegment;
-  request.side = city::road::RoadSide::kRight;
-  request.transition_start = {first.value, 0.25};
-  request.transition_complete = {first.value, 0.75};
-  request.continuation_end_node_id = continuation_end_node;
-  request.lane_width_m = 3.0;
-  const auto added = state.AddLane(request);
-  ROAD_TEST_EXPECT(added.ok, added.error);
-  const auto find_by_id = [&state](RoadSegmentId id) {
-    return std::find_if(state.graph().segments.begin(),
-                        state.graph().segments.end(),
-                        [id](const RoadSegment& item) { return item.id == id; });
-  };
-  const auto updated_first = find_by_id(first.value);
-  const auto updated_second = find_by_id(second.value);
-  const auto updated_third = find_by_id(third.value);
-  ROAD_TEST_EXPECT(updated_first->transition.has_value() &&
-                       updated_second->section_template != 1 &&
-                       updated_third->section_template == 1,
-                   "ADD LANE propagated beyond its explicit continuation endpoint");
-  return true;
-}
-
-bool add_lane_conflict_is_specific_and_atomic(std::string& failure) {
-  RoadState state{};
-  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), 5});
-  ROAD_TEST_EXPECT(segment.ok, segment.error);
-  const auto* corridor = FindCorridorForSegment(state.graph(), segment.value);
-  const auto source = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [id = segment.value](const RoadSegment& item) { return item.id == id; });
-  ROAD_TEST_EXPECT(corridor != nullptr && source != state.graph().segments.end(),
-                   "conflict fixture is incomplete");
-  city::road::AddLaneRequest request{
-      corridor->id, city::road::LaneTravelDirection::kAlongSegment,
-      city::road::RoadSide::kRight, {segment.value, 0.2},
-      {segment.value, 0.6}, source->node_b, 3.0};
-  const auto first = state.AddLane(request);
-  ROAD_TEST_EXPECT(first.ok, first.error);
-  const auto before = state.Save();
-  ROAD_TEST_EXPECT(before.ok, before.error);
-  const auto rejected = state.AddLane(request);
-  ROAD_TEST_EXPECT(!rejected.ok &&
-                       rejected.failure_category ==
-                           CommitFailureCategory::kInvalidInput &&
-                       rejected.error.find("already has a section transition") !=
-                           std::string::npos,
-                   "overlapping transition did not return a specific input error");
-  const auto after = state.Save();
-  ROAD_TEST_EXPECT(after.ok && after.value == before.value,
-                   "rejected overlapping transition mutated state");
-  return true;
-}
-
-bool transitioning_segment_split_respects_transition_bounds(std::string& failure) {
-  const auto make_state = [](double split_distance, bool expect_success,
-                             bool expect_transition_on_second,
-                             std::string& error) {
-    RoadState state{};
-    const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-        MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), 5});
-    if (!segment.ok) { error = segment.error; return false; }
-    const auto* corridor = FindCorridorForSegment(state.graph(), segment.value);
-    const auto source = std::find_if(
-        state.graph().segments.begin(), state.graph().segments.end(),
-        [id = segment.value](const RoadSegment& item) { return item.id == id; });
-    if (corridor == nullptr || source == state.graph().segments.end()) {
-      error = "split fixture is incomplete";
-      return false;
-    }
-    city::road::AddLaneRequest request{
-        corridor->id, city::road::LaneTravelDirection::kAlongSegment,
-        city::road::RoadSide::kRight, {segment.value, 0.2},
-        {segment.value, 0.6}, source->node_b, 3.0};
-    const auto added = state.AddLane(request);
-    if (!added.ok) { error = added.error; return false; }
-    const auto before = state.Save();
-    const auto split = state.SplitSegmentAtDistance({segment.value, split_distance});
-    if (split.ok != expect_success) {
-      error = split.ok ? "split unexpectedly succeeded" : split.error;
-      return false;
-    }
-    if (!expect_success) {
-      const auto after = state.Save();
-      if (!before.ok || !after.ok || before.value != after.value ||
-          split.error.find("inside its section transition") == std::string::npos) {
-        error = "inside-transition split was not specific and atomic";
-        return false;
-      }
-      return true;
-    }
-    const auto first = std::find_if(
-        state.graph().segments.begin(), state.graph().segments.end(),
-        [id = segment.value](const RoadSegment& item) { return item.id == id; });
-    const auto second = std::find_if(
-        state.graph().segments.begin(), state.graph().segments.end(),
-        [id = split.value](const RoadSegment& item) { return item.id == id; });
-    if (first == state.graph().segments.end() ||
-        second == state.graph().segments.end() ||
-        first->transition.has_value() == expect_transition_on_second ||
-        second->transition.has_value() != expect_transition_on_second) {
-      error = "transition was assigned to the wrong split segment";
-      return false;
-    }
-    const city::road::SectionTransitionId transition_id =
-        expect_transition_on_second ? *second->transition
-                                    : *first->transition;
-    const auto transition = std::find_if(
-        state.graph().transitions.begin(), state.graph().transitions.end(),
-        [transition_id](const auto& item) { return item.id == transition_id; });
-    if (transition == state.graph().transitions.end() ||
-        transition->start.kind != DistanceRefKind::kRatio ||
-        transition->end.kind != DistanceRefKind::kRatio) {
-      error = "split transition lost ratio authority";
-      return false;
-    }
-    const double expected_start = expect_transition_on_second
-        ? (0.2 - 0.1) / 0.9 : 0.2 / 0.8;
-    const double expected_end = expect_transition_on_second
-        ? (0.6 - 0.1) / 0.9 : 0.6 / 0.8;
-    if (std::abs(transition->start.value - expected_start) > 1e-9 ||
-        std::abs(transition->end.value - expected_end) > 1e-9) {
-      error = "split transition t was not re-normalized";
-      return false;
-    }
-    return true;
-  };
-  ROAD_TEST_EXPECT(make_state(10.0, true, true, failure), failure);
-  ROAD_TEST_EXPECT(make_state(80.0, true, false, failure), failure);
-  ROAD_TEST_EXPECT(make_state(40.0, false, false, failure), failure);
-  return true;
-}
-
 bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   RoadState state{};
   const auto first = state.AddSegment(city::road::AddSegmentRequest{
@@ -1572,8 +1287,8 @@ bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   request.corridor_id = corridor_id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
   request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
-                   "ADD LANE test range could not be resolved");
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
   request.lane_width_m = 3.0;
   const auto added = state.AddLane(request);
   ROAD_TEST_EXPECT(added.ok, added.error);
@@ -1656,8 +1371,8 @@ bool add_lane_taper_crosses_segment_boundary(std::string& failure) {
   request.corridor_id = corridor_id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
   request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 60.0, 100.0),
-                   "ADD LANE test range could not be resolved");
+  request.taper_start_corridor_distance_m = 60.0;
+  request.full_width_corridor_distance_m = 100.0;
   request.lane_width_m = 3.0;
   const auto added = state.AddLane(request);
   ROAD_TEST_EXPECT(added.ok, added.error);
@@ -1724,8 +1439,8 @@ bool add_lane_normalizes_reversed_corridor_direction(std::string& failure) {
   request.corridor_id = corridor->id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
   request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(loaded.value, request, 20.0, 60.0),
-                   "ADD LANE test range could not be resolved");
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
   request.lane_width_m = 3.0;
   const auto added = loaded.value.AddLane(request);
   ROAD_TEST_EXPECT(added.ok,
@@ -1784,8 +1499,8 @@ bool add_lane_reaches_mixed_section_junction(std::string& failure) {
   request.corridor_id = corridor->id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
   request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
-                   "ADD LANE test range could not be resolved");
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
   request.lane_width_m = 3.0;
   const auto added = state.AddLane(request);
   ROAD_TEST_EXPECT(added.ok,
@@ -1881,8 +1596,8 @@ bool add_lane_connects_the_only_matching_junction_approach(
   request.corridor_id = corridor->id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
   request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
-                   "ADD LANE test range could not be resolved");
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
   request.lane_width_m = 3.0;
   const auto added = state.AddLane(request);
   ROAD_TEST_EXPECT(added.ok, "ADD9 lane addition failed: " + added.error);
@@ -1958,8 +1673,8 @@ bool add_lane_rejects_ambiguous_junction_destinations(
   request.corridor_id = corridor->id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
   request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
-                   "ADD LANE test range could not be resolved");
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
   request.lane_width_m = 3.0;
   const auto added = state.AddLane(request);
   ROAD_TEST_EXPECT(!added.ok &&
@@ -1986,15 +1701,15 @@ bool add_lane_allows_a_later_non_overlapping_addition(std::string& failure) {
   first.corridor_id = corridor->id;
   first.direction = city::road::LaneTravelDirection::kAlongSegment;
   first.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, first, 20.0, 50.0),
-                   "ADD LANE test range could not be resolved");
+  first.taper_start_corridor_distance_m = 20.0;
+  first.full_width_corridor_distance_m = 50.0;
   first.lane_width_m = 3.0;
   const auto first_lane = state.AddLane(first);
   ROAD_TEST_EXPECT(first_lane.ok, first_lane.error);
 
   city::road::AddLaneRequest second = first;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, second, 80.0, 110.0),
-                   "ADD LANE test range could not be resolved");
+  second.taper_start_corridor_distance_m = 80.0;
+  second.full_width_corridor_distance_m = 110.0;
   const auto second_lane = state.AddLane(second);
   ROAD_TEST_EXPECT(
       second_lane.ok,
@@ -2044,15 +1759,15 @@ bool add_lane_allows_a_later_addition_after_cross_segment_taper(
   first_add.corridor_id = corridor_id;
   first_add.direction = city::road::LaneTravelDirection::kAlongSegment;
   first_add.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, first_add, 60.0, 100.0),
-                   "ADD LANE test range could not be resolved");
+  first_add.taper_start_corridor_distance_m = 60.0;
+  first_add.full_width_corridor_distance_m = 100.0;
   first_add.lane_width_m = 3.0;
   const auto first_lane = state.AddLane(first_add);
   ROAD_TEST_EXPECT(first_lane.ok, first_lane.error);
 
   city::road::AddLaneRequest second_add = first_add;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, second_add, 130.0, 160.0),
-                   "ADD LANE test range could not be resolved");
+  second_add.taper_start_corridor_distance_m = 130.0;
+  second_add.full_width_corridor_distance_m = 160.0;
   const auto second_lane = state.AddLane(second_add);
   ROAD_TEST_EXPECT(
       second_lane.ok,
@@ -2088,15 +1803,15 @@ bool add_lane_allows_an_earlier_non_overlapping_addition(
   first_add.corridor_id = corridor_id;
   first_add.direction = city::road::LaneTravelDirection::kAlongSegment;
   first_add.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, first_add, 60.0, 100.0),
-                   "ADD LANE test range could not be resolved");
+  first_add.taper_start_corridor_distance_m = 60.0;
+  first_add.full_width_corridor_distance_m = 100.0;
   first_add.lane_width_m = 3.0;
   const auto first_lane = state.AddLane(first_add);
   ROAD_TEST_EXPECT(first_lane.ok, first_lane.error);
 
   city::road::AddLaneRequest second_add = first_add;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, second_add, 10.0, 40.0),
-                   "ADD LANE test range could not be resolved");
+  second_add.taper_start_corridor_distance_m = 10.0;
+  second_add.full_width_corridor_distance_m = 40.0;
   const auto second_lane = state.AddLane(second_add);
   ROAD_TEST_EXPECT(
       second_lane.ok,
@@ -2122,8 +1837,8 @@ bool add_lane_accepts_multiple_lanes_on_one_carriageway_strip(
   request.corridor_id = corridor->id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
   request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
-                   "ADD LANE test range could not be resolved");
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
   request.lane_width_m = 3.0;
   const auto added = state.AddLane(request);
   ROAD_TEST_EXPECT(
@@ -2154,8 +1869,8 @@ bool add_lane_supports_every_builtin_section_outer_side(
       request.corridor_id = corridor->id;
       request.direction = direction;
       request.side = side;
-      ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
-                       "ADD LANE test range could not be resolved");
+      request.taper_start_corridor_distance_m = 20.0;
+      request.full_width_corridor_distance_m = 60.0;
       request.lane_width_m = 3.0;
       const auto added = state.AddLane(request);
       ROAD_TEST_EXPECT(
@@ -2188,8 +1903,8 @@ bool add_lane_supports_every_builtin_section_outer_side(
   request.corridor_id = corridor->id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
   request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(single_strip_state, request, 20.0, 60.0),
-                   "ADD LANE test range could not be resolved");
+  request.taper_start_corridor_distance_m = 20.0;
+  request.full_width_corridor_distance_m = 60.0;
   request.lane_width_m = 3.0;
   const auto added = single_strip_state.AddLane(request);
   ROAD_TEST_EXPECT(added.ok,
@@ -3410,16 +3125,10 @@ int main() {
       {"P2_section_transition_and_manual_markings", P2_section_transition_and_manual_markings},
       {"add_lane_preserves_existing_lanes",
        add_lane_preserves_existing_lanes},
-      {"add_lane_stores_one_segment_local_transition",
-       add_lane_stores_one_segment_local_transition},
-      {"add_lane_stops_at_the_explicit_corridor_endpoint",
-       add_lane_stops_at_the_explicit_corridor_endpoint},
-      {"add_lane_conflict_is_specific_and_atomic",
-       add_lane_conflict_is_specific_and_atomic},
-      {"transitioning_segment_split_respects_transition_bounds",
-       transitioning_segment_split_respects_transition_bounds},
       {"add_lane_propagates_from_middle_corridor_segment",
        add_lane_propagates_from_middle_corridor_segment},
+      {"add_lane_taper_crosses_segment_boundary",
+       add_lane_taper_crosses_segment_boundary},
       {"add_lane_normalizes_reversed_corridor_direction",
        add_lane_normalizes_reversed_corridor_direction},
       {"add_lane_reaches_mixed_section_junction",
@@ -3428,6 +3137,12 @@ int main() {
        add_lane_connects_the_only_matching_junction_approach},
       {"add_lane_rejects_ambiguous_junction_destinations",
        add_lane_rejects_ambiguous_junction_destinations},
+      {"add_lane_allows_a_later_non_overlapping_addition",
+       add_lane_allows_a_later_non_overlapping_addition},
+      {"add_lane_allows_a_later_addition_after_cross_segment_taper",
+       add_lane_allows_a_later_addition_after_cross_segment_taper},
+      {"add_lane_allows_an_earlier_non_overlapping_addition",
+       add_lane_allows_an_earlier_non_overlapping_addition},
       {"add_lane_accepts_multiple_lanes_on_one_carriageway_strip",
        add_lane_accepts_multiple_lanes_on_one_carriageway_strip},
       {"add_lane_supports_every_builtin_section_outer_side",
@@ -3461,7 +3176,7 @@ int main() {
   for (const Test& test : tests) {
     std::string failure;
     const bool ok = test.run(failure);
-    std::cout << (ok ? "[PASS] " : "[FAIL] ") << test.name << std::endl;
+    std::cout << (ok ? "[PASS] " : "[FAIL] ") << test.name << "\n";
     if (!ok) {
       std::cerr << "  reason: " << failure << "\n";
       ++failed;

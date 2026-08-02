@@ -1551,8 +1551,11 @@ describe("road wasm smoke", () => {
       corridorId: added.corridorId!,
       direction: 0 as const,
       side: "right" as const,
-      startCorridorDistanceM: 10,
-      fullWidthCorridorDistanceM: 40,
+      startSegmentId: added.segmentId!,
+      startT: 0.25,
+      completeSegmentId: added.segmentId!,
+      completeT: 1,
+      continuationEndNodeId: added.endNodeId!,
       laneWidthM: 3
     };
     const savedBeforePreview = state.saveState();
@@ -1567,11 +1570,8 @@ describe("road wasm smoke", () => {
     expect(committed.laneId).toBeGreaterThan(0);
     const after = state.scene();
     expect(after.transitionCount).toBe(1);
-    const corridor = after.corridors.find((item) => item.id === added.corridorId);
-    expect(corridor?.segments.length).toBeGreaterThan(1);
-    const corridorSegmentIds = new Set(corridor?.segments.map((item) => item.segmentId));
     expect(after.lanePaths.some((lane) =>
-      corridorSegmentIds.has(lane.segmentId) && lane.laneId === committed.laneId
+      lane.segmentId === added.segmentId && lane.laneId === committed.laneId
     )).toBe(true);
   });
 

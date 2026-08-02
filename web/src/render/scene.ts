@@ -1113,7 +1113,9 @@ export class WireScene {
       `lane-hover:${snapshot.road.hoveredLaneSegmentId}:${snapshot.road.hoveredLaneId}`,
       `lane-selected:${snapshot.road.selectedLaneSegmentId}:${snapshot.road.selectedLaneId}`,
       `lane-range:${snapshot.road.laneCorridorId}:${snapshot.road.laneEditStage}:` +
-        `${snapshot.road.laneStartCorridorDistanceM}:${snapshot.road.laneFullWidthCorridorDistanceM}`,
+        `${snapshot.road.laneTransitionStartSegmentId}:${snapshot.road.laneTransitionStartT}:` +
+        `${snapshot.road.laneTransitionCompleteSegmentId}:${snapshot.road.laneTransitionCompleteT}:` +
+        `${snapshot.road.laneContinuationEndNodeId}`,
       `edit:${snapshot.road.operation}:${snapshot.road.selectedEditSegmentId}:` +
         snapshot.road.editPoints.map((point) => `${point.x}:${point.y}`).join("|")
     ].join("|");
@@ -1187,43 +1189,55 @@ export class WireScene {
       }
     }
     if (snapshot.road.operation === "add-lane" &&
-        snapshot.road.laneEditStage === "target") {
+        snapshot.road.laneEditStage !== "select") {
       const corridor = snapshot.road.scene.corridors.find(
         (item) => item.id === snapshot.road.laneCorridorId
       );
       if (corridor !== undefined) {
-        const rangeStart = Math.min(
-          snapshot.road.laneStartCorridorDistanceM,
-          snapshot.road.laneFullWidthCorridorDistanceM
-        );
-        const rangeEnd = Math.max(
-          snapshot.road.laneStartCorridorDistanceM,
-          snapshot.road.laneFullWidthCorridorDistanceM
-        );
-        let corridorOffset = 0;
         const material = new THREE.LineBasicMaterial({
           color: 0x66a8d8,
           depthTest: false,
           transparent: true,
           opacity: 0.95
         });
-        for (const ref of corridor.segments) {
+        const startIndex = corridor.segments.findIndex(
+          (ref) => ref.segmentId === snapshot.road.laneTransitionStartSegmentId
+        );
+        for (let refIndex = Math.max(0, startIndex);
+             refIndex < corridor.segments.length; ++refIndex) {
+          const ref = corridor.segments[refIndex];
+          const lanePath = snapshot.road.scene.lanePaths.find(
+            (item) => item.segmentId === ref.segmentId
+          );
+          const exitsAtSelectedNode = snapshot.road.laneContinuationEndNodeId !== 0 &&
+            (ref.reversed ? lanePath?.nodeAId : lanePath?.nodeBId) ===
+              snapshot.road.laneContinuationEndNodeId;
+          let localMinimum = 0;
+          let localMaximum = ref.lengthM;
+          if (ref.segmentId === snapshot.road.laneTransitionStartSegmentId) {
+            localMinimum = Math.min(snapshot.road.laneTransitionStartT,
+              snapshot.road.laneTransitionCompleteT) * ref.lengthM;
+            localMaximum = ref.reversed ? ref.lengthM : localMaximum;
+            if (ref.reversed) {
+              localMaximum = Math.max(snapshot.road.laneTransitionStartT,
+                snapshot.road.laneTransitionCompleteT) * ref.lengthM;
+              localMinimum = 0;
+            }
+          }
           for (const segment of snapshot.road.scene.centerlineSegments) {
             if (segment.id !== ref.segmentId) continue;
-            const globalStart = corridorOffset + (ref.reversed
-              ? ref.lengthM - segment.startSegmentDistanceM
-              : segment.startSegmentDistanceM);
-            const globalEnd = corridorOffset + (ref.reversed
-              ? ref.lengthM - segment.endSegmentDistanceM
-              : segment.endSegmentDistanceM);
-            const pieceMinimum = Math.min(globalStart, globalEnd);
-            const pieceMaximum = Math.max(globalStart, globalEnd);
-            const overlapStart = Math.max(rangeStart, pieceMinimum);
-            const overlapEnd = Math.min(rangeEnd, pieceMaximum);
+            const pieceMinimum = Math.min(segment.startSegmentDistanceM,
+              segment.endSegmentDistanceM);
+            const pieceMaximum = Math.max(segment.startSegmentDistanceM,
+              segment.endSegmentDistanceM);
+            const overlapStart = Math.max(localMinimum, pieceMinimum);
+            const overlapEnd = Math.min(localMaximum, pieceMaximum);
             if (overlapEnd <= overlapStart ||
-                Math.abs(globalEnd - globalStart) <= 1e-9) continue;
+                Math.abs(segment.endSegmentDistanceM -
+                  segment.startSegmentDistanceM) <= 1e-9) continue;
             const pointAt = (distance: number) => {
-              const t = (distance - globalStart) / (globalEnd - globalStart);
+              const t = (distance - segment.startSegmentDistanceM) /
+                (segment.endSegmentDistanceM - segment.startSegmentDistanceM);
               return new THREE.Vector3(
                 THREE.MathUtils.lerp(segment.startX, segment.endX, t),
                 THREE.MathUtils.lerp(segment.startY, segment.endY, t),
@@ -1239,7 +1253,9 @@ export class WireScene {
             line.renderOrder = 80;
             this.roadPreview.add(line);
           }
-          corridorOffset += ref.lengthM;
+          if (snapshot.road.laneContinuationEndNodeId === 0 &&
+              ref.segmentId === snapshot.road.laneTransitionStartSegmentId) break;
+          if (exitsAtSelectedNode) break;
         }
         material.dispose();
       }

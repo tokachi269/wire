@@ -347,6 +347,27 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "web/src/actions/road_actions.ts: Add Lane pointer movement must remain a local guide"
         )
+    for token in (
+        "laneStartCorridorDistanceM",
+        "laneFullWidthCorridorDistanceM",
+        "startCorridorDistanceM",
+        "fullWidthCorridorDistanceM",
+    ):
+        if token in road_actions_text:
+            errors.append(
+                "web/src/actions/road_actions.ts: Add Lane must cross the Core boundary as segment-local t: "
+                + repr(token)
+            )
+    for token in (
+        'laneEditStage: "transition-complete"',
+        'laneEditStage: "continuation-end"',
+        "laneContinuationEndNodeId",
+    ):
+        if token not in road_actions_text:
+            errors.append(
+                "web/src/actions/road_actions.ts: Add Lane selection stages are incomplete: "
+                + repr(token)
+            )
     for token in ("nearestLane", "closestLane", "inferLaneConnection"):
         if token in road_actions_text:
             errors.append(
@@ -379,6 +400,31 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "domains/road/tests/road_tests.cpp: lane behavior tests must not expose implementation phase names"
         )
+    add_lane_start = road_source.find("Result<LaneId> RoadState::AddLane(")
+    add_lane_end = road_source.find(
+        "Result<LaneConnectionId> RoadState::AddLaneConnection(",
+        add_lane_start,
+    )
+    add_lane_region = (
+        road_source[add_lane_start:add_lane_end]
+        if add_lane_start >= 0 and add_lane_end > add_lane_start
+        else ""
+    )
+    for token in ("split_path_at_distance", "SplitSegmentAtDistance"):
+        if token in add_lane_region:
+            errors.append(
+                "domains/road/src/road.cpp: Add Lane must not split RoadSegments: "
+                + repr(token)
+            )
+    request_text = source_text(
+        root / "domains/road/include/city/road/input_types/requests.hpp"
+    )
+    for token in ("SegmentPosition transition_start", "SegmentPosition transition_complete"):
+        if token not in request_text:
+            errors.append(
+                "domains/road: Add Lane request must use segment-local t: "
+                + repr(token)
+            )
     for token in (
         'result.set("lanePaths", lane_paths)',
         'builtin_marking_styles::kWhiteDashed.value',

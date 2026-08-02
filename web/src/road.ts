@@ -204,11 +204,14 @@ export interface RoadToolState {
   selectedLaneEndpointRole: 0 | 1;
   selectedLaneNodeId: number;
   selectedLaneDirection: 0 | 1;
-  laneEditStage: "select" | "target";
+  laneEditStage: "select" | "transition-complete" | "continuation-end" | "target";
   laneSide: "left" | "right";
   laneWidthM: number;
-  laneStartCorridorDistanceM: number;
-  laneFullWidthCorridorDistanceM: number;
+  laneTransitionStartSegmentId: number;
+  laneTransitionStartT: number;
+  laneTransitionCompleteSegmentId: number;
+  laneTransitionCompleteT: number;
+  laneContinuationEndNodeId: number;
   laneCorridorId: number;
   laneTargetTemplateId: number;
   laneTargetLaneId: number;
@@ -260,8 +263,11 @@ export function createRoadToolState(): RoadToolState {
     laneEditStage: "select",
     laneSide: "right",
     laneWidthM: 3,
-    laneStartCorridorDistanceM: 0,
-    laneFullWidthCorridorDistanceM: 20,
+    laneTransitionStartSegmentId: 0,
+    laneTransitionStartT: 0,
+    laneTransitionCompleteSegmentId: 0,
+    laneTransitionCompleteT: 0,
+    laneContinuationEndNodeId: 0,
     laneCorridorId: 0,
     laneTargetTemplateId: 1,
     laneTargetLaneId: 0,

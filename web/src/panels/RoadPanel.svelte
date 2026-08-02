@@ -43,6 +43,12 @@
     const available = Array.from(new Set(fromPaths.length > 0 ? fromPaths : fromTemplate));
     return available.length > 0 ? available : [snapshot.road.selectedLaneDirection];
   });
+  const addLaneStep = $derived.by(() => {
+    if (snapshot.road.laneEditStage === "select") return "2車線から3車線への変化開始位置";
+    if (snapshot.road.laneEditStage === "transition-complete") return "3車線が完成する位置";
+    if (snapshot.road.laneEditStage === "continuation-end") return "3車線を維持する終点";
+    return "";
+  });
 
   function updateTemplate(patch: Partial<{
     sidewalkWidthM: number;
@@ -104,7 +110,7 @@
   {/if}
 
   {#if snapshot.road.operation === "add-lane"}
-    <div class="draw-panel-head"><p class="panel-label">ADD LANE</p><strong class="point-count">{snapshot.road.laneEditStage}</strong></div>
+    <div class="draw-panel-head"><p class="panel-label">ADD LANE</p><strong class="point-count">{addLaneStep}</strong></div>
     <div class="road-grid">
       <label><span>Direction</span><select value={snapshot.road.selectedLaneDirection}
         onchange={(event) => actions.setRoadSetting("selectedLaneDirection", Number(event.currentTarget.value) as 0 | 1)}>

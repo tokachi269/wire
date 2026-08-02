@@ -428,7 +428,6 @@ def check_road_architecture(root: Path) -> list[str]:
     for token in (
         'result.set("lanePaths", lane_paths)',
         'builtin_marking_styles::kWhiteDashed.value',
-        'boundary_item.set("canAnchorTransition",',
         '.function("addLane"',
         '.function("previewAddLane"',
         '.function("addConnectedLaneSegment"',

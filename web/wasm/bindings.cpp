@@ -1432,8 +1432,13 @@ public:
             input["corridorId"].as<city::road::RoadCorridorId>(),
             road_lane_direction(input["direction"].as<int>()),
             road_side_value(input),
-            input["startCorridorDistanceM"].as<double>(),
-            input["fullWidthCorridorDistanceM"].as<double>(),
+            city::road::SegmentPosition{
+                input["startSegmentId"].as<city::road::RoadSegmentId>(),
+                input["startT"].as<double>()},
+            city::road::SegmentPosition{
+                input["completeSegmentId"].as<city::road::RoadSegmentId>(),
+                input["completeT"].as<double>()},
+            input["continuationEndNodeId"].as<city::road::RoadNodeId>(),
             input["laneWidthM"].as<double>()});
     val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) output.set("laneId", static_cast<double>(result.value));
@@ -1447,8 +1452,13 @@ public:
             input["corridorId"].as<city::road::RoadCorridorId>(),
             road_lane_direction(input["direction"].as<int>()),
             road_side_value(input),
-            input["startCorridorDistanceM"].as<double>(),
-            input["fullWidthCorridorDistanceM"].as<double>(),
+            city::road::SegmentPosition{
+                input["startSegmentId"].as<city::road::RoadSegmentId>(),
+                input["startT"].as<double>()},
+            city::road::SegmentPosition{
+                input["completeSegmentId"].as<city::road::RoadSegmentId>(),
+                input["completeT"].as<double>()},
+            input["continuationEndNodeId"].as<city::road::RoadNodeId>(),
             input["laneWidthM"].as<double>()});
     val output = road_result_value(result.ok, result.error, result.failure_category);
     output.set("meshes", result.ok ? road_preview_meshes(trial) : val::array());
@@ -1705,7 +1715,6 @@ public:
         val boundary_item = val::object();
         boundary_item.set("id", static_cast<double>(boundary.boundary_id));
         boundary_item.set("role", static_cast<int>(boundary.role));
-        boundary_item.set("canAnchorTransition", true);
         boundaries.call<void>("push", boundary_item);
       }
       item.set("lanes", lanes);

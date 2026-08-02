@@ -108,7 +108,7 @@
 
   function hasSession(value: ViewerSnapshot): boolean {
     if (value.activeTool === "wire") return value.pathPoints.length > 0;
-    return value.road.phase !== "start" || value.road.laneEditStage === "target";
+    return value.road.phase !== "start" || value.road.laneEditStage !== "select";
   }
 
   function canConfirm(value: ViewerSnapshot): boolean {
@@ -116,9 +116,10 @@
       return value.wirePreview.state === "guide" && value.wirePreview.request !== null;
     }
     if (value.road.operation === "add-lane") {
-      return value.road.laneEditStage === "target" &&
-        Math.abs(value.road.laneFullWidthCorridorDistanceM -
-          value.road.laneStartCorridorDistanceM) > 1e-9;
+      return value.road.laneEditStage === "continuation-end" &&
+        value.road.laneContinuationEndNodeId !== 0 &&
+        Math.abs(value.road.laneTransitionCompleteT -
+          value.road.laneTransitionStartT) > 1e-9;
     }
     return value.road.operation === "draw" && value.road.previewRequest !== null;
   }

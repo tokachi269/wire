@@ -1526,9 +1526,6 @@ describe("road wasm smoke", () => {
     expect(added.ok, added.error).toBe(true);
 
     const initial = state.scene();
-    const section = initial.sectionTemplates.find((item) => item.id === 1);
-    expect(section?.boundaries.find((boundary) => boundary.id === 100)?.canAnchorTransition).toBe(false);
-    expect(section?.boundaries.find((boundary) => boundary.id === 200)?.canAnchorTransition).toBe(true);
     expect(initial.lanePaths).toEqual(expect.arrayContaining([
       expect.objectContaining({
         segmentId: added.segmentId,
@@ -1554,8 +1551,11 @@ describe("road wasm smoke", () => {
       corridorId: added.corridorId!,
       direction: 0 as const,
       side: "right" as const,
-      startCorridorDistanceM: 10,
-      fullWidthCorridorDistanceM: 40,
+      startSegmentId: added.segmentId!,
+      startT: 0.25,
+      completeSegmentId: added.segmentId!,
+      completeT: 1,
+      continuationEndNodeId: added.endNodeId!,
       laneWidthM: 3
     };
     const savedBeforePreview = state.saveState();

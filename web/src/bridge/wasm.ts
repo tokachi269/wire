@@ -147,7 +147,7 @@ export interface RoadSectionTemplatePayload {
   hasCenterLine: boolean;
   hasOuterLines: boolean;
   lanes: Array<{ id: number; direction: 0 | 1 }>;
-  boundaries: Array<{ id: number; role: number; canAnchorTransition: boolean }>;
+  boundaries: Array<{ id: number; role: number }>;
 }
 
 export interface RoadLanePathPayload {
@@ -374,8 +374,11 @@ export interface RoadAddLaneInput {
   corridorId: number;
   direction: 0 | 1;
   side: "left" | "right";
-  startCorridorDistanceM: number;
-  fullWidthCorridorDistanceM: number;
+  startSegmentId: number;
+  startT: number;
+  completeSegmentId: number;
+  completeT: number;
+  continuationEndNodeId: number;
   laneWidthM: number;
 }
 

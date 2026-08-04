@@ -157,7 +157,7 @@ merge_boundary_policies(const CrossSectionTemplate &section) {
 }
 
 std::vector<SectionBoundarySample>
-build_boundaries(const CrossSectionTemplate &section,
+derive_boundaries(const CrossSectionTemplate &section,
                  const std::vector<AutoMarkingPolicy> &policies) {
   std::vector<SectionBoundarySample> samples{};
   if (section.strips.empty())
@@ -237,7 +237,7 @@ SurfaceStyleId SurfaceStyleForBoundaryRole(BoundaryRole role) {
 }
 
 std::vector<RenderStyleRef>
-build_surface_styles(const CrossSectionTemplate &section) {
+derive_surface_styles(const CrossSectionTemplate &section) {
   std::vector<RenderStyleRef> styles{};
   for (std::size_t index = 0; index < section.strips.size(); ++index) {
     const SectionStrip &strip = section.strips[index];
@@ -346,7 +346,7 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
     return Result<SectionEvaluation>::Fail(policies.failure_category, policies.error);
   }
   std::vector<SectionBoundarySample> boundaries =
-      build_boundaries(section.value, policies.value);
+      derive_boundaries(section.value, policies.value);
   if (boundaries.empty()) {
     return Result<SectionEvaluation>::Fail(
         CommitFailureCategory::kInternalError, "road section evaluation produced no boundaries");
@@ -361,7 +361,7 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
       return Result<SectionEvaluation>::Fail(
           CommitFailureCategory::kInvalidInput, "road transition anchor source is missing");
     }
-    const std::vector<SectionBoundarySample> from_boundaries = build_boundaries(
+    const std::vector<SectionBoundarySample> from_boundaries = derive_boundaries(
         *from, std::vector<AutoMarkingPolicy>(from->boundaries.size(),
                                               AutoMarkingPolicy{}));
     double shift = 0.0;
@@ -395,7 +395,7 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
   }
   return Result<SectionEvaluation>::Ok(SectionEvaluation{
       segment.id, segment_distance_m, section.value.id, std::move(boundaries),
-      build_surface_styles(section.value)});
+      derive_surface_styles(section.value)});
 }
 
 Result<LaneSectionPosition>

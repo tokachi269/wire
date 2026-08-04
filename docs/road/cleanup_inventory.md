@@ -124,7 +124,7 @@ Webから外した15操作に対応する `RoadState` public methodは残って�
 - [~] CLEAN4 保留機能整理 — 手動線・手動面・部分削除を標準UI/Web/WASM境界から除去し `backlog.md` へ。保存fieldは維持(schema不変、migration不要)。**C++ public API の除去は CLEAN3b と同時に行う**
 - [x] CLEAN5 Branch/Merge判定 — **POC条件を満たさないため削除**。RoadPanelが raw BoundaryId の `<select>` を出し(`RoadPanel.svelte:143`)、`boundaries[0]` を既定値として自動選択していた(`road_actions.ts:434`)。goal §5.1 の「raw BoundaryIdを入力させない」「不正な初期値を自動選択しない」の2点に違反。UI/state/actions/bridge/WASM/`AddConnectedLaneSegment`/専用request/test/docsを削除し、lintへ復活禁止規則を追加。junctionとADD LANEが使う内部lane topologyは維持
 - [~] CLEAN6 パイプライン・保存型整理 — 生産者のない `OperationPlan` field 3件(`remove_lane_connections` / `remove_boundary_continuations` / `add_connection_policy_overrides`)を削除。**generation工程のconsumer監査と保存型整理は未了**
-- [ ] CLEAN7 road/wire命名契約整理
+- [~] CLEAN7 road/wire命名契約整理 — `build` 監査を実施し、派生生成に残っていた `build_boundaries` / `build_surface_styles` を `derive_*` へ改名(road production の `build` 残存は0)。**failure分類・action result・draw session契約の監査は未了**
 - [~] CLEAN8 文書整理 — 削除済みAPI(AddConnectedLaneSegment / DeleteSegmentRange / AddManualLine / AddManualArea)の記述を正本docsから除去。README を索引化し supported_operations の Branch/Merge 記述を実態へ修正。**plan.md の分離とこの文書の削除は未了**
 - [ ] CLEAN9 ソース物理整理
 - [ ] CLEAN10 局所性・回帰

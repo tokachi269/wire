@@ -117,15 +117,6 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   if (!result.ok) return result;
   result = remove_entities(authoritative.transitions, plan.remove_transitions, transition_id, "transition");
   if (!result.ok) return result;
-  result = remove_entities(authoritative.lane_connections,
-                           plan.remove_lane_connections, lane_connection_id,
-                           "lane connection");
-  if (!result.ok) return result;
-  result = remove_entities(authoritative.boundary_continuations,
-                           plan.remove_boundary_continuations,
-                           boundary_continuation_id,
-                           "boundary continuation");
-  if (!result.ok) return result;
   result = remove_entities(authoritative.segments, plan.remove_segments, segment_id, "segment");
   if (!result.ok) return result;
   result = remove_entities(authoritative.corridors, plan.remove_corridors,
@@ -163,9 +154,6 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
                         plan.add_boundary_continuations,
                         boundary_continuation_id,
                         "boundary continuation");
-  if (!result.ok) return result;
-  result = add_entities(authoritative.connection_policy_overrides, plan.add_connection_policy_overrides,
-                        policy_override_id, "connection policy override");
   if (!result.ok) return result;
   result = add_entities(authoritative.approach_geometry_overrides, plan.add_approach_geometry_overrides,
                         [](const ApproachGeometryOverride& value) { return value.key; },

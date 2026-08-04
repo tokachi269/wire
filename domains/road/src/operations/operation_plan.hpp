@@ -28,11 +28,8 @@ struct OperationPlan {
   std::vector<SectionTransitionId> remove_transitions{};
 
   std::vector<LaneConnection> add_lane_connections{};
-  std::vector<LaneConnectionId> remove_lane_connections{};
   std::vector<BoundaryContinuation> add_boundary_continuations{};
-  std::vector<BoundaryContinuationId> remove_boundary_continuations{};
 
-  std::vector<NodeConnectionPolicyOverride> add_connection_policy_overrides{};
   std::vector<NodeConnectionPolicyOverrideId> remove_connection_policy_overrides{};
 
   std::vector<ApproachGeometryOverride> add_approach_geometry_overrides{};

@@ -31,7 +31,6 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | ExtendCorridorFromEnd | extension | finite、連続、非ゼロ、endpointへ補正可能 | 新しい局所segmentと隣接connection |
 | ExtendCorridorFromEnd | section_template | corridorのroad definitionと一致 | 異断面延長はunsupported |
 | SplitSegmentAtDistance | segment_id / segment_distance_m | ID exists、finite、0とlengthを除く範囲内 | De Casteljau分割とowner移行 |
-| DeleteSegmentRange | segment_id / start/end segment distance | ID exists、finite、start < end、segment範囲内 | split、削除、corridor分断、owner移行 |
 | AddSegmentConnectedTo | alignment / connected_endpoint | finite、連続、非ゼロ、指定したstart/end endpointをnodeへ補正可能 | 接続角、degree、setback |
 | AddSegmentConnectedTo | section_template / connected_node | ID exists | endpoint section互換 |
 | AddSegmentConnectedToSegment | alignment / connected_endpoint | finite、連続、非ゼロ、指定したstart/end endpointが明示distance点と一致 | split後topology、junction互換 |
@@ -50,10 +49,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | AddLane | corridor/direction/side/変化開始SegmentPosition/完成SegmentPosition/維持終点node/lane width | corridorとsegment/nodeが存在、tがfiniteかつ[0,1]、同一segment内でcorridor方向の順序が有効、幅が正 | Coreが外側laneと固定boundaryを解決し、最初のsegmentへtransition、明示終点までの後続segmentへ完成断面を設定 |
 | AddLaneConnection | source/target LaneEndpointKey / kind | 両endpoint ID存在、source退出、target進入、同一node、kind enum valid | cardinalityと方向を検証しDerivedLanePathを生成 |
 | AddBoundaryContinuation | source/target BoundaryEndpointKey / kind | 両endpoint ID存在、同一node、kind enum valid | cardinalityを検証し明示した境界間だけDerivedBoundaryPathを生成 |
-| AddConnectedLaneSegment | node/path/template/lane mappings/boundary mappings | node/template/全endpoint ID存在、path finite、target lane/boundary存在 | 新segmentと全topologyを同一trialで生成し、異断面junctionを明示mappingで解決 |
 | AttachSectionTransition | segment_id / transition_id | ID exists、from_template matches segment、distance range valid | segment再評価 |
-| AddManualLine | owner_segment_id / path / style_id | owner exists、path finite、owner-local distance範囲、known MarkingStyleId | owner section上への投影 |
-| AddManualArea | owner_segment_id / frame_origin / width / length / style_id | owner exists、finite、width/length正、distance範囲、known MarkingStyleId | owner section上への投影 |
 | SetBoundaryMarkingPolicy | section_template_id / boundary_id / policy | template exists、boundary exists、role enum valid、known MarkingStyleId | 要求統合、継続再評価 |
 | SetLaneSideMarkingPolicy | section_template_id / strip_id / side / policy | template exists、strip exists、carriageway strip、role enum valid、known MarkingStyleId | 隣接boundaryへの解決、要求統合 |
 | ResetLaneSideMarkingPolicy | section_template_id / strip_id / side | 同上(policyは無効値) | 要求統合、継続再評価 |
@@ -80,7 +76,6 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | AddSegment | supported | supported | supported | supported | supported |
 | ExtendCorridorFromEnd | validation | corridor末尾かつ同一道路定義ならsupported | 対象終端がdegree 1ならsupported | 新segmentへ局所所有、既存segment不変 | 新segmentへ局所所有、既存segment不変 |
 | SplitSegmentAtDistance | validation | 内部distanceならsupported | 新degree 2 nodeを作りderived connection | distanceで一意移行、境界跨ぎはunsupported | distanceで一意移行、境界跨ぎはunsupported |
-| DeleteSegmentRange | validation | 内部範囲ならsupported | 残存端点を再評価 | 範囲交差ownerはunsupported | 範囲交差ownerはunsupported |
 | AddSegmentConnectedTo | validation | gate断面ID一致のみsupported | gate断面ID一致かつdegree 4までsupported | 終端gateがto断面ならsupported | gate断面ID一致のみsupported |
 | AddSegmentConnectedToSegment | validation | 同一断面かつ明示`segment_id + segment_distance_m`ならsupported | 同一断面かつ明示`segment_id + segment_distance_m`ならsupported | unsupported | 同一断面かつ明示`segment_id + segment_distance_m`ならsupported |
 | EditSegmentShape | validation | supported | node位置を変えずshapeだけ変更 | DistanceRef規則で再評価 | owner-local markingを追従 |
@@ -90,7 +85,6 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
 | AttachSectionTransition | validation | supported | supported | replace supported | supported |
 | AddLane | validation | segmentをsplitせずtでsupported | transition自体は同一segment内、完成断面の明示終点までの伝播はsupported | 1 segment 1 transition。同一区間の競合は具体的なvalidation | supported |
-| AddManualLine / AddManualArea | validation | supported | supported | supported | supported |
 
 ## P1 node semantics
 
@@ -115,14 +109,12 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
   内部control handleを動かした時点でcurve intentへ変更する。
 - ViewerのDelete roadはhoverした`RoadSegmentId`をそのまま`DeleteSegment`へ渡し、1回のクリックで
   そのユーザー区間全体を削除する。hover表示と削除対象は同じIDを使い、位置から再検索しない。
-- `DeleteSegmentRange`は明示距離範囲を切り取る高度編集であり、標準削除UIから呼ばない。
 - Line segmentをnodeやsegment distanceへsnapする場合は、snap後の始点と入力終点からlinear cubicを再作成する。
   始点だけを動かしてhandleを一部だけ補正しない。
 - `SplitSegmentAtDistance`は元segment IDをstart側へ維持し、end側segmentとsplit nodeへ新IDを付ける。
   corridor内がreversedなら、corridor進行方向を維持する順序で二参照へ置換する。
 - segment-local manual point/areaはdistanceがsplit点より前ならstart側、後ならend側へ移してdistanceを減算する。
   split点を跨ぐmanual line、transition、意味を維持できないoverrideがある場合はunsupportedとする。
-- `DeleteSegmentRange`でcorridorが分断された場合は始点側が元corridor IDを維持し、終点側へ新IDを付ける。
   corridor-owned参照を一意に移行できない場合はunsupportedとし、近接rebindや黙示削除を行わない。
 - degree 2 の自動decisionはPassThroughまたはCorner。対向する2本は幅を増やさず連続し、屈曲する2本はgate接線へG1接続する中心曲線を一度だけ導出し、その移動frameへ同じ断面を掃引する。停止線・ゼブラは生成しない。
   Straight segmentの正本はcornerのために曲げず、丸みはnode所有のderived connectorだけに置く。
@@ -216,9 +208,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - 同一surface strip内のlane lateral intervalは重複させない。vector順はidentityに使わず、横方向順序はintervalから検証する。
 - 高速道路、出口、合流専用の正本型を追加せず、車線追加、分岐、合流、交差点movementを同じ接続型で表す。
 - lane center接続からshoulder、車道端、白線の継続を推測しない。必要なboundary接続は別に明示する。
-- `AddConnectedLaneSegment`は新segmentと`LaneConnection` / `BoundaryContinuation`を一つのOperationPlanへ載せる。
   異なる断面を接続する場合も、source laneとtarget laneをIDで明示しない操作はunsupportedのままとする。
-- `AddConnectedLaneSegment`は新segmentをtargetとして追加する分岐と、新segmentをsourceとして既存targetへ追加する合流の両方を扱う。どちらも新segmentのstart endpointと既存nodeを共有し、lane travel directionがsource退出/target進入を満たさない要求はvalidation rejectする。
 - straightなContinuationのtarget approach lateral shiftは、明示された全lane center対応が要求する共通値を一度だけ導出する。
   複数mappingが異なるshiftを要求する場合は形状を曲げて合わせずunsupportedとする。
 - Splitの`DerivedLanePath`はsource lane centerからbranch lane centerへG1接続する1本のBezierで、endpoint接線と
@@ -231,4 +221,4 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 - Split/Mergeの接続白線は対応する`DerivedBoundaryPath`へ追従する。Splitではsource marking policy、Mergeではtarget marking policyを接続区間へ使い、線専用の自由Bezierやlane centerからの境界推測を行わない。
 - ViewerのAddLaneは方向・側、変化開始位置、3車線完成位置、3車線を維持する終点を順に選択し、segment IDと`t`および終点node IDをCoreへ渡す。固定する断面境界または外端はCoreが決める。raw lane/boundary/template IDは通常UIへ出さない。BranchLane / MergeLaneはCore payloadのlane pathをhoverし、選択した`LaneEndpointKey`をpreviewと確定の両方へ同一値で渡す。
 - AddLaneのdirectionとsideはcorridor方向を基準とする。`DirectedSegmentRef.reversed`ではCoreがsegment localのdirection、side、transitionのfrom/toへ正規化し、同じ操作意味を維持する。
-- Viewerはlane/boundary接続先や接続geometryを推測しない。AddLaneのpointer previewは選択位置と影響範囲の軽量guideだけで、全Core generationを行わない。確定失敗時は選択を維持し、理由を一度表示する。`AddConnectedLaneSegment`の明示previewはtrial stateであり、失敗時を含め現在のauthoritative stateを変更しない。
+- Viewerはlane/boundary接続先や接続geometryを推測しない。AddLaneのpointer previewは選択位置と影響範囲の軽量guideだけで、全Core generationを行わない。確定失敗時は選択を維持し、理由を一度表示する。

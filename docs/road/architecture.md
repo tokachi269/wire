@@ -201,7 +201,6 @@ ADD LANEの変化開始と3車線完成位置は、一つのRoadSegment内の`Se
 分割せず、物理距離やcorridor-globalなLaneAddition entityを保存しない。boundary anchorで決まった横方向原点は明示された維持終点までの後続segmentへ派生伝播し、
 追加前から存在するlaneを再中心化しない。通常幅以降のsegmentはtransitionを所有しないため、後続segmentは通常の完成断面として扱う。
 
-`AddConnectedLaneSegment`は道路segmentの追加と、選択済みlane/boundary endpointの接続を同じtrialへ適用する。
 接続可否はtemplate IDではなくendpointの実断面で判定する。同じ物理・意味定義なら別template IDでも接続し、
 degree 2でlane layoutが異なる場合はnode手前のsection transitionを要求する。junctionでは各approachの断面を独立して
 解決し、未指定laneはgateで終了する。1件のLaneConnectionを全断面の解決済み判定には使わない。
@@ -296,7 +295,7 @@ segment列、方向、始点、distance、周期配置位相は変更しない�
 corridor内では元参照を二つの向き付き参照へ置換し、reversed参照ではcorridor方向に沿う順序へ反転する。
 split前後でcorridor全長とworld位置を維持する。
 
-`DeleteSegmentRange`は明示的な高度編集である。境界split後に中間segmentを削除し、corridorが分断される場合、
+通常削除はsegment単位で行う。corridorが分断される場合、
 始点側が元corridor IDを維持し、終点側へ新IDを割り当てる。空corridorは保存しない。segment-local markingは
 segment distanceでstart/end側へ明示移行し、境界を跨ぐmanual lineは現段階ではunsupportedとする。
 approach overrideとjunction marking overrideはendpoint ID対応で移行し、一意に対応しないものはunsupportedとする。

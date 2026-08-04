@@ -50,11 +50,10 @@ Splits before or after a ratio-based section transition are supported and
 re-normalize the transition `t` onto the segment that retains it. A split inside
 the transition is rejected with a specific reason and leaves state unchanged.
 
-Lane Branch and Merge remain Core topology primitives, but are not standard
-toolbar operations. Their current editor requires raw lane and boundary IDs and
-can present choices that cannot commit. They may return to the standard toolbar
-only after lane selection, route input, preview, and touch completion work
-without exposing those IDs or requiring the user to infer endpoint direction.
+Lane Branch and Merge are not available. Their editor asked the user to pick a
+raw boundary ID and auto-selected a default, so the operation was removed rather
+than hidden. Lane connections inside a junction are still derived by Core. See
+`backlog.md` for the conditions under which branch and merge return.
 
 ## Session behavior
 

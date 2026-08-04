@@ -954,6 +954,12 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
         return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "section template lane side marking policy is invalid");
       }
+      // A lane side line belongs to a lane, so only a carriageway strip can ask
+      // for one.
+      if (side.enabled && strip.function != StripFunction::kCarriageway) {
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                                  "lane side marking requires a carriageway strip");
+      }
     }
   }
   std::unordered_set<LaneId> lane_ids{};

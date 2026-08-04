@@ -11,6 +11,7 @@ namespace city::road::generation {
 namespace {
 
 using internal::find_node;
+using internal::find_template;
 using internal::find_transition;
 using internal::normalize;
 using internal::sort_unique_distances;
@@ -98,6 +99,78 @@ Result<bool> append_semantic_distances(const SavedRoadGraph &graph,
   return Result<bool>::Ok(true);
 }
 
+// A strip that appears or disappears across a transition must say how. The
+// rules travel with the saved transition, so generation is where they are read:
+// a lane tapers, a median gets an end cap, and nothing changes silently.
+Result<bool> validate_transition_strip_actions(const SavedRoadGraph &graph) {
+  const auto has_strip = [](const CrossSectionTemplate &section,
+                            SectionStripId id) {
+    return std::any_of(section.strips.begin(), section.strips.end(),
+                       [id](const SectionStrip &strip) {
+                         return strip.id == id;
+                       });
+  };
+  for (const RoadSegment &segment : graph.segments) {
+    if (!segment.transition.has_value())
+      continue;
+    const SectionTransition *transition =
+        find_transition(graph, *segment.transition);
+    if (transition == nullptr) {
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                                "road segment transition is missing");
+    }
+    const CrossSectionTemplate *from =
+        find_template(graph, transition->from_template);
+    const CrossSectionTemplate *to =
+        find_template(graph, transition->to_template);
+    if (from == nullptr || to == nullptr) {
+      return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                                "road transition template is missing");
+    }
+    if (transition->rules.empty()) {
+      return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
+                                "section transition must define element actions");
+    }
+    const auto action_for =
+        [transition](SectionStripId id) -> std::optional<TransitionAction> {
+      const auto rule = std::find_if(
+          transition->rules.begin(), transition->rules.end(),
+          [id](const SectionTransitionRule &item) { return item.strip_id == id; });
+      return rule == transition->rules.end()
+                 ? std::nullopt
+                 : std::optional<TransitionAction>{rule->action};
+    };
+    for (const SectionTransitionRule &rule : transition->rules) {
+      if (rule.action == TransitionAction::kUnsupported) {
+        return Result<bool>::Fail(
+            CommitFailureCategory::kNotImplemented,
+            "section transition contains unsupported element action");
+      }
+    }
+    for (const SectionStrip &strip : to->strips) {
+      if (!has_strip(*from, strip.id) &&
+          action_for(strip.id) != TransitionAction::kTaperIn) {
+        return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
+                                  "appearing section strip requires TaperIn");
+      }
+    }
+    for (const SectionStrip &strip : from->strips) {
+      if (has_strip(*to, strip.id))
+        continue;
+      const TransitionAction required =
+          strip.function == StripFunction::kMedian ? TransitionAction::kEndCap
+                                                   : TransitionAction::kTaperOut;
+      if (action_for(strip.id) != required) {
+        return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
+                                  strip.function == StripFunction::kMedian
+                                      ? "disappearing median requires EndCap"
+                                      : "disappearing section strip requires TaperOut");
+      }
+    }
+  }
+  return Result<bool>::Ok(true);
+}
+
 } // namespace
 
 std::vector<NodeIncidence> derive_node_incidence(const SavedRoadGraph &graph) {
@@ -156,6 +229,10 @@ derive_segment_shapes(const SavedRoadGraph &graph) {
 Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
                                      std::vector<DerivedSegment> &segments,
                                      const std::vector<ResolvedConnection> &connections) {
+  const Result<bool> transition_actions = validate_transition_strip_actions(graph);
+  if (!transition_actions.ok)
+    return transition_actions;
+
   for (DerivedSegment &derived : segments) {
     const RoadSegment *segment = internal::find_segment(graph, derived.id);
     if (segment == nullptr) {

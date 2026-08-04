@@ -1,7 +1,6 @@
 import {
   loadWireModule,
   type RoadMeshPayload,
-  type RoadConnectedLaneSegmentInput,
   type RoadAddLaneInput,
   type RoadSegmentResult,
   type RoadStateHandle,
@@ -437,15 +436,6 @@ export class WireBridge {
 
   roadAddLane(input: RoadAddLaneInput): OperationResult & { laneId?: number } {
     return this.roadState.addLane(input);
-  }
-
-  roadAddConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { segmentId?: number } {
-    return this.roadState.addConnectedLaneSegment(input);
-  }
-
-  roadPreviewConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { meshes: RoadMeshData[] } {
-    const result = this.roadState.previewConnectedLaneSegment(input);
-    return { ...result, meshes: result.meshes.map(copyRoadMesh) };
   }
 
   roadMoveNode(nodeId: number, x: number, y: number): OperationResult {

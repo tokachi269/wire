@@ -63,7 +63,6 @@ public:
   [[nodiscard]] Result<LaneId> AddLane(AddLaneRequest request);
   [[nodiscard]] Result<LaneConnectionId> AddLaneConnection(AddLaneConnectionRequest request);
   [[nodiscard]] Result<BoundaryContinuationId> AddBoundaryContinuation(AddBoundaryContinuationRequest request);
-  [[nodiscard]] Result<RoadSegmentId> AddConnectedLaneSegment(AddConnectedLaneSegmentRequest request);
   [[nodiscard]] Result<bool> AttachSectionTransition(AttachSectionTransitionRequest request);
   [[nodiscard]] Result<ManualMarkingId> AddManualLine(ManualLineRequest request);
   [[nodiscard]] Result<ManualMarkingId> AddManualArea(ManualAreaRequest request);

@@ -138,15 +138,6 @@ struct BoundarySourceContinuation {
   BoundaryEndpointKey target{};
   BoundaryContinuationKind kind = BoundaryContinuationKind::kContinuation;
 };
-struct AddConnectedLaneSegmentRequest {
-  RoadNodeId start_node = 0;
-  Path alignment{};
-  CrossSectionTemplateId section_template = 0;
-  std::vector<LaneTargetConnection> lane_connections{};
-  std::vector<BoundaryTargetContinuation> boundary_continuations{};
-  std::vector<LaneSourceConnection> source_lane_connections{};
-  std::vector<BoundarySourceContinuation> source_boundary_continuations{};
-};
 struct AddTransitionToSegmentRequest {
   RoadSegmentId segment_id = 0;
   SectionTransitionRequest transition{};

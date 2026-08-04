@@ -125,26 +125,6 @@
       <label><span>Width</span><input type="number" min="2.5" step="0.1" value={snapshot.road.laneWidthM}
         onchange={(event) => actions.setRoadSetting("laneWidthM", Number(event.currentTarget.value))} /></label>
     </div>
-  {:else if snapshot.road.operation === "branch-lane" || snapshot.road.operation === "merge-lane"}
-    <div class="draw-panel-head"><p class="panel-label">{snapshot.road.operation === "branch-lane" ? "BRANCH LANE" : "MERGE LANE"}</p><strong class="point-count">{snapshot.road.laneEditStage}</strong></div>
-    <label><span>New road section</span><select value={snapshot.road.laneTargetTemplateId}
-      onchange={(event) => actions.setRoadLaneTargetTemplate(Number(event.currentTarget.value))}>
-      {#each snapshot.road.scene.sectionTemplates as template}<option value={template.id}>{template.name}</option>{/each}
-    </select></label>
-    <div class="road-grid">
-      <label><span>New lane</span><select value={snapshot.road.laneTargetLaneId}
-        onchange={(event) => actions.setRoadSetting("laneTargetLaneId", Number(event.currentTarget.value))}>
-        {#each laneTargetTemplate?.lanes ?? [] as lane}<option value={lane.id}>{lane.id} / {lane.direction === 0 ? "along" : "against"}</option>{/each}
-      </select></label>
-      <label><span>New boundary</span><select value={snapshot.road.laneTargetBoundaryId}
-        onchange={(event) => actions.setRoadSetting("laneTargetBoundaryId", Number(event.currentTarget.value))}>
-        {#each laneTargetTemplate?.boundaries ?? [] as boundary}<option value={boundary.id}>{boundary.id}</option>{/each}
-      </select></label>
-      <label><span>Existing boundary</span><select value={snapshot.road.laneSourceBoundaryId}
-        onchange={(event) => actions.setRoadSetting("laneSourceBoundaryId", Number(event.currentTarget.value))}>
-        {#each selectedLaneTemplate?.boundaries ?? [] as boundary}<option value={boundary.id}>{boundary.id}</option>{/each}
-      </select></label>
-    </div>
   {/if}
 
   <div class="draw-panel-head"><p class="panel-label">MARKING</p></div>

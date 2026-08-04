@@ -286,8 +286,6 @@ export interface RoadStateHandle {
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   previewInterval(input: RoadSegmentInput): RoadIntervalPreview;
   addLane(input: RoadAddLaneInput): OperationResult & { laneId?: number };
-  addConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { segmentId?: number };
-  previewConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   scene(): RoadScenePayload;
   deleteSegment(segmentId: number): OperationResult;
   splitSegmentAtDistance(input: {
@@ -337,14 +335,6 @@ export interface RoadAddLaneInput {
   completeT: number;
   continuationEndNodeId: number;
   laneWidthM: number;
-}
-
-export interface RoadConnectedLaneSegmentInput extends RoadSegmentInput {
-  sectionTemplateId: number;
-  laneConnections: Array<{ source: RoadLaneEndpointInput; targetLaneId: number; kind: number }>;
-  boundaryContinuations: Array<{ source: RoadBoundaryEndpointInput; targetBoundaryId: number; kind: number }>;
-  sourceLaneConnections: Array<{ sourceLaneId: number; target: RoadLaneEndpointInput; kind: number }>;
-  sourceBoundaryContinuations: Array<{ sourceBoundaryId: number; target: RoadBoundaryEndpointInput; kind: number }>;
 }
 
 export interface WireModule {

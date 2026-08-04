@@ -573,8 +573,6 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       endY: input.endY
     }),
     roadAddLane: () => ({ ok: true, error: "" }),
-    roadAddConnectedLaneSegment: () => ({ ok: true, error: "" }),
-    roadPreviewConnectedLaneSegment: () => ({ ok: true, error: "", meshes: [] }),
     roadScene: () => ({
       segmentCount: 0,
       sectionTemplateCount: 1,
@@ -1284,105 +1282,7 @@ describe("viewport tool routing", () => {
     expect(roadEditSegment).toHaveBeenCalledWith(12, expect.objectContaining({ handleAX: 7, handleAY: 10 }));
   });
 
-  it("uses one explicit lane endpoint for branch preview and commit", () => {
-    const preview = vi.fn((_input: unknown) => ({ ok: true, error: "", meshes: [] }));
-    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
-    const store = new ViewerStore();
-    const baseScene = actionBridge().roadScene();
-    const scene = {
-      ...baseScene,
-      nodes: [{ id: 20, x: 40, y: 0 }],
-      lanePaths: [{
-        segmentId: 12, laneId: 1010, direction: 0 as const,
-        startSectionTemplateId: 1, endSectionTemplateId: 1,
-        startSegmentDistanceM: 0, endSegmentDistanceM: 40,
-        nodeAId: 19, nodeBId: 20, points: [0, -1.5, 0, 40, -1.5, 0]
-      }],
-      sectionTemplates: [{
-        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
-        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
-        hasCenterLine: true, hasOuterLines: true,
-        lanes: [{ id: 1000, direction: 1 as const }, { id: 1010, direction: 0 as const }],
-        boundaries: [
-          { id: 100, role: 1 },
-          { id: 200, role: 2 }
-        ]
-      }]
-    };
-    const actions = new ViewerActions(actionBridge({
-      roadScene: () => scene,
-      roadPreviewConnectedLaneSegment: preview,
-      roadAddConnectedLaneSegment: commit
-    }), store);
-    actions.initialize();
-    actions.setActiveTool("road");
-    actions.setRoadOperation("branch-lane");
-    actions.addViewportPoint([40, -1.5, 0], {
-      kind: "road", nodeId: 20, segmentId: 12, segmentDistanceM: 40,
-      laneId: 1010, laneDirection: 0, endpointRole: 1
-    });
-    actions.previewViewportPoint([56, -12, 0]);
-    expect(preview).toHaveBeenCalledWith(expect.objectContaining({
-      startNodeId: 20,
-      laneConnections: [{
-        source: { segmentId: 12, laneId: 1010, endpointRole: 1 },
-        targetLaneId: 1000,
-        kind: 3
-      }]
-    }));
-    actions.addViewportPoint([56, -12, 0]);
-    expect(commit).toHaveBeenCalledWith(preview.mock.calls[0][0]);
-  });
 
-  it("uses one explicit target lane endpoint for merge preview and commit", () => {
-    const preview = vi.fn((_input: unknown) => ({ ok: true, error: "", meshes: [] }));
-    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
-    const store = new ViewerStore();
-    const baseScene = actionBridge().roadScene();
-    const scene = {
-      ...baseScene,
-      nodes: [{ id: 20, x: 40, y: 0 }],
-      lanePaths: [{
-        segmentId: 12, laneId: 1000, direction: 1 as const,
-        startSectionTemplateId: 1, endSectionTemplateId: 1,
-        startSegmentDistanceM: 0, endSegmentDistanceM: 40,
-        nodeAId: 19, nodeBId: 20, points: [0, 1.5, 0, 40, 1.5, 0]
-      }],
-      sectionTemplates: [{
-        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
-        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
-        hasCenterLine: true, hasOuterLines: true,
-        lanes: [{ id: 1000, direction: 1 as const }, { id: 1010, direction: 0 as const }],
-        boundaries: [
-          { id: 100, role: 1 },
-          { id: 200, role: 2 }
-        ]
-      }]
-    };
-    const actions = new ViewerActions(actionBridge({
-      roadScene: () => scene,
-      roadPreviewConnectedLaneSegment: preview,
-      roadAddConnectedLaneSegment: commit
-    }), store);
-    actions.initialize();
-    actions.setActiveTool("road");
-    actions.setRoadOperation("merge-lane");
-    actions.addViewportPoint([40, 1.5, 0], {
-      kind: "road", nodeId: 20, segmentId: 12, segmentDistanceM: 40,
-      laneId: 1000, laneDirection: 1, endpointRole: 1
-    });
-    actions.previewViewportPoint([56, 12, 0]);
-    expect(preview).toHaveBeenCalledWith(expect.objectContaining({
-      startNodeId: 20,
-      sourceLaneConnections: [{
-        sourceLaneId: 1000,
-        target: { segmentId: 12, laneId: 1000, endpointRole: 1 },
-        kind: 2
-      }]
-    }));
-    actions.addViewportPoint([56, 12, 0]);
-    expect(commit).toHaveBeenCalledWith(preview.mock.calls[0][0]);
-  });
 
   it("collects segment-local lane positions and an explicit continuation endpoint", () => {
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));

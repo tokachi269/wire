@@ -1454,14 +1454,6 @@ public:
     return output;
   }
 
-  val add_connected_lane_segment(const val& input) {
-    return connected_lane_segment(input, false);
-  }
-
-  val preview_connected_lane_segment(const val& input) const {
-    return connected_lane_segment(input, true);
-  }
-
   val add_segment(const val& input) {
     const auto path = road_path_value(input);
     if (path.spans.empty()) {
@@ -1971,59 +1963,6 @@ public:
   }
 
 private:
-  val connected_lane_segment(const val& input, bool preview) const {
-    city::road::AddConnectedLaneSegmentRequest request{};
-    request.start_node = input["startNodeId"].as<city::road::RoadNodeId>();
-    request.alignment = road_path_value(input);
-    request.section_template =
-        input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
-    const val lane_targets = input["laneConnections"];
-    for (unsigned index = 0; index < lane_targets["length"].as<unsigned>(); ++index) {
-      const val item = lane_targets[index];
-      request.lane_connections.push_back(city::road::LaneTargetConnection{
-          road_lane_endpoint_value(item["source"]),
-          item["targetLaneId"].as<city::road::LaneId>(),
-          road_lane_connection_kind(item["kind"].as<int>())});
-    }
-    const val boundary_targets = input["boundaryContinuations"];
-    for (unsigned index = 0; index < boundary_targets["length"].as<unsigned>(); ++index) {
-      const val item = boundary_targets[index];
-      request.boundary_continuations.push_back(
-          city::road::BoundaryTargetContinuation{
-              road_boundary_endpoint_value(item["source"]),
-              item["targetBoundaryId"].as<city::road::BoundaryId>(),
-              road_boundary_continuation_kind(item["kind"].as<int>())});
-    }
-    const val lane_sources = input["sourceLaneConnections"];
-    for (unsigned index = 0; index < lane_sources["length"].as<unsigned>(); ++index) {
-      const val item = lane_sources[index];
-      request.source_lane_connections.push_back(city::road::LaneSourceConnection{
-          item["sourceLaneId"].as<city::road::LaneId>(),
-          road_lane_endpoint_value(item["target"]),
-          road_lane_connection_kind(item["kind"].as<int>())});
-    }
-    const val boundary_sources = input["sourceBoundaryContinuations"];
-    for (unsigned index = 0; index < boundary_sources["length"].as<unsigned>(); ++index) {
-      const val item = boundary_sources[index];
-      request.source_boundary_continuations.push_back(
-          city::road::BoundarySourceContinuation{
-              item["sourceBoundaryId"].as<city::road::BoundaryId>(),
-              road_boundary_endpoint_value(item["target"]),
-              road_boundary_continuation_kind(item["kind"].as<int>())});
-    }
-    if (preview) {
-      city::road::RoadState trial = *state_;
-      const auto result = trial.AddConnectedLaneSegment(std::move(request));
-      val output = road_result_value(result.ok, result.error, result.failure_category);
-      output.set("meshes", result.ok ? road_preview_meshes(trial) : val::array());
-      return output;
-    }
-    const auto result = state_->AddConnectedLaneSegment(std::move(request));
-    val output = road_result_value(result.ok, result.error, result.failure_category);
-    if (result.ok) output.set("segmentId", static_cast<double>(result.value));
-    return output;
-  }
-
 public:
 
   val delete_segment(std::uint64_t segment_id) {
@@ -2189,8 +2128,6 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("previewSegment", &RoadStateBinding::preview_segment)
       .function("previewInterval", &RoadStateBinding::preview_interval)
       .function("addLane", &RoadStateBinding::add_lane)
-      .function("addConnectedLaneSegment", &RoadStateBinding::add_connected_lane_segment)
-      .function("previewConnectedLaneSegment", &RoadStateBinding::preview_connected_lane_segment)
       .function("scene", &RoadStateBinding::scene)
       .function("deleteSegment", &RoadStateBinding::delete_segment)
       .function("splitSegmentAtDistance",

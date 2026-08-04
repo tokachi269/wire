@@ -277,6 +277,11 @@ def check_road_architecture(root: Path) -> list[str]:
         for token in ("previewAddLane", "preview_add_lane", "roadPreviewAddLane"):
             if token in text:
                 errors.append(f"{web_source}: retired Add Lane preview path: {token!r}")
+        # Branch/Merge asked for a raw BoundaryId and auto-picked boundaries[0],
+        # so the product operation is gone until it can be selected by meaning.
+        for token in ("ConnectedLaneSegment", "branch-lane", "merge-lane"):
+            if token in text:
+                errors.append(f"{web_source}: retired branch/merge operation: {token!r}")
     for token in ("extensionSegmentId", "bandElementId"):
         if token in adapter_text:
             errors.append(
@@ -346,7 +351,6 @@ def check_road_architecture(root: Path) -> list[str]:
             "web/src/actions/road_actions.ts: standard road deletion must retain the hovered RoadSegment ID"
         )
     for token in (
-        "roadPreviewConnectedLaneSegment",
         "selectedLaneSegmentId",
         "selectedLaneEndpointRole",
     ):
@@ -437,8 +441,6 @@ def check_road_architecture(root: Path) -> list[str]:
         'result.set("lanePaths", lane_paths)',
         'builtin_marking_styles::kWhiteDashed.value',
         '.function("addLane"',
-        '.function("addConnectedLaneSegment"',
-        '.function("previewConnectedLaneSegment"',
     ):
         if token not in adapter_text:
             errors.append(

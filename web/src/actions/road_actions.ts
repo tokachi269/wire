@@ -201,7 +201,7 @@ export class RoadActions {
 
   previewViewportPoint(point: WorldPoint, snap?: RoadSnapInfo): void {
     const current = this.ctx.readSnapshot().road;
-    if (["add-lane", "branch-lane", "merge-lane"].includes(current.operation)) {
+    if (current.operation === "add-lane") {
       const hoveredLaneSegmentId = snap?.laneId === undefined ? 0 : snap.segmentId;
       const hoveredLaneId = snap?.laneId ?? 0;
       let road = { ...current, hoveredLaneSegmentId, hoveredLaneId };
@@ -221,11 +221,6 @@ export class RoadActions {
             return;
           }
         }
-      } else if (current.laneEditStage === "target") {
-        this.applyPreview(road, this.ctx.bridge.roadPreviewConnectedLaneSegment(
-          connectedLaneInput(road, { x: point[0], y: point[1] })
-        ));
-        return;
       }
       this.ctx.store.update((snapshot) => ({ ...snapshot, road }));
       return;
@@ -266,7 +261,7 @@ export class RoadActions {
   }
 
   private applyOperation(road: RoadToolState, point: RoadPoint, snap?: RoadSnapInfo): void {
-    if (["add-lane", "branch-lane", "merge-lane"].includes(road.operation)) {
+    if (road.operation === "add-lane") {
       this.applyLaneOperation(road, point, snap);
       return;
     }
@@ -311,7 +306,7 @@ export class RoadActions {
                      "road_control_point_not_selected");
   }
 
-  private applyLaneOperation(road: RoadToolState, point: RoadPoint, snap?: RoadSnapInfo): void {
+  private applyLaneOperation(road: RoadToolState, _point: RoadPoint, snap?: RoadSnapInfo): void {
     if (road.operation === "add-lane") {
       if (road.laneEditStage === "select") {
         if (snap === undefined || snap.segmentId === 0) {
@@ -439,10 +434,6 @@ export class RoadActions {
       }));
       return;
     }
-    this.finish(
-      this.ctx.bridge.roadAddConnectedLaneSegment(connectedLaneInput(road, point)),
-      road.operation === "branch-lane" ? "road branch lane" : "road merge lane"
-    );
   }
 
   cancelSession(): DrawActionResult {
@@ -750,63 +741,5 @@ function segmentPositionForSnap(
   return {
     segmentId: snap.segmentId,
     t: Math.max(0, Math.min(1, snap.segmentDistanceM / ref.lengthM))
-  };
-}
-
-function connectedLaneInput(road: RoadToolState, end: RoadPoint) {
-  const node = road.scene.nodes.find((item) => item.id === road.selectedLaneNodeId);
-  const start = node === undefined ? end : { x: node.x, y: node.y };
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const selectedEndpoint = {
-    segmentId: road.selectedLaneSegmentId,
-    laneId: road.selectedLaneId,
-    endpointRole: road.selectedLaneEndpointRole
-  };
-  const selectedBoundary = {
-    segmentId: road.selectedLaneSegmentId,
-    boundaryId: road.laneSourceBoundaryId,
-    endpointRole: road.selectedLaneEndpointRole
-  };
-  const branch = road.operation === "branch-lane";
-  return {
-    kind: "line" as const,
-    startX: start.x,
-    startY: start.y,
-    endX: end.x,
-    endY: end.y,
-    handleAX: start.x + dx / 3,
-    handleAY: start.y + dy / 3,
-    handleBX: start.x + dx * 2 / 3,
-    handleBY: start.y + dy * 2 / 3,
-    startNodeId: road.selectedLaneNodeId,
-    startSegmentId: 0,
-    startSegmentDistanceM: 0,
-    endNodeId: 0,
-    endSegmentId: 0,
-    endSegmentDistanceM: 0,
-    extensionCorridorId: 0,
-    connectToFirstNode: false,
-    sectionTemplateId: road.laneTargetTemplateId,
-    laneConnections: branch ? [{
-      source: selectedEndpoint,
-      targetLaneId: road.laneTargetLaneId,
-      kind: 3
-    }] : [],
-    boundaryContinuations: branch && road.laneSourceBoundaryId !== 0 && road.laneTargetBoundaryId !== 0 ? [{
-      source: selectedBoundary,
-      targetBoundaryId: road.laneTargetBoundaryId,
-      kind: 2
-    }] : [],
-    sourceLaneConnections: branch ? [] : [{
-      sourceLaneId: road.laneTargetLaneId,
-      target: selectedEndpoint,
-      kind: 2
-    }],
-    sourceBoundaryContinuations: !branch && road.laneSourceBoundaryId !== 0 && road.laneTargetBoundaryId !== 0 ? [{
-      sourceBoundaryId: road.laneTargetBoundaryId,
-      target: selectedBoundary,
-      kind: 1
-    }] : []
   };
 }

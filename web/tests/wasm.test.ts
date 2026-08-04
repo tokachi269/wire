@@ -1635,48 +1635,6 @@ describe("road wasm smoke", () => {
     )).toBe(true);
   });
 
-  it("previews and commits a branch from one explicit lane endpoint", () => {
-    state.clear();
-    const base = state.addSegment({
-      kind: "line", startX: 0, startY: 0, endX: 40, endY: 0,
-      handleAX: 40 / 3, handleAY: 0, handleBX: 80 / 3, handleBY: 0,
-      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
-      connectToFirstNode: false
-    });
-    expect(base.ok, base.error).toBe(true);
-    const request = {
-      kind: "line" as const,
-      startX: 40, startY: 0, endX: 60, endY: -20,
-      handleAX: 40 + 20 / 3, handleAY: -20 / 3,
-      handleBX: 40 + 40 / 3, handleBY: -40 / 3,
-      startNodeId: base.endNodeId!, startSegmentId: 0,
-      startSegmentDistanceM: 0, extensionCorridorId: 0,
-      connectToFirstNode: false, sectionTemplateId: 1,
-      laneConnections: [{
-        source: { segmentId: base.segmentId!, laneId: 1010, endpointRole: 1 as const },
-        targetLaneId: 1010,
-        kind: 3
-      }],
-      boundaryContinuations: [],
-      sourceLaneConnections: [],
-      sourceBoundaryContinuations: []
-    };
-    const savedBeforePreview = state.saveState();
-    const preview = state.previewConnectedLaneSegment(request);
-    expect(preview.ok, preview.error).toBe(true);
-    expect(preview.meshes.length).toBeGreaterThan(0);
-    expect(state.saveState()).toBe(savedBeforePreview);
-    expect(state.scene().segmentCount).toBe(1);
-
-    const committed = state.addConnectedLaneSegment(request);
-    expect(committed.ok, committed.error).toBe(true);
-    expect(committed.segmentId).toBeGreaterThan(0);
-    const after = state.scene();
-    expect(after.segmentCount).toBe(2);
-    expect(after.lanePaths.some((lane) =>
-      lane.segmentId === committed.segmentId && lane.laneId === 1010
-    )).toBe(true);
-  });
 
   it("extends a degree-one corridor by adding a local segment", () => {
     state.clear();

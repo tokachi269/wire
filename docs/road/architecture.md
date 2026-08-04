@@ -131,6 +131,10 @@ consumerのない工程と、削除した機能のためだけの分岐は置か
 | `derive_markings` | section boundary、marking policy、junction override | `DerivedMarking` | `emit_geometry` |
 | `emit_geometry` | 解決済みgeometryのみ | mesh、terrain mask | viewer |
 
+`SavedRoadGraph`の13 fieldはすべて生成側に読み手がある。保留機能の`manual_lines` / `manual_areas`は
+標準UIとpublic APIから外したが、既存workspaceを開くために保存と生成の読み取りを維持する。
+`lane_connections` / `boundary_continuations`はjunction生成が内部で使う。
+
 失敗分類は全工程共通で、入力不正は`kInvalidInput`、現在の対応範囲外は`kNotImplemented`、
 正しい正本から派生が欠ける場合は`kInternalError`とする。保留機能のデータを持たない通常道路が、
 その機能の処理を理由に失敗してはならない。

@@ -1083,6 +1083,43 @@ std::vector<double> corridor_sample_distances(const DerivedRoad& derived,
 
 // Editing one road must not move a road that shares nothing with it. The far
 // corridor is compared bit-for-bit, not within a tolerance.
+// Bit-for-bit comparison of two alignments. Locality is not a tolerance.
+bool same_alignment_bits(const Path& before, const Path& after) {
+  if (before.spans.size() != after.spans.size()) return false;
+  for (std::size_t index = 0; index < before.spans.size(); ++index) {
+    const BezierSpan& a = before.spans[index];
+    const BezierSpan& b = after.spans[index];
+    const std::array<double, 8> lhs{a.p0.x, a.p0.y, a.p1.x, a.p1.y, a.p2.x, a.p2.y, a.p3.x, a.p3.y};
+    const std::array<double, 8> rhs{b.p0.x, b.p0.y, b.p1.x, b.p1.y, b.p2.x, b.p2.y, b.p3.x, b.p3.y};
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+      if (std::bit_cast<std::uint64_t>(lhs[i]) != std::bit_cast<std::uint64_t>(rhs[i])) return false;
+    }
+  }
+  return true;
+}
+
+bool segment_delete_leaves_unrelated_corridors_bit_identical(std::string& failure) {
+  RoadState state{};
+  const auto doomed = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(doomed.ok, doomed.error);
+  const auto far_road = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({500.0, 500.0}, {540.0, 500.0})}), 1});
+  ROAD_CONTRACT_EXPECT(far_road.ok, far_road.error);
+  const Path* far_before = FindCanonicalAlignment(state.derived(), far_road.value);
+  ROAD_CONTRACT_EXPECT(far_before != nullptr, "unrelated alignment is missing");
+  const Path snapshot = *far_before;
+
+  const auto deleted = state.DeleteSegment(DeleteSegmentRequest{doomed.value});
+  ROAD_CONTRACT_EXPECT(deleted.ok, deleted.error);
+
+  const Path* far_after = FindCanonicalAlignment(state.derived(), far_road.value);
+  ROAD_CONTRACT_EXPECT(far_after != nullptr, "unrelated alignment disappeared");
+  ROAD_CONTRACT_EXPECT(same_alignment_bits(snapshot, *far_after),
+                       "deleting a road moved an unrelated corridor");
+  return true;
+}
+
 bool node_move_leaves_unrelated_corridors_bit_identical(std::string& failure) {
   RoadState state{};
   const auto near_road = state.AddSegment(
@@ -1705,6 +1742,8 @@ int main() {
        unsupported_junction_section_is_atomic},
       {"derived_segment_owns_all_semantic_distances",
        derived_segment_owns_all_semantic_distances},
+      {"segment_delete_leaves_unrelated_corridors_bit_identical",
+       segment_delete_leaves_unrelated_corridors_bit_identical},
       {"node_move_leaves_unrelated_corridors_bit_identical",
        node_move_leaves_unrelated_corridors_bit_identical},
       {"corridor_distance_crosses_segment_boundaries",

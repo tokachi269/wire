@@ -102,7 +102,25 @@ Web bridgeの32件中14件はweb/src内に呼び出し元がない。
 - [x] CLEAN0 baseline + 分類表
 - [x] CLEAN1 配置API削除 — production/正本docsから41箇所を削除。contract testは`corridor_sample_distances`へ置換して距離↔世界座標の契約を維持
 - [x] CLEAN2 旧ADD LANE preview削除 — WASM export・bridge・型・mock・testを削除。lintは維持規則から復活禁止規則へ変更
-- [ ] CLEAN3 低レベル操作内部化
+- [~] CLEAN3 低レベル操作内部化 — **Web/WASM境界は完了**(低レベル15 exportとbridgeを削除、Webから直接呼べない)。**C++ public method の内部化は未了**(下記参照)
+
+### CLEAN3b 残作業: C++ public methodの内部化
+
+Webから外した15操作に対応する `RoadState` public methodは残っている。内部化には呼び出しテスト9関数の書き換えが必要で、うち次はAddLaneで表現できるか未確認。
+
+| test | 使用API | 論点 |
+|---|---|---|
+| `M3_lane_count_change_begins_and_terminates_lines` | AddTransition | 2→3車線をAddLaneで作れるか |
+| `M6_transition_without_boundary_mapping_is_unsupported` | AddTransition | AddLane経由では到達不能なら検証対象が消える |
+| `P2_supports_taper_lane_reduction_and_median_end` | AddTransition | 車線減少・中央帯終端をAddLaneで作れるか |
+| `P2_requires_transition_for_mixed_section_connection` | AddTransition | 異断面接続 |
+| `P2_section_transition_and_manual_markings` | AddTransition | 手動markingはCLEAN4保留対象 |
+| `junction_movements_are_explicit_lane_connections` | AddLaneConnection | 曖昧junctionでの明示指定は`plan_unique_junction_topology`の逃げ道 |
+| `add_lane_connects_the_only_matching_junction_approach` | AddLaneConnection | 同上 |
+| `derived_segment_owns_all_semantic_distances` | AddTransitionToSegment | setup用途 |
+| `all_public_operation_validation_failures_are_atomic` | 全public op列挙 | 公開面縮小に追従 |
+
+`AddLane` は transition を1件だけ生成し(`kTaperIn` / 逆向きで `kTaperOut`)、`lane_connections` / `boundary_continuations` は生成しない(それらは `plan_unique_junction_topology` がjunctionで自動生成する)。**AddLaneが車線減少・異断面接続・曖昧junction指定を表現できない場合、低レベルAPIの削除は高水準operationの機能欠落になる**(停止条件「低レベル公開APIを消すと高水準operationが成立しない」)。
 - [ ] CLEAN4 保留機能整理(**停止して報告**)
 - [ ] CLEAN5 Branch/Merge判定
 - [ ] CLEAN6 パイプライン・保存型整理

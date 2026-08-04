@@ -600,7 +600,6 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     roadEditSegment: () => ({ ok: true, error: "" }),
     roadPreviewEditSegment: () => ({ ok: true, error: "", meshes: [] }),
     roadUpdateSectionTemplate: () => ({ ok: true, error: "" }),
-    roadApplyTransition: () => ({ ok: true, error: "" }),
     roadAddManualLine: () => ({ ok: true, error: "" }),
     roadAddManualArea: () => ({ ok: true, error: "" }),
     roadClear: () => ({ ok: true, error: "" }),

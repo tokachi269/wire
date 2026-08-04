@@ -2080,36 +2080,6 @@ public:
     return result;
   }
 
-  val set_approach_setback_override(const val& input) {
-    const auto result = state_->SetApproachSetbackOverride(
-        city::road::SetApproachSetbackOverrideRequest{
-            road_approach_key_value(input), input["setbackM"].as<double>()});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val set_approach_lateral_shift_override(const val& input) {
-    const auto result = state_->SetApproachLateralShiftOverride(
-        city::road::SetApproachLateralShiftOverrideRequest{
-            road_approach_key_value(input), input["lateralShiftM"].as<double>()});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val reset_approach_override_field(const val& input) {
-    const int field = input["field"].as<int>();
-    const auto result = state_->ResetApproachOverrideField(
-        city::road::ResetApproachOverrideFieldRequest{
-            road_approach_key_value(input),
-            field == 1 ? city::road::ApproachOverrideField::kLateralShift
-                       : city::road::ApproachOverrideField::kSetback});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val reset_all_approach_overrides(const val& input) {
-    const auto result = state_->ResetAllApproachOverrides(
-        city::road::ResetAllApproachOverridesRequest{road_approach_key_value(input)});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
   val edit_segment(std::uint64_t segment_id, const val& input) {
     const auto shape = city::road::SegmentShapeFromPath(road_path_value(input));
     if (!shape.ok) return road_result_value(false, shape.error, shape.failure_category);
@@ -2184,134 +2154,6 @@ public:
     return road_result_value(result.ok, result.error, result.failure_category);
   }
 
-  val set_boundary_marking_policy(const val& input) {
-    const auto style = road_marking_style_id(input["style"].as<std::string>());
-    if (!style.has_value()) {
-      return road_result_value(false, "unknown road marking style",
-                               city::road::CommitFailureCategory::kInvalidInput);
-    }
-    city::road::SetBoundaryMarkingPolicyRequest request{};
-    request.section_template_id =
-        input["templateId"].as<city::road::CrossSectionTemplateId>();
-    request.boundary_id = input["boundaryId"].as<std::uint64_t>();
-    request.policy.enabled = input["enabled"].as<bool>();
-    request.policy.role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
-    request.policy.style_id = *style;
-    const auto result = state_->SetBoundaryMarkingPolicy(request);
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val reset_boundary_marking_policy(const val& input) {
-    const auto result = state_->ResetBoundaryMarkingPolicy(
-        city::road::ResetBoundaryMarkingPolicyRequest{
-            input["templateId"].as<city::road::CrossSectionTemplateId>(),
-            input["boundaryId"].as<std::uint64_t>()});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val set_lane_side_marking_policy(const val& input) {
-    const auto style = road_marking_style_id(input["style"].as<std::string>());
-    if (!style.has_value()) {
-      return road_result_value(false, "unknown road marking style",
-                               city::road::CommitFailureCategory::kInvalidInput);
-    }
-    city::road::SetLaneSideMarkingPolicyRequest request{};
-    request.section_template_id =
-        input["templateId"].as<city::road::CrossSectionTemplateId>();
-    request.strip_id = input["stripId"].as<city::road::SectionStripId>();
-    request.side = road_lane_side_value(input);
-    request.policy.enabled = input["enabled"].as<bool>();
-    request.policy.role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
-    request.policy.style_id = *style;
-    const auto result = state_->SetLaneSideMarkingPolicy(request);
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val reset_lane_side_marking_policy(const val& input) {
-    const auto result = state_->ResetLaneSideMarkingPolicy(
-        city::road::ResetLaneSideMarkingPolicyRequest{
-            input["templateId"].as<city::road::CrossSectionTemplateId>(),
-            input["stripId"].as<city::road::SectionStripId>(),
-            road_lane_side_value(input)});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val suppress_junction_marking(const val& input) {
-    const auto result = state_->SuppressAutoMarking(
-        city::road::SuppressAutoMarkingRequest{road_junction_marking_key(input)});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val reset_junction_marking_suppression(const val& input) {
-    const auto result = state_->ResetAutoMarkingSuppression(
-        city::road::ResetAutoMarkingSuppressionRequest{road_junction_marking_key(input)});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val set_junction_marking_override(const val& input) {
-    city::road::JunctionMarkingOverride override{};
-    override.node_id = input["nodeId"].as<city::road::RoadNodeId>();
-    if (!input["overrideId"].isUndefined()) {
-      override.id = input["overrideId"].as<city::road::JunctionMarkingOverrideId>();
-    }
-    override.action = road_junction_marking_action(input["action"].as<int>());
-    override.source = road_junction_marking_endpoint(input["source"]);
-    if (!input["target"].isUndefined() && !input["target"].isNull()) {
-      override.target = road_junction_marking_endpoint(input["target"]);
-    }
-    const auto result = state_->SetJunctionMarkingOverride(
-        city::road::SetJunctionMarkingOverrideRequest{std::move(override)});
-    val output = road_result_value(result.ok, result.error, result.failure_category);
-    if (result.ok) output.set("overrideId", static_cast<double>(result.value));
-    return output;
-  }
-
-  val delete_junction_marking_override(const val& input) {
-    const auto result = state_->DeleteJunctionMarkingOverride(
-        city::road::DeleteJunctionMarkingOverrideRequest{
-            input["overrideId"].as<city::road::JunctionMarkingOverrideId>()});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val apply_transition(const val& input) {
-    const auto segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
-    const auto target_id = input["targetTemplateId"].as<city::road::CrossSectionTemplateId>();
-    const auto segment = std::find_if(state_->graph().segments.begin(), state_->graph().segments.end(),
-                                      [segment_id](const auto& item) { return item.id == segment_id; });
-    const auto target = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
-                                     [target_id](const auto& item) { return item.id == target_id; });
-    if (segment == state_->graph().segments.end() || target == state_->graph().section_templates.end()) {
-      return road_result_value(false, "road transition reference is missing", city::road::CommitFailureCategory::kInvalidInput);
-    }
-    const auto source = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
-                                     [segment](const auto& item) { return item.id == segment->section_template; });
-    city::road::SectionTransitionRequest transition{};
-    transition.to_template = target_id;
-    transition.start = {city::road::DistanceRefKind::kFromEnd,
-                        input["lengthM"].as<double>() + input["endOffsetM"].as<double>()};
-    transition.end = {city::road::DistanceRefKind::kFromEnd, input["endOffsetM"].as<double>()};
-    transition.anchor = static_cast<city::road::TransitionAnchor>(input["anchor"].as<int>());
-    for (const auto& strip : source->strips) {
-      const auto match = std::find_if(target->strips.begin(), target->strips.end(), [&strip](const auto& item) {
-        return item.id == strip.id;
-      });
-      transition.rules.push_back({strip.id,
-                                  match != target->strips.end() ? city::road::TransitionAction::kContinue
-                                  : strip.function == city::road::StripFunction::kMedian ? city::road::TransitionAction::kEndCap
-                                                                                       : city::road::TransitionAction::kTaperOut});
-    }
-    for (const auto& strip : target->strips) {
-      if (std::none_of(source->strips.begin(), source->strips.end(), [&strip](const auto& item) {
-            return item.id == strip.id;
-          })) {
-        transition.rules.push_back({strip.id, city::road::TransitionAction::kTaperIn});
-      }
-    }
-    const auto result = state_->AddTransitionToSegment(
-        city::road::AddTransitionToSegmentRequest{segment_id, std::move(transition)});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
   val add_manual_line(const val& input) {
     city::road::ManualLineRequest marking{};
     marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
@@ -2344,35 +2186,6 @@ public:
     }
     marking.style_id = *style;
     const auto result = state_->AddManualArea(std::move(marking));
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val suppress_segment_marking(const val& input) {
-    const auto segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
-    const auto boundary_id = input["boundaryId"].as<std::uint64_t>();
-    const auto role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
-    city::road::AutoMarkingKey key{
-        city::road::MarkingOwner{city::road::MarkingOwner::Kind::kRoadSegment,
-                                 segment_id, 0, 0},
-        role,
-        city::road::MarkingTrackKey{segment_id, boundary_id, role},
-        std::nullopt};
-    const auto result = state_->SuppressAutoMarking(city::road::SuppressAutoMarkingRequest{key});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val reset_segment_marking_suppression(const val& input) {
-    const auto segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
-    const auto boundary_id = input["boundaryId"].as<std::uint64_t>();
-    const auto role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
-    city::road::AutoMarkingKey key{
-        city::road::MarkingOwner{city::road::MarkingOwner::Kind::kRoadSegment,
-                                 segment_id, 0, 0},
-        role,
-        city::road::MarkingTrackKey{segment_id, boundary_id, role},
-        std::nullopt};
-    const auto result = state_->ResetAutoMarkingSuppression(
-        city::road::ResetAutoMarkingSuppressionRequest{key});
     return road_result_value(result.ok, result.error, result.failure_category);
   }
 
@@ -2429,26 +2242,11 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("deleteSegmentRange", &RoadStateBinding::delete_segment_range)
       .function("moveNode", &RoadStateBinding::move_node)
       .function("previewMoveNode", &RoadStateBinding::preview_move_node)
-      .function("setApproachSetbackOverride", &RoadStateBinding::set_approach_setback_override)
-      .function("setApproachLateralShiftOverride", &RoadStateBinding::set_approach_lateral_shift_override)
-      .function("resetApproachOverrideField", &RoadStateBinding::reset_approach_override_field)
-      .function("resetAllApproachOverrides", &RoadStateBinding::reset_all_approach_overrides)
       .function("editSegment", &RoadStateBinding::edit_segment)
       .function("previewEditSegment", &RoadStateBinding::preview_edit_segment)
       .function("updateSectionTemplate", &RoadStateBinding::update_section_template)
-      .function("setBoundaryMarkingPolicy", &RoadStateBinding::set_boundary_marking_policy)
-      .function("resetBoundaryMarkingPolicy", &RoadStateBinding::reset_boundary_marking_policy)
-      .function("applyTransition", &RoadStateBinding::apply_transition)
       .function("addManualLine", &RoadStateBinding::add_manual_line)
       .function("addManualArea", &RoadStateBinding::add_manual_area)
-      .function("setLaneSideMarkingPolicy", &RoadStateBinding::set_lane_side_marking_policy)
-      .function("resetLaneSideMarkingPolicy", &RoadStateBinding::reset_lane_side_marking_policy)
-      .function("suppressSegmentMarking", &RoadStateBinding::suppress_segment_marking)
-      .function("resetSegmentMarkingSuppression", &RoadStateBinding::reset_segment_marking_suppression)
-      .function("suppressJunctionMarking", &RoadStateBinding::suppress_junction_marking)
-      .function("resetJunctionMarkingSuppression", &RoadStateBinding::reset_junction_marking_suppression)
-      .function("setJunctionMarkingOverride", &RoadStateBinding::set_junction_marking_override)
-      .function("deleteJunctionMarkingOverride", &RoadStateBinding::delete_junction_marking_override)
       .function("undoSegment", &RoadStateBinding::undo_segment)
       .function("clear", &RoadStateBinding::clear)
       .function("saveState", &RoadStateBinding::save_state)

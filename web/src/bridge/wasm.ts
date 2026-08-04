@@ -305,61 +305,9 @@ export interface RoadStateHandle {
     x: number;
     y: number;
   }): OperationResult & { meshes: RoadMeshPayload[] };
-  setApproachSetbackOverride(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1; setbackM: number }): OperationResult;
-  setApproachLateralShiftOverride(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1; lateralShiftM: number }): OperationResult;
-  resetApproachOverrideField(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1; field: 0 | 1 }): OperationResult;
-  resetAllApproachOverrides(input: { nodeId: number; segmentId: number; endpointRole: 0 | 1 }): OperationResult;
   editSegment(segmentId: number, input: RoadSegmentInput): OperationResult;
   previewEditSegment(segmentId: number, input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   updateSectionTemplate(input: Record<string, number | boolean>): OperationResult;
-  setBoundaryMarkingPolicy(input: {
-    templateId: number;
-    boundaryId: number;
-    enabled: boolean;
-    role: number;
-    style: string;
-  }): OperationResult;
-  resetBoundaryMarkingPolicy(input: { templateId: number; boundaryId: number }): OperationResult;
-  setLaneSideMarkingPolicy(input: {
-    templateId: number;
-    stripId: number;
-    side: "left" | "right";
-    enabled: boolean;
-    role: number;
-    style: string;
-  }): OperationResult;
-  resetLaneSideMarkingPolicy(input: {
-    templateId: number;
-    stripId: number;
-    side: "left" | "right";
-  }): OperationResult;
-  suppressSegmentMarking(input: { segmentId: number; boundaryId: number; role: number }): OperationResult;
-  resetSegmentMarkingSuppression(input: {
-    segmentId: number;
-    boundaryId: number;
-    role: number;
-  }): OperationResult;
-  suppressJunctionMarking(input: {
-    nodeId: number;
-    segmentId: number;
-    endpointRole: 0 | 1;
-    role: number;
-  }): OperationResult;
-  resetJunctionMarkingSuppression(input: {
-    nodeId: number;
-    segmentId: number;
-    endpointRole: 0 | 1;
-    role: number;
-  }): OperationResult;
-  setJunctionMarkingOverride(input: {
-    nodeId: number;
-    overrideId?: number;
-    action: number;
-    source: RoadMarkingEndpointInput;
-    target?: RoadMarkingEndpointInput | null;
-  }): OperationResult & { overrideId?: number };
-  deleteJunctionMarkingOverride(input: { overrideId: number }): OperationResult;
-  applyTransition(input: Record<string, number>): OperationResult;
   addManualLine(input: Record<string, number | string>): OperationResult;
   addManualArea(input: Record<string, number | string>): OperationResult;
   undoSegment(): OperationResult;

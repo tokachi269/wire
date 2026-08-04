@@ -5,6 +5,7 @@
 #include "../src/lookup.hpp"
 #include "../src/persistence/road_archive.hpp"
 
+#include <bit>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -1080,6 +1081,50 @@ std::vector<double> corridor_sample_distances(const DerivedRoad& derived,
   return distances;
 }
 
+// Editing one road must not move a road that shares nothing with it. The far
+// corridor is compared bit-for-bit, not within a tolerance.
+bool node_move_leaves_unrelated_corridors_bit_identical(std::string& failure) {
+  RoadState state{};
+  const auto near_road = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(near_road.ok, near_road.error);
+  const auto far_road = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({500.0, 500.0}, {540.0, 500.0})}), 1});
+  ROAD_CONTRACT_EXPECT(far_road.ok, far_road.error);
+
+  const Path* far_before_path = FindCanonicalAlignment(state.derived(), far_road.value);
+  ROAD_CONTRACT_EXPECT(far_before_path != nullptr, "unrelated alignment is missing");
+  const Path far_before = *far_before_path;
+
+  const RoadSegment* near_segment = nullptr;
+  for (const RoadSegment& segment : state.graph().segments) {
+    if (segment.id == near_road.value) near_segment = &segment;
+  }
+  ROAD_CONTRACT_EXPECT(near_segment != nullptr, "edited segment is missing");
+  const auto moved = state.MoveNode(MoveNodeRequest{near_segment->node_b, {40.0, 12.0}});
+  ROAD_CONTRACT_EXPECT(moved.ok, moved.error);
+
+  const Path* far_after = FindCanonicalAlignment(state.derived(), far_road.value);
+  ROAD_CONTRACT_EXPECT(far_after != nullptr, "unrelated alignment disappeared");
+  ROAD_CONTRACT_EXPECT(far_after->spans.size() == far_before.spans.size(),
+                       "unrelated corridor changed its span count");
+  for (std::size_t index = 0; index < far_before.spans.size(); ++index) {
+    const BezierSpan& before = far_before.spans[index];
+    const BezierSpan& after = far_after->spans[index];
+    ROAD_CONTRACT_EXPECT(
+        std::bit_cast<std::uint64_t>(before.p0.x) == std::bit_cast<std::uint64_t>(after.p0.x) &&
+            std::bit_cast<std::uint64_t>(before.p0.y) == std::bit_cast<std::uint64_t>(after.p0.y) &&
+            std::bit_cast<std::uint64_t>(before.p1.x) == std::bit_cast<std::uint64_t>(after.p1.x) &&
+            std::bit_cast<std::uint64_t>(before.p1.y) == std::bit_cast<std::uint64_t>(after.p1.y) &&
+            std::bit_cast<std::uint64_t>(before.p2.x) == std::bit_cast<std::uint64_t>(after.p2.x) &&
+            std::bit_cast<std::uint64_t>(before.p2.y) == std::bit_cast<std::uint64_t>(after.p2.y) &&
+            std::bit_cast<std::uint64_t>(before.p3.x) == std::bit_cast<std::uint64_t>(after.p3.x) &&
+            std::bit_cast<std::uint64_t>(before.p3.y) == std::bit_cast<std::uint64_t>(after.p3.y),
+        "moving a node moved an unrelated corridor");
+  }
+  return true;
+}
+
 bool corridor_distance_crosses_segment_boundaries(
     std::string& failure) {
   RoadState state{};
@@ -1660,6 +1705,8 @@ int main() {
        unsupported_junction_section_is_atomic},
       {"derived_segment_owns_all_semantic_distances",
        derived_segment_owns_all_semantic_distances},
+      {"node_move_leaves_unrelated_corridors_bit_identical",
+       node_move_leaves_unrelated_corridors_bit_identical},
       {"corridor_distance_crosses_segment_boundaries",
        corridor_distance_crosses_segment_boundaries},
       {"branch_and_tail_extension_preserve_existing_corridor",

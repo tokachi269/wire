@@ -594,14 +594,11 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     }),
     roadUndoSegment: () => ({ ok: true, error: "" }),
     roadDeleteSegment: () => ({ ok: true, error: "" }),
-    roadDeleteSegmentRange: () => ({ ok: true, error: "" }),
     roadMoveNode: () => ({ ok: true, error: "" }),
     roadPreviewMoveNode: () => ({ ok: true, error: "", meshes: [] }),
     roadEditSegment: () => ({ ok: true, error: "" }),
     roadPreviewEditSegment: () => ({ ok: true, error: "", meshes: [] }),
     roadUpdateSectionTemplate: () => ({ ok: true, error: "" }),
-    roadAddManualLine: () => ({ ok: true, error: "" }),
-    roadAddManualArea: () => ({ ok: true, error: "" }),
     roadClear: () => ({ ok: true, error: "" }),
     roadSaveState: () => "factory-road-state",
     roadLoadState: () => ({ ok: true, error: "" }),
@@ -1220,31 +1217,14 @@ describe("viewport tool routing", () => {
     expect(continued?.extensionCorridorId).toBe(21);
   });
 
-  it("routes marking and one-click whole-segment deletion from the hovered centerline pick", () => {
-    const roadAddManualLine = vi.fn(() => ({ ok: true, error: "" }));
-    const roadAddManualArea = vi.fn(() => ({ ok: true, error: "" }));
+  it("routes one-click whole-segment deletion from the hovered centerline pick", () => {
     const roadDeleteSegment = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({
-      roadAddManualLine,
-      roadAddManualArea,
       roadDeleteSegment
     }), store);
     actions.initialize();
     actions.setActiveTool("road");
-
-    actions.setRoadOperation("line-marking");
-    actions.addViewportPoint([5, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 5 });
-    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 20 });
-    expect(roadAddManualLine).toHaveBeenCalledWith(expect.objectContaining({
-      segmentId: 12,
-      startSegmentDistanceM: 5,
-      endSegmentDistanceM: 20
-    }));
-
-    actions.setRoadOperation("area-marking");
-    actions.addViewportPoint([15, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 15 });
-    expect(roadAddManualArea).toHaveBeenCalledWith(expect.objectContaining({ segmentId: 12, segmentDistanceM: 15 }));
 
     actions.setRoadOperation("delete");
     actions.previewViewportPoint(

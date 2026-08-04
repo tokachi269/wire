@@ -121,7 +121,7 @@ Webから外した15操作に対応する `RoadState` public methodは残って�
 | `all_public_operation_validation_failures_are_atomic` | 全public op列挙 | 公開面縮小に追従 |
 
 `AddLane` は transition を1件だけ生成し(`kTaperIn` / 逆向きで `kTaperOut`)、`lane_connections` / `boundary_continuations` は生成しない(それらは `plan_unique_junction_topology` がjunctionで自動生成する)。**AddLaneが車線減少・異断面接続・曖昧junction指定を表現できない場合、低レベルAPIの削除は高水準operationの機能欠落になる**(停止条件「低レベル公開APIを消すと高水準operationが成立しない」)。
-- [ ] CLEAN4 保留機能整理(**停止して報告**)
+- [~] CLEAN4 保留機能整理 — 手動線・手動面・部分削除を標準UI/Web/WASM境界から除去し `backlog.md` へ。保存fieldは維持(schema不変、migration不要)。**C++ public API の除去は CLEAN3b と同時に行う**
 - [ ] CLEAN5 Branch/Merge判定
 - [ ] CLEAN6 パイプライン・保存型整理
 - [ ] CLEAN7 road/wire命名契約整理

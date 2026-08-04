@@ -2045,15 +2045,6 @@ public:
     return output;
   }
 
-  val delete_segment_range(const val& input) {
-    const auto result = state_->DeleteSegmentRange(
-        city::road::DeleteSegmentRangeRequest{
-            input["segmentId"].as<city::road::RoadSegmentId>(),
-            input["startSegmentDistanceM"].as<double>(),
-            input["endSegmentDistanceM"].as<double>()});
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
   val move_node(const val& input) {
     const auto result = state_->MoveNode(city::road::MoveNodeRequest{
         input["nodeId"].as<city::road::RoadNodeId>(),
@@ -2154,41 +2145,6 @@ public:
     return road_result_value(result.ok, result.error, result.failure_category);
   }
 
-  val add_manual_line(const val& input) {
-    city::road::ManualLineRequest marking{};
-    marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
-    marking.path = city::road::MakePath({city::road::MakeLine(
-        {input["startSegmentDistanceM"].as<double>(), input["lateralM"].as<double>()},
-        {input["endSegmentDistanceM"].as<double>(), input["lateralM"].as<double>()})});
-    const auto style = road_marking_style_id(input["style"].as<std::string>());
-    if (!style.has_value()) {
-      return road_result_value(false, "unknown road marking style",
-                               city::road::CommitFailureCategory::kInvalidInput);
-    }
-    marking.style_id = *style;
-    const auto result = state_->AddManualLine(std::move(marking));
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
-  val add_manual_area(const val& input) {
-    city::road::ManualAreaRequest marking{};
-    marking.owner_segment_id = input["segmentId"].as<city::road::RoadSegmentId>();
-    marking.frame_origin = {input["segmentDistanceM"].as<double>(), input["lateralM"].as<double>()};
-    if (input.call<bool>("hasOwnProperty", std::string("rotationRad"))) {
-      marking.rotation_rad = input["rotationRad"].as<double>();
-    }
-    marking.width_m = input["widthM"].as<double>();
-    marking.length_m = input["lengthM"].as<double>();
-    const auto style = road_marking_style_id(input["style"].as<std::string>());
-    if (!style.has_value()) {
-      return road_result_value(false, "unknown road marking style",
-                               city::road::CommitFailureCategory::kInvalidInput);
-    }
-    marking.style_id = *style;
-    const auto result = state_->AddManualArea(std::move(marking));
-    return road_result_value(result.ok, result.error, result.failure_category);
-  }
-
   val undo_segment() {
     if (state_->graph().segments.empty()) {
       return road_result_value(true, {});
@@ -2239,14 +2195,11 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("deleteSegment", &RoadStateBinding::delete_segment)
       .function("splitSegmentAtDistance",
                 &RoadStateBinding::split_segment_at_distance)
-      .function("deleteSegmentRange", &RoadStateBinding::delete_segment_range)
       .function("moveNode", &RoadStateBinding::move_node)
       .function("previewMoveNode", &RoadStateBinding::preview_move_node)
       .function("editSegment", &RoadStateBinding::edit_segment)
       .function("previewEditSegment", &RoadStateBinding::preview_edit_segment)
       .function("updateSectionTemplate", &RoadStateBinding::update_section_template)
-      .function("addManualLine", &RoadStateBinding::add_manual_line)
-      .function("addManualArea", &RoadStateBinding::add_manual_area)
       .function("undoSegment", &RoadStateBinding::undo_segment)
       .function("clear", &RoadStateBinding::clear)
       .function("saveState", &RoadStateBinding::save_state)

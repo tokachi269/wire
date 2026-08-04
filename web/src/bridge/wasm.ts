@@ -308,8 +308,6 @@ export interface RoadStateHandle {
   editSegment(segmentId: number, input: RoadSegmentInput): OperationResult;
   previewEditSegment(segmentId: number, input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   updateSectionTemplate(input: Record<string, number | boolean>): OperationResult;
-  addManualLine(input: Record<string, number | string>): OperationResult;
-  addManualArea(input: Record<string, number | string>): OperationResult;
   undoSegment(): OperationResult;
   clear(): OperationResult;
   saveState(): string;

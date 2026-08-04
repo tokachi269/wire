@@ -1753,7 +1753,7 @@ describe("road wasm smoke", () => {
     });
   });
 
-  it("exposes local split and range deletion through the wasm boundary", () => {
+  it("exposes local split through the wasm boundary", () => {
     state.clear();
     const added = state.addSegment({
       kind: "line",
@@ -1783,17 +1783,6 @@ describe("road wasm smoke", () => {
     expect(scene.corridorCount).toBe(1);
     expect(scene.corridors[0].segments).toHaveLength(2);
 
-    const endSegmentId = split.segmentId!;
-    const deleted = state.deleteSegmentRange({
-      segmentId: endSegmentId,
-      startSegmentDistanceM: 10,
-      endSegmentDistanceM: 20
-    });
-    expect(deleted.ok, deleted.error).toBe(true);
-    scene = state.scene();
-    expect(scene.segmentCount).toBe(3);
-    expect(scene.corridorCount).toBe(2);
-    expect(scene.corridors.map((corridor) => corridor.segments.length)).toEqual([2, 1]);
   });
 
   it("exposes exact segment ownership and standard deletion through wasm", () => {

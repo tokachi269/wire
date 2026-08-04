@@ -337,14 +337,6 @@
           <button class:active={snapshot.road.operation === "delete"} type="button"
             aria-label="Delete road" title="Delete road" onclick={() => actions.setRoadOperation("delete")}
           ><Trash2 size={19} aria-hidden="true" /></button>
-          <button class:active={snapshot.road.operation === "line-marking"} type="button"
-            aria-label="Add line marking" title="Add line marking"
-            onclick={() => actions.setRoadOperation("line-marking")}
-          ><PenLine size={19} aria-hidden="true" /></button>
-          <button class:active={snapshot.road.operation === "area-marking"} type="button"
-            aria-label="Add area marking" title="Add area marking"
-            onclick={() => actions.setRoadOperation("area-marking")}
-          ><SquareDashed size={19} aria-hidden="true" /></button>
           <button class:active={snapshot.road.operation === "add-lane"} type="button"
             aria-label="Add lane" title="Add lane"
             onclick={() => actions.setRoadOperation("add-lane")}

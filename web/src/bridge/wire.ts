@@ -448,18 +448,6 @@ export class WireBridge {
     return { ...result, meshes: result.meshes.map(copyRoadMesh) };
   }
 
-  roadDeleteSegmentRange(
-    segmentId: number,
-    startSegmentDistanceM: number,
-    endSegmentDistanceM: number
-  ): OperationResult {
-    return this.roadState.deleteSegmentRange({
-      segmentId,
-      startSegmentDistanceM,
-      endSegmentDistanceM
-    });
-  }
-
   roadMoveNode(nodeId: number, x: number, y: number): OperationResult {
     return this.roadState.moveNode({ nodeId, x, y });
   }
@@ -484,14 +472,6 @@ export class WireBridge {
 
   roadUpdateSectionTemplate(input: Record<string, number | boolean>): OperationResult {
     return this.roadState.updateSectionTemplate(input);
-  }
-
-  roadAddManualLine(input: Record<string, number | string>): OperationResult {
-    return this.roadState.addManualLine(input);
-  }
-
-  roadAddManualArea(input: Record<string, number | string>): OperationResult {
-    return this.roadState.addManualArea(input);
   }
 
   roadUndoSegment(): OperationResult {

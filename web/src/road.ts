@@ -1,6 +1,6 @@
 export type RoadToolMode = "line" | "bezier";
 export type RoadToolPhase = "start" | "end";
-export type RoadOperation = "draw" | "edit" | "delete" | "line-marking" | "area-marking" |
+export type RoadOperation = "draw" | "edit" | "delete" |
   "add-lane" | "branch-lane" | "merge-lane";
 
 export interface RoadPoint {

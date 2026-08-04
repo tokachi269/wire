@@ -307,45 +307,6 @@ export class RoadActions {
       }));
       return;
     }
-    if (road.operation === "area-marking") {
-      this.finish(this.ctx.bridge.roadAddManualArea({
-        segmentId: snap.segmentId,
-        segmentDistanceM: snap.segmentDistanceM,
-        lateralM: road.manualLineOffsetM,
-        widthM: road.manualAreaWidthM,
-        lengthM: road.manualAreaLengthM,
-        style: "zebra"
-      }), "road add manual area marking");
-      return;
-    }
-    if (road.operation === "line-marking") {
-      if (road.markingDraftSegmentId === 0) {
-        this.ctx.store.update((snapshot) => ({
-          ...snapshot,
-          road: {
-            ...snapshot.road,
-            markingDraftSegmentId: snap.segmentId,
-            markingDraftSegmentDistanceM: snap.segmentDistanceM,
-            lastError: ""
-          }
-        }));
-        return;
-      }
-      if (road.markingDraftSegmentId !== snap.segmentId) {
-        this.rejectInput("road add manual line",
-                         "Manual line endpoints must use the same road segment",
-                         "manual_line_segment_mismatch");
-        return;
-      }
-      this.finish(this.ctx.bridge.roadAddManualLine({
-        segmentId: snap.segmentId,
-        startSegmentDistanceM: road.markingDraftSegmentDistanceM,
-        endSegmentDistanceM: snap.segmentDistanceM,
-        lateralM: road.manualLineOffsetM,
-        style: "white"
-      }), "road add manual line marking");
-      return;
-    }
     this.rejectInput("road edit", "Select and drag a road control point",
                      "road_control_point_not_selected");
   }

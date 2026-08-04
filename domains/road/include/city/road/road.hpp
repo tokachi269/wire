@@ -93,16 +93,6 @@ private:
 [[nodiscard]] Result<ResolvedSegmentDistance>
 ResolveCorridorDistance(const SavedRoadGraph& graph, const DerivedRoad& derived,
                        CorridorDistanceRef distance);
-[[nodiscard]] Result<RoadSideRef>
-ResolveCorridorSideRef(const SavedRoadGraph& graph, const DerivedRoad& derived,
-                       CorridorSideRef reference);
-[[nodiscard]] Result<Vec3d>
-ResolveRoadSidePosition(const DerivedRoad& derived, RoadSideRef reference);
-[[nodiscard]] Result<std::vector<double>>
-DeriveRepeatingPlacementDistances(const SavedRoadGraph& graph,
-                                 const DerivedRoad& derived,
-                                 RoadCorridorId corridor_id,
-                                 RepeatingPlacementPolicy policy);
 [[nodiscard]] Result<bool> ValidatePath(const Path& path);
 [[nodiscard]] Result<double> PathLength(const Path& path);
 [[nodiscard]] Result<Vec2d> EvaluatePath(const Path& path,

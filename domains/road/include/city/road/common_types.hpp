@@ -213,35 +213,9 @@ struct SegmentPosition {
   double t = 0.0;
 };
 
-struct RepeatingPlacementPolicy {
-  double spacing_m = 0.0;
-  double phase_m = 0.0;
-};
-
 enum class RoadSide {
   kLeft,
   kRight,
-};
-
-struct RoadSideRef {
-  RoadSegmentId segment_id = 0;
-  RoadSide side = RoadSide::kLeft;
-  double segment_distance_m = 0.0;
-  double lateral_offset_m = 0.0;
-};
-
-struct RoadSideIntervalRef {
-  RoadSegmentId segment_id = 0;
-  RoadSide side = RoadSide::kLeft;
-  double start_segment_distance_m = 0.0;
-  double end_segment_distance_m = 0.0;
-};
-
-struct CorridorSideRef {
-  RoadCorridorId corridor_id = 0;
-  RoadSide side = RoadSide::kLeft;
-  double corridor_distance_m = 0.0;
-  double lateral_offset_m = 0.0;
 };
 
 struct ApproachKey {

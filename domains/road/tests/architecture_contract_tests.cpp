@@ -1062,7 +1062,25 @@ bool derived_segment_owns_all_semantic_distances(std::string& failure) {
   return true;
 }
 
-bool corridor_distance_and_periodic_placement_cross_segment_boundaries(
+// Distances along a corridor. What these tests fix is that a corridor distance
+// keeps its world position across edits, not how the samples are produced.
+std::vector<double> corridor_sample_distances(const DerivedRoad& derived,
+                                              const RoadCorridor& corridor,
+                                              double step_m) {
+  double total = 0.0;
+  for (const DirectedSegmentRef& ref : corridor.segments) {
+    const DerivedSegment* segment = FindDerivedSegment(derived, ref.segment_id);
+    if (segment == nullptr) return {};
+    total += segment->length_m;
+  }
+  std::vector<double> distances{};
+  for (double value = 0.0; value <= total + 1e-9; value += step_m) {
+    distances.push_back(std::min(value, total));
+  }
+  return distances;
+}
+
+bool corridor_distance_crosses_segment_boundaries(
     std::string& failure) {
   RoadState state{};
   const Path path = MakePath({
@@ -1089,14 +1107,6 @@ bool corridor_distance_and_periodic_placement_cross_segment_boundaries(
           boundary.value.segment_id == corridor.segments[1].segment_id &&
           std::abs(boundary.value.segment_distance_m) <= 1e-9,
       "internal corridor boundary did not resolve to following local zero");
-  const auto periodic = DeriveRepeatingPlacementDistances(
-      state.graph(), state.derived(), corridor.id,
-      RepeatingPlacementPolicy{10.0, 0.0});
-  ROAD_CONTRACT_EXPECT(
-      periodic.ok &&
-          periodic.value == std::vector<double>({0.0, 10.0, 20.0, 30.0, 40.0}),
-      "periodic placement reset or drifted at a segment boundary");
-
   SavedRoadGraph reversed_graph = state.graph();
   std::reverse(reversed_graph.corridors.front().segments.begin(),
                reversed_graph.corridors.front().segments.end());
@@ -1117,21 +1127,6 @@ bool corridor_distance_and_periodic_placement_cross_segment_boundaries(
           std::abs(reversed_start.value.segment_distance_m -
                    original_last->length_m) <= 1e-9,
       "reversed corridor start did not resolve to segment end");
-  const auto reversed_side = ResolveCorridorSideRef(
-      reversed_graph, reversed_derived.value,
-      CorridorSideRef{corridor.id, RoadSide::kLeft, 0.0, 2.0});
-  ROAD_CONTRACT_EXPECT(
-      reversed_side.ok && reversed_side.value.side == RoadSide::kRight,
-      "corridor left side did not flip on a reversed segment");
-  const auto side_position =
-      reversed_side.ok
-          ? ResolveRoadSidePosition(reversed_derived.value,
-                                    reversed_side.value)
-          : Result<Vec3d>::Fail(CommitFailureCategory::kInternalError, "side resolve failed");
-  ROAD_CONTRACT_EXPECT(
-      side_position.ok && std::abs(side_position.value.x - 40.0) <= 1e-9 &&
-          std::abs(side_position.value.y + 2.0) <= 1e-9,
-      "reversed corridor side did not resolve in corridor direction");
   return true;
 }
 
@@ -1157,10 +1152,8 @@ bool branch_and_tail_extension_preserve_existing_corridor(
     ROAD_CONTRACT_EXPECT(path != nullptr, "main alignment is missing");
     alignments_before.emplace(ref.segment_id, path_observation(*path));
   }
-  const auto periodic_before = DeriveRepeatingPlacementDistances(
-      state.graph(), state.derived(), main_before.id,
-      RepeatingPlacementPolicy{10.0, 0.0});
-  ROAD_CONTRACT_EXPECT(periodic_before.ok, periodic_before.error);
+  const auto periodic_before = corridor_sample_distances(state.derived(), *FindRoadCorridor(state.graph(), main_before.id), 10.0);
+  ROAD_CONTRACT_EXPECT(!periodic_before.empty(), "main corridor produced no sample distances");
 
   const RoadSegment& first =
       *std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
@@ -1176,12 +1169,9 @@ bool branch_and_tail_extension_preserve_existing_corridor(
           main_after_branch->segments == main_before.segments &&
           state.graph().corridors.size() == 2,
       "branch changed the main corridor or was inserted into it");
-  const auto periodic_after_branch = DeriveRepeatingPlacementDistances(
-      state.graph(), state.derived(), main_before.id,
-      RepeatingPlacementPolicy{10.0, 0.0});
+  const auto periodic_after_branch = corridor_sample_distances(state.derived(), *FindRoadCorridor(state.graph(), main_before.id), 10.0);
   ROAD_CONTRACT_EXPECT(
-      periodic_after_branch.ok &&
-          periodic_after_branch.value == periodic_before.value,
+      periodic_after_branch == periodic_before,
       "branch changed main corridor periodic placement");
 
   const DirectedSegmentRef tail_ref = main_after_branch->segments.back();
@@ -1202,34 +1192,26 @@ bool branch_and_tail_extension_preserve_existing_corridor(
         path != nullptr && path_observation(*path) == observation,
         "tail extension changed an existing segment alignment");
   }
-  const auto periodic_after_extension = DeriveRepeatingPlacementDistances(
-      state.graph(), state.derived(), main_before.id,
-      RepeatingPlacementPolicy{10.0, 0.0});
+  const auto periodic_after_extension = corridor_sample_distances(state.derived(), *FindRoadCorridor(state.graph(), main_before.id), 10.0);
   ROAD_CONTRACT_EXPECT(
-      periodic_after_extension.ok &&
-          periodic_after_extension.value.size() >= periodic_before.value.size() &&
-          std::equal(periodic_before.value.begin(), periodic_before.value.end(),
-                     periodic_after_extension.value.begin()),
+      periodic_after_extension.size() >= periodic_before.size() &&
+          std::equal(periodic_before.begin(), periodic_before.end(),
+                     periodic_after_extension.begin()),
       "tail extension moved existing periodic placement distances");
   const RoadCorridor main_before_branch_delete =
       *FindRoadCorridor(state.graph(), main_before.id);
-  const auto periodic_before_branch_delete =
-      periodic_after_extension.value;
+  const auto periodic_before_branch_delete = periodic_after_extension;
   const auto deleted_branch =
       state.DeleteSegment(DeleteSegmentRequest{branch.value});
   ROAD_CONTRACT_EXPECT(deleted_branch.ok, deleted_branch.error);
   const RoadCorridor* main_after_branch_delete =
       FindRoadCorridor(state.graph(), main_before.id);
-  const auto periodic_after_branch_delete = DeriveRepeatingPlacementDistances(
-      state.graph(), state.derived(), main_before.id,
-      RepeatingPlacementPolicy{10.0, 0.0});
+  const auto periodic_after_branch_delete = corridor_sample_distances(state.derived(), *FindRoadCorridor(state.graph(), main_before.id), 10.0);
   ROAD_CONTRACT_EXPECT(
       main_after_branch_delete != nullptr &&
           main_after_branch_delete->segments ==
               main_before_branch_delete.segments &&
-          periodic_after_branch_delete.ok &&
-          periodic_after_branch_delete.value ==
-              periodic_before_branch_delete,
+          periodic_after_branch_delete == periodic_before_branch_delete,
       "branch deletion changed the main corridor or its periodic placement");
   return true;
 }
@@ -1244,12 +1226,10 @@ bool split_preserves_corridor_distance_and_world_position(
   ROAD_CONTRACT_EXPECT(added.ok, added.error);
   const RoadCorridor& before_corridor = state.graph().corridors.front();
   const RoadCorridorId corridor_id = before_corridor.id;
-  const auto distances_before = DeriveRepeatingPlacementDistances(
-      state.graph(), state.derived(), before_corridor.id,
-      RepeatingPlacementPolicy{5.0, 0.0});
-  ROAD_CONTRACT_EXPECT(distances_before.ok, distances_before.error);
+  const auto distances_before = corridor_sample_distances(state.derived(), *FindRoadCorridor(state.graph(), before_corridor.id), 5.0);
+  ROAD_CONTRACT_EXPECT(!distances_before.empty(), "corridor produced no sample distances");
   std::vector<Vec2d> world_before{};
-  for (const double distance : distances_before.value) {
+  for (const double distance : distances_before) {
     const auto resolved = ResolveCorridorDistance(
         state.graph(), state.derived(),
         CorridorDistanceRef{corridor_id, distance});
@@ -1271,16 +1251,13 @@ bool split_preserves_corridor_distance_and_world_position(
   ROAD_CONTRACT_EXPECT(after_corridor.id == corridor_id &&
                            after_corridor.segments.size() == 2,
                        "split changed corridor identity or segment count");
-  const auto distances_after = DeriveRepeatingPlacementDistances(
-      state.graph(), state.derived(), after_corridor.id,
-      RepeatingPlacementPolicy{5.0, 0.0});
-  ROAD_CONTRACT_EXPECT(distances_after.ok &&
-                           distances_after.value == distances_before.value,
+  const auto distances_after = corridor_sample_distances(state.derived(), *FindRoadCorridor(state.graph(), after_corridor.id), 5.0);
+  ROAD_CONTRACT_EXPECT(distances_after == distances_before,
                        "split changed corridor periodic distances");
-  for (std::size_t index = 0; index < distances_after.value.size(); ++index) {
+  for (std::size_t index = 0; index < distances_after.size(); ++index) {
     const auto resolved = ResolveCorridorDistance(
         state.graph(), state.derived(),
-        CorridorDistanceRef{after_corridor.id, distances_after.value[index]});
+        CorridorDistanceRef{after_corridor.id, distances_after[index]});
     ROAD_CONTRACT_EXPECT(resolved.ok, resolved.error);
     const Path* alignment =
         FindCanonicalAlignment(state.derived(), resolved.value.segment_id);
@@ -1683,8 +1660,8 @@ int main() {
        unsupported_junction_section_is_atomic},
       {"derived_segment_owns_all_semantic_distances",
        derived_segment_owns_all_semantic_distances},
-      {"corridor_distance_and_periodic_placement_cross_segment_boundaries",
-       corridor_distance_and_periodic_placement_cross_segment_boundaries},
+      {"corridor_distance_crosses_segment_boundaries",
+       corridor_distance_crosses_segment_boundaries},
       {"branch_and_tail_extension_preserve_existing_corridor",
        branch_and_tail_extension_preserve_existing_corridor},
       {"split_preserves_corridor_distance_and_world_position",

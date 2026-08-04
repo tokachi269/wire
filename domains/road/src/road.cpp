@@ -1053,103 +1053,6 @@ ResolveCorridorDistance(const SavedRoadGraph& graph, const DerivedRoad& derived,
       CommitFailureCategory::kInvalidInput, "road corridor distance exceeds its length");
 }
 
-Result<RoadSideRef>
-ResolveCorridorSideRef(const SavedRoadGraph& graph, const DerivedRoad& derived,
-                       CorridorSideRef reference) {
-  if (!finite(reference.lateral_offset_m) ||
-      reference.lateral_offset_m < 0.0) {
-    return Result<RoadSideRef>::Fail(
-        CommitFailureCategory::kInvalidInput, "road corridor side offset is invalid");
-  }
-  const Result<ResolvedSegmentDistance> resolved = ResolveCorridorDistance(
-      graph, derived,
-      CorridorDistanceRef{reference.corridor_id,
-                          reference.corridor_distance_m});
-  if (!resolved.ok) {
-    return Result<RoadSideRef>::Fail(resolved.failure_category, resolved.error);
-  }
-  const RoadSide segment_side =
-      resolved.value.reversed
-          ? (reference.side == RoadSide::kLeft ? RoadSide::kRight
-                                               : RoadSide::kLeft)
-          : reference.side;
-  return Result<RoadSideRef>::Ok(
-      RoadSideRef{resolved.value.segment_id, segment_side,
-                  resolved.value.segment_distance_m, reference.lateral_offset_m});
-}
-
-Result<Vec3d> ResolveRoadSidePosition(const DerivedRoad& derived,
-                                      RoadSideRef reference) {
-  if (!finite(reference.segment_distance_m) ||
-      !finite(reference.lateral_offset_m) ||
-      reference.segment_distance_m < 0.0 ||
-      reference.lateral_offset_m < 0.0) {
-    return Result<Vec3d>::Fail(CommitFailureCategory::kInvalidInput,
-                               "road side reference is invalid");
-  }
-  const Path* alignment =
-      FindCanonicalAlignment(derived, reference.segment_id);
-  if (alignment == nullptr) {
-    return Result<Vec3d>::Fail(CommitFailureCategory::kInvalidInput,
-                               "road side segment does not exist");
-  }
-  const Result<Vec2d> center =
-      EvaluatePath(*alignment, reference.segment_distance_m);
-  const Result<Vec2d> tangent =
-      internal::tangent_at(*alignment, reference.segment_distance_m);
-  if (!center.ok) {
-    return Result<Vec3d>::Fail(center.failure_category, center.error);
-  }
-  if (!tangent.ok) {
-    return Result<Vec3d>::Fail(tangent.failure_category, tangent.error);
-  }
-  const double sign = reference.side == RoadSide::kLeft ? 1.0 : -1.0;
-  return Result<Vec3d>::Ok(
-      Vec3d{center.value.x - tangent.value.y *
-                                 reference.lateral_offset_m * sign,
-            center.value.y + tangent.value.x *
-                                 reference.lateral_offset_m * sign,
-            0.0});
-}
-
-Result<std::vector<double>>
-DeriveRepeatingPlacementDistances(const SavedRoadGraph& graph,
-                                 const DerivedRoad& derived,
-                                 RoadCorridorId corridor_id,
-                                 RepeatingPlacementPolicy policy) {
-  if (!finite(policy.spacing_m) || !finite(policy.phase_m) ||
-      policy.spacing_m <= 0.0 || policy.phase_m < 0.0) {
-    return Result<std::vector<double>>::Fail(
-        CommitFailureCategory::kInvalidInput, "road repeating placement policy is invalid");
-  }
-  const RoadCorridor* corridor = FindRoadCorridor(graph, corridor_id);
-  if (corridor == nullptr || corridor->segments.empty()) {
-    return Result<std::vector<double>>::Fail(
-        CommitFailureCategory::kInvalidInput, "road corridor does not exist");
-  }
-  double total = 0.0;
-  for (const DirectedSegmentRef& ref : corridor->segments) {
-    const DerivedSegment* segment = FindDerivedSegment(derived, ref.segment_id);
-    if (segment == nullptr || !finite(segment->length_m) ||
-        segment->length_m <= 0.0) {
-      return Result<std::vector<double>>::Fail(
-          CommitFailureCategory::kInternalError, "road corridor segment length is missing");
-    }
-    total += segment->length_m;
-  }
-  std::vector<double> distances{};
-  for (double value = policy.phase_m; value <= total + kEpsilon;
-       value += policy.spacing_m) {
-    distances.push_back(std::min(value, total));
-    if (distances.size() > 1000000) {
-      return Result<std::vector<double>>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "road repeating placement count is unsupported");
-    }
-  }
-  return Result<std::vector<double>>::Ok(std::move(distances));
-}
-
 BezierSpan MakeLine(Vec2d a, Vec2d b) {
   const Vec2d delta = sub(b, a);
   return BezierSpan{a, add(a, mul(delta, 1.0 / 3.0)), add(a, mul(delta, 2.0 / 3.0)), b};
@@ -1190,14 +1093,14 @@ namespace {
 
 // An interval leaves in the heading it inherits and turns to the new point as
 // one arc, so the drawn curve keeps a single bend instead of an S.
-[[nodiscard]] bool apply_inherited_arc(Vec2d inherited, Vec2d chord, SegmentShape* shape) {
+void apply_inherited_arc(Vec2d inherited, Vec2d chord, SegmentShape* shape) {
   const double inherited_length = length(inherited);
   const double chord_length = length(chord);
-  if (inherited_length <= kEpsilon || chord_length <= kEpsilon) return false;
+  // Degenerate input keeps the chord handles the caller already set.
+  if (inherited_length <= kEpsilon || chord_length <= kEpsilon) return;
   const Vec2d heading = mul(inherited, -1.0 / inherited_length);
   shape->start_handle = mul(heading, chord_length / 3.0);
   shape->end_handle = mul(mirror_tangent_across(heading, chord), -chord_length / 3.0);
-  return true;
 }
 
 [[nodiscard]] Vec2d mirror_tangent_across(Vec2d tangent, Vec2d chord) {

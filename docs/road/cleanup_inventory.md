@@ -10,7 +10,7 @@
 | 最終commit | `64a25951` road: draw each curve interval as one arc |
 | working tree | clean (未追跡の `tools/__pycache__/`、`web/dev-5174.log` のみ) |
 | 未コミットUX作業 | なし |
-| compiler warning | 0 |
+| compiler warning | 2 (`C4834` road.cpp、CLEAN1で修正済み。baseline測定時はビルドが最新で再コンパイルされず検出できていなかった) |
 | road Core tests | 54 pass |
 | architecture contract tests | 27 pass |
 | wire Core tests | 541 pass |
@@ -100,7 +100,7 @@ Web bridgeの32件中14件はweb/src内に呼び出し元がない。
 ## 進捗
 
 - [x] CLEAN0 baseline + 分類表
-- [ ] CLEAN1 配置API削除
+- [x] CLEAN1 配置API削除 — production/正本docsから41箇所を削除。contract testは`corridor_sample_distances`へ置換して距離↔世界座標の契約を維持
 - [ ] CLEAN2 旧ADD LANE preview削除
 - [ ] CLEAN3 低レベル操作内部化
 - [ ] CLEAN4 保留機能整理(**停止して報告**)

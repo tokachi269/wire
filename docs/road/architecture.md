@@ -310,15 +310,8 @@ Viewerの通常削除はhover hitが持つ`RoadSegmentId`のsegment全体をハ�
 `DeleteSegment`へ渡す。Coreは選択segmentだけを削除し、結果として必要なcorridor分断を決定論的に行う。
 通常削除はrange境界、split node、replacement segmentを生成しない。
 
-局所追従参照は`RoadSideRef` / `RoadSideIntervalRef`のsegment IDとlocal distance、道路全長基準のpolicyは
-`CorridorSideRef`のcorridor IDとcorridor distanceを使う。`RoadSideRef`の左右はsegment正本のstart-to-end方向、
-`CorridorSideRef`の左右はcorridor進行方向を基準とする。reversed segmentへcorridor参照を解決すると左右を反転する。
-
-## Periodic placement
-
-周期配置policy入力はcorridor単位の`spacing_m`と`phase_m`だけを持つ。候補distanceはcorridor全長で
-`phase + n * spacing`として導出し、segment境界で位相をリセットしない。branch corridorは独自位相を持ち、
-本線から自動継承しない。個々の候補位置は保存しない。
+道路沿いへ街路樹・標識・建物を並べるための参照型と周期配置policyは、consumerを実装する時点で
+そのconsumerの要件から設計する。先行して型だけを置かない。
 
 ## Section axes
 
@@ -328,7 +321,7 @@ Viewerの通常削除はhover hitが持つ`RoadSegmentId`のsegment全体をハ�
 
 現行persistence versionは11。局所segment、corridor、directed ref、section strip、lane allocation、
 lane connection、boundary continuationをnamed fieldで保存し、version 10以前はmigrationせず明示rejectする。
-corridor長、累積distance、周期配置候補、connection geometryは派生なので保存しない。
+corridor長、累積distance、connection geometryは派生なので保存しない。
 
 testはproductionと同じ`ValidateGraphInvariants`を代表scenarioの観測点とseed付き操作列の
 各stepで呼ぶ。test専用の別invariantや、派生値同士だけを比較する代替検査を作らない。

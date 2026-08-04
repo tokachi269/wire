@@ -35,3 +35,19 @@ private関数への分割は自由とする。
 | derived | 正本から再構築できる値。保存しない |
 | trial | 編集を適用した一時state。成功時だけcommitする |
 | unsupported | 対応範囲外。fallbackせず明示的に失敗する |
+
+## 失敗分類
+
+`CommitFailureCategory`はroadとwireで名前・値・意味を一致させる。別定義のまま同じ集合を保つ。
+enum名だけを揃えるのではなく、どの失敗がどれに入るかを一致させる。
+
+| 分類 | 意味 |
+|---|---|
+| `kRequirementConstraint` | 製品仕様として禁じている操作 |
+| `kInvalidInput` | 外部入力が不正(ID不在、非有限値、enum範囲外、寸法が非正) |
+| `kNotImplemented` | 入力は正しいが現在の対応範囲外。`unsupported`と同義 |
+| `kStateConflict` | 現在のstateと両立しない |
+| `kInternalError` | 正しい正本から派生が欠ける等の内部不整合 |
+
+対応予定の入力で幾何生成に失敗したものを`kNotImplemented`へ逃がさない。
+値を同じに保つためだけの共通型は作らない。両domainが同じ集合を維持していることをテストで固定する。

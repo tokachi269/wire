@@ -271,6 +271,15 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.EditSectionTemplate(city::road::EditSectionTemplateRequest{missing}); }, "EditSectionTemplate", failure),
                        failure);
+  AddLaneRequest lane{};
+  lane.corridor_id = 999999;
+  lane.transition_start = SegmentPosition{999998, 0.1};
+  lane.transition_complete = SegmentPosition{999998, 0.9};
+  lane.continuation_end_node_id = 999997;
+  lane.lane_width_m = 3.0;
+  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
+                           state, [&] { return state.AddLane(lane); }, "AddLane", failure),
+                       failure);
   SectionTransitionRequest invalid_transition{};
   invalid_transition.from_template = 1;
   invalid_transition.to_template = 999999;
@@ -553,27 +562,23 @@ bool extension_semantic_boundaries_are_atomic(std::string& failure) {
           "mixed-section ExtendCorridorFromEnd", failure),
       failure);
 
-  RoadState marked{};
-  const auto marked_base =
-      marked.AddSegment(AddSegmentRequest{base_path, 1});
-  ROAD_CONTRACT_EXPECT(marked_base.ok, marked_base.error);
-  const auto marking = marked.AddManualArea(
-      ManualAreaRequest{marked_base.value, {10.0, 0.0}, 0.0, 2.0, 2.0,
-                        builtin_marking_styles::kCrosswalk});
-  ROAD_CONTRACT_EXPECT(marking.ok, marking.error);
-  const RoadSegment marked_segment = marked.graph().segments.front();
+  RoadState from_start{};
+  const auto start_base =
+      from_start.AddSegment(AddSegmentRequest{base_path, 1});
+  ROAD_CONTRACT_EXPECT(start_base.ok, start_base.error);
+  const RoadSegment start_segment = from_start.graph().segments.front();
   const Path prepend =
       MakePath({MakeLine({0.0, 0.0}, {-12.0, 16.0})});
   ROAD_CONTRACT_EXPECT(
       expect_failed_unchanged(
-          marked,
+          from_start,
           [&] {
             const RoadCorridor* corridor =
-                FindCorridorForSegment(marked.graph(), marked_segment.id);
-            return marked.ExtendCorridorFromEnd(
+                FindCorridorForSegment(from_start.graph(), start_segment.id);
+            return from_start.ExtendCorridorFromEnd(
                 ExtendCorridorFromEndRequest{
                     corridor == nullptr ? 0 : corridor->id,
-                    marked_segment.node_a, prepend, 1});
+                    start_segment.node_a, prepend, 1});
           },
           "corridor-start ExtendCorridorFromEnd", failure),
       failure);
@@ -610,15 +615,19 @@ bool approach_override_resolves_and_persists_manual_fields(std::string& failure)
   const ResolvedApproach& original = connection.approaches.front();
   const ApproachKey key = original.key;
   const double manual_setback = original.resolved_setback_m + 0.5;
-  const auto set_setback = state.SetApproachSetbackOverride(
-      SetApproachSetbackOverrideRequest{key, manual_setback});
-  ROAD_CONTRACT_EXPECT(set_setback.ok, set_setback.error);
-  const auto set_shift = state.SetApproachLateralShiftOverride(
-      SetApproachLateralShiftOverrideRequest{key, 0.75});
-  ROAD_CONTRACT_EXPECT(set_shift.ok, set_shift.error);
-  ROAD_CONTRACT_EXPECT(state.graph().approach_geometry_overrides.size() == 1,
-                       "manual approach override was not saved as one authoritative row");
-  const ResolvedApproach* resolved = FindResolvedApproach(state.derived(), key);
+  const auto state_saved = state.Save();
+  ROAD_CONTRACT_EXPECT(state_saved.ok, state_saved.error);
+  const std::uint64_t next_id = next_id_observation(state_saved.value);
+
+  // The override is a saved row, not an operation. Connection resolution is the
+  // only thing that reads it, so the fixture hands it straight to generation.
+  SavedRoadGraph graph = state.graph();
+  graph.approach_geometry_overrides.push_back(ApproachGeometryOverride{
+      key, ManualDoubleOverride{true, manual_setback},
+      ManualDoubleOverride{true, 0.75}});
+  const auto generated = generation::generate_road(graph);
+  ROAD_CONTRACT_EXPECT(generated.ok, generated.error);
+  const ResolvedApproach* resolved = FindResolvedApproach(generated.value, key);
   ROAD_CONTRACT_EXPECT(resolved != nullptr, "manual override lost the resolved approach");
   ROAD_CONTRACT_EXPECT(std::abs(resolved->resolved_setback_m - manual_setback) < 1e-9 &&
                            std::abs(resolved->resolved_lateral_shift_m - 0.75) < 1e-9,
@@ -631,7 +640,7 @@ bool approach_override_resolves_and_persists_manual_fields(std::string& failure)
                            resolved->gate.position.y == resolved->position.y &&
                            resolved->gate.position.z == resolved->position.z,
                        "connection gate did not follow the resolved approach");
-  const auto saved = state.Save();
+  const auto saved = persistence::SaveRoad(graph, next_id);
   ROAD_CONTRACT_EXPECT(saved.ok, saved.error);
   ROAD_CONTRACT_EXPECT(saved.value.find("approach_geometry_override.count=1\n") != std::string::npos &&
                            saved.value.find(".setback.value=") != std::string::npos &&
@@ -641,24 +650,19 @@ bool approach_override_resolves_and_persists_manual_fields(std::string& failure)
   ROAD_CONTRACT_EXPECT(loaded.ok, loaded.error);
   ROAD_CONTRACT_EXPECT(loaded.value.graph().approach_geometry_overrides.size() == 1,
                        "manual approach override did not survive load");
-  const auto reset_field = state.ResetApproachOverrideField(
-      ResetApproachOverrideFieldRequest{key, ApproachOverrideField::kSetback});
-  ROAD_CONTRACT_EXPECT(reset_field.ok, reset_field.error);
-  ROAD_CONTRACT_EXPECT(state.graph().approach_geometry_overrides.size() == 1 &&
-                           !state.graph().approach_geometry_overrides.front().setback_m.has_value,
-                       "reset field did not remove only setback override");
-  const auto reset_all = state.ResetAllApproachOverrides(ResetAllApproachOverridesRequest{key});
-  ROAD_CONTRACT_EXPECT(reset_all.ok, reset_all.error);
-  ROAD_CONTRACT_EXPECT(state.graph().approach_geometry_overrides.empty(),
-                       "reset all did not remove empty override entity");
-  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
-                           state,
-                           [&] {
-                             return state.SetApproachSetbackOverride(
-                                 SetApproachSetbackOverrideRequest{key, -1.0});
-                           },
-                           "negative setback override", failure),
-                       failure);
+  const auto reloaded_resolved =
+      FindResolvedApproach(loaded.value.derived(), key);
+  ROAD_CONTRACT_EXPECT(reloaded_resolved != nullptr &&
+                           std::abs(reloaded_resolved->resolved_setback_m - manual_setback) < 1e-9,
+                       "loaded manual override was not consumed by the resolved approach");
+
+  SavedRoadGraph negative = graph;
+  negative.approach_geometry_overrides.front().setback_m =
+      ManualDoubleOverride{true, -1.0};
+  const auto rejected = persistence::SaveRoad(negative, next_id);
+  ROAD_CONTRACT_EXPECT(!rejected.ok && rejected.failure_category ==
+                                           CommitFailureCategory::kInvalidInput,
+                       "a negative setback override was accepted as authoritative data");
   return true;
 }
 
@@ -1030,18 +1034,20 @@ bool derived_segment_owns_all_semantic_distances(std::string& failure) {
   });
   const auto segment = state.AddSegment(AddSegmentRequest{alignment, 1});
   ROAD_CONTRACT_EXPECT(segment.ok, segment.error);
-  SectionTransitionRequest transition{};
-  transition.to_template = 2;
-  transition.start = DistanceRef{DistanceRefKind::kFromStart, 5.0};
-  transition.end = DistanceRef{DistanceRefKind::kFromStart, 20.0};
-  transition.rules = {
-      SectionTransitionRule{35, TransitionAction::kTaperIn},
-  };
-  const auto attached = state.AddTransitionToSegment(
-      AddTransitionToSegmentRequest{segment.value, transition});
-  ROAD_CONTRACT_EXPECT(attached.ok, attached.error);
+  // A transition anywhere inside a segment is saved data, so the fixture writes
+  // one and asks generation for the distances it must carry.
+  SavedRoadGraph graph = state.graph();
+  for (RoadSegment& item : graph.segments) {
+    if (item.id == segment.value) item.transition = 9001;
+  }
+  graph.transitions.push_back(SectionTransition{
+      9001, 1, 2, DistanceRef{DistanceRefKind::kFromStart, 5.0},
+      DistanceRef{DistanceRefKind::kFromStart, 20.0}, TransitionAnchor::kCenter,
+      0, {SectionTransitionRule{35, TransitionAction::kTaperIn}}});
+  const auto generated = generation::generate_road(graph);
+  ROAD_CONTRACT_EXPECT(generated.ok, generated.error);
   const DerivedSegment* derived_segment =
-      FindDerivedSegment(state.derived(), segment.value);
+      FindDerivedSegment(generated.value, segment.value);
   ROAD_CONTRACT_EXPECT(derived_segment != nullptr, "derived segment is missing");
   for (const double distance : std::array<double, 4>{0.0, 5.0, 20.0, 50.0}) {
     ROAD_CONTRACT_EXPECT(
@@ -1433,121 +1439,6 @@ bool split_preserves_corridor_distance_and_world_position(
   return true;
 }
 
-bool delete_range_splits_corridor_without_touching_outer_shapes(
-    std::string& failure) {
-  RoadState state{};
-  const auto added = state.AddSegment(AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
-  ROAD_CONTRACT_EXPECT(added.ok, added.error);
-  const Path* before_alignment =
-      FindCanonicalAlignment(state.derived(), added.value);
-  ROAD_CONTRACT_EXPECT(before_alignment != nullptr,
-                       "range deletion baseline alignment is missing");
-  const auto before_point = EvaluatePath(*before_alignment, 5.0);
-  ROAD_CONTRACT_EXPECT(before_point.ok, before_point.error);
-  const RoadCorridorId corridor_id = state.graph().corridors.front().id;
-  const auto deleted = state.DeleteSegmentRange(
-      DeleteSegmentRangeRequest{added.value, 10.0, 20.0});
-  ROAD_CONTRACT_EXPECT(deleted.ok, deleted.error);
-  ROAD_CONTRACT_EXPECT(state.graph().segments.size() == 2 &&
-                           state.graph().corridors.size() == 2,
-                       "range deletion did not retain two local segments and split the corridor");
-  ROAD_CONTRACT_EXPECT(state.graph().corridors.front().id == corridor_id,
-                       "range deletion did not preserve the start-side corridor ID");
-  const Path* retained =
-      FindCanonicalAlignment(state.derived(), added.value);
-  ROAD_CONTRACT_EXPECT(retained != nullptr,
-                       "range deletion retained alignment is missing");
-  const auto after_point = EvaluatePath(*retained, 5.0);
-  ROAD_CONTRACT_EXPECT(
-      after_point.ok &&
-          std::hypot(after_point.value.x - before_point.value.x,
-                     after_point.value.y - before_point.value.y) <= 1e-6,
-      "range deletion changed unaffected world geometry");
-  return true;
-}
-
-bool delete_range_migrates_unaffected_segment_owned_state(
-    std::string& failure) {
-  RoadState state{};
-  const auto added = state.AddSegment(AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
-  ROAD_CONTRACT_EXPECT(added.ok, added.error);
-  const auto before_line = state.AddManualLine(ManualLineRequest{
-      added.value, MakePath({MakeLine({2.0, 0.5}, {5.0, 0.5})}),
-      builtin_marking_styles::kWhiteSolid});
-  const auto after_line = state.AddManualLine(ManualLineRequest{
-      added.value, MakePath({MakeLine({30.0, 0.5}, {35.0, 0.5})}),
-      builtin_marking_styles::kWhiteSolid});
-  const auto after_area = state.AddManualArea(ManualAreaRequest{
-      added.value, {34.0, 0.0}, 0.0, 2.0, 2.0,
-      builtin_marking_styles::kCrosswalk});
-  ROAD_CONTRACT_EXPECT(before_line.ok && after_line.ok && after_area.ok,
-                       "delete-range owner migration setup failed");
-  const AutoMarkingKey suppression{
-      MarkingOwner{MarkingOwner::Kind::kRoadSegment, added.value, 0, 0},
-      MarkingRole::kCenterLine,
-      MarkingTrackKey{added.value, 200, MarkingRole::kCenterLine},
-      std::nullopt};
-  const auto suppressed =
-      state.SuppressAutoMarking(SuppressAutoMarkingRequest{suppression});
-  ROAD_CONTRACT_EXPECT(suppressed.ok, suppressed.error);
-
-  const auto deleted =
-      state.DeleteSegmentRange(DeleteSegmentRangeRequest{added.value, 10.0, 20.0});
-  ROAD_CONTRACT_EXPECT(deleted.ok, deleted.error);
-  ROAD_CONTRACT_EXPECT(state.graph().segments.size() == 2,
-                       "delete range did not retain two outer segments");
-  const RoadSegmentId after_segment_id =
-      std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
-                   [id = added.value](const RoadSegment& segment) {
-                     return segment.id != id;
-                   })
-          ->id;
-  const auto restored_before = std::find_if(
-      state.graph().manual_lines.begin(), state.graph().manual_lines.end(),
-      [id = before_line.value](const ManualLineMarking& marking) {
-        return marking.id == id;
-      });
-  const auto restored_after = std::find_if(
-      state.graph().manual_lines.begin(), state.graph().manual_lines.end(),
-      [id = after_line.value](const ManualLineMarking& marking) {
-        return marking.id == id;
-      });
-  const auto restored_area = std::find_if(
-      state.graph().manual_areas.begin(), state.graph().manual_areas.end(),
-      [id = after_area.value](const ManualAreaMarking& marking) {
-        return marking.id == id;
-      });
-  ROAD_CONTRACT_EXPECT(
-      restored_before != state.graph().manual_lines.end() &&
-          restored_before->owner_segment_id == added.value &&
-          restored_before->path.spans.front().p0.x == 2.0,
-      "start-side manual owner moved during range deletion");
-  ROAD_CONTRACT_EXPECT(
-      restored_after != state.graph().manual_lines.end() &&
-          restored_after->owner_segment_id == after_segment_id &&
-          restored_after->path.spans.front().p0.x == 10.0,
-      "end-side manual line was not mapped by deleted range length");
-  ROAD_CONTRACT_EXPECT(
-      restored_area != state.graph().manual_areas.end() &&
-          restored_area->owner_segment_id == after_segment_id &&
-          restored_area->frame_origin.x == 14.0,
-      "end-side manual area was not mapped by deleted range length");
-  ROAD_CONTRACT_EXPECT(
-      state.graph().auto_marking_overrides.size() == 2 &&
-          std::any_of(
-              state.graph().auto_marking_overrides.begin(),
-              state.graph().auto_marking_overrides.end(),
-              [after_segment_id](const AutoMarkingOverride& value) {
-                return value.key.owner.segment_id == after_segment_id &&
-                       value.key.track.has_value() &&
-                       value.key.track->segment_id == after_segment_id;
-              }),
-      "segment-wide semantic suppression was not copied to both retained pieces");
-  return true;
-}
-
 bool standard_delete_removes_only_requested_segment(std::string& failure) {
   RoadState state{};
   const auto first = state.AddSegment(AddSegmentRequest{
@@ -1607,30 +1498,30 @@ bool standard_delete_removes_only_requested_segment(std::string& failure) {
 
 bool standard_delete_preserves_unrelated_approach_override(
     std::string& failure) {
-  RoadState state{};
-  const auto main = state.AddSegment(AddSegmentRequest{
+  RoadState authored{};
+  const auto main = authored.AddSegment(AddSegmentRequest{
       MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
   ROAD_CONTRACT_EXPECT(main.ok, main.error);
-  const auto branch = state.AddSegmentConnectedToSegment(
+  const auto branch = authored.AddSegmentConnectedToSegment(
       AddSegmentConnectedToSegmentRequest{
           MakePath({MakeLine({20.0, 0.0}, {20.0, 24.0})}), 1,
           main.value, 20.0});
   ROAD_CONTRACT_EXPECT(branch.ok, branch.error);
   const auto branch_segment =
-      std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
+      std::find_if(authored.graph().segments.begin(), authored.graph().segments.end(),
                    [id = branch.value](const RoadSegment& segment) {
                      return segment.id == id;
                    });
-  ROAD_CONTRACT_EXPECT(branch_segment != state.graph().segments.end(),
+  ROAD_CONTRACT_EXPECT(branch_segment != authored.graph().segments.end(),
                        "branch segment is missing before standard deletion");
   const auto connection =
-      std::find_if(state.derived().connections.begin(),
-                   state.derived().connections.end(),
+      std::find_if(authored.derived().connections.begin(),
+                   authored.derived().connections.end(),
                    [node_id = branch_segment->node_a](
                        const ResolvedConnection& value) {
                      return value.node_id == node_id;
                    });
-  ROAD_CONTRACT_EXPECT(connection != state.derived().connections.end(),
+  ROAD_CONTRACT_EXPECT(connection != authored.derived().connections.end(),
                        "branch connection is missing before standard deletion");
   const auto retained_approach =
       std::find_if(connection->approaches.begin(), connection->approaches.end(),
@@ -1640,9 +1531,17 @@ bool standard_delete_preserves_unrelated_approach_override(
   ROAD_CONTRACT_EXPECT(retained_approach != connection->approaches.end(),
                        "main-road approach is missing before branch deletion");
   const ApproachKey retained_key = retained_approach->key;
-  const auto overridden = state.SetApproachLateralShiftOverride(
-      SetApproachLateralShiftOverrideRequest{retained_key, 0.1});
-  ROAD_CONTRACT_EXPECT(overridden.ok, overridden.error);
+  const auto authored_saved = authored.Save();
+  ROAD_CONTRACT_EXPECT(authored_saved.ok, authored_saved.error);
+  SavedRoadGraph graph = authored.graph();
+  graph.approach_geometry_overrides.push_back(ApproachGeometryOverride{
+      retained_key, {}, ManualDoubleOverride{true, 0.1}});
+  const auto archived =
+      persistence::SaveRoad(graph, next_id_observation(authored_saved.value));
+  ROAD_CONTRACT_EXPECT(archived.ok, archived.error);
+  auto loaded = RoadState::Load(archived.value);
+  ROAD_CONTRACT_EXPECT(loaded.ok, loaded.error);
+  RoadState& state = loaded.value;
 
   const auto deleted = state.DeleteSegment(DeleteSegmentRequest{branch.value});
   ROAD_CONTRACT_EXPECT(deleted.ok, deleted.error);
@@ -1830,10 +1729,6 @@ int main() {
        branch_and_tail_extension_preserve_existing_corridor},
       {"split_preserves_corridor_distance_and_world_position",
        split_preserves_corridor_distance_and_world_position},
-      {"delete_range_splits_corridor_without_touching_outer_shapes",
-       delete_range_splits_corridor_without_touching_outer_shapes},
-      {"delete_range_migrates_unaffected_segment_owned_state",
-       delete_range_migrates_unaffected_segment_owned_state},
       {"standard_delete_removes_only_requested_segment",
        standard_delete_removes_only_requested_segment},
       {"standard_delete_preserves_unrelated_approach_override",

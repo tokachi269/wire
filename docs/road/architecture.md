@@ -116,6 +116,25 @@ authoritative graph
 `generate_road(graph)`は純粋関数であり、`RoadState`へ途中結果を書かない。完成した`DerivedRoad`だけを返し、
 失敗時は部分的な派生を公開しない。工程を細分するかどうかは実装都合であり、契約はownerと依存方向だけを固定する。
 
+工程数は削減目標ではない。各工程は入力・出力・consumer・失敗分類を説明できることだけを求める。
+consumerのない工程と、削除した機能のためだけの分岐は置かない。
+
+| 工程 | 入力 | 出力 | consumer |
+|---|---|---|---|
+| `derive_node_incidence` | graph nodes / segments | node別のincident endpoint | `resolve_connections` |
+| `derive_segment_shapes` | node位置 + `SegmentShape` | `CanonicalAlignment`、長さ | `derive_segment_sections`、`resolve_connections`、viewer |
+| `resolve_connections` | incidence、alignment、policy override、approach override | `ResolvedConnection`(種別・approach順・auto値・resolved値・gate) | `derive_segment_sections`、`resolve_connection_geometry`、inspection |
+| `derive_segment_sections` | alignment、template、transition、gate distance | semantic / surface distance、`SectionEvaluation` | `resolve_connection_geometry`、`derive_markings`、`emit_geometry` |
+| `derive_topology_paths` | lane connection、boundary continuation | junction内のlane / boundary経路 | `derive_segment_lane_paths`、`derive_markings` |
+| `derive_segment_lane_paths` | section評価、topology経路 | segment内のlane経路 | scene payload、`derive_markings` |
+| `resolve_connection_geometry` | `ResolvedConnection`、gate断面 | corner / junction surface | `emit_geometry` |
+| `derive_markings` | section boundary、marking policy、junction override | `DerivedMarking` | `emit_geometry` |
+| `emit_geometry` | 解決済みgeometryのみ | mesh、terrain mask | viewer |
+
+失敗分類は全工程共通で、入力不正は`kInvalidInput`、現在の対応範囲外は`kNotImplemented`、
+正しい正本から派生が欠ける場合は`kInternalError`とする。保留機能のデータを持たない通常道路が、
+その機能の処理を理由に失敗してはならない。
+
 ### derive_segments
 
 `CanonicalAlignment`、semantic distance、surface distance、`SectionEvaluation`を`DerivedSegment`が所有する。

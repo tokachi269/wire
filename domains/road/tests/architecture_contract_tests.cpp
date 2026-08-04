@@ -1098,6 +1098,41 @@ bool same_alignment_bits(const Path& before, const Path& after) {
   return true;
 }
 
+bool template_edit_reaches_only_roads_using_that_template(std::string& failure) {
+  RoadState state{};
+  const auto edited_road = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(edited_road.ok, edited_road.error);
+  const auto other_road = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({500.0, 500.0}, {540.0, 500.0})}), 2});
+  ROAD_CONTRACT_EXPECT(other_road.ok, other_road.error);
+
+  const auto section_width = [&state](RoadSegmentId id) {
+    const DerivedSegment* segment = FindDerivedSegment(state.derived(), id);
+    if (segment == nullptr || segment->sections.empty()) return 0.0;
+    const auto& boundaries = segment->sections.front().boundaries;
+    if (boundaries.size() < 2) return 0.0;
+    return boundaries.back().lateral_m - boundaries.front().lateral_m;
+  };
+  const double edited_before = section_width(edited_road.value);
+  const double other_before = section_width(other_road.value);
+  ROAD_CONTRACT_EXPECT(edited_before > 0.0 && other_before > 0.0,
+                       "section widths were not derived");
+
+  CrossSectionTemplate wider = JapaneseUrbanTwoLaneTemplate(1);
+  for (auto& strip : wider.strips) strip.width_m += 0.5;
+  const auto applied = state.EditSectionTemplate(EditSectionTemplateRequest{wider});
+  ROAD_CONTRACT_EXPECT(applied.ok, applied.error);
+
+  ROAD_CONTRACT_EXPECT(section_width(edited_road.value) > edited_before,
+                       "shared template edit did not reach the road using it");
+  ROAD_CONTRACT_EXPECT(
+      std::bit_cast<std::uint64_t>(section_width(other_road.value)) ==
+          std::bit_cast<std::uint64_t>(other_before),
+      "shared template edit changed a road using another template");
+  return true;
+}
+
 bool segment_delete_leaves_unrelated_corridors_bit_identical(std::string& failure) {
   RoadState state{};
   const auto doomed = state.AddSegment(
@@ -1742,6 +1777,8 @@ int main() {
        unsupported_junction_section_is_atomic},
       {"derived_segment_owns_all_semantic_distances",
        derived_segment_owns_all_semantic_distances},
+      {"template_edit_reaches_only_roads_using_that_template",
+       template_edit_reaches_only_roads_using_that_template},
       {"segment_delete_leaves_unrelated_corridors_bit_identical",
        segment_delete_leaves_unrelated_corridors_bit_identical},
       {"node_move_leaves_unrelated_corridors_bit_identical",

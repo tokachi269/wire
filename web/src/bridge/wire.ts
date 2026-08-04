@@ -439,11 +439,6 @@ export class WireBridge {
     return this.roadState.addLane(input);
   }
 
-  roadPreviewAddLane(input: RoadAddLaneInput): OperationResult & { meshes: RoadMeshData[] } {
-    const result = this.roadState.previewAddLane(input);
-    return { ...result, meshes: result.meshes.map(copyRoadMesh) };
-  }
-
   roadAddConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { segmentId?: number } {
     return this.roadState.addConnectedLaneSegment(input);
   }

@@ -265,6 +265,18 @@ def check_road_architecture(root: Path) -> list[str]:
             )
 
     adapter_text = source_text(root / "web/wasm/bindings.cpp")
+    # Add Lane previews with a local guide. The retired path copied RoadState and
+    # regenerated every road per pointer move.
+    for web_source in (
+        "web/wasm/bindings.cpp",
+        "web/src/bridge/wire.ts",
+        "web/src/bridge/wasm.ts",
+        "web/src/actions/road_actions.ts",
+    ):
+        text = source_text(root / web_source)
+        for token in ("previewAddLane", "preview_add_lane", "roadPreviewAddLane"):
+            if token in text:
+                errors.append(f"{web_source}: retired Add Lane preview path: {token!r}")
     for token in ("extensionSegmentId", "bandElementId"):
         if token in adapter_text:
             errors.append(
@@ -343,10 +355,6 @@ def check_road_architecture(root: Path) -> list[str]:
                 "web/src/actions/road_actions.ts: lane editing contract is missing: "
                 + repr(token)
             )
-    if "roadPreviewAddLane" in road_actions_text:
-        errors.append(
-            "web/src/actions/road_actions.ts: Add Lane pointer movement must remain a local guide"
-        )
     for token in (
         "laneStartCorridorDistanceM",
         "laneFullWidthCorridorDistanceM",
@@ -429,7 +437,6 @@ def check_road_architecture(root: Path) -> list[str]:
         'result.set("lanePaths", lane_paths)',
         'builtin_marking_styles::kWhiteDashed.value',
         '.function("addLane"',
-        '.function("previewAddLane"',
         '.function("addConnectedLaneSegment"',
         '.function("previewConnectedLaneSegment"',
     ):

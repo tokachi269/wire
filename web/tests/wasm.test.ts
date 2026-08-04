@@ -1571,7 +1571,7 @@ describe("road wasm smoke", () => {
     restored.delete();
   });
 
-  it("exposes stable lane paths and previews an outer lane without mutating state", () => {
+  it("exposes stable lane paths and commits an outer lane", () => {
     state.clear();
     const added = state.addSegment({
       kind: "line",
@@ -1623,11 +1623,6 @@ describe("road wasm smoke", () => {
       continuationEndNodeId: added.endNodeId!,
       laneWidthM: 3
     };
-    const savedBeforePreview = state.saveState();
-    const preview = state.previewAddLane(request);
-    expect(preview.ok, preview.error).toBe(true);
-    expect(preview.meshes.length).toBeGreaterThan(0);
-    expect(state.saveState()).toBe(savedBeforePreview);
     expect(state.scene().transitionCount).toBe(0);
 
     const committed = state.addLane(request);

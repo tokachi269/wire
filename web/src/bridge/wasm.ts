@@ -286,7 +286,6 @@ export interface RoadStateHandle {
   previewSegment(input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   previewInterval(input: RoadSegmentInput): RoadIntervalPreview;
   addLane(input: RoadAddLaneInput): OperationResult & { laneId?: number };
-  previewAddLane(input: RoadAddLaneInput): OperationResult & { meshes: RoadMeshPayload[] };
   addConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { segmentId?: number };
   previewConnectedLaneSegment(input: RoadConnectedLaneSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
   scene(): RoadScenePayload;

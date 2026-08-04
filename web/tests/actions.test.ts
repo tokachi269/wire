@@ -573,7 +573,6 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       endY: input.endY
     }),
     roadAddLane: () => ({ ok: true, error: "" }),
-    roadPreviewAddLane: () => ({ ok: true, error: "", meshes: [] }),
     roadAddConnectedLaneSegment: () => ({ ok: true, error: "" }),
     roadPreviewConnectedLaneSegment: () => ({ ok: true, error: "", meshes: [] }),
     roadScene: () => ({
@@ -1407,7 +1406,6 @@ describe("viewport tool routing", () => {
   });
 
   it("collects segment-local lane positions and an explicit continuation endpoint", () => {
-    const preview = vi.fn((_input: unknown) => ({ ok: true, error: "", meshes: [] }));
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
@@ -1428,7 +1426,6 @@ describe("viewport tool routing", () => {
     };
     const actions = new ViewerActions(actionBridge({
       roadScene: () => scene,
-      roadPreviewAddLane: preview,
       roadAddLane: commit
     }), store);
     actions.initialize();
@@ -1441,7 +1438,6 @@ describe("viewport tool routing", () => {
     actions.previewViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
-    expect(preview).not.toHaveBeenCalled();
     expect(current(store).road.laneTransitionCompleteT).toBe(0.5);
     actions.addViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
@@ -1467,7 +1463,6 @@ describe("viewport tool routing", () => {
     }));
   });
   it("normalizes add-lane picks against the hidden corridor direction", () => {
-    const preview = vi.fn((_input: unknown) => ({ ok: true, error: "", meshes: [] }));
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
@@ -1488,7 +1483,6 @@ describe("viewport tool routing", () => {
     };
     const actions = new ViewerActions(actionBridge({
       roadScene: () => scene,
-      roadPreviewAddLane: preview,
       roadAddLane: commit
     }), store);
     actions.initialize();
@@ -1501,7 +1495,6 @@ describe("viewport tool routing", () => {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
 
-    expect(preview).not.toHaveBeenCalled();
     expect(current(store).road.laneTransitionCompleteT).toBe(10 / 60);
 
     actions.addViewportPoint([10, 0, 0], {

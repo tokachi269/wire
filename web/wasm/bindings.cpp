@@ -1454,26 +1454,6 @@ public:
     return output;
   }
 
-  val preview_add_lane(const val& input) const {
-    city::road::RoadState trial = *state_;
-    const auto result = trial.AddLane(
-        city::road::AddLaneRequest{
-            input["corridorId"].as<city::road::RoadCorridorId>(),
-            road_lane_direction(input["direction"].as<int>()),
-            road_side_value(input),
-            city::road::SegmentPosition{
-                input["startSegmentId"].as<city::road::RoadSegmentId>(),
-                input["startT"].as<double>()},
-            city::road::SegmentPosition{
-                input["completeSegmentId"].as<city::road::RoadSegmentId>(),
-                input["completeT"].as<double>()},
-            input["continuationEndNodeId"].as<city::road::RoadNodeId>(),
-            input["laneWidthM"].as<double>()});
-    val output = road_result_value(result.ok, result.error, result.failure_category);
-    output.set("meshes", result.ok ? road_preview_meshes(trial) : val::array());
-    return output;
-  }
-
   val add_connected_lane_segment(const val& input) {
     return connected_lane_segment(input, false);
   }
@@ -2440,7 +2420,6 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("previewSegment", &RoadStateBinding::preview_segment)
       .function("previewInterval", &RoadStateBinding::preview_interval)
       .function("addLane", &RoadStateBinding::add_lane)
-      .function("previewAddLane", &RoadStateBinding::preview_add_lane)
       .function("addConnectedLaneSegment", &RoadStateBinding::add_connected_lane_segment)
       .function("previewConnectedLaneSegment", &RoadStateBinding::preview_connected_lane_segment)
       .function("scene", &RoadStateBinding::scene)

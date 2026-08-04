@@ -101,7 +101,7 @@ Web bridgeの32件中14件はweb/src内に呼び出し元がない。
 
 - [x] CLEAN0 baseline + 分類表
 - [x] CLEAN1 配置API削除 — production/正本docsから41箇所を削除。contract testは`corridor_sample_distances`へ置換して距離↔世界座標の契約を維持
-- [ ] CLEAN2 旧ADD LANE preview削除
+- [x] CLEAN2 旧ADD LANE preview削除 — WASM export・bridge・型・mock・testを削除。lintは維持規則から復活禁止規則へ変更
 - [ ] CLEAN3 低レベル操作内部化
 - [ ] CLEAN4 保留機能整理(**停止して報告**)
 - [ ] CLEAN5 Branch/Merge判定

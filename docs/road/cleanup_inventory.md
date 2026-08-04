@@ -128,3 +128,21 @@ Webから外した15操作に対応する `RoadState` public methodは残って�
 - [~] CLEAN8 文書整理 — 削除済みAPI(AddConnectedLaneSegment / DeleteSegmentRange / AddManualLine / AddManualArea)の記述を正本docsから除去。README を索引化し supported_operations の Branch/Merge 記述を実態へ修正。**plan.md の分離とこの文書の削除は未了**
 - [~] CLEAN9 ソース物理整理 — 削除後に再計測: `road.cpp` 3,610→3,361行、`RoadState` 実装34メソッド、road production 10,405→10,095行。**分割は必要**(生成・編集・断面・車線・削除が1ファイルに同居し、無関係な操作を横断して読む必要がある)。実施は未了。候補は `road_create.cpp` / `road_edit.cpp` / `road_section.cpp` / `road_lane.cpp` / `road_delete.cpp`。CLEAN3b の内部化で `RoadState` の公開面が確定してから分割する(先に分割すると内部化で再度動かすことになる)
 - [~] CLEAN10 局所性・回帰 — 全回帰は green(road 50 / contract 27 / wire 541 / web 137、lint 3種、compiler warning 0、diff-check、working tree clean)。局所性testはcontract testに34箇所(`branch_and_tail_extension_preserve_existing_corridor` 等、branch/延長/split後もaffected set外のcorridor距離↔世界座標が不変)。node移動の局所性test `node_move_leaves_unrelated_corridors_bit_identical` を追加(無関係corridorの制御点をbit一致で検証)。segment削除の局所性test `segment_delete_leaves_unrelated_corridors_bit_identical` も追加。template編集の局所性test `template_edit_reaches_only_roads_using_that_template` も追加(共有templateの変更が使用中の道路へ届き、別templateの道路はbit不変)。ADD LANE の局所性test `add_lane_leaves_unrelated_corridors_bit_identical` も追加。**局所性testは4種すべて完了**(ADD LANE / node移動 / template編集 / segment削除)
+
+## CLEAN3b 実測スコープ (2026-08-04 baseline `b34b344d`)
+
+Web/WASM 側は既に0件で、**C++ public面だけが残っている**。`RoadState` public method 35件のうち20件が対象。
+テスト参照は road_tests 36箇所 + contract 20箇所 = 56箇所。
+
+| 操作 | road_tests | contract | 扱い |
+|---|---|---|---|
+| `DeleteSegmentRange` | 0 | 3 | 保留機能。テストごと削除 |
+| `SetApproachSetbackOverride` / `SetApproachLateralShiftOverride` / `ResetApproachOverrideField` / `ResetAllApproachOverrides` | 0 | 6 | contract testのみ。生成器fixtureへ |
+| `SetBoundaryMarkingPolicy` / `ResetBoundaryMarkingPolicy` / `SetLaneSideMarkingPolicy` / `ResetLaneSideMarkingPolicy` | 8 | 0 | templateを直接組んだfixtureへ |
+| `AddTransition` / `AddTransitionToSegment` / `AttachSectionTransition` | 16 | 4 | 2→3車線はAddLane、車線減少・異断面・不正mappingは`SavedRoadGraph` fixture + `generate_road` |
+| `AddLaneConnection` / `AddBoundaryContinuation` | 5 | 0 | 一意解決は自動生成の結果を検証、非一意は明示失敗を検証 |
+| `AddManualLine` / `AddManualArea` | 3 | 6 | 保存互換テストへ(archiveからのload) |
+| `SuppressAutoMarking` / `ResetAutoMarkingSuppression` / `SetJunctionMarkingOverride` / `DeleteJunctionMarkingOverride` | 4 | 1 | fixtureへ |
+
+`SectionTransition` / `lane_connections` / `boundary_continuations` / 手動markingのarchive型 / junction topology生成 /
+ADD LANEの断面変化処理は**保存・生成のconsumerがあるため残す**。公開操作の削除と混同しない。

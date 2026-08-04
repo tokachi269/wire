@@ -1098,6 +1098,45 @@ bool same_alignment_bits(const Path& before, const Path& after) {
   return true;
 }
 
+bool add_lane_leaves_unrelated_corridors_bit_identical(std::string& failure) {
+  RoadState state{};
+  const auto widened = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 1});
+  ROAD_CONTRACT_EXPECT(widened.ok, widened.error);
+  const RoadCorridor* corridor = FindCorridorForSegment(state.graph(), widened.value);
+  ROAD_CONTRACT_EXPECT(corridor != nullptr, "widened corridor is missing");
+  const RoadCorridorId corridor_id = corridor->id;
+
+  const auto far_road = state.AddSegment(
+      AddSegmentRequest{MakePath({MakeLine({500.0, 500.0}, {540.0, 500.0})}), 1});
+  ROAD_CONTRACT_EXPECT(far_road.ok, far_road.error);
+  const Path* far_before = FindCanonicalAlignment(state.derived(), far_road.value);
+  ROAD_CONTRACT_EXPECT(far_before != nullptr, "unrelated alignment is missing");
+  const Path snapshot = *far_before;
+
+  AddLaneRequest request{};
+  request.corridor_id = corridor_id;
+  request.direction = LaneTravelDirection::kAlongSegment;
+  request.side = RoadSide::kRight;
+  request.transition_start = SegmentPosition{widened.value, 0.25};
+  request.transition_complete = SegmentPosition{widened.value, 0.75};
+  const RoadSegment* widened_segment = nullptr;
+  for (const RoadSegment& segment : state.graph().segments) {
+    if (segment.id == widened.value) widened_segment = &segment;
+  }
+  ROAD_CONTRACT_EXPECT(widened_segment != nullptr, "widened segment is missing");
+  request.continuation_end_node_id = widened_segment->node_b;
+  request.lane_width_m = 3.0;
+  const auto added = state.AddLane(request);
+  ROAD_CONTRACT_EXPECT(added.ok, added.error);
+
+  const Path* far_after = FindCanonicalAlignment(state.derived(), far_road.value);
+  ROAD_CONTRACT_EXPECT(far_after != nullptr, "unrelated alignment disappeared");
+  ROAD_CONTRACT_EXPECT(same_alignment_bits(snapshot, *far_after),
+                       "adding a lane moved an unrelated corridor");
+  return true;
+}
+
 bool template_edit_reaches_only_roads_using_that_template(std::string& failure) {
   RoadState state{};
   const auto edited_road = state.AddSegment(
@@ -1777,6 +1816,8 @@ int main() {
        unsupported_junction_section_is_atomic},
       {"derived_segment_owns_all_semantic_distances",
        derived_segment_owns_all_semantic_distances},
+      {"add_lane_leaves_unrelated_corridors_bit_identical",
+       add_lane_leaves_unrelated_corridors_bit_identical},
       {"template_edit_reaches_only_roads_using_that_template",
        template_edit_reaches_only_roads_using_that_template},
       {"segment_delete_leaves_unrelated_corridors_bit_identical",

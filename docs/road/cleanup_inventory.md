@@ -127,4 +127,4 @@ Webから外した15操作に対応する `RoadState` public methodは残って�
 - [~] CLEAN7 road/wire命名契約整理 — `build` 監査を実施し、派生生成に残っていた `build_boundaries` / `build_surface_styles` を `derive_*` へ改名(road production の `build` 残存は0)。**failure分類・action result・draw session契約の監査は未了**
 - [~] CLEAN8 文書整理 — 削除済みAPI(AddConnectedLaneSegment / DeleteSegmentRange / AddManualLine / AddManualArea)の記述を正本docsから除去。README を索引化し supported_operations の Branch/Merge 記述を実態へ修正。**plan.md の分離とこの文書の削除は未了**
 - [~] CLEAN9 ソース物理整理 — 削除後に再計測: `road.cpp` 3,610→3,361行、`RoadState` 実装34メソッド、road production 10,405→10,095行。**分割は必要**(生成・編集・断面・車線・削除が1ファイルに同居し、無関係な操作を横断して読む必要がある)。実施は未了。候補は `road_create.cpp` / `road_edit.cpp` / `road_section.cpp` / `road_lane.cpp` / `road_delete.cpp`。CLEAN3b の内部化で `RoadState` の公開面が確定してから分割する(先に分割すると内部化で再度動かすことになる)
-- [ ] CLEAN10 局所性・回帰
+- [~] CLEAN10 局所性・回帰 — 全回帰は green(road 50 / contract 27 / wire 541 / web 137、lint 3種、compiler warning 0、diff-check、working tree clean)。局所性testはcontract testに34箇所(`branch_and_tail_extension_preserve_existing_corridor` 等、branch/延長/split後もaffected set外のcorridor距離↔世界座標が不変)。**ADD LANE・node移動・template編集・segment削除の局所性testは未追加**

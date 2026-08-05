@@ -42,7 +42,8 @@ as `ignored/session-inactive` rather than disappearing silently.
 
 Escape discards the uncommitted preview, anchor, and pointer gesture, then ends
 the draw session. It does not delete or undo committed domain operations.
-Repeated Escape with no active session is a no-op.
+Escape with no active session reports \ignored/session-inactive\; it does not
+claim to have ended a session that never started.
 
 ## Undo
 

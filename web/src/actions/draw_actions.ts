@@ -73,6 +73,12 @@ export class DrawActions {
   }
 
   cancelSession(): DrawActionResult {
+    // Escape with nothing drawn is a distinguishable non-event, not the end of
+    // a session. Road reports the same.
+    const snapshot = this.ctx.readSnapshot();
+    if (snapshot.pathPoints.length === 0 && snapshot.wirePreview.state === "none") {
+      return { kind: "ignored", reasonCode: "session-inactive" };
+    }
     const cleared = this.ctx.bridge.clearPendingSupportNodes();
     if (!cleared.ok) {
       this.ctx.store.setError(cleared.error);

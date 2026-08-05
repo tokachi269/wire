@@ -1230,7 +1230,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequ
     return Result<RoadSegmentId>::Fail(length_result.failure_category, length_result.error);
   }
   if (length_result.value < kP1MinSegmentLengthM) {
-    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kNotImplemented, "connected road segment is shorter than P1 minimum");
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kNotImplemented, "connected road segment is shorter than the supported minimum length");
   }
   if (alignment.spans.size() != 1) {
     return Result<RoadSegmentId>::Fail(
@@ -1334,7 +1334,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   const Result<double> branch_length = PathLength(alignment);
   if (!branch_length.ok) return Result<RoadSegmentId>::Fail(branch_length.failure_category, branch_length.error);
   if (branch_length.value < kP1MinSegmentLengthM) {
-    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kNotImplemented, "connected road segment is shorter than P1 minimum");
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kNotImplemented, "connected road segment is shorter than the supported minimum length");
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;

@@ -97,6 +97,14 @@ Web bridgeの32件中14件はweb/src内に呼び出し元がない。
 
 工程数は削減目標にしない。CLEAN6で各工程の consumer を確認し、削除機能専用の分岐だけを消す。
 
+## 別作業: 断面カタログの所有移動 (TPL)
+
+CLEAN の連番とは別に、Coreが持っていた道路preset 5件(`JapaneseUrbanTwoLaneTemplate` 他)を
+Webへ移した。`RoadState`は断面ゼロで生成し、新規workspaceだけがWebのcatalogueを
+`AddSectionTemplate`で登録して返却IDを使う。Loadは再注入しない。Core testsは
+`domains/road/tests/fixtures/sections.*` から必要な断面だけを登録する。
+正本は `docs/road/architecture.md` の「断面カタログの所有」。
+
 ## 進捗
 
 - [x] CLEAN0 baseline + 分類表

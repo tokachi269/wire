@@ -38,11 +38,17 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのgenerate可否 |
 | MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
-| AddSectionTemplate | section_template | ID一意、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | trial section evaluation |
+| AddSectionTemplate | section_template | ID一意、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | trial section evaluation。IDはCoreが採番して返す |
 | EditSectionTemplate | section_template | ID exists、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | 既存segment再評価。boundary policyとlane side policyはこの操作だけが変える |
 | AddLane | corridor/direction/side/変化開始SegmentPosition/完成SegmentPosition/維持終点node/lane width | corridorとsegment/nodeが存在、tがfiniteかつ[0,1]、同一segment内でcorridor方向の順序が有効、幅が正 | Coreが外側laneと固定boundaryを解決し、最初のsegmentへtransition、明示終点までの後続segmentへ完成断面を設定 |
 
 外部入力不正は`kValidation`、正しい入力だがP0-P2で対応しない構造は`kUnsupported`、正しい正本から派生表やresolved read modelが欠ける場合は`kInternal`とする。
+
+新規`RoadState`は`section_templates`が空である。道路製品として提供する断面の一覧と具体値は
+Webが所有し(`web/src/road_templates.ts`)、新規workspaceの作成時にだけ`AddSectionTemplate`で
+登録する。Loadは保存済みの断面をそのまま使い、Web presetを再注入しない。
+template IDは互換性判定には使わず、接続可否はendpointの実断面で判定する。
+ADD LANEが作る変更後断面はCoreが作る。
 
 `SectionTransition`、`LaneConnection`、`BoundaryContinuation`、`ApproachGeometryOverride`、
 `AutoMarkingOverride`、`JunctionMarkingOverride`、`ManualLineMarking`、`ManualAreaMarking`は

@@ -39,6 +39,25 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 - ユーザーが明示した`NodeConnectionPolicyOverride`
 - next ID state
 
+### 断面カタログの所有
+
+道路製品として提供する断面の一覧、幅・勾配・路面・車線・境界・白線の具体値、表示名、並び順、
+初期選択はWebが所有する。正本は`web/src/road_templates.ts`。Coreは
+`CrossSectionTemplate`型、その検証、ID採番、保存、生成、共有template編集を所有し、
+具体的なpreset catalogueは持たない。
+
+- 新規workspaceはWebが各presetを`AddSectionTemplate`へ渡し、返ったIDを保持する。
+  Web側のpreset keyはCoreへ渡さず、保存もしない。
+- 既存workspaceのLoadは保存済み`section_templates`をそのまま使う。Web presetを再注入せず、
+  保存済みの寸法をWebの最新値へ更新しない。Web presetの定義を変えても既存archiveは変わらない。
+- 表示名はWebがそのworkspaceで登録したIDに対してだけ持つ。Loadで入った断面やADD LANEが
+  派生させた断面はIDで表示する。表示名とpreset keyは`SavedRoadGraph`へ保存しない。
+- ADD LANEが作る変更後断面はCoreが作る。これはWeb presetではない。
+- template IDは互換性判定に使わない。接続可否はendpointの実断面で判定する。
+
+`RoadState`は断面を持たない状態から始まる。存在しないtemplate IDで道路を作る要求は従来どおり
+明示的に失敗し、Coreが既定断面を補うことはない。
+
 `RoadSegment`へendpoint座標を保存しない。一回で確定したPathは一つのsegmentとして複数spanを持てる。
 確定済みsegmentの延長は新segmentを作り、既存shapeへspanを追記しない。degree 2 nodeは明示的な確定境界として
 正当であり、同一道路定義でも自動統合しない。自動junctionの存在、connection kind、gate、setback、

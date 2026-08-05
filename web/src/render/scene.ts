@@ -807,45 +807,6 @@ export class WireScene {
     if (this.snapshot === null) return null;
     const bounds = this.renderer.domElement.getBoundingClientRect();
     const pointerPx = new THREE.Vector2(clientX - bounds.left, clientY - bounds.top);
-    if (["branch-lane", "merge-lane"].includes(this.snapshot.road.operation)) {
-      let bestLane: { distance: number; point: WorldPoint; snap: RoadSnapInfo } | null = null;
-      for (const lane of this.snapshot.road.scene.lanePaths) {
-        for (let index = 0; index + 5 < lane.points.length; index += 3) {
-          const a: WorldPoint = [lane.points[index], lane.points[index + 1], lane.points[index + 2]];
-          const b: WorldPoint = [lane.points[index + 3], lane.points[index + 4], lane.points[index + 5]];
-          const screenA = this.projectToCanvas(new THREE.Vector3(...a), bounds);
-          const screenB = this.projectToCanvas(new THREE.Vector3(...b), bounds);
-          if (screenA === null || screenB === null) continue;
-          const delta = screenB.clone().sub(screenA);
-          const length2 = delta.lengthSq();
-          const t = length2 > 0
-            ? THREE.MathUtils.clamp(pointerPx.clone().sub(screenA).dot(delta) / length2, 0, 1)
-            : 0;
-          const closest = screenA.clone().add(delta.multiplyScalar(t));
-          const distance = closest.distanceTo(pointerPx);
-          if (distance > BACKBONE_EDGE_SNAP_PX || (bestLane !== null && distance >= bestLane.distance)) continue;
-          const firstPiece = index === 0;
-          const lastPiece = index + 6 === lane.points.length;
-          const endpointRole = firstPiece && t <= 0.2 ? 0 : lastPiece && t >= 0.8 ? 1 : undefined;
-          bestLane = {
-            distance,
-            point: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t],
-            snap: {
-              kind: "road",
-              nodeId: endpointRole === 0 ? lane.nodeAId : endpointRole === 1 ? lane.nodeBId : 0,
-              segmentId: lane.segmentId,
-              segmentDistanceM: lane.startSegmentDistanceM +
-                (lane.endSegmentDistanceM - lane.startSegmentDistanceM) *
-                ((index / 3 + t) / Math.max(1, lane.points.length / 3 - 1)),
-              laneId: lane.laneId,
-              laneDirection: lane.direction,
-              endpointRole
-            }
-          };
-        }
-      }
-      if (bestLane !== null) return { point: bestLane.point, snap: bestLane.snap };
-    }
     let bestNode: { distance: number; point: WorldPoint; snap: RoadSnapInfo } | null = null;
     for (const node of this.snapshot.road.scene.nodes) {
       const point: WorldPoint = [node.x, node.y, 0];

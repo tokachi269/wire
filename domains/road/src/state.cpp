@@ -4,9 +4,9 @@
 #include "geometry/geometry.hpp"
 #include "geometry/section.hpp"
 #include "lookup.hpp"
-#include "road_path.hpp"
+#include "geometry/alignment.hpp"
 #include "operations/operation_plan.hpp"
-#include "persistence/road_archive.hpp"
+#include "persistence/archive.hpp"
 
 #include <algorithm>
 #include <array>
@@ -30,7 +30,7 @@ using internal::cross;
 using internal::distance;
 using internal::is_finite;
 using internal::kCurveSamples;
-using internal::kEpsilon;
+using internal::distance_epsilon;
 using internal::magnitude;
 using internal::make_linear_shape;
 using internal::manual_area_distance_bounds;
@@ -105,86 +105,6 @@ constexpr double kSnapDistancePointToleranceM = 0.6;
 
 
 } // namespace
-
-const RoadCorridor* FindRoadCorridor(const SavedRoadGraph& graph,
-                                     RoadCorridorId corridor_id) {
-  const auto it =
-      std::find_if(graph.corridors.begin(), graph.corridors.end(),
-                   [corridor_id](const RoadCorridor& corridor) {
-                     return corridor.id == corridor_id;
-                   });
-  return it == graph.corridors.end() ? nullptr : &*it;
-}
-
-const RoadCorridor* FindCorridorForSegment(const SavedRoadGraph& graph,
-                                           RoadSegmentId segment_id) {
-  const auto it =
-      std::find_if(graph.corridors.begin(), graph.corridors.end(),
-                   [segment_id](const RoadCorridor& corridor) {
-                     return std::any_of(
-                         corridor.segments.begin(), corridor.segments.end(),
-                         [segment_id](const DirectedSegmentRef& ref) {
-                           return ref.segment_id == segment_id;
-                         });
-                   });
-  return it == graph.corridors.end() ? nullptr : &*it;
-}
-
-Result<ResolvedSegmentDistance>
-ResolveCorridorDistance(const SavedRoadGraph& graph, const DerivedRoad& derived,
-                       CorridorDistanceRef distance) {
-  if (!is_finite(distance.corridor_distance_m) ||
-      distance.corridor_distance_m < 0.0) {
-    return Result<ResolvedSegmentDistance>::Fail(
-        CommitFailureCategory::kInvalidInput, "road corridor distance is invalid");
-  }
-  const RoadCorridor* corridor =
-      FindRoadCorridor(graph, distance.corridor_id);
-  if (corridor == nullptr || corridor->segments.empty()) {
-    return Result<ResolvedSegmentDistance>::Fail(
-        CommitFailureCategory::kInvalidInput, "road corridor does not exist");
-  }
-  double accumulated = 0.0;
-  for (std::size_t index = 0; index < corridor->segments.size(); ++index) {
-    const DirectedSegmentRef& ref = corridor->segments[index];
-    const DerivedSegment* segment = FindDerivedSegment(derived, ref.segment_id);
-    if (segment == nullptr || !is_finite(segment->length_m) ||
-        segment->length_m <= 0.0) {
-      return Result<ResolvedSegmentDistance>::Fail(
-          CommitFailureCategory::kInternalError, "road corridor segment length is missing");
-    }
-    const double end = accumulated + segment->length_m;
-    const bool last = index + 1 == corridor->segments.size();
-    if (distance.corridor_distance_m < end ||
-        (last && distance.corridor_distance_m <= end + kEpsilon)) {
-      const double corridor_local =
-          std::clamp(distance.corridor_distance_m - accumulated, 0.0,
-                     segment->length_m);
-      return Result<ResolvedSegmentDistance>::Ok(ResolvedSegmentDistance{
-          ref.segment_id,
-          ref.reversed ? segment->length_m - corridor_local : corridor_local,
-          ref.reversed});
-    }
-    accumulated = end;
-  }
-  return Result<ResolvedSegmentDistance>::Fail(
-      CommitFailureCategory::kInvalidInput, "road corridor distance exceeds its length");
-}
-
-BezierSpan MakeLine(Vec2d a, Vec2d b) {
-  const Vec2d delta = subtract(b, a);
-  return BezierSpan{a, add(a, scale(delta, 1.0 / 3.0)), add(a, scale(delta, 2.0 / 3.0)), b};
-}
-
-BezierSpan MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3) {
-  return BezierSpan{p0, p1, p2, p3};
-}
-
-Path MakePath(std::vector<BezierSpan> spans) {
-  Path out{};
-  out.spans = std::move(spans);
-  return out;
-}
 
 namespace {
 } // namespace

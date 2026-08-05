@@ -3,11 +3,11 @@
 // moves the owners that sit past the cut.
 #include "city/road/road.hpp"
 
-#include "geometry/geometry.hpp"
-#include "geometry/section.hpp"
-#include "lookup.hpp"
-#include "operations/operation_plan.hpp"
-#include "road_path.hpp"
+#include "../geometry/geometry.hpp"
+#include "../geometry/section.hpp"
+#include "../lookup.hpp"
+#include "operation_plan.hpp"
+#include "../geometry/alignment.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -30,7 +30,7 @@ using internal::node_degree;
 using internal::find_template;
 using internal::find_transition;
 using internal::is_finite;
-using internal::kEpsilon;
+using internal::distance_epsilon;
 using internal::magnitude;
 using internal::make_linear_shape;
 using internal::manual_area_distance_bounds;
@@ -286,8 +286,8 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id) continue;
     const auto [minimum, maximum] = manual_line_distance_bounds(marking);
-    if (minimum < segment_distance_m - kEpsilon &&
-        maximum > segment_distance_m + kEpsilon) {
+    if (minimum < segment_distance_m - distance_epsilon &&
+        maximum > segment_distance_m + distance_epsilon) {
       return Result<RoadSegmentId>::Fail(
           CommitFailureCategory::kNotImplemented,
           "road branch split crosses a manual line marking");
@@ -296,8 +296,8 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id) continue;
     const auto [minimum, maximum] = manual_area_distance_bounds(marking);
-    if (minimum < segment_distance_m - kEpsilon &&
-        maximum > segment_distance_m + kEpsilon) {
+    if (minimum < segment_distance_m - distance_epsilon &&
+        maximum > segment_distance_m + distance_epsilon) {
       return Result<RoadSegmentId>::Fail(
           CommitFailureCategory::kNotImplemented,
           "road branch split crosses a manual area marking");
@@ -392,7 +392,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id ||
         manual_line_distance_bounds(marking).first <
-            segment_distance_m - kEpsilon) {
+            segment_distance_m - distance_epsilon) {
       continue;
     }
     ManualLineMarking mapped = marking;
@@ -404,7 +404,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id ||
         manual_area_distance_bounds(marking).first <
-            segment_distance_m - kEpsilon) {
+            segment_distance_m - distance_epsilon) {
       continue;
     }
     ManualAreaMarking mapped = marking;
@@ -475,7 +475,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
         find_transition(graph_, *source->transition);
     const Result<double> source_length = PathLength(*source_path);
     if (transition == nullptr || !source_length.ok ||
-        source_length.value <= kEpsilon) {
+        source_length.value <= distance_epsilon) {
       return Result<RoadSegmentId>::Fail(
           CommitFailureCategory::kInternalError,
           "transitioning road split data is incomplete");
@@ -490,13 +490,13 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
     const double start_t = transition->start.value;
     const double complete_t = transition->end.value;
     remapped_transition = *transition;
-    if (split_t < start_t - kEpsilon) {
+    if (split_t < start_t - distance_epsilon) {
       transition_moves_to_second = true;
       remapped_transition->start.value =
           (start_t - split_t) / (1.0 - split_t);
       remapped_transition->end.value =
           (complete_t - split_t) / (1.0 - split_t);
-    } else if (split_t > complete_t + kEpsilon) {
+    } else if (split_t > complete_t + distance_epsilon) {
       remapped_transition->start.value = start_t / split_t;
       remapped_transition->end.value = complete_t / split_t;
     } else {
@@ -517,8 +517,8 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id) continue;
     const auto [minimum, maximum] = manual_line_distance_bounds(marking);
-    if (minimum < request.segment_distance_m - kEpsilon &&
-        maximum > request.segment_distance_m + kEpsilon) {
+    if (minimum < request.segment_distance_m - distance_epsilon &&
+        maximum > request.segment_distance_m + distance_epsilon) {
       return Result<RoadSegmentId>::Fail(
           CommitFailureCategory::kNotImplemented,
           "road split crosses a manual line marking");
@@ -527,8 +527,8 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id) continue;
     const auto [minimum, maximum] = manual_area_distance_bounds(marking);
-    if (minimum < request.segment_distance_m - kEpsilon &&
-        maximum > request.segment_distance_m + kEpsilon) {
+    if (minimum < request.segment_distance_m - distance_epsilon &&
+        maximum > request.segment_distance_m + distance_epsilon) {
       return Result<RoadSegmentId>::Fail(
           CommitFailureCategory::kNotImplemented,
           "road split crosses a manual area marking");
@@ -611,7 +611,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   for (const ManualLineMarking& marking : graph_.manual_lines) {
     if (marking.owner_segment_id != source->id) continue;
     const double minimum = manual_line_distance_bounds(marking).first;
-    if (minimum + kEpsilon < request.segment_distance_m) continue;
+    if (minimum + distance_epsilon < request.segment_distance_m) continue;
     ManualLineMarking mapped = marking;
     mapped.owner_segment_id = second_id;
     shift_manual_line_distance(mapped, -request.segment_distance_m);
@@ -621,7 +621,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   for (const ManualAreaMarking& marking : graph_.manual_areas) {
     if (marking.owner_segment_id != source->id) continue;
     const double minimum = manual_area_distance_bounds(marking).first;
-    if (minimum + kEpsilon < request.segment_distance_m) continue;
+    if (minimum + distance_epsilon < request.segment_distance_m) continue;
     ManualAreaMarking mapped = marking;
     mapped.owner_segment_id = second_id;
     mapped.frame_origin.x -= request.segment_distance_m;

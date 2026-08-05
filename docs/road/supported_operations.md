@@ -32,8 +32,8 @@ coverage, or a geometry implementation limit is not a requirement constraint.
 
 | Owner | Input condition | Category | Normal draw impact |
 |---|---|---|---|
-| operation preflight (`road.cpp`) | missing ID, non-finite input, zero-length span, malformed request | `InvalidInput` | shown only after Click or Enter |
-| operation preflight (`road.cpp`) | documented path self-intersection | `RequirementConstraint` | user must change the submitted path |
+| operation preflight (`operations/`) | missing ID, non-finite input, zero-length span, malformed request | `InvalidInput` | shown only after Click or Enter |
+| operation preflight (`operations/`) | documented path self-intersection | `RequirementConstraint` | user must change the submitted path |
 | connection resolution (`generation/connections.cpp`) | valid topology outside current resolver coverage, insufficient supported setback, unsupported section combination | `NotImplemented` | bug/coverage backlog, not user input error |
 | segment/section/marking resolution | valid operation whose transition or marking merge/split is not implemented | `NotImplemented` | operation remains atomic and retryable |
 | generation and geometry | a valid authoritative reference or required derived value is missing | `InternalError` | supported-path defect |

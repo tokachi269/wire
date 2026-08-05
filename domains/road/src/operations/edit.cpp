@@ -2,11 +2,11 @@
 // removing one segment together with the state only it owned.
 #include "city/road/road.hpp"
 
-#include "geometry/geometry.hpp"
-#include "geometry/section.hpp"
-#include "lookup.hpp"
-#include "operations/operation_plan.hpp"
-#include "road_path.hpp"
+#include "../geometry/geometry.hpp"
+#include "../geometry/section.hpp"
+#include "../lookup.hpp"
+#include "operation_plan.hpp"
+#include "../geometry/alignment.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -29,7 +29,7 @@ using internal::node_degree;
 using internal::find_template;
 using internal::find_transition;
 using internal::is_finite;
-using internal::kEpsilon;
+using internal::distance_epsilon;
 using internal::magnitude;
 using internal::make_linear_shape;
 using internal::manual_area_distance_bounds;

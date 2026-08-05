@@ -1,10 +1,10 @@
 #include "city/road/road.hpp"
 
-#include "geometry/geometry.hpp"
-#include "geometry/section.hpp"
-#include "lookup.hpp"
-#include "operations/operation_plan.hpp"
-#include "road_path.hpp"
+#include "../geometry/geometry.hpp"
+#include "../geometry/section.hpp"
+#include "../lookup.hpp"
+#include "operation_plan.hpp"
+#include "../geometry/alignment.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -20,7 +20,7 @@ using internal::distance;
 using internal::find_segment;
 using internal::find_template;
 using internal::is_finite;
-using internal::kEpsilon;
+using internal::distance_epsilon;
 
 [[nodiscard]] EndpointRole endpoint_role_at(const RoadSegment& segment,
                                             RoadNodeId node_id) {
@@ -576,7 +576,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     }
     const DerivedSegment* selected_derived =
         FindDerivedSegment(derived_, segment->id);
-    if (selected_derived == nullptr || selected_derived->length_m <= kEpsilon) {
+    if (selected_derived == nullptr || selected_derived->length_m <= distance_epsilon) {
       return Result<LaneId>::Fail(
           CommitFailureCategory::kInternalError,
           "lane transition segment geometry is missing");
@@ -586,7 +586,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     const double transition_start_t = std::min(first_t, second_t);
     const double transition_complete_t = std::max(first_t, second_t);
     if (transition_start_t < 0.0 || transition_complete_t > 1.0 ||
-        transition_complete_t - transition_start_t <= kEpsilon) {
+        transition_complete_t - transition_start_t <= distance_epsilon) {
       return Result<LaneId>::Fail(CommitFailureCategory::kInvalidInput,
                                   "lane transition positions are invalid");
     }

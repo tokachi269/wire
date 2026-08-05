@@ -3,7 +3,7 @@
 #include "derived_view.hpp"
 #include "fixtures/sections.hpp"
 #include "../src/generation/generation.hpp"
-#include "../src/persistence/road_archive.hpp"
+#include "../src/persistence/archive.hpp"
 
 #include <algorithm>
 #include <cmath>

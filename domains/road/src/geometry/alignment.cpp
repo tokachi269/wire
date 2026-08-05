@@ -1,7 +1,7 @@
-#include "road_path.hpp"
+#include "alignment.hpp"
 
-#include "geometry/geometry.hpp"
-#include "lookup.hpp"
+#include "geometry.hpp"
+#include "../lookup.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -115,15 +115,15 @@ namespace internal {
   const Result<double> total = PathLength(path);
   if (!total.ok) return Result<PathSplit>::Fail(total.failure_category, total.error);
   if (!is_finite(distance_along_path_m) ||
-      distance_along_path_m <= kEpsilon ||
-      distance_along_path_m >= total.value - kEpsilon) {
+      distance_along_path_m <= distance_epsilon ||
+      distance_along_path_m >= total.value - distance_epsilon) {
     return Result<PathSplit>::Fail(CommitFailureCategory::kInvalidInput, "road segment split distance is outside its interior");
   }
   double remaining = distance_along_path_m;
   for (std::size_t index = 0; index < path.spans.size(); ++index) {
     const BezierSpan& span = path.spans[index];
     const double length_m = span_length(span);
-    if (index + 1 < path.spans.size() && std::abs(remaining - length_m) <= kEpsilon) {
+    if (index + 1 < path.spans.size() && std::abs(remaining - length_m) <= distance_epsilon) {
       PathSplit result{};
       result.before.spans.insert(result.before.spans.end(), path.spans.begin(), path.spans.begin() + index + 1);
       result.after.spans.insert(result.after.spans.end(), path.spans.begin() + index + 1, path.spans.end());
@@ -268,7 +268,7 @@ void apply_inherited_arc(Vec2d inherited, Vec2d chord, SegmentShape* shape) {
   const double inherited_length = magnitude(inherited);
   const double chord_length = magnitude(chord);
   // Degenerate input keeps the chord handles the caller already set.
-  if (inherited_length <= kEpsilon || chord_length <= kEpsilon) return;
+  if (inherited_length <= distance_epsilon || chord_length <= distance_epsilon) return;
   const Vec2d heading = scale(inherited, -1.0 / inherited_length);
   shape->start_handle = scale(heading, chord_length / 3.0);
   shape->end_handle = scale(mirror_tangent_across(heading, chord), -chord_length / 3.0);
@@ -276,7 +276,7 @@ void apply_inherited_arc(Vec2d inherited, Vec2d chord, SegmentShape* shape) {
 
 [[nodiscard]] Vec2d mirror_tangent_across(Vec2d tangent, Vec2d chord) {
   const double chord_length = magnitude(chord);
-  if (chord_length <= kEpsilon) return tangent;
+  if (chord_length <= distance_epsilon) return tangent;
   const Vec2d axis = scale(chord, 1.0 / chord_length);
   const double projection = tangent.x * axis.x + tangent.y * axis.y;
   return Vec2d{2.0 * projection * axis.x - tangent.x,
@@ -337,7 +337,7 @@ using internal::distance;
 using internal::dot;
 using internal::is_finite;
 using internal::kCurveSamples;
-using internal::kEpsilon;
+using internal::distance_epsilon;
 using internal::magnitude;
 using internal::scale;
 using internal::span_end;
@@ -426,7 +426,7 @@ Result<bool> ValidatePath(const Path& path) {
     if (!is_finite(span.p0) || !is_finite(span.p1) || !is_finite(span.p2) || !is_finite(span.p3)) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road path contains a non-finite control point");
     }
-    if (span_length(span) <= kEpsilon) {
+    if (span_length(span) <= distance_epsilon) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road span has zero length");
     }
     if (i > 0 && !almost_same(span_start(span), span_end(path.spans[i - 1]))) {
@@ -479,5 +479,19 @@ std::vector<Vec2d> FlattenPath(const Path& path) {
   return points;
 }
 
-} // namespace city::road
+BezierSpan MakeLine(Vec2d a, Vec2d b) {
+  const Vec2d delta = subtract(b, a);
+  return BezierSpan{a, add(a, scale(delta, 1.0 / 3.0)), add(a, scale(delta, 2.0 / 3.0)), b};
+}
 
+BezierSpan MakeBezier(Vec2d p0, Vec2d p1, Vec2d p2, Vec2d p3) {
+  return BezierSpan{p0, p1, p2, p3};
+}
+
+Path MakePath(std::vector<BezierSpan> spans) {
+  Path out{};
+  out.spans = std::move(spans);
+  return out;
+}
+
+} // namespace city::road

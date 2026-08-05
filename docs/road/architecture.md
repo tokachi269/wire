@@ -72,11 +72,11 @@ corner radius、meshは保存しない。
 | `builtin_surface_styles` / `builtin_marking_styles` | `common_types.hpp` | 意味語彙 | archiveが保存するのはstyle IDであり、これが路面と線の同一性そのもの。表示上のmaterialはWebが`road_material_key`で解決する |
 | 白線幅 0.12 / 0.16 / 0.35 / 0.10 m (`marking_width_m`) | `generation/markings.cpp` | 保留 | style IDから物理幅を導いている。archiveに幅がないため、移すとschema変更が必要。下記「保留」参照 |
 | 停止線・横断歩道の寸法 | `generation/markings.cpp` | 保留 | 同上 |
-| `kEpsilon` 1e-9、`kDegenerateStripWidthM` 0.05 | `road.cpp` / `markings.cpp` | アルゴリズム定数 | 数値安定性と退化判定。workspaceごとに変える意味がない |
-| `kCurveSamples` 24、`kConnectionCurveSamples` 8、`kJunctionCurveSamples` 6 | `road.cpp` / `geometry/junction.cpp` | アルゴリズム定数 | 派生geometryを決めるため、変更するとlocality testのbit一致契約が壊れる。表示品質設定ではない |
+| `distance_epsilon` 1e-9、`kDegenerateStripWidthM` 0.05 | `geometry/geometry.hpp` / `generation/markings.cpp` | アルゴリズム定数 | 数値安定性と退化判定。workspaceごとに変える意味がない |
+| `kCurveSamples` 24、`kConnectionCurveSamples` 8、`kJunctionCurveSamples` 6 | `geometry/alignment.hpp` / `geometry/junction.cpp` | アルゴリズム定数 | 派生geometryを決めるため、変更するとlocality testのbit一致契約が壊れる。表示品質設定ではない |
 | `kMarkingElevationM` 0.025 | `generation/markings.cpp` | アルゴリズム定数 | z-fighting回避。生成結果の一部として保存互換に関わる |
-| `kP1MinSegmentLengthM` 8.0 | `road.cpp` | 製品規則 | 接続segmentの最小長。現在Core固定で`kNotImplemented`として拒否する。requestで渡す設計は未採用 |
-| `kSnapDistancePointToleranceM` 0.6 | `road.cpp` | 製品規則 | 明示snap距離と入力endpointの一致許容。UIのsnap半径ではなく、Coreが受け取った2値の整合検査 |
+| `kP1MinSegmentLengthM` 8.0 | `operations/create.cpp` | 製品規則 | 接続segmentの最小長。現在Core固定で`kNotImplemented`として拒否する。requestで渡す設計は未採用 |
+| `kSnapDistancePointToleranceM` 0.6 | `operations/create.cpp` | 製品規則 | 明示snap距離と入力endpointの一致許容。UIのsnap半径ではなく、Coreが受け取った2値の整合検査 |
 | 保存された断面・車線幅・境界寸法 | `SavedRoadGraph` | 保存された具体値 | workspaceを再現するために必要。Webが作った値でも確定後はCoreが保存する |
 
 #### 保留: style IDから導く物理寸法

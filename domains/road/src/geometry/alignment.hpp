@@ -7,7 +7,6 @@
 // authoritative graph stores. Nothing here reads or writes the graph.
 namespace city::road::internal {
 
-inline constexpr double kEpsilon = 1e-9;
 inline constexpr int kCurveSamples = 24;
 
 [[nodiscard]] double distance(Vec2d a, Vec2d b);

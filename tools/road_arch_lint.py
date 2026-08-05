@@ -97,12 +97,13 @@ def check_road_architecture(root: Path) -> list[str]:
     # RoadState is implemented across the operation sources. The contracts below
     # are about what those operations do, not about which file holds them.
     road_operation_files = (
-        "domains/road/src/road.cpp",
-        "domains/road/src/road_path.cpp",
-        "domains/road/src/road_create.cpp",
-        "domains/road/src/road_edit.cpp",
-        "domains/road/src/road_section.cpp",
-        "domains/road/src/road_lane.cpp",
+        "domains/road/src/state.cpp",
+        "domains/road/src/lookup.cpp",
+        "domains/road/src/geometry/alignment.cpp",
+        "domains/road/src/operations/create.cpp",
+        "domains/road/src/operations/edit.cpp",
+        "domains/road/src/operations/layout_template.cpp",
+        "domains/road/src/operations/add_lane.cpp",
     )
     for required in road_operation_files:
         if not (root / required).exists():
@@ -117,7 +118,10 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append("domains/road/src/generation: generate entry is missing")
     for path in generation_sources + [path for path in sources if "/geometry/" in relative(path)]:
         text = source_text(path)
-        if re.search(r"\bSavedRoadGraph\s*&(?!\s*const)", text.replace("const SavedRoadGraph &", "")):
+        # Whether the reference is const is the contract; where the `&` sits is
+        # not, so strip const references however they are spaced.
+        without_const = re.sub(r"const\s+SavedRoadGraph\s*&", "", text)
+        if re.search(r"\bSavedRoadGraph\s*&", without_const):
             errors.append(f"{relative(path)}: generation must not take a mutable authoritative graph")
 
     # 4. Emit consumes resolved geometry only.
@@ -189,8 +193,8 @@ def check_road_architecture(root: Path) -> list[str]:
         relative_path = relative(path)
         if relative_path in {
             "domains/road/src/generation/connections.cpp",
-            "domains/road/src/persistence/road_archive.cpp",
-            "domains/road/src/road.cpp",
+            "domains/road/src/persistence/archive.cpp",
+            "domains/road/src/state.cpp",
         }:
             continue
         text = source_text(path)

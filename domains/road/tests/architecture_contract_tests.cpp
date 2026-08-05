@@ -4,7 +4,7 @@
 #include "fixtures/sections.hpp"
 #include "../src/generation/generation.hpp"
 #include "../src/lookup.hpp"
-#include "../src/persistence/road_archive.hpp"
+#include "../src/persistence/archive.hpp"
 
 #include <bit>
 #include <algorithm>

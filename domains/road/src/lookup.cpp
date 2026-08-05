@@ -134,6 +134,9 @@ std::size_t node_degree(const SavedRoadGraph &graph, RoadNodeId id) {
 
 namespace city::road {
 
+using internal::distance_epsilon;
+using internal::is_finite;
+
 const DerivedSegment *FindDerivedSegment(const DerivedRoad &derived,
                                          RoadSegmentId segment_id) {
   const auto found = std::find_if(derived.segments.begin(),
@@ -183,6 +186,71 @@ const Path *FindCanonicalAlignment(const DerivedRoad &derived,
                                    RoadSegmentId segment_id) {
   const DerivedSegment *segment = FindDerivedSegment(derived, segment_id);
   return segment == nullptr ? nullptr : &segment->alignment;
+}
+
+const RoadCorridor* FindRoadCorridor(const SavedRoadGraph& graph,
+                                     RoadCorridorId corridor_id) {
+  const auto it =
+      std::find_if(graph.corridors.begin(), graph.corridors.end(),
+                   [corridor_id](const RoadCorridor& corridor) {
+                     return corridor.id == corridor_id;
+                   });
+  return it == graph.corridors.end() ? nullptr : &*it;
+}
+
+const RoadCorridor* FindCorridorForSegment(const SavedRoadGraph& graph,
+                                           RoadSegmentId segment_id) {
+  const auto it =
+      std::find_if(graph.corridors.begin(), graph.corridors.end(),
+                   [segment_id](const RoadCorridor& corridor) {
+                     return std::any_of(
+                         corridor.segments.begin(), corridor.segments.end(),
+                         [segment_id](const DirectedSegmentRef& ref) {
+                           return ref.segment_id == segment_id;
+                         });
+                   });
+  return it == graph.corridors.end() ? nullptr : &*it;
+}
+
+Result<ResolvedSegmentDistance>
+ResolveCorridorDistance(const SavedRoadGraph& graph, const DerivedRoad& derived,
+                       CorridorDistanceRef distance) {
+  if (!is_finite(distance.corridor_distance_m) ||
+      distance.corridor_distance_m < 0.0) {
+    return Result<ResolvedSegmentDistance>::Fail(
+        CommitFailureCategory::kInvalidInput, "road corridor distance is invalid");
+  }
+  const RoadCorridor* corridor =
+      FindRoadCorridor(graph, distance.corridor_id);
+  if (corridor == nullptr || corridor->segments.empty()) {
+    return Result<ResolvedSegmentDistance>::Fail(
+        CommitFailureCategory::kInvalidInput, "road corridor does not exist");
+  }
+  double accumulated = 0.0;
+  for (std::size_t index = 0; index < corridor->segments.size(); ++index) {
+    const DirectedSegmentRef& ref = corridor->segments[index];
+    const DerivedSegment* segment = FindDerivedSegment(derived, ref.segment_id);
+    if (segment == nullptr || !is_finite(segment->length_m) ||
+        segment->length_m <= 0.0) {
+      return Result<ResolvedSegmentDistance>::Fail(
+          CommitFailureCategory::kInternalError, "road corridor segment length is missing");
+    }
+    const double end = accumulated + segment->length_m;
+    const bool last = index + 1 == corridor->segments.size();
+    if (distance.corridor_distance_m < end ||
+        (last && distance.corridor_distance_m <= end + distance_epsilon)) {
+      const double corridor_local =
+          std::clamp(distance.corridor_distance_m - accumulated, 0.0,
+                     segment->length_m);
+      return Result<ResolvedSegmentDistance>::Ok(ResolvedSegmentDistance{
+          ref.segment_id,
+          ref.reversed ? segment->length_m - corridor_local : corridor_local,
+          ref.reversed});
+    }
+    accumulated = end;
+  }
+  return Result<ResolvedSegmentDistance>::Fail(
+      CommitFailureCategory::kInvalidInput, "road corridor distance exceeds its length");
 }
 
 } // namespace city::road

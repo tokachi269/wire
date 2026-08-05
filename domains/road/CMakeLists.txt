@@ -1,12 +1,12 @@
 add_library(
   road
   STATIC
-  src/road.cpp
-  src/road_path.cpp
-  src/road_create.cpp
-  src/road_edit.cpp
-  src/road_section.cpp
-  src/road_lane.cpp
+  src/state.cpp
+  src/geometry/alignment.cpp
+  src/operations/create.cpp
+  src/operations/edit.cpp
+  src/operations/layout_template.cpp
+  src/operations/add_lane.cpp
   src/lookup.cpp
   src/generation/generate.cpp
   src/generation/segments.cpp
@@ -17,7 +17,7 @@ add_library(
   src/geometry/section.cpp
   src/geometry/junction.cpp
   src/operations/operation_plan.cpp
-  src/persistence/road_archive.cpp
+  src/persistence/archive.cpp
 )
 
 target_include_directories(

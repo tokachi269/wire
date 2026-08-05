@@ -58,6 +58,32 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 `RoadState`は断面を持たない状態から始まる。存在しないtemplate IDで道路を作る要求は従来どおり
 明示的に失敗し、Coreが既定断面を補うことはない。
 
+### Coreに残す具体値と、その理由
+
+断面カタログを外した後もroad Coreは数値を持つ。所有権を次で区別する。
+
+| 値 | 場所 | 分類 | Coreに残す理由 |
+|---|---|---|---|
+| `builtin_surface_styles` / `builtin_marking_styles` | `common_types.hpp` | 意味語彙 | archiveが保存するのはstyle IDであり、これが路面と線の同一性そのもの。表示上のmaterialはWebが`road_material_key`で解決する |
+| 白線幅 0.12 / 0.16 / 0.35 / 0.10 m (`marking_width_m`) | `generation/markings.cpp` | 保留 | style IDから物理幅を導いている。archiveに幅がないため、移すとschema変更が必要。下記「保留」参照 |
+| 停止線・横断歩道の寸法 | `generation/markings.cpp` | 保留 | 同上 |
+| `kEpsilon` 1e-9、`kDegenerateStripWidthM` 0.05 | `road.cpp` / `markings.cpp` | アルゴリズム定数 | 数値安定性と退化判定。workspaceごとに変える意味がない |
+| `kCurveSamples` 24、`kConnectionCurveSamples` 8、`kJunctionCurveSamples` 6 | `road.cpp` / `geometry/junction.cpp` | アルゴリズム定数 | 派生geometryを決めるため、変更するとlocality testのbit一致契約が壊れる。表示品質設定ではない |
+| `kMarkingElevationM` 0.025 | `generation/markings.cpp` | アルゴリズム定数 | z-fighting回避。生成結果の一部として保存互換に関わる |
+| `kP1MinSegmentLengthM` 8.0 | `road.cpp` | 製品規則 | 接続segmentの最小長。現在Core固定で`kNotImplemented`として拒否する。requestで渡す設計は未採用 |
+| `kSnapDistancePointToleranceM` 0.6 | `road.cpp` | 製品規則 | 明示snap距離と入力endpointの一致許容。UIのsnap半径ではなく、Coreが受け取った2値の整合検査 |
+| 保存された断面・車線幅・境界寸法 | `SavedRoadGraph` | 保存された具体値 | workspaceを再現するために必要。Webが作った値でも確定後はCoreが保存する |
+
+#### 保留: style IDから導く物理寸法
+
+`marking_width_m`はstyle IDから白線幅を返す。幅はarchiveに保存されていないため、
+Webへ移すと過去のworkspaceが同じ線幅で再現できない。選択肢は次の3つで、
+いずれもarchive schema変更かrequest契約変更を伴うため、今回は実施しない。
+
+- `AutoMarkingPolicy`へ幅を保存する (schema変更、migration必要)
+- 新規workspace作成時にWebがstyle表をCoreへ登録する (断面templateと同じ方式、schema変更必要)
+- Core固定のまま、日本の道路標示規格に由来する値として文書化する (現状)
+
 `RoadSegment`へendpoint座標を保存しない。一回で確定したPathは一つのsegmentとして複数spanを持てる。
 確定済みsegmentの延長は新segmentを作り、既存shapeへspanを追記しない。degree 2 nodeは明示的な確定境界として
 正当であり、同一道路定義でも自動統合しない。自動junctionの存在、connection kind、gate、setback、

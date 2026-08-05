@@ -23,6 +23,7 @@ import type {
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 import { decodeWorkspaceText, WorkspaceCache, WORKSPACE_CACHE_KEY } from "../src/store/workspace";
 import { missingBackboneEntryCells } from "./backbone_semantics_contract";
+import { verifySharedDrawContract } from "./drawSessionContract";
 
 function current(store: ViewerStore): ViewerSnapshot {
   let snapshot: ViewerSnapshot | undefined;
@@ -1459,6 +1460,113 @@ describe("viewport tool routing", () => {
       .toBe("road_add_lane_transition_conflict");
   });
 });
+describe("shared draw outcomes", () => {
+  // Road and wire answer the same questions about a draw session. Both run the
+  // one contract so the viewer never reads an error string to tell what
+  // happened.
+  const rejection = {
+    ok: false,
+    error: "core state conflict: unknown node reference",
+    failureCategory: CommitFailureCategory.StateConflict,
+    reasonCode: "stale_anchor_reference"
+  };
+
+  it("road reports draw outcomes through the shared contract", () => {
+    let reject = false;
+    let committed = 0;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        roadAddSegment: () => {
+          if (reject) return rejection;
+          committed += 1;
+          return { ok: true, error: "" };
+        }
+      }),
+      store
+    );
+    actions.initialize();
+    actions.setActiveTool("road");
+
+    verifySharedDrawContract({
+      anchor: () => actions.addViewportPoint([0, 0, 0]),
+      hoverValid: () => actions.previewViewportPoint([20, 0, 0]),
+      commit: () => {
+        reject = false;
+        return actions.addViewportPoint([20, 0, 0]);
+      },
+      commitRejected: () => {
+        reject = true;
+        return actions.addViewportPoint([20, 0, 0]);
+      },
+      confirm: () => actions.finishDrawSession(),
+      cancel: () => actions.cancelDrawSession(),
+      hasAnchor: () => current(store).road.phase !== "start",
+      committedCount: () => committed,
+      lastFailure: () => {
+        const failure = current(store).lastCommitFailure;
+        return failure === null
+          ? null
+          : { category: failure.category, reasonCode: failure.reasonCode };
+      }
+    });
+  });
+
+  it("wire reports draw outcomes through the shared contract", () => {
+    let reject = false;
+    let committed = 0;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        generateWireInterval: (request: WireIntervalRequest) => {
+          const base = {
+            generatedPoleCount: 0,
+            generatedSpanCount: 0,
+            generatedPoleIds: [] as string[],
+            generatedSpanIds: [] as string[],
+            generatedBundleIds: [] as string[],
+            totalMs: 1,
+            timing: timing(1),
+            endpoint: request.points[1],
+            endpointSpec: null
+          };
+          if (reject) return { ...base, ...rejection };
+          committed += 1;
+          return { ...base, ok: true, error: "", generatedSpanCount: 1 };
+        }
+      }),
+      store
+    );
+    actions.initialize();
+    actions.setActiveTool("wire");
+
+    let x = 0;
+    verifySharedDrawContract({
+      anchor: () => actions.addViewportPoint([0, 0, 0]),
+      hoverValid: () => actions.previewViewportPoint([x + 20, 0, 0]),
+      commit: () => {
+        reject = false;
+        x += 20;
+        return actions.addViewportPoint([x, 0, 0]);
+      },
+      commitRejected: () => {
+        reject = true;
+        return actions.addViewportPoint([x + 20, 0, 0]);
+      },
+      confirm: () => actions.finishDrawSession(),
+      cancel: () => actions.cancelDrawSession(),
+      hasAnchor: () => current(store).pathPoints.length > 0,
+      committedCount: () => committed,
+      lastFailure: () => {
+        const failure = current(store).lastCommitFailure;
+        return failure === null
+          ? null
+          : { category: failure.category, reasonCode: failure.reasonCode };
+      }
+    });
+  });
+});
+
 describe("road section catalogue", () => {
   it("registers the catalogue once and selects the initial section by its assigned ID", () => {
     const registered: RoadSectionInput[] = [];

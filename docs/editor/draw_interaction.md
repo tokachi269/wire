@@ -42,8 +42,29 @@ as `ignored/session-inactive` rather than disappearing silently.
 
 Escape discards the uncommitted preview, anchor, and pointer gesture, then ends
 the draw session. It does not delete or undo committed domain operations.
-Escape with no active session reports \ignored/session-inactive\; it does not
+Escape with no active session reports `ignored/session-inactive`; it does not
 claim to have ended a session that never started.
+
+## Action results
+
+Both domains answer with the same `DrawActionResult`: `anchor-accepted`,
+`commit-succeeded`, `commit-rejected` with a reason code, `session-ended`,
+`operation-applied`, or `ignored` with a reason code. The viewer decides what
+happened from that result and from `CommitFailureCategory`, never by reading the
+error message.
+
+`web/tests/drawSessionContract.ts` states the shared expectations and both road
+and wire run it:
+
+- Escape on an inactive session is `ignored`, and leaves no commit failure.
+- A rejected commit keeps its anchor, commits nothing, and reports a category
+  and a reason code.
+- Pointer movement does not overwrite the failure the last commit reported.
+- The same anchor can commit after a rejection, so a rejection is retryable.
+- Enter and Escape return an explicit result rather than a bare boolean.
+
+Domain-specific tool state, snapping, and requests stay in each domain. Only the
+outcome vocabulary is shared.
 
 ## Undo
 

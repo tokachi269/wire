@@ -8,6 +8,10 @@ import {
   withRoadCurveEnd,
   type RoadSegmentInput
 } from "../src/road";
+import {
+  ROAD_TEMPLATE_PRESETS,
+  type RoadSectionInput
+} from "../src/road_templates";
 import type {
   BundleTemplateInfo,
   BundlePlacement,
@@ -1455,6 +1459,82 @@ describe("viewport tool routing", () => {
       .toBe("road_add_lane_transition_conflict");
   });
 });
+describe("road section catalogue", () => {
+  it("registers the catalogue once and selects the initial section by its assigned ID", () => {
+    const registered: RoadSectionInput[] = [];
+    let nextId = 71;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        roadAddSectionTemplate: (section: RoadSectionInput) => {
+          registered.push(section);
+          return { ok: true, error: "", sectionTemplateId: nextId++ };
+        }
+      }),
+      store
+    );
+
+    expect(actions.initialize()).toBe(true);
+
+    expect(registered).toHaveLength(ROAD_TEMPLATE_PRESETS.length);
+    expect(registered.map((section) => section.strips.length)).toEqual(
+      ROAD_TEMPLATE_PRESETS.map((preset) => preset.section.strips.length)
+    );
+    const snapshot = current(store);
+    const initialPreset = ROAD_TEMPLATE_PRESETS.findIndex((preset) => preset.initial);
+    expect(snapshot.road.selectedSectionTemplateId).toBe(71 + initialPreset);
+    expect(snapshot.road.sectionTemplateLabels[71 + initialPreset]).toBe(
+      ROAD_TEMPLATE_PRESETS[initialPreset].label
+    );
+    // Restoring a saved workspace must not run the catalogue a second time.
+    expect(registered).toHaveLength(ROAD_TEMPLATE_PRESETS.length);
+  });
+
+  it("leaves the workspace unset when a section is rejected part way", () => {
+    let calls = 0;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        roadAddSectionTemplate: () => {
+          calls += 1;
+          return calls < 3
+            ? { ok: true, error: "", sectionTemplateId: 80 + calls }
+            : { ok: false, error: "section template chain is incomplete" };
+        }
+      }),
+      store
+    );
+
+    expect(actions.initialize()).toBe(false);
+
+    const snapshot = current(store);
+    expect(snapshot.error).toContain("section template chain is incomplete");
+    expect(snapshot.road.selectedSectionTemplateId).toBe(0);
+    expect(snapshot.road.sectionTemplateLabels).toEqual({});
+  });
+
+  it("does not commit a road while no section is selected", () => {
+    const added = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        roadAddSectionTemplate: () => ({ ok: false, error: "rejected" }),
+        roadAddSegment: added
+      }),
+      store
+    );
+
+    expect(actions.initialize()).toBe(false);
+    expect(current(store).road.selectedSectionTemplateId).toBe(0);
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.addViewportPoint([20, 0, 0]);
+
+    expect(added).not.toHaveBeenCalled();
+  });
+});
+
 describe("P1 action contracts", () => {
   it("uses the desktop viewer template defaults", () => {
     const store = new ViewerStore();

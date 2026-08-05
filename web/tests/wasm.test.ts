@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { loadWireModule, type RoadStateHandle, type WireStateHandle } from "../src/bridge/wasm";
-import { seedRoadSections } from "../src/road_templates";
+import { ROAD_TEMPLATE_PRESETS, seedRoadSections } from "../src/road_templates";
 import { CommitFailureCategory, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
 import {
   buildDefaultModelBootstrap,
@@ -1455,6 +1455,8 @@ describe("wire wasm smoke", () => {
 describe("road wasm smoke", () => {
   let state: RoadStateHandle;
   let createRoadState: () => RoadStateHandle;
+  // A road state with nothing registered, which is what Core now constructs.
+  let createEmptyRoadState: () => RoadStateHandle;
   // A road state starts with no cross section, so these tests register the
   // product catalogue the way a new workspace does and draw with the ID Core
   // handed back. Clearing discards the sections too, so it re-registers them.
@@ -1471,8 +1473,9 @@ describe("road wasm smoke", () => {
 
   beforeAll(async () => {
     const module = await loadWireModule();
+    createEmptyRoadState = () => new module.RoadState();
     createRoadState = () => {
-      const road = new module.RoadState();
+      const road = createEmptyRoadState();
       seedRoad(road);
       return road;
     };
@@ -1545,6 +1548,162 @@ describe("road wasm smoke", () => {
       expect(Math.abs((editable?.points[1].y ?? 0) - preview.handleAY)).toBeLessThan(1e-6);
       expect(Math.abs((editable?.points[2].x ?? 0) - preview.handleBX)).toBeLessThan(1e-6);
       expect(Math.abs((editable?.points[2].y ?? 0) - preview.handleBY)).toBeLessThan(1e-6);
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("starts with no cross section until the product registers its own", () => {
+    const road = createEmptyRoadState();
+    try {
+      expect(road.scene().sectionTemplateCount).toBe(0);
+      const drawn = road.addSegment({
+        sectionTemplateId: 1,
+        kind: "line",
+        startX: 0,
+        startY: 0,
+        endX: 24,
+        endY: 0,
+        handleAX: 8,
+        handleAY: 0,
+        handleBX: 16,
+        handleBY: 0,
+        startNodeId: 0,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        extensionCorridorId: 0,
+        connectToFirstNode: false
+      });
+      expect(drawn.ok).toBe(false);
+      expect(drawn.error).toContain("section template");
+
+      const seeded = seedRoadSections((section) => road.addSectionTemplate(section));
+      expect(seeded.ok).toBe(true);
+      if (!seeded.ok) return;
+      const registered = road.scene().sectionTemplates;
+      expect(registered).toHaveLength(ROAD_TEMPLATE_PRESETS.length);
+      // Every ID came back from Core; none of them is chosen by the catalogue.
+      const ids = registered.map((template) => template.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(Object.keys(seeded.sections.labels).map(Number).sort()).toEqual(
+        [...ids].sort()
+      );
+      expect(ids).toContain(seeded.sections.initialId);
+      expect(seeded.sections.labels[seeded.sections.initialId]).toBe(
+        ROAD_TEMPLATE_PRESETS.find((preset) => preset.initial)?.label
+      );
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("carries each registered section's own measurements into core", () => {
+    const road = createRoadState();
+    try {
+      const registered = road.scene().sectionTemplates;
+      const shape = (
+        strips: ReadonlyArray<{ function: string; widthM: number }>
+      ) => strips.map((strip) => `${strip.function}:${strip.widthM}`).join("|");
+      for (const preset of ROAD_TEMPLATE_PRESETS) {
+        const match = registered.find(
+          (template) => shape(template.strips) === shape(preset.section.strips)
+        );
+        expect(match, `no core section matches ${preset.key}`).toBeDefined();
+        expect(match!.laneCount).toBe(preset.section.laneBands.length);
+        expect(match!.lanes.map((lane) => lane.id)).toEqual(
+          preset.section.laneBands.map((lane) => lane.id)
+        );
+        expect(match!.boundaries.map((boundary) => boundary.id)).toEqual(
+          preset.section.boundaries.map((boundary) => boundary.id)
+        );
+      }
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("keeps saved sections when a workspace is loaded back", () => {
+    const road = createRoadState();
+    const reopened = createEmptyRoadState();
+    try {
+      const drawn = road.addSegment({
+        sectionTemplateId: sectionId,
+        kind: "line",
+        startX: 0,
+        startY: 0,
+        endX: 40,
+        endY: 0,
+        handleAX: 40 / 3,
+        handleAY: 0,
+        handleBX: 80 / 3,
+        handleBY: 0,
+        startNodeId: 0,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        extensionCorridorId: 0,
+        connectToFirstNode: false
+      });
+      expect(drawn.ok, drawn.error).toBe(true);
+      const saved = road.saveState();
+      const before = road.scene().sectionTemplates;
+
+      const loaded = reopened.loadState(saved);
+      expect(loaded.ok, loaded.error).toBe(true);
+      const after = reopened.scene().sectionTemplates;
+      // Loading uses what the archive holds. It neither adds the catalogue
+      // again nor refreshes the saved measurements from it.
+      expect(after).toHaveLength(before.length);
+      expect(after).toEqual(before);
+      expect(reopened.saveState()).toBe(saved);
+    } finally {
+      reopened.delete();
+      road.delete();
+    }
+  });
+
+  it("edits one shared section without touching roads on another", () => {
+    const road = createRoadState();
+    try {
+      const other = road
+        .scene()
+        .sectionTemplates.find((template) => template.id !== sectionId);
+      expect(other).toBeDefined();
+      const draw = (templateId: number, y: number) =>
+        road.addSegment({
+          sectionTemplateId: templateId,
+          kind: "line",
+          startX: 0,
+          startY: y,
+          endX: 40,
+          endY: y,
+          handleAX: 40 / 3,
+          handleAY: y,
+          handleBX: 80 / 3,
+          handleBY: y,
+          startNodeId: 0,
+          startSegmentId: 0,
+          startSegmentDistanceM: 0,
+          extensionCorridorId: 0,
+          connectToFirstNode: false
+        });
+      expect(draw(sectionId, 0).ok).toBe(true);
+      expect(draw(other!.id, 200).ok).toBe(true);
+      const widthOf = (templateId: number) =>
+        road.scene().sectionTemplates.find((template) => template.id === templateId)!
+          .laneWidthM;
+      const otherBefore = widthOf(other!.id);
+
+      const edited = road.updateSectionTemplate({
+        id: sectionId,
+        sidewalkWidthM: 2.5,
+        laneWidthM: 3.5,
+        medianWidthM: 2,
+        hasCenterLine: true,
+        hasOuterLines: true
+      });
+      expect(edited.ok, edited.error).toBe(true);
+      expect(widthOf(sectionId)).toBeCloseTo(3.5, 9);
+      expect(widthOf(other!.id)).toBe(otherBefore);
     } finally {
       road.delete();
     }

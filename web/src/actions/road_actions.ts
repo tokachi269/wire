@@ -559,6 +559,11 @@ export class RoadActions {
     endpoint: RoadPoint,
     continueSession: boolean
   ): DrawActionResult {
+    // A road is drawn with a cross section. Without one the workspace never
+    // finished registering its catalogue.
+    if (request.sectionTemplateId === 0) {
+      return { kind: "ignored", reasonCode: "no-section-selected" };
+    }
     const result = this.ctx.bridge.roadAddSegment(request);
     if (!result.ok) {
       this.ctx.store.update((snapshot) => ({

@@ -203,6 +203,47 @@ def check_road_architecture(root: Path) -> list[str]:
                     f"domains/road/src/road.cpp: public operation {name} calls public operation {other}"
                 )
 
+    # 7c. The product catalogue of cross sections belongs to whoever presents
+    # it. Core keeps the type, the validation and the IDs, and Add Lane still
+    # derives the section a widened road needs; what Core must not hold again is
+    # a named list of finished roads, or a constructor that registers one.
+    core_section_text = "\n".join(
+        (
+            road_source,
+            source_text(root / "domains/road/include/city/road/road.hpp"),
+        )
+    )
+    for preset in (
+        "JapaneseUrbanTwoLaneTemplate",
+        "ThreeLaneTemplate",
+        "NoLeftSidewalkTemplate",
+        "MedianTwoLaneTemplate",
+        "ShoulderedTwoLaneTemplate",
+    ):
+        if preset in core_section_text:
+            errors.append(
+                "domains/road: product road preset is back in core: " + repr(preset)
+            )
+    constructor_start = road_source.find("RoadState::RoadState()")
+    constructor_end = (
+        road_source.find("\n}\n", constructor_start) if constructor_start >= 0 else -1
+    )
+    constructor_body = (
+        road_source[constructor_start:constructor_end]
+        if constructor_start >= 0 and constructor_end > constructor_start
+        else road_source[constructor_start : constructor_start + 200]
+        if constructor_start >= 0
+        else ""
+    )
+    if "section_templates" in constructor_body:
+        errors.append(
+            "domains/road/src/road.cpp: RoadState construction must not register a section template"
+        )
+    if not (root / "web/src/road_templates.ts").exists():
+        errors.append(
+            "web/src/road_templates.ts: the road section catalogue is missing"
+        )
+
     # 7b. The retired low-level operations must not return to the public API.
     # They edited saved rows directly; the product surface is the drawing,
     # editing, section template and Add Lane operations.

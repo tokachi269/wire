@@ -1,4 +1,4 @@
-#include "sections.hpp"
+#include "layouts.hpp"
 
 namespace road_fixture {
 namespace {
@@ -18,75 +18,75 @@ const AutoMarkingPolicy center_line{
 
 } // namespace
 
-RoadLayoutTemplate UrbanTwoLane(RoadLayoutTemplateId id) {
-  RoadLayoutTemplate section{};
-  section.id = id;
-  section.strips = {
+RoadLayoutTemplate BidirectionalLayout(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate layout{};
+  layout.id = id;
+  layout.strips = {
       {10, StripFunction::kSidewalk, 2.0, 0.01, builtin_surface_styles::kSidewalk},
       {20, StripFunction::kCarriageway, 3.0, 0.02, builtin_surface_styles::kAsphalt},
       {30, StripFunction::kCarriageway, 3.0, -0.02, builtin_surface_styles::kAsphalt},
       {40, StripFunction::kSidewalk, 2.0, -0.01, builtin_surface_styles::kSidewalk},
   };
-  section.lane_bands = {
+  layout.lane_bands = {
       {1000, 20, 0.0, 3.0, LaneTravelDirection::kAgainstSegment},
       {1010, 30, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
   };
-  section.boundaries = {
+  layout.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
       {200, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
       {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
   };
-  return section;
+  return layout;
 }
 
-RoadLayoutTemplate ThreeLane(RoadLayoutTemplateId id) {
-  RoadLayoutTemplate section = UrbanTwoLane(id);
-  section.strips = {
+RoadLayoutTemplate ExtraLaneLayout(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate layout = BidirectionalLayout(id);
+  layout.strips = {
       {10, StripFunction::kSidewalk, 2.0, 0.01, builtin_surface_styles::kSidewalk},
       {20, StripFunction::kCarriageway, 3.0, 0.02, builtin_surface_styles::kAsphalt},
       {30, StripFunction::kCarriageway, 3.0, 0.0, builtin_surface_styles::kAsphalt},
       {35, StripFunction::kCarriageway, 3.0, -0.02, builtin_surface_styles::kAsphalt},
       {40, StripFunction::kSidewalk, 2.0, -0.01, builtin_surface_styles::kSidewalk},
   };
-  section.lane_bands = {
+  layout.lane_bands = {
       {1000, 20, 0.0, 3.0, LaneTravelDirection::kAgainstSegment},
       {1010, 30, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
       {1020, 35, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
   };
-  section.boundaries = {
+  layout.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
       {200, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
       {250, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
       {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
   };
-  return section;
+  return layout;
 }
 
-RoadLayoutTemplate NoLeftSidewalk(RoadLayoutTemplateId id) {
-  RoadLayoutTemplate section = UrbanTwoLane(id);
-  section.strips.erase(section.strips.begin());
-  section.boundaries.erase(section.boundaries.begin());
-  return section;
+RoadLayoutTemplate AsymmetricLayout(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate layout = BidirectionalLayout(id);
+  layout.strips.erase(layout.strips.begin());
+  layout.boundaries.erase(layout.boundaries.begin());
+  return layout;
 }
 
-RoadLayoutTemplate MedianTwoLane(RoadLayoutTemplateId id) {
-  RoadLayoutTemplate section = UrbanTwoLane(id);
-  section.strips.insert(section.strips.begin() + 2,
+RoadLayoutTemplate MedianLayout(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate layout = BidirectionalLayout(id);
+  layout.strips.insert(layout.strips.begin() + 2,
                         {25, StripFunction::kMedian, 2.0, 0.0,
                          builtin_surface_styles::kMedian});
-  section.boundaries = {
+  layout.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
       {210, BoundaryRole::kMedianEdge, 0.2, 0.12, {}},
       {220, BoundaryRole::kMedianEdge, 0.2, -0.12, {}},
       {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
   };
-  return section;
+  return layout;
 }
 
-RoadLayoutTemplate ShoulderedTwoLane(RoadLayoutTemplateId id) {
-  RoadLayoutTemplate section{};
-  section.id = id;
-  section.strips = {
+RoadLayoutTemplate ShoulderedLayout(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate layout{};
+  layout.id = id;
+  layout.strips = {
       {10, StripFunction::kSidewalk, 2.0, 0.01,
        builtin_surface_styles::kSidewalk},
       {15, StripFunction::kShoulder, 0.75, 0.02,
@@ -100,24 +100,24 @@ RoadLayoutTemplate ShoulderedTwoLane(RoadLayoutTemplateId id) {
       {40, StripFunction::kSidewalk, 2.0, -0.01,
        builtin_surface_styles::kSidewalk},
   };
-  section.lane_bands = {
+  layout.lane_bands = {
       {1000, 20, 0.0, 3.0, LaneTravelDirection::kAgainstSegment},
       {1010, 30, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
   };
-  section.boundaries = {
+  layout.boundaries = {
       {100, BoundaryRole::kCurb, 0.2, -0.15, {}},
       {150, BoundaryRole::kOuterEdge, 0.0, 0.0, outer_line},
       {200, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
       {250, BoundaryRole::kOuterEdge, 0.0, 0.0, outer_line},
       {300, BoundaryRole::kCurb, 0.2, 0.15, {}},
   };
-  return section;
+  return layout;
 }
 
 RoadLayoutTemplateId AddLayout(RoadState& state,
-                                  RoadLayoutTemplate section) {
+                                  RoadLayoutTemplate layout) {
   const auto added = state.AddRoadLayoutTemplate(
-      city::road::AddRoadLayoutTemplateRequest{std::move(section)});
+      city::road::AddRoadLayoutTemplateRequest{std::move(layout)});
   return added.ok ? added.value : 0;
 }
 

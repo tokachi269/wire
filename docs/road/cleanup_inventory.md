@@ -102,25 +102,38 @@ Web bridgeの32件中14件はweb/src内に呼び出し元がない。
 - [x] CLEAN0 baseline + 分類表
 - [x] CLEAN1 配置API削除 — production/正本docsから41箇所を削除。contract testは`corridor_sample_distances`へ置換して距離↔世界座標の契約を維持
 - [x] CLEAN2 旧ADD LANE preview削除 — WASM export・bridge・型・mock・testを削除。lintは維持規則から復活禁止規則へ変更
-- [~] CLEAN3 低レベル操作内部化 — **Web/WASM境界は完了**(低レベル15 exportとbridgeを削除、Webから直接呼べない)。**C++ public method の内部化は未了**(下記参照)
+- [x] CLEAN3 低レベル操作内部化 — Web/WASM境界に続き **C++ public面も完了**(CLEAN3b、下記)
 
-### CLEAN3b 残作業: C++ public methodの内部化
+### CLEAN3b 完了: C++ public methodの削除
 
-Webから外した15操作に対応する `RoadState` public methodは残っている。内部化には呼び出しテスト9関数の書き換えが必要で、うち次はAddLaneで表現できるか未確認。
+`RoadState` public operation 33件のうち20件を削除し、13件(AddSegment / ExtendCorridorFromEnd /
+AddSegmentConnectedTo / AddSegmentConnectedToSegment / SplitSegmentAtDistance / EditSegmentShape /
+MoveNode / DeleteSegment / AddSectionTemplate / EditSectionTemplate / AddLane / Save / Load)にした。
+対応するrequest型15件と`ApproachOverrideField` / `LaneSide` enum、使われていなかった
+`Lane/BoundaryTargetConnection` 系4型も削除した。`bindings.cpp`に残っていた変換helper 10件も外した。
 
-| test | 使用API | 論点 |
-|---|---|---|
-| `M3_lane_count_change_begins_and_terminates_lines` | AddTransition | 2→3車線をAddLaneで作れるか |
-| `M6_transition_without_boundary_mapping_is_unsupported` | AddTransition | AddLane経由では到達不能なら検証対象が消える |
-| `P2_supports_taper_lane_reduction_and_median_end` | AddTransition | 車線減少・中央帯終端をAddLaneで作れるか |
-| `P2_requires_transition_for_mixed_section_connection` | AddTransition | 異断面接続 |
-| `P2_section_transition_and_manual_markings` | AddTransition | 手動markingはCLEAN4保留対象 |
-| `junction_movements_are_explicit_lane_connections` | AddLaneConnection | 曖昧junctionでの明示指定は`plan_unique_junction_topology`の逃げ道 |
-| `add_lane_connects_the_only_matching_junction_approach` | AddLaneConnection | 同上 |
-| `derived_segment_owns_all_semantic_distances` | AddTransitionToSegment | setup用途 |
-| `all_public_operation_validation_failures_are_atomic` | 全public op列挙 | 公開面縮小に追従 |
+保存型(`SectionTransition`とその`rules`、`lane_connections`、`boundary_continuations`、
+手動marking、`ApproachGeometryOverride`、`AutoMarkingOverride`、`JunctionMarkingOverride`)と
+junction topology生成、ADD LANEの断面変化処理は残した。`rules`の唯一の読み手だった
+`validate_transition`は`derive_segment_sections`へ移し、生成のたびに読まれるようにした。
+「lane side markingはcarriageway stripのみ」は`validate_section_template`へ移した。
 
-`AddLane` は transition を1件だけ生成し(`kTaperIn` / 逆向きで `kTaperOut`)、`lane_connections` / `boundary_continuations` は生成しない(それらは `plan_unique_junction_topology` がjunctionで自動生成する)。**AddLaneが車線減少・異断面接続・曖昧junction指定を表現できない場合、低レベルAPIの削除は高水準operationの機能欠落になる**(停止条件「低レベル公開APIを消すと高水準operationが成立しない」)。
+| test | 扱い |
+|---|---|
+| `M3_lane_count_change_begins_and_terminates_lines` | 追加はAddLane、減少は`generate_road` fixture |
+| `M6_transition_without_boundary_mapping_is_unsupported` | `generate_road` fixture |
+| `P2_supports_taper_lane_reduction_and_median_end` | `generate_road` fixture |
+| `P2_requires_transition_for_mixed_section_connection` | fixture + Load後にAddSegmentConnectedTo |
+| `P2_section_transition_and_manual_markings` | `section_transition_widens_one_side_from_its_anchor`(fixture)と`saved_manual_markings_load_and_draw`(Load互換)へ分割 |
+| `junction_movements_are_explicit_lane_connections` | `saved_junction_movements_derive_lane_paths`(Load互換)へ改名・書き換え |
+| `add_lane_connects_the_only_matching_junction_approach` | 保存topologyをLoadしてからAddLane |
+| `derived_segment_owns_all_semantic_distances` | `generate_road` fixture |
+| `all_public_operation_validation_failures_are_atomic` | 残る公開操作だけを列挙(AddLaneを追加) |
+| `P2_marking_policy_suppression_and_junction_override` | fixture + EditSectionTemplate |
+| `M1_lane_side_*` 2件 | EditSectionTemplate |
+| `approach_override_resolves_and_persists_manual_fields` | fixture + archive |
+| `standard_delete_preserves_unrelated_approach_override` | fixture + Load後にDeleteSegment |
+| `delete_range_*` 2件 | 保留機能とともに削除 |
 - [~] CLEAN4 保留機能整理 — 手動線・手動面・部分削除を標準UI/Web/WASM境界から除去し `backlog.md` へ。保存fieldは維持(schema不変、migration不要)。**C++ public API の除去は CLEAN3b と同時に行う**
 - [x] CLEAN5 Branch/Merge判定 — **POC条件を満たさないため削除**。RoadPanelが raw BoundaryId の `<select>` を出し(`RoadPanel.svelte:143`)、`boundaries[0]` を既定値として自動選択していた(`road_actions.ts:434`)。goal §5.1 の「raw BoundaryIdを入力させない」「不正な初期値を自動選択しない」の2点に違反。UI/state/actions/bridge/WASM/`AddConnectedLaneSegment`/専用request/test/docsを削除し、lintへ復活禁止規則を追加。junctionとADD LANEが使う内部lane topologyは維持
 - [~] CLEAN6 パイプライン・保存型整理 — 生産者のない `OperationPlan` field 3件(`remove_lane_connections` / `remove_boundary_continuations` / `add_connection_policy_overrides`)を削除。generation 10工程の入力/出力/consumer/失敗分類の監査表を `architecture.md` へ追加(consumerのない工程はなし)。保存型も監査し、`SavedRoadGraph` 13 field すべてに生成側の読み手があることを確認(削除対象なし)。**CLEAN6完了**

@@ -79,100 +79,15 @@ using city::wire::Vec3d;
   throw std::runtime_error("unknown road render style id");
 }
 
-[[nodiscard]] std::optional<city::road::MarkingStyleId> road_marking_style_id(const std::string& key) {
-  if (key == "road_marking" || key == "white_solid" || key == "white") {
-    return city::road::builtin_marking_styles::kWhiteSolid;
-  }
-  if (key == "road_marking_center" || key == "center_line") return city::road::builtin_marking_styles::kCenterLine;
-  if (key == "road_marking_stop" || key == "stop_line") return city::road::builtin_marking_styles::kStopLine;
-  if (key == "road_marking_crosswalk" || key == "crosswalk" || key == "zebra") {
-    return city::road::builtin_marking_styles::kCrosswalk;
-  }
-  return std::nullopt;
-}
-
-[[nodiscard]] city::road::ApproachKey road_approach_key_value(const val& input) {
-  const int role = input["endpointRole"].as<int>();
-  return city::road::ApproachKey{
-      input["nodeId"].as<city::road::RoadNodeId>(),
-      input["segmentId"].as<city::road::RoadSegmentId>(),
-      role == 1 ? city::road::EndpointRole::kEnd : city::road::EndpointRole::kStart,
-  };
-}
-
-[[nodiscard]] city::road::LaneSide road_lane_side_value(const val& input) {
-  return input["side"].as<std::string>() == "right" ? city::road::LaneSide::kRight
-                                                    : city::road::LaneSide::kLeft;
-}
-
 [[nodiscard]] city::road::RoadSide road_side_value(const val& input) {
   return input["side"].as<std::string>() == "right"
              ? city::road::RoadSide::kRight
              : city::road::RoadSide::kLeft;
 }
 
-[[nodiscard]] city::road::EndpointRole road_endpoint_role(int value) {
-  return value == 1 ? city::road::EndpointRole::kEnd
-                    : city::road::EndpointRole::kStart;
-}
-
 [[nodiscard]] city::road::LaneTravelDirection road_lane_direction(int value) {
   return value == 1 ? city::road::LaneTravelDirection::kAgainstSegment
                     : city::road::LaneTravelDirection::kAlongSegment;
-}
-
-[[nodiscard]] city::road::LaneConnectionKind road_lane_connection_kind(int value) {
-  if (value == 1) return city::road::LaneConnectionKind::kTransition;
-  if (value == 2) return city::road::LaneConnectionKind::kMerge;
-  if (value == 3) return city::road::LaneConnectionKind::kSplit;
-  if (value == 4) return city::road::LaneConnectionKind::kJunctionMovement;
-  return city::road::LaneConnectionKind::kContinuation;
-}
-
-[[nodiscard]] city::road::BoundaryContinuationKind
-road_boundary_continuation_kind(int value) {
-  if (value == 1) return city::road::BoundaryContinuationKind::kMerge;
-  if (value == 2) return city::road::BoundaryContinuationKind::kSplit;
-  return city::road::BoundaryContinuationKind::kContinuation;
-}
-
-[[nodiscard]] city::road::LaneEndpointKey road_lane_endpoint_value(const val& input) {
-  return city::road::LaneEndpointKey{
-      input["segmentId"].as<city::road::RoadSegmentId>(),
-      input["laneId"].as<city::road::LaneId>(),
-      road_endpoint_role(input["endpointRole"].as<int>())};
-}
-
-[[nodiscard]] city::road::BoundaryEndpointKey
-road_boundary_endpoint_value(const val& input) {
-  return city::road::BoundaryEndpointKey{
-      input["segmentId"].as<city::road::RoadSegmentId>(),
-      input["boundaryId"].as<city::road::BoundaryId>(),
-      road_endpoint_role(input["endpointRole"].as<int>())};
-}
-
-[[nodiscard]] city::road::JunctionMarkingAction road_junction_marking_action(int value) {
-  if (value == 1) return city::road::JunctionMarkingAction::kConnectToApproach;
-  if (value == 2) return city::road::JunctionMarkingAction::kSuppress;
-  return city::road::JunctionMarkingAction::kTerminateAtGate;
-}
-
-[[nodiscard]] city::road::JunctionMarkingEndpoint road_junction_marking_endpoint(const val& input) {
-  city::road::JunctionMarkingEndpoint endpoint{};
-  endpoint.approach = road_approach_key_value(input);
-  endpoint.boundary_id = input["boundaryId"].as<std::uint64_t>();
-  endpoint.role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
-  return endpoint;
-}
-
-[[nodiscard]] city::road::AutoMarkingKey road_junction_marking_key(const val& input) {
-  const auto node_id = input["nodeId"].as<city::road::RoadNodeId>();
-  const auto role = static_cast<city::road::MarkingRole>(input["role"].as<int>());
-  return city::road::AutoMarkingKey{
-      city::road::MarkingOwner{city::road::MarkingOwner::Kind::kJunction, 0, node_id, 0},
-      role,
-      std::nullopt,
-      road_approach_key_value(input)};
 }
 
 [[nodiscard]] val road_mesh_value(const city::road::Mesh& mesh) {

@@ -248,15 +248,6 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
           },
           "SplitSegmentAtDistance", failure),
       failure);
-  ROAD_CONTRACT_EXPECT(
-      expect_failed_unchanged(
-          state,
-          [&] {
-            return state.DeleteSegmentRange(
-                DeleteSegmentRangeRequest{999999, 1.0, 2.0});
-          },
-          "DeleteSegmentRange", failure),
-      failure);
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.DeleteSegment(city::road::DeleteSegmentRequest{999999}); }, "DeleteSegment", failure), failure);
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
@@ -279,34 +270,6 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
   lane.lane_width_m = 3.0;
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.AddLane(lane); }, "AddLane", failure),
-                       failure);
-  SectionTransitionRequest invalid_transition{};
-  invalid_transition.from_template = 1;
-  invalid_transition.to_template = 999999;
-  invalid_transition.start = {DistanceRefKind::kFromStart, 1.0};
-  invalid_transition.end = {DistanceRefKind::kFromStart, 2.0};
-  invalid_transition.rules = {{10, TransitionAction::kContinue}};
-  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
-                           state, [&] { return state.AddTransition(invalid_transition); }, "AddTransition", failure),
-                       failure);
-  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
-                           state, [&] { return state.AddTransitionToSegment(city::road::AddTransitionToSegmentRequest{999999, invalid_transition}); },
-                           "AddTransitionToSegment", failure), failure);
-  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
-                           state, [&] { return state.AttachSectionTransition(city::road::AttachSectionTransitionRequest{999999, 999998}); },
-                           "AttachSectionTransition", failure), failure);
-  ManualLineRequest line_marking{};
-  line_marking.owner_segment_id = 999999;
-  line_marking.path = line;
-  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
-                           state, [&] { return state.AddManualLine(line_marking); }, "AddManualLine", failure),
-                       failure);
-  ManualAreaRequest area_marking{};
-  area_marking.owner_segment_id = 999999;
-  area_marking.width_m = 1.0;
-  area_marking.length_m = 1.0;
-  ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
-                           state, [&] { return state.AddManualArea(area_marking); }, "AddManualArea", failure),
                        failure);
   return true;
 }

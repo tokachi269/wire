@@ -38,26 +38,17 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのgenerate可否 |
 | MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
-| SetApproachSetbackOverride | ApproachKey / setback_m | node exists、segment exists、endpoint role matches、finite、non-negative、layout target exists | gate overlap、segment length、junction quality |
-| SetApproachLateralShiftOverride | ApproachKey / lateral_shift_m | node exists、segment exists、endpoint role matches、finite、layout target exists | self-intersection、junction quality |
-| ResetApproachOverrideField | ApproachKey / field | node exists、segment exists、endpoint role matches、field enum valid | resolved layout rebuild |
-| ResetAllApproachOverrides | ApproachKey | node exists、segment exists、endpoint role matches | resolved layout rebuild |
-| AddSectionTemplate | section_template | ID一意、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId | trial section evaluation |
-| EditSectionTemplate | section_template | ID exists、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId | 既存segment再評価 |
-| AddTransition | from/to/start/end/anchor/rules | template exists、distance finite/range、rule element exists、enum valid | element出現/消滅action対応 |
-| AddTransitionToSegment | segment_id + transition request | segment exists、transition preflight | 既存transition replace、segment section整合 |
+| AddSectionTemplate | section_template | ID一意、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | trial section evaluation |
+| EditSectionTemplate | section_template | ID exists、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | 既存segment再評価。boundary policyとlane side policyはこの操作だけが変える |
 | AddLane | corridor/direction/side/変化開始SegmentPosition/完成SegmentPosition/維持終点node/lane width | corridorとsegment/nodeが存在、tがfiniteかつ[0,1]、同一segment内でcorridor方向の順序が有効、幅が正 | Coreが外側laneと固定boundaryを解決し、最初のsegmentへtransition、明示終点までの後続segmentへ完成断面を設定 |
-| AddLaneConnection | source/target LaneEndpointKey / kind | 両endpoint ID存在、source退出、target進入、同一node、kind enum valid | cardinalityと方向を検証しDerivedLanePathを生成 |
-| AddBoundaryContinuation | source/target BoundaryEndpointKey / kind | 両endpoint ID存在、同一node、kind enum valid | cardinalityを検証し明示した境界間だけDerivedBoundaryPathを生成 |
-| AttachSectionTransition | segment_id / transition_id | ID exists、from_template matches segment、distance range valid | segment再評価 |
-| SetBoundaryMarkingPolicy | section_template_id / boundary_id / policy | template exists、boundary exists、role enum valid、known MarkingStyleId | 要求統合、継続再評価 |
-| SetLaneSideMarkingPolicy | section_template_id / strip_id / side / policy | template exists、strip exists、carriageway strip、role enum valid、known MarkingStyleId | 隣接boundaryへの解決、要求統合 |
-| ResetLaneSideMarkingPolicy | section_template_id / strip_id / side | 同上(policyは無効値) | 要求統合、継続再評価 |
-| SuppressAutoMarking / ResetAutoMarkingSuppression | AutoMarkingKey | owner種別ごとにID存在、segmentはtrack必須、junctionはapproach必須 | 該当自動線のみ非生成 |
-| SetJunctionMarkingOverride | node_id / action / source / target | node exists、approachがnodeに属する、boundaryがgateに存在、ConnectToApproachはtarget必須 | junction-owned pathの生成 |
-| DeleteJunctionMarkingOverride | override_id | ID非ゼロ | default terminateへ復帰 |
 
 外部入力不正は`kValidation`、正しい入力だがP0-P2で対応しない構造は`kUnsupported`、正しい正本から派生表やresolved read modelが欠ける場合は`kInternal`とする。
+
+`SectionTransition`、`LaneConnection`、`BoundaryContinuation`、`ApproachGeometryOverride`、
+`AutoMarkingOverride`、`JunctionMarkingOverride`、`ManualLineMarking`、`ManualAreaMarking`は
+保存される正本のままだが、これらを直接書き換える公開操作はない。IDと参照の妥当性は
+`ValidateAuthoritativeGraph`が、断面と線が成立するかは`generate_road`が判定する。
+これらの行を持つ道路はloadで入り、`AddLane`とjunction生成が内部で書く。
 
 ## 状態
 
@@ -83,7 +74,6 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | DeleteSegment | validation | 選択したRoadSegment 1件だけを削除 | corridor分断は決定論的に処理 | 対象segmentのownerだけを除去 | 対象segmentのmarkingを除去 |
 | Viewer delete road | 1 segment pick | `DeleteSegment` | hoverしたRoadSegment全体を1クリックで削除 | hoverとclickは同じ明示segment IDを使う | splitやrange境界を作らない |
 | Add/EditSectionTemplate | supported | supported | supported | supported | supported |
-| AttachSectionTransition | validation | supported | supported | replace supported | supported |
 | AddLane | validation | segmentをsplitせずtでsupported | transition自体は同一segment内、完成断面の明示終点までの伝播はsupported | 1 segment 1 transition。同一区間の競合は具体的なvalidation | supported |
 
 ## P1 node semantics
@@ -191,10 +181,10 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 
 | 操作 | policyなし | boundary policyあり | lane side policyあり | 競合要求 | suppressionあり |
 |---|---|---|---|---|---|
-| SetBoundaryMarkingPolicy | supported | 置換 | 一致すれば統合 | unsupported | supported (自動線は非生成のまま) |
-| SetLaneSideMarkingPolicy | supported | 一致すれば統合 | 置換 | unsupported | supported |
-| SuppressAutoMarking | validation (track不在) | supported | supported | - | 冪等 |
-| SetJunctionMarkingOverride | supported | supported | supported | - | supported |
+| EditSectionTemplate (boundary policy) | supported | 置換 | 一致すれば統合 | unsupported | supported (自動線は非生成のまま) |
+| EditSectionTemplate (lane side policy) | supported | 一致すれば統合 | 置換 | unsupported | supported |
+| 保存された`AutoMarkingOverride` | validation (track不在) | supported | supported | - | 冪等 |
+| 保存された`JunctionMarkingOverride` | supported | supported | supported | - | supported |
 
 ## Lane topology authority
 

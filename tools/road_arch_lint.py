@@ -199,11 +199,47 @@ def check_road_architecture(root: Path) -> list[str]:
         body = road_source[body_start:body_end if body_end > 0 else len(road_source)]
         for other in sorted(public_operations - {name}):
             if re.search(rf"\b(?:this->)?{other}\(", body) and f"RoadState::{other}(" not in body:
-                if other in {"SetBoundaryMarkingPolicy", "SetLaneSideMarkingPolicy"} and name.startswith("Reset"):
-                    continue
                 errors.append(
                     f"domains/road/src/road.cpp: public operation {name} calls public operation {other}"
                 )
+
+    # 7b. The retired low-level operations must not return to the public API.
+    # They edited saved rows directly; the product surface is the drawing,
+    # editing, section template and Add Lane operations.
+    public_api_text = "\n".join(
+        (
+            source_text(root / "domains/road/include/city/road/road.hpp"),
+            source_text(
+                root / "domains/road/include/city/road/input_types/requests.hpp"
+            ),
+        )
+    )
+    for retired in (
+        "DeleteSegmentRange",
+        "SetApproachSetbackOverride",
+        "SetApproachLateralShiftOverride",
+        "ResetApproachOverrideField",
+        "ResetAllApproachOverrides",
+        "SetBoundaryMarkingPolicy",
+        "ResetBoundaryMarkingPolicy",
+        "SetLaneSideMarkingPolicy",
+        "ResetLaneSideMarkingPolicy",
+        "AddTransition",
+        "AttachSectionTransition",
+        "AddLaneConnection",
+        "AddBoundaryContinuation",
+        "AddManualLine",
+        "AddManualArea",
+        "SuppressAutoMarking",
+        "ResetAutoMarkingSuppression",
+        "SetJunctionMarkingOverride",
+        "DeleteJunctionMarkingOverride",
+    ):
+        if retired in public_api_text:
+            errors.append(
+                "domains/road: retired low-level road operation is public again: "
+                + repr(retired)
+            )
 
     # 7a. Local segment and corridor operations stay local.
     if re.search(r"\bExtendSegment(?:Request)?\b", road_source):
@@ -414,7 +450,7 @@ def check_road_architecture(root: Path) -> list[str]:
         )
     add_lane_start = road_source.find("Result<LaneId> RoadState::AddLane(")
     add_lane_end = road_source.find(
-        "Result<LaneConnectionId> RoadState::AddLaneConnection(",
+        "Result<std::string> RoadState::Save()",
         add_lane_start,
     )
     add_lane_region = (

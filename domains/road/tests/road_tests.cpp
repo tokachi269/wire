@@ -56,7 +56,6 @@ using city::road::RoadCorridorId;
 using city::road::RoadNodeId;
 using city::road::RoadSegment;
 using city::road::RoadSegmentId;
-using city::road::SectionTransitionRequest;
 using city::road::SectionTransitionRule;
 using city::road::DistanceRef;
 using city::road::DistanceRefKind;

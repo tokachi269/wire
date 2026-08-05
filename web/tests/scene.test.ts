@@ -153,7 +153,6 @@ describe("road rendering", () => {
     expect(points[4].y).toBeGreaterThan(0);
     expect(roadGuideHalfWidth([{
       id: 7,
-      name: "test",
       strips: [
         { id: 1, function: "sidewalk", widthM: 2 },
         { id: 2, function: "carriageway", widthM: 7 },

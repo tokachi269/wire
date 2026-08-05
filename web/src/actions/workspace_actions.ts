@@ -5,6 +5,7 @@ import {
   placementUsesTransientZeroDefaults
 } from "./draw_defaults";
 import { DEFAULT_BUNDLE_PRESET } from "../profile/defaultBundlePreset";
+import { seedRoadSections } from "../road_templates";
 import { createViewerSnapshot } from "../store/viewer";
 import {
   createWorkspaceDocument,
@@ -14,9 +15,54 @@ import {
 } from "../store/workspace";
 
 export class WorkspaceActions {
+  // What the road sections registered for this workspace are called, and which
+  // one a new road starts on. Reset restores the factory road state, which
+  // already holds those sections, so it reuses these instead of registering
+  // them a second time.
+  private seededRoadSections: {
+    labels: Record<number, string>;
+    initialId: number;
+  } | null = null;
+
   constructor(private readonly ctx: ViewerActionContext) {}
 
-  initialize(): void {
+  // A new workspace starts with no road section at all, so the product
+  // catalogue is registered once, here. Reopening a saved workspace goes
+  // through loadState instead and keeps the sections it was saved with.
+  initialize(): boolean {
+    if (!this.seedRoadTemplates()) return false;
+    this.initializeCatalogs();
+    this.ctx.saveFactoryCoreState();
+    return true;
+  }
+
+  private seedRoadTemplates(): boolean {
+    const seeded = seedRoadSections((section) =>
+      this.ctx.bridge.roadAddSectionTemplate(section)
+    );
+    if (!seeded.ok) {
+      this.ctx.store.setError(`Workspace road sections failed: ${seeded.error}`);
+      return false;
+    }
+    this.seededRoadSections = seeded.sections;
+    this.applySeededRoadSections();
+    return true;
+  }
+
+  private applySeededRoadSections(): void {
+    const seeded = this.seededRoadSections;
+    if (seeded === null) return;
+    this.ctx.store.update((current) => ({
+      ...current,
+      road: {
+        ...current.road,
+        sectionTemplateLabels: seeded.labels,
+        selectedSectionTemplateId: seeded.initialId
+      }
+    }));
+  }
+
+  private initializeCatalogs(): void {
     const bundleTemplates = this.ctx.bridge.bundleTemplates();
     const cableTemplates = this.ctx.bridge.cableTemplates();
     const poleTemplates = this.ctx.bridge.poleTemplates();
@@ -56,7 +102,6 @@ export class WorkspaceActions {
         scene: this.ctx.bridge.roadScene()
       }
     }));
-    this.ctx.saveFactoryCoreState();
   }
 
   async restoreWorkspace(): Promise<void> {
@@ -182,7 +227,9 @@ export class WorkspaceActions {
       workspaceLeftWidth: beforeReset.workspaceLeftWidth,
       workspaceWidth: beforeReset.workspaceWidth
     });
-    this.initialize();
+    // The factory road state already holds the registered sections.
+    this.applySeededRoadSections();
+    this.initializeCatalogs();
     this.ctx.refreshScene();
     this.refreshRoadScene();
     this.ctx.resumePersistence();

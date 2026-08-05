@@ -69,8 +69,8 @@ export class ViewerActions {
     this.workspace = new WorkspaceActions(this.ctx);
   }
 
-  initialize(): void {
-    this.workspace.initialize();
+  initialize(): boolean {
+    return this.workspace.initialize();
   }
 
   async restoreWorkspace(): Promise<void> {

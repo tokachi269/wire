@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { loadWireModule, type RoadStateHandle, type WireStateHandle } from "../src/bridge/wasm";
+import { seedRoadSections } from "../src/road_templates";
 import { CommitFailureCategory, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
 import {
   buildDefaultModelBootstrap,
@@ -1454,10 +1455,27 @@ describe("wire wasm smoke", () => {
 describe("road wasm smoke", () => {
   let state: RoadStateHandle;
   let createRoadState: () => RoadStateHandle;
+  // A road state starts with no cross section, so these tests register the
+  // product catalogue the way a new workspace does and draw with the ID Core
+  // handed back. Clearing discards the sections too, so it re-registers them.
+  let sectionId = 0;
+  const seedRoad = (road: RoadStateHandle): void => {
+    const seeded = seedRoadSections((section) => road.addSectionTemplate(section));
+    if (!seeded.ok) throw new Error(seeded.error);
+    sectionId = seeded.sections.initialId;
+  };
+  const clearRoad = (road: RoadStateHandle): void => {
+    road.clear();
+    seedRoad(road);
+  };
 
   beforeAll(async () => {
     const module = await loadWireModule();
-    createRoadState = () => new module.RoadState();
+    createRoadState = () => {
+      const road = new module.RoadState();
+      seedRoad(road);
+      return road;
+    };
     state = createRoadState();
   });
 
@@ -1469,6 +1487,7 @@ describe("road wasm smoke", () => {
     const road = createRoadState();
     try {
       const first = road.addSegment({
+      sectionTemplateId: sectionId,
         kind: "bezier",
         startX: 0,
         startY: 0,
@@ -1489,6 +1508,7 @@ describe("road wasm smoke", () => {
 
       // The chord the viewer reports for the pending interval.
       const pending = {
+        sectionTemplateId: sectionId,
         kind: "bezier" as const,
         startX: 40,
         startY: 0,
@@ -1532,6 +1552,7 @@ describe("road wasm smoke", () => {
 
   it("builds the Japanese two-lane surface from a clicked line", () => {
     const added = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1572,8 +1593,9 @@ describe("road wasm smoke", () => {
   });
 
   it("exposes stable lane paths and commits an outer lane", () => {
-    state.clear();
+    clearRoad(state);
     const added = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1637,8 +1659,9 @@ describe("road wasm smoke", () => {
 
 
   it("extends a degree-one corridor by adding a local segment", () => {
-    state.clear();
+    clearRoad(state);
     const first = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1659,6 +1682,7 @@ describe("road wasm smoke", () => {
     expect(first.endNodeId).toBeGreaterThan(0);
 
     const extended = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 20.2,
       startY: 0,
@@ -1712,8 +1736,9 @@ describe("road wasm smoke", () => {
   });
 
   it("exposes local split through the wasm boundary", () => {
-    state.clear();
+    clearRoad(state);
     const added = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1744,8 +1769,9 @@ describe("road wasm smoke", () => {
   });
 
   it("exposes exact segment ownership and standard deletion through wasm", () => {
-    state.clear();
+    clearRoad(state);
     const first = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1763,6 +1789,7 @@ describe("road wasm smoke", () => {
     });
     expect(first.ok, first.error).toBe(true);
     const middle = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 20,
       startY: 0,
@@ -1780,6 +1807,7 @@ describe("road wasm smoke", () => {
     });
     expect(middle.ok, middle.error).toBe(true);
     const last = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 40,
       startY: 0,
@@ -1825,8 +1853,9 @@ describe("road wasm smoke", () => {
   });
 
   it("keeps one continuous multi-span drawing as one deletion unit through wasm", () => {
-    state.clear();
+    clearRoad(state);
     const added = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1892,8 +1921,9 @@ describe("road wasm smoke", () => {
   });
 
   it("previews and commits endpoint movement through the node operation", () => {
-    state.clear();
+    clearRoad(state);
     const added = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1937,8 +1967,9 @@ describe("road wasm smoke", () => {
   });
 
   it("keeps the final cross section perpendicular to an angled road", () => {
-    state.clear();
+    clearRoad(state);
     const added = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1967,8 +1998,9 @@ describe("road wasm smoke", () => {
   });
 
   it("derives a curved degree-two connector without junction markings", () => {
-    state.clear();
+    clearRoad(state);
     const base = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line", startX: 0, startY: 0, endX: 20, endY: 0,
       handleAX: 6, handleAY: 0, handleBX: 14, handleBY: 0,
       startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
@@ -1977,6 +2009,7 @@ describe("road wasm smoke", () => {
     const endpoint = state.scene().nodes.find((node) => Math.abs(node.x - 20) < 1e-6 && Math.abs(node.y) < 1e-6);
     expect(endpoint).toBeDefined();
     const corner = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line", startX: 20, startY: 0, endX: 20, endY: 24,
       handleAX: 20, handleAY: 8, handleBX: 20, handleBY: 16,
       startNodeId: endpoint!.id, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
@@ -1993,8 +2026,9 @@ describe("road wasm smoke", () => {
   });
 
   it("splits a straight segment when a branch starts from a centerline snap", () => {
-    state.clear();
+    clearRoad(state);
     const base = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -2012,6 +2046,7 @@ describe("road wasm smoke", () => {
     expect(base.ok, base.error).toBe(true);
     const baseSegmentId = state.scene().centerlineSegments[0].id;
     const branch = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 20,
       startY: 0,
@@ -2042,8 +2077,9 @@ describe("road wasm smoke", () => {
   });
 
   it("splits a straight segment when a branch ends at a centerline snap", () => {
-    state.clear();
+    clearRoad(state);
     const base = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 0, startY: 0, endX: 40, endY: 0,
       handleAX: 13, handleAY: 0, handleBX: 27, handleBY: 0,
@@ -2053,6 +2089,7 @@ describe("road wasm smoke", () => {
     expect(base.ok, base.error).toBe(true);
     const baseSegmentId = state.scene().centerlineSegments[0].id;
     const branch = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: 20, startY: 24, endX: 20, endY: 0,
       handleAX: 20, handleAY: 16, handleBX: 20, handleBY: 8,
@@ -2069,8 +2106,9 @@ describe("road wasm smoke", () => {
   });
 
   it("splits a Bezier segment at the explicit centerline distance", () => {
-    state.clear();
+    clearRoad(state);
     const base = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "bezier",
       startX: 0,
       startY: 0,
@@ -2094,6 +2132,7 @@ describe("road wasm smoke", () => {
         : best
     );
     const branch = state.addSegment({
+      sectionTemplateId: sectionId,
       kind: "line",
       startX: target.startX,
       startY: target.startY,

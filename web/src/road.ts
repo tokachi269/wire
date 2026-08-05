@@ -143,7 +143,6 @@ export interface RoadCenterlineSegmentData {
 
 export interface RoadSectionTemplateData {
   id: number;
-  name: string;
   strips: Array<{
     id: number;
     function: "sidewalk" | "shoulder" | "carriageway" | "median";
@@ -192,6 +191,8 @@ export interface RoadToolState {
   draftExtensionCorridorId: number;
   connectToFirstNode: boolean;
   selectedSectionTemplateId: number;
+  /** Labels for the sections this session registered, keyed by the ID Core assigned. */
+  sectionTemplateLabels: Record<number, string>;
   manualLineOffsetM: number;
   manualAreaWidthM: number;
   manualAreaLengthM: number;
@@ -246,7 +247,8 @@ export function createRoadToolState(): RoadToolState {
     draftStartSegmentDistanceM: 0,
     draftExtensionCorridorId: 0,
     connectToFirstNode: false,
-    selectedSectionTemplateId: 1,
+    selectedSectionTemplateId: 0,
+    sectionTemplateLabels: {},
     manualLineOffsetM: 0,
     manualAreaWidthM: 4,
     manualAreaLengthM: 6,
@@ -344,7 +346,7 @@ export function withRoadCurveEnd(state: RoadToolState, end: RoadPoint): RoadTool
 export function emptyRoadScene(): RoadSceneData {
   return {
     segmentCount: 0,
-    sectionTemplateCount: 1,
+    sectionTemplateCount: 0,
     transitionCount: 0,
     markingCount: 0,
     connectionGateCount: 0,

@@ -34,6 +34,7 @@ import type {
 } from "../model";
 import type { RoadMeshData, RoadSceneData, RoadSegmentInput } from "../road";
 import type { RoadIntervalPreview } from "./wasm";
+import type { RoadSectionInput } from "../road_templates";
 
 export interface VisualPartData {
   info: VisualPartInfo;
@@ -458,6 +459,12 @@ export class WireBridge {
   roadPreviewEditSegment(segmentId: number, input: RoadSegmentInput): OperationResult & { meshes: RoadMeshData[] } {
     const result = this.roadState.previewEditSegment(segmentId, input);
     return { ...result, meshes: result.meshes.map(copyRoadMesh) };
+  }
+
+  roadAddSectionTemplate(
+    input: RoadSectionInput
+  ): OperationResult & { sectionTemplateId?: number } {
+    return this.roadState.addSectionTemplate(input);
   }
 
   roadUpdateSectionTemplate(input: Record<string, number | boolean>): OperationResult {

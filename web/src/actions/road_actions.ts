@@ -8,6 +8,7 @@ import {
   type RoadToolState
 } from "../road";
 import { CommitFailureCategory } from "../model";
+import { seedRoadSections } from "../road_templates";
 import type { DrawActionResult, WorldPoint } from "../store/viewer";
 import { ViewerActionContext } from "./context";
 
@@ -491,8 +492,29 @@ export class RoadActions {
     this.finish(result, "road undo");
   }
 
+  // Clearing throws away the whole road state, sections included, so the
+  // catalogue is registered again before the workspace is usable.
   clear(): void {
     const result = this.ctx.bridge.roadClear();
+    if (!result.ok) {
+      this.finish(result, "road clear");
+      return;
+    }
+    const seeded = seedRoadSections((section) =>
+      this.ctx.bridge.roadAddSectionTemplate(section)
+    );
+    if (!seeded.ok) {
+      this.finish({ ok: false, error: seeded.error }, "road clear");
+      return;
+    }
+    this.ctx.store.update((current) => ({
+      ...current,
+      road: {
+        ...current.road,
+        sectionTemplateLabels: seeded.sections.labels,
+        selectedSectionTemplateId: seeded.sections.initialId
+      }
+    }));
     this.finish(result, "road clear");
   }
 

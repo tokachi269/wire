@@ -79,6 +79,56 @@ using city::wire::Vec3d;
   throw std::runtime_error("unknown road render style id");
 }
 
+// The catalogue of road cross sections lives in web/src/road_templates.ts. It
+// names Core's built-in surface and marking styles by key; the numbers stay
+// here so the adapter never invents a style.
+[[nodiscard]] std::optional<city::road::SurfaceStyleId> road_surface_style_id(
+    const std::string& key) {
+  if (key == "asphalt") return city::road::builtin_surface_styles::kAsphalt;
+  if (key == "sidewalk") return city::road::builtin_surface_styles::kSidewalk;
+  if (key == "curb") return city::road::builtin_surface_styles::kCurb;
+  if (key == "median") return city::road::builtin_surface_styles::kMedian;
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<city::road::MarkingStyleId> road_marking_style_id(
+    const std::string& key) {
+  if (key == "white_solid") return city::road::builtin_marking_styles::kWhiteSolid;
+  if (key == "white_dashed") return city::road::builtin_marking_styles::kWhiteDashed;
+  if (key == "center_line") return city::road::builtin_marking_styles::kCenterLine;
+  if (key == "stop_line") return city::road::builtin_marking_styles::kStopLine;
+  if (key == "crosswalk") return city::road::builtin_marking_styles::kCrosswalk;
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<city::road::StripFunction> road_strip_function(
+    const std::string& key) {
+  if (key == "sidewalk") return city::road::StripFunction::kSidewalk;
+  if (key == "shoulder") return city::road::StripFunction::kShoulder;
+  if (key == "carriageway") return city::road::StripFunction::kCarriageway;
+  if (key == "median") return city::road::StripFunction::kMedian;
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<city::road::BoundaryRole> road_boundary_role(
+    const std::string& key) {
+  if (key == "outer_edge") return city::road::BoundaryRole::kOuterEdge;
+  if (key == "curb") return city::road::BoundaryRole::kCurb;
+  if (key == "lane_divider") return city::road::BoundaryRole::kLaneDivider;
+  if (key == "median_edge") return city::road::BoundaryRole::kMedianEdge;
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<city::road::MarkingRole> road_marking_role(
+    const std::string& key) {
+  if (key == "center_line") return city::road::MarkingRole::kCenterLine;
+  if (key == "lane_separator") return city::road::MarkingRole::kLaneSeparator;
+  if (key == "carriageway_edge") return city::road::MarkingRole::kCarriagewayEdge;
+  if (key == "stop_line") return city::road::MarkingRole::kStopLine;
+  if (key == "crosswalk") return city::road::MarkingRole::kCrosswalk;
+  return std::nullopt;
+}
+
 [[nodiscard]] city::road::RoadSide road_side_value(const val& input) {
   return input["side"].as<std::string>() == "right"
              ? city::road::RoadSide::kRight
@@ -1350,6 +1400,75 @@ class RoadStateBinding {
 public:
   RoadStateBinding() : state_(std::make_unique<city::road::RoadState>()) {}
 
+  // Registers one cross section and reports the ID Core assigned. The caller
+  // never chooses the ID.
+  val add_section_template(const val& input) {
+    city::road::CrossSectionTemplate section{};
+    const val strips = input["strips"];
+    const auto strip_count = strips["length"].as<unsigned>();
+    for (unsigned index = 0; index < strip_count; ++index) {
+      const val item = strips[index];
+      const auto function = road_strip_function(item["function"].as<std::string>());
+      const auto style = road_surface_style_id(item["surfaceStyle"].as<std::string>());
+      if (!function.has_value() || !style.has_value()) {
+        return road_result_value(false, "unknown road strip function or surface style",
+                                 city::road::CommitFailureCategory::kInvalidInput);
+      }
+      city::road::SectionStrip strip{};
+      strip.id = item["id"].as<city::road::SectionStripId>();
+      strip.function = *function;
+      strip.width_m = item["widthM"].as<double>();
+      strip.cross_slope = item["crossSlope"].as<double>();
+      strip.style_id = *style;
+      section.strips.push_back(strip);
+    }
+    const val lanes = input["laneBands"];
+    const auto lane_count = lanes["length"].as<unsigned>();
+    for (unsigned index = 0; index < lane_count; ++index) {
+      const val item = lanes[index];
+      section.lane_bands.push_back(city::road::LaneBand{
+          item["id"].as<city::road::LaneId>(),
+          item["stripId"].as<city::road::SectionStripId>(),
+          item["lateralStartM"].as<double>(),
+          item["lateralEndM"].as<double>(),
+          road_lane_direction(item["direction"].as<int>())});
+    }
+    const val boundaries = input["boundaries"];
+    const auto boundary_count = boundaries["length"].as<unsigned>();
+    for (unsigned index = 0; index < boundary_count; ++index) {
+      const val item = boundaries[index];
+      const auto role = road_boundary_role(item["role"].as<std::string>());
+      if (!role.has_value()) {
+        return road_result_value(false, "unknown road boundary role",
+                                 city::road::CommitFailureCategory::kInvalidInput);
+      }
+      city::road::BoundaryProfile boundary{};
+      boundary.boundary_id = item["id"].as<city::road::BoundaryId>();
+      boundary.role = *role;
+      boundary.width_m = item["widthM"].as<double>();
+      boundary.height_m = item["heightM"].as<double>();
+      const val marking = item["marking"];
+      if (!marking.isUndefined() && !marking.isNull()) {
+        const auto marking_role = road_marking_role(marking["role"].as<std::string>());
+        const auto marking_style = road_marking_style_id(marking["style"].as<std::string>());
+        if (!marking_role.has_value() || !marking_style.has_value()) {
+          return road_result_value(false, "unknown road marking role or style",
+                                   city::road::CommitFailureCategory::kInvalidInput);
+        }
+        boundary.marking = city::road::AutoMarkingPolicy{true, *marking_role,
+                                                         *marking_style};
+      }
+      section.boundaries.push_back(boundary);
+    }
+    const auto result = state_->AddSectionTemplate(
+        city::road::AddSectionTemplateRequest{std::move(section)});
+    val output = road_result_value(result.ok, result.error, result.failure_category);
+    if (result.ok) {
+      output.set("sectionTemplateId", static_cast<double>(result.value));
+    }
+    return output;
+  }
+
   val add_lane(const val& input) {
     const auto result = state_->AddLane(
         city::road::AddLaneRequest{
@@ -1391,7 +1510,7 @@ public:
                                               ? 0.0
                                               : input["endSegmentDistanceM"].as<double>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
-                                         ? city::road::CrossSectionTemplateId{1}
+                                         ? city::road::CrossSectionTemplateId{0}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> result{};
     if ((start_node_id != 0 || start_segment_id != 0 ||
@@ -1499,7 +1618,7 @@ public:
                                               ? 0.0
                                               : input["endSegmentDistanceM"].as<double>();
     const auto section_template_id = input["sectionTemplateId"].isUndefined()
-                                         ? city::road::CrossSectionTemplateId{1}
+                                         ? city::road::CrossSectionTemplateId{0}
                                          : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
     city::road::Result<city::road::RoadSegmentId> added{};
     if ((start_node_id != 0 || start_segment_id != 0 ||
@@ -1640,12 +1759,6 @@ public:
     for (const auto& section : graph.section_templates) {
       val item = val::object();
       item.set("id", static_cast<double>(section.id));
-      item.set("name", section.id == 1 ? "JP 2 lane"
-                           : section.id == 2 ? "JP 3 lane"
-                           : section.id == 3 ? "JP 2 lane / no left sidewalk"
-                           : section.id == 4 ? "JP 2 lane / median"
-                           : section.id == 5 ? "JP 2 lane / shoulder"
-                                             : "Custom section");
       double sidewalk_width = 0.0;
       double lane_width = 0.0;
       double median_width = 0.0;
@@ -2042,6 +2155,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("addSegment", &RoadStateBinding::add_segment)
       .function("previewSegment", &RoadStateBinding::preview_segment)
       .function("previewInterval", &RoadStateBinding::preview_interval)
+      .function("addSectionTemplate", &RoadStateBinding::add_section_template)
       .function("addLane", &RoadStateBinding::add_lane)
       .function("scene", &RoadStateBinding::scene)
       .function("deleteSegment", &RoadStateBinding::delete_segment)

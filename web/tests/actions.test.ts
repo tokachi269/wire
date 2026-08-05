@@ -303,6 +303,7 @@ describe("viewer actions", () => {
       ],
       cableTemplates: () => [],
       poleTemplates: () => [],
+      roadAddSectionTemplate: () => ({ ok: true, error: "", sectionTemplateId: 41 }),
       geometrySettings: () => ({
         curveSamples: 16,
         sagEnabled: true,
@@ -519,6 +520,7 @@ const poleTemplate: PoleTemplateInfo = {
 };
 
 function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
+  let nextSectionTemplateId = 41;
   const emptyScene: SceneData = {
     parts: [],
     models: [],
@@ -575,7 +577,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     roadAddLane: () => ({ ok: true, error: "" }),
     roadScene: () => ({
       segmentCount: 0,
-      sectionTemplateCount: 1,
+      sectionTemplateCount: 0,
       transitionCount: 0,
       markingCount: 0,
       connectionGateCount: 0,
@@ -597,6 +599,13 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     roadEditSegment: () => ({ ok: true, error: "" }),
     roadPreviewEditSegment: () => ({ ok: true, error: "", meshes: [] }),
     roadUpdateSectionTemplate: () => ({ ok: true, error: "" }),
+    // Core assigns section IDs; the mock hands back a fresh one per call so no
+    // test can lean on a particular number.
+    roadAddSectionTemplate: () => ({
+      ok: true,
+      error: "",
+      sectionTemplateId: nextSectionTemplateId++
+    }),
     roadClear: () => ({ ok: true, error: "" }),
     roadSaveState: () => "factory-road-state",
     roadLoadState: () => ({ ok: true, error: "" }),
@@ -1547,7 +1556,7 @@ describe("P1 action contracts", () => {
 
   it("keeps startup free of authoritative update calls in source", () => {
     const source = readFileSync(new URL("../src/actions/viewer.ts", import.meta.url), "utf8");
-    const start = source.indexOf("  initialize(): void {");
+    const start = source.indexOf("  initialize(): boolean {");
     const end = source.indexOf("  async restoreWorkspace()", start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);

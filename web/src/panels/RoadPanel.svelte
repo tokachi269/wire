@@ -10,6 +10,11 @@
 
   let { actions, snapshot }: Props = $props();
 
+  // Sections this workspace registered carry the preset label. Anything else —
+  // a section a load brought in, or one Add Lane derived — is named by its ID.
+  const sectionLabel = (id: number): string =>
+    snapshot.road.sectionTemplateLabels[id] ?? `Section ${id}`;
+
   const selectedTemplate = $derived(
     snapshot.road.scene.sectionTemplates.find((template) => template.id === snapshot.road.selectedSectionTemplateId)
   );
@@ -80,7 +85,7 @@
     <select value={snapshot.road.selectedSectionTemplateId}
       onchange={(event) => actions.setRoadSetting("selectedSectionTemplateId", Number(event.currentTarget.value))}>
       {#each snapshot.road.scene.sectionTemplates as template}
-        <option value={template.id}>{template.name}</option>
+        <option value={template.id}>{sectionLabel(template.id)}</option>
       {/each}
     </select>
   </label>

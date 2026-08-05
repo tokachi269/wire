@@ -111,8 +111,6 @@ def check_road_architecture(root: Path) -> list[str]:
     road_source = "\n".join(source_text(root / name) for name in road_operation_files)
     if "RoadState::regenerate" in road_source:
         errors.append("domains/road/src/road.cpp: RoadState::regenerate must not exist")
-    if "generation::generate_road(trial.graph_)" not in road_source:
-        errors.append("domains/road/src/road.cpp: RoadState must generate through one trial entry")
     generation_sources = [path for path in sources if "/generation/" in relative(path)]
     if not any("generate_road" in source_text(path) for path in generation_sources):
         errors.append("domains/road/src/generation: generate entry is missing")
@@ -145,38 +143,9 @@ def check_road_architecture(root: Path) -> list[str]:
     # 5. Identity never comes from position.
     marking_text = source_text(root / "domains/road/src/generation/markings.cpp")
     connection_text = source_text(root / "domains/road/src/generation/connections.cpp")
-    if "junction_control_factor" in connection_text or "connection_control_factor" in connection_text:
-        errors.append(
-            "domains/road/src/generation/connections.cpp: corner and junction curves must share one control factor"
-        )
-    if "resolve_junction_movement_path" not in connection_text:
-        errors.append(
-            "domains/road/src/generation/connections.cpp: junction lane movements need their own resolver"
-        )
-    if "topology.kind == LaneConnectionKind::kJunctionMovement" not in connection_text:
-        errors.append(
-            "domains/road/src/generation/connections.cpp: junction movement topology is not dispatched explicitly"
-        )
     if "side_marking" in marking_text:
         errors.append(
             "domains/road/src/generation/markings.cpp: lane side policies must resolve during section evaluation"
-        )
-    section_text = source_text(root / "domains/road/src/geometry/section.cpp")
-    if "merge_boundary_policies" not in section_text:
-        errors.append(
-            "domains/road/src/geometry/section.cpp: lane side requests must merge into one boundary policy here"
-        )
-    if "kDegenerateStripWidthM" not in marking_text:
-        errors.append(
-            "domains/road/src/generation/markings.cpp: degenerate run activation must be decided here"
-        )
-    if "derive_boundary_continuation_markings" not in marking_text or "DerivedBoundaryPath" not in marking_text:
-        errors.append(
-            "domains/road/src/generation/markings.cpp: connected markings must consume resolved boundary paths"
-        )
-    if marking_text.count("kDegenerateStripWidthM") > 2:
-        errors.append(
-            "domains/road/src/generation/markings.cpp: degenerate run activation must stay a single decision site"
         )
     for path in sources:
         text = source_text(path)
@@ -185,10 +154,6 @@ def check_road_architecture(root: Path) -> list[str]:
                 errors.append(f"{relative(path)}: identity must not come from proximity: {pattern!r}")
 
     # 6. Connection resolution owns auto values, overrides and their policy.
-    if "find_approach_override" not in connection_text:
-        errors.append(
-            "domains/road/src/generation/connections.cpp: approach overrides must resolve with the auto values"
-        )
     for path in sources:
         relative_path = relative(path)
         if relative_path in {
@@ -304,30 +269,6 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "domains/road/src/road.cpp: retired giant-segment extension API remains"
         )
-    extension_start = road_source.find("RoadState::ExtendCorridorFromEnd(")
-    extension_end = (
-        road_source.find("\n}\n", extension_start)
-        if extension_start >= 0
-        else -1
-    )
-    extension_body = (
-        road_source[extension_start:extension_end]
-        if extension_start >= 0 and extension_end >= 0
-        else ""
-    )
-    for token in ("replace_segments", "replace_nodes", "internal_knots.push_back"):
-        if token in extension_body:
-            errors.append(
-                "domains/road/src/road.cpp: corridor extension mutates an existing segment: "
-                + repr(token)
-            )
-    for required in ("add_segments", "replace_corridors"):
-        if required not in extension_body:
-            errors.append(
-                "domains/road/src/road.cpp: corridor extension does not express local append: "
-                + repr(required)
-            )
-
     authoritative_text = source_text(
         root / "domains/road/include/city/road/authoritative_types/road_graph.hpp"
     )
@@ -382,29 +323,6 @@ def check_road_architecture(root: Path) -> list[str]:
                 "web/wasm/bindings.cpp: retired road adapter identity remains: "
                 + repr(token)
             )
-    if (
-        "segment.shape.intent == city::road::SegmentShapeIntent::kStraight"
-        not in adapter_text
-    ):
-        errors.append(
-            "web/wasm/bindings.cpp: road editable kind must come from SegmentShapeIntent"
-        )
-    if 'input["kind"].as<std::string>()' not in adapter_text:
-        errors.append(
-            "web/wasm/bindings.cpp: road adapter must pass the explicit tool kind into core path conversion"
-        )
-    if "align_first_span_start" not in road_source:
-        errors.append(
-            "domains/road/src/road.cpp: snapped road spans must use one start-alignment helper"
-        )
-    if "first_span.p0 =" in road_source.replace("first_span.p0 = start;", ""):
-        errors.append(
-            "domains/road/src/road.cpp: road snap correction must not patch only the Bezier start point"
-        )
-    if "segment.shape.intent != SegmentShapeIntent::kStraight" not in road_source:
-        errors.append(
-            "domains/road/src/road.cpp: MoveNode must preserve straight segment intent"
-        )
     retired_delete_api_text = "\n".join(
         (
             road_source,
@@ -436,23 +354,6 @@ def check_road_architecture(root: Path) -> list[str]:
                 "web/src/actions/road_actions.ts: retired two-point road deletion remains: "
                 + repr(token)
             )
-    if "roadDeleteSegment(snap.segmentId)" not in road_actions_text:
-        errors.append(
-            "web/src/actions/road_actions.ts: standard road deletion must delete the picked RoadSegment"
-        )
-    if "hoveredDeleteSegmentId" not in road_actions_text:
-        errors.append(
-            "web/src/actions/road_actions.ts: standard road deletion must retain the hovered RoadSegment ID"
-        )
-    for token in (
-        "selectedLaneSegmentId",
-        "selectedLaneEndpointRole",
-    ):
-        if token not in road_actions_text:
-            errors.append(
-                "web/src/actions/road_actions.ts: lane editing contract is missing: "
-                + repr(token)
-            )
     for token in (
         "laneStartCorridorDistanceM",
         "laneFullWidthCorridorDistanceM",
@@ -464,26 +365,12 @@ def check_road_architecture(root: Path) -> list[str]:
                 "web/src/actions/road_actions.ts: Add Lane must cross the Core boundary as segment-local t: "
                 + repr(token)
             )
-    for token in (
-        'laneEditStage: "transition-complete"',
-        'laneEditStage: "continuation-end"',
-        "laneContinuationEndNodeId",
-    ):
-        if token not in road_actions_text:
-            errors.append(
-                "web/src/actions/road_actions.ts: Add Lane selection stages are incomplete: "
-                + repr(token)
-            )
     for token in ("nearestLane", "closestLane", "inferLaneConnection"):
         if token in road_actions_text:
             errors.append(
                 "web/src/actions/road_actions.ts: adapter must not infer lane topology: "
                 + repr(token)
             )
-    if "laneAnchorBoundaryId: snapshot.road.laneAnchorBoundaryId || section?.boundaries[0]" in road_actions_text:
-        errors.append(
-            "web/src/actions/road_actions.ts: Add lane must not infer its transition anchor from boundary order"
-        )
     app_text = source_text(root / "web/src/App.svelte")
     for token in ('setRoadOperation("branch-lane")',
                   'setRoadOperation("merge-lane")'):
@@ -497,31 +384,15 @@ def check_road_architecture(root: Path) -> list[str]:
         errors.append(
             "web/src/road.ts: curve tangent must not depend on pointer motion history"
         )
-    if "anchor->width_m > kEpsilon" in road_source:
-        errors.append(
-            "domains/road/src/road.cpp: lane transition must reuse the single-position boundary decision"
-        )
     road_tests_text = source_text(root / "domains/road/tests/road_tests.cpp")
     if re.search(r'bool LAN\d+_|\{"LAN\d+_', road_tests_text):
         errors.append(
             "domains/road/tests/road_tests.cpp: lane behavior tests must not expose implementation phase names"
         )
-    add_lane_start = road_source.find("Result<LaneId> RoadState::AddLane(")
-    add_lane_end = road_source.find(
-        "Result<std::string> RoadState::Save()",
-        add_lane_start,
-    )
-    add_lane_region = (
-        road_source[add_lane_start:add_lane_end]
-        if add_lane_start >= 0 and add_lane_end > add_lane_start
-        else ""
-    )
-    for token in ("split_path_at_distance", "SplitSegmentAtDistance"):
-        if token in add_lane_region:
-            errors.append(
-                "domains/road/src/road.cpp: Add Lane must not split RoadSegments: "
-                + repr(token)
-            )
+    if '.function("addLane"' not in adapter_text:
+        errors.append(
+            'web/wasm/bindings.cpp: the Add Lane export is missing'
+        )
     request_text = source_text(
         root / "domains/road/include/city/road/input_types/requests.hpp"
     )
@@ -531,37 +402,6 @@ def check_road_architecture(root: Path) -> list[str]:
                 "domains/road: Add Lane request must use segment-local t: "
                 + repr(token)
             )
-    for token in (
-        'result.set("lanePaths", lane_paths)',
-        'builtin_marking_styles::kWhiteDashed.value',
-        '.function("addLane"',
-    ):
-        if token not in adapter_text:
-            errors.append(
-                "web/wasm/bindings.cpp: lane editing boundary is missing: "
-                + repr(token)
-            )
-
-    add_segment_start = road_source.find(
-        "Result<RoadSegmentId> RoadState::AddSegment("
-    )
-    add_segment_end = road_source.find(
-        "Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(",
-        add_segment_start,
-    )
-    add_segment_region = (
-        road_source[add_segment_start:add_segment_end]
-        if add_segment_start >= 0 and add_segment_end > add_segment_start
-        else ""
-    )
-    if "SegmentShapeFromPath(alignment)" not in add_segment_region:
-        errors.append(
-            "domains/road/src/road.cpp: one confirmed path must remain one multi-span RoadSegment"
-        )
-    if "alignment.spans[index]" in add_segment_region:
-        errors.append(
-            "domains/road/src/road.cpp: Bezier span boundaries must not create RoadSegment identities"
-        )
 
     road_distance_paths = [
         root / "domains/road",

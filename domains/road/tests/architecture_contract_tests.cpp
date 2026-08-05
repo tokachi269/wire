@@ -276,6 +276,62 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
   return true;
 }
 
+bool extension_leaves_the_existing_segment_bit_identical(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  const auto first = state.AddSegment(AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), layout});
+  ROAD_CONTRACT_EXPECT(first.ok, first.error);
+
+  const RoadSegment before = state.graph().segments.front();
+  const Path* alignment_before = FindCanonicalAlignment(state.derived(), first.value);
+  ROAD_CONTRACT_EXPECT(alignment_before != nullptr, "extension baseline alignment is missing");
+  const std::string shape_before = path_observation(*alignment_before);
+  const std::vector<RoadNode> nodes_before = state.graph().nodes;
+  const RoadCorridorId corridor_id = state.graph().corridors.front().id;
+
+  const auto extended = state.ExtendCorridorFromEnd(ExtendCorridorFromEndRequest{
+      corridor_id, before.node_b,
+      MakePath({MakeLine({20.0, 0.0}, {44.0, 0.0})}), layout});
+  ROAD_CONTRACT_EXPECT(extended.ok, extended.error);
+
+  // Extending appends. It does not rewrite the segment or the nodes that were
+  // already confirmed.
+  ROAD_CONTRACT_EXPECT(state.graph().segments.size() == 2 &&
+                           state.graph().nodes.size() == nodes_before.size() + 1 &&
+                           state.graph().corridors.size() == 1,
+                       "extension did not append exactly one segment and one node");
+  const auto retained =
+      std::find_if(state.graph().segments.begin(), state.graph().segments.end(),
+                   [id = first.value](const RoadSegment& segment) {
+                     return segment.id == id;
+                   });
+  ROAD_CONTRACT_EXPECT(retained != state.graph().segments.end(),
+                       "extension removed the segment it extended from");
+  ROAD_CONTRACT_EXPECT(retained->node_a == before.node_a &&
+                           retained->node_b == before.node_b &&
+                           retained->layout_template == before.layout_template,
+                       "extension changed the endpoints of the existing segment");
+  const Path* alignment_after = FindCanonicalAlignment(state.derived(), first.value);
+  ROAD_CONTRACT_EXPECT(
+      alignment_after != nullptr && path_observation(*alignment_after) == shape_before,
+      "extension changed the shape of the existing segment");
+  for (const RoadNode& node : nodes_before) {
+    const auto same = std::find_if(state.graph().nodes.begin(), state.graph().nodes.end(),
+                                   [&node](const RoadNode& candidate) {
+                                     return candidate.id == node.id;
+                                   });
+    ROAD_CONTRACT_EXPECT(
+        same != state.graph().nodes.end() &&
+            std::bit_cast<std::uint64_t>(same->position.x) ==
+                std::bit_cast<std::uint64_t>(node.position.x) &&
+            std::bit_cast<std::uint64_t>(same->position.y) ==
+                std::bit_cast<std::uint64_t>(node.position.y),
+        "extension moved a node that already existed");
+  }
+  return true;
+}
+
 bool confirmation_boundaries_define_segment_units(std::string& failure) {
   const Path first =
       MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})});
@@ -1700,6 +1756,8 @@ int main() {
       {"generate_is_deterministic", generate_is_deterministic},
       {"confirmation_boundaries_define_segment_units",
        confirmation_boundaries_define_segment_units},
+      {"extension_leaves_the_existing_segment_bit_identical",
+       extension_leaves_the_existing_segment_bit_identical},
       {"reverse_input_has_equivalent_geometry",
        reverse_input_has_equivalent_geometry},
       {"extension_semantic_boundaries_are_atomic",

@@ -3,7 +3,7 @@
 この文書は`city::road`のarchitectureを定義する。P0-P2 testの通過だけでは設計準拠を意味しない。
 現行実装を根拠に未定義の意味を補完せず、下記のownerと依存方向を維持する。
 
-共通契約は`../architecture.md`、操作×状態は`operation_semantics.md`、prototype要求範囲は`plan.md`を参照する。
+共通契約は`../architecture.md`、操作×状態は`operation_semantics.md`、対応範囲は`supported_operations.md`、対象外と将来の範囲は`backlog.md`を参照する。
 
 ## Naming
 
@@ -38,6 +38,11 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 - surface / marking style identityは`SurfaceStyleId` / `MarkingStyleId`で保存する
 - ユーザーが明示した`NodeConnectionPolicyOverride`
 - next ID state
+
+`RoadSegment`へendpoint座標を保存しない。一回で確定したPathは一つのsegmentとして複数spanを持てる。
+確定済みsegmentの延長は新segmentを作り、既存shapeへspanを追記しない。degree 2 nodeは明示的な確定境界として
+正当であり、同一道路定義でも自動統合しない。自動junctionの存在、connection kind、gate、setback、
+corner radius、meshは保存しない。
 
 ### 断面カタログの所有
 
@@ -83,11 +88,6 @@ Webへ移すと過去のworkspaceが同じ線幅で再現できない。選択�
 - `AutoMarkingPolicy`へ幅を保存する (schema変更、migration必要)
 - 新規workspace作成時にWebがstyle表をCoreへ登録する (断面templateと同じ方式、schema変更必要)
 - Core固定のまま、日本の道路標示規格に由来する値として文書化する (現状)
-
-`RoadSegment`へendpoint座標を保存しない。一回で確定したPathは一つのsegmentとして複数spanを持てる。
-確定済みsegmentの延長は新segmentを作り、既存shapeへspanを追記しない。degree 2 nodeは明示的な確定境界として
-正当であり、同一道路定義でも自動統合しない。自動junctionの存在、connection kind、gate、setback、
-corner radius、meshは保存しない。
 
 ### Derived
 

@@ -62,7 +62,7 @@ In Code Mode, within each bounded stage, run independent, functions.exec-availab
 - pipeline.cpp に新しい flag・分岐を足す前に、責務を既存の owner に寄せられるか確認する。
 
 ## road 固有
-- roadの移行先authorityとbuild境界は docs/road/architecture.md、操作意味論は docs/road/operation_semantics.md、要求範囲は docs/road/plan.md を正本とする。
+- roadの移行先authorityとbuild境界は docs/road/architecture.md、操作意味論は docs/road/operation_semantics.md、対応範囲は docs/road/supported_operations.md、対象外と将来の範囲は docs/road/backlog.md を正本とする。
 - roadの現行実装を設計根拠にしない。docs/road/architecture.mdに未移行と記載された責務へ機能を追加する前に、該当authority境界を移行する。
 
 ## ここに書かないもの

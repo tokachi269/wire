@@ -2,6 +2,11 @@ add_library(
   road
   STATIC
   src/road.cpp
+  src/road_path.cpp
+  src/road_create.cpp
+  src/road_edit.cpp
+  src/road_section.cpp
+  src/road_lane.cpp
   src/lookup.cpp
   src/generation/generate.cpp
   src/generation/segments.cpp

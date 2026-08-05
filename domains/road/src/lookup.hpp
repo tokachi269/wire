@@ -12,6 +12,8 @@ namespace city::road::internal {
 find_template(const SavedRoadGraph &graph, CrossSectionTemplateId id);
 [[nodiscard]] const SectionTransition *
 find_transition(const SavedRoadGraph &graph, SectionTransitionId id);
+[[nodiscard]] std::size_t node_degree(const SavedRoadGraph &graph,
+                                     RoadNodeId id);
 [[nodiscard]] const NodeConnectionPolicyOverride *
 find_policy_override(const SavedRoadGraph &graph, RoadNodeId node_id);
 [[nodiscard]] const ApproachGeometryOverride *

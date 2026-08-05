@@ -125,6 +125,11 @@ find_boundary_endpoint(const SavedRoadGraph &graph,
   return result;
 }
 
+std::size_t node_degree(const SavedRoadGraph &graph, RoadNodeId id) {
+  return static_cast<std::size_t>(std::count_if(graph.segments.begin(), graph.segments.end(), [id](const RoadSegment& segment) {
+    return segment.node_a == id || segment.node_b == id;
+  }));
+}
 } // namespace city::road::internal
 
 namespace city::road {

@@ -94,7 +94,20 @@ def check_road_architecture(root: Path) -> list[str]:
     if (root / "domains/road/src/generation/regenerate.cpp").exists():
         errors.append("domains/road/src/generation/regenerate.cpp: retired generation entry file exists")
     # 3. One generate entry, and generation never writes the authority.
-    road_source = source_text(root / "domains/road/src/road.cpp")
+    # RoadState is implemented across the operation sources. The contracts below
+    # are about what those operations do, not about which file holds them.
+    road_operation_files = (
+        "domains/road/src/road.cpp",
+        "domains/road/src/road_path.cpp",
+        "domains/road/src/road_create.cpp",
+        "domains/road/src/road_edit.cpp",
+        "domains/road/src/road_section.cpp",
+        "domains/road/src/road_lane.cpp",
+    )
+    for required in road_operation_files:
+        if not (root / required).exists():
+            errors.append(f"{required}: road operation source is missing")
+    road_source = "\n".join(source_text(root / name) for name in road_operation_files)
     if "RoadState::regenerate" in road_source:
         errors.append("domains/road/src/road.cpp: RoadState::regenerate must not exist")
     if "generation::generate_road(trial.graph_)" not in road_source:

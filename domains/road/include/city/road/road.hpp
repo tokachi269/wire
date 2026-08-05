@@ -39,8 +39,8 @@ public:
   [[nodiscard]] Result<bool> EditSegmentShape(EditSegmentShapeRequest request);
   [[nodiscard]] Result<bool> MoveNode(MoveNodeRequest request);
   [[nodiscard]] Result<bool> DeleteSegment(DeleteSegmentRequest request);
-  [[nodiscard]] Result<CrossSectionTemplateId> AddSectionTemplate(AddSectionTemplateRequest request);
-  [[nodiscard]] Result<bool> EditSectionTemplate(EditSectionTemplateRequest request);
+  [[nodiscard]] Result<RoadLayoutTemplateId> AddRoadLayoutTemplate(AddRoadLayoutTemplateRequest request);
+  [[nodiscard]] Result<bool> EditRoadLayoutTemplate(EditRoadLayoutTemplateRequest request);
   [[nodiscard]] Result<LaneId> AddLane(AddLaneRequest request);
   [[nodiscard]] Result<std::string> Save() const;
   [[nodiscard]] static Result<RoadState> Load(const std::string& text);

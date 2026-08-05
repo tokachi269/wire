@@ -64,13 +64,13 @@ struct Path { std::vector<BezierSpan> spans{}; };
 using RoadNodeId = std::uint64_t;
 using RoadSegmentId = std::uint64_t;
 using RoadCorridorId = std::uint64_t;
-using SectionStripId = std::uint64_t;
+using RoadLayoutStripId = std::uint64_t;
 using LaneId = std::uint64_t;
 using BoundaryId = std::uint64_t;
 using LaneConnectionId = std::uint64_t;
 using BoundaryContinuationId = std::uint64_t;
-using CrossSectionTemplateId = std::uint64_t;
-using SectionTransitionId = std::uint64_t;
+using RoadLayoutTemplateId = std::uint64_t;
+using RoadLayoutTransitionId = std::uint64_t;
 using ManualMarkingId = std::uint64_t;
 using NodeConnectionPolicyOverrideId = std::uint64_t;
 using JunctionMarkingOverrideId = std::uint64_t;
@@ -270,8 +270,8 @@ struct AutoMarkingKey {
   }
 };
 
-struct SectionStrip {
-  SectionStripId id = 0;
+struct RoadLayoutStrip {
+  RoadLayoutStripId id = 0;
   StripFunction function = StripFunction::kCarriageway;
   double width_m = 0.0;
   double cross_slope = 0.0;
@@ -280,7 +280,7 @@ struct SectionStrip {
 };
 struct LaneBand {
   LaneId id = 0;
-  SectionStripId surface_strip_id = 0;
+  RoadLayoutStripId surface_strip_id = 0;
   double lateral_start_m = 0.0;
   double lateral_end_m = 0.0;
   LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
@@ -292,15 +292,15 @@ struct BoundaryProfile {
   double height_m = 0.0;
   AutoMarkingPolicy marking{};
 };
-struct CrossSectionTemplate {
-  CrossSectionTemplateId id = 0;
-  std::vector<SectionStrip> strips{};
+struct RoadLayoutTemplate {
+  RoadLayoutTemplateId id = 0;
+  std::vector<RoadLayoutStrip> strips{};
   std::vector<LaneBand> lane_bands{};
   std::vector<BoundaryProfile> boundaries{};
 };
 struct DistanceRef { DistanceRefKind kind = DistanceRefKind::kFromStart; double value = 0.0; };
-struct SectionTransitionRule {
-  SectionStripId strip_id = 0;
+struct RoadLayoutTransitionRule {
+  RoadLayoutStripId strip_id = 0;
   TransitionAction action = TransitionAction::kContinue;
 };
 

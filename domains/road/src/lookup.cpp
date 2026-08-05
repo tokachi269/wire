@@ -21,19 +21,19 @@ const RoadSegment *find_segment(const SavedRoadGraph &graph, RoadSegmentId id) {
   return found == graph.segments.end() ? nullptr : &*found;
 }
 
-const CrossSectionTemplate *find_template(const SavedRoadGraph &graph,
-                                          CrossSectionTemplateId id) {
+const RoadLayoutTemplate *find_template(const SavedRoadGraph &graph,
+                                          RoadLayoutTemplateId id) {
   const auto found = std::find_if(
-      graph.section_templates.begin(), graph.section_templates.end(),
-      [id](const CrossSectionTemplate &section) { return section.id == id; });
-  return found == graph.section_templates.end() ? nullptr : &*found;
+      graph.layout_templates.begin(), graph.layout_templates.end(),
+      [id](const RoadLayoutTemplate &section) { return section.id == id; });
+  return found == graph.layout_templates.end() ? nullptr : &*found;
 }
 
-const SectionTransition *find_transition(const SavedRoadGraph &graph,
-                                         SectionTransitionId id) {
+const RoadLayoutTransition *find_transition(const SavedRoadGraph &graph,
+                                         RoadLayoutTransitionId id) {
   const auto found =
       std::find_if(graph.transitions.begin(), graph.transitions.end(),
-                   [id](const SectionTransition &transition) {
+                   [id](const RoadLayoutTransition &transition) {
                      return transition.id == id;
                    });
   return found == graph.transitions.end() ? nullptr : &*found;
@@ -61,13 +61,13 @@ find_approach_override(const SavedRoadGraph &graph, const ApproachKey &key) {
   return found == graph.approach_geometry_overrides.end() ? nullptr : &*found;
 }
 
-const CrossSectionTemplate *
+const RoadLayoutTemplate *
 find_endpoint_template(const SavedRoadGraph &graph, const RoadSegment &segment,
                        EndpointRole endpoint_role) {
   if (!segment.transition.has_value()) {
-    return find_template(graph, segment.section_template);
+    return find_template(graph, segment.layout_template);
   }
-  const SectionTransition *transition =
+  const RoadLayoutTransition *transition =
       find_transition(graph, *segment.transition);
   if (transition == nullptr) {
     return nullptr;

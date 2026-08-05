@@ -7,15 +7,15 @@
 
 namespace city::road {
 
-struct SectionTransition {
-  SectionTransitionId id = 0;
-  CrossSectionTemplateId from_template = 0;
-  CrossSectionTemplateId to_template = 0;
+struct RoadLayoutTransition {
+  RoadLayoutTransitionId id = 0;
+  RoadLayoutTemplateId from_template = 0;
+  RoadLayoutTemplateId to_template = 0;
   DistanceRef start{};
   DistanceRef end{};
   TransitionAnchor anchor = TransitionAnchor::kCenter;
   BoundaryId anchor_boundary_id = 0;
-  std::vector<SectionTransitionRule> rules{};
+  std::vector<RoadLayoutTransitionRule> rules{};
 };
 struct RoadNode { RoadNodeId id = 0; Vec2d position{}; };
 struct SegmentKnot { Vec2d position{}; Vec2d handle_in{}; Vec2d handle_out{}; };
@@ -34,12 +34,12 @@ struct RoadSegment {
   RoadNodeId node_a = 0;
   RoadNodeId node_b = 0;
   SegmentShape shape{};
-  CrossSectionTemplateId section_template = 0;
-  std::optional<SectionTransitionId> transition{};
+  RoadLayoutTemplateId layout_template = 0;
+  std::optional<RoadLayoutTransitionId> transition{};
 };
 struct RoadCorridor {
   RoadCorridorId id = 0;
-  CrossSectionTemplateId section_template_id = 0;
+  RoadLayoutTemplateId layout_template_id = 0;
   std::vector<DirectedSegmentRef> segments{};
 };
 enum class NodeConnectionPolicy { kForcePassThrough, kForceCorner, kForceJunction };
@@ -111,8 +111,8 @@ struct SavedRoadGraph {
   std::vector<RoadNode> nodes{};
   std::vector<RoadSegment> segments{};
   std::vector<RoadCorridor> corridors{};
-  std::vector<CrossSectionTemplate> section_templates{};
-  std::vector<SectionTransition> transitions{};
+  std::vector<RoadLayoutTemplate> layout_templates{};
+  std::vector<RoadLayoutTransition> transitions{};
   std::vector<LaneConnection> lane_connections{};
   std::vector<BoundaryContinuation> boundary_continuations{};
   std::vector<NodeConnectionPolicyOverride> connection_policy_overrides{};

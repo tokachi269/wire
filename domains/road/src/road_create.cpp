@@ -50,14 +50,14 @@ constexpr double kSnapDistancePointToleranceM = 0.6;
 
 Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
   Path alignment = std::move(request.alignment);
-  const CrossSectionTemplateId section_template = request.section_template;
+  const RoadLayoutTemplateId layout_template = request.layout_template;
   const Result<bool> path_valid = ValidatePath(alignment);
   if (!path_valid.ok) {
     return Result<RoadSegmentId>::Fail(path_valid.failure_category,
                                        path_valid.error,
                                        path_valid.reason_code);
   }
-  if (find_template(graph_, section_template) == nullptr) {
+  if (find_template(graph_, layout_template) == nullptr) {
     return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput, "road segment references a missing section template");
   }
   operations::OperationPlan plan{};
@@ -76,10 +76,10 @@ Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
     shape.value.intent = *request.intent;
   }
   plan.add_segments.push_back(RoadSegment{
-      segment_id, node_a, node_b, shape.value, section_template,
+      segment_id, node_a, node_b, shape.value, layout_template,
       std::nullopt});
   plan.add_corridors.push_back(RoadCorridor{
-      corridor_id, section_template,
+      corridor_id, layout_template,
       {DirectedSegmentRef{segment_id, false}}});
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
@@ -118,10 +118,10 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
   }
   const EndpointRole source_endpoint_role =
       last_ref.reversed ? EndpointRole::kStart : EndpointRole::kEnd;
-  const CrossSectionTemplate* source_endpoint_section =
+  const RoadLayoutTemplate* source_endpoint_section =
       internal::find_endpoint_template(graph_, *source, source_endpoint_role);
-  const CrossSectionTemplate* extension_section =
-      find_template(graph_, request.section_template);
+  const RoadLayoutTemplate* extension_section =
+      find_template(graph_, request.layout_template);
   if (source_endpoint_section == nullptr || extension_section == nullptr) {
     return Result<RoadSegmentId>::Fail(
         CommitFailureCategory::kInvalidInput,
@@ -177,9 +177,9 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
   plan.add_nodes.push_back(RoadNode{end_node, path_end(extension)});
   plan.add_segments.push_back(
       RoadSegment{segment_id, endpoint->id, end_node, shape.value,
-                  request.section_template, std::nullopt});
+                  request.layout_template, std::nullopt});
   RoadCorridor replacement = *source_corridor;
-  replacement.section_template_id = request.section_template;
+  replacement.layout_template_id = request.layout_template;
   replacement.segments.push_back(DirectedSegmentRef{segment_id, false});
   plan.replace_corridors.push_back(std::move(replacement));
   plan.next_id_after = next_id;
@@ -192,13 +192,13 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
 
 Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequest request) {
   Path alignment = std::move(request.alignment);
-  const CrossSectionTemplateId section_template = request.section_template;
+  const RoadLayoutTemplateId layout_template = request.layout_template;
   const RoadNodeId connected_node = request.start_node;
   const RoadNode* node = find_node(graph_, connected_node);
   if (node == nullptr) {
     return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput, "road segment start node does not exist");
   }
-  if (find_template(graph_, section_template) == nullptr) {
+  if (find_template(graph_, layout_template) == nullptr) {
     return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput,
                                        "connected road references a missing section template");
   }
@@ -234,9 +234,9 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequ
       segment_id,
       connects_at_start ? connected_node : free_node,
       connects_at_start ? free_node : connected_node,
-      shape.value, section_template, std::nullopt});
+      shape.value, layout_template, std::nullopt});
   plan.add_corridors.push_back(
-      RoadCorridor{corridor_id, section_template,
+      RoadCorridor{corridor_id, layout_template,
                    {DirectedSegmentRef{segment_id, false}}});
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
@@ -246,7 +246,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequ
 
 Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnectedToSegmentRequest request) {
   Path alignment = std::move(request.alignment);
-  const CrossSectionTemplateId section_template = request.section_template;
+  const RoadLayoutTemplateId layout_template = request.layout_template;
   const RoadSegmentId start_segment = request.start_segment;
   const double segment_distance_m = request.segment_distance_m;
   const Result<bool> alignment_valid = ValidatePath(alignment);
@@ -335,12 +335,12 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
       RoadNode{branch_free_node,
                connects_at_start ? path_end(alignment) : path_start(alignment)}};
   plan.add_segments = {
-      RoadSegment{second_id, split_node, source->node_b, second_shape.value, source->section_template,
+      RoadSegment{second_id, split_node, source->node_b, second_shape.value, source->layout_template,
                   source->transition},
       RoadSegment{branch_id,
                   connects_at_start ? split_node : branch_free_node,
                   connects_at_start ? branch_free_node : split_node,
-                  branch_shape.value, section_template, std::nullopt},
+                  branch_shape.value, layout_template, std::nullopt},
   };
   const RoadCorridor* source_corridor =
       FindCorridorForSegment(graph_, source->id);
@@ -379,7 +379,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
       replacements.begin(), replacements.end());
   plan.replace_corridors.push_back(std::move(updated_corridor));
   plan.add_corridors.push_back(
-      RoadCorridor{branch_corridor_id, section_template,
+      RoadCorridor{branch_corridor_id, layout_template,
                    {DirectedSegmentRef{branch_id, false}}});
   const ApproachKey old_end_key{source->node_b, source->id, EndpointRole::kEnd};
   if (const ApproachGeometryOverride* old_end_override =
@@ -468,10 +468,10 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   if (!split.ok) {
     return Result<RoadSegmentId>::Fail(split.failure_category, split.error);
   }
-  std::optional<SectionTransition> remapped_transition{};
+  std::optional<RoadLayoutTransition> remapped_transition{};
   bool transition_moves_to_second = false;
   if (source->transition.has_value()) {
-    const SectionTransition* transition =
+    const RoadLayoutTransition* transition =
         find_transition(graph_, *source->transition);
     const Result<double> source_length = PathLength(*source_path);
     if (transition == nullptr || !source_length.ok ||
@@ -554,12 +554,12 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   plan.replace_segments.push_back(std::move(first));
   plan.add_nodes.push_back(RoadNode{split_node, split.value.point});
   RoadSegment second{second_id, split_node, source->node_b, second_shape.value,
-                     source->section_template, source->transition};
+                     source->layout_template, source->transition};
   if (remapped_transition.has_value()) {
     if (transition_moves_to_second) {
-      second.section_template = remapped_transition->from_template;
+      second.layout_template = remapped_transition->from_template;
     } else {
-      second.section_template = remapped_transition->to_template;
+      second.layout_template = remapped_transition->to_template;
       second.transition.reset();
     }
     plan.remove_transitions.push_back(remapped_transition->id);

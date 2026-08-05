@@ -64,9 +64,9 @@ bool approach_key_less(const ApproachKey &a, const ApproachKey &b) {
 double endpoint_outer_half_width(const SavedRoadGraph &graph,
                                  const RoadSegment &segment,
                                  const ApproachKey &key) {
-  CrossSectionTemplateId template_id = segment.section_template;
+  RoadLayoutTemplateId template_id = segment.layout_template;
   if (segment.transition.has_value()) {
-    const SectionTransition *transition =
+    const RoadLayoutTransition *transition =
         find_transition(graph, *segment.transition);
     if (transition == nullptr)
       return 0.0;
@@ -74,23 +74,23 @@ double endpoint_outer_half_width(const SavedRoadGraph &graph,
                       ? transition->from_template
                       : transition->to_template;
   }
-  const CrossSectionTemplate *section = find_template(graph, template_id);
+  const RoadLayoutTemplate *section = find_template(graph, template_id);
   if (section == nullptr)
     return 0.0;
   double width = 0.0;
-  for (const SectionStrip &strip : section->strips)
+  for (const RoadLayoutStrip &strip : section->strips)
     width += strip.width_m;
   for (const BoundaryProfile &boundary : section->boundaries)
     width += boundary.width_m;
   return width * 0.5;
 }
 
-CrossSectionTemplateId endpoint_template_id(const SavedRoadGraph &graph,
+RoadLayoutTemplateId endpoint_template_id(const SavedRoadGraph &graph,
                                             const RoadSegment &segment,
                                             const ApproachKey &key) {
   if (!segment.transition.has_value())
-    return segment.section_template;
-  const SectionTransition *transition =
+    return segment.layout_template;
+  const RoadLayoutTransition *transition =
       find_transition(graph, *segment.transition);
   if (transition == nullptr)
     return 0;
@@ -129,8 +129,8 @@ const ResolvedConnection *connection_of(
 
 Result<double> lane_lateral(const LaneBand &lane,
                             const SectionEvaluation &section) {
-  CrossSectionTemplate resolved{};
-  resolved.strips.push_back(SectionStrip{lane.surface_strip_id});
+  RoadLayoutTemplate resolved{};
+  resolved.strips.push_back(RoadLayoutStrip{lane.surface_strip_id});
   const Result<internal::LaneSectionPosition> position =
       internal::lane_position(resolved, lane, section);
   return position.ok
@@ -256,7 +256,7 @@ ConnectionGate gate_at(const ApproachKey &key, Vec2d position, Vec2d tangent,
 Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
                                           const DerivedSegment &segment,
                                           const ApproachKey &key,
-                                          CrossSectionTemplateId endpoint_section,
+                                          RoadLayoutTemplateId endpoint_section,
                                           double auto_setback_m,
                                           double auto_lateral_shift_m) {
   double setback = auto_setback_m;
@@ -526,7 +526,7 @@ resolve_connections(const SavedRoadGraph &graph,
         return Out::Fail(CommitFailureCategory::kNotImplemented,
                          "road approach setback exceeds the segment length");
       }
-      const CrossSectionTemplateId endpoint_section =
+      const RoadLayoutTemplateId endpoint_section =
           endpoint_template_id(graph, *segment, approach.key);
       if (endpoint_section == 0) {
         return Out::Fail(CommitFailureCategory::kInvalidInput,
@@ -547,12 +547,12 @@ resolve_connections(const SavedRoadGraph &graph,
       minimum_setback = std::min(minimum_setback, setback);
     }
     if (connection.approaches.size() > 1) {
-      const CrossSectionTemplate *expected = find_template(
+      const RoadLayoutTemplate *expected = find_template(
           graph, connection.approaches.front().endpoint_template_id);
       const bool mixed = expected == nullptr || std::any_of(
           connection.approaches.begin() + 1, connection.approaches.end(),
           [&graph, expected](const ResolvedApproach &approach) {
-            const CrossSectionTemplate *candidate =
+            const RoadLayoutTemplate *candidate =
                 find_template(graph, approach.endpoint_template_id);
             return candidate == nullptr ||
                    !internal::equivalent_section_definition(*expected,

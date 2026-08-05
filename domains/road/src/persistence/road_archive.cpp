@@ -16,6 +16,9 @@
 #include <sstream>
 #include <string_view>
 
+// Key names in this file are the on-disk format, not the type names. The shared
+// lateral layout is RoadLayoutTemplate in code and stays "section_template" in
+// every archive written since version 11, so saved workspaces keep loading.
 namespace city::road::persistence {
 namespace {
 
@@ -404,7 +407,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     max_id = std::max(max_id, id);
     return Result<bool>::Ok(true);
   };
-  for (const CrossSectionTemplate& section : graph.section_templates) {
+  for (const RoadLayoutTemplate& section : graph.layout_templates) {
     Result<bool> id = add_id(section.id, &template_ids, "section_template");
     if (!id.ok) return id;
     if (section.strips.empty() ||
@@ -412,8 +415,8 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "section template chain is incomplete");
     }
-    std::set<SectionStripId> strips{};
-    for (const SectionStrip& strip : section.strips) {
+    std::set<RoadLayoutStripId> strips{};
+    for (const RoadLayoutStrip& strip : section.strips) {
       if (strip.id == 0 || !strips.insert(strip.id).second ||
           !finite(strip.width_m) || !finite(strip.cross_slope) ||
           strip.width_m <= 0.0 ||
@@ -437,7 +440,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     for (const LaneBand& lane : section.lane_bands) {
       const auto strip = std::find_if(
           section.strips.begin(), section.strips.end(),
-          [&lane](const SectionStrip& candidate) {
+          [&lane](const RoadLayoutStrip& candidate) {
             return candidate.id == lane.surface_strip_id;
           });
       if (lane.id == 0 || !lane_ids.insert(lane.id).second ||
@@ -492,7 +495,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
                                 "road node position is non-finite");
     }
   }
-  for (const SectionTransition& transition : graph.transitions) {
+  for (const RoadLayoutTransition& transition : graph.transitions) {
     Result<bool> id = add_id(transition.id, &transition_ids, "transition");
     if (!id.ok) return id;
     if (!contains_id(template_ids, transition.from_template) ||
@@ -510,13 +513,13 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
                                 "section transition is invalid");
     }
     if (transition.anchor == TransitionAnchor::kBoundary) {
-      const auto has_anchor = [&graph, &transition](CrossSectionTemplateId id) {
+      const auto has_anchor = [&graph, &transition](RoadLayoutTemplateId id) {
         const auto section = std::find_if(
-            graph.section_templates.begin(), graph.section_templates.end(),
-            [id](const CrossSectionTemplate& candidate) {
+            graph.layout_templates.begin(), graph.layout_templates.end(),
+            [id](const RoadLayoutTemplate& candidate) {
               return candidate.id == id;
             });
-        return section != graph.section_templates.end() &&
+        return section != graph.layout_templates.end() &&
                std::any_of(section->boundaries.begin(),
                            section->boundaries.end(),
                            [&transition](const BoundaryProfile& boundary) {
@@ -531,8 +534,8 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
             "section transition anchor boundary reference is invalid");
       }
     }
-    std::set<SectionStripId> rule_strips{};
-    for (const SectionTransitionRule& rule : transition.rules) {
+    std::set<RoadLayoutStripId> rule_strips{};
+    for (const RoadLayoutTransitionRule& rule : transition.rules) {
       if (rule.strip_id == 0 ||
           !rule_strips.insert(rule.strip_id).second ||
           static_cast<int>(rule.action) < 0 ||
@@ -547,7 +550,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     if (!id.ok) return id;
     if (!contains_id(node_ids, segment.node_a) ||
         !contains_id(node_ids, segment.node_b) ||
-        !contains_id(template_ids, segment.section_template) ||
+        !contains_id(template_ids, segment.layout_template) ||
         (segment.transition.has_value() &&
          !contains_id(transition_ids, *segment.transition)) ||
         !finite(segment.shape) ||
@@ -677,7 +680,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
   for (const RoadCorridor& corridor : graph.corridors) {
     Result<bool> id = add_id(corridor.id, &corridor_ids, "corridor");
     if (!id.ok) return id;
-    if (corridor.section_template_id == 0 || corridor.segments.empty()) {
+    if (corridor.layout_template_id == 0 || corridor.segments.empty()) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road corridor is empty or untyped");
     }
@@ -848,15 +851,15 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
   writer.UInt("road_graph_version", kVersion);
   writer.UInt("next_id", next_id);
 
-  const auto sections = sorted_by_id(graph.section_templates);
+  const auto sections = sorted_by_id(graph.layout_templates);
   writer.UInt("section_template.count", sections.size());
   for (std::size_t i = 0; i < sections.size(); ++i) {
-    const CrossSectionTemplate& section = *sections[i];
+    const RoadLayoutTemplate& section = *sections[i];
     const std::string prefix = "section_template." + std::to_string(i);
     writer.UInt(prefix + ".id", section.id);
     writer.UInt(prefix + ".strip.count", section.strips.size());
     for (std::size_t j = 0; j < section.strips.size(); ++j) {
-      const SectionStrip& strip = section.strips[j];
+      const RoadLayoutStrip& strip = section.strips[j];
       const std::string strip_prefix =
           prefix + ".strip." + std::to_string(j);
       writer.UInt(strip_prefix + ".id", strip.id);
@@ -907,7 +910,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
   const auto transitions = sorted_by_id(graph.transitions);
   writer.UInt("transition.count", transitions.size());
   for (std::size_t i = 0; i < transitions.size(); ++i) {
-    const SectionTransition& transition = *transitions[i];
+    const RoadLayoutTransition& transition = *transitions[i];
     const std::string prefix = "transition." + std::to_string(i);
     writer.UInt(prefix + ".id", transition.id);
     writer.UInt(prefix + ".from_template", transition.from_template);
@@ -919,7 +922,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     writer.Int(prefix + ".anchor", static_cast<int>(transition.anchor));
     writer.UInt(prefix + ".anchor_boundary_id",
                 transition.anchor_boundary_id);
-    std::vector<SectionTransitionRule> rules = transition.rules;
+    std::vector<RoadLayoutTransitionRule> rules = transition.rules;
     std::sort(rules.begin(), rules.end(), [](const auto& a, const auto& b) {
       return a.strip_id < b.strip_id;
     });
@@ -1021,7 +1024,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     writer.UInt(prefix + ".id", segment.id);
     writer.UInt(prefix + ".node_a", segment.node_a);
     writer.UInt(prefix + ".node_b", segment.node_b);
-    writer.UInt(prefix + ".section_template", segment.section_template);
+    writer.UInt(prefix + ".section_template", segment.layout_template);
     writer.UInt(prefix + ".transition", segment.transition.value_or(0));
     writer.Int(prefix + ".shape.intent", static_cast<int>(segment.shape.intent));
     write_vec2(writer, prefix + ".shape.start_handle", segment.shape.start_handle);
@@ -1066,7 +1069,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     const RoadCorridor& corridor = *corridors[i];
     const std::string prefix = "corridor." + std::to_string(i);
     writer.UInt(prefix + ".id", corridor.id);
-    writer.UInt(prefix + ".section_template_id", corridor.section_template_id);
+    writer.UInt(prefix + ".section_template_id", corridor.layout_template_id);
     writer.UInt(prefix + ".segment.count", corridor.segments.size());
     for (std::size_t j = 0; j < corridor.segments.size(); ++j) {
       const DirectedSegmentRef& ref = corridor.segments[j];
@@ -1143,7 +1146,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     const std::string prefix = "section_template." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
     if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
-    CrossSectionTemplate section{};
+    RoadLayoutTemplate section{};
     section.id = id.value;
     Result<std::size_t> strip_count = require_count(prefix + ".strip.count");
     if (!strip_count.ok) return Result<LoadedRoad>::Fail(strip_count.failure_category, strip_count.error);
@@ -1187,7 +1190,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           side_marking.right = policy;
         }
       }
-      section.strips.push_back(SectionStrip{strip_id.value, function.value, width.value, slope.value,
+      section.strips.push_back(RoadLayoutStrip{strip_id.value, function.value, width.value, slope.value,
                                           SurfaceStyleId{style.value}, side_marking});
     }
     Result<std::size_t> lane_count = require_count(prefix + ".lane_band.count");
@@ -1246,7 +1249,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
                                                        marking_role.value,
                                                        MarkingStyleId{marking_style.value}}});
     }
-    loaded.graph.section_templates.push_back(std::move(section));
+    loaded.graph.layout_templates.push_back(std::move(section));
   }
 
   Result<std::size_t> transition_count = require_count("transition.count");
@@ -1275,7 +1278,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
       return Result<LoadedRoad>::Fail(anchor_boundary_id.failure_category,
                                       anchor_boundary_id.error);
     }
-    SectionTransition transition{id.value, from.value, to.value,
+    RoadLayoutTransition transition{id.value, from.value, to.value,
                                  DistanceRef{start_kind.value, start_value.value},
                                  DistanceRef{end_kind.value, end_value.value},
                                  anchor.value, anchor_boundary_id.value, {}};
@@ -1287,7 +1290,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
       Result<TransitionAction> action = enum_value<TransitionAction>(reader, rule_prefix + ".action", 0, 5);
       if (!strip_id.ok) return Result<LoadedRoad>::Fail(strip_id.failure_category, strip_id.error);
       if (!action.ok) return Result<LoadedRoad>::Fail(action.failure_category, action.error);
-      transition.rules.push_back(SectionTransitionRule{strip_id.value, action.value});
+      transition.rules.push_back(RoadLayoutTransitionRule{strip_id.value, action.value});
     }
     loaded.graph.transitions.push_back(std::move(transition));
   }
@@ -1430,7 +1433,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
     Result<std::uint64_t> node_a = reader.RequireU64(prefix + ".node_a");
     Result<std::uint64_t> node_b = reader.RequireU64(prefix + ".node_b");
-    Result<std::uint64_t> section_template = reader.RequireU64(prefix + ".section_template");
+    Result<std::uint64_t> layout_template = reader.RequireU64(prefix + ".section_template");
     Result<std::uint64_t> transition = reader.RequireU64(prefix + ".transition");
     Result<SegmentShapeIntent> intent =
         enum_value<SegmentShapeIntent>(reader, prefix + ".shape.intent", 0, 1);
@@ -1439,7 +1442,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
     if (!node_a.ok) return Result<LoadedRoad>::Fail(node_a.failure_category, node_a.error);
     if (!node_b.ok) return Result<LoadedRoad>::Fail(node_b.failure_category, node_b.error);
-    if (!section_template.ok) return Result<LoadedRoad>::Fail(section_template.failure_category, section_template.error);
+    if (!layout_template.ok) return Result<LoadedRoad>::Fail(layout_template.failure_category, layout_template.error);
     if (!transition.ok) return Result<LoadedRoad>::Fail(transition.failure_category, transition.error);
     if (!intent.ok) return Result<LoadedRoad>::Fail(intent.failure_category, intent.error);
     if (!start_handle.ok) return Result<LoadedRoad>::Fail(start_handle.failure_category, start_handle.error);
@@ -1447,9 +1450,9 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     RoadSegment segment{id.value, node_a.value, node_b.value,
                         SegmentShape{start_handle.value, {}, end_handle.value,
                                      intent.value},
-                        section_template.value,
+                        layout_template.value,
                         transition.value == 0 ? std::nullopt
-                                              : std::optional<SectionTransitionId>(transition.value)};
+                                              : std::optional<RoadLayoutTransitionId>(transition.value)};
     Result<std::size_t> knot_count = require_count(prefix + ".shape.knot.count");
     if (!knot_count.ok) return Result<LoadedRoad>::Fail(knot_count.failure_category, knot_count.error);
     for (std::size_t j = 0; j < knot_count.value; ++j) {
@@ -1517,19 +1520,19 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   for (std::size_t i = 0; i < corridor_count.value; ++i) {
     const std::string prefix = "corridor." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
-    Result<std::uint64_t> section_template =
+    Result<std::uint64_t> layout_template =
         reader.RequireU64(prefix + ".section_template_id");
     Result<std::size_t> ref_count =
         require_count(prefix + ".segment.count");
     if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
-    if (!section_template.ok) {
-      return Result<LoadedRoad>::Fail(section_template.failure_category,
-                                      section_template.error);
+    if (!layout_template.ok) {
+      return Result<LoadedRoad>::Fail(layout_template.failure_category,
+                                      layout_template.error);
     }
     if (!ref_count.ok) {
       return Result<LoadedRoad>::Fail(ref_count.failure_category, ref_count.error);
     }
-    RoadCorridor corridor{id.value, section_template.value, {}};
+    RoadCorridor corridor{id.value, layout_template.value, {}};
     for (std::size_t j = 0; j < ref_count.value; ++j) {
       const std::string ref_prefix =
           prefix + ".segment." + std::to_string(j);

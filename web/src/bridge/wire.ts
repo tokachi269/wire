@@ -461,14 +461,14 @@ export class WireBridge {
     return { ...result, meshes: result.meshes.map(copyRoadMesh) };
   }
 
-  roadAddSectionTemplate(
+  roadAddRoadLayoutTemplate(
     input: RoadSectionInput
-  ): OperationResult & { sectionTemplateId?: number } {
-    return this.roadState.addSectionTemplate(input);
+  ): OperationResult & { roadLayoutTemplateId?: number } {
+    return this.roadState.addRoadLayoutTemplate(input);
   }
 
-  roadUpdateSectionTemplate(input: Record<string, number | boolean>): OperationResult {
-    return this.roadState.updateSectionTemplate(input);
+  roadUpdateRoadLayoutTemplate(input: Record<string, number | boolean>): OperationResult {
+    return this.roadState.updateRoadLayoutTemplate(input);
   }
 
   roadUndoSegment(): OperationResult {

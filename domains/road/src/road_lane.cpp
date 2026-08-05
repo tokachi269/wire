@@ -48,7 +48,7 @@ struct OrderedLaneEndpoint {
 };
 
 [[nodiscard]] Result<std::vector<OrderedLaneEndpoint>> ordered_lane_endpoints(
-    const CrossSectionTemplate& section, RoadSegmentId segment_id,
+    const RoadLayoutTemplate& section, RoadSegmentId segment_id,
     EndpointRole role, bool exits) {
   std::vector<OrderedLaneEndpoint> result{};
   const double endpoint_sign = role == EndpointRole::kStart ? 1.0 : -1.0;
@@ -83,7 +83,7 @@ struct OrderedBoundaryEndpoint {
 };
 
 [[nodiscard]] std::vector<OrderedBoundaryEndpoint> ordered_boundary_endpoints(
-    const CrossSectionTemplate& section, RoadSegmentId segment_id,
+    const RoadLayoutTemplate& section, RoadSegmentId segment_id,
     EndpointRole role) {
   std::vector<OrderedBoundaryEndpoint> result{};
   const double endpoint_sign = role == EndpointRole::kStart ? 1.0 : -1.0;
@@ -112,7 +112,7 @@ struct OrderedBoundaryEndpoint {
     operations::OperationPlan& plan) {
   const RoadSegment* source_segment =
       internal::find_segment(graph, source_segment_id);
-  const CrossSectionTemplate* source_section =
+  const RoadLayoutTemplate* source_section =
       source_segment == nullptr
           ? nullptr
           : internal::find_endpoint_template(graph, *source_segment,
@@ -154,7 +154,7 @@ struct OrderedBoundaryEndpoint {
   for (const RoadSegment* candidate_segment : incident) {
     if (candidate_segment->id == source_segment_id) continue;
     const EndpointRole role = endpoint_role_at(*candidate_segment, node_id);
-    const CrossSectionTemplate* section = internal::find_endpoint_template(
+    const RoadLayoutTemplate* section = internal::find_endpoint_template(
         graph, *candidate_segment, role);
     if (section == nullptr) {
       return Result<bool>::Fail(CommitFailureCategory::kInternalError,
@@ -250,7 +250,7 @@ struct OuterLaneSelection {
 };
 
 [[nodiscard]] Result<OuterLaneSelection> select_outer_lane_strip(
-    const CrossSectionTemplate& section, LaneTravelDirection direction,
+    const RoadLayoutTemplate& section, LaneTravelDirection direction,
     RoadSide side, CommitFailureCategory empty_category,
     const char* empty_error, const char* missing_strip_error) {
   struct Candidate {
@@ -262,7 +262,7 @@ struct OuterLaneSelection {
     if (lane.direction != direction) continue;
     const auto strip = std::find_if(
         section.strips.begin(), section.strips.end(),
-        [&lane](const SectionStrip& item) {
+        [&lane](const RoadLayoutStrip& item) {
           return item.id == lane.surface_strip_id;
         });
     if (strip == section.strips.end()) {
@@ -290,7 +290,7 @@ struct OuterLaneSelection {
 }
 
 struct LaneSectionIds {
-  SectionStripId strip_id = 0;
+  RoadLayoutStripId strip_id = 0;
   LaneId lane_id = 0;
   BoundaryId boundary_id = 0;
 };
@@ -298,8 +298,8 @@ struct LaneSectionIds {
 [[nodiscard]] std::uint64_t next_section_member_id(
     const SavedRoadGraph& graph) {
   std::uint64_t next_id = 1;
-  for (const CrossSectionTemplate& section : graph.section_templates) {
-    for (const SectionStrip& strip : section.strips)
+  for (const RoadLayoutTemplate& section : graph.layout_templates) {
+    for (const RoadLayoutStrip& strip : section.strips)
       next_id = std::max(next_id, strip.id + 1);
     for (const LaneBand& lane : section.lane_bands)
       next_id = std::max(next_id, lane.id + 1);
@@ -309,8 +309,8 @@ struct LaneSectionIds {
   return next_id;
 }
 
-[[nodiscard]] Result<CrossSectionTemplate> make_extended_lane_section(
-    const CrossSectionTemplate& base, LaneTravelDirection direction,
+[[nodiscard]] Result<RoadLayoutTemplate> make_extended_lane_section(
+    const RoadLayoutTemplate& base, LaneTravelDirection direction,
     RoadSide side, double lane_width_m, LaneSectionIds ids,
     CommitFailureCategory empty_category, const char* empty_error,
     const char* missing_strip_error) {
@@ -318,12 +318,12 @@ struct LaneSectionIds {
       base, direction, side, empty_category, empty_error,
       missing_strip_error);
   if (!selected.ok) {
-    return Result<CrossSectionTemplate>::Fail(selected.failure_category,
+    return Result<RoadLayoutTemplate>::Fail(selected.failure_category,
                                                selected.error);
   }
 
-  CrossSectionTemplate extended = base;
-  SectionStrip strip = base.strips[selected.value.strip_index];
+  RoadLayoutTemplate extended = base;
+  RoadLayoutStrip strip = base.strips[selected.value.strip_index];
   strip.id = ids.strip_id;
   strip.width_m = lane_width_m;
   strip.side_marking = {};
@@ -344,18 +344,18 @@ struct LaneSectionIds {
   }
   extended.lane_bands.push_back(
       LaneBand{ids.lane_id, ids.strip_id, 0.0, lane_width_m, direction});
-  return Result<CrossSectionTemplate>::Ok(std::move(extended));
+  return Result<RoadLayoutTemplate>::Ok(std::move(extended));
 }
 
 struct LaneSectionExtension {
-  CrossSectionTemplateId source_id = 0;
+  RoadLayoutTemplateId source_id = 0;
   LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
   RoadSide side = RoadSide::kRight;
-  CrossSectionTemplateId target_id = 0;
+  RoadLayoutTemplateId target_id = 0;
 };
 
-[[nodiscard]] Result<CrossSectionTemplateId> ensure_extended_lane_section(
-    const CrossSectionTemplate& base, LaneTravelDirection direction,
+[[nodiscard]] Result<RoadLayoutTemplateId> ensure_extended_lane_section(
+    const RoadLayoutTemplate& base, LaneTravelDirection direction,
     RoadSide side, double lane_width_m, LaneSectionIds ids,
     std::vector<LaneSectionExtension>& extensions,
     operations::OperationPlan& plan, std::uint64_t& next_id) {
@@ -366,22 +366,22 @@ struct LaneSectionExtension {
                extension.direction == direction && extension.side == side;
       });
   if (existing != extensions.end()) {
-    return Result<CrossSectionTemplateId>::Ok(existing->target_id);
+    return Result<RoadLayoutTemplateId>::Ok(existing->target_id);
   }
-  Result<CrossSectionTemplate> extended = make_extended_lane_section(
+  Result<RoadLayoutTemplate> extended = make_extended_lane_section(
       base, direction, side, lane_width_m, ids,
       CommitFailureCategory::kNotImplemented,
       "later section has no lane in the selected direction",
       "lane extension source strip is missing");
   if (!extended.ok) {
-    return Result<CrossSectionTemplateId>::Fail(extended.failure_category,
+    return Result<RoadLayoutTemplateId>::Fail(extended.failure_category,
                                                 extended.error);
   }
   extended.value.id = next_id++;
-  const CrossSectionTemplateId id = extended.value.id;
-  plan.add_section_templates.push_back(std::move(extended.value));
+  const RoadLayoutTemplateId id = extended.value.id;
+  plan.add_layout_templates.push_back(std::move(extended.value));
   extensions.push_back(LaneSectionExtension{base.id, direction, side, id});
-  return Result<CrossSectionTemplateId>::Ok(id);
+  return Result<RoadLayoutTemplateId>::Ok(id);
 }
 
 [[nodiscard]] Result<bool> validate_add_lane_request(
@@ -454,8 +454,8 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           ? (request.side == RoadSide::kLeft ? RoadSide::kRight
                                              : RoadSide::kLeft)
           : request.side;
-  const CrossSectionTemplate* source =
-      find_template(graph_, segment->section_template);
+  const RoadLayoutTemplate* source =
+      find_template(graph_, segment->layout_template);
   if (source == nullptr) {
     return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
                                 "lane transition section is missing");
@@ -495,7 +495,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   std::uint64_t next_local_id = next_section_member_id(graph_);
   const LaneSectionIds lane_ids{next_local_id++, next_local_id++,
                                 next_local_id++};
-  Result<CrossSectionTemplate> target_result = make_extended_lane_section(
+  Result<RoadLayoutTemplate> target_result = make_extended_lane_section(
       *source, local_direction, local_side, request.lane_width_m, lane_ids,
       CommitFailureCategory::kInvalidInput,
       "selected direction has no lane to extend",
@@ -504,7 +504,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     return Result<LaneId>::Fail(target_result.failure_category,
                                 target_result.error);
   }
-  CrossSectionTemplate target = std::move(target_result.value);
+  RoadLayoutTemplate target = std::move(target_result.value);
   const LaneId added_lane_id = lane_ids.lane_id;
 
   operations::OperationPlan plan{};
@@ -600,25 +600,25 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
           CommitFailureCategory::kInvalidInput,
           "lane transition completion must follow its start along the corridor");
     }
-    const CrossSectionTemplateId local_from_template_id =
+    const RoadLayoutTemplateId local_from_template_id =
         reversed ? target.id : source->id;
-    const CrossSectionTemplateId local_to_template_id =
+    const RoadLayoutTemplateId local_to_template_id =
         reversed ? source->id : target.id;
     const TransitionAction action =
         reversed ? TransitionAction::kTaperOut : TransitionAction::kTaperIn;
-    const SectionTransitionId transition_id = next_id++;
-    plan.add_transitions.push_back(SectionTransition{
+    const RoadLayoutTransitionId transition_id = next_id++;
+    plan.add_transitions.push_back(RoadLayoutTransition{
         transition_id, local_from_template_id, local_to_template_id,
         DistanceRef{DistanceRefKind::kRatio, transition_start_t},
         DistanceRef{DistanceRefKind::kRatio, transition_complete_t}, anchor,
         anchor_boundary_id,
-        {SectionTransitionRule{lane_ids.strip_id, action}}});
+        {RoadLayoutTransitionRule{lane_ids.strip_id, action}}});
     RoadSegment replacement = *segment;
-    replacement.section_template = local_from_template_id;
+    replacement.layout_template = local_from_template_id;
     replacement.transition = transition_id;
     plan.replace_segments.push_back(std::move(replacement));
 
-    CrossSectionTemplateId terminal_template_id = target.id;
+    RoadLayoutTemplateId terminal_template_id = target.id;
     for (auto ref = full_ref + 1; ref <= continuation_ref; ++ref) {
       const RoadSegment* following = find_segment(graph_, ref->segment_id);
       if (following == nullptr) {
@@ -631,8 +631,8 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
             CommitFailureCategory::kNotImplemented,
             "lane addition conflicts with an existing section transition");
       }
-      const CrossSectionTemplate* following_section =
-          find_template(graph_, following->section_template);
+      const RoadLayoutTemplate* following_section =
+          find_template(graph_, following->layout_template);
       if (following_section == nullptr) {
         return Result<LaneId>::Fail(
             CommitFailureCategory::kInternalError,
@@ -649,7 +649,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
               ? (request.side == RoadSide::kLeft ? RoadSide::kRight
                                                  : RoadSide::kLeft)
               : request.side;
-      const Result<CrossSectionTemplateId> mapped =
+      const Result<RoadLayoutTemplateId> mapped =
           ensure_extended_lane_section(
               *following_section, following_direction, following_side,
               request.lane_width_m, lane_ids, section_extensions, plan,
@@ -658,16 +658,16 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         return Result<LaneId>::Fail(mapped.failure_category, mapped.error);
       }
       RoadSegment following_replacement = *following;
-      following_replacement.section_template = mapped.value;
+      following_replacement.layout_template = mapped.value;
       plan.replace_segments.push_back(std::move(following_replacement));
       terminal_template_id = mapped.value;
     }
     if (continuation_ref + 1 == corridor->segments.end()) {
       RoadCorridor corridor_replacement = *corridor;
-      corridor_replacement.section_template_id = terminal_template_id;
+      corridor_replacement.layout_template_id = terminal_template_id;
       plan.replace_corridors.push_back(std::move(corridor_replacement));
     }
-    plan.add_section_templates.push_back(std::move(target));
+    plan.add_layout_templates.push_back(std::move(target));
     return execute_lane_plan();
   }
 }

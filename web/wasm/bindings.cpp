@@ -1403,7 +1403,7 @@ public:
   // Registers one cross section and reports the ID Core assigned. The caller
   // never chooses the ID.
   val add_section_template(const val& input) {
-    city::road::CrossSectionTemplate section{};
+    city::road::RoadLayoutTemplate section{};
     const val strips = input["strips"];
     const auto strip_count = strips["length"].as<unsigned>();
     for (unsigned index = 0; index < strip_count; ++index) {
@@ -1414,8 +1414,8 @@ public:
         return road_result_value(false, "unknown road strip function or surface style",
                                  city::road::CommitFailureCategory::kInvalidInput);
       }
-      city::road::SectionStrip strip{};
-      strip.id = item["id"].as<city::road::SectionStripId>();
+      city::road::RoadLayoutStrip strip{};
+      strip.id = item["id"].as<city::road::RoadLayoutStripId>();
       strip.function = *function;
       strip.width_m = item["widthM"].as<double>();
       strip.cross_slope = item["crossSlope"].as<double>();
@@ -1428,7 +1428,7 @@ public:
       const val item = lanes[index];
       section.lane_bands.push_back(city::road::LaneBand{
           item["id"].as<city::road::LaneId>(),
-          item["stripId"].as<city::road::SectionStripId>(),
+          item["stripId"].as<city::road::RoadLayoutStripId>(),
           item["lateralStartM"].as<double>(),
           item["lateralEndM"].as<double>(),
           road_lane_direction(item["direction"].as<int>())});
@@ -1460,11 +1460,11 @@ public:
       }
       section.boundaries.push_back(boundary);
     }
-    const auto result = state_->AddSectionTemplate(
-        city::road::AddSectionTemplateRequest{std::move(section)});
+    const auto result = state_->AddRoadLayoutTemplate(
+        city::road::AddRoadLayoutTemplateRequest{std::move(section)});
     val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) {
-      output.set("sectionTemplateId", static_cast<double>(result.value));
+      output.set("roadLayoutTemplateId", static_cast<double>(result.value));
     }
     return output;
   }
@@ -1509,9 +1509,9 @@ public:
     const double end_segment_distance_m = input["endSegmentDistanceM"].isUndefined()
                                               ? 0.0
                                               : input["endSegmentDistanceM"].as<double>();
-    const auto section_template_id = input["sectionTemplateId"].isUndefined()
-                                         ? city::road::CrossSectionTemplateId{0}
-                                         : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
+    const auto layout_template_id = input["roadLayoutTemplateId"].isUndefined()
+                                         ? city::road::RoadLayoutTemplateId{0}
+                                         : input["roadLayoutTemplateId"].as<city::road::RoadLayoutTemplateId>();
     city::road::Result<city::road::RoadSegmentId> result{};
     if ((start_node_id != 0 || start_segment_id != 0 ||
          extension_corridor_id != 0) &&
@@ -1522,28 +1522,28 @@ public:
     } else if (end_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{
-              path, section_template_id, end_segment_id,
+              path, layout_template_id, end_segment_id,
               end_segment_distance_m, city::road::EndpointRole::kEnd});
     } else if (end_node_id != 0) {
       result = state_->AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{
-              path, section_template_id, end_node_id,
+              path, layout_template_id, end_node_id,
               city::road::EndpointRole::kEnd});
     } else if (extension_corridor_id != 0) {
       result = state_->ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
               extension_corridor_id, start_node_id, path,
-              section_template_id, road_shape_intent(input)});
+              layout_template_id, road_shape_intent(input)});
     } else if (start_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
-          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m,
+          city::road::AddSegmentConnectedToSegmentRequest{path, layout_template_id, start_segment_id, start_segment_distance_m,
                                                           city::road::EndpointRole::kStart});
     } else if (start_node_id != 0) {
       result = state_->AddSegmentConnectedTo(
-          city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id,
+          city::road::AddSegmentConnectedToRequest{path, layout_template_id, start_node_id,
                                                    city::road::EndpointRole::kStart});
     } else {
-      result = state_->AddSegment(city::road::AddSegmentRequest{path, section_template_id, road_shape_intent(input)});
+      result = state_->AddSegment(city::road::AddSegmentRequest{path, layout_template_id, road_shape_intent(input)});
     }
     val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) {
@@ -1617,9 +1617,9 @@ public:
     const double end_segment_distance_m = input["endSegmentDistanceM"].isUndefined()
                                               ? 0.0
                                               : input["endSegmentDistanceM"].as<double>();
-    const auto section_template_id = input["sectionTemplateId"].isUndefined()
-                                         ? city::road::CrossSectionTemplateId{0}
-                                         : input["sectionTemplateId"].as<city::road::CrossSectionTemplateId>();
+    const auto layout_template_id = input["roadLayoutTemplateId"].isUndefined()
+                                         ? city::road::RoadLayoutTemplateId{0}
+                                         : input["roadLayoutTemplateId"].as<city::road::RoadLayoutTemplateId>();
     city::road::Result<city::road::RoadSegmentId> added{};
     if ((start_node_id != 0 || start_segment_id != 0 ||
          extension_corridor_id != 0) &&
@@ -1630,28 +1630,28 @@ public:
     } else if (end_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{
-              path, section_template_id, end_segment_id,
+              path, layout_template_id, end_segment_id,
               end_segment_distance_m, city::road::EndpointRole::kEnd});
     } else if (end_node_id != 0) {
       added = trial.AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{
-              path, section_template_id, end_node_id,
+              path, layout_template_id, end_node_id,
               city::road::EndpointRole::kEnd});
     } else if (extension_corridor_id != 0) {
       added = trial.ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
               extension_corridor_id, start_node_id, path,
-              section_template_id, road_shape_intent(input)});
+              layout_template_id, road_shape_intent(input)});
     } else if (start_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
-          city::road::AddSegmentConnectedToSegmentRequest{path, section_template_id, start_segment_id, start_segment_distance_m,
+          city::road::AddSegmentConnectedToSegmentRequest{path, layout_template_id, start_segment_id, start_segment_distance_m,
                                                           city::road::EndpointRole::kStart});
     } else if (start_node_id != 0) {
       added = trial.AddSegmentConnectedTo(
-          city::road::AddSegmentConnectedToRequest{path, section_template_id, start_node_id,
+          city::road::AddSegmentConnectedToRequest{path, layout_template_id, start_node_id,
                                                    city::road::EndpointRole::kStart});
     } else {
-      added = trial.AddSegment(city::road::AddSegmentRequest{path, section_template_id, road_shape_intent(input)});
+      added = trial.AddSegment(city::road::AddSegmentRequest{path, layout_template_id, road_shape_intent(input)});
     }
     val result = road_result_value(added.ok, added.error, added.failure_category);
     val meshes = val::array();
@@ -1737,8 +1737,8 @@ public:
       item.set("segmentId", static_cast<double>(lane.segment_id));
       item.set("laneId", static_cast<double>(lane.lane_id));
       item.set("direction", lane.direction == city::road::LaneTravelDirection::kAgainstSegment ? 1 : 0);
-      item.set("startSectionTemplateId", static_cast<double>(lane.start_template_id));
-      item.set("endSectionTemplateId", static_cast<double>(lane.end_template_id));
+      item.set("startRoadLayoutTemplateId", static_cast<double>(lane.start_template_id));
+      item.set("endRoadLayoutTemplateId", static_cast<double>(lane.end_template_id));
       item.set("startSegmentDistanceM", lane.start_segment_distance_m);
       item.set("endSegmentDistanceM", lane.end_segment_distance_m);
       const auto source_segment = std::find_if(
@@ -1755,8 +1755,8 @@ public:
       item.set("points", points);
       lane_paths.call<void>("push", item);
     }
-    val section_templates = val::array();
-    for (const auto& section : graph.section_templates) {
+    val layout_templates = val::array();
+    for (const auto& section : graph.layout_templates) {
       val item = val::object();
       item.set("id", static_cast<double>(section.id));
       double sidewalk_width = 0.0;
@@ -1819,7 +1819,7 @@ public:
         return boundary.marking.enabled &&
                boundary.marking.role == city::road::MarkingRole::kCarriagewayEdge;
       }));
-      section_templates.call<void>("push", item);
+      layout_templates.call<void>("push", item);
     }
     val editable_segments = val::array();
     for (const auto& segment : graph.segments) {
@@ -1946,8 +1946,8 @@ public:
     for (const auto& corridor : graph.corridors) {
       val item = val::object();
       item.set("id", static_cast<double>(corridor.id));
-      item.set("sectionTemplateId",
-               static_cast<double>(corridor.section_template_id));
+      item.set("roadLayoutTemplateId",
+               static_cast<double>(corridor.layout_template_id));
       double length_m = 0.0;
       val segment_refs = val::array();
       for (const auto& ref : corridor.segments) {
@@ -1966,7 +1966,7 @@ public:
     }
     result.set("junctions", junctions);
     result.set("segmentCount", graph.segments.size());
-    result.set("sectionTemplateCount", graph.section_templates.size());
+    result.set("roadLayoutTemplateCount", graph.layout_templates.size());
     result.set("transitionCount", graph.transitions.size());
     result.set("markingCount", graph.manual_lines.size() + graph.manual_areas.size());
     std::size_t gate_count = 0;
@@ -1982,7 +1982,7 @@ public:
     result.set("centerlineSegments", centerline_segments);
     result.set("lanePaths", lane_paths);
     result.set("corridors", corridors);
-    result.set("sectionTemplates", section_templates);
+    result.set("roadLayoutTemplates", layout_templates);
     result.set("editableSegments", editable_segments);
     result.set("surfaceMeshes", surface_meshes);
     result.set("markingMeshes", marking_meshes);
@@ -2062,13 +2062,13 @@ public:
   }
 
   val update_section_template(const val& input) {
-    const auto id = input["id"].as<city::road::CrossSectionTemplateId>();
-    const auto it = std::find_if(state_->graph().section_templates.begin(), state_->graph().section_templates.end(),
+    const auto id = input["id"].as<city::road::RoadLayoutTemplateId>();
+    const auto it = std::find_if(state_->graph().layout_templates.begin(), state_->graph().layout_templates.end(),
                                  [id](const auto& section) { return section.id == id; });
-    if (it == state_->graph().section_templates.end()) {
+    if (it == state_->graph().layout_templates.end()) {
       return road_result_value(false, "section template does not exist", city::road::CommitFailureCategory::kInvalidInput);
     }
-    city::road::CrossSectionTemplate section = *it;
+    city::road::RoadLayoutTemplate section = *it;
     const double sidewalk_width = input["sidewalkWidthM"].as<double>();
     const double lane_width = input["laneWidthM"].as<double>();
     const double median_width = input["medianWidthM"].as<double>();
@@ -2108,7 +2108,7 @@ public:
                                : city::road::AutoMarkingPolicy{};
       }
     }
-    const auto result = state_->EditSectionTemplate(city::road::EditSectionTemplateRequest{std::move(section)});
+    const auto result = state_->EditRoadLayoutTemplate(city::road::EditRoadLayoutTemplateRequest{std::move(section)});
     return road_result_value(result.ok, result.error, result.failure_category);
   }
 
@@ -2155,7 +2155,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("addSegment", &RoadStateBinding::add_segment)
       .function("previewSegment", &RoadStateBinding::preview_segment)
       .function("previewInterval", &RoadStateBinding::preview_interval)
-      .function("addSectionTemplate", &RoadStateBinding::add_section_template)
+      .function("addRoadLayoutTemplate", &RoadStateBinding::add_section_template)
       .function("addLane", &RoadStateBinding::add_lane)
       .function("scene", &RoadStateBinding::scene)
       .function("deleteSegment", &RoadStateBinding::delete_segment)
@@ -2165,7 +2165,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("previewMoveNode", &RoadStateBinding::preview_move_node)
       .function("editSegment", &RoadStateBinding::edit_segment)
       .function("previewEditSegment", &RoadStateBinding::preview_edit_segment)
-      .function("updateSectionTemplate", &RoadStateBinding::update_section_template)
+      .function("updateRoadLayoutTemplate", &RoadStateBinding::update_section_template)
       .function("undoSegment", &RoadStateBinding::undo_segment)
       .function("clear", &RoadStateBinding::clear)
       .function("saveState", &RoadStateBinding::save_state)

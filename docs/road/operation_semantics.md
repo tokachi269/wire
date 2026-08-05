@@ -26,31 +26,31 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | Operation | Request field | Preflight validation | generate decision |
 |---|---|---|---|
 | AddSegment | alignment | finite、span端点がID作成順に連続、非ゼロ | self-intersectionは文書化されたRequirementConstraint、junction互換限界はNotImplemented |
-| AddSegment | section_template | ID exists | endpoint section互換 |
+| AddSegment | layout_template | ID exists | endpoint section互換 |
 | ExtendCorridorFromEnd | corridor_id / endpoint_node_id | ID exists、corridor末尾nodeと一致、degree-one | corridor先頭延長はunsupported |
 | ExtendCorridorFromEnd | extension | finite、連続、非ゼロ、endpointへ補正可能 | 新しい局所segmentと隣接connection |
-| ExtendCorridorFromEnd | section_template | corridorのroad definitionと一致 | 異断面延長はunsupported |
+| ExtendCorridorFromEnd | layout_template | corridorのroad definitionと一致 | 異断面延長はunsupported |
 | SplitSegmentAtDistance | segment_id / segment_distance_m | ID exists、finite、0とlengthを除く範囲内 | De Casteljau分割とowner移行 |
 | AddSegmentConnectedTo | alignment / connected_endpoint | finite、連続、非ゼロ、指定したstart/end endpointをnodeへ補正可能 | 接続角、degree、setback |
-| AddSegmentConnectedTo | section_template / connected_node | ID exists | endpoint section互換 |
+| AddSegmentConnectedTo | layout_template / connected_node | ID exists | endpoint section互換 |
 | AddSegmentConnectedToSegment | alignment / connected_endpoint | finite、連続、非ゼロ、指定したstart/end endpointが明示distance点と一致 | split後topology、junction互換 |
-| AddSegmentConnectedToSegment | target_segment / segment_distance_m / section_template | ID exists、distance finite、distance interior | transition付きsplit unsupported |
+| AddSegmentConnectedToSegment | target_segment / segment_distance_m / layout_template | ID exists、distance finite、distance interior | transition付きsplit unsupported |
 | EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのgenerate可否 |
 | MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
-| AddSectionTemplate | section_template | ID一意、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | trial section evaluation。IDはCoreが採番して返す |
-| EditSectionTemplate | section_template | ID exists、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | 既存segment再評価。boundary policyとlane side policyはこの操作だけが変える |
+| AddRoadLayoutTemplate | layout_template | ID一意、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | trial section evaluation。IDはCoreが採番して返す |
+| EditRoadLayoutTemplate | layout_template | ID exists、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | 既存segment再評価。boundary policyとlane side policyはこの操作だけが変える |
 | AddLane | corridor/direction/side/変化開始SegmentPosition/完成SegmentPosition/維持終点node/lane width | corridorとsegment/nodeが存在、tがfiniteかつ[0,1]、同一segment内でcorridor方向の順序が有効、幅が正 | Coreが外側laneと固定boundaryを解決し、最初のsegmentへtransition、明示終点までの後続segmentへ完成断面を設定 |
 
 外部入力不正は`kValidation`、正しい入力だがP0-P2で対応しない構造は`kUnsupported`、正しい正本から派生表やresolved read modelが欠ける場合は`kInternal`とする。
 
-新規`RoadState`は`section_templates`が空である。道路製品として提供する断面の一覧と具体値は
-Webが所有し(`web/src/road_templates.ts`)、新規workspaceの作成時にだけ`AddSectionTemplate`で
+新規`RoadState`は`layout_templates`が空である。道路製品として提供する断面の一覧と具体値は
+Webが所有し(`web/src/road_templates.ts`)、新規workspaceの作成時にだけ`AddRoadLayoutTemplate`で
 登録する。Loadは保存済みの断面をそのまま使い、Web presetを再注入しない。
 template IDは互換性判定には使わず、接続可否はendpointの実断面で判定する。
 ADD LANEが作る変更後断面はCoreが作る。
 
-`SectionTransition`、`LaneConnection`、`BoundaryContinuation`、`ApproachGeometryOverride`、
+`RoadLayoutTransition`、`LaneConnection`、`BoundaryContinuation`、`ApproachGeometryOverride`、
 `AutoMarkingOverride`、`JunctionMarkingOverride`、`ManualLineMarking`、`ManualAreaMarking`は
 保存される正本のままだが、これらを直接書き換える公開操作はない。IDと参照の妥当性は
 `ValidateAuthoritativeGraph`が、断面と線が成立するかは`generate_road`が判定する。
@@ -63,7 +63,7 @@ ADD LANEが作る変更後断面はCoreが作る。
 | empty | segment がない |
 | isolated | 接続されていない segment |
 | connected | node IDを共有する同一断面segment。connection kindはbuild派生で保存しない |
-| transitioning | segment が 1 個の SectionTransition を参照する |
+| transitioning | segment が 1 個の RoadLayoutTransition を参照する |
 | marked | segment が ManualLineMarking / ManualAreaMarking を所有する |
 
 ## 操作 x 状態
@@ -79,7 +79,7 @@ ADD LANEが作る変更後断面はCoreが作る。
 | MoveNode | validation | endpoint nodeを移動 | 接続全segmentを再導出 | DistanceRef規則で再評価 | owner-local markingを追従 |
 | DeleteSegment | validation | 選択したRoadSegment 1件だけを削除 | corridor分断は決定論的に処理 | 対象segmentのownerだけを除去 | 対象segmentのmarkingを除去 |
 | Viewer delete road | 1 segment pick | `DeleteSegment` | hoverしたRoadSegment全体を1クリックで削除 | hoverとclickは同じ明示segment IDを使う | splitやrange境界を作らない |
-| Add/EditSectionTemplate | supported | supported | supported | supported | supported |
+| Add/EditRoadLayoutTemplate | supported | supported | supported | supported | supported |
 | AddLane | validation | segmentをsplitせずtでsupported | transition自体は同一segment内、完成断面の明示終点までの伝播はsupported | 1 segment 1 transition。同一区間の競合は具体的なvalidation | supported |
 
 ## P1 node semantics
@@ -172,7 +172,7 @@ ADD LANEが作る変更後断面はCoreが作る。
   ManualAreaMarking は `rotation_rad` を持ち、0 はowner segment distance方向を意味する。
 - 自動線は`DerivedMarking`へ導出してからmesh化する。segment、junction、manual のowner境界はgateとmanual entity IDで決め、位置近接で再bindしない。
 - 保存するのはlocal値で、world meshだけを派生する。segment alignment編集時はlocal値を維持して再導出する。
-- 境界への線要求は`BoundaryProfile.marking`と、carriageway `SectionStrip`の`LaneSideMarkingPolicy`だけ。
+- 境界への線要求は`BoundaryProfile.marking`と、carriageway `RoadLayoutStrip`の`LaneSideMarkingPolicy`だけ。
   lane side要求は要素順序で隣接する`BoundaryProfile`へ解決し、断面外端側の要求はunsupportedとする。
 - 同一境界への複数要求は、role / style / geometry ruleが一致する場合だけ1本へ統合する。
   一致しない要求はunsupportedとし、暗黙の優先順位を持たない。
@@ -187,8 +187,8 @@ ADD LANEが作る変更後断面はCoreが作る。
 
 | 操作 | policyなし | boundary policyあり | lane side policyあり | 競合要求 | suppressionあり |
 |---|---|---|---|---|---|
-| EditSectionTemplate (boundary policy) | supported | 置換 | 一致すれば統合 | unsupported | supported (自動線は非生成のまま) |
-| EditSectionTemplate (lane side policy) | supported | 一致すれば統合 | 置換 | unsupported | supported |
+| EditRoadLayoutTemplate (boundary policy) | supported | 置換 | 一致すれば統合 | unsupported | supported (自動線は非生成のまま) |
+| EditRoadLayoutTemplate (lane side policy) | supported | 一致すれば統合 | 置換 | unsupported | supported |
 | 保存された`AutoMarkingOverride` | validation (track不在) | supported | supported | - | 冪等 |
 | 保存された`JunctionMarkingOverride` | supported | supported | supported | - | supported |
 

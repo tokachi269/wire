@@ -206,15 +206,15 @@ Result<bool> validate_transition_marking_mapping(const SavedRoadGraph &graph) {
   for (const RoadSegment &segment : graph.segments) {
     if (!segment.transition.has_value())
       continue;
-    const SectionTransition *transition =
+    const RoadLayoutTransition *transition =
         find_transition(graph, *segment.transition);
     if (transition == nullptr) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road segment transition is missing");
     }
-    const CrossSectionTemplate *from =
+    const RoadLayoutTemplate *from =
         find_template(graph, transition->from_template);
-    const CrossSectionTemplate *to =
+    const RoadLayoutTemplate *to =
         find_template(graph, transition->to_template);
     if (from == nullptr || to == nullptr) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,

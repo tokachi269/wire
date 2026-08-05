@@ -51,15 +51,15 @@ constexpr double kSnapDistancePointToleranceM = 0.6;
 
 
 
-[[nodiscard]] const CrossSectionTemplate* find_template(const SavedRoadGraph& graph, CrossSectionTemplateId id) {
-  const auto it = std::find_if(graph.section_templates.begin(), graph.section_templates.end(),
-                               [id](const CrossSectionTemplate& item) { return item.id == id; });
-  return it == graph.section_templates.end() ? nullptr : &*it;
+[[nodiscard]] const RoadLayoutTemplate* find_template(const SavedRoadGraph& graph, RoadLayoutTemplateId id) {
+  const auto it = std::find_if(graph.layout_templates.begin(), graph.layout_templates.end(),
+                               [id](const RoadLayoutTemplate& item) { return item.id == id; });
+  return it == graph.layout_templates.end() ? nullptr : &*it;
 }
 
-[[nodiscard]] const SectionTransition* find_transition(const SavedRoadGraph& graph, SectionTransitionId id) {
+[[nodiscard]] const RoadLayoutTransition* find_transition(const SavedRoadGraph& graph, RoadLayoutTransitionId id) {
   const auto it = std::find_if(graph.transitions.begin(), graph.transitions.end(),
-                               [id](const SectionTransition& item) { return item.id == id; });
+                               [id](const RoadLayoutTransition& item) { return item.id == id; });
   return it == graph.transitions.end() ? nullptr : &*it;
 }
 
@@ -254,7 +254,7 @@ Result<RoadState> RoadState::Load(const std::string& text) {
 
 Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedRoad& derived) {
   std::unordered_set<std::uint64_t> ids{};
-  for (const CrossSectionTemplate& section : graph.section_templates) {
+  for (const RoadLayoutTemplate& section : graph.layout_templates) {
     if (!ids.insert(section.id).second) {
       return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road section template ID invariant failed");
     }
@@ -266,7 +266,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
   }
   for (const RoadSegment& segment : graph.segments) {
     if (!ids.insert(segment.id).second || find_node(graph, segment.node_a) == nullptr ||
-        find_node(graph, segment.node_b) == nullptr || find_template(graph, segment.section_template) == nullptr) {
+        find_node(graph, segment.node_b) == nullptr || find_template(graph, segment.layout_template) == nullptr) {
       return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road segment reference invariant failed");
     }
     if (FindDerivedSegment(derived, segment.id) == nullptr) {
@@ -415,7 +415,7 @@ Result<bool> ValidateGraphInvariants(const SavedRoadGraph& graph, const DerivedR
                                 "road approach geometry override invariant failed");
     }
   }
-  for (const SectionTransition& transition : graph.transitions) {
+  for (const RoadLayoutTransition& transition : graph.transitions) {
     if (!ids.insert(transition.id).second) {
       return Result<bool>::Fail(CommitFailureCategory::kInternalError, "road transition ID invariant failed");
     }

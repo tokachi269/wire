@@ -9,7 +9,7 @@
 
 生成系の動詞は`../architecture_naming.md`に従う。roadの派生生成入口は`generate_road`であり、`derive` / `resolve` / `emit` / `validate`を責務の名前として使う。
 
-road固有の名詞(`RoadNode`、`RoadSegment`、`CrossSection`、`SectionTransition`、`Junction`、
+road固有の名詞(`RoadNode`、`RoadSegment`、`RoadLayoutTemplate`、`RoadLayoutTransition`、`Junction`、
 `ConnectionGate`、`ApproachKey`、`Marking`)はwireへ揃えない。
 
 ## State ownership
@@ -30,7 +30,7 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 - `RoadCorridor`: 共通道路定義を参照する方向付き`RoadSegment`列。分岐を含まない
 - `SegmentShape`: endpointから出るhandle vector、内部knot、内部handle。endpoint座標は持たない
 - `SegmentShape.intent`: tool由来の編集意図。Straightはnode移動時のlinear handle再導出とinspectionだけに使い、generation / emitの別経路を作らない
-- `CrossSectionTemplate`と`SectionTransition`の意味入力
+- `RoadLayoutTemplate`と`RoadLayoutTransition`の意味入力
 - `LaneBand`: template内で安定した`LaneId`、所属surface、横方向範囲、segment正本方向に対する進行方向
 - `LaneConnection`: `LaneEndpointKey(segment_id, lane_id, endpoint_role)`間の確定した車線接続
 - `BoundaryContinuation`: `BoundaryEndpointKey(segment_id, boundary_id, endpoint_role)`間の確定した境界継続
@@ -48,12 +48,12 @@ corner radius、meshは保存しない。
 
 道路製品として提供する断面の一覧、幅・勾配・路面・車線・境界・白線の具体値、表示名、並び順、
 初期選択はWebが所有する。正本は`web/src/road_templates.ts`。Coreは
-`CrossSectionTemplate`型、その検証、ID採番、保存、生成、共有template編集を所有し、
+`RoadLayoutTemplate`型、その検証、ID採番、保存、生成、共有template編集を所有し、
 具体的なpreset catalogueは持たない。
 
-- 新規workspaceはWebが各presetを`AddSectionTemplate`へ渡し、返ったIDを保持する。
+- 新規workspaceはWebが各presetを`AddRoadLayoutTemplate`へ渡し、返ったIDを保持する。
   Web側のpreset keyはCoreへ渡さず、保存もしない。
-- 既存workspaceのLoadは保存済み`section_templates`をそのまま使う。Web presetを再注入せず、
+- 既存workspaceのLoadは保存済み`layout_templates`をそのまま使う。Web presetを再注入せず、
   保存済みの寸法をWebの最新値へ更新しない。Web presetの定義を変えても既存archiveは変わらない。
 - 表示名はWebがそのworkspaceで登録したIDに対してだけ持つ。Loadで入った断面やADD LANEが
   派生させた断面はIDで表示する。表示名とpreset keyは`SavedRoadGraph`へ保存しない。
@@ -256,7 +256,7 @@ source/target endpointを保存し、generation時にgeometryの近さから作�
 車線中心と道路境界は別の正本である。lane接続からshoulderや道路外端の継続を暗黙導出せず、必要な境界は
 `BoundaryContinuation`で明示する。lane/boundaryのworld pathはこれらの正本から派生し、保存しない。
 
-外側lane追加は、追加側と反対にある直近の断面境界を`SectionTransition`の固定基準とする。
+外側lane追加は、追加側と反対にある直近の断面境界を`RoadLayoutTransition`の固定基準とする。
 curbやmedian edgeのように幅と高さを持つ境界も、その境界の断面順で左側のsampleを固定する。
 反対側に境界がない単一strip断面では断面外端を固定する。既存laneの内側境界を
 同じIDの断面sampleから一度だけ解決し、その外側にだけ新laneを展開する。全断面の中心合わせやworld位置の
@@ -343,11 +343,11 @@ valid authoritativeから派生が欠ける、emitへ不整合なresolved geomet
 
 ## RoadCorridor
 
-`RoadCorridor`は`RoadCorridorId`、終端延長時の既定断面である`section_template_id`、順序付き
+`RoadCorridor`は`RoadCorridorId`、終端延長時の既定断面である`layout_template_id`、順序付き
 `DirectedSegmentRef`を正本として持つ。実体のない別`RoadDefinitionId`は作らない。
 `reversed=false`はsegment startからend、`true`はendからstartへ進む。corridor内のsegmentは端点IDで
 連続し、重複せず、他corridorへ重複所属しない。位置近接は連続性判定に使わない。
-断面変更を含むcorridorではsegmentごとの`section_template`が異なってよい。template IDの一致を
+断面変更を含むcorridorではsegmentごとの`layout_template`が異なってよい。template IDの一致を
 接続可否やcorridor所属の判定に使わない。
 
 corridor distanceは先頭から単調増加する。内部segment境界は後続segmentのlocal 0、corridor終端は末尾
@@ -382,7 +382,7 @@ Viewerの通常削除はhover hitが持つ`RoadSegmentId`のsegment全体をハ�
 
 ## Section axes
 
-断面は物理`SectionStrip`、利用上の`StripFunction`、表示`SurfaceStyleId`、`LaneBand`によるlane割当を
+断面は物理`RoadLayoutStrip`、利用上の`StripFunction`、表示`SurfaceStyleId`、`LaneBand`によるlane割当を
 別軸として扱う。styleからfunctionを推測しない。`Shoulder`はcurb幅や段差の代用ではなく独立した水平stripである。
 車道外側線はcarriageway利用領域とshoulderのsemantic boundaryへ置き、shoulderがない場合だけ外側boundaryを使う。
 

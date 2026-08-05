@@ -40,9 +40,9 @@ using internal::shift_manual_line_distance;
 using internal::split_path_at_distance;
 using internal::subtract;
 
-[[nodiscard]] const SectionStrip* find_strip(const CrossSectionTemplate& section, SectionStripId id) {
+[[nodiscard]] const RoadLayoutStrip* find_strip(const RoadLayoutTemplate& section, RoadLayoutStripId id) {
   const auto it = std::find_if(section.strips.begin(), section.strips.end(),
-                               [id](const SectionStrip& strip) { return strip.id == id; });
+                               [id](const RoadLayoutStrip& strip) { return strip.id == id; });
   return it == section.strips.end() ? nullptr : &*it;
 }
 
@@ -62,12 +62,12 @@ using internal::subtract;
 
 
 
-[[nodiscard]] Result<bool> validate_section_template(const CrossSectionTemplate& section) {
+[[nodiscard]] Result<bool> validate_layout_template(const RoadLayoutTemplate& section) {
   if (section.strips.empty() || section.boundaries.size() + 1 != section.strips.size()) {
     return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template chain is incomplete");
   }
-  std::unordered_set<SectionStripId> ids{};
-  for (const SectionStrip& strip : section.strips) {
+  std::unordered_set<RoadLayoutStripId> ids{};
+  for (const RoadLayoutStrip& strip : section.strips) {
     if (strip.id == 0 || !ids.insert(strip.id).second || !is_finite(strip.width_m) ||
         !is_finite(strip.cross_slope) || strip.width_m <= 0.0 ||
         static_cast<int>(strip.function) < 0 || static_cast<int>(strip.function) > 3) {
@@ -91,7 +91,7 @@ using internal::subtract;
   }
   std::unordered_set<LaneId> lane_ids{};
   for (const LaneBand& lane : section.lane_bands) {
-    const SectionStrip* strip = find_strip(section, lane.surface_strip_id);
+    const RoadLayoutStrip* strip = find_strip(section, lane.surface_strip_id);
     if (lane.id == 0 || !lane_ids.insert(lane.id).second || strip == nullptr ||
         strip->function != StripFunction::kCarriageway ||
         !is_finite(lane.lateral_start_m) || !is_finite(lane.lateral_end_m) ||
@@ -120,38 +120,38 @@ using internal::subtract;
 }
 } // namespace
 
-Result<CrossSectionTemplateId> RoadState::AddSectionTemplate(AddSectionTemplateRequest request) {
-  CrossSectionTemplate section_template = std::move(request.section_template);
-  const Result<bool> valid = validate_section_template(section_template);
+Result<RoadLayoutTemplateId> RoadState::AddRoadLayoutTemplate(AddRoadLayoutTemplateRequest request) {
+  RoadLayoutTemplate layout_template = std::move(request.layout_template);
+  const Result<bool> valid = validate_layout_template(layout_template);
   if (!valid.ok) {
-    return Result<CrossSectionTemplateId>::Fail(valid.failure_category, valid.error);
+    return Result<RoadLayoutTemplateId>::Fail(valid.failure_category, valid.error);
   }
-  if (section_template.id != 0 && find_template(graph_, section_template.id) != nullptr) {
-    return Result<CrossSectionTemplateId>::Fail(CommitFailureCategory::kInvalidInput, "section template id already exists");
+  if (layout_template.id != 0 && find_template(graph_, layout_template.id) != nullptr) {
+    return Result<RoadLayoutTemplateId>::Fail(CommitFailureCategory::kInvalidInput, "section template id already exists");
   }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
-  if (section_template.id == 0) section_template.id = next_id++;
-  const CrossSectionTemplateId id = section_template.id;
+  if (layout_template.id == 0) layout_template.id = next_id++;
+  const RoadLayoutTemplateId id = layout_template.id;
   plan.next_id_after = next_id;
-  plan.add_section_templates.push_back(std::move(section_template));
+  plan.add_layout_templates.push_back(std::move(layout_template));
   const Result<bool> executed = Execute(plan);
-  if (!executed.ok) return Result<CrossSectionTemplateId>::Fail(executed.failure_category, executed.error);
-  return Result<CrossSectionTemplateId>::Ok(id);
+  if (!executed.ok) return Result<RoadLayoutTemplateId>::Fail(executed.failure_category, executed.error);
+  return Result<RoadLayoutTemplateId>::Ok(id);
 }
 
-Result<bool> RoadState::EditSectionTemplate(EditSectionTemplateRequest request) {
-  CrossSectionTemplate section_template = std::move(request.section_template);
-  const Result<bool> valid = validate_section_template(section_template);
+Result<bool> RoadState::EditRoadLayoutTemplate(EditRoadLayoutTemplateRequest request) {
+  RoadLayoutTemplate layout_template = std::move(request.layout_template);
+  const Result<bool> valid = validate_layout_template(layout_template);
   if (!valid.ok) return valid;
-  auto it = std::find_if(graph_.section_templates.begin(), graph_.section_templates.end(),
-                         [&section_template](const CrossSectionTemplate& item) { return item.id == section_template.id; });
-  if (it == graph_.section_templates.end()) {
+  auto it = std::find_if(graph_.layout_templates.begin(), graph_.layout_templates.end(),
+                         [&layout_template](const RoadLayoutTemplate& item) { return item.id == layout_template.id; });
+  if (it == graph_.layout_templates.end()) {
     return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template does not exist");
   }
   operations::OperationPlan plan{};
   plan.next_id_after = next_id_;
-  plan.replace_section_templates.push_back(std::move(section_template));
+  plan.replace_layout_templates.push_back(std::move(layout_template));
   return Execute(plan);
 }
 

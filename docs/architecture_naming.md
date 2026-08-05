@@ -23,7 +23,7 @@ private関数への分割は自由とする。
 
 | wire | road |
 |---|---|
-| Pole / Port / Span / Bundle / Row / Lane / BackboneGraph | RoadNode / RoadSegment / CrossSection / SectionTransition / Junction / ConnectionGate / ApproachKey / Marking |
+| Pole / Port / Span / Bundle / Row / Lane / BackboneGraph | RoadNode / RoadSegment / RoadLayoutTemplate / RoadLayoutTransition / Junction / ConnectionGate / ApproachKey / Marking |
 
 同じ語を別の意味で使わないことだけを守る。意味が違うものを共通名に寄せない。
 

@@ -57,7 +57,7 @@ Result<bool> append_semantic_distances(const SavedRoadGraph &graph,
   }
 
   if (segment.transition.has_value()) {
-    const SectionTransition *transition =
+    const RoadLayoutTransition *transition =
         find_transition(graph, *segment.transition);
     if (transition == nullptr) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
@@ -103,25 +103,25 @@ Result<bool> append_semantic_distances(const SavedRoadGraph &graph,
 // rules travel with the saved transition, so generation is where they are read:
 // a lane tapers, a median gets an end cap, and nothing changes silently.
 Result<bool> validate_transition_strip_actions(const SavedRoadGraph &graph) {
-  const auto has_strip = [](const CrossSectionTemplate &section,
-                            SectionStripId id) {
+  const auto has_strip = [](const RoadLayoutTemplate &section,
+                            RoadLayoutStripId id) {
     return std::any_of(section.strips.begin(), section.strips.end(),
-                       [id](const SectionStrip &strip) {
+                       [id](const RoadLayoutStrip &strip) {
                          return strip.id == id;
                        });
   };
   for (const RoadSegment &segment : graph.segments) {
     if (!segment.transition.has_value())
       continue;
-    const SectionTransition *transition =
+    const RoadLayoutTransition *transition =
         find_transition(graph, *segment.transition);
     if (transition == nullptr) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road segment transition is missing");
     }
-    const CrossSectionTemplate *from =
+    const RoadLayoutTemplate *from =
         find_template(graph, transition->from_template);
-    const CrossSectionTemplate *to =
+    const RoadLayoutTemplate *to =
         find_template(graph, transition->to_template);
     if (from == nullptr || to == nullptr) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
@@ -132,29 +132,29 @@ Result<bool> validate_transition_strip_actions(const SavedRoadGraph &graph) {
                                 "section transition must define element actions");
     }
     const auto action_for =
-        [transition](SectionStripId id) -> std::optional<TransitionAction> {
+        [transition](RoadLayoutStripId id) -> std::optional<TransitionAction> {
       const auto rule = std::find_if(
           transition->rules.begin(), transition->rules.end(),
-          [id](const SectionTransitionRule &item) { return item.strip_id == id; });
+          [id](const RoadLayoutTransitionRule &item) { return item.strip_id == id; });
       return rule == transition->rules.end()
                  ? std::nullopt
                  : std::optional<TransitionAction>{rule->action};
     };
-    for (const SectionTransitionRule &rule : transition->rules) {
+    for (const RoadLayoutTransitionRule &rule : transition->rules) {
       if (rule.action == TransitionAction::kUnsupported) {
         return Result<bool>::Fail(
             CommitFailureCategory::kNotImplemented,
             "section transition contains unsupported element action");
       }
     }
-    for (const SectionStrip &strip : to->strips) {
+    for (const RoadLayoutStrip &strip : to->strips) {
       if (!has_strip(*from, strip.id) &&
           action_for(strip.id) != TransitionAction::kTaperIn) {
         return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
                                   "appearing section strip requires TaperIn");
       }
     }
-    for (const SectionStrip &strip : from->strips) {
+    for (const RoadLayoutStrip &strip : from->strips) {
       if (has_strip(*to, strip.id))
         continue;
       const TransitionAction required =
@@ -320,7 +320,7 @@ Result<bool> derive_segment_sections(const SavedRoadGraph &graph,
             "road corridor section continuity source is missing");
       }
       if (source->transition.has_value()) {
-        const SectionTransition *transition =
+        const RoadLayoutTransition *transition =
             find_transition(graph, *source->transition);
         if (transition == nullptr) {
           return Result<bool>::Fail(
@@ -388,7 +388,7 @@ derive_segment_lane_paths(const SavedRoadGraph &graph,
                        "lane inspection source segment is missing");
     }
     for (const SectionEvaluation &evaluation : segment.sections) {
-      Result<CrossSectionTemplate> section = internal::template_at(
+      Result<RoadLayoutTemplate> section = internal::template_at(
           graph, *source, evaluation.segment_distance_m, segment.length_m);
       if (!section.ok) {
         return Out::Fail(section.failure_category, section.error);

@@ -13,24 +13,24 @@
   // Sections this workspace registered carry the preset label. Anything else —
   // a section a load brought in, or one Add Lane derived — is named by its ID.
   const sectionLabel = (id: number): string =>
-    snapshot.road.sectionTemplateLabels[id] ?? `Section ${id}`;
+    snapshot.road.roadLayoutTemplateLabels[id] ?? `Section ${id}`;
 
   const selectedTemplate = $derived(
-    snapshot.road.scene.sectionTemplates.find((template) => template.id === snapshot.road.selectedSectionTemplateId)
+    snapshot.road.scene.roadLayoutTemplates.find((template) => template.id === snapshot.road.selectedRoadLayoutTemplateId)
   );
   const selectedStrips = $derived(selectedTemplate?.strips ?? []);
   const laneTargetTemplate = $derived(
-    snapshot.road.scene.sectionTemplates.find((template) => template.id === snapshot.road.laneTargetTemplateId)
+    snapshot.road.scene.roadLayoutTemplates.find((template) => template.id === snapshot.road.laneTargetTemplateId)
   );
   const selectedLanePath = $derived(
     snapshot.road.scene.lanePaths.find((lane) =>
       lane.segmentId === snapshot.road.selectedLaneSegmentId && lane.laneId === snapshot.road.selectedLaneId)
   );
   const selectedLaneTemplateId = $derived(snapshot.road.selectedLaneEndpointRole === 0
-    ? selectedLanePath?.startSectionTemplateId
-    : selectedLanePath?.endSectionTemplateId);
+    ? selectedLanePath?.startRoadLayoutTemplateId
+    : selectedLanePath?.endRoadLayoutTemplateId);
   const selectedLaneTemplate = $derived(
-    snapshot.road.scene.sectionTemplates.find((template) => template.id === selectedLaneTemplateId)
+    snapshot.road.scene.roadLayoutTemplates.find((template) => template.id === selectedLaneTemplateId)
   );
   const selectedLaneCorridor = $derived(
     snapshot.road.scene.corridors.find((corridor) =>
@@ -42,8 +42,8 @@
     const fromPaths = snapshot.road.scene.lanePaths
       .filter((lane) => lane.segmentId === snapshot.road.selectedLaneSegmentId)
       .map((lane) => lane.direction);
-    const fromTemplate = snapshot.road.scene.sectionTemplates
-      .find((template) => template.id === selectedLaneCorridor?.sectionTemplateId)
+    const fromTemplate = snapshot.road.scene.roadLayoutTemplates
+      .find((template) => template.id === selectedLaneCorridor?.roadLayoutTemplateId)
       ?.lanes.map((lane) => lane.direction) ?? [];
     const available = Array.from(new Set(fromPaths.length > 0 ? fromPaths : fromTemplate));
     return available.length > 0 ? available : [snapshot.road.selectedLaneDirection];
@@ -63,7 +63,7 @@
     hasOuterLines: boolean;
   }>): void {
     if (selectedTemplate === undefined) return;
-    actions.updateSelectedRoadSectionTemplate({
+    actions.updateSelectedRoadLayoutTemplate({
       sidewalkWidthM: selectedTemplate.sidewalkWidthM,
       laneWidthM: selectedTemplate.laneWidthM,
       medianWidthM: selectedTemplate.medianWidthM,
@@ -82,9 +82,9 @@
 
   <label>
     <span>New road section</span>
-    <select value={snapshot.road.selectedSectionTemplateId}
-      onchange={(event) => actions.setRoadSetting("selectedSectionTemplateId", Number(event.currentTarget.value))}>
-      {#each snapshot.road.scene.sectionTemplates as template}
+    <select value={snapshot.road.selectedRoadLayoutTemplateId}
+      onchange={(event) => actions.setRoadSetting("selectedRoadLayoutTemplateId", Number(event.currentTarget.value))}>
+      {#each snapshot.road.scene.roadLayoutTemplates as template}
         <option value={template.id}>{sectionLabel(template.id)}</option>
       {/each}
     </select>
@@ -142,7 +142,7 @@
 
   <div class="road-summary">
     <span>segments <strong>{snapshot.road.scene.segmentCount}</strong></span>
-    <span>sections <strong>{snapshot.road.scene.sectionTemplateCount}</strong></span>
+    <span>sections <strong>{snapshot.road.scene.roadLayoutTemplateCount}</strong></span>
     <span>transitions <strong>{snapshot.road.scene.transitionCount}</strong></span>
     <span>markings <strong>{snapshot.road.scene.markingCount}</strong></span>
     <span>gates <strong>{snapshot.road.scene.connectionGateCount}</strong></span>

@@ -89,8 +89,8 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   const auto node_id = [](const RoadNode& value) { return value.id; };
   const auto segment_id = [](const RoadSegment& value) { return value.id; };
   const auto corridor_id = [](const RoadCorridor& value) { return value.id; };
-  const auto section_id = [](const CrossSectionTemplate& value) { return value.id; };
-  const auto transition_id = [](const SectionTransition& value) { return value.id; };
+  const auto section_id = [](const RoadLayoutTemplate& value) { return value.id; };
+  const auto transition_id = [](const RoadLayoutTransition& value) { return value.id; };
   const auto lane_connection_id = [](const LaneConnection& value) { return value.id; };
   const auto boundary_continuation_id = [](const BoundaryContinuation& value) { return value.id; };
   const auto policy_override_id = [](const NodeConnectionPolicyOverride& value) { return value.id; };
@@ -132,7 +132,7 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   result = replace_entities(authoritative.corridors, plan.replace_corridors,
                             corridor_id, "corridor");
   if (!result.ok) return result;
-  result = replace_entities(authoritative.section_templates, plan.replace_section_templates, section_id, "section");
+  result = replace_entities(authoritative.layout_templates, plan.replace_layout_templates, section_id, "section");
   if (!result.ok) return result;
 
   result = add_entities(authoritative.nodes, plan.add_nodes, node_id, "node");
@@ -142,7 +142,7 @@ Result<bool> Apply(const OperationPlan& plan, SavedRoadGraph& authoritative, std
   result = add_entities(authoritative.corridors, plan.add_corridors, corridor_id,
                         "corridor");
   if (!result.ok) return result;
-  result = add_entities(authoritative.section_templates, plan.add_section_templates, section_id, "section");
+  result = add_entities(authoritative.layout_templates, plan.add_layout_templates, section_id, "section");
   if (!result.ok) return result;
   result = add_entities(authoritative.transitions, plan.add_transitions, transition_id, "transition");
   if (!result.ok) return result;

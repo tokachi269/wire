@@ -7,7 +7,7 @@ movement only updates a lightweight guide and does not classify a commit.
 
 A road is drawn with a registered cross section. Core ships none: the catalogue
 of sections a user can pick lives in `web/src/road_templates.ts`, and a new
-workspace registers it through `AddSectionTemplate` and keeps the IDs Core
+workspace registers it through `AddRoadLayoutTemplate` and keeps the IDs Core
 returned. Reopening a saved workspace uses the sections in the archive and does
 not register the catalogue again.
 

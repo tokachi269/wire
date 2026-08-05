@@ -38,7 +38,7 @@ export class WorkspaceActions {
 
   private seedRoadTemplates(): boolean {
     const seeded = seedRoadSections((section) =>
-      this.ctx.bridge.roadAddSectionTemplate(section)
+      this.ctx.bridge.roadAddRoadLayoutTemplate(section)
     );
     if (!seeded.ok) {
       this.ctx.store.setError(`Workspace road sections failed: ${seeded.error}`);
@@ -56,8 +56,8 @@ export class WorkspaceActions {
       ...current,
       road: {
         ...current.road,
-        sectionTemplateLabels: seeded.labels,
-        selectedSectionTemplateId: seeded.initialId
+        roadLayoutTemplateLabels: seeded.labels,
+        selectedRoadLayoutTemplateId: seeded.initialId
       }
     }));
   }

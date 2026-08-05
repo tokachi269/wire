@@ -18,8 +18,8 @@ const AutoMarkingPolicy center_line{
 
 } // namespace
 
-CrossSectionTemplate UrbanTwoLane(CrossSectionTemplateId id) {
-  CrossSectionTemplate section{};
+RoadLayoutTemplate UrbanTwoLane(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate section{};
   section.id = id;
   section.strips = {
       {10, StripFunction::kSidewalk, 2.0, 0.01, builtin_surface_styles::kSidewalk},
@@ -39,8 +39,8 @@ CrossSectionTemplate UrbanTwoLane(CrossSectionTemplateId id) {
   return section;
 }
 
-CrossSectionTemplate ThreeLane(CrossSectionTemplateId id) {
-  CrossSectionTemplate section = UrbanTwoLane(id);
+RoadLayoutTemplate ThreeLane(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate section = UrbanTwoLane(id);
   section.strips = {
       {10, StripFunction::kSidewalk, 2.0, 0.01, builtin_surface_styles::kSidewalk},
       {20, StripFunction::kCarriageway, 3.0, 0.02, builtin_surface_styles::kAsphalt},
@@ -62,15 +62,15 @@ CrossSectionTemplate ThreeLane(CrossSectionTemplateId id) {
   return section;
 }
 
-CrossSectionTemplate NoLeftSidewalk(CrossSectionTemplateId id) {
-  CrossSectionTemplate section = UrbanTwoLane(id);
+RoadLayoutTemplate NoLeftSidewalk(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate section = UrbanTwoLane(id);
   section.strips.erase(section.strips.begin());
   section.boundaries.erase(section.boundaries.begin());
   return section;
 }
 
-CrossSectionTemplate MedianTwoLane(CrossSectionTemplateId id) {
-  CrossSectionTemplate section = UrbanTwoLane(id);
+RoadLayoutTemplate MedianTwoLane(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate section = UrbanTwoLane(id);
   section.strips.insert(section.strips.begin() + 2,
                         {25, StripFunction::kMedian, 2.0, 0.0,
                          builtin_surface_styles::kMedian});
@@ -83,8 +83,8 @@ CrossSectionTemplate MedianTwoLane(CrossSectionTemplateId id) {
   return section;
 }
 
-CrossSectionTemplate ShoulderedTwoLane(CrossSectionTemplateId id) {
-  CrossSectionTemplate section{};
+RoadLayoutTemplate ShoulderedTwoLane(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate section{};
   section.id = id;
   section.strips = {
       {10, StripFunction::kSidewalk, 2.0, 0.01,
@@ -114,10 +114,10 @@ CrossSectionTemplate ShoulderedTwoLane(CrossSectionTemplateId id) {
   return section;
 }
 
-CrossSectionTemplateId AddSection(RoadState& state,
-                                  CrossSectionTemplate section) {
-  const auto added = state.AddSectionTemplate(
-      city::road::AddSectionTemplateRequest{std::move(section)});
+RoadLayoutTemplateId AddLayout(RoadState& state,
+                                  RoadLayoutTemplate section) {
+  const auto added = state.AddRoadLayoutTemplate(
+      city::road::AddRoadLayoutTemplateRequest{std::move(section)});
   return added.ok ? added.value : 0;
 }
 

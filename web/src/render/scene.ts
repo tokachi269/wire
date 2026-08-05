@@ -9,7 +9,7 @@ import type {
 import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
 import type { RoadSnapInfo } from "../road";
-import type { RoadSegmentInput, RoadSectionTemplateData } from "../road";
+import type { RoadSegmentInput, RoadLayoutTemplateData } from "../road";
 import {
   type LoadedModelAsset,
   modelAssetCache
@@ -184,10 +184,10 @@ export function roadSurfaceColor(material: string): number {
 }
 
 export function roadGuideHalfWidth(
-  sectionTemplates: RoadSectionTemplateData[],
-  sectionTemplateId: number | undefined
+  roadLayoutTemplates: RoadLayoutTemplateData[],
+  roadLayoutTemplateId: number | undefined
 ): number {
-  const section = sectionTemplates.find((item) => item.id === sectionTemplateId);
+  const section = roadLayoutTemplates.find((item) => item.id === roadLayoutTemplateId);
   const width = section?.strips.reduce((sum, strip) => sum + strip.widthM, 0) ?? 0;
   return Math.max(0.5, width * 0.5);
 }
@@ -1237,8 +1237,8 @@ export class WireScene {
         snapshot.road.previewRequest !== null) {
       const centerline = roadGuidePoints(snapshot.road.previewRequest);
       const halfWidth = roadGuideHalfWidth(
-        snapshot.road.scene.sectionTemplates,
-        snapshot.road.previewRequest.sectionTemplateId
+        snapshot.road.scene.roadLayoutTemplates,
+        snapshot.road.previewRequest.roadLayoutTemplateId
       );
       const left: THREE.Vector3[] = [];
       const right: THREE.Vector3[] = [];

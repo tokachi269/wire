@@ -343,7 +343,7 @@ def check_road_architecture(root: Path) -> list[str]:
                 + repr(token)
             )
     for token in (
-        "struct SectionStrip",
+        "struct RoadLayoutStrip",
         "enum class StripFunction",
         "struct LaneBand",
         "kShoulder",

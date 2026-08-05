@@ -133,7 +133,7 @@ export interface RoadMeshPayload {
   indices: number[];
 }
 
-export interface RoadSectionTemplatePayload {
+export interface RoadLayoutTemplatePayload {
   id: number;
   strips: Array<{
     id: number;
@@ -154,8 +154,8 @@ export interface RoadLanePathPayload {
   segmentId: number;
   laneId: number;
   direction: 0 | 1;
-  startSectionTemplateId: number;
-  endSectionTemplateId: number;
+  startRoadLayoutTemplateId: number;
+  endRoadLayoutTemplateId: number;
   startSegmentDistanceM: number;
   endSegmentDistanceM: number;
   nodeAId: number;
@@ -165,7 +165,7 @@ export interface RoadLanePathPayload {
 
 export interface RoadScenePayload {
   segmentCount: number;
-  sectionTemplateCount: number;
+  roadLayoutTemplateCount: number;
   transitionCount: number;
   markingCount: number;
   connectionGateCount: number;
@@ -176,11 +176,11 @@ export interface RoadScenePayload {
   lanePaths: RoadLanePathPayload[];
   corridors: Array<{
     id: number;
-    sectionTemplateId: number;
+    roadLayoutTemplateId: number;
     lengthM: number;
     segments: Array<{ segmentId: number; reversed: boolean; lengthM: number }>;
   }>;
-  sectionTemplates: RoadSectionTemplatePayload[];
+  roadLayoutTemplates: RoadLayoutTemplatePayload[];
   editableSegments: Array<{
     id: number;
     nodeAId: number;
@@ -305,8 +305,8 @@ export interface RoadStateHandle {
   }): OperationResult & { meshes: RoadMeshPayload[] };
   editSegment(segmentId: number, input: RoadSegmentInput): OperationResult;
   previewEditSegment(segmentId: number, input: RoadSegmentInput): OperationResult & { meshes: RoadMeshPayload[] };
-  addSectionTemplate(input: RoadSectionInput): OperationResult & { sectionTemplateId?: number };
-  updateSectionTemplate(input: Record<string, number | boolean>): OperationResult;
+  addRoadLayoutTemplate(input: RoadSectionInput): OperationResult & { roadLayoutTemplateId?: number };
+  updateRoadLayoutTemplate(input: Record<string, number | boolean>): OperationResult;
   undoSegment(): OperationResult;
   clear(): OperationResult;
   saveState(): string;

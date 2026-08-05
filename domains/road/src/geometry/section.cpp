@@ -10,7 +10,7 @@
 namespace city::road::internal {
 namespace {
 
-bool equivalent_strip(const SectionStrip &a, const SectionStrip &b) {
+bool equivalent_strip(const RoadLayoutStrip &a, const RoadLayoutStrip &b) {
   return a.id == b.id && a.function == b.function && a.width_m == b.width_m &&
          a.cross_slope == b.cross_slope && a.style_id == b.style_id &&
          a.side_marking == b.side_marking;
@@ -29,15 +29,15 @@ bool equivalent_boundary(const BoundaryProfile &a,
          a.marking == b.marking;
 }
 
-const SectionStrip *find_strip(const CrossSectionTemplate &section,
-                               SectionStripId id) {
+const RoadLayoutStrip *find_strip(const RoadLayoutTemplate &section,
+                               RoadLayoutStripId id) {
   const auto found = std::find_if(
       section.strips.begin(), section.strips.end(),
-      [id](const SectionStrip &strip) { return strip.id == id; });
+      [id](const RoadLayoutStrip &strip) { return strip.id == id; });
   return found == section.strips.end() ? nullptr : &*found;
 }
 
-const BoundaryProfile *find_boundary(const CrossSectionTemplate &section,
+const BoundaryProfile *find_boundary(const RoadLayoutTemplate &section,
                                      std::uint64_t id) {
   const auto found =
       std::find_if(section.boundaries.begin(), section.boundaries.end(),
@@ -55,17 +55,17 @@ double distance_value(DistanceRef ref, double total_m) {
   return ref.value;
 }
 
-CrossSectionTemplate interpolate_section(const CrossSectionTemplate &from,
-                                         const CrossSectionTemplate &to,
+RoadLayoutTemplate interpolate_section(const RoadLayoutTemplate &from,
+                                         const RoadLayoutTemplate &to,
                                          double t) {
-  const CrossSectionTemplate &structure =
+  const RoadLayoutTemplate &structure =
       to.strips.size() >= from.strips.size() ? to : from;
-  CrossSectionTemplate out{};
+  RoadLayoutTemplate out{};
   out.id = t < 1.0 ? from.id : to.id;
-  for (const SectionStrip &structure_strip : structure.strips) {
-    const SectionStrip *a = find_strip(from, structure_strip.id);
-    const SectionStrip *b = find_strip(to, structure_strip.id);
-    SectionStrip strip = b != nullptr ? *b : *a;
+  for (const RoadLayoutStrip &structure_strip : structure.strips) {
+    const RoadLayoutStrip *a = find_strip(from, structure_strip.id);
+    const RoadLayoutStrip *b = find_strip(to, structure_strip.id);
+    RoadLayoutStrip strip = b != nullptr ? *b : *a;
     const double a_width = a != nullptr ? a->width_m : 0.0;
     const double b_width = b != nullptr ? b->width_m : 0.0;
     const double a_slope =
@@ -82,7 +82,7 @@ CrossSectionTemplate interpolate_section(const CrossSectionTemplate &from,
         [&target_lane](const LaneBand &lane) { return lane.id == target_lane.id; });
     if (existing != out.lane_bands.end())
       continue;
-    const SectionStrip *strip = find_strip(out, target_lane.surface_strip_id);
+    const RoadLayoutStrip *strip = find_strip(out, target_lane.surface_strip_id);
     if (strip == nullptr || strip->width_m <= distance_epsilon)
       continue;
     LaneBand lane = target_lane;
@@ -111,7 +111,7 @@ CrossSectionTemplate interpolate_section(const CrossSectionTemplate &from,
 // only sources are the boundary itself and the side policies of the bands
 // adjacent in element order; never lateral position or array index.
 Result<std::vector<AutoMarkingPolicy>>
-merge_boundary_policies(const CrossSectionTemplate &section) {
+merge_boundary_policies(const RoadLayoutTemplate &section) {
   std::vector<AutoMarkingPolicy> merged(section.boundaries.size(),
                                         AutoMarkingPolicy{});
   if (section.strips.empty()) {
@@ -157,13 +157,13 @@ merge_boundary_policies(const CrossSectionTemplate &section) {
 }
 
 std::vector<SectionBoundarySample>
-derive_boundaries(const CrossSectionTemplate &section,
+derive_boundaries(const RoadLayoutTemplate &section,
                  const std::vector<AutoMarkingPolicy> &policies) {
   std::vector<SectionBoundarySample> samples{};
   if (section.strips.empty())
     return samples;
   double total_width = 0.0;
-  for (const SectionStrip &strip : section.strips)
+  for (const RoadLayoutStrip &strip : section.strips)
     total_width += strip.width_m;
   for (const BoundaryProfile &boundary : section.boundaries) {
     total_width += boundary.width_m;
@@ -174,7 +174,7 @@ derive_boundaries(const CrossSectionTemplate &section,
   samples.push_back(
       SectionBoundarySample{1, BoundaryRole::kOuterEdge, lateral, height, {}});
   for (std::size_t index = 0; index < section.strips.size(); ++index) {
-    const SectionStrip &strip = section.strips[index];
+    const RoadLayoutStrip &strip = section.strips[index];
     const double strip_end_height = height + strip.cross_slope * strip.width_m;
     if (strip.function == StripFunction::kCarriageway) {
       carriageway_floor =
@@ -187,7 +187,7 @@ derive_boundaries(const CrossSectionTemplate &section,
     const BoundaryProfile &boundary = section.boundaries[index];
     const AutoMarkingPolicy policy =
         index < policies.size() ? policies[index] : boundary.marking;
-    const SectionStrip &right_strip = section.strips[index + 1];
+    const RoadLayoutStrip &right_strip = section.strips[index + 1];
     const auto with_adjacency = [&](SectionBoundarySample sample) {
       sample.left_strip_id = strip.id;
       sample.right_strip_id = right_strip.id;
@@ -237,10 +237,10 @@ SurfaceStyleId SurfaceStyleForBoundaryRole(BoundaryRole role) {
 }
 
 std::vector<RenderStyleRef>
-derive_surface_styles(const CrossSectionTemplate &section) {
+derive_surface_styles(const RoadLayoutTemplate &section) {
   std::vector<RenderStyleRef> styles{};
   for (std::size_t index = 0; index < section.strips.size(); ++index) {
-    const SectionStrip &strip = section.strips[index];
+    const RoadLayoutStrip &strip = section.strips[index];
     styles.push_back(RenderStyleFromSurface(strip.style_id));
     if (index >= section.boundaries.size())
       continue;
@@ -258,8 +258,8 @@ derive_surface_styles(const CrossSectionTemplate &section) {
 
 } // namespace
 
-bool equivalent_section_definition(const CrossSectionTemplate &a,
-                                   const CrossSectionTemplate &b) {
+bool equivalent_section_definition(const RoadLayoutTemplate &a,
+                                   const RoadLayoutTemplate &b) {
   return a.strips.size() == b.strips.size() &&
          a.lane_bands.size() == b.lane_bands.size() &&
          a.boundaries.size() == b.boundaries.size() &&
@@ -272,16 +272,16 @@ bool equivalent_section_definition(const CrossSectionTemplate &a,
                     b.boundaries.begin(), equivalent_boundary);
 }
 
-Result<double> lane_template_lateral(const CrossSectionTemplate &section,
+Result<double> lane_template_lateral(const RoadLayoutTemplate &section,
                                      const LaneBand &lane) {
   double total_width = 0.0;
-  for (const SectionStrip &strip : section.strips)
+  for (const RoadLayoutStrip &strip : section.strips)
     total_width += strip.width_m;
   for (const BoundaryProfile &boundary : section.boundaries)
     total_width += boundary.width_m;
   double lateral = -total_width * 0.5;
   for (std::size_t index = 0; index < section.strips.size(); ++index) {
-    const SectionStrip &strip = section.strips[index];
+    const RoadLayoutStrip &strip = section.strips[index];
     if (strip.id == lane.surface_strip_id) {
       return Result<double>::Ok(
           lateral + (lane.lateral_start_m + lane.lateral_end_m) * 0.5);
@@ -294,39 +294,39 @@ Result<double> lane_template_lateral(const CrossSectionTemplate &section,
                               "lane allocation strip is missing");
 }
 
-Result<CrossSectionTemplate> template_at(
+Result<RoadLayoutTemplate> template_at(
     const SavedRoadGraph &graph, const RoadSegment &segment,
     double segment_distance_m, double total_m) {
-  const CrossSectionTemplate *base =
-      find_template(graph, segment.section_template);
+  const RoadLayoutTemplate *base =
+      find_template(graph, segment.layout_template);
   if (base == nullptr) {
-    return Result<CrossSectionTemplate>::Fail(
+    return Result<RoadLayoutTemplate>::Fail(
         CommitFailureCategory::kInvalidInput, "road segment section template is missing");
   }
   if (!segment.transition.has_value()) {
-    return Result<CrossSectionTemplate>::Ok(*base);
+    return Result<RoadLayoutTemplate>::Ok(*base);
   }
-  const SectionTransition *transition =
+  const RoadLayoutTransition *transition =
       find_transition(graph, *segment.transition);
   if (transition == nullptr) {
-    return Result<CrossSectionTemplate>::Fail(
+    return Result<RoadLayoutTemplate>::Fail(
         CommitFailureCategory::kInvalidInput, "road segment transition is missing");
   }
-  const CrossSectionTemplate *from =
+  const RoadLayoutTemplate *from =
       find_template(graph, transition->from_template);
-  const CrossSectionTemplate *to =
+  const RoadLayoutTemplate *to =
       find_template(graph, transition->to_template);
   if (from == nullptr || to == nullptr) {
-    return Result<CrossSectionTemplate>::Fail(
+    return Result<RoadLayoutTemplate>::Fail(
         CommitFailureCategory::kInvalidInput, "road transition template is missing");
   }
   const double start = distance_value(transition->start, total_m);
   const double end = distance_value(transition->end, total_m);
   if (start < 0.0 || end > total_m || end - start <= distance_epsilon) {
-    return Result<CrossSectionTemplate>::Fail(
+    return Result<RoadLayoutTemplate>::Fail(
         CommitFailureCategory::kInvalidInput, "road transition distance range is invalid");
   }
-  return Result<CrossSectionTemplate>::Ok(interpolate_section(
+  return Result<RoadLayoutTemplate>::Ok(interpolate_section(
       *from, *to,
       std::clamp((segment_distance_m - start) / (end - start), 0.0, 1.0)));
 }
@@ -335,7 +335,7 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
                                      const RoadSegment &segment,
                                      double segment_distance_m,
                                      double total_m) {
-  Result<CrossSectionTemplate> section =
+  Result<RoadLayoutTemplate> section =
       template_at(graph, segment, segment_distance_m, total_m);
   if (!section.ok) {
     return Result<SectionEvaluation>::Fail(section.failure_category, section.error);
@@ -352,9 +352,9 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
         CommitFailureCategory::kInternalError, "road section evaluation produced no boundaries");
   }
   if (segment.transition.has_value()) {
-    const SectionTransition *transition =
+    const RoadLayoutTransition *transition =
         find_transition(graph, *segment.transition);
-    const CrossSectionTemplate *from =
+    const RoadLayoutTemplate *from =
         transition == nullptr ? nullptr
                               : find_template(graph, transition->from_template);
     if (transition == nullptr || from == nullptr) {
@@ -399,11 +399,11 @@ Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,
 }
 
 Result<LaneSectionPosition>
-lane_position(const CrossSectionTemplate &section, const LaneBand &lane,
+lane_position(const RoadLayoutTemplate &section, const LaneBand &lane,
               const SectionEvaluation &evaluation) {
   const auto strip = std::find_if(
       section.strips.begin(), section.strips.end(),
-      [&lane](const SectionStrip &candidate) {
+      [&lane](const RoadLayoutStrip &candidate) {
         return candidate.id == lane.surface_strip_id;
       });
   if (strip == section.strips.end()) {

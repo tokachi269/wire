@@ -142,7 +142,7 @@ export class RoadActions {
 
   setLaneTargetTemplate(templateId: number): void {
     this.ctx.store.update((current) => {
-      const template = current.road.scene.sectionTemplates.find((item) => item.id === templateId);
+      const template = current.road.scene.roadLayoutTemplates.find((item) => item.id === templateId);
       return {
         ...current,
         road: {
@@ -157,7 +157,7 @@ export class RoadActions {
     });
   }
 
-  updateSelectedSectionTemplate(input: {
+  updateSelectedRoadLayoutTemplate(input: {
     sidewalkWidthM: number;
     laneWidthM: number;
     medianWidthM: number;
@@ -165,7 +165,7 @@ export class RoadActions {
     hasOuterLines: boolean;
   }): void {
     const road = this.ctx.readSnapshot().road;
-    this.finish(this.ctx.bridge.roadUpdateSectionTemplate({ id: road.selectedSectionTemplateId, ...input }),
+    this.finish(this.ctx.bridge.roadUpdateRoadLayoutTemplate({ id: road.selectedRoadLayoutTemplateId, ...input }),
                 "road update section template");
   }
 
@@ -329,8 +329,8 @@ export class RoadActions {
         const endpointDirections = road.scene.lanePaths
           .filter((lane) => lane.segmentId === snap.segmentId)
           .map((lane) => lane.direction);
-        const templateDirections = road.scene.sectionTemplates
-          .find((template) => template.id === corridor?.sectionTemplateId)
+        const templateDirections = road.scene.roadLayoutTemplates
+          .find((template) => template.id === corridor?.roadLayoutTemplateId)
           ?.lanes.map((lane) => lane.direction) ?? [];
         const availableDirections = Array.from(new Set(
           endpointDirections.length > 0 ? endpointDirections : templateDirections
@@ -410,11 +410,11 @@ export class RoadActions {
       const path = road.scene.lanePaths.find((item) =>
         item.segmentId === snap.segmentId && item.laneId === snap.laneId);
       const sourceTemplateId = snap.endpointRole === 0
-        ? path?.startSectionTemplateId
-        : path?.endSectionTemplateId;
-      const sourceTemplate = road.scene.sectionTemplates.find((item) => item.id === sourceTemplateId);
-      const targetTemplate = road.scene.sectionTemplates.find((item) => item.id === road.laneTargetTemplateId) ??
-        road.scene.sectionTemplates[0];
+        ? path?.startRoadLayoutTemplateId
+        : path?.endRoadLayoutTemplateId;
+      const sourceTemplate = road.scene.roadLayoutTemplates.find((item) => item.id === sourceTemplateId);
+      const targetTemplate = road.scene.roadLayoutTemplates.find((item) => item.id === road.laneTargetTemplateId) ??
+        road.scene.roadLayoutTemplates[0];
       this.ctx.store.update((snapshot) => ({
         ...snapshot,
         road: {
@@ -425,7 +425,7 @@ export class RoadActions {
           selectedLaneNodeId: snap.nodeId,
           selectedLaneDirection: snap.laneDirection ?? 0,
           laneEditStage: "target",
-          laneTargetTemplateId: targetTemplate?.id ?? snapshot.road.selectedSectionTemplateId,
+          laneTargetTemplateId: targetTemplate?.id ?? snapshot.road.selectedRoadLayoutTemplateId,
           laneTargetLaneId: snapshot.road.laneTargetLaneId || targetTemplate?.lanes[0]?.id || 0,
           laneSourceBoundaryId: snapshot.road.laneSourceBoundaryId || sourceTemplate?.boundaries[0]?.id || 0,
           laneTargetBoundaryId: snapshot.road.laneTargetBoundaryId || targetTemplate?.boundaries[0]?.id || 0,
@@ -501,7 +501,7 @@ export class RoadActions {
       return;
     }
     const seeded = seedRoadSections((section) =>
-      this.ctx.bridge.roadAddSectionTemplate(section)
+      this.ctx.bridge.roadAddRoadLayoutTemplate(section)
     );
     if (!seeded.ok) {
       this.finish({ ok: false, error: seeded.error }, "road clear");
@@ -511,8 +511,8 @@ export class RoadActions {
       ...current,
       road: {
         ...current.road,
-        sectionTemplateLabels: seeded.sections.labels,
-        selectedSectionTemplateId: seeded.sections.initialId
+        roadLayoutTemplateLabels: seeded.sections.labels,
+        selectedRoadLayoutTemplateId: seeded.sections.initialId
       }
     }));
     this.finish(result, "road clear");
@@ -561,7 +561,7 @@ export class RoadActions {
   ): DrawActionResult {
     // A road is drawn with a cross section. Without one the workspace never
     // finished registering its catalogue.
-    if (request.sectionTemplateId === 0) {
+    if (request.roadLayoutTemplateId === 0) {
       return { kind: "ignored", reasonCode: "no-section-selected" };
     }
     const result = this.ctx.bridge.roadAddSegment(request);
@@ -736,7 +736,7 @@ function editInput(road: RoadToolState) {
     endSegmentDistanceM: 0,
     extensionCorridorId: 0,
     connectToFirstNode: false,
-    sectionTemplateId: road.selectedSectionTemplateId
+    roadLayoutTemplateId: road.selectedRoadLayoutTemplateId
   };
 }
 

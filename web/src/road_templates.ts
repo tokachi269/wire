@@ -1,4 +1,4 @@
-// The road cross sections this product offers. Core owns the CrossSectionTemplate
+// The road cross sections this product offers. Core owns the RoadLayoutTemplate
 // type, its validation and its IDs; what a road actually measures — lane and
 // sidewalk widths, cross slopes, which lines are painted — is a product choice
 // and lives here.
@@ -167,19 +167,19 @@ export interface SeededRoadSections {
  * Returns the reason on the first rejection so the caller can discard the state.
  */
 export function seedRoadSections(
-  addSectionTemplate: (
+  addRoadLayoutTemplate: (
     section: RoadSectionInput
-  ) => { ok: boolean; error: string; sectionTemplateId?: number }
+  ) => { ok: boolean; error: string; roadLayoutTemplateId?: number }
 ): { ok: true; sections: SeededRoadSections } | { ok: false; error: string } {
   const labels: Record<number, string> = {};
   let initialId = 0;
   for (const preset of ROAD_TEMPLATE_PRESETS) {
-    const result = addSectionTemplate(preset.section);
-    if (!result.ok || result.sectionTemplateId === undefined) {
+    const result = addRoadLayoutTemplate(preset.section);
+    if (!result.ok || result.roadLayoutTemplateId === undefined) {
       return { ok: false, error: `road section "${preset.label}": ${result.error}` };
     }
-    labels[result.sectionTemplateId] = preset.label;
-    if (preset.initial) initialId = result.sectionTemplateId;
+    labels[result.roadLayoutTemplateId] = preset.label;
+    if (preset.initial) initialId = result.roadLayoutTemplateId;
   }
   return { ok: true, sections: { labels, initialId } };
 }

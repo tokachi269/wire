@@ -308,7 +308,7 @@ describe("viewer actions", () => {
       ],
       cableTemplates: () => [],
       poleTemplates: () => [],
-      roadAddSectionTemplate: () => ({ ok: true, error: "", sectionTemplateId: 41 }),
+      roadAddRoadLayoutTemplate: () => ({ ok: true, error: "", roadLayoutTemplateId: 41 }),
       geometrySettings: () => ({
         curveSamples: 16,
         sagEnabled: true,
@@ -525,7 +525,7 @@ const poleTemplate: PoleTemplateInfo = {
 };
 
 function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
-  let nextSectionTemplateId = 41;
+  let nextRoadLayoutTemplateId = 41;
   const emptyScene: SceneData = {
     parts: [],
     models: [],
@@ -582,7 +582,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     roadAddLane: () => ({ ok: true, error: "" }),
     roadScene: () => ({
       segmentCount: 0,
-      sectionTemplateCount: 0,
+      roadLayoutTemplateCount: 0,
       transitionCount: 0,
       markingCount: 0,
       connectionGateCount: 0,
@@ -592,7 +592,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       centerlineSegments: [],
       lanePaths: [],
       corridors: [],
-      sectionTemplates: [],
+      roadLayoutTemplates: [],
       editableSegments: [],
       surfaceMeshes: [],
       markingMeshes: []
@@ -603,13 +603,13 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     roadPreviewMoveNode: () => ({ ok: true, error: "", meshes: [] }),
     roadEditSegment: () => ({ ok: true, error: "" }),
     roadPreviewEditSegment: () => ({ ok: true, error: "", meshes: [] }),
-    roadUpdateSectionTemplate: () => ({ ok: true, error: "" }),
+    roadUpdateRoadLayoutTemplate: () => ({ ok: true, error: "" }),
     // Core assigns section IDs; the mock hands back a fresh one per call so no
     // test can lean on a particular number.
-    roadAddSectionTemplate: () => ({
+    roadAddRoadLayoutTemplate: () => ({
       ok: true,
       error: "",
-      sectionTemplateId: nextSectionTemplateId++
+      roadLayoutTemplateId: nextRoadLayoutTemplateId++
     }),
     roadClear: () => ({ ok: true, error: "" }),
     roadSaveState: () => "factory-road-state",
@@ -1304,9 +1304,9 @@ describe("viewport tool routing", () => {
     const baseScene = actionBridge().roadScene();
     const scene = {
       ...baseScene,
-      corridors: [{ id: 30, sectionTemplateId: 1, lengthM: 60,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
         segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
-      sectionTemplates: [{
+      roadLayoutTemplates: [{
         id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
         laneWidthM: 3, medianWidthM: 0, laneCount: 2,
         hasCenterLine: true, hasOuterLines: true,
@@ -1361,9 +1361,9 @@ describe("viewport tool routing", () => {
     const baseScene = actionBridge().roadScene();
     const scene = {
       ...baseScene,
-      corridors: [{ id: 30, sectionTemplateId: 1, lengthM: 60,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
         segments: [{ segmentId: 12, reversed: true, lengthM: 60 }] }],
-      sectionTemplates: [{
+      roadLayoutTemplates: [{
         id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
         laneWidthM: 3, medianWidthM: 0, laneCount: 2,
         hasCenterLine: true, hasOuterLines: true,
@@ -1415,9 +1415,9 @@ describe("viewport tool routing", () => {
     const store = new ViewerStore();
     const scene = {
       ...actionBridge().roadScene(),
-      corridors: [{ id: 30, sectionTemplateId: 1, lengthM: 60,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
         segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
-      sectionTemplates: [{
+      roadLayoutTemplates: [{
         id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
         laneWidthM: 3, medianWidthM: 0, laneCount: 2,
         hasCenterLine: true, hasOuterLines: true,
@@ -1574,9 +1574,9 @@ describe("road section catalogue", () => {
     const store = new ViewerStore();
     const actions = new ViewerActions(
       actionBridge({
-        roadAddSectionTemplate: (section: RoadSectionInput) => {
+        roadAddRoadLayoutTemplate: (section: RoadSectionInput) => {
           registered.push(section);
-          return { ok: true, error: "", sectionTemplateId: nextId++ };
+          return { ok: true, error: "", roadLayoutTemplateId: nextId++ };
         }
       }),
       store
@@ -1590,8 +1590,8 @@ describe("road section catalogue", () => {
     );
     const snapshot = current(store);
     const initialPreset = ROAD_TEMPLATE_PRESETS.findIndex((preset) => preset.initial);
-    expect(snapshot.road.selectedSectionTemplateId).toBe(71 + initialPreset);
-    expect(snapshot.road.sectionTemplateLabels[71 + initialPreset]).toBe(
+    expect(snapshot.road.selectedRoadLayoutTemplateId).toBe(71 + initialPreset);
+    expect(snapshot.road.roadLayoutTemplateLabels[71 + initialPreset]).toBe(
       ROAD_TEMPLATE_PRESETS[initialPreset].label
     );
     // Restoring a saved workspace must not run the catalogue a second time.
@@ -1603,10 +1603,10 @@ describe("road section catalogue", () => {
     const store = new ViewerStore();
     const actions = new ViewerActions(
       actionBridge({
-        roadAddSectionTemplate: () => {
+        roadAddRoadLayoutTemplate: () => {
           calls += 1;
           return calls < 3
-            ? { ok: true, error: "", sectionTemplateId: 80 + calls }
+            ? { ok: true, error: "", roadLayoutTemplateId: 80 + calls }
             : { ok: false, error: "section template chain is incomplete" };
         }
       }),
@@ -1617,8 +1617,8 @@ describe("road section catalogue", () => {
 
     const snapshot = current(store);
     expect(snapshot.error).toContain("section template chain is incomplete");
-    expect(snapshot.road.selectedSectionTemplateId).toBe(0);
-    expect(snapshot.road.sectionTemplateLabels).toEqual({});
+    expect(snapshot.road.selectedRoadLayoutTemplateId).toBe(0);
+    expect(snapshot.road.roadLayoutTemplateLabels).toEqual({});
   });
 
   it("does not commit a road while no section is selected", () => {
@@ -1626,14 +1626,14 @@ describe("road section catalogue", () => {
     const store = new ViewerStore();
     const actions = new ViewerActions(
       actionBridge({
-        roadAddSectionTemplate: () => ({ ok: false, error: "rejected" }),
+        roadAddRoadLayoutTemplate: () => ({ ok: false, error: "rejected" }),
         roadAddSegment: added
       }),
       store
     );
 
     expect(actions.initialize()).toBe(false);
-    expect(current(store).road.selectedSectionTemplateId).toBe(0);
+    expect(current(store).road.selectedRoadLayoutTemplateId).toBe(0);
 
     actions.setActiveTool("road");
     actions.addViewportPoint([0, 0, 0]);

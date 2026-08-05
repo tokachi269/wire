@@ -145,7 +145,7 @@ describe("road rendering", () => {
       startSegmentId: 0,
       startSegmentDistanceM: 0,
       connectToFirstNode: false,
-      sectionTemplateId: 7
+      roadLayoutTemplateId: 7
     }, 8);
     expect(points).toHaveLength(9);
     expect(points[0].toArray()).toEqual([0, 0, 0]);

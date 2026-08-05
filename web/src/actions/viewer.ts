@@ -187,14 +187,14 @@ export class ViewerActions {
     this.road.setLaneTargetTemplate(templateId);
   }
 
-  updateSelectedRoadSectionTemplate(input: {
+  updateSelectedRoadLayoutTemplate(input: {
     sidewalkWidthM: number;
     laneWidthM: number;
     medianWidthM: number;
     hasCenterLine: boolean;
     hasOuterLines: boolean;
   }): void {
-    this.road.updateSelectedSectionTemplate(input);
+    this.road.updateSelectedRoadLayoutTemplate(input);
   }
 
   previewRoadEditHandle(handleIndex: number, point: WorldPoint): void {

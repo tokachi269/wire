@@ -1462,7 +1462,7 @@ describe("road wasm smoke", () => {
   // handed back. Clearing discards the sections too, so it re-registers them.
   let sectionId = 0;
   const seedRoad = (road: RoadStateHandle): void => {
-    const seeded = seedRoadSections((section) => road.addSectionTemplate(section));
+    const seeded = seedRoadSections((section) => road.addRoadLayoutTemplate(section));
     if (!seeded.ok) throw new Error(seeded.error);
     sectionId = seeded.sections.initialId;
   };
@@ -1490,7 +1490,7 @@ describe("road wasm smoke", () => {
     const road = createRoadState();
     try {
       const first = road.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
         kind: "bezier",
         startX: 0,
         startY: 0,
@@ -1511,7 +1511,7 @@ describe("road wasm smoke", () => {
 
       // The chord the viewer reports for the pending interval.
       const pending = {
-        sectionTemplateId: sectionId,
+        roadLayoutTemplateId: sectionId,
         kind: "bezier" as const,
         startX: 40,
         startY: 0,
@@ -1556,9 +1556,9 @@ describe("road wasm smoke", () => {
   it("starts with no cross section until the product registers its own", () => {
     const road = createEmptyRoadState();
     try {
-      expect(road.scene().sectionTemplateCount).toBe(0);
+      expect(road.scene().roadLayoutTemplateCount).toBe(0);
       const drawn = road.addSegment({
-        sectionTemplateId: 1,
+        roadLayoutTemplateId: 1,
         kind: "line",
         startX: 0,
         startY: 0,
@@ -1577,10 +1577,10 @@ describe("road wasm smoke", () => {
       expect(drawn.ok).toBe(false);
       expect(drawn.error).toContain("section template");
 
-      const seeded = seedRoadSections((section) => road.addSectionTemplate(section));
+      const seeded = seedRoadSections((section) => road.addRoadLayoutTemplate(section));
       expect(seeded.ok).toBe(true);
       if (!seeded.ok) return;
-      const registered = road.scene().sectionTemplates;
+      const registered = road.scene().roadLayoutTemplates;
       expect(registered).toHaveLength(ROAD_TEMPLATE_PRESETS.length);
       // Every ID came back from Core; none of them is chosen by the catalogue.
       const ids = registered.map((template) => template.id);
@@ -1600,7 +1600,7 @@ describe("road wasm smoke", () => {
   it("carries each registered section's own measurements into core", () => {
     const road = createRoadState();
     try {
-      const registered = road.scene().sectionTemplates;
+      const registered = road.scene().roadLayoutTemplates;
       const shape = (
         strips: ReadonlyArray<{ function: string; widthM: number }>
       ) => strips.map((strip) => `${strip.function}:${strip.widthM}`).join("|");
@@ -1627,7 +1627,7 @@ describe("road wasm smoke", () => {
     const reopened = createEmptyRoadState();
     try {
       const drawn = road.addSegment({
-        sectionTemplateId: sectionId,
+        roadLayoutTemplateId: sectionId,
         kind: "line",
         startX: 0,
         startY: 0,
@@ -1645,11 +1645,11 @@ describe("road wasm smoke", () => {
       });
       expect(drawn.ok, drawn.error).toBe(true);
       const saved = road.saveState();
-      const before = road.scene().sectionTemplates;
+      const before = road.scene().roadLayoutTemplates;
 
       const loaded = reopened.loadState(saved);
       expect(loaded.ok, loaded.error).toBe(true);
-      const after = reopened.scene().sectionTemplates;
+      const after = reopened.scene().roadLayoutTemplates;
       // Loading uses what the archive holds. It neither adds the catalogue
       // again nor refreshes the saved measurements from it.
       expect(after).toHaveLength(before.length);
@@ -1666,11 +1666,11 @@ describe("road wasm smoke", () => {
     try {
       const other = road
         .scene()
-        .sectionTemplates.find((template) => template.id !== sectionId);
+        .roadLayoutTemplates.find((template) => template.id !== sectionId);
       expect(other).toBeDefined();
       const draw = (templateId: number, y: number) =>
         road.addSegment({
-          sectionTemplateId: templateId,
+          roadLayoutTemplateId: templateId,
           kind: "line",
           startX: 0,
           startY: y,
@@ -1689,11 +1689,11 @@ describe("road wasm smoke", () => {
       expect(draw(sectionId, 0).ok).toBe(true);
       expect(draw(other!.id, 200).ok).toBe(true);
       const widthOf = (templateId: number) =>
-        road.scene().sectionTemplates.find((template) => template.id === templateId)!
+        road.scene().roadLayoutTemplates.find((template) => template.id === templateId)!
           .laneWidthM;
       const otherBefore = widthOf(other!.id);
 
-      const edited = road.updateSectionTemplate({
+      const edited = road.updateRoadLayoutTemplate({
         id: sectionId,
         sidewalkWidthM: 2.5,
         laneWidthM: 3.5,
@@ -1711,7 +1711,7 @@ describe("road wasm smoke", () => {
 
   it("builds the Japanese two-lane surface from a clicked line", () => {
     const added = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1754,7 +1754,7 @@ describe("road wasm smoke", () => {
   it("exposes stable lane paths and commits an outer lane", () => {
     clearRoad(state);
     const added = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1777,15 +1777,15 @@ describe("road wasm smoke", () => {
         segmentId: added.segmentId,
         laneId: 1000,
         direction: 1,
-        startSectionTemplateId: 1,
-        endSectionTemplateId: 1
+        startRoadLayoutTemplateId: 1,
+        endRoadLayoutTemplateId: 1
       }),
       expect.objectContaining({
         segmentId: added.segmentId,
         laneId: 1010,
         direction: 0,
-        startSectionTemplateId: 1,
-        endSectionTemplateId: 1
+        startRoadLayoutTemplateId: 1,
+        endRoadLayoutTemplateId: 1
       })
     ]));
     for (const lane of initial.lanePaths) {
@@ -1820,7 +1820,7 @@ describe("road wasm smoke", () => {
   it("extends a degree-one corridor by adding a local segment", () => {
     clearRoad(state);
     const first = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1841,7 +1841,7 @@ describe("road wasm smoke", () => {
     expect(first.endNodeId).toBeGreaterThan(0);
 
     const extended = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 20.2,
       startY: 0,
@@ -1897,7 +1897,7 @@ describe("road wasm smoke", () => {
   it("exposes local split through the wasm boundary", () => {
     clearRoad(state);
     const added = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1930,7 +1930,7 @@ describe("road wasm smoke", () => {
   it("exposes exact segment ownership and standard deletion through wasm", () => {
     clearRoad(state);
     const first = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1948,7 +1948,7 @@ describe("road wasm smoke", () => {
     });
     expect(first.ok, first.error).toBe(true);
     const middle = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 20,
       startY: 0,
@@ -1966,7 +1966,7 @@ describe("road wasm smoke", () => {
     });
     expect(middle.ok, middle.error).toBe(true);
     const last = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 40,
       startY: 0,
@@ -2014,7 +2014,7 @@ describe("road wasm smoke", () => {
   it("keeps one continuous multi-span drawing as one deletion unit through wasm", () => {
     clearRoad(state);
     const added = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -2082,7 +2082,7 @@ describe("road wasm smoke", () => {
   it("previews and commits endpoint movement through the node operation", () => {
     clearRoad(state);
     const added = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -2128,7 +2128,7 @@ describe("road wasm smoke", () => {
   it("keeps the final cross section perpendicular to an angled road", () => {
     clearRoad(state);
     const added = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -2159,7 +2159,7 @@ describe("road wasm smoke", () => {
   it("derives a curved degree-two connector without junction markings", () => {
     clearRoad(state);
     const base = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line", startX: 0, startY: 0, endX: 20, endY: 0,
       handleAX: 6, handleAY: 0, handleBX: 14, handleBY: 0,
       startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
@@ -2168,7 +2168,7 @@ describe("road wasm smoke", () => {
     const endpoint = state.scene().nodes.find((node) => Math.abs(node.x - 20) < 1e-6 && Math.abs(node.y) < 1e-6);
     expect(endpoint).toBeDefined();
     const corner = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line", startX: 20, startY: 0, endX: 20, endY: 24,
       handleAX: 20, handleAY: 8, handleBX: 20, handleBY: 16,
       startNodeId: endpoint!.id, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
@@ -2187,7 +2187,7 @@ describe("road wasm smoke", () => {
   it("splits a straight segment when a branch starts from a centerline snap", () => {
     clearRoad(state);
     const base = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -2205,7 +2205,7 @@ describe("road wasm smoke", () => {
     expect(base.ok, base.error).toBe(true);
     const baseSegmentId = state.scene().centerlineSegments[0].id;
     const branch = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 20,
       startY: 0,
@@ -2238,7 +2238,7 @@ describe("road wasm smoke", () => {
   it("splits a straight segment when a branch ends at a centerline snap", () => {
     clearRoad(state);
     const base = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0, startY: 0, endX: 40, endY: 0,
       handleAX: 13, handleAY: 0, handleBX: 27, handleBY: 0,
@@ -2248,7 +2248,7 @@ describe("road wasm smoke", () => {
     expect(base.ok, base.error).toBe(true);
     const baseSegmentId = state.scene().centerlineSegments[0].id;
     const branch = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 20, startY: 24, endX: 20, endY: 0,
       handleAX: 20, handleAY: 16, handleBX: 20, handleBY: 8,
@@ -2267,7 +2267,7 @@ describe("road wasm smoke", () => {
   it("splits a Bezier segment at the explicit centerline distance", () => {
     clearRoad(state);
     const base = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "bezier",
       startX: 0,
       startY: 0,
@@ -2291,7 +2291,7 @@ describe("road wasm smoke", () => {
         : best
     );
     const branch = state.addSegment({
-      sectionTemplateId: sectionId,
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: target.startX,
       startY: target.startY,

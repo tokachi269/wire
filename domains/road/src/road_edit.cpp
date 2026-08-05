@@ -135,7 +135,7 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
   } else {
     RoadCorridor start_side = *corridor;
     start_side.segments = std::move(before);
-    RoadCorridor end_side{next_id++, corridor->section_template_id,
+    RoadCorridor end_side{next_id++, corridor->layout_template_id,
                           std::move(after)};
     plan.replace_corridors.push_back(std::move(start_side));
     plan.add_corridors.push_back(std::move(end_side));
@@ -209,7 +209,7 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
       plan.remove_junction_marking_overrides.push_back(override.id);
     }
   }
-  const std::optional<SectionTransitionId> transition = target->transition;
+  const std::optional<RoadLayoutTransitionId> transition = target->transition;
   if (transition.has_value() &&
       std::none_of(
           graph_.segments.begin(), graph_.segments.end(),

@@ -17,8 +17,8 @@ struct SectionBoundarySample {
   // policies merged into one during section evaluation.
   AutoMarkingPolicy marking{};
   // Strips adjacent in template order; used to decide marking begin and end.
-  SectionStripId left_strip_id = 0;
-  SectionStripId right_strip_id = 0;
+  RoadLayoutStripId left_strip_id = 0;
+  RoadLayoutStripId right_strip_id = 0;
   double left_strip_width_m = 0.0;
   double right_strip_width_m = 0.0;
 };
@@ -44,7 +44,7 @@ struct RenderStyleRef {
 struct SectionEvaluation {
   RoadSegmentId segment_id = 0;
   double segment_distance_m = 0.0;
-  CrossSectionTemplateId resolved_template_id = 0;
+  RoadLayoutTemplateId resolved_template_id = 0;
   std::vector<SectionBoundarySample> boundaries{};
   std::vector<RenderStyleRef> surface_styles{};
 };
@@ -128,7 +128,7 @@ struct DerivedSegment {
 // overrides live together so no second table is needed to compare them.
 struct ResolvedApproach {
   ApproachKey key{};
-  CrossSectionTemplateId endpoint_template_id = 0;
+  RoadLayoutTemplateId endpoint_template_id = 0;
   Vec3d position{};
   Vec3d tangent{};
   Vec3d lateral{};
@@ -170,8 +170,8 @@ struct DerivedSegmentLanePath {
   RoadSegmentId segment_id = 0;
   LaneId lane_id = 0;
   LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
-  CrossSectionTemplateId start_template_id = 0;
-  CrossSectionTemplateId end_template_id = 0;
+  RoadLayoutTemplateId start_template_id = 0;
+  RoadLayoutTemplateId end_template_id = 0;
   double start_segment_distance_m = 0.0;
   double end_segment_distance_m = 0.0;
   std::vector<Vec3d> points{};

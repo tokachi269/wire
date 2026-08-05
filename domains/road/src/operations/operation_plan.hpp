@@ -21,11 +21,11 @@ struct OperationPlan {
   std::vector<RoadCorridor> replace_corridors{};
   std::vector<RoadCorridorId> remove_corridors{};
 
-  std::vector<CrossSectionTemplate> add_section_templates{};
-  std::vector<CrossSectionTemplate> replace_section_templates{};
+  std::vector<RoadLayoutTemplate> add_layout_templates{};
+  std::vector<RoadLayoutTemplate> replace_layout_templates{};
 
-  std::vector<SectionTransition> add_transitions{};
-  std::vector<SectionTransitionId> remove_transitions{};
+  std::vector<RoadLayoutTransition> add_transitions{};
+  std::vector<RoadLayoutTransitionId> remove_transitions{};
 
   std::vector<LaneConnection> add_lane_connections{};
   std::vector<BoundaryContinuation> add_boundary_continuations{};

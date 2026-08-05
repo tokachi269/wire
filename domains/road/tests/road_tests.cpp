@@ -1,6 +1,7 @@
 #include "city/road/road.hpp"
 
 #include "derived_view.hpp"
+#include "fixtures/sections.hpp"
 #include "../src/generation/generation.hpp"
 #include "../src/persistence/road_archive.hpp"
 
@@ -31,8 +32,6 @@ using city::road::BoundaryId;
 using city::road::AutoMarkingKey;
 using city::road::AutoMarkingPolicy;
 using city::road::EndpointRole;
-using city::road::JapaneseUrbanTwoLaneTemplate;
-using city::road::ShoulderedTwoLaneTemplate;
 using city::road::JunctionMarkingAction;
 using city::road::JunctionMarkingEndpoint;
 using city::road::JunctionMarkingOverride;
@@ -44,7 +43,6 @@ using city::road::MakeBezier;
 using city::road::MakeLine;
 using city::road::MakePath;
 using city::road::Mesh;
-using city::road::NoLeftSidewalkTemplate;
 using city::road::EvaluatePath;
 using city::road::Path;
 using city::road::PathLength;
@@ -61,7 +59,6 @@ using city::road::DistanceRef;
 using city::road::DistanceRefKind;
 using city::road::DerivedMarking;
 using city::road::StripFunction;
-using city::road::ThreeLaneTemplate;
 using city::road::TransitionAnchor;
 using city::road::TransitionAction;
 using city::road::ValidateGraphInvariants;
@@ -391,22 +388,28 @@ city::road::CrossSectionTemplate OpposingFourLaneTemplate(
 
 bool P0_generates_two_lane_segment(std::string& failure) {
   RoadState state{};
-  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(added.ok, added.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 1, "P0 did not save one authoritative segment");
   ROAD_TEST_EXPECT(road_test_view::sections(state.derived()).size() > 2, "P0 did not derive section samples");
   ROAD_TEST_EXPECT(!state.derived().segment_meshes.empty(), "P0 did not derive a surface mesh");
   ROAD_TEST_EXPECT(!state.derived().terrain_masks.empty(), "P0 did not derive a terrain mask");
-  const auto section = JapaneseUrbanTwoLaneTemplate(1);
-  ROAD_TEST_EXPECT(section.strips.size() == 4, "Japanese two-lane template should have sidewalk/car/car/sidewalk");
-  ROAD_TEST_EXPECT(std::abs(section.strips[1].width_m - 3.0) < 1e-9, "lane width is not 3.0m");
+  const auto registered = std::find_if(
+      state.graph().section_templates.begin(), state.graph().section_templates.end(),
+      [section](const auto& item) { return item.id == section; });
+  ROAD_TEST_EXPECT(registered != state.graph().section_templates.end(),
+                   "P0 did not save the registered section template");
+  ROAD_TEST_EXPECT(registered->strips.size() == 4, "two-lane section should have sidewalk/car/car/sidewalk");
+  ROAD_TEST_EXPECT(std::abs(registered->strips[1].width_m - 3.0) < 1e-9, "lane width is not 3.0m");
   ROAD_TEST_EXPECT(ValidateGraphInvariants(state.graph(), state.derived()).ok, "P0 invariants failed");
   return true;
 }
 
 bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
   RoadState state{};
-  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(added.ok, added.error);
   ROAD_TEST_EXPECT(!road_test_view::sections(state.derived()).empty(), "P0 did not evaluate the section");
   const auto& boundaries = road_test_view::sections(state.derived()).front()->boundaries;
@@ -454,9 +457,10 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
 
 bool P0_angled_segment_keeps_final_section_perpendicular(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const Vec2d start{0.0, 0.0};
   const Vec2d end{24.0, 12.0};
-  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine(start, end)}), 1});
+  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine(start, end)}), section});
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto& vertices = state.derived().segment_meshes.front().vertices;
   const std::size_t row_count = static_cast<std::size_t>(std::ceil(std::hypot(24.0, 12.0) / 2.0)) + 1;
@@ -473,7 +477,8 @@ bool P0_angled_segment_keeps_final_section_perpendicular(std::string& failure) {
 
 bool P0_rejects_self_intersection_without_mutation(std::string& failure) {
   RoadState state{};
-  const auto first = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto first = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section});
   ROAD_TEST_EXPECT(first.ok, first.error);
   const std::size_t before_segments = state.graph().segments.size();
   const auto bad = state.AddSegment(city::road::AddSegmentRequest{
@@ -490,7 +495,8 @@ bool P0_rejects_self_intersection_without_mutation(std::string& failure) {
 
 bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   RoadState state{};
-  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeBezier({0.0, 0.0}, {10.0, 12.0}, {30.0, -12.0}, {40.0, 0.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeBezier({0.0, 0.0}, {10.0, 12.0}, {30.0, -12.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
@@ -555,15 +561,16 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
 
 bool lane_topology_validation_and_round_trip(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto first = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section});
   ROAD_TEST_EXPECT(first.ok, first.error);
   const RoadCorridorId corridor = state.graph().corridors.front().id;
   const RoadNodeId endpoint = state.graph().segments.front().node_b;
   const auto second = state.ExtendCorridorFromEnd(
       city::road::ExtendCorridorFromEndRequest{
           corridor, endpoint,
-          MakePath({MakeLine({20.0, 0.0}, {40.0, 0.0})}), 1});
+          MakePath({MakeLine({20.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(second.ok, second.error);
 
   const auto saved = state.Save();
@@ -682,9 +689,10 @@ bool lane_topology_validation_and_round_trip(std::string& failure) {
 
 bool P0_tool_preview_matches_the_committed_interval(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   city::road::AddSegmentRequest first{};
   first.alignment = MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})});
-  first.section_template = 1;
+  first.section_template = section;
   first.intent = city::road::SegmentShapeIntent::kCurve;
   const auto added = state.AddSegment(first);
   ROAD_TEST_EXPECT(added.ok, added.error);
@@ -708,7 +716,7 @@ bool P0_tool_preview_matches_the_committed_interval(std::string& failure) {
   extension.corridor_id = corridor->id;
   extension.endpoint_node_id = segment->node_b;
   extension.extension = MakePath({MakeLine(start, end)});
-  extension.section_template = 1;
+  extension.section_template = section;
   extension.intent = city::road::SegmentShapeIntent::kCurve;
   const auto extended = state.ExtendCorridorFromEnd(extension);
   ROAD_TEST_EXPECT(extended.ok, extended.error);
@@ -726,14 +734,15 @@ bool P0_tool_preview_matches_the_committed_interval(std::string& failure) {
 bool P0_straight_segments_stay_linear_after_snap_and_move(std::string& failure) {
   {
     RoadState state{};
+    const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
     const auto base = state.AddSegment(
-        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section});
     ROAD_TEST_EXPECT(base.ok, base.error);
     const RoadSegmentId source = base.value;
     const RoadNodeId endpoint = state.graph().segments.front().node_b;
     const auto connected = state.AddSegmentConnectedTo(
         city::road::AddSegmentConnectedToRequest{
-            MakePath({MakeLine({20.2, 0.0}, {20.0, 20.0})}), 1, endpoint});
+            MakePath({MakeLine({20.2, 0.0}, {20.0, 20.0})}), section, endpoint});
     ROAD_TEST_EXPECT(connected.ok, connected.error);
     const Path* source_alignment = FindCanonicalAlignment(state.derived(), source);
     const Path* connected_alignment = FindCanonicalAlignment(state.derived(), connected.value);
@@ -747,8 +756,9 @@ bool P0_straight_segments_stay_linear_after_snap_and_move(std::string& failure) 
 
   {
     RoadState state{};
+    const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
     const auto first = state.AddSegment(
-        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section});
     ROAD_TEST_EXPECT(first.ok, first.error);
     const RoadSegment& segment = state.graph().segments.front();
     const RoadNodeId endpoint = segment.node_b;
@@ -756,7 +766,7 @@ bool P0_straight_segments_stay_linear_after_snap_and_move(std::string& failure) 
     const auto extended = state.ExtendCorridorFromEnd(
         city::road::ExtendCorridorFromEndRequest{
             corridor, endpoint,
-            MakePath({MakeLine({20.2, 0.0}, {20.0, 20.0})}), 1});
+            MakePath({MakeLine({20.2, 0.0}, {20.0, 20.0})}), section});
     ROAD_TEST_EXPECT(extended.ok, extended.error);
     const Path* extension_alignment = FindCanonicalAlignment(state.derived(), extended.value);
     ROAD_TEST_EXPECT(extension_alignment != nullptr,
@@ -767,8 +777,9 @@ bool P0_straight_segments_stay_linear_after_snap_and_move(std::string& failure) 
 
   {
     RoadState state{};
+    const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
     const auto added = state.AddSegment(
-        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {30.0, 0.0})}), 1});
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {30.0, 0.0})}), section});
     ROAD_TEST_EXPECT(added.ok, added.error);
     const auto saved = state.Save();
     ROAD_TEST_EXPECT(saved.ok, saved.error);
@@ -787,7 +798,8 @@ bool P0_straight_segments_stay_linear_after_snap_and_move(std::string& failure) 
 
 bool P0_edit_and_delete_preserve_graph_ownership(std::string& failure) {
   RoadState state{};
-  const auto isolated = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto isolated = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section});
   ROAD_TEST_EXPECT(isolated.ok, isolated.error);
   const auto moved = state.MoveNode(city::road::MoveNodeRequest{state.graph().segments.front().node_a, {2.0, 3.0}});
   ROAD_TEST_EXPECT(moved.ok, moved.error);
@@ -795,7 +807,7 @@ bool P0_edit_and_delete_preserve_graph_ownership(std::string& failure) {
                    "MoveNode did not move endpoint authority");
 
   const auto shared_node = state.graph().segments.front().node_a;
-  const auto branch = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({2.0, 3.0}, {2.0, 23.0})}), 1, shared_node});
+  const auto branch = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({2.0, 3.0}, {2.0, 23.0})}), section, shared_node});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   const auto shape = SegmentShapeFromPath(MakePath({MakeBezier({2.0, 3.0}, {8.0, 8.0}, {16.0, -2.0}, {20.0, 0.0})}));
   ROAD_TEST_EXPECT(shape.ok, shape.error);
@@ -814,12 +826,13 @@ bool P0_edit_and_delete_preserve_graph_ownership(std::string& failure) {
 
 bool P0_multispan_segment_is_one_user_deletion_unit(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const Path input = MakePath({
       MakeBezier({0.0, 0.0}, {5.0, 0.0}, {10.0, 5.0}, {15.0, 5.0}),
       MakeBezier({15.0, 5.0}, {20.0, 5.0}, {25.0, 0.0}, {30.0, 0.0}),
   });
   const auto added =
-      state.AddSegment(city::road::AddSegmentRequest{input, 1});
+      state.AddSegment(city::road::AddSegmentRequest{input, section});
   ROAD_TEST_EXPECT(added.ok, added.error);
   ROAD_TEST_EXPECT(
       state.graph().segments.size() == 1 &&
@@ -842,10 +855,11 @@ bool P0_multispan_segment_is_one_user_deletion_unit(std::string& failure) {
 
 bool P1_degree_two_corner_uses_a_curve_without_a_junction(std::string& failure) {
   RoadState state{};
-  const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto node = state.graph().segments.front().node_a;
-  const auto branch = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({0.0, 0.0}, {0.0, 30.0})}), 1, node});
+  const auto branch = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({0.0, 0.0}, {0.0, 30.0})}), section, node});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   ROAD_TEST_EXPECT(state.graph().connection_policy_overrides.empty(), "degree-two connection saved an automatic decision");
   ROAD_TEST_EXPECT(road_test_view::junctions(state.derived()).empty(), "degree-two connection derived a JunctionArea");
@@ -877,8 +891,9 @@ bool P1_degree_two_corner_uses_a_curve_without_a_junction(std::string& failure) 
 bool P1_common_skew_angles_are_resolved_from_geometry(std::string& failure) {
   for (const double degrees : {30.0, 45.0, 60.0}) {
     RoadState corner_state{};
+    const auto corner_state_section = road_fixture::AddSection(corner_state, road_fixture::UrbanTwoLane(0));
     const auto base = corner_state.AddSegment(city::road::AddSegmentRequest{
-        MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+        MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), corner_state_section});
     ROAD_TEST_EXPECT(base.ok, base.error);
     const auto node = corner_state.graph().segments.front().node_a;
     const double radians = degrees * std::numbers::pi / 180.0;
@@ -898,8 +913,9 @@ bool P1_common_skew_angles_are_resolved_from_geometry(std::string& failure) {
   }
 
   RoadState junction_state{};
+  const auto junction_state_section = road_fixture::AddSection(junction_state, road_fixture::UrbanTwoLane(0));
   const auto base = junction_state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), 1});
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), junction_state_section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const double radians = 30.0 * std::numbers::pi / 180.0;
   const auto branch = junction_state.AddSegmentConnectedToSegment(
@@ -907,7 +923,7 @@ bool P1_common_skew_angles_are_resolved_from_geometry(std::string& failure) {
           MakePath({MakeLine({0.0, 0.0},
                              {40.0 * std::cos(radians),
                               40.0 * std::sin(radians)})}),
-          1, base.value, 40.0});
+          junction_state_section, base.value, 40.0});
   ROAD_TEST_EXPECT(branch.ok, "skew T junction was rejected: " + branch.error);
   ROAD_TEST_EXPECT(road_test_view::junctions(junction_state.derived()).size() == 1,
                    "skew T junction did not produce one junction");
@@ -934,13 +950,14 @@ bool P1_common_skew_angles_are_resolved_from_geometry(std::string& failure) {
 
 bool P1_corner_preserves_endpoint_section_sides(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto base = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto node = state.graph().segments.front().node_b;
   const auto branch = state.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), 1, node});
+          MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), section, node});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   const auto corners = road_test_view::corners(state.derived());
   ROAD_TEST_EXPECT(corners.size() == 1, "end-start corner did not derive one connection");
@@ -1000,10 +1017,11 @@ bool P1_corner_preserves_endpoint_section_sides(std::string& failure) {
 
 bool P1_straight_connection_has_no_junction_area(std::string& failure) {
   RoadState state{};
-  const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto node = state.graph().segments.front().node_b;
-  const auto continued = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({20.0, 0.0}, {40.0, 0.0})}), 1, node});
+  const auto continued = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({20.0, 0.0}, {40.0, 0.0})}), section, node});
   ROAD_TEST_EXPECT(continued.ok, continued.error);
   ROAD_TEST_EXPECT(state.graph().connection_policy_overrides.empty(), "straight connection saved an automatic decision");
   ROAD_TEST_EXPECT(road_test_view::corners(state.derived()).empty() && road_test_view::junctions(state.derived()).empty(),
@@ -1017,9 +1035,10 @@ bool P1_straight_connection_has_no_junction_area(std::string& failure) {
 
 bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   RoadState state{};
-  const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(base.ok, base.error);
-  const auto branch = state.AddSegmentConnectedToSegment(city::road::AddSegmentConnectedToSegmentRequest{MakePath({MakeLine({20.0, 0.0}, {32.0, 24.0})}), 1,
+  const auto branch = state.AddSegmentConnectedToSegment(city::road::AddSegmentConnectedToSegmentRequest{MakePath({MakeLine({20.0, 0.0}, {32.0, 24.0})}), section,
                                                          base.value, 20.0});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 3, "T junction did not split base road and add branch");
@@ -1154,12 +1173,13 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
 bool P1_end_segment_snap_splits_straight_road_for_t_junction(
     std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto base = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto branch = state.AddSegmentConnectedToSegment(
       city::road::AddSegmentConnectedToSegmentRequest{
-          MakePath({MakeLine({20.0, 24.0}, {20.0, 0.0})}), 1,
+          MakePath({MakeLine({20.0, 24.0}, {20.0, 0.0})}), section,
           base.value, 20.0, EndpointRole::kEnd});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 3,
@@ -1185,28 +1205,33 @@ bool P1_end_segment_snap_splits_straight_road_for_t_junction(
   return true;
 }
 
-bool P1_all_builtin_sections_form_t_junctions(std::string& failure) {
-  for (const city::road::CrossSectionTemplateId template_id :
-       std::array<city::road::CrossSectionTemplateId, 5>{1, 2, 3, 4, 5}) {
+bool P1_every_edge_section_forms_a_t_junction(std::string& failure) {
+  const std::array<city::road::CrossSectionTemplate, 5> sections{
+      road_fixture::UrbanTwoLane(0), road_fixture::ThreeLane(0),
+      road_fixture::NoLeftSidewalk(0), road_fixture::MedianTwoLane(0),
+      road_fixture::ShoulderedTwoLane(0)};
+  for (const city::road::CrossSectionTemplate& section : sections) {
     RoadState state{};
+    const auto template_id = road_fixture::AddSection(state, section);
+    ROAD_TEST_EXPECT(template_id != 0, "edge-section fixture was rejected");
     const auto base = state.AddSegment(city::road::AddSegmentRequest{
         MakePath({MakeLine({-30.0, 0.0}, {30.0, 0.0})}), template_id});
     ROAD_TEST_EXPECT(base.ok,
-                     "built-in edge-section base road could not be created");
+                     "edge-section base road could not be created");
     const auto branch = state.AddSegmentConnectedToSegment(
         city::road::AddSegmentConnectedToSegmentRequest{
             MakePath({MakeLine({0.0, 0.0}, {0.0, 30.0})}), template_id,
             base.value, 30.0});
     ROAD_TEST_EXPECT(
         branch.ok,
-        "built-in edge-section T junction was rejected: " + branch.error);
+        "edge-section T junction was rejected: " + branch.error);
     ROAD_TEST_EXPECT(
         road_test_view::junctions(state.derived()).size() == 1 &&
             !state.derived().junction_meshes.empty(),
-        "built-in edge-section T junction geometry is missing");
+        "edge-section T junction geometry is missing");
     for (const Mesh& mesh : state.derived().junction_meshes) {
       ROAD_TEST_EXPECT(mesh_faces_up(mesh),
-                       "built-in edge-section junction mesh is inverted");
+                       "edge-section junction mesh is inverted");
     }
   }
   return true;
@@ -1214,8 +1239,9 @@ bool P1_all_builtin_sections_form_t_junctions(std::string& failure) {
 
 bool P1_skew_shoulder_junction_connects_outer_lines(std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
   const auto base = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), 5});
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const double radians = 30.0 * std::numbers::pi / 180.0;
   const auto branch = state.AddSegmentConnectedToSegment(
@@ -1223,7 +1249,7 @@ bool P1_skew_shoulder_junction_connects_outer_lines(std::string& failure) {
           MakePath({MakeLine({0.0, 0.0},
                              {40.0 * std::cos(radians),
                               40.0 * std::sin(radians)})}),
-          5, base.value, 40.0});
+          shouldered, base.value, 40.0});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   const std::size_t junction_outer_lines = std::count_if(
       state.derived().markings.begin(), state.derived().markings.end(),
@@ -1240,8 +1266,9 @@ bool P1_skew_shoulder_junction_connects_outer_lines(std::string& failure) {
 
 bool P1_skew_shoulder_junction_mesh_does_not_overlap(std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
   const auto base = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), 5});
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const double radians = 30.0 * std::numbers::pi / 180.0;
   const auto branch = state.AddSegmentConnectedToSegment(
@@ -1249,22 +1276,23 @@ bool P1_skew_shoulder_junction_mesh_does_not_overlap(std::string& failure) {
           MakePath({MakeLine({0.0, 0.0},
                              {40.0 * std::cos(radians),
                               40.0 * std::sin(radians)})}),
-          5, base.value, 40.0});
+          shouldered, base.value, 40.0});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   return junction_mesh_is_non_overlapping(state, "skew shoulder T", failure);
 }
 
 bool P1_segment_snap_splits_bezier_road_for_t_junction(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const Path curve = MakePath({MakeBezier({0.0, 0.0}, {20.0, 10.0}, {60.0, 10.0}, {80.0, 0.0})});
-  const auto base = state.AddSegment(city::road::AddSegmentRequest{curve, 1});
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{curve, section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto curve_length = PathLength(curve);
   ROAD_TEST_EXPECT(curve_length.ok, curve_length.error);
   const auto split_point = EvaluatePath(curve, curve_length.value * 0.5);
   ROAD_TEST_EXPECT(split_point.ok, split_point.error);
   const auto branch = state.AddSegmentConnectedToSegment(city::road::AddSegmentConnectedToSegmentRequest{
-      MakePath({MakeLine(split_point.value, {split_point.value.x, split_point.value.y + 30.0})}), 1, base.value,
+      MakePath({MakeLine(split_point.value, {split_point.value.x, split_point.value.y + 30.0})}), section, base.value,
       curve_length.value * 0.5});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 3, "Bezier T junction did not split base road and add branch");
@@ -1299,10 +1327,11 @@ bool P1_segment_snap_splits_bezier_road_for_t_junction(std::string& failure) {
 
 bool P1_segment_snap_splits_at_internal_bezier_span_boundary(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto first_span = MakeBezier({0.0, 0.0}, {10.0, 10.0}, {30.0, 10.0}, {40.0, 0.0});
   const auto second_span = MakeBezier({40.0, 0.0}, {50.0, -10.0}, {70.0, -10.0}, {80.0, 0.0});
   const Path alignment = MakePath({first_span, second_span});
-  const auto base = state.AddSegment(city::road::AddSegmentRequest{alignment, 1});
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{alignment, section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 1,
                    "one multi-span draw was split before an explicit edit");
@@ -1310,7 +1339,7 @@ bool P1_segment_snap_splits_at_internal_bezier_span_boundary(std::string& failur
   ROAD_TEST_EXPECT(first_length.ok, first_length.error);
   const auto branch = state.AddSegmentConnectedToSegment(
       city::road::AddSegmentConnectedToSegmentRequest{
-          MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), 1,
+          MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), section,
           base.value, first_length.value});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
   ROAD_TEST_EXPECT(state.graph().segments.size() == 3,
@@ -1326,14 +1355,15 @@ bool P1_segment_snap_splits_at_internal_bezier_span_boundary(std::string& failur
 
 bool P1_cross_junction_accepts_opposite_approaches(std::string& failure) {
   RoadState state{};
-  const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(base.ok, base.error);
-  const auto north = state.AddSegmentConnectedToSegment(city::road::AddSegmentConnectedToSegmentRequest{MakePath({MakeLine({20.0, 0.0}, {20.0, 24.0})}), 1,
+  const auto north = state.AddSegmentConnectedToSegment(city::road::AddSegmentConnectedToSegmentRequest{MakePath({MakeLine({20.0, 0.0}, {20.0, 24.0})}), section,
                                                         base.value, 20.0});
   ROAD_TEST_EXPECT(north.ok, north.error);
   ROAD_TEST_EXPECT(!road_test_view::junctions(state.derived()).empty(), "T junction area is missing");
   const auto junction_node = road_test_view::junctions(state.derived()).front()->node_id;
-  const auto south = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({20.0, 0.0}, {20.0, -24.0})}), 1,
+  const auto south = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{MakePath({MakeLine({20.0, 0.0}, {20.0, -24.0})}), section,
                                                  junction_node});
   ROAD_TEST_EXPECT(south.ok, south.error);
   ROAD_TEST_EXPECT(road_test_view::gates_of(*road_test_view::junctions(state.derived()).front()).size() == 4,
@@ -1346,19 +1376,20 @@ bool P1_cross_junction_accepts_opposite_approaches(std::string& failure) {
 bool P1_incremental_skew_cross_accepts_ordered_approaches(
     std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto base = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto north = state.AddSegmentConnectedToSegment(
       city::road::AddSegmentConnectedToSegmentRequest{
-          MakePath({MakeLine({20.0, 0.0}, {25.0, 24.0})}), 1, base.value,
+          MakePath({MakeLine({20.0, 0.0}, {25.0, 24.0})}), section, base.value,
           20.0});
   ROAD_TEST_EXPECT(north.ok, north.error);
   const auto junction_node =
       road_test_view::junctions(state.derived()).front()->node_id;
   const auto south = state.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({20.0, 0.0}, {25.0, -24.0})}), 1,
+          MakePath({MakeLine({20.0, 0.0}, {25.0, -24.0})}), section,
           junction_node});
   ROAD_TEST_EXPECT(south.ok, south.error);
   ROAD_TEST_EXPECT(
@@ -1372,12 +1403,13 @@ bool P1_incremental_skew_cross_accepts_ordered_approaches(
 bool P1_skew_shoulder_cross_has_connected_lines_without_overlap(
     std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
   const auto base = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), 5});
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto first_diagonal = state.AddSegmentConnectedToSegment(
       city::road::AddSegmentConnectedToSegmentRequest{
-          MakePath({MakeLine({0.0, 0.0}, {35.0, 20.0})}), 5, base.value,
+          MakePath({MakeLine({0.0, 0.0}, {35.0, 20.0})}), shouldered, base.value,
           40.0});
   ROAD_TEST_EXPECT(first_diagonal.ok, first_diagonal.error);
   const auto junctions = road_test_view::junctions(state.derived());
@@ -1385,7 +1417,7 @@ bool P1_skew_shoulder_cross_has_connected_lines_without_overlap(
                    "skew shoulder cross T state has no junction");
   const auto second_diagonal = state.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({0.0, 0.0}, {-35.0, -20.0})}), 5,
+          MakePath({MakeLine({0.0, 0.0}, {-35.0, -20.0})}), shouldered,
           junctions.front()->node_id});
   ROAD_TEST_EXPECT(second_diagonal.ok, second_diagonal.error);
   const std::size_t junction_outer_lines = std::count_if(
@@ -1404,14 +1436,15 @@ bool P1_skew_shoulder_cross_has_connected_lines_without_overlap(
 
 bool section_transition_widens_one_side_from_its_anchor(std::string& failure) {
   RoadState state{};
-  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({100.0, 50.0}, {160.0, 50.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({100.0, 50.0}, {160.0, 50.0})}), section});
   ROAD_TEST_EXPECT(added.ok, added.error);
-  const auto template_id = state.AddSectionTemplate(city::road::AddSectionTemplateRequest{ThreeLaneTemplate(0)});
+  const auto template_id = state.AddSectionTemplate(city::road::AddSectionTemplateRequest{road_fixture::ThreeLane(0)});
   ROAD_TEST_EXPECT(template_id.ok, template_id.error);
   SavedRoadGraph graph = state.graph();
   attach_transition(
       graph, added.value,
-      SectionTransition{9001, 1, template_id.value,
+      SectionTransition{9001, section, template_id.value,
                         DistanceRef{DistanceRefKind::kFromEnd, 25.0},
                         DistanceRef{DistanceRefKind::kFromEnd, 5.0},
                         TransitionAnchor::kLeftEdge, 0,
@@ -1447,7 +1480,8 @@ bool section_transition_widens_one_side_from_its_anchor(std::string& failure) {
 
 bool saved_manual_markings_load_and_draw(std::string& failure) {
   RoadState state{};
-  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({100.0, 50.0}, {160.0, 50.0})}), 1});
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+  const auto added = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({100.0, 50.0}, {160.0, 50.0})}), section});
   ROAD_TEST_EXPECT(added.ok, added.error);
   const double rotation = std::acos(-1.0) * 0.5;
   SavedRoadGraph graph = state.graph();
@@ -1519,8 +1553,10 @@ bool saved_manual_markings_load_and_draw(std::string& failure) {
 
 bool add_lane_preserves_existing_lanes(std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const auto corridor = city::road::FindCorridorForSegment(state.graph(), segment.value);
   ROAD_TEST_EXPECT(corridor != nullptr, "LAN3 fixture corridor is missing");
@@ -1613,8 +1649,10 @@ bool add_lane_preserves_existing_lanes(std::string& failure) {
 
 bool add_lane_stores_one_segment_local_transition(std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const auto* corridor =
       city::road::FindCorridorForSegment(state.graph(), segment.value);
@@ -1715,11 +1753,12 @@ bool add_lane_stores_one_segment_local_transition(std::string& failure) {
 
 bool add_lane_preserves_unrelated_corridor_geometry(std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
   const auto affected = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), shouldered});
   const auto unrelated = state.AddSegment(city::road::AddSegmentRequest{
       MakePath({MakeBezier({0.0, 80.0}, {30.0, 95.0}, {70.0, 95.0},
-                           {100.0, 80.0})}), 5});
+                           {100.0, 80.0})}), shouldered});
   ROAD_TEST_EXPECT(affected.ok && unrelated.ok,
                    affected.ok ? unrelated.error : affected.error);
   const auto* corridor =
@@ -1823,8 +1862,9 @@ bool add_lane_preserves_unrelated_corridor_geometry(std::string& failure) {
 
 bool add_lane_stops_at_the_explicit_corridor_endpoint(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto first = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+      MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), section});
   ROAD_TEST_EXPECT(first.ok, first.error);
   const auto* corridor = FindCorridorForSegment(state.graph(), first.value);
   const RoadSegment* first_segment = corridor == nullptr
@@ -1836,7 +1876,7 @@ bool add_lane_stops_at_the_explicit_corridor_endpoint(std::string& failure) {
   const auto second = state.ExtendCorridorFromEnd(
       city::road::ExtendCorridorFromEndRequest{
           corridor_id, first_segment->node_b,
-          MakePath({MakeLine({60.0, 0.0}, {120.0, 0.0})}), 1});
+          MakePath({MakeLine({60.0, 0.0}, {120.0, 0.0})}), section});
   ROAD_TEST_EXPECT(second.ok, second.error);
   const auto second_segment = std::find_if(
       state.graph().segments.begin(), state.graph().segments.end(),
@@ -1847,11 +1887,11 @@ bool add_lane_stops_at_the_explicit_corridor_endpoint(std::string& failure) {
   const auto third = state.ExtendCorridorFromEnd(
       city::road::ExtendCorridorFromEndRequest{
           corridor_id, continuation_end_node,
-          MakePath({MakeLine({120.0, 0.0}, {180.0, 0.0})}), 1});
+          MakePath({MakeLine({120.0, 0.0}, {180.0, 0.0})}), section});
   ROAD_TEST_EXPECT(third.ok, third.error);
   const auto branch = state.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({120.0, 0.0}, {120.0, 60.0})}), 1,
+          MakePath({MakeLine({120.0, 0.0}, {120.0, 60.0})}), section,
           continuation_end_node});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
 
@@ -1882,8 +1922,10 @@ bool add_lane_stops_at_the_explicit_corridor_endpoint(std::string& failure) {
 
 bool add_lane_conflict_is_specific_and_atomic(std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const auto* corridor = FindCorridorForSegment(state.graph(), segment.value);
   const auto source = std::find_if(
@@ -1917,8 +1959,10 @@ bool transitioning_segment_split_respects_transition_bounds(std::string& failure
                              bool expect_transition_on_second,
                              std::string& error) {
     RoadState state{};
+    const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
+    const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
     const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-        MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), 5});
+        MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), shouldered});
     if (!segment.ok) { error = segment.error; return false; }
     const auto* corridor = FindCorridorForSegment(state.graph(), segment.value);
     const auto source = std::find_if(
@@ -1993,8 +2037,10 @@ bool transitioning_segment_split_respects_transition_bounds(std::string& failure
 
 bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto first = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(first.ok, first.error);
   const auto first_segment = std::find_if(
       state.graph().segments.begin(), state.graph().segments.end(),
@@ -2007,7 +2053,7 @@ bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   const auto second = state.ExtendCorridorFromEnd(
       city::road::ExtendCorridorFromEndRequest{
           corridor_id, first_segment->node_b,
-          MakePath({MakeLine({80.0, 0.0}, {160.0, 0.0})}), 5});
+          MakePath({MakeLine({80.0, 0.0}, {160.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(second.ok, second.error);
   const auto second_segment = std::find_if(
       state.graph().segments.begin(), state.graph().segments.end(),
@@ -2017,7 +2063,7 @@ bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   const auto third = state.ExtendCorridorFromEnd(
       city::road::ExtendCorridorFromEndRequest{
           corridor_id, second_segment->node_b,
-          MakePath({MakeLine({160.0, 0.0}, {240.0, 0.0})}), 5});
+          MakePath({MakeLine({160.0, 0.0}, {240.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(third.ok, third.error);
 
   city::road::AddLaneRequest request{};
@@ -2087,8 +2133,10 @@ bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
 
 bool add_lane_taper_crosses_segment_boundary(std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto first = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(first.ok, first.error);
   const auto first_segment = std::find_if(
       state.graph().segments.begin(), state.graph().segments.end(),
@@ -2101,7 +2149,7 @@ bool add_lane_taper_crosses_segment_boundary(std::string& failure) {
   const auto second = state.ExtendCorridorFromEnd(
       city::road::ExtendCorridorFromEndRequest{
           corridor_id, first_segment->node_b,
-          MakePath({MakeLine({80.0, 0.0}, {160.0, 0.0})}), 5});
+          MakePath({MakeLine({80.0, 0.0}, {160.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(second.ok, second.error);
 
   city::road::AddLaneRequest request{};
@@ -2152,8 +2200,9 @@ bool add_lane_taper_crosses_segment_boundary(std::string& failure) {
 
 bool add_lane_normalizes_reversed_corridor_direction(std::string& failure) {
   RoadState forward{};
+  const auto shouldered = road_fixture::AddSection(forward, road_fixture::ShoulderedTwoLane(0));
   const auto segment = forward.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const auto saved = forward.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
@@ -2208,8 +2257,9 @@ bool add_lane_normalizes_reversed_corridor_direction(std::string& failure) {
 
 bool add_lane_reaches_mixed_section_junction(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto incoming = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({-80.0, 0.0}, {0.0, 0.0})}), 1});
+      MakePath({MakeLine({-80.0, 0.0}, {0.0, 0.0})}), section});
   ROAD_TEST_EXPECT(incoming.ok, incoming.error);
   const auto incoming_segment = std::find_if(
       state.graph().segments.begin(), state.graph().segments.end(),
@@ -2219,11 +2269,11 @@ bool add_lane_reaches_mixed_section_junction(std::string& failure) {
   const RoadNodeId junction_node = incoming_segment->node_b;
   const auto straight = state.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 1,
+          MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), section,
           junction_node});
   const auto branch = state.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({0.0, 0.0}, {0.0, 80.0})}), 1,
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 80.0})}), section,
           junction_node});
   ROAD_TEST_EXPECT(straight.ok && branch.ok,
                    straight.ok ? branch.error : straight.error);
@@ -2432,8 +2482,10 @@ bool add_lane_rejects_ambiguous_junction_destinations(
 
 bool add_lane_allows_a_later_non_overlapping_addition(std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {160.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {160.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const auto* corridor = FindCorridorForSegment(state.graph(), segment.value);
   ROAD_TEST_EXPECT(corridor != nullptr, "ADD5 corridor is missing");
@@ -2476,8 +2528,9 @@ bool add_lane_allows_a_later_non_overlapping_addition(std::string& failure) {
 bool add_lane_allows_a_later_addition_after_cross_segment_taper(
     std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
   const auto first_segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(first_segment.ok, first_segment.error);
   const auto first = std::find_if(
       state.graph().segments.begin(), state.graph().segments.end(),
@@ -2493,7 +2546,7 @@ bool add_lane_allows_a_later_addition_after_cross_segment_taper(
   const auto second_segment = state.ExtendCorridorFromEnd(
       city::road::ExtendCorridorFromEndRequest{
           corridor_id, first->node_b,
-          MakePath({MakeLine({80.0, 0.0}, {180.0, 0.0})}), 5});
+          MakePath({MakeLine({80.0, 0.0}, {180.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(second_segment.ok, second_segment.error);
 
   city::road::AddLaneRequest first_add{};
@@ -2520,8 +2573,9 @@ bool add_lane_allows_a_later_addition_after_cross_segment_taper(
 bool add_lane_allows_an_earlier_non_overlapping_addition(
     std::string& failure) {
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
   const auto first_segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(first_segment.ok, first_segment.error);
   const auto first = std::find_if(
       state.graph().segments.begin(), state.graph().segments.end(),
@@ -2537,7 +2591,7 @@ bool add_lane_allows_an_earlier_non_overlapping_addition(
   const auto second_segment = state.ExtendCorridorFromEnd(
       city::road::ExtendCorridorFromEndRequest{
           corridor_id, first->node_b,
-          MakePath({MakeLine({80.0, 0.0}, {180.0, 0.0})}), 5});
+          MakePath({MakeLine({80.0, 0.0}, {180.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(second_segment.ok, second_segment.error);
 
   city::road::AddLaneRequest first_add{};
@@ -2588,23 +2642,28 @@ bool add_lane_accepts_multiple_lanes_on_one_carriageway_strip(
   return true;
 }
 
-bool add_lane_supports_every_builtin_section_outer_side(
+bool add_lane_supports_every_section_outer_side(
     std::string& failure) {
-  for (const city::road::CrossSectionTemplateId template_id :
-       {1ULL, 2ULL, 3ULL, 4ULL, 5ULL}) {
+  const std::array<city::road::CrossSectionTemplate, 5> sections{
+      road_fixture::UrbanTwoLane(0), road_fixture::ThreeLane(0),
+      road_fixture::NoLeftSidewalk(0), road_fixture::MedianTwoLane(0),
+      road_fixture::ShoulderedTwoLane(0)};
+  for (std::size_t index = 0; index < sections.size(); ++index) {
     for (const auto [direction, side] : {
              std::pair{city::road::LaneTravelDirection::kAgainstSegment,
                        city::road::RoadSide::kLeft},
              std::pair{city::road::LaneTravelDirection::kAlongSegment,
                        city::road::RoadSide::kRight}}) {
       RoadState state{};
+      const auto template_id = road_fixture::AddSection(state, sections[index]);
+      ROAD_TEST_EXPECT(template_id != 0, "ADD11 section fixture was rejected");
       const auto segment = state.AddSegment(city::road::AddSegmentRequest{
           MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), template_id});
       ROAD_TEST_EXPECT(segment.ok, segment.error);
       const auto* corridor =
           city::road::FindCorridorForSegment(state.graph(), segment.value);
       ROAD_TEST_EXPECT(corridor != nullptr,
-                       "ADD11 builtin corridor is missing");
+                       "ADD11 corridor is missing");
 
       city::road::AddLaneRequest request{};
       request.corridor_id = corridor->id;
@@ -2616,7 +2675,7 @@ bool add_lane_supports_every_builtin_section_outer_side(
       const auto added = state.AddLane(request);
       ROAD_TEST_EXPECT(
           added.ok,
-          "ADD11 builtin template " + std::to_string(template_id) +
+          "ADD11 section " + std::to_string(index) +
               " rejected an outer lane: " + added.error);
     }
   }
@@ -2659,12 +2718,13 @@ bool add_lane_supports_every_builtin_section_outer_side(
 
 bool saved_junction_movements_derive_lane_paths(std::string& failure) {
   RoadState authored{};
+  const auto authored_section = road_fixture::AddSection(authored, road_fixture::UrbanTwoLane(0));
   const auto base = authored.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+      MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), authored_section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto north = authored.AddSegmentConnectedToSegment(
       city::road::AddSegmentConnectedToSegmentRequest{
-          MakePath({MakeLine({30.0, 0.0}, {30.0, 30.0})}), 1,
+          MakePath({MakeLine({30.0, 0.0}, {30.0, 30.0})}), authored_section,
           base.value, 30.0});
   ROAD_TEST_EXPECT(north.ok, north.error);
   ROAD_TEST_EXPECT(!road_test_view::junctions(authored.derived()).empty(),
@@ -2673,7 +2733,7 @@ bool saved_junction_movements_derive_lane_paths(std::string& failure) {
       road_test_view::junctions(authored.derived()).front()->node_id;
   const auto south = authored.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({30.0, 0.0}, {30.0, -30.0})}), 1, node});
+          MakePath({MakeLine({30.0, 0.0}, {30.0, -30.0})}), authored_section, node});
   ROAD_TEST_EXPECT(south.ok, south.error);
 
   RoadSegmentId west_segment = 0;
@@ -2767,13 +2827,14 @@ bool saved_junction_movements_derive_lane_paths(std::string& failure) {
                    "LAN7 accepted a wrong-way junction movement");
 
   RoadState pass_through{};
+  const auto pass_through_section = road_fixture::AddSection(pass_through, road_fixture::UrbanTwoLane(0));
   const auto first = pass_through.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {30.0, 0.0})}), 1});
+      MakePath({MakeLine({0.0, 0.0}, {30.0, 0.0})}), pass_through_section});
   ROAD_TEST_EXPECT(first.ok, first.error);
   const RoadNodeId pass_node = pass_through.graph().segments.front().node_b;
   const auto second = pass_through.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({30.0, 0.0}, {60.0, 0.0})}), 1, pass_node});
+          MakePath({MakeLine({30.0, 0.0}, {60.0, 0.0})}), pass_through_section, pass_node});
   ROAD_TEST_EXPECT(second.ok, second.error);
   SavedRoadGraph outside_junction = pass_through.graph();
   outside_junction.lane_connections.push_back(city::road::LaneConnection{
@@ -2793,17 +2854,18 @@ bool saved_junction_movements_derive_lane_paths(std::string& failure) {
 bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   {
     RoadState state{};
-    auto no_left_sidewalk = JapaneseUrbanTwoLaneTemplate(0);
+    const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+    auto no_left_sidewalk = road_fixture::UrbanTwoLane(0);
     no_left_sidewalk.strips.erase(no_left_sidewalk.strips.begin());
     no_left_sidewalk.boundaries.erase(no_left_sidewalk.boundaries.begin());
     const auto target = state.AddSectionTemplate(city::road::AddSectionTemplateRequest{no_left_sidewalk});
     ROAD_TEST_EXPECT(target.ok, target.error);
-    const auto segment = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+    const auto segment = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), section});
     ROAD_TEST_EXPECT(segment.ok, segment.error);
     SavedRoadGraph graph = state.graph();
     attach_transition(
         graph, segment.value,
-        SectionTransition{9001, 1, target.value,
+        SectionTransition{9001, section, target.value,
                           DistanceRef{DistanceRefKind::kFromStart, 10.0},
                           DistanceRef{DistanceRefKind::kRatio, 0.5},
                           TransitionAnchor::kRightEdge, 0,
@@ -2815,14 +2877,15 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
 
   {
     RoadState state{};
-    const auto three_lane = state.AddSectionTemplate(city::road::AddSectionTemplateRequest{ThreeLaneTemplate(0)});
+    const auto two_lane = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+    const auto three_lane = state.AddSectionTemplate(city::road::AddSectionTemplateRequest{road_fixture::ThreeLane(0)});
     ROAD_TEST_EXPECT(three_lane.ok, three_lane.error);
     const auto segment = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), three_lane.value});
     ROAD_TEST_EXPECT(segment.ok, segment.error);
     SavedRoadGraph graph = state.graph();
     attach_transition(
         graph, segment.value,
-        SectionTransition{9001, three_lane.value, 1,
+        SectionTransition{9001, three_lane.value, two_lane,
                           DistanceRef{DistanceRefKind::kFromEnd, 30.0},
                           DistanceRef{DistanceRefKind::kFromEnd, 5.0},
                           TransitionAnchor::kCenter, 0,
@@ -2833,7 +2896,8 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
 
   {
     RoadState state{};
-    auto median = JapaneseUrbanTwoLaneTemplate(0);
+    const auto two_lane = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+    auto median = road_fixture::UrbanTwoLane(0);
     const city::road::AutoMarkingPolicy outer_line{
         true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid};
     median.strips.insert(median.strips.begin() + 2,
@@ -2852,7 +2916,7 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
       SavedRoadGraph graph = state.graph();
       attach_transition(
           graph, segment.value,
-          SectionTransition{9001, median_id.value, 1,
+          SectionTransition{9001, median_id.value, two_lane,
                             DistanceRef{DistanceRefKind::kFromStart, 10.0},
                             DistanceRef{DistanceRefKind::kFromStart, 30.0},
                             TransitionAnchor::kCenter, 0,
@@ -2871,23 +2935,27 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
 bool P2_requires_transition_for_mixed_section_connection(std::string& failure) {
   {
     RoadState state{};
-    const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+    const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
+    const auto three_lane = road_fixture::AddSection(state, road_fixture::ThreeLane(0));
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), section});
     ROAD_TEST_EXPECT(base.ok, base.error);
     const auto endpoint = state.graph().segments.front().node_b;
     const auto direct = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{
-        MakePath({MakeLine({60.0, 0.0}, {60.0, 20.0})}), 2, endpoint});
+        MakePath({MakeLine({60.0, 0.0}, {60.0, 20.0})}), three_lane, endpoint});
     ROAD_TEST_EXPECT(!direct.ok && direct.failure_category == CommitFailureCategory::kNotImplemented,
                      "P2 accepted a mixed-section node connection without a transition");
   }
 
   {
     RoadState authored{};
-    const auto base = authored.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+    const auto authored_section = road_fixture::AddSection(authored, road_fixture::UrbanTwoLane(0));
+    const auto three_lane = road_fixture::AddSection(authored, road_fixture::ThreeLane(0));
+    const auto base = authored.AddSegment(city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), authored_section});
     ROAD_TEST_EXPECT(base.ok, base.error);
     SavedRoadGraph graph = authored.graph();
     attach_transition(
         graph, base.value,
-        SectionTransition{9001, 1, 2,
+        SectionTransition{9001, authored_section, three_lane,
                           DistanceRef{DistanceRefKind::kFromEnd, 20.0},
                           DistanceRef{DistanceRefKind::kFromEnd, 0.0},
                           TransitionAnchor::kCenter, 0,
@@ -2897,7 +2965,7 @@ bool P2_requires_transition_for_mixed_section_connection(std::string& failure) {
     RoadState& state = loaded.value;
     const auto endpoint = state.graph().segments.front().node_b;
     const auto connected = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{
-        MakePath({MakeLine({60.0, 0.0}, {60.0, 20.0})}), 2, endpoint});
+        MakePath({MakeLine({60.0, 0.0}, {60.0, 20.0})}), three_lane, endpoint});
     ROAD_TEST_EXPECT(connected.ok, connected.error);
   }
   return true;
@@ -2907,14 +2975,15 @@ bool equivalent_endpoint_sections_ignore_template_identity(
     std::string& failure) {
   {
     RoadState state{};
+    const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
     const auto equivalent = state.AddSectionTemplate(
         city::road::AddSectionTemplateRequest{
-            JapaneseUrbanTwoLaneTemplate(0)});
+            road_fixture::UrbanTwoLane(0)});
     ROAD_TEST_EXPECT(equivalent.ok, equivalent.error);
-    ROAD_TEST_EXPECT(equivalent.value != 1,
+    ROAD_TEST_EXPECT(equivalent.value != section,
                      "equivalent section did not receive a distinct ID");
     const auto base = state.AddSegment(city::road::AddSegmentRequest{
-        MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+        MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), section});
     ROAD_TEST_EXPECT(base.ok, base.error);
     const RoadNodeId endpoint = state.graph().segments.front().node_b;
     const auto connected = state.AddSegmentConnectedTo(
@@ -2929,12 +2998,13 @@ bool equivalent_endpoint_sections_ignore_template_identity(
 
   {
     RoadState state{};
+    const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
     const auto equivalent = state.AddSectionTemplate(
         city::road::AddSectionTemplateRequest{
-            JapaneseUrbanTwoLaneTemplate(0)});
+            road_fixture::UrbanTwoLane(0)});
     ROAD_TEST_EXPECT(equivalent.ok, equivalent.error);
     const auto base = state.AddSegment(city::road::AddSegmentRequest{
-        MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+        MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
     ROAD_TEST_EXPECT(base.ok, base.error);
     const RoadSegment source = state.graph().segments.front();
     const auto* corridor =
@@ -2957,17 +3027,18 @@ bool equivalent_endpoint_sections_ignore_template_identity(
 
 bool P2_marking_policy_suppression_and_junction_override(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto base = state.AddSegment(
-      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(base.ok, base.error);
   const auto node = state.graph().segments.front().node_b;
   const auto branch_a = state.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), 1, node});
+          MakePath({MakeLine({40.0, 0.0}, {40.0, 30.0})}), section, node});
   ROAD_TEST_EXPECT(branch_a.ok, branch_a.error);
   const auto branch_b = state.AddSegmentConnectedTo(
       city::road::AddSegmentConnectedToRequest{
-          MakePath({MakeLine({40.0, 0.0}, {70.0, 0.0})}), 1, node});
+          MakePath({MakeLine({40.0, 0.0}, {70.0, 0.0})}), section, node});
   ROAD_TEST_EXPECT(branch_b.ok, branch_b.error);
   ROAD_TEST_EXPECT(!road_test_view::junctions(state.derived()).empty(), "junction area was not derived");
 
@@ -3037,7 +3108,7 @@ bool P2_marking_policy_suppression_and_junction_override(std::string& failure) {
 
   // The boundary policy lives on the shared section template, so editing the
   // template is what turns a center line off and on.
-  auto without_center = JapaneseUrbanTwoLaneTemplate(1);
+  auto without_center = road_fixture::UrbanTwoLane(section);
   without_center.boundaries[1].marking = AutoMarkingPolicy{};
   const auto disabled =
       state.EditSectionTemplate(city::road::EditSectionTemplateRequest{without_center});
@@ -3048,11 +3119,11 @@ bool P2_marking_policy_suppression_and_junction_override(std::string& failure) {
                                 }),
                    "disabling the boundary policy did not remove center line tracks");
   const auto reenabled = state.EditSectionTemplate(
-      city::road::EditSectionTemplateRequest{JapaneseUrbanTwoLaneTemplate(1)});
+      city::road::EditSectionTemplateRequest{road_fixture::UrbanTwoLane(section)});
   ROAD_TEST_EXPECT(reenabled.ok, reenabled.error);
   ROAD_TEST_EXPECT(center_paths() == center_before,
                    "restoring the boundary policy did not restore center line tracks");
-  auto unknown_style_template = JapaneseUrbanTwoLaneTemplate(1);
+  auto unknown_style_template = road_fixture::UrbanTwoLane(section);
   unknown_style_template.boundaries[1].marking =
       AutoMarkingPolicy{true, MarkingRole::kCenterLine,
                         city::road::MarkingStyleId{9999}};
@@ -3079,14 +3150,15 @@ const city::road::DerivedMarking* find_boundary_line(const city::road::DerivedRo
 
 bool M1_lane_side_requests_share_one_boundary_line(std::string& failure) {
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto segment = state.AddSegment(
-      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 1});
+      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const std::size_t baseline = road_test_view::marking_lines(state.derived()).size();
   const AutoMarkingPolicy center{true, MarkingRole::kCenterLine,
                                  builtin_marking_styles::kCenterLine};
   // Both lanes request the same line on the boundary they share.
-  auto shared_request = JapaneseUrbanTwoLaneTemplate(1);
+  auto shared_request = road_fixture::UrbanTwoLane(section);
   shared_request.strips[1].side_marking.right = center;
   shared_request.strips[2].side_marking.left = center;
   const auto merged =
@@ -3118,15 +3190,17 @@ bool M1_lane_side_requests_share_one_boundary_line(std::string& failure) {
 
 bool M1_lane_side_without_adjacent_boundary_is_unsupported(std::string& failure) {
   RoadState state{};
+  const auto no_left_sidewalk = road_fixture::AddSection(state, road_fixture::NoLeftSidewalk(0));
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   // Template 3 starts with a carriageway band, so its left side has no boundary.
   const auto segment = state.AddSegment(
-      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 3});
+      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), no_left_sidewalk});
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const auto saved_before = state.Save();
   ROAD_TEST_EXPECT(saved_before.ok, saved_before.error);
   const AutoMarkingPolicy edge{true, MarkingRole::kCarriagewayEdge,
                                builtin_marking_styles::kWhiteSolid};
-  auto outermost = NoLeftSidewalkTemplate(3);
+  auto outermost = road_fixture::NoLeftSidewalk(no_left_sidewalk);
   outermost.strips.front().side_marking.left = edge;
   const auto request =
       state.EditSectionTemplate(city::road::EditSectionTemplateRequest{outermost});
@@ -3136,7 +3210,7 @@ bool M1_lane_side_without_adjacent_boundary_is_unsupported(std::string& failure)
   ROAD_TEST_EXPECT(saved_after.ok && saved_after.value == saved_before.value,
                    "unsupported lane side request mutated authoritative state");
 
-  auto sidewalk_request = JapaneseUrbanTwoLaneTemplate(1);
+  auto sidewalk_request = road_fixture::UrbanTwoLane(section);
   sidewalk_request.strips.front().side_marking.right = edge;
   const auto non_carriageway = state.EditSectionTemplate(
       city::road::EditSectionTemplateRequest{sidewalk_request});
@@ -3149,8 +3223,10 @@ bool M3_lane_count_change_begins_and_terminates_lines(std::string& failure) {
   // The roads run along +X from the origin, so a point's x is its distance.
   {
     RoadState state{};
+    const auto three_lane = road_fixture::AddSection(state, road_fixture::ThreeLane(0));
+    const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
     const auto segment = state.AddSegment(
-        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 1});
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), section});
     ROAD_TEST_EXPECT(segment.ok, segment.error);
     const auto* corridor = FindCorridorForSegment(state.graph(), segment.value);
     ROAD_TEST_EXPECT(corridor != nullptr, "lane addition corridor is missing");
@@ -3188,13 +3264,15 @@ bool M3_lane_count_change_begins_and_terminates_lines(std::string& failure) {
     // A lane reduction has no public operation, so it is generated from the
     // saved transition that expresses one.
     RoadState authored{};
+    const auto three_lane = road_fixture::AddSection(authored, road_fixture::ThreeLane(0));
+    const auto two_lane = road_fixture::AddSection(authored, road_fixture::UrbanTwoLane(0));
     const auto segment = authored.AddSegment(
-        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), 2});
+        city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), three_lane});
     ROAD_TEST_EXPECT(segment.ok, segment.error);
     SavedRoadGraph graph = authored.graph();
     attach_transition(
         graph, segment.value,
-        SectionTransition{9001, 2, 1,
+        SectionTransition{9001, three_lane, two_lane,
                           DistanceRef{DistanceRefKind::kFromStart, 30.0},
                           DistanceRef{DistanceRefKind::kFromStart, 60.0},
                           TransitionAnchor::kCenter, 0,
@@ -3219,12 +3297,13 @@ bool M3_lane_count_change_begins_and_terminates_lines(std::string& failure) {
 
 bool M6_transition_without_boundary_mapping_is_unsupported(std::string& failure) {
   RoadState authored{};
-  auto role_changed = JapaneseUrbanTwoLaneTemplate(0);
+  const auto authored_section = road_fixture::AddSection(authored, road_fixture::UrbanTwoLane(0));
+  auto role_changed = road_fixture::UrbanTwoLane(0);
   role_changed.boundaries[1].role = BoundaryRole::kMedianEdge;
   const auto target = authored.AddSectionTemplate(city::road::AddSectionTemplateRequest{role_changed});
   ROAD_TEST_EXPECT(target.ok, target.error);
   const auto segment = authored.AddSegment(
-      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), 1});
+      city::road::AddSegmentRequest{MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), authored_section});
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const SavedRoadGraph without_transition = authored.graph();
   ROAD_TEST_EXPECT(city::road::generation::generate_road(without_transition).ok,
@@ -3233,7 +3312,7 @@ bool M6_transition_without_boundary_mapping_is_unsupported(std::string& failure)
   SavedRoadGraph graph = without_transition;
   attach_transition(
       graph, segment.value,
-      SectionTransition{9001, 1, target.value,
+      SectionTransition{9001, authored_section, target.value,
                         DistanceRef{DistanceRefKind::kFromStart, 10.0},
                         DistanceRef{DistanceRefKind::kFromStart, 40.0},
                         TransitionAnchor::kCenter, 0,
@@ -3245,7 +3324,7 @@ bool M6_transition_without_boundary_mapping_is_unsupported(std::string& failure)
 }
 
 bool RSL_section_axes_and_shoulder_are_independent(std::string& failure) {
-  const auto shoulder = ShoulderedTwoLaneTemplate(5);
+  const auto shoulder = road_fixture::ShoulderedTwoLane(0);
   ROAD_TEST_EXPECT(shoulder.strips.size() == 6,
                    "shouldered template does not contain independent shoulder strips");
   ROAD_TEST_EXPECT(
@@ -3260,8 +3339,10 @@ bool RSL_section_axes_and_shoulder_are_independent(std::string& failure) {
                    "lane allocation is not independent from physical strips");
 
   RoadState state{};
+  const auto shouldered = road_fixture::AddSection(state, road_fixture::ShoulderedTwoLane(0));
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), 5});
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), shouldered});
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const auto marking_count = [&](std::uint64_t boundary_id) {
     return std::count_if(
@@ -3349,9 +3430,10 @@ bool CRV_drawn_curve_bends_one_way_per_interval(std::string& failure) {
   const std::array<Vec2d, 5> points{Vec2d{0.0, 0.0}, Vec2d{40.0, 0.0}, Vec2d{70.0, 22.0},
                                     Vec2d{86.0, 54.0}, Vec2d{88.0, 90.0}};
   RoadState state{};
+  const auto section = road_fixture::AddSection(state, road_fixture::UrbanTwoLane(0));
   city::road::AddSegmentRequest first{};
   first.alignment = MakePath({MakeLine(points[0], points[1])});
-  first.section_template = 1;
+  first.section_template = section;
   first.intent = city::road::SegmentShapeIntent::kCurve;
   const auto added = state.AddSegment(first);
   ROAD_TEST_EXPECT(added.ok, added.error);
@@ -3369,7 +3451,7 @@ bool CRV_drawn_curve_bends_one_way_per_interval(std::string& failure) {
     extension.corridor_id = corridor_id;
     extension.endpoint_node_id = previous->node_b;
     extension.extension = MakePath({MakeLine(points[index], points[index + 1])});
-    extension.section_template = 1;
+    extension.section_template = section;
     extension.intent = city::road::SegmentShapeIntent::kCurve;
     const auto extended = state.ExtendCorridorFromEnd(extension);
     ROAD_TEST_EXPECT(extended.ok, extended.error);
@@ -3444,8 +3526,8 @@ int main() {
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
       {"P1_end_segment_snap_splits_straight_road_for_t_junction",
        P1_end_segment_snap_splits_straight_road_for_t_junction},
-      {"P1_all_builtin_sections_form_t_junctions",
-       P1_all_builtin_sections_form_t_junctions},
+      {"P1_every_edge_section_forms_a_t_junction",
+       P1_every_edge_section_forms_a_t_junction},
       {"P1_skew_shoulder_junction_connects_outer_lines",
        P1_skew_shoulder_junction_connects_outer_lines},
       {"P1_skew_shoulder_junction_mesh_does_not_overlap",
@@ -3485,8 +3567,8 @@ int main() {
        add_lane_rejects_ambiguous_junction_destinations},
       {"add_lane_accepts_multiple_lanes_on_one_carriageway_strip",
        add_lane_accepts_multiple_lanes_on_one_carriageway_strip},
-      {"add_lane_supports_every_builtin_section_outer_side",
-       add_lane_supports_every_builtin_section_outer_side},
+      {"add_lane_supports_every_section_outer_side",
+       add_lane_supports_every_section_outer_side},
       {"saved_junction_movements_derive_lane_paths",
        saved_junction_movements_derive_lane_paths},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},

@@ -24,12 +24,6 @@ struct OperationPlan;
                                         RoadNodeId endpoint_node_id, Vec2d start, Vec2d end,
                                         SegmentShapeIntent intent);
 
-[[nodiscard]] CrossSectionTemplate JapaneseUrbanTwoLaneTemplate(CrossSectionTemplateId id);
-[[nodiscard]] CrossSectionTemplate ShoulderedTwoLaneTemplate(CrossSectionTemplateId id);
-[[nodiscard]] CrossSectionTemplate ThreeLaneTemplate(CrossSectionTemplateId id);
-[[nodiscard]] CrossSectionTemplate NoLeftSidewalkTemplate(CrossSectionTemplateId id);
-[[nodiscard]] CrossSectionTemplate MedianTwoLaneTemplate(CrossSectionTemplateId id);
-
 class RoadState {
 public:
   RoadState();

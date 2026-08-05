@@ -27,6 +27,7 @@ if(BUILD_TESTING)
   add_executable(
     road_tests
     tests/road_tests.cpp
+    tests/fixtures/sections.cpp
   )
 
   target_link_libraries(
@@ -42,6 +43,7 @@ if(BUILD_TESTING)
   add_executable(
     road_architecture_contract_tests
     tests/architecture_contract_tests.cpp
+    tests/fixtures/sections.cpp
   )
 
   target_link_libraries(

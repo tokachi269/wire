@@ -331,6 +331,11 @@ struct LaneSectionIds {
       ids.boundary_id, BoundaryRole::kLaneDivider, 0.0, 0.0,
       AutoMarkingPolicy{true, MarkingRole::kLaneSeparator,
                         builtin_marking_styles::kWhiteDashed}};
+  // The new width appears on one side of the alignment, so the alignment keeps
+  // its distance to the side that is not growing: adding on the left pushes the
+  // left outer end further out by the lane width, adding on the right leaves
+  // the distance from the left end alone. Either way every element that existed
+  // on the far side of the insertion keeps its lateral position.
   if (side == RoadSide::kRight) {
     extended.strips.insert(
         extended.strips.begin() + selected.value.strip_index + 1, strip);
@@ -341,6 +346,7 @@ struct LaneSectionIds {
         extended.strips.begin() + selected.value.strip_index, strip);
     extended.boundaries.insert(
         extended.boundaries.begin() + selected.value.strip_index, divider);
+    extended.alignment_offset_from_left_m += lane_width_m;
   }
   extended.lane_bands.push_back(
       LaneBand{ids.lane_id, ids.strip_id, 0.0, lane_width_m, direction});

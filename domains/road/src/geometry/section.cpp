@@ -62,6 +62,11 @@ RoadLayoutTemplate interpolate_section(const RoadLayoutTemplate &from,
       to.strips.size() >= from.strips.size() ? to : from;
   RoadLayoutTemplate out{};
   out.id = t < 1.0 ? from.id : to.id;
+  // The alignment origin travels with the widths it is measured against, so it
+  // moves the same way they do across the transition.
+  out.alignment_offset_from_left_m =
+      from.alignment_offset_from_left_m +
+      (to.alignment_offset_from_left_m - from.alignment_offset_from_left_m) * t;
   for (const RoadLayoutStrip &structure_strip : structure.strips) {
     const RoadLayoutStrip *a = find_strip(from, structure_strip.id);
     const RoadLayoutStrip *b = find_strip(to, structure_strip.id);
@@ -162,13 +167,10 @@ derive_boundaries(const RoadLayoutTemplate &section,
   std::vector<SectionBoundarySample> samples{};
   if (section.strips.empty())
     return samples;
-  double total_width = 0.0;
-  for (const RoadLayoutStrip &strip : section.strips)
-    total_width += strip.width_m;
-  for (const BoundaryProfile &boundary : section.boundaries) {
-    total_width += boundary.width_m;
-  }
-  double lateral = -total_width * 0.5;
+  // Lateral is measured from the alignment, and the layout says how far the
+  // alignment sits from its left outer end. Nothing here re-derives that from
+  // the total width, so widening one side moves only that side.
+  double lateral = -section.alignment_offset_from_left_m;
   double height = 0.0;
   double carriageway_floor = std::numeric_limits<double>::infinity();
   samples.push_back(
@@ -260,7 +262,8 @@ derive_surface_styles(const RoadLayoutTemplate &section) {
 
 bool equivalent_section_definition(const RoadLayoutTemplate &a,
                                    const RoadLayoutTemplate &b) {
-  return a.strips.size() == b.strips.size() &&
+  return a.alignment_offset_from_left_m == b.alignment_offset_from_left_m &&
+         a.strips.size() == b.strips.size() &&
          a.lane_bands.size() == b.lane_bands.size() &&
          a.boundaries.size() == b.boundaries.size() &&
          std::equal(a.strips.begin(), a.strips.end(), b.strips.begin(),
@@ -274,12 +277,7 @@ bool equivalent_section_definition(const RoadLayoutTemplate &a,
 
 Result<double> lane_template_lateral(const RoadLayoutTemplate &section,
                                      const LaneBand &lane) {
-  double total_width = 0.0;
-  for (const RoadLayoutStrip &strip : section.strips)
-    total_width += strip.width_m;
-  for (const BoundaryProfile &boundary : section.boundaries)
-    total_width += boundary.width_m;
-  double lateral = -total_width * 0.5;
+  double lateral = -section.alignment_offset_from_left_m;
   for (std::size_t index = 0; index < section.strips.size(); ++index) {
     const RoadLayoutStrip &strip = section.strips[index];
     if (strip.id == lane.surface_strip_id) {

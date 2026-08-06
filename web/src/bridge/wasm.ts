@@ -135,6 +135,8 @@ export interface RoadMeshPayload {
 
 export interface RoadLayoutTemplatePayload {
   id: number;
+  /** Distance from the section's left outer end to the segment alignment. */
+  alignmentOffsetFromLeftM: number;
   strips: Array<{
     id: number;
     function: "sidewalk" | "shoulder" | "carriageway" | "median";

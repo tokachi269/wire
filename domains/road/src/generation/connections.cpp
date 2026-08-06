@@ -61,9 +61,12 @@ bool approach_key_less(const ApproachKey &a, const ApproachKey &b) {
          std::tie(b.node_id, b.segment_id, b.endpoint_role);
 }
 
-double endpoint_outer_half_width(const SavedRoadGraph &graph,
-                                 const RoadSegment &segment,
-                                 const ApproachKey &key) {
+// How far the layout reaches from the alignment on its widest side. An
+// off-centre alignment reaches further one way than the other, so the setback
+// uses the larger of the two rather than half the total width.
+double endpoint_outer_reach(const SavedRoadGraph &graph,
+                            const RoadSegment &segment,
+                            const ApproachKey &key) {
   RoadLayoutTemplateId template_id = segment.layout_template;
   if (segment.transition.has_value()) {
     const RoadLayoutTransition *transition =
@@ -82,7 +85,8 @@ double endpoint_outer_half_width(const SavedRoadGraph &graph,
     width += strip.width_m;
   for (const BoundaryProfile &boundary : section->boundaries)
     width += boundary.width_m;
-  return width * 0.5;
+  const double offset = section->alignment_offset_from_left_m;
+  return std::max(offset, width - offset);
 }
 
 RoadLayoutTemplateId endpoint_template_id(const SavedRoadGraph &graph,
@@ -513,8 +517,7 @@ resolve_connections(const SavedRoadGraph &graph,
                              "road setback source segment is missing");
           }
           const double section_clearance_m =
-              endpoint_outer_half_width(graph, *other_segment, other.key) /
-              sine;
+              endpoint_outer_reach(graph, *other_segment, other.key) / sine;
           const double corner_clearance_m =
               rules.corner_radius_m / half_angle_tangent;
           setback = std::max(setback,

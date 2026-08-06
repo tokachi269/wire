@@ -307,7 +307,7 @@ authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / 
 
 ## Persistence target
 
-road persistence version 11は局所segment/corridorに加えてlane/boundary topologyを保存する。保存対象はauthoritative stateとnext IDだけとする。
+road persistence version 12は局所segment/corridorに加えてlane/boundary topologyとlayoutのalignment offsetを保存する。保存対象はauthoritative stateとnext IDだけとする。
 CanonicalAlignment、connection、gate、section evaluation、junction geometry、mesh、mask、auto markingは保存しない。
 resolved connection、derived marking、mesh、maskも保存しない。ApproachGeometryOverrideはmanual fieldがある場合だけ保存する。
 `LaneConnection`と`BoundaryContinuation`はID順に保存し、lane/boundary path geometryは保存しない。
@@ -386,9 +386,41 @@ Viewerの通常削除はhover hitが持つ`RoadSegmentId`のsegment全体をハ�
 別軸として扱う。styleからfunctionを推測しない。`Shoulder`はcurb幅や段差の代用ではなく独立した水平stripである。
 車道外側線はcarriageway利用領域とshoulderのsemantic boundaryへ置き、shoulderがない場合だけ外側boundaryを使う。
 
-現行persistence versionは11。局所segment、corridor、directed ref、section strip、lane allocation、
-lane connection、boundary continuationをnamed fieldで保存し、version 10以前はmigrationせず明示rejectする。
+現行persistence versionは12。局所segment、corridor、directed ref、section strip、lane allocation、
+lane connection、boundary continuation、layoutのalignment offsetをnamed fieldで保存する。
+version 11はlayoutのalignment offsetだけを幅から解決して読み、version 10以前はmigrationせず明示rejectする。
 corridor長、累積distance、connection geometryは派生なので保存しない。
+
+## Layout alignment origin
+
+`RoadLayoutTemplate`は`alignment_offset_from_left_m`を持つ。segmentの進行方向へ断面を見たときの
+**左外端からRoadSegment alignmentまでの横方向距離**であり、`0 <= offset <= total layout width`を満たす。
+断面内の位置はすべて左外端から積み上げ、alignmentを0とする横座標で報告する。
+
+```text
+断面の左外端                                 断面の右外端
+      |                                            |
+      |<-- alignment_offset_from_left_m -->|
+      ├────────────────────────────────────┼───────┤
+                                           ↑
+                                  RoadSegment alignment
+                                        lateral = 0
+```
+
+alignmentが断面の中央にあるとは限らない。この値は総幅から毎回推定せず、boundary roleからもmesh bboxからも
+推測せず、交差点で外端2点の中点から再計算もしない。交差点は segment 側で確定した frame を
+connection gate 経由で受け取り、その位置に対する lateral sample として断面を置く。
+gate上の断面外端が偶然どこにあっても、それがalignmentの定義になることはない。
+
+片側だけ幅が増えても、反対側とalignmentは動かない。Add Laneは追加した側にだけ幅を足し、
+左へ足したときはoffsetへ同じ幅を加算する。任意のstrip幅を変えるtemplate編集では、Coreは
+どの幅を固定すべきか推測しない。offsetは完成したtemplateの一部として明示的に渡される。
+遷移中は幅と同じ距離位置でoffsetも評価する。遷移のanchorは、その上で「どの境界を固定するか」を
+明示指定する既存の仕組みとして残る。
+
+alignment originはedge datumではない。alignment originは**RoadSegmentのpathが断面のどこを通るか**、
+edge datumは**将来の端部構造における道路側垂直面**を指す。実装があるのはalignment originだけで、
+edge datumと端部構造profileは未実装である。
 
 ## Edge datum と envelope
 
@@ -432,8 +464,8 @@ L字溝のように幅と立体断面を持つ端部構造をいつか置くた�
 | envelope | 意味 | 用途 |
 |---|---|---|
 | layout envelope | 道路幅・歩道幅を測る意味上の外端。edge datum と layout datum が属する | 車線、白線、幅の検証 |
-| visible envelope | 上面・縁石など目に見える mesh の最外端 | 電柱・壁の離隔 |
-| structural envelope | 地中の基礎や下部張り出しを含む構造上の最外端 | 敷地境界との離隔 |
+| visible envelope | 上面・縁石など目に見える mesh の最外端 | 電柱・標識など地上物の離隔 |
+| structural envelope | 地中の基礎や下部張り出しを含む構造上の最外端 | 建物壁・敷地境界・埋設物との離隔 |
 
 三者は一致しなくてよい。歩道がある場合は普通 layout envelope が最も外側になり、歩道がない場合は
 visible envelope が layout envelope の外へ出る。

@@ -1,5 +1,6 @@
 #include "archive.hpp"
 
+#include "../geometry/geometry.hpp"
 #include "../lookup.hpp"
 #include "schema.hpp"
 
@@ -486,6 +487,18 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
                                   "section template boundary is invalid");
       }
     }
+    double total_width = 0.0;
+    for (const RoadLayoutStrip& strip : section.strips) total_width += strip.width_m;
+    for (const BoundaryProfile& boundary : section.boundaries)
+      total_width += boundary.width_m;
+    if (!finite(section.alignment_offset_from_left_m) ||
+        section.alignment_offset_from_left_m < -internal::distance_epsilon ||
+        section.alignment_offset_from_left_m >
+            total_width + internal::distance_epsilon) {
+      return Result<bool>::Fail(
+          CommitFailureCategory::kInvalidInput,
+          "section template alignment offset is outside the layout width");
+    }
   }
   for (const RoadNode& node : graph.nodes) {
     Result<bool> id = add_id(node.id, &node_ids, "node");
@@ -857,6 +870,8 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     const RoadLayoutTemplate& section = *sections[i];
     const std::string prefix = "section_template." + std::to_string(i);
     writer.UInt(prefix + ".id", section.id);
+    writer.Double(prefix + ".alignment_offset_from_left_m",
+                  section.alignment_offset_from_left_m);
     writer.UInt(prefix + ".strip.count", section.strips.size());
     for (std::size_t j = 0; j < section.strips.size(); ++j) {
       const RoadLayoutStrip& strip = section.strips[j];
@@ -1112,7 +1127,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
 }
 
 Result<LoadedRoad> LoadRoad(const std::string& text) {
-  if (!HasCurrentHeader(text)) {
+  if (!HasReadableHeader(text)) {
     if (HasRoadHeader(text)) {
       return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                       "legacy road graph version is unsupported");
@@ -1125,10 +1140,11 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   if (!status.ok) return Result<LoadedRoad>::Fail(status.failure_category, status.error);
   Result<std::uint64_t> version = reader.RequireU64("road_graph_version");
   if (!version.ok) return Result<LoadedRoad>::Fail(version.failure_category, version.error);
-  if (version.value != kVersion) {
+  if (version.value != kVersion && version.value != kPreviousVersion) {
     return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                     "unknown road graph version");
   }
+  const bool has_saved_alignment_offset = version.value == kVersion;
   Result<std::uint64_t> next_id = reader.RequireU64("next_id");
   if (!next_id.ok) return Result<LoadedRoad>::Fail(next_id.failure_category, next_id.error);
 
@@ -1248,6 +1264,20 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
                                                        marking_enabled.value == 1,
                                                        marking_role.value,
                                                        MarkingStyleId{marking_style.value}}});
+    }
+    if (has_saved_alignment_offset) {
+      Result<double> offset =
+          reader.RequireDouble(prefix + ".alignment_offset_from_left_m");
+      if (!offset.ok) return Result<LoadedRoad>::Fail(offset.failure_category, offset.error);
+      section.alignment_offset_from_left_m = offset.value;
+    } else {
+      // Version 11 placed every layout on the middle of its own total width.
+      // Resolve that into the concrete offset once, here, so nothing downstream
+      // has to keep the old rule around.
+      double total_width = 0.0;
+      for (const RoadLayoutStrip& strip : section.strips) total_width += strip.width_m;
+      for (const BoundaryProfile& boundary : section.boundaries) total_width += boundary.width_m;
+      section.alignment_offset_from_left_m = total_width * 0.5;
     }
     loaded.graph.layout_templates.push_back(std::move(section));
   }

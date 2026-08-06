@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -297,6 +298,17 @@ struct RoadLayoutTemplate {
   std::vector<RoadLayoutStrip> strips{};
   std::vector<LaneBand> lane_bands{};
   std::vector<BoundaryProfile> boundaries{};
+  // Where the segment alignment runs through the layout: the lateral distance
+  // from the layout's left outer end, looking along the segment, to the
+  // alignment. Everything the layout places is measured from the left outer end
+  // and reported relative to the alignment, so this is what keeps lanes still
+  // when a layout gains width on one side. It is not derived from the total
+  // width, and it is not the edge datum of a future edge structure.
+  //
+  // There is no meaningful default: a layout that never set it is rejected as
+  // invalid rather than silently centred.
+  double alignment_offset_from_left_m =
+      std::numeric_limits<double>::quiet_NaN();
 };
 struct DistanceRef { DistanceRefKind kind = DistanceRefKind::kFromStart; double value = 0.0; };
 struct RoadLayoutTransitionRule {

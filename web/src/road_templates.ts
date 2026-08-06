@@ -57,6 +57,33 @@ export interface RoadSectionInput {
   strips: RoadSectionStripInput[];
   laneBands: RoadSectionLaneInput[];
   boundaries: RoadSectionBoundaryInput[];
+  /**
+   * Where the segment alignment runs through the section, measured from the
+   * left outer end looking along the segment. Every section here puts it on the
+   * middle of the total width, which is what these roads mean; a section that
+   * wanted the alignment somewhere else would say so here rather than have Core
+   * infer it.
+   */
+  alignmentOffsetFromLeftM: number;
+}
+
+function centredAlignment(
+  strips: RoadSectionStripInput[],
+  boundaries: RoadSectionBoundaryInput[]
+): number {
+  const total =
+    strips.reduce((sum, strip) => sum + strip.widthM, 0) +
+    boundaries.reduce((sum, boundary) => sum + boundary.widthM, 0);
+  return total / 2;
+}
+
+function centred(
+  section: Omit<RoadSectionInput, "alignmentOffsetFromLeftM">
+): RoadSectionInput {
+  return {
+    ...section,
+    alignmentOffsetFromLeftM: centredAlignment(section.strips, section.boundaries)
+  };
 }
 
 export interface RoadTemplatePreset {
@@ -72,7 +99,7 @@ const outerLine: RoadSectionMarkingInput = {
 };
 const centerLine: RoadSectionMarkingInput = { role: "center_line", style: "center_line" };
 
-const urbanTwoLane: RoadSectionInput = {
+const urbanTwoLane: RoadSectionInput = centred({
   strips: [
     { id: 10, function: "sidewalk", widthM: 2.0, crossSlope: 0.01, surfaceStyle: "sidewalk" },
     { id: 20, function: "carriageway", widthM: 3.0, crossSlope: 0.02, surfaceStyle: "asphalt" },
@@ -88,9 +115,9 @@ const urbanTwoLane: RoadSectionInput = {
     { id: 200, role: "lane_divider", widthM: 0.0, heightM: 0.0, marking: centerLine },
     { id: 300, role: "curb", widthM: 0.2, heightM: 0.15, marking: outerLine }
   ]
-};
+});
 
-const threeLane: RoadSectionInput = {
+const threeLane: RoadSectionInput = centred({
   strips: [
     { id: 10, function: "sidewalk", widthM: 2.0, crossSlope: 0.01, surfaceStyle: "sidewalk" },
     { id: 20, function: "carriageway", widthM: 3.0, crossSlope: 0.02, surfaceStyle: "asphalt" },
@@ -109,15 +136,15 @@ const threeLane: RoadSectionInput = {
     { id: 250, role: "lane_divider", widthM: 0.0, heightM: 0.0, marking: centerLine },
     { id: 300, role: "curb", widthM: 0.2, heightM: 0.15, marking: outerLine }
   ]
-};
+});
 
-const noLeftSidewalk: RoadSectionInput = {
+const noLeftSidewalk: RoadSectionInput = centred({
   strips: urbanTwoLane.strips.slice(1),
   laneBands: urbanTwoLane.laneBands,
   boundaries: urbanTwoLane.boundaries.slice(1)
-};
+});
 
-const medianTwoLane: RoadSectionInput = {
+const medianTwoLane: RoadSectionInput = centred({
   strips: [
     urbanTwoLane.strips[0],
     urbanTwoLane.strips[1],
@@ -132,9 +159,9 @@ const medianTwoLane: RoadSectionInput = {
     { id: 220, role: "median_edge", widthM: 0.2, heightM: -0.12 },
     { id: 300, role: "curb", widthM: 0.2, heightM: 0.15, marking: outerLine }
   ]
-};
+});
 
-const shoulderedTwoLane: RoadSectionInput = {
+const shoulderedTwoLane: RoadSectionInput = centred({
   strips: [
     { id: 10, function: "sidewalk", widthM: 2.0, crossSlope: 0.01, surfaceStyle: "sidewalk" },
     { id: 15, function: "shoulder", widthM: 0.75, crossSlope: 0.02, surfaceStyle: "asphalt" },
@@ -154,7 +181,7 @@ const shoulderedTwoLane: RoadSectionInput = {
     { id: 250, role: "outer_edge", widthM: 0.0, heightM: 0.0, marking: outerLine },
     { id: 300, role: "curb", widthM: 0.2, heightM: 0.15 }
   ]
-};
+});
 
 export interface SeededRoadSections {
   labels: Record<number, string>;

@@ -246,10 +246,16 @@ resolve_junction_section(const ConnectionGate &gate) {
         CommitFailureCategory::kNotImplemented,
         "road junction section requires two road outer edges");
   }
-  const double section_center_m =
-      (road_outer_edges.front()->lateral_m +
-       road_outer_edges.back()->lateral_m) *
-      0.5;
+  // Which side of the road a boundary belongs to is decided by which road outer
+  // edge it sits nearer to. The alignment is not recovered from those two edges:
+  // it is the gate position the samples are already measured against, so an
+  // off-centre layout keeps the same origin here as it has on the segment.
+  const auto nearer_side = [&road_outer_edges](double lateral_m) {
+    return std::abs(lateral_m - road_outer_edges.front()->lateral_m) <
+                   std::abs(lateral_m - road_outer_edges.back()->lateral_m)
+               ? 0
+               : 1;
+  };
   std::array<std::vector<const SectionBoundarySample *>, 2> side_curbs{};
   for (auto &[id, samples] : curb_groups) {
     (void)id;
@@ -261,16 +267,16 @@ resolve_junction_section(const ConnectionGate &gate) {
     std::sort(samples.begin(), samples.end(), [](const auto *a, const auto *b) {
       return a->lateral_m < b->lateral_m;
     });
-    const double midpoint =
-        (samples.front()->lateral_m + samples.back()->lateral_m) * 0.5;
-    side_curbs[midpoint < section_center_m ? 0 : 1].push_back(samples.front());
-    side_curbs[midpoint < section_center_m ? 0 : 1].push_back(samples.back());
+    const int side =
+        nearer_side((samples.front()->lateral_m + samples.back()->lateral_m) *
+                    0.5);
+    side_curbs[side].push_back(samples.front());
+    side_curbs[side].push_back(samples.back());
   }
   std::array<std::vector<const SectionBoundarySample *>, 2>
       side_carriageway_edges{};
   for (const SectionBoundarySample *boundary : carriageway_edges) {
-    side_carriageway_edges[boundary->lateral_m < section_center_m ? 0 : 1]
-        .push_back(boundary);
+    side_carriageway_edges[nearer_side(boundary->lateral_m)].push_back(boundary);
   }
   if (side_curbs[0].size() > 2 || side_curbs[1].size() > 2 ||
       side_carriageway_edges[0].size() > 1 ||

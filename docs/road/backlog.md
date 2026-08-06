@@ -21,32 +21,32 @@
 
 ## 端部構造
 
-`architecture.md` の edge datum 契約は決めただけで、実装は現行と衝突している。着手前に次を解消する。
+`architecture.md` の edge datum 契約は決めただけで、端部構造の実装はない。着手前に次を解消する。
 番号順に依存する。
 
-1. **断面の横基準が幅の合計から出ている。** `geometry/section.cpp:171` と `:282` は
-   `lateral = -total_width * 0.5` で断面を総幅の中央に置く。端部構造の幅を変えると車道が
-   中心線に対して動く。edge datum を保持するには断面へ明示的な横基準を持たせる必要がある。
-2. **`BoundaryProfile` が 2 点の斜面しか表せない。** `derive_boundaries` は boundary ごとに
+- ~~**断面の横基準が幅の合計から出ている。**~~ 解決済み。`RoadLayoutTemplate` が
+  `alignment_offset_from_left_m` を持ち、断面は左外端から積み上げる。契約は
+  `architecture.md` の「Layout alignment origin」。**これは alignment origin だけで、
+  edge datum ではない。**
+- ~~**交差点が独自に中心を再計算する。**~~ 解決済み。junction は gate 位置を基準に断面を置き、
+  外端 2 点の中点は左右の振り分けにしか使わない。ただし側 boundary が 2 個を超えると
+  `NotImplemented` で拒否するのは変わっていないので、複数点の断面はそのままでは通らない。
+
+1. **`BoundaryProfile` が 2 点の斜面しか表せない。** `derive_boundaries` は boundary ごとに
    前後 2 sample しか出さない。溝底・垂直面・上面・受け部・地中面を区別できない。edge datum
    相対座標の閉じた断面 polygon が要る。
-3. **交差点が独自に中心を再計算する。** `geometry/junction.cpp:249` の `section_center_m` は
-   道路外端 2 点の中点。端部構造を足すと外端が動き、junction 側の基準も動く。segment の datum を
-   接続 gate 経由で junction へ渡す経路が要る。同ファイルは side boundary が 2 個を超えると
-   `NotImplemented` で拒否するので、複数点の断面はそのままでは通らない。
-4. **接続が断面 style の完全一致を要求する。** `connection_geometry_from_gates` は
+2. **接続が断面 style の完全一致を要求する。** `connection_geometry_from_gates` は
    `surface_styles` が違うと `NotImplemented`。片側だけ溝がある、左右で溝が違う、という組合せは
    corner で通らない。
-5. **遷移が幅を線形補間する。** `interpolate_section` は strip / boundary の幅を線形に混ぜるので、
+3. **遷移が幅を線形補間する。** `interpolate_section` は strip / boundary の幅を線形に混ぜるので、
    溝が幅 0 から生えて途中で不正な断面になる。端部構造は遷移で連続かどうかを別に決める。
-6. **archive に置き場がない。** version 11 の boundary field は
+4. **archive に断面 polygon の置き場がない。** version 12 の boundary field は
    `.boundary_id .role .width_m .height_m .marking.*` だけ。断面 polygon、面ごとの勾配、socket、
-   地中面を保存する field はない。version 12 と migration 方針を先に決める。
-7. **`Mesh` に法線と UV がない。** `derived_types/derived_road.hpp:54` は頂点と index だけを持つ。
+   地中面を保存する field はない。version 13 と migration 方針を先に決める。
+5. **`Mesh` に法線と UV がない。** `derived_types/derived_road.hpp` は頂点と index だけを持つ。
    L 字溝の hard edge は表現できない。**現状 hard edge は未対応。** Unreal へ出す前に片付ける。
 
-上のうち 1 と 3 は「端部構造 profile を変えても道路中心線が動かない」を満たすために両方要る。
-2 が済むまで 4・5 は評価できない。6 は 2 の形が決まってから。
+1 が済むまで 2・3 は評価できない。4 は 1 の形が決まってから。
 
 ## 却下
 
@@ -61,5 +61,6 @@
 
 ## 保存互換性
 
-手動線・手動面・lane connection・boundary continuationは `SavedRoadGraph` に残り、archive version 11 で読み書きできる。
+手動線・手動面・lane connection・boundary continuationは `SavedRoadGraph` に残り、archive version 12 で読み書きできる。
+version 11 の workspace も開ける。layout の alignment offset だけを保存幅から解決し、他は v11 のまま読む。
 標準UIとpublic APIから外しただけで、既存workspaceは開ける。保存fieldの削除は別途migration方針を決めてから行う。

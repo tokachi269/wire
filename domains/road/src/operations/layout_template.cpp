@@ -102,6 +102,8 @@ using internal::subtract;
                                 "section template lane allocation is invalid");
     }
   }
+  double total_width = 0.0;
+  for (const RoadLayoutStrip& strip : section.strips) total_width += strip.width_m;
   ids.clear();
   for (const BoundaryProfile& boundary : section.boundaries) {
     if (boundary.boundary_id == 0 || !ids.insert(boundary.boundary_id).second || !is_finite(boundary.width_m) ||
@@ -115,6 +117,17 @@ using internal::subtract;
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "section template marking policy is invalid");
     }
+    total_width += boundary.width_m;
+  }
+  // The alignment has to fall inside the layout it belongs to. A layout that
+  // never set the offset arrives here non-finite and is rejected, so no caller
+  // gets a silently centred road.
+  if (!is_finite(section.alignment_offset_from_left_m) ||
+      section.alignment_offset_from_left_m < -distance_epsilon ||
+      section.alignment_offset_from_left_m > total_width + distance_epsilon) {
+    return Result<bool>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "section template alignment offset is outside the layout width");
   }
   return Result<bool>::Ok(true);
 }

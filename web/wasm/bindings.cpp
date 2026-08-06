@@ -1404,6 +1404,12 @@ public:
   // never chooses the ID.
   val add_section_template(const val& input) {
     city::road::RoadLayoutTemplate section{};
+    const val alignment_offset = input["alignmentOffsetFromLeftM"];
+    if (alignment_offset.isUndefined() || alignment_offset.isNull()) {
+      return road_result_value(false, "road layout alignment offset is required",
+                               city::road::CommitFailureCategory::kInvalidInput);
+    }
+    section.alignment_offset_from_left_m = alignment_offset.as<double>();
     const val strips = input["strips"];
     const auto strip_count = strips["length"].as<unsigned>();
     for (unsigned index = 0; index < strip_count; ++index) {
@@ -1759,6 +1765,7 @@ public:
     for (const auto& section : graph.layout_templates) {
       val item = val::object();
       item.set("id", static_cast<double>(section.id));
+      item.set("alignmentOffsetFromLeftM", section.alignment_offset_from_left_m);
       double sidewalk_width = 0.0;
       double lane_width = 0.0;
       double median_width = 0.0;
@@ -2069,6 +2076,15 @@ public:
       return road_result_value(false, "section template does not exist", city::road::CommitFailureCategory::kInvalidInput);
     }
     city::road::RoadLayoutTemplate section = *it;
+    // Changing widths moves the layout's outer ends, and only the caller knows
+    // whether the alignment should follow. Core does not guess which width the
+    // edit meant to hold still.
+    const val alignment_offset = input["alignmentOffsetFromLeftM"];
+    if (alignment_offset.isUndefined() || alignment_offset.isNull()) {
+      return road_result_value(false, "road layout alignment offset is required",
+                               city::road::CommitFailureCategory::kInvalidInput);
+    }
+    section.alignment_offset_from_left_m = alignment_offset.as<double>();
     const double sidewalk_width = input["sidewalkWidthM"].as<double>();
     const double lane_width = input["laneWidthM"].as<double>();
     const double median_width = input["medianWidthM"].as<double>();

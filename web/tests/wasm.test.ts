@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { loadWireModule, type RoadStateHandle, type WireStateHandle } from "../src/bridge/wasm";
+import type { RoadSectionInput } from "../src/road_templates";
 import { ROAD_TEMPLATE_PRESETS, seedRoadSections } from "../src/road_templates";
 import { CommitFailureCategory, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
 import {
@@ -1661,6 +1662,45 @@ describe("road wasm smoke", () => {
     }
   });
 
+  it("registers each preset with the alignment offset the preset asked for", () => {
+    const road = createRoadState();
+    try {
+      const registered = road.scene().roadLayoutTemplates;
+      expect(registered.length).toBe(ROAD_TEMPLATE_PRESETS.length);
+      // The presets are registered in order, so the ID Core handed back for the
+      // Nth registration belongs to the Nth preset.
+      registered.forEach((template, index) => {
+        const preset = ROAD_TEMPLATE_PRESETS[index];
+        expect(
+          template.alignmentOffsetFromLeftM,
+          `${preset.label} lost its alignment offset`
+        ).toBeCloseTo(preset.section.alignmentOffsetFromLeftM, 12);
+      });
+      // A section with no sidewalk on one side is still centred on its own
+      // width, which is what these presets mean; Core does not re-derive it.
+      const noLeftSidewalk = registered[2];
+      expect(noLeftSidewalk.alignmentOffsetFromLeftM).toBeCloseTo(4.1, 12);
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("rejects a section that does not say where its alignment runs", () => {
+    const road = createEmptyRoadState();
+    try {
+      const { alignmentOffsetFromLeftM, ...withoutOffset } =
+        ROAD_TEMPLATE_PRESETS[0].section;
+      expect(alignmentOffsetFromLeftM).toBeGreaterThan(0);
+      const added = road.addRoadLayoutTemplate(
+        withoutOffset as unknown as RoadSectionInput
+      );
+      expect(added.ok).toBe(false);
+      expect(road.scene().roadLayoutTemplateCount).toBe(0);
+    } finally {
+      road.delete();
+    }
+  });
+
   it("edits one shared section without touching roads on another", () => {
     const road = createRoadState();
     try {
@@ -1688,22 +1728,29 @@ describe("road wasm smoke", () => {
         });
       expect(draw(sectionId, 0).ok).toBe(true);
       expect(draw(other!.id, 200).ok).toBe(true);
-      const widthOf = (templateId: number) =>
-        road.scene().roadLayoutTemplates.find((template) => template.id === templateId)!
-          .laneWidthM;
+      const templateOf = (templateId: number) =>
+        road.scene().roadLayoutTemplates.find((template) => template.id === templateId)!;
+      const widthOf = (templateId: number) => templateOf(templateId).laneWidthM;
       const otherBefore = widthOf(other!.id);
+      const otherOffsetBefore = templateOf(other!.id).alignmentOffsetFromLeftM;
 
+      // Widening the strips moves the section's outer ends, so the caller says
+      // where the alignment should end up. This one keeps the road centred:
+      // 2.5 + 0.2 + 3.5 + 3.5 + 0.2 + 2.5 = 12.4m wide.
       const edited = road.updateRoadLayoutTemplate({
         id: sectionId,
         sidewalkWidthM: 2.5,
         laneWidthM: 3.5,
         medianWidthM: 2,
+        alignmentOffsetFromLeftM: 6.2,
         hasCenterLine: true,
         hasOuterLines: true
       });
       expect(edited.ok, edited.error).toBe(true);
       expect(widthOf(sectionId)).toBeCloseTo(3.5, 9);
+      expect(templateOf(sectionId).alignmentOffsetFromLeftM).toBeCloseTo(6.2, 9);
       expect(widthOf(other!.id)).toBe(otherBefore);
+      expect(templateOf(other!.id).alignmentOffsetFromLeftM).toBe(otherOffsetBefore);
     } finally {
       road.delete();
     }

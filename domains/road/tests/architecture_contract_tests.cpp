@@ -385,6 +385,102 @@ bool confirmation_boundaries_define_segment_units(std::string& failure) {
   return true;
 }
 
+RoadLayoutTemplate off_centre_layout() {
+  RoadLayoutTemplate layout = road_fixture::BidirectionalLayout(0);
+  layout.alignment_offset_from_left_m = 3.0;
+  return layout;
+}
+
+bool layout_alignment_offset_failures_are_atomic(std::string& failure) {
+  RoadState state{};
+  const auto accepted = road_fixture::AddLayout(state, off_centre_layout());
+  ROAD_CONTRACT_EXPECT(accepted != 0, "an off-centre layout was rejected");
+  const auto added = state.AddSegment(AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), accepted});
+  ROAD_CONTRACT_EXPECT(added.ok, added.error);
+
+  // An alignment that falls outside the layout it belongs to has no meaning,
+  // and neither adding nor editing such a layout may leave anything behind.
+  for (const double offset : {-0.5, 11.0,
+                              std::numeric_limits<double>::quiet_NaN()}) {
+    RoadLayoutTemplate rejected = road_fixture::BidirectionalLayout(0);
+    rejected.alignment_offset_from_left_m = offset;
+    ROAD_CONTRACT_EXPECT(
+        expect_failed_unchanged(
+            state,
+            [&] {
+              return state.AddRoadLayoutTemplate(
+                  AddRoadLayoutTemplateRequest{rejected});
+            },
+            "AddRoadLayoutTemplate with an out-of-range alignment", failure),
+        failure);
+
+    RoadLayoutTemplate edited = road_fixture::BidirectionalLayout(accepted);
+    edited.alignment_offset_from_left_m = offset;
+    ROAD_CONTRACT_EXPECT(
+        expect_failed_unchanged(
+            state,
+            [&] {
+              return state.EditRoadLayoutTemplate(
+                  EditRoadLayoutTemplateRequest{edited});
+            },
+            "EditRoadLayoutTemplate with an out-of-range alignment", failure),
+        failure);
+  }
+
+  // A layout that never said where its alignment runs is not a layout Core can
+  // place, so it is rejected the same way.
+  RoadLayoutTemplate unset = road_fixture::BidirectionalLayout(0);
+  unset.alignment_offset_from_left_m = RoadLayoutTemplate{}.alignment_offset_from_left_m;
+  ROAD_CONTRACT_EXPECT(
+      expect_failed_unchanged(
+          state,
+          [&] {
+            return state.AddRoadLayoutTemplate(AddRoadLayoutTemplateRequest{unset});
+          },
+          "AddRoadLayoutTemplate without an alignment offset", failure),
+      failure);
+  return true;
+}
+
+bool off_centre_layout_survives_reverse_input_and_repeat(std::string& failure) {
+  const auto build = [](bool reversed) {
+    RoadState state{};
+    const auto layout = road_fixture::AddLayout(state, off_centre_layout());
+    const Path path =
+        reversed ? MakePath({MakeLine({40.0, 0.0}, {0.0, 0.0})})
+                 : MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})});
+    const auto added = state.AddSegment(AddSegmentRequest{path, layout});
+    return std::pair{added.ok, derived_observation(state.derived())};
+  };
+  const auto forward = build(false);
+  const auto repeated = build(false);
+  const auto reversed = build(true);
+  ROAD_CONTRACT_EXPECT(forward.first && repeated.first && reversed.first,
+                       "an off-centre road could not be drawn");
+  ROAD_CONTRACT_EXPECT(forward.second == repeated.second,
+                       "the same off-centre input produced different geometry");
+
+  // Reversed input draws the same road the other way round, so the layout keeps
+  // the same distances to the alignment, measured from its own left outer end.
+  RoadState reverse_state{};
+  const auto reverse_layout = road_fixture::AddLayout(reverse_state, off_centre_layout());
+  ROAD_CONTRACT_EXPECT(
+      reverse_state
+          .AddSegment(AddSegmentRequest{
+              MakePath({MakeLine({40.0, 0.0}, {0.0, 0.0})}), reverse_layout})
+          .ok,
+      "the reversed off-centre road could not be drawn");
+  for (const SectionEvaluation* section :
+       road_test_view::sections(reverse_state.derived())) {
+    ROAD_CONTRACT_EXPECT(
+        std::abs(section->boundaries.front().lateral_m + 3.0) < 1e-9 &&
+            std::abs(section->boundaries.back().lateral_m - 7.4) < 1e-9,
+        "reversed input changed what the layout measures from");
+  }
+  return true;
+}
+
 bool reverse_input_has_equivalent_geometry(std::string& failure) {
   const Path forward_path = MakePath({
       MakeLine({0.0, 0.0}, {20.0, 0.0}),
@@ -708,6 +804,9 @@ bool add_segment_build_failure_is_atomic(std::string& failure) {
       BoundaryProfile{11, BoundaryRole::kCurb, 0.0, 0.15, {}},
       BoundaryProfile{21, BoundaryRole::kCurb, 0.0, -0.15, {}},
   };
+  // The widths overflow when they are summed, so the alignment sits at the left
+  // outer end: the layout is accepted and the geometry build is what fails.
+  unusable.alignment_offset_from_left_m = 0.0;
   const auto template_id = state.AddRoadLayoutTemplate(city::road::AddRoadLayoutTemplateRequest{std::move(unusable)});
   ROAD_CONTRACT_EXPECT(template_id.ok, template_id.error);
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
@@ -1760,6 +1859,10 @@ int main() {
        extension_leaves_the_existing_segment_bit_identical},
       {"reverse_input_has_equivalent_geometry",
        reverse_input_has_equivalent_geometry},
+      {"layout_alignment_offset_failures_are_atomic",
+       layout_alignment_offset_failures_are_atomic},
+      {"off_centre_layout_survives_reverse_input_and_repeat",
+       off_centre_layout_survives_reverse_input_and_repeat},
       {"extension_semantic_boundaries_are_atomic",
        extension_semantic_boundaries_are_atomic},
       {"isolated_segment_uses_simple_path", isolated_segment_uses_simple_path},

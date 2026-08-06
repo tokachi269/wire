@@ -311,6 +311,8 @@ city::road::RoadLayoutTemplate OneWayLaneTemplate(
   }
   section.boundaries.push_back(
       {900, BoundaryRole::kOuterEdge, 0.0, 0.0, edge});
+  section.alignment_offset_from_left_m =
+      road_fixture::CentredAlignmentOffset(section);
   return section;
 }
 
@@ -336,6 +338,8 @@ city::road::RoadLayoutTemplate SharedCarriagewayLaneTemplate(
       {100, BoundaryRole::kOuterEdge, 0.0, 0.0, {}},
       {900, BoundaryRole::kOuterEdge, 0.0, 0.0, {}},
   };
+  section.alignment_offset_from_left_m =
+      road_fixture::CentredAlignmentOffset(section);
   return section;
 }
 
@@ -500,8 +504,10 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=11\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=12\n") &&
                        saved.value.find("primitive=") == std::string::npos &&
+                       saved.value.find("section_template.0.alignment_offset_from_left_m=") !=
+                           std::string::npos &&
                        saved.value.find("section_template.0.lane_band.0.direction=") != std::string::npos &&
                        saved.value.find("lane_connection.count=0") != std::string::npos &&
                        saved.value.find("boundary_continuation.count=0") != std::string::npos &&
@@ -526,7 +532,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
     return archive;
   };
   std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=11").size(), "road_graph_version=4");
+  version4.replace(0, std::string("road_graph_version=12").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
   ROAD_TEST_EXPECT(!rejected.ok && rejected.failure_category == CommitFailureCategory::kInvalidInput,
                    "legacy road archive was not rejected");
@@ -547,12 +553,12 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
                    "non-finite road archive double was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.strip.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "12")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "13")).ok,
                    "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
   for (int old_version = 1; old_version <= 10; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=11").size(),
+    legacy.replace(0, std::string("road_graph_version=12").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
@@ -2688,6 +2694,8 @@ bool add_lane_supports_every_section_outer_side(
   single_strip.lane_bands = {
       {1000, 10, 0.0, 3.0,
        city::road::LaneTravelDirection::kAlongSegment}};
+  single_strip.alignment_offset_from_left_m =
+      road_fixture::CentredAlignmentOffset(single_strip);
   const auto section = single_strip_state.AddRoadLayoutTemplate(
       city::road::AddRoadLayoutTemplateRequest{single_strip});
   ROAD_TEST_EXPECT(section.ok, section.error);
@@ -3367,6 +3375,8 @@ bool RSL_section_axes_and_shoulder_are_independent(std::string& failure) {
       {100, 10, 0.0, 3.0},
       {200, 10, 3.0, 6.0},
   };
+  continuous.alignment_offset_from_left_m =
+      road_fixture::CentredAlignmentOffset(continuous);
   const auto template_id =
       state.AddRoadLayoutTemplate(city::road::AddRoadLayoutTemplateRequest{
           std::move(continuous)});
@@ -3473,6 +3483,324 @@ bool CRV_drawn_curve_bends_one_way_per_interval(std::string& failure) {
     ROAD_TEST_EXPECT(connection.kind != city::road::NodeConnectionKind::kCorner,
                      "drawn curve produced a corner between two intervals");
   }
+  return true;
+}
+
+// --- Layout alignment origin -------------------------------------------------
+// The layout says how far the alignment sits from its left outer end, so a
+// layout that gains width on one side moves only that side, and the alignment
+// itself stays on the segment path.
+
+city::road::RoadLayoutTemplate OffCentreLayout(double alignment_offset_m) {
+  city::road::RoadLayoutTemplate layout = road_fixture::BidirectionalLayout(0);
+  layout.alignment_offset_from_left_m = alignment_offset_m;
+  return layout;
+}
+
+std::optional<double> boundary_lateral(const city::road::SectionEvaluation& section,
+                                       BoundaryId id) {
+  std::optional<double> found{};
+  for (const auto& boundary : section.boundaries) {
+    if (boundary.boundary_id != id) continue;
+    if (!found.has_value() || boundary.lateral_m < *found) found = boundary.lateral_m;
+  }
+  return found;
+}
+
+std::vector<double> section_laterals(const RoadState& state) {
+  std::vector<double> out{};
+  for (const auto* section : road_test_view::sections(state.derived())) {
+    for (const auto& boundary : section->boundaries) out.push_back(boundary.lateral_m);
+  }
+  return out;
+}
+
+bool draw_straight_road(RoadState& state, city::road::RoadLayoutTemplateId layout,
+                        double length_m) {
+  const auto added = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {length_m, 0.0})}), layout});
+  return added.ok;
+}
+
+bool layout_alignment_origin_measures_from_the_left_outer_end(std::string& failure) {
+  // Bidirectional: 2 + 0.2 + 3 + 0 + 3 + 0.2 + 2 = 10.4m wide.
+  RoadState centred{};
+  const auto centred_layout =
+      road_fixture::AddLayout(centred, road_fixture::BidirectionalLayout(0));
+  ROAD_TEST_EXPECT(centred_layout != 0, "centred layout was rejected");
+  ROAD_TEST_EXPECT(draw_straight_road(centred, centred_layout, 60.0),
+                   "centred road could not be drawn");
+  const auto centred_sections = road_test_view::sections(centred.derived());
+  ROAD_TEST_EXPECT(!centred_sections.empty(), "centred road has no sections");
+  for (const auto* section : centred_sections) {
+    ROAD_TEST_EXPECT(std::abs(section->boundaries.front().lateral_m + 5.2) < 1e-12 &&
+                         std::abs(section->boundaries.back().lateral_m - 5.2) < 1e-12,
+                     "a symmetric layout no longer reaches 5.2m each way");
+    const auto divider = boundary_lateral(*section, 200);
+    ROAD_TEST_EXPECT(divider.has_value() && std::abs(*divider) < 1e-12,
+                     "a symmetric layout no longer puts its divider on the alignment");
+  }
+
+  // The same layout with the alignment 3m from its left outer end: the road is
+  // the same width, it just sits differently against the path it was drawn on.
+  RoadState off_centre{};
+  const auto off_centre_layout =
+      road_fixture::AddLayout(off_centre, OffCentreLayout(3.0));
+  ROAD_TEST_EXPECT(off_centre_layout != 0, "off-centre layout was rejected");
+  ROAD_TEST_EXPECT(draw_straight_road(off_centre, off_centre_layout, 60.0),
+                   "off-centre road could not be drawn");
+  const auto off_centre_sections = road_test_view::sections(off_centre.derived());
+  ROAD_TEST_EXPECT(!off_centre_sections.empty(), "off-centre road has no sections");
+  for (const auto* section : off_centre_sections) {
+    ROAD_TEST_EXPECT(std::abs(section->boundaries.front().lateral_m + 3.0) < 1e-12 &&
+                         std::abs(section->boundaries.back().lateral_m - 7.4) < 1e-12,
+                     "the alignment offset did not decide where the layout starts");
+  }
+
+  // The alignment itself is the drawn path either way.
+  const Path* centred_alignment = city::road::FindCanonicalAlignment(
+      centred.derived(), centred.graph().segments.front().id);
+  const Path* off_centre_alignment = city::road::FindCanonicalAlignment(
+      off_centre.derived(), off_centre.graph().segments.front().id);
+  ROAD_TEST_EXPECT(centred_alignment != nullptr && off_centre_alignment != nullptr,
+                   "a drawn road has no canonical alignment");
+  ROAD_TEST_EXPECT(
+      centred_alignment->spans.size() == off_centre_alignment->spans.size(),
+      "the alignment offset changed the alignment span count");
+  for (std::size_t index = 0; index < centred_alignment->spans.size(); ++index) {
+    const auto& a = centred_alignment->spans[index];
+    const auto& b = off_centre_alignment->spans[index];
+    ROAD_TEST_EXPECT(a.p0.x == b.p0.x && a.p0.y == b.p0.y && a.p3.x == b.p3.x &&
+                         a.p3.y == b.p3.y,
+                     "the alignment moved when the layout offset changed");
+  }
+  return true;
+}
+
+bool layout_widened_on_one_side_keeps_the_other_side_still(std::string& failure) {
+  const auto laterals_for = [](const city::road::RoadLayoutTemplate& layout,
+                               std::vector<double>& out) {
+    RoadState state{};
+    const auto id = road_fixture::AddLayout(state, layout);
+    if (id == 0 || !draw_straight_road(state, id, 60.0)) return false;
+    const auto sections = road_test_view::sections(state.derived());
+    if (sections.empty()) return false;
+    out.clear();
+    for (const auto& boundary : sections.front()->boundaries)
+      out.push_back(boundary.lateral_m);
+    return true;
+  };
+
+  std::vector<double> base{};
+  ROAD_TEST_EXPECT(laterals_for(road_fixture::BidirectionalLayout(0), base),
+                   "base layout could not be drawn");
+  ROAD_TEST_EXPECT(base.size() >= 4, "base layout has too few boundary samples");
+
+  // The left walkway grows by 1m and the alignment keeps its distance to the
+  // right end, so only the left outer end moves.
+  city::road::RoadLayoutTemplate wider_left = road_fixture::BidirectionalLayout(0);
+  wider_left.strips.front().width_m += 1.0;
+  wider_left.alignment_offset_from_left_m += 1.0;
+  std::vector<double> left{};
+  ROAD_TEST_EXPECT(laterals_for(wider_left, left), "left-widened layout could not be drawn");
+  ROAD_TEST_EXPECT(left.size() == base.size(),
+                   "widening one side changed the boundary sample count");
+  ROAD_TEST_EXPECT(std::abs((left.front() - base.front()) + 1.0) < 1e-12,
+                   "the widened left end did not move outward by its own width");
+  for (std::size_t index = 1; index < base.size(); ++index) {
+    ROAD_TEST_EXPECT(std::abs(left[index] - base[index]) < 1e-12,
+                     "widening the left side moved a boundary on the other side");
+  }
+
+  // The right walkway grows by 1m and the alignment keeps its distance to the
+  // left end, so only the right outer end moves.
+  city::road::RoadLayoutTemplate wider_right = road_fixture::BidirectionalLayout(0);
+  wider_right.strips.back().width_m += 1.0;
+  std::vector<double> right{};
+  ROAD_TEST_EXPECT(laterals_for(wider_right, right), "right-widened layout could not be drawn");
+  ROAD_TEST_EXPECT(right.size() == base.size(),
+                   "widening one side changed the boundary sample count");
+  ROAD_TEST_EXPECT(std::abs((right.back() - base.back()) - 1.0) < 1e-12,
+                   "the widened right end did not move outward by its own width");
+  for (std::size_t index = 0; index + 1 < base.size(); ++index) {
+    ROAD_TEST_EXPECT(std::abs(right[index] - base[index]) < 1e-12,
+                     "widening the right side moved a boundary on the other side");
+  }
+  return true;
+}
+
+bool add_lane_on_either_side_keeps_existing_lanes_still(std::string& failure) {
+  for (const city::road::RoadSide side :
+       {city::road::RoadSide::kLeft, city::road::RoadSide::kRight}) {
+    RoadState state{};
+    const auto layout = road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
+    const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), layout});
+    ROAD_TEST_EXPECT(segment.ok, segment.error);
+    const auto* corridor = city::road::FindCorridorForSegment(state.graph(), segment.value);
+    ROAD_TEST_EXPECT(corridor != nullptr, "added lane fixture corridor is missing");
+
+    // The new lane goes next to the outermost lane on the chosen side, so
+    // everything from there to the far outer end keeps its lateral position.
+    const std::vector<BoundaryId> held =
+        side == city::road::RoadSide::kLeft
+            ? std::vector<BoundaryId>{250ULL, 300ULL}
+            : std::vector<BoundaryId>{100ULL, 150ULL, 200ULL};
+    const auto before_sections = road_test_view::sections(state.derived());
+    ROAD_TEST_EXPECT(!before_sections.empty(), "added lane fixture has no sections");
+    std::vector<double> before{};
+    for (const BoundaryId id : held) {
+      const auto lateral = boundary_lateral(*before_sections.front(), id);
+      ROAD_TEST_EXPECT(lateral.has_value(), "added lane fixture boundary is missing");
+      before.push_back(*lateral);
+    }
+
+    city::road::AddLaneRequest request{};
+    request.corridor_id = corridor->id;
+    request.direction = city::road::LaneTravelDirection::kAlongSegment;
+    request.side = side;
+    ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
+                     "added lane range could not be resolved");
+    request.lane_width_m = 3.0;
+    const auto added = state.AddLane(request);
+    ROAD_TEST_EXPECT(added.ok, added.error);
+
+    for (const auto* section : road_test_view::sections(state.derived())) {
+      for (std::size_t index = 0; index < held.size(); ++index) {
+        const auto lateral = boundary_lateral(*section, held[index]);
+        ROAD_TEST_EXPECT(lateral.has_value() &&
+                             std::abs(*lateral - before[index]) < 1e-9,
+                         "adding a lane moved boundary " +
+                             std::to_string(held[index]) + " on the other side");
+      }
+    }
+  }
+  return true;
+}
+
+bool layout_alignment_basis_is_continuous_across_a_transition(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
+  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), layout});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const auto* corridor = city::road::FindCorridorForSegment(state.graph(), segment.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "transition fixture corridor is missing");
+
+  city::road::AddLaneRequest request{};
+  request.corridor_id = corridor->id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
+                   "transition range could not be resolved");
+  request.lane_width_m = 3.0;
+  ROAD_TEST_EXPECT(state.AddLane(request).ok, "transition lane was not added");
+
+  // The offset in force at a distance is what the left outer end reports. It
+  // has to grow with the road rather than jump back to half the total width.
+  const auto sections = road_test_view::sections(state.derived());
+  ROAD_TEST_EXPECT(sections.size() >= 3, "transition produced too few sections");
+  double previous = -sections.front()->boundaries.front().lateral_m;
+  double widest = 0.0;
+  for (const auto* section : sections) {
+    const double offset = -section->boundaries.front().lateral_m;
+    const double width = section->boundaries.back().lateral_m -
+                         section->boundaries.front().lateral_m;
+    ROAD_TEST_EXPECT(std::abs(offset - previous) < 1e-9,
+                     "the alignment basis jumped across the transition");
+    widest = std::max(widest, width);
+    previous = offset;
+  }
+  ROAD_TEST_EXPECT(widest > sections.front()->boundaries.back().lateral_m -
+                                 sections.front()->boundaries.front().lateral_m + 1e-9,
+                   "the transition never widened the road");
+  ROAD_TEST_EXPECT(std::abs(previous * 2.0 - widest) > 1e-6,
+                   "the widened road was recentred on half its total width");
+  return true;
+}
+
+bool off_centre_layout_keeps_its_alignment_through_a_junction(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, OffCentreLayout(3.0));
+  ROAD_TEST_EXPECT(layout != 0, "off-centre junction layout was rejected");
+  const auto first = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), layout});
+  ROAD_TEST_EXPECT(first.ok, first.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), layout, first.value,
+          40.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1, "the three roads did not form one junction");
+
+  for (const auto& gate : road_test_view::gates_of(*junctions.front())) {
+    ROAD_TEST_EXPECT(!gate.boundaries.empty(), "a junction gate carries no section");
+    const double left = gate.boundaries.front().lateral_m;
+    const double right = gate.boundaries.back().lateral_m;
+    ROAD_TEST_EXPECT(std::abs(left + 3.0) < 1e-9 && std::abs(right - 7.4) < 1e-9,
+                     "a junction gate re-measured the layout from somewhere else");
+    ROAD_TEST_EXPECT(std::abs((left + right) * 0.5) > 1e-6,
+                     "the off-centre layout was recentred between its outer edges");
+  }
+  return true;
+}
+
+bool saved_layout_alignment_offset_survives_reload(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, OffCentreLayout(3.0));
+  ROAD_TEST_EXPECT(layout != 0, "off-centre layout was rejected");
+  ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0), "off-centre road could not be drawn");
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  const auto& restored = loaded.value.graph().layout_templates;
+  ROAD_TEST_EXPECT(restored.size() == 1 &&
+                       restored.front().alignment_offset_from_left_m == 3.0,
+                   "the saved alignment offset did not come back");
+  ROAD_TEST_EXPECT(section_laterals(state) == section_laterals(loaded.value),
+                   "reloading an off-centre road produced different geometry");
+  const auto saved_again = loaded.value.Save();
+  ROAD_TEST_EXPECT(saved_again.ok && saved_again.value == saved.value,
+                   "an off-centre road did not save back bit-identically");
+  return true;
+}
+
+bool version_eleven_archive_resolves_a_centred_alignment(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0), "road could not be drawn");
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+
+  // Version 11 had no alignment offset and put every layout on the middle of
+  // its own width, so drop the field and say version 11.
+  std::string legacy{};
+  std::istringstream lines{saved.value};
+  std::string line{};
+  bool dropped = false;
+  while (std::getline(lines, line)) {
+    if (line.find(".alignment_offset_from_left_m=") != std::string::npos) {
+      dropped = true;
+      continue;
+    }
+    if (line == "road_graph_version=12") line = "road_graph_version=11";
+    legacy += line;
+    legacy += '\n';
+  }
+  ROAD_TEST_EXPECT(dropped, "the archive under test has no alignment offset to drop");
+
+  const auto loaded = RoadState::Load(legacy);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  ROAD_TEST_EXPECT(section_laterals(state) == section_laterals(loaded.value),
+                   "a version 11 road did not come back with the geometry it had");
+  ROAD_TEST_EXPECT(loaded.value.graph().layout_templates.front().alignment_offset_from_left_m ==
+                       state.graph().layout_templates.front().alignment_offset_from_left_m,
+                   "a version 11 layout was not resolved onto the middle of its width");
+  const auto resaved = loaded.value.Save();
+  ROAD_TEST_EXPECT(resaved.ok && resaved.value == saved.value,
+                   "a migrated road did not save as the current version");
   return true;
 }
 
@@ -3585,6 +3913,20 @@ int main() {
       {"RSL_section_axes_and_shoulder_are_independent",
        RSL_section_axes_and_shoulder_are_independent},
       {"CRV_drawn_curve_bends_one_way_per_interval", CRV_drawn_curve_bends_one_way_per_interval},
+      {"layout_alignment_origin_measures_from_the_left_outer_end",
+       layout_alignment_origin_measures_from_the_left_outer_end},
+      {"layout_widened_on_one_side_keeps_the_other_side_still",
+       layout_widened_on_one_side_keeps_the_other_side_still},
+      {"add_lane_on_either_side_keeps_existing_lanes_still",
+       add_lane_on_either_side_keeps_existing_lanes_still},
+      {"layout_alignment_basis_is_continuous_across_a_transition",
+       layout_alignment_basis_is_continuous_across_a_transition},
+      {"off_centre_layout_keeps_its_alignment_through_a_junction",
+       off_centre_layout_keeps_its_alignment_through_a_junction},
+      {"saved_layout_alignment_offset_survives_reload",
+       saved_layout_alignment_offset_survives_reload},
+      {"version_eleven_archive_resolves_a_centred_alignment",
+       version_eleven_archive_resolves_a_centred_alignment},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

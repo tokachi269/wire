@@ -27,6 +27,11 @@ using city::road::RoadState;
 // Shoulders between the lanes and the walkways, with their own outer edges.
 [[nodiscard]] RoadLayoutTemplate ShoulderedLayout(RoadLayoutTemplateId id);
 
+// Puts the alignment on the middle of the layout's own total width. The layouts
+// above use it because they are symmetric; a test that wants the alignment
+// somewhere else sets `alignment_offset_from_left_m` itself.
+[[nodiscard]] double CentredAlignmentOffset(const RoadLayoutTemplate& layout);
+
 // Registers one layout and reports the ID Core assigned, or 0 on failure.
 [[nodiscard]] RoadLayoutTemplateId AddLayout(RoadState& state,
                                              RoadLayoutTemplate layout);

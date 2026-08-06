@@ -36,6 +36,7 @@ RoadLayoutTemplate BidirectionalLayout(RoadLayoutTemplateId id) {
       {200, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
       {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
   };
+  layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
   return layout;
 }
 
@@ -59,6 +60,7 @@ RoadLayoutTemplate ExtraLaneLayout(RoadLayoutTemplateId id) {
       {250, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
       {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
   };
+  layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
   return layout;
 }
 
@@ -66,6 +68,7 @@ RoadLayoutTemplate AsymmetricLayout(RoadLayoutTemplateId id) {
   RoadLayoutTemplate layout = BidirectionalLayout(id);
   layout.strips.erase(layout.strips.begin());
   layout.boundaries.erase(layout.boundaries.begin());
+  layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
   return layout;
 }
 
@@ -80,6 +83,7 @@ RoadLayoutTemplate MedianLayout(RoadLayoutTemplateId id) {
       {220, BoundaryRole::kMedianEdge, 0.2, -0.12, {}},
       {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
   };
+  layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
   return layout;
 }
 
@@ -111,7 +115,15 @@ RoadLayoutTemplate ShoulderedLayout(RoadLayoutTemplateId id) {
       {250, BoundaryRole::kOuterEdge, 0.0, 0.0, outer_line},
       {300, BoundaryRole::kCurb, 0.2, 0.15, {}},
   };
+  layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
   return layout;
+}
+
+double CentredAlignmentOffset(const RoadLayoutTemplate& layout) {
+  double total_width = 0.0;
+  for (const auto& strip : layout.strips) total_width += strip.width_m;
+  for (const auto& boundary : layout.boundaries) total_width += boundary.width_m;
+  return total_width * 0.5;
 }
 
 RoadLayoutTemplateId AddLayout(RoadState& state,

@@ -56,6 +56,16 @@ Splits before or after a ratio-based section transition are supported and
 re-normalize the transition `t` onto the segment that retains it. A split inside
 the transition is rejected with a specific reason and leaves state unchanged.
 
+Edge structures with their own cross section — an L-shaped gutter and anything
+else that owns a road-facing vertical face — are not supported. `BoundaryProfile`
+carries one width and one height, so a section that needs a channel floor, a
+vertical face and a top face separately has no field to be submitted in:
+`AddRoadLayoutTemplate` accepts no such shape rather than accepting it and
+approximating. A curb is not substituted for the requested shape, and nothing is
+dropped at junctions to let the segments through. `architecture.md` fixes the
+edge datum contract such a structure would have to satisfy; `backlog.md` lists
+what blocks it.
+
 Lane Branch and Merge are not available. Their editor asked the user to pick a
 raw boundary ID and auto-selected a default, so the operation was removed rather
 than hidden. Lane connections inside a junction are still derived by Core. See

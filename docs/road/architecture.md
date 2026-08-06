@@ -390,6 +390,104 @@ Viewerの通常削除はhover hitが持つ`RoadSegmentId`のsegment全体をハ�
 lane connection、boundary continuationをnamed fieldで保存し、version 10以前はmigrationせず明示rejectする。
 corridor長、累積distance、connection geometryは派生なので保存しない。
 
+## Edge datum と envelope
+
+L字溝のように幅と立体断面を持つ端部構造をいつか置くために、「道路幅がどこまでを意味するか」と
+「meshがどこまで張り出すか」を先に決める。**この契約は未実装である。** 現行実装との衝突は
+`backlog.md` の「端部構造」に一覧がある。
+
+### edge datum
+
+端部構造の**道路側を向いた垂直面の、道路側表面**を横方向の基準面とする。これを edge datum と呼ぶ。
+壁厚の中心でも外側面でもない。
+
+```text
+   道路中心                                        edge datum
+      |                                                 |
+      |<---------- 車道 ---------->|<-- 溝 -->|         |<-- 歩道 -->|
+      |                            |          |         |            |
+   ───┴────────────────────────────┐          │         ┌────────────
+                                    \         │         │
+                                     \________│         │  ← 上面(歩道側surface)
+                                              └─────────┘
+                                    ↑        ↑          ↑
+                              道路側接続面  溝底      垂直面
+                              (路面勾配を継承)      (= edge datum)
+
+      |<------ 道路側のlayout幅 ------>|<------ 歩道幅 2.0m ------->|
+                                        |<0.2m>|<---- 1.8m ------->|
+                                         上面    残りの歩道面
+```
+
+- 道路側の意味上の幅は edge datum まで
+- 歩道幅は edge datum から外側
+- 端部構造の下面と溝部分は**道路側 surface** の一部
+- 上面は**歩道側 surface** の一部
+- 上面幅は歩道幅を消費する。歩道 2.0m に上面 0.2m を置いたら残りの歩道面は 1.8m で、合計は 2.0m のまま
+
+端部構造を足したことで道路幅や歩道幅を単純加算で広げない。溝を道路幅の外へ後付けしない。
+
+### 三つの envelope
+
+| envelope | 意味 | 用途 |
+|---|---|---|
+| layout envelope | 道路幅・歩道幅を測る意味上の外端。edge datum と layout datum が属する | 車線、白線、幅の検証 |
+| visible envelope | 上面・縁石など目に見える mesh の最外端 | 電柱・壁の離隔 |
+| structural envelope | 地中の基礎や下部張り出しを含む構造上の最外端 | 敷地境界との離隔 |
+
+三者は一致しなくてよい。歩道がある場合は普通 layout envelope が最も外側になり、歩道がない場合は
+visible envelope が layout envelope の外へ出る。
+
+### 歩道がない場合
+
+歩道がなくても edge datum を内側へ自動移動させない。
+
+- 道路の layout 上の幅は edge datum まで
+- 上面は layout 幅の外へ張り出してよい
+- 張り出した範囲は visible envelope に含める
+
+幅制限のために外へ出せない場合、mesh 生成時に内側へ寄せたり車道幅を縮めたりしない。上位が
+「より小さい端部構造を使う」「道路幅を変える」「端部構造を使わない」「要求を unsupported として拒否する」の
+いずれかを明示的に選ぶ。敷地制限の自動解決は行わない。
+
+### 交差点と接続部
+
+segment、corner、junction で edge datum の意味を変えない。
+
+```text
+segment 上の edge datum → connection gate 上の edge datum → junction 内の datum curve
+```
+
+を連続させ、その両側に端部構造の surface を派生させる。端部構造の形に合わせて datum を局所的に
+内外へ動かさない。交差点で端部構造の join を実装しない範囲は、生成前に接続形状ごと明示的に
+unsupported として拒否する。segment mesh だけ作って junction で端部構造を消す、別の境界形状へ
+fallback する、といった処理はしない。
+
+### 将来の object 配置基準
+
+電柱・壁・金網・標識を置くとき、**生成 mesh の bounding box から道路端を推測しない。** 次を区別する。
+
+| 参照線 | 用途 |
+|---|---|
+| edge datum | 歩道の開始位置 |
+| layout datum / layout envelope | 車線、白線 |
+| road-side visible surface edge | 路面の見た目の端 |
+| visible outer edge | 電柱の離隔 |
+| structural outer edge | 建物壁・敷地境界の離隔 |
+| profile 固有 socket | 金網、蓋 |
+
+これらは設計上の区別であり、consumer ができるまで public API にはしない。
+
+### 採用しなかった代替案
+
+| 案 | 却下理由 |
+|---|---|
+| 端部構造を道路幅の外へ単純加算する | 歩道 2.0m に上面 0.2m を足すと 2.2m になる。設定幅と実際の幅が一致しなくなる |
+| 歩道なしのときだけ datum を内側へ移す | datum の意味が断面構成で変わる。歩道の有無で車道幅が動く |
+| mesh の bbox を道路端として使う | 派生結果から意味を逆算することになる。基礎や張り出しを足すたびに「道路端」が動く |
+| 交差点で datum を局所補正する | segment と junction で幅の意味が食い違う。接続部だけずれる |
+| width / height 一組で L 字溝を斜面として近似する | 溝底・垂直面・上面を区別できない。hard edge も蓋の受け部も表現できない |
+
 testはproductionと同じ`ValidateGraphInvariants`を代表scenarioの観測点とseed付き操作列の
 各stepで呼ぶ。test専用の別invariantや、派生値同士だけを比較する代替検査を作らない。
 

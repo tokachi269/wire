@@ -128,9 +128,8 @@ using internal::subtract;
                                   "section template boundary surface style is unknown");
       }
     }
-    // The datum is where the boundary sits in the layout, so the profile has to
-    // straddle it, and it has to fit inside the strips it reaches into or the
-    // section would fold back on itself.
+    // A profile reaching past the strip beside it would fold the section back on
+    // itself.
     const double reach_in = -boundary.contour.front().lateral_m;
     const double reach_out = boundary.contour.back().lateral_m;
     if (reach_in < -distance_epsilon || reach_out < -distance_epsilon ||
@@ -148,8 +147,7 @@ using internal::subtract;
                                 "section template marking policy is invalid");
     }
   }
-  // The alignment has to fall inside the layout it belongs to. A layout that
-  // never set the offset arrives here non-finite and is rejected, so no caller
+  // A layout that never set the offset arrives here non-finite, so no caller
   // gets a silently centred road.
   if (!is_finite(section.alignment_offset_from_left_m) ||
       section.alignment_offset_from_left_m < -distance_epsilon ||

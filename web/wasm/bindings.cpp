@@ -2088,9 +2088,7 @@ public:
       return road_result_value(false, "section template does not exist", city::road::CommitFailureCategory::kInvalidInput);
     }
     city::road::RoadLayoutTemplate section = *it;
-    // Changing widths moves the layout's outer ends, and only the caller knows
-    // whether the alignment should follow. Core does not guess which width the
-    // edit meant to hold still.
+    // Only the caller knows which width the edit meant to hold still.
     const val alignment_offset = input["alignmentOffsetFromLeftM"];
     if (alignment_offset.isUndefined() || alignment_offset.isNull()) {
       return road_result_value(false, "road layout alignment offset is required",

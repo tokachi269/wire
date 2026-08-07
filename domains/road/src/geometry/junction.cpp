@@ -246,18 +246,16 @@ resolve_junction_section(const ConnectionGate &gate) {
         CommitFailureCategory::kNotImplemented,
         "road junction section requires two road outer edges");
   }
-  // Which side of the road a boundary belongs to is decided by which road outer
-  // edge it sits nearer to. The alignment is not recovered from those two edges:
-  // it is the gate position the samples are already measured against, so an
-  // off-centre layout keeps the same origin here as it has on the segment.
+  // Nearer of the two outer edges, not a midpoint standing in for the
+  // alignment: the samples are already measured against the gate position.
   const auto nearer_side = [&road_outer_edges](double lateral_m) {
     return std::abs(lateral_m - road_outer_edges.front()->lateral_m) <
                    std::abs(lateral_m - road_outer_edges.back()->lateral_m)
                ? 0
                : 1;
   };
-  // A curb is however many profile points its structure needs; the junction
-  // only cares where that structure starts and ends.
+  // The junction only needs where a profile starts and ends, whatever it has
+  // in between.
   std::array<std::vector<const SectionBoundarySample *>, 2> side_curbs{};
   for (auto &[id, samples] : curb_groups) {
     (void)id;

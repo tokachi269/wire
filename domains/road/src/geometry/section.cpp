@@ -67,8 +67,6 @@ RoadLayoutTemplate interpolate_section(const RoadLayoutTemplate &from,
       to.strips.size() >= from.strips.size() ? to : from;
   RoadLayoutTemplate out{};
   out.id = t < 1.0 ? from.id : to.id;
-  // The alignment origin travels with the widths it is measured against, so it
-  // moves the same way they do across the transition.
   out.alignment_offset_from_left_m =
       from.alignment_offset_from_left_m +
       (to.alignment_offset_from_left_m - from.alignment_offset_from_left_m) * t;
@@ -106,8 +104,7 @@ RoadLayoutTemplate interpolate_section(const RoadLayoutTemplate &from,
     const BoundaryProfile *b =
         find_boundary(to, structure_boundary.boundary_id);
     BoundaryProfile boundary = b != nullptr ? *b : *a;
-    // A profile only blends into a profile of the same shape. Anything else is
-    // a structure changing into a different structure, which the transition
+    // A different point count is a different structure, which the transition
     // rules do not describe, so the section keeps the one it is heading for.
     if (a != nullptr && b != nullptr &&
         a->contour.size() == b->contour.size()) {
@@ -182,11 +179,9 @@ derive_boundaries(const RoadLayoutTemplate &section,
   std::vector<SectionBoundarySample> samples{};
   if (section.strips.empty())
     return samples;
-  // Two positions run along the section. `datum` is where the layout says an
-  // element sits: the alignment is `alignment_offset_from_left_m` from the left
-  // outer end, and only strips move it. `lateral` is where the last surface
-  // point was actually placed, which a boundary's profile pulls away from the
-  // datum without the layout widths noticing.
+  // `datum` is where the layout says an element sits and only strips move it;
+  // `lateral` is where the last surface point went, which a profile pulls away
+  // from the datum without the layout widths noticing.
   double datum = -section.alignment_offset_from_left_m;
   double lateral = datum;
   double height = 0.0;
@@ -198,7 +193,6 @@ derive_boundaries(const RoadLayoutTemplate &section,
     const double strip_start_height = height;
     datum += strip.width_m;
     if (index >= section.boundaries.size()) {
-      // The last strip runs out to the layout's own edge.
       height += strip.cross_slope * (datum - lateral);
       lateral = datum;
       if (strip.function == StripFunction::kCarriageway) {
@@ -218,8 +212,8 @@ derive_boundaries(const RoadLayoutTemplate &section,
       sample.right_strip_width_m = right_strip.width_m;
       return sample;
     };
-    // The strip's cross slope runs as far as its surface actually reaches,
-    // which is where the profile takes over.
+    // The cross slope runs as far as the strip's surface reaches, not as far as
+    // its declared width.
     const double first_lateral = datum + boundary.contour.front().lateral_m;
     height += strip.cross_slope * (first_lateral - lateral);
     lateral = first_lateral;
@@ -227,9 +221,8 @@ derive_boundaries(const RoadLayoutTemplate &section,
       carriageway_floor =
           std::min(carriageway_floor, std::min(strip_start_height, height));
     }
-    // A marking belongs to one side of the profile. A curb between carriageway
-    // and walkway carries it on the road side; everything else carries it where
-    // the profile ends.
+    // A curb between carriageway and walkway carries its line on the road side;
+    // everything else carries it where the profile ends.
     const bool road_side_marking =
         boundary.role == BoundaryRole::kCurb &&
         strip.function == StripFunction::kCarriageway &&

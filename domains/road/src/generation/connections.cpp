@@ -61,9 +61,8 @@ bool approach_key_less(const ApproachKey &a, const ApproachKey &b) {
          std::tie(b.node_id, b.segment_id, b.endpoint_role);
 }
 
-// How far the layout reaches from the alignment on its widest side. An
-// off-centre alignment reaches further one way than the other, so the setback
-// uses the larger of the two rather than half the total width.
+// An off-centre alignment reaches further one way than the other, so a setback
+// needs the larger of the two rather than half the total width.
 double endpoint_outer_reach(const SavedRoadGraph &graph,
                             const RoadSegment &segment,
                             const ApproachKey &key) {

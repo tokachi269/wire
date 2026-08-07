@@ -20,8 +20,7 @@ const AutoMarkingPolicy outer_line{
 const AutoMarkingPolicy center_line{
     true, MarkingRole::kCenterLine, builtin_marking_styles::kCenterLine};
 
-// A curb whose top face comes out of the strip beside it. `outward` is where
-// that top face reaches: negative for a curb on the section's left.
+// `outward_m` is where the top face reaches: negative on the section's left.
 [[nodiscard]] city::road::BoundaryProfile Curb(city::road::BoundaryId id,
                                                double outward_m, double height_m,
                                                AutoMarkingPolicy marking);
@@ -53,9 +52,6 @@ city::road::BoundaryProfile Curb(city::road::BoundaryId id, double outward_m,
   return boundary;
 }
 
-// An L-shaped gutter, mirrored for the section's right. Top face 0.1 into the
-// walkway, a 0.1 vertical face on the datum, then 0.25 of channel climbing 10%
-// and 0.1 of lip climbing 5% back into the roadway.
 [[nodiscard]] city::road::BoundaryProfile Gutter(city::road::BoundaryId id,
                                                  bool left_side,
                                                  AutoMarkingPolicy marking) {
@@ -74,7 +70,6 @@ city::road::BoundaryProfile Curb(city::road::BoundaryId id, double outward_m,
   return boundary;
 }
 
-// Nothing but a place to paint a line.
 city::road::BoundaryProfile PaintedLine(city::road::BoundaryId id,
                                         BoundaryRole role,
                                         AutoMarkingPolicy marking) {

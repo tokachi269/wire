@@ -327,7 +327,6 @@ struct LaneSectionIds {
   strip.id = ids.strip_id;
   strip.width_m = lane_width_m;
   strip.side_marking = {};
-  // A lane divider is somewhere to paint a line: no structure, no width.
   const BoundaryProfile divider{
       ids.boundary_id,
       BoundaryRole::kLaneDivider,
@@ -335,11 +334,8 @@ struct LaneSectionIds {
       {},
       AutoMarkingPolicy{true, MarkingRole::kLaneSeparator,
                         builtin_marking_styles::kWhiteDashed}};
-  // The new width appears on one side of the alignment, so the alignment keeps
-  // its distance to the side that is not growing: adding on the left pushes the
-  // left outer end further out by the lane width, adding on the right leaves
-  // the distance from the left end alone. Either way every element that existed
-  // on the far side of the insertion keeps its lateral position.
+  // The alignment keeps its distance to the side that is not growing, so every
+  // element beyond the insertion keeps its lateral position.
   if (side == RoadSide::kRight) {
     extended.strips.insert(
         extended.strips.begin() + selected.value.strip_index + 1, strip);

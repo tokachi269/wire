@@ -414,17 +414,6 @@ contourのlateral 0が**edge datum**であり、端部構造ではそこへ道�
 `RoadLayoutTemplate`は`alignment_offset_from_left_m`を持つ。segmentの進行方向へ断面を見たときの
 **左外端からRoadSegment alignmentまでの横方向距離**であり、`0 <= offset <= total layout width`を満たす。
 断面内の位置はすべて左外端から積み上げ、alignmentを0とする横座標で報告する。
-
-```text
-断面の左外端                                 断面の右外端
-      |                                            |
-      |<-- alignment_offset_from_left_m -->|
-      ├────────────────────────────────────┼───────┤
-                                           ↑
-                                  RoadSegment alignment
-                                        lateral = 0
-```
-
 alignmentが断面の中央にあるとは限らない。この値は総幅から毎回推定せず、boundary roleからもmesh bboxからも
 推測せず、交差点で外端2点の中点から再計算もしない。交差点は segment 側で確定した frame を
 connection gate 経由で受け取り、その位置に対する lateral sample として断面を置く。
@@ -450,24 +439,6 @@ L字溝のように幅と立体断面を持つ端部構造をいつか置くた�
 
 端部構造の**道路側を向いた垂直面の、道路側表面**を横方向の基準面とする。これを edge datum と呼ぶ。
 壁厚の中心でも外側面でもない。
-
-```text
-   道路中心                                        edge datum
-      |                                                 |
-      |<---------- 車道 ---------->|<-- 溝 -->|         |<-- 歩道 -->|
-      |                            |          |         |            |
-   ───┴────────────────────────────┐          │         ┌────────────
-                                    \         │         │
-                                     \________│         │  ← 上面(歩道側surface)
-                                              └─────────┘
-                                    ↑        ↑          ↑
-                              道路側接続面  溝底      垂直面
-                              (路面勾配を継承)      (= edge datum)
-
-      |<------ 道路側のlayout幅 ------>|<------ 歩道幅 2.0m ------->|
-                                        |<0.2m>|<---- 1.8m ------->|
-                                         上面    残りの歩道面
-```
 
 - 道路側の意味上の幅は edge datum まで
 - 歩道幅は edge datum から外側
@@ -502,13 +473,8 @@ visible envelope が layout envelope の外へ出る。
 
 ### 交差点と接続部
 
-segment、corner、junction で edge datum の意味を変えない。
-
-```text
-segment 上の edge datum → connection gate 上の edge datum → junction 内の datum curve
-```
-
-を連続させ、その両側に端部構造の surface を派生させる。端部構造の形に合わせて datum を局所的に
+segment、corner、junction で edge datum の意味を変えない。segment 上の edge datum を
+connection gate 経由で junction の datum curve へ連続させ、その両側に端部構造の surface を派生させる。端部構造の形に合わせて datum を局所的に
 内外へ動かさない。交差点で端部構造の join を実装しない範囲は、生成前に接続形状ごと明示的に
 unsupported として拒否する。segment mesh だけ作って junction で端部構造を消す、別の境界形状へ
 fallback する、といった処理はしない。

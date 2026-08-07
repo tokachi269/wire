@@ -1307,10 +1307,6 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           boundary.segment_styles.push_back(SurfaceStyleId{style.value});
         }
       } else {
-        // Version 12 described a boundary as one width and one height, which is
-        // a ramp from the strip on its left up to the strip on its right. Give
-        // that width to the left strip below and put the datum on the boundary's
-        // outer face, and every position in the section stays where it was.
         Result<double> width = reader.RequireDouble(boundary_prefix + ".width_m");
         Result<double> height = reader.RequireDouble(boundary_prefix + ".height_m");
         if (!width.ok) return Result<LoadedRoad>::Fail(width.failure_category, width.error);

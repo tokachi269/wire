@@ -286,20 +286,13 @@ struct LaneBand {
   double lateral_end_m = 0.0;
   LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
 };
-// One corner of a boundary's cross section, measured from the edge datum: the
-// road-facing vertical face of whatever structure sits there. Lateral runs the
-// same way the section does, left to right, so a structure reaches into the
-// strip on either side without either side having to know about it.
+// Measured from the edge datum, the road-facing vertical face of whatever sits
+// there. Lateral runs the way the section does, left to right.
 struct ProfilePoint {
   double lateral_m = 0.0;
   double height_m = 0.0;
 };
-// What a boundary between two strips is made of. The contour runs left to right
-// and spans the datum; the styles are the faces between consecutive points, so
-// a lane line is one point and no face, a curb two points and one face, and an
-// L-shaped gutter its top, its vertical face, its channel and its road-side lip.
-//
-// A boundary occupies no layout width. Its contour reaches into the strips
+// A boundary occupies no layout width: its contour reaches into the strips
 // beside it, which is what lets a gutter's top face come out of the walkway's
 // declared width instead of being added to it.
 struct BoundaryProfile {
@@ -314,15 +307,8 @@ struct RoadLayoutTemplate {
   std::vector<RoadLayoutStrip> strips{};
   std::vector<LaneBand> lane_bands{};
   std::vector<BoundaryProfile> boundaries{};
-  // Where the segment alignment runs through the layout: the lateral distance
-  // from the layout's left outer end, looking along the segment, to the
-  // alignment. Everything the layout places is measured from the left outer end
-  // and reported relative to the alignment, so this is what keeps lanes still
-  // when a layout gains width on one side. It is not derived from the total
-  // width, and it is not the edge datum of a future edge structure.
-  //
-  // There is no meaningful default: a layout that never set it is rejected as
-  // invalid rather than silently centred.
+  // Measured from the layout's left outer end, looking along the segment. NaN
+  // so a layout that never set it is rejected rather than silently centred.
   double alignment_offset_from_left_m =
       std::numeric_limits<double>::quiet_NaN();
 };

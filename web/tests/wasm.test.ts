@@ -1679,7 +1679,14 @@ describe("road wasm smoke", () => {
       // A section with no sidewalk on one side is still centred on its own
       // width, which is what these presets mean; Core does not re-derive it.
       const noLeftSidewalk = registered[2];
-      expect(noLeftSidewalk.alignmentOffsetFromLeftM).toBeCloseTo(4.1, 12);
+      expect(noLeftSidewalk.alignmentOffsetFromLeftM).toBeCloseTo(4.0, 12);
+      // The L-gutter preset is the same 10m road as the plain two-lane one:
+      // the gutter comes out of the walkway and the roadway beside it.
+      const lGutter = registered[registered.length - 1];
+      expect(lGutter.alignmentOffsetFromLeftM).toBeCloseTo(
+        registered[0].alignmentOffsetFromLeftM,
+        12
+      );
     } finally {
       road.delete();
     }
@@ -1736,19 +1743,20 @@ describe("road wasm smoke", () => {
 
       // Widening the strips moves the section's outer ends, so the caller says
       // where the alignment should end up. This one keeps the road centred:
-      // 2.5 + 0.2 + 3.5 + 3.5 + 0.2 + 2.5 = 12.4m wide.
+      // 2.5 + 3.5 + 3.5 + 2.5 = 12m wide, with the curbs coming out of the
+      // walkways rather than adding to them.
       const edited = road.updateRoadLayoutTemplate({
         id: sectionId,
         sidewalkWidthM: 2.5,
         laneWidthM: 3.5,
         medianWidthM: 2,
-        alignmentOffsetFromLeftM: 6.2,
+        alignmentOffsetFromLeftM: 6.0,
         hasCenterLine: true,
         hasOuterLines: true
       });
       expect(edited.ok, edited.error).toBe(true);
       expect(widthOf(sectionId)).toBeCloseTo(3.5, 9);
-      expect(templateOf(sectionId).alignmentOffsetFromLeftM).toBeCloseTo(6.2, 9);
+      expect(templateOf(sectionId).alignmentOffsetFromLeftM).toBeCloseTo(6.0, 9);
       expect(widthOf(other!.id)).toBe(otherBefore);
       expect(templateOf(other!.id).alignmentOffsetFromLeftM).toBe(otherOffsetBefore);
     } finally {

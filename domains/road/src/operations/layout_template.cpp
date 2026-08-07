@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <iterator>
 #include <unordered_set>
 
@@ -105,10 +106,39 @@ using internal::subtract;
   double total_width = 0.0;
   for (const RoadLayoutStrip& strip : section.strips) total_width += strip.width_m;
   ids.clear();
-  for (const BoundaryProfile& boundary : section.boundaries) {
-    if (boundary.boundary_id == 0 || !ids.insert(boundary.boundary_id).second || !is_finite(boundary.width_m) ||
-        !is_finite(boundary.height_m) || boundary.width_m < 0.0) {
+  for (std::size_t index = 0; index < section.boundaries.size(); ++index) {
+    const BoundaryProfile& boundary = section.boundaries[index];
+    if (boundary.boundary_id == 0 || !ids.insert(boundary.boundary_id).second ||
+        boundary.contour.empty() ||
+        boundary.segment_styles.size() + 1 != boundary.contour.size()) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "section template boundary is invalid");
+    }
+    double previous_lateral = -std::numeric_limits<double>::infinity();
+    for (const ProfilePoint& point : boundary.contour) {
+      if (!is_finite(point.lateral_m) || !is_finite(point.height_m) ||
+          point.lateral_m < previous_lateral) {
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                                  "section template boundary profile is invalid");
+      }
+      previous_lateral = point.lateral_m;
+    }
+    for (const SurfaceStyleId& style : boundary.segment_styles) {
+      if (!IsKnownSurfaceStyle(style)) {
+        return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                                  "section template boundary surface style is unknown");
+      }
+    }
+    // The datum is where the boundary sits in the layout, so the profile has to
+    // straddle it, and it has to fit inside the strips it reaches into or the
+    // section would fold back on itself.
+    const double reach_in = -boundary.contour.front().lateral_m;
+    const double reach_out = boundary.contour.back().lateral_m;
+    if (reach_in < -distance_epsilon || reach_out < -distance_epsilon ||
+        reach_in > section.strips[index].width_m + distance_epsilon ||
+        reach_out > section.strips[index + 1].width_m + distance_epsilon) {
+      return Result<bool>::Fail(
+          CommitFailureCategory::kInvalidInput,
+          "section template boundary profile does not fit its neighbouring strips");
     }
     if (static_cast<int>(boundary.marking.role) < 0 ||
         static_cast<int>(boundary.marking.role) > 5 ||
@@ -117,7 +147,6 @@ using internal::subtract;
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "section template marking policy is invalid");
     }
-    total_width += boundary.width_m;
   }
   // The alignment has to fall inside the layout it belongs to. A layout that
   // never set the offset arrives here non-finite and is rejected, so no caller

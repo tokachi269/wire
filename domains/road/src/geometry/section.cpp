@@ -25,8 +25,13 @@ bool equivalent_lane(const LaneBand &a, const LaneBand &b) {
 bool equivalent_boundary(const BoundaryProfile &a,
                          const BoundaryProfile &b) {
   return a.boundary_id == b.boundary_id && a.role == b.role &&
-         a.width_m == b.width_m && a.height_m == b.height_m &&
-         a.marking == b.marking;
+         a.marking == b.marking && a.segment_styles == b.segment_styles &&
+         a.contour.size() == b.contour.size() &&
+         std::equal(a.contour.begin(), a.contour.end(), b.contour.begin(),
+                    [](const ProfilePoint &x, const ProfilePoint &y) {
+                      return x.lateral_m == y.lateral_m &&
+                             x.height_m == y.height_m;
+                    });
 }
 
 const RoadLayoutStrip *find_strip(const RoadLayoutTemplate &section,
@@ -101,12 +106,22 @@ RoadLayoutTemplate interpolate_section(const RoadLayoutTemplate &from,
     const BoundaryProfile *b =
         find_boundary(to, structure_boundary.boundary_id);
     BoundaryProfile boundary = b != nullptr ? *b : *a;
-    const double a_width = a != nullptr ? a->width_m : 0.0;
-    const double b_width = b != nullptr ? b->width_m : 0.0;
-    const double a_height = a != nullptr ? a->height_m : 0.0;
-    const double b_height = b != nullptr ? b->height_m : 0.0;
-    boundary.width_m = a_width + (b_width - a_width) * t;
-    boundary.height_m = a_height + (b_height - a_height) * t;
+    // A profile only blends into a profile of the same shape. Anything else is
+    // a structure changing into a different structure, which the transition
+    // rules do not describe, so the section keeps the one it is heading for.
+    if (a != nullptr && b != nullptr &&
+        a->contour.size() == b->contour.size()) {
+      for (std::size_t point = 0; point < boundary.contour.size(); ++point) {
+        const ProfilePoint &from_point = a->contour[point];
+        const ProfilePoint &to_point = b->contour[point];
+        boundary.contour[point].lateral_m =
+            from_point.lateral_m +
+            (to_point.lateral_m - from_point.lateral_m) * t;
+        boundary.contour[point].height_m =
+            from_point.height_m +
+            (to_point.height_m - from_point.height_m) * t;
+      }
+    }
     out.boundaries.push_back(std::move(boundary));
   }
   return out;
@@ -167,25 +182,31 @@ derive_boundaries(const RoadLayoutTemplate &section,
   std::vector<SectionBoundarySample> samples{};
   if (section.strips.empty())
     return samples;
-  // Lateral is measured from the alignment, and the layout says how far the
-  // alignment sits from its left outer end. Nothing here re-derives that from
-  // the total width, so widening one side moves only that side.
-  double lateral = -section.alignment_offset_from_left_m;
+  // Two positions run along the section. `datum` is where the layout says an
+  // element sits: the alignment is `alignment_offset_from_left_m` from the left
+  // outer end, and only strips move it. `lateral` is where the last surface
+  // point was actually placed, which a boundary's profile pulls away from the
+  // datum without the layout widths noticing.
+  double datum = -section.alignment_offset_from_left_m;
+  double lateral = datum;
   double height = 0.0;
   double carriageway_floor = std::numeric_limits<double>::infinity();
   samples.push_back(
       SectionBoundarySample{1, BoundaryRole::kOuterEdge, lateral, height, {}});
   for (std::size_t index = 0; index < section.strips.size(); ++index) {
     const RoadLayoutStrip &strip = section.strips[index];
-    const double strip_end_height = height + strip.cross_slope * strip.width_m;
-    if (strip.function == StripFunction::kCarriageway) {
-      carriageway_floor =
-          std::min(carriageway_floor, std::min(height, strip_end_height));
-    }
-    lateral += strip.width_m;
-    height = strip_end_height;
-    if (index >= section.boundaries.size())
+    const double strip_start_height = height;
+    datum += strip.width_m;
+    if (index >= section.boundaries.size()) {
+      // The last strip runs out to the layout's own edge.
+      height += strip.cross_slope * (datum - lateral);
+      lateral = datum;
+      if (strip.function == StripFunction::kCarriageway) {
+        carriageway_floor =
+            std::min(carriageway_floor, std::min(strip_start_height, height));
+      }
       continue;
+    }
     const BoundaryProfile &boundary = section.boundaries[index];
     const AutoMarkingPolicy policy =
         index < policies.size() ? policies[index] : boundary.marking;
@@ -197,28 +218,33 @@ derive_boundaries(const RoadLayoutTemplate &section,
       sample.right_strip_width_m = right_strip.width_m;
       return sample;
     };
-    const bool structural_boundary = boundary.role == BoundaryRole::kCurb ||
-                                     boundary.role == BoundaryRole::kMedianEdge;
-    if (!structural_boundary && boundary.width_m <= distance_epsilon &&
-        std::abs(boundary.height_m) <= distance_epsilon) {
-      samples.push_back(with_adjacency(SectionBoundarySample{
-          boundary.boundary_id, boundary.role, lateral, height, policy}));
-      continue;
+    // The strip's cross slope runs as far as its surface actually reaches,
+    // which is where the profile takes over.
+    const double first_lateral = datum + boundary.contour.front().lateral_m;
+    height += strip.cross_slope * (first_lateral - lateral);
+    lateral = first_lateral;
+    if (strip.function == StripFunction::kCarriageway) {
+      carriageway_floor =
+          std::min(carriageway_floor, std::min(strip_start_height, height));
     }
-    AutoMarkingPolicy before_rule{};
-    AutoMarkingPolicy after_rule = policy;
-    if (boundary.role == BoundaryRole::kCurb &&
+    // A marking belongs to one side of the profile. A curb between carriageway
+    // and walkway carries it on the road side; everything else carries it where
+    // the profile ends.
+    const bool road_side_marking =
+        boundary.role == BoundaryRole::kCurb &&
         strip.function == StripFunction::kCarriageway &&
-        right_strip.function == StripFunction::kSidewalk) {
-      before_rule = policy;
-      after_rule = {};
+        right_strip.function == StripFunction::kSidewalk;
+    const std::size_t marked = boundary.contour.size() == 1 || road_side_marking
+                                   ? 0
+                                   : boundary.contour.size() - 1;
+    const double datum_height = height - boundary.contour.front().height_m;
+    for (std::size_t point = 0; point < boundary.contour.size(); ++point) {
+      lateral = datum + boundary.contour[point].lateral_m;
+      height = datum_height + boundary.contour[point].height_m;
+      samples.push_back(with_adjacency(SectionBoundarySample{
+          boundary.boundary_id, boundary.role, lateral, height,
+          point == marked ? policy : AutoMarkingPolicy{}}));
     }
-    samples.push_back(with_adjacency(SectionBoundarySample{
-        boundary.boundary_id, boundary.role, lateral, height, before_rule}));
-    lateral += boundary.width_m;
-    height += boundary.height_m;
-    samples.push_back(with_adjacency(SectionBoundarySample{
-        boundary.boundary_id, boundary.role, lateral, height, after_rule}));
   }
   samples.push_back(SectionBoundarySample{
       999, BoundaryRole::kOuterEdge, lateral, height, {}});
@@ -230,14 +256,6 @@ derive_boundaries(const RoadLayoutTemplate &section,
   return samples;
 }
 
-SurfaceStyleId SurfaceStyleForBoundaryRole(BoundaryRole role) {
-  if (role == BoundaryRole::kCurb)
-    return builtin_surface_styles::kCurb;
-  if (role == BoundaryRole::kMedianEdge)
-    return builtin_surface_styles::kMedian;
-  return builtin_surface_styles::kAsphalt;
-}
-
 std::vector<RenderStyleRef>
 derive_surface_styles(const RoadLayoutTemplate &section) {
   std::vector<RenderStyleRef> styles{};
@@ -246,14 +264,8 @@ derive_surface_styles(const RoadLayoutTemplate &section) {
     styles.push_back(RenderStyleFromSurface(strip.style_id));
     if (index >= section.boundaries.size())
       continue;
-    const BoundaryProfile &boundary = section.boundaries[index];
-    if (boundary.role == BoundaryRole::kCurb ||
-        boundary.role == BoundaryRole::kMedianEdge ||
-        boundary.width_m > distance_epsilon ||
-        std::abs(boundary.height_m) > distance_epsilon) {
-      styles.push_back(
-          RenderStyleFromSurface(SurfaceStyleForBoundaryRole(boundary.role)));
-    }
+    for (const SurfaceStyleId &style : section.boundaries[index].segment_styles)
+      styles.push_back(RenderStyleFromSurface(style));
   }
   return styles;
 }
@@ -278,15 +290,12 @@ bool equivalent_section_definition(const RoadLayoutTemplate &a,
 Result<double> lane_template_lateral(const RoadLayoutTemplate &section,
                                      const LaneBand &lane) {
   double lateral = -section.alignment_offset_from_left_m;
-  for (std::size_t index = 0; index < section.strips.size(); ++index) {
-    const RoadLayoutStrip &strip = section.strips[index];
+  for (const RoadLayoutStrip &strip : section.strips) {
     if (strip.id == lane.surface_strip_id) {
       return Result<double>::Ok(
           lateral + (lane.lateral_start_m + lane.lateral_end_m) * 0.5);
     }
     lateral += strip.width_m;
-    if (index < section.boundaries.size())
-      lateral += section.boundaries[index].width_m;
   }
   return Result<double>::Fail(CommitFailureCategory::kInternalError,
                               "lane allocation strip is missing");

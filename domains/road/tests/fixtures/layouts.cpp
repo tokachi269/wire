@@ -1,5 +1,9 @@
 #include "layouts.hpp"
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 namespace road_fixture {
 namespace {
 
@@ -15,6 +19,72 @@ const AutoMarkingPolicy outer_line{
     true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid};
 const AutoMarkingPolicy center_line{
     true, MarkingRole::kCenterLine, builtin_marking_styles::kCenterLine};
+
+// A curb whose top face comes out of the strip beside it. `outward` is where
+// that top face reaches: negative for a curb on the section's left.
+[[nodiscard]] city::road::BoundaryProfile Curb(city::road::BoundaryId id,
+                                               double outward_m, double height_m,
+                                               AutoMarkingPolicy marking);
+[[nodiscard]] city::road::BoundaryProfile PaintedLine(city::road::BoundaryId id,
+                                                      BoundaryRole role,
+                                                      AutoMarkingPolicy marking);
+
+city::road::BoundaryProfile Curb(city::road::BoundaryId id, double outward_m,
+                                 double height_m, AutoMarkingPolicy marking) {
+  city::road::BoundaryProfile boundary{};
+  boundary.boundary_id = id;
+  boundary.role = BoundaryRole::kCurb;
+  boundary.marking = marking;
+  if (outward_m < 0.0) {
+    boundary.contour = {{outward_m, height_m}, {0.0, 0.0}};
+  } else {
+    boundary.contour = {{0.0, 0.0}, {outward_m, height_m}};
+  }
+  boundary.segment_styles = {builtin_surface_styles::kCurb};
+  return boundary;
+}
+
+[[nodiscard]] city::road::BoundaryProfile MedianEdge(city::road::BoundaryId id,
+                                                     double outward_m,
+                                                     double height_m) {
+  city::road::BoundaryProfile boundary = Curb(id, outward_m, height_m, {});
+  boundary.role = BoundaryRole::kMedianEdge;
+  boundary.segment_styles = {builtin_surface_styles::kMedian};
+  return boundary;
+}
+
+// An L-shaped gutter, mirrored for the section's right. Top face 0.1 into the
+// walkway, a 0.1 vertical face on the datum, then 0.25 of channel climbing 10%
+// and 0.1 of lip climbing 5% back into the roadway.
+[[nodiscard]] city::road::BoundaryProfile Gutter(city::road::BoundaryId id,
+                                                 bool left_side,
+                                                 AutoMarkingPolicy marking) {
+  city::road::BoundaryProfile boundary{};
+  boundary.boundary_id = id;
+  boundary.role = BoundaryRole::kCurb;
+  boundary.marking = marking;
+  const double sign = left_side ? 1.0 : -1.0;
+  std::vector<city::road::ProfilePoint> outward{
+      {-0.1 * sign, 0.0}, {0.0, 0.0}, {0.0, -0.1},
+      {0.25 * sign, -0.075}, {0.35 * sign, -0.07}};
+  if (!left_side) std::reverse(outward.begin(), outward.end());
+  boundary.contour = std::move(outward);
+  boundary.segment_styles.assign(boundary.contour.size() - 1,
+                                 builtin_surface_styles::kCurb);
+  return boundary;
+}
+
+// Nothing but a place to paint a line.
+city::road::BoundaryProfile PaintedLine(city::road::BoundaryId id,
+                                        BoundaryRole role,
+                                        AutoMarkingPolicy marking) {
+  city::road::BoundaryProfile boundary{};
+  boundary.boundary_id = id;
+  boundary.role = role;
+  boundary.marking = marking;
+  boundary.contour = {{0.0, 0.0}};
+  return boundary;
+}
 
 } // namespace
 
@@ -32,9 +102,9 @@ RoadLayoutTemplate BidirectionalLayout(RoadLayoutTemplateId id) {
       {1010, 30, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
   };
   layout.boundaries = {
-      {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
-      {200, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
-      {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
+      Curb(100, -0.2, 0.15, outer_line),
+      PaintedLine(200, BoundaryRole::kLaneDivider, center_line),
+      Curb(300, 0.2, 0.15, outer_line),
   };
   layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
   return layout;
@@ -55,10 +125,10 @@ RoadLayoutTemplate ExtraLaneLayout(RoadLayoutTemplateId id) {
       {1020, 35, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
   };
   layout.boundaries = {
-      {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
-      {200, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
-      {250, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
-      {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
+      Curb(100, -0.2, 0.15, outer_line),
+      PaintedLine(200, BoundaryRole::kLaneDivider, center_line),
+      PaintedLine(250, BoundaryRole::kLaneDivider, center_line),
+      Curb(300, 0.2, 0.15, outer_line),
   };
   layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
   return layout;
@@ -78,10 +148,10 @@ RoadLayoutTemplate MedianLayout(RoadLayoutTemplateId id) {
                         {25, StripFunction::kMedian, 2.0, 0.0,
                          builtin_surface_styles::kMedian});
   layout.boundaries = {
-      {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
-      {210, BoundaryRole::kMedianEdge, 0.2, 0.12, {}},
-      {220, BoundaryRole::kMedianEdge, 0.2, -0.12, {}},
-      {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
+      Curb(100, -0.2, 0.15, outer_line),
+      MedianEdge(210, 0.2, 0.12),
+      MedianEdge(220, -0.2, 0.12),
+      Curb(300, 0.2, 0.15, outer_line),
   };
   layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
   return layout;
@@ -109,11 +179,22 @@ RoadLayoutTemplate ShoulderedLayout(RoadLayoutTemplateId id) {
       {1010, 30, 0.0, 3.0, LaneTravelDirection::kAlongSegment},
   };
   layout.boundaries = {
-      {100, BoundaryRole::kCurb, 0.2, -0.15, {}},
-      {150, BoundaryRole::kOuterEdge, 0.0, 0.0, outer_line},
-      {200, BoundaryRole::kLaneDivider, 0.0, 0.0, center_line},
-      {250, BoundaryRole::kOuterEdge, 0.0, 0.0, outer_line},
-      {300, BoundaryRole::kCurb, 0.2, 0.15, {}},
+      Curb(100, -0.2, 0.15, {}),
+      PaintedLine(150, BoundaryRole::kOuterEdge, outer_line),
+      PaintedLine(200, BoundaryRole::kLaneDivider, center_line),
+      PaintedLine(250, BoundaryRole::kOuterEdge, outer_line),
+      Curb(300, 0.2, 0.15, {}),
+  };
+  layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
+  return layout;
+}
+
+RoadLayoutTemplate GutteredLayout(RoadLayoutTemplateId id) {
+  RoadLayoutTemplate layout = BidirectionalLayout(id);
+  layout.boundaries = {
+      Gutter(100, true, outer_line),
+      PaintedLine(200, BoundaryRole::kLaneDivider, center_line),
+      Gutter(300, false, outer_line),
   };
   layout.alignment_offset_from_left_m = CentredAlignmentOffset(layout);
   return layout;
@@ -122,8 +203,19 @@ RoadLayoutTemplate ShoulderedLayout(RoadLayoutTemplateId id) {
 double CentredAlignmentOffset(const RoadLayoutTemplate& layout) {
   double total_width = 0.0;
   for (const auto& strip : layout.strips) total_width += strip.width_m;
-  for (const auto& boundary : layout.boundaries) total_width += boundary.width_m;
   return total_width * 0.5;
+}
+
+city::road::BoundaryProfile CurbBoundary(city::road::BoundaryId id,
+                                         double outward_m, double height_m,
+                                         city::road::AutoMarkingPolicy marking) {
+  return Curb(id, outward_m, height_m, marking);
+}
+
+city::road::BoundaryProfile PaintedLineBoundary(
+    city::road::BoundaryId id, city::road::BoundaryRole role,
+    city::road::AutoMarkingPolicy marking) {
+  return PaintedLine(id, role, marking);
 }
 
 RoadLayoutTemplateId AddLayout(RoadState& state,

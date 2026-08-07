@@ -83,8 +83,6 @@ double endpoint_outer_reach(const SavedRoadGraph &graph,
   double width = 0.0;
   for (const RoadLayoutStrip &strip : section->strips)
     width += strip.width_m;
-  for (const BoundaryProfile &boundary : section->boundaries)
-    width += boundary.width_m;
   const double offset = section->alignment_offset_from_left_m;
   return std::max(offset, width - offset);
 }

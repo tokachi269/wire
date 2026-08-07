@@ -475,8 +475,8 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
     for (const BoundaryProfile& boundary : section.boundaries) {
       if (boundary.boundary_id == 0 ||
           !boundaries.insert(boundary.boundary_id).second ||
-          !finite(boundary.width_m) || !finite(boundary.height_m) ||
-          boundary.width_m < 0.0 ||
+          boundary.contour.empty() ||
+          boundary.segment_styles.size() + 1 != boundary.contour.size() ||
           static_cast<int>(boundary.role) < 0 ||
           static_cast<int>(boundary.role) > 3 ||
           static_cast<int>(boundary.marking.role) < 0 ||
@@ -486,11 +486,24 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                   "section template boundary is invalid");
       }
+      double previous_lateral = -std::numeric_limits<double>::infinity();
+      for (const ProfilePoint& point : boundary.contour) {
+        if (!finite(point.lateral_m) || !finite(point.height_m) ||
+            point.lateral_m < previous_lateral) {
+          return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                                    "section template boundary profile is invalid");
+        }
+        previous_lateral = point.lateral_m;
+      }
+      for (const SurfaceStyleId& style : boundary.segment_styles) {
+        if (!IsKnownSurfaceStyle(style)) {
+          return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                                    "section template boundary surface style is unknown");
+        }
+      }
     }
     double total_width = 0.0;
     for (const RoadLayoutStrip& strip : section.strips) total_width += strip.width_m;
-    for (const BoundaryProfile& boundary : section.boundaries)
-      total_width += boundary.width_m;
     if (!finite(section.alignment_offset_from_left_m) ||
         section.alignment_offset_from_left_m < -internal::distance_epsilon ||
         section.alignment_offset_from_left_m >
@@ -911,8 +924,19 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
           prefix + ".boundary." + std::to_string(j);
       writer.UInt(boundary_prefix + ".boundary_id", boundary.boundary_id);
       writer.Int(boundary_prefix + ".role", static_cast<int>(boundary.role));
-      writer.Double(boundary_prefix + ".width_m", boundary.width_m);
-      writer.Double(boundary_prefix + ".height_m", boundary.height_m);
+      writer.UInt(boundary_prefix + ".point.count", boundary.contour.size());
+      for (std::size_t k = 0; k < boundary.contour.size(); ++k) {
+        const std::string point_prefix =
+            boundary_prefix + ".point." + std::to_string(k);
+        writer.Double(point_prefix + ".lateral_m", boundary.contour[k].lateral_m);
+        writer.Double(point_prefix + ".height_m", boundary.contour[k].height_m);
+      }
+      writer.UInt(boundary_prefix + ".segment_style.count",
+                  boundary.segment_styles.size());
+      for (std::size_t k = 0; k < boundary.segment_styles.size(); ++k) {
+        writer.UInt(boundary_prefix + ".segment_style." + std::to_string(k),
+                    boundary.segment_styles[k].value);
+      }
       writer.Int(boundary_prefix + ".marking.enabled",
                  boundary.marking.enabled ? 1 : 0);
       writer.Int(boundary_prefix + ".marking.role",
@@ -1144,7 +1168,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                     "unknown road graph version");
   }
-  const bool has_saved_alignment_offset = version.value == kVersion;
+  const bool has_saved_profile = version.value == kVersion;
   Result<std::uint64_t> next_id = reader.RequireU64("next_id");
   if (!next_id.ok) return Result<LoadedRoad>::Fail(next_id.failure_category, next_id.error);
 
@@ -1238,8 +1262,6 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
       const std::string boundary_prefix = prefix + ".boundary." + std::to_string(j);
       Result<std::uint64_t> boundary_id = reader.RequireU64(boundary_prefix + ".boundary_id");
       Result<BoundaryRole> role = enum_value<BoundaryRole>(reader, boundary_prefix + ".role", 0, 3);
-      Result<double> width = reader.RequireDouble(boundary_prefix + ".width_m");
-      Result<double> height = reader.RequireDouble(boundary_prefix + ".height_m");
       Result<int> marking_enabled = reader.RequireInt(boundary_prefix + ".marking.enabled");
       Result<MarkingRole> marking_role =
           enum_value<MarkingRole>(reader, boundary_prefix + ".marking.role", 0, 5);
@@ -1247,8 +1269,6 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           reader.RequireU64(boundary_prefix + ".marking.style_id");
       if (!boundary_id.ok) return Result<LoadedRoad>::Fail(boundary_id.failure_category, boundary_id.error);
       if (!role.ok) return Result<LoadedRoad>::Fail(role.failure_category, role.error);
-      if (!width.ok) return Result<LoadedRoad>::Fail(width.failure_category, width.error);
-      if (!height.ok) return Result<LoadedRoad>::Fail(height.failure_category, height.error);
       if (!marking_enabled.ok) {
         return Result<LoadedRoad>::Fail(marking_enabled.failure_category, marking_enabled.error);
       }
@@ -1258,27 +1278,64 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
         return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                         "boundary marking enabled flag is invalid");
       }
-      section.boundaries.push_back(BoundaryProfile{boundary_id.value, role.value, width.value,
-                                                   height.value,
-                                                   AutoMarkingPolicy{
-                                                       marking_enabled.value == 1,
-                                                       marking_role.value,
-                                                       MarkingStyleId{marking_style.value}}});
+      BoundaryProfile boundary{};
+      boundary.boundary_id = boundary_id.value;
+      boundary.role = role.value;
+      boundary.marking = AutoMarkingPolicy{marking_enabled.value == 1, marking_role.value,
+                                           MarkingStyleId{marking_style.value}};
+      if (has_saved_profile) {
+        Result<std::size_t> point_count = require_count(boundary_prefix + ".point.count");
+        if (!point_count.ok) return Result<LoadedRoad>::Fail(point_count.failure_category, point_count.error);
+        for (std::size_t k = 0; k < point_count.value; ++k) {
+          const std::string point_prefix = boundary_prefix + ".point." + std::to_string(k);
+          Result<double> lateral = reader.RequireDouble(point_prefix + ".lateral_m");
+          Result<double> point_height = reader.RequireDouble(point_prefix + ".height_m");
+          if (!lateral.ok) return Result<LoadedRoad>::Fail(lateral.failure_category, lateral.error);
+          if (!point_height.ok) return Result<LoadedRoad>::Fail(point_height.failure_category, point_height.error);
+          boundary.contour.push_back(ProfilePoint{lateral.value, point_height.value});
+        }
+        Result<std::size_t> style_count = require_count(boundary_prefix + ".segment_style.count");
+        if (!style_count.ok) return Result<LoadedRoad>::Fail(style_count.failure_category, style_count.error);
+        for (std::size_t k = 0; k < style_count.value; ++k) {
+          Result<std::uint64_t> style =
+              reader.RequireU64(boundary_prefix + ".segment_style." + std::to_string(k));
+          if (!style.ok) return Result<LoadedRoad>::Fail(style.failure_category, style.error);
+          if (!IsKnownSurfaceStyle(SurfaceStyleId{style.value})) {
+            return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
+                                            "boundary profile surface style is unknown");
+          }
+          boundary.segment_styles.push_back(SurfaceStyleId{style.value});
+        }
+      } else {
+        // Version 12 described a boundary as one width and one height, which is
+        // a ramp from the strip on its left up to the strip on its right. Give
+        // that width to the left strip below and put the datum on the boundary's
+        // outer face, and every position in the section stays where it was.
+        Result<double> width = reader.RequireDouble(boundary_prefix + ".width_m");
+        Result<double> height = reader.RequireDouble(boundary_prefix + ".height_m");
+        if (!width.ok) return Result<LoadedRoad>::Fail(width.failure_category, width.error);
+        if (!height.ok) return Result<LoadedRoad>::Fail(height.failure_category, height.error);
+        const bool structural = role.value == BoundaryRole::kCurb ||
+                                role.value == BoundaryRole::kMedianEdge;
+        if (!structural && std::abs(width.value) <= internal::distance_epsilon &&
+            std::abs(height.value) <= internal::distance_epsilon) {
+          boundary.contour.push_back(ProfilePoint{0.0, 0.0});
+        } else {
+          boundary.contour.push_back(ProfilePoint{-width.value, 0.0});
+          boundary.contour.push_back(ProfilePoint{0.0, height.value});
+          boundary.segment_styles.push_back(
+              role.value == BoundaryRole::kCurb      ? builtin_surface_styles::kCurb
+              : role.value == BoundaryRole::kMedianEdge ? builtin_surface_styles::kMedian
+                                                        : builtin_surface_styles::kAsphalt);
+        }
+        if (j < section.strips.size()) section.strips[j].width_m += width.value;
+      }
+      section.boundaries.push_back(std::move(boundary));
     }
-    if (has_saved_alignment_offset) {
-      Result<double> offset =
-          reader.RequireDouble(prefix + ".alignment_offset_from_left_m");
-      if (!offset.ok) return Result<LoadedRoad>::Fail(offset.failure_category, offset.error);
-      section.alignment_offset_from_left_m = offset.value;
-    } else {
-      // Version 11 placed every layout on the middle of its own total width.
-      // Resolve that into the concrete offset once, here, so nothing downstream
-      // has to keep the old rule around.
-      double total_width = 0.0;
-      for (const RoadLayoutStrip& strip : section.strips) total_width += strip.width_m;
-      for (const BoundaryProfile& boundary : section.boundaries) total_width += boundary.width_m;
-      section.alignment_offset_from_left_m = total_width * 0.5;
-    }
+    Result<double> offset =
+        reader.RequireDouble(prefix + ".alignment_offset_from_left_m");
+    if (!offset.ok) return Result<LoadedRoad>::Fail(offset.failure_category, offset.error);
+    section.alignment_offset_from_left_m = offset.value;
     loaded.graph.layout_templates.push_back(std::move(section));
   }
 

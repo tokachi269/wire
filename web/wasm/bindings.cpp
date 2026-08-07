@@ -1451,8 +1451,20 @@ public:
       city::road::BoundaryProfile boundary{};
       boundary.boundary_id = item["id"].as<city::road::BoundaryId>();
       boundary.role = *role;
-      boundary.width_m = item["widthM"].as<double>();
-      boundary.height_m = item["heightM"].as<double>();
+      const val contour = item["profile"];
+      const auto point_count = contour["length"].as<unsigned>();
+      for (unsigned point = 0; point < point_count; ++point) {
+        const val entry = contour[point];
+        boundary.contour.push_back(city::road::ProfilePoint{
+            entry["lateralM"].as<double>(), entry["heightM"].as<double>()});
+        if (point + 1 == point_count) break;
+        const auto face = road_surface_style_id(entry["faceStyle"].as<std::string>());
+        if (!face.has_value()) {
+          return road_result_value(false, "unknown road boundary face style",
+                                   city::road::CommitFailureCategory::kInvalidInput);
+        }
+        boundary.segment_styles.push_back(*face);
+      }
       const val marking = item["marking"];
       if (!marking.isUndefined() && !marking.isNull()) {
         const auto marking_role = road_marking_role(marking["role"].as<std::string>());

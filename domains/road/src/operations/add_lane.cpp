@@ -327,8 +327,12 @@ struct LaneSectionIds {
   strip.id = ids.strip_id;
   strip.width_m = lane_width_m;
   strip.side_marking = {};
+  // A lane divider is somewhere to paint a line: no structure, no width.
   const BoundaryProfile divider{
-      ids.boundary_id, BoundaryRole::kLaneDivider, 0.0, 0.0,
+      ids.boundary_id,
+      BoundaryRole::kLaneDivider,
+      {ProfilePoint{0.0, 0.0}},
+      {},
       AutoMarkingPolicy{true, MarkingRole::kLaneSeparator,
                         builtin_marking_styles::kWhiteDashed}};
   // The new width appears on one side of the alignment, so the alignment keeps

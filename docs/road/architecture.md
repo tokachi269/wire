@@ -386,10 +386,28 @@ Viewerの通常削除はhover hitが持つ`RoadSegmentId`のsegment全体をハ�
 別軸として扱う。styleからfunctionを推測しない。`Shoulder`はcurb幅や段差の代用ではなく独立した水平stripである。
 車道外側線はcarriageway利用領域とshoulderのsemantic boundaryへ置き、shoulderがない場合だけ外側boundaryを使う。
 
-現行persistence versionは12。局所segment、corridor、directed ref、section strip、lane allocation、
-lane connection、boundary continuation、layoutのalignment offsetをnamed fieldで保存する。
-version 11はlayoutのalignment offsetだけを幅から解決して読み、version 10以前はmigrationせず明示rejectする。
-corridor長、累積distance、connection geometryは派生なので保存しない。
+現行persistence versionは13。局所segment、corridor、directed ref、section strip、lane allocation、
+lane connection、boundary continuation、layoutのalignment offset、boundary profileをnamed fieldで保存する。
+version 12はboundaryのwidth/heightを2点profileへ解決し、その幅を左隣stripへ移して読む。
+version 11以前はmigrationせず明示rejectする。corridor長、累積distance、connection geometryは派生なので保存しない。
+
+## Boundary profile
+
+`BoundaryProfile`は`ProfilePoint`(lateral, height)の順序付きcontourと、点間の面ごとの
+`SurfaceStyleId`を持つ。contourは断面と同じ向き(左→右)で単調非減少、`segment_styles.size() + 1
+== contour.size()`。車線境界線は1点0面、縁石は2点1面、L字溝は上面・垂直面・溝底・路側lipの5点4面。
+
+**layout widthを持つのはstripだけで、boundaryは0を消費する。** contourは両隣のstripの内側へ
+食い込む。歩道2.0mにL字溝の上面0.2mを置いても歩道幅は2.0mのままで、見える歩行面が1.8mになる。
+L字溝の寸法を変えてもlayout width、alignment offset、車線位置は動かない。
+
+contourのlateral 0が**edge datum**であり、端部構造ではそこへ道路側の垂直面を置く。
+高さはdatum相対で、contour先頭点が直前stripの走行高さを引き継ぐ。stripのcross slopeは
+自分の面が実際に届く範囲へかかるので、profileとの間に段差も隙間も生じない。profile自体は
+路面勾配で回転しない。
+
+左右の向きは断面座標のままで、Coreは反転しない。左右で違う端部構造を置くこともでき、
+どちらも同じ型で表す。埋設部・基礎の下面、法線・UV、蓋やgratingのinstanceは対象外。
 
 ## Layout alignment origin
 

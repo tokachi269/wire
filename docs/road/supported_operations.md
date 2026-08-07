@@ -56,15 +56,22 @@ Splits before or after a ratio-based section transition are supported and
 re-normalize the transition `t` onto the segment that retains it. A split inside
 the transition is rejected with a specific reason and leaves state unchanged.
 
-Edge structures with their own cross section — an L-shaped gutter and anything
-else that owns a road-facing vertical face — are not supported. `BoundaryProfile`
-carries one width and one height, so a section that needs a channel floor, a
-vertical face and a top face separately has no field to be submitted in:
-`AddRoadLayoutTemplate` accepts no such shape rather than accepting it and
-approximating. A curb is not substituted for the requested shape, and nothing is
-dropped at junctions to let the segments through. `architecture.md` fixes the
-edge datum contract such a structure would have to satisfy; `backlog.md` lists
-what blocks it.
+A boundary carries a cross-section profile, so an edge structure with its own
+faces — an L-shaped gutter, a curb, a kerbed median edge — is a supported
+section. The profile occupies no layout width: it reaches into the strips beside
+it, so a walkway that declares 2.0m still measures 2.0m once a gutter takes the
+first 0.1m of it. `architecture.md` fixes what the profile is measured from.
+
+Profiles that cannot be built are rejected before anything changes: one whose
+points run backwards, one that reaches past the strip beside it, one whose faces
+do not match its points, or one naming a surface style that does not exist. No
+nearest buildable shape is substituted.
+
+Two limits remain. A profile can only sit between two strips, so a gutter on a
+road with nothing outside it — no walkway on that side — has nowhere to be
+declared. And a connection still needs both endpoint sections to carry identical
+surface mappings, so a road with a gutter does not connect to one without.
+Both stay `NotImplemented`; `backlog.md` records what they need.
 
 Lane Branch and Merge are not available. Their editor asked the user to pick a
 raw boundary ID and auto-selected a default, so the operation was removed rather

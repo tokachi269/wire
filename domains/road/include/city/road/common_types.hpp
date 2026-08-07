@@ -286,11 +286,27 @@ struct LaneBand {
   double lateral_end_m = 0.0;
   LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
 };
+// One corner of a boundary's cross section, measured from the edge datum: the
+// road-facing vertical face of whatever structure sits there. Lateral runs the
+// same way the section does, left to right, so a structure reaches into the
+// strip on either side without either side having to know about it.
+struct ProfilePoint {
+  double lateral_m = 0.0;
+  double height_m = 0.0;
+};
+// What a boundary between two strips is made of. The contour runs left to right
+// and spans the datum; the styles are the faces between consecutive points, so
+// a lane line is one point and no face, a curb two points and one face, and an
+// L-shaped gutter its top, its vertical face, its channel and its road-side lip.
+//
+// A boundary occupies no layout width. Its contour reaches into the strips
+// beside it, which is what lets a gutter's top face come out of the walkway's
+// declared width instead of being added to it.
 struct BoundaryProfile {
   BoundaryId boundary_id = 0;
   BoundaryRole role = BoundaryRole::kCurb;
-  double width_m = 0.0;
-  double height_m = 0.0;
+  std::vector<ProfilePoint> contour{};
+  std::vector<SurfaceStyleId> segment_styles{};
   AutoMarkingPolicy marking{};
 };
 struct RoadLayoutTemplate {

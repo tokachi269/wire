@@ -443,6 +443,59 @@ bool layout_alignment_offset_failures_are_atomic(std::string& failure) {
   return true;
 }
 
+bool boundary_profile_failures_are_atomic(std::string& failure) {
+  RoadState state{};
+  const auto accepted = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  ROAD_CONTRACT_EXPECT(accepted != 0, "a guttered layout was rejected");
+  ROAD_CONTRACT_EXPECT(
+      state
+          .AddSegment(AddSegmentRequest{
+              MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), accepted})
+          .ok,
+      "a guttered road could not be drawn");
+
+  // A profile reaching further than the strip it reaches into, one running
+  // backwards, one with no face for a gap it spans, and one with a face style
+  // that does not exist. None of them describes a section that can be built.
+  std::vector<RoadLayoutTemplate> rejected{};
+  RoadLayoutTemplate overruns = road_fixture::GutteredLayout(0);
+  overruns.boundaries.front().contour.back().lateral_m = 9.0;
+  rejected.push_back(overruns);
+  RoadLayoutTemplate backwards = road_fixture::GutteredLayout(0);
+  std::reverse(backwards.boundaries.front().contour.begin(),
+               backwards.boundaries.front().contour.end());
+  rejected.push_back(backwards);
+  RoadLayoutTemplate unfaced = road_fixture::GutteredLayout(0);
+  unfaced.boundaries.front().segment_styles.pop_back();
+  rejected.push_back(unfaced);
+  RoadLayoutTemplate unknown_face = road_fixture::GutteredLayout(0);
+  unknown_face.boundaries.front().segment_styles.front() = SurfaceStyleId{4242};
+  rejected.push_back(unknown_face);
+
+  for (RoadLayoutTemplate& candidate : rejected) {
+    ROAD_CONTRACT_EXPECT(
+        expect_failed_unchanged(
+            state,
+            [&] {
+              return state.AddRoadLayoutTemplate(
+                  AddRoadLayoutTemplateRequest{candidate});
+            },
+            "AddRoadLayoutTemplate with an unbuildable profile", failure),
+        failure);
+    candidate.id = accepted;
+    ROAD_CONTRACT_EXPECT(
+        expect_failed_unchanged(
+            state,
+            [&] {
+              return state.EditRoadLayoutTemplate(
+                  EditRoadLayoutTemplateRequest{candidate});
+            },
+            "EditRoadLayoutTemplate with an unbuildable profile", failure),
+        failure);
+  }
+  return true;
+}
+
 bool off_centre_layout_survives_reverse_input_and_repeat(std::string& failure) {
   const auto build = [](bool reversed) {
     RoadState state{};
@@ -475,7 +528,7 @@ bool off_centre_layout_survives_reverse_input_and_repeat(std::string& failure) {
        road_test_view::sections(reverse_state.derived())) {
     ROAD_CONTRACT_EXPECT(
         std::abs(section->boundaries.front().lateral_m + 3.0) < 1e-9 &&
-            std::abs(section->boundaries.back().lateral_m - 7.4) < 1e-9,
+            std::abs(section->boundaries.back().lateral_m - 7.0) < 1e-9,
         "reversed input changed what the layout measures from");
   }
   return true;
@@ -801,8 +854,8 @@ bool add_segment_build_failure_is_atomic(std::string& failure) {
       RoadLayoutStrip{30, StripFunction::kSidewalk, 1.0e308, 0.0, builtin_surface_styles::kSidewalk},
   };
   unusable.boundaries = {
-      BoundaryProfile{11, BoundaryRole::kCurb, 0.0, 0.15, {}},
-      BoundaryProfile{21, BoundaryRole::kCurb, 0.0, -0.15, {}},
+      road_fixture::CurbBoundary(11, 0.0, 0.15, {}),
+      road_fixture::CurbBoundary(21, 0.0, -0.15, {}),
   };
   // The widths overflow when they are summed, so the alignment sits at the left
   // outer end: the layout is accepted and the geometry build is what fails.
@@ -1141,7 +1194,7 @@ bool unsupported_junction_section_is_atomic(std::string& failure) {
                    builtin_surface_styles::kAsphalt});
   ambiguous.boundaries.insert(
       ambiguous.boundaries.begin() + 2,
-      BoundaryProfile{160, BoundaryRole::kOuterEdge, 0.0, 0.0, {}});
+      road_fixture::PaintedLineBoundary(160, BoundaryRole::kOuterEdge, {}));
   const auto template_id = state.AddRoadLayoutTemplate(
       AddRoadLayoutTemplateRequest{std::move(ambiguous)});
   ROAD_CONTRACT_EXPECT(template_id.ok,
@@ -1861,6 +1914,8 @@ int main() {
        reverse_input_has_equivalent_geometry},
       {"layout_alignment_offset_failures_are_atomic",
        layout_alignment_offset_failures_are_atomic},
+      {"boundary_profile_failures_are_atomic",
+       boundary_profile_failures_are_atomic},
       {"off_centre_layout_survives_reverse_input_and_repeat",
        off_centre_layout_survives_reverse_input_and_repeat},
       {"extension_semantic_boundaries_are_atomic",

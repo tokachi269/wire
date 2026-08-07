@@ -45,12 +45,79 @@ export interface RoadSectionMarkingInput {
   style: RoadMarkingStyle;
 }
 
+/**
+ * One corner of a boundary's cross section, measured from the edge datum — the
+ * road-facing vertical face of whatever sits there. Lateral runs the way the
+ * section does, left to right, and height is relative to the datum.
+ */
+export interface RoadProfilePointInput {
+  lateralM: number;
+  heightM: number;
+  /** Surface of the face running to the next point. The last point has none. */
+  faceStyle?: RoadSurfaceStyle;
+}
+
 export interface RoadSectionBoundaryInput {
   id: number;
   role: RoadBoundaryRole;
-  widthM: number;
-  heightM: number;
+  profile: RoadProfilePointInput[];
   marking?: RoadSectionMarkingInput;
+}
+
+/** Nothing but a place to paint a line: no structure, no width taken. */
+const paintedLine: RoadProfilePointInput[] = [{ lateralM: 0, heightM: 0 }];
+
+/**
+ * A curb. Its top face comes out of the walkway beside it rather than being
+ * added to the road, so a 2.0m walkway with a 0.2m curb is still 2.0m wide.
+ */
+function curb(
+  side: "left" | "right",
+  widthM: number,
+  heightM: number
+): RoadProfilePointInput[] {
+  return side === "left"
+    ? [{ lateralM: -widthM, heightM, faceStyle: "curb" }, { lateralM: 0, heightM: 0 }]
+    : [{ lateralM: 0, heightM: 0, faceStyle: "curb" }, { lateralM: widthM, heightM }];
+}
+
+/**
+ * L型側溝, 三和コンクリート工業 鉄筋コンクリート L 250B
+ * (JIS A 5371 推奨仕様 C-1 / JIS A 5372 推奨仕様 E-4), w=450mm.
+ *
+ * Reading the product table: w = b + a + c, the wall stands f above the
+ * channel, the channel climbs 10% across a and the road-side lip 5% across c.
+ * That reproduces the table's own h and i (55 + 0.10x250 = 80, +0.05x100 = 85).
+ *
+ * The wall top lands in the walkway and the channel and lip in the roadway, so
+ * neither declared width grows. e and g describe the buried block, which the
+ * visible section does not carry.
+ */
+const lsGutter = {
+  wallTopM: 0.1, // b
+  wallFaceM: 0.1, // f
+  channelM: 0.25, // a
+  channelGrade: 0.1, // 10%
+  lipM: 0.1, // c
+  lipGrade: 0.05 // 5%
+};
+
+function lGutter(side: "left" | "right"): RoadProfilePointInput[] {
+  const channelDrop = -lsGutter.wallFaceM;
+  const channelEnd = channelDrop + lsGutter.channelM * lsGutter.channelGrade;
+  const lipEnd = channelEnd + lsGutter.lipM * lsGutter.lipGrade;
+  const outward: RoadProfilePointInput[] = [
+    { lateralM: -lsGutter.wallTopM, heightM: 0, faceStyle: "curb" },
+    { lateralM: 0, heightM: 0, faceStyle: "curb" },
+    { lateralM: 0, heightM: channelDrop, faceStyle: "curb" },
+    { lateralM: lsGutter.channelM, heightM: channelEnd, faceStyle: "curb" },
+    { lateralM: lsGutter.channelM + lsGutter.lipM, heightM: lipEnd }
+  ];
+  if (side === "left") return outward;
+  return outward
+    .map((point) => ({ lateralM: -point.lateralM, heightM: point.heightM }))
+    .reverse()
+    .map((point, index, all) => (index + 1 === all.length ? point : { ...point, faceStyle: "curb" as const }));
 }
 
 export interface RoadSectionInput {
@@ -67,23 +134,12 @@ export interface RoadSectionInput {
   alignmentOffsetFromLeftM: number;
 }
 
-function centredAlignment(
-  strips: RoadSectionStripInput[],
-  boundaries: RoadSectionBoundaryInput[]
-): number {
-  const total =
-    strips.reduce((sum, strip) => sum + strip.widthM, 0) +
-    boundaries.reduce((sum, boundary) => sum + boundary.widthM, 0);
-  return total / 2;
-}
-
 function centred(
   section: Omit<RoadSectionInput, "alignmentOffsetFromLeftM">
 ): RoadSectionInput {
-  return {
-    ...section,
-    alignmentOffsetFromLeftM: centredAlignment(section.strips, section.boundaries)
-  };
+  // Only strips carry layout width; a boundary's structure reaches into them.
+  const total = section.strips.reduce((sum, strip) => sum + strip.widthM, 0);
+  return { ...section, alignmentOffsetFromLeftM: total / 2 };
 }
 
 export interface RoadTemplatePreset {
@@ -111,9 +167,9 @@ const urbanTwoLane: RoadSectionInput = centred({
     { id: 1010, stripId: 30, lateralStartM: 0.0, lateralEndM: 3.0, direction: 0 }
   ],
   boundaries: [
-    { id: 100, role: "curb", widthM: 0.2, heightM: -0.15, marking: outerLine },
-    { id: 200, role: "lane_divider", widthM: 0.0, heightM: 0.0, marking: centerLine },
-    { id: 300, role: "curb", widthM: 0.2, heightM: 0.15, marking: outerLine }
+    { id: 100, role: "curb", profile: curb("left", 0.2, 0.15), marking: outerLine },
+    { id: 200, role: "lane_divider", profile: paintedLine, marking: centerLine },
+    { id: 300, role: "curb", profile: curb("right", 0.2, 0.15), marking: outerLine }
   ]
 });
 
@@ -131,10 +187,10 @@ const threeLane: RoadSectionInput = centred({
     { id: 1020, stripId: 35, lateralStartM: 0.0, lateralEndM: 3.0, direction: 0 }
   ],
   boundaries: [
-    { id: 100, role: "curb", widthM: 0.2, heightM: -0.15, marking: outerLine },
-    { id: 200, role: "lane_divider", widthM: 0.0, heightM: 0.0, marking: centerLine },
-    { id: 250, role: "lane_divider", widthM: 0.0, heightM: 0.0, marking: centerLine },
-    { id: 300, role: "curb", widthM: 0.2, heightM: 0.15, marking: outerLine }
+    { id: 100, role: "curb", profile: curb("left", 0.2, 0.15), marking: outerLine },
+    { id: 200, role: "lane_divider", profile: paintedLine, marking: centerLine },
+    { id: 250, role: "lane_divider", profile: paintedLine, marking: centerLine },
+    { id: 300, role: "curb", profile: curb("right", 0.2, 0.15), marking: outerLine }
   ]
 });
 
@@ -154,10 +210,10 @@ const medianTwoLane: RoadSectionInput = centred({
   ],
   laneBands: urbanTwoLane.laneBands,
   boundaries: [
-    { id: 100, role: "curb", widthM: 0.2, heightM: -0.15, marking: outerLine },
-    { id: 210, role: "median_edge", widthM: 0.2, heightM: 0.12 },
-    { id: 220, role: "median_edge", widthM: 0.2, heightM: -0.12 },
-    { id: 300, role: "curb", widthM: 0.2, heightM: 0.15, marking: outerLine }
+    { id: 100, role: "curb", profile: curb("left", 0.2, 0.15), marking: outerLine },
+    { id: 210, role: "median_edge", profile: curb("right", 0.2, 0.12) },
+    { id: 220, role: "median_edge", profile: curb("left", 0.2, 0.12) },
+    { id: 300, role: "curb", profile: curb("right", 0.2, 0.15), marking: outerLine }
   ]
 });
 
@@ -175,11 +231,21 @@ const shoulderedTwoLane: RoadSectionInput = centred({
     { id: 1010, stripId: 30, lateralStartM: 0.0, lateralEndM: 3.0, direction: 0 }
   ],
   boundaries: [
-    { id: 100, role: "curb", widthM: 0.2, heightM: -0.15 },
-    { id: 150, role: "outer_edge", widthM: 0.0, heightM: 0.0, marking: outerLine },
-    { id: 200, role: "lane_divider", widthM: 0.0, heightM: 0.0, marking: centerLine },
-    { id: 250, role: "outer_edge", widthM: 0.0, heightM: 0.0, marking: outerLine },
-    { id: 300, role: "curb", widthM: 0.2, heightM: 0.15 }
+    { id: 100, role: "curb", profile: curb("left", 0.2, 0.15) },
+    { id: 150, role: "outer_edge", profile: paintedLine, marking: outerLine },
+    { id: 200, role: "lane_divider", profile: paintedLine, marking: centerLine },
+    { id: 250, role: "outer_edge", profile: paintedLine, marking: outerLine },
+    { id: 300, role: "curb", profile: curb("right", 0.2, 0.15) }
+  ]
+});
+
+const lGutterTwoLane: RoadSectionInput = centred({
+  strips: urbanTwoLane.strips,
+  laneBands: urbanTwoLane.laneBands,
+  boundaries: [
+    { id: 100, role: "curb", profile: lGutter("left"), marking: outerLine },
+    { id: 200, role: "lane_divider", profile: paintedLine, marking: centerLine },
+    { id: 300, role: "curb", profile: lGutter("right"), marking: outerLine }
   ]
 });
 
@@ -231,5 +297,11 @@ export const ROAD_TEMPLATE_PRESETS: readonly RoadTemplatePreset[] = [
     label: "JP 2 lane / shoulder",
     initial: false,
     section: shoulderedTwoLane
+  },
+  {
+    key: "l-gutter-two-lane",
+    label: "JP 2 lane / L gutter",
+    initial: false,
+    section: lGutterTwoLane
   }
 ];

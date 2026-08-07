@@ -256,13 +256,15 @@ resolve_junction_section(const ConnectionGate &gate) {
                ? 0
                : 1;
   };
+  // A curb is however many profile points its structure needs; the junction
+  // only cares where that structure starts and ends.
   std::array<std::vector<const SectionBoundarySample *>, 2> side_curbs{};
   for (auto &[id, samples] : curb_groups) {
     (void)id;
-    if (samples.size() != 2) {
+    if (samples.size() < 2) {
       return Result<junction_section>::Fail(
           CommitFailureCategory::kNotImplemented,
-          "road junction curb boundary mapping requires two profile samples");
+          "road junction curb boundary mapping requires a profile with two ends");
     }
     std::sort(samples.begin(), samples.end(), [](const auto *a, const auto *b) {
       return a->lateral_m < b->lateral_m;

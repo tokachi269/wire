@@ -11,7 +11,6 @@
 | raw lane topology編集 | 曖昧なjunctionで車線接続を明示指定する | junctionの自動解決が曖昧になる実例を集めてから。意味的な選択(どの車線からどの車線へ)をUIで表現できる形で設計する。`lane_connections` / `boundary_continuations` はjunction生成が内部利用するため保存fieldは残る |
 | Branch / Merge | 本線から車線を分岐させる / 本線車線へ合流させる | 「どの車線から分岐するか」を意味で選べるUIを設計してから。raw BoundaryIdのdropdownと既定値の自動選択がPOC条件に反したため削除した。内部lane topologyはjunction生成が使うので残っている |
 | 道路沿い配置(街路樹・標識・建物) | 道路に沿ってpropを並べる | consumerを実装する時点で、そのconsumerの要件から参照型を設計する。先行実装は削除済み。参照線の区別は `architecture.md` の「Edge datum と envelope」 |
-| 端部構造(L字溝) | 道路端に断面を持つ構造を置き、道路幅と歩道幅の境界を明示する | 下の「端部構造」の衝突を解消してから。契約は `architecture.md` の「Edge datum と envelope」にあり、実装はない |
 | 縦断・地形・立体交差 | 縦断プロファイルと路面roll、地形追従と切り込み、高さの違う道路の非接続交差、地上と高架の構造mode境界 | 平面の断面・接続契約が安定してから。`VerticalProfile` / `RollProfile`はこのときに初めてschemaへ追加する |
 | 高架の連続形状 | 高架壁と床版側面・下面の押し出し、地面マスクの無効化と遷移 | 縦断が入ってから。橋脚等の個別モデル配置は別 |
 | ユーザー定義Area | ロータリー・広場の形状生成。outerとhole 1個から | 交差点とcorridorが安定してから。内部の交通意味論は対象外 |
@@ -21,32 +20,23 @@
 
 ## 端部構造
 
-`architecture.md` の edge datum 契約は決めただけで、端部構造の実装はない。着手前に次を解消する。
-番号順に依存する。
+L字溝・縁石・median edgeは`BoundaryProfile`のcontourとして実装済み。契約は`architecture.md`の
+「Boundary profile」。**edge datumはcontourのlateral 0**であって、L字溝の道路側垂直面をそこへ置く。
+残りは次の3点。
 
-- ~~**断面の横基準が幅の合計から出ている。**~~ 解決済み。`RoadLayoutTemplate` が
-  `alignment_offset_from_left_m` を持ち、断面は左外端から積み上げる。契約は
-  `architecture.md` の「Layout alignment origin」。**これは alignment origin だけで、
-  edge datum ではない。**
-- ~~**交差点が独自に中心を再計算する。**~~ 解決済み。junction は gate 位置を基準に断面を置き、
-  外端 2 点の中点は左右の振り分けにしか使わない。ただし側 boundary が 2 個を超えると
-  `NotImplemented` で拒否するのは変わっていないので、複数点の断面はそのままでは通らない。
+1. **断面の外端にprofileを置けない。** `boundaries.size() + 1 == strips.size()`のままなので、
+   boundaryは必ず2つのstripの間にある。歩道のない側のL字溝は宣言できず、
+   `architecture.md`の「歩道がない場合」の張り出しも表現できない。gapごとに1つ
+   (`strips.size() + 1`個)へ変えると外端も実boundaryになり、合成ID 1 / 999も消える。
+   `merge_boundary_policies`のindexとjunctionの外端判定が連動する。
+2. **接続が断面styleの完全一致を要求する。** `connection_geometry_from_gates`は
+   `surface_styles`が違うと`NotImplemented`。片側だけ溝がある、左右で溝が違う、
+   溝つき道路と縁石道路をつなぐ、はいずれもcornerで通らない。
+3. **`Mesh`に法線とUVがない。** `derived_types/derived_road.hpp`は頂点とindexだけを持つ。
+   L字溝のhard edgeは表現できない。**現状hard edgeは未対応。** Unrealへ出す前に片付ける。
 
-1. **`BoundaryProfile` が 2 点の斜面しか表せない。** `derive_boundaries` は boundary ごとに
-   前後 2 sample しか出さない。溝底・垂直面・上面・受け部・地中面を区別できない。edge datum
-   相対座標の閉じた断面 polygon が要る。
-2. **接続が断面 style の完全一致を要求する。** `connection_geometry_from_gates` は
-   `surface_styles` が違うと `NotImplemented`。片側だけ溝がある、左右で溝が違う、という組合せは
-   corner で通らない。
-3. **遷移が幅を線形補間する。** `interpolate_section` は strip / boundary の幅を線形に混ぜるので、
-   溝が幅 0 から生えて途中で不正な断面になる。端部構造は遷移で連続かどうかを別に決める。
-4. **archive に断面 polygon の置き場がない。** version 12 の boundary field は
-   `.boundary_id .role .width_m .height_m .marking.*` だけ。断面 polygon、面ごとの勾配、socket、
-   地中面を保存する field はない。version 13 と migration 方針を先に決める。
-5. **`Mesh` に法線と UV がない。** `derived_types/derived_road.hpp` は頂点と index だけを持つ。
-   L 字溝の hard edge は表現できない。**現状 hard edge は未対応。** Unreal へ出す前に片付ける。
-
-1 が済むまで 2・3 は評価できない。4 は 1 の形が決まってから。
+埋設部・基礎の下面(structural envelope)、面ごとの勾配mode、socket、蓋やgratingのinstanceは
+まだ設計していない。下面が要るときはcontourをもう1本足す形にし、閉曲線・hole・booleanへは広げない。
 
 ## 却下
 
@@ -61,6 +51,6 @@
 
 ## 保存互換性
 
-手動線・手動面・lane connection・boundary continuationは `SavedRoadGraph` に残り、archive version 12 で読み書きできる。
-version 11 の workspace も開ける。layout の alignment offset だけを保存幅から解決し、他は v11 のまま読む。
+手動線・手動面・lane connection・boundary continuationは `SavedRoadGraph` に残り、archive version 13 で読み書きできる。
+version 12 の workspace も開ける。boundary の width/height を2点profileへ解決し、その幅を左隣stripへ移す。
 標準UIとpublic APIから外しただけで、既存workspaceは開ける。保存fieldの削除は別途migration方針を決めてから行う。

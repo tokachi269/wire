@@ -6,6 +6,7 @@
 #include "../src/persistence/archive.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -303,14 +304,14 @@ city::road::RoadLayoutTemplate OneWayLaneTemplate(
   section.strips.push_back({90, StripFunction::kShoulder, 0.75, 0.0,
                             builtin_surface_styles::kAsphalt});
   section.boundaries.push_back(
-      {100, BoundaryRole::kOuterEdge, 0.0, 0.0, edge});
+      road_fixture::PaintedLineBoundary(100, BoundaryRole::kOuterEdge, edge));
   for (std::size_t index = 1; index < lane_count; ++index) {
-    section.boundaries.push_back(
-        {static_cast<city::road::BoundaryId>(100 + index * 100),
-         BoundaryRole::kLaneDivider, 0.0, 0.0, divider});
+    section.boundaries.push_back(road_fixture::PaintedLineBoundary(
+        static_cast<city::road::BoundaryId>(100 + index * 100),
+        BoundaryRole::kLaneDivider, divider));
   }
   section.boundaries.push_back(
-      {900, BoundaryRole::kOuterEdge, 0.0, 0.0, edge});
+      road_fixture::PaintedLineBoundary(900, BoundaryRole::kOuterEdge, edge));
   section.alignment_offset_from_left_m =
       road_fixture::CentredAlignmentOffset(section);
   return section;
@@ -335,8 +336,8 @@ city::road::RoadLayoutTemplate SharedCarriagewayLaneTemplate(
        city::road::LaneTravelDirection::kAlongSegment},
   };
   section.boundaries = {
-      {100, BoundaryRole::kOuterEdge, 0.0, 0.0, {}},
-      {900, BoundaryRole::kOuterEdge, 0.0, 0.0, {}},
+      road_fixture::PaintedLineBoundary(100, BoundaryRole::kOuterEdge, {}),
+      road_fixture::PaintedLineBoundary(900, BoundaryRole::kOuterEdge, {}),
   };
   section.alignment_offset_from_left_m =
       road_fixture::CentredAlignmentOffset(section);
@@ -380,12 +381,12 @@ city::road::RoadLayoutTemplate OpposingFourLaneTemplate(
        city::road::LaneTravelDirection::kAlongSegment},
   };
   section.boundaries = {
-      {100, BoundaryRole::kOuterEdge, 0.0, 0.0, edge},
-      {150, BoundaryRole::kLaneDivider, 0.0, 0.0, divider},
-      {200, BoundaryRole::kMedianEdge, 0.0, 0.0, {}},
-      {210, BoundaryRole::kMedianEdge, 0.0, 0.0, {}},
-      {250, BoundaryRole::kLaneDivider, 0.0, 0.0, divider},
-      {300, BoundaryRole::kOuterEdge, 0.0, 0.0, edge},
+      road_fixture::PaintedLineBoundary(100, BoundaryRole::kOuterEdge, edge),
+      road_fixture::PaintedLineBoundary(150, BoundaryRole::kLaneDivider, divider),
+      road_fixture::CurbBoundary(200, 0.0, 0.0, {}),
+      road_fixture::CurbBoundary(210, 0.0, 0.0, {}),
+      road_fixture::PaintedLineBoundary(250, BoundaryRole::kLaneDivider, divider),
+      road_fixture::PaintedLineBoundary(300, BoundaryRole::kOuterEdge, edge),
   };
   return section;
 }
@@ -418,12 +419,12 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
   ROAD_TEST_EXPECT(!road_test_view::sections(state.derived()).empty(), "P0 did not evaluate the section");
   const auto& boundaries = road_test_view::sections(state.derived()).front()->boundaries;
   ROAD_TEST_EXPECT(boundaries.size() >= 7, "P0 section does not expose sidewalk/curb/carriageway edges");
-  ROAD_TEST_EXPECT(std::abs(boundaries.front().height_m - 0.13) < 1e-9,
-                   "left sidewalk outer edge does not apply the 1% outward slope");
+  ROAD_TEST_EXPECT(std::abs(boundaries.front().height_m - 0.132) < 1e-9,
+                   "left sidewalk outer edge does not slope across the 1.8m its curb leaves it");
   ROAD_TEST_EXPECT(std::abs(boundaries[1].height_m - 0.15) < 1e-9,
                    "left curb top is not 0.15m above the carriageway edge");
-  ROAD_TEST_EXPECT(std::abs(boundaries.back().height_m - 0.13) < 1e-9,
-                   "right sidewalk outer edge does not apply the 1% outward slope");
+  ROAD_TEST_EXPECT(std::abs(boundaries.back().height_m - 0.132) < 1e-9,
+                   "right sidewalk outer edge does not slope across the 1.8m its curb leaves it");
   ROAD_TEST_EXPECT(std::abs(boundaries[5].height_m - 0.15) < 1e-9,
                    "right curb top is not 0.15m above the carriageway edge");
   ROAD_TEST_EXPECT(std::abs(boundaries[2].height_m) < 1e-9, "left carriageway edge is not at road height");
@@ -504,7 +505,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=12\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=13\n") &&
                        saved.value.find("primitive=") == std::string::npos &&
                        saved.value.find("section_template.0.alignment_offset_from_left_m=") !=
                            std::string::npos &&
@@ -532,7 +533,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
     return archive;
   };
   std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=12").size(), "road_graph_version=4");
+  version4.replace(0, std::string("road_graph_version=13").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
   ROAD_TEST_EXPECT(!rejected.ok && rejected.failure_category == CommitFailureCategory::kInvalidInput,
                    "legacy road archive was not rejected");
@@ -553,12 +554,12 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
                    "non-finite road archive double was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.strip.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "13")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "14")).ok,
                    "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
-  for (int old_version = 1; old_version <= 10; ++old_version) {
+  for (int old_version = 1; old_version <= 11; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=12").size(),
+    legacy.replace(0, std::string("road_graph_version=13").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
@@ -1471,8 +1472,8 @@ bool section_transition_widens_one_side_from_its_anchor(std::string& failure) {
   ROAD_TEST_EXPECT(before != nullptr && after != nullptr, "P2 transition endpoints were not evaluated");
   const double before_width = before->boundaries.back().lateral_m - before->boundaries.front().lateral_m;
   const double after_width = after->boundaries.back().lateral_m - after->boundaries.front().lateral_m;
-  ROAD_TEST_EXPECT(std::abs(before_width - 10.4) < 1e-6, "P2 transition changed the from-section before its start");
-  ROAD_TEST_EXPECT(std::abs(after_width - 13.4) < 1e-6, "P2 transition did not reach the extra-lane layout");
+  ROAD_TEST_EXPECT(std::abs(before_width - 10.0) < 1e-6, "P2 transition changed the from-section before its start");
+  ROAD_TEST_EXPECT(std::abs(after_width - 13.0) < 1e-6, "P2 transition did not reach the extra-lane layout");
   ROAD_TEST_EXPECT(std::abs(before->boundaries.front().lateral_m - after->boundaries.front().lateral_m) < 1e-6,
                    "P2 left-edge anchor moved during one-sided widening");
 
@@ -2911,10 +2912,10 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
     median.strips.insert(median.strips.begin() + 2,
                         {25, StripFunction::kMedian, 2.0, 0.0, builtin_surface_styles::kMedian});
     median.boundaries = {
-        {100, BoundaryRole::kCurb, 0.2, -0.15, outer_line},
-        {210, BoundaryRole::kMedianEdge, 0.2, 0.12, {}},
-        {220, BoundaryRole::kMedianEdge, 0.2, -0.12, {}},
-        {300, BoundaryRole::kCurb, 0.2, 0.15, outer_line},
+        road_fixture::CurbBoundary(100, -0.2, 0.15, outer_line),
+        road_fixture::CurbBoundary(210, 0.2, 0.12, {}),
+        road_fixture::CurbBoundary(220, -0.2, 0.12, {}),
+        road_fixture::CurbBoundary(300, 0.2, 0.15, outer_line),
     };
     const auto median_id = state.AddRoadLayoutTemplate(city::road::AddRoadLayoutTemplateRequest{median});
     ROAD_TEST_EXPECT(median_id.ok, median_id.error);
@@ -3533,9 +3534,9 @@ bool layout_alignment_origin_measures_from_the_left_outer_end(std::string& failu
   const auto centred_sections = road_test_view::sections(centred.derived());
   ROAD_TEST_EXPECT(!centred_sections.empty(), "centred road has no sections");
   for (const auto* section : centred_sections) {
-    ROAD_TEST_EXPECT(std::abs(section->boundaries.front().lateral_m + 5.2) < 1e-12 &&
-                         std::abs(section->boundaries.back().lateral_m - 5.2) < 1e-12,
-                     "a symmetric layout no longer reaches 5.2m each way");
+    ROAD_TEST_EXPECT(std::abs(section->boundaries.front().lateral_m + 5.0) < 1e-12 &&
+                         std::abs(section->boundaries.back().lateral_m - 5.0) < 1e-12,
+                     "a symmetric layout no longer reaches 5.0m each way");
     const auto divider = boundary_lateral(*section, 200);
     ROAD_TEST_EXPECT(divider.has_value() && std::abs(*divider) < 1e-12,
                      "a symmetric layout no longer puts its divider on the alignment");
@@ -3553,7 +3554,7 @@ bool layout_alignment_origin_measures_from_the_left_outer_end(std::string& failu
   ROAD_TEST_EXPECT(!off_centre_sections.empty(), "off-centre road has no sections");
   for (const auto* section : off_centre_sections) {
     ROAD_TEST_EXPECT(std::abs(section->boundaries.front().lateral_m + 3.0) < 1e-12 &&
-                         std::abs(section->boundaries.back().lateral_m - 7.4) < 1e-12,
+                         std::abs(section->boundaries.back().lateral_m - 7.0) < 1e-12,
                      "the alignment offset did not decide where the layout starts");
   }
 
@@ -3738,7 +3739,7 @@ bool off_centre_layout_keeps_its_alignment_through_a_junction(std::string& failu
     ROAD_TEST_EXPECT(!gate.boundaries.empty(), "a junction gate carries no section");
     const double left = gate.boundaries.front().lateral_m;
     const double right = gate.boundaries.back().lateral_m;
-    ROAD_TEST_EXPECT(std::abs(left + 3.0) < 1e-9 && std::abs(right - 7.4) < 1e-9,
+    ROAD_TEST_EXPECT(std::abs(left + 3.0) < 1e-9 && std::abs(right - 7.0) < 1e-9,
                      "a junction gate re-measured the layout from somewhere else");
     ROAD_TEST_EXPECT(std::abs((left + right) * 0.5) > 1e-6,
                      "the off-centre layout was recentred between its outer edges");
@@ -3767,40 +3768,222 @@ bool saved_layout_alignment_offset_survives_reload(std::string& failure) {
   return true;
 }
 
-bool version_eleven_archive_resolves_a_centred_alignment(std::string& failure) {
+bool version_twelve_archive_keeps_the_geometry_it_had(std::string& failure) {
   RoadState state{};
   const auto layout = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
   ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0), "road could not be drawn");
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
 
-  // Version 11 had no alignment offset and put every layout on the middle of
-  // its own width, so drop the field and say version 11.
+  // Say the same walkway/lane/lane/walkway road the way version 12 did: a
+  // boundary was one width and one height, and it took that width out of the
+  // layout, so the two 0.2 curbs made the road 10.4 across instead of 10.0 and
+  // put the alignment 5.2 from the left end.
+  const std::array<std::pair<double, double>, 3> v12_boundaries{
+      std::pair{0.2, -0.15}, std::pair{0.0, 0.0}, std::pair{0.2, 0.15}};
   std::string legacy{};
   std::istringstream lines{saved.value};
   std::string line{};
-  bool dropped = false;
+  std::size_t rewritten = 0;
   while (std::getline(lines, line)) {
-    if (line.find(".alignment_offset_from_left_m=") != std::string::npos) {
-      dropped = true;
+    if (line == "road_graph_version=13") {
+      legacy += "road_graph_version=12\n";
       continue;
     }
-    if (line == "road_graph_version=12") line = "road_graph_version=11";
+    if (line.find(".point.") != std::string::npos ||
+        line.find(".segment_style") != std::string::npos) {
+      continue;
+    }
+    if (line.rfind("section_template.0.alignment_offset_from_left_m=", 0) == 0) {
+      legacy += "section_template.0.alignment_offset_from_left_m=5.2\n";
+      continue;
+    }
     legacy += line;
     legacy += '\n';
+    if (line.rfind("section_template.0.boundary.", 0) == 0 &&
+        line.find(".role=") != std::string::npos &&
+        line.find("marking") == std::string::npos) {
+      const std::string boundary_prefix = line.substr(0, line.find(".role="));
+      legacy += boundary_prefix + ".width_m=" +
+                std::to_string(v12_boundaries[rewritten].first) + "\n";
+      legacy += boundary_prefix + ".height_m=" +
+                std::to_string(v12_boundaries[rewritten].second) + "\n";
+      ++rewritten;
+    }
   }
-  ROAD_TEST_EXPECT(dropped, "the archive under test has no alignment offset to drop");
+  ROAD_TEST_EXPECT(rewritten == v12_boundaries.size(),
+                   "the archive under test did not expose three boundaries");
 
   const auto loaded = RoadState::Load(legacy);
   ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  const auto sections = road_test_view::sections(loaded.value.derived());
+  ROAD_TEST_EXPECT(!sections.empty(), "a version 12 road produced no sections");
+  // Where version 12 put every edge of that section.
+  const std::array<double, 7> v12_laterals{-5.2, -3.2, -3.0, 0.0, 3.0, 3.2, 5.2};
+  for (const auto* section : sections) {
+    ROAD_TEST_EXPECT(section->boundaries.size() == v12_laterals.size(),
+                     "a version 12 road came back with a different section shape");
+    for (std::size_t index = 0; index < v12_laterals.size(); ++index) {
+      ROAD_TEST_EXPECT(
+          std::abs(section->boundaries[index].lateral_m - v12_laterals[index]) < 1e-9,
+          "a version 12 road did not come back where version 12 put it");
+    }
+  }
+  const auto& restored = loaded.value.graph().layout_templates.front();
+  ROAD_TEST_EXPECT(std::abs(restored.alignment_offset_from_left_m - 5.2) < 1e-9,
+                   "migrating a version 12 layout moved its alignment");
+  ROAD_TEST_EXPECT(restored.boundaries.front().contour.size() == 2 &&
+                       restored.boundaries[1].contour.size() == 1,
+                   "migration did not turn widths and heights into profiles");
+  ROAD_TEST_EXPECT(loaded.value.Save().ok, "a migrated road could not be saved again");
+  return true;
+}
+
+// --- Edge structures ---------------------------------------------------------
+// GutteredLayout puts an L-shaped gutter where the curb was: a top face in the
+// walkway, a vertical face on the datum, then a channel and a lip reaching back
+// into the roadway.
+
+bool l_gutter_comes_out_of_the_widths_beside_it(std::string& failure) {
+  RoadState curbed_state{};
+  const auto curbed_layout =
+      road_fixture::AddLayout(curbed_state, road_fixture::BidirectionalLayout(0));
+  ROAD_TEST_EXPECT(draw_straight_road(curbed_state, curbed_layout, 60.0),
+                   "the curbed road could not be drawn");
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  ROAD_TEST_EXPECT(layout != 0, "the guttered layout was rejected");
+  ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0),
+                   "the guttered road could not be drawn");
+
+  const auto curbed = road_test_view::sections(curbed_state.derived());
+  const auto guttered = road_test_view::sections(state.derived());
+  ROAD_TEST_EXPECT(!curbed.empty() && !guttered.empty(), "a road produced no sections");
+  const auto& before = curbed.front()->boundaries;
+  const auto& after = guttered.front()->boundaries;
+
+  // Swapping a 0.2 curb for a gutter that reaches 0.45 across changes nothing
+  // about how wide the road is or where it sits.
+  ROAD_TEST_EXPECT(std::abs((after.back().lateral_m - after.front().lateral_m) -
+                            (before.back().lateral_m - before.front().lateral_m)) < 1e-9,
+                   "the gutter changed the width of the road it sits in");
+  ROAD_TEST_EXPECT(std::abs(after.front().lateral_m + 5.0) < 1e-9 &&
+                       std::abs(after.back().lateral_m - 5.0) < 1e-9,
+                   "the gutter moved the layout's outer ends");
+  const auto divider = boundary_lateral(*guttered.front(), 200);
+  ROAD_TEST_EXPECT(divider.has_value() && std::abs(*divider) < 1e-9,
+                   "the gutter moved the centre line");
+
+  // Its top face is inside the 2.0m walkway, its channel and lip inside the
+  // 3.0m carriageway: 0.1 + 0.1 of walkway and 0.25 + 0.1 of roadway.
+  ROAD_TEST_EXPECT(after.size() == 13, "the guttered section does not expose every face");
+  const std::array<double, 5> left_gutter{-3.1, -3.0, -3.0, -2.75, -2.65};
+  for (std::size_t index = 0; index < left_gutter.size(); ++index) {
+    ROAD_TEST_EXPECT(std::abs(after[index + 1].lateral_m - left_gutter[index]) < 1e-9,
+                     "the left gutter is not where its own dimensions put it");
+  }
+  // The wall stands 0.1 above the channel, and the channel climbs back to the
+  // road, leaving the top 0.07 above the road edge.
+  ROAD_TEST_EXPECT(std::abs((after[2].height_m - after[3].height_m) - 0.1) < 1e-9,
+                   "the gutter's vertical face is not its own height");
+  ROAD_TEST_EXPECT(std::abs((after[2].height_m - after[5].height_m) - 0.07) < 1e-9,
+                   "the gutter top does not stand where its channel grades put it");
+  return true;
+}
+
+bool l_gutter_dimensions_leave_the_road_where_it_was(std::string& failure) {
+  const auto laterals_of = [](city::road::RoadLayoutTemplate layout,
+                              std::vector<double>& out) {
+    RoadState state{};
+    const auto id = road_fixture::AddLayout(state, std::move(layout));
+    if (id == 0 || !draw_straight_road(state, id, 60.0)) return false;
+    const auto sections = road_test_view::sections(state.derived());
+    if (sections.empty()) return false;
+    out.clear();
+    for (const auto& boundary : sections.front()->boundaries)
+      out.push_back(boundary.lateral_m);
+    return true;
+  };
+  std::vector<double> narrow{};
+  ROAD_TEST_EXPECT(laterals_of(road_fixture::GutteredLayout(0), narrow),
+                   "the guttered road could not be drawn");
+
+  // A deeper, wider gutter: the same structure with more of everything.
+  city::road::RoadLayoutTemplate wider = road_fixture::GutteredLayout(0);
+  for (city::road::BoundaryProfile& boundary : wider.boundaries) {
+    for (city::road::ProfilePoint& point : boundary.contour) {
+      point.lateral_m *= 1.5;
+      point.height_m *= 1.5;
+    }
+  }
+  std::vector<double> wide{};
+  ROAD_TEST_EXPECT(laterals_of(wider, wide), "the wider guttered road could not be drawn");
+  ROAD_TEST_EXPECT(narrow.size() == wide.size(),
+                   "resizing the gutter changed the section's shape");
+  ROAD_TEST_EXPECT(std::abs(wide.front() - narrow.front()) < 1e-9 &&
+                       std::abs(wide.back() - narrow.back()) < 1e-9,
+                   "resizing the gutter moved the layout's outer ends");
+  // Sample 6 is the centre line, the only thing between the two gutters.
+  ROAD_TEST_EXPECT(std::abs(wide[6] - narrow[6]) < 1e-9,
+                   "resizing the gutter moved the centre line");
+  ROAD_TEST_EXPECT(std::abs(wide[1] - narrow[1]) > 1e-6,
+                   "resizing the gutter did not move the gutter");
+  return true;
+}
+
+bool saved_boundary_profiles_survive_reload(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0),
+                   "the guttered road could not be drawn");
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  const auto& restored = loaded.value.graph().layout_templates.front();
+  const auto& original = state.graph().layout_templates.front();
+  ROAD_TEST_EXPECT(restored.boundaries.size() == original.boundaries.size(),
+                   "reloading lost a boundary");
+  for (std::size_t index = 0; index < original.boundaries.size(); ++index) {
+    const auto& a = original.boundaries[index];
+    const auto& b = restored.boundaries[index];
+    ROAD_TEST_EXPECT(a.contour.size() == b.contour.size() &&
+                         a.segment_styles == b.segment_styles,
+                     "reloading changed a boundary profile's shape");
+    for (std::size_t point = 0; point < a.contour.size(); ++point) {
+      ROAD_TEST_EXPECT(a.contour[point].lateral_m == b.contour[point].lateral_m &&
+                           a.contour[point].height_m == b.contour[point].height_m,
+                       "reloading moved a boundary profile point");
+    }
+  }
   ROAD_TEST_EXPECT(section_laterals(state) == section_laterals(loaded.value),
-                   "a version 11 road did not come back with the geometry it had");
-  ROAD_TEST_EXPECT(loaded.value.graph().layout_templates.front().alignment_offset_from_left_m ==
-                       state.graph().layout_templates.front().alignment_offset_from_left_m,
-                   "a version 11 layout was not resolved onto the middle of its width");
+                   "reloading a guttered road produced different geometry");
   const auto resaved = loaded.value.Save();
   ROAD_TEST_EXPECT(resaved.ok && resaved.value == saved.value,
-                   "a migrated road did not save as the current version");
+                   "a guttered road did not save back bit-identically");
+  return true;
+}
+
+bool l_gutter_keeps_its_faces_through_a_junction(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), layout});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), layout, base.value, 40.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1,
+                   "guttered roads did not form one junction");
+  for (const auto& gate : road_test_view::gates_of(*junctions.front())) {
+    ROAD_TEST_EXPECT(gate.boundaries.size() == 13,
+                     "a junction gate dropped part of the gutter profile");
+  }
+  for (const Mesh& mesh : state.derived().junction_meshes) {
+    ROAD_TEST_EXPECT(mesh_faces_up(mesh), "the guttered junction mesh is inverted");
+  }
   return true;
 }
 
@@ -3925,8 +4108,16 @@ int main() {
        off_centre_layout_keeps_its_alignment_through_a_junction},
       {"saved_layout_alignment_offset_survives_reload",
        saved_layout_alignment_offset_survives_reload},
-      {"version_eleven_archive_resolves_a_centred_alignment",
-       version_eleven_archive_resolves_a_centred_alignment},
+      {"version_twelve_archive_keeps_the_geometry_it_had",
+       version_twelve_archive_keeps_the_geometry_it_had},
+      {"l_gutter_comes_out_of_the_widths_beside_it",
+       l_gutter_comes_out_of_the_widths_beside_it},
+      {"l_gutter_dimensions_leave_the_road_where_it_was",
+       l_gutter_dimensions_leave_the_road_where_it_was},
+      {"saved_boundary_profiles_survive_reload",
+       saved_boundary_profiles_survive_reload},
+      {"l_gutter_keeps_its_faces_through_a_junction",
+       l_gutter_keeps_its_faces_through_a_junction},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

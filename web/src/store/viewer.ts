@@ -58,7 +58,12 @@ export interface ViewerSnapshot {
   error: string;
   lastCommitFailure: CommitFailure | null;
   lastDrawActionResult: DrawActionResult | null;
-  buildMismatch: { webCommit: string; webVersion: string; wasmCommit: string; wasmVersion: string } | null;
+  buildMismatch: {
+    webSourceHash: string;
+    webVersion: string;
+    wasmSourceHash: string;
+    wasmVersion: string;
+  } | null;
   generationMs: number | null;
   generationTiming: GenerationTiming | null;
   generationCallMs: number | null;

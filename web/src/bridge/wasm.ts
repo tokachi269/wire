@@ -344,7 +344,7 @@ export interface RoadAddLaneInput {
 export interface WireModule {
   WireState: new () => WireStateHandle;
   RoadState: new () => RoadStateHandle;
-  wireBuildCommit(): string;
+  wireBuildSourceHash(): string;
   wireBuildVersion(): string;
 }
 

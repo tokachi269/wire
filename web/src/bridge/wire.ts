@@ -63,7 +63,7 @@ export class WireBridge {
   private constructor(
     private readonly state: WireStateHandle,
     private readonly roadState: RoadStateHandle,
-    private readonly wasmBuildCommit: string,
+    private readonly wasmBuildSourceHash: string,
     private readonly wasmBuildVersion: string
   ) {}
 
@@ -72,13 +72,13 @@ export class WireBridge {
     return new WireBridge(
       new module.WireState(),
       new module.RoadState(),
-      module.wireBuildCommit(),
+      module.wireBuildSourceHash(),
       module.wireBuildVersion()
     );
   }
 
-  buildIdentity(): { commit: string; version: string } {
-    return { commit: this.wasmBuildCommit, version: this.wasmBuildVersion };
+  buildIdentity(): { sourceHash: string; version: string } {
+    return { sourceHash: this.wasmBuildSourceHash, version: this.wasmBuildVersion };
   }
 
   generate(

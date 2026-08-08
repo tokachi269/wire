@@ -72,6 +72,9 @@ npm run wasm:build
 
 ```powershell
 Set-Location web
-npm run wasm:build
 npm run dev
 ```
+
+`npm run dev`は起動時にCore/road/WASM bindingのsource fingerprintを確認する。
+生成済みWASMが同じsourceならそのまま起動し、古い場合だけ一度自動buildする。
+Git commit、docs、test、Web UIだけの変更ではWASMを再buildしない。

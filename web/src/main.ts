@@ -30,9 +30,9 @@ async function main(): Promise<void> {
     store.update((snapshot) => ({
       ...snapshot,
       buildMismatch: {
-        webCommit: buildInfo.commit,
+        webSourceHash: buildInfo.wasmSourceHash,
         webVersion: buildInfo.packageVersion,
-        wasmCommit: wasmBuild.commit,
+        wasmSourceHash: wasmBuild.sourceHash,
         wasmVersion: wasmBuild.version
       }
     }));

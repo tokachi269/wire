@@ -19,8 +19,8 @@
 
 namespace {
 
-#ifndef WIRE_BUILD_COMMIT
-#define WIRE_BUILD_COMMIT "unknown"
+#ifndef WIRE_BUILD_SOURCE_HASH
+#define WIRE_BUILD_SOURCE_HASH "unknown"
 #endif
 
 #ifndef WIRE_BUILD_VERSION
@@ -46,7 +46,7 @@ using city::wire::SpanLayer;
 using city::wire::SupportKind;
 using city::wire::Vec3d;
 
-[[nodiscard]] std::string wire_build_commit() { return WIRE_BUILD_COMMIT; }
+[[nodiscard]] std::string wire_build_source_hash() { return WIRE_BUILD_SOURCE_HASH; }
 [[nodiscard]] std::string wire_build_version() { return WIRE_BUILD_VERSION; }
 
 [[nodiscard]] val road_result_value(bool ok,
@@ -2194,7 +2194,7 @@ private:
 } // namespace
 
 EMSCRIPTEN_BINDINGS(wire_web_core) {
-  emscripten::function("wireBuildCommit", &wire_build_commit);
+  emscripten::function("wireBuildSourceHash", &wire_build_source_hash);
   emscripten::function("wireBuildVersion", &wire_build_version);
   emscripten::class_<RoadStateBinding>("RoadState")
       .constructor<>()

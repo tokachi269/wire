@@ -13,6 +13,7 @@ function readGitValue(command: string, fallback: string): string {
 
 const buildInfo = {
   commit: readGitValue("git rev-parse --short=12 HEAD", "unknown"),
+  wasmSourceHash: readGitValue("node scripts/wasm-source-hash.mjs", "unknown"),
   builtAt: new Date().toISOString(),
   packageVersion: packageJson.version
 };

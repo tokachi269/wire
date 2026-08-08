@@ -452,9 +452,9 @@ describe("viewer numeric inputs", () => {
     mounted.store.update((snapshot) => ({
       ...snapshot,
       buildMismatch: {
-        webCommit: "web123",
+        webSourceHash: "source123",
         webVersion: "0.2.0",
-        wasmCommit: "wasm456",
+        wasmSourceHash: "stale456",
         wasmVersion: "0.2.0"
       }
     }));
@@ -463,8 +463,8 @@ describe("viewer numeric inputs", () => {
     const mismatch = document.querySelector(".build-mismatch");
     expect(mismatch?.getAttribute("role")).toBe("alertdialog");
     expect(mismatch?.textContent).toContain("Web and WASM builds do not match");
-    expect(mismatch?.textContent).toContain("web123");
-    expect(mismatch?.textContent).toContain("wasm456");
+    expect(mismatch?.textContent).toContain("source123");
+    expect(mismatch?.textContent).toContain("stale456");
   });
 
   it("resets both core state and viewer settings", async () => {

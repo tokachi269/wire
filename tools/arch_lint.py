@@ -333,7 +333,7 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
             "buildMismatch",
         ),
         "web/wasm/bindings.cpp": (
-            "wireBuildCommit",
+            "wireBuildSourceHash",
             "wireBuildVersion",
         ),
     }
@@ -365,6 +365,7 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
         "domains/wire/include/city/wire/core_edit_types.hpp": ("enum class EditErrorKind", "error_kind"),
         "web/src/model.ts": ("enum EditErrorKind", "errorKind"),
         "web/src/bridge/wire.ts": ("regenerateBuildIdentity",),
+        "web/wasm/bindings.cpp": ("wireBuildCommit", "WIRE_BUILD_COMMIT"),
     }
     for source, tokens in forbidden.items():
         path = root / source

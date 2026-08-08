@@ -7,8 +7,7 @@ namespace city::road::persistence {
 inline constexpr int kVersion = 14;
 inline constexpr std::string_view kHeader = "road_graph_version=14\n";
 
-// Version 13 had no placement on a line and centred every one of them on its
-// boundary, so that is the placement they come back with.
+// Version 13 had no placement and centred every line.
 inline constexpr int kPreviousVersion = 13;
 inline constexpr std::string_view kPreviousHeader = "road_graph_version=13\n";
 

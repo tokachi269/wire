@@ -40,11 +40,7 @@ export interface RoadSectionLaneInput {
   direction: 0 | 1;
 }
 
-/**
- * Where a line sits against its boundary. `inside` and `outside` are measured
- * toward and away from the carriageway, so an edge line placed inside lies on
- * the road rather than straddling the edge of it. Every line says which.
- */
+/** `inside` and `outside` are toward and away from the carriageway. */
 export type RoadMarkingPlacement = "center" | "inside" | "outside";
 
 export interface RoadSectionMarkingInput {

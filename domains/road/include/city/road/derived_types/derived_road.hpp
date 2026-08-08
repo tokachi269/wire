@@ -16,15 +16,10 @@ struct SectionBoundarySample {
   // Effective marking policy: the boundary policy and the adjacent lane side
   // policies merged into one during section evaluation.
   AutoMarkingPolicy marking{};
-  // The faces meeting here are too far apart to shade as one surface, so the
-  // surface is split rather than smoothed across this point.
   bool hard_edge = false;
-  // Which way the carriageway lies from this sample, and 0 where the sample
-  // does not meet one. The point where the road itself begins.
+  // 0 where the sample does not meet the carriageway.
   double carriageway_side = 0.0;
-  // Where this boundary's line goes, once its placement has been applied. Every
-  // surface that carries the line through asks this, so the line stays in one
-  // place along a road, round a corner and across a junction.
+  // lateral_m with the boundary's marking placement applied.
   double marking_lateral_m = 0.0;
   // Strips adjacent in template order; used to decide marking begin and end.
   RoadLayoutStripId left_strip_id = 0;
@@ -88,12 +83,8 @@ struct ResolvedBoundaryCurve {
   std::uint64_t source_boundary_id = 0;
   std::uint64_t target_boundary_id = 0;
   BoundaryRole role = BoundaryRole::kOuterEdge;
-  // A profile sweeps one curve per point. Only the point its boundary paints on
-  // carries the line, however many points the shape needs.
   bool carries_marking = false;
   std::vector<Vec3d> points{};
-  // The line runs beside the boundary, not on it, so it is swept in its own
-  // right; otherwise it would meet the road's line at an offset.
   std::vector<Vec3d> marking_points{};
   ApproachKey source_approach{};
   ApproachKey target_approach{};

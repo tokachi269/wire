@@ -33,8 +33,6 @@ struct LaneSectionPosition {
 lane_position(const RoadLayoutTemplate &section, const LaneBand &lane,
               const SectionEvaluation &evaluation);
 
-// Painted width of a line style. One table, read by whatever needs to place or
-// draw the line.
 [[nodiscard]] double marking_width_m(MarkingStyleId style_id);
 
 } // namespace city::road::internal

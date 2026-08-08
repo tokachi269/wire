@@ -224,10 +224,6 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
   return Result<ConnectionGeometry>::Ok(std::move(geometry));
 }
 
-// One side of an approach, as the chain of section points running from where
-// the road begins outward to the layout's edge, with the face between each
-// neighbouring pair. Reducing this to a handful of named points is what turned
-// a gutter into a slope.
 struct junction_side {
   std::vector<const SectionBoundarySample *> chain{};
   std::vector<RenderStyleRef> faces{};
@@ -258,8 +254,7 @@ resolve_junction_section(const ConnectionGate &gate,
         "road junction section requires a carriageway with two edges");
   }
   junction_section resolved{};
-  // Outward from the left edge is toward the front of the list; outward from
-  // the right edge is toward the back.
+  // Outward runs toward the front of the list on the left, the back on the right.
   for (std::size_t index = carriageway_edges.front() + 1; index-- > 0;) {
     resolved.left.chain.push_back(&samples[index]);
     if (index > 0) resolved.left.faces.push_back(section.surface_styles[index - 1]);
@@ -406,8 +401,6 @@ generate_junction_geometry(RoadNodeId node_id,
         points.push_back(frame.position);
       return points;
     };
-    // One curve per section point, so whatever the edge is made of survives the
-    // turn instead of being averaged into a ramp.
     std::vector<std::vector<Vec3d>> swept{};
     for (std::size_t point = 0; point < depth; ++point) {
       swept.push_back(curve_points(reach(a, b, point), reach(b, a, point)));

@@ -16,8 +16,6 @@ using city::road::StripFunction;
 namespace builtin_marking_styles = city::road::builtin_marking_styles;
 namespace builtin_surface_styles = city::road::builtin_surface_styles;
 
-// An edge line is painted on the road, clear of whatever marks the edge; a
-// centre line straddles the boundary it names.
 const AutoMarkingPolicy outer_line{
     true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid,
     MarkingPlacement::kInside};

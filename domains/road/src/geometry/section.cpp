@@ -177,8 +177,7 @@ bool structural_profile(const BoundaryProfile &boundary) {
   return boundary.contour.size() > 1;
 }
 
-// Faces meeting at 110 degrees or less read as an edge rather than a curve, so
-// the surface is split there instead of shaded across. cos(180 - 110).
+// cos(180 - 110): faces meeting at 110 degrees or less read as an edge.
 constexpr double kSharpestSmoothTurn = 0.34202014332566871;
 
 bool sharper_than_smooth(Vec2d before, Vec2d after) {
@@ -191,8 +190,8 @@ bool sharper_than_smooth(Vec2d before, Vec2d after) {
          kSharpestSmoothTurn;
 }
 
-// A structure may reach further than the strip beside it is wide. It keeps its
-// shape and whatever it covers collapses onto it, so the surface never folds.
+// A structure may reach further than the strip beside it is wide, so what it
+// covers collapses onto it rather than folding the surface.
 void settle_surface_order(std::vector<SectionBoundarySample> &samples,
                           const std::vector<bool> &fixed) {
   for (std::size_t index = samples.size() - 1; index > 0; --index) {
@@ -228,7 +227,6 @@ derive_boundaries(const RoadLayoutTemplate &section,
   double height = 0.0;
   double carriageway_floor = std::numeric_limits<double>::infinity();
   SectionBoundarySample left_end{1, BoundaryRole::kOuterEdge, lateral, height, {}};
-  // A road can also simply stop at the layout's own edge.
   if (section.strips.front().function == StripFunction::kCarriageway)
     left_end.carriageway_side = 1.0;
   samples.push_back(left_end);
@@ -266,8 +264,6 @@ derive_boundaries(const RoadLayoutTemplate &section,
       carriageway_floor =
           std::min(carriageway_floor, std::min(strip_start_height, height));
     }
-    // The road begins at whichever end of the profile faces the carriageway.
-    // Everything that needs to know where that is asks this one point.
     const bool carriageway_on_left = strip.function == StripFunction::kCarriageway;
     const bool carriageway_on_right =
         right_strip.function == StripFunction::kCarriageway;

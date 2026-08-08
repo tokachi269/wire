@@ -128,10 +128,8 @@ enum class MarkingRole {
   kCrosswalk,
   kFree,
 };
-// Where a line sits against the boundary it belongs to. Inside and outside are
-// measured toward and away from the carriageway, so an edge line painted inside
-// lies on the road instead of straddling the edge of it. kUnspecified is not a
-// placement: a line that never said where it goes is rejected.
+// Inside and outside are toward and away from the carriageway. kUnspecified is
+// rejected rather than defaulted.
 enum class MarkingPlacement {
   kUnspecified,
   kCenter,

@@ -1187,9 +1187,6 @@ bool same_angle_approaches_use_id_tie_break(std::string& failure) {
 bool unsupported_junction_section_is_atomic(std::string& failure) {
   RoadState state{};
   const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
-  // A junction is laid out from where the carriageway begins and ends. A
-  // section with no carriageway in it says nothing about that, so the junction
-  // it would meet at is unsupported rather than guessed.
   RoadLayoutTemplate walkway_only{};
   walkway_only.strips = {
       RoadLayoutStrip{10, StripFunction::kSidewalk, 2.0, 0.01,

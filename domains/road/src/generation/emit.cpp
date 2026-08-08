@@ -145,9 +145,6 @@ Result<segment_output> emit_segment(const segment_input &input) {
     return Result<segment_output>::Fail(CommitFailureCategory::kInternalError,
                                         "road draw section width is invalid");
   }
-  // A sample the section marked as an edge gets its own vertex on each side, so
-  // the two faces meeting there are never averaged into one smooth surface. The
-  // section decided that from its template; nothing here re-measures the mesh.
   std::vector<std::uint32_t> left_of{};
   std::vector<std::uint32_t> right_of{};
   std::uint32_t row_width = 0;

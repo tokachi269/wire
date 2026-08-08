@@ -1174,9 +1174,7 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   ROAD_TEST_EXPECT(tangent_extent > lateral_extent, "T junction zebra stripes are rotated by 90 degrees");
   const auto [min_z, max_z] = std::minmax_element(
       zebra.begin(), zebra.end(), [](const auto& a, const auto& b) { return a.z < b.z; });
-  // A stripe lies on the roadway, so it rises across its own width at the
-  // carriageway's 2% cross slope and nothing steeper.
-  // A stripe lies on the roadway: 0.35 wide, rising at the carriageway's 2%.
+  // 0.35 wide at the carriageway's 2%.
   ROAD_TEST_EXPECT(std::abs((max_z->z - min_z->z) - 0.35 * 0.02) < 1e-6,
                    "T junction zebra does not follow the road cross slope");
   ROAD_TEST_EXPECT(ValidateGraphInvariants(state.graph(), state.derived()).ok, "T junction invariants failed");
@@ -3786,8 +3784,7 @@ bool version_thirteen_archive_centres_the_lines_it_saved(std::string& failure) {
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
 
-  // Version 13 said nothing about where a line sat against its boundary and
-  // drew every one of them centred on it.
+  // Version 13 said nothing about placement and centred every line.
   std::string legacy{};
   std::istringstream lines{saved.value};
   std::string line{};
@@ -3816,9 +3813,8 @@ bool version_thirteen_archive_centres_the_lines_it_saved(std::string& failure) {
                        "a version 13 line moved off its boundary");
     }
   }
-  // The migration states a placement the archive never had, so the road no
-  // longer saves as the byte it came from. It saves as the current version and
-  // stays put from there.
+  // The migration states a placement the archive never had, so it cannot save
+  // back as the bytes it came from.
   const auto resaved = loaded.value.Save();
   ROAD_TEST_EXPECT(resaved.ok, resaved.error);
   ROAD_TEST_EXPECT(resaved.value.starts_with("road_graph_version=14\n"),
@@ -4059,7 +4055,7 @@ bool gutter_corners_are_edges_and_gentle_ones_are_not(std::string& failure) {
   ROAD_TEST_EXPECT(boundaries.size() == 13, "the guttered section changed shape");
 
   // Samples 1..5 are the left gutter: top outer, datum top, datum bottom,
-  // channel end, lip end. Only the two that turn hard are edges.
+  // channel end, lip end.
   const std::array<bool, 13> expected{false, false, true,  true,  false,
                                       false, false, false, false, true,
                                       true,  false, false};
@@ -4069,8 +4065,6 @@ bool gutter_corners_are_edges_and_gentle_ones_are_not(std::string& failure) {
                          " was classified as the wrong kind of corner");
   }
 
-  // The surface is split there: the two faces meeting at an edge share no
-  // vertex, so nothing downstream can average them into one smooth surface.
   const auto curb_mesh = std::find_if(
       state.derived().segment_meshes.begin(), state.derived().segment_meshes.end(),
       [](const Mesh& mesh) {
@@ -4105,8 +4099,6 @@ bool a_corner_carries_one_line_per_boundary(std::string& failure) {
           MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), layout, node});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
 
-  // A profile has as many points as its shape needs. The line painted on it is
-  // still one line, wherever the road it belongs to goes.
   std::map<std::uint64_t, std::size_t> lines_through_the_corner{};
   for (const auto& marking : state.derived().markings) {
     if (marking.owner.kind != city::road::MarkingOwner::Kind::kJunction)
@@ -4134,9 +4126,8 @@ bool a_crossing_stays_on_the_roadway(std::string& failure) {
           MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), layout, base.value, 40.0});
   ROAD_TEST_EXPECT(branch.ok, branch.error);
 
-  // The east approach runs along +x, so its roadway reaches 2.65 either side of
-  // the alignment: the gutter's channel takes the rest of the 3.0 lane and its
-  // top belongs to the walkway.
+  // The roadway reaches 2.65 either side: the gutter's channel takes the rest
+  // of the 3.0 lane and its top belongs to the walkway.
   std::size_t checked = 0;
   for (const auto& marking : state.derived().markings) {
     if (marking.role != city::road::MarkingRole::kCrosswalk &&
@@ -4172,9 +4163,6 @@ bool a_junction_carries_the_edge_profile_it_was_given(std::string& failure) {
   const auto junctions = road_test_view::junctions(state.derived());
   ROAD_TEST_EXPECT(junctions.size() == 1, "the guttered roads did not form one junction");
 
-  // The gutter has a face that stands up. A junction that keeps the shape it
-  // was handed carries it; one that reduces the section to an outer edge, a
-  // curb and a carriageway edge turns it into a slope.
   std::size_t standing = 0;
   for (const auto& strip : junctions.front()->junction_geometry.surface_strips) {
     ROAD_TEST_EXPECT(strip.left.size() == strip.right.size() && !strip.left.empty(),
@@ -4203,9 +4191,8 @@ bool a_carriageway_edge_line_is_painted_on_the_road(std::string& failure) {
   ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0),
                    "the guttered road could not be drawn");
 
-  // The roadway of this section runs to 2.65 either side; beyond that is the
-  // gutter. An edge line belongs on the road, so it clears the gutter by its
-  // own half width instead of straddling the seam.
+  // The roadway runs to 2.65 either side; an edge line clears the gutter by its
+  // own half width.
   std::size_t checked = 0;
   for (const auto& marking : state.derived().markings) {
     if (marking.role != city::road::MarkingRole::kCarriagewayEdge) continue;

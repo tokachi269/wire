@@ -75,7 +75,7 @@ corner radius、meshは保存しない。
 | `distance_epsilon` 1e-9、`kDegenerateStripWidthM` 0.05 | `geometry/geometry.hpp` / `generation/markings.cpp` | アルゴリズム定数 | 数値安定性と退化判定。workspaceごとに変える意味がない |
 | `kCurveSamples` 24、`kConnectionCurveSamples` 8、`kJunctionCurveSamples` 6 | `geometry/alignment.hpp` / `geometry/junction.cpp` | アルゴリズム定数 | 派生geometryを決めるため、変更するとlocality testのbit一致契約が壊れる。表示品質設定ではない |
 | `kMarkingElevationM` 0.025 | `generation/markings.cpp` | アルゴリズム定数 | z-fighting回避。生成結果の一部として保存互換に関わる |
-| `kP1MinSegmentLengthM` 8.0 | `operations/create.cpp` | 製品規則 | 接続segmentの最小長。現在Core固定で`kNotImplemented`として拒否する。requestで渡す設計は未採用 |
+接続segmentに一律の最小長は置かない。`resolve_connections`が断面幅・角度・接続種別から必要setbackを導出し、segment長を超えるapproachまたは両端gateが重なるsegmentだけを`kNotImplemented`として拒否する。
 | `kSnapDistancePointToleranceM` 0.6 | `operations/create.cpp` | 製品規則 | 明示snap距離と入力endpointの一致許容。UIのsnap半径ではなく、Coreが受け取った2値の整合検査 |
 | 保存された断面・車線幅・境界寸法 | `SavedRoadGraph` | 保存された具体値 | workspaceを再現するために必要。Webが作った値でも確定後はCoreが保存する |
 

@@ -146,6 +146,7 @@ ADD LANEが作る変更後断面はCoreが作る。
 
 - `ApproachKey = node_id + segment_id + endpoint_role`だけをidentityとする。
 - setbackはnodeからsegment内部方向への非負距離。startは`distance=setback`、endは`distance=length-setback`。
+- 接続segmentの可否を固定最小長では決めない。各接続が必要とするsetbackがsegment内へ収まり、両端gateが重ならない場合は短いsegmentも受け入れる。
 - lateral shiftはresolved approach lateral方向を正とする。
 - manual fieldだけを`ApproachGeometryOverride`へ保存する。auto setback / auto lateral shiftは保存しない。
 - reset fieldで該当manual fieldを消し、全fieldがAutoになったoverride entityは削除する。

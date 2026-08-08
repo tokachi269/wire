@@ -43,7 +43,6 @@ using internal::span_start;
 using internal::split_path_at_distance;
 using internal::subtract;
 
-constexpr double kP1MinSegmentLengthM = 8.0;
 constexpr double kSnapDistancePointToleranceM = 0.6;
 
 

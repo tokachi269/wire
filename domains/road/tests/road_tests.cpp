@@ -1049,6 +1049,57 @@ bool P1_straight_connection_has_no_junction_area(std::string& failure) {
   return true;
 }
 
+bool P1_short_connections_use_required_setback(std::string& failure) {
+  {
+    RoadState state{};
+    const auto section =
+        road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const RoadNodeId endpoint = state.graph().segments.front().node_b;
+    const auto connected = state.AddSegmentConnectedTo(
+        city::road::AddSegmentConnectedToRequest{
+            MakePath({MakeLine({20.0, 0.0}, {24.0, 0.0})}), section,
+            endpoint});
+    ROAD_TEST_EXPECT(
+        connected.ok,
+        "a 4m aligned connection with zero required setback was rejected: " +
+            connected.error);
+    const auto* derived = FindDerivedSegment(state.derived(), connected.value);
+    ROAD_TEST_EXPECT(derived != nullptr &&
+                         std::abs(derived->surface_end_m -
+                                  derived->surface_start_m - 4.0) < 1e-6,
+                     "the short aligned connection lost usable road surface");
+  }
+
+  {
+    RoadState state{};
+    const auto section =
+        road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const RoadNodeId endpoint = state.graph().segments.front().node_b;
+    const auto before = state.Save();
+    ROAD_TEST_EXPECT(before.ok, before.error);
+    const auto connected = state.AddSegmentConnectedTo(
+        city::road::AddSegmentConnectedToRequest{
+            MakePath({MakeLine({20.0, 0.0}, {20.0, 2.0})}), section,
+            endpoint});
+    ROAD_TEST_EXPECT(!connected.ok &&
+                         connected.failure_category ==
+                             CommitFailureCategory::kNotImplemented &&
+                         connected.error.find("setback exceeds") !=
+                             std::string::npos,
+                     "an unfit short corner was not rejected by its required setback");
+    const auto after = state.Save();
+    ROAD_TEST_EXPECT(after.ok && before.value == after.value,
+                     "a rejected short corner changed authoritative state");
+  }
+  return true;
+}
+
 bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   RoadState state{};
   const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
@@ -4647,6 +4698,8 @@ int main() {
        P1_common_skew_angles_are_resolved_from_geometry},
       {"P1_corner_preserves_endpoint_section_sides", P1_corner_preserves_endpoint_section_sides},
       {"P1_straight_connection_has_no_junction_area", P1_straight_connection_has_no_junction_area},
+      {"P1_short_connections_use_required_setback",
+       P1_short_connections_use_required_setback},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
       {"P1_end_segment_snap_splits_straight_road_for_t_junction",
        P1_end_segment_snap_splits_straight_road_for_t_junction},

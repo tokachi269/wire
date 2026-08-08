@@ -141,6 +141,20 @@ export class RoadActions {
     }));
   }
 
+  selectRoadLayoutTemplate(templateId: number): void {
+    this.ctx.store.update((current) => ({
+      ...current,
+      road: {
+        ...current.road,
+        selectedRoadLayoutTemplateId: templateId,
+        junctionCornerRadiusM:
+          current.road.roadJunctionCornerRadiusDefaults[templateId] ?? 4,
+        previewIssue: "",
+        lastError: ""
+      }
+    }));
+  }
+
   setLaneTargetTemplate(templateId: number): void {
     this.ctx.store.update((current) => {
       const template = current.road.scene.roadLayoutTemplates.find((item) => item.id === templateId);
@@ -534,7 +548,13 @@ export class RoadActions {
       road: {
         ...current.road,
         roadLayoutTemplateLabels: seeded.sections.labels,
-        selectedRoadLayoutTemplateId: seeded.sections.initialId
+        roadJunctionCornerRadiusDefaults:
+          seeded.sections.junctionCornerRadiusDefaults,
+        selectedRoadLayoutTemplateId: seeded.sections.initialId,
+        junctionCornerRadiusM:
+          seeded.sections.junctionCornerRadiusDefaults[
+            seeded.sections.initialId
+          ] ?? 4
       }
     }));
     this.finish(result, "road clear");

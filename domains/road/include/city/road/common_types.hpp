@@ -10,6 +10,8 @@
 
 namespace city::road {
 
+inline constexpr double kDefaultRoadCornerRadiusM = 4.0;
+
 struct Vec2d { double x = 0.0; double y = 0.0; };
 struct Vec3d { double x = 0.0; double y = 0.0; double z = 0.0; };
 

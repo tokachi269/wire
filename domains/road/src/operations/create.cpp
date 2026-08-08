@@ -43,6 +43,14 @@ using internal::subtract;
 
 constexpr double kSnapDistancePointToleranceM = 0.6;
 
+Result<bool> validate_corner_radius(double corner_radius_m) {
+  if (!is_finite(corner_radius_m) || corner_radius_m < 0.0) {
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                              "road corner radius must be finite and non-negative");
+  }
+  return Result<bool>::Ok(true);
+}
+
 Result<RoadNodeId> plan_connection_target_split(
     const SavedRoadGraph& graph, const DerivedRoad& derived,
     const RoadConnectionTarget& target, Vec2d expected_point,
@@ -132,7 +140,8 @@ Result<RoadNodeId> plan_connection_target_split(
   plan.add_nodes.push_back(RoadNode{split_node, split.value.point});
   plan.add_segments.push_back(
       RoadSegment{second_id, split_node, source->node_b, second_shape.value,
-                  source->layout_template, source->transition});
+                  source->layout_template, source->transition,
+                  source->corner_radius_m});
 
   const RoadCorridor* corridor = FindCorridorForSegment(graph, source->id);
   if (corridor == nullptr) {
@@ -245,6 +254,11 @@ Result<RoadNodeId> plan_connection_target_split(
 Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
   Path alignment = std::move(request.alignment);
   const RoadLayoutTemplateId layout_template = request.layout_template;
+  const Result<bool> radius_valid = validate_corner_radius(request.corner_radius_m);
+  if (!radius_valid.ok) {
+    return Result<RoadSegmentId>::Fail(radius_valid.failure_category,
+                                       radius_valid.error);
+  }
   const Result<bool> path_valid = ValidatePath(alignment);
   if (!path_valid.ok) {
     return Result<RoadSegmentId>::Fail(path_valid.failure_category,
@@ -271,7 +285,7 @@ Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
   }
   plan.add_segments.push_back(RoadSegment{
       segment_id, node_a, node_b, shape.value, layout_template,
-      std::nullopt});
+      std::nullopt, request.corner_radius_m});
   plan.add_corridors.push_back(RoadCorridor{
       corridor_id, layout_template,
       {DirectedSegmentRef{segment_id, false}}});
@@ -355,7 +369,8 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
   plan.add_nodes.push_back(RoadNode{end_node, path_end(extension)});
   plan.add_segments.push_back(
       RoadSegment{segment_id, endpoint->id, end_node, shape.value,
-                  request.layout_template, std::nullopt});
+                  request.layout_template, std::nullopt,
+                  source->corner_radius_m});
   RoadCorridor replacement = *source_corridor;
   replacement.layout_template_id = request.layout_template;
   replacement.segments.push_back(DirectedSegmentRef{segment_id, false});
@@ -372,6 +387,11 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequ
   Path alignment = std::move(request.alignment);
   const RoadLayoutTemplateId layout_template = request.layout_template;
   const RoadNodeId connected_node = request.start_node;
+  const Result<bool> radius_valid = validate_corner_radius(request.corner_radius_m);
+  if (!radius_valid.ok) {
+    return Result<RoadSegmentId>::Fail(radius_valid.failure_category,
+                                       radius_valid.error);
+  }
   const RoadNode* node = find_node(graph_, connected_node);
   if (node == nullptr) {
     return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput, "road segment start node does not exist");
@@ -409,7 +429,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequ
       segment_id,
       connects_at_start ? connected_node : free_node,
       connects_at_start ? free_node : connected_node,
-      shape.value, layout_template, std::nullopt});
+      shape.value, layout_template, std::nullopt, request.corner_radius_m});
   plan.add_corridors.push_back(
       RoadCorridor{corridor_id, layout_template,
                    {DirectedSegmentRef{segment_id, false}}});
@@ -424,6 +444,11 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   const RoadLayoutTemplateId layout_template = request.layout_template;
   const RoadSegmentId start_segment = request.start_segment;
   const double segment_distance_m = request.segment_distance_m;
+  const Result<bool> radius_valid = validate_corner_radius(request.corner_radius_m);
+  if (!radius_valid.ok) {
+    return Result<RoadSegmentId>::Fail(radius_valid.failure_category,
+                                       radius_valid.error);
+  }
   const Result<bool> alignment_valid = ValidatePath(alignment);
   if (!alignment_valid.ok) {
     return Result<RoadSegmentId>::Fail(alignment_valid.failure_category, alignment_valid.error);
@@ -508,11 +533,12 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
                connects_at_start ? path_end(alignment) : path_start(alignment)}};
   plan.add_segments = {
       RoadSegment{second_id, split_node, source->node_b, second_shape.value, source->layout_template,
-                  source->transition},
+                  source->transition, source->corner_radius_m},
       RoadSegment{branch_id,
                   connects_at_start ? split_node : branch_free_node,
                   connects_at_start ? branch_free_node : split_node,
-                  branch_shape.value, layout_template, std::nullopt},
+                  branch_shape.value, layout_template, std::nullopt,
+                  request.corner_radius_m},
   };
   const RoadCorridor* source_corridor =
       FindCorridorForSegment(graph_, source->id);
@@ -625,6 +651,11 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
 Result<RoadSegmentId> RoadState::AddSegmentBetween(
     AddSegmentBetweenRequest request) {
   Path alignment = std::move(request.alignment);
+  const Result<bool> radius_valid = validate_corner_radius(request.corner_radius_m);
+  if (!radius_valid.ok) {
+    return Result<RoadSegmentId>::Fail(radius_valid.failure_category,
+                                       radius_valid.error);
+  }
   const Result<bool> path_valid = ValidatePath(alignment);
   if (!path_valid.ok) {
     return Result<RoadSegmentId>::Fail(path_valid.failure_category,
@@ -700,7 +731,7 @@ Result<RoadSegmentId> RoadState::AddSegmentBetween(
   const RoadCorridorId corridor_id = next_id++;
   plan.add_segments.push_back(RoadSegment{
       segment_id, start.value, end.value, shape.value,
-      request.layout_template, std::nullopt});
+      request.layout_template, std::nullopt, request.corner_radius_m});
   plan.add_corridors.push_back(RoadCorridor{
       corridor_id, request.layout_template,
       {DirectedSegmentRef{segment_id, false}}});

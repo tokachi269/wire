@@ -37,12 +37,13 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 - manual markingのowner IDとowner-local distance / lateral値
 - surface / marking style identityは`SurfaceStyleId` / `MarkingStyleId`で保存する
 - ユーザーが明示した`NodeConnectionPolicyOverride`
+- 新規道路作成時に確定した`RoadSegment.corner_radius_m`
 - next ID state
 
 `RoadSegment`へendpoint座標を保存しない。一回で確定したPathは一つのsegmentとして複数spanを持てる。
 確定済みsegmentの延長は新segmentを作り、既存shapeへspanを追記しない。degree 2 nodeは明示的な確定境界として
-正当であり、同一道路定義でも自動統合しない。自動junctionの存在、connection kind、gate、setback、
-corner radius、meshは保存しない。
+正当であり、同一道路定義でも自動統合しない。自動junctionの存在、connection kind、gate、setback、meshは保存しない。corner radiusは
+共有templateではなくsegmentごとの作成時設定として保存し、sidebar変更を既存道路へ遡及させない。
 
 ### 断面カタログの所有
 
@@ -50,6 +51,9 @@ corner radius、meshは保存しない。
 初期選択はWebが所有する。正本は`web/src/road_templates.ts`。Coreは
 `RoadLayoutTemplate`型、その検証、ID採番、保存、生成、共有template編集を所有し、
 具体的なpreset catalogueは持たない。
+各presetのjunction corner radius初期値もWebが所有する。新規道路へ渡された後は
+`RoadSegment.corner_radius_m`が正本となり、splitは元segmentから、corridor延長は終端segmentから継承する。
+同一connectionの全approachが同じ値ならその値を使い、混在時は作成順や平均ではなくCore既定の4mを使う。
 
 - 新規workspaceはWebが各presetを`AddRoadLayoutTemplate`へ渡し、返ったIDを保持する。
   Web側のpreset keyはCoreへ渡さず、保存もしない。

@@ -83,12 +83,16 @@
   <label>
     <span>New road section</span>
     <select value={snapshot.road.selectedRoadLayoutTemplateId}
-      onchange={(event) => actions.setRoadSetting("selectedRoadLayoutTemplateId", Number(event.currentTarget.value))}>
+      onchange={(event) => actions.selectRoadLayoutTemplate(Number(event.currentTarget.value))}>
       {#each snapshot.road.scene.roadLayoutTemplates as template}
         <option value={template.id}>{sectionLabel(template.id)}</option>
       {/each}
     </select>
   </label>
+
+  <label><span>Junction corner radius (m)</span><input type="number" min="0" step="0.1"
+    value={snapshot.road.junctionCornerRadiusM}
+    onchange={(event) => actions.setRoadSetting("junctionCornerRadiusM", Number(event.currentTarget.value))} /></label>
 
   {#if selectedTemplate}
     <div class="road-profile" aria-label="Road cross section"

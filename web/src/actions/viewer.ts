@@ -183,6 +183,10 @@ export class ViewerActions {
     this.road.setSetting(key, value);
   }
 
+  selectRoadLayoutTemplate(templateId: number): void {
+    this.road.selectRoadLayoutTemplate(templateId);
+  }
+
   setRoadLaneTargetTemplate(templateId: number): void {
     this.road.setLaneTargetTemplate(templateId);
   }

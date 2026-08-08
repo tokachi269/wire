@@ -579,7 +579,8 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
         !contains_id(template_ids, segment.layout_template) ||
         (segment.transition.has_value() &&
          !contains_id(transition_ids, *segment.transition)) ||
-        !finite(segment.shape) ||
+        !finite(segment.shape) || !finite(segment.corner_radius_m) ||
+        segment.corner_radius_m < 0.0 ||
         static_cast<int>(segment.shape.intent) < 0 ||
         static_cast<int>(segment.shape.intent) > 1) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
@@ -1068,6 +1069,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     writer.UInt(prefix + ".node_b", segment.node_b);
     writer.UInt(prefix + ".section_template", segment.layout_template);
     writer.UInt(prefix + ".transition", segment.transition.value_or(0));
+    writer.Double(prefix + ".corner_radius_m", segment.corner_radius_m);
     writer.Int(prefix + ".shape.intent", static_cast<int>(segment.shape.intent));
     write_vec2(writer, prefix + ".shape.start_handle", segment.shape.start_handle);
     write_vec2(writer, prefix + ".shape.end_handle", segment.shape.end_handle);
@@ -1171,7 +1173,8 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                     "unknown road graph version");
   }
-  const bool has_saved_placement = version.value == kVersion;
+  const bool has_saved_placement = version.value >= 14;
+  const bool has_saved_corner_radius = version.value >= 15;
   Result<std::uint64_t> next_id = reader.RequireU64("next_id");
   if (!next_id.ok) return Result<LoadedRoad>::Fail(next_id.failure_category, next_id.error);
 
@@ -1522,6 +1525,10 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
         enum_value<SegmentShapeIntent>(reader, prefix + ".shape.intent", 0, 1);
     Result<Vec2d> start_handle = vec2(reader, prefix + ".shape.start_handle");
     Result<Vec2d> end_handle = vec2(reader, prefix + ".shape.end_handle");
+    Result<double> corner_radius =
+        has_saved_corner_radius
+            ? reader.RequireDouble(prefix + ".corner_radius_m")
+            : Result<double>::Ok(kDefaultRoadCornerRadiusM);
     if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
     if (!node_a.ok) return Result<LoadedRoad>::Fail(node_a.failure_category, node_a.error);
     if (!node_b.ok) return Result<LoadedRoad>::Fail(node_b.failure_category, node_b.error);
@@ -1530,12 +1537,17 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     if (!intent.ok) return Result<LoadedRoad>::Fail(intent.failure_category, intent.error);
     if (!start_handle.ok) return Result<LoadedRoad>::Fail(start_handle.failure_category, start_handle.error);
     if (!end_handle.ok) return Result<LoadedRoad>::Fail(end_handle.failure_category, end_handle.error);
+    if (!corner_radius.ok) {
+      return Result<LoadedRoad>::Fail(corner_radius.failure_category,
+                                      corner_radius.error);
+    }
     RoadSegment segment{id.value, node_a.value, node_b.value,
                         SegmentShape{start_handle.value, {}, end_handle.value,
                                      intent.value},
                         layout_template.value,
                         transition.value == 0 ? std::nullopt
-                                              : std::optional<RoadLayoutTransitionId>(transition.value)};
+                                              : std::optional<RoadLayoutTransitionId>(transition.value),
+                        corner_radius.value};
     Result<std::size_t> knot_count = require_count(prefix + ".shape.knot.count");
     if (!knot_count.ok) return Result<LoadedRoad>::Fail(knot_count.failure_category, knot_count.error);
     for (std::size_t j = 0; j < knot_count.value; ++j) {

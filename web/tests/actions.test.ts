@@ -847,6 +847,7 @@ describe("viewport tool routing", () => {
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
     actions.initialize();
+    actions.setRoadSetting("junctionCornerRadiusM", 6.5);
 
     actions.setActiveTool("road");
     actions.addViewportPoint([2, 3, 0]);
@@ -861,6 +862,7 @@ describe("viewport tool routing", () => {
     expect(roadAddSegment).toHaveBeenCalledOnce();
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       kind: "line",
+      junctionCornerRadiusM: 6.5,
       startX: 2,
       startY: 3,
       endX: 18,
@@ -1653,11 +1655,19 @@ describe("road section catalogue", () => {
     const snapshot = current(store);
     const initialPreset = ROAD_TEMPLATE_PRESETS.findIndex((preset) => preset.initial);
     expect(snapshot.road.selectedRoadLayoutTemplateId).toBe(71 + initialPreset);
+    expect(snapshot.road.junctionCornerRadiusM).toBe(4);
+    expect(snapshot.road.roadJunctionCornerRadiusDefaults[71 + initialPreset]).toBe(4);
     expect(snapshot.road.roadLayoutTemplateLabels[71 + initialPreset]).toBe(
       ROAD_TEMPLATE_PRESETS[initialPreset].label
     );
     // Restoring a saved workspace must not run the catalogue a second time.
     expect(registered).toHaveLength(ROAD_TEMPLATE_PRESETS.length);
+
+    actions.setRoadSetting("junctionCornerRadiusM", 7.5);
+    expect(current(store).road.junctionCornerRadiusM).toBe(7.5);
+    actions.selectRoadLayoutTemplate(72);
+    expect(current(store).road.selectedRoadLayoutTemplateId).toBe(72);
+    expect(current(store).road.junctionCornerRadiusM).toBe(4);
   });
 
   it("leaves the workspace unset when a section is rejected part way", () => {

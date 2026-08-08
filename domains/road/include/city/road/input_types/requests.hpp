@@ -12,12 +12,14 @@ struct AddSegmentRequest {
   // The drawing mode the user chose. Left empty the intent is read back from
   // the control points, which cannot tell a drawn curve from a drawn line.
   std::optional<SegmentShapeIntent> intent{};
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
 };
 struct AddSegmentConnectedToRequest {
   Path alignment{};
   RoadLayoutTemplateId layout_template = 0;
   RoadNodeId start_node = 0;
   EndpointRole connected_endpoint = EndpointRole::kStart;
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
 };
 struct AddSegmentConnectedToSegmentRequest {
   Path alignment{};
@@ -25,6 +27,7 @@ struct AddSegmentConnectedToSegmentRequest {
   RoadSegmentId start_segment = 0;
   double segment_distance_m = 0.0;
   EndpointRole connected_endpoint = EndpointRole::kStart;
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
 };
 struct RoadConnectionTarget {
   RoadNodeId node_id = 0;
@@ -36,6 +39,7 @@ struct AddSegmentBetweenRequest {
   RoadLayoutTemplateId layout_template = 0;
   RoadConnectionTarget start{};
   RoadConnectionTarget end{};
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
 };
 struct ExtendCorridorFromEndRequest {
   RoadCorridorId corridor_id = 0;

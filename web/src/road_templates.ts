@@ -151,6 +151,7 @@ export interface RoadTemplatePreset {
   label: string;
   initial: boolean;
   section: RoadSectionInput;
+  junctionCornerRadiusM: number;
 }
 
 const outerLine: RoadSectionMarkingInput = {
@@ -250,6 +251,7 @@ const shoulderedTwoLane: RoadSectionInput = centred({
 
 export interface SeededRoadSections {
   labels: Record<number, string>;
+  junctionCornerRadiusDefaults: Record<number, number>;
   initialId: number;
 }
 
@@ -264,6 +266,7 @@ export function seedRoadSections(
   ) => { ok: boolean; error: string; roadLayoutTemplateId?: number }
 ): { ok: true; sections: SeededRoadSections } | { ok: false; error: string } {
   const labels: Record<number, string> = {};
+  const junctionCornerRadiusDefaults: Record<number, number> = {};
   let initialId = 0;
   for (const preset of ROAD_TEMPLATE_PRESETS) {
     const result = addRoadLayoutTemplate(preset.section);
@@ -271,30 +274,38 @@ export function seedRoadSections(
       return { ok: false, error: `road section "${preset.label}": ${result.error}` };
     }
     labels[result.roadLayoutTemplateId] = preset.label;
+    junctionCornerRadiusDefaults[result.roadLayoutTemplateId] =
+      preset.junctionCornerRadiusM;
     if (preset.initial) initialId = result.roadLayoutTemplateId;
   }
-  return { ok: true, sections: { labels, initialId } };
+  return {
+    ok: true,
+    sections: { labels, junctionCornerRadiusDefaults, initialId }
+  };
 }
 
 export const ROAD_TEMPLATE_PRESETS: readonly RoadTemplatePreset[] = [
-  { key: "urban-two-lane", label: "JP 2 lane", initial: true, section: urbanTwoLane },
-  { key: "three-lane", label: "JP 3 lane", initial: false, section: threeLane },
+  { key: "urban-two-lane", label: "JP 2 lane", initial: true, section: urbanTwoLane, junctionCornerRadiusM: 4 },
+  { key: "three-lane", label: "JP 3 lane", initial: false, section: threeLane, junctionCornerRadiusM: 4 },
   {
     key: "no-left-sidewalk",
     label: "JP 2 lane / no left sidewalk",
     initial: false,
-    section: noLeftSidewalk
+    section: noLeftSidewalk,
+    junctionCornerRadiusM: 4
   },
   {
     key: "median-two-lane",
     label: "JP 2 lane / median",
     initial: false,
-    section: medianTwoLane
+    section: medianTwoLane,
+    junctionCornerRadiusM: 4
   },
   {
     key: "shouldered-two-lane",
     label: "JP 2 lane / shoulder",
     initial: false,
-    section: shoulderedTwoLane
+    section: shoulderedTwoLane,
+    junctionCornerRadiusM: 4
   }
 ];

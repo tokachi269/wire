@@ -21,6 +21,7 @@ export class WorkspaceActions {
   // them a second time.
   private seededRoadSections: {
     labels: Record<number, string>;
+    junctionCornerRadiusDefaults: Record<number, number>;
     initialId: number;
   } | null = null;
 
@@ -57,7 +58,11 @@ export class WorkspaceActions {
       road: {
         ...current.road,
         roadLayoutTemplateLabels: seeded.labels,
-        selectedRoadLayoutTemplateId: seeded.initialId
+        roadJunctionCornerRadiusDefaults:
+          seeded.junctionCornerRadiusDefaults,
+        selectedRoadLayoutTemplateId: seeded.initialId,
+        junctionCornerRadiusM:
+          seeded.junctionCornerRadiusDefaults[seeded.initialId] ?? 4
       }
     }));
   }

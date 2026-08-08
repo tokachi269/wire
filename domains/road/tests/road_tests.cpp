@@ -514,7 +514,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=14\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=15\n") &&
                        saved.value.find("primitive=") == std::string::npos &&
                        saved.value.find("section_template.0.alignment_offset_from_left_m=") !=
                            std::string::npos &&
@@ -542,7 +542,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
     return archive;
   };
   std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=14").size(), "road_graph_version=4");
+  version4.replace(0, std::string("road_graph_version=15").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
   ROAD_TEST_EXPECT(!rejected.ok && rejected.failure_category == CommitFailureCategory::kInvalidInput,
                    "legacy road archive was not rejected");
@@ -563,12 +563,12 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
                    "non-finite road archive double was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.strip.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "15")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "16")).ok,
                    "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
-  for (int old_version = 1; old_version <= 12; ++old_version) {
+  for (int old_version = 1; old_version <= 13; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=14").size(),
+    legacy.replace(0, std::string("road_graph_version=15").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
@@ -1949,8 +1949,10 @@ bool add_lane_stores_one_segment_local_transition(std::string& failure) {
   RoadState state{};
   const auto shouldered = road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
   const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
-  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), shouldered});
+  city::road::AddSegmentRequest segment_request{
+      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), shouldered};
+  segment_request.corner_radius_m = 6.0;
+  const auto segment = state.AddSegment(std::move(segment_request));
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const auto* corridor =
       city::road::FindCorridorForSegment(state.graph(), segment.value);
@@ -1981,7 +1983,8 @@ bool add_lane_stores_one_segment_local_transition(std::string& failure) {
       state.graph().segments.begin(), state.graph().segments.end(),
       [id = segment.value](const RoadSegment& item) { return item.id == id; });
   ROAD_TEST_EXPECT(updated != state.graph().segments.end() &&
-                       updated->transition.has_value(),
+                       updated->transition.has_value() &&
+                       updated->corner_radius_m == 6.0,
                    "LANE0 segment identity or transition was lost");
   const auto transition = std::find_if(
       state.graph().transitions.begin(), state.graph().transitions.end(),
@@ -4242,53 +4245,193 @@ bool saved_layout_alignment_offset_survives_reload(std::string& failure) {
   return true;
 }
 
-bool version_thirteen_archive_centres_the_lines_it_saved(std::string& failure) {
+bool version_fourteen_archive_defaults_the_corner_radius(std::string& failure) {
   RoadState state{};
   const auto layout = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
   ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0), "road could not be drawn");
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
 
-  // Version 13 said nothing about placement and centred every line.
+  // Version 14 predates per-road corner radius but already stores marking
+  // placement. Loading it must add only the historical 4 m default.
   std::string legacy{};
   std::istringstream lines{saved.value};
   std::string line{};
   std::size_t dropped = 0;
   while (std::getline(lines, line)) {
-    if (line.find(".placement=") != std::string::npos) {
+    if (line.find(".corner_radius_m=") != std::string::npos) {
       ++dropped;
       continue;
     }
-    if (line == "road_graph_version=14") line = "road_graph_version=13";
+    if (line == "road_graph_version=15") line = "road_graph_version=14";
     legacy += line;
     legacy += '\n';
   }
-  ROAD_TEST_EXPECT(dropped > 0, "the archive under test states no placement");
+  ROAD_TEST_EXPECT(dropped > 0, "the archive under test states no corner radius");
 
   const auto loaded = RoadState::Load(legacy);
   ROAD_TEST_EXPECT(loaded.ok, loaded.error);
-  for (const auto& boundary : loaded.value.graph().layout_templates.front().boundaries) {
-    if (!boundary.marking.enabled) continue;
-    ROAD_TEST_EXPECT(boundary.marking.placement == MarkingPlacement::kCenter,
-                     "a version 13 line came back with a placement it never had");
+  for (const auto& segment : loaded.value.graph().segments) {
+    ROAD_TEST_EXPECT(segment.corner_radius_m == 4.0,
+                     "a version 14 road did not receive the historical radius");
   }
-  for (const auto* section : road_test_view::sections(loaded.value.derived())) {
-    for (const auto& boundary : section->boundaries) {
-      ROAD_TEST_EXPECT(boundary.marking_lateral_m == boundary.lateral_m,
-                       "a version 13 line moved off its boundary");
-    }
-  }
-  // The migration states a placement the archive never had, so it cannot save
+  // The migration states a radius the archive never had, so it cannot save
   // back as the bytes it came from.
   const auto resaved = loaded.value.Save();
   ROAD_TEST_EXPECT(resaved.ok, resaved.error);
-  ROAD_TEST_EXPECT(resaved.value.starts_with("road_graph_version=14\n"),
+  ROAD_TEST_EXPECT(resaved.value.starts_with("road_graph_version=15\n"),
                    "a migrated road did not save as the current version");
   const auto reloaded = RoadState::Load(resaved.value);
   ROAD_TEST_EXPECT(reloaded.ok, reloaded.error);
   const auto settled = reloaded.value.Save();
   ROAD_TEST_EXPECT(settled.ok && settled.value == resaved.value,
                    "a migrated road did not settle after one save");
+  return true;
+}
+
+bool junction_corner_radius_is_authoritative_and_inherited(std::string& failure) {
+  RoadState state{};
+  const auto layout =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  ROAD_TEST_EXPECT(layout != 0, "corner-radius section was rejected");
+
+  city::road::AddSegmentRequest base_request{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), layout};
+  base_request.corner_radius_m = 7.0;
+  const auto base = state.AddSegment(std::move(base_request));
+  ROAD_TEST_EXPECT(base.ok, base.error);
+
+  city::road::AddSegmentConnectedToSegmentRequest branch_request{
+      MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), layout, base.value,
+      40.0};
+  branch_request.corner_radius_m = 7.0;
+  const auto branch =
+      state.AddSegmentConnectedToSegment(std::move(branch_request));
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 3,
+                   "branch split did not produce three local segments");
+  for (const auto& segment : state.graph().segments) {
+    ROAD_TEST_EXPECT(segment.corner_radius_m == 7.0,
+                     "new or split road lost its corner radius");
+  }
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1,
+                   "corner-radius roads did not form one junction");
+  ROAD_TEST_EXPECT(junctions.front()->corner_radius_m == 7.0,
+                   "connection ignored the saved road corner radius");
+
+  const auto saved = state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  for (const auto& segment : loaded.value.graph().segments) {
+    ROAD_TEST_EXPECT(segment.corner_radius_m == 7.0,
+                     "saved corner radius did not survive load");
+  }
+  const auto saved_again = loaded.value.Save();
+  ROAD_TEST_EXPECT(saved_again.ok && saved_again.value == saved.value,
+                   "corner-radius archive was not byte stable");
+  return true;
+}
+
+bool corner_radius_extension_validation_and_mixed_resolution(std::string& failure) {
+  RoadState state{};
+  const auto layout =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  ROAD_TEST_EXPECT(layout != 0, "radius extension section was rejected");
+  city::road::AddSegmentRequest first_request{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), layout};
+  first_request.corner_radius_m = 6.0;
+  const auto first = state.AddSegment(std::move(first_request));
+  ROAD_TEST_EXPECT(first.ok, first.error);
+  const auto* corridor = city::road::FindCorridorForSegment(state.graph(), first.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "radius extension corridor is missing");
+  const auto first_segment_it = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&first](const RoadSegment& segment) { return segment.id == first.value; });
+  ROAD_TEST_EXPECT(first_segment_it != state.graph().segments.end(),
+                   "radius extension source is missing");
+  const auto extended = state.ExtendCorridorFromEnd(
+      city::road::ExtendCorridorFromEndRequest{
+          corridor->id, first_segment_it->node_b,
+          MakePath({MakeLine({40.0, 0.0}, {40.0, 40.0})}), layout});
+  ROAD_TEST_EXPECT(extended.ok, extended.error);
+  const auto extension_it = std::find_if(
+      state.graph().segments.begin(), state.graph().segments.end(),
+      [&extended](const RoadSegment& segment) {
+        return segment.id == extended.value;
+      });
+  ROAD_TEST_EXPECT(extension_it != state.graph().segments.end() &&
+                       extension_it->corner_radius_m == 6.0,
+                   "corridor extension did not inherit the terminal radius");
+
+  const auto saved_before_invalid = state.Save();
+  ROAD_TEST_EXPECT(saved_before_invalid.ok, saved_before_invalid.error);
+  city::road::AddSegmentRequest invalid_request{
+      MakePath({MakeLine({80.0, 0.0}, {100.0, 0.0})}), layout};
+  invalid_request.corner_radius_m = -1.0;
+  const auto invalid = state.AddSegment(std::move(invalid_request));
+  ROAD_TEST_EXPECT(!invalid.ok &&
+                       invalid.failure_category ==
+                           CommitFailureCategory::kInvalidInput,
+                   "negative corner radius was not an input error");
+  const auto saved_after_invalid = state.Save();
+  ROAD_TEST_EXPECT(saved_after_invalid.ok &&
+                       saved_after_invalid.value == saved_before_invalid.value,
+                   "invalid corner radius mutated the road state");
+
+  // The two approaches carry different preferences. A connection-wide radius
+  // therefore uses the fixed Core default, never insertion order or an average.
+  const auto corners = road_test_view::corners(state.derived());
+  ROAD_TEST_EXPECT(corners.size() == 1, "mixed-radius extension made no corner");
+  ROAD_TEST_EXPECT(corners.front()->corner_radius_m == 6.0,
+                   "equal inherited radii did not resolve deterministically");
+
+  RoadState mixed{};
+  const auto mixed_layout =
+      road_fixture::AddLayout(mixed, road_fixture::BidirectionalLayout(0));
+  city::road::AddSegmentRequest mixed_base_request{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), mixed_layout};
+  mixed_base_request.corner_radius_m = 3.0;
+  const auto mixed_base = mixed.AddSegment(std::move(mixed_base_request));
+  ROAD_TEST_EXPECT(mixed_base.ok, mixed_base.error);
+  city::road::AddSegmentConnectedToSegmentRequest mixed_branch_request{
+      MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), mixed_layout,
+      mixed_base.value, 40.0};
+  mixed_branch_request.corner_radius_m = 8.0;
+  const auto mixed_branch = mixed.AddSegmentConnectedToSegment(
+      std::move(mixed_branch_request));
+  ROAD_TEST_EXPECT(mixed_branch.ok, mixed_branch.error);
+  const auto mixed_junctions = road_test_view::junctions(mixed.derived());
+  ROAD_TEST_EXPECT(mixed_junctions.size() == 1 &&
+                       mixed_junctions.front()->corner_radius_m == 4.0,
+                   "mixed approach radii did not use the fixed default");
+
+  RoadState reordered{};
+  const auto reordered_layout = road_fixture::AddLayout(
+      reordered, road_fixture::BidirectionalLayout(0));
+  city::road::AddSegmentRequest north_request{
+      MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), reordered_layout};
+  north_request.corner_radius_m = 8.0;
+  const auto north = reordered.AddSegment(std::move(north_request));
+  ROAD_TEST_EXPECT(north.ok, north.error);
+  const RoadNodeId node = reordered.graph().segments.front().node_a;
+  for (const Path& path : {
+           MakePath({MakeLine({-40.0, 0.0}, {0.0, 0.0})}),
+           MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})})}) {
+    city::road::AddSegmentConnectedToRequest request{
+        path, reordered_layout, node,
+        path.spans.front().p3.x == 0.0 ? EndpointRole::kEnd
+                                       : EndpointRole::kStart};
+    request.corner_radius_m = 3.0;
+    const auto added = reordered.AddSegmentConnectedTo(std::move(request));
+    ROAD_TEST_EXPECT(added.ok, added.error);
+  }
+  const auto reordered_junctions =
+      road_test_view::junctions(reordered.derived());
+  ROAD_TEST_EXPECT(reordered_junctions.size() == 1 &&
+                       reordered_junctions.front()->corner_radius_m == 4.0,
+                   "mixed radius changed with approach creation order");
   return true;
 }
 
@@ -5126,8 +5269,12 @@ int main() {
        off_centre_layout_keeps_its_alignment_through_a_junction},
       {"saved_layout_alignment_offset_survives_reload",
        saved_layout_alignment_offset_survives_reload},
-      {"version_thirteen_archive_centres_the_lines_it_saved",
-       version_thirteen_archive_centres_the_lines_it_saved},
+      {"version_fourteen_archive_defaults_the_corner_radius",
+       version_fourteen_archive_defaults_the_corner_radius},
+      {"junction_corner_radius_is_authoritative_and_inherited",
+       junction_corner_radius_is_authoritative_and_inherited},
+      {"corner_radius_extension_validation_and_mixed_resolution",
+       corner_radius_extension_validation_and_mixed_resolution},
       {"l_gutter_comes_out_of_the_widths_beside_it",
        l_gutter_comes_out_of_the_widths_beside_it},
       {"l_gutter_dimensions_leave_the_road_where_it_was",

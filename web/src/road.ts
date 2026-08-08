@@ -30,6 +30,7 @@ export interface RoadSegmentInput extends RoadSpanInput {
   extensionCorridorId?: number;
   connectToFirstNode: boolean;
   roadLayoutTemplateId?: number;
+  junctionCornerRadiusM?: number;
 }
 
 export interface RoadMeshData {
@@ -193,6 +194,9 @@ export interface RoadToolState {
   selectedRoadLayoutTemplateId: number;
   /** Labels for the sections this session registered, keyed by the ID Core assigned. */
   roadLayoutTemplateLabels: Record<number, string>;
+  /** Product-preset defaults keyed by the Core section ID assigned at startup. */
+  roadJunctionCornerRadiusDefaults: Record<number, number>;
+  junctionCornerRadiusM: number;
   manualLineOffsetM: number;
   manualAreaWidthM: number;
   manualAreaLengthM: number;
@@ -250,6 +254,8 @@ export function createRoadToolState(): RoadToolState {
     connectToFirstNode: false,
     selectedRoadLayoutTemplateId: 0,
     roadLayoutTemplateLabels: {},
+    roadJunctionCornerRadiusDefaults: {},
+    junctionCornerRadiusM: 4,
     manualLineOffsetM: 0,
     manualAreaWidthM: 4,
     manualAreaLengthM: 6,
@@ -322,7 +328,8 @@ export function roadSegmentInput(
     endSegmentDistanceM: endSnap?.segmentDistanceM ?? 0,
     extensionCorridorId: state.draftExtensionCorridorId,
     connectToFirstNode: state.connectToFirstNode,
-    roadLayoutTemplateId: state.selectedRoadLayoutTemplateId
+    roadLayoutTemplateId: state.selectedRoadLayoutTemplateId,
+    junctionCornerRadiusM: state.junctionCornerRadiusM
   };
 }
 

@@ -36,6 +36,7 @@ struct RoadSegment {
   SegmentShape shape{};
   RoadLayoutTemplateId layout_template = 0;
   std::optional<RoadLayoutTransitionId> transition{};
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
 };
 struct RoadCorridor {
   RoadCorridorId id = 0;

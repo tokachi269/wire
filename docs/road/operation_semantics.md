@@ -131,6 +131,7 @@ ADD LANEが作る変更後断面はCoreが作る。
   分かれるBezier approachは、chord角が対応範囲ならstable ID順で扱う。
 - ユーザーが明示した場合だけ`NodeConnectionPolicyOverride`を保存する。overrideを削除するとAutoへ戻る。
 - 実交差点の各gate位置は固定距離にしない。接続角と各approachの断面幅に加え、共通corner radiusを置くための接線長から、approach同士と丸め面が重ならないsetbackを一度だけ決定する。
+- Webのjunction corner radiusは新規道路の作成値であり、既存道路を再編集しない。新規segmentへ保存し、splitは元segment、corridor extensionは終端segmentから継承する。Add Laneは変更しない。全approachの保存値が一致するconnectionだけその値を使い、mixed値は固定4mへ解決する。作成順や平均値は使わない。
 - 実交差点はcarriagewayだけでなく、gate断面のshoulder境界、sidewalk、curbを隣接approach間へ接続する。同じAsphaltであるcarriagewayとshoulderは交差点内で一つのsurface regionが所有し、重複meshを作らない。
 - 異なるside断面の接続はcarriageway edge同士とroad outer同士を固定し、その間のface列を対応させる。片側だけにあるshoulderはcarriageway edgeで幅0へ退化させ、gutterの上面端をroad outerへ接続しない。各gateのgutter輪郭寸法は変更しない。
 - 交差点cornerとdegree 2の屈曲connectorは、gate接線を共有するBezier形状として派生する。segment側とconnector側で接線を再解釈しない。

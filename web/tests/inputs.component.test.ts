@@ -284,6 +284,7 @@ describe("viewer numeric inputs", () => {
     await tick();
     expect(current(mounted.store).rightPanelMode).toBe("road");
     expect(document.body.textContent).not.toContain("Repro capture");
+    expect(document.body.textContent).toContain("Junction corner radius (m)");
 
     (document.querySelector('[aria-label="Wire tool"]') as HTMLButtonElement).click();
     await tick();

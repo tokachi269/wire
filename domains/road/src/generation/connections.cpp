@@ -35,7 +35,7 @@ using internal::to3;
 
 struct policy {
   double straight_tolerance_rad = 5.0 * std::numbers::pi / 180.0;
-  double corner_radius_m = 4.0;
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
   double minimum_junction_setback_m = 4.0;
   double curve_control_factor = 0.45;
   double parallel_sine_tolerance = 1e-3;
@@ -441,7 +441,6 @@ resolve_connections(const SavedRoadGraph &graph,
     }
     ResolvedConnection connection{};
     connection.node_id = topo.node_id;
-    connection.corner_radius_m = rules.corner_radius_m;
 
     std::vector<ordered_approach> ordered{};
     ordered.reserve(topo.endpoints.size());
@@ -483,6 +482,23 @@ resolve_connections(const SavedRoadGraph &graph,
     for (const ordered_approach &approach : ordered) {
       connection.ordered_approaches.push_back(approach.key);
     }
+    std::optional<double> shared_corner_radius{};
+    bool mixed_corner_radius = false;
+    for (const ordered_approach &approach : ordered) {
+      const RoadSegment *segment = find_segment(graph, approach.key.segment_id);
+      if (segment == nullptr) {
+        return Out::Fail(CommitFailureCategory::kInternalError,
+                         "road corner-radius source segment is missing");
+      }
+      if (!shared_corner_radius.has_value()) {
+        shared_corner_radius = segment->corner_radius_m;
+      } else if (*shared_corner_radius != segment->corner_radius_m) {
+        mixed_corner_radius = true;
+      }
+    }
+    connection.corner_radius_m =
+        mixed_corner_radius ? rules.corner_radius_m
+                            : shared_corner_radius.value_or(rules.corner_radius_m);
     if (policy_override != nullptr) {
       connection.applied_policy_override_id = policy_override->id;
       if (policy_override->policy == NodeConnectionPolicy::kForcePassThrough) {
@@ -542,7 +558,7 @@ resolve_connections(const SavedRoadGraph &graph,
         const double section_reach = std::max(
             endpoint_outer_reach(graph, *segment, approach.key),
             endpoint_outer_reach(graph, *other_segment, other->key));
-        setback = (rules.corner_radius_m + section_reach) *
+        setback = (connection.corner_radius_m + section_reach) *
                   std::tan(turn_angle * 0.5);
       } else if (connection.kind == NodeConnectionKind::kJunction) {
         setback = rules.minimum_junction_setback_m;
@@ -572,7 +588,7 @@ resolve_connections(const SavedRoadGraph &graph,
               endpoint_reach_toward(graph, *other_segment, other, approach) /
               sine;
           const double corner_clearance_m =
-              rules.corner_radius_m / half_angle_tangent;
+              connection.corner_radius_m / half_angle_tangent;
           setback = std::max(setback,
                              section_clearance_m + corner_clearance_m);
         }

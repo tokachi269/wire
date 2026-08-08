@@ -1542,6 +1542,9 @@ public:
     const auto layout_template_id = input["roadLayoutTemplateId"].isUndefined()
                                          ? city::road::RoadLayoutTemplateId{0}
                                          : input["roadLayoutTemplateId"].as<city::road::RoadLayoutTemplateId>();
+    const double corner_radius_m = input["junctionCornerRadiusM"].isUndefined()
+                                       ? city::road::kDefaultRoadCornerRadiusM
+                                       : input["junctionCornerRadiusM"].as<double>();
     city::road::Result<city::road::RoadSegmentId> result{};
     if ((start_node_id != 0 || start_segment_id != 0 ||
          extension_corridor_id != 0) &&
@@ -1551,17 +1554,19 @@ public:
           city::road::RoadConnectionTarget{start_node_id, start_segment_id,
                                            start_segment_distance_m},
           city::road::RoadConnectionTarget{end_node_id, end_segment_id,
-                                           end_segment_distance_m}});
+                                           end_segment_distance_m},
+          corner_radius_m});
     } else if (end_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{
               path, layout_template_id, end_segment_id,
-              end_segment_distance_m, city::road::EndpointRole::kEnd});
+              end_segment_distance_m, city::road::EndpointRole::kEnd,
+              corner_radius_m});
     } else if (end_node_id != 0) {
       result = state_->AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{
               path, layout_template_id, end_node_id,
-              city::road::EndpointRole::kEnd});
+              city::road::EndpointRole::kEnd, corner_radius_m});
     } else if (extension_corridor_id != 0) {
       result = state_->ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
@@ -1570,13 +1575,14 @@ public:
     } else if (start_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{path, layout_template_id, start_segment_id, start_segment_distance_m,
-                                                          city::road::EndpointRole::kStart});
+                                                          city::road::EndpointRole::kStart, corner_radius_m});
     } else if (start_node_id != 0) {
       result = state_->AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{path, layout_template_id, start_node_id,
-                                                   city::road::EndpointRole::kStart});
+                                                   city::road::EndpointRole::kStart, corner_radius_m});
     } else {
-      result = state_->AddSegment(city::road::AddSegmentRequest{path, layout_template_id, road_shape_intent(input)});
+      result = state_->AddSegment(city::road::AddSegmentRequest{
+          path, layout_template_id, road_shape_intent(input), corner_radius_m});
     }
     val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) {
@@ -1653,6 +1659,9 @@ public:
     const auto layout_template_id = input["roadLayoutTemplateId"].isUndefined()
                                          ? city::road::RoadLayoutTemplateId{0}
                                          : input["roadLayoutTemplateId"].as<city::road::RoadLayoutTemplateId>();
+    const double corner_radius_m = input["junctionCornerRadiusM"].isUndefined()
+                                       ? city::road::kDefaultRoadCornerRadiusM
+                                       : input["junctionCornerRadiusM"].as<double>();
     city::road::Result<city::road::RoadSegmentId> added{};
     if ((start_node_id != 0 || start_segment_id != 0 ||
          extension_corridor_id != 0) &&
@@ -1662,17 +1671,19 @@ public:
           city::road::RoadConnectionTarget{start_node_id, start_segment_id,
                                            start_segment_distance_m},
           city::road::RoadConnectionTarget{end_node_id, end_segment_id,
-                                           end_segment_distance_m}});
+                                           end_segment_distance_m},
+          corner_radius_m});
     } else if (end_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{
               path, layout_template_id, end_segment_id,
-              end_segment_distance_m, city::road::EndpointRole::kEnd});
+              end_segment_distance_m, city::road::EndpointRole::kEnd,
+              corner_radius_m});
     } else if (end_node_id != 0) {
       added = trial.AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{
               path, layout_template_id, end_node_id,
-              city::road::EndpointRole::kEnd});
+              city::road::EndpointRole::kEnd, corner_radius_m});
     } else if (extension_corridor_id != 0) {
       added = trial.ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
@@ -1681,13 +1692,14 @@ public:
     } else if (start_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{path, layout_template_id, start_segment_id, start_segment_distance_m,
-                                                          city::road::EndpointRole::kStart});
+                                                          city::road::EndpointRole::kStart, corner_radius_m});
     } else if (start_node_id != 0) {
       added = trial.AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{path, layout_template_id, start_node_id,
-                                                   city::road::EndpointRole::kStart});
+                                                   city::road::EndpointRole::kStart, corner_radius_m});
     } else {
-      added = trial.AddSegment(city::road::AddSegmentRequest{path, layout_template_id, road_shape_intent(input)});
+      added = trial.AddSegment(city::road::AddSegmentRequest{
+          path, layout_template_id, road_shape_intent(input), corner_radius_m});
     }
     val result = road_result_value(added.ok, added.error, added.failure_category);
     val meshes = val::array();

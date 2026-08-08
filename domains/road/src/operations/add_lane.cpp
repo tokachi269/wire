@@ -660,7 +660,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     plan.add_nodes.push_back(RoadNode{split_node, split.value.point});
     plan.add_segments.push_back(RoadSegment{
         second_id, split_node, terminal->node_b, second_shape.value,
-        terminal->layout_template, std::nullopt});
+        terminal->layout_template, std::nullopt, terminal->corner_radius_m});
     RoadCorridor replacement = *corridor;
     const std::size_t index = end_position.value.ref_index;
     replacement.segments.erase(

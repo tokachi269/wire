@@ -276,6 +276,9 @@ struct side {
   ApproachKey approach{};
   Vec3d tangent{};
   std::vector<Vec3d> chain{};
+  std::vector<double> outward_m{};
+  std::vector<double> height_m{};
+  Vec3d outward{};
   std::vector<RenderStyleRef> faces{};
   Vec3d painted_edge{};
   std::uint64_t carriageway_boundary_id = 0;
@@ -334,8 +337,17 @@ generate_junction_geometry(RoadNodeId node_id,
       resolved.approach = key;
       resolved.tangent = gate.tangent;
       resolved.faces = profile.faces;
-      for (const SectionBoundarySample *sample : profile.chain)
+      for (const SectionBoundarySample *sample : profile.chain) {
         resolved.chain.push_back(boundary_point(gate, *sample));
+        resolved.outward_m.push_back(
+            std::abs(sample->lateral_m - profile.chain.front()->lateral_m));
+        resolved.height_m.push_back(sample->height_m);
+      }
+      const double spread = profile.chain.back()->lateral_m -
+                            profile.chain.front()->lateral_m;
+      const double mirror =
+          gate.approach.endpoint_role == EndpointRole::kEnd ? -1.0 : 1.0;
+      resolved.outward = scale3(gate.lateral, spread < 0.0 ? -mirror : mirror);
       resolved.painted_edge =
           gate_point_at(gate, profile.chain.front()->marking_lateral_m,
                         profile.chain.front()->height_m);
@@ -369,12 +381,18 @@ generate_junction_geometry(RoadNodeId node_id,
     asphalt_perimeter.push_back(a.chain.front());
     if (a.approach == b.approach)
       continue;
-    // One side may be built up where the other simply ends. The shorter one
-    // stays at its outer edge so the pair still meets, which is what the road
-    // does on the ground.
+    // Holding the shorter side at its own outer edge opens its section out into
+    // a wedge, so it takes the shape of the side it meets instead.
     const std::size_t depth = std::max(a.chain.size(), b.chain.size());
-    const auto reach = [depth](const side &value, std::size_t point) {
-      return value.chain[std::min(point, value.chain.size() - 1)];
+    const auto reach = [](const side &value, const side &other,
+                          std::size_t point) {
+      if (point < value.chain.size()) return value.chain[point];
+      const std::size_t last = value.chain.size() - 1;
+      Vec3d extended = add3(
+          value.chain[last],
+          scale3(value.outward, other.outward_m[point] - other.outward_m[last]));
+      extended.z += other.height_m[point] - other.height_m[last];
+      return extended;
     };
     const std::vector<RenderStyleRef> &faces =
         a.faces.size() >= b.faces.size() ? a.faces : b.faces;
@@ -392,7 +410,7 @@ generate_junction_geometry(RoadNodeId node_id,
     // turn instead of being averaged into a ramp.
     std::vector<std::vector<Vec3d>> swept{};
     for (std::size_t point = 0; point < depth; ++point) {
-      swept.push_back(curve_points(reach(a, point), reach(b, point)));
+      swept.push_back(curve_points(reach(a, b, point), reach(b, a, point)));
       if (swept.back().empty()) {
         return Result<JunctionGeometry>::Fail(
             CommitFailureCategory::kNotImplemented,

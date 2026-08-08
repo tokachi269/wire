@@ -4223,6 +4223,35 @@ bool a_carriageway_edge_line_is_painted_on_the_road(std::string& failure) {
   return true;
 }
 
+bool a_gutter_keeps_its_width_where_it_meets_another_layout(std::string& failure) {
+  RoadState state{};
+  const auto guttered = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  city::road::RoadLayoutTemplate no_left = road_fixture::GutteredLayout(0);
+  no_left.strips.erase(no_left.strips.begin());
+  no_left.boundaries.erase(no_left.boundaries.begin());
+  no_left.alignment_offset_from_left_m = road_fixture::CentredAlignmentOffset(no_left);
+  const auto plain = road_fixture::AddLayout(state, no_left);
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), guttered});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), plain, base.value, 40.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1, "the two layouts did not form one junction");
+
+  for (const auto& strip : junctions.front()->junction_geometry.surface_strips) {
+    const double entered = std::hypot(strip.left.front().x - strip.right.front().x,
+                                      strip.left.front().y - strip.right.front().y);
+    const double left = std::hypot(strip.left.back().x - strip.right.back().x,
+                                   strip.left.back().y - strip.right.back().y);
+    ROAD_TEST_EXPECT(std::abs(entered - left) <= 1e-6,
+                     "a junction face changed width where the layouts differ");
+  }
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -4366,6 +4395,8 @@ int main() {
        a_junction_carries_the_edge_profile_it_was_given},
       {"a_carriageway_edge_line_is_painted_on_the_road",
        a_carriageway_edge_line_is_painted_on_the_road},
+      {"a_gutter_keeps_its_width_where_it_meets_another_layout",
+       a_gutter_keeps_its_width_where_it_meets_another_layout},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

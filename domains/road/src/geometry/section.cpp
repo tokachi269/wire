@@ -306,6 +306,18 @@ derive_boundaries(const RoadLayoutTemplate &section,
   samples.push_back(right_end);
   fixed.push_back(false);
   settle_surface_order(samples, fixed);
+  for (SectionBoundarySample &sample : samples) {
+    sample.marking_lateral_m = sample.lateral_m;
+    if (!sample.marking.enabled || sample.carriageway_side == 0.0 ||
+        sample.marking.placement == MarkingPlacement::kCenter) {
+      continue;
+    }
+    const double toward = sample.marking.placement == MarkingPlacement::kInside
+                              ? sample.carriageway_side
+                              : -sample.carriageway_side;
+    sample.marking_lateral_m +=
+        toward * marking_width_m(sample.marking.style_id) * 0.5;
+  }
   if (is_finite(carriageway_floor)) {
     for (SectionBoundarySample &sample : samples) {
       sample.height_m -= carriageway_floor;
@@ -329,6 +341,16 @@ derive_surface_styles(const RoadLayoutTemplate &section) {
 }
 
 } // namespace
+
+double marking_width_m(MarkingStyleId style_id) {
+  if (style_id == builtin_marking_styles::kCenterLine)
+    return 0.12;
+  if (style_id == builtin_marking_styles::kStopLine)
+    return 0.16;
+  if (style_id == builtin_marking_styles::kCrosswalk)
+    return 0.35;
+  return 0.10;
+}
 
 bool equivalent_section_definition(const RoadLayoutTemplate &a,
                                    const RoadLayoutTemplate &b) {

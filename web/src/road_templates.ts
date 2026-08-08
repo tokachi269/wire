@@ -40,9 +40,17 @@ export interface RoadSectionLaneInput {
   direction: 0 | 1;
 }
 
+/**
+ * Where a line sits against its boundary. `inside` and `outside` are measured
+ * toward and away from the carriageway, so an edge line placed inside lies on
+ * the road rather than straddling the edge of it. Every line says which.
+ */
+export type RoadMarkingPlacement = "center" | "inside" | "outside";
+
 export interface RoadSectionMarkingInput {
   role: RoadMarkingRole;
   style: RoadMarkingStyle;
+  placement: RoadMarkingPlacement;
 }
 
 /**
@@ -151,9 +159,14 @@ export interface RoadTemplatePreset {
 
 const outerLine: RoadSectionMarkingInput = {
   role: "carriageway_edge",
-  style: "white_solid"
+  style: "white_solid",
+  placement: "inside"
 };
-const centerLine: RoadSectionMarkingInput = { role: "center_line", style: "center_line" };
+const centerLine: RoadSectionMarkingInput = {
+  role: "center_line",
+  style: "center_line",
+  placement: "center"
+};
 
 const urbanTwoLane: RoadSectionInput = centred({
   strips: [

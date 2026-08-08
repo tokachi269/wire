@@ -1777,7 +1777,7 @@ bool marking_invalid_interval_splits_polyline_runs(std::string& failure) {
     boundary.role = BoundaryRole::kLaneDivider;
     boundary.marking = AutoMarkingPolicy{
         true, MarkingRole::kCenterLine,
-        builtin_marking_styles::kCenterLine};
+        builtin_marking_styles::kCenterLine, MarkingPlacement::kCenter};
     boundary.left_strip_id = 20;
     boundary.right_strip_id = 30;
     boundary.left_strip_width_m = distance == 20.0 ? 0.0 : 3.0;

@@ -333,7 +333,8 @@ struct LaneSectionIds {
       {ProfilePoint{0.0, 0.0}},
       {},
       AutoMarkingPolicy{true, MarkingRole::kLaneSeparator,
-                        builtin_marking_styles::kWhiteDashed}};
+                        builtin_marking_styles::kWhiteDashed,
+                        MarkingPlacement::kCenter}};
   // The alignment keeps its distance to the side that is not growing, so every
   // element beyond the insertion keeps its lateral position.
   if (side == RoadSide::kRight) {

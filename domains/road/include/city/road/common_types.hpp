@@ -128,10 +128,21 @@ enum class MarkingRole {
   kCrosswalk,
   kFree,
 };
+// Where a line sits against the boundary it belongs to. Inside and outside are
+// measured toward and away from the carriageway, so an edge line painted inside
+// lies on the road instead of straddling the edge of it. kUnspecified is not a
+// placement: a line that never said where it goes is rejected.
+enum class MarkingPlacement {
+  kUnspecified,
+  kCenter,
+  kInside,
+  kOutside,
+};
 struct AutoMarkingPolicy {
   bool enabled = false;
   MarkingRole role = MarkingRole::kLaneSeparator;
   MarkingStyleId style_id{};
+  MarkingPlacement placement = MarkingPlacement::kUnspecified;
 
   bool operator==(const AutoMarkingPolicy&) const = default;
 };

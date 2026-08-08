@@ -23,6 +23,18 @@ Vec3d subtract3(Vec3d a, Vec3d b) {
   return {a.x - b.x, a.y - b.y, a.z - b.z};
 }
 
+Vec3d gate_point_at(const ConnectionGate &gate, double section_lateral_m,
+                    double height_m) {
+  const double lateral_m = gate.approach.endpoint_role == EndpointRole::kEnd
+                               ? -section_lateral_m
+                               : section_lateral_m;
+  return {
+      gate.position.x + gate.lateral.x * lateral_m,
+      gate.position.y + gate.lateral.y * lateral_m,
+      gate.position.z + height_m,
+  };
+}
+
 Vec3d boundary_point(const ConnectionGate &gate,
                      const SectionBoundarySample &boundary) {
   const double lateral_m = gate.approach.endpoint_role == EndpointRole::kEnd
@@ -183,6 +195,12 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
         sweep_boundary(
             frames, boundary_point(first, first.boundaries[index]),
             boundary_point(second, *target->second)),
+        sweep_boundary(
+            frames,
+            gate_point_at(first, first.boundaries[index].marking_lateral_m,
+                          first.boundaries[index].height_m),
+            gate_point_at(second, target->second->marking_lateral_m,
+                          target->second->height_m)),
         first.approach,
         second.approach,
     });
@@ -259,6 +277,7 @@ struct side {
   Vec3d tangent{};
   std::vector<Vec3d> chain{};
   std::vector<RenderStyleRef> faces{};
+  Vec3d painted_edge{};
   std::uint64_t carriageway_boundary_id = 0;
   std::uint64_t outer_boundary_id = 0;
   BoundaryRole carriageway_boundary_role = BoundaryRole::kOuterEdge;
@@ -317,6 +336,9 @@ generate_junction_geometry(RoadNodeId node_id,
       resolved.faces = profile.faces;
       for (const SectionBoundarySample *sample : profile.chain)
         resolved.chain.push_back(boundary_point(gate, *sample));
+      resolved.painted_edge =
+          gate_point_at(gate, profile.chain.front()->marking_lateral_m,
+                        profile.chain.front()->height_m);
       resolved.carriageway_boundary_id = profile.chain.front()->boundary_id;
       resolved.outer_boundary_id = profile.chain.back()->boundary_id;
       resolved.carriageway_boundary_role = profile.chain.front()->role;
@@ -379,6 +401,8 @@ generate_junction_geometry(RoadNodeId node_id,
     }
     asphalt_perimeter.insert(asphalt_perimeter.end(), swept.front().begin() + 1,
                              swept.front().end() - 1);
+    const std::vector<Vec3d> painted =
+        curve_points(a.painted_edge, b.painted_edge);
     geometry.perimeter_curves.push_back(
         ResolvedBoundaryCurve{a.carriageway_boundary_id,
                               b.carriageway_boundary_id,
@@ -388,6 +412,7 @@ generate_junction_geometry(RoadNodeId node_id,
                                   : BoundaryRole::kOuterEdge,
                               a.carriageway_is_painted && b.carriageway_is_painted,
                               swept.front(),
+                              painted,
                               a.approach,
                               b.approach});
     for (std::size_t face = 0; face + 1 < swept.size() && face < faces.size();

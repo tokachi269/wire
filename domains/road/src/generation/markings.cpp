@@ -1,6 +1,7 @@
 #include "generation.hpp"
 
 #include "../geometry/geometry.hpp"
+#include "../geometry/section.hpp"
 #include "../lookup.hpp"
 
 #include <algorithm>
@@ -20,6 +21,7 @@ using internal::find_template;
 using internal::find_transition;
 using internal::scale;
 using internal::distance_epsilon;
+using internal::marking_width_m;
 using internal::tangent_at;
 
 constexpr double kMarkingElevationM = 0.025;
@@ -32,17 +34,6 @@ constexpr double kCrosswalkStripeStepM = 0.7;
 // No boundary line is emitted where an adjacent strip is at most this wide.
 // This is the single decision value for degenerate runs.
 constexpr double kDegenerateStripWidthM = 0.05;
-
-// Marking width is resolved once, here, so emit only reads it.
-double marking_width_m(MarkingStyleId style_id) {
-  if (style_id == builtin_marking_styles::kCenterLine)
-    return 0.12;
-  if (style_id == builtin_marking_styles::kStopLine)
-    return 0.16;
-  if (style_id == builtin_marking_styles::kCrosswalk)
-    return 0.35;
-  return 0.10;
-}
 
 MarkingStyleId style_for_role(MarkingRole role) {
   if (role == MarkingRole::kCenterLine)
@@ -283,7 +274,7 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
           continue;
         }
         Result<Vec3d> point =
-            segment_point(segment, distance, boundary.lateral_m);
+            segment_point(segment, distance, boundary.marking_lateral_m);
         if (!point.ok)
           return Result<bool>::Fail(point.failure_category, point.error);
         it->second.active_run.push_back(point.value);
@@ -467,7 +458,7 @@ derive_connection_boundary_markings(
       marking.role = source_role;
       marking.style_id = source_boundary->marking.style_id;
       marking.width_m = marking_width_m(marking.style_id);
-      marking.points = curve.points;
+      marking.points = curve.marking_points;
       for (Vec3d &point : marking.points)
         point.z += kMarkingElevationM;
       if (marking.points.size() >= 2)
@@ -579,9 +570,9 @@ Result<bool> derive_boundary_continuation_markings(
     if (points.size() < 2)
       continue;
     const double source_z =
-        gate_point(source->gate, 0.0, source_boundary.lateral_m).z;
+        gate_point(source->gate, 0.0, source_boundary.marking_lateral_m).z;
     const double target_z =
-        gate_point(target->gate, 0.0, target_boundary.lateral_m).z;
+        gate_point(target->gate, 0.0, target_boundary.marking_lateral_m).z;
     DerivedMarking marking{};
     marking.owner = MarkingOwner{MarkingOwner::Kind::kJunction, 0,
                                  source_lookup.node_id, 0};
@@ -728,8 +719,8 @@ derive_junction_override_markings(const SavedRoadGraph &graph,
     marking.style_id = style_for_role(override.source.role);
     marking.width_m = marking_width_m(marking.style_id);
     marking.points = {
-        gate_point(source->gate, 0.0, source_boundary->lateral_m),
-        gate_point(target->gate, 0.0, target_boundary->lateral_m)};
+        gate_point(source->gate, 0.0, source_boundary->marking_lateral_m),
+        gate_point(target->gate, 0.0, target_boundary->marking_lateral_m)};
     markings.push_back(std::move(marking));
   }
   return Result<bool>::Ok(true);

@@ -56,6 +56,10 @@ using internal::subtract;
       (policy.enabled && !IsKnownMarkingStyle(policy.style_id))) {
     return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "marking policy is invalid");
   }
+  if (policy.enabled && policy.placement == MarkingPlacement::kUnspecified) {
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                              "marking policy does not say where the line sits");
+  }
   return Result<bool>::Ok(true);
 }
 
@@ -139,10 +143,7 @@ using internal::subtract;
           CommitFailureCategory::kInvalidInput,
           "section template boundary profile does not fit its neighbouring strips");
     }
-    if (static_cast<int>(boundary.marking.role) < 0 ||
-        static_cast<int>(boundary.marking.role) > 5 ||
-        (boundary.marking.enabled &&
-         !IsKnownMarkingStyle(boundary.marking.style_id))) {
+    if (!validate_marking_policy(boundary.marking).ok) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "section template marking policy is invalid");
     }

@@ -10,15 +10,20 @@ namespace {
 using city::road::AutoMarkingPolicy;
 using city::road::BoundaryRole;
 using city::road::LaneTravelDirection;
+using city::road::MarkingPlacement;
 using city::road::MarkingRole;
 using city::road::StripFunction;
 namespace builtin_marking_styles = city::road::builtin_marking_styles;
 namespace builtin_surface_styles = city::road::builtin_surface_styles;
 
+// An edge line is painted on the road, clear of whatever marks the edge; a
+// centre line straddles the boundary it names.
 const AutoMarkingPolicy outer_line{
-    true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid};
+    true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid,
+    MarkingPlacement::kInside};
 const AutoMarkingPolicy center_line{
-    true, MarkingRole::kCenterLine, builtin_marking_styles::kCenterLine};
+    true, MarkingRole::kCenterLine, builtin_marking_styles::kCenterLine,
+    MarkingPlacement::kCenter};
 
 // `outward_m` is where the top face reaches: negative on the section's left.
 [[nodiscard]] city::road::BoundaryProfile Curb(city::road::BoundaryId id,

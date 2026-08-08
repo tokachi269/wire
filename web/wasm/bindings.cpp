@@ -119,7 +119,15 @@ using city::wire::Vec3d;
   return std::nullopt;
 }
 
-[[nodiscard]] std::optional<city::road::MarkingRole> road_marking_role(
+[[nodiscard]] std::optional<city::road::MarkingPlacement> road_marking_placement(
+    const std::string& value) {
+  if (value == "center") return city::road::MarkingPlacement::kCenter;
+  if (value == "inside") return city::road::MarkingPlacement::kInside;
+  if (value == "outside") return city::road::MarkingPlacement::kOutside;
+  return std::nullopt;
+}
+
+std::optional<city::road::MarkingRole> road_marking_role(
     const std::string& key) {
   if (key == "center_line") return city::road::MarkingRole::kCenterLine;
   if (key == "lane_separator") return city::road::MarkingRole::kLaneSeparator;
@@ -1469,12 +1477,14 @@ public:
       if (!marking.isUndefined() && !marking.isNull()) {
         const auto marking_role = road_marking_role(marking["role"].as<std::string>());
         const auto marking_style = road_marking_style_id(marking["style"].as<std::string>());
-        if (!marking_role.has_value() || !marking_style.has_value()) {
-          return road_result_value(false, "unknown road marking role or style",
+        const auto placement = road_marking_placement(marking["placement"].as<std::string>());
+        if (!marking_role.has_value() || !marking_style.has_value() ||
+            !placement.has_value()) {
+          return road_result_value(false, "unknown road marking role, style or placement",
                                    city::road::CommitFailureCategory::kInvalidInput);
         }
         boundary.marking = city::road::AutoMarkingPolicy{true, *marking_role,
-                                                         *marking_style};
+                                                         *marking_style, *placement};
       }
       section.boundaries.push_back(boundary);
     }
@@ -2122,7 +2132,8 @@ public:
         boundary.marking = center_line
                                ? city::road::AutoMarkingPolicy{
                                      true, city::road::MarkingRole::kCenterLine,
-                                     city::road::builtin_marking_styles::kCenterLine}
+                                     city::road::builtin_marking_styles::kCenterLine,
+                                     city::road::MarkingPlacement::kCenter}
                                : city::road::AutoMarkingPolicy{};
       }
       if (boundary.role == city::road::BoundaryRole::kCurb) {
@@ -2130,7 +2141,8 @@ public:
                                ? city::road::AutoMarkingPolicy{
                                      true,
                                      city::road::MarkingRole::kCarriagewayEdge,
-                                     city::road::builtin_marking_styles::kWhiteSolid}
+                                     city::road::builtin_marking_styles::kWhiteSolid,
+                                     city::road::MarkingPlacement::kInside}
                                : city::road::AutoMarkingPolicy{};
       }
     }

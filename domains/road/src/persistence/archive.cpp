@@ -904,6 +904,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
         writer.Int(side_prefix + ".enabled", side.enabled ? 1 : 0);
         writer.Int(side_prefix + ".role", static_cast<int>(side.role));
         writer.UInt(side_prefix + ".style_id", side.style_id.value);
+        writer.Int(side_prefix + ".placement", static_cast<int>(side.placement));
       }
     }
     writer.UInt(prefix + ".lane_band.count", section.lane_bands.size());
@@ -943,6 +944,8 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
                  static_cast<int>(boundary.marking.role));
       writer.UInt(boundary_prefix + ".marking.style_id",
                   boundary.marking.style_id.value);
+      writer.Int(boundary_prefix + ".marking.placement",
+                 static_cast<int>(boundary.marking.placement));
     }
   }
 
@@ -1168,7 +1171,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                     "unknown road graph version");
   }
-  const bool has_saved_profile = version.value == kVersion;
+  const bool has_saved_placement = version.value == kVersion;
   Result<std::uint64_t> next_id = reader.RequireU64("next_id");
   if (!next_id.ok) return Result<LoadedRoad>::Fail(next_id.failure_category, next_id.error);
 
@@ -1211,6 +1214,14 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
         Result<MarkingRole> side_role =
             enum_value<MarkingRole>(reader, side_prefix + ".role", 0, 5);
         Result<std::uint64_t> side_style = reader.RequireU64(side_prefix + ".style_id");
+        Result<MarkingPlacement> side_placement =
+            has_saved_placement
+                ? enum_value<MarkingPlacement>(reader, side_prefix + ".placement", 0, 3)
+                : Result<MarkingPlacement>::Ok(MarkingPlacement::kCenter);
+        if (!side_placement.ok) {
+          return Result<LoadedRoad>::Fail(side_placement.failure_category,
+                                          side_placement.error);
+        }
         if (!enabled.ok) return Result<LoadedRoad>::Fail(enabled.failure_category, enabled.error);
         if (!side_role.ok) return Result<LoadedRoad>::Fail(side_role.failure_category, side_role.error);
         if (!side_style.ok) return Result<LoadedRoad>::Fail(side_style.failure_category, side_style.error);
@@ -1219,7 +1230,8 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
                                           "lane side marking enabled flag is invalid");
         }
         AutoMarkingPolicy policy{enabled.value == 1, side_role.value,
-                                 MarkingStyleId{side_style.value}};
+                                 MarkingStyleId{side_style.value},
+                                 side_placement.value};
         if (policy.enabled && !IsKnownMarkingStyle(policy.style_id)) {
           return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                           "lane side marking style is unknown");
@@ -1267,6 +1279,14 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
           enum_value<MarkingRole>(reader, boundary_prefix + ".marking.role", 0, 5);
       Result<std::uint64_t> marking_style =
           reader.RequireU64(boundary_prefix + ".marking.style_id");
+      Result<MarkingPlacement> marking_placement =
+          has_saved_placement
+              ? enum_value<MarkingPlacement>(reader, boundary_prefix + ".marking.placement", 0, 3)
+              : Result<MarkingPlacement>::Ok(MarkingPlacement::kCenter);
+      if (!marking_placement.ok) {
+        return Result<LoadedRoad>::Fail(marking_placement.failure_category,
+                                        marking_placement.error);
+      }
       if (!boundary_id.ok) return Result<LoadedRoad>::Fail(boundary_id.failure_category, boundary_id.error);
       if (!role.ok) return Result<LoadedRoad>::Fail(role.failure_category, role.error);
       if (!marking_enabled.ok) {
@@ -1282,49 +1302,29 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
       boundary.boundary_id = boundary_id.value;
       boundary.role = role.value;
       boundary.marking = AutoMarkingPolicy{marking_enabled.value == 1, marking_role.value,
-                                           MarkingStyleId{marking_style.value}};
-      if (has_saved_profile) {
-        Result<std::size_t> point_count = require_count(boundary_prefix + ".point.count");
-        if (!point_count.ok) return Result<LoadedRoad>::Fail(point_count.failure_category, point_count.error);
-        for (std::size_t k = 0; k < point_count.value; ++k) {
-          const std::string point_prefix = boundary_prefix + ".point." + std::to_string(k);
-          Result<double> lateral = reader.RequireDouble(point_prefix + ".lateral_m");
-          Result<double> point_height = reader.RequireDouble(point_prefix + ".height_m");
-          if (!lateral.ok) return Result<LoadedRoad>::Fail(lateral.failure_category, lateral.error);
-          if (!point_height.ok) return Result<LoadedRoad>::Fail(point_height.failure_category, point_height.error);
-          boundary.contour.push_back(ProfilePoint{lateral.value, point_height.value});
+                                           MarkingStyleId{marking_style.value},
+                                           marking_placement.value};
+      Result<std::size_t> point_count = require_count(boundary_prefix + ".point.count");
+      if (!point_count.ok) return Result<LoadedRoad>::Fail(point_count.failure_category, point_count.error);
+      for (std::size_t k = 0; k < point_count.value; ++k) {
+        const std::string point_prefix = boundary_prefix + ".point." + std::to_string(k);
+        Result<double> lateral = reader.RequireDouble(point_prefix + ".lateral_m");
+        Result<double> point_height = reader.RequireDouble(point_prefix + ".height_m");
+        if (!lateral.ok) return Result<LoadedRoad>::Fail(lateral.failure_category, lateral.error);
+        if (!point_height.ok) return Result<LoadedRoad>::Fail(point_height.failure_category, point_height.error);
+        boundary.contour.push_back(ProfilePoint{lateral.value, point_height.value});
+      }
+      Result<std::size_t> style_count = require_count(boundary_prefix + ".segment_style.count");
+      if (!style_count.ok) return Result<LoadedRoad>::Fail(style_count.failure_category, style_count.error);
+      for (std::size_t k = 0; k < style_count.value; ++k) {
+        Result<std::uint64_t> style =
+            reader.RequireU64(boundary_prefix + ".segment_style." + std::to_string(k));
+        if (!style.ok) return Result<LoadedRoad>::Fail(style.failure_category, style.error);
+        if (!IsKnownSurfaceStyle(SurfaceStyleId{style.value})) {
+          return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
+                                          "boundary profile surface style is unknown");
         }
-        Result<std::size_t> style_count = require_count(boundary_prefix + ".segment_style.count");
-        if (!style_count.ok) return Result<LoadedRoad>::Fail(style_count.failure_category, style_count.error);
-        for (std::size_t k = 0; k < style_count.value; ++k) {
-          Result<std::uint64_t> style =
-              reader.RequireU64(boundary_prefix + ".segment_style." + std::to_string(k));
-          if (!style.ok) return Result<LoadedRoad>::Fail(style.failure_category, style.error);
-          if (!IsKnownSurfaceStyle(SurfaceStyleId{style.value})) {
-            return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
-                                            "boundary profile surface style is unknown");
-          }
-          boundary.segment_styles.push_back(SurfaceStyleId{style.value});
-        }
-      } else {
-        Result<double> width = reader.RequireDouble(boundary_prefix + ".width_m");
-        Result<double> height = reader.RequireDouble(boundary_prefix + ".height_m");
-        if (!width.ok) return Result<LoadedRoad>::Fail(width.failure_category, width.error);
-        if (!height.ok) return Result<LoadedRoad>::Fail(height.failure_category, height.error);
-        const bool structural = role.value == BoundaryRole::kCurb ||
-                                role.value == BoundaryRole::kMedianEdge;
-        if (!structural && std::abs(width.value) <= internal::distance_epsilon &&
-            std::abs(height.value) <= internal::distance_epsilon) {
-          boundary.contour.push_back(ProfilePoint{0.0, 0.0});
-        } else {
-          boundary.contour.push_back(ProfilePoint{-width.value, 0.0});
-          boundary.contour.push_back(ProfilePoint{0.0, height.value});
-          boundary.segment_styles.push_back(
-              role.value == BoundaryRole::kCurb      ? builtin_surface_styles::kCurb
-              : role.value == BoundaryRole::kMedianEdge ? builtin_surface_styles::kMedian
-                                                        : builtin_surface_styles::kAsphalt);
-        }
-        if (j < section.strips.size()) section.strips[j].width_m += width.value;
+        boundary.segment_styles.push_back(SurfaceStyleId{style.value});
       }
       section.boundaries.push_back(std::move(boundary));
     }

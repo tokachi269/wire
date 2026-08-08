@@ -38,6 +38,7 @@ using city::road::JunctionMarkingAction;
 using city::road::JunctionMarkingEndpoint;
 using city::road::JunctionMarkingOverride;
 using city::road::LaneId;
+using city::road::MarkingPlacement;
 using city::road::MarkingRole;
 using city::road::MarkingOwner;
 using city::road::MarkingTrackKey;
@@ -285,10 +286,10 @@ city::road::RoadLayoutTemplate OneWayLaneTemplate(
         city::road::LaneTravelDirection::kAlongSegment) {
   const AutoMarkingPolicy edge{
       true, MarkingRole::kCarriagewayEdge,
-      builtin_marking_styles::kWhiteSolid};
+      builtin_marking_styles::kWhiteSolid, MarkingPlacement::kInside};
   const AutoMarkingPolicy divider{
       true, MarkingRole::kLaneSeparator,
-      builtin_marking_styles::kWhiteDashed};
+      builtin_marking_styles::kWhiteDashed, MarkingPlacement::kCenter};
   city::road::RoadLayoutTemplate section{};
   section.id = id;
   section.strips.push_back({10, StripFunction::kShoulder, 0.75, 0.0,
@@ -349,10 +350,10 @@ city::road::RoadLayoutTemplate OpposingFourLaneTemplate(
     city::road::RoadLayoutTemplateId id) {
   const AutoMarkingPolicy edge{
       true, MarkingRole::kCarriagewayEdge,
-      builtin_marking_styles::kWhiteSolid};
+      builtin_marking_styles::kWhiteSolid, MarkingPlacement::kInside};
   const AutoMarkingPolicy divider{
       true, MarkingRole::kLaneSeparator,
-      builtin_marking_styles::kWhiteDashed};
+      builtin_marking_styles::kWhiteDashed, MarkingPlacement::kCenter};
   city::road::RoadLayoutTemplate section{};
   section.id = id;
   section.strips = {
@@ -506,7 +507,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=13\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=14\n") &&
                        saved.value.find("primitive=") == std::string::npos &&
                        saved.value.find("section_template.0.alignment_offset_from_left_m=") !=
                            std::string::npos &&
@@ -534,7 +535,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
     return archive;
   };
   std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=13").size(), "road_graph_version=4");
+  version4.replace(0, std::string("road_graph_version=14").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
   ROAD_TEST_EXPECT(!rejected.ok && rejected.failure_category == CommitFailureCategory::kInvalidInput,
                    "legacy road archive was not rejected");
@@ -555,12 +556,12 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
                    "non-finite road archive double was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.strip.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "14")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "15")).ok,
                    "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
-  for (int old_version = 1; old_version <= 11; ++old_version) {
+  for (int old_version = 1; old_version <= 12; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=13").size(),
+    legacy.replace(0, std::string("road_graph_version=14").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
@@ -2913,7 +2914,8 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
     const auto two_lane = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
     auto median = road_fixture::BidirectionalLayout(0);
     const city::road::AutoMarkingPolicy outer_line{
-        true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid};
+        true, MarkingRole::kCarriagewayEdge, builtin_marking_styles::kWhiteSolid,
+        MarkingPlacement::kInside};
     median.strips.insert(median.strips.begin() + 2,
                         {25, StripFunction::kMedian, 2.0, 0.0, builtin_surface_styles::kMedian});
     median.boundaries = {
@@ -3140,7 +3142,8 @@ bool P2_marking_policy_suppression_and_junction_override(std::string& failure) {
   auto unknown_style_template = road_fixture::BidirectionalLayout(section);
   unknown_style_template.boundaries[1].marking =
       AutoMarkingPolicy{true, MarkingRole::kCenterLine,
-                        city::road::MarkingStyleId{9999}};
+                        city::road::MarkingStyleId{9999},
+                        MarkingPlacement::kCenter};
   const auto unknown_style = state.EditRoadLayoutTemplate(
       city::road::EditRoadLayoutTemplateRequest{unknown_style_template});
   ROAD_TEST_EXPECT(!unknown_style.ok && unknown_style.failure_category == CommitFailureCategory::kInvalidInput,
@@ -3170,7 +3173,8 @@ bool M1_lane_side_requests_share_one_boundary_line(std::string& failure) {
   ROAD_TEST_EXPECT(segment.ok, segment.error);
   const std::size_t baseline = road_test_view::marking_lines(state.derived()).size();
   const AutoMarkingPolicy center{true, MarkingRole::kCenterLine,
-                                 builtin_marking_styles::kCenterLine};
+                                 builtin_marking_styles::kCenterLine,
+                                 MarkingPlacement::kCenter};
   // Both lanes request the same line on the boundary they share.
   auto shared_request = road_fixture::BidirectionalLayout(section);
   shared_request.strips[1].side_marking.right = center;
@@ -3186,7 +3190,8 @@ bool M1_lane_side_requests_share_one_boundary_line(std::string& failure) {
   auto conflicting_request = shared_request;
   conflicting_request.strips[2].side_marking.left =
       AutoMarkingPolicy{true, MarkingRole::kLaneSeparator,
-                        builtin_marking_styles::kWhiteDashed};
+                        builtin_marking_styles::kWhiteDashed,
+                        MarkingPlacement::kCenter};
   const auto conflict = state.EditRoadLayoutTemplate(
       city::road::EditRoadLayoutTemplateRequest{conflicting_request});
   ROAD_TEST_EXPECT(!conflict.ok && conflict.failure_category == CommitFailureCategory::kNotImplemented,
@@ -3213,7 +3218,8 @@ bool M1_lane_side_without_adjacent_boundary_is_unsupported(std::string& failure)
   const auto saved_before = state.Save();
   ROAD_TEST_EXPECT(saved_before.ok, saved_before.error);
   const AutoMarkingPolicy edge{true, MarkingRole::kCarriagewayEdge,
-                               builtin_marking_styles::kWhiteSolid};
+                               builtin_marking_styles::kWhiteSolid,
+                               MarkingPlacement::kInside};
   auto outermost = road_fixture::AsymmetricLayout(no_left_sidewalk);
   outermost.strips.front().side_marking.left = edge;
   const auto request =
@@ -3773,74 +3779,55 @@ bool saved_layout_alignment_offset_survives_reload(std::string& failure) {
   return true;
 }
 
-bool version_twelve_archive_keeps_the_geometry_it_had(std::string& failure) {
+bool version_thirteen_archive_centres_the_lines_it_saved(std::string& failure) {
   RoadState state{};
   const auto layout = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
   ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0), "road could not be drawn");
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
 
-  // Say the same walkway/lane/lane/walkway road the way version 12 did: a
-  // boundary was one width and one height, and it took that width out of the
-  // layout, so the two 0.2 curbs made the road 10.4 across instead of 10.0 and
-  // put the alignment 5.2 from the left end.
-  const std::array<std::pair<double, double>, 3> v12_boundaries{
-      std::pair{0.2, -0.15}, std::pair{0.0, 0.0}, std::pair{0.2, 0.15}};
+  // Version 13 said nothing about where a line sat against its boundary and
+  // drew every one of them centred on it.
   std::string legacy{};
   std::istringstream lines{saved.value};
   std::string line{};
-  std::size_t rewritten = 0;
+  std::size_t dropped = 0;
   while (std::getline(lines, line)) {
-    if (line == "road_graph_version=13") {
-      legacy += "road_graph_version=12\n";
+    if (line.find(".placement=") != std::string::npos) {
+      ++dropped;
       continue;
     }
-    if (line.find(".point.") != std::string::npos ||
-        line.find(".segment_style") != std::string::npos) {
-      continue;
-    }
-    if (line.rfind("section_template.0.alignment_offset_from_left_m=", 0) == 0) {
-      legacy += "section_template.0.alignment_offset_from_left_m=5.2\n";
-      continue;
-    }
+    if (line == "road_graph_version=14") line = "road_graph_version=13";
     legacy += line;
     legacy += '\n';
-    if (line.rfind("section_template.0.boundary.", 0) == 0 &&
-        line.find(".role=") != std::string::npos &&
-        line.find("marking") == std::string::npos) {
-      const std::string boundary_prefix = line.substr(0, line.find(".role="));
-      legacy += boundary_prefix + ".width_m=" +
-                std::to_string(v12_boundaries[rewritten].first) + "\n";
-      legacy += boundary_prefix + ".height_m=" +
-                std::to_string(v12_boundaries[rewritten].second) + "\n";
-      ++rewritten;
-    }
   }
-  ROAD_TEST_EXPECT(rewritten == v12_boundaries.size(),
-                   "the archive under test did not expose three boundaries");
+  ROAD_TEST_EXPECT(dropped > 0, "the archive under test states no placement");
 
   const auto loaded = RoadState::Load(legacy);
   ROAD_TEST_EXPECT(loaded.ok, loaded.error);
-  const auto sections = road_test_view::sections(loaded.value.derived());
-  ROAD_TEST_EXPECT(!sections.empty(), "a version 12 road produced no sections");
-  // Where version 12 put every edge of that section.
-  const std::array<double, 7> v12_laterals{-5.2, -3.2, -3.0, 0.0, 3.0, 3.2, 5.2};
-  for (const auto* section : sections) {
-    ROAD_TEST_EXPECT(section->boundaries.size() == v12_laterals.size(),
-                     "a version 12 road came back with a different section shape");
-    for (std::size_t index = 0; index < v12_laterals.size(); ++index) {
-      ROAD_TEST_EXPECT(
-          std::abs(section->boundaries[index].lateral_m - v12_laterals[index]) < 1e-9,
-          "a version 12 road did not come back where version 12 put it");
+  for (const auto& boundary : loaded.value.graph().layout_templates.front().boundaries) {
+    if (!boundary.marking.enabled) continue;
+    ROAD_TEST_EXPECT(boundary.marking.placement == MarkingPlacement::kCenter,
+                     "a version 13 line came back with a placement it never had");
+  }
+  for (const auto* section : road_test_view::sections(loaded.value.derived())) {
+    for (const auto& boundary : section->boundaries) {
+      ROAD_TEST_EXPECT(boundary.marking_lateral_m == boundary.lateral_m,
+                       "a version 13 line moved off its boundary");
     }
   }
-  const auto& restored = loaded.value.graph().layout_templates.front();
-  ROAD_TEST_EXPECT(std::abs(restored.alignment_offset_from_left_m - 5.2) < 1e-9,
-                   "migrating a version 12 layout moved its alignment");
-  ROAD_TEST_EXPECT(restored.boundaries.front().contour.size() == 2 &&
-                       restored.boundaries[1].contour.size() == 1,
-                   "migration did not turn widths and heights into profiles");
-  ROAD_TEST_EXPECT(loaded.value.Save().ok, "a migrated road could not be saved again");
+  // The migration states a placement the archive never had, so the road no
+  // longer saves as the byte it came from. It saves as the current version and
+  // stays put from there.
+  const auto resaved = loaded.value.Save();
+  ROAD_TEST_EXPECT(resaved.ok, resaved.error);
+  ROAD_TEST_EXPECT(resaved.value.starts_with("road_graph_version=14\n"),
+                   "a migrated road did not save as the current version");
+  const auto reloaded = RoadState::Load(resaved.value);
+  ROAD_TEST_EXPECT(reloaded.ok, reloaded.error);
+  const auto settled = reloaded.value.Save();
+  ROAD_TEST_EXPECT(settled.ok && settled.value == resaved.value,
+                   "a migrated road did not settle after one save");
   return true;
 }
 
@@ -4210,6 +4197,32 @@ bool a_junction_carries_the_edge_profile_it_was_given(std::string& failure) {
   return true;
 }
 
+bool a_carriageway_edge_line_is_painted_on_the_road(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0),
+                   "the guttered road could not be drawn");
+
+  // The roadway of this section runs to 2.65 either side; beyond that is the
+  // gutter. An edge line belongs on the road, so it clears the gutter by its
+  // own half width instead of straddling the seam.
+  std::size_t checked = 0;
+  for (const auto& marking : state.derived().markings) {
+    if (marking.role != city::road::MarkingRole::kCarriagewayEdge) continue;
+    ROAD_TEST_EXPECT(!marking.points.empty(), "an edge line has no geometry");
+    ++checked;
+    const double half = marking.width_m * 0.5;
+    for (const Vec3d& point : marking.points) {
+      ROAD_TEST_EXPECT(std::abs(point.y) + half <= 2.65 + 1e-9,
+                       "an edge line reaches onto the gutter: centre y=" +
+                           std::to_string(point.y) + " half width " +
+                           std::to_string(half));
+    }
+  }
+  ROAD_TEST_EXPECT(checked == 2, "the road did not carry two edge lines");
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -4331,8 +4344,8 @@ int main() {
        off_centre_layout_keeps_its_alignment_through_a_junction},
       {"saved_layout_alignment_offset_survives_reload",
        saved_layout_alignment_offset_survives_reload},
-      {"version_twelve_archive_keeps_the_geometry_it_had",
-       version_twelve_archive_keeps_the_geometry_it_had},
+      {"version_thirteen_archive_centres_the_lines_it_saved",
+       version_thirteen_archive_centres_the_lines_it_saved},
       {"l_gutter_comes_out_of_the_widths_beside_it",
        l_gutter_comes_out_of_the_widths_beside_it},
       {"l_gutter_dimensions_leave_the_road_where_it_was",
@@ -4351,6 +4364,8 @@ int main() {
        a_crossing_stays_on_the_roadway},
       {"a_junction_carries_the_edge_profile_it_was_given",
        a_junction_carries_the_edge_profile_it_was_given},
+      {"a_carriageway_edge_line_is_painted_on_the_road",
+       a_carriageway_edge_line_is_painted_on_the_road},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

@@ -26,6 +26,17 @@ struct AddSegmentConnectedToSegmentRequest {
   double segment_distance_m = 0.0;
   EndpointRole connected_endpoint = EndpointRole::kStart;
 };
+struct RoadConnectionTarget {
+  RoadNodeId node_id = 0;
+  RoadSegmentId segment_id = 0;
+  double segment_distance_m = 0.0;
+};
+struct AddSegmentBetweenRequest {
+  Path alignment{};
+  RoadLayoutTemplateId layout_template = 0;
+  RoadConnectionTarget start{};
+  RoadConnectionTarget end{};
+};
 struct ExtendCorridorFromEndRequest {
   RoadCorridorId corridor_id = 0;
   RoadNodeId endpoint_node_id = 0;

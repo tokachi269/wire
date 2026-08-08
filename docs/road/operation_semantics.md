@@ -35,6 +35,8 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | AddSegmentConnectedTo | layout_template / connected_node | ID exists | endpoint section互換 |
 | AddSegmentConnectedToSegment | alignment / connected_endpoint | finite、連続、非ゼロ、指定したstart/end endpointが明示distance点と一致 | split後topology、junction互換 |
 | AddSegmentConnectedToSegment | target_segment / segment_distance_m / layout_template | ID exists、distance finite、distance interior | transition付きsplit unsupported |
+| AddSegmentBetween | alignment / layout_template | finite、連続、非ゼロ、1 local span、ID exists | 両端connection互換、setback収容 |
+| AddSegmentBetween | start / end target | 各端がnodeまたはsegment distanceを一つだけ指定、ID exists、endpoint位置一致、異なるsource segment | 両split後topology、junction互換 |
 | EditSegmentShape | segment_id / shape | ID exists、全handle/knot finite | 接続後shapeのgenerate可否 |
 | MoveNode | node_id / position | ID exists、position finite | incident segment / connection再導出 |
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
@@ -75,6 +77,7 @@ ADD LANEが作る変更後断面はCoreが作る。
 | SplitSegmentAtDistance | validation | 内部distanceならsupported | 新degree 2 nodeを作りderived connection | distanceで一意移行、境界跨ぎはunsupported | distanceで一意移行、境界跨ぎはunsupported |
 | AddSegmentConnectedTo | validation | gate断面ID一致のみsupported | gate断面ID一致かつdegree 4までsupported | 終端gateがto断面ならsupported | gate断面ID一致のみsupported |
 | AddSegmentConnectedToSegment | validation | 同一断面かつ明示`segment_id + segment_distance_m`ならsupported | 同一断面かつ明示`segment_id + segment_distance_m`ならsupported | unsupported | 同一断面かつ明示`segment_id + segment_distance_m`ならsupported |
+| AddSegmentBetween | validation | 両端nodeならsupported | node/segment distanceを同じplanで解決 | 同じsource segmentの2点はunsupported | 両segment distanceを同じplanでsplitしてsupported |
 | EditSegmentShape | validation | supported | node位置を変えずshapeだけ変更 | DistanceRef規則で再評価 | owner-local markingを追従 |
 | MoveNode | validation | endpoint nodeを移動 | 接続全segmentを再導出 | DistanceRef規則で再評価 | owner-local markingを追従 |
 | DeleteSegment | validation | 選択したRoadSegment 1件だけを削除 | corridor分断は決定論的に処理 | 対象segmentのownerだけを除去 | 対象segmentのmarkingを除去 |
@@ -147,6 +150,7 @@ ADD LANEが作る変更後断面はCoreが作る。
 - `ApproachKey = node_id + segment_id + endpoint_role`だけをidentityとする。
 - setbackはnodeからsegment内部方向への非負距離。startは`distance=setback`、endは`distance=length-setback`。
 - 接続segmentの可否を固定最小長では決めない。各接続が必要とするsetbackがsegment内へ収まり、両端gateが重ならない場合は短いsegmentも受け入れる。
+- 1 intervalの両端が既存道路を指す場合は、`AddSegmentBetween`が両端を同じEditPlanで解決する。segment内部を指す端は明示距離でsplitし、新segmentと両端connectionを1回の`generate_road`で検証してからcommitする。片端だけ先にcommitしない。同じsource segment内の2点を結ぶ操作は本項の対象外で`unsupported`とする。
 - lateral shiftはresolved approach lateral方向を正とする。
 - manual fieldだけを`ApproachGeometryOverride`へ保存する。auto setback / auto lateral shiftは保存しない。
 - reset fieldで該当manual fieldを消し、全fieldがAutoになったoverride entityは削除する。

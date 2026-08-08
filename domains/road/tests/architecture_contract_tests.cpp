@@ -245,6 +245,16 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
       expect_failed_unchanged(
           state,
           [&] {
+            return state.AddSegmentBetween(AddSegmentBetweenRequest{
+                line, section, RoadConnectionTarget{999998, 0, 0.0},
+                RoadConnectionTarget{999999, 0, 0.0}});
+          },
+          "AddSegmentBetween", failure),
+      failure);
+  ROAD_CONTRACT_EXPECT(
+      expect_failed_unchanged(
+          state,
+          [&] {
             return state.SplitSegmentAtDistance(
                 SplitSegmentAtDistanceRequest{999999, 10.0});
           },

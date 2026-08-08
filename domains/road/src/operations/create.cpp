@@ -43,6 +43,203 @@ using internal::subtract;
 
 constexpr double kSnapDistancePointToleranceM = 0.6;
 
+Result<RoadNodeId> plan_connection_target_split(
+    const SavedRoadGraph& graph, const DerivedRoad& derived,
+    const RoadConnectionTarget& target, Vec2d expected_point,
+    operations::OperationPlan& plan, std::uint64_t& next_id) {
+  const bool names_node = target.node_id != 0;
+  const bool names_segment = target.segment_id != 0;
+  if (names_node == names_segment || !is_finite(target.segment_distance_m)) {
+    return Result<RoadNodeId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "road connection target must name exactly one node or segment");
+  }
+  if (names_node) {
+    const RoadNode* node = find_node(graph, target.node_id);
+    if (node == nullptr ||
+        distance(expected_point, node->position) > kSnapDistancePointToleranceM) {
+      return Result<RoadNodeId>::Fail(
+          CommitFailureCategory::kInvalidInput,
+          "road input endpoint does not match its explicit target node");
+    }
+    return Result<RoadNodeId>::Ok(node->id);
+  }
+
+  const RoadSegment* source = find_segment(graph, target.segment_id);
+  if (source == nullptr) {
+    return Result<RoadNodeId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "road connection target segment does not exist");
+  }
+  if (source->transition.has_value()) {
+    return Result<RoadNodeId>::Fail(
+        CommitFailureCategory::kNotImplemented,
+        "splitting a transitioning road segment is unsupported");
+  }
+  const Path* source_path = FindCanonicalAlignment(derived, source->id);
+  if (source_path == nullptr) {
+    return Result<RoadNodeId>::Fail(
+        CommitFailureCategory::kInternalError,
+        "road connection target alignment is missing");
+  }
+  const Result<PathSplit> split =
+      split_path_at_distance(*source_path, target.segment_distance_m);
+  if (!split.ok) {
+    return Result<RoadNodeId>::Fail(split.failure_category, split.error);
+  }
+  if (distance(expected_point, split.value.point) >
+      kSnapDistancePointToleranceM) {
+    return Result<RoadNodeId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "road input endpoint does not match its explicit target distance");
+  }
+  for (const ManualLineMarking& marking : graph.manual_lines) {
+    if (marking.owner_segment_id != source->id) continue;
+    const auto [minimum, maximum] = manual_line_distance_bounds(marking);
+    if (minimum < target.segment_distance_m - distance_epsilon &&
+        maximum > target.segment_distance_m + distance_epsilon) {
+      return Result<RoadNodeId>::Fail(
+          CommitFailureCategory::kNotImplemented,
+          "road connection split crosses a manual line marking");
+    }
+  }
+  for (const ManualAreaMarking& marking : graph.manual_areas) {
+    if (marking.owner_segment_id != source->id) continue;
+    const auto [minimum, maximum] = manual_area_distance_bounds(marking);
+    if (minimum < target.segment_distance_m - distance_epsilon &&
+        maximum > target.segment_distance_m + distance_epsilon) {
+      return Result<RoadNodeId>::Fail(
+          CommitFailureCategory::kNotImplemented,
+          "road connection split crosses a manual area marking");
+    }
+  }
+
+  const Result<SegmentShape> first_shape =
+      SegmentShapeFromPath(split.value.before);
+  const Result<SegmentShape> second_shape =
+      SegmentShapeFromPath(split.value.after);
+  if (!first_shape.ok || !second_shape.ok) {
+    return Result<RoadNodeId>::Fail(
+        CommitFailureCategory::kInternalError,
+        "road connection split shape derivation failed");
+  }
+  const RoadNodeId split_node = next_id++;
+  const RoadSegmentId second_id = next_id++;
+  RoadSegment first = *source;
+  first.node_b = split_node;
+  first.shape = first_shape.value;
+  plan.replace_segments.push_back(std::move(first));
+  plan.add_nodes.push_back(RoadNode{split_node, split.value.point});
+  plan.add_segments.push_back(
+      RoadSegment{second_id, split_node, source->node_b, second_shape.value,
+                  source->layout_template, source->transition});
+
+  const RoadCorridor* corridor = FindCorridorForSegment(graph, source->id);
+  if (corridor == nullptr) {
+    return Result<RoadNodeId>::Fail(
+        CommitFailureCategory::kInternalError,
+        "road connection split corridor is missing");
+  }
+  auto planned_corridor = std::find_if(
+      plan.replace_corridors.begin(), plan.replace_corridors.end(),
+      [corridor](const RoadCorridor& candidate) {
+        return candidate.id == corridor->id;
+      });
+  if (planned_corridor == plan.replace_corridors.end()) {
+    plan.replace_corridors.push_back(*corridor);
+    planned_corridor = std::prev(plan.replace_corridors.end());
+  }
+  const auto source_ref = std::find_if(
+      planned_corridor->segments.begin(), planned_corridor->segments.end(),
+      [source](const DirectedSegmentRef& ref) {
+        return ref.segment_id == source->id;
+      });
+  if (source_ref == planned_corridor->segments.end()) {
+    return Result<RoadNodeId>::Fail(
+        CommitFailureCategory::kInternalError,
+        "road connection split corridor reference is missing");
+  }
+  const std::size_t source_index = static_cast<std::size_t>(
+      std::distance(planned_corridor->segments.begin(), source_ref));
+  const bool reversed = source_ref->reversed;
+  planned_corridor->segments.erase(
+      planned_corridor->segments.begin() +
+      static_cast<std::ptrdiff_t>(source_index));
+  const std::array<DirectedSegmentRef, 2> replacements =
+      reversed
+          ? std::array<DirectedSegmentRef, 2>{
+                DirectedSegmentRef{second_id, true},
+                DirectedSegmentRef{source->id, true}}
+          : std::array<DirectedSegmentRef, 2>{
+                DirectedSegmentRef{source->id, false},
+                DirectedSegmentRef{second_id, false}};
+  planned_corridor->segments.insert(
+      planned_corridor->segments.begin() +
+          static_cast<std::ptrdiff_t>(source_index),
+      replacements.begin(), replacements.end());
+
+  const ApproachKey old_end_key{source->node_b, source->id,
+                                EndpointRole::kEnd};
+  if (const ApproachGeometryOverride* old_end =
+          find_approach_override(graph, old_end_key)) {
+    ApproachGeometryOverride mapped = *old_end;
+    mapped.key =
+        ApproachKey{source->node_b, second_id, EndpointRole::kEnd};
+    plan.remove_approach_geometry_overrides.push_back(old_end_key);
+    plan.add_approach_geometry_overrides.push_back(std::move(mapped));
+  }
+  for (const ManualLineMarking& marking : graph.manual_lines) {
+    if (marking.owner_segment_id != source->id ||
+        manual_line_distance_bounds(marking).first + distance_epsilon <
+            target.segment_distance_m) {
+      continue;
+    }
+    ManualLineMarking mapped = marking;
+    mapped.owner_segment_id = second_id;
+    shift_manual_line_distance(mapped, -target.segment_distance_m);
+    plan.remove_manual_lines.push_back(marking.id);
+    plan.add_manual_lines.push_back(std::move(mapped));
+  }
+  for (const ManualAreaMarking& marking : graph.manual_areas) {
+    if (marking.owner_segment_id != source->id ||
+        manual_area_distance_bounds(marking).first + distance_epsilon <
+            target.segment_distance_m) {
+      continue;
+    }
+    ManualAreaMarking mapped = marking;
+    mapped.owner_segment_id = second_id;
+    mapped.frame_origin.x -= target.segment_distance_m;
+    plan.remove_manual_areas.push_back(marking.id);
+    plan.add_manual_areas.push_back(std::move(mapped));
+  }
+  for (const AutoMarkingOverride& override : graph.auto_marking_overrides) {
+    if (override.key.owner.kind != MarkingOwner::Kind::kRoadSegment ||
+        override.key.owner.segment_id != source->id ||
+        !override.key.track.has_value()) {
+      continue;
+    }
+    AutoMarkingOverride mapped = override;
+    mapped.key.owner.segment_id = second_id;
+    mapped.key.track->segment_id = second_id;
+    plan.add_auto_marking_overrides.push_back(std::move(mapped));
+  }
+  for (const JunctionMarkingOverride& override :
+       graph.junction_marking_overrides) {
+    const bool source_end = override.source.approach == old_end_key;
+    const bool target_end = override.target.has_value() &&
+                            override.target->approach == old_end_key;
+    if (!source_end && !target_end) continue;
+    JunctionMarkingOverride mapped = override;
+    const ApproachKey mapped_key{source->node_b, second_id,
+                                 EndpointRole::kEnd};
+    if (source_end) mapped.source.approach = mapped_key;
+    if (target_end) mapped.target->approach = mapped_key;
+    plan.remove_junction_marking_overrides.push_back(override.id);
+    plan.add_junction_marking_overrides.push_back(std::move(mapped));
+  }
+  return Result<RoadNodeId>::Ok(split_node);
+}
+
 } // namespace
 
 Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
@@ -429,6 +626,97 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.failure_category, executed.error);
   return Result<RoadSegmentId>::Ok(branch_id);
+}
+
+Result<RoadSegmentId> RoadState::AddSegmentBetween(
+    AddSegmentBetweenRequest request) {
+  Path alignment = std::move(request.alignment);
+  const Result<bool> path_valid = ValidatePath(alignment);
+  if (!path_valid.ok) {
+    return Result<RoadSegmentId>::Fail(path_valid.failure_category,
+                                       path_valid.error);
+  }
+  if (alignment.spans.size() != 1) {
+    return Result<RoadSegmentId>::Fail(
+        CommitFailureCategory::kNotImplemented,
+        "two-ended road connection requires one local span");
+  }
+  if (find_template(graph_, request.layout_template) == nullptr) {
+    return Result<RoadSegmentId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "two-ended road references a missing section template");
+  }
+  if (request.start.segment_id != 0 &&
+      request.start.segment_id == request.end.segment_id) {
+    return Result<RoadSegmentId>::Fail(
+        CommitFailureCategory::kNotImplemented,
+        "connecting two positions on the same road segment is unsupported");
+  }
+
+  operations::OperationPlan plan{};
+  std::uint64_t next_id = next_id_;
+  const Result<RoadNodeId> start = plan_connection_target_split(
+      graph_, derived_, request.start, path_start(alignment), plan, next_id);
+  if (!start.ok) {
+    return Result<RoadSegmentId>::Fail(start.failure_category, start.error);
+  }
+  const Result<RoadNodeId> end = plan_connection_target_split(
+      graph_, derived_, request.end, path_end(alignment), plan, next_id);
+  if (!end.ok) {
+    return Result<RoadSegmentId>::Fail(end.failure_category, end.error);
+  }
+  if (start.value == end.value) {
+    return Result<RoadSegmentId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "two-ended road connection targets the same node");
+  }
+  const RoadNode* start_node = find_node(graph_, start.value);
+  const RoadNode* end_node = find_node(graph_, end.value);
+  if (start_node != nullptr) {
+    align_first_span_start(alignment, start_node->position);
+  } else {
+    const auto planned = std::find_if(
+        plan.add_nodes.begin(), plan.add_nodes.end(),
+        [&start](const RoadNode& node) { return node.id == start.value; });
+    if (planned == plan.add_nodes.end()) {
+      return Result<RoadSegmentId>::Fail(
+          CommitFailureCategory::kInternalError,
+          "planned start connection node is missing");
+    }
+    align_first_span_start(alignment, planned->position);
+  }
+  if (end_node != nullptr) {
+    align_last_span_end(alignment, end_node->position);
+  } else {
+    const auto planned = std::find_if(
+        plan.add_nodes.begin(), plan.add_nodes.end(),
+        [&end](const RoadNode& node) { return node.id == end.value; });
+    if (planned == plan.add_nodes.end()) {
+      return Result<RoadSegmentId>::Fail(
+          CommitFailureCategory::kInternalError,
+          "planned end connection node is missing");
+    }
+    align_last_span_end(alignment, planned->position);
+  }
+  const Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
+  if (!shape.ok) {
+    return Result<RoadSegmentId>::Fail(shape.failure_category, shape.error);
+  }
+  const RoadSegmentId segment_id = next_id++;
+  const RoadCorridorId corridor_id = next_id++;
+  plan.add_segments.push_back(RoadSegment{
+      segment_id, start.value, end.value, shape.value,
+      request.layout_template, std::nullopt});
+  plan.add_corridors.push_back(RoadCorridor{
+      corridor_id, request.layout_template,
+      {DirectedSegmentRef{segment_id, false}}});
+  plan.next_id_after = next_id;
+  const Result<bool> executed = Execute(plan);
+  if (!executed.ok) {
+    return Result<RoadSegmentId>::Fail(executed.failure_category,
+                                       executed.error);
+  }
+  return Result<RoadSegmentId>::Ok(segment_id);
 }
 
 Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(

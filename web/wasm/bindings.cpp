@@ -1544,9 +1544,12 @@ public:
     if ((start_node_id != 0 || start_segment_id != 0 ||
          extension_corridor_id != 0) &&
         (end_node_id != 0 || end_segment_id != 0)) {
-      result = city::road::Result<city::road::RoadSegmentId>::Fail(
-          city::road::CommitFailureCategory::kNotImplemented,
-          "connecting both road endpoints in one interval is unsupported");
+      result = state_->AddSegmentBetween(city::road::AddSegmentBetweenRequest{
+          path, layout_template_id,
+          city::road::RoadConnectionTarget{start_node_id, start_segment_id,
+                                           start_segment_distance_m},
+          city::road::RoadConnectionTarget{end_node_id, end_segment_id,
+                                           end_segment_distance_m}});
     } else if (end_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{
@@ -1652,9 +1655,12 @@ public:
     if ((start_node_id != 0 || start_segment_id != 0 ||
          extension_corridor_id != 0) &&
         (end_node_id != 0 || end_segment_id != 0)) {
-      added = city::road::Result<city::road::RoadSegmentId>::Fail(
-          city::road::CommitFailureCategory::kNotImplemented,
-          "connecting both road endpoints in one interval is unsupported");
+      added = trial.AddSegmentBetween(city::road::AddSegmentBetweenRequest{
+          path, layout_template_id,
+          city::road::RoadConnectionTarget{start_node_id, start_segment_id,
+                                           start_segment_distance_m},
+          city::road::RoadConnectionTarget{end_node_id, end_segment_id,
+                                           end_segment_distance_m}});
     } else if (end_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{

@@ -35,6 +35,7 @@ public:
   [[nodiscard]] Result<RoadSegmentId> ExtendCorridorFromEnd(ExtendCorridorFromEndRequest request);
   [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedTo(AddSegmentConnectedToRequest request);
   [[nodiscard]] Result<RoadSegmentId> AddSegmentConnectedToSegment(AddSegmentConnectedToSegmentRequest request);
+  [[nodiscard]] Result<RoadSegmentId> AddSegmentBetween(AddSegmentBetweenRequest request);
   [[nodiscard]] Result<RoadSegmentId> SplitSegmentAtDistance(SplitSegmentAtDistanceRequest request);
   [[nodiscard]] Result<bool> EditSegmentShape(EditSegmentShapeRequest request);
   [[nodiscard]] Result<bool> MoveNode(MoveNodeRequest request);

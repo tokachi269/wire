@@ -75,6 +75,11 @@ extra inner face begins at zero width. A gutter itself is not substituted for a
 missing profile. Ambiguous lane or boundary continuity still requires explicit
 topology and remains `NotImplemented`.
 
+A single drawn interval may connect two existing roads. Each end identifies an
+existing node or an explicit distance on an existing segment; both segment
+splits and the connecting segment commit atomically. Connecting two positions
+on the same source segment remains unsupported.
+
 Lane Branch and Merge are not available. Their editor asked the user to pick a
 raw boundary ID and auto-selected a default, so the operation was removed rather
 than hidden. Lane connections inside a junction are still derived by Core. See

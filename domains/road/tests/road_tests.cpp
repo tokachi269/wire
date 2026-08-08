@@ -1239,6 +1239,46 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   return true;
 }
 
+bool P1_one_interval_connects_two_existing_roads_atomically(
+    std::string& failure) {
+  RoadState state{};
+  const auto section =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  const auto lower = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-20.0, 0.0}, {20.0, 0.0})}), section});
+  const auto upper = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-20.0, 40.0}, {20.0, 40.0})}), section});
+  ROAD_TEST_EXPECT(lower.ok && upper.ok,
+                   "two-road fixture could not be created");
+
+  const auto connected = state.AddSegmentBetween(
+      city::road::AddSegmentBetweenRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), section,
+          city::road::RoadConnectionTarget{0, lower.value, 20.0},
+          city::road::RoadConnectionTarget{0, upper.value, 20.0}});
+  ROAD_TEST_EXPECT(connected.ok,
+                   "one interval did not connect two roads: " + connected.error);
+  ROAD_TEST_EXPECT(state.graph().segments.size() == 5 &&
+                       state.graph().nodes.size() == 6 &&
+                       state.graph().corridors.size() == 3,
+                   "two-ended connection did not atomically split both roads");
+  ROAD_TEST_EXPECT(road_test_view::junctions(state.derived()).size() == 2,
+                   "two-ended connection did not resolve both junctions");
+
+  const auto before = state.Save();
+  ROAD_TEST_EXPECT(before.ok, before.error);
+  const auto rejected = state.AddSegmentBetween(
+      city::road::AddSegmentBetweenRequest{
+          MakePath({MakeLine({-10.0, 0.0}, {-10.0, 40.0})}), section,
+          city::road::RoadConnectionTarget{0, lower.value, 10.0},
+          city::road::RoadConnectionTarget{0, upper.value, 1000.0}});
+  ROAD_TEST_EXPECT(!rejected.ok, "an invalid second endpoint was accepted");
+  const auto after = state.Save();
+  ROAD_TEST_EXPECT(after.ok && before.value == after.value,
+                   "a failed second endpoint left the first road split");
+  return true;
+}
+
 bool P1_end_segment_snap_splits_straight_road_for_t_junction(
     std::string& failure) {
   RoadState state{};
@@ -4701,6 +4741,8 @@ int main() {
       {"P1_short_connections_use_required_setback",
        P1_short_connections_use_required_setback},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
+      {"P1_one_interval_connects_two_existing_roads_atomically",
+       P1_one_interval_connects_two_existing_roads_atomically},
       {"P1_end_segment_snap_splits_straight_road_for_t_junction",
        P1_end_segment_snap_splits_straight_road_for_t_junction},
       {"P1_every_edge_section_forms_a_t_junction",

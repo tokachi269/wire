@@ -2318,6 +2318,53 @@ describe("road wasm smoke", () => {
     expect(scene.junctionCount).toBe(1);
   });
 
+  it("connects two existing roads in one atomic interval", () => {
+    clearRoad(state);
+    const lower = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: -20, startY: 0, endX: 20, endY: 0,
+      handleAX: -7, handleAY: 0, handleBX: 7, handleBY: 0,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    const upper = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: -20, startY: 40, endX: 20, endY: 40,
+      handleAX: -7, handleAY: 40, handleBX: 7, handleBY: 40,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    expect(lower.ok && upper.ok).toBe(true);
+    const [lowerId, upperId] = state.scene().editableSegments.map((item) => item.id);
+    const preview = state.previewSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0, startY: 0, endX: 0, endY: 40,
+      handleAX: 0, handleAY: 13, handleBX: 0, handleBY: 27,
+      startNodeId: 0, startSegmentId: lowerId, startSegmentDistanceM: 20,
+      endNodeId: 0, endSegmentId: upperId, endSegmentDistanceM: 20,
+      connectToFirstNode: false
+    });
+    expect(preview.ok, preview.error).toBe(true);
+    expect(preview.meshes.length).toBeGreaterThan(0);
+    const connected = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0, startY: 0, endX: 0, endY: 40,
+      handleAX: 0, handleAY: 13, handleBX: 0, handleBY: 27,
+      startNodeId: 0, startSegmentId: lowerId, startSegmentDistanceM: 20,
+      endNodeId: 0, endSegmentId: upperId, endSegmentDistanceM: 20,
+      connectToFirstNode: false
+    });
+    expect(connected.ok, connected.error).toBe(true);
+    const scene = state.scene();
+    expect(scene.segmentCount).toBe(5);
+    expect(scene.junctionCount).toBe(2);
+    expect(scene.corridorCount).toBe(3);
+  });
+
   it("splits a Bezier segment at the explicit centerline distance", () => {
     clearRoad(state);
     const base = state.addSegment({

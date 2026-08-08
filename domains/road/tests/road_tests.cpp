@@ -1239,6 +1239,199 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   return true;
 }
 
+bool P1_junction_setback_uses_the_facing_section_side(std::string& failure) {
+  RoadState state{};
+  auto asymmetric = road_fixture::BidirectionalLayout(0);
+  asymmetric.alignment_offset_from_left_m = 2.0;
+  const auto section = road_fixture::AddLayout(state, asymmetric);
+  const auto branch_section =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), section});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), branch_section,
+          base.value, 40.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1,
+                   "asymmetric T did not produce one junction");
+  const auto approach = std::find_if(
+      junctions.front()->approaches.begin(),
+      junctions.front()->approaches.end(),
+      [id = branch.value](const auto& candidate) {
+        return candidate.key.segment_id == id;
+      });
+  ROAD_TEST_EXPECT(approach != junctions.front()->approaches.end(),
+                   "asymmetric T branch approach is missing");
+  // The horizontal approaches present their 2m side to this branch. At 90
+  // degrees the required clearance is 2/sin(90) + 4/tan(45) = 6m.
+  ROAD_TEST_EXPECT(
+      std::abs(approach->resolved_setback_m - 6.0) <= 1e-6,
+      "junction used the far section side; resolved setback=" +
+          std::to_string(approach->resolved_setback_m));
+  ROAD_TEST_EXPECT(
+      std::abs(std::hypot(approach->gate.position.x,
+                          approach->gate.position.y) -
+               approach->resolved_setback_m) <= 1e-6,
+      "junction gate does not match its resolved setback");
+
+  const auto zebra = road_test_view::find_marking_area(
+      state.derived(), [&approach](const auto& marking) {
+        if (marking.owner.kind != MarkingOwner::Kind::kJunction ||
+            marking.role != MarkingRole::kCrosswalk ||
+            marking.polygon.empty()) {
+          return false;
+        }
+        Vec2d center{};
+        for (const Vec3d& point : marking.polygon) {
+          center.x += point.x;
+          center.y += point.y;
+        }
+        center.x /= static_cast<double>(marking.polygon.size());
+        center.y /= static_cast<double>(marking.polygon.size());
+        const double expected_x =
+            approach->gate.position.x + approach->gate.tangent.x * 2.0;
+        const double expected_y =
+            approach->gate.position.y + approach->gate.tangent.y * 2.0;
+        return std::hypot(center.x - expected_x, center.y - expected_y) < 0.5;
+      });
+  ROAD_TEST_EXPECT(zebra != nullptr,
+                   "asymmetric T crosswalk did not follow its resolved gate");
+
+  for (const double degrees : {60.0, 15.0}) {
+    RoadState angled{};
+    auto angled_layout = road_fixture::BidirectionalLayout(0);
+    angled_layout.alignment_offset_from_left_m = 2.0;
+    const auto angled_section =
+        road_fixture::AddLayout(angled, angled_layout);
+    const auto angled_branch_section =
+        road_fixture::AddLayout(angled, road_fixture::BidirectionalLayout(0));
+    const auto angled_base = angled.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({-120.0, 0.0}, {120.0, 0.0})}),
+        angled_section});
+    ROAD_TEST_EXPECT(angled_base.ok, angled_base.error);
+    const double radians = degrees * std::numbers::pi / 180.0;
+    const auto angled_branch = angled.AddSegmentConnectedToSegment(
+        city::road::AddSegmentConnectedToSegmentRequest{
+            MakePath({MakeLine({0.0, 0.0},
+                               {120.0 * std::cos(radians),
+                                120.0 * std::sin(radians)})}),
+            angled_branch_section, angled_base.value, 120.0});
+    ROAD_TEST_EXPECT(angled_branch.ok, angled_branch.error);
+    const auto angled_junctions = road_test_view::junctions(angled.derived());
+    ROAD_TEST_EXPECT(angled_junctions.size() == 1,
+                     "angled asymmetric T did not produce one junction");
+    const auto angled_approach = std::find_if(
+        angled_junctions.front()->approaches.begin(),
+        angled_junctions.front()->approaches.end(),
+        [id = angled_branch.value](const auto& candidate) {
+          return candidate.key.segment_id == id;
+        });
+    ROAD_TEST_EXPECT(
+        angled_approach != angled_junctions.front()->approaches.end(),
+        "angled asymmetric T branch approach is missing");
+    const double side_clearance = 2.0 / std::sin(radians);
+    const double radius_clearance = 4.0 / std::tan(radians * 0.5);
+    const double expected = side_clearance + radius_clearance;
+    ROAD_TEST_EXPECT(
+        std::abs(angled_approach->resolved_setback_m - expected) <= 1e-6,
+        "angled junction setback does not equal facing-side clearance " +
+            std::to_string(side_clearance) + " + radius clearance " +
+            std::to_string(radius_clearance) + "; actual=" +
+            std::to_string(angled_approach->resolved_setback_m));
+    if (degrees == 15.0) {
+      ROAD_TEST_EXPECT(radius_clearance > side_clearance * 3.0,
+                       "acute diagnostic no longer isolates the radius term");
+    }
+  }
+
+  RoadState reordered{};
+  auto reordered_layout = road_fixture::BidirectionalLayout(0);
+  reordered_layout.alignment_offset_from_left_m = 2.0;
+  const auto reordered_section =
+      road_fixture::AddLayout(reordered, reordered_layout);
+  const auto reordered_branch_section = road_fixture::AddLayout(
+      reordered, road_fixture::BidirectionalLayout(0));
+  const auto north = reordered.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}),
+      reordered_branch_section});
+  ROAD_TEST_EXPECT(north.ok, north.error);
+  const RoadNodeId reordered_node = reordered.graph().segments.front().node_a;
+  const auto west = reordered.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({-40.0, 0.0}, {0.0, 0.0})}),
+          reordered_section, reordered_node, EndpointRole::kEnd});
+  ROAD_TEST_EXPECT(west.ok, west.error);
+  const auto east = reordered.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}),
+          reordered_section, reordered_node, EndpointRole::kStart});
+  ROAD_TEST_EXPECT(east.ok, east.error);
+  const auto reordered_junctions =
+      road_test_view::junctions(reordered.derived());
+  ROAD_TEST_EXPECT(reordered_junctions.size() == 1,
+                   "reordered asymmetric T did not produce one junction");
+  const auto reordered_north = std::find_if(
+      reordered_junctions.front()->approaches.begin(),
+      reordered_junctions.front()->approaches.end(),
+      [id = north.value](const auto& candidate) {
+        return candidate.key.segment_id == id;
+      });
+  ROAD_TEST_EXPECT(
+      reordered_north != reordered_junctions.front()->approaches.end() &&
+          std::abs(reordered_north->resolved_setback_m -
+                   approach->resolved_setback_m) <= 1e-6,
+      "junction setback changed with approach creation order");
+  return true;
+}
+
+bool P1_junction_setback_uses_only_adjacent_approaches(
+    std::string& failure) {
+  RoadState state{};
+  const auto section =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  const auto ray = [](double degrees) {
+    const double radians = degrees * std::numbers::pi / 180.0;
+    return MakePath({MakeLine({0.0, 0.0},
+                              {100.0 * std::cos(radians),
+                               100.0 * std::sin(radians)})});
+  };
+  const auto first = state.AddSegment(
+      city::road::AddSegmentRequest{ray(0.0), section});
+  ROAD_TEST_EXPECT(first.ok, first.error);
+  const RoadNodeId node = state.graph().segments.front().node_a;
+  for (const double degrees : {80.0, 170.0, 260.0}) {
+    const auto added = state.AddSegmentConnectedTo(
+        city::road::AddSegmentConnectedToRequest{
+            ray(degrees), section, node, EndpointRole::kStart});
+    ROAD_TEST_EXPECT(added.ok,
+                     "skew cross approach was rejected: " + added.error);
+  }
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1,
+                   "skew cross did not produce one junction");
+  const auto approach = std::find_if(
+      junctions.front()->approaches.begin(),
+      junctions.front()->approaches.end(),
+      [id = first.value](const auto& candidate) {
+        return candidate.key.segment_id == id;
+      });
+  ROAD_TEST_EXPECT(approach != junctions.front()->approaches.end(),
+                   "skew cross reference approach is missing");
+  const double adjacent_angle = 80.0 * std::numbers::pi / 180.0;
+  const double expected =
+      5.0 / std::sin(adjacent_angle) + 4.0 / std::tan(adjacent_angle * 0.5);
+  ROAD_TEST_EXPECT(
+      std::abs(approach->resolved_setback_m - expected) <= 1e-6,
+      "non-adjacent approach extended the junction; expected=" +
+          std::to_string(expected) + " actual=" +
+          std::to_string(approach->resolved_setback_m));
+  return true;
+}
+
 bool P1_one_interval_connects_two_existing_roads_atomically(
     std::string& failure) {
   RoadState state{};
@@ -4848,6 +5041,10 @@ int main() {
       {"P1_short_connections_use_required_setback",
        P1_short_connections_use_required_setback},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
+      {"P1_junction_setback_uses_the_facing_section_side",
+       P1_junction_setback_uses_the_facing_section_side},
+      {"P1_junction_setback_uses_only_adjacent_approaches",
+       P1_junction_setback_uses_only_adjacent_approaches},
       {"P1_one_interval_connects_two_existing_roads_atomically",
        P1_one_interval_connects_two_existing_roads_atomically},
       {"P1_end_segment_snap_splits_straight_road_for_t_junction",

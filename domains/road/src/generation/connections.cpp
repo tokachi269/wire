@@ -6,6 +6,7 @@
 #include "../lookup.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -74,29 +75,55 @@ bool same_lane_identity(const RoadLayoutTemplate &a,
   return a_lanes == b_lanes;
 }
 
-// An off-centre alignment reaches further one way than the other, so a setback
-// needs the larger of the two rather than half the total width.
-double endpoint_outer_reach(const SavedRoadGraph &graph,
-                            const RoadSegment &segment,
-                            const ApproachKey &key) {
+struct endpoint_side_reaches {
+  double left_m = 0.0;
+  double right_m = 0.0;
+};
+
+endpoint_side_reaches endpoint_reaches(const SavedRoadGraph &graph,
+                                       const RoadSegment &segment,
+                                       const ApproachKey &key) {
   RoadLayoutTemplateId template_id = segment.layout_template;
   if (segment.transition.has_value()) {
     const RoadLayoutTransition *transition =
         find_transition(graph, *segment.transition);
     if (transition == nullptr)
-      return 0.0;
+      return {};
     template_id = key.endpoint_role == EndpointRole::kStart
                       ? transition->from_template
                       : transition->to_template;
   }
   const RoadLayoutTemplate *section = find_template(graph, template_id);
   if (section == nullptr)
-    return 0.0;
+    return {};
   double width = 0.0;
   for (const RoadLayoutStrip &strip : section->strips)
     width += strip.width_m;
   const double offset = section->alignment_offset_from_left_m;
-  return std::max(offset, width - offset);
+  const endpoint_side_reaches along_segment{offset, width - offset};
+  if (key.endpoint_role == EndpointRole::kStart)
+    return along_segment;
+  return endpoint_side_reaches{along_segment.right_m, along_segment.left_m};
+}
+
+// A degree-two fillet sweeps the complete section, so its outer envelope uses
+// the larger reach. Junction clearance instead uses the side that faces the
+// neighboring approach; using this maximum there overextends asymmetric roads.
+double endpoint_outer_reach(const SavedRoadGraph &graph,
+                            const RoadSegment &segment,
+                            const ApproachKey &key) {
+  const endpoint_side_reaches reaches = endpoint_reaches(graph, segment, key);
+  return std::max(reaches.left_m, reaches.right_m);
+}
+
+double endpoint_reach_toward(const SavedRoadGraph &graph,
+                             const RoadSegment &segment,
+                             const ordered_approach &from,
+                             const ordered_approach &toward) {
+  const endpoint_side_reaches reaches =
+      endpoint_reaches(graph, segment, from.key);
+  return cross(from.tangent, toward.tangent) > 0.0 ? reaches.left_m
+                                                   : reaches.right_m;
 }
 
 RoadLayoutTemplateId endpoint_template_id(const SavedRoadGraph &graph,
@@ -519,9 +546,14 @@ resolve_connections(const SavedRoadGraph &graph,
                   std::tan(turn_angle * 0.5);
       } else if (connection.kind == NodeConnectionKind::kJunction) {
         setback = rules.minimum_junction_setback_m;
-        for (const ordered_approach &other : ordered) {
-          if (other.key == approach.key)
-            continue;
+        const std::size_t approach_index =
+            static_cast<std::size_t>(&approach - ordered.data());
+        const std::array<std::size_t, 2> adjacent_indices{
+            (approach_index + ordered.size() - 1) % ordered.size(),
+            (approach_index + 1) % ordered.size(),
+        };
+        for (const std::size_t other_index : adjacent_indices) {
+          const ordered_approach &other = ordered[other_index];
           const double sine = std::abs(cross(approach.tangent, other.tangent));
           if (sine <= rules.parallel_sine_tolerance)
             continue;
@@ -537,7 +569,8 @@ resolve_connections(const SavedRoadGraph &graph,
                              "road setback source segment is missing");
           }
           const double section_clearance_m =
-              endpoint_outer_reach(graph, *other_segment, other.key) / sine;
+              endpoint_reach_toward(graph, *other_segment, other, approach) /
+              sine;
           const double corner_clearance_m =
               rules.corner_radius_m / half_angle_tangent;
           setback = std::max(setback,

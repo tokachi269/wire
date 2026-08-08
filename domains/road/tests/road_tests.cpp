@@ -4011,9 +4011,6 @@ bool add_lane_beside_a_gutter_tapers_from_nothing(std::string& failure) {
     ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
                      "added lane range could not be resolved");
     request.lane_width_m = 3.0;
-    // The gutter reaches 0.35 into the roadway, further than the new lane is
-    // wide for the first tenth of its taper. That is a layout the section has
-    // to be able to state.
     const auto added = state.AddLane(request);
     ROAD_TEST_EXPECT(added.ok, added.error);
 
@@ -4031,13 +4028,9 @@ bool add_lane_beside_a_gutter_tapers_from_nothing(std::string& failure) {
                            section->boundaries.front().lateral_m;
       narrowest = std::min(narrowest, width);
     }
-    // The taper still starts from nothing: the narrowest section is the road
-    // without the new lane.
     ROAD_TEST_EXPECT(std::abs(narrowest - 10.0) < 1e-9,
                      "the new lane did not start from zero width");
 
-    // The alignment and the lanes that were already there do not move, and the
-    // side that is not growing keeps its outer end.
     for (const auto* section : sections) {
       const auto divider = boundary_lateral(*section, 200);
       ROAD_TEST_EXPECT(divider.has_value(), "the centre line went missing");
@@ -4050,8 +4043,6 @@ bool add_lane_beside_a_gutter_tapers_from_nothing(std::string& failure) {
       }
     }
 
-    // The gutter keeps the shape it was given: 0.1 of top, a vertical face,
-    // 0.25 of channel and 0.1 of lip.
     const auto& widest = *sections.back();
     const auto& tail = widest.boundaries;
     ROAD_TEST_EXPECT(tail.size() >= 5, "the widened section lost the gutter");

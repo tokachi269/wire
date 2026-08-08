@@ -173,19 +173,12 @@ merge_boundary_policies(const RoadLayoutTemplate &section) {
   return Result<std::vector<AutoMarkingPolicy>>::Ok(std::move(merged));
 }
 
-// A boundary with faces is a structure and owns where its surface is. A
-// boundary with a single point has no face: it is somewhere to measure and to
-// paint, and its surface sample gives way to any structure that covers it. The
-// layout position it stands for is unaffected either way.
 bool structural_profile(const BoundaryProfile &boundary) {
   return boundary.contour.size() > 1;
 }
 
-// The surface runs one way across the section even where a structure reaches
-// further than the strip beside it is wide. A structure holds its shape and the
-// samples it covers collapse onto it, so the surface neither folds back nor
-// leaves a gap; where two structures reach over each other they meet and the
-// surface between them is empty.
+// A structure may reach further than the strip beside it is wide. It keeps its
+// shape and whatever it covers collapses onto it, so the surface never folds.
 void settle_surface_order(std::vector<SectionBoundarySample> &samples,
                           const std::vector<bool> &fixed) {
   for (std::size_t index = samples.size() - 1; index > 0; --index) {

@@ -29,7 +29,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | AddSegment | layout_template | ID exists | endpoint section互換 |
 | ExtendCorridorFromEnd | corridor_id / endpoint_node_id | ID exists、corridor末尾nodeと一致、degree-one | corridor先頭延長はunsupported |
 | ExtendCorridorFromEnd | extension | finite、連続、非ゼロ、endpointへ補正可能 | 新しい局所segmentと隣接connection |
-| ExtendCorridorFromEnd | layout_template | corridorのroad definitionと一致 | 異断面延長はunsupported |
+| ExtendCorridorFromEnd | layout_template | ID exists | endpointのlane identityとsemantic sideを一意に対応できればsupported。曖昧な対応だけunsupported |
 | SplitSegmentAtDistance | segment_id / segment_distance_m | ID exists、finite、0とlengthを除く範囲内 | De Casteljau分割とowner移行 |
 | AddSegmentConnectedTo | alignment / connected_endpoint | finite、連続、非ゼロ、指定したstart/end endpointをnodeへ補正可能 | 接続角、degree、setback |
 | AddSegmentConnectedTo | layout_template / connected_node | ID exists | endpoint section互換 |

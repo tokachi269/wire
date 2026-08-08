@@ -4748,6 +4748,56 @@ bool unlike_side_profiles_form_a_degree_two_corner(std::string& failure) {
   return true;
 }
 
+bool corridor_extension_uses_degree_two_semantic_side_mapping(
+    std::string& failure) {
+  for (const bool reversed : {false, true}) {
+    RoadState state{};
+    const auto guttered =
+        road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+    const auto shouldered =
+        road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({-40.0, 0.0}, {0.0, 0.0})}),
+        reversed ? shouldered : guttered});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const auto* corridor = FindCorridorForSegment(state.graph(), base.value);
+    const auto segment = std::find_if(
+        state.graph().segments.begin(), state.graph().segments.end(),
+        [id = base.value](const RoadSegment& item) { return item.id == id; });
+    ROAD_TEST_EXPECT(corridor != nullptr && segment != state.graph().segments.end(),
+                     "mixed-profile extension source is missing");
+    const RoadCorridorId corridor_id = corridor->id;
+    const RoadNodeId endpoint_id = segment->node_b;
+
+    const auto extended = state.ExtendCorridorFromEnd(
+        city::road::ExtendCorridorFromEndRequest{
+            corridor_id, endpoint_id,
+            MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}),
+            reversed ? guttered : shouldered});
+    ROAD_TEST_EXPECT(
+        extended.ok,
+        "corridor extension bypassed the degree-two semantic resolver: " +
+            extended.error);
+
+    const auto connections = road_test_view::corners(state.derived());
+    ROAD_TEST_EXPECT(connections.size() == 1,
+                     "mixed-profile extension did not form one corner");
+    const auto& curves =
+        connections.front()->connection_geometry.boundary_curves;
+    const auto has_pair = [&curves](std::uint64_t a, std::uint64_t b) {
+      return std::any_of(curves.begin(), curves.end(), [a, b](const auto& curve) {
+        return (curve.source_boundary_id == a && curve.target_boundary_id == b) ||
+               (curve.source_boundary_id == b && curve.target_boundary_id == a);
+      });
+    };
+    ROAD_TEST_EXPECT(has_pair(100, 150) && has_pair(300, 250),
+                     "extension did not join carriageway edges semantically");
+    ROAD_TEST_EXPECT(has_pair(100, 100) && has_pair(300, 300),
+                     "extension did not preserve road outer edges");
+  }
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -4909,6 +4959,8 @@ int main() {
        unlike_guttered_roads_join_road_outer_to_road_outer},
       {"unlike_side_profiles_form_a_degree_two_corner",
        unlike_side_profiles_form_a_degree_two_corner},
+      {"corridor_extension_uses_degree_two_semantic_side_mapping",
+       corridor_extension_uses_degree_two_semantic_side_mapping},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

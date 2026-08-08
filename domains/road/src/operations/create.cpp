@@ -321,12 +321,6 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
         CommitFailureCategory::kInvalidInput,
         "road extension endpoint section does not exist");
   }
-  if (!internal::equivalent_section_definition(*source_endpoint_section,
-                                               *extension_section)) {
-    return Result<RoadSegmentId>::Fail(
-        CommitFailureCategory::kNotImplemented,
-        "road extension endpoint lane layouts differ");
-  }
   if (find_policy_override(graph_, endpoint->id) != nullptr) {
     return Result<RoadSegmentId>::Fail(
         CommitFailureCategory::kNotImplemented,

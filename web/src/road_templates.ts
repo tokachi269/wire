@@ -167,9 +167,9 @@ const urbanTwoLane: RoadSectionInput = centred({
     { id: 1010, stripId: 30, lateralStartM: 0.0, lateralEndM: 3.0, direction: 0 }
   ],
   boundaries: [
-    { id: 100, role: "curb", profile: curb("left", 0.2, 0.15), marking: outerLine },
+    { id: 100, role: "curb", profile: lGutter("left"), marking: outerLine },
     { id: 200, role: "lane_divider", profile: paintedLine, marking: centerLine },
-    { id: 300, role: "curb", profile: curb("right", 0.2, 0.15), marking: outerLine }
+    { id: 300, role: "curb", profile: lGutter("right"), marking: outerLine }
   ]
 });
 
@@ -187,10 +187,10 @@ const threeLane: RoadSectionInput = centred({
     { id: 1020, stripId: 35, lateralStartM: 0.0, lateralEndM: 3.0, direction: 0 }
   ],
   boundaries: [
-    { id: 100, role: "curb", profile: curb("left", 0.2, 0.15), marking: outerLine },
+    { id: 100, role: "curb", profile: lGutter("left"), marking: outerLine },
     { id: 200, role: "lane_divider", profile: paintedLine, marking: centerLine },
     { id: 250, role: "lane_divider", profile: paintedLine, marking: centerLine },
-    { id: 300, role: "curb", profile: curb("right", 0.2, 0.15), marking: outerLine }
+    { id: 300, role: "curb", profile: lGutter("right"), marking: outerLine }
   ]
 });
 
@@ -210,10 +210,10 @@ const medianTwoLane: RoadSectionInput = centred({
   ],
   laneBands: urbanTwoLane.laneBands,
   boundaries: [
-    { id: 100, role: "curb", profile: curb("left", 0.2, 0.15), marking: outerLine },
+    { id: 100, role: "curb", profile: lGutter("left"), marking: outerLine },
     { id: 210, role: "median_edge", profile: curb("right", 0.2, 0.12) },
     { id: 220, role: "median_edge", profile: curb("left", 0.2, 0.12) },
-    { id: 300, role: "curb", profile: curb("right", 0.2, 0.15), marking: outerLine }
+    { id: 300, role: "curb", profile: lGutter("right"), marking: outerLine }
   ]
 });
 
@@ -231,21 +231,11 @@ const shoulderedTwoLane: RoadSectionInput = centred({
     { id: 1010, stripId: 30, lateralStartM: 0.0, lateralEndM: 3.0, direction: 0 }
   ],
   boundaries: [
-    { id: 100, role: "curb", profile: curb("left", 0.2, 0.15) },
+    { id: 100, role: "curb", profile: lGutter("left") },
     { id: 150, role: "outer_edge", profile: paintedLine, marking: outerLine },
     { id: 200, role: "lane_divider", profile: paintedLine, marking: centerLine },
     { id: 250, role: "outer_edge", profile: paintedLine, marking: outerLine },
-    { id: 300, role: "curb", profile: curb("right", 0.2, 0.15) }
-  ]
-});
-
-const lGutterTwoLane: RoadSectionInput = centred({
-  strips: urbanTwoLane.strips,
-  laneBands: urbanTwoLane.laneBands,
-  boundaries: [
-    { id: 100, role: "curb", profile: lGutter("left"), marking: outerLine },
-    { id: 200, role: "lane_divider", profile: paintedLine, marking: centerLine },
-    { id: 300, role: "curb", profile: lGutter("right"), marking: outerLine }
+    { id: 300, role: "curb", profile: lGutter("right") }
   ]
 });
 
@@ -297,11 +287,5 @@ export const ROAD_TEMPLATE_PRESETS: readonly RoadTemplatePreset[] = [
     label: "JP 2 lane / shoulder",
     initial: false,
     section: shoulderedTwoLane
-  },
-  {
-    key: "l-gutter-two-lane",
-    label: "JP 2 lane / L gutter",
-    initial: false,
-    section: lGutterTwoLane
   }
 ];

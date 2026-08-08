@@ -1680,13 +1680,6 @@ describe("road wasm smoke", () => {
       // width, which is what these presets mean; Core does not re-derive it.
       const noLeftSidewalk = registered[2];
       expect(noLeftSidewalk.alignmentOffsetFromLeftM).toBeCloseTo(4.0, 12);
-      // The L-gutter preset is the same 10m road as the plain two-lane one:
-      // the gutter comes out of the walkway and the roadway beside it.
-      const lGutter = registered[registered.length - 1];
-      expect(lGutter.alignmentOffsetFromLeftM).toBeCloseTo(
-        registered[0].alignmentOffsetFromLeftM,
-        12
-      );
     } finally {
       road.delete();
     }

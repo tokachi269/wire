@@ -227,8 +227,11 @@ derive_boundaries(const RoadLayoutTemplate &section,
   double lateral = datum;
   double height = 0.0;
   double carriageway_floor = std::numeric_limits<double>::infinity();
-  samples.push_back(
-      SectionBoundarySample{1, BoundaryRole::kOuterEdge, lateral, height, {}});
+  SectionBoundarySample left_end{1, BoundaryRole::kOuterEdge, lateral, height, {}};
+  // A road can also simply stop at the layout's own edge.
+  if (section.strips.front().function == StripFunction::kCarriageway)
+    left_end.carriageway_side = 1.0;
+  samples.push_back(left_end);
   fixed.push_back(false);
   for (std::size_t index = 0; index < section.strips.size(); ++index) {
     const RoadLayoutStrip &strip = section.strips[index];
@@ -263,15 +266,19 @@ derive_boundaries(const RoadLayoutTemplate &section,
       carriageway_floor =
           std::min(carriageway_floor, std::min(strip_start_height, height));
     }
-    // A curb between carriageway and walkway carries its line on the road side;
-    // everything else carries it where the profile ends.
-    const bool road_side_marking =
-        boundary.role == BoundaryRole::kCurb &&
-        strip.function == StripFunction::kCarriageway &&
-        right_strip.function == StripFunction::kSidewalk;
-    const std::size_t marked = boundary.contour.size() == 1 || road_side_marking
-                                   ? 0
-                                   : boundary.contour.size() - 1;
+    // The road begins at whichever end of the profile faces the carriageway.
+    // Everything that needs to know where that is asks this one point.
+    const bool carriageway_on_left = strip.function == StripFunction::kCarriageway;
+    const bool carriageway_on_right =
+        right_strip.function == StripFunction::kCarriageway;
+    const double carriageway_side =
+        carriageway_on_left == carriageway_on_right
+            ? 0.0
+            : (carriageway_on_left ? -1.0 : 1.0);
+    const std::size_t marked =
+        boundary.contour.size() == 1 || carriageway_side < 0.0
+            ? 0
+            : boundary.contour.size() - 1;
     const double datum_height = height - boundary.contour.front().height_m;
     const std::size_t last = boundary.contour.size() - 1;
     const auto step = [&boundary](std::size_t from, std::size_t to) {
@@ -288,12 +295,15 @@ derive_boundaries(const RoadLayoutTemplate &section,
           point == 0 ? Vec2d{1.0, strip.cross_slope} : step(point - 1, point),
           point == last ? Vec2d{1.0, right_strip.cross_slope}
                         : step(point, point + 1));
+      if (point == marked) sample.carriageway_side = carriageway_side;
       samples.push_back(with_adjacency(sample));
       fixed.push_back(structural_profile(boundary));
     }
   }
-  samples.push_back(SectionBoundarySample{
-      999, BoundaryRole::kOuterEdge, lateral, height, {}});
+  SectionBoundarySample right_end{999, BoundaryRole::kOuterEdge, lateral, height, {}};
+  if (section.strips.back().function == StripFunction::kCarriageway)
+    right_end.carriageway_side = -1.0;
+  samples.push_back(right_end);
   fixed.push_back(false);
   settle_surface_order(samples, fixed);
   if (is_finite(carriageway_floor)) {

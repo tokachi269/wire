@@ -1173,7 +1173,11 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   ROAD_TEST_EXPECT(tangent_extent > lateral_extent, "T junction zebra stripes are rotated by 90 degrees");
   const auto [min_z, max_z] = std::minmax_element(
       zebra.begin(), zebra.end(), [](const auto& a, const auto& b) { return a.z < b.z; });
-  ROAD_TEST_EXPECT(max_z->z - min_z->z > 0.01, "T junction zebra does not follow the road cross slope");
+  // A stripe lies on the roadway, so it rises across its own width at the
+  // carriageway's 2% cross slope and nothing steeper.
+  // A stripe lies on the roadway: 0.35 wide, rising at the carriageway's 2%.
+  ROAD_TEST_EXPECT(std::abs((max_z->z - min_z->z) - 0.35 * 0.02) < 1e-6,
+                   "T junction zebra does not follow the road cross slope");
   ROAD_TEST_EXPECT(ValidateGraphInvariants(state.graph(), state.derived()).ok, "T junction invariants failed");
   return true;
 }
@@ -4132,6 +4136,42 @@ bool a_corner_carries_one_line_per_boundary(std::string& failure) {
   return true;
 }
 
+bool a_crossing_stays_on_the_roadway(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), layout});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), layout, base.value, 40.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+
+  // The east approach runs along +x, so its roadway reaches 2.65 either side of
+  // the alignment: the gutter's channel takes the rest of the 3.0 lane and its
+  // top belongs to the walkway.
+  std::size_t checked = 0;
+  for (const auto& marking : state.derived().markings) {
+    if (marking.role != city::road::MarkingRole::kCrosswalk &&
+        marking.role != city::road::MarkingRole::kStopLine) {
+      continue;
+    }
+    if (marking.polygon.empty()) continue;
+    const bool east = std::all_of(
+        marking.polygon.begin(), marking.polygon.end(),
+        [](const Vec3d& point) { return point.x > 3.0; });
+    if (!east) continue;
+    ++checked;
+    for (const Vec3d& point : marking.polygon) {
+      ROAD_TEST_EXPECT(std::abs(point.y) <= 2.65 + 1e-6,
+                       "a crossing was painted onto the gutter at y=" +
+                           std::to_string(point.y));
+    }
+  }
+  ROAD_TEST_EXPECT(checked > 0, "the east approach carried no crossing");
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -4269,6 +4309,8 @@ int main() {
        gutter_corners_are_edges_and_gentle_ones_are_not},
       {"a_corner_carries_one_line_per_boundary",
        a_corner_carries_one_line_per_boundary},
+      {"a_crossing_stays_on_the_roadway",
+       a_crossing_stays_on_the_roadway},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

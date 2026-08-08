@@ -19,6 +19,9 @@ struct SectionBoundarySample {
   // The faces meeting here are too far apart to shade as one surface, so the
   // surface is split rather than smoothed across this point.
   bool hard_edge = false;
+  // Which way the carriageway lies from this sample, and 0 where the sample
+  // does not meet one. The point where the road itself begins.
+  double carriageway_side = 0.0;
   // Strips adjacent in template order; used to decide marking begin and end.
   RoadLayoutStripId left_strip_id = 0;
   RoadLayoutStripId right_strip_id = 0;

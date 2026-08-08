@@ -621,12 +621,10 @@ Result<bool> derive_junction_markings(const SavedRoadGraph &graph,
       const ConnectionGate &gate = found->gate;
       const SectionBoundarySample *left = nullptr;
       const SectionBoundarySample *right = nullptr;
+      // A crossing is painted on the road, so it reaches where the road begins
+      // and ends, not the outer extent of whatever marks the edge.
       for (const SectionBoundarySample &boundary : gate.boundaries) {
-        const bool carriageway_edge =
-            boundary.role == BoundaryRole::kCurb ||
-            (boundary.role == BoundaryRole::kOuterEdge &&
-             boundary.left_strip_id != 0 && boundary.right_strip_id != 0);
-        if (!carriageway_edge)
+        if (boundary.carriageway_side == 0.0)
           continue;
         if (left == nullptr || boundary.lateral_m < left->lateral_m)
           left = &boundary;

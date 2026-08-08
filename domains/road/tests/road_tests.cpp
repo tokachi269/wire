@@ -4422,14 +4422,27 @@ bool a_gutter_keeps_its_width_where_it_meets_another_layout(std::string& failure
   const auto junctions = road_test_view::junctions(state.derived());
   ROAD_TEST_EXPECT(junctions.size() == 1, "the two layouts did not form one junction");
 
+  bool found_collapsed_face = false;
   for (const auto& strip : junctions.front()->junction_geometry.surface_strips) {
     const double entered = std::hypot(strip.left.front().x - strip.right.front().x,
                                       strip.left.front().y - strip.right.front().y);
     const double left = std::hypot(strip.left.back().x - strip.right.back().x,
                                    strip.left.back().y - strip.right.back().y);
-    ROAD_TEST_EXPECT(std::abs(entered - left) <= 1e-6,
-                     "a junction face changed width where the layouts differ");
+    if (std::min(entered, left) <= 1e-6 && std::max(entered, left) > 1e-6) {
+      found_collapsed_face = true;
+    }
+    city::road::JunctionGeometry one{};
+    one.surface_strips.push_back(strip);
+    const auto emitted = city::road::generation::emit_junction(one);
+    ROAD_TEST_EXPECT(emitted.ok,
+                     "a mixed-layout junction face could not be emitted");
+    for (const auto& mesh : emitted.value.surface_meshes) {
+      ROAD_TEST_EXPECT(mesh_faces_up(mesh),
+                       "a mixed-layout junction face is inverted");
+    }
   }
+  ROAD_TEST_EXPECT(found_collapsed_face,
+                   "a missing side face was not collapsed at the carriageway edge");
   return true;
 }
 
@@ -4527,6 +4540,63 @@ bool unlike_guttered_roads_join_road_outer_to_road_outer(std::string& failure) {
   }
   ROAD_TEST_EXPECT(kept_gutter_top,
                    "joining different roads changed the 0.1m gutter top");
+  return true;
+}
+
+bool unlike_side_profiles_form_a_degree_two_corner(std::string& failure) {
+  for (const bool reversed : {false, true}) {
+    RoadState state{};
+    const auto guttered =
+        road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+    const auto shouldered =
+        road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({-40.0, 0.0}, {0.0, 0.0})}),
+        reversed ? shouldered : guttered});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const RoadNodeId endpoint = state.graph().segments.front().node_b;
+    const auto corner = state.AddSegmentConnectedTo(
+        city::road::AddSegmentConnectedToRequest{
+            MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}),
+            reversed ? guttered : shouldered, endpoint});
+    ROAD_TEST_EXPECT(
+        corner.ok,
+        "degree-two semantic side mapping rejected unlike profiles: " +
+            corner.error);
+    const auto connections = road_test_view::corners(state.derived());
+    ROAD_TEST_EXPECT(connections.size() == 1,
+                     "unlike profiles did not form one degree-two connection");
+    ROAD_TEST_EXPECT(
+        !connections.front()->connection_geometry.surface_strips.empty(),
+        "unlike profiles produced no connecting surfaces");
+    const auto& curves = connections.front()->connection_geometry.boundary_curves;
+    const auto has_pair = [&curves](std::uint64_t a, std::uint64_t b) {
+      return std::any_of(curves.begin(), curves.end(), [a, b](const auto& curve) {
+        return (curve.source_boundary_id == a && curve.target_boundary_id == b) ||
+               (curve.source_boundary_id == b && curve.target_boundary_id == a);
+      });
+    };
+    ROAD_TEST_EXPECT(has_pair(100, 150) && has_pair(300, 250),
+                     "degree-two mapping did not join carriageway edges");
+    ROAD_TEST_EXPECT(has_pair(100, 100) && has_pair(300, 300),
+                     "degree-two mapping did not keep road outer edges fixed");
+    for (const auto& strip :
+         connections.front()->connection_geometry.surface_strips) {
+      city::road::ConnectionGeometry one{};
+      one.surface_strips.push_back(strip);
+      const auto emitted = city::road::generation::emit_connection(one);
+      ROAD_TEST_EXPECT(emitted.ok && emitted.value.size() == 1,
+                       "a semantic side strip was not emitted");
+      if (!mesh_faces_up(emitted.value.front())) {
+        failure = "inverted degree-two strip " +
+                  std::to_string(strip.left_boundary_id) + "/" +
+                  std::to_string(strip.right_boundary_id) + " style " +
+                  std::to_string(strip.style.value) + " winding " +
+                  std::to_string(static_cast<int>(strip.winding));
+        return false;
+      }
+    }
+  }
   return true;
 }
 
@@ -4683,6 +4753,8 @@ int main() {
        a_gutter_keeps_its_width_where_it_meets_another_layout},
       {"unlike_guttered_roads_join_road_outer_to_road_outer",
        unlike_guttered_roads_join_road_outer_to_road_outer},
+      {"unlike_side_profiles_form_a_degree_two_corner",
+       unlike_side_profiles_form_a_degree_two_corner},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

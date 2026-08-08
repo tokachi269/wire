@@ -144,108 +144,6 @@ sweep_boundary(const std::vector<curve_frame> &frames, Vec3d start,
   return points;
 }
 
-struct boundary_token {
-  std::uint64_t id = 0;
-  BoundaryRole role = BoundaryRole::kOuterEdge;
-  std::size_t occurrence = 0;
-
-  bool operator<(const boundary_token &other) const {
-    return std::tie(id, role, occurrence) <
-           std::tie(other.id, other.role, other.occurrence);
-  }
-};
-
-std::vector<boundary_token>
-boundary_tokens(const std::vector<SectionBoundarySample> &boundaries) {
-  std::map<std::pair<std::uint64_t, BoundaryRole>, std::size_t> occurrences{};
-  std::vector<boundary_token> tokens{};
-  tokens.reserve(boundaries.size());
-  for (const SectionBoundarySample &boundary : boundaries) {
-    const auto group = std::pair{boundary.boundary_id, boundary.role};
-    tokens.push_back(boundary_token{boundary.boundary_id, boundary.role,
-                                    occurrences[group]++});
-  }
-  return tokens;
-}
-
-Result<ConnectionGeometry> connection_geometry_from_gates(
-    RoadNodeId node_id, const ConnectionGate &first,
-    const ConnectionGate &second, const SectionEvaluation &first_section,
-    const SectionEvaluation &second_section, double corner_control_m) {
-  if (first_section.surface_styles != second_section.surface_styles) {
-    return Result<ConnectionGeometry>::Fail(
-        CommitFailureCategory::kNotImplemented,
-        "road connection requires identical explicit surface mappings");
-  }
-  const std::vector<boundary_token> first_tokens =
-      boundary_tokens(first.boundaries);
-  const std::vector<boundary_token> second_tokens =
-      boundary_tokens(second.boundaries);
-  std::map<boundary_token, const SectionBoundarySample *> second_by_token{};
-  for (std::size_t index = 0; index < second.boundaries.size(); ++index) {
-    second_by_token.emplace(second_tokens[index], &second.boundaries[index]);
-  }
-
-  ConnectionGeometry geometry{};
-  geometry.node_id = node_id;
-  geometry.approaches = {first.approach, second.approach};
-  const std::vector<curve_frame> frames = resolved_curve_frames(
-      first.position, second.position, first.tangent, second.tangent,
-      corner_control_m, kConnectionCurveSamples);
-  if (frames.size() !=
-      static_cast<std::size_t>(kConnectionCurveSamples + 1)) {
-    return Result<ConnectionGeometry>::Fail(
-        CommitFailureCategory::kInternalError,
-        "road connection center curve has a degenerate tangent");
-  }
-  for (std::size_t index = 0; index < first.boundaries.size(); ++index) {
-    const auto target = second_by_token.find(first_tokens[index]);
-    if (target == second_by_token.end()) {
-      return Result<ConnectionGeometry>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "road connection boundary ID/role mapping is incomplete");
-    }
-    geometry.boundary_curves.push_back(ResolvedBoundaryCurve{
-        first.boundaries[index].boundary_id,
-        target->second->boundary_id,
-        first.boundaries[index].role,
-        first.boundaries[index].marking.enabled &&
-            target->second->marking.enabled,
-        sweep_boundary(
-            frames, boundary_point(first, first.boundaries[index]),
-            boundary_point(second, *target->second)),
-        sweep_boundary(
-            frames,
-            gate_point_at(first, first.boundaries[index].marking_lateral_m,
-                          first.boundaries[index].height_m),
-            gate_point_at(second, target->second->marking_lateral_m,
-                          target->second->height_m)),
-        first.approach,
-        second.approach,
-    });
-  }
-  if (first_section.surface_styles.size() + 1 !=
-      geometry.boundary_curves.size()) {
-    return Result<ConnectionGeometry>::Fail(
-        CommitFailureCategory::kNotImplemented,
-        "road connection surface mapping does not match boundary mapping");
-  }
-  for (std::size_t index = 0; index < first_section.surface_styles.size();
-       ++index) {
-    geometry.surface_strips.push_back(ResolvedSurfaceStrip{
-        first_section.surface_styles[index],
-        geometry.boundary_curves[index].source_boundary_id,
-        geometry.boundary_curves[index + 1].source_boundary_id,
-        geometry.boundary_curves[index].points,
-        geometry.boundary_curves[index + 1].points,
-        first.approach.endpoint_role == EndpointRole::kStart
-            ? SurfaceWinding::kRightToLeft
-            : SurfaceWinding::kLeftToRight,
-    });
-  }
-  return Result<ConnectionGeometry>::Ok(std::move(geometry));
-}
-
 struct junction_side {
   std::vector<const SectionBoundarySample *> chain{};
   std::vector<RenderStyleRef> faces{};
@@ -277,7 +175,6 @@ resolve_junction_section(const ConnectionGate &gate,
         "road junction section requires a carriageway with two edges");
   }
   junction_section resolved{};
-  // Outward runs toward the front of the list on the left, the back on the right.
   for (std::size_t index = carriageway_edges.front() + 1; index-- > 0;) {
     resolved.left.chain.push_back(&samples[index]);
     if (index > 0) resolved.left.faces.push_back(section.surface_styles[index - 1]);
@@ -290,6 +187,241 @@ resolve_junction_section(const ConnectionGate &gate,
   }
   resolved.right.follows_section_order = true;
   return Result<junction_section>::Ok(std::move(resolved));
+}
+
+std::size_t aligned_side_index(std::size_t size, std::size_t depth,
+                               std::size_t point) {
+  const std::size_t missing = depth - size;
+  return point < missing ? 0 : point - missing;
+}
+
+const SectionBoundarySample *aligned_side_sample(const junction_side &side,
+                                                  std::size_t depth,
+                                                  std::size_t point) {
+  return side.chain[aligned_side_index(side.chain.size(), depth, point)];
+}
+
+Result<ConnectionGeometry> connection_geometry_from_gates(
+    RoadNodeId node_id, const ConnectionGate &first,
+    const ConnectionGate &second, const SectionEvaluation &first_section,
+    const SectionEvaluation &second_section, double corner_control_m) {
+  ConnectionGeometry geometry{};
+  geometry.node_id = node_id;
+  geometry.approaches = {first.approach, second.approach};
+  const std::vector<curve_frame> frames = resolved_curve_frames(
+      first.position, second.position, first.tangent, second.tangent,
+      corner_control_m, kConnectionCurveSamples);
+  if (frames.size() !=
+      static_cast<std::size_t>(kConnectionCurveSamples + 1)) {
+    return Result<ConnectionGeometry>::Fail(
+        CommitFailureCategory::kInternalError,
+        "road connection center curve has a degenerate tangent");
+  }
+
+  const Result<junction_section> first_profile =
+      resolve_junction_section(first, first_section);
+  const Result<junction_section> second_profile =
+      resolve_junction_section(second, second_section);
+  if (!first_profile.ok || !second_profile.ok) {
+    const auto &failed = first_profile.ok ? second_profile : first_profile;
+    return Result<ConnectionGeometry>::Fail(failed.failure_category,
+                                             failed.error);
+  }
+
+  struct matched_rail {
+    const SectionBoundarySample *source = nullptr;
+    const SectionBoundarySample *target = nullptr;
+    Vec3d source_point{};
+    Vec3d target_point{};
+    bool source_exists = true;
+    bool target_exists = true;
+  };
+  struct matched_face {
+    RenderStyleRef style{};
+    Vec3d section_normal{};
+    bool owned_by_source = true;
+  };
+  std::vector<matched_rail> rails{};
+  std::vector<matched_face> faces{};
+  const auto side_face_normal = [](const ConnectionGate &gate,
+                                   const junction_side &side,
+                                   std::size_t face) {
+    const Vec3d profile_edge = subtract3(
+        boundary_point(gate, *side.chain[face + 1]),
+        boundary_point(gate, *side.chain[face]));
+    const Vec3d section_edge =
+        side.follows_section_order ? profile_edge : scale3(profile_edge, -1.0);
+    const Vec3d segment_tangent =
+        gate.approach.endpoint_role == EndpointRole::kStart
+            ? gate.tangent
+            : scale3(gate.tangent, -1.0);
+    return cross3(segment_tangent, section_edge);
+  };
+  const auto append_side = [&rails, &faces, &first, &second,
+                            &side_face_normal](
+                               const junction_side &source,
+                               const junction_side &target, bool reverse) {
+    const std::size_t depth = std::max(source.chain.size(), target.chain.size());
+    const bool owned_by_source = source.faces.size() >= target.faces.size();
+    const junction_side &face_owner = owned_by_source ? source : target;
+    const ConnectionGate &owner_gate = owned_by_source ? first : second;
+    const auto rail_at = [&](std::size_t point) {
+      const std::size_t source_missing = depth - source.chain.size();
+      const std::size_t target_missing = depth - target.chain.size();
+      const bool source_exists = point >= source_missing;
+      const bool target_exists = point >= target_missing;
+      const SectionBoundarySample *source_sample =
+          aligned_side_sample(source, depth, point);
+      const SectionBoundarySample *target_sample =
+          aligned_side_sample(target, depth, point);
+      return matched_rail{
+          source_sample,
+          target_sample,
+          boundary_point(first, *source_sample),
+          boundary_point(second, *target_sample),
+          source_exists,
+          target_exists,
+      };
+    };
+    if (reverse) {
+      for (std::size_t point = depth; point-- > 0;) {
+        rails.push_back(rail_at(point));
+      }
+      for (std::size_t face = face_owner.faces.size(); face-- > 0;) {
+        faces.push_back(matched_face{
+            face_owner.faces[face],
+            side_face_normal(owner_gate, face_owner, face), owned_by_source});
+      }
+    } else {
+      for (std::size_t point = 1; point < depth; ++point) {
+        const std::size_t face = point - 1;
+        faces.push_back(matched_face{
+            face_owner.faces[face],
+            side_face_normal(owner_gate, face_owner, face), owned_by_source});
+        rails.push_back(rail_at(point));
+      }
+    }
+  };
+
+  append_side(first_profile.value.left, second_profile.value.left, true);
+
+  const auto source_left = static_cast<std::size_t>(
+      first_profile.value.left.chain.front() - first.boundaries.data());
+  const auto source_right = static_cast<std::size_t>(
+      first_profile.value.right.chain.front() - first.boundaries.data());
+  const auto target_left = static_cast<std::size_t>(
+      second_profile.value.left.chain.front() - second.boundaries.data());
+  const auto target_right = static_cast<std::size_t>(
+      second_profile.value.right.chain.front() - second.boundaries.data());
+  std::map<std::pair<std::uint64_t, BoundaryRole>,
+           const SectionBoundarySample *> target_carriageway{};
+  for (std::size_t index = target_left + 1; index < target_right; ++index) {
+    const SectionBoundarySample &sample = second.boundaries[index];
+    if (!target_carriageway
+             .emplace(std::pair{sample.boundary_id, sample.role}, &sample)
+             .second) {
+      return Result<ConnectionGeometry>::Fail(
+          CommitFailureCategory::kNotImplemented,
+          "road connection carriageway boundary mapping is ambiguous");
+    }
+  }
+  for (std::size_t index = source_left + 1; index < source_right; ++index) {
+    const SectionBoundarySample &sample = first.boundaries[index];
+    const auto target = target_carriageway.find(
+        std::pair{sample.boundary_id, sample.role});
+    if (target == target_carriageway.end()) {
+      return Result<ConnectionGeometry>::Fail(
+          CommitFailureCategory::kNotImplemented,
+          "road connection carriageway boundary mapping is incomplete for " +
+              std::to_string(sample.boundary_id) + "/" +
+              std::to_string(static_cast<int>(sample.role)));
+    }
+    const Vec3d section_edge =
+        subtract3(boundary_point(first, first.boundaries[index]),
+                  boundary_point(first, first.boundaries[index - 1]));
+    const Vec3d segment_tangent =
+        first.approach.endpoint_role == EndpointRole::kStart
+            ? first.tangent
+            : scale3(first.tangent, -1.0);
+    faces.push_back(matched_face{first_section.surface_styles[index - 1],
+                                 cross3(segment_tangent, section_edge), true});
+    rails.push_back(matched_rail{&sample, target->second,
+                                 boundary_point(first, sample),
+                                 boundary_point(second, *target->second)});
+  }
+
+  const Vec3d carriageway_edge =
+      subtract3(boundary_point(first, first.boundaries[source_right]),
+                boundary_point(first, first.boundaries[source_right - 1]));
+  const Vec3d source_segment_tangent =
+      first.approach.endpoint_role == EndpointRole::kStart
+          ? first.tangent
+          : scale3(first.tangent, -1.0);
+  faces.push_back(matched_face{first_section.surface_styles[source_right - 1],
+                               cross3(source_segment_tangent, carriageway_edge),
+                               true});
+  rails.push_back(matched_rail{
+      first_profile.value.right.chain.front(),
+      second_profile.value.right.chain.front(),
+      boundary_point(first, *first_profile.value.right.chain.front()),
+      boundary_point(second, *second_profile.value.right.chain.front())});
+
+  append_side(first_profile.value.right, second_profile.value.right, false);
+  if (rails.size() < 2 || faces.size() + 1 != rails.size()) {
+    return Result<ConnectionGeometry>::Fail(
+        CommitFailureCategory::kInternalError,
+        "road connection semantic section mapping is incomplete");
+  }
+
+  for (const matched_rail &rail : rails) {
+    if (rail.source == nullptr || rail.target == nullptr) {
+      return Result<ConnectionGeometry>::Fail(
+          CommitFailureCategory::kInternalError,
+          "road connection semantic boundary is missing");
+    }
+    geometry.boundary_curves.push_back(ResolvedBoundaryCurve{
+        rail.source->boundary_id,
+        rail.target->boundary_id,
+        rail.source->role == rail.target->role ? rail.source->role
+                                                : BoundaryRole::kOuterEdge,
+        rail.source_exists && rail.target_exists &&
+            rail.source->role == rail.target->role &&
+            rail.source->marking.enabled && rail.target->marking.enabled,
+        sweep_boundary(frames, rail.source_point, rail.target_point),
+        sweep_boundary(
+            frames,
+            gate_point_at(first, rail.source->marking_lateral_m,
+                          rail.source->height_m),
+            gate_point_at(second, rail.target->marking_lateral_m,
+                          rail.target->height_m)),
+        first.approach,
+        second.approach,
+    });
+  }
+  for (std::size_t index = 0; index < faces.size(); ++index) {
+    const bool owned_by_source = faces[index].owned_by_source;
+    const Vec3d profile_edge = owned_by_source
+                                   ? subtract3(rails[index + 1].source_point,
+                                               rails[index].source_point)
+                                   : subtract3(rails[index + 1].target_point,
+                                               rails[index].target_point);
+    const Vec3d curve_normal =
+        cross3(owned_by_source ? frames.front().tangent : frames.back().tangent,
+               profile_edge);
+    const SurfaceWinding winding =
+        dot3(faces[index].section_normal, curve_normal) >= 0.0
+            ? SurfaceWinding::kLeftToRight
+            : SurfaceWinding::kRightToLeft;
+    geometry.surface_strips.push_back(ResolvedSurfaceStrip{
+        faces[index].style,
+        geometry.boundary_curves[index].source_boundary_id,
+        geometry.boundary_curves[index + 1].source_boundary_id,
+        geometry.boundary_curves[index].points,
+        geometry.boundary_curves[index + 1].points,
+        winding,
+    });
+  }
+  return Result<ConnectionGeometry>::Ok(std::move(geometry));
 }
 
 struct side {
@@ -416,26 +548,9 @@ generate_junction_geometry(RoadNodeId node_id,
     if (a.approach == b.approach)
       continue;
     const std::size_t depth = std::max(a.chain.size(), b.chain.size());
-    const side &shorter = a.faces.size() <= b.faces.size() ? a : b;
-    const side &longer = a.faces.size() <= b.faces.size() ? b : a;
-    const bool shares_outer_profile =
-        !shorter.faces.empty() && shorter.faces.size() <= longer.faces.size() &&
-        std::equal(shorter.faces.rbegin(), shorter.faces.rend(),
-                   longer.faces.rbegin());
-    const auto reach = [depth, shares_outer_profile,
-                        &longer](const side &value, std::size_t point) {
-      if (shares_outer_profile) {
-        const std::size_t missing = depth - value.chain.size();
-        return value.chain[point < missing ? 0 : point - missing];
-      }
-      if (point < value.chain.size()) return value.chain[point];
-      const std::size_t last = value.chain.size() - 1;
-      Vec3d extended = add3(
-          value.chain[last],
-          scale3(value.outward,
-                 longer.outward_m[point] - longer.outward_m[last]));
-      extended.z += longer.height_m[point] - longer.height_m[last];
-      return extended;
+    const auto reach = [depth](const side &value, std::size_t point) {
+      return value.chain[
+          aligned_side_index(value.chain.size(), depth, point)];
     };
     const std::vector<RenderStyleRef> &faces =
         a.faces.size() >= b.faces.size() ? a.faces : b.faces;

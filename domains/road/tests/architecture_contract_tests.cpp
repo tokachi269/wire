@@ -1184,7 +1184,7 @@ bool same_angle_approaches_use_id_tie_break(std::string& failure) {
   return true;
 }
 
-bool unsupported_junction_section_is_atomic(std::string& failure) {
+bool unsupported_connection_section_is_atomic(std::string& failure) {
   RoadState state{};
   const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
   RoadLayoutTemplate walkway_only{};
@@ -1207,19 +1207,15 @@ bool unsupported_junction_section_is_atomic(std::string& failure) {
                         template_id.value});
   ROAD_CONTRACT_EXPECT(base.ok, base.error);
   const RoadNodeId shared = state.graph().segments.front().node_b;
-  const auto first = state.AddSegmentConnectedTo(AddSegmentConnectedToRequest{
-      MakePath({MakeLine({0.0, 0.0}, {20.0, 20.0})}), template_id.value,
-      shared});
-  ROAD_CONTRACT_EXPECT(first.ok, first.error);
   ROAD_CONTRACT_EXPECT(
       expect_failed_unchanged(
           state,
           [&] {
             return state.AddSegmentConnectedTo(AddSegmentConnectedToRequest{
-                MakePath({MakeLine({0.0, 0.0}, {20.0, -20.0})}),
+                MakePath({MakeLine({0.0, 0.0}, {20.0, 20.0})}),
                 template_id.value, shared});
           },
-          "unsupported junction section", failure),
+          "unsupported degree-two section", failure),
       failure);
   return true;
 }
@@ -1932,8 +1928,8 @@ int main() {
        approach_identity_survives_geometry_changes},
       {"same_angle_approaches_use_id_tie_break",
        same_angle_approaches_use_id_tie_break},
-      {"unsupported_junction_section_is_atomic",
-       unsupported_junction_section_is_atomic},
+      {"unsupported_connection_section_is_atomic",
+       unsupported_connection_section_is_atomic},
       {"derived_segment_owns_all_semantic_distances",
        derived_segment_owns_all_semantic_distances},
       {"add_lane_leaves_unrelated_corridors_bit_identical",

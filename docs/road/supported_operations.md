@@ -67,14 +67,13 @@ points run backwards, one that reaches past the strip beside it, one whose faces
 do not match its points, or one naming a surface style that does not exist. No
 nearest buildable shape is substituted.
 
-Two limits remain. A profile can only sit between two strips, so a gutter on a
-road with nothing outside it — no walkway on that side — has nowhere to be
-declared. A degree-two connection still needs both endpoint sections to carry
-identical surface mappings. A junction may connect different side depths: it
-keeps both carriageway edges and both road outer edges fixed and lets an extra
-inner face begin at zero width. A gutter itself is not substituted for a missing
-profile. The remaining cases stay `NotImplemented`; `backlog.md` records what
-they need.
+One profile limit remains. A profile can only sit between two strips, so a
+gutter on a road with nothing outside it — no walkway on that side — has nowhere
+to be declared. Degree-two connections and junctions use the same semantic side
+mapping: both carriageway edges and both road outer edges stay fixed, and an
+extra inner face begins at zero width. A gutter itself is not substituted for a
+missing profile. Ambiguous lane or boundary continuity still requires explicit
+topology and remains `NotImplemented`.
 
 Lane Branch and Merge are not available. Their editor asked the user to pick a
 raw boundary ID and auto-selected a default, so the operation was removed rather

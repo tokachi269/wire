@@ -61,6 +61,19 @@ bool approach_key_less(const ApproachKey &a, const ApproachKey &b) {
          std::tie(b.node_id, b.segment_id, b.endpoint_role);
 }
 
+bool same_lane_identity(const RoadLayoutTemplate &a,
+                        const RoadLayoutTemplate &b) {
+  std::vector<std::pair<LaneId, LaneTravelDirection>> a_lanes{};
+  std::vector<std::pair<LaneId, LaneTravelDirection>> b_lanes{};
+  for (const LaneBand &lane : a.lane_bands)
+    a_lanes.emplace_back(lane.id, lane.direction);
+  for (const LaneBand &lane : b.lane_bands)
+    b_lanes.emplace_back(lane.id, lane.direction);
+  std::sort(a_lanes.begin(), a_lanes.end());
+  std::sort(b_lanes.begin(), b_lanes.end());
+  return a_lanes == b_lanes;
+}
+
 // An off-centre alignment reaches further one way than the other, so a setback
 // needs the larger of the two rather than half the total width.
 double endpoint_outer_reach(const SavedRoadGraph &graph,
@@ -559,15 +572,25 @@ resolve_connections(const SavedRoadGraph &graph,
     if (connection.approaches.size() > 1) {
       const RoadLayoutTemplate *expected = find_template(
           graph, connection.approaches.front().endpoint_template_id);
-      const bool mixed = expected == nullptr || std::any_of(
-          connection.approaches.begin() + 1, connection.approaches.end(),
+       const bool mixed = expected == nullptr || std::any_of(
+           connection.approaches.begin() + 1, connection.approaches.end(),
           [&graph, expected](const ResolvedApproach &approach) {
             const RoadLayoutTemplate *candidate =
                 find_template(graph, approach.endpoint_template_id);
             return candidate == nullptr ||
                    !internal::equivalent_section_definition(*expected,
-                                                            *candidate);
-          });
+                                                             *candidate);
+           });
+      const bool has_automatic_lane_identity =
+          expected != nullptr &&
+          std::all_of(connection.approaches.begin() + 1,
+                      connection.approaches.end(),
+                      [&graph, expected](const ResolvedApproach &approach) {
+                        const RoadLayoutTemplate *candidate =
+                            find_template(graph, approach.endpoint_template_id);
+                        return candidate != nullptr &&
+                               same_lane_identity(*expected, *candidate);
+                      });
       const RoadSegmentId first_segment_id =
           connection.approaches.front().key.segment_id;
       const RoadSegmentId second_segment_id =
@@ -606,6 +629,7 @@ resolve_connections(const SavedRoadGraph &graph,
       // connections, however, imply continuity and must not hide a section
       // change at the node.
       if (mixed && connection.kind != NodeConnectionKind::kJunction &&
+          !has_automatic_lane_identity &&
           !(has_pair_lane_topology && has_pair_boundary_topology)) {
         return Out::Fail(CommitFailureCategory::kNotImplemented,
                          "road degree-two connection lane layouts differ; add "

@@ -166,8 +166,10 @@ ADD LANEが作る変更後断面はCoreが作る。
 - 対応範囲はforward/reversedを含むcorridor内の複数segmentで、transitionを持つsegmentに別のtransitionを重ねないlane追加である。競合は具体的なvalidationとして拒否する。
 - element対応は ID で行う。出現は `TaperIn`、消滅は `TaperOut` または `EndCap` を明示する。
 - 1 segmentに同時に接続できる transition は1個。短距離多重transitionはP2非対象。
-- 異なる断面をnodeへ直接接続しない。trial generateの`resolve_connections`が各approachのendpoint section IDを
-  一度だけ解決し、全approachで完全一致する場合だけ接続する。operation preflightは断面を再評価しない。
+- 異なるendpoint sectionでも、共通lane identityとsemantic sideを一意に解決できる接続は同じ
+  `resolve_connections`経路で生成する。degree 2とjunctionで別のsection互換規則を持たず、carriageway edgeと
+  road outerを固定し、中間side faceの不足はcarriageway edgeで幅0へ退化させる。laneまたはboundaryの対応が
+  一意でない場合だけ明示topologyを要求し、operation preflightは断面を再評価しない。
 
 ## P2 marking semantics
 

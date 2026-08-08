@@ -90,6 +90,23 @@ std::vector<curve_frame>
 resolved_curve_frames(Vec3d a, Vec3d b, Vec3d tangent_a, Vec3d tangent_b,
                       double control_m, int samples) {
   const double chord_m = std::hypot(b.x - a.x, b.y - a.y);
+  if (control_m <= 1e-12) {
+    Vec3d tangent{};
+    if (chord_m > 1e-12) {
+      tangent = {(b.x - a.x) / chord_m, (b.y - a.y) / chord_m, 0.0};
+    } else {
+      const double tangent_length =
+          std::hypot(tangent_a.x, tangent_a.y);
+      if (tangent_length <= 1e-12)
+        return {};
+      tangent = {tangent_a.x / tangent_length,
+                 tangent_a.y / tangent_length, 0.0};
+    }
+    return {
+        curve_frame{a, tangent, Vec3d{-tangent.y, tangent.x, 0.0}},
+        curve_frame{b, tangent, Vec3d{-tangent.y, tangent.x, 0.0}},
+    };
+  }
   const Vec3d start_tangent = scale3(tangent_a, -1.0);
   const double effective_control_m = std::min(control_m, chord_m / 3.0);
   const Vec3d c1 = add3(a, scale3(start_tangent, effective_control_m));
@@ -445,6 +462,17 @@ double lateral_projection(const ConnectionGate &gate, const side &value) {
          (value.chain.front().y - gate.position.y) * gate.lateral.y;
 }
 
+const ResolvedJunctionCorner *corner_between(
+    const std::vector<ResolvedJunctionCorner> &corners,
+    const ApproachKey &a, const ApproachKey &b) {
+  const auto found = std::find_if(
+      corners.begin(), corners.end(), [&a, &b](const auto &corner) {
+        return (corner.first_approach == a && corner.second_approach == b) ||
+               (corner.first_approach == b && corner.second_approach == a);
+      });
+  return found == corners.end() ? nullptr : &*found;
+}
+
 } // namespace
 
 Result<ConnectionGeometry>
@@ -462,7 +490,7 @@ generate_junction_geometry(RoadNodeId node_id,
                            const std::vector<ApproachKey> &ordered_approaches,
                            const std::vector<ConnectionGate> &gates,
                            const std::vector<const SectionEvaluation *> &sections,
-                           double junction_corner_control_m) {
+                           const std::vector<ResolvedJunctionCorner> &corners) {
   if (gates.size() != ordered_approaches.size() ||
       sections.size() != gates.size()) {
     return Result<JunctionGeometry>::Fail(
@@ -555,9 +583,16 @@ generate_junction_geometry(RoadNodeId node_id,
     const std::vector<RenderStyleRef> &faces =
         a.faces.size() >= b.faces.size() ? a.faces : b.faces;
     const side &face_owner = a.faces.size() >= b.faces.size() ? a : b;
+    const ResolvedJunctionCorner *corner =
+        corner_between(corners, a.approach, b.approach);
+    if (corner == nullptr) {
+      return Result<JunctionGeometry>::Fail(
+          CommitFailureCategory::kInternalError,
+          "road junction corner resolution is missing");
+    }
     const auto curve_frames = [&](Vec3d start, Vec3d end) {
       return resolved_curve_frames(start, end, a.tangent, b.tangent,
-                                   junction_corner_control_m,
+                                   corner->control_m,
                                    kJunctionCurveSamples);
     };
     std::vector<std::vector<Vec3d>> swept{};

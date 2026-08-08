@@ -294,9 +294,12 @@ side profileが異なるdegree 2接続も生成する。laneまたはboundary対
 新segmentをtargetにする分岐と、新segmentをsourceにする合流は同じoperation契約を使う。
 `resolve_connections`はstraight ContinuationまたはMergeのlane center対応からtarget approachの共通lateral shiftを一度だけ導出し、
 角度を持つbranch sourceはmainline shiftの決定入力から除外する。
-Junction gateのauto setbackは、角度順で両隣にあるapproachだけから決める。各隣接approachの断面は、
-`EndpointRole`とtangentの向きからjunction cornerへ向いている側のreachだけを使い、反対側や非隣接approachの幅を
-最大値として流用しない。鋭角ではcorner radius項自体が長いsetbackを要求し得るため、side選択の誤りとは分けて扱う。
+Junction gateのauto setbackは、角度順で両隣にあるapproachだけから決める。各pairのcornerへ向く実断面side lineを
+`EndpointRole`とtangentから組み立て、その交点を両approachへ射影する。反対側や非隣接approachの幅を最大値として
+流用せず、左右非対称断面も一方のreachだけを使う近似式へ落とさない。corner radiusは隣接pairの保存値の小さい方を
+希望上限として解決し、connection全体へaverage・作成順・固定fallbackで畳み込まない。0mはsharp connectionであり、
+setbackから別のcurve controlを再導出しない。鋭角ではradiusが0でもside line交点自体が遠方になり得るため、
+90度T字のmixed-radius問題とは分けて扱う。
 `DerivedLanePath`と`DerivedBoundaryPath`は保存せず、authoritative connection IDから毎回生成する。Splitの両側境界から
 `DerivedSeparationArea`を作るが、lane connectionから境界接続を逆算しない。
 

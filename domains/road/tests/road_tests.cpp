@@ -886,8 +886,8 @@ bool P1_degree_two_corner_uses_a_curve_without_a_junction(std::string& failure) 
   ROAD_TEST_EXPECT(road_test_view::corners(state.derived()).size() == 1,
                    "degree-two corner did not derive a separate connection area");
   const auto& corner = *road_test_view::corners(state.derived()).front();
-  ROAD_TEST_EXPECT(std::abs(corner.corner_control_m - corner.junction_corner_control_m) < 1e-9,
-                   "corner and junction curve derivation use different control factors");
+  ROAD_TEST_EXPECT(corner.corner_control_m > 0.0,
+                   "degree-two corner did not derive a curve control");
   std::set<RenderStyleRef> connection_styles{};
   bool has_curved_vertex = false;
   for (const auto& mesh : state.derived().connection_meshes) {
@@ -1113,8 +1113,8 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   ROAD_TEST_EXPECT(state.graph().connection_policy_overrides.empty(), "T junction saved an automatic decision");
   ROAD_TEST_EXPECT(road_test_view::junctions(state.derived()).size() == 1, "T junction did not derive one JunctionArea");
   const auto& junction = *road_test_view::junctions(state.derived()).front();
-  ROAD_TEST_EXPECT(std::abs(junction.corner_control_m - junction.junction_corner_control_m) < 1e-9,
-                   "corner and junction curve derivation use different control factors");
+  ROAD_TEST_EXPECT(junction.junction_corners.size() == 3,
+                   "T junction did not resolve one radius per adjacent side pair");
   ROAD_TEST_EXPECT(road_test_view::gates_of(junction).size() == 3, "T junction does not have three gates");
   ROAD_TEST_EXPECT(state.derived().junction_meshes.size() >= 3,
                    "T junction did not derive material-separated junction surface meshes");
@@ -1333,7 +1333,10 @@ bool P1_junction_setback_uses_the_facing_section_side(std::string& failure) {
     ROAD_TEST_EXPECT(
         angled_approach != angled_junctions.front()->approaches.end(),
         "angled asymmetric T branch approach is missing");
-    const double side_clearance = 2.0 / std::sin(radians);
+    // Intersect the actual side lines. The branch carries a 5m half-width, so
+    // its own offset contributes when the approach is not perpendicular.
+    const double side_clearance =
+        (2.0 + 5.0 * std::cos(radians)) / std::sin(radians);
     const double radius_clearance = 4.0 / std::tan(radians * 0.5);
     const double expected = side_clearance + radius_clearance;
     ROAD_TEST_EXPECT(
@@ -1343,8 +1346,8 @@ bool P1_junction_setback_uses_the_facing_section_side(std::string& failure) {
             std::to_string(radius_clearance) + "; actual=" +
             std::to_string(angled_approach->resolved_setback_m));
     if (degrees == 15.0) {
-      ROAD_TEST_EXPECT(radius_clearance > side_clearance * 3.0,
-                       "acute diagnostic no longer isolates the radius term");
+      ROAD_TEST_EXPECT(side_clearance > 20.0 && radius_clearance > 30.0,
+                       "acute diagnostic did not expose both long-distance terms");
     }
   }
 
@@ -1423,7 +1426,7 @@ bool P1_junction_setback_uses_only_adjacent_approaches(
                    "skew cross reference approach is missing");
   const double adjacent_angle = 80.0 * std::numbers::pi / 180.0;
   const double expected =
-      5.0 / std::sin(adjacent_angle) + 4.0 / std::tan(adjacent_angle * 0.5);
+      (5.0 + 4.0) / std::tan(adjacent_angle * 0.5);
   ROAD_TEST_EXPECT(
       std::abs(approach->resolved_setback_m - expected) <= 1e-6,
       "non-adjacent approach extended the junction; expected=" +
@@ -4317,8 +4320,12 @@ bool junction_corner_radius_is_authoritative_and_inherited(std::string& failure)
   const auto junctions = road_test_view::junctions(state.derived());
   ROAD_TEST_EXPECT(junctions.size() == 1,
                    "corner-radius roads did not form one junction");
-  ROAD_TEST_EXPECT(junctions.front()->corner_radius_m == 7.0,
-                   "connection ignored the saved road corner radius");
+  ROAD_TEST_EXPECT(
+      junctions.front()->junction_corners.size() == 3 &&
+          std::all_of(junctions.front()->junction_corners.begin(),
+                      junctions.front()->junction_corners.end(),
+                      [](const auto& corner) { return corner.radius_m == 7.0; }),
+      "junction corner pairs ignored the saved road radius");
 
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
@@ -4380,8 +4387,7 @@ bool corner_radius_extension_validation_and_mixed_resolution(std::string& failur
                        saved_after_invalid.value == saved_before_invalid.value,
                    "invalid corner radius mutated the road state");
 
-  // The two approaches carry different preferences. A connection-wide radius
-  // therefore uses the fixed Core default, never insertion order or an average.
+  // A degree-two corner has one pair, so equal inherited values resolve once.
   const auto corners = road_test_view::corners(state.derived());
   ROAD_TEST_EXPECT(corners.size() == 1, "mixed-radius extension made no corner");
   ROAD_TEST_EXPECT(corners.front()->corner_radius_m == 6.0,
@@ -4403,9 +4409,12 @@ bool corner_radius_extension_validation_and_mixed_resolution(std::string& failur
       std::move(mixed_branch_request));
   ROAD_TEST_EXPECT(mixed_branch.ok, mixed_branch.error);
   const auto mixed_junctions = road_test_view::junctions(mixed.derived());
-  ROAD_TEST_EXPECT(mixed_junctions.size() == 1 &&
-                       mixed_junctions.front()->corner_radius_m == 4.0,
-                   "mixed approach radii did not use the fixed default");
+  ROAD_TEST_EXPECT(
+      mixed_junctions.size() == 1 &&
+          std::all_of(mixed_junctions.front()->junction_corners.begin(),
+                      mixed_junctions.front()->junction_corners.end(),
+                      [](const auto& corner) { return corner.radius_m == 3.0; }),
+      "mixed approach radii did not resolve per adjacent pair");
 
   RoadState reordered{};
   const auto reordered_layout = road_fixture::AddLayout(
@@ -4429,9 +4438,71 @@ bool corner_radius_extension_validation_and_mixed_resolution(std::string& failur
   }
   const auto reordered_junctions =
       road_test_view::junctions(reordered.derived());
-  ROAD_TEST_EXPECT(reordered_junctions.size() == 1 &&
-                       reordered_junctions.front()->corner_radius_m == 4.0,
-                   "mixed radius changed with approach creation order");
+  ROAD_TEST_EXPECT(
+      reordered_junctions.size() == 1 &&
+          std::all_of(reordered_junctions.front()->junction_corners.begin(),
+                      reordered_junctions.front()->junction_corners.end(),
+                      [](const auto& corner) { return corner.radius_m == 3.0; }),
+      "mixed pair radius changed with approach creation order");
+  return true;
+}
+
+bool junction_zero_radius_keeps_a_t_junction_local(std::string& failure) {
+  const auto build_t = [](double base_radius_m, double branch_radius_m,
+                          RoadState& state, std::string& failure) {
+    const auto layout =
+        road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+    ROAD_TEST_EXPECT(layout != 0, "zero-radius T section was rejected");
+    city::road::AddSegmentRequest base_request{
+        MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), layout};
+    base_request.corner_radius_m = base_radius_m;
+    const auto base = state.AddSegment(std::move(base_request));
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    city::road::AddSegmentConnectedToSegmentRequest branch_request{
+        MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), layout, base.value,
+        40.0};
+    branch_request.corner_radius_m = branch_radius_m;
+    const auto branch =
+        state.AddSegmentConnectedToSegment(std::move(branch_request));
+    ROAD_TEST_EXPECT(branch.ok, branch.error);
+    return true;
+  };
+
+  RoadState all_zero{};
+  ROAD_TEST_EXPECT(build_t(0.0, 0.0, all_zero, failure), failure);
+  const auto all_zero_junctions =
+      road_test_view::junctions(all_zero.derived());
+  ROAD_TEST_EXPECT(all_zero_junctions.size() == 1,
+                   "all-zero T did not produce one junction");
+  for (const auto& approach : all_zero_junctions.front()->approaches) {
+    ROAD_TEST_EXPECT(std::abs(approach.resolved_setback_m - 5.0) <= 1e-6,
+                     "all-zero 10m T gate was not 5m from the node");
+  }
+  ROAD_TEST_EXPECT(
+      std::all_of(all_zero_junctions.front()->junction_corners.begin(),
+                  all_zero_junctions.front()->junction_corners.end(),
+                  [](const auto& corner) { return corner.control_m == 0.0; }),
+      "zero-radius T still derived rounded junction controls");
+  for (const auto& point :
+       all_zero_junctions.front()->junction_geometry.surface_regions.front().perimeter) {
+    ROAD_TEST_EXPECT(std::hypot(point.x, point.y) <= std::sqrt(50.0) + 1e-6,
+                     "all-zero T junction perimeter extends beyond its 5m gates");
+  }
+
+  RoadState mixed{};
+  ROAD_TEST_EXPECT(build_t(4.0, 0.0, mixed, failure), failure);
+  const auto mixed_junctions = road_test_view::junctions(mixed.derived());
+  ROAD_TEST_EXPECT(mixed_junctions.size() == 1,
+                   "mixed-radius T did not produce one junction");
+  for (const auto& approach : mixed_junctions.front()->approaches) {
+    ROAD_TEST_EXPECT(std::abs(approach.resolved_setback_m - 5.0) <= 1e-6,
+                     "new zero-radius branch was replaced by a 4m connection default");
+  }
+  ROAD_TEST_EXPECT(
+      std::all_of(mixed_junctions.front()->junction_corners.begin(),
+                  mixed_junctions.front()->junction_corners.end(),
+                  [](const auto& corner) { return corner.control_m == 0.0; }),
+      "mixed-radius T rounded a corner whose adjacent preference is zero");
   return true;
 }
 
@@ -5275,6 +5346,8 @@ int main() {
        junction_corner_radius_is_authoritative_and_inherited},
       {"corner_radius_extension_validation_and_mixed_resolution",
        corner_radius_extension_validation_and_mixed_resolution},
+      {"junction_zero_radius_keeps_a_t_junction_local",
+       junction_zero_radius_keeps_a_t_junction_local},
       {"l_gutter_comes_out_of_the_widths_beside_it",
        l_gutter_comes_out_of_the_widths_beside_it},
       {"l_gutter_dimensions_leave_the_road_where_it_was",

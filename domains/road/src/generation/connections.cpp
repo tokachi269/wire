@@ -6,7 +6,6 @@
 #include "../lookup.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -35,7 +34,6 @@ using internal::to3;
 
 struct policy {
   double straight_tolerance_rad = 5.0 * std::numbers::pi / 180.0;
-  double corner_radius_m = kDefaultRoadCornerRadiusM;
   double minimum_junction_setback_m = 4.0;
   double curve_control_factor = 0.45;
   double parallel_sine_tolerance = 1e-3;
@@ -116,14 +114,77 @@ double endpoint_outer_reach(const SavedRoadGraph &graph,
   return std::max(reaches.left_m, reaches.right_m);
 }
 
-double endpoint_reach_toward(const SavedRoadGraph &graph,
-                             const RoadSegment &segment,
-                             const ordered_approach &from,
-                             const ordered_approach &toward) {
+double signed_endpoint_reach_toward(const SavedRoadGraph &graph,
+                                    const RoadSegment &segment,
+                                    const ordered_approach &from,
+                                    const ordered_approach &toward) {
   const endpoint_side_reaches reaches =
       endpoint_reaches(graph, segment, from.key);
   return cross(from.tangent, toward.tangent) > 0.0 ? reaches.left_m
-                                                   : reaches.right_m;
+                                                   : -reaches.right_m;
+}
+
+struct junction_corner_resolution {
+  ResolvedJunctionCorner corner{};
+  double first_setback_m = 0.0;
+  double second_setback_m = 0.0;
+};
+
+Result<junction_corner_resolution> resolve_junction_corner(
+    const SavedRoadGraph &graph, const ordered_approach &first,
+    const ordered_approach &second) {
+  using Out = Result<junction_corner_resolution>;
+  const RoadSegment *first_segment = find_segment(graph, first.key.segment_id);
+  const RoadSegment *second_segment = find_segment(graph, second.key.segment_id);
+  if (first_segment == nullptr || second_segment == nullptr) {
+    return Out::Fail(CommitFailureCategory::kInternalError,
+                     "road junction corner source segment is missing");
+  }
+  junction_corner_resolution resolved{};
+  resolved.corner.first_approach = first.key;
+  resolved.corner.second_approach = second.key;
+  resolved.corner.radius_m =
+      std::min(first_segment->corner_radius_m, second_segment->corner_radius_m);
+
+  const double sine = cross(first.tangent, second.tangent);
+  if (std::abs(sine) <= rules.parallel_sine_tolerance) {
+    return Out::Ok(resolved);
+  }
+
+  const Vec2d first_lateral{-first.tangent.y, first.tangent.x};
+  const Vec2d second_lateral{-second.tangent.y, second.tangent.x};
+  const double first_reach =
+      signed_endpoint_reach_toward(graph, *first_segment, first, second);
+  const double second_reach =
+      signed_endpoint_reach_toward(graph, *second_segment, second, first);
+  const Vec2d first_origin = scale(first_lateral, first_reach);
+  const Vec2d second_origin = scale(second_lateral, second_reach);
+  const Vec2d delta = subtract(second_origin, first_origin);
+  const double first_sharp_m = cross(delta, second.tangent) / sine;
+  const double second_sharp_m = cross(delta, first.tangent) / sine;
+  if (!is_finite(first_sharp_m) || !is_finite(second_sharp_m)) {
+    return Out::Fail(CommitFailureCategory::kNotImplemented,
+                     "road junction side-line intersection is not finite");
+  }
+
+  const double angle = std::acos(std::clamp(
+      dot(first.tangent, second.tangent), -1.0, 1.0));
+  const double half_angle_tangent = std::tan(angle * 0.5);
+  if (half_angle_tangent <= rules.parallel_sine_tolerance) {
+    return Out::Fail(CommitFailureCategory::kNotImplemented,
+                     "road junction corner angle is too small");
+  }
+  const double tangent_extension_m =
+      resolved.corner.radius_m / half_angle_tangent;
+  resolved.first_setback_m =
+      std::max(0.0, first_sharp_m) + tangent_extension_m;
+  resolved.second_setback_m =
+      std::max(0.0, second_sharp_m) + tangent_extension_m;
+  const double turn_angle = std::numbers::pi - angle;
+  resolved.corner.control_m =
+      (4.0 / 3.0) * resolved.corner.radius_m *
+      std::tan(turn_angle * 0.25);
+  return Out::Ok(resolved);
 }
 
 RoadLayoutTemplateId endpoint_template_id(const SavedRoadGraph &graph,
@@ -482,23 +543,6 @@ resolve_connections(const SavedRoadGraph &graph,
     for (const ordered_approach &approach : ordered) {
       connection.ordered_approaches.push_back(approach.key);
     }
-    std::optional<double> shared_corner_radius{};
-    bool mixed_corner_radius = false;
-    for (const ordered_approach &approach : ordered) {
-      const RoadSegment *segment = find_segment(graph, approach.key.segment_id);
-      if (segment == nullptr) {
-        return Out::Fail(CommitFailureCategory::kInternalError,
-                         "road corner-radius source segment is missing");
-      }
-      if (!shared_corner_radius.has_value()) {
-        shared_corner_radius = segment->corner_radius_m;
-      } else if (*shared_corner_radius != segment->corner_radius_m) {
-        mixed_corner_radius = true;
-      }
-    }
-    connection.corner_radius_m =
-        mixed_corner_radius ? rules.corner_radius_m
-                            : shared_corner_radius.value_or(rules.corner_radius_m);
     if (policy_override != nullptr) {
       connection.applied_policy_override_id = policy_override->id;
       if (policy_override->policy == NodeConnectionPolicy::kForcePassThrough) {
@@ -528,6 +572,30 @@ resolve_connections(const SavedRoadGraph &graph,
       connection.reason = "more than four approaches";
       return Out::Fail(CommitFailureCategory::kNotImplemented,
                        "road node has more than four approaches");
+    }
+
+    std::vector<junction_corner_resolution> junction_corners{};
+    if (connection.kind == NodeConnectionKind::kCorner) {
+      const RoadSegment *first = find_segment(graph, ordered[0].key.segment_id);
+      const RoadSegment *second = find_segment(graph, ordered[1].key.segment_id);
+      if (first == nullptr || second == nullptr) {
+        return Out::Fail(CommitFailureCategory::kInternalError,
+                         "road corner-radius source segment is missing");
+      }
+      connection.corner_radius_m =
+          std::min(first->corner_radius_m, second->corner_radius_m);
+    } else if (connection.kind == NodeConnectionKind::kJunction) {
+      junction_corners.reserve(ordered.size());
+      connection.junction_corners.reserve(ordered.size());
+      for (std::size_t index = 0; index < ordered.size(); ++index) {
+        Result<junction_corner_resolution> resolved = resolve_junction_corner(
+            graph, ordered[index], ordered[(index + 1) % ordered.size()]);
+        if (!resolved.ok) {
+          return Out::Fail(resolved.failure_category, resolved.error);
+        }
+        connection.junction_corners.push_back(resolved.value.corner);
+        junction_corners.push_back(std::move(resolved.value));
+      }
     }
 
     double minimum_setback = std::numeric_limits<double>::infinity();
@@ -562,35 +630,12 @@ resolve_connections(const SavedRoadGraph &graph,
                   std::tan(turn_angle * 0.5);
       } else if (connection.kind == NodeConnectionKind::kJunction) {
         setback = rules.minimum_junction_setback_m;
-        const std::size_t approach_index =
-            static_cast<std::size_t>(&approach - ordered.data());
-        const std::array<std::size_t, 2> adjacent_indices{
-            (approach_index + ordered.size() - 1) % ordered.size(),
-            (approach_index + 1) % ordered.size(),
-        };
-        for (const std::size_t other_index : adjacent_indices) {
-          const ordered_approach &other = ordered[other_index];
-          const double sine = std::abs(cross(approach.tangent, other.tangent));
-          if (sine <= rules.parallel_sine_tolerance)
-            continue;
-          const double angle = std::acos(std::clamp(
-              dot(approach.tangent, other.tangent), -1.0, 1.0));
-          const double half_angle_tangent = std::tan(angle * 0.5);
-          if (half_angle_tangent <= rules.parallel_sine_tolerance)
-            continue;
-          const RoadSegment *other_segment =
-              find_segment(graph, other.key.segment_id);
-          if (other_segment == nullptr) {
-            return Out::Fail(CommitFailureCategory::kInternalError,
-                             "road setback source segment is missing");
+        for (const junction_corner_resolution &corner : junction_corners) {
+          if (corner.corner.first_approach == approach.key) {
+            setback = std::max(setback, corner.first_setback_m);
+          } else if (corner.corner.second_approach == approach.key) {
+            setback = std::max(setback, corner.second_setback_m);
           }
-          const double section_clearance_m =
-              endpoint_reach_toward(graph, *other_segment, other, approach) /
-              sine;
-          const double corner_clearance_m =
-              connection.corner_radius_m / half_angle_tangent;
-          setback = std::max(setback,
-                             section_clearance_m + corner_clearance_m);
         }
       }
       if (!is_finite(setback) || setback < 0.0 ||
@@ -616,7 +661,8 @@ resolve_connections(const SavedRoadGraph &graph,
       if (!resolved.ok)
         return Out::Fail(resolved.failure_category, resolved.error);
       connection.approaches.push_back(std::move(resolved.value));
-      minimum_setback = std::min(minimum_setback, setback);
+      if (connection.kind == NodeConnectionKind::kCorner)
+        minimum_setback = std::min(minimum_setback, setback);
     }
     if (connection.approaches.size() > 1) {
       const RoadLayoutTemplate *expected = find_template(
@@ -685,11 +731,14 @@ resolve_connections(const SavedRoadGraph &graph,
                          "a section transition before the node");
       }
     }
-    if (!std::isfinite(minimum_setback))
-      minimum_setback = 0.0;
-    const double curve_control_m = minimum_setback * rules.curve_control_factor;
-    connection.corner_control_m = curve_control_m;
-    connection.junction_corner_control_m = curve_control_m;
+    if (connection.kind == NodeConnectionKind::kCorner) {
+      if (!std::isfinite(minimum_setback)) {
+        return Out::Fail(CommitFailureCategory::kInternalError,
+                         "road degree-two corner setback is missing");
+      }
+      connection.corner_control_m =
+          minimum_setback * rules.curve_control_factor;
+    }
     connections.push_back(std::move(connection));
   }
   return Out::Ok(std::move(connections));
@@ -783,7 +832,7 @@ Result<bool> resolve_connection_geometry(std::vector<ResolvedConnection> &connec
     }
     Result<JunctionGeometry> geometry = internal::generate_junction_geometry(
         connection.node_id, connection.ordered_approaches, gates, sections,
-        connection.junction_corner_control_m);
+        connection.junction_corners);
     if (!geometry.ok)
       return Result<bool>::Fail(geometry.failure_category, geometry.error);
     connection.junction_geometry = std::move(geometry.value);

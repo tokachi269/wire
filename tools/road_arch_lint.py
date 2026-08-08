@@ -154,6 +154,10 @@ def check_road_architecture(root: Path) -> list[str]:
                 errors.append(f"{relative(path)}: identity must not come from proximity: {pattern!r}")
 
     # 6. Connection resolution owns auto values, overrides and their policy.
+    if "junction_corner_control_m" in "\n".join(source_text(path) for path in sources):
+        errors.append(
+            "road derived model: junction corner control must be resolved per adjacent approach pair"
+        )
     for path in sources:
         relative_path = relative(path)
         if relative_path in {

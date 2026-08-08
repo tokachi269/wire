@@ -2350,6 +2350,40 @@ describe("road wasm smoke", () => {
     expect(scene.markingMeshes.length).toBeGreaterThanOrEqual(9);
   });
 
+  it("keeps a zero-radius T local when the existing road uses 4m", () => {
+    clearRoad(state);
+    const base = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      junctionCornerRadiusM: 4,
+      kind: "line",
+      startX: -40, startY: 0, endX: 40, endY: 0,
+      handleAX: -13, handleAY: 0, handleBX: 13, handleBY: 0,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    expect(base.ok, base.error).toBe(true);
+    const baseSegmentId = state.scene().centerlineSegments[0].id;
+    const branch = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      junctionCornerRadiusM: 0,
+      kind: "line",
+      startX: 0, startY: 0, endX: 0, endY: 40,
+      handleAX: 0, handleAY: 13, handleBX: 0, handleBY: 27,
+      startNodeId: 0, startSegmentId: baseSegmentId,
+      startSegmentDistanceM: 40, connectToFirstNode: false
+    });
+    expect(branch.ok, branch.error).toBe(true);
+    const scene = state.scene();
+    const crosswalks = scene.markingMeshes.filter(
+      (mesh) => mesh.material === "road_marking_crosswalk"
+    );
+    expect(crosswalks.length).toBeGreaterThan(0);
+    const farthestCoordinate = Math.max(...crosswalks.flatMap((mesh) =>
+      Array.from(mesh.vertices).filter((_value, index) => index % 3 !== 2).map(Math.abs)
+    ));
+    expect(farthestCoordinate).toBeLessThanOrEqual(10);
+  });
+
   it("splits a straight segment when a branch ends at a centerline snap", () => {
     clearRoad(state);
     const base = state.addSegment({

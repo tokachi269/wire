@@ -110,7 +110,6 @@ std::string derived_observation(const DerivedRoad& derived) {
   for (const ResolvedConnection& connection : derived.connections) {
     out << connection.node_id << ',' << static_cast<int>(connection.kind) << ','
         << connection.corner_radius_m << ',' << connection.corner_control_m << ','
-        << connection.junction_corner_control_m << ','
         << connection.applied_policy_override_id << ':';
     for (const ApproachKey& key : connection.ordered_approaches) {
       append_approach(out, key);
@@ -122,6 +121,11 @@ std::string derived_observation(const DerivedRoad& derived) {
           << approach.resolved_setback_m << ',' << approach.resolved_lateral_shift_m << ','
           << approach.gate_segment_distance_m << ';';
       append_gate(out, approach.gate);
+    }
+    for (const auto& corner : connection.junction_corners) {
+      append_approach(out, corner.first_approach);
+      append_approach(out, corner.second_approach);
+      out << ',' << corner.radius_m << ',' << corner.control_m << ';';
     }
     out << connection.connection_geometry.surface_strips.size() << ':';
     for (const ResolvedSurfaceStrip& strip : connection.connection_geometry.surface_strips) {

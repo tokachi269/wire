@@ -157,6 +157,13 @@ struct ResolvedApproach {
   ConnectionGate gate{};
 };
 
+struct ResolvedJunctionCorner {
+  ApproachKey first_approach{};
+  ApproachKey second_approach{};
+  double radius_m = 0.0;
+  double control_m = 0.0;
+};
+
 // One connected node: what it is, the approaches after override resolution and
 // the geometry that follows from them.
 struct ResolvedConnection {
@@ -164,9 +171,11 @@ struct ResolvedConnection {
   NodeConnectionKind kind = NodeConnectionKind::kUnsupported;
   NodeConnectionPolicyOverrideId applied_policy_override_id = 0;
   std::string reason{};
+  // Degree-two corners have one pair. Junction radii are resolved per adjacent
+  // approach pair and never collapsed into a connection-wide value.
   double corner_radius_m = 0.0;
   double corner_control_m = 0.0;
-  double junction_corner_control_m = 0.0;
+  std::vector<ResolvedJunctionCorner> junction_corners{};
   std::vector<ApproachKey> ordered_approaches{};
   std::vector<ResolvedApproach> approaches{};
   ConnectionGeometry connection_geometry{};

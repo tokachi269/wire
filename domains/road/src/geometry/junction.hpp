@@ -18,6 +18,6 @@ generate_junction_geometry(RoadNodeId node_id,
                            const std::vector<ApproachKey> &ordered_approaches,
                            const std::vector<ConnectionGate> &gates,
                            const std::vector<const SectionEvaluation *> &sections,
-                           double junction_corner_control_m);
+                           const std::vector<ResolvedJunctionCorner> &corners);
 
 } // namespace city::road::internal

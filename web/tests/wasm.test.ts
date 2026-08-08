@@ -1855,7 +1855,8 @@ describe("road wasm smoke", () => {
       startT: 0.25,
       completeSegmentId: added.segmentId!,
       completeT: 1,
-      continuationEndNodeId: added.endNodeId!,
+      continuationEndSegmentId: added.segmentId!,
+      continuationEndT: 1,
       laneWidthM: 3
     };
     expect(state.scene().transitionCount).toBe(0);
@@ -1868,6 +1869,66 @@ describe("road wasm smoke", () => {
     expect(after.lanePaths.some((lane) =>
       lane.segmentId === added.segmentId && lane.laneId === committed.laneId
     )).toBe(true);
+  });
+
+  it("adds a lane across segment boundaries and ends at an arbitrary road position", () => {
+    clearRoad(state);
+    const first = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 60,
+      endY: 0,
+      handleAX: 20,
+      handleAY: 0,
+      handleBX: 40,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(first.ok, first.error).toBe(true);
+    const second = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 60,
+      startY: 0,
+      endX: 120,
+      endY: 0,
+      handleAX: 80,
+      handleAY: 0,
+      handleBX: 100,
+      handleBY: 0,
+      startNodeId: first.endNodeId!,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: first.corridorId!,
+      connectToFirstNode: false
+    });
+    expect(second.ok, second.error).toBe(true);
+
+    const committed = state.addLane({
+      corridorId: first.corridorId!,
+      direction: 0,
+      side: "right",
+      startSegmentId: first.segmentId!,
+      startT: 0.5,
+      completeSegmentId: second.segmentId!,
+      completeT: 0.5,
+      continuationEndSegmentId: second.segmentId!,
+      continuationEndT: 0.75,
+      laneWidthM: 3
+    });
+    expect(committed.ok, committed.error).toBe(true);
+    const scene = state.scene();
+    expect(scene.segmentCount).toBe(3);
+    expect(scene.transitionCount).toBe(2);
+    expect(scene.corridors).toHaveLength(1);
+    expect(scene.corridors[0].segments).toHaveLength(3);
+    expect(scene.lanePaths.some((lane) => lane.laneId === committed.laneId)).toBe(true);
   });
 
 

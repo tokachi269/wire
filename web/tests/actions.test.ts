@@ -1323,7 +1323,7 @@ describe("viewport tool routing", () => {
 
 
 
-  it("collects segment-local lane positions and an explicit continuation endpoint", () => {
+  it("collects three arbitrary positions on one corridor", () => {
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
@@ -1364,7 +1364,8 @@ describe("viewport tool routing", () => {
     actions.previewViewportPoint([60, 0, 0], {
       kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 60
     });
-    expect(current(store).road.laneContinuationEndNodeId).toBe(0);
+    expect(current(store).road.laneContinuationEndSegmentId).toBe(12);
+    expect(current(store).road.laneContinuationEndT).toBe(1);
     actions.addViewportPoint([60, 0, 0], {
       kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 60
     });
@@ -1377,8 +1378,42 @@ describe("viewport tool routing", () => {
       startT: 10 / 60,
       completeSegmentId: 12,
       completeT: 0.5,
-      continuationEndNodeId: 22
+      continuationEndSegmentId: 12,
+      continuationEndT: 1
     }));
+  });
+  it("accepts an arbitrary road position as the add-lane continuation end", () => {
+    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 1 as const }], boundaries: []
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene, roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    });
+    actions.addViewportPoint([50, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 50
+    });
+    actions.confirmDrawStep();
+    expect(commit).toHaveBeenCalledOnce();
   });
   it("normalizes add-lane picks against the hidden corridor direction", () => {
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
@@ -1427,7 +1462,8 @@ describe("viewport tool routing", () => {
       corridorId: 30,
       startT: 0.5,
       completeT: 10 / 60,
-      continuationEndNodeId: 21
+      continuationEndSegmentId: 12,
+      continuationEndT: 0
     }));
   });
   it("keeps all add-lane selections after one rejected confirmation", () => {
@@ -1475,7 +1511,8 @@ describe("viewport tool routing", () => {
     expect(rejected.road.laneEditStage).toBe("continuation-end");
     expect(rejected.road.laneTransitionStartT).toBe(10 / 60);
     expect(rejected.road.laneTransitionCompleteT).toBe(0.5);
-    expect(rejected.road.laneContinuationEndNodeId).toBe(22);
+    expect(rejected.road.laneContinuationEndSegmentId).toBe(12);
+    expect(rejected.road.laneContinuationEndT).toBe(1);
     actions.previewViewportPoint([55, 0, 0], {
       kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 55,
       endpointRole: 1

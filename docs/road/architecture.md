@@ -278,7 +278,7 @@ curbやmedian edgeのように幅と高さを持つ境界も、その境界の�
 複数laneが同じcarriageway stripを共有していても、lane範囲を含む断面順から外側laneを解決する。laneとstripの
 一対一対応やstrip全幅占有をADD LANEの前提にしない。固定boundaryは選択側の内側方向にある最初の安定boundaryを使う。
 
-ADD LANEの変化開始と3車線完成位置は、一つのRoadSegment内の`SegmentPosition.t`として保存する。開始・完成位置を作るためにsegmentを
+ADD LANEの変化開始、3車線完成、維持終点は同一corridor上の`SegmentPosition`としてoperationへ渡す。Coreが各位置をcorridor累積距離へ解決し、segment境界を跨ぐtaperを連続配分する。維持終点がsegment途中なら同じoperation内でsplitする。開始・完成位置を作るためだけにはsegmentを
 分割せず、物理距離やcorridor-globalなLaneAddition entityを保存しない。boundary anchorで決まった横方向原点は明示された維持終点までの後続segmentへ派生伝播し、
 追加前から存在するlaneを再中心化しない。通常幅以降のsegmentはtransitionを所有しないため、後続segmentは通常の完成断面として扱う。
 
@@ -326,8 +326,9 @@ resolved connection、derived marking、mesh、maskも保存しない。Approach
 `LaneConnection`と`BoundaryContinuation`はID順に保存し、lane/boundary path geometryは保存しない。
 
 Web/WASM境界はCoreが返す軽量なlane world pathをhoverと選択表示にだけ使う。編集requestは選択済みの
-`LaneEndpointKey` / `BoundaryEndpointKey`を明示して渡す。AddLaneはeditorで選択した道路位置を確定前にsegment-local `t`へ変換し、
-`SegmentPosition`と明示した維持終点nodeを渡す。
+`LaneEndpointKey` / `BoundaryEndpointKey`を明示して渡す。AddLaneはeditorで選択した3つの道路位置を
+segment IDとsegment-local `t`を持つ`SegmentPosition`として渡す。Coreは3点を同じcorridor上の累積距離へ解決し、
+既存nodeの選択を要求しない。
 Webはlane接続curve、境界対応、接続相手を再計算しない。標準道路描画のpointer moveは入力Bezierと断面幅からローカルguideだけを表示し、Core operationを実行しない。ClickまたはEnterの明示commitで初めてCore generationとvalidationを行う。
 control-point編集やlane編集の明示previewはtrial stateで対応するCore operationを実行できる。preview結果は確定結果と同じresolved mesh経路を使い、preview前後でauthoritative stateを変更しない。
 AddLaneの固定基準はCoreがlaneの方向・追加側・断面順から決める。Webはrole、配列順、数値IDから候補を推測しない。

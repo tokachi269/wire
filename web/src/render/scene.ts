@@ -1076,7 +1076,7 @@ export class WireScene {
       `lane-range:${snapshot.road.laneCorridorId}:${snapshot.road.laneEditStage}:` +
         `${snapshot.road.laneTransitionStartSegmentId}:${snapshot.road.laneTransitionStartT}:` +
         `${snapshot.road.laneTransitionCompleteSegmentId}:${snapshot.road.laneTransitionCompleteT}:` +
-        `${snapshot.road.laneContinuationEndNodeId}`,
+        `${snapshot.road.laneContinuationEndSegmentId}:${snapshot.road.laneContinuationEndT}`,
       `edit:${snapshot.road.operation}:${snapshot.road.selectedEditSegmentId}:` +
         snapshot.road.editPoints.map((point) => `${point.x}:${point.y}`).join("|")
     ].join("|");
@@ -1164,15 +1164,15 @@ export class WireScene {
         const startIndex = corridor.segments.findIndex(
           (ref) => ref.segmentId === snapshot.road.laneTransitionStartSegmentId
         );
+        const selectedEndIndex = corridor.segments.findIndex(
+          (ref) => ref.segmentId === snapshot.road.laneContinuationEndSegmentId
+        );
+        const endIndex = selectedEndIndex >= startIndex
+          ? selectedEndIndex
+          : startIndex;
         for (let refIndex = Math.max(0, startIndex);
-             refIndex < corridor.segments.length; ++refIndex) {
+             refIndex <= endIndex; ++refIndex) {
           const ref = corridor.segments[refIndex];
-          const lanePath = snapshot.road.scene.lanePaths.find(
-            (item) => item.segmentId === ref.segmentId
-          );
-          const exitsAtSelectedNode = snapshot.road.laneContinuationEndNodeId !== 0 &&
-            (ref.reversed ? lanePath?.nodeAId : lanePath?.nodeBId) ===
-              snapshot.road.laneContinuationEndNodeId;
           let localMinimum = 0;
           let localMaximum = ref.lengthM;
           if (ref.segmentId === snapshot.road.laneTransitionStartSegmentId) {
@@ -1184,6 +1184,11 @@ export class WireScene {
                 snapshot.road.laneTransitionCompleteT) * ref.lengthM;
               localMinimum = 0;
             }
+          }
+          if (ref.segmentId === snapshot.road.laneContinuationEndSegmentId) {
+            const endDistance = snapshot.road.laneContinuationEndT * ref.lengthM;
+            if (ref.reversed) localMinimum = Math.max(localMinimum, endDistance);
+            else localMaximum = Math.min(localMaximum, endDistance);
           }
           for (const segment of snapshot.road.scene.centerlineSegments) {
             if (segment.id !== ref.segmentId) continue;
@@ -1214,9 +1219,8 @@ export class WireScene {
             line.renderOrder = 80;
             this.roadPreview.add(line);
           }
-          if (snapshot.road.laneContinuationEndNodeId === 0 &&
+          if (snapshot.road.laneContinuationEndSegmentId === 0 &&
               ref.segmentId === snapshot.road.laneTransitionStartSegmentId) break;
-          if (exitsAtSelectedNode) break;
         }
         material.dispose();
       }

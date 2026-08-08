@@ -336,7 +336,8 @@ export interface RoadAddLaneInput {
   startT: number;
   completeSegmentId: number;
   completeT: number;
-  continuationEndNodeId: number;
+  continuationEndSegmentId: number;
+  continuationEndT: number;
   laneWidthM: number;
 }
 

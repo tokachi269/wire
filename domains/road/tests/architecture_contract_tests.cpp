@@ -278,7 +278,7 @@ bool all_public_operation_validation_failures_are_atomic(std::string& failure) {
   lane.corridor_id = 999999;
   lane.transition_start = SegmentPosition{999998, 0.1};
   lane.transition_complete = SegmentPosition{999998, 0.9};
-  lane.continuation_end_node_id = 999997;
+  lane.continuation_end = {999997, 1.0};
   lane.lane_width_m = 3.0;
   ROAD_CONTRACT_EXPECT(expect_failed_unchanged(
                            state, [&] { return state.AddLane(lane); }, "AddLane", failure),
@@ -1338,7 +1338,7 @@ bool add_lane_leaves_unrelated_corridors_bit_identical(std::string& failure) {
     if (segment.id == widened.value) widened_segment = &segment;
   }
   ROAD_CONTRACT_EXPECT(widened_segment != nullptr, "widened segment is missing");
-  request.continuation_end_node_id = widened_segment->node_b;
+  request.continuation_end = {widened.value, 1.0};
   request.lane_width_m = 3.0;
   const auto added = state.AddLane(request);
   ROAD_CONTRACT_EXPECT(added.ok, added.error);

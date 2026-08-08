@@ -66,7 +66,8 @@ export class RoadActions {
         laneTransitionStartT: 0,
         laneTransitionCompleteSegmentId: 0,
         laneTransitionCompleteT: 0,
-        laneContinuationEndNodeId: 0,
+        laneContinuationEndSegmentId: 0,
+        laneContinuationEndT: 0,
         selectedEditSegmentId: 0,
         selectedEditNodeAId: 0,
         selectedEditNodeBId: 0,
@@ -209,11 +210,28 @@ export class RoadActions {
       if (current.operation === "add-lane") {
         if (current.laneEditStage === "transition-complete" && snap !== undefined) {
           const position = segmentPositionForSnap(current, snap);
-          if (position !== null && position.segmentId === current.laneTransitionStartSegmentId) {
+          if (position !== null &&
+              positionBelongsToCorridor(current, position, current.laneCorridorId)) {
             road = {
               ...road,
               laneTransitionCompleteSegmentId: position.segmentId,
               laneTransitionCompleteT: position.t,
+              previewMeshes: [],
+              previewState: "guide",
+              previewIssue: ""
+            };
+            this.ctx.store.update((snapshot) => ({ ...snapshot, road }));
+            return;
+          }
+        }
+        if (current.laneEditStage === "continuation-end" && snap !== undefined) {
+          const position = segmentPositionForSnap(current, snap);
+          if (position !== null &&
+              positionBelongsToCorridor(current, position, current.laneCorridorId)) {
+            road = {
+              ...road,
+              laneContinuationEndSegmentId: position.segmentId,
+              laneContinuationEndT: position.t,
               previewMeshes: [],
               previewState: "guide",
               previewIssue: ""
@@ -352,7 +370,8 @@ export class RoadActions {
             laneTransitionStartT: position.t,
             laneTransitionCompleteSegmentId: position.segmentId,
             laneTransitionCompleteT: position.t,
-            laneContinuationEndNodeId: 0,
+            laneContinuationEndSegmentId: 0,
+            laneContinuationEndT: 0,
             previewIssue: "",
             lastError: ""
           }
@@ -361,9 +380,8 @@ export class RoadActions {
       }
       if (road.laneEditStage === "transition-complete") {
         const position = snap === undefined ? null : segmentPositionForSnap(road, snap);
-        if (position === null || position.segmentId !== road.laneTransitionStartSegmentId ||
-            Math.abs(position.t - road.laneTransitionStartT) <= 1e-9) {
-          this.rejectInput("road add lane", "3車線が完成する位置を同じ道路区間上で選択してください",
+        if (position === null || !positionBelongsToCorridor(road, position, road.laneCorridorId)) {
+          this.rejectInput("road add lane", "3車線が完成する位置を同じ道路上で選択してください",
                            "lane_transition_complete_not_selected");
           return;
         }
@@ -374,7 +392,8 @@ export class RoadActions {
             laneEditStage: "continuation-end",
             laneTransitionCompleteSegmentId: position.segmentId,
             laneTransitionCompleteT: position.t,
-            laneContinuationEndNodeId: 0,
+            laneContinuationEndSegmentId: 0,
+            laneContinuationEndT: 0,
             previewIssue: "",
             lastError: ""
           }
@@ -382,8 +401,9 @@ export class RoadActions {
         return;
       }
       if (road.laneEditStage === "continuation-end") {
-        if (snap === undefined || snap.nodeId === 0) {
-          this.rejectInput("road add lane", "3車線を維持する終点ノードを選択してください",
+        const position = snap === undefined ? null : segmentPositionForSnap(road, snap);
+        if (position === null || !positionBelongsToCorridor(road, position, road.laneCorridorId)) {
+          this.rejectInput("road add lane", "3車線を維持する終点を同じ道路上で選択してください",
                            "lane_continuation_end_not_selected");
           return;
         }
@@ -391,7 +411,8 @@ export class RoadActions {
           ...snapshot,
           road: {
             ...snapshot.road,
-            laneContinuationEndNodeId: snap.nodeId,
+            laneContinuationEndSegmentId: position.segmentId,
+            laneContinuationEndT: position.t,
             previewState: "guide",
             previewIssue: "",
             lastError: ""
@@ -460,7 +481,8 @@ export class RoadActions {
         laneTransitionStartT: 0,
         laneTransitionCompleteSegmentId: 0,
         laneTransitionCompleteT: 0,
-        laneContinuationEndNodeId: 0,
+        laneContinuationEndSegmentId: 0,
+        laneContinuationEndT: 0,
         previewMeshes: [],
         previewState: "none",
         previewRequest: null,
@@ -538,7 +560,7 @@ export class RoadActions {
 
   private commitLane(road: RoadToolState): DrawActionResult {
     if (road.laneEditStage !== "continuation-end" ||
-        road.laneContinuationEndNodeId === 0 ||
+        road.laneContinuationEndSegmentId === 0 ||
         road.laneTransitionStartSegmentId === 0 ||
         road.laneTransitionCompleteSegmentId === 0 ||
         Math.abs(road.laneTransitionCompleteT - road.laneTransitionStartT) <= 1e-9) {
@@ -753,7 +775,8 @@ function laneTransitionInput(road: RoadToolState) {
     startT: road.laneTransitionStartT,
     completeSegmentId: road.laneTransitionCompleteSegmentId,
     completeT: road.laneTransitionCompleteT,
-    continuationEndNodeId: road.laneContinuationEndNodeId,
+    continuationEndSegmentId: road.laneContinuationEndSegmentId,
+    continuationEndT: road.laneContinuationEndT,
     laneWidthM: road.laneWidthM
   };
 }
@@ -769,4 +792,14 @@ function segmentPositionForSnap(
     segmentId: snap.segmentId,
     t: Math.max(0, Math.min(1, snap.segmentDistanceM / ref.lengthM))
   };
+}
+
+function positionBelongsToCorridor(
+  road: RoadToolState,
+  position: { segmentId: number; t: number },
+  corridorId: number
+): boolean {
+  return road.scene.corridors
+    .find((corridor) => corridor.id === corridorId)
+    ?.segments.some((ref) => ref.segmentId === position.segmentId) ?? false;
 }

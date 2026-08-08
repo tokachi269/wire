@@ -59,7 +59,7 @@ struct AddLaneRequest {
   RoadSide side = RoadSide::kRight;
   SegmentPosition transition_start{};
   SegmentPosition transition_complete{};
-  RoadNodeId continuation_end_node_id = 0;
+  SegmentPosition continuation_end{};
   double lane_width_m = 0.0;
 };
 } // namespace city::road

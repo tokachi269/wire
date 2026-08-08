@@ -1509,7 +1509,9 @@ public:
             city::road::SegmentPosition{
                 input["completeSegmentId"].as<city::road::RoadSegmentId>(),
                 input["completeT"].as<double>()},
-            input["continuationEndNodeId"].as<city::road::RoadNodeId>(),
+            city::road::SegmentPosition{
+                input["continuationEndSegmentId"].as<city::road::RoadSegmentId>(),
+                input["continuationEndT"].as<double>()},
             input["laneWidthM"].as<double>()});
     val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) output.set("laneId", static_cast<double>(result.value));

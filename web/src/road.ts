@@ -213,7 +213,8 @@ export interface RoadToolState {
   laneTransitionStartT: number;
   laneTransitionCompleteSegmentId: number;
   laneTransitionCompleteT: number;
-  laneContinuationEndNodeId: number;
+  laneContinuationEndSegmentId: number;
+  laneContinuationEndT: number;
   laneCorridorId: number;
   laneTargetTemplateId: number;
   laneTargetLaneId: number;
@@ -269,7 +270,8 @@ export function createRoadToolState(): RoadToolState {
     laneTransitionStartT: 0,
     laneTransitionCompleteSegmentId: 0,
     laneTransitionCompleteT: 0,
-    laneContinuationEndNodeId: 0,
+    laneContinuationEndSegmentId: 0,
+    laneContinuationEndT: 0,
     laneCorridorId: 0,
     laneTargetTemplateId: 1,
     laneTargetLaneId: 0,

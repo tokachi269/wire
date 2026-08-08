@@ -117,9 +117,7 @@
     }
     if (value.road.operation === "add-lane") {
       return value.road.laneEditStage === "continuation-end" &&
-        value.road.laneContinuationEndNodeId !== 0 &&
-        Math.abs(value.road.laneTransitionCompleteT -
-          value.road.laneTransitionStartT) > 1e-9;
+        value.road.laneContinuationEndSegmentId !== 0;
     }
     return value.road.operation === "draw" && value.road.previewRequest !== null;
   }

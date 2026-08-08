@@ -204,6 +204,9 @@ degree 0/1のnodeにはconnection entity、gate、layoutを作らない。
 Junction geometryはtemplate IDや表示styleで断面を分類しない。gateごとに左右のroad outer、curb、
 shoulder、carriageway edgeをboundary roleとstrip adjacencyから解決し、存在する帯だけを生成する。
 片側だけcurbがある断面も同じ解決器を通し、候補が複数で意味が一意にならない側だけをunsupportedとする。
+異なる断面sideを接続するときは`carriageway edge`と`road outer`を両端の固定対応とし、片側だけにある
+shoulder等の中間faceはcarriageway側の幅0から展開する。gutterの輪郭点をroad outerへ読み替えず、
+各gateに存在するgutter上面幅とroad outer位置を維持する。
 carriagewayとshoulderは同じAsphalt surface regionとしてcurb innerまで一度だけemitし、
 carriageway edgeはsurface分割ではなくshoulderを示すsemantic markingとして保持する。
 

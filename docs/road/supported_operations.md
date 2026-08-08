@@ -69,9 +69,12 @@ nearest buildable shape is substituted.
 
 Two limits remain. A profile can only sit between two strips, so a gutter on a
 road with nothing outside it — no walkway on that side — has nowhere to be
-declared. And a connection still needs both endpoint sections to carry identical
-surface mappings, so a road with a gutter does not connect to one without.
-Both stay `NotImplemented`; `backlog.md` records what they need.
+declared. A degree-two connection still needs both endpoint sections to carry
+identical surface mappings. A junction may connect different side depths: it
+keeps both carriageway edges and both road outer edges fixed and lets an extra
+inner face begin at zero width. A gutter itself is not substituted for a missing
+profile. The remaining cases stay `NotImplemented`; `backlog.md` records what
+they need.
 
 Lane Branch and Merge are not available. Their editor asked the user to pick a
 raw boundary ID and auto-selected a default, so the operation was removed rather

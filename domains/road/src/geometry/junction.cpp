@@ -376,17 +376,26 @@ generate_junction_geometry(RoadNodeId node_id,
     asphalt_perimeter.push_back(a.chain.front());
     if (a.approach == b.approach)
       continue;
-    // Holding the shorter side at its own outer edge opens its section out into
-    // a wedge, so it takes the shape of the side it meets instead.
     const std::size_t depth = std::max(a.chain.size(), b.chain.size());
-    const auto reach = [](const side &value, const side &other,
-                          std::size_t point) {
+    const side &shorter = a.faces.size() <= b.faces.size() ? a : b;
+    const side &longer = a.faces.size() <= b.faces.size() ? b : a;
+    const bool shares_outer_profile =
+        !shorter.faces.empty() && shorter.faces.size() <= longer.faces.size() &&
+        std::equal(shorter.faces.rbegin(), shorter.faces.rend(),
+                   longer.faces.rbegin());
+    const auto reach = [depth, shares_outer_profile,
+                        &longer](const side &value, std::size_t point) {
+      if (shares_outer_profile) {
+        const std::size_t missing = depth - value.chain.size();
+        return value.chain[point < missing ? 0 : point - missing];
+      }
       if (point < value.chain.size()) return value.chain[point];
       const std::size_t last = value.chain.size() - 1;
       Vec3d extended = add3(
           value.chain[last],
-          scale3(value.outward, other.outward_m[point] - other.outward_m[last]));
-      extended.z += other.height_m[point] - other.height_m[last];
+          scale3(value.outward,
+                 longer.outward_m[point] - longer.outward_m[last]));
+      extended.z += longer.height_m[point] - longer.height_m[last];
       return extended;
     };
     const std::vector<RenderStyleRef> &faces =
@@ -403,7 +412,7 @@ generate_junction_geometry(RoadNodeId node_id,
     };
     std::vector<std::vector<Vec3d>> swept{};
     for (std::size_t point = 0; point < depth; ++point) {
-      swept.push_back(curve_points(reach(a, b, point), reach(b, a, point)));
+      swept.push_back(curve_points(reach(a, point), reach(b, point)));
       if (swept.back().empty()) {
         return Result<JunctionGeometry>::Fail(
             CommitFailureCategory::kNotImplemented,

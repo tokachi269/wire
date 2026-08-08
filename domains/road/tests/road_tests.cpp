@@ -4239,6 +4239,103 @@ bool a_gutter_keeps_its_width_where_it_meets_another_layout(std::string& failure
   return true;
 }
 
+bool unlike_guttered_roads_join_road_outer_to_road_outer(std::string& failure) {
+  RoadState state{};
+  const auto guttered =
+      road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  city::road::RoadLayoutTemplate shouldered =
+      road_fixture::ShoulderedLayout(0);
+  const city::road::RoadLayoutTemplate gutter_profile =
+      road_fixture::GutteredLayout(0);
+  shouldered.boundaries.front() = gutter_profile.boundaries.front();
+  shouldered.boundaries.front().marking = {};
+  shouldered.boundaries.back() = gutter_profile.boundaries.back();
+  shouldered.boundaries.back().marking = {};
+  const auto guttered_shoulder =
+      road_fixture::AddLayout(state, std::move(shouldered));
+
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), guttered});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}),
+          guttered_shoulder, base.value, 40.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1,
+                   "unlike guttered roads did not form one junction");
+
+  const auto world_point = [](const city::road::ConnectionGate& gate,
+                              const city::road::SectionBoundarySample& sample) {
+    const double lateral = gate.approach.endpoint_role == EndpointRole::kEnd
+                               ? -sample.lateral_m
+                               : sample.lateral_m;
+    return Vec3d{gate.position.x + gate.lateral.x * lateral,
+                 gate.position.y + gate.lateral.y * lateral,
+                 gate.position.z + sample.height_m};
+  };
+  const auto horizontal_distance = [](const Vec3d& a, const Vec3d& b) {
+    return std::hypot(a.x - b.x, a.y - b.y);
+  };
+
+  std::vector<Vec3d> expected_outer{};
+  for (const auto& gate : road_test_view::gates_of(*junctions.front())) {
+    ROAD_TEST_EXPECT(gate.boundaries.size() >= 2,
+                     "a mixed-layout gate has no road outer boundaries");
+    expected_outer.push_back(world_point(gate, gate.boundaries.front()));
+    expected_outer.push_back(world_point(gate, gate.boundaries.back()));
+  }
+  std::vector<Vec3d> resolved_outer{};
+  bool kept_gutter_top = false;
+  for (const auto& strip :
+       junctions.front()->junction_geometry.surface_strips) {
+    if (strip.style == RenderStyleFromSurface(builtin_surface_styles::kCurb) &&
+        !strip.left.empty() && !strip.right.empty() &&
+        std::abs(horizontal_distance(strip.left.front(), strip.right.front()) -
+                 0.1) <= 1e-6 &&
+        std::abs(horizontal_distance(strip.left.back(), strip.right.back()) -
+                 0.1) <= 1e-6 &&
+        std::abs(strip.left.front().z - strip.right.front().z) <= 1e-6 &&
+        std::abs(strip.left.back().z - strip.right.back().z) <= 1e-6) {
+      kept_gutter_top = true;
+    }
+    if (strip.style !=
+        RenderStyleFromSurface(builtin_surface_styles::kSidewalk)) {
+      continue;
+    }
+    ROAD_TEST_EXPECT(!strip.left.empty() && !strip.right.empty(),
+                     "a junction sidewalk strip has no boundary curves");
+    ROAD_TEST_EXPECT(
+        std::abs(horizontal_distance(strip.left.front(), strip.right.front()) -
+                 1.9) <=
+                1e-6 &&
+            std::abs(horizontal_distance(strip.left.back(), strip.right.back()) -
+                     1.9) <=
+                1e-6,
+        "joining different roads changed the gutter top or sidewalk width");
+    resolved_outer.push_back(strip.right.front());
+    resolved_outer.push_back(strip.right.back());
+  }
+  ROAD_TEST_EXPECT(resolved_outer.size() == expected_outer.size(),
+                   "junction sidewalk outer edge count does not match its gates");
+  for (const Vec3d& expected : expected_outer) {
+    const auto found = std::find_if(
+        resolved_outer.begin(), resolved_outer.end(),
+        [&](const Vec3d& actual) {
+          return horizontal_distance(expected, actual) <= 1e-6 &&
+                 std::abs(expected.z - actual.z) <= 1e-6;
+        });
+    ROAD_TEST_EXPECT(
+        found != resolved_outer.end(),
+        "a junction connected a gutter point instead of the road outer edge at " +
+            std::to_string(expected.x) + "," + std::to_string(expected.y));
+  }
+  ROAD_TEST_EXPECT(kept_gutter_top,
+                   "joining different roads changed the 0.1m gutter top");
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -4384,6 +4481,8 @@ int main() {
        a_carriageway_edge_line_is_painted_on_the_road},
       {"a_gutter_keeps_its_width_where_it_meets_another_layout",
        a_gutter_keeps_its_width_where_it_meets_another_layout},
+      {"unlike_guttered_roads_join_road_outer_to_road_outer",
+       unlike_guttered_roads_join_road_outer_to_road_outer},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

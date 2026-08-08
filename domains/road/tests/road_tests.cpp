@@ -4172,6 +4172,44 @@ bool a_crossing_stays_on_the_roadway(std::string& failure) {
   return true;
 }
 
+bool a_junction_carries_the_edge_profile_it_was_given(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), layout});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), layout, base.value, 40.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  const auto junctions = road_test_view::junctions(state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1, "the guttered roads did not form one junction");
+
+  // The gutter has a face that stands up. A junction that keeps the shape it
+  // was handed carries it; one that reduces the section to an outer edge, a
+  // curb and a carriageway edge turns it into a slope.
+  std::size_t standing = 0;
+  for (const auto& strip : junctions.front()->junction_geometry.surface_strips) {
+    ROAD_TEST_EXPECT(strip.left.size() == strip.right.size() && !strip.left.empty(),
+                     "a junction strip is incomplete");
+    bool flat_in_plan = true;
+    bool apart_in_height = false;
+    for (std::size_t i = 0; i < strip.left.size(); ++i) {
+      if (std::hypot(strip.left[i].x - strip.right[i].x,
+                     strip.left[i].y - strip.right[i].y) > 1e-6) {
+        flat_in_plan = false;
+      }
+      if (std::abs(strip.left[i].z - strip.right[i].z) > 1e-6) {
+        apart_in_height = true;
+      }
+    }
+    if (flat_in_plan && apart_in_height) ++standing;
+  }
+  ROAD_TEST_EXPECT(standing > 0,
+                   "the junction flattened the gutter into a slope");
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -4311,6 +4349,8 @@ int main() {
        a_corner_carries_one_line_per_boundary},
       {"a_crossing_stays_on_the_roadway",
        a_crossing_stays_on_the_roadway},
+      {"a_junction_carries_the_edge_profile_it_was_given",
+       a_junction_carries_the_edge_profile_it_was_given},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

@@ -1187,18 +1187,24 @@ bool same_angle_approaches_use_id_tie_break(std::string& failure) {
 bool unsupported_junction_section_is_atomic(std::string& failure) {
   RoadState state{};
   const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
-  RoadLayoutTemplate ambiguous = road_fixture::ShoulderedLayout(0);
-  ambiguous.strips.insert(
-      ambiguous.strips.begin() + 2,
-      RoadLayoutStrip{16, StripFunction::kShoulder, 0.25, 0.02,
-                   builtin_surface_styles::kAsphalt});
-  ambiguous.boundaries.insert(
-      ambiguous.boundaries.begin() + 2,
-      road_fixture::PaintedLineBoundary(160, BoundaryRole::kOuterEdge, {}));
+  // A junction is laid out from where the carriageway begins and ends. A
+  // section with no carriageway in it says nothing about that, so the junction
+  // it would meet at is unsupported rather than guessed.
+  RoadLayoutTemplate walkway_only{};
+  walkway_only.strips = {
+      RoadLayoutStrip{10, StripFunction::kSidewalk, 2.0, 0.01,
+                      builtin_surface_styles::kSidewalk},
+      RoadLayoutStrip{20, StripFunction::kSidewalk, 2.0, -0.01,
+                      builtin_surface_styles::kSidewalk},
+  };
+  walkway_only.boundaries = {
+      road_fixture::PaintedLineBoundary(160, BoundaryRole::kOuterEdge, {})};
+  walkway_only.alignment_offset_from_left_m =
+      road_fixture::CentredAlignmentOffset(walkway_only);
   const auto template_id = state.AddRoadLayoutTemplate(
-      AddRoadLayoutTemplateRequest{std::move(ambiguous)});
+      AddRoadLayoutTemplateRequest{std::move(walkway_only)});
   ROAD_CONTRACT_EXPECT(template_id.ok,
-                       "ambiguous junction fixture could not be created");
+                       "walkway-only junction fixture could not be created");
   const auto base = state.AddSegment(
       AddSegmentRequest{MakePath({MakeLine({-20.0, 0.0}, {0.0, 0.0})}),
                         template_id.value});

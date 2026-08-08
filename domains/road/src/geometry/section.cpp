@@ -173,10 +173,44 @@ merge_boundary_policies(const RoadLayoutTemplate &section) {
   return Result<std::vector<AutoMarkingPolicy>>::Ok(std::move(merged));
 }
 
+// A boundary with faces is a structure and owns where its surface is. A
+// boundary with a single point has no face: it is somewhere to measure and to
+// paint, and its surface sample gives way to any structure that covers it. The
+// layout position it stands for is unaffected either way.
+bool structural_profile(const BoundaryProfile &boundary) {
+  return boundary.contour.size() > 1;
+}
+
+// The surface runs one way across the section even where a structure reaches
+// further than the strip beside it is wide. A structure holds its shape and the
+// samples it covers collapse onto it, so the surface neither folds back nor
+// leaves a gap; where two structures reach over each other they meet and the
+// surface between them is empty.
+void settle_surface_order(std::vector<SectionBoundarySample> &samples,
+                          const std::vector<bool> &fixed) {
+  for (std::size_t index = samples.size() - 1; index > 0; --index) {
+    SectionBoundarySample &earlier = samples[index - 1];
+    const SectionBoundarySample &later = samples[index];
+    if (fixed[index - 1] || earlier.lateral_m <= later.lateral_m)
+      continue;
+    earlier.lateral_m = later.lateral_m;
+    earlier.height_m = later.height_m;
+  }
+  for (std::size_t index = 1; index < samples.size(); ++index) {
+    SectionBoundarySample &later = samples[index];
+    const SectionBoundarySample &earlier = samples[index - 1];
+    if (later.lateral_m >= earlier.lateral_m)
+      continue;
+    later.lateral_m = earlier.lateral_m;
+    later.height_m = earlier.height_m;
+  }
+}
+
 std::vector<SectionBoundarySample>
 derive_boundaries(const RoadLayoutTemplate &section,
                  const std::vector<AutoMarkingPolicy> &policies) {
   std::vector<SectionBoundarySample> samples{};
+  std::vector<bool> fixed{};
   if (section.strips.empty())
     return samples;
   // `datum` is where the layout says an element sits and only strips move it;
@@ -188,12 +222,13 @@ derive_boundaries(const RoadLayoutTemplate &section,
   double carriageway_floor = std::numeric_limits<double>::infinity();
   samples.push_back(
       SectionBoundarySample{1, BoundaryRole::kOuterEdge, lateral, height, {}});
+  fixed.push_back(false);
   for (std::size_t index = 0; index < section.strips.size(); ++index) {
     const RoadLayoutStrip &strip = section.strips[index];
     const double strip_start_height = height;
     datum += strip.width_m;
     if (index >= section.boundaries.size()) {
-      height += strip.cross_slope * (datum - lateral);
+      height += strip.cross_slope * std::max(0.0, datum - lateral);
       lateral = datum;
       if (strip.function == StripFunction::kCarriageway) {
         carriageway_floor =
@@ -215,7 +250,7 @@ derive_boundaries(const RoadLayoutTemplate &section,
     // The cross slope runs as far as the strip's surface reaches, not as far as
     // its declared width.
     const double first_lateral = datum + boundary.contour.front().lateral_m;
-    height += strip.cross_slope * (first_lateral - lateral);
+    height += strip.cross_slope * std::max(0.0, first_lateral - lateral);
     lateral = first_lateral;
     if (strip.function == StripFunction::kCarriageway) {
       carriageway_floor =
@@ -237,10 +272,13 @@ derive_boundaries(const RoadLayoutTemplate &section,
       samples.push_back(with_adjacency(SectionBoundarySample{
           boundary.boundary_id, boundary.role, lateral, height,
           point == marked ? policy : AutoMarkingPolicy{}}));
+      fixed.push_back(structural_profile(boundary));
     }
   }
   samples.push_back(SectionBoundarySample{
       999, BoundaryRole::kOuterEdge, lateral, height, {}});
+  fixed.push_back(false);
+  settle_surface_order(samples, fixed);
   if (is_finite(carriageway_floor)) {
     for (SectionBoundarySample &sample : samples) {
       sample.height_m -= carriageway_floor;

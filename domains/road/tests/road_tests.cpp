@@ -3987,6 +3987,85 @@ bool l_gutter_keeps_its_faces_through_a_junction(std::string& failure) {
   return true;
 }
 
+bool add_lane_beside_a_gutter_tapers_from_nothing(std::string& failure) {
+  for (const city::road::RoadSide side :
+       {city::road::RoadSide::kLeft, city::road::RoadSide::kRight}) {
+    RoadState state{};
+    const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+    const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), layout});
+    ROAD_TEST_EXPECT(segment.ok, segment.error);
+    const auto* corridor = city::road::FindCorridorForSegment(state.graph(), segment.value);
+    ROAD_TEST_EXPECT(corridor != nullptr, "guttered fixture corridor is missing");
+
+    const auto before = road_test_view::sections(state.derived());
+    ROAD_TEST_EXPECT(!before.empty(), "guttered road has no sections");
+    const auto divider_before = boundary_lateral(*before.front(), 200);
+    const double left_end_before = before.front()->boundaries.front().lateral_m;
+    ROAD_TEST_EXPECT(divider_before.has_value(), "guttered fixture divider is missing");
+
+    city::road::AddLaneRequest request{};
+    request.corridor_id = corridor->id;
+    request.direction = city::road::LaneTravelDirection::kAlongSegment;
+    request.side = side;
+    ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
+                     "added lane range could not be resolved");
+    request.lane_width_m = 3.0;
+    // The gutter reaches 0.35 into the roadway, further than the new lane is
+    // wide for the first tenth of its taper. That is a layout the section has
+    // to be able to state.
+    const auto added = state.AddLane(request);
+    ROAD_TEST_EXPECT(added.ok, added.error);
+
+    const auto sections = road_test_view::sections(state.derived());
+    ROAD_TEST_EXPECT(sections.size() >= 3, "the taper produced too few sections");
+    double narrowest = std::numeric_limits<double>::infinity();
+    for (const auto* section : sections) {
+      double previous = -std::numeric_limits<double>::infinity();
+      for (const auto& boundary : section->boundaries) {
+        ROAD_TEST_EXPECT(boundary.lateral_m + 1e-12 >= previous,
+                         "the section surface folded back on itself");
+        previous = boundary.lateral_m;
+      }
+      const double width = section->boundaries.back().lateral_m -
+                           section->boundaries.front().lateral_m;
+      narrowest = std::min(narrowest, width);
+    }
+    // The taper still starts from nothing: the narrowest section is the road
+    // without the new lane.
+    ROAD_TEST_EXPECT(std::abs(narrowest - 10.0) < 1e-9,
+                     "the new lane did not start from zero width");
+
+    // The alignment and the lanes that were already there do not move, and the
+    // side that is not growing keeps its outer end.
+    for (const auto* section : sections) {
+      const auto divider = boundary_lateral(*section, 200);
+      ROAD_TEST_EXPECT(divider.has_value(), "the centre line went missing");
+      if (side == city::road::RoadSide::kRight) {
+        ROAD_TEST_EXPECT(std::abs(*divider - *divider_before) < 1e-9,
+                         "adding a lane on the right moved the centre line");
+        ROAD_TEST_EXPECT(
+            std::abs(section->boundaries.front().lateral_m - left_end_before) < 1e-9,
+            "adding a lane on the right moved the left outer end");
+      }
+    }
+
+    // The gutter keeps the shape it was given: 0.1 of top, a vertical face,
+    // 0.25 of channel and 0.1 of lip.
+    const auto& widest = *sections.back();
+    const auto& tail = widest.boundaries;
+    ROAD_TEST_EXPECT(tail.size() >= 5, "the widened section lost the gutter");
+    const std::array<double, 4> gutter_steps{0.1, 0.0, 0.25, 0.1};
+    for (std::size_t index = 0; index < gutter_steps.size(); ++index) {
+      ROAD_TEST_EXPECT(
+          std::abs((tail[index + 2].lateral_m - tail[index + 1].lateral_m) -
+                   gutter_steps[index]) < 1e-9,
+          "the gutter profile was reshaped to fit the lane beside it");
+    }
+  }
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -4118,6 +4197,8 @@ int main() {
        saved_boundary_profiles_survive_reload},
       {"l_gutter_keeps_its_faces_through_a_junction",
        l_gutter_keeps_its_faces_through_a_junction},
+      {"add_lane_beside_a_gutter_tapers_from_nothing",
+       add_lane_beside_a_gutter_tapers_from_nothing},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

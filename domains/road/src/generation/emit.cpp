@@ -5,9 +5,9 @@
 #include "../geometry/geometry.hpp"
 
 #include <algorithm>
-#include <iterator>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 
 namespace city::road::generation {
 namespace {
@@ -31,14 +31,9 @@ double triangle_normal_z(Vec3d a, Vec3d b, Vec3d c) {
   return ux * vy - uy * vx;
 }
 
-void append_triangle_up(Mesh &mesh, std::uint32_t a, std::uint32_t b,
-                        std::uint32_t c) {
-  if (triangle_normal_z(mesh.vertices[a], mesh.vertices[b], mesh.vertices[c]) <
-      0.0) {
-    mesh.indices.insert(mesh.indices.end(), {a, c, b});
-  } else {
-    mesh.indices.insert(mesh.indices.end(), {a, b, c});
-  }
+void append_triangle(Mesh &mesh, std::uint32_t a, std::uint32_t b,
+                     std::uint32_t c) {
+  mesh.indices.insert(mesh.indices.end(), {a, b, c});
 }
 
 void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
@@ -52,8 +47,8 @@ void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
   }
   for (std::uint32_t i = 0; i + 1 < a.size(); ++i) {
     const std::uint32_t p = base + i * 2;
-    append_triangle_up(mesh, p, p + 2, p + 1);
-    append_triangle_up(mesh, p + 1, p + 2, p + 3);
+    append_triangle(mesh, p, p + 2, p + 1);
+    append_triangle(mesh, p + 1, p + 2, p + 3);
   }
 }
 
@@ -115,7 +110,7 @@ Result<bool> append_polygon(Mesh &mesh, const std::vector<Vec3d> &perimeter) {
       }
       if (contains_point)
         continue;
-      append_triangle_up(mesh, base + previous, base + current, base + next);
+      append_triangle(mesh, base + previous, base + current, base + next);
       remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(index));
       clipped = true;
       break;
@@ -126,8 +121,8 @@ Result<bool> append_polygon(Mesh &mesh, const std::vector<Vec3d> &perimeter) {
           "junction surface polygon cannot be triangulated");
     }
   }
-  append_triangle_up(mesh, base + remaining[0], base + remaining[1],
-                     base + remaining[2]);
+  append_triangle(mesh, base + remaining[0], base + remaining[1],
+                  base + remaining[2]);
   return Result<bool>::Ok(true);
 }
 
@@ -232,7 +227,10 @@ Result<std::vector<Mesh>> emit_connection(const ConnectionGeometry &input) {
       found = std::prev(meshes.end());
       found->style = strip.style;
     }
-    append_strip(*found, strip.left, strip.right);
+    if (strip.winding == SurfaceWinding::kLeftToRight)
+      append_strip(*found, strip.left, strip.right);
+    else
+      append_strip(*found, strip.right, strip.left);
   }
   return Result<std::vector<Mesh>>::Ok(std::move(meshes));
 }
@@ -265,7 +263,10 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
       found = std::prev(output.surface_meshes.end());
       found->style = strip.style;
     }
-    append_strip(*found, strip.left, strip.right);
+    if (strip.winding == SurfaceWinding::kLeftToRight)
+      append_strip(*found, strip.left, strip.right);
+    else
+      append_strip(*found, strip.right, strip.left);
   }
   return Result<junction_output>::Ok(std::move(output));
 }
@@ -300,7 +301,7 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
         right.push_back(Vec3d{current.x - lateral.x * half_width,
                               current.y - lateral.y * half_width, current.z});
       }
-      append_strip(mesh, left, right);
+      append_strip(mesh, right, left);
       output.push_back(std::move(mesh));
     }
     if (!marking.polygon.empty()) {
@@ -313,7 +314,7 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
       mesh.style = RenderStyleFromMarking(marking.style_id);
       mesh.vertices = marking.polygon;
       for (std::uint32_t index = 1; index + 1 < marking.polygon.size(); ++index) {
-        append_triangle_up(mesh, 0, index, index + 1);
+        append_triangle(mesh, 0, index, index + 1);
       }
       output.push_back(std::move(mesh));
     }

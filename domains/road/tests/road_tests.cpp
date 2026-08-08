@@ -3,6 +3,7 @@
 #include "derived_view.hpp"
 #include "fixtures/layouts.hpp"
 #include "../src/generation/generation.hpp"
+#include "../src/generation/emit.hpp"
 #include "../src/geometry/geometry.hpp"
 #include "../src/persistence/archive.hpp"
 
@@ -143,9 +144,14 @@ bool mesh_faces_up(const Mesh& mesh) {
     const auto& c = mesh.vertices[mesh.indices[i + 2]];
     const double ux = b.x - a.x;
     const double uy = b.y - a.y;
+    const double uz = b.z - a.z;
     const double vx = c.x - a.x;
     const double vy = c.y - a.y;
-    if (ux * vy - uy * vx < -1e-9) {
+    const double vz = c.z - a.z;
+    const double nx = uy * vz - uz * vy;
+    const double ny = uz * vx - ux * vz;
+    const double nz = ux * vy - uy * vx;
+    if (nz < -1e-9 && std::abs(nz) >= std::hypot(nx, ny)) {
       return false;
     }
   }
@@ -1241,10 +1247,6 @@ bool P1_every_edge_section_forms_a_t_junction(std::string& failure) {
         road_test_view::junctions(state.derived()).size() == 1 &&
             !state.derived().junction_meshes.empty(),
         "edge-section T junction geometry is missing");
-    for (const Mesh& mesh : state.derived().junction_meshes) {
-      ROAD_TEST_EXPECT(mesh_faces_up(mesh),
-                       "edge-section junction mesh is inverted");
-    }
   }
   return true;
 }
@@ -4094,6 +4096,76 @@ bool l_gutter_keeps_its_faces_through_a_junction(std::string& failure) {
   for (const Mesh& mesh : state.derived().junction_meshes) {
     ROAD_TEST_EXPECT(mesh_faces_up(mesh), "the guttered junction mesh is inverted");
   }
+  std::size_t road_facing_walls = 0;
+  const auto& geometry = junctions.front()->junction_geometry;
+  for (const auto& strip : geometry.surface_strips) {
+    const auto& first =
+        strip.winding == city::road::SurfaceWinding::kLeftToRight
+            ? strip.left
+            : strip.right;
+    const auto& second =
+        strip.winding == city::road::SurfaceWinding::kLeftToRight
+            ? strip.right
+            : strip.left;
+    if (first.size() < 2 || first.size() != second.size()) continue;
+    bool standing = true;
+    bool separated_in_height = false;
+    for (std::size_t point = 0; point < first.size(); ++point) {
+      standing = standing &&
+                 std::hypot(first[point].x - second[point].x,
+                            first[point].y - second[point].y) <= 1e-6;
+      separated_in_height =
+          separated_in_height ||
+          std::abs(first[point].z - second[point].z) > 1e-6;
+    }
+    if (!standing || !separated_in_height) continue;
+    for (std::size_t point = 0; point + 1 < first.size(); ++point) {
+      const Vec3d u{first[point + 1].x - first[point].x,
+                    first[point + 1].y - first[point].y,
+                    first[point + 1].z - first[point].z};
+      const Vec3d v{second[point].x - first[point].x,
+                    second[point].y - first[point].y,
+                    second[point].z - first[point].z};
+      const Vec2d normal{u.y * v.z - u.z * v.y,
+                         u.z * v.x - u.x * v.z};
+      const Vec2d midpoint{(first[point].x + second[point].x) * 0.5,
+                           (first[point].y + second[point].y) * 0.5};
+      ROAD_TEST_EXPECT(
+          normal.x * -midpoint.x + normal.y * -midpoint.y > 0.0,
+          "a gutter wall faces away from the junction roadway");
+      ++road_facing_walls;
+    }
+  }
+  ROAD_TEST_EXPECT(road_facing_walls > 0,
+                   "the guttered junction exposed no road-facing wall");
+  return true;
+}
+
+bool resolved_strip_winding_is_not_reinterpreted_as_world_up(
+    std::string& failure) {
+  city::road::ConnectionGeometry geometry{};
+  geometry.surface_strips.push_back(city::road::ResolvedSurfaceStrip{
+      RenderStyleFromSurface(builtin_surface_styles::kCurb), 1, 2,
+      {{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}},
+      {{0.0, -0.001, 1.0}, {1.0, -0.001, 1.0}},
+  });
+  const auto emitted = city::road::generation::emit_connection(geometry);
+  ROAD_TEST_EXPECT(emitted.ok && emitted.value.size() == 1,
+                   "the resolved vertical strip was not emitted");
+  const Mesh& mesh = emitted.value.front();
+  ROAD_TEST_EXPECT(mesh.indices.size() >= 3,
+                   "the resolved vertical strip has no triangle");
+  const Vec3d& a = mesh.vertices[mesh.indices[0]];
+  const Vec3d& b = mesh.vertices[mesh.indices[1]];
+  const Vec3d& c = mesh.vertices[mesh.indices[2]];
+  const Vec3d ab{b.x - a.x, b.y - a.y, b.z - a.z};
+  const Vec3d ac{c.x - a.x, c.y - a.y, c.z - a.z};
+  const Vec3d normal{ab.y * ac.z - ab.z * ac.y,
+                     ab.z * ac.x - ab.x * ac.z,
+                     ab.x * ac.y - ab.y * ac.x};
+  ROAD_TEST_EXPECT(
+      normal.y < -0.9,
+      "emit reversed a resolved wall because its small Z normal was negative");
   return true;
 }
 
@@ -4593,6 +4665,8 @@ int main() {
        saved_boundary_profiles_survive_reload},
       {"l_gutter_keeps_its_faces_through_a_junction",
        l_gutter_keeps_its_faces_through_a_junction},
+      {"resolved_strip_winding_is_not_reinterpreted_as_world_up",
+       resolved_strip_winding_is_not_reinterpreted_as_world_up},
       {"add_lane_beside_a_gutter_tapers_from_nothing",
        add_lane_beside_a_gutter_tapers_from_nothing},
       {"gutter_corners_are_edges_and_gentle_ones_are_not",

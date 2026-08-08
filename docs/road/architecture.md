@@ -231,6 +231,11 @@ CarriagewayEdgeは隣接sideのrole/styleが一致する場合、解決済みjun
 解決済みgeometryだけを受け取り、頂点・index・normal・UV・mesh groupと有限性検査を行う。
 接続種別、setback、override適用、boundary対応、marking範囲、owner、style、線幅を決めない。
 
+surfaceの表向きはgeometry ownerが決める。section順と元segmentのface normalから
+`ResolvedSurfaceStrip.winding`を導出し、junctionの上面regionはownerがperimeter順を確定する。
+`emit_geometry`は三角形のnormalをworld-upと比較してindexを反転しない。これにより、水平上面、
+横断勾配、gutterの立面、将来の高架下面を同じemit規則で扱い、立面の微小なZ成分を上面と誤認しない。
+
 ## Style ownership
 
 | 層 | 契約 |

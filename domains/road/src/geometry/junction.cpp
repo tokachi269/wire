@@ -23,6 +23,25 @@ Vec3d subtract3(Vec3d a, Vec3d b) {
   return {a.x - b.x, a.y - b.y, a.z - b.z};
 }
 
+Vec3d cross3(Vec3d a, Vec3d b) {
+  return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+          a.x * b.y - a.y * b.x};
+}
+
+double dot3(Vec3d a, Vec3d b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+double signed_area_xy(const std::vector<Vec3d> &points) {
+  double twice_area = 0.0;
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    const Vec3d &a = points[index];
+    const Vec3d &b = points[(index + 1) % points.size()];
+    twice_area += a.x * b.y - b.x * a.y;
+  }
+  return twice_area * 0.5;
+}
+
 Vec3d gate_point_at(const ConnectionGate &gate, double section_lateral_m,
                     double height_m) {
   const double lateral_m = gate.approach.endpoint_role == EndpointRole::kEnd
@@ -219,6 +238,9 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
         geometry.boundary_curves[index + 1].source_boundary_id,
         geometry.boundary_curves[index].points,
         geometry.boundary_curves[index + 1].points,
+        first.approach.endpoint_role == EndpointRole::kStart
+            ? SurfaceWinding::kRightToLeft
+            : SurfaceWinding::kLeftToRight,
     });
   }
   return Result<ConnectionGeometry>::Ok(std::move(geometry));
@@ -227,6 +249,7 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
 struct junction_side {
   std::vector<const SectionBoundarySample *> chain{};
   std::vector<RenderStyleRef> faces{};
+  bool follows_section_order = false;
 };
 
 struct junction_section {
@@ -259,11 +282,13 @@ resolve_junction_section(const ConnectionGate &gate,
     resolved.left.chain.push_back(&samples[index]);
     if (index > 0) resolved.left.faces.push_back(section.surface_styles[index - 1]);
   }
+  resolved.left.follows_section_order = false;
   for (std::size_t index = carriageway_edges.back(); index < samples.size(); ++index) {
     resolved.right.chain.push_back(&samples[index]);
     if (index + 1 < samples.size())
       resolved.right.faces.push_back(section.surface_styles[index]);
   }
+  resolved.right.follows_section_order = true;
   return Result<junction_section>::Ok(std::move(resolved));
 }
 
@@ -275,6 +300,7 @@ struct side {
   std::vector<double> height_m{};
   Vec3d outward{};
   std::vector<RenderStyleRef> faces{};
+  std::vector<Vec3d> face_normals{};
   Vec3d painted_edge{};
   std::uint64_t carriageway_boundary_id = 0;
   std::uint64_t outer_boundary_id = 0;
@@ -338,6 +364,19 @@ generate_junction_geometry(RoadNodeId node_id,
             std::abs(sample->lateral_m - profile.chain.front()->lateral_m));
         resolved.height_m.push_back(sample->height_m);
       }
+      const Vec3d segment_tangent =
+          gate.approach.endpoint_role == EndpointRole::kStart
+              ? gate.tangent
+              : scale3(gate.tangent, -1.0);
+      for (std::size_t face = 0; face + 1 < resolved.chain.size(); ++face) {
+        const Vec3d profile_edge =
+            subtract3(resolved.chain[face + 1], resolved.chain[face]);
+        const Vec3d section_edge = profile.follows_section_order
+                                       ? profile_edge
+                                       : scale3(profile_edge, -1.0);
+        resolved.face_normals.push_back(
+            cross3(segment_tangent, section_edge));
+      }
       const double spread = profile.chain.back()->lateral_m -
                             profile.chain.front()->lateral_m;
       const double mirror =
@@ -400,29 +439,35 @@ generate_junction_geometry(RoadNodeId node_id,
     };
     const std::vector<RenderStyleRef> &faces =
         a.faces.size() >= b.faces.size() ? a.faces : b.faces;
-    const auto curve_points = [&](Vec3d start, Vec3d end) {
-      const std::vector<curve_frame> frames = resolved_curve_frames(
-          start, end, a.tangent, b.tangent, junction_corner_control_m,
-          kJunctionCurveSamples);
-      std::vector<Vec3d> points{};
-      points.reserve(frames.size());
-      for (const curve_frame &frame : frames)
-        points.push_back(frame.position);
-      return points;
+    const side &face_owner = a.faces.size() >= b.faces.size() ? a : b;
+    const auto curve_frames = [&](Vec3d start, Vec3d end) {
+      return resolved_curve_frames(start, end, a.tangent, b.tangent,
+                                   junction_corner_control_m,
+                                   kJunctionCurveSamples);
     };
     std::vector<std::vector<Vec3d>> swept{};
+    std::vector<std::vector<curve_frame>> swept_frames{};
     for (std::size_t point = 0; point < depth; ++point) {
-      swept.push_back(curve_points(reach(a, point), reach(b, point)));
-      if (swept.back().empty()) {
+      swept_frames.push_back(curve_frames(reach(a, point), reach(b, point)));
+      if (swept_frames.back().empty()) {
         return Result<JunctionGeometry>::Fail(
             CommitFailureCategory::kNotImplemented,
             "road junction boundary curve is degenerate");
       }
+      std::vector<Vec3d> points{};
+      points.reserve(swept_frames.back().size());
+      for (const curve_frame &frame : swept_frames.back())
+        points.push_back(frame.position);
+      swept.push_back(std::move(points));
     }
     asphalt_perimeter.insert(asphalt_perimeter.end(), swept.front().begin() + 1,
                              swept.front().end() - 1);
-    const std::vector<Vec3d> painted =
-        curve_points(a.painted_edge, b.painted_edge);
+    const std::vector<curve_frame> painted_frames =
+        curve_frames(a.painted_edge, b.painted_edge);
+    std::vector<Vec3d> painted{};
+    painted.reserve(painted_frames.size());
+    for (const curve_frame &frame : painted_frames)
+      painted.push_back(frame.position);
     geometry.perimeter_curves.push_back(
         ResolvedBoundaryCurve{a.carriageway_boundary_id,
                               b.carriageway_boundary_id,
@@ -437,11 +482,32 @@ generate_junction_geometry(RoadNodeId node_id,
                               b.approach});
     for (std::size_t face = 0; face + 1 < swept.size() && face < faces.size();
          ++face) {
+      const bool owned_by_start = &face_owner == &a;
+      const Vec3d profile_edge =
+          owned_by_start
+              ? subtract3(swept[face + 1].front(), swept[face].front())
+              : subtract3(swept[face + 1].back(), swept[face].back());
+      const Vec3d curve_normal = cross3(
+          owned_by_start ? swept_frames[face].front().tangent
+                         : swept_frames[face].back().tangent,
+          profile_edge);
+      const SurfaceWinding winding =
+          dot3(face_owner.face_normals[face], curve_normal) >= 0.0
+              ? SurfaceWinding::kLeftToRight
+              : SurfaceWinding::kRightToLeft;
       geometry.surface_strips.push_back(ResolvedSurfaceStrip{
           faces[face], a.carriageway_boundary_id, b.outer_boundary_id,
-          swept[face], swept[face + 1]});
+          swept[face], swept[face + 1], winding});
     }
   }
+  const double perimeter_area = signed_area_xy(asphalt_perimeter);
+  if (std::abs(perimeter_area) <= 1e-9) {
+    return Result<JunctionGeometry>::Fail(
+        CommitFailureCategory::kInternalError,
+        "road junction perimeter has zero signed area");
+  }
+  if (perimeter_area < 0.0)
+    std::reverse(asphalt_perimeter.begin(), asphalt_perimeter.end());
   geometry.surface_regions.push_back(ResolvedSurfaceRegion{
       RenderStyleFromSurface(builtin_surface_styles::kAsphalt),
       std::move(asphalt_perimeter)});

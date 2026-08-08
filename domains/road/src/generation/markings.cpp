@@ -120,7 +120,7 @@ std::vector<Vec3d> gate_quad(const ConnectionGate &gate,
                              double longitudinal_center_m,
                              double longitudinal_half_m,
                              double lateral_center_m, double lateral_half_m) {
-  return {
+  std::vector<Vec3d> points{
       gate_point(gate, longitudinal_center_m - longitudinal_half_m,
                  lateral_center_m - lateral_half_m),
       gate_point(gate, longitudinal_center_m + longitudinal_half_m,
@@ -130,6 +130,9 @@ std::vector<Vec3d> gate_quad(const ConnectionGate &gate,
       gate_point(gate, longitudinal_center_m - longitudinal_half_m,
                  lateral_center_m + lateral_half_m),
   };
+  if (gate.approach.endpoint_role == EndpointRole::kEnd)
+    std::reverse(points.begin(), points.end());
+  return points;
 }
 
 MarkingRole role_from_boundary(BoundaryRole role,

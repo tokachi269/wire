@@ -493,7 +493,17 @@ resolve_connections(const SavedRoadGraph &graph,
         const double outward_angle = std::acos(
             std::clamp(dot(approach.tangent, other->tangent), -1.0, 1.0));
         const double turn_angle = std::numbers::pi - outward_angle;
-        setback = rules.corner_radius_m * std::tan(turn_angle * 0.5);
+        const RoadSegment *other_segment =
+            find_segment(graph, other->key.segment_id);
+        if (other_segment == nullptr) {
+          return Out::Fail(CommitFailureCategory::kInternalError,
+                           "road corner source segment is missing");
+        }
+        const double section_reach = std::max(
+            endpoint_outer_reach(graph, *segment, approach.key),
+            endpoint_outer_reach(graph, *other_segment, other->key));
+        setback = (rules.corner_radius_m + section_reach) *
+                  std::tan(turn_angle * 0.5);
       } else if (connection.kind == NodeConnectionKind::kJunction) {
         setback = rules.minimum_junction_setback_m;
         for (const ordered_approach &other : ordered) {

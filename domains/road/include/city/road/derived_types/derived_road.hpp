@@ -90,12 +90,21 @@ struct ResolvedBoundaryCurve {
   ApproachKey target_approach{};
 };
 
+enum class SurfaceWinding {
+  kLeftToRight,
+  kRightToLeft,
+};
+
 struct ResolvedSurfaceStrip {
   RenderStyleRef style{};
   std::uint64_t left_boundary_id = 0;
   std::uint64_t right_boundary_id = 0;
+  // The owner orders these rails so path direction crossed with left-to-right
+  // is the front face. Emit preserves that winding for horizontal, sloped and
+  // vertical faces instead of reinterpreting it against world up.
   std::vector<Vec3d> left{};
   std::vector<Vec3d> right{};
+  SurfaceWinding winding = SurfaceWinding::kLeftToRight;
 };
 
 struct ResolvedSurfaceRegion {

@@ -87,16 +87,15 @@ Result<Vec3d> segment_point(const DerivedSegment &segment,
                             double lateral_m) {
   const Result<Vec2d> center =
       EvaluatePath(segment.alignment, segment_distance_m);
-  const Result<Vec2d> tangent =
-      tangent_at(segment.alignment, segment_distance_m);
+  const Result<Vec2d> lateral =
+      internal::lateral_at(segment.alignment, segment_distance_m);
   const SectionEvaluation *section =
       FindSectionAt(segment, segment_distance_m);
-  if (!center.ok || !tangent.ok || section == nullptr) {
+  if (!center.ok || !lateral.ok || section == nullptr) {
     return Result<Vec3d>::Fail(CommitFailureCategory::kInternalError,
                                "marking segment point is missing");
   }
-  const Vec2d lateral{-tangent.value.y, tangent.value.x};
-  const Vec2d point = add(center.value, scale(lateral, lateral_m));
+  const Vec2d point = add(center.value, scale(lateral.value, lateral_m));
   return Result<Vec3d>::Ok(Vec3d{
       point.x, point.y,
       surface_height(section->boundaries, lateral_m) + kMarkingElevationM});

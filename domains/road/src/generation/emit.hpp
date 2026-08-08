@@ -8,7 +8,7 @@ namespace city::road::generation {
 
 struct segment_sample {
   Vec2d center{};
-  Vec2d tangent{};
+  Vec2d lateral{};
   std::vector<SectionBoundarySample> boundaries{};
   std::vector<RenderStyleRef> surface_styles{};
 };

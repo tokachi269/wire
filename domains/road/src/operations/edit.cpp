@@ -18,8 +18,6 @@ namespace {
 using internal::add;
 using internal::align_first_span_start;
 using internal::align_last_span_end;
-using internal::apply_inherited_arc;
-using internal::corridor_terminal_handle;
 using internal::distance;
 using internal::find_node;
 using internal::find_policy_override;

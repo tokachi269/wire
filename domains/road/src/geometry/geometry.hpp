@@ -24,6 +24,10 @@ inline constexpr double surface_sample_step_m = 2.0;
                                            const ApproachKey &key);
 [[nodiscard]] Result<Vec2d> tangent_at(const Path &alignment,
                                        double distance_along_path_m);
+// Unit left normal away from knots. At an explicit non-G1 knot this is the
+// scaled miter frame whose lateral offsets meet both adjacent span offsets.
+[[nodiscard]] Result<Vec2d> lateral_at(const Path &alignment,
+                                       double distance_along_path_m);
 [[nodiscard]] double endpoint_distance(const ApproachKey &key, double length_m);
 void sort_unique_distances(std::vector<double> &distances);
 

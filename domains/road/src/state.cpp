@@ -24,8 +24,6 @@ using internal::node_degree;
 using internal::align_first_span_start;
 using internal::align_last_span_end;
 using internal::almost_same;
-using internal::apply_inherited_arc;
-using internal::corridor_terminal_handle;
 using internal::cross;
 using internal::distance;
 using internal::is_finite;

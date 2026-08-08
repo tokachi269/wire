@@ -97,9 +97,12 @@ ADD LANEが作る変更後断面はCoreが作る。
 - Line / Bezierは入力toolの区別に限定し、正本はendpointを含まない`SegmentShape`、完全Pathは派生`CanonicalAlignment`とする。
   Line入力は各spanをlinear cubic Bezierとして保存し、`SegmentShape.intent = Straight`を持つ。
   Bezier評価、sampling、emitはLine / Bezierで分岐しない。曲線segmentの分割はDe Casteljau分割を使う。
-- Bezierを連続描画するときは、viewerの一時入力状態が直前segmentの終端接線を保持し、次segmentの開始handleを
-  その方向へsnapする。hover previewとクリック確定は同じsnap済み点を使用する。
-  G1入力のためにCoreの接続種別、正本field、補正operationを追加しない。
+- Bezierを連続描画するときは、Core previewが直前segmentのcubic endpoint derivativeを読み、次segmentの
+  開始handleをその方向へsnapする。Straight predecessorも同じ規則を使う。hover previewとクリック確定は
+  同じsnap済みPathを使用し、commit operationは受け取ったcontrol pointを補正しない。
+  G1入力のために接続種別、正本field、補正operationを追加しない。
+- cubic endpoint tangentはcontrol handleを正とする。span内部もanalytic derivativeを使う。明示的な非G1
+  internal knotは距離差分で平滑化せず、前後offset lineの交点を作る共通miter frameとして扱う。
 - Viewerのalignment編集では、segment端点handleは`MoveNode`、内部2 control handleは
   `EditSegmentShape`へ送る。直線segmentもlinear cubic Bezierの4 control pointを表示し、
   内部control handleを動かした時点でcurve intentへ変更する。

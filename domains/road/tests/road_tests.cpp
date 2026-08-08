@@ -3,6 +3,7 @@
 #include "derived_view.hpp"
 #include "fixtures/layouts.hpp"
 #include "../src/generation/generation.hpp"
+#include "../src/geometry/geometry.hpp"
 #include "../src/persistence/archive.hpp"
 
 #include <algorithm>
@@ -724,7 +725,7 @@ bool P0_tool_preview_matches_the_committed_interval(std::string& failure) {
   city::road::ExtendCorridorFromEndRequest extension{};
   extension.corridor_id = corridor->id;
   extension.endpoint_node_id = segment->node_b;
-  extension.extension = MakePath({MakeLine(start, end)});
+  extension.extension = preview;
   extension.layout_template = section;
   extension.intent = city::road::SegmentShapeIntent::kCurve;
   const auto extended = state.ExtendCorridorFromEnd(extension);
@@ -3470,7 +3471,9 @@ bool CRV_drawn_curve_bends_one_way_per_interval(std::string& failure) {
     city::road::ExtendCorridorFromEndRequest extension{};
     extension.corridor_id = corridor_id;
     extension.endpoint_node_id = previous->node_b;
-    extension.extension = MakePath({MakeLine(points[index], points[index + 1])});
+    extension.extension = city::road::PreviewDrawnInterval(
+        state.graph(), corridor_id, previous->node_b, points[index],
+        points[index + 1], city::road::SegmentShapeIntent::kCurve);
     extension.layout_template = section;
     extension.intent = city::road::SegmentShapeIntent::kCurve;
     const auto extended = state.ExtendCorridorFromEnd(extension);
@@ -3493,6 +3496,125 @@ bool CRV_drawn_curve_bends_one_way_per_interval(std::string& failure) {
     ROAD_TEST_EXPECT(connection.kind != city::road::NodeConnectionKind::kCorner,
                      "drawn curve produced a corner between two intervals");
   }
+  return true;
+}
+
+bool CRV_control_handles_are_the_tangent_authority(std::string& failure) {
+  const Path straight = MakePath({MakeLine({0.0, 0.0}, {10.0, 0.0})});
+  const Path curve = MakePath(
+      {MakeBezier({10.0, 0.0}, {14.0, 0.0}, {18.0, 4.0}, {20.0, 10.0})});
+  const auto straight_length = PathLength(straight);
+  ROAD_TEST_EXPECT(straight_length.ok, straight_length.error);
+  const auto straight_tangent = city::road::internal::tangent_at(
+      straight, straight_length.value);
+  const auto curve_tangent = city::road::internal::tangent_at(curve, 0.0);
+  ROAD_TEST_EXPECT(straight_tangent.ok && curve_tangent.ok,
+                   "straight-to-curve endpoint tangent is missing");
+  ROAD_TEST_EXPECT(
+      std::abs(straight_tangent.value.x - 1.0) <= 1e-12 &&
+          std::abs(straight_tangent.value.y) <= 1e-12 &&
+          std::abs(curve_tangent.value.x - 1.0) <= 1e-12 &&
+          std::abs(curve_tangent.value.y) <= 1e-12,
+      "endpoint tangent does not follow its cubic control handle");
+
+  const auto offset_point = [](Vec2d point, Vec2d tangent, double lateral_m) {
+    return Vec2d{point.x - tangent.y * lateral_m,
+                 point.y + tangent.x * lateral_m};
+  };
+  const Vec2d straight_left =
+      offset_point({10.0, 0.0}, straight_tangent.value, 4.0);
+  const Vec2d curve_left =
+      offset_point({10.0, 0.0}, curve_tangent.value, 4.0);
+  ROAD_TEST_EXPECT(std::hypot(straight_left.x - curve_left.x,
+                              straight_left.y - curve_left.y) <= 1e-12,
+                   "straight-to-curve left edge is discontinuous");
+
+  const Path reversed_curve = MakePath(
+      {MakeBezier({20.0, 10.0}, {18.0, 4.0}, {14.0, 0.0}, {10.0, 0.0})});
+  const auto reversed_length = PathLength(reversed_curve);
+  ROAD_TEST_EXPECT(reversed_length.ok, reversed_length.error);
+  const auto reversed_tangent = city::road::internal::tangent_at(
+      reversed_curve, reversed_length.value);
+  ROAD_TEST_EXPECT(
+      reversed_tangent.ok &&
+          std::abs(reversed_tangent.value.x + curve_tangent.value.x) <= 1e-12 &&
+          std::abs(reversed_tangent.value.y + curve_tangent.value.y) <= 1e-12,
+      "reversing the same cubic changed its endpoint tangent geometry");
+
+  const Path internal = MakePath(
+      {MakeLine({0.0, 0.0}, {10.0, 0.0}),
+       MakeBezier({10.0, 0.0}, {14.0, 0.0}, {18.0, 4.0}, {20.0, 10.0})});
+  const auto internal_tangent =
+      city::road::internal::tangent_at(internal, straight_length.value);
+  ROAD_TEST_EXPECT(
+      internal_tangent.ok && std::abs(internal_tangent.value.x - 1.0) <= 1e-12 &&
+          std::abs(internal_tangent.value.y) <= 1e-12,
+      "a G1 internal span knot was averaged across both spans");
+  return true;
+}
+
+bool CRV_explicit_extension_controls_are_not_rewritten(std::string& failure) {
+  RoadState state{};
+  const auto layout =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  const auto first = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeBezier({0.0, 0.0}, {5.0, 0.0}, {10.0, 5.0},
+                           {10.0, 10.0})}),
+      layout, city::road::SegmentShapeIntent::kCurve});
+  ROAD_TEST_EXPECT(first.ok, first.error);
+  const auto* corridor = FindCorridorForSegment(state.graph(), first.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "curve corridor is missing");
+  const RoadNodeId endpoint = state.graph().segments.front().node_b;
+  const Path explicit_curve = MakePath(
+      {MakeBezier({10.0, 10.0}, {15.0, 10.0}, {20.0, 15.0}, {20.0, 20.0})});
+  const auto extended = state.ExtendCorridorFromEnd(
+      city::road::ExtendCorridorFromEndRequest{
+          corridor->id, endpoint, explicit_curve, layout,
+          city::road::SegmentShapeIntent::kCurve});
+  ROAD_TEST_EXPECT(extended.ok, extended.error);
+  const RoadSegment* stored = nullptr;
+  for (const RoadSegment& segment : state.graph().segments) {
+    if (segment.id == extended.value) stored = &segment;
+  }
+  ROAD_TEST_EXPECT(stored != nullptr, "explicit curve extension is missing");
+  const auto alignment = city::road::DeriveCanonicalAlignment(
+      {10.0, 10.0}, {20.0, 20.0}, stored->shape);
+  ROAD_TEST_EXPECT(alignment.ok && alignment.value.spans.size() == 1,
+                   "explicit curve extension has no canonical span");
+  const auto same_point = [](Vec2d a, Vec2d b) {
+    return a.x == b.x && a.y == b.y;
+  };
+  const auto& actual = alignment.value.spans.front();
+  const auto& expected = explicit_curve.spans.front();
+  ROAD_TEST_EXPECT(same_point(actual.p0, expected.p0) &&
+                       same_point(actual.p1, expected.p1) &&
+                       same_point(actual.p2, expected.p2) &&
+                       same_point(actual.p3, expected.p3),
+                   "curve extension rewrote user control points");
+
+  RoadState straight_state{};
+  const auto straight_layout = road_fixture::AddLayout(
+      straight_state, road_fixture::BidirectionalLayout(0));
+  const auto straight = straight_state.AddSegment(
+      city::road::AddSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {10.0, 0.0})}), straight_layout});
+  ROAD_TEST_EXPECT(straight.ok, straight.error);
+  const auto* straight_corridor =
+      FindCorridorForSegment(straight_state.graph(), straight.value);
+  ROAD_TEST_EXPECT(straight_corridor != nullptr,
+                   "straight predecessor corridor is missing");
+  const RoadNodeId straight_endpoint =
+      straight_state.graph().segments.front().node_b;
+  const Path preview = city::road::PreviewDrawnInterval(
+      straight_state.graph(), straight_corridor->id, straight_endpoint,
+      {10.0, 0.0}, {20.0, 10.0},
+      city::road::SegmentShapeIntent::kCurve);
+  const Vec2d preview_tangent{
+      preview.spans.front().p1.x - preview.spans.front().p0.x,
+      preview.spans.front().p1.y - preview.spans.front().p0.y};
+  ROAD_TEST_EXPECT(preview_tangent.x > 0.0 &&
+                       std::abs(preview_tangent.y) <= 1e-12,
+                   "curve preview did not inherit a straight predecessor tangent");
   return true;
 }
 
@@ -4445,6 +4567,10 @@ int main() {
       {"RSL_section_axes_and_shoulder_are_independent",
        RSL_section_axes_and_shoulder_are_independent},
       {"CRV_drawn_curve_bends_one_way_per_interval", CRV_drawn_curve_bends_one_way_per_interval},
+      {"CRV_control_handles_are_the_tangent_authority",
+       CRV_control_handles_are_the_tangent_authority},
+      {"CRV_explicit_extension_controls_are_not_rewritten",
+       CRV_explicit_extension_controls_are_not_rewritten},
       {"layout_alignment_origin_measures_from_the_left_outer_end",
        layout_alignment_origin_measures_from_the_left_outer_end},
       {"layout_widened_on_one_side_keeps_the_other_side_still",

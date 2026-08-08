@@ -395,14 +395,13 @@ derive_segment_lane_paths(const SavedRoadGraph &graph,
       }
       const Result<Vec2d> center =
           EvaluatePath(segment.alignment, evaluation.segment_distance_m);
-      const Result<Vec2d> tangent =
-          internal::tangent_at(segment.alignment,
+      const Result<Vec2d> lateral =
+          internal::lateral_at(segment.alignment,
                                evaluation.segment_distance_m);
-      if (!center.ok || !tangent.ok) {
+      if (!center.ok || !lateral.ok) {
         return Out::Fail(CommitFailureCategory::kInternalError,
                          "lane inspection alignment sample is missing");
       }
-      const Vec2d lateral{-tangent.value.y, tangent.value.x};
       for (const LaneBand &lane : section.value.lane_bands) {
         const Result<internal::LaneSectionPosition> position =
             internal::lane_position(section.value, lane, evaluation);
@@ -424,8 +423,8 @@ derive_segment_lane_paths(const SavedRoadGraph &graph,
         found->end_segment_distance_m = evaluation.segment_distance_m;
         found->end_template_id = section.value.id;
         found->points.push_back(Vec3d{
-            center.value.x + lateral.x * position.value.lateral_m,
-            center.value.y + lateral.y * position.value.lateral_m,
+            center.value.x + lateral.value.x * position.value.lateral_m,
+            center.value.y + lateral.value.y * position.value.lateral_m,
             position.value.height_m});
       }
     }

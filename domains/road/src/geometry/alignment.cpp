@@ -41,6 +41,16 @@ namespace internal {
              add(scale(span.p2, 3.0 * u * t * t), scale(span.p3, t * t * t)));
 }
 
+[[nodiscard]] Vec2d span_derivative(const BezierSpan& span, double t) {
+  t = std::clamp(t, 0.0, 1.0);
+  const double u = 1.0 - t;
+  return scale(
+      add(add(scale(subtract(span.p1, span.p0), u * u),
+              scale(subtract(span.p2, span.p1), 2.0 * u * t)),
+          scale(subtract(span.p3, span.p2), t * t)),
+      3.0);
+}
+
 [[nodiscard]] double span_speed(const BezierSpan& span, double t) {
   const double u = 1.0 - t;
   const Vec2d a = subtract(span.p1, span.p0);
@@ -246,11 +256,10 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
 // average with, so it follows the interval instead of its own chord.
 [[nodiscard]] Vec2d mirror_tangent_across(Vec2d tangent, Vec2d chord);
 
-// The heading the next interval inherits at a corridor end, expressed as the
-// terminal handle of the interval that already ends there.
-[[nodiscard]] std::optional<Vec2d> corridor_terminal_handle(const SavedRoadGraph& graph,
-                                                            RoadCorridorId corridor_id,
-                                                            RoadNodeId endpoint_node_id) {
+// The forward heading the next drawn interval inherits at a corridor end.
+[[nodiscard]] std::optional<Vec2d> corridor_terminal_tangent(
+    const SavedRoadGraph& graph, RoadCorridorId corridor_id,
+    RoadNodeId endpoint_node_id) {
   const RoadCorridor* corridor = FindRoadCorridor(graph, corridor_id);
   if (corridor == nullptr || corridor->segments.empty()) return std::nullopt;
   const DirectedSegmentRef last_ref = corridor->segments.back();
@@ -258,18 +267,20 @@ void shift_manual_line_distance(ManualLineMarking& marking, double delta_m) {
   if (source == nullptr) return std::nullopt;
   const RoadNodeId corridor_end = last_ref.reversed ? source->node_a : source->node_b;
   if (corridor_end != endpoint_node_id) return std::nullopt;
-  if (source->shape.intent != SegmentShapeIntent::kCurve) return std::nullopt;
-  return last_ref.reversed ? source->shape.start_handle : source->shape.end_handle;
+  const Vec2d inward_handle =
+      last_ref.reversed ? source->shape.start_handle : source->shape.end_handle;
+  if (magnitude(inward_handle) <= distance_epsilon) return std::nullopt;
+  return scale(inward_handle, -1.0);
 }
 
 // An interval leaves in the heading it inherits and turns to the new point as
 // one arc, so the drawn curve keeps a single bend instead of an S.
-void apply_inherited_arc(Vec2d inherited, Vec2d chord, SegmentShape* shape) {
-  const double inherited_length = magnitude(inherited);
+void apply_inherited_arc(Vec2d tangent, Vec2d chord, SegmentShape* shape) {
+  const double inherited_length = magnitude(tangent);
   const double chord_length = magnitude(chord);
   // Degenerate input keeps the chord handles the caller already set.
   if (inherited_length <= distance_epsilon || chord_length <= distance_epsilon) return;
-  const Vec2d heading = scale(inherited, -1.0 / inherited_length);
+  const Vec2d heading = scale(tangent, 1.0 / inherited_length);
   shape->start_handle = scale(heading, chord_length / 3.0);
   shape->end_handle = scale(mirror_tangent_across(heading, chord), -chord_length / 3.0);
 }
@@ -320,7 +331,7 @@ Path PreviewDrawnInterval(const SavedRoadGraph& graph, RoadCorridorId corridor_i
   shape.end_handle = scale(chord, -1.0 / 3.0);
   if (intent == SegmentShapeIntent::kCurve) {
     if (const std::optional<Vec2d> inherited =
-            corridor_terminal_handle(graph, corridor_id, endpoint_node_id)) {
+            corridor_terminal_tangent(graph, corridor_id, endpoint_node_id)) {
       apply_inherited_arc(*inherited, chord, &shape);
     }
   }
@@ -342,6 +353,7 @@ using internal::magnitude;
 using internal::scale;
 using internal::span_end;
 using internal::span_eval;
+using internal::span_derivative;
 using internal::span_length;
 using internal::span_parameter_at_length;
 using internal::span_start;
@@ -404,7 +416,8 @@ Path PreviewDrawnInterval(const SavedRoadGraph& graph, RoadCorridorId corridor_i
   shape.end_handle = scale(chord, -1.0 / 3.0);
   if (intent == SegmentShapeIntent::kCurve) {
     if (const std::optional<Vec2d> inherited =
-            internal::corridor_terminal_handle(graph, corridor_id, endpoint_node_id)) {
+            internal::corridor_terminal_tangent(graph, corridor_id,
+                                                endpoint_node_id)) {
       internal::apply_inherited_arc(*inherited, chord, &shape);
     }
   }

@@ -15,6 +15,7 @@ inline constexpr int kCurveSamples = 24;
 [[nodiscard]] Vec2d span_start(const BezierSpan& span);
 [[nodiscard]] Vec2d span_end(const BezierSpan& span);
 [[nodiscard]] Vec2d span_eval(const BezierSpan& span, double t);
+[[nodiscard]] Vec2d span_derivative(const BezierSpan& span, double t);
 [[nodiscard]] double span_length(const BezierSpan& span);
 [[nodiscard]] double span_parameter_at_length(const BezierSpan& span,
                                               double target_length);
@@ -41,14 +42,15 @@ manual_line_distance_bounds(const ManualLineMarking& marking);
 manual_area_distance_bounds(const ManualAreaMarking& marking);
 void shift_manual_line_distance(ManualLineMarking& marking, double delta_m);
 
-// Handle shaping. A drawn interval leaves in the heading it arrived with, so an
-// extension turns to its new point as one arc instead of an S.
+// Handle shaping for the draw preview. Commit operations preserve the control
+// points they receive.
 void align_first_span_start(Path& path, Vec2d start);
 void align_last_span_end(Path& path, Vec2d end);
 [[nodiscard]] Result<SegmentShape> make_linear_shape(Vec2d start, Vec2d end);
-void apply_inherited_arc(Vec2d inherited, Vec2d chord, SegmentShape* shape);
+void apply_inherited_arc(Vec2d tangent, Vec2d chord, SegmentShape* shape);
 [[nodiscard]] std::optional<Vec2d>
-corridor_terminal_handle(const SavedRoadGraph& graph, RoadCorridorId corridor_id,
-                         RoadNodeId endpoint_node_id);
+corridor_terminal_tangent(const SavedRoadGraph& graph,
+                          RoadCorridorId corridor_id,
+                          RoadNodeId endpoint_node_id);
 
 } // namespace city::road::internal

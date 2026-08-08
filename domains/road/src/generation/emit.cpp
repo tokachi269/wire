@@ -162,10 +162,10 @@ Result<segment_output> emit_segment(const segment_input &input) {
           CommitFailureCategory::kNotImplemented,
           "road draw section topology changes between samples");
     }
-    const Vec2d lateral{-sample.tangent.y, sample.tangent.x};
     for (std::size_t index = 0; index < width; ++index) {
       const SectionBoundarySample &boundary = sample.boundaries[index];
-      const Vec2d point = add(sample.center, mul(lateral, boundary.lateral_m));
+      const Vec2d point =
+          add(sample.center, mul(sample.lateral, boundary.lateral_m));
       const Vec3d vertex{point.x, point.y, boundary.height_m};
       vertices.push_back(vertex);
       if (input.samples.front().boundaries[index].hard_edge)
@@ -199,11 +199,12 @@ Result<segment_output> emit_segment(const segment_input &input) {
   output.terrain_mask.segment_id = input.segment_id;
   std::vector<Vec2d> right{};
   for (const segment_sample &sample : input.samples) {
-    const Vec2d lateral{-sample.tangent.y, sample.tangent.x};
     output.terrain_mask.points.push_back(
-        add(sample.center, mul(lateral, sample.boundaries.front().lateral_m)));
+        add(sample.center,
+            mul(sample.lateral, sample.boundaries.front().lateral_m)));
     right.push_back(
-        add(sample.center, mul(lateral, sample.boundaries.back().lateral_m)));
+        add(sample.center,
+            mul(sample.lateral, sample.boundaries.back().lateral_m)));
   }
   output.terrain_mask.points.insert(output.terrain_mask.points.end(),
                                     right.rbegin(), right.rend());
@@ -338,13 +339,14 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
     input.segment_id = segment.id;
     for (const double distance : segment.surface_segment_distances_m) {
       const Result<Vec2d> center = EvaluatePath(segment.alignment, distance);
-      const Result<Vec2d> tangent = internal::tangent_at(segment.alignment, distance);
+      const Result<Vec2d> lateral =
+          internal::lateral_at(segment.alignment, distance);
       const SectionEvaluation *section = FindSectionAt(segment, distance);
-      if (!center.ok || !tangent.ok || section == nullptr) {
+      if (!center.ok || !lateral.ok || section == nullptr) {
         return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road surface sample is missing");
       }
-      input.samples.push_back(segment_sample{center.value, tangent.value,
+      input.samples.push_back(segment_sample{center.value, lateral.value,
                                              section->boundaries,
                                              section->surface_styles});
     }

@@ -105,6 +105,9 @@ StraightとCurvedは同じ`SegmentShape`とcubic Bezier APIを使う。Straight 
 `P1 = P0 + (P3 - P0) / 3`、`P2 = P0 + 2 * (P3 - P0) / 3`のlinear cubicへ正規化する。
 `SegmentShape.intent`はStraightとして保存するが、sampling、connection、emitはBezierを共通に読む。
 後から直線かどうかを制御点の近接比較で判定して編集意味を決めない。
+Bezierの接線はcubic derivativeから求め、endpointでは隣接control handleの方向をそのまま使う。
+G1なspan境界は同じ接線を持つ。明示的な非G1境界は前後接線を平均して隠さず、両側の
+offset lineが交わるmiter frameとしてsurface、lane、markingへ共通供給する。
 
 角度を持つStraight segment同士の丸みは`RoadSegment.shape`へ混入しない。degree 2の屈曲nodeでは、
 各segmentをgate distanceまで直線として使い、その間のcorner curveを`ResolvedConnection.connection_geometry`
@@ -112,6 +115,8 @@ StraightとCurvedは同じ`SegmentShape`とcubic Bezier APIを使う。Straight 
 
 一回で確定したPathは、複数spanを内部に持つ一つのRoadSegmentへ正規化する。確定済みsegmentを
 corridor終端から延長した場合は、既存segmentを書き換えず、新しいRoadSegmentをcorridor末尾へ追加する。
+自動curve previewだけが既存corridor終端の解析接線を新spanの開始handleへ反映する。operationは
+受け取ったcontrol pointを再整形せず、明示編集されたhandleをそのまま正本へ保存する。
 
 ## Operations
 

@@ -19,8 +19,6 @@ namespace {
 using internal::add;
 using internal::align_first_span_start;
 using internal::align_last_span_end;
-using internal::apply_inherited_arc;
-using internal::corridor_terminal_handle;
 using internal::distance;
 using internal::find_node;
 using internal::find_policy_override;
@@ -163,16 +161,6 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
   std::uint64_t next_id = next_id_;
   const RoadNodeId end_node = next_id++;
   const RoadSegmentId segment_id = next_id++;
-
-  // The interval leaves in the heading it arrived with and turns to the new
-  // point as one arc, so the drawn curve keeps a single bend instead of an S.
-  if (shape.value.intent == SegmentShapeIntent::kCurve) {
-    if (const std::optional<Vec2d> inherited =
-            corridor_terminal_handle(graph_, request.corridor_id, endpoint->id)) {
-      apply_inherited_arc(*inherited, subtract(path_end(extension), endpoint->position),
-                          &shape.value);
-    }
-  }
 
   plan.add_nodes.push_back(RoadNode{end_node, path_end(extension)});
   plan.add_segments.push_back(

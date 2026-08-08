@@ -178,6 +178,8 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
         first.boundaries[index].boundary_id,
         target->second->boundary_id,
         first.boundaries[index].role,
+        first.boundaries[index].marking.enabled &&
+            target->second->marking.enabled,
         sweep_boundary(
             frames, boundary_point(first, first.boundaries[index]),
             boundary_point(second, *target->second)),
@@ -329,6 +331,7 @@ struct side {
   std::uint64_t curb_boundary_id = 0;
   std::uint64_t carriageway_boundary_id = 0;
   BoundaryRole carriageway_boundary_role = BoundaryRole::kOuterEdge;
+  bool carriageway_is_painted = false;
   bool has_curb = false;
   bool has_sidewalk = false;
 };
@@ -389,6 +392,7 @@ generate_junction_geometry(RoadNodeId node_id,
           profile.curb_inner->boundary_id,
           profile.carriageway->boundary_id,
           profile.carriageway->role,
+          profile.carriageway->marking.enabled,
           profile.has_curb,
           profile.curb_outer != profile.road_outer,
       };
@@ -449,6 +453,7 @@ generate_junction_geometry(RoadNodeId node_id,
                                       b.carriageway_boundary_role
                                   ? a.carriageway_boundary_role
                                   : BoundaryRole::kOuterEdge,
+                              a.carriageway_is_painted && b.carriageway_is_painted,
                               carriageway,
                               a.approach,
                               b.approach});

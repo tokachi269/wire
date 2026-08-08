@@ -408,7 +408,7 @@ derive_connection_boundary_markings(
                    (continuation.source == target_endpoint &&
                     continuation.target == source_endpoint);
           });
-      if (explicitly_connected)
+      if (explicitly_connected || !curve.carries_marking)
         continue;
       const ResolvedApproach *source =
           find_connection_approach(connection, curve.source_approach);

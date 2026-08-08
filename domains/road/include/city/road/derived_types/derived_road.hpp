@@ -81,6 +81,9 @@ struct ResolvedBoundaryCurve {
   std::uint64_t source_boundary_id = 0;
   std::uint64_t target_boundary_id = 0;
   BoundaryRole role = BoundaryRole::kOuterEdge;
+  // A profile sweeps one curve per point. Only the point its boundary paints on
+  // carries the line, however many points the shape needs.
+  bool carries_marking = false;
   std::vector<Vec3d> points{};
   ApproachKey source_approach{};
   ApproachKey target_approach{};

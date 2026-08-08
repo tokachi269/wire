@@ -4102,6 +4102,36 @@ bool gutter_corners_are_edges_and_gentle_ones_are_not(std::string& failure) {
   return true;
 }
 
+bool a_corner_carries_one_line_per_boundary(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {0.0, 0.0})}), layout});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto node = state.graph().segments.front().node_b;
+  const auto branch = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), layout, node});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+
+  // A profile has as many points as its shape needs. The line painted on it is
+  // still one line, wherever the road it belongs to goes.
+  std::map<std::uint64_t, std::size_t> lines_through_the_corner{};
+  for (const auto& marking : state.derived().markings) {
+    if (marking.owner.kind != city::road::MarkingOwner::Kind::kJunction)
+      continue;
+    ++lines_through_the_corner[marking.boundary_id];
+  }
+  ROAD_TEST_EXPECT(!lines_through_the_corner.empty(),
+                   "no line was carried through the corner");
+  for (const auto& [boundary_id, count] : lines_through_the_corner) {
+    ROAD_TEST_EXPECT(count == 1,
+                     "boundary " + std::to_string(boundary_id) + " drew " +
+                         std::to_string(count) + " lines through one corner");
+  }
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -4237,6 +4267,8 @@ int main() {
        add_lane_beside_a_gutter_tapers_from_nothing},
       {"gutter_corners_are_edges_and_gentle_ones_are_not",
        gutter_corners_are_edges_and_gentle_ones_are_not},
+      {"a_corner_carries_one_line_per_boundary",
+       a_corner_carries_one_line_per_boundary},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

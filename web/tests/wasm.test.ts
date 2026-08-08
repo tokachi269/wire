@@ -1537,7 +1537,13 @@ describe("road wasm smoke", () => {
         Math.hypot(preview.handleAX - chordHandleAX, preview.handleAY - chordHandleAY)
       ).toBeGreaterThan(0.5);
 
-      const committed = road.addSegment(pending);
+      const committed = road.addSegment({
+        ...pending,
+        handleAX: preview.handleAX,
+        handleAY: preview.handleAY,
+        handleBX: preview.handleBX,
+        handleBY: preview.handleBY
+      });
       expect(committed.ok, committed.error).toBe(true);
       const editable = road
         .scene()

@@ -125,7 +125,7 @@ std::string derived_observation(const DerivedRoad& derived) {
     for (const auto& corner : connection.junction_corners) {
       append_approach(out, corner.first_approach);
       append_approach(out, corner.second_approach);
-      out << ',' << corner.radius_m << ',' << corner.control_m << ';';
+      out << ',' << corner.radius_m << ';';
     }
     out << connection.connection_geometry.surface_strips.size() << ':';
     for (const ResolvedSurfaceStrip& strip : connection.connection_geometry.surface_strips) {

@@ -6,6 +6,8 @@
 #include <array>
 #include <cmath>
 #include <map>
+#include <numbers>
+#include <utility>
 
 namespace city::road::internal {
 namespace {
@@ -88,9 +90,9 @@ struct curve_frame {
 
 std::vector<curve_frame>
 resolved_curve_frames(Vec3d a, Vec3d b, Vec3d tangent_a, Vec3d tangent_b,
-                      double control_m, int samples) {
+                      double control_a_m, double control_b_m, int samples) {
   const double chord_m = std::hypot(b.x - a.x, b.y - a.y);
-  if (control_m <= 1e-12) {
+  if (control_a_m <= 1e-12 || control_b_m <= 1e-12) {
     Vec3d tangent{};
     if (chord_m > 1e-12) {
       tangent = {(b.x - a.x) / chord_m, (b.y - a.y) / chord_m, 0.0};
@@ -102,15 +104,21 @@ resolved_curve_frames(Vec3d a, Vec3d b, Vec3d tangent_a, Vec3d tangent_b,
       tangent = {tangent_a.x / tangent_length,
                  tangent_a.y / tangent_length, 0.0};
     }
-    return {
-        curve_frame{a, tangent, Vec3d{-tangent.y, tangent.x, 0.0}},
-        curve_frame{b, tangent, Vec3d{-tangent.y, tangent.x, 0.0}},
-    };
+    std::vector<curve_frame> frames{};
+    frames.reserve(static_cast<std::size_t>(samples) + 1);
+    for (int i = 0; i <= samples; ++i) {
+      const double t = static_cast<double>(i) / static_cast<double>(samples);
+      frames.push_back(curve_frame{
+          add3(scale3(a, 1.0 - t), scale3(b, t)), tangent,
+          Vec3d{-tangent.y, tangent.x, 0.0}});
+    }
+    return frames;
   }
   const Vec3d start_tangent = scale3(tangent_a, -1.0);
-  const double effective_control_m = std::min(control_m, chord_m / 3.0);
-  const Vec3d c1 = add3(a, scale3(start_tangent, effective_control_m));
-  const Vec3d c2 = add3(b, scale3(tangent_b, -effective_control_m));
+  const double effective_control_a_m = std::min(control_a_m, chord_m / 3.0);
+  const double effective_control_b_m = std::min(control_b_m, chord_m / 3.0);
+  const Vec3d c1 = add3(a, scale3(start_tangent, effective_control_a_m));
+  const Vec3d c2 = add3(b, scale3(tangent_b, -effective_control_b_m));
   std::vector<curve_frame> frames{};
   frames.reserve(static_cast<std::size_t>(samples) + 1);
   for (int i = 0; i <= samples; ++i) {
@@ -129,6 +137,31 @@ resolved_curve_frames(Vec3d a, Vec3d b, Vec3d tangent_a, Vec3d tangent_b,
     });
   }
   return frames;
+}
+
+std::pair<double, double> controls_from_tangent_intersection(
+    Vec3d a, Vec3d b, Vec3d tangent_a, Vec3d tangent_b) {
+  const Vec3d from_a = scale3(tangent_a, -1.0);
+  const Vec3d back_from_b = scale3(tangent_b, -1.0);
+  const double denominator =
+      from_a.x * back_from_b.y - from_a.y * back_from_b.x;
+  if (std::abs(denominator) <= 1e-12)
+    return {0.0, 0.0};
+  const Vec3d delta = subtract3(b, a);
+  const double tangent_length_a =
+      (delta.x * back_from_b.y - delta.y * back_from_b.x) / denominator;
+  const double tangent_length_b =
+      (delta.x * from_a.y - delta.y * from_a.x) / denominator;
+  if (tangent_length_a <= 1e-12 || tangent_length_b <= 1e-12)
+    return {0.0, 0.0};
+
+  const double cosine = std::clamp(dot3(tangent_a, tangent_b), -1.0, 1.0);
+  const double approach_angle = std::acos(cosine);
+  const double turn_angle = std::numbers::pi - approach_angle;
+  const double ratio =
+      (4.0 / 3.0) * std::tan(approach_angle * 0.5) *
+      std::tan(turn_angle * 0.25);
+  return {tangent_length_a * ratio, tangent_length_b * ratio};
 }
 
 double projected_offset(Vec3d point, Vec3d origin, Vec3d axis) {
@@ -227,7 +260,7 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
   geometry.approaches = {first.approach, second.approach};
   const std::vector<curve_frame> frames = resolved_curve_frames(
       first.position, second.position, first.tangent, second.tangent,
-      corner_control_m, kConnectionCurveSamples);
+      corner_control_m, corner_control_m, kConnectionCurveSamples);
   if (frames.size() !=
       static_cast<std::size_t>(kConnectionCurveSamples + 1)) {
     return Result<ConnectionGeometry>::Fail(
@@ -591,8 +624,10 @@ generate_junction_geometry(RoadNodeId node_id,
           "road junction corner resolution is missing");
     }
     const auto curve_frames = [&](Vec3d start, Vec3d end) {
+      const auto controls =
+          controls_from_tangent_intersection(start, end, a.tangent, b.tangent);
       return resolved_curve_frames(start, end, a.tangent, b.tangent,
-                                   corner->control_m,
+                                   controls.first, controls.second,
                                    kJunctionCurveSamples);
     };
     std::vector<std::vector<Vec3d>> swept{};

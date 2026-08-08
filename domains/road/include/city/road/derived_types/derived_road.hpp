@@ -161,7 +161,6 @@ struct ResolvedJunctionCorner {
   ApproachKey first_approach{};
   ApproachKey second_approach{};
   double radius_m = 0.0;
-  double control_m = 0.0;
 };
 
 // One connected node: what it is, the approaches after override resolution and

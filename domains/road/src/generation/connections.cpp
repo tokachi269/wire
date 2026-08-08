@@ -180,10 +180,6 @@ Result<junction_corner_resolution> resolve_junction_corner(
       std::max(0.0, first_sharp_m) + tangent_extension_m;
   resolved.second_setback_m =
       std::max(0.0, second_sharp_m) + tangent_extension_m;
-  const double turn_angle = std::numbers::pi - angle;
-  resolved.corner.control_m =
-      (4.0 / 3.0) * resolved.corner.radius_m *
-      std::tan(turn_angle * 0.25);
   return Out::Ok(resolved);
 }
 

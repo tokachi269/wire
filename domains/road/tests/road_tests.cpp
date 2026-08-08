@@ -4478,16 +4478,31 @@ bool junction_zero_radius_keeps_a_t_junction_local(std::string& failure) {
     ROAD_TEST_EXPECT(std::abs(approach.resolved_setback_m - 5.0) <= 1e-6,
                      "all-zero 10m T gate was not 5m from the node");
   }
-  ROAD_TEST_EXPECT(
-      std::all_of(all_zero_junctions.front()->junction_corners.begin(),
-                  all_zero_junctions.front()->junction_corners.end(),
-                  [](const auto& corner) { return corner.control_m == 0.0; }),
-      "zero-radius T still derived rounded junction controls");
   for (const auto& point :
        all_zero_junctions.front()->junction_geometry.surface_regions.front().perimeter) {
     ROAD_TEST_EXPECT(std::hypot(point.x, point.y) <= std::sqrt(50.0) + 1e-6,
                      "all-zero T junction perimeter extends beyond its 5m gates");
   }
+  const bool has_curved_curb_boundary = std::any_of(
+      all_zero_junctions.front()->junction_geometry.perimeter_curves.begin(),
+      all_zero_junctions.front()->junction_geometry.perimeter_curves.end(),
+      [](const auto& curve) {
+        if (curve.role != BoundaryRole::kCurb ||
+            curve.points.size() < 3)
+          return false;
+        const Vec3d& first = curve.points.front();
+        const Vec3d& last = curve.points.back();
+        return std::any_of(
+            curve.points.begin() + 1, curve.points.end() - 1,
+            [&first, &last](const Vec3d& point) {
+              return std::abs((last.x - first.x) * (point.y - first.y) -
+                              (last.y - first.y) * (point.x - first.x)) >
+                     1e-6;
+            });
+      });
+  ROAD_TEST_EXPECT(
+      has_curved_curb_boundary,
+      "zero-radius T made the road-sidewalk curb boundary a straight chord");
 
   RoadState mixed{};
   ROAD_TEST_EXPECT(build_t(4.0, 0.0, mixed, failure), failure);
@@ -4498,11 +4513,6 @@ bool junction_zero_radius_keeps_a_t_junction_local(std::string& failure) {
     ROAD_TEST_EXPECT(std::abs(approach.resolved_setback_m - 5.0) <= 1e-6,
                      "new zero-radius branch was replaced by a 4m connection default");
   }
-  ROAD_TEST_EXPECT(
-      std::all_of(mixed_junctions.front()->junction_corners.begin(),
-                  mixed_junctions.front()->junction_corners.end(),
-                  [](const auto& corner) { return corner.control_m == 0.0; }),
-      "mixed-radius T rounded a corner whose adjacent preference is zero");
   return true;
 }
 

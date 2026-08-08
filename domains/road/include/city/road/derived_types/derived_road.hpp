@@ -16,6 +16,9 @@ struct SectionBoundarySample {
   // Effective marking policy: the boundary policy and the adjacent lane side
   // policies merged into one during section evaluation.
   AutoMarkingPolicy marking{};
+  // The faces meeting here are too far apart to shade as one surface, so the
+  // surface is split rather than smoothed across this point.
+  bool hard_edge = false;
   // Strips adjacent in template order; used to decide marking begin and end.
   RoadLayoutStripId left_strip_id = 0;
   RoadLayoutStripId right_strip_id = 0;

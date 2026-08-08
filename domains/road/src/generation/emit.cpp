@@ -145,6 +145,19 @@ Result<segment_output> emit_segment(const segment_input &input) {
     return Result<segment_output>::Fail(CommitFailureCategory::kInternalError,
                                         "road draw section width is invalid");
   }
+  // A sample the section marked as an edge gets its own vertex on each side, so
+  // the two faces meeting there are never averaged into one smooth surface. The
+  // section decided that from its template; nothing here re-measures the mesh.
+  std::vector<std::uint32_t> left_of{};
+  std::vector<std::uint32_t> right_of{};
+  std::uint32_t row_width = 0;
+  for (std::size_t index = 0; index < width; ++index) {
+    left_of.push_back(row_width);
+    if (input.samples.front().boundaries[index].hard_edge) ++row_width;
+    right_of.push_back(row_width);
+    ++row_width;
+  }
+
   std::vector<Vec3d> vertices{};
   for (const segment_sample &sample : input.samples) {
     if (sample.boundaries.size() != width || sample.surface_styles != styles) {
@@ -153,9 +166,13 @@ Result<segment_output> emit_segment(const segment_input &input) {
           "road draw section topology changes between samples");
     }
     const Vec2d lateral{-sample.tangent.y, sample.tangent.x};
-    for (const SectionBoundarySample &boundary : sample.boundaries) {
+    for (std::size_t index = 0; index < width; ++index) {
+      const SectionBoundarySample &boundary = sample.boundaries[index];
       const Vec2d point = add(sample.center, mul(lateral, boundary.lateral_m));
-      vertices.push_back({point.x, point.y, boundary.height_m});
+      const Vec3d vertex{point.x, point.y, boundary.height_m};
+      vertices.push_back(vertex);
+      if (input.samples.front().boundaries[index].hard_edge)
+        vertices.push_back(vertex);
     }
   }
 
@@ -172,11 +189,10 @@ Result<segment_output> emit_segment(const segment_input &input) {
       for (std::uint32_t col = 0; col < styles.size(); ++col) {
         if (styles[col] != style)
           continue;
-        const std::uint32_t a = row * static_cast<std::uint32_t>(width) + col;
-        const std::uint32_t b = a + 1;
-        const std::uint32_t c =
-            (row + 1) * static_cast<std::uint32_t>(width) + col;
-        const std::uint32_t d = c + 1;
+        const std::uint32_t a = row * row_width + right_of[col];
+        const std::uint32_t b = row * row_width + left_of[col + 1];
+        const std::uint32_t c = (row + 1) * row_width + right_of[col];
+        const std::uint32_t d = (row + 1) * row_width + left_of[col + 1];
         mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
       }
     }

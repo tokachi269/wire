@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <numbers>
 #include <optional>
 #include <sstream>
@@ -4057,6 +4058,50 @@ bool add_lane_beside_a_gutter_tapers_from_nothing(std::string& failure) {
   return true;
 }
 
+bool gutter_corners_are_edges_and_gentle_ones_are_not(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  ROAD_TEST_EXPECT(draw_straight_road(state, layout, 60.0), "the guttered road could not be drawn");
+  const auto sections = road_test_view::sections(state.derived());
+  ROAD_TEST_EXPECT(!sections.empty(), "the guttered road has no sections");
+  const auto& boundaries = sections.front()->boundaries;
+  ROAD_TEST_EXPECT(boundaries.size() == 13, "the guttered section changed shape");
+
+  // Samples 1..5 are the left gutter: top outer, datum top, datum bottom,
+  // channel end, lip end. Only the two that turn hard are edges.
+  const std::array<bool, 13> expected{false, false, true,  true,  false,
+                                      false, false, false, false, true,
+                                      true,  false, false};
+  for (std::size_t index = 0; index < expected.size(); ++index) {
+    ROAD_TEST_EXPECT(boundaries[index].hard_edge == expected[index],
+                     "sample " + std::to_string(index) +
+                         " was classified as the wrong kind of corner");
+  }
+
+  // The surface is split there: the two faces meeting at an edge share no
+  // vertex, so nothing downstream can average them into one smooth surface.
+  const auto curb_mesh = std::find_if(
+      state.derived().segment_meshes.begin(), state.derived().segment_meshes.end(),
+      [](const Mesh& mesh) {
+        return mesh.style == RenderStyleFromSurface(builtin_surface_styles::kCurb);
+      });
+  ROAD_TEST_EXPECT(curb_mesh != state.derived().segment_meshes.end(),
+                   "the gutter has no surface of its own");
+  std::map<std::tuple<double, double, double>, std::set<std::uint32_t>> at_position{};
+  for (const std::uint32_t index : curb_mesh->indices) {
+    const Vec3d& vertex = curb_mesh->vertices[index];
+    at_position[{vertex.x, vertex.y, vertex.z}].insert(index);
+  }
+  std::size_t split_positions = 0;
+  for (const auto& [position, indices] : at_position) {
+    (void)position;
+    if (indices.size() > 1) ++split_positions;
+  }
+  ROAD_TEST_EXPECT(split_positions > 0,
+                   "no vertex was split, so the gutter still shades as one surface");
+  return true;
+}
+
 bool road_does_not_enter_wire_core(std::string& failure) {
   const std::filesystem::path root = std::filesystem::current_path();
   const std::filesystem::path wire_domain = root / "domains" / "wire";
@@ -4190,6 +4235,8 @@ int main() {
        l_gutter_keeps_its_faces_through_a_junction},
       {"add_lane_beside_a_gutter_tapers_from_nothing",
        add_lane_beside_a_gutter_tapers_from_nothing},
+      {"gutter_corners_are_edges_and_gentle_ones_are_not",
+       gutter_corners_are_edges_and_gentle_ones_are_not},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},
   };
   int failed = 0;

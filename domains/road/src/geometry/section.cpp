@@ -177,6 +177,20 @@ bool structural_profile(const BoundaryProfile &boundary) {
   return boundary.contour.size() > 1;
 }
 
+// Faces meeting at 110 degrees or less read as an edge rather than a curve, so
+// the surface is split there instead of shaded across. cos(180 - 110).
+constexpr double kSharpestSmoothTurn = 0.34202014332566871;
+
+bool sharper_than_smooth(Vec2d before, Vec2d after) {
+  const double before_length = std::hypot(before.x, before.y);
+  const double after_length = std::hypot(after.x, after.y);
+  if (before_length <= distance_epsilon || after_length <= distance_epsilon)
+    return false;
+  return (before.x * after.x + before.y * after.y) /
+             (before_length * after_length) <=
+         kSharpestSmoothTurn;
+}
+
 // A structure may reach further than the strip beside it is wide. It keeps its
 // shape and whatever it covers collapses onto it, so the surface never folds.
 void settle_surface_order(std::vector<SectionBoundarySample> &samples,
@@ -259,12 +273,22 @@ derive_boundaries(const RoadLayoutTemplate &section,
                                    ? 0
                                    : boundary.contour.size() - 1;
     const double datum_height = height - boundary.contour.front().height_m;
+    const std::size_t last = boundary.contour.size() - 1;
+    const auto step = [&boundary](std::size_t from, std::size_t to) {
+      return Vec2d{boundary.contour[to].lateral_m - boundary.contour[from].lateral_m,
+                   boundary.contour[to].height_m - boundary.contour[from].height_m};
+    };
     for (std::size_t point = 0; point < boundary.contour.size(); ++point) {
       lateral = datum + boundary.contour[point].lateral_m;
       height = datum_height + boundary.contour[point].height_m;
-      samples.push_back(with_adjacency(SectionBoundarySample{
-          boundary.boundary_id, boundary.role, lateral, height,
-          point == marked ? policy : AutoMarkingPolicy{}}));
+      SectionBoundarySample sample{boundary.boundary_id, boundary.role, lateral,
+                                   height,
+                                   point == marked ? policy : AutoMarkingPolicy{}};
+      sample.hard_edge = sharper_than_smooth(
+          point == 0 ? Vec2d{1.0, strip.cross_slope} : step(point - 1, point),
+          point == last ? Vec2d{1.0, right_strip.cross_slope}
+                        : step(point, point + 1));
+      samples.push_back(with_adjacency(sample));
       fixed.push_back(structural_profile(boundary));
     }
   }

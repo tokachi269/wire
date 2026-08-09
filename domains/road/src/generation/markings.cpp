@@ -26,7 +26,6 @@ using internal::tangent_at;
 
 constexpr double kMarkingElevationM = 0.025;
 constexpr double kStopLineCenterM = 0.35;
-constexpr double kStopLineHalfLengthM = 0.08;
 constexpr double kCrosswalkCenterM = 2.0;
 constexpr double kCrosswalkHalfLengthM = 1.4;
 constexpr double kCrosswalkStripeHalfWidthM = 0.175;
@@ -132,6 +131,32 @@ std::vector<Vec3d> gate_quad(const ConnectionGate &gate,
   };
   if (gate.approach.endpoint_role == EndpointRole::kEnd)
     std::reverse(points.begin(), points.end());
+  return points;
+}
+
+std::vector<Vec3d> gate_cross_section_line(const ConnectionGate &gate,
+                                           double longitudinal_m,
+                                           double left_lateral_m,
+                                           double right_lateral_m) {
+  std::vector<double> laterals{left_lateral_m};
+  for (const SectionBoundarySample &boundary : gate.boundaries) {
+    if (boundary.lateral_m > left_lateral_m + distance_epsilon &&
+        boundary.lateral_m < right_lateral_m - distance_epsilon) {
+      laterals.push_back(boundary.lateral_m);
+    }
+  }
+  laterals.push_back(right_lateral_m);
+  std::sort(laterals.begin(), laterals.end());
+
+  std::vector<Vec3d> points{};
+  points.reserve(laterals.size());
+  for (std::size_t index = 0; index < laterals.size(); ++index) {
+    if (index > 0 &&
+        std::abs(laterals[index] - laterals[index - 1]) <= distance_epsilon) {
+      continue;
+    }
+    points.push_back(gate_point(gate, longitudinal_m, laterals[index]));
+  }
   return points;
 }
 
@@ -639,8 +664,8 @@ Result<bool> derive_junction_markings(const SavedRoadGraph &graph,
         stop.role = MarkingRole::kStopLine;
         stop.style_id = builtin_marking_styles::kStopLine;
         stop.width_m = marking_width_m(stop.style_id);
-        stop.polygon = gate_quad(gate, kStopLineCenterM, kStopLineHalfLengthM,
-                                 center, half);
+        stop.points = gate_cross_section_line(
+            gate, kStopLineCenterM, center - half, center + half);
         markings.push_back(std::move(stop));
       }
       if (suppressed(graph, AutoMarkingKey{owner, MarkingRole::kCrosswalk,

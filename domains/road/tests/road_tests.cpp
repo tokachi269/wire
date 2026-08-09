@@ -1150,6 +1150,24 @@ bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
                      "T junction gate setback did not adapt to the approach width");
   }
   const auto& gate = road_test_view::gates_of(junction).front();
+  const auto stop_line = std::find_if(
+      state.derived().markings.begin(), state.derived().markings.end(),
+      [](const auto& marking) {
+        return marking.owner.kind == MarkingOwner::Kind::kJunction &&
+               marking.role == MarkingRole::kStopLine;
+      });
+  ROAD_TEST_EXPECT(stop_line != state.derived().markings.end(),
+                   "T junction has no stop line");
+  ROAD_TEST_EXPECT(stop_line->points.size() >= 3,
+                   "stop line does not sample the carriageway cross slope");
+  const double stop_end_height =
+      std::max(stop_line->points.front().z, stop_line->points.back().z);
+  ROAD_TEST_EXPECT(
+      std::any_of(stop_line->points.begin() + 1, stop_line->points.end() - 1,
+                  [stop_end_height](const Vec3d& point) {
+                    return point.z > stop_end_height + 1e-6;
+                  }),
+      "stop line passes through the crowned road surface");
   const auto zebra_areas = road_test_view::marking_areas(state.derived());
   for (const auto& mesh : state.derived().marking_meshes) {
     if (mesh.style ==

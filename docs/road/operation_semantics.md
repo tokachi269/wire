@@ -164,7 +164,17 @@ ADD LANEが作る変更後断面はCoreが作る。
 - 解決後は `0 <= start < end <= length` を満たす。満たさなければ validation で正本を変更しない。
 - transition前は `from_template`、transition後は `to_template`、区間内は線形補間する。
 - `anchor` は補間中に固定する断面基準で、Center / LeftEdge / RightEdge / 明示BoundaryIdのいずれか。
+- lane幅は`LaneBand`のsemantic boundary間隔であり、marking幅を含めて増減しない。同じ`LaneId`は継続して
+  lateral rangeを補間し、targetだけのIDは出生、sourceだけのIDは消滅する。出生・消滅位置は継続laneの
+  明示ID対応またはstrip外端から一意に解けるedgeだけを使い、配列順・横位置近接から推測しない。
+- lane allocationと物理strip幅は独立に補間する。target断面のouter edgeが同じならshoulderやmedianの余地を
+  laneへ再配分でき、outer edgeが移動するtargetなら道路も拡幅する。`keep_gutter`等の固定modeは持たない。
+- 同じ`LaneId`のsurface stripまたは進行方向が変わる場合、中間laneが重なる場合、出生・消滅edgeが一意でない
+  場合はunsupportedとする。進行方向変更をlane数変更へ暗黙に混ぜない。
 - `AddLane`は方向と側から外側laneと固定boundaryをCoreで一意に解決する。laneの外側順はstrip順とstrip内のlane範囲から決め、1 laneが1 strip全幅を占有することを要求しない。固定boundaryは選択側から内側へ探索し、利用者へboundary IDを要求せず、固定boundary内側の既存laneを移動しない。
+- `AddLane`はgenericな断面遷移を作る既存の便利operationであり、lane modelそのものではない。現在の操作契約は
+  既存laneを維持し、選択した外側へ新しいlaneと必要な物理strip幅を追加する。固定外形内の再配分、lane減少、
+  direction変更を`AddLane`のmode追加で表現しない。
 - `AddLane`がjunction approachへ到達した場合、退出lane数、進入lane数、boundary role、両側strip functionが一致する接続先が1 approachだけなら、既存対応を維持して不足する`LaneConnection`と`BoundaryContinuation`を同じplanへ追加する。候補がなければlaneはgateで意図的に終了し、候補が複数なら接続先を推測せず具体的なunsupportedを返す。
 - `ADD LANE`の操作入力は、同一corridor上の変化開始、3車線完成、3車線維持終点をそれぞれ明示した`SegmentPosition`で指定する。Viewerはgraph nodeを要求しない。Coreが各位置をcorridor累積距離へ解決し、開始から完成までのtaperを跨いだ各segmentへ連続した幅比率で配分する。
   維持終点がsegment途中なら、Coreが同じEditPlan内でその位置をsplitし、完成断面を終点までだけ設定する。split、transition、section変更は一回の`generate_road`で検証してからcommitし、途中状態を公開しない。reversed corridorではCoreがsegment localのfrom/toへ正規化する。

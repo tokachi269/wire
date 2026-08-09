@@ -414,6 +414,17 @@ Viewerの通常削除はhover hitが持つ`RoadSegmentId`のsegment全体をハ�
 別軸として扱う。styleからfunctionを推測しない。`Shoulder`はcurb幅や段差の代用ではなく独立した水平stripである。
 車道外側線はcarriageway利用領域とshoulderのsemantic boundaryへ置き、shoulderがない場合だけ外側boundaryを使う。
 
+`LaneBand`は車両へ割り当てるsemanticな横方向区間であり、幅は
+`lateral_end_m - lateral_start_m`、中心はその中点である。markingはsemantic boundary上の表示であり、
+線幅やplacementを変えてもlane幅・lane中心は変わらない。1つのcarriageway stripへ複数の`LaneBand`を
+割り当ててよく、lane 1本を物理strip 1本へ対応させない。
+
+断面遷移では`LaneId`だけを継続identityとする。同じIDは横方向区間を補間し、targetだけにあるIDは出生、
+sourceだけにあるIDは消滅として幅0のedgeから、またはedgeへ補間する。出生・消滅edgeは同じIDで継続する
+隣接laneのedgeかsurface strip外端から一意に解ける場合だけ採用し、配列index・中心位置・近接では推測しない。
+同じIDのsurface stripまたは進行方向が変わる遷移、およびcollapse edgeが一意でない遷移はunsupportedとする。
+物理外形の変化とlane数の変化は独立であり、固定外形内の再配分と外側拡幅の両方を同じ補間で扱う。
+
 現行persistence versionは13。局所segment、corridor、directed ref、section strip、lane allocation、
 lane connection、boundary continuation、layoutのalignment offset、boundary profileをnamed fieldで保存する。
 version 12はboundaryのwidth/heightを2点profileへ解決し、その幅を左隣stripへ移して読む。

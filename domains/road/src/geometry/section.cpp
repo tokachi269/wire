@@ -42,6 +42,13 @@ const RoadLayoutStrip *find_strip(const RoadLayoutTemplate &section,
   return found == section.strips.end() ? nullptr : &*found;
 }
 
+const LaneBand *find_lane(const RoadLayoutTemplate &section, LaneId id) {
+  const auto found = std::find_if(
+      section.lane_bands.begin(), section.lane_bands.end(),
+      [id](const LaneBand &lane) { return lane.id == id; });
+  return found == section.lane_bands.end() ? nullptr : &*found;
+}
+
 const BoundaryProfile *find_boundary(const RoadLayoutTemplate &section,
                                      std::uint64_t id) {
   const auto found =
@@ -60,9 +67,75 @@ double distance_value(DistanceRef ref, double total_m) {
   return ref.value;
 }
 
-RoadLayoutTemplate interpolate_section(const RoadLayoutTemplate &from,
-                                         const RoadLayoutTemplate &to,
-                                         double t) {
+Result<double> missing_lane_edge(const RoadLayoutTemplate &present,
+                                 const RoadLayoutTemplate &missing,
+                                 const LaneBand &lane) {
+  const RoadLayoutStrip *present_strip =
+      find_strip(present, lane.surface_strip_id);
+  const RoadLayoutStrip *missing_strip =
+      find_strip(missing, lane.surface_strip_id);
+  if (present_strip == nullptr) {
+    return Result<double>::Fail(CommitFailureCategory::kInternalError,
+                                "lane transition strip is missing");
+  }
+  if (missing_strip == nullptr)
+    return Result<double>::Ok(0.0);
+
+  std::optional<double> edge{};
+  const auto add_edge = [&edge](double candidate) {
+    if (!edge.has_value()) {
+      edge = candidate;
+      return true;
+    }
+    return std::abs(*edge - candidate) <= distance_epsilon;
+  };
+  if (std::abs(lane.lateral_start_m) <= distance_epsilon &&
+      !add_edge(0.0)) {
+    return Result<double>::Fail(
+        CommitFailureCategory::kNotImplemented,
+        "lane transition has no unique collapsed edge");
+  }
+  if (std::abs(lane.lateral_end_m - present_strip->width_m) <=
+          distance_epsilon &&
+      !add_edge(missing_strip->width_m)) {
+    return Result<double>::Fail(
+        CommitFailureCategory::kNotImplemented,
+        "lane transition has no unique collapsed edge");
+  }
+  for (const LaneBand &neighbor : present.lane_bands) {
+    if (neighbor.id == lane.id ||
+        neighbor.surface_strip_id != lane.surface_strip_id)
+      continue;
+    const LaneBand *mapped = find_lane(missing, neighbor.id);
+    if (mapped == nullptr ||
+        mapped->surface_strip_id != lane.surface_strip_id)
+      continue;
+    if (std::abs(lane.lateral_start_m - neighbor.lateral_end_m) <=
+            distance_epsilon &&
+        !add_edge(mapped->lateral_end_m)) {
+      return Result<double>::Fail(
+          CommitFailureCategory::kNotImplemented,
+          "lane transition has no unique collapsed edge");
+    }
+    if (std::abs(lane.lateral_end_m - neighbor.lateral_start_m) <=
+            distance_epsilon &&
+        !add_edge(mapped->lateral_start_m)) {
+      return Result<double>::Fail(
+          CommitFailureCategory::kNotImplemented,
+          "lane transition has no unique collapsed edge");
+    }
+  }
+  if (!edge.has_value()) {
+    return Result<double>::Fail(
+        CommitFailureCategory::kNotImplemented,
+        "lane transition has no mapped edge for lane birth or death");
+  }
+  return Result<double>::Ok(*edge);
+}
+
+Result<RoadLayoutTemplate> interpolate_section(const RoadLayoutTemplate &from,
+                                                const RoadLayoutTemplate &to,
+                                                double t) {
   const RoadLayoutTemplate &structure =
       to.strips.size() >= from.strips.size() ? to : from;
   RoadLayoutTemplate out{};
@@ -83,20 +156,94 @@ RoadLayoutTemplate interpolate_section(const RoadLayoutTemplate &from,
     strip.cross_slope = a_slope + (b_slope - a_slope) * t;
     out.strips.push_back(std::move(strip));
   }
-  out.lane_bands = from.lane_bands;
-  for (const LaneBand &target_lane : to.lane_bands) {
-    const auto existing = std::find_if(
-        out.lane_bands.begin(), out.lane_bands.end(),
-        [&target_lane](const LaneBand &lane) { return lane.id == target_lane.id; });
-    if (existing != out.lane_bands.end())
-      continue;
-    const RoadLayoutStrip *strip = find_strip(out, target_lane.surface_strip_id);
-    if (strip == nullptr || strip->width_m <= distance_epsilon)
-      continue;
-    LaneBand lane = target_lane;
-    lane.lateral_start_m = 0.0;
-    lane.lateral_end_m = strip->width_m;
+  const auto append_lane = [&out](LaneBand lane) -> Result<bool> {
+    const RoadLayoutStrip *strip = find_strip(out, lane.surface_strip_id);
+    if (strip == nullptr) {
+      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
+                                "interpolated lane strip is missing");
+    }
+    if (lane.lateral_end_m - lane.lateral_start_m <= distance_epsilon)
+      return Result<bool>::Ok(true);
+    if (lane.lateral_start_m < -distance_epsilon ||
+        lane.lateral_end_m > strip->width_m + distance_epsilon) {
+      return Result<bool>::Fail(
+          CommitFailureCategory::kNotImplemented,
+          "interpolated lane allocation exceeds its carriageway strip");
+    }
+    lane.lateral_start_m = std::max(0.0, lane.lateral_start_m);
+    lane.lateral_end_m = std::min(strip->width_m, lane.lateral_end_m);
     out.lane_bands.push_back(lane);
+    return Result<bool>::Ok(true);
+  };
+  for (const LaneBand &source_lane : from.lane_bands) {
+    const LaneBand *target_lane = find_lane(to, source_lane.id);
+    LaneBand lane = source_lane;
+    if (target_lane != nullptr) {
+      if (source_lane.surface_strip_id != target_lane->surface_strip_id ||
+          source_lane.direction != target_lane->direction) {
+        return Result<RoadLayoutTemplate>::Fail(
+            CommitFailureCategory::kNotImplemented,
+            "continuing lane changes strip or direction across transition");
+      }
+      lane.lateral_start_m =
+          source_lane.lateral_start_m +
+          (target_lane->lateral_start_m - source_lane.lateral_start_m) * t;
+      lane.lateral_end_m =
+          source_lane.lateral_end_m +
+          (target_lane->lateral_end_m - source_lane.lateral_end_m) * t;
+    } else {
+      const Result<double> collapsed = missing_lane_edge(from, to, source_lane);
+      if (!collapsed.ok) {
+        return Result<RoadLayoutTemplate>::Fail(collapsed.failure_category,
+                                                collapsed.error);
+      }
+      lane.lateral_start_m =
+          source_lane.lateral_start_m +
+          (collapsed.value - source_lane.lateral_start_m) * t;
+      lane.lateral_end_m =
+          source_lane.lateral_end_m +
+          (collapsed.value - source_lane.lateral_end_m) * t;
+    }
+    const Result<bool> appended = append_lane(lane);
+    if (!appended.ok) {
+      return Result<RoadLayoutTemplate>::Fail(appended.failure_category,
+                                              appended.error);
+    }
+  }
+  for (const LaneBand &target_lane : to.lane_bands) {
+    if (find_lane(from, target_lane.id) != nullptr)
+      continue;
+    const Result<double> collapsed = missing_lane_edge(to, from, target_lane);
+    if (!collapsed.ok) {
+      return Result<RoadLayoutTemplate>::Fail(collapsed.failure_category,
+                                              collapsed.error);
+    }
+    LaneBand lane = target_lane;
+    lane.lateral_start_m =
+        collapsed.value + (target_lane.lateral_start_m - collapsed.value) * t;
+    lane.lateral_end_m =
+        collapsed.value + (target_lane.lateral_end_m - collapsed.value) * t;
+    const Result<bool> appended = append_lane(lane);
+    if (!appended.ok) {
+      return Result<RoadLayoutTemplate>::Fail(appended.failure_category,
+                                              appended.error);
+    }
+  }
+  for (std::size_t left = 0; left < out.lane_bands.size(); ++left) {
+    for (std::size_t right = left + 1; right < out.lane_bands.size(); ++right) {
+      const LaneBand &a = out.lane_bands[left];
+      const LaneBand &b = out.lane_bands[right];
+      if (a.surface_strip_id != b.surface_strip_id)
+        continue;
+      const double overlap =
+          std::min(a.lateral_end_m, b.lateral_end_m) -
+          std::max(a.lateral_start_m, b.lateral_start_m);
+      if (overlap > distance_epsilon) {
+        return Result<RoadLayoutTemplate>::Fail(
+            CommitFailureCategory::kNotImplemented,
+            "interpolated lane allocations overlap");
+      }
+    }
   }
   for (const BoundaryProfile &structure_boundary : structure.boundaries) {
     const BoundaryProfile *a =
@@ -121,7 +268,7 @@ RoadLayoutTemplate interpolate_section(const RoadLayoutTemplate &from,
     }
     out.boundaries.push_back(std::move(boundary));
   }
-  return out;
+  return Result<RoadLayoutTemplate>::Ok(std::move(out));
 }
 
 // Merge the marking requests that apply to a boundary into one policy. The
@@ -409,9 +556,9 @@ Result<RoadLayoutTemplate> template_at(
     return Result<RoadLayoutTemplate>::Fail(
         CommitFailureCategory::kInvalidInput, "road transition distance range is invalid");
   }
-  return Result<RoadLayoutTemplate>::Ok(interpolate_section(
+  return interpolate_section(
       *from, *to,
-      std::clamp((segment_distance_m - start) / (end - start), 0.0, 1.0)));
+      std::clamp((segment_distance_m - start) / (end - start), 0.0, 1.0));
 }
 
 Result<SectionEvaluation> section_at(const SavedRoadGraph &graph,

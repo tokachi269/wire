@@ -5,6 +5,7 @@
 #include "../src/generation/generation.hpp"
 #include "../src/generation/emit.hpp"
 #include "../src/geometry/geometry.hpp"
+#include "../src/geometry/section.hpp"
 #include "../src/persistence/archive.hpp"
 
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <numeric>
 #include <numbers>
 #include <optional>
 #include <sstream>
@@ -1794,6 +1796,134 @@ bool section_transition_widens_one_side_from_its_anchor(std::string& failure) {
   ROAD_TEST_EXPECT(loaded.value.graph().transitions.size() == 1 &&
                        loaded.value.graph().segments.front().transition == 9001,
                    "P2 transition authority did not survive save/load");
+  return true;
+}
+
+bool lane_allocation_transition_uses_lane_identity(std::string& failure) {
+  RoadState state{};
+  city::road::RoadLayoutTemplate from{};
+  from.alignment_offset_from_left_m = 2.0;
+  from.strips = {
+      {10, StripFunction::kShoulder, 2.0, 0.0,
+       builtin_surface_styles::kAsphalt},
+      {20, StripFunction::kCarriageway, 6.0, 0.0,
+       builtin_surface_styles::kAsphalt},
+  };
+  from.boundaries = {
+      road_fixture::PaintedLineBoundary(100, BoundaryRole::kOuterEdge, {})};
+  from.lane_bands = {
+      {10, 20, 0.0, 3.0, city::road::LaneTravelDirection::kAlongSegment},
+      {20, 20, 3.0, 6.0, city::road::LaneTravelDirection::kAlongSegment},
+  };
+  const auto from_id = road_fixture::AddLayout(state, from);
+  ROAD_TEST_EXPECT(from_id != 0, "source lane allocation was rejected");
+
+  city::road::RoadLayoutTemplate to = from;
+  to.strips[0].width_m = 0.5;
+  to.strips[1].width_m = 7.5;
+  to.lane_bands = {
+      {10, 20, 0.0, 2.5, city::road::LaneTravelDirection::kAlongSegment},
+      {20, 20, 2.5, 5.0, city::road::LaneTravelDirection::kAlongSegment},
+      {30, 20, 5.0, 7.5, city::road::LaneTravelDirection::kAlongSegment},
+  };
+  const auto to_id = road_fixture::AddLayout(state, to);
+  ROAD_TEST_EXPECT(to_id != 0, "target lane allocation was rejected");
+  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), from_id});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+
+  const auto transition_graph = [&](city::road::RoadLayoutTemplateId source,
+                                    city::road::RoadLayoutTemplateId target) {
+    SavedRoadGraph graph = state.graph();
+    graph.segments.front().layout_template = source;
+    attach_transition(
+        graph, segment.value,
+        RoadLayoutTransition{
+            9001, source, target,
+            DistanceRef{DistanceRefKind::kFromStart, 10.0},
+            DistanceRef{DistanceRefKind::kFromStart, 50.0},
+            TransitionAnchor::kLeftEdge, 0,
+            {RoadLayoutTransitionRule{
+                 10, TransitionAction::kChangeWidthHeightOffset},
+             RoadLayoutTransitionRule{
+                 20, TransitionAction::kChangeWidthHeightOffset}}});
+    return graph;
+  };
+  const SavedRoadGraph graph = transition_graph(from_id, to_id);
+  const auto halfway = city::road::internal::template_at(
+      graph, graph.segments.front(), 30.0, 60.0);
+  ROAD_TEST_EXPECT(halfway.ok, halfway.error);
+  const double width = std::accumulate(
+      halfway.value.strips.begin(), halfway.value.strips.end(), 0.0,
+      [](double sum, const city::road::RoadLayoutStrip& strip) {
+        return sum + strip.width_m;
+      });
+  ROAD_TEST_EXPECT(std::abs(width - 8.0) < 1e-9,
+                   "lane birth changed the fixed road outer width");
+  const auto lane = [](const city::road::RoadLayoutTemplate& layout,
+                       LaneId id) -> const city::road::LaneBand* {
+    const auto found = std::find_if(
+        layout.lane_bands.begin(), layout.lane_bands.end(),
+        [id](const city::road::LaneBand& item) { return item.id == id; });
+    return found == layout.lane_bands.end() ? nullptr : &*found;
+  };
+  const auto* first = lane(halfway.value, 10);
+  const auto* second = lane(halfway.value, 20);
+  const auto* born = lane(halfway.value, 30);
+  ROAD_TEST_EXPECT(first != nullptr && second != nullptr && born != nullptr,
+                   "lane identity transition lost a lane");
+  ROAD_TEST_EXPECT(std::abs(first->lateral_end_m - 2.75) < 1e-9 &&
+                       std::abs(second->lateral_start_m - 2.75) < 1e-9 &&
+                       std::abs(second->lateral_end_m - 5.5) < 1e-9 &&
+                       std::abs(born->lateral_start_m - 5.5) < 1e-9 &&
+                       std::abs(born->lateral_end_m - 6.75) < 1e-9,
+                   "lane ranges did not interpolate by LaneId");
+
+  const SavedRoadGraph reverse = transition_graph(to_id, from_id);
+  const auto reverse_halfway = city::road::internal::template_at(
+      reverse, reverse.segments.front(), 30.0, 60.0);
+  ROAD_TEST_EXPECT(reverse_halfway.ok, reverse_halfway.error);
+  for (const auto& expected : halfway.value.lane_bands) {
+    const auto* actual = lane(reverse_halfway.value, expected.id);
+    ROAD_TEST_EXPECT(actual != nullptr &&
+                         actual->lateral_start_m == expected.lateral_start_m &&
+                         actual->lateral_end_m == expected.lateral_end_m,
+                     "lane birth and death differ when reversed");
+  }
+
+  auto changed_marking = from;
+  changed_marking.boundaries.front().marking = {
+      true, MarkingRole::kCarriagewayEdge,
+      builtin_marking_styles::kCrosswalk, MarkingPlacement::kInside};
+  const auto base_center = city::road::internal::lane_template_lateral(
+      from, from.lane_bands.front());
+  const auto marked_center = city::road::internal::lane_template_lateral(
+      changed_marking, changed_marking.lane_bands.front());
+  ROAD_TEST_EXPECT(base_center.ok && marked_center.ok &&
+                       base_center.value == marked_center.value,
+                   "marking width changed lane allocation center");
+
+  const auto archived = city::road::persistence::SaveRoad(graph, kFixtureNextId);
+  ROAD_TEST_EXPECT(archived.ok, archived.error);
+  const auto loaded = RoadState::Load(archived.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  const auto resaved = loaded.value.Save();
+  ROAD_TEST_EXPECT(resaved.ok && resaved.value == archived.value,
+                   "lane transition was not byte-stable after load");
+
+  city::road::RoadLayoutTemplate crossing = from;
+  crossing.lane_bands = {
+      {10, 20, 3.0, 6.0, city::road::LaneTravelDirection::kAlongSegment},
+      {20, 20, 0.0, 3.0, city::road::LaneTravelDirection::kAlongSegment},
+  };
+  const auto crossing_id = road_fixture::AddLayout(state, crossing);
+  ROAD_TEST_EXPECT(crossing_id != 0, "crossing target was rejected early");
+  const auto crossing_result = city::road::generation::generate_road(
+      transition_graph(from_id, crossing_id));
+  ROAD_TEST_EXPECT(!crossing_result.ok &&
+                       crossing_result.failure_category ==
+                           CommitFailureCategory::kNotImplemented,
+                   "crossing LaneIds were rebound by lateral order");
   return true;
 }
 
@@ -5307,6 +5437,8 @@ int main() {
        P1_skew_shoulder_cross_has_connected_lines_without_overlap},
       {"section_transition_widens_one_side_from_its_anchor",
        section_transition_widens_one_side_from_its_anchor},
+      {"lane_allocation_transition_uses_lane_identity",
+       lane_allocation_transition_uses_lane_identity},
       {"saved_manual_markings_load_and_draw", saved_manual_markings_load_and_draw},
       {"add_lane_preserves_existing_lanes",
        add_lane_preserves_existing_lanes},

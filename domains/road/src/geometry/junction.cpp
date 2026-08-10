@@ -363,58 +363,90 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
       second_profile.value.left.chain.front() - second.boundaries.data());
   const auto target_right = static_cast<std::size_t>(
       second_profile.value.right.chain.front() - second.boundaries.data());
-  std::map<std::pair<std::uint64_t, BoundaryRole>,
-           const SectionBoundarySample *> target_carriageway{};
-  for (std::size_t index = target_left + 1; index < target_right; ++index) {
-    const SectionBoundarySample &sample = second.boundaries[index];
-    if (!target_carriageway
-             .emplace(std::pair{sample.boundary_id, sample.role}, &sample)
-             .second) {
-      return Result<ConnectionGeometry>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "road connection carriageway boundary mapping is ambiguous");
-    }
-  }
-  for (std::size_t index = source_left + 1; index < source_right; ++index) {
-    const SectionBoundarySample &sample = first.boundaries[index];
-    const auto target = target_carriageway.find(
-        std::pair{sample.boundary_id, sample.role});
-    if (target == target_carriageway.end()) {
-      return Result<ConnectionGeometry>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "road connection carriageway boundary mapping is incomplete for " +
-              std::to_string(sample.boundary_id) + "/" +
-              std::to_string(static_cast<int>(sample.role)));
-    }
-    const Vec3d section_edge =
-        subtract3(boundary_point(first, first.boundaries[index]),
-                  boundary_point(first, first.boundaries[index - 1]));
-    const Vec3d segment_tangent =
-        first.approach.endpoint_role == EndpointRole::kStart
-            ? first.tangent
-            : scale3(first.tangent, -1.0);
-    faces.push_back(matched_face{first_section.surface_styles[index - 1],
-                                 cross3(segment_tangent, section_edge), true});
-    rails.push_back(matched_rail{&sample, target->second,
-                                 boundary_point(first, sample),
-                                 boundary_point(second, *target->second)});
-  }
+  const auto append_carriageway = [&]() -> Result<bool> {
+    const bool first_owns =
+        (source_right - source_left) >= (target_right - target_left);
+    const ConnectionGate &owner_gate = first_owns ? first : second;
+    const ConnectionGate &other_gate = first_owns ? second : first;
+    const SectionEvaluation &owner_section =
+        first_owns ? first_section : second_section;
+    const std::vector<SectionBoundarySample> &owner_boundaries =
+        first_owns ? first.boundaries : second.boundaries;
+    const std::vector<SectionBoundarySample> &other_boundaries =
+        first_owns ? second.boundaries : first.boundaries;
+    const std::size_t owner_left = first_owns ? source_left : target_left;
+    const std::size_t owner_right = first_owns ? source_right : target_right;
+    const std::size_t other_left = first_owns ? target_left : source_left;
+    const std::size_t other_right = first_owns ? target_right : source_right;
 
-  const Vec3d carriageway_edge =
-      subtract3(boundary_point(first, first.boundaries[source_right]),
-                boundary_point(first, first.boundaries[source_right - 1]));
-  const Vec3d source_segment_tangent =
-      first.approach.endpoint_role == EndpointRole::kStart
-          ? first.tangent
-          : scale3(first.tangent, -1.0);
-  faces.push_back(matched_face{first_section.surface_styles[source_right - 1],
-                               cross3(source_segment_tangent, carriageway_edge),
-                               true});
-  rails.push_back(matched_rail{
-      first_profile.value.right.chain.front(),
-      second_profile.value.right.chain.front(),
-      boundary_point(first, *first_profile.value.right.chain.front()),
-      boundary_point(second, *second_profile.value.right.chain.front())});
+    std::map<std::pair<std::uint64_t, BoundaryRole>, std::size_t> other_exact{};
+    for (std::size_t index = other_left; index <= other_right; ++index) {
+      const SectionBoundarySample &sample = other_boundaries[index];
+      if (!other_exact.emplace(std::pair{sample.boundary_id, sample.role}, index)
+               .second) {
+        return Result<bool>::Fail(
+            CommitFailureCategory::kNotImplemented,
+            "road connection carriageway boundary mapping is ambiguous");
+      }
+    }
+
+    const auto collapse_other_index =
+        [&](const SectionBoundarySample &sample) -> Result<std::size_t> {
+      const auto exact =
+          other_exact.find(std::pair{sample.boundary_id, sample.role});
+      if (exact != other_exact.end()) return Result<std::size_t>::Ok(exact->second);
+      const double left_distance =
+          std::abs(sample.lateral_m - owner_boundaries[owner_left].lateral_m);
+      const double right_distance =
+          std::abs(owner_boundaries[owner_right].lateral_m - sample.lateral_m);
+      if (std::abs(left_distance - right_distance) <= 1e-9) {
+        return Result<std::size_t>::Fail(
+            CommitFailureCategory::kNotImplemented,
+            "road connection carriageway boundary mapping is ambiguous");
+      }
+      return Result<std::size_t>::Ok(left_distance < right_distance
+                                         ? other_left
+                                         : other_right);
+    };
+
+    const Vec3d owner_segment_tangent =
+        owner_gate.approach.endpoint_role == EndpointRole::kStart
+            ? owner_gate.tangent
+            : scale3(owner_gate.tangent, -1.0);
+    for (std::size_t index = owner_left + 1; index <= owner_right; ++index) {
+      const SectionBoundarySample &owner_sample = owner_boundaries[index];
+      const Result<std::size_t> other_index = collapse_other_index(owner_sample);
+      if (!other_index.ok) {
+        return Result<bool>::Fail(other_index.failure_category,
+                                  other_index.error);
+      }
+      const SectionBoundarySample &other_sample =
+          other_boundaries[other_index.value];
+      const Vec3d section_edge =
+          subtract3(boundary_point(owner_gate, owner_boundaries[index]),
+                    boundary_point(owner_gate, owner_boundaries[index - 1]));
+      faces.push_back(matched_face{
+          owner_section.surface_styles[index - 1],
+          cross3(owner_segment_tangent, section_edge), first_owns});
+      const bool exact_match =
+          owner_sample.boundary_id == other_sample.boundary_id &&
+          owner_sample.role == other_sample.role;
+      rails.push_back(matched_rail{
+          first_owns ? &owner_sample : &other_sample,
+          first_owns ? &other_sample : &owner_sample,
+          boundary_point(first, *(first_owns ? &owner_sample : &other_sample)),
+          boundary_point(second, *(first_owns ? &other_sample : &owner_sample)),
+          first_owns || exact_match,
+          !first_owns || exact_match,
+      });
+    }
+    return Result<bool>::Ok(true);
+  };
+  const Result<bool> carriageway = append_carriageway();
+  if (!carriageway.ok) {
+    return Result<ConnectionGeometry>::Fail(carriageway.failure_category,
+                                            carriageway.error);
+  }
 
   append_side(first_profile.value.right, second_profile.value.right, false);
   if (rails.size() < 2 || faces.size() + 1 != rails.size()) {

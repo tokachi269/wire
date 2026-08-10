@@ -60,19 +60,6 @@ bool approach_key_less(const ApproachKey &a, const ApproachKey &b) {
          std::tie(b.node_id, b.segment_id, b.endpoint_role);
 }
 
-bool same_lane_identity(const RoadLayoutTemplate &a,
-                        const RoadLayoutTemplate &b) {
-  std::vector<std::pair<LaneId, LaneTravelDirection>> a_lanes{};
-  std::vector<std::pair<LaneId, LaneTravelDirection>> b_lanes{};
-  for (const LaneBand &lane : a.lane_bands)
-    a_lanes.emplace_back(lane.id, lane.direction);
-  for (const LaneBand &lane : b.lane_bands)
-    b_lanes.emplace_back(lane.id, lane.direction);
-  std::sort(a_lanes.begin(), a_lanes.end());
-  std::sort(b_lanes.begin(), b_lanes.end());
-  return a_lanes == b_lanes;
-}
-
 struct endpoint_side_reaches {
   double left_m = 0.0;
   double right_m = 0.0;
@@ -659,73 +646,6 @@ resolve_connections(const SavedRoadGraph &graph,
       connection.approaches.push_back(std::move(resolved.value));
       if (connection.kind == NodeConnectionKind::kCorner)
         minimum_setback = std::min(minimum_setback, setback);
-    }
-    if (connection.approaches.size() > 1) {
-      const RoadLayoutTemplate *expected = find_template(
-          graph, connection.approaches.front().endpoint_template_id);
-       const bool mixed = expected == nullptr || std::any_of(
-           connection.approaches.begin() + 1, connection.approaches.end(),
-          [&graph, expected](const ResolvedApproach &approach) {
-            const RoadLayoutTemplate *candidate =
-                find_template(graph, approach.endpoint_template_id);
-            return candidate == nullptr ||
-                   !internal::equivalent_section_definition(*expected,
-                                                             *candidate);
-           });
-      const bool has_automatic_lane_identity =
-          expected != nullptr &&
-          std::all_of(connection.approaches.begin() + 1,
-                      connection.approaches.end(),
-                      [&graph, expected](const ResolvedApproach &approach) {
-                        const RoadLayoutTemplate *candidate =
-                            find_template(graph, approach.endpoint_template_id);
-                        return candidate != nullptr &&
-                               same_lane_identity(*expected, *candidate);
-                      });
-      const RoadSegmentId first_segment_id =
-          connection.approaches.front().key.segment_id;
-      const RoadSegmentId second_segment_id =
-          connection.approaches.size() == 2
-              ? connection.approaches.back().key.segment_id
-              : 0;
-      const auto connects_approach_pair =
-          [first_segment_id,
-           second_segment_id](RoadSegmentId source, RoadSegmentId target) {
-            return (source == first_segment_id &&
-                    target == second_segment_id) ||
-                   (source == second_segment_id &&
-                    target == first_segment_id);
-          };
-      const bool has_pair_lane_topology =
-          second_segment_id != 0 &&
-          std::any_of(graph.lane_connections.begin(),
-                      graph.lane_connections.end(),
-                      [&connects_approach_pair](const LaneConnection &lane) {
-                        return connects_approach_pair(lane.source.segment_id,
-                                                      lane.target.segment_id);
-                      });
-      const bool has_pair_boundary_topology =
-          second_segment_id != 0 &&
-          std::any_of(graph.boundary_continuations.begin(),
-                      graph.boundary_continuations.end(),
-                      [&connects_approach_pair](
-                          const BoundaryContinuation &boundary) {
-                        return connects_approach_pair(
-                            boundary.source.segment_id,
-                            boundary.target.segment_id);
-                      });
-      // Junction approaches may intentionally terminate at their gates. An
-      // explicit JunctionMovement opts individual lanes into a movement; it is
-      // not evidence that every lane/boundary has been mapped. Degree-two
-      // connections, however, imply continuity and must not hide a section
-      // change at the node.
-      if (mixed && connection.kind != NodeConnectionKind::kJunction &&
-          !has_automatic_lane_identity &&
-          !(has_pair_lane_topology && has_pair_boundary_topology)) {
-        return Out::Fail(CommitFailureCategory::kNotImplemented,
-                         "road degree-two connection lane layouts differ; add "
-                         "a section transition before the node");
-      }
     }
     if (connection.kind == NodeConnectionKind::kCorner) {
       if (!std::isfinite(minimum_setback)) {

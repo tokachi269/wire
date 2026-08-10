@@ -737,20 +737,22 @@ bool extension_semantic_boundaries_are_atomic(std::string& failure) {
       mixed_section.AddSegment(AddSegmentRequest{base_path, mixed_section_section});
   ROAD_CONTRACT_EXPECT(mixed_base.ok, mixed_base.error);
   const RoadSegment mixed_segment = mixed_section.graph().segments.front();
+  const RoadCorridor* mixed_corridor =
+      FindCorridorForSegment(mixed_section.graph(), mixed_segment.id);
+  ROAD_CONTRACT_EXPECT(mixed_corridor != nullptr,
+                       "mixed-section base has no corridor");
+  const auto mixed_extension = mixed_section.ExtendCorridorFromEnd(
+      ExtendCorridorFromEndRequest{mixed_corridor->id, mixed_segment.node_b,
+                                   extension, section.value});
+  ROAD_CONTRACT_EXPECT(mixed_extension.ok,
+                       "mixed-section ExtendCorridorFromEnd failed: " +
+                           mixed_extension.error);
+  ROAD_CONTRACT_EXPECT(mixed_section.derived().connections.size() == 1,
+                       "mixed-section extension did not create one connection");
   ROAD_CONTRACT_EXPECT(
-      expect_failed_unchanged(
-          mixed_section,
-          [&] {
-            const RoadCorridor* corridor =
-                FindCorridorForSegment(mixed_section.graph(),
-                                       mixed_segment.id);
-            return mixed_section.ExtendCorridorFromEnd(
-                ExtendCorridorFromEndRequest{
-                    corridor == nullptr ? 0 : corridor->id,
-                    mixed_segment.node_b, extension, section.value});
-          },
-          "mixed-section ExtendCorridorFromEnd", failure),
-      failure);
+      !mixed_section.derived().connections.front().connection_geometry
+           .surface_strips.empty(),
+      "mixed-section extension created no connector surface");
 
   RoadState from_start{};
   const auto from_start_section = road_fixture::AddLayout(from_start, road_fixture::BidirectionalLayout(0));

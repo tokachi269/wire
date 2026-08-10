@@ -3541,7 +3541,7 @@ bool P2_supports_taper_lane_reduction_and_median_end(std::string& failure) {
   return true;
 }
 
-bool P2_requires_transition_for_mixed_section_connection(std::string& failure) {
+bool P2_degree_two_accepts_different_lane_counts(std::string& failure) {
   {
     RoadState state{};
     const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
@@ -3551,8 +3551,15 @@ bool P2_requires_transition_for_mixed_section_connection(std::string& failure) {
     const auto endpoint = state.graph().segments.front().node_b;
     const auto direct = state.AddSegmentConnectedTo(city::road::AddSegmentConnectedToRequest{
         MakePath({MakeLine({60.0, 0.0}, {60.0, 20.0})}), three_lane, endpoint});
-    ROAD_TEST_EXPECT(!direct.ok && direct.failure_category == CommitFailureCategory::kNotImplemented,
-                     "P2 accepted a mixed-section node connection without a transition");
+    ROAD_TEST_EXPECT(direct.ok,
+                     "degree-two connection rejected a different lane count: " +
+                         direct.error);
+    const auto connections = road_test_view::corners(state.derived());
+    ROAD_TEST_EXPECT(connections.size() == 1,
+                     "different lane counts did not form one degree-two corner");
+    ROAD_TEST_EXPECT(
+        !connections.front()->connection_geometry.surface_strips.empty(),
+        "different lane counts produced no degree-two connector surfaces");
   }
 
   {
@@ -5568,7 +5575,8 @@ int main() {
       {"saved_junction_movements_derive_lane_paths",
        saved_junction_movements_derive_lane_paths},
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
-      {"P2_requires_transition_for_mixed_section_connection", P2_requires_transition_for_mixed_section_connection},
+      {"P2_degree_two_accepts_different_lane_counts",
+       P2_degree_two_accepts_different_lane_counts},
       {"equivalent_endpoint_sections_ignore_template_identity",
        equivalent_endpoint_sections_ignore_template_identity},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},

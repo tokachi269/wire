@@ -496,6 +496,41 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
   return true;
 }
 
+bool P0_odd_lane_carriageway_mesh_has_drainage_crown(std::string& failure) {
+  RoadState state{};
+  const auto section =
+      road_fixture::AddLayout(state, road_fixture::ExtraLaneLayout(0));
+  const auto added = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
+  ROAD_TEST_EXPECT(added.ok, added.error);
+  const auto sections = road_test_view::sections(state.derived());
+  ROAD_TEST_EXPECT(!sections.empty(), "three-lane section was not evaluated");
+  const auto center_line = std::find_if(
+      sections.front()->boundaries.begin(), sections.front()->boundaries.end(),
+      [](const auto& boundary) { return boundary.boundary_id == 200; });
+  ROAD_TEST_EXPECT(center_line != sections.front()->boundaries.end(),
+                   "three-lane center line boundary is missing");
+
+  const Mesh* asphalt = nullptr;
+  for (const Mesh& mesh : state.derived().segment_meshes) {
+    if (mesh.style == RenderStyleFromSurface(builtin_surface_styles::kAsphalt)) {
+      asphalt = &mesh;
+      break;
+    }
+  }
+  ROAD_TEST_EXPECT(asphalt != nullptr, "three-lane asphalt mesh is missing");
+  double crown_z = -1.0;
+  for (const Vec3d& vertex : asphalt->vertices) {
+    if (std::abs(vertex.y) <= 1e-9) {
+      crown_z = std::max(crown_z, vertex.z);
+    }
+  }
+  ROAD_TEST_EXPECT(crown_z > center_line->height_m + 0.02,
+                   "odd-lane carriageway mesh kept the painted center line as "
+                   "the highest road point");
+  return true;
+}
+
 bool P0_angled_segment_keeps_final_section_perpendicular(std::string& failure) {
   RoadState state{};
   const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
@@ -5589,6 +5624,8 @@ int main() {
   const Test tests[] = {
       {"P0_generates_two_lane_segment", P0_generates_two_lane_segment},
       {"P0_two_lane_mesh_shows_sidewalks_curbs_and_markings", P0_two_lane_mesh_shows_sidewalks_curbs_and_markings},
+      {"P0_odd_lane_carriageway_mesh_has_drainage_crown",
+       P0_odd_lane_carriageway_mesh_has_drainage_crown},
       {"P0_angled_segment_keeps_final_section_perpendicular", P0_angled_segment_keeps_final_section_perpendicular},
       {"P0_rejects_self_intersection_without_mutation", P0_rejects_self_intersection_without_mutation},
       {"P0_save_load_is_authoritative_and_bit_stable", P0_save_load_is_authoritative_and_bit_stable},

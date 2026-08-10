@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iterator>
+#include <optional>
 
 namespace city::road::generation {
 namespace {
@@ -34,6 +35,110 @@ double triangle_normal_z(Vec3d a, Vec3d b, Vec3d c) {
 void append_triangle(Mesh &mesh, std::uint32_t a, std::uint32_t b,
                      std::uint32_t c) {
   mesh.indices.insert(mesh.indices.end(), {a, b, c});
+}
+
+struct render_column {
+  std::size_t source_index = 0;
+  bool generated_crown = false;
+};
+
+struct segment_render_grid {
+  std::vector<render_column> columns{};
+  std::vector<RenderStyleRef> face_styles{};
+  std::vector<std::uint32_t> left_of{};
+  std::vector<std::uint32_t> right_of{};
+  std::uint32_t row_width = 0;
+};
+
+RenderStyleRef asphalt_style() {
+  return RenderStyleFromSurface(builtin_surface_styles::kAsphalt);
+}
+
+std::optional<std::size_t> carriageway_crown_face(
+    const std::vector<SectionBoundarySample> &boundaries,
+    const std::vector<RenderStyleRef> &styles) {
+  std::optional<std::size_t> first{};
+  std::optional<std::size_t> last{};
+  for (std::size_t index = 0; index < styles.size(); ++index) {
+    if (styles[index] != asphalt_style()) continue;
+    if (!first.has_value()) first = index;
+    last = index;
+  }
+  if (!first.has_value() || !last.has_value() || *first == *last)
+    return std::nullopt;
+  const double crown =
+      (boundaries[*first].lateral_m + boundaries[*last + 1].lateral_m) * 0.5;
+  for (std::size_t index = *first; index <= *last; ++index) {
+    if (std::abs(boundaries[index].lateral_m - crown) <= 1e-9 ||
+        std::abs(boundaries[index + 1].lateral_m - crown) <= 1e-9) {
+      return std::nullopt;
+    }
+    if (boundaries[index].lateral_m < crown &&
+        crown < boundaries[index + 1].lateral_m) {
+      return index;
+    }
+  }
+  return std::nullopt;
+}
+
+double crown_height(const segment_sample &sample, std::size_t face_index) {
+  const auto &boundaries = sample.boundaries;
+  double left = boundaries.front().lateral_m;
+  double right = boundaries.back().lateral_m;
+  for (std::size_t index = 0; index < sample.surface_styles.size(); ++index) {
+    if (sample.surface_styles[index] != asphalt_style()) continue;
+    left = boundaries[index].lateral_m;
+    while (index + 1 < sample.surface_styles.size() &&
+           sample.surface_styles[index + 1] == asphalt_style()) {
+      ++index;
+    }
+    right = boundaries[index + 1].lateral_m;
+    break;
+  }
+  double grade = 0.0;
+  for (std::size_t index = 0; index < sample.surface_styles.size(); ++index) {
+    if (sample.surface_styles[index] != asphalt_style()) continue;
+    const double width =
+        boundaries[index + 1].lateral_m - boundaries[index].lateral_m;
+    if (std::abs(width) <= 1e-9) continue;
+    grade = std::max(grade, std::abs((boundaries[index + 1].height_m -
+                                      boundaries[index].height_m) /
+                                     width));
+  }
+  const double crown = (left + right) * 0.5;
+  const double edge_height =
+      std::max(boundaries[face_index].height_m,
+               boundaries[face_index + 1].height_m);
+  return std::max(edge_height,
+                  grade * std::min(crown - left, right - crown));
+}
+
+segment_render_grid make_segment_render_grid(
+    const std::vector<SectionBoundarySample> &boundaries,
+    const std::vector<RenderStyleRef> &styles) {
+  segment_render_grid grid{};
+  const std::optional<std::size_t> crown_face =
+      carriageway_crown_face(boundaries, styles);
+  for (std::size_t index = 0; index < boundaries.size(); ++index) {
+    if (crown_face.has_value() && *crown_face + 1 == index) {
+      grid.columns.push_back(render_column{*crown_face, true});
+    }
+    grid.columns.push_back(render_column{index, false});
+  }
+  for (std::size_t index = 0; index < styles.size(); ++index) {
+    grid.face_styles.push_back(styles[index]);
+    if (crown_face.has_value() && *crown_face == index) {
+      grid.face_styles.push_back(styles[index]);
+    }
+  }
+  for (const render_column &column : grid.columns) {
+    grid.left_of.push_back(grid.row_width);
+    if (!column.generated_crown && boundaries[column.source_index].hard_edge)
+      ++grid.row_width;
+    grid.right_of.push_back(grid.row_width);
+    ++grid.row_width;
+  }
+  return grid;
 }
 
 void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
@@ -140,15 +245,8 @@ Result<segment_output> emit_segment(const segment_input &input) {
     return Result<segment_output>::Fail(CommitFailureCategory::kInternalError,
                                         "road draw section width is invalid");
   }
-  std::vector<std::uint32_t> left_of{};
-  std::vector<std::uint32_t> right_of{};
-  std::uint32_t row_width = 0;
-  for (std::size_t index = 0; index < width; ++index) {
-    left_of.push_back(row_width);
-    if (input.samples.front().boundaries[index].hard_edge) ++row_width;
-    right_of.push_back(row_width);
-    ++row_width;
-  }
+  const segment_render_grid grid =
+      make_segment_render_grid(input.samples.front().boundaries, styles);
 
   std::vector<Vec3d> vertices{};
   for (const segment_sample &sample : input.samples) {
@@ -157,19 +255,29 @@ Result<segment_output> emit_segment(const segment_input &input) {
           CommitFailureCategory::kNotImplemented,
           "road draw section topology changes between samples");
     }
-    for (std::size_t index = 0; index < width; ++index) {
-      const SectionBoundarySample &boundary = sample.boundaries[index];
-      const Vec2d point =
-          add(sample.center, mul(sample.lateral, boundary.lateral_m));
-      const Vec3d vertex{point.x, point.y, boundary.height_m};
+    for (const render_column &column : grid.columns) {
+      const SectionBoundarySample &boundary =
+          sample.boundaries[column.source_index];
+      const double lateral =
+          column.generated_crown
+              ? (sample.boundaries[column.source_index].lateral_m +
+                 sample.boundaries[column.source_index + 1].lateral_m) *
+                    0.5
+              : boundary.lateral_m;
+      const double height =
+          column.generated_crown ? crown_height(sample, column.source_index)
+                                 : boundary.height_m;
+      const Vec2d point = add(sample.center, mul(sample.lateral, lateral));
+      const Vec3d vertex{point.x, point.y, height};
       vertices.push_back(vertex);
-      if (input.samples.front().boundaries[index].hard_edge)
+      if (!column.generated_crown &&
+          input.samples.front().boundaries[column.source_index].hard_edge)
         vertices.push_back(vertex);
     }
   }
 
   segment_output output{};
-  for (const RenderStyleRef &style : styles) {
+  for (const RenderStyleRef &style : grid.face_styles) {
     if (std::any_of(output.surface_meshes.begin(), output.surface_meshes.end(),
                     [&style](const Mesh &mesh) { return mesh.style == style; }))
       continue;
@@ -178,13 +286,15 @@ Result<segment_output> emit_segment(const segment_input &input) {
     mesh.style = style;
     mesh.vertices = vertices;
     for (std::uint32_t row = 0; row + 1 < input.samples.size(); ++row) {
-      for (std::uint32_t col = 0; col < styles.size(); ++col) {
-        if (styles[col] != style)
+      for (std::uint32_t col = 0; col < grid.face_styles.size(); ++col) {
+        if (grid.face_styles[col] != style)
           continue;
-        const std::uint32_t a = row * row_width + right_of[col];
-        const std::uint32_t b = row * row_width + left_of[col + 1];
-        const std::uint32_t c = (row + 1) * row_width + right_of[col];
-        const std::uint32_t d = (row + 1) * row_width + left_of[col + 1];
+        const std::uint32_t a = row * grid.row_width + grid.right_of[col];
+        const std::uint32_t b = row * grid.row_width + grid.left_of[col + 1];
+        const std::uint32_t c =
+            (row + 1) * grid.row_width + grid.right_of[col];
+        const std::uint32_t d =
+            (row + 1) * grid.row_width + grid.left_of[col + 1];
         mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
       }
     }

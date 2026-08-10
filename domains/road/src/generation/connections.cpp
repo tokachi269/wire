@@ -67,33 +67,46 @@ struct endpoint_side_reaches {
 
 endpoint_side_reaches endpoint_reaches(const SavedRoadGraph &graph,
                                        const RoadSegment &segment,
-                                       const DerivedSegment &derived,
                                        const ApproachKey &key) {
-  const double distance = key.endpoint_role == EndpointRole::kStart
-                              ? 0.0
-                              : derived.length_m;
-  const Result<SectionEvaluation> section =
-      internal::section_at(graph, segment, distance, derived.length_m);
-  if (!section.ok || section.value.boundaries.empty()) return {};
-  double left_m = 0.0;
-  double right_m = 0.0;
-  for (const SectionBoundarySample &sample : section.value.boundaries) {
-    left_m = std::max(left_m, -sample.lateral_m);
-    right_m = std::max(right_m, sample.lateral_m);
+  RoadLayoutTemplateId template_id = segment.layout_template;
+  if (segment.transition.has_value()) {
+    const RoadLayoutTransition *transition =
+        find_transition(graph, *segment.transition);
+    if (transition == nullptr)
+      return {};
+    template_id = key.endpoint_role == EndpointRole::kStart
+                      ? transition->from_template
+                      : transition->to_template;
   }
-  const endpoint_side_reaches along_segment{left_m, right_m};
+  const RoadLayoutTemplate *section = find_template(graph, template_id);
+  if (section == nullptr)
+    return {};
+  double width = 0.0;
+  for (const RoadLayoutStrip &strip : section->strips)
+    width += strip.width_m;
+  const double offset = section->alignment_offset_from_left_m;
+  const endpoint_side_reaches along_segment{offset, width - offset};
   if (key.endpoint_role == EndpointRole::kStart)
     return along_segment;
   return endpoint_side_reaches{along_segment.right_m, along_segment.left_m};
 }
 
+// A degree-two fillet sweeps the complete section, so its outer envelope uses
+// the larger reach. Junction clearance instead uses the side that faces the
+// neighboring approach; using this maximum there overextends asymmetric roads.
+double endpoint_outer_reach(const SavedRoadGraph &graph,
+                            const RoadSegment &segment,
+                            const ApproachKey &key) {
+  const endpoint_side_reaches reaches = endpoint_reaches(graph, segment, key);
+  return std::max(reaches.left_m, reaches.right_m);
+}
+
 double signed_endpoint_reach_toward(const SavedRoadGraph &graph,
                                     const RoadSegment &segment,
-                                    const DerivedSegment &derived,
                                     const ordered_approach &from,
                                     const ordered_approach &toward) {
   const endpoint_side_reaches reaches =
-      endpoint_reaches(graph, segment, derived, from.key);
+      endpoint_reaches(graph, segment, from.key);
   return cross(from.tangent, toward.tangent) > 0.0 ? reaches.left_m
                                                    : -reaches.right_m;
 }
@@ -105,23 +118,12 @@ struct junction_corner_resolution {
 };
 
 Result<junction_corner_resolution> resolve_junction_corner(
-    const SavedRoadGraph &graph, const std::vector<DerivedSegment> &segments,
-    const ordered_approach &first, const ordered_approach &second) {
+    const SavedRoadGraph &graph, const ordered_approach &first,
+    const ordered_approach &second) {
   using Out = Result<junction_corner_resolution>;
-  const auto find_derived = [&segments](RoadSegmentId id) {
-    const auto found =
-        std::find_if(segments.begin(), segments.end(),
-                     [id](const DerivedSegment &segment) {
-                       return segment.id == id;
-                     });
-    return found == segments.end() ? nullptr : &*found;
-  };
   const RoadSegment *first_segment = find_segment(graph, first.key.segment_id);
   const RoadSegment *second_segment = find_segment(graph, second.key.segment_id);
-  const DerivedSegment *first_derived = find_derived(first.key.segment_id);
-  const DerivedSegment *second_derived = find_derived(second.key.segment_id);
-  if (first_segment == nullptr || second_segment == nullptr ||
-      first_derived == nullptr || second_derived == nullptr) {
+  if (first_segment == nullptr || second_segment == nullptr) {
     return Out::Fail(CommitFailureCategory::kInternalError,
                      "road junction corner source segment is missing");
   }
@@ -139,11 +141,9 @@ Result<junction_corner_resolution> resolve_junction_corner(
   const Vec2d first_lateral{-first.tangent.y, first.tangent.x};
   const Vec2d second_lateral{-second.tangent.y, second.tangent.x};
   const double first_reach =
-      signed_endpoint_reach_toward(graph, *first_segment, *first_derived,
-                                   first, second);
+      signed_endpoint_reach_toward(graph, *first_segment, first, second);
   const double second_reach =
-      signed_endpoint_reach_toward(graph, *second_segment, *second_derived,
-                                   second, first);
+      signed_endpoint_reach_toward(graph, *second_segment, second, first);
   const Vec2d first_origin = scale(first_lateral, first_reach);
   const Vec2d second_origin = scale(second_lateral, second_reach);
   const Vec2d delta = subtract(second_origin, first_origin);
@@ -572,8 +572,7 @@ resolve_connections(const SavedRoadGraph &graph,
       connection.junction_corners.reserve(ordered.size());
       for (std::size_t index = 0; index < ordered.size(); ++index) {
         Result<junction_corner_resolution> resolved = resolve_junction_corner(
-            graph, segments, ordered[index],
-            ordered[(index + 1) % ordered.size()]);
+            graph, ordered[index], ordered[(index + 1) % ordered.size()]);
         if (!resolved.ok) {
           return Out::Fail(resolved.failure_category, resolved.error);
         }
@@ -603,28 +602,15 @@ resolve_connections(const SavedRoadGraph &graph,
         const double turn_angle = std::numbers::pi - outward_angle;
         const RoadSegment *other_segment =
             find_segment(graph, other->key.segment_id);
-        const DerivedSegment *other_derived =
-            segment_of(segments, other->key.segment_id);
-        if (other_segment == nullptr || other_derived == nullptr) {
+        if (other_segment == nullptr) {
           return Out::Fail(CommitFailureCategory::kInternalError,
                            "road corner source segment is missing");
         }
-        const endpoint_side_reaches approach_reaches =
-            endpoint_reaches(graph, *segment, *derived, approach.key);
-        const endpoint_side_reaches other_reaches =
-            endpoint_reaches(graph, *other_segment, *other_derived,
-                             other->key);
-        const double section_reach =
-            std::max(std::max(approach_reaches.left_m,
-                              approach_reaches.right_m),
-                     std::max(other_reaches.left_m, other_reaches.right_m));
-        const double side_mismatch =
-            std::max(std::abs(approach_reaches.left_m - other_reaches.left_m),
-                     std::abs(approach_reaches.right_m -
-                              other_reaches.right_m));
+        const double section_reach = std::max(
+            endpoint_outer_reach(graph, *segment, approach.key),
+            endpoint_outer_reach(graph, *other_segment, other->key));
         setback = (connection.corner_radius_m + section_reach) *
                   std::tan(turn_angle * 0.5);
-        setback = std::max(setback, side_mismatch);
       } else if (connection.kind == NodeConnectionKind::kJunction) {
         setback = rules.minimum_junction_setback_m;
         for (const junction_corner_resolution &corner : junction_corners) {

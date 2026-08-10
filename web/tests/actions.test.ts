@@ -1417,6 +1417,42 @@ describe("viewport tool routing", () => {
     actions.confirmDrawStep();
     expect(commit).toHaveBeenCalledOnce();
   });
+  it("rejects an add-lane taper crossing a segment boundary before commit", () => {
+    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 120,
+        segments: [
+          { segmentId: 12, reversed: false, lengthM: 60 },
+          { segmentId: 13, reversed: false, lengthM: 60 }
+        ] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 0 as const }], boundaries: []
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene, roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    });
+    actions.addViewportPoint([90, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 13, segmentDistanceM: 30
+    });
+
+    expect(commit).not.toHaveBeenCalled();
+    expect(current(store).lastCommitFailure?.reasonCode)
+      .toBe("lane_taper_crosses_segment_boundary");
+    expect(current(store).road.laneEditStage).toBe("transition-complete");
+  });
   it("normalizes add-lane picks against the hidden corridor direction", () => {
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
     const store = new ViewerStore();

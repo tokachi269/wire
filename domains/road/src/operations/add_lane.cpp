@@ -12,8 +12,9 @@
 #include <unordered_map>
 
 // Add Lane. Core resolves the outer lane and the boundary it keeps fixed,
-// derives the widened cross section, writes one section transition, and plans
-// the junction movements the new lane resolves to -- all in one operation.
+// derives the widened cross section, and writes the section transition. Junction
+// movement topology is explicit saved data; the convenience operation does not
+// infer a turn destination from approach order.
 namespace city::road {
 namespace {
 
@@ -107,163 +108,6 @@ struct OrderedBoundaryEndpoint {
                      std::tie(b.lateral_order, b.key.boundary_id);
             });
   return result;
-}
-
-[[nodiscard]] Result<bool> plan_unique_junction_topology(
-    const SavedRoadGraph& graph, RoadSegmentId source_segment_id,
-    EndpointRole source_role, LaneId added_lane_id,
-    BoundaryId added_boundary_id, std::uint64_t& next_id,
-    operations::OperationPlan& plan) {
-  const RoadSegment* source_segment =
-      internal::find_segment(graph, source_segment_id);
-  const RoadLayoutTemplate* source_section =
-      source_segment == nullptr
-          ? nullptr
-          : internal::find_endpoint_template(graph, *source_segment,
-                                             source_role);
-  if (source_segment == nullptr || source_section == nullptr) {
-    return Result<bool>::Fail(CommitFailureCategory::kInternalError,
-                              "added lane junction source is missing");
-  }
-  const RoadNodeId node_id = source_role == EndpointRole::kStart
-                                 ? source_segment->node_a
-                                 : source_segment->node_b;
-  std::vector<const RoadSegment*> incident{};
-  for (const RoadSegment& segment : graph.segments) {
-    if (segment.node_a == node_id || segment.node_b == node_id)
-      incident.push_back(&segment);
-  }
-  if (incident.size() < 2) return Result<bool>::Ok(true);
-
-  const Result<std::vector<OrderedLaneEndpoint>> source_lanes =
-      ordered_lane_endpoints(*source_section, source_segment_id, source_role,
-                             true);
-  if (!source_lanes.ok) {
-    return Result<bool>::Fail(source_lanes.failure_category, source_lanes.error);
-  }
-  if (std::none_of(source_lanes.value.begin(), source_lanes.value.end(),
-                   [added_lane_id](const OrderedLaneEndpoint& endpoint) {
-                     return endpoint.key.lane_id == added_lane_id;
-                   })) {
-    return Result<bool>::Ok(true);
-  }
-  std::vector<OrderedLaneEndpoint> mapped_source_lanes = source_lanes.value;
-  std::vector<OrderedBoundaryEndpoint> source_boundaries =
-      ordered_boundary_endpoints(*source_section, source_segment_id,
-                                 source_role);
-  struct Candidate {
-    std::vector<OrderedLaneEndpoint> lanes{};
-    std::vector<OrderedBoundaryEndpoint> boundaries{};
-  };
-  std::vector<Candidate> candidates{};
-  for (const RoadSegment* candidate_segment : incident) {
-    if (candidate_segment->id == source_segment_id) continue;
-    const EndpointRole role = endpoint_role_at(*candidate_segment, node_id);
-    const RoadLayoutTemplate* section = internal::find_endpoint_template(
-        graph, *candidate_segment, role);
-    if (section == nullptr) {
-      return Result<bool>::Fail(CommitFailureCategory::kInternalError,
-                                "junction candidate section is missing");
-    }
-    Result<std::vector<OrderedLaneEndpoint>> lanes = ordered_lane_endpoints(
-        *section, candidate_segment->id, role, false);
-    if (!lanes.ok) {
-      return Result<bool>::Fail(lanes.failure_category, lanes.error);
-    }
-    std::vector<OrderedBoundaryEndpoint> boundaries =
-        ordered_boundary_endpoints(*section, candidate_segment->id, role);
-    if (incident.size() == 2) {
-      mapped_source_lanes.erase(
-          std::remove_if(mapped_source_lanes.begin(), mapped_source_lanes.end(),
-                         [added_lane_id](const OrderedLaneEndpoint& endpoint) {
-                           return endpoint.key.lane_id == added_lane_id;
-                         }),
-          mapped_source_lanes.end());
-      source_boundaries.erase(
-          std::remove_if(source_boundaries.begin(), source_boundaries.end(),
-                         [added_boundary_id](
-                             const OrderedBoundaryEndpoint& endpoint) {
-                           return endpoint.key.boundary_id == added_boundary_id;
-                         }),
-          source_boundaries.end());
-    }
-    if (lanes.value.size() != mapped_source_lanes.size() ||
-        boundaries.size() != source_boundaries.size()) {
-      continue;
-    }
-    const bool boundary_roles_match = std::equal(
-        source_boundaries.begin(), source_boundaries.end(), boundaries.begin(),
-        [](const OrderedBoundaryEndpoint& a,
-           const OrderedBoundaryEndpoint& b) {
-          return a.role == b.role &&
-                 a.left_function == b.left_function &&
-                 a.right_function == b.right_function;
-        });
-    if (boundary_roles_match)
-      candidates.push_back({std::move(lanes.value), std::move(boundaries)});
-  }
-  if (candidates.empty()) return Result<bool>::Ok(true);
-  if (candidates.size() > 1) {
-    return Result<bool>::Fail(
-        CommitFailureCategory::kNotImplemented,
-        "added lane junction destination is ambiguous; choose straight, left, "
-        "or right");
-  }
-  const Candidate& target = candidates.front();
-  for (std::size_t index = 0; index < mapped_source_lanes.size(); ++index) {
-    const LaneEndpointKey& source = mapped_source_lanes[index].key;
-    const LaneEndpointKey& destination = target.lanes[index].key;
-    const auto exact = std::find_if(
-        graph.lane_connections.begin(), graph.lane_connections.end(),
-        [&source, &destination](const LaneConnection& connection) {
-          return connection.source == source &&
-                 connection.target == destination;
-        });
-    if (exact != graph.lane_connections.end()) continue;
-    const bool conflicts = std::any_of(
-        graph.lane_connections.begin(), graph.lane_connections.end(),
-        [&source, &destination](const LaneConnection& connection) {
-          return connection.source == source ||
-                 connection.target == destination;
-        });
-    if (conflicts) {
-      return Result<bool>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "added lane conflicts with existing junction lane topology");
-    }
-    plan.add_lane_connections.push_back(LaneConnection{
-        next_id++, source, destination,
-        incident.size() == 2 ? LaneConnectionKind::kContinuation
-                             : LaneConnectionKind::kJunctionMovement});
-  }
-  for (std::size_t index = 0; index < source_boundaries.size(); ++index) {
-    const BoundaryEndpointKey& source = source_boundaries[index].key;
-    const BoundaryEndpointKey& destination = target.boundaries[index].key;
-    const auto exact = std::find_if(
-        graph.boundary_continuations.begin(),
-        graph.boundary_continuations.end(),
-        [&source, &destination](const BoundaryContinuation& continuation) {
-          return continuation.source == source &&
-                 continuation.target == destination;
-        });
-    if (exact != graph.boundary_continuations.end()) continue;
-    const bool conflicts = std::any_of(
-        graph.boundary_continuations.begin(),
-        graph.boundary_continuations.end(),
-        [&source, &destination](const BoundaryContinuation& continuation) {
-          return continuation.source == source ||
-                 continuation.target == destination;
-        });
-    if (conflicts) {
-      return Result<bool>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "added lane conflicts with existing junction boundary topology");
-    }
-    plan.add_boundary_continuations.push_back(BoundaryContinuation{
-        next_id++, source, destination,
-        BoundaryContinuationKind::kContinuation});
-  }
-  return Result<bool>::Ok(true);
 }
 
 [[nodiscard]] Result<bool> plan_same_identity_degree_two_topology(
@@ -824,12 +668,6 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
       return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
                                   "planned lane corridor is missing");
     }
-    const Result<bool> topology = plan_unique_junction_topology(
-        planned_graph, terminal_segment_id, terminal_role, added_lane_id,
-        lane_ids.boundary_id, next_id, plan);
-    if (!topology.ok) {
-      return Result<LaneId>::Fail(topology.failure_category, topology.error);
-    }
     if (split_terminal) {
       const Result<bool> degree_two_topology =
           plan_same_identity_degree_two_topology(
@@ -897,6 +735,11 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         std::min(start_position.value.ref_index, complete_position.value.ref_index);
     const std::size_t taper_end_index =
         std::max(start_position.value.ref_index, complete_position.value.ref_index);
+    if (taper_begin_index != taper_end_index) {
+      return Result<LaneId>::Fail(
+          CommitFailureCategory::kNotImplemented,
+          "lane taper must stay within one road segment");
+    }
     for (std::size_t index = taper_begin_index;
          index <= taper_end_index; ++index) {
       const DirectedSegmentRef& ref = corridor->segments[index];

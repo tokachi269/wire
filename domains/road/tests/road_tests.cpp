@@ -2432,7 +2432,7 @@ bool add_lane_stops_at_the_explicit_corridor_endpoint(std::string& failure) {
   return true;
 }
 
-bool add_lane_taper_crosses_segment_boundaries(std::string& failure) {
+bool add_lane_rejects_taper_across_segment_boundaries(std::string& failure) {
   RoadState state{};
   const auto section =
       road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
@@ -2458,8 +2458,6 @@ bool add_lane_taper_crosses_segment_boundaries(std::string& failure) {
   const RoadSegment* second_segment = find_segment_by_id(second.value);
   ROAD_TEST_EXPECT(second_segment != nullptr,
                    "cross-segment lane second segment is missing");
-  const RoadNodeId original_end_node = second_segment->node_b;
-
   city::road::AddLaneRequest request{};
   request.corridor_id = corridor_id;
   request.direction = city::road::LaneTravelDirection::kAlongSegment;
@@ -2468,21 +2466,18 @@ bool add_lane_taper_crosses_segment_boundaries(std::string& failure) {
   request.transition_complete = {second.value, 0.5};
   request.continuation_end = {second.value, 0.75};
   request.lane_width_m = 3.0;
+  const auto before = state.Save();
+  ROAD_TEST_EXPECT(before.ok, before.error);
   const auto added = state.AddLane(request);
-  ROAD_TEST_EXPECT(added.ok,
-                   "ADD LANE rejected a taper crossing one segment boundary: " +
-                       added.error);
-  ROAD_TEST_EXPECT(state.graph().segments.size() == 3,
-                   "an interior ADD LANE end did not split its terminal segment");
-  const auto suffix = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [second_id = second.value, section,
-       original_end_node](const RoadSegment& item) {
-        return item.id != second_id && item.layout_template == section &&
-               item.node_b == original_end_node;
-      });
-  ROAD_TEST_EXPECT(suffix != state.graph().segments.end(),
-                   "the road after an interior ADD LANE end did not keep its original section");
+  ROAD_TEST_EXPECT(!added.ok &&
+                       added.failure_category ==
+                           CommitFailureCategory::kNotImplemented &&
+                       added.error.find("taper must stay within one road segment") !=
+                           std::string::npos,
+                   "ADD LANE accepted a cross-segment taper");
+  const auto after = state.Save();
+  ROAD_TEST_EXPECT(after.ok && after.value == before.value,
+                   "rejected cross-segment taper mutated authoritative state");
   return true;
 }
 
@@ -2694,73 +2689,6 @@ bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
                                      return lane.id == 1010;
                                    }),
                    "ADD1 did not preserve existing lane identity");
-  return true;
-}
-
-bool add_lane_taper_crosses_segment_boundary(std::string& failure) {
-  RoadState state{};
-  const auto shouldered = road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
-  const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
-  const auto first = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), shouldered});
-  ROAD_TEST_EXPECT(first.ok, first.error);
-  const auto first_segment = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [&first](const auto& segment) { return segment.id == first.value; });
-  const auto* corridor = FindCorridorForSegment(state.graph(), first.value);
-  ROAD_TEST_EXPECT(first_segment != state.graph().segments.end() &&
-                       corridor != nullptr,
-                   "ADD2 initial corridor is missing");
-  const auto corridor_id = corridor->id;
-  const auto second = state.ExtendCorridorFromEnd(
-      city::road::ExtendCorridorFromEndRequest{
-          corridor_id, first_segment->node_b,
-          MakePath({MakeLine({80.0, 0.0}, {160.0, 0.0})}), shouldered});
-  ROAD_TEST_EXPECT(second.ok, second.error);
-
-  city::road::AddLaneRequest request{};
-  request.corridor_id = corridor_id;
-  request.direction = city::road::LaneTravelDirection::kAlongSegment;
-  request.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 60.0, 100.0),
-                   "ADD LANE test range could not be resolved");
-  request.lane_width_m = 3.0;
-  const auto added = state.AddLane(request);
-  ROAD_TEST_EXPECT(added.ok, added.error);
-  const auto first_after = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [&first](const auto& segment) { return segment.id == first.value; });
-  const auto second_after = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [&second](const auto& segment) { return segment.id == second.value; });
-  const auto* updated_corridor =
-      FindCorridorForSegment(state.graph(), first.value);
-  const std::size_t transitioning_segments =
-      updated_corridor == nullptr
-          ? 0
-          : static_cast<std::size_t>(std::count_if(
-                updated_corridor->segments.begin(),
-                updated_corridor->segments.end(), [&state](const auto& ref) {
-                  const auto segment = std::find_if(
-                      state.graph().segments.begin(),
-                      state.graph().segments.end(), [&ref](const auto& item) {
-                        return item.id == ref.segment_id;
-                      });
-                  return segment != state.graph().segments.end() &&
-                         segment->transition.has_value();
-                }));
-  ROAD_TEST_EXPECT(!first_after->transition.has_value() &&
-                       second_after->transition.has_value() &&
-                       transitioning_segments == 2,
-                   "ADD2 did not resolve both sides of the segment boundary");
-  const auto sections = road_test_view::sections(state.derived());
-  const auto at_boundary = std::find_if(
-      sections.begin(), sections.end(), [&second](const auto* section) {
-        return section->segment_id == second.value &&
-               std::abs(section->segment_distance_m) < 1e-6;
-      });
-  ROAD_TEST_EXPECT(at_boundary != sections.end(),
-                   "ADD2 boundary section sample is missing");
   return true;
 }
 
@@ -2979,19 +2907,19 @@ bool add_lane_connects_the_only_matching_junction_approach(
                connection.kind ==
                    city::road::LaneConnectionKind::kJunctionMovement;
       });
-  ROAD_TEST_EXPECT(added_connection != state.graph().lane_connections.end(),
-                   "ADD9 added lane was not connected to the only matching approach");
-  ROAD_TEST_EXPECT(state.graph().lane_connections.size() == 3,
-                   "ADD9 did not resolve every lane in the unique 3-to-3 movement");
-  ROAD_TEST_EXPECT(state.graph().boundary_continuations.size() == 4,
-                   "ADD9 did not resolve every boundary in the unique 3-to-3 movement");
-  ROAD_TEST_EXPECT(state.derived().lane_paths.size() == 3 &&
-                       state.derived().boundary_paths.size() == 4,
-                   "ADD9 unique junction topology was not derived");
+  ROAD_TEST_EXPECT(added_connection == state.graph().lane_connections.end(),
+                   "ADD9 inferred a junction destination for the added lane");
+  ROAD_TEST_EXPECT(state.graph().lane_connections.size() == 2,
+                   "ADD9 changed explicit saved junction lane topology");
+  ROAD_TEST_EXPECT(state.graph().boundary_continuations.size() == 3,
+                   "ADD9 changed explicit saved junction boundary topology");
+  ROAD_TEST_EXPECT(state.derived().lane_paths.size() == 2 &&
+                       state.derived().boundary_paths.size() == 3,
+                   "ADD9 did not preserve explicit junction topology");
   return true;
 }
 
-bool add_lane_rejects_ambiguous_junction_destinations(
+bool add_lane_terminates_at_ambiguous_junction_destinations(
     std::string& failure) {
   RoadState state{};
   const auto two_lane = state.AddRoadLayoutTemplate(
@@ -3025,9 +2953,8 @@ bool add_lane_rejects_ambiguous_junction_destinations(
                    !narrow.ok ? narrow.error
                               : (!first_wide.ok ? first_wide.error
                                                 : second_wide.error));
-  const auto before = state.Save();
   const auto* corridor = FindCorridorForSegment(state.graph(), incoming.value);
-  ROAD_TEST_EXPECT(before.ok && corridor != nullptr,
+  ROAD_TEST_EXPECT(corridor != nullptr,
                    "ADD10 preflight state is missing");
   city::road::AddLaneRequest request{};
   request.corridor_id = corridor->id;
@@ -3036,16 +2963,18 @@ bool add_lane_rejects_ambiguous_junction_destinations(
   ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
                    "ADD LANE test range could not be resolved");
   request.lane_width_m = 3.0;
+  const auto before = state.Save();
+  ROAD_TEST_EXPECT(before.ok, before.error);
   const auto added = state.AddLane(request);
-  ROAD_TEST_EXPECT(!added.ok &&
-                       added.failure_category ==
-                           city::road::CommitFailureCategory::kNotImplemented &&
-                       added.error.find("destination is ambiguous") !=
-                           std::string::npos,
-                   "ADD10 ambiguous junction destination was not reported concretely");
+  ROAD_TEST_EXPECT(added.ok,
+                   "ADD10 ambiguous junction destination should terminate the added lane: " +
+                       added.error);
+  ROAD_TEST_EXPECT(state.graph().lane_connections.empty() &&
+                       state.graph().boundary_continuations.empty(),
+                   "ADD10 inferred topology for an ambiguous junction destination");
   const auto after = state.Save();
-  ROAD_TEST_EXPECT(after.ok && after.value == before.value,
-                   "ADD10 ambiguous junction failure mutated authoritative state");
+  ROAD_TEST_EXPECT(after.ok && after.value != before.value,
+                   "ADD10 successful Add Lane did not change authoritative state");
   return true;
 }
 
@@ -3091,51 +3020,6 @@ bool add_lane_allows_a_later_non_overlapping_addition(std::string& failure) {
   ROAD_TEST_EXPECT(terminal != state.graph().layout_templates.end() &&
                        terminal->lane_bands.size() == 4,
                    "ADD5 second lane did not reach the terminal section");
-  return true;
-}
-
-bool add_lane_allows_a_later_addition_after_cross_segment_taper(
-    std::string& failure) {
-  RoadState state{};
-  const auto shouldered = road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
-  const auto first_segment = state.AddSegment(city::road::AddSegmentRequest{
-      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), shouldered});
-  ROAD_TEST_EXPECT(first_segment.ok, first_segment.error);
-  const auto first = std::find_if(
-      state.graph().segments.begin(), state.graph().segments.end(),
-      [&first_segment](const auto& segment) {
-        return segment.id == first_segment.value;
-      });
-  const auto* initial_corridor =
-      FindCorridorForSegment(state.graph(), first_segment.value);
-  ROAD_TEST_EXPECT(first != state.graph().segments.end() &&
-                       initial_corridor != nullptr,
-                   "ADD6 initial corridor is missing");
-  const RoadCorridorId corridor_id = initial_corridor->id;
-  const auto second_segment = state.ExtendCorridorFromEnd(
-      city::road::ExtendCorridorFromEndRequest{
-          corridor_id, first->node_b,
-          MakePath({MakeLine({80.0, 0.0}, {180.0, 0.0})}), shouldered});
-  ROAD_TEST_EXPECT(second_segment.ok, second_segment.error);
-
-  city::road::AddLaneRequest first_add{};
-  first_add.corridor_id = corridor_id;
-  first_add.direction = city::road::LaneTravelDirection::kAlongSegment;
-  first_add.side = city::road::RoadSide::kRight;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, first_add, 60.0, 100.0),
-                   "ADD LANE test range could not be resolved");
-  first_add.lane_width_m = 3.0;
-  const auto first_lane = state.AddLane(first_add);
-  ROAD_TEST_EXPECT(first_lane.ok, first_lane.error);
-
-  city::road::AddLaneRequest second_add = first_add;
-  ROAD_TEST_EXPECT(SetAddLaneRange(state, second_add, 130.0, 160.0),
-                   "ADD LANE test range could not be resolved");
-  const auto second_lane = state.AddLane(second_add);
-  ROAD_TEST_EXPECT(
-      second_lane.ok,
-      "ADD6 lane after cross-segment taper was rejected: " +
-          second_lane.error);
   return true;
 }
 
@@ -5646,8 +5530,8 @@ int main() {
        add_lane_preserves_unrelated_corridor_geometry},
       {"add_lane_stops_at_the_explicit_corridor_endpoint",
        add_lane_stops_at_the_explicit_corridor_endpoint},
-      {"add_lane_taper_crosses_segment_boundaries",
-       add_lane_taper_crosses_segment_boundaries},
+      {"add_lane_rejects_taper_across_segment_boundaries",
+       add_lane_rejects_taper_across_segment_boundaries},
       {"add_lane_conflict_is_specific_and_atomic",
        add_lane_conflict_is_specific_and_atomic},
       {"transitioning_segment_split_respects_transition_bounds",
@@ -5660,8 +5544,8 @@ int main() {
        add_lane_reaches_mixed_section_junction},
       {"add_lane_connects_the_only_matching_junction_approach",
        add_lane_connects_the_only_matching_junction_approach},
-      {"add_lane_rejects_ambiguous_junction_destinations",
-       add_lane_rejects_ambiguous_junction_destinations},
+      {"add_lane_terminates_at_ambiguous_junction_destinations",
+       add_lane_terminates_at_ambiguous_junction_destinations},
       {"add_lane_accepts_multiple_lanes_on_one_carriageway_strip",
        add_lane_accepts_multiple_lanes_on_one_carriageway_strip},
       {"add_lane_supports_every_section_outer_side",

@@ -1902,7 +1902,7 @@ describe("road wasm smoke", () => {
     )).toBe(true);
   });
 
-  it("adds a lane across segment boundaries and ends at an arbitrary road position", () => {
+  it("rejects an Add Lane taper across segment boundaries", () => {
     clearRoad(state);
     const first = state.addSegment({
       roadLayoutTemplateId: sectionId,
@@ -1941,6 +1941,7 @@ describe("road wasm smoke", () => {
     });
     expect(second.ok, second.error).toBe(true);
 
+    const before = state.scene();
     const committed = state.addLane({
       corridorId: first.corridorId!,
       direction: 0,
@@ -1953,13 +1954,12 @@ describe("road wasm smoke", () => {
       continuationEndT: 0.75,
       laneWidthM: 3
     });
-    expect(committed.ok, committed.error).toBe(true);
+    expect(committed.ok).toBe(false);
+    expect(committed.error).toContain("taper must stay within one road segment");
     const scene = state.scene();
-    expect(scene.segmentCount).toBe(3);
-    expect(scene.transitionCount).toBe(2);
-    expect(scene.corridors).toHaveLength(1);
-    expect(scene.corridors[0].segments).toHaveLength(3);
-    expect(scene.lanePaths.some((lane) => lane.laneId === committed.laneId)).toBe(true);
+    expect(scene.segmentCount).toBe(before.segmentCount);
+    expect(scene.transitionCount).toBe(before.transitionCount);
+    expect(scene.corridors[0].segments).toHaveLength(before.corridors[0].segments.length);
   });
 
 

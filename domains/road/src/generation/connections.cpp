@@ -448,80 +448,6 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
   return Result<ResolvedApproach>::Ok(std::move(approach));
 }
 
-const ordered_approach *ordered_approach_of(
-    const std::vector<ordered_approach> &ordered, RoadSegmentId segment_id,
-    EndpointRole endpoint_role) {
-  const auto found = std::find_if(
-      ordered.begin(), ordered.end(),
-      [segment_id, endpoint_role](const ordered_approach &approach) {
-        return approach.key.segment_id == segment_id &&
-               approach.key.endpoint_role == endpoint_role;
-      });
-  return found == ordered.end() ? nullptr : &*found;
-}
-
-Result<double> auto_lateral_shift_for(
-    const SavedRoadGraph &graph, const std::vector<ordered_approach> &ordered,
-    const ordered_approach &target) {
-  std::optional<double> resolved{};
-  for (const LaneConnection &connection : graph.lane_connections) {
-    if ((connection.kind != LaneConnectionKind::kContinuation &&
-         connection.kind != LaneConnectionKind::kMerge) ||
-        connection.target.segment_id != target.key.segment_id ||
-        connection.target.endpoint_role != target.key.endpoint_role)
-      continue;
-    const internal::LaneEndpointLookup source_lookup =
-        internal::find_lane_endpoint(graph, connection.source);
-    const internal::LaneEndpointLookup target_lookup =
-        internal::find_lane_endpoint(graph, connection.target);
-    const ordered_approach *source = ordered_approach_of(
-        ordered, connection.source.segment_id,
-        connection.source.endpoint_role);
-    if (source_lookup.lane == nullptr || source_lookup.section == nullptr ||
-        target_lookup.lane == nullptr || target_lookup.section == nullptr ||
-        source == nullptr) {
-      return Result<double>::Fail(
-          CommitFailureCategory::kInternalError,
-          "lane continuation auto layout input is missing");
-    }
-    if (dot(source->tangent, target.tangent) >
-        -std::cos(rules.straight_tolerance_rad)) {
-      continue;
-    }
-    const Result<double> source_lateral =
-        internal::lane_template_lateral(*source_lookup.section,
-                                        *source_lookup.lane);
-    const Result<double> target_lateral =
-        internal::lane_template_lateral(*target_lookup.section,
-                                        *target_lookup.lane);
-    if (!source_lateral.ok || !target_lateral.ok) {
-      return Result<double>::Fail(
-          CommitFailureCategory::kInternalError,
-          "lane continuation lateral position is missing");
-    }
-    const double source_sign =
-        connection.source.endpoint_role == EndpointRole::kStart ? 1.0 : -1.0;
-    const double target_sign =
-        connection.target.endpoint_role == EndpointRole::kStart ? 1.0 : -1.0;
-    const Vec2d source_axis{-source->tangent.y * source_sign,
-                            source->tangent.x * source_sign};
-    const Vec2d target_axis{-target.tangent.y * target_sign,
-                            target.tangent.x * target_sign};
-    const Vec2d target_gate_lateral{-target.tangent.y, target.tangent.x};
-    const Vec2d delta = subtract(scale(source_axis, source_lateral.value),
-                                 scale(target_axis, target_lateral.value));
-    const double shift = dot(delta, target_gate_lateral);
-    if (resolved.has_value() &&
-        std::abs(*resolved - shift) > distance_epsilon) {
-      return Result<double>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "lane continuations require conflicting target lateral shifts");
-    }
-    resolved = shift;
-  }
-  return Result<double>::Ok(resolved.value_or(0.0));
-}
-
 } // namespace
 
 Result<std::vector<ResolvedConnection>>
@@ -684,15 +610,8 @@ resolve_connections(const SavedRoadGraph &graph,
         return Out::Fail(CommitFailureCategory::kInvalidInput,
                          "road approach endpoint section template is missing");
       }
-      const Result<double> auto_lateral_shift =
-          auto_lateral_shift_for(graph, ordered, approach);
-      if (!auto_lateral_shift.ok) {
-        return Out::Fail(auto_lateral_shift.failure_category,
-                         auto_lateral_shift.error);
-      }
       Result<ResolvedApproach> resolved = resolve_approach(
-          graph, *derived, approach.key, endpoint_section, setback,
-          auto_lateral_shift.value);
+          graph, *derived, approach.key, endpoint_section, setback, 0.0);
       if (!resolved.ok)
         return Out::Fail(resolved.failure_category, resolved.error);
       connection.approaches.push_back(std::move(resolved.value));

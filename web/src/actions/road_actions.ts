@@ -399,6 +399,11 @@ export class RoadActions {
                            "lane_transition_complete_not_selected");
           return;
         }
+        if (position.segmentId !== road.laneTransitionStartSegmentId) {
+          this.rejectInput("road add lane", "車線が広がる区間は同じ道路区間内で選択してください",
+                           "lane_taper_crosses_segment_boundary");
+          return;
+        }
         const startDistance = corridorDistanceForPosition(
           road, { segmentId: road.laneTransitionStartSegmentId,
             t: road.laneTransitionStartT }, road.laneCorridorId

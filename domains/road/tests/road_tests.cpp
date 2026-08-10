@@ -5417,6 +5417,95 @@ bool unlike_side_profiles_form_a_degree_two_corner(std::string& failure) {
   return true;
 }
 
+bool wide_mixed_degree_two_corner_keeps_segment_ends_clear(
+    std::string& failure) {
+  RoadState state{};
+  city::road::RoadLayoutTemplate wide =
+      road_fixture::BidirectionalLayout(0);
+  wide.strips = {
+      {10, StripFunction::kSidewalk, 2.0, 0.01,
+       builtin_surface_styles::kSidewalk},
+      {20, StripFunction::kCarriageway, 3.0, 0.02,
+       builtin_surface_styles::kAsphalt},
+      {30, StripFunction::kCarriageway, 3.0, 0.01,
+       builtin_surface_styles::kAsphalt},
+      {40, StripFunction::kCarriageway, 3.0, 0.0,
+       builtin_surface_styles::kAsphalt},
+      {50, StripFunction::kCarriageway, 3.0, -0.01,
+       builtin_surface_styles::kAsphalt},
+      {60, StripFunction::kCarriageway, 3.0, -0.02,
+       builtin_surface_styles::kAsphalt},
+      {70, StripFunction::kSidewalk, 2.0, -0.01,
+       builtin_surface_styles::kSidewalk},
+  };
+  wide.lane_bands = {
+      {1000, 20, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAgainstSegment},
+      {1010, 30, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAgainstSegment},
+      {1020, 40, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAlongSegment},
+      {1030, 50, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAlongSegment},
+      {1040, 60, 0.0, 3.0,
+       city::road::LaneTravelDirection::kAlongSegment},
+  };
+  wide.boundaries = {
+      road_fixture::CurbBoundary(100, -0.2, 0.15, {}),
+      road_fixture::PaintedLineBoundary(200, BoundaryRole::kLaneDivider, {}),
+      road_fixture::PaintedLineBoundary(210, BoundaryRole::kLaneDivider, {}),
+      road_fixture::PaintedLineBoundary(220, BoundaryRole::kLaneDivider, {}),
+      road_fixture::PaintedLineBoundary(230, BoundaryRole::kLaneDivider, {}),
+      road_fixture::CurbBoundary(300, 0.2, 0.15, {}),
+  };
+  wide.alignment_offset_from_left_m =
+      road_fixture::CentredAlignmentOffset(wide);
+
+  const auto wide_id = road_fixture::AddLayout(state, std::move(wide));
+  const auto narrow_id =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-80.0, 0.0}, {0.0, 0.0})}), wide_id});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const RoadNodeId endpoint = state.graph().segments.front().node_b;
+  const double radians = 20.0 * std::numbers::pi / 180.0;
+  const auto branch = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0},
+                             {80.0 * std::cos(radians),
+                              80.0 * std::sin(radians)})}),
+          narrow_id, endpoint});
+  ROAD_TEST_EXPECT(branch.ok,
+                   "wide-to-narrow shallow corner was rejected: " +
+                       branch.error);
+  const auto corners = road_test_view::corners(state.derived());
+  ROAD_TEST_EXPECT(corners.size() == 1,
+                   "wide-to-narrow shallow corner did not form one connection");
+  for (const auto& approach : corners.front()->approaches) {
+    ROAD_TEST_EXPECT(
+        approach.resolved_setback_m >= 4.5 - 1e-6,
+        "wide-to-narrow corner did not leave enough segment end offset: " +
+            std::to_string(approach.resolved_setback_m));
+  }
+  for (const auto& strip :
+       corners.front()->connection_geometry.surface_strips) {
+    city::road::ConnectionGeometry one{};
+    one.surface_strips.push_back(strip);
+    const auto emitted = city::road::generation::emit_connection(one);
+    ROAD_TEST_EXPECT(emitted.ok && emitted.value.size() == 1,
+                     "wide-to-narrow corner strip was not emitted");
+    if (!mesh_faces_up(emitted.value.front())) {
+      failure = "wide-to-narrow corner inverted strip " +
+                std::to_string(strip.left_boundary_id) + "/" +
+                std::to_string(strip.right_boundary_id) + " style " +
+                std::to_string(strip.style.value) + " winding " +
+                std::to_string(static_cast<int>(strip.winding));
+      return false;
+    }
+  }
+  return true;
+}
+
 bool corridor_extension_uses_degree_two_semantic_side_mapping(
     std::string& failure) {
   for (const bool reversed : {false, true}) {
@@ -5577,6 +5666,8 @@ int main() {
       {"P2_supports_taper_lane_reduction_and_median_end", P2_supports_taper_lane_reduction_and_median_end},
       {"P2_degree_two_accepts_different_lane_counts",
        P2_degree_two_accepts_different_lane_counts},
+      {"wide_mixed_degree_two_corner_keeps_segment_ends_clear",
+       wide_mixed_degree_two_corner_keeps_segment_ends_clear},
       {"equivalent_endpoint_sections_ignore_template_identity",
        equivalent_endpoint_sections_ignore_template_identity},
       {"P2_marking_policy_suppression_and_junction_override", P2_marking_policy_suppression_and_junction_override},

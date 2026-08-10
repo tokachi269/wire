@@ -1468,6 +1468,45 @@ describe("viewport tool routing", () => {
       continuationEndT: 0
     }));
   });
+  it("rejects an add-lane continuation end behind the picked direction before commit", () => {
+    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 0 as const }],
+        boundaries: []
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene,
+      roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    });
+    actions.addViewportPoint([20, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 20
+    });
+
+    expect(commit).not.toHaveBeenCalled();
+    expect(current(store).lastCommitFailure?.reasonCode)
+      .toBe("lane_continuation_end_before_completion");
+    expect(current(store).road.laneEditStage).toBe("continuation-end");
+    expect(current(store).road.laneContinuationEndSegmentId).toBe(0);
+  });
   it("keeps all add-lane selections after one rejected confirmation", () => {
     const commit = vi.fn(() => ({
       ok: false,

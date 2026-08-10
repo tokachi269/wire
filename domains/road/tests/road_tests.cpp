@@ -139,6 +139,31 @@ bool SetAddLaneRange(RoadState& state, city::road::AddLaneRequest& request,
   return true;
 }
 
+bool SetAddLanePositions(RoadState& state, city::road::AddLaneRequest& request,
+                         double start_distance_m, double complete_distance_m,
+                         double end_distance_m) {
+  const auto set_position = [&](double corridor_distance_m,
+                                city::road::SegmentPosition& out) {
+    const auto resolved = city::road::ResolveCorridorDistance(
+        state.graph(), state.derived(),
+        city::road::CorridorDistanceRef{request.corridor_id,
+                                        corridor_distance_m});
+    const auto* segment =
+        resolved.ok ? city::road::FindDerivedSegment(state.derived(),
+                                                     resolved.value.segment_id)
+                    : nullptr;
+    if (!resolved.ok || segment == nullptr || segment->length_m <= 1e-9) {
+      return false;
+    }
+    out = {resolved.value.segment_id,
+           resolved.value.segment_distance_m / segment->length_m};
+    return true;
+  };
+  return set_position(start_distance_m, request.transition_start) &&
+         set_position(complete_distance_m, request.transition_complete) &&
+         set_position(end_distance_m, request.continuation_end);
+}
+
 bool mesh_faces_up(const Mesh& mesh) {
   for (std::size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
     const auto& a = mesh.vertices[mesh.indices[i]];
@@ -3224,6 +3249,78 @@ bool add_lane_supports_every_section_outer_side(
   return true;
 }
 
+bool add_lane_uses_user_pick_direction_on_a_corridor(std::string& failure) {
+  for (const bool reverse_operation : {false, true}) {
+    for (const auto direction : {city::road::LaneTravelDirection::kAlongSegment,
+                                 city::road::LaneTravelDirection::kAgainstSegment}) {
+      for (const auto side : {city::road::RoadSide::kLeft,
+                              city::road::RoadSide::kRight}) {
+        RoadState state{};
+        const auto section =
+            road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
+        ROAD_TEST_EXPECT(section != 0,
+                         "ADD12 section fixture could not be registered");
+        const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+            MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), section});
+        ROAD_TEST_EXPECT(segment.ok, segment.error);
+        const auto* corridor =
+            city::road::FindCorridorForSegment(state.graph(), segment.value);
+        ROAD_TEST_EXPECT(corridor != nullptr, "ADD12 corridor is missing");
+
+        city::road::AddLaneRequest request{};
+        request.corridor_id = corridor->id;
+        request.direction = direction;
+        request.side = side;
+        request.lane_width_m = 3.0;
+        const bool positioned =
+            reverse_operation
+                ? SetAddLanePositions(state, request, 80.0, 60.0, 20.0)
+                : SetAddLanePositions(state, request, 20.0, 40.0, 80.0);
+        ROAD_TEST_EXPECT(positioned,
+                         "ADD12 corridor positions could not be resolved");
+        const auto before = state.Save();
+        ROAD_TEST_EXPECT(before.ok, before.error);
+        const auto added = state.AddLane(request);
+        ROAD_TEST_EXPECT(
+            added.ok,
+            std::string("ADD12 ") + (reverse_operation ? "reverse" : "forward") +
+                " Add Lane was rejected: " + added.error);
+        const auto saved = state.Save();
+        ROAD_TEST_EXPECT(saved.ok, saved.error);
+        const auto loaded = RoadState::Load(saved.value);
+        ROAD_TEST_EXPECT(loaded.ok,
+                         "ADD12 saved lane transition failed to load: " +
+                             loaded.error);
+
+        city::road::AddLaneRequest invalid = request;
+        if (reverse_operation) {
+          ROAD_TEST_EXPECT(SetAddLanePositions(state, invalid, 80.0, 60.0,
+                                               70.0),
+                           "ADD12 invalid reverse positions could not resolve");
+        } else {
+          ROAD_TEST_EXPECT(SetAddLanePositions(state, invalid, 20.0, 40.0,
+                                               30.0),
+                           "ADD12 invalid forward positions could not resolve");
+        }
+        const auto after_valid = state.Save();
+        ROAD_TEST_EXPECT(after_valid.ok, after_valid.error);
+        const auto rejected = state.AddLane(invalid);
+        ROAD_TEST_EXPECT(!rejected.ok &&
+                             rejected.failure_category ==
+                                 CommitFailureCategory::kInvalidInput,
+                         "ADD12 accepted a continuation end before completion");
+        const auto after_reject = state.Save();
+        ROAD_TEST_EXPECT(after_reject.ok &&
+                             after_reject.value == after_valid.value,
+                         "ADD12 invalid request mutated authoritative state");
+        ROAD_TEST_EXPECT(after_valid.value != before.value,
+                         "ADD12 valid Add Lane did not change the graph");
+      }
+    }
+  }
+  return true;
+}
+
 
 
 
@@ -5494,6 +5591,8 @@ int main() {
        layout_widened_on_one_side_keeps_the_other_side_still},
       {"add_lane_on_either_side_keeps_existing_lanes_still",
        add_lane_on_either_side_keeps_existing_lanes_still},
+      {"add_lane_uses_user_pick_direction_on_a_corridor",
+       add_lane_uses_user_pick_direction_on_a_corridor},
       {"layout_alignment_basis_is_continuous_across_a_transition",
        layout_alignment_basis_is_continuous_across_a_transition},
       {"off_centre_layout_keeps_its_alignment_through_a_junction",

@@ -1161,35 +1161,59 @@ export class WireScene {
           transparent: true,
           opacity: 0.95
         });
-        const startIndex = corridor.segments.findIndex(
-          (ref) => ref.segmentId === snapshot.road.laneTransitionStartSegmentId
-        );
-        const selectedEndIndex = corridor.segments.findIndex(
-          (ref) => ref.segmentId === snapshot.road.laneContinuationEndSegmentId
-        );
-        const endIndex = selectedEndIndex >= startIndex
-          ? selectedEndIndex
-          : startIndex;
-        for (let refIndex = Math.max(0, startIndex);
-             refIndex <= endIndex; ++refIndex) {
-          const ref = corridor.segments[refIndex];
-          let localMinimum = 0;
-          let localMaximum = ref.lengthM;
-          if (ref.segmentId === snapshot.road.laneTransitionStartSegmentId) {
-            localMinimum = Math.min(snapshot.road.laneTransitionStartT,
-              snapshot.road.laneTransitionCompleteT) * ref.lengthM;
-            localMaximum = ref.reversed ? ref.lengthM : localMaximum;
-            if (ref.reversed) {
-              localMaximum = Math.max(snapshot.road.laneTransitionStartT,
-                snapshot.road.laneTransitionCompleteT) * ref.lengthM;
-              localMinimum = 0;
+        const corridorDistance = (segmentId: number, t: number) => {
+          let distance = 0;
+          for (const ref of corridor.segments) {
+            if (ref.segmentId === segmentId) {
+              const localDistance = THREE.MathUtils.clamp(t, 0, 1) * ref.lengthM;
+              return distance + (ref.reversed
+                ? ref.lengthM - localDistance
+                : localDistance);
             }
+            distance += ref.lengthM;
           }
-          if (ref.segmentId === snapshot.road.laneContinuationEndSegmentId) {
-            const endDistance = snapshot.road.laneContinuationEndT * ref.lengthM;
-            if (ref.reversed) localMinimum = Math.max(localMinimum, endDistance);
-            else localMaximum = Math.min(localMaximum, endDistance);
+          return null;
+        };
+        const startDistance = corridorDistance(
+          snapshot.road.laneTransitionStartSegmentId,
+          snapshot.road.laneTransitionStartT
+        );
+        const completeDistance = corridorDistance(
+          snapshot.road.laneTransitionCompleteSegmentId,
+          snapshot.road.laneTransitionCompleteT
+        );
+        const selectedEndDistance =
+          snapshot.road.laneContinuationEndSegmentId === 0
+            ? null
+            : corridorDistance(snapshot.road.laneContinuationEndSegmentId,
+                snapshot.road.laneContinuationEndT);
+        const rangeEndDistance = selectedEndDistance ?? completeDistance;
+        const rangeMinimum = startDistance === null || rangeEndDistance === null
+          ? null
+          : Math.min(startDistance, rangeEndDistance);
+        const rangeMaximum = startDistance === null || rangeEndDistance === null
+          ? null
+          : Math.max(startDistance, rangeEndDistance);
+        let segmentBegin = 0;
+        for (let refIndex = 0; refIndex < corridor.segments.length; ++refIndex) {
+          const ref = corridor.segments[refIndex];
+          const segmentEnd = segmentBegin + ref.lengthM;
+          const corridorMinimum = rangeMinimum === null
+            ? segmentBegin
+            : Math.max(segmentBegin, rangeMinimum);
+          const corridorMaximum = rangeMaximum === null
+            ? segmentBegin
+            : Math.min(segmentEnd, rangeMaximum);
+          if (corridorMaximum <= corridorMinimum) {
+            segmentBegin = segmentEnd;
+            continue;
           }
+          const localMinimum = ref.reversed
+            ? segmentEnd - corridorMaximum
+            : corridorMinimum - segmentBegin;
+          const localMaximum = ref.reversed
+            ? segmentEnd - corridorMinimum
+            : corridorMaximum - segmentBegin;
           for (const segment of snapshot.road.scene.centerlineSegments) {
             if (segment.id !== ref.segmentId) continue;
             const pieceMinimum = Math.min(segment.startSegmentDistanceM,
@@ -1219,8 +1243,7 @@ export class WireScene {
             line.renderOrder = 80;
             this.roadPreview.add(line);
           }
-          if (snapshot.road.laneContinuationEndSegmentId === 0 &&
-              ref.segmentId === snapshot.road.laneTransitionStartSegmentId) break;
+          segmentBegin = segmentEnd;
         }
         material.dispose();
       }

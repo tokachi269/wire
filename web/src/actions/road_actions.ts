@@ -399,6 +399,19 @@ export class RoadActions {
                            "lane_transition_complete_not_selected");
           return;
         }
+        const startDistance = corridorDistanceForPosition(
+          road, { segmentId: road.laneTransitionStartSegmentId,
+            t: road.laneTransitionStartT }, road.laneCorridorId
+        );
+        const completeDistance = corridorDistanceForPosition(
+          road, position, road.laneCorridorId
+        );
+        if (startDistance === null || completeDistance === null ||
+            Math.abs(completeDistance - startDistance) <= 1e-9) {
+          this.rejectInput("road add lane", "開始位置とは別の道路上を選択してください",
+                           "lane_transition_complete_not_after_start");
+          return;
+        }
         this.ctx.store.update((snapshot) => ({
           ...snapshot,
           road: {
@@ -419,6 +432,11 @@ export class RoadActions {
         if (position === null || !positionBelongsToCorridor(road, position, road.laneCorridorId)) {
           this.rejectInput("road add lane", "3車線を維持する終点を同じ道路上で選択してください",
                            "lane_continuation_end_not_selected");
+          return;
+        }
+        if (!positionContinuesAddLaneDirection(road, position)) {
+          this.rejectInput("road add lane", "2点目より先の道路上を選択してください",
+                           "lane_continuation_end_before_completion");
           return;
         }
         this.ctx.store.update((snapshot) => ({
@@ -822,4 +840,45 @@ function positionBelongsToCorridor(
   return road.scene.corridors
     .find((corridor) => corridor.id === corridorId)
     ?.segments.some((ref) => ref.segmentId === position.segmentId) ?? false;
+}
+
+function corridorDistanceForPosition(
+  road: RoadToolState,
+  position: { segmentId: number; t: number },
+  corridorId: number
+): number | null {
+  const corridor = road.scene.corridors.find((item) => item.id === corridorId);
+  if (corridor === undefined) return null;
+  let distance = 0;
+  for (const ref of corridor.segments) {
+    if (ref.segmentId === position.segmentId) {
+      const localDistance = Math.max(0, Math.min(1, position.t)) * ref.lengthM;
+      return distance + (ref.reversed ? ref.lengthM - localDistance : localDistance);
+    }
+    distance += ref.lengthM;
+  }
+  return null;
+}
+
+function positionContinuesAddLaneDirection(
+  road: RoadToolState,
+  position: { segmentId: number; t: number }
+): boolean {
+  const start = corridorDistanceForPosition(
+    road,
+    { segmentId: road.laneTransitionStartSegmentId,
+      t: road.laneTransitionStartT },
+    road.laneCorridorId
+  );
+  const complete = corridorDistanceForPosition(
+    road,
+    { segmentId: road.laneTransitionCompleteSegmentId,
+      t: road.laneTransitionCompleteT },
+    road.laneCorridorId
+  );
+  const end = corridorDistanceForPosition(road, position, road.laneCorridorId);
+  if (start === null || complete === null || end === null) return false;
+  const delta = complete - start;
+  if (Math.abs(delta) <= 1e-9) return false;
+  return (end - complete) * Math.sign(delta) >= -1e-9;
 }

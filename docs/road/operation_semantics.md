@@ -41,7 +41,7 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 | DeleteSegment | segment_id | ID exists | 不要transition / marking / policy除去 |
 | AddRoadLayoutTemplate | layout_template | ID一意、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | trial section evaluation。IDはCoreが採番して返す |
 | EditRoadLayoutTemplate | layout_template | ID exists、strip/lane/boundary ID一意、参照整合、width正、finite、enum valid、known SurfaceStyleId、lane side markingはcarriageway stripのみ | 既存segment再評価。boundary policyとlane side policyはこの操作だけが変える |
-| AddLane | corridor/direction/side/変化開始・完成・維持終点のSegmentPosition/lane width | corridorが存在、3位置がfiniteで同じcorridor内かつ開始<完成<=終点、幅が正 | Coreが3位置をcorridor累積距離へ解決し、外側lane、固定boundary、segment境界を跨ぐtaper、明示終点までの完成断面を一つのplanで設定 |
+| AddLane | corridor/direction/side/変化開始・完成・維持終点のSegmentPosition/lane width | corridorが存在、3位置がfiniteで同じcorridor内、開始と完成が別位置、維持終点がユーザー選択方向で完成位置より先、幅が正 | Coreが3位置をcorridor累積距離へ解決し、最初の2点で操作方向を決め、外側lane、固定boundary、segment境界を跨ぐtaper、明示終点までの完成断面を一つのplanで設定 |
 
 外部入力不正は`kValidation`、正しい入力だがP0-P2で対応しない構造は`kUnsupported`、正しい正本から派生表やresolved read modelが欠ける場合は`kInternal`とする。
 
@@ -236,6 +236,6 @@ ADD LANEが作る変更後断面はCoreが作る。
 - `JunctionMovement`はdegree 3/4のjunctionでだけsupportedとする。同一source laneから複数target laneを明示できるが、source退出・target進入・同一nodeを満たさない接続はvalidation、junction以外へのmovement指定はunsupportedとする。
 - movement geometryはsource/target gate上のlane centerをG1 cubicで結ぶ。直進のminimum radiusは正の無限大を許可し、turnは有限かつ正のradiusを要求する。
 - Split/Mergeの接続白線は対応する`DerivedBoundaryPath`へ追従する。Splitではsource marking policy、Mergeではtarget marking policyを接続区間へ使い、線専用の自由Bezierやlane centerからの境界推測を行わない。
-- ViewerのAddLaneは方向・側、変化開始位置、3車線完成位置、3車線を維持する終点を順に選択し、3点とも同じcorridor上の任意位置としてCoreへ渡す。既存nodeの選択を要求しない。固定する断面境界または外端はCoreが決める。raw lane/boundary/template IDは通常UIへ出さない。BranchLane / MergeLaneはCore payloadのlane pathをhoverし、選択した`LaneEndpointKey`をpreviewと確定の両方へ同一値で渡す。
-- AddLaneのdirectionとsideはcorridor方向を基準とする。`DirectedSegmentRef.reversed`ではCoreがsegment localのdirection、side、transitionのfrom/toへ正規化し、同じ操作意味を維持する。
+- ViewerのAddLaneは方向・側、変化開始位置、3車線完成位置、3車線を維持する終点を順に選択し、3点とも同じcorridor上の任意位置としてCoreへ渡す。既存nodeの選択を要求しない。最初の2点でユーザーの操作方向が決まり、3点目はその方向で完成位置より先にある必要がある。固定する断面境界または外端はCoreが決める。raw lane/boundary/template IDは通常UIへ出さない。BranchLane / MergeLaneはCore payloadのlane pathをhoverし、選択した`LaneEndpointKey`をpreviewと確定の両方へ同一値で渡す。
+- AddLaneのdirectionは車線の走行方向であり、3点選択の操作方向ではない。sideはcorridor方向を基準とする。`DirectedSegmentRef.reversed`ではCoreがsegment localのdirection、side、transitionのfrom/toへ正規化し、同じ操作意味を維持する。
 - Viewerはlane/boundary接続先や接続geometryを推測しない。AddLaneのpointer previewは選択位置と影響範囲の軽量guideだけで、全Core generationを行わない。確定失敗時は選択を維持し、理由を一度表示する。

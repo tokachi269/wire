@@ -1,9 +1,8 @@
-# Road operation semantics (P0-P2 prototype scenarios)
+# Road操作意味論(P0-P2 prototype scenario)
 
-Road drawing follows the shared contract in `docs/editor/draw_interaction.md`.
-After the start anchor, each Click commits the displayed interval immediately.
-Enter commits the current lightweight guide when one exists and ends the session after success. Escape
-discards only transient drawing state and never calls road undo or deletion.
+Road描画は`docs/editor/draw_interaction.md`の共通契約に従う。開始anchorの確定後、各Clickは表示中のintervalを
+即時commitする。軽量guideがある場合、Enterは現在のguideをcommitし、成功後にsessionを終了する。
+Escapeはtransientな描画stateだけを破棄し、roadのundoや削除を呼ばない。
 
 `city::road` の supported scenario を操作と状態の組で固定する。
 表にない組み合わせは推測せず `unsupported` とする。

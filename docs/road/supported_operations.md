@@ -1,93 +1,74 @@
-# Road supported operations
+# Roadの対応範囲
 
-This document is the support boundary for explicit Road commit attempts. Pointer
-movement only updates a lightweight guide and does not classify a commit.
+この文書は、Roadの明示的なcommit試行について対応範囲を定める。pointer移動は軽量guideだけを更新し、
+commitとして分類しない。
 
-## Normal drawing fixtures
+## 通常描画で対応する構成
 
-A road is drawn with a registered cross section. Core ships none: the catalogue
-of sections a user can pick lives in `web/src/road_templates.ts`, and a new
-workspace registers it through `AddRoadLayoutTemplate` and keeps the IDs Core
-returned. Reopening a saved workspace uses the sections in the archive and does
-not register the catalogue again.
+道路は登録済みの断面を使って描画する。Coreは断面catalogueを内蔵しない。利用者が選択できる断面一覧は
+`web/src/road_templates.ts`が所有し、新規workspaceは`AddRoadLayoutTemplate`で登録して、Coreが返したIDを保持する。
+保存済みworkspaceを開き直す場合はarchive内の断面を使い、catalogueを再登録しない。
 
-The following are normal supported fixtures and must not be rejected as product
-requirements: an isolated straight or Bezier road, repeated independent roads,
-a degree-two pass-through or corner, and supported degree-three/four junctions
-including T and cross layouts. Endpoint extension uses the explicit endpoint ID;
-segment branching uses the explicit segment ID and segment distance.
+次は通常対応する構成であり、製品要件を理由に拒否してはならない。単独の直線道路またはBezier道路、
+独立した道路の反復作成、degree 2のpass-throughまたはcorner、T字・十字を含む対応済みdegree 3/4 junction。
+endpoint延長は明示されたendpoint IDを使い、segmentへの分岐は明示されたsegment IDとsegment内距離を使う。
 
-The regression suite covers repeated straight and Bezier sessions, Enter,
-Escape, tool switching, retry after a rejected commit, endpoint extension, T and
-cross generation, angled junctions, and real WASM scene updates.
+回帰testは、直線・Bezierの反復session、Enter、Escape、tool切替、commit拒否後の再試行、endpoint延長、
+T字・十字生成、斜めjunction、実際のWASM scene更新を対象とする。
 
-## Requirement constraints
+## 製品要件による制約
 
-`RequirementConstraint` is reserved for a documented product rule. Road
-currently has one such rule: a newly submitted path may not self-intersect
-(`road_path_self_intersection`). A fixed angle range, insufficient resolver
-coverage, or a geometry implementation limit is not a requirement constraint.
+`RequirementConstraint`は文書化された製品規則だけに使う。現在Roadにある規則は、新しく送られたPathが
+自己交差してはならないことだけである(`road_path_self_intersection`)。固定角度範囲、resolverの対応不足、
+geometry実装上の制限は製品要件による制約ではない。
 
-## Failure ownership
+## failureのowner
 
-| Owner | Input condition | Category | Normal draw impact |
+| owner | 入力条件 | category | 通常描画への影響 |
 |---|---|---|---|
-| operation preflight (`operations/`) | missing ID, non-finite input, zero-length span, malformed request | `InvalidInput` | shown only after Click or Enter |
-| operation preflight (`operations/`) | documented path self-intersection | `RequirementConstraint` | user must change the submitted path |
-| connection resolution (`generation/connections.cpp`) | valid topology outside current resolver coverage, insufficient supported setback, unsupported section combination | `NotImplemented` | bug/coverage backlog, not user input error |
-| segment/section/marking resolution | valid operation whose transition or marking merge/split is not implemented | `NotImplemented` | operation remains atomic and retryable |
-| generation and geometry | a valid authoritative reference or required derived value is missing | `InternalError` | supported-path defect |
-| persistence | duplicate/missing/unknown fields, invalid IDs or non-finite values | `InvalidInput` | load is rejected before state replacement |
-| draw session | an explicit request references state changed after anchoring | `StateConflict` | refresh anchor and retry; no current synchronous Road path emits this category |
+| operation preflight (`operations/`) | ID欠落、非有限入力、長さ0のspan、不正なrequest | `InvalidInput` | ClickまたはEnterの後だけ表示する |
+| operation preflight (`operations/`) | 文書化されたPath自己交差 | `RequirementConstraint` | 利用者が入力Pathを変更する必要がある |
+| connection解決 (`generation/connections.cpp`) | 正しいtopologyだが現在のresolver対応外、対応可能なsetback不足、未対応の断面組合せ | `NotImplemented` | 利用者の入力エラーではなく、bugまたは対応範囲backlog |
+| segment・section・marking解決 | 正しい操作だがtransitionまたはmarkingのmerge/splitが未実装 | `NotImplemented` | 操作はatomicかつ再試行可能なまま |
+| generationとgeometry | 正しいauthoritative参照または必須のderived値が欠落 | `InternalError` | 対応済み経路の不具合 |
+| persistence | fieldの重複・欠落・不明、無効なID、非有限値 | `InvalidInput` | stateを置換する前にloadを拒否する |
+| draw session | 明示requestがanchor確定後に変更されたstateを参照 | `StateConflict` | anchorを更新して再試行する。現在の同期Road経路はこのcategoryを返さない |
 
-Every failed commit has a non-empty reason code. The UI must display
-`NotImplemented` as missing implementation, not as invalid input. Internal
-invariant failures must not be converted to a requirement constraint.
+commit失敗は必ず空でないreason codeを持つ。UIは`NotImplemented`を不正入力ではなく未実装として表示する。
+内部invariant違反を`RequirementConstraint`へ変換してはならない。
 
-## Unsupported families
+## 未対応のfamily
 
-Current implementation limits include splits inside a section transition, connection
-layouts outside the implemented section combinations, and unresolved marking
-merge/split cases. These remain `NotImplemented` until their semantic operation
-and geometry resolver are implemented. No nearest approach, nearest boundary,
-or fallback shape is selected.
+現在の実装制限には、断面transition区間内でのsplit、実装済み断面組合せ外のconnection layout、
+未解決のmarking merge/splitがある。意味上のoperationとgeometry resolverが実装されるまでは
+`NotImplemented`とする。最寄りのapproach、最寄りのboundary、fallback shapeは選択しない。
 
-Splits before or after a ratio-based section transition are supported and
-re-normalize the transition `t` onto the segment that retains it. A split inside
-the transition is rejected with a specific reason and leaves state unchanged.
+ratio指定の断面transitionより前または後でのsplitは対応済みで、transitionの`t`を保持側segmentへ
+再正規化する。transition区間内のsplitは具体的な理由で拒否し、stateを変更しない。
 
-A boundary carries a cross-section profile, so an edge structure with its own
-faces — an L-shaped gutter, a curb, a kerbed median edge — is a supported
-section. The profile occupies no layout width: it reaches into the strips beside
-it, so a walkway that declares 2.0m still measures 2.0m once a gutter takes the
-first 0.1m of it. `architecture.md` fixes what the profile is measured from.
+boundaryは断面profileを持つため、L字溝、curb、縁石付きmedian edgeのように固有の面を持つ端部構造も
+対応する断面である。profileはlayout幅を消費せず、両隣のstrip内へ張り出す。そのため、2.0mと宣言した
+walkwayは、gutterが先頭0.1mへ張り出しても2.0mのままである。profileの測定基準は`architecture.md`で定める。
 
-Profiles that cannot be built are rejected before anything changes: one whose
-points run backwards, one that reaches past the strip beside it, one whose faces
-do not match its points, or one naming a surface style that does not exist. No
-nearest buildable shape is substituted.
+生成できないprofileはstate変更前に拒否する。点が逆行するもの、隣接stripを越えて張り出すもの、
+face数とpoint数が一致しないもの、存在しないsurface styleを指定するものが該当する。
+最寄りの生成可能な形状へ置き換えない。
 
-One profile limit remains. A profile can only sit between two strips, so a
-gutter on a road with nothing outside it — no walkway on that side — has nowhere
-to be declared. Degree-two connections and junctions use the same semantic side
-mapping: both carriageway edges and both road outer edges stay fixed, and an
-extra inner face begins at zero width. A gutter itself is not substituted for a
-missing profile. Ambiguous lane or boundary continuity still requires explicit
-topology and remains `NotImplemented`.
+profileには制限が1つ残る。profileは2つのstrip間にしか置けないため、外側に何もない道路、つまりその側に
+walkwayがない道路のgutterは宣言場所を持たない。degree 2 connectionとjunctionは同じsemantic side mappingを
+使う。両carriageway edgeと両road outer edgeを固定し、追加のinner faceは幅0から開始する。
+欠落profileの代わりにgutter自体を使わない。laneまたはboundaryの継続が曖昧なら明示topologyを要求し、
+引き続き`NotImplemented`とする。
 
-A single drawn interval may connect two existing roads. Each end identifies an
-existing node or an explicit distance on an existing segment; both segment
-splits and the connecting segment commit atomically. Connecting two positions
-on the same source segment remains unsupported.
+1回で描くintervalは2本の既存道路を接続できる。両端は既存nodeまたは既存segment上の明示距離を指定し、
+両segmentのsplitと接続segmentをatomicにcommitする。同じsource segment上の2点を接続する操作は未対応である。
 
-Lane Branch and Merge are not available. Their editor asked the user to pick a
-raw boundary ID and auto-selected a default, so the operation was removed rather
-than hidden. Lane connections inside a junction are still derived by Core. See
-`backlog.md` for the conditions under which branch and merge return.
+Lane BranchとMergeは利用できない。旧editorはraw boundary IDを利用者へ選ばせ、defaultも自動選択していたため、
+非表示にするのではなくoperation自体を削除した。junction内のlane connectionは引き続きCoreが導出する。
+branchとmergeを再開する条件は`backlog.md`に記載する。
 
-## Session behavior
+## sessionの動作
 
-Click and Enter return an explicit draw action outcome. A rejected commit keeps
-the anchor and guide. Pointer movement does not replace the last commit failure.
-Enter with an anchor but no guide ends the transient session explicitly; Enter
-with no active session returns `ignored/session-inactive`.
+ClickとEnterは明示的なdraw action結果を返す。commitが拒否されてもanchorとguideを維持する。
+pointer移動で直前のcommit failureを上書きしない。anchorはあるがguideがない状態のEnterはtransient sessionを
+明示的に終了し、active sessionがない状態のEnterは`ignored/session-inactive`を返す。

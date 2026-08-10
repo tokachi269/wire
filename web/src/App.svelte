@@ -604,7 +604,7 @@
     <div class="build-mismatch" role="alertdialog" aria-modal="true">
       <section>
         <strong>Web and WASM builds do not match</strong>
-        <p>Editing is disabled. Restart the local server; stale WASM is rebuilt automatically.</p>
+        <p>Editing is disabled until the dev server rebuilds WASM and reloads this page.</p>
         <dl>
           <dt>Source</dt><dd>{snapshot.buildMismatch.webSourceHash} · v{snapshot.buildMismatch.webVersion}</dd>
           <dt>WASM</dt><dd>{snapshot.buildMismatch.wasmSourceHash} · v{snapshot.buildMismatch.wasmVersion}</dd>

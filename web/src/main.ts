@@ -6,7 +6,7 @@ import { startConsoleLogging } from "./consoleLog";
 import { loadDefaultModelBootstrap } from "./render/modelAssets";
 import { WireScene } from "./render/scene";
 import { ViewerStore } from "./store/viewer";
-import { buildIdentitiesMatch, buildInfo } from "./buildInfo";
+import { buildIdentitiesMatch, loadRuntimeBuildInfo } from "./buildInfo";
 import {
   IndexedDbWorkspaceStorage,
   WORKSPACE_CACHE_KEY,
@@ -26,12 +26,13 @@ async function main(): Promise<void> {
   const modelBootstrap = await loadDefaultModelBootstrap();
   const bridge = await WireBridge.create();
   const wasmBuild = bridge.buildIdentity();
-  if (!buildIdentitiesMatch(buildInfo, wasmBuild)) {
+  const runtimeBuildInfo = await loadRuntimeBuildInfo();
+  if (!buildIdentitiesMatch(runtimeBuildInfo, wasmBuild)) {
     store.update((snapshot) => ({
       ...snapshot,
       buildMismatch: {
-        webSourceHash: buildInfo.wasmSourceHash,
-        webVersion: buildInfo.packageVersion,
+        webSourceHash: runtimeBuildInfo.wasmSourceHash,
+        webVersion: runtimeBuildInfo.packageVersion,
         wasmSourceHash: wasmBuild.sourceHash,
         wasmVersion: wasmBuild.version
       }

@@ -77,4 +77,5 @@ npm run dev
 
 `npm run dev`は起動時にCore/road/WASM bindingのsource fingerprintを確認する。
 生成済みWASMが同じsourceならそのまま起動し、古い場合だけ一度自動buildする。
+起動中もCore/road/WASM bindingの変更を監視し、source fingerprintが変わった場合はWASMを自動buildしてブラウザをfull reloadする。
 Git commit、docs、test、Web UIだけの変更ではWASMを再buildしない。

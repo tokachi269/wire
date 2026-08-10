@@ -249,6 +249,64 @@ const shoulderedTwoLane: RoadSectionInput = centred({
   ]
 });
 
+function shoulderedOpposingLanes(lanesPerDirection: 2 | 3): RoadSectionInput {
+  const strips: RoadSectionStripInput[] = [
+    { id: 10, function: "sidewalk", widthM: 2.0, crossSlope: 0.01, surfaceStyle: "sidewalk" },
+    { id: 15, function: "shoulder", widthM: 0.75, crossSlope: 0.02, surfaceStyle: "asphalt" }
+  ];
+  const laneBands: RoadSectionLaneInput[] = [];
+  const boundaries: RoadSectionBoundaryInput[] = [
+    { id: 100, role: "curb", profile: lGutter("left") },
+    { id: 150, role: "outer_edge", profile: paintedLine, marking: outerLine }
+  ];
+  let stripId = 20;
+  let boundaryId = 200;
+  for (let index = 0; index < lanesPerDirection; index += 1) {
+    strips.push({ id: stripId, function: "carriageway", widthM: 3.0, crossSlope: 0.02, surfaceStyle: "asphalt" });
+    laneBands.push({
+      id: 1000 + index * 10,
+      stripId,
+      lateralStartM: 0.0,
+      lateralEndM: 3.0,
+      direction: 1
+    });
+    if (index + 1 < lanesPerDirection) {
+      boundaries.push({ id: boundaryId, role: "lane_divider", profile: paintedLine, marking: centerLine });
+      boundaryId += 10;
+    }
+    stripId += 10;
+  }
+  boundaries.push({ id: boundaryId, role: "lane_divider", profile: paintedLine, marking: centerLine });
+  boundaryId += 10;
+  for (let index = 0; index < lanesPerDirection; index += 1) {
+    strips.push({ id: stripId, function: "carriageway", widthM: 3.0, crossSlope: -0.02, surfaceStyle: "asphalt" });
+    laneBands.push({
+      id: 1100 + index * 10,
+      stripId,
+      lateralStartM: 0.0,
+      lateralEndM: 3.0,
+      direction: 0
+    });
+    if (index + 1 < lanesPerDirection) {
+      boundaries.push({ id: boundaryId, role: "lane_divider", profile: paintedLine, marking: centerLine });
+      boundaryId += 10;
+    }
+    stripId += 10;
+  }
+  strips.push(
+    { id: stripId, function: "shoulder", widthM: 0.75, crossSlope: -0.02, surfaceStyle: "asphalt" },
+    { id: stripId + 10, function: "sidewalk", widthM: 2.0, crossSlope: -0.01, surfaceStyle: "sidewalk" }
+  );
+  boundaries.push(
+    { id: boundaryId, role: "outer_edge", profile: paintedLine, marking: outerLine },
+    { id: 300, role: "curb", profile: lGutter("right") }
+  );
+  return centred({ strips, laneBands, boundaries });
+}
+
+const shoulderedFourLane = shoulderedOpposingLanes(2);
+const shoulderedSixLane = shoulderedOpposingLanes(3);
+
 export interface SeededRoadSections {
   labels: Record<number, string>;
   junctionCornerRadiusDefaults: Record<number, number>;
@@ -306,6 +364,20 @@ export const ROAD_TEMPLATE_PRESETS: readonly RoadTemplatePreset[] = [
     label: "JP 2 lane / shoulder",
     initial: false,
     section: shoulderedTwoLane,
+    junctionCornerRadiusM: 4
+  },
+  {
+    key: "shouldered-four-lane",
+    label: "JP 4 lane / shoulder",
+    initial: false,
+    section: shoulderedFourLane,
+    junctionCornerRadiusM: 4
+  },
+  {
+    key: "shouldered-six-lane",
+    label: "JP 6 lane / shoulder",
+    initial: false,
+    section: shoulderedSixLane,
     junctionCornerRadiusM: 4
   }
 ];

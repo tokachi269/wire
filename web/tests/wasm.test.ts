@@ -1629,6 +1629,37 @@ describe("road wasm smoke", () => {
     }
   });
 
+  it("registers shouldered opposing four and six lane road presets", () => {
+    const road = createRoadState();
+    try {
+      const templates = road.scene().roadLayoutTemplates;
+      const fourPreset = ROAD_TEMPLATE_PRESETS.find((preset) => preset.key === "shouldered-four-lane");
+      const sixPreset = ROAD_TEMPLATE_PRESETS.find((preset) => preset.key === "shouldered-six-lane");
+      expect(fourPreset).toBeDefined();
+      expect(sixPreset).toBeDefined();
+
+      const findPresetTemplate = (preset: NonNullable<typeof fourPreset>) =>
+        templates.find((template) =>
+          template.laneCount === preset.section.laneBands.length &&
+          template.strips.map((strip) => `${strip.function}:${strip.widthM}`).join("|") ===
+            preset.section.strips.map((strip) => `${strip.function}:${strip.widthM}`).join("|")
+        );
+
+      const four = findPresetTemplate(fourPreset!);
+      const six = findPresetTemplate(sixPreset!);
+      expect(four).toBeDefined();
+      expect(six).toBeDefined();
+      expect(four!.lanes.map((lane) => lane.direction)).toEqual([1, 1, 0, 0]);
+      expect(six!.lanes.map((lane) => lane.direction)).toEqual([1, 1, 1, 0, 0, 0]);
+      expect(four!.strips.filter((strip) => strip.function === "shoulder").map((strip) => strip.widthM))
+        .toEqual([0.75, 0.75]);
+      expect(six!.strips.filter((strip) => strip.function === "shoulder").map((strip) => strip.widthM))
+        .toEqual([0.75, 0.75]);
+    } finally {
+      road.delete();
+    }
+  });
+
   it("keeps saved sections when a workspace is loaded back", () => {
     const road = createRoadState();
     const reopened = createEmptyRoadState();

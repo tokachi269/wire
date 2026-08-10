@@ -5452,6 +5452,63 @@ bool unlike_side_profiles_form_a_degree_two_corner(std::string& failure) {
   return true;
 }
 
+bool asymmetric_mixed_width_degree_two_corner_keeps_edges_inside_gates(
+    std::string& failure) {
+  RoadState state{};
+  auto narrow = road_fixture::GutteredLayout(0);
+  narrow.strips.erase(narrow.strips.begin());
+  narrow.boundaries.erase(narrow.boundaries.begin());
+  narrow.alignment_offset_from_left_m = road_fixture::CentredAlignmentOffset(narrow);
+  const auto narrow_id = road_fixture::AddLayout(state, std::move(narrow));
+  const auto wide_id =
+      road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
+  ROAD_TEST_EXPECT(narrow_id != 0 && wide_id != 0,
+                   "asymmetric mixed-width layouts were rejected");
+
+  const auto base = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-40.0, 0.0}, {0.0, 0.0})}), narrow_id});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const RoadNodeId endpoint = state.graph().segments.front().node_b;
+  const auto corner = state.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), wide_id, endpoint});
+  ROAD_TEST_EXPECT(corner.ok, corner.error);
+  const auto corners = road_test_view::corners(state.derived());
+  ROAD_TEST_EXPECT(corners.size() == 1,
+                   "asymmetric mixed-width roads did not form one corner");
+  const auto& connection = *corners.front();
+  const auto node_it = std::find_if(
+      state.graph().nodes.begin(), state.graph().nodes.end(),
+      [&connection](const city::road::RoadNode& node) {
+        return node.id == connection.node_id;
+      });
+  ROAD_TEST_EXPECT(node_it != state.graph().nodes.end(),
+                   "asymmetric mixed-width corner node is missing");
+
+  for (const auto& approach : connection.approaches) {
+    const double gate_distance =
+        (approach.gate.position.x - node_it->position.x) *
+            approach.tangent.x +
+        (approach.gate.position.y - node_it->position.y) *
+            approach.tangent.y;
+    for (const auto& strip : connection.connection_geometry.surface_strips) {
+      for (const auto points : {&strip.left, &strip.right}) {
+        for (const Vec3d& point : *points) {
+          const double node_to_point =
+              (point.x - node_it->position.x) * approach.tangent.x +
+              (point.y - node_it->position.y) * approach.tangent.y;
+          ROAD_TEST_EXPECT(
+              node_to_point <= gate_distance + 1e-6,
+              "a degree-two mixed-width corner extends past an approach gate: "
+                  "projection=" + std::to_string(node_to_point) +
+                  " gate=" + std::to_string(gate_distance));
+        }
+      }
+    }
+  }
+  return true;
+}
+
 bool corridor_extension_uses_degree_two_semantic_side_mapping(
     std::string& failure) {
   for (const bool reversed : {false, true}) {
@@ -5680,6 +5737,8 @@ int main() {
        unlike_guttered_roads_join_road_outer_to_road_outer},
       {"unlike_side_profiles_form_a_degree_two_corner",
        unlike_side_profiles_form_a_degree_two_corner},
+      {"asymmetric_mixed_width_degree_two_corner_keeps_edges_inside_gates",
+       asymmetric_mixed_width_degree_two_corner_keeps_edges_inside_gates},
       {"corridor_extension_uses_degree_two_semantic_side_mapping",
        corridor_extension_uses_degree_two_semantic_side_mapping},
       {"road_does_not_enter_wire_core", road_does_not_enter_wire_core},

@@ -378,6 +378,8 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
     const std::size_t owner_right = first_owns ? source_right : target_right;
     const std::size_t other_left = first_owns ? target_left : source_left;
     const std::size_t other_right = first_owns ? target_right : source_right;
+    const bool same_carriageway_boundary_count =
+        owner_right - owner_left == other_right - other_left;
 
     std::map<std::pair<std::uint64_t, BoundaryRole>, std::size_t> other_exact{};
     for (std::size_t index = other_left; index <= other_right; ++index) {
@@ -392,9 +394,15 @@ Result<ConnectionGeometry> connection_geometry_from_gates(
 
     const auto collapse_other_index =
         [&](const SectionBoundarySample &sample) -> Result<std::size_t> {
-      const auto exact =
-          other_exact.find(std::pair{sample.boundary_id, sample.role});
-      if (exact != other_exact.end()) return Result<std::size_t>::Ok(exact->second);
+      const bool exact_lane_divider_is_ordered =
+          sample.role != BoundaryRole::kLaneDivider ||
+          same_carriageway_boundary_count;
+      if (exact_lane_divider_is_ordered) {
+        const auto exact =
+            other_exact.find(std::pair{sample.boundary_id, sample.role});
+        if (exact != other_exact.end())
+          return Result<std::size_t>::Ok(exact->second);
+      }
       const double left_distance =
           std::abs(sample.lateral_m - owner_boundaries[owner_left].lateral_m);
       const double right_distance =

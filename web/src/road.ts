@@ -140,6 +140,7 @@ export interface RoadCenterlineSegmentData {
   endY: number;
   startSegmentDistanceM: number;
   endSegmentDistanceM: number;
+  pickHalfWidthM: number;
 }
 
 export interface RoadLayoutTemplateData {

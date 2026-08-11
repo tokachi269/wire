@@ -1758,6 +1758,21 @@ public:
     for (const auto& segment : graph.segments) {
       const city::road::Path* alignment = city::road::FindCanonicalAlignment(derived, segment.id);
       if (alignment == nullptr) continue;
+      double pick_half_width_m = 3.0;
+      const auto section = std::find_if(
+          graph.layout_templates.begin(), graph.layout_templates.end(),
+          [&segment](const city::road::RoadLayoutTemplate& item) {
+            return item.id == segment.layout_template;
+          });
+      if (section != graph.layout_templates.end()) {
+        double width_m = 0.0;
+        for (const city::road::RoadLayoutStrip& strip : section->strips) {
+          width_m += strip.width_m;
+        }
+        if (std::isfinite(width_m) && width_m > 0.0) {
+          pick_half_width_m = width_m * 0.5;
+        }
+      }
       const double total = city::road::PathLength(*alignment).value;
       const int piece_count = alignment->spans.size() == 1 &&
                                       city::road::IsLinearSpan(alignment->spans.front())
@@ -1776,6 +1791,7 @@ public:
         item.set("endY", end.y);
         item.set("startSegmentDistanceM", start_distance);
         item.set("endSegmentDistanceM", end_distance);
+        item.set("pickHalfWidthM", pick_half_width_m);
         centerline_segments.call<void>("push", item);
       }
     }

@@ -168,6 +168,34 @@ describe("road rendering", () => {
       boundaries: []
     }], 7)).toBe(5.5);
   });
+
+  it("picks road surface width instead of requiring centerline clicks", () => {
+    const scene = Object.create(WireScene.prototype) as any;
+    scene.snapshot = createViewerSnapshot();
+    scene.snapshot.road.scene.centerlineSegments = [{
+      id: 12,
+      startX: 0,
+      startY: 0,
+      endX: 100,
+      endY: 0,
+      startSegmentDistanceM: 0,
+      endSegmentDistanceM: 100,
+      pickHalfWidthM: 5
+    }];
+    scene.snapshot.road.scene.nodes = [];
+    scene.renderer = {
+      domElement: {
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 })
+      }
+    };
+    scene.projectToCanvas = (point: THREE.Vector3) =>
+      new THREE.Vector2(point.x * 10, -point.y * 10);
+
+    const hit = scene.pickRoadPoint(200, -40);
+    expect(hit).not.toBeNull();
+    expect(hit?.snap.segmentId).toBe(12);
+    expect(hit?.snap.segmentDistanceM).toBeCloseTo(20);
+  });
 });
 
 describe("backbone pick payload", () => {

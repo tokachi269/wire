@@ -264,6 +264,7 @@ export interface RoadCenterlineSegmentPayload {
   endY: number;
   startSegmentDistanceM: number;
   endSegmentDistanceM: number;
+  pickHalfWidthM: number;
 }
 
 export interface RoadSegmentResult extends OperationResult {

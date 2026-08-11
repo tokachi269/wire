@@ -835,6 +835,9 @@ export class WireScene {
     for (const segment of this.snapshot.road.scene.centerlineSegments) {
       const endpointA: WorldPoint = [segment.startX, segment.startY, 0];
       const endpointB: WorldPoint = [segment.endX, segment.endY, 0];
+      const worldDx = endpointB[0] - endpointA[0];
+      const worldDy = endpointB[1] - endpointA[1];
+      const worldLength = Math.hypot(worldDx, worldDy);
       const screenA = this.projectToCanvas(new THREE.Vector3(...endpointA), bounds);
       const screenB = this.projectToCanvas(new THREE.Vector3(...endpointB), bounds);
       if (screenA === null || screenB === null) continue;
@@ -850,7 +853,23 @@ export class WireScene {
         : 0;
       const closest = new THREE.Vector2(screenA.x + dx * t, screenA.y + dy * t);
       const distance = closest.distanceTo(pointerPx);
-      if (distance > BACKBONE_EDGE_SNAP_PX || (bestSegment !== null && distance >= bestSegment.distance)) {
+      let snapPx = BACKBONE_EDGE_SNAP_PX;
+      if (worldLength > 1e-9 && segment.pickHalfWidthM > 0) {
+        const worldClosest = new THREE.Vector3(
+          endpointA[0] + worldDx * t,
+          endpointA[1] + worldDy * t,
+          0
+        );
+        const normal = new THREE.Vector3(-worldDy / worldLength, worldDx / worldLength, 0);
+        const edge = this.projectToCanvas(
+          worldClosest.clone().addScaledVector(normal, segment.pickHalfWidthM),
+          bounds
+        );
+        if (edge !== null) {
+          snapPx = Math.max(snapPx, edge.distanceTo(closest) + 8);
+        }
+      }
+      if (distance > snapPx || (bestSegment !== null && distance >= bestSegment.distance)) {
         continue;
       }
       const point: WorldPoint = [

@@ -344,7 +344,7 @@ export class RoadActions {
       if (road.laneEditStage === "select") {
         if (snap === undefined || snap.segmentId === 0) {
           this.rejectInput("road add lane",
-                           "Select the road where the lane begins",
+                           "車線が増え始める位置を道路上で選択してください",
                            "lane_start_not_selected");
           return;
         }
@@ -394,9 +394,15 @@ export class RoadActions {
       }
       if (road.laneEditStage === "transition-complete") {
         const position = snap === undefined ? null : segmentPositionForSnap(road, snap);
-        if (position === null || !positionBelongsToCorridor(road, position, road.laneCorridorId)) {
-          this.rejectInput("road add lane", "3車線が完成する位置を同じ道路上で選択してください",
+        if (position === null) {
+          this.rejectInput("road add lane", "3車線が完成する位置を道路上で選択してください",
                            "lane_transition_complete_not_selected");
+          return;
+        }
+        if (!positionBelongsToCorridor(road, position, road.laneCorridorId)) {
+          this.rejectInput("road add lane",
+                           "交差点や別corridorを跨ぐADD LANE完成位置は未対応です。開始位置と同じ道路区間上を選択してください",
+                           "lane_transition_complete_crosses_corridor");
           return;
         }
         if (position.segmentId !== road.laneTransitionStartSegmentId) {
@@ -434,9 +440,15 @@ export class RoadActions {
       }
       if (road.laneEditStage === "continuation-end") {
         const position = snap === undefined ? null : segmentPositionForSnap(road, snap);
-        if (position === null || !positionBelongsToCorridor(road, position, road.laneCorridorId)) {
-          this.rejectInput("road add lane", "3車線を維持する終点を同じ道路上で選択してください",
+        if (position === null) {
+          this.rejectInput("road add lane", "3車線を維持する終点を道路上で選択してください",
                            "lane_continuation_end_not_selected");
+          return;
+        }
+        if (!positionBelongsToCorridor(road, position, road.laneCorridorId)) {
+          this.rejectInput("road add lane",
+                           "交差点や別corridorを跨ぐADD LANE終点は未対応です。開始・完成位置と同じ道路区間上を選択してください",
+                           "lane_continuation_end_crosses_corridor");
           return;
         }
         if (!positionContinuesAddLaneDirection(road, position)) {

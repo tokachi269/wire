@@ -116,6 +116,9 @@ ADD LANEが作る変更後断面はCoreが作る。
   corridor内がreversedなら、corridor進行方向を維持する順序で二参照へ置換する。
 - segment-local manual point/areaはdistanceがsplit点より前ならstart側、後ならend側へ移してdistanceを減算する。
   split点を跨ぐmanual line、transition、意味を維持できないoverrideがある場合はunsupportedとする。
+  元segment end endpointを参照していた`LaneConnection` / `BoundaryContinuation` / approach override /
+  junction marking overrideはend側segmentへIDでremapする。削除対象segmentを参照するlane/boundary topologyは
+  `DeleteSegment`と同じOperationPlanで削除する。
   corridor-owned参照を一意に移行できない場合はunsupportedとし、近接rebindや黙示削除を行わない。
 - degree 2 の自動decisionはPassThroughまたはCorner。対向する2本は幅を増やさず連続し、屈曲する2本はgate接線へG1接続する中心曲線を一度だけ導出し、その移動frameへ同じ断面を掃引する。停止線・ゼブラは生成しない。
   Straight segmentの正本はcornerのために曲げず、丸みはnode所有のderived connectorだけに置く。
@@ -180,6 +183,7 @@ ADD LANEが作る変更後断面はCoreが作る。
   追加lane幅だけを0から指定幅へ単調に増やし、その外側のshoulderとcurbを外へ移す。断面全体を再中心化しない。
 - 対応範囲はforward/reversedを含むcorridor上の3点選択で、taperは1 segment内、完成断面の維持は複数segmentを跨いでよい。transitionを持つsegmentに別のtransitionを重ねない。競合は具体的なvalidationとして拒否する。
 - element対応は ID で行う。出現は `TaperIn`、消滅は `TaperOut` または `EndCap` を明示する。
+  現在の`RoadLayoutTransition.rules`は出現/消滅stripの許可を検証する補助正本であり、同じ`LaneId`や同じstrip IDの補間geometryはfrom/to template差分から決まる。新しいtransition意味を追加する前に、rulesへ意味を増やすかfrom/to差分へ寄せるかを監査する。
 - 1 segmentに同時に接続できる transition は1個。短距離多重transitionはP2非対象。
 - 異なるendpoint sectionでも、共通lane identityとsemantic sideを一意に解決できる接続は同じ
   `resolve_connections`経路で生成する。degree 2とjunctionで別のsection互換規則を持たず、carriageway edgeと

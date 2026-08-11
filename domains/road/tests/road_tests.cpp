@@ -2596,6 +2596,76 @@ bool transitioning_segment_split_respects_transition_bounds(std::string& failure
   return true;
 }
 
+bool segment_split_remaps_saved_lane_topology(std::string& failure) {
+  RoadState state{};
+  const auto section =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  city::road::AddSegmentRequest first_request{
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section};
+  first_request.corner_radius_m = 7.0;
+  const auto first = state.AddSegment(first_request);
+  ROAD_TEST_EXPECT(first.ok, first.error);
+  const RoadCorridorId corridor = state.graph().corridors.front().id;
+  const RoadNodeId endpoint = state.graph().segments.front().node_b;
+  const auto second = state.ExtendCorridorFromEnd(
+      city::road::ExtendCorridorFromEndRequest{
+          corridor, endpoint,
+          MakePath({MakeLine({20.0, 0.0}, {40.0, 0.0})}), section});
+  ROAD_TEST_EXPECT(second.ok, second.error);
+  SavedRoadGraph seeded = state.graph();
+  seeded.lane_connections.push_back(city::road::LaneConnection{
+      9001, {first.value, 1010, EndpointRole::kEnd},
+      {second.value, 1010, EndpointRole::kStart},
+      city::road::LaneConnectionKind::kContinuation});
+  seeded.boundary_continuations.push_back(city::road::BoundaryContinuation{
+      9002, {first.value, 200, EndpointRole::kEnd},
+      {second.value, 200, EndpointRole::kStart},
+      city::road::BoundaryContinuationKind::kContinuation});
+  const auto loaded = load_fixture(seeded);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  RoadState split_state = loaded.value;
+  const auto split = split_state.SplitSegmentAtDistance({first.value, 10.0});
+  ROAD_TEST_EXPECT(split.ok, split.error);
+  const auto end_side = std::find_if(
+      split_state.graph().segments.begin(), split_state.graph().segments.end(),
+      [id = split.value](const RoadSegment& segment) {
+        return segment.id == id;
+      });
+  ROAD_TEST_EXPECT(end_side != split_state.graph().segments.end(),
+                   "split endpoint segment is missing");
+  ROAD_TEST_EXPECT(std::abs(end_side->corner_radius_m - 7.0) < 1e-9,
+                   "split endpoint segment did not inherit corner radius");
+  ROAD_TEST_EXPECT(split_state.graph().lane_connections.size() == 1 &&
+                       split_state.graph().lane_connections.front().source.segment_id ==
+                           split.value &&
+                       split_state.graph().lane_connections.front().source.endpoint_role ==
+                           EndpointRole::kEnd &&
+                       split_state.graph().lane_connections.front().target.segment_id ==
+                           second.value,
+                   "split did not remap saved lane topology to the end-side segment");
+  ROAD_TEST_EXPECT(
+      split_state.graph().boundary_continuations.size() == 1 &&
+          split_state.graph().boundary_continuations.front().source.segment_id ==
+              split.value &&
+          split_state.graph().boundary_continuations.front().source.endpoint_role ==
+              EndpointRole::kEnd &&
+          split_state.graph().boundary_continuations.front().target.segment_id ==
+              second.value,
+      "split did not remap saved boundary topology to the end-side segment");
+
+  RoadState delete_state = loaded.value;
+  const auto before = delete_state.Save();
+  ROAD_TEST_EXPECT(before.ok, before.error);
+  const auto deleted = delete_state.DeleteSegment({first.value});
+  ROAD_TEST_EXPECT(deleted.ok, deleted.error);
+  ROAD_TEST_EXPECT(delete_state.graph().lane_connections.empty() &&
+                       delete_state.graph().boundary_continuations.empty(),
+                   "segment delete left saved lane or boundary topology orphaned");
+  const auto saved = delete_state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  return true;
+}
+
 bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   RoadState state{};
   const auto shouldered = road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
@@ -5536,6 +5606,8 @@ int main() {
        add_lane_conflict_is_specific_and_atomic},
       {"transitioning_segment_split_respects_transition_bounds",
        transitioning_segment_split_respects_transition_bounds},
+      {"segment_split_remaps_saved_lane_topology",
+       segment_split_remaps_saved_lane_topology},
       {"add_lane_propagates_from_middle_corridor_segment",
        add_lane_propagates_from_middle_corridor_segment},
       {"add_lane_normalizes_reversed_corridor_direction",

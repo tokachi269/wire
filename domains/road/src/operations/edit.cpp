@@ -166,6 +166,19 @@ Result<bool> RoadState::DeleteSegment(DeleteSegmentRequest request) {
       plan.remove_manual_areas.push_back(marking.id);
     }
   }
+  for (const LaneConnection& connection : graph_.lane_connections) {
+    if (connection.source.segment_id == segment_id ||
+        connection.target.segment_id == segment_id) {
+      plan.remove_lane_connections.push_back(connection.id);
+    }
+  }
+  for (const BoundaryContinuation& continuation :
+       graph_.boundary_continuations) {
+    if (continuation.source.segment_id == segment_id ||
+        continuation.target.segment_id == segment_id) {
+      plan.remove_boundary_continuations.push_back(continuation.id);
+    }
+  }
   const auto removes_node = [&plan](RoadNodeId node_id) {
     return std::find(plan.remove_nodes.begin(), plan.remove_nodes.end(),
                      node_id) != plan.remove_nodes.end();

@@ -269,6 +269,10 @@ BoundaryProfileには個別style fieldを持たせない。curb等の描画style
 source/target endpointを保存し、generation時にgeometryの近さから作り直さない。`LaneConnectionKind`と`BoundaryContinuationKind`は
 生成とinspectionの意味を補助するが、identityの代わりにはしない。高速道路、出口、合流専用の保存型は作らず、
 一般道の車線追加、分岐、合流、交差点movementも同じlane/boundary接続で表す。
+segment splitでは、元segment start endpointに属するtopologyは元segmentへ残し、元segment end endpointに属するtopologyは
+split後のend側segmentへIDでremapする。segment deleteでは、削除segmentをsourceまたはtargetに持つ
+`LaneConnection`と`BoundaryContinuation`を同じOperationPlanで削除する。orphan topologyをgenerateやvalidationへ
+持ち越さない。
 
 車線中心と道路境界は別の正本である。lane接続からshoulderや道路外端の継続を暗黙導出せず、必要な境界は
 `BoundaryContinuation`で明示する。lane/boundaryのworld pathはこれらの正本から派生し、保存しない。
@@ -285,6 +289,8 @@ curbやmedian edgeのように幅と高さを持つ境界も、その境界の�
 ADD LANEの変化開始、3車線完成、維持終点は同一corridor上の`SegmentPosition`としてoperationへ渡す。Coreが各位置をcorridor累積距離へ解決する。taperは1 segment内だけに作り、segment境界を跨ぐtaperのためにpartial templateを多数生成しない。維持終点がsegment途中なら同じoperation内でsplitする。開始・完成位置を作るためだけにはsegmentを
 分割せず、物理距離やcorridor-globalなLaneAddition entityを保存しない。boundary anchorで決まった横方向原点は明示された維持終点までの後続segmentへ派生伝播し、
 追加前から存在するlaneを再中心化しない。通常幅以降のsegmentはtransitionを所有しないため、後続segmentは通常の完成断面として扱う。
+このanchor伝播は現行の非局所派生契約であり、正本ではない。新しいtransition意味を追加する前に、operationが後続segmentの
+完成template offsetを明示確定できるかを優先して検討する。
 
 接続可否はtemplate IDではなくendpointの実断面で判定する。同じlane identityとsemantic sideを一意に対応できれば、
 side profileが異なるdegree 2接続も生成する。laneまたはboundary対応が曖昧な場合だけnode手前のsection transitionか
@@ -376,6 +382,9 @@ valid authoritativeから派生が欠ける、emitへ不整合なresolved geomet
 連続し、重複せず、他corridorへ重複所属しない。位置近接は連続性判定に使わない。
 断面変更を含むcorridorではsegmentごとの`layout_template`が異なってよい。template IDの一致を
 接続可否やcorridor所属の判定に使わない。
+`layout_template_id`はcorridor全体の断面ではなく、終端延長時に使う既定断面である。generationはsegmentごとの
+`RoadSegment.layout_template`と`RoadLayoutTransition`から断面を評価し、corridorの`layout_template_id`で既存segmentを
+再解釈しない。
 
 corridor distanceは先頭から単調増加する。内部segment境界は後続segmentのlocal 0、corridor終端は末尾
 segmentのlocal lengthへ解決する。reversed segmentでは`local = length - corridor-local`とする。
@@ -388,6 +397,9 @@ segment列、方向、始点、distance、周期配置位相は変更しない�
 
 `SplitSegmentAtDistance`はDe Casteljau分割を使い、元segment IDをstart側、新IDをend側へ割り当てる。
 corridor内では元参照を二つの向き付き参照へ置換し、reversed参照ではcorridor方向に沿う順序へ反転する。
+splitはsegment shape、corner radius、endpoint-owned approach override、manual marking、auto marking override、
+junction marking override、LaneConnection、BoundaryContinuationの移行を同じOperationPlanに載せる。各operationが
+個別にendpoint近接で再bindしてはならない。
 split前後でcorridor全長とworld位置を維持する。
 
 通常削除はsegment単位で行う。corridorが分断される場合、

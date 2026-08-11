@@ -51,6 +51,65 @@ Result<bool> validate_corner_radius(double corner_radius_m) {
   return Result<bool>::Ok(true);
 }
 
+std::optional<LaneEndpointKey> remap_split_lane_endpoint(
+    LaneEndpointKey key, RoadSegmentId source_id, RoadSegmentId second_id) {
+  if (key.segment_id != source_id) return key;
+  if (key.endpoint_role == EndpointRole::kStart) return key;
+  key.segment_id = second_id;
+  return key;
+}
+
+std::optional<BoundaryEndpointKey> remap_split_boundary_endpoint(
+    BoundaryEndpointKey key, RoadSegmentId source_id, RoadSegmentId second_id) {
+  if (key.segment_id != source_id) return key;
+  if (key.endpoint_role == EndpointRole::kStart) return key;
+  key.segment_id = second_id;
+  return key;
+}
+
+void plan_split_endpoint_topology_remap(const SavedRoadGraph& graph,
+                                        RoadSegmentId source_id,
+                                        RoadSegmentId second_id,
+                                        operations::OperationPlan& plan) {
+  for (const LaneConnection& connection : graph.lane_connections) {
+    const std::optional<LaneEndpointKey> source =
+        remap_split_lane_endpoint(connection.source, source_id, second_id);
+    const std::optional<LaneEndpointKey> target =
+        remap_split_lane_endpoint(connection.target, source_id, second_id);
+    if (!source.has_value() || !target.has_value()) {
+      plan.remove_lane_connections.push_back(connection.id);
+      continue;
+    }
+    if (*source == connection.source && *target == connection.target) continue;
+    LaneConnection mapped = connection;
+    mapped.source = *source;
+    mapped.target = *target;
+    plan.remove_lane_connections.push_back(connection.id);
+    plan.add_lane_connections.push_back(std::move(mapped));
+  }
+  for (const BoundaryContinuation& continuation :
+       graph.boundary_continuations) {
+    const std::optional<BoundaryEndpointKey> source =
+        remap_split_boundary_endpoint(continuation.source, source_id,
+                                      second_id);
+    const std::optional<BoundaryEndpointKey> target =
+        remap_split_boundary_endpoint(continuation.target, source_id,
+                                      second_id);
+    if (!source.has_value() || !target.has_value()) {
+      plan.remove_boundary_continuations.push_back(continuation.id);
+      continue;
+    }
+    if (*source == continuation.source && *target == continuation.target) {
+      continue;
+    }
+    BoundaryContinuation mapped = continuation;
+    mapped.source = *source;
+    mapped.target = *target;
+    plan.remove_boundary_continuations.push_back(continuation.id);
+    plan.add_boundary_continuations.push_back(std::move(mapped));
+  }
+}
+
 Result<RoadNodeId> plan_connection_target_split(
     const SavedRoadGraph& graph, const DerivedRoad& derived,
     const RoadConnectionTarget& target, Vec2d expected_point,
@@ -246,6 +305,7 @@ Result<RoadNodeId> plan_connection_target_split(
     plan.remove_junction_marking_overrides.push_back(override.id);
     plan.add_junction_marking_overrides.push_back(std::move(mapped));
   }
+  plan_split_endpoint_topology_remap(graph, source->id, second_id, plan);
   return Result<RoadNodeId>::Ok(split_node);
 }
 
@@ -642,6 +702,7 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
     plan.remove_junction_marking_overrides.push_back(override.id);
     plan.add_junction_marking_overrides.push_back(std::move(mapped));
   }
+  plan_split_endpoint_topology_remap(graph_, source->id, second_id, plan);
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) return Result<RoadSegmentId>::Fail(executed.failure_category, executed.error);
@@ -848,7 +909,8 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   plan.replace_segments.push_back(std::move(first));
   plan.add_nodes.push_back(RoadNode{split_node, split.value.point});
   RoadSegment second{second_id, split_node, source->node_b, second_shape.value,
-                     source->layout_template, source->transition};
+                     source->layout_template, source->transition,
+                     source->corner_radius_m};
   if (remapped_transition.has_value()) {
     if (transition_moves_to_second) {
       second.layout_template = remapped_transition->from_template;
@@ -953,6 +1015,7 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
     plan.remove_junction_marking_overrides.push_back(override.id);
     plan.add_junction_marking_overrides.push_back(std::move(mapped));
   }
+  plan_split_endpoint_topology_remap(graph_, source->id, second_id, plan);
   plan.next_id_after = next_id;
   const Result<bool> executed = Execute(plan);
   if (!executed.ok) {

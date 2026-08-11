@@ -294,9 +294,14 @@ Result<bool> derive_segment_markings(const SavedRoadGraph &graph,
           return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
                                     "conflicting marking policy on boundary");
         }
-        if (std::min(boundary.left_strip_width_m,
-                     boundary.right_strip_width_m) <=
-            kDegenerateStripWidthM) {
+        const bool degenerate_adjacent_strip =
+            std::min(boundary.left_strip_width_m,
+                     boundary.right_strip_width_m) <= kDegenerateStripWidthM;
+        const bool visible_edge_boundary =
+            role == MarkingRole::kCarriagewayEdge &&
+            std::max(boundary.left_strip_width_m,
+                     boundary.right_strip_width_m) > kDegenerateStripWidthM;
+        if (degenerate_adjacent_strip && !visible_edge_boundary) {
           finish_run(it->second);
           continue;
         }

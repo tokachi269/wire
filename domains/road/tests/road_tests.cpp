@@ -2110,6 +2110,20 @@ bool add_lane_preserves_existing_lanes(std::string& failure) {
   }
   ROAD_TEST_EXPECT(std::abs((*outer_after - *outer_before) - 3.0) < 1e-6,
                    "LAN3 added lane did not reach its requested width");
+  const auto outer_line = std::find_if(
+      state.derived().markings.begin(), state.derived().markings.end(),
+      [segment](const city::road::DerivedMarking& marking) {
+        return marking.owner.kind ==
+                   city::road::MarkingOwner::Kind::kRoadSegment &&
+               marking.owner.segment_id == segment.value &&
+               marking.boundary_id == 250 &&
+               marking.role == city::road::MarkingRole::kCarriagewayEdge;
+      });
+  ROAD_TEST_EXPECT(outer_line != state.derived().markings.end(),
+                   "LAN3 removed the existing shoulder edge line");
+  ROAD_TEST_EXPECT(!outer_line->points.empty() &&
+                       outer_line->points.front().x < 1.0,
+                   "LAN3 shoulder edge line does not start before the added lane");
   const auto target_template = std::max_element(
       state.graph().layout_templates.begin(),
       state.graph().layout_templates.end(), [](const auto& a, const auto& b) {

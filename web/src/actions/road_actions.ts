@@ -66,8 +66,6 @@ export class RoadActions {
         laneTransitionStartT: 0,
         laneTransitionCompleteSegmentId: 0,
         laneTransitionCompleteT: 0,
-        laneContinuationEndSegmentId: 0,
-        laneContinuationEndT: 0,
         selectedEditSegmentId: 0,
         selectedEditNodeAId: 0,
         selectedEditNodeBId: 0,
@@ -238,22 +236,6 @@ export class RoadActions {
             return;
           }
         }
-        if (current.laneEditStage === "continuation-end" && snap !== undefined) {
-          const position = segmentPositionForSnap(current, snap);
-          if (position !== null &&
-              positionBelongsToCorridor(current, position, current.laneCorridorId)) {
-            road = {
-              ...road,
-              laneContinuationEndSegmentId: position.segmentId,
-              laneContinuationEndT: position.t,
-              previewMeshes: [],
-              previewState: "guide",
-              previewIssue: ""
-            };
-            this.ctx.store.update((snapshot) => ({ ...snapshot, road }));
-            return;
-          }
-        }
       }
       this.ctx.store.update((snapshot) => ({ ...snapshot, road }));
       return;
@@ -384,8 +366,6 @@ export class RoadActions {
             laneTransitionStartT: position.t,
             laneTransitionCompleteSegmentId: position.segmentId,
             laneTransitionCompleteT: position.t,
-            laneContinuationEndSegmentId: 0,
-            laneContinuationEndT: 0,
             previewIssue: "",
             lastError: ""
           }
@@ -423,50 +403,25 @@ export class RoadActions {
                            "lane_transition_complete_not_after_start");
           return;
         }
-        this.ctx.store.update((snapshot) => ({
-          ...snapshot,
-          road: {
-            ...snapshot.road,
-            laneEditStage: "continuation-end",
-            laneTransitionCompleteSegmentId: position.segmentId,
-            laneTransitionCompleteT: position.t,
-            laneContinuationEndSegmentId: 0,
-            laneContinuationEndT: 0,
-            previewIssue: "",
-            lastError: ""
-          }
-        }));
-        return;
-      }
-      if (road.laneEditStage === "continuation-end") {
-        const position = snap === undefined ? null : segmentPositionForSnap(road, snap);
-        if (position === null) {
-          this.rejectInput("road add lane", "3車線を維持する終点を道路上で選択してください",
-                           "lane_continuation_end_not_selected");
-          return;
+        const laneRoad = {
+          ...road,
+          laneTransitionCompleteSegmentId: position.segmentId,
+          laneTransitionCompleteT: position.t
+        };
+        const result = this.ctx.bridge.roadAddLane(laneTransitionInput(laneRoad));
+        if (!result.ok) {
+          this.ctx.store.update((snapshot) => ({
+            ...snapshot,
+            road: {
+              ...snapshot.road,
+              laneTransitionCompleteSegmentId: position.segmentId,
+              laneTransitionCompleteT: position.t,
+              previewIssue: "",
+              lastError: ""
+            }
+          }));
         }
-        if (!positionBelongsToCorridor(road, position, road.laneCorridorId)) {
-          this.rejectInput("road add lane",
-                           "交差点や別corridorを跨ぐADD LANE終点は未対応です。開始・完成位置と同じ道路区間上を選択してください",
-                           "lane_continuation_end_crosses_corridor");
-          return;
-        }
-        if (!positionContinuesAddLaneDirection(road, position)) {
-          this.rejectInput("road add lane", "2点目より先の道路上を選択してください",
-                           "lane_continuation_end_before_completion");
-          return;
-        }
-        this.ctx.store.update((snapshot) => ({
-          ...snapshot,
-          road: {
-            ...snapshot.road,
-            laneContinuationEndSegmentId: position.segmentId,
-            laneContinuationEndT: position.t,
-            previewState: "guide",
-            previewIssue: "",
-            lastError: ""
-          }
-        }));
+        this.finish(result, "road add lane");
         return;
       }
       return;
@@ -530,8 +485,6 @@ export class RoadActions {
         laneTransitionStartT: 0,
         laneTransitionCompleteSegmentId: 0,
         laneTransitionCompleteT: 0,
-        laneContinuationEndSegmentId: 0,
-        laneContinuationEndT: 0,
         previewMeshes: [],
         previewState: "none",
         previewRequest: null,
@@ -614,8 +567,7 @@ export class RoadActions {
   }
 
   private commitLane(road: RoadToolState): DrawActionResult {
-    if (road.laneEditStage !== "continuation-end" ||
-        road.laneContinuationEndSegmentId === 0 ||
+    if (road.laneEditStage !== "transition-complete" ||
         road.laneTransitionStartSegmentId === 0 ||
         road.laneTransitionCompleteSegmentId === 0 ||
         Math.abs(road.laneTransitionCompleteT - road.laneTransitionStartT) <= 1e-9) {
@@ -830,8 +782,6 @@ function laneTransitionInput(road: RoadToolState) {
     startT: road.laneTransitionStartT,
     completeSegmentId: road.laneTransitionCompleteSegmentId,
     completeT: road.laneTransitionCompleteT,
-    continuationEndSegmentId: road.laneContinuationEndSegmentId,
-    continuationEndT: road.laneContinuationEndT,
     laneWidthM: road.laneWidthM
   };
 }
@@ -875,27 +825,4 @@ function corridorDistanceForPosition(
     distance += ref.lengthM;
   }
   return null;
-}
-
-function positionContinuesAddLaneDirection(
-  road: RoadToolState,
-  position: { segmentId: number; t: number }
-): boolean {
-  const start = corridorDistanceForPosition(
-    road,
-    { segmentId: road.laneTransitionStartSegmentId,
-      t: road.laneTransitionStartT },
-    road.laneCorridorId
-  );
-  const complete = corridorDistanceForPosition(
-    road,
-    { segmentId: road.laneTransitionCompleteSegmentId,
-      t: road.laneTransitionCompleteT },
-    road.laneCorridorId
-  );
-  const end = corridorDistanceForPosition(road, position, road.laneCorridorId);
-  if (start === null || complete === null || end === null) return false;
-  const delta = complete - start;
-  if (Math.abs(delta) <= 1e-9) return false;
-  return (end - complete) * Math.sign(delta) >= -1e-9;
 }

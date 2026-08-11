@@ -1094,8 +1094,7 @@ export class WireScene {
       `lane-selected:${snapshot.road.selectedLaneSegmentId}:${snapshot.road.selectedLaneId}`,
       `lane-range:${snapshot.road.laneCorridorId}:${snapshot.road.laneEditStage}:` +
         `${snapshot.road.laneTransitionStartSegmentId}:${snapshot.road.laneTransitionStartT}:` +
-        `${snapshot.road.laneTransitionCompleteSegmentId}:${snapshot.road.laneTransitionCompleteT}:` +
-        `${snapshot.road.laneContinuationEndSegmentId}:${snapshot.road.laneContinuationEndT}`,
+        `${snapshot.road.laneTransitionCompleteSegmentId}:${snapshot.road.laneTransitionCompleteT}`,
       `edit:${snapshot.road.operation}:${snapshot.road.selectedEditSegmentId}:` +
         snapshot.road.editPoints.map((point) => `${point.x}:${point.y}`).join("|")
     ].join("|");
@@ -1201,12 +1200,14 @@ export class WireScene {
           snapshot.road.laneTransitionCompleteSegmentId,
           snapshot.road.laneTransitionCompleteT
         );
-        const selectedEndDistance =
-          snapshot.road.laneContinuationEndSegmentId === 0
-            ? null
-            : corridorDistance(snapshot.road.laneContinuationEndSegmentId,
-                snapshot.road.laneContinuationEndT);
-        const rangeEndDistance = selectedEndDistance ?? completeDistance;
+        const operationDelta = startDistance === null || completeDistance === null
+          ? 0
+          : completeDistance - startDistance;
+        const rangeEndDistance = completeDistance === null
+          ? null
+          : Math.abs(operationDelta) <= 1e-9
+            ? completeDistance
+            : (operationDelta > 0 ? corridor.lengthM : 0);
         const rangeMinimum = startDistance === null || rangeEndDistance === null
           ? null
           : Math.min(startDistance, rangeEndDistance);

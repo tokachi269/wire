@@ -51,7 +51,6 @@
   const addLaneStep = $derived.by(() => {
     if (snapshot.road.laneEditStage === "select") return "2車線から3車線への変化開始位置";
     if (snapshot.road.laneEditStage === "transition-complete") return "3車線が完成する位置";
-    if (snapshot.road.laneEditStage === "continuation-end") return "3車線を維持する終点";
     return "";
   });
 

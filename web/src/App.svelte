@@ -116,8 +116,11 @@
       return value.wirePreview.state === "guide" && value.wirePreview.request !== null;
     }
     if (value.road.operation === "add-lane") {
-      return value.road.laneEditStage === "continuation-end" &&
-        value.road.laneContinuationEndSegmentId !== 0;
+      return value.road.laneEditStage === "transition-complete" &&
+        value.road.laneTransitionStartSegmentId !== 0 &&
+        value.road.laneTransitionCompleteSegmentId !== 0 &&
+        Math.abs(value.road.laneTransitionCompleteT -
+          value.road.laneTransitionStartT) > 1e-9;
     }
     return value.road.operation === "draw" && value.road.previewRequest !== null;
   }

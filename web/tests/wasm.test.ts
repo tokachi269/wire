@@ -1886,8 +1886,6 @@ describe("road wasm smoke", () => {
       startT: 0.25,
       completeSegmentId: added.segmentId!,
       completeT: 1,
-      continuationEndSegmentId: added.segmentId!,
-      continuationEndT: 1,
       laneWidthM: 3
     };
     expect(state.scene().transitionCount).toBe(0);
@@ -1950,8 +1948,6 @@ describe("road wasm smoke", () => {
       startT: 0.5,
       completeSegmentId: second.segmentId!,
       completeT: 0.5,
-      continuationEndSegmentId: second.segmentId!,
-      continuationEndT: 0.75,
       laneWidthM: 3
     });
     expect(committed.ok).toBe(false);

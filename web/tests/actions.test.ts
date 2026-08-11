@@ -1362,29 +1362,16 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
-    expect(current(store).road.laneEditStage).toBe("continuation-end");
-    actions.previewViewportPoint([60, 0, 0], {
-      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 60
-    });
-    expect(current(store).road.laneContinuationEndSegmentId).toBe(12);
-    expect(current(store).road.laneContinuationEndT).toBe(1);
-    actions.addViewportPoint([60, 0, 0], {
-      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 60
-    });
-    expect(commit).not.toHaveBeenCalled();
-    actions.confirmDrawStep();
     expect(commit).toHaveBeenCalledWith(expect.objectContaining({
       corridorId: 30,
       direction: 1,
       startSegmentId: 12,
       startT: 10 / 60,
       completeSegmentId: 12,
-      completeT: 0.5,
-      continuationEndSegmentId: 12,
-      continuationEndT: 1
+      completeT: 0.5
     }));
   });
-  it("accepts an arbitrary road position as the add-lane continuation end", () => {
+  it("commits add-lane after the completion point without a maintained end", () => {
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
@@ -1411,10 +1398,6 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
-    actions.addViewportPoint([50, 0, 0], {
-      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 50
-    });
-    actions.confirmDrawStep();
     expect(commit).toHaveBeenCalledOnce();
   });
   it("rejects an add-lane taper crossing a segment boundary before commit", () => {
@@ -1491,20 +1474,13 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([10, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
-    actions.addViewportPoint([0, 0, 0], {
-      kind: "road", nodeId: 21, segmentId: 12, segmentDistanceM: 0,
-      endpointRole: 0
-    });
-    actions.confirmDrawStep();
     expect(commit).toHaveBeenCalledWith(expect.objectContaining({
       corridorId: 30,
       startT: 0.5,
-      completeT: 10 / 60,
-      continuationEndSegmentId: 12,
-      continuationEndT: 0
+      completeT: 10 / 60
     }));
   });
-  it("rejects an add-lane continuation end behind the picked direction before commit", () => {
+  it("rejects identical add-lane start and completion before commit", () => {
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
@@ -1530,20 +1506,16 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([10, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
-    actions.addViewportPoint([30, 0, 0], {
-      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
-    });
-    actions.addViewportPoint([20, 0, 0], {
-      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 20
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
 
     expect(commit).not.toHaveBeenCalled();
     expect(current(store).lastCommitFailure?.reasonCode)
-      .toBe("lane_continuation_end_before_completion");
-    expect(current(store).road.laneEditStage).toBe("continuation-end");
-    expect(current(store).road.laneContinuationEndSegmentId).toBe(0);
+      .toBe("lane_transition_complete_not_after_start");
+    expect(current(store).road.laneEditStage).toBe("transition-complete");
   });
-  it("explains unsupported add-lane ends on another corridor before commit", () => {
+  it("explains unsupported add-lane completion points on another corridor before commit", () => {
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
@@ -1574,18 +1546,15 @@ describe("viewport tool routing", () => {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
     actions.addViewportPoint([30, 0, 0], {
-      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
-    });
-    actions.addViewportPoint([50, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 13, segmentDistanceM: 50
     });
 
     expect(commit).not.toHaveBeenCalled();
     expect(current(store).lastCommitFailure?.reasonCode)
-      .toBe("lane_continuation_end_crosses_corridor");
+      .toBe("lane_transition_complete_crosses_corridor");
     expect(current(store).lastCommitFailure?.message)
-      .toContain("交差点や別corridorを跨ぐADD LANE終点は未対応");
-    expect(current(store).road.laneEditStage).toBe("continuation-end");
+      .toContain("交差点や別corridorを跨ぐADD LANE完成位置は未対応");
+    expect(current(store).road.laneEditStage).toBe("transition-complete");
   });
   it("keeps all add-lane selections after one rejected confirmation", () => {
     const commit = vi.fn(() => ({
@@ -1620,20 +1589,12 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
-    actions.addViewportPoint([60, 0, 0], {
-      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 60,
-      endpointRole: 1
-    });
-    expect(actions.confirmDrawStep()).toEqual({
-      kind: "commit-rejected",
-      reasonCode: "road_add_lane_transition_conflict"
-    });
     const rejected = current(store);
-    expect(rejected.road.laneEditStage).toBe("continuation-end");
+    expect(rejected.lastCommitFailure?.reasonCode)
+      .toBe("road_add_lane_transition_conflict");
+    expect(rejected.road.laneEditStage).toBe("transition-complete");
     expect(rejected.road.laneTransitionStartT).toBe(10 / 60);
     expect(rejected.road.laneTransitionCompleteT).toBe(0.5);
-    expect(rejected.road.laneContinuationEndSegmentId).toBe(12);
-    expect(rejected.road.laneContinuationEndT).toBe(1);
     actions.previewViewportPoint([55, 0, 0], {
       kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 55,
       endpointRole: 1

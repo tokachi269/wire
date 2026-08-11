@@ -23,8 +23,6 @@ using internal::find_segment;
 using internal::find_template;
 using internal::is_finite;
 using internal::distance_epsilon;
-using internal::PathSplit;
-using internal::split_path_at_distance;
 
 [[nodiscard]] EndpointRole endpoint_role_at(const RoadSegment& segment,
                                             RoadNodeId node_id) {
@@ -363,23 +361,19 @@ struct LaneSectionExtension {
 [[nodiscard]] Result<bool> validate_add_lane_request(
     const AddLaneRequest& request) {
   if (!is_finite(request.transition_start.t) ||
-      !is_finite(request.transition_complete.t) ||
-      !is_finite(request.continuation_end.t)) {
+      !is_finite(request.transition_complete.t)) {
     return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                               "lane transition positions must be finite");
   }
   if (request.transition_start.segment_id == 0 ||
       request.transition_complete.segment_id == 0 ||
-      request.continuation_end.segment_id == 0 ||
       request.transition_start.t < 0.0 ||
       request.transition_start.t > 1.0 ||
       request.transition_complete.t < 0.0 ||
-      request.transition_complete.t > 1.0 ||
-      request.continuation_end.t < 0.0 ||
-      request.continuation_end.t > 1.0) {
+      request.transition_complete.t > 1.0) {
     return Result<bool>::Fail(
         CommitFailureCategory::kInvalidInput,
-        "lane transition positions or continuation endpoint are invalid");
+        "lane transition positions are invalid");
   }
   if (!is_finite(request.lane_width_m) || request.lane_width_m <= 0.0) {
     return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
@@ -438,13 +432,10 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
       resolve_lane_position(*corridor, derived_, request.transition_start);
   const Result<ResolvedLanePosition> complete_position =
       resolve_lane_position(*corridor, derived_, request.transition_complete);
-  const Result<ResolvedLanePosition> end_position =
-      resolve_lane_position(*corridor, derived_, request.continuation_end);
-  if (!start_position.ok || !complete_position.ok || !end_position.ok) {
+  if (!start_position.ok || !complete_position.ok) {
     const auto& failed = !start_position.ok
                              ? start_position
-                             : (!complete_position.ok ? complete_position
-                                                      : end_position);
+                             : complete_position;
     return Result<LaneId>::Fail(failed.failure_category, failed.error);
   }
   const double operation_delta_m =
@@ -456,15 +447,6 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         "lane start and completion positions must be different");
   }
   const bool operation_forward = operation_delta_m > 0.0;
-  const double operation_sign = operation_forward ? 1.0 : -1.0;
-  if ((end_position.value.corridor_distance_m -
-       complete_position.value.corridor_distance_m) *
-          operation_sign <
-      -distance_epsilon) {
-    return Result<LaneId>::Fail(
-        CommitFailureCategory::kInvalidInput,
-        "lane continuation end must be beyond the completion point");
-  }
   const RoadSegment* segment =
       find_segment(graph_, request.transition_start.segment_id);
   if (segment == nullptr) {
@@ -545,99 +527,14 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
       LaneSectionExtension{source->id, local_direction, local_side,
                            target.id}};
   const auto continuation_ref =
-      corridor->segments.begin() +
-      static_cast<std::ptrdiff_t>(end_position.value.ref_index);
+      operation_forward ? corridor->segments.end() - 1 : corridor->segments.begin();
   RoadSegmentId terminal_segment_id = continuation_ref->segment_id;
-  EndpointRole terminal_role = continuation_ref->reversed
-                                   ? EndpointRole::kStart
-                                   : EndpointRole::kEnd;
-  const bool split_terminal = request.continuation_end.t > distance_epsilon &&
-                              request.continuation_end.t <
-                                  1.0 - distance_epsilon;
-  if (split_terminal) {
-    const RoadSegment* terminal =
-        find_segment(graph_, continuation_ref->segment_id);
-    const Path* terminal_path = terminal == nullptr
-                                    ? nullptr
-                                    : FindCanonicalAlignment(derived_, terminal->id);
-    if (terminal == nullptr || terminal_path == nullptr) {
-      return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
-                                  "lane continuation segment is missing");
-    }
-    if (terminal->transition.has_value()) {
-      return Result<LaneId>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "lane continuation end cannot split an existing section transition");
-    }
-    const bool has_owned_state =
-        std::any_of(graph_.manual_lines.begin(), graph_.manual_lines.end(),
-                    [terminal](const ManualLineMarking& item) {
-                      return item.owner_segment_id == terminal->id;
-                    }) ||
-        std::any_of(graph_.manual_areas.begin(), graph_.manual_areas.end(),
-                    [terminal](const ManualAreaMarking& item) {
-                      return item.owner_segment_id == terminal->id;
-                    }) ||
-        std::any_of(graph_.auto_marking_overrides.begin(),
-                    graph_.auto_marking_overrides.end(),
-                    [terminal](const AutoMarkingOverride& item) {
-                      return item.key.owner.kind ==
-                                 MarkingOwner::Kind::kRoadSegment &&
-                             item.key.owner.segment_id == terminal->id;
-                    });
-    if (has_owned_state) {
-      return Result<LaneId>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "lane continuation split crosses segment-owned marking state");
-    }
-    const Result<PathSplit> split = split_path_at_distance(
-        *terminal_path,
-        request.continuation_end.t * end_position.value.segment_length_m);
-    if (!split.ok) {
-      return Result<LaneId>::Fail(split.failure_category, split.error);
-    }
-    const Result<SegmentShape> first_shape =
-        SegmentShapeFromPath(split.value.before);
-    const Result<SegmentShape> second_shape =
-        SegmentShapeFromPath(split.value.after);
-    if (!first_shape.ok || !second_shape.ok) {
-      return Result<LaneId>::Fail(
-          CommitFailureCategory::kInternalError,
-          "lane continuation split shape derivation failed");
-    }
-    const RoadNodeId split_node = next_id++;
-    const RoadSegmentId second_id = next_id++;
-    RoadSegment first = *terminal;
-    first.node_b = split_node;
-    first.shape = first_shape.value;
-    plan.replace_segments.push_back(std::move(first));
-    plan.add_nodes.push_back(RoadNode{split_node, split.value.point});
-    plan.add_segments.push_back(RoadSegment{
-        second_id, split_node, terminal->node_b, second_shape.value,
-        terminal->layout_template, std::nullopt, terminal->corner_radius_m});
-    RoadCorridor replacement = *corridor;
-    const std::size_t index = end_position.value.ref_index;
-    replacement.segments.erase(
-        replacement.segments.begin() + static_cast<std::ptrdiff_t>(index));
-    const std::array<DirectedSegmentRef, 2> split_refs =
-        continuation_ref->reversed
-            ? std::array<DirectedSegmentRef, 2>{
-                  DirectedSegmentRef{second_id, true},
-                  DirectedSegmentRef{terminal->id, true}}
-            : std::array<DirectedSegmentRef, 2>{
-                  DirectedSegmentRef{terminal->id, false},
-                  DirectedSegmentRef{second_id, false}};
-    replacement.segments.insert(
-        replacement.segments.begin() + static_cast<std::ptrdiff_t>(index),
-        split_refs.begin(), split_refs.end());
-    plan.replace_corridors.push_back(std::move(replacement));
-    const bool inside_uses_second_split_segment =
-        continuation_ref->reversed == operation_forward;
-    terminal_segment_id =
-        inside_uses_second_split_segment ? second_id : terminal->id;
-    terminal_role = inside_uses_second_split_segment ? EndpointRole::kStart
-                                                     : EndpointRole::kEnd;
-  }
+  EndpointRole terminal_role =
+      operation_forward
+          ? (continuation_ref->reversed ? EndpointRole::kStart
+                                        : EndpointRole::kEnd)
+          : (continuation_ref->reversed ? EndpointRole::kEnd
+                                        : EndpointRole::kStart);
 
   auto editable_segment = [&](RoadSegmentId id) -> RoadSegment* {
     const auto replacement = std::find_if(
@@ -668,15 +565,13 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
       return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
                                   "planned lane corridor is missing");
     }
-    if (split_terminal) {
-      const Result<bool> degree_two_topology =
-          plan_same_identity_degree_two_topology(
-              planned_graph, terminal_segment_id, terminal_role, added_lane_id,
-              lane_ids.boundary_id, next_id, plan);
-      if (!degree_two_topology.ok) {
-        return Result<LaneId>::Fail(degree_two_topology.failure_category,
-                                    degree_two_topology.error);
-      }
+    const Result<bool> degree_two_topology =
+        plan_same_identity_degree_two_topology(
+            planned_graph, terminal_segment_id, terminal_role, added_lane_id,
+            lane_ids.boundary_id, next_id, plan);
+    if (!degree_two_topology.ok) {
+      return Result<LaneId>::Fail(degree_two_topology.failure_category,
+                                  degree_two_topology.error);
     }
     plan.next_id_after = next_id;
     const Result<bool> executed = Execute(plan);
@@ -805,18 +700,6 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         first_local_t = request.transition_start.t;
       if (index == complete_position.value.ref_index)
         second_local_t = request.transition_complete.t;
-      if (split_terminal && index == end_position.value.ref_index) {
-        const double split_t = request.continuation_end.t;
-        const bool inside_uses_second_split_segment =
-            ref.reversed == operation_forward;
-        const auto remap = [split_t, inside_uses_second_split_segment](double value) {
-          return inside_uses_second_split_segment
-                     ? (value - split_t) / (1.0 - split_t)
-                     : value / split_t;
-        };
-        first_local_t = remap(first_local_t);
-        second_local_t = remap(second_local_t);
-      }
       const double local_start_t = std::min(first_local_t, second_local_t);
       const double local_end_t = std::max(first_local_t, second_local_t);
       const double local_from_fraction = ref.reversed ? end_fraction
@@ -868,9 +751,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
                   ? TransitionAction::kTaperIn
                   : TransitionAction::kTaperOut}}});
       const RoadSegmentId lane_segment_id =
-          split_terminal && index == end_position.value.ref_index
-              ? terminal_segment_id
-              : item->id;
+          item->id;
       RoadSegment* replacement = editable_segment(lane_segment_id);
       if (replacement == nullptr) {
         return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
@@ -881,15 +762,17 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     }
 
     RoadLayoutTemplateId terminal_template_id = target.id;
-    const std::size_t full_begin_index =
-        operation_forward ? complete_position.value.ref_index + 1
-                          : end_position.value.ref_index;
-    const std::size_t full_end_index =
-        operation_forward ? end_position.value.ref_index
-                          : (complete_position.value.ref_index == 0
-                                 ? 0
-                                 : complete_position.value.ref_index - 1);
-    if (full_begin_index <= full_end_index) {
+    const bool has_full_segments =
+        operation_forward
+            ? complete_position.value.ref_index + 1 < corridor->segments.size()
+            : complete_position.value.ref_index > 0;
+    const std::size_t full_begin_index = operation_forward
+                                             ? complete_position.value.ref_index + 1
+                                             : 0;
+    const std::size_t full_end_index = operation_forward
+                                           ? corridor->segments.size() - 1
+                                           : complete_position.value.ref_index - 1;
+    if (has_full_segments) {
       for (std::size_t full_index = full_begin_index;
            full_index <= full_end_index; ++full_index) {
         const auto ref = corridor->segments.begin() +
@@ -934,9 +817,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         const std::size_t index = static_cast<std::size_t>(
             std::distance(corridor->segments.begin(), ref));
         const RoadSegmentId lane_segment_id =
-            split_terminal && index == end_position.value.ref_index
-                ? terminal_segment_id
-                : following->id;
+            following->id;
         RoadSegment* following_replacement = editable_segment(lane_segment_id);
         if (following_replacement == nullptr) {
           return Result<LaneId>::Fail(
@@ -947,7 +828,7 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
         terminal_template_id = mapped.value;
       }
     }
-    if (continuation_ref + 1 == corridor->segments.end()) {
+    if (operation_forward && continuation_ref + 1 == corridor->segments.end()) {
       const auto planned_corridor = std::find_if(
           plan.replace_corridors.begin(), plan.replace_corridors.end(),
           [corridor](const RoadCorridor& item) { return item.id == corridor->id; });

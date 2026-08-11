@@ -994,6 +994,39 @@ bool generate_road_is_pure(std::string& failure) {
                        "failed generate_road changed its authoritative input");
   return true;
 }
+
+bool corridor_layout_template_is_extension_default_only(std::string& failure) {
+  RoadState state{};
+  const auto first_section =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  const auto second_section =
+      road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
+  const auto segment = state.AddSegment(AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), first_section});
+  ROAD_CONTRACT_EXPECT(segment.ok, segment.error);
+  SavedRoadGraph graph = state.graph();
+  ROAD_CONTRACT_EXPECT(!graph.corridors.empty() &&
+                           graph.corridors.front().layout_template_id ==
+                               first_section,
+                       "corridor default template fixture is incomplete");
+  const auto baseline = generation::generate_road(graph);
+  ROAD_CONTRACT_EXPECT(baseline.ok, baseline.error);
+  graph.corridors.front().layout_template_id = second_section;
+  const auto changed_default = generation::generate_road(graph);
+  ROAD_CONTRACT_EXPECT(changed_default.ok, changed_default.error);
+  ROAD_CONTRACT_EXPECT(
+      derived_observation(changed_default.value) ==
+          derived_observation(baseline.value),
+      "corridor layout_template_id reinterpreted existing segment geometry");
+  const auto source = std::find_if(
+      graph.segments.begin(), graph.segments.end(),
+      [id = segment.value](const RoadSegment& item) { return item.id == id; });
+  ROAD_CONTRACT_EXPECT(source != graph.segments.end() &&
+                           source->layout_template == first_section,
+                       "test changed the segment template instead of the corridor default");
+  return true;
+}
+
 bool generate_is_deterministic(std::string& failure) {
   RoadState state{};
   const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
@@ -1920,6 +1953,8 @@ int main() {
       {"segment_shape_edit_does_not_move_endpoint_authority", segment_shape_edit_does_not_move_endpoint_authority},
       {"move_node_rederives_incident_alignment_endpoints", move_node_rederives_incident_alignment_endpoints},
       {"generate_road_is_pure", generate_road_is_pure},
+      {"corridor_layout_template_is_extension_default_only",
+       corridor_layout_template_is_extension_default_only},
       {"generate_is_deterministic", generate_is_deterministic},
       {"confirmation_boundaries_define_segment_units",
        confirmation_boundaries_define_segment_units},

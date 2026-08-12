@@ -10,6 +10,7 @@ struct segment_sample {
   Vec2d center{};
   Vec2d lateral{};
   double segment_distance_m = 0.0;
+  bool uv_patch_boundary = false;
   std::vector<SectionBoundarySample> boundaries{};
   std::vector<RenderStyleRef> surface_styles{};
 };

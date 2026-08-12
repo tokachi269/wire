@@ -1090,8 +1090,18 @@ export class WireScene {
   }
 
   private sceneRoadContentSignature(snapshot: ViewerSnapshot): string {
+    const arrayKey = (values?: Float64Array | Uint32Array) => {
+      if (values === undefined || values.length === 0) return "0:0";
+      const samples = Math.min(16, values.length);
+      let hash = 2166136261;
+      for (let i = 0; i < samples; i += 1) {
+        const index = Math.floor((i * (values.length - 1)) / Math.max(1, samples - 1));
+        hash = Math.imul(hash ^ Math.round(Number(values[index]) * 1000000), 16777619);
+      }
+      return `${values.length}:${hash >>> 0}`;
+    };
     const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array; normals?: Float64Array; uv0?: Float64Array }) =>
-      `${mesh.ownerSegmentId}:${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.normals?.length ?? 0}:${mesh.uv0?.length ?? 0}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}:${mesh.uv0?.[0] ?? 0}:${mesh.uv0?.at(-1) ?? 0}`;
+      `${mesh.ownerSegmentId}:${mesh.material}:${arrayKey(mesh.vertices)}:${arrayKey(mesh.indices)}:${arrayKey(mesh.normals)}:${arrayKey(mesh.uv0)}`;
     return [
       ...snapshot.road.scene.surfaceMeshes.map(meshKey),
       ...snapshot.road.scene.markingMeshes.map(meshKey)
@@ -1099,8 +1109,18 @@ export class WireScene {
   }
 
   private sceneRoadOverlaySignature(snapshot: ViewerSnapshot): string {
+    const arrayKey = (values?: Float64Array | Uint32Array) => {
+      if (values === undefined || values.length === 0) return "0:0";
+      const samples = Math.min(16, values.length);
+      let hash = 2166136261;
+      for (let i = 0; i < samples; i += 1) {
+        const index = Math.floor((i * (values.length - 1)) / Math.max(1, samples - 1));
+        hash = Math.imul(hash ^ Math.round(Number(values[index]) * 1000000), 16777619);
+      }
+      return `${values.length}:${hash >>> 0}`;
+    };
     const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array; normals?: Float64Array; uv0?: Float64Array }) =>
-      `${mesh.ownerSegmentId}:${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.normals?.length ?? 0}:${mesh.uv0?.length ?? 0}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}:${mesh.uv0?.[0] ?? 0}:${mesh.uv0?.at(-1) ?? 0}`;
+      `${mesh.ownerSegmentId}:${mesh.material}:${arrayKey(mesh.vertices)}:${arrayKey(mesh.indices)}:${arrayKey(mesh.normals)}:${arrayKey(mesh.uv0)}`;
     return [
       ...snapshot.road.previewMeshes.map(meshKey),
       `guide:${snapshot.road.previewState}:` +

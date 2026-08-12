@@ -26,6 +26,7 @@ struct SectionBoundarySample {
   RoadLayoutStripId right_strip_id = 0;
   double left_strip_width_m = 0.0;
   double right_strip_width_m = 0.0;
+  double profile_v_m = 0.0;
 };
 enum class RenderStyleDomain {
   kSurface,

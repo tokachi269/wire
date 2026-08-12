@@ -252,8 +252,20 @@ roadのUVはnetwork/corridorの累積距離を使わない。上流segmentの長
 現行defaultは`reference_length_m=64.0`、`seam_divisions=4`である。safe seamの長さは
 `reference_length_m / seam_divisions`で、patch lengthを最も近いsafe seam数へ丸める。
 短いpatchでも最低1 intervalを割り当て、Uは1を超えてよい。現在のprocedural sectionではUをpatch長手方向、
-Vを断面横方向の決定論的なdefault値として生成する。これは将来のauthored profile/reference mesh UVを
-保存schemaなしで置き換えられる派生defaultである。
+Vを評価済み断面profileのcontour累積距離から生成する。L-gutterのように同じlateralで高さだけが違う
+立面も、Vの幅を持つ。これは将来のauthored profile/reference mesh UVを保存schemaなしで置き換えられる
+派生defaultである。
+
+一つのsweep geometry patchは一つのlongitudinal U mappingを共有する。同じsample indexに属する
+top / wall / channel等のprofile faceは同じUを持ち、faceごとにarc lengthやsafe seam量子化をやり直さない。
+segment surfaceでは`surface_segment_distances_m`のsegment-local距離を共通U基準に使う。
+corner / junction boundary stripでは、同じ点数のresolved strip群から局所的な代表距離列を作り、各stripへ共有する。
+これはconnectionまたはjunction内のresolved geometryだけを見る処理で、corridorやnetworkを辿らない。
+
+`RoadLayoutTransition`を持つsegmentでは、segment start、transition start、transition completion、segment endを
+UV patch boundaryにする。各patchはU=0から始まり、前patchのU_endを次patchへ引き継がない。
+Add Laneも同じsection transitionなので、transition前、taper、completion後のpatchへ分かれる。
+UV patch分割はDerived/emit上の分割であり、RoadSegmentやcorridorをsplitしない。
 
 方向性UVが不要なsurfaceは`MeshUvMapping::kWorld`を使う。現行junction interiorと面markingは
 world-space mappingで、junction/corridorの前後関係を読まない。junction interiorは解決済みperimeterを

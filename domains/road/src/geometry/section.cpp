@@ -466,6 +466,15 @@ derive_boundaries(const RoadLayoutTemplate &section,
       sample.height_m -= carriageway_floor;
     }
   }
+  double profile_v_m = 0.0;
+  if (!samples.empty())
+    samples.front().profile_v_m = 0.0;
+  for (std::size_t index = 1; index < samples.size(); ++index) {
+    profile_v_m +=
+        std::hypot(samples[index].lateral_m - samples[index - 1].lateral_m,
+                   samples[index].height_m - samples[index - 1].height_m);
+    samples[index].profile_v_m = profile_v_m;
+  }
   return samples;
 }
 

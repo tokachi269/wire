@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iterator>
+#include <map>
 #include <optional>
 
 namespace city::road::generation {
@@ -219,15 +220,20 @@ segment_render_grid make_segment_render_grid(
 }
 
 void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
-                  const std::vector<Vec3d> &b) {
+                  const std::vector<Vec3d> &b,
+                  const std::vector<double>* shared_distances = nullptr) {
   if (a.size() != b.size() || a.size() < 2)
     return;
   const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
   std::vector<double> distances(a.size(), 0.0);
-  for (std::size_t i = 1; i < a.size(); ++i) {
-    distances[i] =
-        distances[i - 1] +
-        (distance(a[i - 1], a[i]) + distance(b[i - 1], b[i])) * 0.5;
+  if (shared_distances != nullptr && shared_distances->size() == a.size()) {
+    distances = *shared_distances;
+  } else {
+    for (std::size_t i = 1; i < a.size(); ++i) {
+      distances[i] =
+          distances[i - 1] +
+          (distance(a[i - 1], a[i]) + distance(b[i - 1], b[i])) * 0.5;
+    }
   }
   const double u_end = quantized_patch_u_end(distances.back());
   for (std::size_t i = 0; i < a.size(); ++i) {
@@ -242,6 +248,30 @@ void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
     append_triangle(mesh, p, p + 2, p + 1);
     append_triangle(mesh, p + 1, p + 2, p + 3);
   }
+}
+
+std::vector<double> shared_strip_distances(
+    const std::vector<const ResolvedSurfaceStrip*>& strips,
+    std::size_t point_count) {
+  std::vector<double> distances(point_count, 0.0);
+  if (point_count < 2 || strips.empty())
+    return distances;
+  for (std::size_t i = 1; i < point_count; ++i) {
+    double length = 0.0;
+    std::size_t samples = 0;
+    for (const ResolvedSurfaceStrip* strip : strips) {
+      if (strip == nullptr || strip->left.size() != point_count ||
+          strip->right.size() != point_count)
+        continue;
+      length += distance(strip->left[i - 1], strip->left[i]);
+      length += distance(strip->right[i - 1], strip->right[i]);
+      samples += 2;
+    }
+    distances[i] = distances[i - 1] +
+                   (samples == 0 ? 0.0
+                                 : length / static_cast<double>(samples));
+  }
+  return distances;
 }
 
 double polygon_area_2d(const std::vector<Vec3d> &points) {
@@ -305,49 +335,6 @@ Result<segment_output> emit_segment(const segment_input &input) {
   const segment_render_grid grid =
       make_segment_render_grid(input.samples.front().boundaries, styles);
 
-  std::vector<Vec3d> vertices{};
-  std::vector<Vec2d> uv0{};
-  const double patch_start_m = input.samples.front().segment_distance_m;
-  const double patch_length_m =
-      std::max(0.0, input.samples.back().segment_distance_m - patch_start_m);
-  const double patch_u_end = quantized_patch_u_end(patch_length_m);
-  for (const segment_sample &sample : input.samples) {
-    if (sample.boundaries.size() != width || sample.surface_styles != styles) {
-      return Result<segment_output>::Fail(
-          CommitFailureCategory::kNotImplemented,
-          "road draw section topology changes between samples");
-    }
-    const double u = patch_length_m > 1e-9
-                         ? ((sample.segment_distance_m - patch_start_m) /
-                            patch_length_m) *
-                               patch_u_end
-                         : 0.0;
-    for (const render_column &column : grid.columns) {
-      const SectionBoundarySample &boundary =
-          sample.boundaries[column.source_index];
-      const double lateral =
-          column.generated_crown
-              ? (sample.boundaries[column.source_index].lateral_m +
-                 sample.boundaries[column.source_index + 1].lateral_m) *
-                    0.5
-              : boundary.lateral_m;
-      const double height =
-          column.generated_crown ? crown_height(sample, column.source_index)
-                                 : boundary.height_m;
-      const Vec2d point = add(sample.center, mul(sample.lateral, lateral));
-      const Vec3d vertex{point.x, point.y, height};
-      vertices.push_back(vertex);
-      uv0.push_back(
-          Vec2d{u, lateral / kDefaultPatchUvSettings.reference_length_m});
-      if (!column.generated_crown &&
-          input.samples.front().boundaries[column.source_index].hard_edge) {
-        vertices.push_back(vertex);
-        uv0.push_back(
-            Vec2d{u, lateral / kDefaultPatchUvSettings.reference_length_m});
-      }
-    }
-  }
-
   segment_output output{};
   for (const RenderStyleRef &style : grid.face_styles) {
     if (std::any_of(output.surface_meshes.begin(), output.surface_meshes.end(),
@@ -357,23 +344,95 @@ Result<segment_output> emit_segment(const segment_input &input) {
     mesh.owner_segment_id = input.segment_id;
     mesh.style = style;
     mesh.uv_mapping = MeshUvMapping::kPatchQuantized;
-    mesh.vertices = vertices;
-    mesh.uv0 = uv0;
-    for (std::uint32_t row = 0; row + 1 < input.samples.size(); ++row) {
-      for (std::uint32_t col = 0; col < grid.face_styles.size(); ++col) {
-        if (grid.face_styles[col] != style)
-          continue;
-        const std::uint32_t a = row * grid.row_width + grid.right_of[col];
-        const std::uint32_t b = row * grid.row_width + grid.left_of[col + 1];
-        const std::uint32_t c =
-            (row + 1) * grid.row_width + grid.right_of[col];
-        const std::uint32_t d =
-            (row + 1) * grid.row_width + grid.left_of[col + 1];
-        mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
+    output.surface_meshes.push_back(std::move(mesh));
+  }
+
+  std::size_t patch_begin = 0;
+  while (patch_begin + 1 < input.samples.size()) {
+    std::size_t patch_end = patch_begin + 1;
+    while (patch_end + 1 < input.samples.size() &&
+           !input.samples[patch_end].uv_patch_boundary) {
+      ++patch_end;
+    }
+    const double patch_start_m = input.samples[patch_begin].segment_distance_m;
+    const double patch_length_m = std::max(
+        0.0, input.samples[patch_end].segment_distance_m - patch_start_m);
+    const double patch_u_end = quantized_patch_u_end(patch_length_m);
+    std::vector<Vec3d> vertices{};
+    std::vector<Vec2d> uv0{};
+    for (std::size_t sample_index = patch_begin; sample_index <= patch_end;
+         ++sample_index) {
+      const segment_sample &sample = input.samples[sample_index];
+      if (sample.boundaries.size() != width ||
+          sample.surface_styles != styles) {
+        return Result<segment_output>::Fail(
+            CommitFailureCategory::kNotImplemented,
+            "road draw section topology changes between samples");
+      }
+      const double u = patch_length_m > 1e-9
+                           ? ((sample.segment_distance_m - patch_start_m) /
+                              patch_length_m) *
+                                 patch_u_end
+                           : 0.0;
+      for (const render_column &column : grid.columns) {
+        const SectionBoundarySample &boundary =
+            sample.boundaries[column.source_index];
+        const double lateral =
+            column.generated_crown
+                ? (sample.boundaries[column.source_index].lateral_m +
+                   sample.boundaries[column.source_index + 1].lateral_m) *
+                      0.5
+                : boundary.lateral_m;
+        const double height =
+            column.generated_crown ? crown_height(sample, column.source_index)
+                                   : boundary.height_m;
+        const Vec2d point = add(sample.center, mul(sample.lateral, lateral));
+        const Vec3d vertex{point.x, point.y, height};
+        vertices.push_back(vertex);
+        const double v =
+            column.generated_crown
+                ? (sample.boundaries[column.source_index].profile_v_m +
+                   sample.boundaries[column.source_index + 1].profile_v_m) *
+                      0.5
+                : boundary.profile_v_m;
+        uv0.push_back(
+            Vec2d{u, v / kDefaultPatchUvSettings.reference_length_m});
+        if (!column.generated_crown &&
+            input.samples.front().boundaries[column.source_index].hard_edge) {
+          vertices.push_back(vertex);
+          uv0.push_back(
+              Vec2d{u, v / kDefaultPatchUvSettings.reference_length_m});
+        }
       }
     }
+
+    const std::uint32_t patch_rows =
+        static_cast<std::uint32_t>(patch_end - patch_begin + 1);
+    for (Mesh &mesh : output.surface_meshes) {
+      const std::uint32_t base =
+          static_cast<std::uint32_t>(mesh.vertices.size());
+      mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
+      mesh.uv0.insert(mesh.uv0.end(), uv0.begin(), uv0.end());
+      for (std::uint32_t row = 0; row + 1 < patch_rows; ++row) {
+        for (std::uint32_t col = 0; col < grid.face_styles.size(); ++col) {
+          if (grid.face_styles[col] != mesh.style)
+            continue;
+          const std::uint32_t a =
+              base + row * grid.row_width + grid.right_of[col];
+          const std::uint32_t b =
+              base + row * grid.row_width + grid.left_of[col + 1];
+          const std::uint32_t c =
+              base + (row + 1) * grid.row_width + grid.right_of[col];
+          const std::uint32_t d =
+              base + (row + 1) * grid.row_width + grid.left_of[col + 1];
+          mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
+        }
+      }
+    }
+    patch_begin = patch_end;
+  }
+  for (Mesh &mesh : output.surface_meshes) {
     finalize_mesh(mesh, MeshUvMapping::kPatchQuantized);
-    output.surface_meshes.push_back(std::move(mesh));
   }
 
   output.terrain_mask.segment_id = input.segment_id;
@@ -398,6 +457,12 @@ Result<std::vector<Mesh>> emit_connection(const ConnectionGeometry &input) {
         "connection resolved geometry has no surface strips");
   }
   std::vector<Mesh> meshes{};
+  std::map<std::size_t, std::vector<const ResolvedSurfaceStrip*>> groups{};
+  for (const ResolvedSurfaceStrip& strip : input.surface_strips)
+    groups[strip.left.size()].push_back(&strip);
+  std::map<std::size_t, std::vector<double>> shared_distances{};
+  for (const auto& [count, strips] : groups)
+    shared_distances[count] = shared_strip_distances(strips, count);
   for (const ResolvedSurfaceStrip &strip : input.surface_strips) {
     if (strip.left.size() < 2 || strip.left.size() != strip.right.size()) {
       return Result<std::vector<Mesh>>::Fail(
@@ -413,9 +478,11 @@ Result<std::vector<Mesh>> emit_connection(const ConnectionGeometry &input) {
       found->style = strip.style;
     }
     if (strip.winding == SurfaceWinding::kLeftToRight)
-      append_strip(*found, strip.left, strip.right);
+      append_strip(*found, strip.left, strip.right,
+                   &shared_distances[strip.left.size()]);
     else
-      append_strip(*found, strip.right, strip.left);
+      append_strip(*found, strip.right, strip.left,
+                   &shared_distances[strip.left.size()]);
   }
   for (Mesh& mesh : meshes)
     finalize_mesh(mesh, MeshUvMapping::kPatchQuantized);
@@ -439,6 +506,12 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
     finalize_mesh(mesh, MeshUvMapping::kWorld);
     output.surface_meshes.push_back(std::move(mesh));
   }
+  std::map<std::size_t, std::vector<const ResolvedSurfaceStrip*>> groups{};
+  for (const ResolvedSurfaceStrip& strip : input.surface_strips)
+    groups[strip.left.size()].push_back(&strip);
+  std::map<std::size_t, std::vector<double>> shared_distances{};
+  for (const auto& [count, strips] : groups)
+    shared_distances[count] = shared_strip_distances(strips, count);
   for (const ResolvedSurfaceStrip &strip : input.surface_strips) {
     if (strip.left.size() < 2 || strip.left.size() != strip.right.size()) {
       return Result<junction_output>::Fail(
@@ -457,9 +530,11 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
       found->uv_mapping = MeshUvMapping::kPatchQuantized;
     }
     if (strip.winding == SurfaceWinding::kLeftToRight)
-      append_strip(*found, strip.left, strip.right);
+      append_strip(*found, strip.left, strip.right,
+                   &shared_distances[strip.left.size()]);
     else
-      append_strip(*found, strip.right, strip.left);
+      append_strip(*found, strip.right, strip.left,
+                   &shared_distances[strip.left.size()]);
   }
   for (Mesh& mesh : output.surface_meshes)
     finalize_mesh(mesh, mesh.uv_mapping);
@@ -547,8 +622,14 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
         return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road surface sample is missing");
       }
+      const bool uv_patch_boundary = std::any_of(
+          segment.semantic_segment_distances_m.begin(),
+          segment.semantic_segment_distances_m.end(),
+          [distance](double semantic) {
+            return std::abs(semantic - distance) <= 1e-6;
+          });
       input.samples.push_back(segment_sample{center.value, lateral.value,
-                                             distance,
+                                             distance, uv_patch_boundary,
                                              section->boundaries,
                                              section->surface_styles});
     }

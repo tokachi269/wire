@@ -532,6 +532,37 @@ double max_u(const Mesh& mesh) {
   return value;
 }
 
+std::vector<Vec2d> uvs_at_yz(const Mesh& mesh, double y, double z) {
+  std::vector<Vec2d> out{};
+  for (std::size_t index = 0; index < mesh.vertices.size(); ++index) {
+    const Vec3d& vertex = mesh.vertices[index];
+    if (std::abs(vertex.y - y) <= 1e-9 &&
+        std::abs(vertex.z - z) <= 1e-9) {
+      out.push_back(mesh.uv0[index]);
+    }
+  }
+  return out;
+}
+
+bool has_u_at_x(const Mesh& mesh, double x, double expected_u) {
+  for (std::size_t index = 0; index < mesh.vertices.size(); ++index) {
+    if (std::abs(mesh.vertices[index].x - x) <= 1e-9 &&
+        std::abs(mesh.uv0[index].x - expected_u) <= 1e-9) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string u_values_at_x(const Mesh& mesh, double x) {
+  std::ostringstream out{};
+  for (std::size_t index = 0; index < mesh.vertices.size(); ++index) {
+    if (std::abs(mesh.vertices[index].x - x) <= 1e-9)
+      out << mesh.uv0[index].x << ",";
+  }
+  return out.str();
+}
+
 bool mesh_uv_normals_and_material_groups_are_local(std::string& failure) {
   RoadState short_state{};
   const auto section =
@@ -616,6 +647,67 @@ bool mesh_uv_normals_and_material_groups_are_local(std::string& failure) {
   }
   ROAD_TEST_EXPECT(junction_interior != nullptr,
                    "junction interior is not emitted as a center fan over the resolved perimeter");
+  return true;
+}
+
+bool gutter_profile_uv_uses_contour_v_and_patch_u(std::string& failure) {
+  RoadState state{};
+  const auto layout = road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  const auto segment = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), layout});
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  const auto sections = road_test_view::sections(state.derived());
+  ROAD_TEST_EXPECT(!sections.empty(), "gutter UV fixture has no section");
+  const auto& boundaries = sections.front()->boundaries;
+  ROAD_TEST_EXPECT(boundaries.size() >= 4, "gutter UV fixture has no vertical gutter face");
+  ROAD_TEST_EXPECT(std::abs(boundaries[2].lateral_m - boundaries[3].lateral_m) < 1e-9 &&
+                       std::abs(boundaries[2].height_m - boundaries[3].height_m) > 1e-9,
+                   "gutter UV fixture no longer has a vertical profile face");
+
+  const auto curb_mesh = std::find_if(
+      state.derived().segment_meshes.begin(), state.derived().segment_meshes.end(),
+      [](const Mesh& mesh) {
+        return mesh.style == RenderStyleFromSurface(builtin_surface_styles::kCurb);
+      });
+  ROAD_TEST_EXPECT(curb_mesh != state.derived().segment_meshes.end(),
+                   "gutter UV fixture has no curb mesh");
+  const std::vector<Vec2d> top =
+      uvs_at_yz(*curb_mesh, boundaries[2].lateral_m, boundaries[2].height_m);
+  const std::vector<Vec2d> bottom =
+      uvs_at_yz(*curb_mesh, boundaries[3].lateral_m, boundaries[3].height_m);
+  ROAD_TEST_EXPECT(!top.empty() && !bottom.empty(),
+                   "gutter vertical face vertices were not emitted");
+  ROAD_TEST_EXPECT(std::abs(top.front().y - bottom.front().y) > 1e-9,
+                   "gutter vertical face collapsed to one V coordinate");
+  ROAD_TEST_EXPECT(boundaries[1].profile_v_m < boundaries[2].profile_v_m &&
+                       boundaries[2].profile_v_m < boundaries[3].profile_v_m &&
+                       boundaries[3].profile_v_m < boundaries[4].profile_v_m,
+                   "default profile V does not progress along the gutter contour");
+
+  const auto* corridor =
+      city::road::FindCorridorForSegment(state.graph(), segment.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "gutter transition UV fixture has no corridor");
+  city::road::AddLaneRequest request{};
+  request.corridor_id = corridor->id;
+  request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  request.side = city::road::RoadSide::kRight;
+  request.lane_width_m = 3.0;
+  ROAD_TEST_EXPECT(SetAddLaneRange(state, request, 20.0, 60.0),
+                   "gutter transition UV range could not be resolved");
+  const auto added = state.AddLane(request);
+  ROAD_TEST_EXPECT(added.ok, added.error);
+  const Mesh* asphalt =
+      first_asphalt_mesh_for_segment(state, segment.value);
+  ROAD_TEST_EXPECT(asphalt != nullptr, "transition UV fixture has no asphalt mesh");
+  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 20.0, 0.0),
+                   "transition start did not begin a new UV patch at U=0");
+  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 60.0, 0.0),
+                   "transition completion did not begin a new UV patch at U=0");
+  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 20.0, 0.25),
+                   "short pre-transition patch did not keep its own safe-seam end");
+  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 60.0, 0.75),
+                   "transition patch did not keep its own quantized safe-seam end: " +
+                       u_values_at_x(*asphalt, 60.0));
   return true;
 }
 
@@ -5677,6 +5769,8 @@ int main() {
       {"P0_two_lane_mesh_shows_sidewalks_curbs_and_markings", P0_two_lane_mesh_shows_sidewalks_curbs_and_markings},
       {"mesh_uv_normals_and_material_groups_are_local",
        mesh_uv_normals_and_material_groups_are_local},
+      {"gutter_profile_uv_uses_contour_v_and_patch_u",
+       gutter_profile_uv_uses_contour_v_and_patch_u},
       {"P0_odd_lane_carriageway_mesh_has_drainage_crown",
        P0_odd_lane_carriageway_mesh_has_drainage_crown},
       {"P0_angled_segment_keeps_final_section_perpendicular", P0_angled_segment_keeps_final_section_perpendicular},

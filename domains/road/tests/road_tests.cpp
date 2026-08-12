@@ -191,6 +191,33 @@ bool point_inside_triangle_2d(const Vec3d& point, const Vec3d& a,
          (ab < -epsilon && bc < -epsilon && ca < -epsilon);
 }
 
+bool point_inside_or_on_polygon_2d(const Vec3d& point,
+                                   const std::vector<Vec3d>& polygon) {
+  constexpr double epsilon = 1e-9;
+  bool inside = false;
+  for (std::size_t index = 0, previous = polygon.size() - 1;
+       index < polygon.size(); previous = index++) {
+    const Vec3d& a = polygon[previous];
+    const Vec3d& b = polygon[index];
+    const double edge = orient_2d(a, b, point);
+    if (std::abs(edge) <= epsilon &&
+        point.x >= std::min(a.x, b.x) - epsilon &&
+        point.x <= std::max(a.x, b.x) + epsilon &&
+        point.y >= std::min(a.y, b.y) - epsilon &&
+        point.y <= std::max(a.y, b.y) + epsilon) {
+      return true;
+    }
+    const bool crosses =
+        ((a.y > point.y) != (b.y > point.y)) &&
+        (point.x < (b.x - a.x) * (point.y - a.y) /
+                           ((b.y - a.y) == 0.0 ? 1.0 : b.y - a.y) +
+                       a.x);
+    if (crosses)
+      inside = !inside;
+  }
+  return inside;
+}
+
 bool segments_cross_2d(const Vec3d& a, const Vec3d& b, const Vec3d& c,
                        const Vec3d& d) {
   constexpr double epsilon = 1e-9;
@@ -289,6 +316,14 @@ bool junction_mesh_is_non_overlapping(const RoadState& state,
                ? std::to_string(perimeter_crossing->first) + " and " +
                      std::to_string(perimeter_crossing->second)
                : "unknown"));
+  double perimeter_area = 0.0;
+  for (std::size_t index = 0; index < road_region.size(); ++index) {
+    const Vec3d& a = road_region[index];
+    const Vec3d& b = road_region[(index + 1) % road_region.size()];
+    perimeter_area += a.x * b.y - b.x * a.y;
+  }
+  perimeter_area = std::abs(perimeter_area * 0.5);
+  bool checked_fan = false;
   for (const Mesh& mesh : state.derived().junction_meshes) {
     const auto overlap = overlapping_face_pair(mesh);
     ROAD_TEST_EXPECT(
@@ -301,7 +336,33 @@ bool junction_mesh_is_non_overlapping(const RoadState& state,
                        std::to_string(overlap->second) + " [" +
                        face_points(mesh, overlap->second) + "]"
                  : ""));
+    if (mesh.style == RenderStyleFromSurface(builtin_surface_styles::kAsphalt) &&
+        mesh.uv_mapping == MeshUvMapping::kWorld &&
+        mesh.vertices.size() == road_region.size() + 1 &&
+        mesh.indices.size() == road_region.size() * 3) {
+      double triangle_area_sum = 0.0;
+      for (std::size_t face = 0; face + 2 < mesh.indices.size(); face += 3) {
+        const Vec3d& a = mesh.vertices[mesh.indices[face]];
+        const Vec3d& b = mesh.vertices[mesh.indices[face + 1]];
+        const Vec3d& c = mesh.vertices[mesh.indices[face + 2]];
+        const double area = orient_2d(a, b, c) * 0.5;
+        ROAD_TEST_EXPECT(area > 1e-9,
+                         label + " junction fan triangle has inconsistent winding");
+        const Vec3d centroid{(a.x + b.x + c.x) / 3.0,
+                             (a.y + b.y + c.y) / 3.0,
+                             (a.z + b.z + c.z) / 3.0};
+        ROAD_TEST_EXPECT(point_inside_or_on_polygon_2d(centroid, road_region),
+                         label + " junction fan triangle centroid is outside the perimeter");
+        triangle_area_sum += area;
+      }
+      ROAD_TEST_EXPECT(
+          std::abs(triangle_area_sum - perimeter_area) <=
+              std::max(1e-6, perimeter_area * 1e-6),
+          label + " junction fan triangle area does not match the perimeter");
+      checked_fan = true;
+    }
   }
+  ROAD_TEST_EXPECT(checked_fan, label + " junction fan mesh was not found");
   return true;
 }
 
@@ -554,6 +615,22 @@ bool has_u_at_x(const Mesh& mesh, double x, double expected_u) {
   return false;
 }
 
+bool has_u_near_segment_distance(const Mesh& mesh, const Path& path,
+                                 double segment_distance_m,
+                                 double expected_u) {
+  const auto center = EvaluatePath(path, segment_distance_m);
+  if (!center.ok)
+    return false;
+  for (std::size_t index = 0; index < mesh.vertices.size(); ++index) {
+    const Vec3d& vertex = mesh.vertices[index];
+    if (std::hypot(vertex.x - center.value.x, vertex.y - center.value.y) <= 8.0 &&
+        std::abs(mesh.uv0[index].x - expected_u) <= 1e-9) {
+      return true;
+    }
+  }
+  return false;
+}
+
 std::string u_values_at_x(const Mesh& mesh, double x) {
   std::ostringstream out{};
   for (std::size_t index = 0; index < mesh.vertices.size(); ++index) {
@@ -708,6 +785,78 @@ bool gutter_profile_uv_uses_contour_v_and_patch_u(std::string& failure) {
   ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 60.0, 0.75),
                    "transition patch did not keep its own quantized safe-seam end: " +
                        u_values_at_x(*asphalt, 60.0));
+
+  RoadState short_state{};
+  const auto short_layout =
+      road_fixture::AddLayout(short_state, road_fixture::BidirectionalLayout(0));
+  const auto short_segment = short_state.AddSegment(
+      city::road::AddSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {10.0, 0.0})}), short_layout});
+  ROAD_TEST_EXPECT(short_segment.ok, short_segment.error);
+  const auto* short_corridor =
+      city::road::FindCorridorForSegment(short_state.graph(), short_segment.value);
+  ROAD_TEST_EXPECT(short_corridor != nullptr, "short transition UV fixture has no corridor");
+  city::road::AddLaneRequest short_request{};
+  short_request.corridor_id = short_corridor->id;
+  short_request.direction = city::road::LaneTravelDirection::kAlongSegment;
+  short_request.side = city::road::RoadSide::kRight;
+  short_request.lane_width_m = 3.0;
+  ROAD_TEST_EXPECT(SetAddLaneRange(short_state, short_request, 2.0, 4.0),
+                   "short transition UV range could not be resolved");
+  const auto short_added = short_state.AddLane(short_request);
+  ROAD_TEST_EXPECT(short_added.ok, short_added.error);
+  const Mesh* short_asphalt =
+      first_asphalt_mesh_for_segment(short_state, short_segment.value);
+  ROAD_TEST_EXPECT(short_asphalt != nullptr, "short transition UV fixture has no asphalt mesh");
+  ROAD_TEST_EXPECT(has_u_at_x(*short_asphalt, 2.0, 0.25) &&
+                       has_u_at_x(*short_asphalt, 4.0, 0.25),
+                   "short transition patches did not keep the minimum safe-seam interval");
+
+  RoadState curve_state{};
+  const auto curve_layout =
+      road_fixture::AddLayout(curve_state, road_fixture::BidirectionalLayout(0));
+  const Path curve_path = MakePath({MakeBezier({0.0, 0.0}, {30.0, 0.0},
+                                               {30.0, 40.0}, {60.0, 40.0})});
+  const auto curve_segment = curve_state.AddSegment(
+      city::road::AddSegmentRequest{curve_path, curve_layout});
+  ROAD_TEST_EXPECT(curve_segment.ok, curve_segment.error);
+  const auto* curve_corridor =
+      city::road::FindCorridorForSegment(curve_state.graph(), curve_segment.value);
+  ROAD_TEST_EXPECT(curve_corridor != nullptr, "curve transition UV fixture has no corridor");
+  city::road::AddLaneRequest curve_request{};
+  curve_request.corridor_id = curve_corridor->id;
+  curve_request.direction = city::road::LaneTravelDirection::kAgainstSegment;
+  curve_request.side = city::road::RoadSide::kLeft;
+  curve_request.lane_width_m = 3.0;
+  ROAD_TEST_EXPECT(SetAddLaneRange(curve_state, curve_request, 20.0, 40.0),
+                   "curve transition UV range could not be resolved");
+  const auto curve_added = curve_state.AddLane(curve_request);
+  ROAD_TEST_EXPECT(curve_added.ok, curve_added.error);
+  const Mesh* curve_asphalt =
+      first_asphalt_mesh_for_segment(curve_state, curve_segment.value);
+  ROAD_TEST_EXPECT(curve_asphalt != nullptr, "curve transition UV fixture has no asphalt mesh");
+  ROAD_TEST_EXPECT(has_u_near_segment_distance(*curve_asphalt, curve_path, 20.0, 0.0) &&
+                       has_u_near_segment_distance(*curve_asphalt, curve_path, 40.0, 0.0),
+                   "curve transition boundaries did not reset their UV patches");
+
+  const auto saved = short_state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  std::string reversed_archive = saved.value;
+  const std::string old_value = "corridor.0.segment.0.reversed=0";
+  const std::string new_value = "corridor.0.segment.0.reversed=1";
+  const std::size_t position = reversed_archive.find(old_value);
+  ROAD_TEST_EXPECT(position != std::string::npos,
+                   "reversed UV fixture archive field is missing");
+  reversed_archive.replace(position, old_value.size(), new_value);
+  const auto reversed = RoadState::Load(reversed_archive);
+  ROAD_TEST_EXPECT(reversed.ok, reversed.error);
+  const Mesh* reversed_asphalt =
+      first_asphalt_mesh_for_segment(reversed.value, short_segment.value);
+  ROAD_TEST_EXPECT(reversed_asphalt != nullptr,
+                   "reversed transition UV fixture has no asphalt mesh");
+  ROAD_TEST_EXPECT(has_u_at_x(*reversed_asphalt, 2.0, 0.25) &&
+                       has_u_at_x(*reversed_asphalt, 4.0, 0.25),
+                   "reversed corridor changed segment-local UV patch lengths");
   return true;
 }
 

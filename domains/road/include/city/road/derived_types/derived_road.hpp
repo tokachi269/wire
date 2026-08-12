@@ -46,6 +46,19 @@ struct RenderStyleRef {
 [[nodiscard]] inline RenderStyleRef RenderStyleFromMarking(MarkingStyleId id) {
   return RenderStyleRef{RenderStyleDomain::kMarking, id.value};
 }
+enum class MeshUvMapping {
+  kWorld,
+  kPatchQuantized,
+};
+struct PatchUvSettings {
+  double reference_length_m = 64.0;
+  int seam_divisions = 4;
+};
+struct MeshMaterialGroup {
+  RenderStyleRef style{};
+  std::uint32_t index_start = 0;
+  std::uint32_t index_count = 0;
+};
 struct SectionEvaluation {
   RoadSegmentId segment_id = 0;
   double segment_distance_m = 0.0;
@@ -56,8 +69,12 @@ struct SectionEvaluation {
 struct Mesh {
   RoadSegmentId owner_segment_id = 0;
   RenderStyleRef style{};
+  MeshUvMapping uv_mapping = MeshUvMapping::kWorld;
   std::vector<Vec3d> vertices{};
   std::vector<std::uint32_t> indices{};
+  std::vector<Vec3d> normals{};
+  std::vector<Vec2d> uv0{};
+  std::vector<MeshMaterialGroup> material_groups{};
 };
 struct TerrainMaskPolygon { RoadSegmentId segment_id = 0; std::vector<Vec2d> points{}; };
 

@@ -129,8 +129,16 @@ export interface WireStateHandle {
 export interface RoadMeshPayload {
   ownerSegmentId: number;
   material: string;
+  uvMapping: "world" | "patch_quantized";
   vertices: number[];
   indices: number[];
+  normals: number[];
+  uv0: number[];
+  materialGroups: Array<{
+    material: string;
+    indexStart: number;
+    indexCount: number;
+  }>;
 }
 
 export interface RoadLayoutTemplatePayload {

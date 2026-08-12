@@ -497,8 +497,16 @@ function copyRoadMesh(mesh: RoadMeshPayload): RoadMeshData {
   return {
     ownerSegmentId: mesh.ownerSegmentId,
     material: mesh.material,
+    uvMapping: mesh.uvMapping ?? "world",
     vertices: new Float64Array(mesh.vertices),
-    indices: new Uint32Array(mesh.indices)
+    indices: new Uint32Array(mesh.indices),
+    normals: new Float64Array(mesh.normals ?? []),
+    uv0: new Float64Array(mesh.uv0 ?? []),
+    materialGroups: (mesh.materialGroups ?? []).map((group) => ({
+      material: group.material,
+      indexStart: group.indexStart,
+      indexCount: group.indexCount
+    }))
   };
 }
 

@@ -24,12 +24,89 @@ Vec2d normalize(Vec2d value) {
   return {value.x / length, value.y / length};
 }
 
-double triangle_normal_z(Vec3d a, Vec3d b, Vec3d c) {
-  const double ux = b.x - a.x;
-  const double uy = b.y - a.y;
-  const double vx = c.x - a.x;
-  const double vy = c.y - a.y;
-  return ux * vy - uy * vx;
+double distance(Vec3d a, Vec3d b) {
+  return std::hypot(std::hypot(a.x - b.x, a.y - b.y), a.z - b.z);
+}
+
+Vec3d subtract(Vec3d a, Vec3d b) {
+  return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+Vec3d cross(Vec3d a, Vec3d b) {
+  return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+          a.x * b.y - a.y * b.x};
+}
+
+Vec3d normalize(Vec3d value) {
+  const double length = std::hypot(std::hypot(value.x, value.y), value.z);
+  if (length <= 1e-9)
+    return {0.0, 0.0, 1.0};
+  return {value.x / length, value.y / length, value.z / length};
+}
+
+constexpr PatchUvSettings kDefaultPatchUvSettings{};
+
+double quantized_patch_u_end(double length_m) {
+  const double seam_length_m =
+      kDefaultPatchUvSettings.reference_length_m /
+      static_cast<double>(kDefaultPatchUvSettings.seam_divisions);
+  const auto seam_count = static_cast<int>(
+      std::max(1.0, std::round(std::max(0.0, length_m) / seam_length_m)));
+  return static_cast<double>(seam_count) /
+         static_cast<double>(kDefaultPatchUvSettings.seam_divisions);
+}
+
+Vec2d world_uv(Vec3d point) {
+  return {point.x / kDefaultPatchUvSettings.reference_length_m,
+          point.y / kDefaultPatchUvSettings.reference_length_m};
+}
+
+void append_vertex(Mesh& mesh, Vec3d point, Vec2d uv) {
+  mesh.vertices.push_back(point);
+  mesh.uv0.push_back(uv);
+}
+
+void rebuild_normals(Mesh& mesh) {
+  mesh.normals.assign(mesh.vertices.size(), {});
+  for (std::size_t index = 0; index + 2 < mesh.indices.size(); index += 3) {
+    const std::uint32_t ia = mesh.indices[index];
+    const std::uint32_t ib = mesh.indices[index + 1];
+    const std::uint32_t ic = mesh.indices[index + 2];
+    if (ia >= mesh.vertices.size() || ib >= mesh.vertices.size() ||
+        ic >= mesh.vertices.size())
+      continue;
+    const Vec3d normal =
+        cross(subtract(mesh.vertices[ib], mesh.vertices[ia]),
+              subtract(mesh.vertices[ic], mesh.vertices[ia]));
+    mesh.normals[ia].x += normal.x;
+    mesh.normals[ia].y += normal.y;
+    mesh.normals[ia].z += normal.z;
+    mesh.normals[ib].x += normal.x;
+    mesh.normals[ib].y += normal.y;
+    mesh.normals[ib].z += normal.z;
+    mesh.normals[ic].x += normal.x;
+    mesh.normals[ic].y += normal.y;
+    mesh.normals[ic].z += normal.z;
+  }
+  for (Vec3d& normal : mesh.normals)
+    normal = normalize(normal);
+}
+
+void finalize_mesh(Mesh& mesh, MeshUvMapping mapping) {
+  mesh.uv_mapping = mapping;
+  if (mesh.uv0.size() != mesh.vertices.size()) {
+    mesh.uv0.clear();
+    mesh.uv0.reserve(mesh.vertices.size());
+    for (const Vec3d& vertex : mesh.vertices)
+      mesh.uv0.push_back(world_uv(vertex));
+  }
+  rebuild_normals(mesh);
+  mesh.material_groups.clear();
+  if (!mesh.indices.empty()) {
+    mesh.material_groups.push_back(
+        MeshMaterialGroup{mesh.style, 0,
+                          static_cast<std::uint32_t>(mesh.indices.size())});
+  }
 }
 
 void append_triangle(Mesh &mesh, std::uint32_t a, std::uint32_t b,
@@ -146,9 +223,19 @@ void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
   if (a.size() != b.size() || a.size() < 2)
     return;
   const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
+  std::vector<double> distances(a.size(), 0.0);
+  for (std::size_t i = 1; i < a.size(); ++i) {
+    distances[i] =
+        distances[i - 1] +
+        (distance(a[i - 1], a[i]) + distance(b[i - 1], b[i])) * 0.5;
+  }
+  const double u_end = quantized_patch_u_end(distances.back());
   for (std::size_t i = 0; i < a.size(); ++i) {
-    mesh.vertices.push_back(a[i]);
-    mesh.vertices.push_back(b[i]);
+    const double u =
+        distances.back() > 1e-9 ? (distances[i] / distances.back()) * u_end
+                                : 0.0;
+    append_vertex(mesh, a[i], Vec2d{u, 0.0});
+    append_vertex(mesh, b[i], Vec2d{u, 1.0});
   }
   for (std::uint32_t i = 0; i + 1 < a.size(); ++i) {
     const std::uint32_t p = base + i * 2;
@@ -167,67 +254,37 @@ double polygon_area_2d(const std::vector<Vec3d> &points) {
   return twice_area * 0.5;
 }
 
-bool point_in_triangle_2d(Vec3d point, Vec3d a, Vec3d b, Vec3d c,
-                          double orientation) {
-  constexpr double epsilon = 1e-9;
-  return triangle_normal_z(a, b, point) * orientation >= -epsilon &&
-         triangle_normal_z(b, c, point) * orientation >= -epsilon &&
-         triangle_normal_z(c, a, point) * orientation >= -epsilon;
-}
-
-Result<bool> append_polygon(Mesh &mesh, const std::vector<Vec3d> &perimeter) {
+Result<bool> append_fan_polygon(Mesh& mesh,
+                                const std::vector<Vec3d>& perimeter) {
   constexpr double epsilon = 1e-9;
   const double area = polygon_area_2d(perimeter);
   if (std::abs(area) <= epsilon) {
     return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                               "junction surface polygon has zero area");
   }
-  const double orientation = area > 0.0 ? 1.0 : -1.0;
-  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
-  mesh.vertices.insert(mesh.vertices.end(), perimeter.begin(), perimeter.end());
-  std::vector<std::uint32_t> remaining(perimeter.size());
-  for (std::uint32_t index = 0; index < remaining.size(); ++index)
-    remaining[index] = index;
-
-  while (remaining.size() > 3) {
-    bool clipped = false;
-    for (std::size_t index = 0; index < remaining.size(); ++index) {
-      const std::uint32_t previous =
-          remaining[(index + remaining.size() - 1) % remaining.size()];
-      const std::uint32_t current = remaining[index];
-      const std::uint32_t next = remaining[(index + 1) % remaining.size()];
-      if (triangle_normal_z(perimeter[previous], perimeter[current],
-                            perimeter[next]) *
-              orientation <=
-          epsilon) {
-        continue;
-      }
-      bool contains_point = false;
-      for (const std::uint32_t candidate : remaining) {
-        if (candidate == previous || candidate == current || candidate == next)
-          continue;
-        if (point_in_triangle_2d(perimeter[candidate], perimeter[previous],
-                                 perimeter[current], perimeter[next],
-                                 orientation)) {
-          contains_point = true;
-          break;
-        }
-      }
-      if (contains_point)
-        continue;
-      append_triangle(mesh, base + previous, base + current, base + next);
-      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(index));
-      clipped = true;
-      break;
-    }
-    if (!clipped) {
-      return Result<bool>::Fail(
-          CommitFailureCategory::kInternalError,
-          "junction surface polygon cannot be triangulated");
-    }
+  std::vector<Vec3d> ordered = perimeter;
+  if (area < 0.0)
+    std::reverse(ordered.begin(), ordered.end());
+  Vec3d center{};
+  for (const Vec3d& point : ordered) {
+    center.x += point.x;
+    center.y += point.y;
+    center.z += point.z;
   }
-  append_triangle(mesh, base + remaining[0], base + remaining[1],
-                  base + remaining[2]);
+  center.x /= static_cast<double>(ordered.size());
+  center.y /= static_cast<double>(ordered.size());
+  center.z /= static_cast<double>(ordered.size());
+
+  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
+  append_vertex(mesh, center, world_uv(center));
+  for (const Vec3d& point : ordered)
+    append_vertex(mesh, point, world_uv(point));
+  for (std::uint32_t index = 0; index < ordered.size(); ++index) {
+    const std::uint32_t current = base + 1 + index;
+    const std::uint32_t next =
+        base + 1 + ((index + 1) % static_cast<std::uint32_t>(ordered.size()));
+    append_triangle(mesh, base, current, next);
+  }
   return Result<bool>::Ok(true);
 }
 
@@ -249,12 +306,22 @@ Result<segment_output> emit_segment(const segment_input &input) {
       make_segment_render_grid(input.samples.front().boundaries, styles);
 
   std::vector<Vec3d> vertices{};
+  std::vector<Vec2d> uv0{};
+  const double patch_start_m = input.samples.front().segment_distance_m;
+  const double patch_length_m =
+      std::max(0.0, input.samples.back().segment_distance_m - patch_start_m);
+  const double patch_u_end = quantized_patch_u_end(patch_length_m);
   for (const segment_sample &sample : input.samples) {
     if (sample.boundaries.size() != width || sample.surface_styles != styles) {
       return Result<segment_output>::Fail(
           CommitFailureCategory::kNotImplemented,
           "road draw section topology changes between samples");
     }
+    const double u = patch_length_m > 1e-9
+                         ? ((sample.segment_distance_m - patch_start_m) /
+                            patch_length_m) *
+                               patch_u_end
+                         : 0.0;
     for (const render_column &column : grid.columns) {
       const SectionBoundarySample &boundary =
           sample.boundaries[column.source_index];
@@ -270,9 +337,14 @@ Result<segment_output> emit_segment(const segment_input &input) {
       const Vec2d point = add(sample.center, mul(sample.lateral, lateral));
       const Vec3d vertex{point.x, point.y, height};
       vertices.push_back(vertex);
+      uv0.push_back(
+          Vec2d{u, lateral / kDefaultPatchUvSettings.reference_length_m});
       if (!column.generated_crown &&
-          input.samples.front().boundaries[column.source_index].hard_edge)
+          input.samples.front().boundaries[column.source_index].hard_edge) {
         vertices.push_back(vertex);
+        uv0.push_back(
+            Vec2d{u, lateral / kDefaultPatchUvSettings.reference_length_m});
+      }
     }
   }
 
@@ -284,7 +356,9 @@ Result<segment_output> emit_segment(const segment_input &input) {
     Mesh mesh{};
     mesh.owner_segment_id = input.segment_id;
     mesh.style = style;
+    mesh.uv_mapping = MeshUvMapping::kPatchQuantized;
     mesh.vertices = vertices;
+    mesh.uv0 = uv0;
     for (std::uint32_t row = 0; row + 1 < input.samples.size(); ++row) {
       for (std::uint32_t col = 0; col < grid.face_styles.size(); ++col) {
         if (grid.face_styles[col] != style)
@@ -298,6 +372,7 @@ Result<segment_output> emit_segment(const segment_input &input) {
         mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
       }
     }
+    finalize_mesh(mesh, MeshUvMapping::kPatchQuantized);
     output.surface_meshes.push_back(std::move(mesh));
   }
 
@@ -342,6 +417,8 @@ Result<std::vector<Mesh>> emit_connection(const ConnectionGeometry &input) {
     else
       append_strip(*found, strip.right, strip.left);
   }
+  for (Mesh& mesh : meshes)
+    finalize_mesh(mesh, MeshUvMapping::kPatchQuantized);
   return Result<std::vector<Mesh>>::Ok(std::move(meshes));
 }
 
@@ -354,10 +431,12 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
     }
     Mesh mesh{};
     mesh.style = region.style;
-    Result<bool> emitted = append_polygon(mesh, region.perimeter);
+    mesh.uv_mapping = MeshUvMapping::kWorld;
+    Result<bool> emitted = append_fan_polygon(mesh, region.perimeter);
     if (!emitted.ok)
       return Result<junction_output>::Fail(emitted.failure_category,
                                            emitted.error);
+    finalize_mesh(mesh, MeshUvMapping::kWorld);
     output.surface_meshes.push_back(std::move(mesh));
   }
   for (const ResolvedSurfaceStrip &strip : input.surface_strips) {
@@ -367,17 +446,23 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
     }
     auto found = std::find_if(
         output.surface_meshes.begin(), output.surface_meshes.end(),
-        [&strip](const Mesh &mesh) { return mesh.style == strip.style; });
+        [&strip](const Mesh &mesh) {
+          return mesh.style == strip.style &&
+                 mesh.uv_mapping == MeshUvMapping::kPatchQuantized;
+        });
     if (found == output.surface_meshes.end()) {
       output.surface_meshes.push_back(Mesh{});
       found = std::prev(output.surface_meshes.end());
       found->style = strip.style;
+      found->uv_mapping = MeshUvMapping::kPatchQuantized;
     }
     if (strip.winding == SurfaceWinding::kLeftToRight)
       append_strip(*found, strip.left, strip.right);
     else
       append_strip(*found, strip.right, strip.left);
   }
+  for (Mesh& mesh : output.surface_meshes)
+    finalize_mesh(mesh, mesh.uv_mapping);
   return Result<junction_output>::Ok(std::move(output));
 }
 
@@ -393,6 +478,7 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
       Mesh mesh{};
       mesh.owner_segment_id = marking.owner.segment_id;
       mesh.style = RenderStyleFromMarking(marking.style_id);
+      mesh.uv_mapping = MeshUvMapping::kPatchQuantized;
       std::vector<Vec3d> left{};
       std::vector<Vec3d> right{};
       const double half_width = marking.width_m * 0.5;
@@ -412,6 +498,7 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
                               current.y - lateral.y * half_width, current.z});
       }
       append_strip(mesh, right, left);
+      finalize_mesh(mesh, MeshUvMapping::kPatchQuantized);
       output.push_back(std::move(mesh));
     }
     if (!marking.polygon.empty()) {
@@ -422,10 +509,13 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
       Mesh mesh{};
       mesh.owner_segment_id = marking.owner.segment_id;
       mesh.style = RenderStyleFromMarking(marking.style_id);
-      mesh.vertices = marking.polygon;
+      mesh.uv_mapping = MeshUvMapping::kWorld;
+      for (const Vec3d& point : marking.polygon)
+        append_vertex(mesh, point, world_uv(point));
       for (std::uint32_t index = 1; index + 1 < marking.polygon.size(); ++index) {
         append_triangle(mesh, 0, index, index + 1);
       }
+      finalize_mesh(mesh, MeshUvMapping::kWorld);
       output.push_back(std::move(mesh));
     }
   }
@@ -458,6 +548,7 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
                                   "road surface sample is missing");
       }
       input.samples.push_back(segment_sample{center.value, lateral.value,
+                                             distance,
                                              section->boundaries,
                                              section->surface_styles});
     }

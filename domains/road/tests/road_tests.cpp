@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <numeric>
 #include <numbers>
@@ -50,6 +51,7 @@ using city::road::MakeBezier;
 using city::road::MakeLine;
 using city::road::MakePath;
 using city::road::Mesh;
+using city::road::MeshUvMapping;
 using city::road::EvaluatePath;
 using city::road::Path;
 using city::road::PathLength;
@@ -482,6 +484,138 @@ bool P0_two_lane_mesh_shows_sidewalks_curbs_and_markings(std::string& failure) {
                        styles.contains(RenderStyleFromSurface(builtin_surface_styles::kSidewalk)) &&
                        styles.contains(RenderStyleFromSurface(builtin_surface_styles::kCurb)),
                    "P0 surface meshes are not separated by core style semantics");
+  return true;
+}
+
+bool mesh_attributes_are_complete(const Mesh& mesh, std::string& failure) {
+  ROAD_TEST_EXPECT(mesh.normals.size() == mesh.vertices.size(),
+                   "mesh normal count does not match vertex count");
+  ROAD_TEST_EXPECT(mesh.uv0.size() == mesh.vertices.size(),
+                   "mesh uv count does not match vertex count");
+  ROAD_TEST_EXPECT(mesh.material_groups.size() == 1,
+                   "mesh does not expose its material group");
+  ROAD_TEST_EXPECT(mesh.material_groups.front().style == mesh.style,
+                   "mesh material group style does not match mesh style");
+  ROAD_TEST_EXPECT(mesh.material_groups.front().index_start == 0,
+                   "mesh material group starts after the first index");
+  ROAD_TEST_EXPECT(mesh.material_groups.front().index_count == mesh.indices.size(),
+                   "mesh material group does not cover every index");
+  for (const Vec3d& normal : mesh.normals) {
+    ROAD_TEST_EXPECT(std::isfinite(normal.x) && std::isfinite(normal.y) &&
+                         std::isfinite(normal.z),
+                     "mesh normal is not finite");
+  }
+  for (const Vec2d& uv : mesh.uv0) {
+    ROAD_TEST_EXPECT(std::isfinite(uv.x) && std::isfinite(uv.y),
+                     "mesh uv is not finite");
+  }
+  return true;
+}
+
+const Mesh* first_asphalt_mesh_for_segment(const RoadState& state,
+                                           RoadSegmentId segment_id) {
+  const RenderStyleRef asphalt =
+      RenderStyleFromSurface(builtin_surface_styles::kAsphalt);
+  const auto found = std::find_if(
+      state.derived().segment_meshes.begin(),
+      state.derived().segment_meshes.end(),
+      [&](const Mesh& mesh) {
+        return mesh.owner_segment_id == segment_id && mesh.style == asphalt;
+      });
+  return found == state.derived().segment_meshes.end() ? nullptr : &*found;
+}
+
+double max_u(const Mesh& mesh) {
+  double value = -std::numeric_limits<double>::infinity();
+  for (const Vec2d& uv : mesh.uv0)
+    value = std::max(value, uv.x);
+  return value;
+}
+
+bool mesh_uv_normals_and_material_groups_are_local(std::string& failure) {
+  RoadState short_state{};
+  const auto section =
+      road_fixture::AddLayout(short_state, road_fixture::BidirectionalLayout(0));
+  const auto short_segment = short_state.AddSegment(
+      city::road::AddSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {2.0, 0.0})}), section});
+  ROAD_TEST_EXPECT(short_segment.ok, short_segment.error);
+  const Mesh* short_mesh =
+      first_asphalt_mesh_for_segment(short_state, short_segment.value);
+  ROAD_TEST_EXPECT(short_mesh != nullptr, "short segment asphalt mesh is missing");
+  ROAD_TEST_EXPECT(mesh_attributes_are_complete(*short_mesh, failure), failure);
+  ROAD_TEST_EXPECT(short_mesh->uv_mapping == MeshUvMapping::kPatchQuantized,
+                   "directional road surface does not use patch-quantized UV");
+  ROAD_TEST_EXPECT(std::abs(max_u(*short_mesh) - 0.25) < 1e-9,
+                   "short segment did not receive the minimum safe-seam UV interval");
+  ROAD_TEST_EXPECT(!short_state.derived().marking_meshes.empty(),
+                   "short segment marking mesh is missing");
+  ROAD_TEST_EXPECT(mesh_attributes_are_complete(
+                       short_state.derived().marking_meshes.front(), failure),
+                   failure);
+
+  RoadState long_state{};
+  const auto long_section =
+      road_fixture::AddLayout(long_state, road_fixture::BidirectionalLayout(0));
+  const auto long_segment = long_state.AddSegment(
+      city::road::AddSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {78.0, 0.0})}), long_section});
+  ROAD_TEST_EXPECT(long_segment.ok, long_segment.error);
+  const Mesh* long_mesh =
+      first_asphalt_mesh_for_segment(long_state, long_segment.value);
+  ROAD_TEST_EXPECT(long_mesh != nullptr, "long segment asphalt mesh is missing");
+  ROAD_TEST_EXPECT(mesh_attributes_are_complete(*long_mesh, failure), failure);
+  ROAD_TEST_EXPECT(std::abs(max_u(*long_mesh) - 1.25) < 1e-9,
+                   "long segment did not quantize past U=1 for repeating texture");
+
+  auto branch_segment_u = [](double upstream_length_m) {
+    RoadState state{};
+    const auto layout =
+        road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+    const auto upstream = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {upstream_length_m, 0.0})}), layout});
+    const auto branch = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 40.0}, {25.0, 40.0})}), layout});
+    if (!upstream.ok || !branch.ok) return -1.0;
+    const Mesh* mesh = first_asphalt_mesh_for_segment(state, branch.value);
+    return mesh == nullptr ? -1.0 : max_u(*mesh);
+  };
+  const double short_upstream = branch_segment_u(20.0);
+  const double long_upstream = branch_segment_u(40.0);
+  ROAD_TEST_EXPECT(short_upstream >= 0.0 && long_upstream >= 0.0,
+                   "branch UV fixture did not generate asphalt meshes");
+  ROAD_TEST_EXPECT(std::abs(short_upstream - long_upstream) < 1e-9,
+                   "unrelated upstream segment length changed another segment UV");
+
+  RoadState junction_state{};
+  const auto junction_section = road_fixture::AddLayout(
+      junction_state, road_fixture::BidirectionalLayout(0));
+  const auto base = junction_state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-20.0, 0.0}, {20.0, 0.0})}), junction_section});
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = junction_state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {0.0, 20.0})}), junction_section,
+          base.value, 20.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  const auto junctions = road_test_view::junctions(junction_state.derived());
+  ROAD_TEST_EXPECT(junctions.size() == 1, "junction UV fixture did not create one junction");
+  ROAD_TEST_EXPECT(
+      !junctions.front()->junction_geometry.surface_regions.empty(),
+      "junction UV fixture has no interior surface region");
+  const auto& perimeter =
+      junctions.front()->junction_geometry.surface_regions.front().perimeter;
+  const Mesh* junction_interior = nullptr;
+  for (const Mesh& mesh : junction_state.derived().junction_meshes) {
+    ROAD_TEST_EXPECT(mesh_attributes_are_complete(mesh, failure), failure);
+    if (mesh.style == RenderStyleFromSurface(builtin_surface_styles::kAsphalt) &&
+        mesh.uv_mapping == MeshUvMapping::kWorld &&
+        mesh.vertices.size() == perimeter.size() + 1) {
+      junction_interior = &mesh;
+    }
+  }
+  ROAD_TEST_EXPECT(junction_interior != nullptr,
+                   "junction interior is not emitted as a center fan over the resolved perimeter");
   return true;
 }
 
@@ -5541,6 +5675,8 @@ int main() {
   const Test tests[] = {
       {"P0_generates_two_lane_segment", P0_generates_two_lane_segment},
       {"P0_two_lane_mesh_shows_sidewalks_curbs_and_markings", P0_two_lane_mesh_shows_sidewalks_curbs_and_markings},
+      {"mesh_uv_normals_and_material_groups_are_local",
+       mesh_uv_normals_and_material_groups_are_local},
       {"P0_odd_lane_carriageway_mesh_has_drainage_crown",
        P0_odd_lane_carriageway_mesh_has_drainage_crown},
       {"P0_angled_segment_keeps_final_section_perpendicular", P0_angled_segment_keeps_final_section_perpendicular},

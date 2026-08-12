@@ -160,12 +160,30 @@ export function makeSampledTubeGeometry(samples: Float64Array, radius: number): 
 export function makeRoadMeshGeometry(data: {
   vertices: Float64Array;
   indices: Uint32Array;
+  normals?: Float64Array;
+  uv0?: Float64Array;
+  materialGroups?: Array<{ material: string; indexStart: number; indexCount: number }>;
 }): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(data.vertices);
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(data.indices), 1));
-  geometry.computeVertexNormals();
+  const vertexCount = Math.floor(data.vertices.length / 3);
+  if (data.normals !== undefined && data.normals.length === vertexCount * 3) {
+    geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(data.normals), 3));
+  } else {
+    geometry.computeVertexNormals();
+  }
+  if (data.uv0 !== undefined && data.uv0.length === vertexCount * 2) {
+    geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(data.uv0), 2));
+  }
+  if (data.materialGroups !== undefined && data.materialGroups.length > 0) {
+    geometry.clearGroups();
+    for (let index = 0; index < data.materialGroups.length; index += 1) {
+      const group = data.materialGroups[index];
+      geometry.addGroup(group.indexStart, group.indexCount, index);
+    }
+  }
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
@@ -1072,8 +1090,8 @@ export class WireScene {
   }
 
   private sceneRoadContentSignature(snapshot: ViewerSnapshot): string {
-    const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array }) =>
-      `${mesh.ownerSegmentId}:${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
+    const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array; normals?: Float64Array; uv0?: Float64Array }) =>
+      `${mesh.ownerSegmentId}:${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.normals?.length ?? 0}:${mesh.uv0?.length ?? 0}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}:${mesh.uv0?.[0] ?? 0}:${mesh.uv0?.at(-1) ?? 0}`;
     return [
       ...snapshot.road.scene.surfaceMeshes.map(meshKey),
       ...snapshot.road.scene.markingMeshes.map(meshKey)
@@ -1081,8 +1099,8 @@ export class WireScene {
   }
 
   private sceneRoadOverlaySignature(snapshot: ViewerSnapshot): string {
-    const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array }) =>
-      `${mesh.ownerSegmentId}:${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
+    const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array; normals?: Float64Array; uv0?: Float64Array }) =>
+      `${mesh.ownerSegmentId}:${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.normals?.length ?? 0}:${mesh.uv0?.length ?? 0}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}:${mesh.uv0?.[0] ?? 0}:${mesh.uv0?.at(-1) ?? 0}`;
     return [
       ...snapshot.road.previewMeshes.map(meshKey),
       `guide:${snapshot.road.previewState}:` +

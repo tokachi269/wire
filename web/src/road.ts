@@ -36,8 +36,16 @@ export interface RoadSegmentInput extends RoadSpanInput {
 export interface RoadMeshData {
   ownerSegmentId: number;
   material: string;
+  uvMapping: "world" | "patch_quantized";
   vertices: Float64Array;
   indices: Uint32Array;
+  normals: Float64Array;
+  uv0: Float64Array;
+  materialGroups: Array<{
+    material: string;
+    indexStart: number;
+    indexCount: number;
+  }>;
 }
 
 export interface RoadSceneData {

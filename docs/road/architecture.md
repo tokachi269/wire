@@ -240,6 +240,28 @@ surfaceの表向きはgeometry ownerが決める。section順と元segmentのfac
 `emit_geometry`は三角形のnormalをworld-upと比較してindexを反転しない。これにより、水平上面、
 横断勾配、gutterの立面、将来の高架下面を同じemit規則で扱い、立面の微小なZ成分を上面と誤認しない。
 
+generated `Mesh`はposition、index、normal、uv0、material groupを持つ。現行emitはstyleごとにmeshを分けるが、
+各meshにもmaterial groupを持たせ、将来mesh統合やreference mesh由来のgroupへ移行できるようにする。
+normalは完成したtriangleから積算して派生し、normalの都合でgeometryやUV topologyを変えない。
+
+roadのUVはnetwork/corridorの累積距離を使わない。上流segmentの長さを次segmentのUV originへ渡す依存鎖を
+作らず、branchやjunctionの先までUV continuityのために探索しない。UVはgeometry patchごとに局所的に閉じ、
+隣patchはU=0から始めてよい。
+
+方向を持つsweep surfaceは`MeshUvMapping::kPatchQuantized`を使う。設定は`PatchUvSettings`で表し、
+現行defaultは`reference_length_m=64.0`、`seam_divisions=4`である。safe seamの長さは
+`reference_length_m / seam_divisions`で、patch lengthを最も近いsafe seam数へ丸める。
+短いpatchでも最低1 intervalを割り当て、Uは1を超えてよい。現在のprocedural sectionではUをpatch長手方向、
+Vを断面横方向の決定論的なdefault値として生成する。これは将来のauthored profile/reference mesh UVを
+保存schemaなしで置き換えられる派生defaultである。
+
+方向性UVが不要なsurfaceは`MeshUvMapping::kWorld`を使う。現行junction interiorと面markingは
+world-space mappingで、junction/corridorの前後関係を読まない。junction interiorは解決済みperimeterを
+boundary頂点として保持し、追加した中心点からfan状に三角形を張る。corner subdivision由来のperimeter頂点を
+interior mesh側でも使うため、corner tessellationとinterior triangulationは境界で一致する。junctionの境界stripや
+corner/connection strip、segment surface、線marking ribbonはpatch-local mappingを使う。UVのためにroad topologyを
+追加しない。
+
 ## Style ownership
 
 | 層 | 契約 |

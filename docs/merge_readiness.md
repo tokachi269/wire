@@ -76,7 +76,7 @@ E. Docs stale only: `docs/viewer/operations.md` に残っていた backbone span
 | ID | 操作 | 現状 | 解除条件 |
 |---|---|---|---|
 | R2 | `ResolveBranchPick` の pure 化 | `ResolveBranchPick` は現在、viewer の draw bridge が次の generation に渡す pending support node を作る操作でもある。照会APIとして pure に分離するには bridge 協定変更が必要 | `ResolveBranchPick` は副作用なしの解決だけを返し、pending support node の作成/消費は別の確定操作へ移す。web bridge と clear/cancel lifecycle を同時に更新し、既存 pending lifecycle tests を通す |
-| R3 | road `Mesh` に法線とUVがない | `derived_types/derived_road.hpp`の`Mesh`は頂点とindexだけを持つ。L字溝の垂直面と上面の稜が hard edge にならない | `Mesh`が法線を持ち、profileの点で分割された面が別々の法線を受け取る。Unrealへ出す前に必要 |
+| R3 | road authored profile / reference mesh UV source がない | `Mesh`はnormal、uv0、material groupを持つが、現行UVはprocedural defaultである。Blender等で制作したgutter/highway reference meshからcross section、V、material groupを取り込む経路はまだない | reference mesh/profile asset importerを追加し、procedural default UVをauthored metadataへ置換できることを実メッシュで確認する |
 | J2 | `MovePole`で接続済みpairの角度が通常/鋭角閾値を跨ぐ | endpoint Port identityとcontinuityは維持されるが、repositionは保存済みlayout ruleを再利用するため、row/fixtureとNodePatch/jumperの表現切替を再導出しない | `SavedBackboneRowContinuity`と現在幾何から通常/鋭角表現を再導出し、Port ID不変のままfixture 1↔2、NodePatch↔jumperを切り替えるfail-first testを通す |
 
 J2がsource上の既知blockerである。必須check、実画面の最終確認、mainとの差分・競合確認も必要である。

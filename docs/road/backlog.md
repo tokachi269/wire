@@ -32,8 +32,6 @@ L字溝・縁石・median edgeは`BoundaryProfile`のcontourとして実装済�
 2. **接続が断面styleの完全一致を要求する。** `connection_geometry_from_gates`は
    `surface_styles`が違うと`NotImplemented`。片側だけ溝がある、左右で溝が違う、
    溝つき道路と縁石道路をつなぐ、はいずれもcornerで通らない。
-3. **`Mesh`に法線とUVがない。** `derived_types/derived_road.hpp`は頂点とindexだけを持つ。
-   L字溝のhard edgeは表現できない。**現状hard edgeは未対応。** Unrealへ出す前に片付ける。
 
 埋設部・基礎の下面(structural envelope)、面ごとの勾配mode、socket、蓋やgratingのinstanceは
 まだ設計していない。下面が要るときはcontourをもう1本足す形にし、閉曲線・hole・booleanへは広げない。

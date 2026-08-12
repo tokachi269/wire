@@ -1825,7 +1825,18 @@ describe("road wasm smoke", () => {
     );
     expect(scene.surfaceMeshes[0].vertices.length).toBeGreaterThan(0);
     expect(scene.surfaceMeshes[0].indices.length).toBeGreaterThan(0);
+    expect(scene.surfaceMeshes[0].normals.length).toBe(scene.surfaceMeshes[0].vertices.length);
+    expect(scene.surfaceMeshes[0].uv0.length).toBe(
+      Math.floor(scene.surfaceMeshes[0].vertices.length / 3) * 2
+    );
+    expect(scene.surfaceMeshes[0].materialGroups).toEqual([
+      expect.objectContaining({ material: scene.surfaceMeshes[0].material, indexStart: 0 })
+    ]);
     expect(scene.markingMeshes.length).toBeGreaterThan(0);
+    expect(scene.markingMeshes[0].normals.length).toBe(scene.markingMeshes[0].vertices.length);
+    expect(scene.markingMeshes[0].uv0.length).toBe(
+      Math.floor(scene.markingMeshes[0].vertices.length / 3) * 2
+    );
     expect(scene.nodes.length).toBe(2);
     expect(scene.centerlineSegments.length).toBe(1);
 

@@ -88,8 +88,12 @@ describe("road rendering", () => {
     snapshot.road.scene.surfaceMeshes = [{
       ownerSegmentId: 7,
       material: "asphalt",
+      uvMapping: "patch_quantized",
       vertices: new Float64Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
-      indices: new Uint32Array([0, 1, 2])
+      indices: new Uint32Array([0, 1, 2]),
+      normals: new Float64Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
+      uv0: new Float64Array([0, 0, 0.25, 0, 0, 1]),
+      materialGroups: [{ material: "asphalt", indexStart: 0, indexCount: 3 }]
     }];
     expect(scene.roadContentSourcesChanged(snapshot)).toBe(true);
     const contentSignature = scene.sceneRoadContentSignature(snapshot);

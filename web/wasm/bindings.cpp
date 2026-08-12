@@ -79,6 +79,16 @@ using city::wire::Vec3d;
   throw std::runtime_error("unknown road render style id");
 }
 
+[[nodiscard]] std::string road_uv_mapping_key(city::road::MeshUvMapping mapping) {
+  switch (mapping) {
+    case city::road::MeshUvMapping::kWorld:
+      return "world";
+    case city::road::MeshUvMapping::kPatchQuantized:
+      return "patch_quantized";
+  }
+  return "world";
+}
+
 // The catalogue of road cross sections lives in web/src/road_templates.ts. It
 // names Core's built-in surface and marking styles by key; the numbers stay
 // here so the adapter never invents a style.
@@ -159,12 +169,35 @@ std::optional<city::road::MarkingRole> road_marking_role(
   for (const auto index : mesh.indices) {
     indices.call<void>("push", index);
   }
+  val normals = val::array();
+  for (const auto& normal : mesh.normals) {
+    normals.call<void>("push", normal.x);
+    normals.call<void>("push", normal.y);
+    normals.call<void>("push", normal.z);
+  }
+  val uv0 = val::array();
+  for (const auto& uv : mesh.uv0) {
+    uv0.call<void>("push", uv.x);
+    uv0.call<void>("push", uv.y);
+  }
+  val material_groups = val::array();
+  for (const auto& group : mesh.material_groups) {
+    val item = val::object();
+    item.set("material", road_material_key(group.style));
+    item.set("indexStart", static_cast<double>(group.index_start));
+    item.set("indexCount", static_cast<double>(group.index_count));
+    material_groups.call<void>("push", item);
+  }
   val result = val::object();
   result.set("ownerSegmentId",
              static_cast<double>(mesh.owner_segment_id));
   result.set("material", road_material_key(mesh.style));
+  result.set("uvMapping", road_uv_mapping_key(mesh.uv_mapping));
   result.set("vertices", vertices);
   result.set("indices", indices);
+  result.set("normals", normals);
+  result.set("uv0", uv0);
+  result.set("materialGroups", material_groups);
   return result;
 }
 

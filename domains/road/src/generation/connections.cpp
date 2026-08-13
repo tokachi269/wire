@@ -29,6 +29,7 @@ using internal::is_finite;
 using internal::normalize;
 using internal::scale;
 using internal::distance_epsilon;
+using internal::surface_sample_step_m;
 using internal::subtract;
 using internal::tangent_at;
 using internal::to3;
@@ -610,12 +611,20 @@ Result<bool> fit_short_segment_gates(
       const double end_setback = setback_of(end);
       const double total = start_setback + end_setback;
       if (total > segment.length_m + distance_epsilon) {
-        if (!can_refit(start) || !can_refit(end)) {
+        const bool both_junctions =
+            start.connection->kind == NodeConnectionKind::kJunction &&
+            end.connection->kind == NodeConnectionKind::kJunction;
+        if (!both_junctions || !can_refit(start) || !can_refit(end)) {
+          return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
+                                    "road segment connection gates overlap");
+        }
+        const double usable_length_m = segment.length_m - surface_sample_step_m;
+        if (usable_length_m < -distance_epsilon) {
           return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
                                     "road segment connection gates overlap");
         }
         const double scale =
-            segment.length_m <= distance_epsilon ? 0.0 : segment.length_m / total;
+            usable_length_m <= distance_epsilon ? 0.0 : usable_length_m / total;
         Result<bool> fitted =
             refit_approach_setback(graph, segments, start, start_setback * scale);
         if (!fitted.ok)

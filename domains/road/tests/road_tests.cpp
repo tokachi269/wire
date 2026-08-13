@@ -2404,6 +2404,136 @@ bool P1_one_interval_connects_two_existing_roads_atomically(
   return true;
 }
 
+bool P1_endpoint_to_segment_middle_connection_does_not_twist(
+    std::string& failure) {
+  const auto strip_rails_keep_direction = [&failure](
+                                             const auto& strip,
+                                             const char* label) {
+    ROAD_TEST_EXPECT(strip.left.size() == strip.right.size() &&
+                         strip.left.size() >= 2,
+                     std::string(label) + " strip rails are incomplete");
+    const Vec3d first{
+        strip.right.front().x - strip.left.front().x,
+        strip.right.front().y - strip.left.front().y,
+        strip.right.front().z - strip.left.front().z};
+    const double first_length =
+        std::hypot(std::hypot(first.x, first.y), first.z);
+    ROAD_TEST_EXPECT(first_length > 1e-6,
+                     std::string(label) + " strip starts with zero width");
+    for (std::size_t index = 1; index < strip.left.size(); ++index) {
+      const Vec3d current{
+          strip.right[index].x - strip.left[index].x,
+          strip.right[index].y - strip.left[index].y,
+          strip.right[index].z - strip.left[index].z};
+      const double current_length =
+          std::hypot(std::hypot(current.x, current.y), current.z);
+      ROAD_TEST_EXPECT(current_length > 1e-6,
+                       std::string(label) + " strip collapses to zero width");
+      ROAD_TEST_EXPECT(
+          first.x * current.x + first.y * current.y + first.z * current.z >
+              0.0,
+          std::string(label) + " strip left/right rails swapped along the curve");
+    }
+    return true;
+  };
+
+  RoadState state{};
+  const auto section =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  const auto source = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), section});
+  const auto target = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 24.0}, {40.0, 24.0})}), section});
+  ROAD_TEST_EXPECT(source.ok && target.ok,
+                   "endpoint-to-middle fixture could not be created");
+  const RoadNodeId source_endpoint = state.graph().segments.front().node_b;
+  const auto connected = state.AddSegmentBetween(
+      city::road::AddSegmentBetweenRequest{
+          MakePath({MakeLine({20.0, 0.0}, {20.0, 24.0})}), section,
+          city::road::RoadConnectionTarget{source_endpoint, 0, 0.0},
+          city::road::RoadConnectionTarget{0, target.value, 20.0}});
+  ROAD_TEST_EXPECT(connected.ok,
+                   "endpoint-to-middle connection was rejected: " +
+                       connected.error);
+  ROAD_TEST_EXPECT(road_test_view::corners(state.derived()).size() == 1,
+                   "endpoint-to-middle connection did not create one corner");
+  ROAD_TEST_EXPECT(road_test_view::junctions(state.derived()).size() == 1,
+                   "endpoint-to-middle connection did not create one junction");
+  for (const auto* corner : road_test_view::corners(state.derived())) {
+    for (const auto& strip : corner->connection_geometry.surface_strips) {
+      ROAD_TEST_EXPECT(strip_rails_keep_direction(strip, "corner"), failure);
+    }
+  }
+  for (const auto* junction : road_test_view::junctions(state.derived())) {
+    for (const auto& strip : junction->junction_geometry.surface_strips) {
+      ROAD_TEST_EXPECT(strip_rails_keep_direction(strip, "junction"), failure);
+    }
+  }
+  for (const auto* corner : road_test_view::corners(state.derived())) {
+    for (const auto& strip : corner->connection_geometry.surface_strips) {
+      city::road::ConnectionGeometry one{};
+      one.surface_strips.push_back(strip);
+      const auto emitted = city::road::generation::emit_connection(one);
+      ROAD_TEST_EXPECT(emitted.ok && emitted.value.size() == 1,
+                       "endpoint-to-middle strip could not be emitted");
+      if (!mesh_faces_up(emitted.value.front())) {
+        double ltr_normal_z = 0.0;
+        if (strip.left.size() >= 2 && strip.left.size() == strip.right.size()) {
+          const Vec3d tangent{strip.left[1].x - strip.left[0].x,
+                              strip.left[1].y - strip.left[0].y,
+                              strip.left[1].z - strip.left[0].z};
+          const Vec3d lateral{strip.right[0].x - strip.left[0].x,
+                              strip.right[0].y - strip.left[0].y,
+                              strip.right[0].z - strip.left[0].z};
+          ltr_normal_z = tangent.x * lateral.y - tangent.y * lateral.x;
+        }
+        failure = "endpoint-to-middle inverted strip " +
+                  std::to_string(strip.left_boundary_id) + "/" +
+                  std::to_string(strip.right_boundary_id) + " style " +
+                  std::to_string(strip.style.value) + " winding " +
+                  std::to_string(static_cast<int>(strip.winding)) +
+                  " ltr_normal_z " + std::to_string(ltr_normal_z);
+        return false;
+      }
+    }
+  }
+  for (const auto& mesh : state.derived().connection_meshes) {
+    ROAD_TEST_EXPECT(mesh_faces_up(mesh),
+                     "endpoint-to-middle corner mesh has downward triangles");
+  }
+  for (const auto& mesh : state.derived().junction_meshes) {
+    ROAD_TEST_EXPECT(mesh_faces_up(mesh),
+                     "endpoint-to-middle junction mesh has downward triangles");
+  }
+
+  RoadState short_state{};
+  const auto short_section =
+      road_fixture::AddLayout(short_state, road_fixture::BidirectionalLayout(0));
+  const auto short_source = short_state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {20.0, 0.0})}), short_section});
+  const auto short_target = short_state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 12.0}, {40.0, 12.0})}), short_section});
+  ROAD_TEST_EXPECT(short_source.ok && short_target.ok,
+                   "short endpoint-to-middle fixture could not be created");
+  const auto saved = short_state.Save();
+  ROAD_TEST_EXPECT(saved.ok, saved.error);
+  const RoadNodeId short_endpoint = short_state.graph().segments.front().node_b;
+  const auto short_connected = short_state.AddSegmentBetween(
+      city::road::AddSegmentBetweenRequest{
+          MakePath({MakeLine({20.0, 0.0}, {20.0, 12.0})}), short_section,
+          city::road::RoadConnectionTarget{short_endpoint, 0, 0.0},
+          city::road::RoadConnectionTarget{0, short_target.value, 20.0}});
+  ROAD_TEST_EXPECT(
+      !short_connected.ok &&
+          short_connected.error.find("connection gates overlap") !=
+              std::string::npos,
+      "a short corner-to-junction connector was accepted and can twist");
+  const auto after = short_state.Save();
+  ROAD_TEST_EXPECT(after.ok && after.value == saved.value,
+                   "rejected short corner-to-junction connector mutated state");
+  return true;
+}
+
 bool P1_end_segment_snap_splits_straight_road_for_t_junction(
     std::string& failure) {
   RoadState state{};
@@ -6437,6 +6567,8 @@ int main() {
        P1_junction_setback_uses_only_adjacent_approaches},
       {"P1_one_interval_connects_two_existing_roads_atomically",
        P1_one_interval_connects_two_existing_roads_atomically},
+      {"P1_endpoint_to_segment_middle_connection_does_not_twist",
+       P1_endpoint_to_segment_middle_connection_does_not_twist},
       {"P1_end_segment_snap_splits_straight_road_for_t_junction",
        P1_end_segment_snap_splits_straight_road_for_t_junction},
       {"P1_every_edge_section_forms_a_t_junction",

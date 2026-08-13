@@ -32,6 +32,7 @@ export interface EditResult {
   generatedSpanCount: number;
   generatedBundleIds?: string[];
   generatedPoleIds?: string[];
+  generatedNodeIds?: string[];
   generatedSpanIds?: string[];
   totalMs: number;
   timing: GenerationTiming;

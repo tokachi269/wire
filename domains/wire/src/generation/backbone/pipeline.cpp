@@ -113,6 +113,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
   g_ = std::move(input.made);
   active_bundle_indices_ = std::move(input.active_bundle_indices);
   local_by_input_ = std::move(input.local_by_input);
+  saved_node_by_input_.clear();
   write_row_continuity_ = input.write_row_continuity;
 
   EditResult<GenerateBundleFromPathResult> out{};
@@ -168,6 +169,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
   }
   if (input.retire_untouched) retire_untouched(&made.value);
   write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made));
+  out.value.generated_node_ids = saved_node_by_input_;
   if (timing != nullptr) {
     timing->total_ms = elapsed_ms_since(total_started);
     state_.debug_.last_generation_timing = *timing;
@@ -2552,6 +2554,9 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
       if (bundle == nullptr || bundle->bundle_template_id != spec.bundle_template_id) {
         continue;
       }
+      if (spec.source_bundle_id != kInvalidObjectId && bundle->id != spec.source_bundle_id) {
+        continue;
+      }
       if (spec.placement_key != 0 && bundle->placement_key != 0 &&
           bundle->placement_key != spec.placement_key) {
         continue;
@@ -3753,6 +3758,13 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         out.error = indexed.error;
         return out;
       }
+    }
+  }
+  saved_node_by_input_.assign(local_by_input_.size(), kInvalidObjectId);
+  for (std::size_t input_index = 0; input_index < local_by_input_.size(); ++input_index) {
+    const std::size_t local = local_by_input_[input_index];
+    if (local < node_id_by_local.size()) {
+      saved_node_by_input_[input_index] = node_id_by_local[local];
     }
   }
 

@@ -801,6 +801,61 @@ describe("viewport tool routing", () => {
     expect(current(store).wirePreview.state).toBe("none");
   });
 
+  it("keeps a committed picked midair endpoint usable as the next wire anchor", () => {
+    const midairPick = {
+      hitKind: 2,
+      hitId: "201",
+      hitX: 6,
+      hitY: 0,
+      hitZ: 7.4,
+      hasSegmentEndpoints: true,
+      segmentNodeAId: "101",
+      segmentNodeBId: "102",
+      segmentEndpointAX: 0,
+      segmentEndpointAY: 0,
+      segmentEndpointAZ: 7.4,
+      segmentEndpointBX: 12,
+      segmentEndpointBY: 0,
+      segmentEndpointBZ: 7.4
+    };
+    const resolveBranchPick = vi.fn(() => ({
+      ok: true,
+      error: "",
+      positionX: 6,
+      positionY: 0,
+      positionZ: 7.4,
+      supportKind: 1,
+      nodeId: "9001",
+      resolution: 1,
+      snappedFromSegmentEndpoint: false
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true,
+      error: "",
+      generatedPoleCount: 1,
+      generatedSpanCount: 1,
+      generatedPoleIds: request.targetPick === undefined ? ["104"] : ["103"],
+      generatedNodeIds: request.targetPick === undefined ? ["5001", "5002"] : ["5000", "7001"],
+      generatedSpanIds: request.targetPick === undefined ? ["203"] : ["202"],
+      generatedBundleIds: request.targetPick === undefined ? ["303"] : ["302"],
+      totalMs: 1,
+      timing: timing(1),
+      endpoint: request.targetPick === undefined ? request.points[1] : [6, 0, 7.4] as [number, number, number],
+      endpointSpec: request.targetPick === undefined ? null : { supportKind: 1, nodeId: "9001" }
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ resolveBranchPick, generateWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 8, 0]);
+    actions.addViewportPoint([6, 0, 7.4], midairPick);
+    expect(current(store).pathPointSpecs).toEqual([{ supportKind: 1, nodeId: "7001" }]);
+
+    actions.addViewportPoint([12, 8, 0]);
+    expect(generateWireInterval).toHaveBeenCalledTimes(2);
+    expect(generateWireInterval.mock.calls[1][0].pointSpecs[0]).toEqual({ supportKind: 1, nodeId: "7001" });
+  });
+
   it("undoes only the last committed wire interval with the operation snapshot", () => {
     let coreState = "before-wire-interval";
     const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({

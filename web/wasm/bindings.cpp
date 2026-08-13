@@ -604,6 +604,11 @@ private:
       generated_pole_ids.set(index, std::to_string(generated.value.generated_pole_ids[index]));
     }
     result.set("generatedPoleIds", generated_pole_ids);
+    val generated_node_ids = val::array();
+    for (std::size_t index = 0; index < generated.value.generated_node_ids.size(); ++index) {
+      generated_node_ids.set(index, std::to_string(generated.value.generated_node_ids[index]));
+    }
+    result.set("generatedNodeIds", generated_node_ids);
     val generated_span_ids = val::array();
     for (std::size_t index = 0; index < generated.value.generated_span_ids.size(); ++index) {
       generated_span_ids.set(index, std::to_string(generated.value.generated_span_ids[index]));

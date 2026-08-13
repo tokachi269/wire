@@ -1177,6 +1177,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental pair promotion does not share ports across incompatible bundle scope",
                          "Invariant", false,
                          C774_backbone_incremental_scope_mismatch_does_not_share_ports);
+  test_registry::AddTest(tests, "C837_backbone_source_bundle_endpoint_completion_ignores_other_bundle_open",
+                         "source-bundle endpoint completion ignores an unrelated bundle's open row",
+                         "Boundary", false,
+                         C837_backbone_source_bundle_endpoint_completion_ignores_other_bundle_open);
   test_registry::AddTest(tests, "C775_backbone_incremental_canonical_pair_survives_save_load",
                          "incremental canonical pair rows survive authoritative save/load",
                          "Invariant", false,

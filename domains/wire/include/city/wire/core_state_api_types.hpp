@@ -60,6 +60,7 @@ struct GenerateBundleFromPathResult {
   std::vector<ObjectId> bundle_ids{};
   std::vector<ObjectId> generated_span_ids{};
   std::vector<ObjectId> generated_pole_ids{};
+  std::vector<ObjectId> generated_node_ids{};
   GenerationTiming timing{};
 };
 

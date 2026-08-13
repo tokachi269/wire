@@ -1785,6 +1785,52 @@ bool C774_backbone_incremental_scope_mismatch_does_not_share_ports() {
   return snapshot.open_rows >= 1 && fixture.bd_ports == unique_generated_ports_on_pole(fixture.state, fixture.bd_spans, fixture.pole_b);
 }
 
+bool C837_backbone_source_bundle_endpoint_completion_ignores_other_bundle_open() {
+  city::wire::CoreState state;
+  city::wire::BackboneSpec left = line_req(state);
+  left.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  const auto left_out = state.GenerateFromBackboneSpec(left);
+  WIRE_TEST_EXPECT(left_out.ok, left_out.error);
+  WIRE_TEST_EXPECT(left_out.value.bundle_ids.size() == 1 && left_out.value.generated_pole_ids.size() == 2,
+                   "left fixture did not create one bundle and two poles");
+
+  city::wire::BackboneSpec right = line_req(state);
+  right.path.polyline = {{20.0, 0.0, 0.0}, {30.0, 0.0, 0.0}};
+  const auto right_out = state.GenerateFromBackboneSpec(right);
+  WIRE_TEST_EXPECT(right_out.ok, right_out.error);
+  WIRE_TEST_EXPECT(right_out.value.bundle_ids.size() == 1 && right_out.value.generated_pole_ids.size() == 2,
+                   "right fixture did not create one bundle and two poles");
+  WIRE_TEST_EXPECT(left_out.value.bundle_ids.front() != right_out.value.bundle_ids.front(),
+                   "fixtures unexpectedly share a bundle");
+
+  const city::wire::ObjectId left_end_pole = left_out.value.generated_pole_ids[1];
+  const city::wire::ObjectId right_start_pole = right_out.value.generated_pole_ids[0];
+  const city::wire::Pole* left_end = state.view().poles().find(left_end_pole);
+  const city::wire::Pole* right_start = state.view().poles().find(right_start_pole);
+  WIRE_TEST_EXPECT(left_end != nullptr && right_start != nullptr, "fixture endpoint poles are missing");
+
+  city::wire::BackboneSpec completion = line_req(state);
+  completion.path.polyline = {left_end->world_transform.position, right_start->world_transform.position};
+  completion.path.node_specs = {pole_spec(0, left_end_pole), pole_spec(1, right_start_pole)};
+  completion.bundles.front().source_bundle_id = left_out.value.bundle_ids.front();
+
+  const auto completed = state.GenerateFromBackboneSpec(completion);
+  WIRE_TEST_EXPECT(completed.ok, completed.error);
+  WIRE_TEST_EXPECT(completed.value.bundle_ids.size() == 1 &&
+                       completed.value.bundle_ids.front() == left_out.value.bundle_ids.front(),
+                   "completion did not continue the source bundle");
+  WIRE_TEST_EXPECT(!completed.value.generated_span_ids.empty(), "completion did not create a span");
+  for (city::wire::ObjectId span_id : completed.value.generated_span_ids) {
+    const city::wire::Span* span = state.view().spans().find(span_id);
+    WIRE_TEST_EXPECT(span != nullptr && span->bundle_id == left_out.value.bundle_ids.front(),
+                     "completion span is not owned by the source bundle");
+  }
+  WIRE_TEST_EXPECT(curve_endpoints_match_layout(state), "curve endpoints do not match layout");
+  std::string invariant_error{};
+  WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
+  return true;
+}
+
 bool C775_backbone_incremental_canonical_pair_survives_save_load() {
   IncrementalCrossFixture source{};
   WIRE_TEST_EXPECT(make_incremental_cross(&source), "incremental cross fixture generation failed");

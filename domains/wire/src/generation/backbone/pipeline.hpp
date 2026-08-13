@@ -274,6 +274,7 @@ private:
   graph g_{};
   std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};
+  std::vector<ObjectId> saved_node_by_input_{};
   std::vector<PromotionPlanEntry> promotion_plan_{};
   bool write_row_continuity_ = true;
 };

@@ -319,9 +319,17 @@ export class DrawActions {
     this.ctx.refreshScene();
     const endpoint = result.endpoint ?? request.points[1];
     const generatedEndpointId = result.generatedPoleIds?.at(-1);
-    const endpointSpec = result.endpointSpec ?? (generatedEndpointId === undefined
+    const generatedEndpointNodeId = result.generatedNodeIds?.[1];
+    const endpointSpec = result.endpointSpec === null
+      ? (generatedEndpointId === undefined
       ? null
-      : { supportKind: 0, nodeId: generatedEndpointId });
+      : { supportKind: 0, nodeId: generatedEndpointId })
+      : {
+        ...result.endpointSpec,
+        nodeId: generatedEndpointNodeId !== undefined && generatedEndpointNodeId !== "0"
+          ? generatedEndpointNodeId
+          : result.endpointSpec.nodeId
+      };
     const generatedBundleIds = result.generatedBundleIds ?? [];
     this.ctx.store.update((current) => ({
       ...current,

@@ -439,6 +439,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C735 | SourceGuard | Boundary | source guard は BundleKind identity 残存を拒否する | `source_guard` | 永続化前に enum identity を焼き戻す回帰防止 |
 | C736 | SourceGuard | Boundary | unsupported保留docsは対応済みbackbone更新を戻さない | `source_guard` | docsだけが古い unsupported を再導入し、viewer後追い作業を誤誘導する回帰防止 |
 | C737 | Behavior | Boundary | overlay edge endpoint snap は saved node spec id を返す | `legacy_unclassified` | web overlay edge endpoint から伸ばす操作が unknown node reference で止まる回帰防止 |
+| C837 | Behavior | Boundary | source bundle付きendpoint completionは別bundleのopen rowをpromotion候補にしない | `legacy_unclassified` | 終点へつなぐ操作で同種別の別route bundleを同じplacementへ混ぜ、promoted placement maps to multiple bundlesで拒否する回帰防止 |
 | C691 | Behavior | Invariant | run id は through section を接続する | `legacy_unclassified` | section scope idのままspan境界で見た目上1本のcableが分断される回帰防止 |
 | C692 | Behavior | Invariant | run id は世代跨ぎterminal extensionを接続する | `legacy_unclassified` | 別生成回の連続sectionが別run扱いになる回帰防止 |
 | C693 | Behavior | Invariant | branchとdead-endは別runになる | `legacy_unclassified` | jumperやbranchをpatch連続として誤集約する回帰防止 |

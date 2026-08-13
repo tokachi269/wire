@@ -429,10 +429,11 @@ describe("viewer numeric inputs", () => {
     expect(mounted.actions.addViewportPoint([0, 400, 0])).toEqual({ kind: "anchor-accepted" });
     mounted.actions.previewViewportPoint([0, 400, 0]);
     expect(mounted.actions.finishDrawSession()).toEqual({
-      kind: "commit-rejected",
-      reasonCode: "invalid_input"
+      kind: "session-ended"
     });
-    expect(current(mounted.store).road.phase).toBe("end");
+    expect(current(mounted.store).road.phase).toBe("start");
+    expect(current(mounted.store).lastCommitFailure).toBeNull();
+    expect(mounted.actions.addViewportPoint([0, 400, 0])).toEqual({ kind: "anchor-accepted" });
     mounted.actions.previewViewportPoint([18, 400, 0]);
     expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
     expect(current(mounted.store).lastCommitFailure).toBeNull();

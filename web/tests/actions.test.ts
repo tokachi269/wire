@@ -879,6 +879,73 @@ describe("viewport tool routing", () => {
     expect(current(store).road.draftStart).toEqual({ x: 18, y: 5 });
   });
 
+  it("ignores a duplicate road endpoint click before committing an extension", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({
+      ok: true,
+      error: "",
+      segmentId: 22,
+      corridorId: 9,
+      endNodeId: 13
+    }));
+    const roadPreviewInterval = vi.fn((input: RoadSegmentInput) => ({
+      startX: input.startX,
+      startY: input.startY,
+      handleAX: input.handleAX,
+      handleAY: input.handleAY,
+      handleBX: input.handleBX,
+      handleBY: input.handleBY,
+      endX: input.endX,
+      endY: input.endY
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment, roadPreviewInterval }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint(
+      [40, 0, 0],
+      {
+        kind: "road",
+        nodeId: 12,
+        segmentId: 7,
+        segmentDistanceM: 40,
+        extensionCorridorId: 9
+      }
+    );
+    const duplicate = actions.addViewportPoint(
+      [40, 0, 0],
+      {
+        kind: "road",
+        nodeId: 12,
+        segmentId: 7,
+        segmentDistanceM: 40,
+        extensionCorridorId: 9
+      }
+    );
+    actions.previewViewportPoint([60, 12, 0]);
+    actions.addViewportPoint([60, 12, 0]);
+
+    expect(duplicate).toEqual({
+      kind: "ignored",
+      reasonCode: "road_endpoint_matches_anchor"
+    });
+    expect(roadPreviewInterval).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startX: 40,
+      startY: 0,
+      endX: 60,
+      endY: 12,
+      startNodeId: 12,
+      startSegmentId: 7,
+      startSegmentDistanceM: 40,
+      extensionCorridorId: 9
+    }));
+    expect(current(store).lastCommitFailure).toBeNull();
+    expect(current(store).road.phase).toBe("end");
+    expect(current(store).road.draftStart).toEqual({ x: 60, y: 12 });
+  });
+
   it("uses a local road guide without calling Core during pointer movement", () => {
     const roadPreviewSegment = vi.fn(() => ({
       ok: false,

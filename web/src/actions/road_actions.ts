@@ -205,6 +205,10 @@ export class RoadActions {
       this.beginAt(target, snap);
       return { kind: "anchor-accepted" };
     }
+    if (sameRoadPoint(current.draftStart, target)) {
+      this.clearPreview();
+      return { kind: "ignored", reasonCode: "road_endpoint_matches_anchor" };
+    }
     const road = current.mode !== "line" ? withRoadCurveEnd(current, target) : withRoadEnd(current, target);
     const request = current.previewState === "guide" && current.previewRequest !== null &&
         sameRoadPoint({ x: current.previewRequest.endX, y: current.previewRequest.endY }, target)
@@ -253,6 +257,10 @@ export class RoadActions {
     if (current.operation !== "draw") return;
     if (current.phase === "start") return;
     const target: RoadPoint = { x: point[0], y: point[1] };
+    if (sameRoadPoint(current.draftStart, target)) {
+      this.clearPreview();
+      return;
+    }
     const road = this.previewState(current, target);
     // Core owns the curve rule, so the guide asks for the interval it would
     // commit instead of shaping one of its own.
@@ -592,6 +600,11 @@ export class RoadActions {
     // finished registering its catalogue.
     if (request.roadLayoutTemplateId === 0) {
       return { kind: "ignored", reasonCode: "no-section-selected" };
+    }
+    if (sameRoadPoint({ x: request.startX, y: request.startY },
+                      { x: request.endX, y: request.endY })) {
+      this.clearPreview();
+      return { kind: "ignored", reasonCode: "road_endpoint_matches_anchor" };
     }
     const result = this.ctx.bridge.roadAddSegment(request);
     if (!result.ok) {

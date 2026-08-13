@@ -13,6 +13,8 @@ struct AddSegmentRequest {
   // the control points, which cannot tell a drawn curve from a drawn line.
   std::optional<SegmentShapeIntent> intent{};
   double corner_radius_m = kDefaultRoadCornerRadiusM;
+  std::optional<double> start_elevation_m{};
+  std::optional<double> end_elevation_m{};
 };
 struct AddSegmentConnectedToRequest {
   Path alignment{};
@@ -20,6 +22,7 @@ struct AddSegmentConnectedToRequest {
   RoadNodeId start_node = 0;
   EndpointRole connected_endpoint = EndpointRole::kStart;
   double corner_radius_m = kDefaultRoadCornerRadiusM;
+  std::optional<double> free_endpoint_elevation_m{};
 };
 struct AddSegmentConnectedToSegmentRequest {
   Path alignment{};
@@ -28,6 +31,7 @@ struct AddSegmentConnectedToSegmentRequest {
   double segment_distance_m = 0.0;
   EndpointRole connected_endpoint = EndpointRole::kStart;
   double corner_radius_m = kDefaultRoadCornerRadiusM;
+  std::optional<double> free_endpoint_elevation_m{};
 };
 struct RoadConnectionTarget {
   RoadNodeId node_id = 0;
@@ -47,13 +51,18 @@ struct ExtendCorridorFromEndRequest {
   Path extension{};
   RoadLayoutTemplateId layout_template = 0;
   std::optional<SegmentShapeIntent> intent{};
+  std::optional<double> end_elevation_m{};
 };
 struct SplitSegmentAtDistanceRequest {
   RoadSegmentId segment_id = 0;
   double segment_distance_m = 0.0;
 };
 struct EditSegmentShapeRequest { RoadSegmentId segment_id = 0; SegmentShape shape{}; };
-struct MoveNodeRequest { RoadNodeId node_id = 0; Vec2d position{}; };
+struct MoveNodeRequest {
+  RoadNodeId node_id = 0;
+  Vec2d position{};
+  std::optional<double> elevation_m{};
+};
 struct DeleteSegmentRequest { RoadSegmentId segment_id = 0; };
 struct AddRoadLayoutTemplateRequest { RoadLayoutTemplate layout_template{}; };
 struct EditRoadLayoutTemplateRequest { RoadLayoutTemplate layout_template{}; };

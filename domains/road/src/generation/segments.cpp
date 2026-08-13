@@ -3,6 +3,7 @@
 #include "../geometry/geometry.hpp"
 #include "../geometry/section.hpp"
 #include "../lookup.hpp"
+#include "vertical.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -219,6 +220,8 @@ derive_segment_shapes(const SavedRoadGraph &graph) {
     derived.id = segment.id;
     derived.alignment = std::move(alignment.value);
     derived.length_m = length.value;
+    derived.start_elevation_m = node_a->elevation_m;
+    derived.end_elevation_m = node_b->elevation_m;
     derived.surface_start_m = 0.0;
     derived.surface_end_m = length.value;
     segments.push_back(std::move(derived));
@@ -393,12 +396,9 @@ derive_segment_lane_paths(const SavedRoadGraph &graph,
       if (!section.ok) {
         return Out::Fail(section.failure_category, section.error);
       }
-      const Result<Vec2d> center =
-          EvaluatePath(segment.alignment, evaluation.segment_distance_m);
-      const Result<Vec2d> lateral =
-          internal::lateral_at(segment.alignment,
-                               evaluation.segment_distance_m);
-      if (!center.ok || !lateral.ok) {
+      const Result<RoadFrame> frame =
+          road_frame_at(segment, evaluation.segment_distance_m);
+      if (!frame.ok) {
         return Out::Fail(CommitFailureCategory::kInternalError,
                          "lane inspection alignment sample is missing");
       }
@@ -422,10 +422,8 @@ derive_segment_lane_paths(const SavedRoadGraph &graph,
         }
         found->end_segment_distance_m = evaluation.segment_distance_m;
         found->end_template_id = section.value.id;
-        found->points.push_back(Vec3d{
-            center.value.x + lateral.value.x * position.value.lateral_m,
-            center.value.y + lateral.value.y * position.value.lateral_m,
-            position.value.height_m});
+        found->points.push_back(place_on_frame(
+            frame.value, position.value.lateral_m, position.value.height_m));
       }
     }
   }

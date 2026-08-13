@@ -43,6 +43,20 @@ using internal::subtract;
 
 constexpr double kSnapDistancePointToleranceM = 0.6;
 
+double segment_elevation_at(const SavedRoadGraph& graph,
+                            const RoadSegment& segment,
+                            double segment_distance_m,
+                            double segment_length_m) {
+  const RoadNode* a = find_node(graph, segment.node_a);
+  const RoadNode* b = find_node(graph, segment.node_b);
+  if (a == nullptr || b == nullptr ||
+      segment_length_m <= internal::distance_epsilon) {
+    return a != nullptr ? a->elevation_m : 0.0;
+  }
+  const double t = std::clamp(segment_distance_m / segment_length_m, 0.0, 1.0);
+  return a->elevation_m + (b->elevation_m - a->elevation_m) * t;
+}
+
 Result<bool> validate_corner_radius(double corner_radius_m) {
   if (!is_finite(corner_radius_m) || corner_radius_m < 0.0) {
     return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
@@ -154,6 +168,11 @@ Result<RoadNodeId> plan_connection_target_split(
   if (!split.ok) {
     return Result<RoadNodeId>::Fail(split.failure_category, split.error);
   }
+  const Result<double> source_length = PathLength(*source_path);
+  if (!source_length.ok) {
+    return Result<RoadNodeId>::Fail(source_length.failure_category,
+                                    source_length.error);
+  }
   if (distance(expected_point, split.value.point) >
       kSnapDistancePointToleranceM) {
     return Result<RoadNodeId>::Fail(
@@ -196,7 +215,10 @@ Result<RoadNodeId> plan_connection_target_split(
   first.node_b = split_node;
   first.shape = first_shape.value;
   plan.replace_segments.push_back(std::move(first));
-  plan.add_nodes.push_back(RoadNode{split_node, split.value.point});
+  plan.add_nodes.push_back(RoadNode{
+      split_node, split.value.point,
+      segment_elevation_at(graph, *source, target.segment_distance_m,
+                           source_length.value)});
   plan.add_segments.push_back(
       RoadSegment{second_id, split_node, source->node_b, second_shape.value,
                   source->layout_template, source->transition,
@@ -328,14 +350,24 @@ Result<RoadSegmentId> RoadState::AddSegment(AddSegmentRequest request) {
   if (find_template(graph_, layout_template) == nullptr) {
     return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInvalidInput, "road segment references a missing section template");
   }
+  const double start_elevation =
+      request.start_elevation_m.value_or(0.0);
+  const double end_elevation = request.end_elevation_m.value_or(start_elevation);
+  if (!is_finite(start_elevation) || !is_finite(end_elevation)) {
+    return Result<RoadSegmentId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "road segment endpoint elevation is non-finite");
+  }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
   const RoadNodeId node_a = next_id++;
   const RoadNodeId node_b = next_id++;
   const RoadSegmentId segment_id = next_id++;
   const RoadCorridorId corridor_id = next_id++;
-  plan.add_nodes = {RoadNode{node_a, alignment.spans.front().p0},
-                    RoadNode{node_b, alignment.spans.back().p3}};
+  plan.add_nodes = {RoadNode{node_a, alignment.spans.front().p0,
+                             start_elevation},
+                    RoadNode{node_b, alignment.spans.back().p3,
+                             end_elevation}};
   Result<SegmentShape> shape = SegmentShapeFromPath(alignment);
   if (!shape.ok) {
     return Result<RoadSegmentId>::Fail(shape.failure_category, shape.error);
@@ -425,8 +457,16 @@ Result<RoadSegmentId> RoadState::ExtendCorridorFromEnd(
   std::uint64_t next_id = next_id_;
   const RoadNodeId end_node = next_id++;
   const RoadSegmentId segment_id = next_id++;
+  const double end_elevation =
+      request.end_elevation_m.value_or(endpoint->elevation_m);
+  if (!is_finite(end_elevation)) {
+    return Result<RoadSegmentId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "road extension endpoint elevation is non-finite");
+  }
 
-  plan.add_nodes.push_back(RoadNode{end_node, path_end(extension)});
+  plan.add_nodes.push_back(RoadNode{end_node, path_end(extension),
+                                    end_elevation});
   plan.add_segments.push_back(
       RoadSegment{segment_id, endpoint->id, end_node, shape.value,
                   request.layout_template, std::nullopt,
@@ -483,8 +523,16 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedTo(AddSegmentConnectedToRequ
   const RoadCorridorId corridor_id = next_id++;
   const bool connects_at_start =
       request.connected_endpoint == EndpointRole::kStart;
+  const double free_elevation =
+      request.free_endpoint_elevation_m.value_or(node->elevation_m);
+  if (!is_finite(free_elevation)) {
+    return Result<RoadSegmentId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "connected road free endpoint elevation is non-finite");
+  }
   plan.add_nodes.push_back(RoadNode{
-      free_node, connects_at_start ? path_end(alignment) : path_start(alignment)});
+      free_node, connects_at_start ? path_end(alignment) : path_start(alignment),
+      free_elevation});
   plan.add_segments.push_back(RoadSegment{
       segment_id,
       connects_at_start ? connected_node : free_node,
@@ -535,6 +583,11 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   if (!path_split.ok) {
     return Result<RoadSegmentId>::Fail(path_split.failure_category, path_split.error);
   }
+  const Result<double> source_length = PathLength(*source_path);
+  if (!source_length.ok) {
+    return Result<RoadSegmentId>::Fail(source_length.failure_category,
+                                       source_length.error);
+  }
   const bool connects_at_start =
       request.connected_endpoint == EndpointRole::kStart;
   const Vec2d connected_point =
@@ -570,6 +623,16 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   }
   const Result<double> branch_length = PathLength(alignment);
   if (!branch_length.ok) return Result<RoadSegmentId>::Fail(branch_length.failure_category, branch_length.error);
+  const double split_elevation =
+      segment_elevation_at(graph_, *source, segment_distance_m,
+                           source_length.value);
+  const double branch_free_elevation =
+      request.free_endpoint_elevation_m.value_or(split_elevation);
+  if (!is_finite(branch_free_elevation)) {
+    return Result<RoadSegmentId>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "road branch free endpoint elevation is non-finite");
+  }
   operations::OperationPlan plan{};
   std::uint64_t next_id = next_id_;
   const RoadNodeId split_node = next_id++;
@@ -588,9 +651,10 @@ Result<RoadSegmentId> RoadState::AddSegmentConnectedToSegment(AddSegmentConnecte
   first.shape = first_shape.value;
   plan.replace_segments.push_back(std::move(first));
   plan.add_nodes = {
-      RoadNode{split_node, path_split.value.point},
+      RoadNode{split_node, path_split.value.point, split_elevation},
       RoadNode{branch_free_node,
-               connects_at_start ? path_end(alignment) : path_start(alignment)}};
+               connects_at_start ? path_end(alignment) : path_start(alignment),
+               branch_free_elevation}};
   plan.add_segments = {
       RoadSegment{second_id, split_node, source->node_b, second_shape.value, source->layout_template,
                   source->transition, source->corner_radius_m},
@@ -823,14 +887,17 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
   if (!split.ok) {
     return Result<RoadSegmentId>::Fail(split.failure_category, split.error);
   }
+  const Result<double> source_length = PathLength(*source_path);
+  if (!source_length.ok || source_length.value <= distance_epsilon) {
+    return Result<RoadSegmentId>::Fail(CommitFailureCategory::kInternalError,
+                                       "road split source length is invalid");
+  }
   std::optional<RoadLayoutTransition> remapped_transition{};
   bool transition_moves_to_second = false;
   if (source->transition.has_value()) {
     const RoadLayoutTransition* transition =
         find_transition(graph_, *source->transition);
-    const Result<double> source_length = PathLength(*source_path);
-    if (transition == nullptr || !source_length.ok ||
-        source_length.value <= distance_epsilon) {
+    if (transition == nullptr) {
       return Result<RoadSegmentId>::Fail(
           CommitFailureCategory::kInternalError,
           "transitioning road split data is incomplete");
@@ -907,7 +974,10 @@ Result<RoadSegmentId> RoadState::SplitSegmentAtDistance(
     first.transition.reset();
   }
   plan.replace_segments.push_back(std::move(first));
-  plan.add_nodes.push_back(RoadNode{split_node, split.value.point});
+  plan.add_nodes.push_back(RoadNode{
+      split_node, split.value.point,
+      segment_elevation_at(graph_, *source, request.segment_distance_m,
+                           source_length.value)});
   RoadSegment second{second_id, split_node, source->node_b, second_shape.value,
                      source->layout_template, source->transition,
                      source->corner_radius_m};

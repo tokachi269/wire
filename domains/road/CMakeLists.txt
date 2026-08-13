@@ -13,6 +13,7 @@ add_library(
   src/generation/connections.cpp
   src/generation/markings.cpp
   src/generation/emit.cpp
+  src/generation/vertical.cpp
   src/geometry/geometry.cpp
   src/geometry/section.cpp
   src/geometry/junction.cpp

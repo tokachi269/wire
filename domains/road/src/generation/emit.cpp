@@ -1,6 +1,7 @@
 #include "emit.hpp"
 
 #include "generation.hpp"
+#include "vertical.hpp"
 
 #include "../geometry/geometry.hpp"
 
@@ -402,8 +403,13 @@ Result<segment_output> emit_segment(const segment_input &input) {
         const double height =
             column.generated_crown ? crown_height(sample, column.source_index)
                                    : boundary.height_m;
-        const Vec2d point = add(sample.center, mul(sample.lateral, lateral));
-        const Vec3d vertex{point.x, point.y, height};
+        const Vec3d vertex{
+            sample.center.x + sample.lateral.x * lateral +
+                sample.normal.x * height,
+            sample.center.y + sample.lateral.y * lateral +
+                sample.normal.y * height,
+            sample.center.z + sample.lateral.z * lateral +
+                sample.normal.z * height};
         vertices.push_back(vertex);
         const double v =
             column.generated_crown
@@ -458,12 +464,14 @@ Result<segment_output> emit_segment(const segment_input &input) {
   output.terrain_mask.segment_id = input.segment_id;
   std::vector<Vec2d> right{};
   for (const segment_sample &sample : input.samples) {
-    output.terrain_mask.points.push_back(
-        add(sample.center,
-            mul(sample.lateral, sample.boundaries.front().lateral_m)));
+    output.terrain_mask.points.push_back(Vec2d{
+        sample.center.x + sample.lateral.x * sample.boundaries.front().lateral_m,
+        sample.center.y + sample.lateral.y * sample.boundaries.front().lateral_m});
     right.push_back(
-        add(sample.center,
-            mul(sample.lateral, sample.boundaries.back().lateral_m)));
+        Vec2d{sample.center.x +
+                  sample.lateral.x * sample.boundaries.back().lateral_m,
+              sample.center.y +
+                  sample.lateral.y * sample.boundaries.back().lateral_m});
   }
   output.terrain_mask.points.insert(output.terrain_mask.points.end(),
                                     right.rbegin(), right.rend());
@@ -637,11 +645,9 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
     segment_input input{};
     input.segment_id = segment.id;
     for (const double distance : segment.surface_segment_distances_m) {
-      const Result<Vec2d> center = EvaluatePath(segment.alignment, distance);
-      const Result<Vec2d> lateral =
-          internal::lateral_at(segment.alignment, distance);
+      const Result<RoadFrame> frame = road_frame_at(segment, distance);
       const SectionEvaluation *section = FindSectionAt(segment, distance);
-      if (!center.ok || !lateral.ok || section == nullptr) {
+      if (!frame.ok || section == nullptr) {
         return Result<bool>::Fail(CommitFailureCategory::kInternalError,
                                   "road surface sample is missing");
       }
@@ -651,7 +657,9 @@ Result<bool> emit_geometry(DerivedRoad &derived) {
           [distance](double semantic) {
             return std::abs(semantic - distance) <= 1e-6;
           });
-      input.samples.push_back(segment_sample{center.value, lateral.value,
+      input.samples.push_back(segment_sample{frame.value.position,
+                                             frame.value.lateral,
+                                             frame.value.normal,
                                              distance, uv_patch_boundary,
                                              section->boundaries,
                                              section->surface_styles});

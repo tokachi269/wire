@@ -64,13 +64,19 @@ Result<bool> RoadState::EditSegmentShape(EditSegmentShapeRequest request) {
 Result<bool> RoadState::MoveNode(MoveNodeRequest request) {
   const RoadNodeId node_id = request.node_id;
   const Vec2d position = request.position;
-  if (!is_finite(position)) return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road node position is non-finite");
+  if (!is_finite(position) ||
+      (request.elevation_m.has_value() && !is_finite(*request.elevation_m))) {
+    return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
+                              "road node position is non-finite");
+  }
   const RoadNode* node = find_node(graph_, node_id);
   if (node == nullptr) return Result<bool>::Fail(CommitFailureCategory::kInvalidInput, "road node does not exist");
   operations::OperationPlan plan{};
   plan.next_id_after = next_id_;
   RoadNode replacement = *node;
   replacement.position = position;
+  if (request.elevation_m.has_value())
+    replacement.elevation_m = *request.elevation_m;
   plan.replace_nodes.push_back(replacement);
   for (const RoadSegment& segment : graph_.segments) {
     if (segment.shape.intent != SegmentShapeIntent::kStraight ||

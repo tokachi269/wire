@@ -151,6 +151,8 @@ struct DerivedSegment {
   RoadSegmentId id = 0;
   Path alignment{};
   double length_m = 0.0;
+  double start_elevation_m = 0.0;
+  double end_elevation_m = 0.0;
   double surface_start_m = 0.0;
   double surface_end_m = 0.0;
   std::vector<double> semantic_segment_distances_m{};
@@ -202,6 +204,7 @@ struct ResolvedConnection {
 struct DerivedLanePath {
   LaneConnectionId connection_id = 0;
   Path centerline{};
+  std::vector<Vec3d> points{};
   double length_m = 0.0;
   double minimum_radius_m = 0.0;
 };

@@ -3,6 +3,7 @@
 #include "../geometry/geometry.hpp"
 #include "../geometry/section.hpp"
 #include "../lookup.hpp"
+#include "vertical.hpp"
 
 #include <algorithm>
 #include <array>
@@ -84,20 +85,16 @@ const DerivedSegment *segment_of(const std::vector<DerivedSegment> &segments,
 Result<Vec3d> segment_point(const DerivedSegment &segment,
                             double segment_distance_m,
                             double lateral_m) {
-  const Result<Vec2d> center =
-      EvaluatePath(segment.alignment, segment_distance_m);
-  const Result<Vec2d> lateral =
-      internal::lateral_at(segment.alignment, segment_distance_m);
+  const Result<RoadFrame> frame = road_frame_at(segment, segment_distance_m);
   const SectionEvaluation *section =
       FindSectionAt(segment, segment_distance_m);
-  if (!center.ok || !lateral.ok || section == nullptr) {
+  if (!frame.ok || section == nullptr) {
     return Result<Vec3d>::Fail(CommitFailureCategory::kInternalError,
                                "marking segment point is missing");
   }
-  const Vec2d point = add(center.value, scale(lateral.value, lateral_m));
-  return Result<Vec3d>::Ok(Vec3d{
-      point.x, point.y,
-      surface_height(section->boundaries, lateral_m) + kMarkingElevationM});
+  return Result<Vec3d>::Ok(place_on_frame(
+      frame.value, lateral_m,
+      surface_height(section->boundaries, lateral_m) + kMarkingElevationM));
 }
 
 Vec3d gate_point(const ConnectionGate &gate, double longitudinal_m,
@@ -105,13 +102,15 @@ Vec3d gate_point(const ConnectionGate &gate, double longitudinal_m,
   const double world_lateral_m =
       gate.approach.endpoint_role == EndpointRole::kEnd ? -lateral_m
                                                         : lateral_m;
+  const double height =
+      surface_height(gate.boundaries, lateral_m) + kMarkingElevationM;
   return Vec3d{
       gate.position.x + gate.tangent.x * longitudinal_m +
-          gate.lateral.x * world_lateral_m,
+          gate.lateral.x * world_lateral_m + gate.normal.x * height,
       gate.position.y + gate.tangent.y * longitudinal_m +
-          gate.lateral.y * world_lateral_m,
-      gate.position.z + surface_height(gate.boundaries, lateral_m) +
-          kMarkingElevationM,
+          gate.lateral.y * world_lateral_m + gate.normal.y * height,
+      gate.position.z + gate.tangent.z * longitudinal_m +
+          gate.lateral.z * world_lateral_m + gate.normal.z * height,
   };
 }
 

@@ -668,6 +668,20 @@ std::string u_values_at_x(const Mesh& mesh, double x) {
   return out.str();
 }
 
+std::optional<double> nearest_z(const std::vector<Vec3d>& points, Vec2d xy,
+                                double max_distance_m) {
+  std::optional<double> z{};
+  double best = max_distance_m;
+  for (const Vec3d& point : points) {
+    const double distance = std::hypot(point.x - xy.x, point.y - xy.y);
+    if (distance <= best) {
+      best = distance;
+      z = point.z;
+    }
+  }
+  return z;
+}
+
 bool mesh_uv_normals_and_material_groups_are_local(std::string& failure) {
   RoadState short_state{};
   const auto section =
@@ -980,6 +994,288 @@ bool gutter_profile_uv_uses_contour_v_and_patch_u(std::string& failure) {
   return true;
 }
 
+bool road_elevation_profile_drives_derived_geometry(std::string& failure) {
+  RoadState state{};
+  const auto layout =
+      road_fixture::AddLayout(state, road_fixture::GutteredLayout(0));
+  city::road::AddSegmentRequest request{};
+  request.alignment = MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})});
+  request.layout_template = layout;
+  request.start_elevation_m = 0.0;
+  request.end_elevation_m = 10.0;
+  const auto segment = state.AddSegment(request);
+  ROAD_TEST_EXPECT(segment.ok, segment.error);
+  ROAD_TEST_EXPECT(state.graph().nodes.size() == 2 &&
+                       state.graph().nodes.front().elevation_m == 0.0 &&
+                       state.graph().nodes.back().elevation_m == 10.0,
+                   "road node elevation is not authoritative");
+  const auto derived_segment = std::find_if(
+      state.derived().segments.begin(), state.derived().segments.end(),
+      [id = segment.value](const auto& item) { return item.id == id; });
+  ROAD_TEST_EXPECT(derived_segment != state.derived().segments.end(),
+                   "elevated segment was not derived");
+  ROAD_TEST_EXPECT(derived_segment->start_elevation_m == 0.0 &&
+                       derived_segment->end_elevation_m == 10.0,
+                   "derived segment did not keep endpoint elevations");
+
+  const Mesh* asphalt = first_asphalt_mesh_for_segment(state, segment.value);
+  ROAD_TEST_EXPECT(asphalt != nullptr, "elevated asphalt mesh is missing");
+  const auto asphalt_mid = nearest_z(asphalt->vertices, {50.0, 0.0}, 4.0);
+  ROAD_TEST_EXPECT(asphalt_mid.has_value() && *asphalt_mid > 4.9 &&
+                       *asphalt_mid < 5.2,
+                   "asphalt surface does not follow the vertical profile");
+  const auto curb = std::find_if(
+      state.derived().segment_meshes.begin(), state.derived().segment_meshes.end(),
+      [](const Mesh& mesh) {
+        return mesh.style == RenderStyleFromSurface(builtin_surface_styles::kCurb);
+      });
+  ROAD_TEST_EXPECT(curb != state.derived().segment_meshes.end(),
+                   "elevated gutter mesh is missing");
+  double gutter_min = std::numeric_limits<double>::infinity();
+  double gutter_max = -std::numeric_limits<double>::infinity();
+  for (const Vec3d& vertex : curb->vertices) {
+    if (std::abs(vertex.x - 50.0) <= 0.1) {
+      gutter_min = std::min(gutter_min, vertex.z);
+      gutter_max = std::max(gutter_max, vertex.z);
+    }
+  }
+  ROAD_TEST_EXPECT(gutter_max - gutter_min > 0.05,
+                   "gutter profile local height collapsed on a grade");
+
+  bool marking_on_grade = false;
+  for (const DerivedMarking& marking : state.derived().markings) {
+    if (nearest_z(marking.points, {50.0, 0.0}, 4.0).value_or(0.0) > 4.9) {
+      marking_on_grade = true;
+      break;
+    }
+  }
+  ROAD_TEST_EXPECT(marking_on_grade, "road marking does not follow the grade");
+  ROAD_TEST_EXPECT(!state.derived().segment_lane_paths.empty(),
+                   "elevated lane path is missing");
+  bool lane_path_on_grade = false;
+  for (const auto& lane_path : state.derived().segment_lane_paths) {
+    if (nearest_z(lane_path.points, {50.0, 0.0}, 5.0).value_or(0.0) > 4.9) {
+      lane_path_on_grade = true;
+      break;
+    }
+  }
+  ROAD_TEST_EXPECT(lane_path_on_grade,
+                   "segment lane path does not follow the grade");
+
+  RoadState curve_state{};
+  const auto curve_layout =
+      road_fixture::AddLayout(curve_state, road_fixture::BidirectionalLayout(0));
+  city::road::AddSegmentRequest curve_request{};
+  curve_request.alignment =
+      MakePath({MakeBezier({0.0, 0.0}, {30.0, 40.0}, {70.0, -40.0},
+                           {100.0, 0.0})});
+  curve_request.layout_template = curve_layout;
+  curve_request.start_elevation_m = 0.0;
+  curve_request.end_elevation_m = 10.0;
+  const auto curve = curve_state.AddSegment(curve_request);
+  ROAD_TEST_EXPECT(curve.ok, curve.error);
+  const auto& curve_segment = curve_state.derived().segments.front();
+  const double mid_distance = curve_segment.length_m * 0.5;
+  const auto mid_xy = EvaluatePath(curve_segment.alignment, mid_distance);
+  ROAD_TEST_EXPECT(mid_xy.ok, mid_xy.error);
+  const Mesh* curve_asphalt =
+      first_asphalt_mesh_for_segment(curve_state, curve.value);
+  ROAD_TEST_EXPECT(curve_asphalt != nullptr, "elevated curve mesh is missing");
+  const auto curve_mid_z = nearest_z(curve_asphalt->vertices, mid_xy.value, 6.0);
+  ROAD_TEST_EXPECT(curve_mid_z.has_value() && *curve_mid_z > 4.8 &&
+                       *curve_mid_z < 5.3,
+                   "curved horizontal alignment did not use distance-based elevation");
+
+  RoadState add_lane_state{};
+  const auto add_lane_layout = road_fixture::AddLayout(
+      add_lane_state, road_fixture::BidirectionalLayout(0));
+  city::road::AddSegmentRequest add_lane_base{};
+  add_lane_base.alignment =
+      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})});
+  add_lane_base.layout_template = add_lane_layout;
+  add_lane_base.start_elevation_m = 0.0;
+  add_lane_base.end_elevation_m = 10.0;
+  const auto add_lane_segment = add_lane_state.AddSegment(add_lane_base);
+  ROAD_TEST_EXPECT(add_lane_segment.ok, add_lane_segment.error);
+  city::road::AddLaneRequest add_lane{};
+  add_lane.corridor_id = add_lane_state.graph().corridors.front().id;
+  add_lane.direction = city::road::LaneTravelDirection::kAlongSegment;
+  add_lane.side = city::road::RoadSide::kRight;
+  add_lane.lane_width_m = 3.0;
+  ROAD_TEST_EXPECT(SetAddLanePositions(add_lane_state, add_lane, 20.0, 40.0),
+                   "elevated ADD LANE positions could not be resolved");
+  const auto added_lane = add_lane_state.AddLane(add_lane);
+  ROAD_TEST_EXPECT(added_lane.ok, added_lane.error);
+  ROAD_TEST_EXPECT(add_lane_state.graph().nodes.front().elevation_m == 0.0 &&
+                       add_lane_state.graph().nodes.back().elevation_m == 10.0,
+                   "ADD LANE changed endpoint elevations");
+  bool added_lane_path_on_grade = false;
+  for (const auto& lane_path : add_lane_state.derived().segment_lane_paths) {
+    if (nearest_z(lane_path.points, {50.0, 0.0}, 8.0).value_or(0.0) > 4.9) {
+      added_lane_path_on_grade = true;
+      break;
+    }
+  }
+  ROAD_TEST_EXPECT(added_lane_path_on_grade,
+                   "ADD LANE lane paths do not follow the grade");
+
+  const auto split = state.SplitSegmentAtDistance(
+      city::road::SplitSegmentAtDistanceRequest{segment.value, 50.0});
+  ROAD_TEST_EXPECT(split.ok, split.error);
+  const auto split_node = std::find_if(
+      state.graph().nodes.begin(), state.graph().nodes.end(),
+      [](const auto& node) {
+        return std::abs(node.position.x - 50.0) <= 1e-9 &&
+               std::abs(node.position.y) <= 1e-9;
+      });
+  ROAD_TEST_EXPECT(split_node != state.graph().nodes.end() &&
+                       std::abs(split_node->elevation_m - 5.0) <= 1e-9,
+                   "split node did not inherit evaluated elevation");
+
+  RoadState branch_state{};
+  const auto branch_layout =
+      road_fixture::AddLayout(branch_state, road_fixture::BidirectionalLayout(0));
+  city::road::AddSegmentRequest base_request{};
+  base_request.alignment = MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})});
+  base_request.layout_template = branch_layout;
+  base_request.start_elevation_m = 0.0;
+  base_request.end_elevation_m = 10.0;
+  const auto base = branch_state.AddSegment(base_request);
+  ROAD_TEST_EXPECT(base.ok, base.error);
+  const auto branch = branch_state.AddSegmentConnectedToSegment(
+      city::road::AddSegmentConnectedToSegmentRequest{
+          MakePath({MakeLine({50.0, 0.0}, {50.0, 30.0})}), branch_layout,
+          base.value, 50.0});
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  std::size_t elevated_branch_nodes = 0;
+  for (const auto& node : branch_state.graph().nodes) {
+    if (std::abs(node.elevation_m - 5.0) <= 1e-9) ++elevated_branch_nodes;
+  }
+  ROAD_TEST_EXPECT(elevated_branch_nodes >= 2,
+                   "branch split/free nodes did not inherit source elevation");
+
+  RoadNodeId split_node_id = 0;
+  RoadSegmentId west_segment = 0;
+  RoadSegmentId east_segment = 0;
+  for (const auto& node : branch_state.graph().nodes) {
+    if (std::abs(node.position.x - 50.0) <= 1e-9 &&
+        std::abs(node.position.y) <= 1e-9) {
+      split_node_id = node.id;
+    }
+  }
+  ROAD_TEST_EXPECT(split_node_id != 0,
+                   "elevated branch split node is missing");
+  for (const auto& candidate : branch_state.graph().segments) {
+    if (candidate.id == branch.value)
+      continue;
+    if (candidate.node_a != split_node_id && candidate.node_b != split_node_id)
+      continue;
+    const RoadNodeId other_id = candidate.node_a == split_node_id
+                                    ? candidate.node_b
+                                    : candidate.node_a;
+    const auto other = std::find_if(
+        branch_state.graph().nodes.begin(), branch_state.graph().nodes.end(),
+        [other_id](const auto& node) { return node.id == other_id; });
+    ROAD_TEST_EXPECT(other != branch_state.graph().nodes.end(),
+                     "elevated lane connection endpoint is missing");
+    if (other->position.x < 50.0)
+      west_segment = candidate.id;
+    if (other->position.x > 50.0)
+      east_segment = candidate.id;
+  }
+  ROAD_TEST_EXPECT(west_segment != 0 && east_segment != 0,
+                   "elevated lane connection fixture did not find base approaches");
+  const auto endpoint_role_at = [&](RoadSegmentId id) {
+    const auto found = std::find_if(
+        branch_state.graph().segments.begin(), branch_state.graph().segments.end(),
+        [id](const auto& candidate) { return candidate.id == id; });
+    return found->node_a == split_node_id ? EndpointRole::kStart
+                                          : EndpointRole::kEnd;
+  };
+  SavedRoadGraph lane_connection_seed = branch_state.graph();
+  lane_connection_seed.lane_connections.push_back(city::road::LaneConnection{
+      9601,
+      city::road::LaneEndpointKey{west_segment, 1010,
+                                  endpoint_role_at(west_segment)},
+      city::road::LaneEndpointKey{east_segment, 1010,
+                                  endpoint_role_at(east_segment)},
+      city::road::LaneConnectionKind::kJunctionMovement});
+  const auto lane_archive =
+      city::road::persistence::SaveRoad(lane_connection_seed, kFixtureNextId);
+  ROAD_TEST_EXPECT(lane_archive.ok, lane_archive.error);
+  const auto lane_loaded = RoadState::Load(lane_archive.value);
+  ROAD_TEST_EXPECT(lane_loaded.ok, lane_loaded.error);
+  ROAD_TEST_EXPECT(!lane_loaded.value.derived().lane_paths.empty(),
+                   "elevated connection lane path was not derived");
+  bool connection_lane_path_on_grade = false;
+  for (const auto& lane_path : lane_loaded.value.derived().lane_paths) {
+    for (const Vec3d& point : lane_path.points) {
+      if (point.z > 4.5) {
+        connection_lane_path_on_grade = true;
+        break;
+      }
+    }
+  }
+  ROAD_TEST_EXPECT(connection_lane_path_on_grade,
+                   "connection lane path remained at world Z zero");
+
+  const auto corridor_id = branch_state.graph().corridors.front().id;
+  const auto terminal_ref = branch_state.graph().corridors.front().segments.back();
+  const auto terminal_segment = std::find_if(
+      branch_state.graph().segments.begin(), branch_state.graph().segments.end(),
+      [&terminal_ref](const auto& candidate) {
+        return candidate.id == terminal_ref.segment_id;
+      });
+  ROAD_TEST_EXPECT(terminal_segment != branch_state.graph().segments.end(),
+                   "extension fixture terminal segment is missing");
+  const RoadNodeId endpoint = terminal_ref.reversed ? terminal_segment->node_a
+                                                    : terminal_segment->node_b;
+  const auto extension = branch_state.ExtendCorridorFromEnd(
+      city::road::ExtendCorridorFromEndRequest{
+          corridor_id, endpoint,
+          MakePath({MakeLine({100.0, 0.0}, {130.0, 0.0})}), branch_layout});
+  ROAD_TEST_EXPECT(extension.ok, extension.error);
+  const auto extension_node = std::find_if(
+      branch_state.graph().nodes.begin(), branch_state.graph().nodes.end(),
+      [](const auto& node) {
+        return std::abs(node.position.x - 130.0) <= 1e-9 &&
+               std::abs(node.position.y) <= 1e-9;
+      });
+  ROAD_TEST_EXPECT(extension_node != branch_state.graph().nodes.end() &&
+                       std::abs(extension_node->elevation_m - 10.0) <= 1e-9,
+                   "corridor extension did not keep endpoint elevation");
+
+  const auto saved = branch_state.Save();
+  ROAD_TEST_EXPECT(saved.ok && saved.value.find("node.0.elevation_m=") !=
+                                  std::string::npos,
+                   "node elevation is not saved");
+  const auto loaded = RoadState::Load(saved.value);
+  ROAD_TEST_EXPECT(loaded.ok, loaded.error);
+  const auto saved_again = loaded.value.Save();
+  ROAD_TEST_EXPECT(saved_again.ok && saved_again.value == saved.value,
+                   "elevated road save/load is not bit stable");
+
+  RoadState crossing{};
+  const auto crossing_layout =
+      road_fixture::AddLayout(crossing, road_fixture::BidirectionalLayout(0));
+  city::road::AddSegmentRequest low{};
+  low.alignment = MakePath({MakeLine({-20.0, 0.0}, {20.0, 0.0})});
+  low.layout_template = crossing_layout;
+  low.start_elevation_m = 0.0;
+  low.end_elevation_m = 0.0;
+  city::road::AddSegmentRequest high{};
+  high.alignment = MakePath({MakeLine({0.0, -20.0}, {0.0, 20.0})});
+  high.layout_template = crossing_layout;
+  high.start_elevation_m = 5.0;
+  high.end_elevation_m = 5.0;
+  ROAD_TEST_EXPECT(crossing.AddSegment(low).ok, "low road could not be drawn");
+  ROAD_TEST_EXPECT(crossing.AddSegment(high).ok, "high road could not be drawn");
+  ROAD_TEST_EXPECT(crossing.graph().nodes.size() == 4 &&
+                       road_test_view::junctions(crossing.derived()).empty(),
+                   "XY crossing with different elevations became a junction");
+  return true;
+}
+
 bool P0_odd_lane_carriageway_mesh_has_drainage_crown(std::string& failure) {
   RoadState state{};
   const auto section =
@@ -1060,7 +1356,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
   ROAD_TEST_EXPECT(added.ok, added.error);
   const auto saved = state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
-  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=15\n") &&
+  ROAD_TEST_EXPECT(saved.value.starts_with("road_graph_version=16\n") &&
                        saved.value.find("primitive=") == std::string::npos &&
                        saved.value.find("section_template.0.alignment_offset_from_left_m=") !=
                            std::string::npos &&
@@ -1088,7 +1384,7 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
     return archive;
   };
   std::string version4 = saved.value;
-  version4.replace(0, std::string("road_graph_version=15").size(), "road_graph_version=4");
+  version4.replace(0, std::string("road_graph_version=16").size(), "road_graph_version=4");
   const auto rejected = RoadState::Load(version4);
   ROAD_TEST_EXPECT(!rejected.ok && rejected.failure_category == CommitFailureCategory::kInvalidInput,
                    "legacy road archive was not rejected");
@@ -1109,12 +1405,12 @@ bool P0_save_load_is_authoritative_and_bit_stable(std::string& failure) {
                    "non-finite road archive double was accepted");
   ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "section_template.0.strip.0.style_id", "999")).ok,
                    "unknown road archive surface style was accepted");
-  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "16")).ok,
+  ROAD_TEST_EXPECT(!RoadState::Load(archive_with(saved.value, "road_graph_version", "17")).ok,
                    "future road archive version was accepted");
   ROAD_TEST_EXPECT(failure.empty(), failure);
   for (int old_version = 1; old_version <= 13; ++old_version) {
     std::string legacy = saved.value;
-    legacy.replace(0, std::string("road_graph_version=15").size(),
+    legacy.replace(0, std::string("road_graph_version=16").size(),
                    "road_graph_version=" + std::to_string(old_version));
     ROAD_TEST_EXPECT(!RoadState::Load(legacy).ok, "legacy road archive version was accepted");
   }
@@ -4993,11 +5289,12 @@ bool version_fourteen_archive_defaults_the_corner_radius(std::string& failure) {
   std::string line{};
   std::size_t dropped = 0;
   while (std::getline(lines, line)) {
-    if (line.find(".corner_radius_m=") != std::string::npos) {
+    if (line.find(".corner_radius_m=") != std::string::npos ||
+        line.find(".elevation_m=") != std::string::npos) {
       ++dropped;
       continue;
     }
-    if (line == "road_graph_version=15") line = "road_graph_version=14";
+    if (line == "road_graph_version=16") line = "road_graph_version=14";
     legacy += line;
     legacy += '\n';
   }
@@ -5013,7 +5310,7 @@ bool version_fourteen_archive_defaults_the_corner_radius(std::string& failure) {
   // back as the bytes it came from.
   const auto resaved = loaded.value.Save();
   ROAD_TEST_EXPECT(resaved.ok, resaved.error);
-  ROAD_TEST_EXPECT(resaved.value.starts_with("road_graph_version=15\n"),
+  ROAD_TEST_EXPECT(resaved.value.starts_with("road_graph_version=16\n"),
                    "a migrated road did not save as the current version");
   const auto reloaded = RoadState::Load(resaved.value);
   ROAD_TEST_EXPECT(reloaded.ok, reloaded.error);
@@ -6042,6 +6339,8 @@ int main() {
        junction_fan_uv_covers_basic_and_asymmetric_cases},
       {"gutter_profile_uv_uses_contour_v_and_patch_u",
        gutter_profile_uv_uses_contour_v_and_patch_u},
+      {"road_elevation_profile_drives_derived_geometry",
+       road_elevation_profile_drives_derived_geometry},
       {"P0_odd_lane_carriageway_mesh_has_drainage_crown",
        P0_odd_lane_carriageway_mesh_has_drainage_crown},
       {"P0_angled_segment_keeps_final_section_perpendicular", P0_angled_segment_keeps_final_section_perpendicular},

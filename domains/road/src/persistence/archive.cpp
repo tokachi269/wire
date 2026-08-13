@@ -516,7 +516,7 @@ Result<bool> ValidateAuthoritativeGraph(const SavedRoadGraph& graph,
   for (const RoadNode& node : graph.nodes) {
     Result<bool> id = add_id(node.id, &node_ids, "node");
     if (!id.ok) return id;
-    if (!finite(node.position)) {
+    if (!finite(node.position) || !finite(node.elevation_m)) {
       return Result<bool>::Fail(CommitFailureCategory::kInvalidInput,
                                 "road node position is non-finite");
     }
@@ -984,6 +984,7 @@ Result<std::string> SaveRoad(const SavedRoadGraph& graph,
     const std::string prefix = "node." + std::to_string(i);
     writer.UInt(prefix + ".id", node.id);
     write_vec2(writer, prefix + ".position", node.position);
+    writer.Double(prefix + ".elevation_m", node.elevation_m);
   }
 
   const auto policies = sorted_by_id(graph.connection_policy_overrides);
@@ -1169,12 +1170,14 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
   if (!status.ok) return Result<LoadedRoad>::Fail(status.failure_category, status.error);
   Result<std::uint64_t> version = reader.RequireU64("road_graph_version");
   if (!version.ok) return Result<LoadedRoad>::Fail(version.failure_category, version.error);
-  if (version.value != kVersion && version.value != kPreviousVersion) {
+  if (version.value != kVersion && version.value != kPreviousVersion &&
+      version.value != 14) {
     return Result<LoadedRoad>::Fail(CommitFailureCategory::kInvalidInput,
                                     "unknown road graph version");
   }
   const bool has_saved_placement = version.value >= 14;
   const bool has_saved_corner_radius = version.value >= 15;
+  const bool has_saved_node_elevation = version.value >= 16;
   Result<std::uint64_t> next_id = reader.RequireU64("next_id");
   if (!next_id.ok) return Result<LoadedRoad>::Fail(next_id.failure_category, next_id.error);
 
@@ -1387,9 +1390,18 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
     const std::string prefix = "node." + std::to_string(i);
     Result<std::uint64_t> id = reader.RequireU64(prefix + ".id");
     Result<Vec2d> position = vec2(reader, prefix + ".position");
+    Result<double> elevation =
+        has_saved_node_elevation
+            ? reader.RequireDouble(prefix + ".elevation_m")
+            : Result<double>::Ok(0.0);
     if (!id.ok) return Result<LoadedRoad>::Fail(id.failure_category, id.error);
     if (!position.ok) return Result<LoadedRoad>::Fail(position.failure_category, position.error);
-    loaded.graph.nodes.push_back(RoadNode{id.value, position.value});
+    if (!elevation.ok) {
+      return Result<LoadedRoad>::Fail(elevation.failure_category,
+                                      elevation.error);
+    }
+    loaded.graph.nodes.push_back(
+        RoadNode{id.value, position.value, elevation.value});
   }
 
   Result<std::size_t> policy_count = require_count("connection_policy_override.count");

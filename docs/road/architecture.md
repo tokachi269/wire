@@ -25,7 +25,7 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 
 ### Authoritative
 
-- `RoadNode`: IDと確定world position。segment endpoint位置の唯一の正本
+- `RoadNode`: ID、確定XY位置、標高。segment endpointの水平位置とendpoint elevationの唯一の正本
 - `RoadSegment`: 局所編集単位のID、endpoint node ID、局所`SegmentShape`、section timeline参照
 - `RoadCorridor`: 共通道路定義を参照する方向付き`RoadSegment`列。分岐を含まない
 - `SegmentShape`: endpointから出るhandle vector、内部knot、内部handle。endpoint座標は持たない
@@ -40,7 +40,7 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 - 新規道路作成時に確定した`RoadSegment.corner_radius_m`
 - next ID state
 
-`RoadSegment`へendpoint座標を保存しない。一回で確定したPathは一つのsegmentとして複数spanを持てる。
+`RoadSegment`へendpoint座標やendpoint elevationを保存しない。一回で確定したPathは一つのsegmentとして複数spanを持てる。
 確定済みsegmentの延長は新segmentを作り、既存shapeへspanを追記しない。degree 2 nodeは明示的な確定境界として
 正当であり、同一道路定義でも自動統合しない。自動junctionの存在、connection kind、gate、setback、meshは保存しない。corner radiusは
 共有templateではなくsegmentごとの作成時設定として保存し、sidebar変更を既存道路へ遡及させない。
@@ -53,7 +53,7 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 具体的なpreset catalogueは持たない。
 各presetのjunction corner radius初期値もWebが所有する。新規道路へ渡された後は
 `RoadSegment.corner_radius_m`が正本となり、splitは元segmentから、corridor延長は終端segmentから継承する。
-同一connectionの全approachが同じ値ならその値を使い、混在時は作成順や平均ではなくCore既定の4mを使う。
+junctionでは隣接approach pairごとに小さい保存値を丸みの上限として使い、作成順、平均、connection全体の固定fallbackへ畳み込まない。
 
 - 新規workspaceはWebが各presetを`AddRoadLayoutTemplate`へ渡し、返ったIDを保持する。
   Web側のpreset keyはCoreへ渡さず、保存もしない。
@@ -66,6 +66,38 @@ tool modeとpreviewは保存しない。adapterはrequestへ型変換するだ�
 
 `RoadState`は断面を持たない状態から始まる。存在しないtemplate IDで道路を作る要求は従来どおり
 明示的に失敗し、Coreが既定断面を補うことはない。
+
+### Vertical profile
+
+roadは水平線形と縦断を分ける。`SegmentShape`と`Path`はXY上のhorizontal alignmentであり、
+道路を一つの3D Bezierとして保存しない。MVPのvertical profileはsegment両端の`RoadNode.elevation_m`を
+alignment distanceで線形補間するconstant gradeである。endpoint elevationはnodeだけが所有し、
+segment、section、derived sample、meshへ重複保存しない。
+
+生成側はsegment distanceごとに3D road frameを導出する。frameは`position`、`tangent`、`lateral`、
+`normal`を持つ。`position.xy`はhorizontal alignment、`position.z`はvertical profileで決まり、
+`tangent`はhorizontal tangentにlongitudinal gradeを合成した3D方向である。bankingはまだ持たないため、
+`lateral`は水平横方向、`normal`はtangentとlateralから決まる基準上方向である。
+
+asphalt、sidewalk、shoulder、median、curb、L-gutter、BoundaryProfile、marking、lane pathは同じ
+road frameを使う。断面profileの`height_m`とcross slopeはframe上のlocal heightであり、world Zへ直接固定しない。
+概念上は`vertical profile elevation + section/profile local height`がsurface位置になる。
+longitudinal grade、cross slope、将来のbankingは別概念として扱い、cross slopeを縦断勾配の代用にしない。
+
+splitはsplit前vertical profileをそのsegment distanceで評価し、新しいRoadNodeの`elevation_m`へ保存する。
+branchをsegment途中から作る場合も、split nodeとbranch free endpointのdefault elevationはsource segmentの
+評価値を継承する。corridor extensionは既存終端node elevationを新segment startへ継承し、end elevation指定が
+なければ水平延長として同じ値を使う。Add Laneは断面幅とlane topologyだけを変え、node elevationやsegment
+vertical profileを変更しない。
+
+XY上で道路が交差しても、それだけではjunctionを作らない。接続はnode共有または明示operationだけで決まる。
+高さが違う道路を位置近接やXY交差から同一nodeへbindしない。junction / connectionのgateはapproachの
+3D frameから得る。現行junction surfaceはresolved gate / perimeterの3D点を使うが、高度な縦断曲線、
+banking、terrain cut/fill、bridge/tunnel geometryは別課題である。
+
+`RoadNode.elevation_m`はauthoritative archiveへ保存する。evaluated Z sample、3D frame、mesh vertex Z、
+lane path point Z、marking ZはDerivedであり保存しない。旧archiveから読むnode elevationは0.0mへmigrationし、
+既存の平面道路の見た目を保つ。
 
 ### Coreに残す具体値と、その理由
 
@@ -397,7 +429,7 @@ AddLaneの固定基準はCoreがlaneの方向・追加側・断面順から決�
 top-level entityはID順にcanonical serializeする。順序に意味がある`SegmentShape.internal_knots`やPath spanは保存順を維持する。
 doubleはload後に同じbinary doubleへ戻る表現で保存する。
 
-旧versionと未知versionは明示rejectし、migrationしない。loadはparse、field構造検証、型変換、
+未知versionと対応外の旧versionは明示rejectする。対応済み旧versionは明示migrationだけを通す。loadはparse、field構造検証、型変換、
 `ValidateAuthoritativeGraph`、`generate_road`、不変条件検査を通過した場合だけ新stateを返す。duplicate key、missing key、
 unknown key、count不一致、enum範囲外、非有限値、重複ID、欠損参照をrejectする。
 
@@ -477,10 +509,12 @@ sourceだけにあるIDは消滅として幅0のedgeから、またはedgeへ補
 同じIDのsurface stripまたは進行方向が変わる遷移、およびcollapse edgeが一意でない遷移はunsupportedとする。
 物理外形の変化とlane数の変化は独立であり、固定外形内の再配分と外側拡幅の両方を同じ補間で扱う。
 
-現行persistence versionは13。局所segment、corridor、directed ref、section strip、lane allocation、
-lane connection、boundary continuation、layoutのalignment offset、boundary profileをnamed fieldで保存する。
-version 12はboundaryのwidth/heightを2点profileへ解決し、その幅を左隣stripへ移して読む。
-version 11以前はmigrationせず明示rejectする。corridor長、累積distance、connection geometryは派生なので保存しない。
+現行persistence versionは16。局所segment、corridor、directed ref、section strip、lane allocation、
+lane connection、boundary continuation、layoutのalignment offset、boundary profile、segment corner radius、
+RoadNode elevationをnamed fieldで保存する。version 15以前のnode elevationは0.0mとして読む。
+version 14以前のcorner radiusはCore既定値として読む。version 12はboundaryのwidth/heightを2点profileへ解決し、
+その幅を左隣stripへ移して読む。version 11以前はmigrationせず明示rejectする。
+corridor長、累積distance、connection geometry、evaluated elevation、3D frameは派生なので保存しない。
 
 ## Boundary profile
 

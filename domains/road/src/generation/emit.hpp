@@ -7,8 +7,9 @@
 namespace city::road::generation {
 
 struct segment_sample {
-  Vec2d center{};
-  Vec2d lateral{};
+  Vec3d center{};
+  Vec3d lateral{};
+  Vec3d normal{0.0, 0.0, 1.0};
   double segment_distance_m = 0.0;
   bool uv_patch_boundary = false;
   std::vector<SectionBoundarySample> boundaries{};

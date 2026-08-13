@@ -17,7 +17,11 @@ struct RoadLayoutTransition {
   BoundaryId anchor_boundary_id = 0;
   std::vector<RoadLayoutTransitionRule> rules{};
 };
-struct RoadNode { RoadNodeId id = 0; Vec2d position{}; };
+struct RoadNode {
+  RoadNodeId id = 0;
+  Vec2d position{};
+  double elevation_m = 0.0;
+};
 struct SegmentKnot { Vec2d position{}; Vec2d handle_in{}; Vec2d handle_out{}; };
 enum class SegmentShapeIntent {
   kCurve,

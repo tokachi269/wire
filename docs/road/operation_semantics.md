@@ -45,6 +45,15 @@ trial generateの`resolve_connections`以降が一度だけ決める。operation
 
 外部入力不正は`kValidation`、正しい入力だがP0-P2で対応しない構造は`kUnsupported`、正しい正本から派生表やresolved read modelが欠ける場合は`kInternal`とする。
 
+`AddSegment`は新規nodeの`elevation_m`をrequestから受け取れる。省略時はstart elevationを0.0m、
+end elevationをstart elevationと同じ値にする。`AddSegmentConnectedTo`と
+`AddSegmentConnectedToSegment`では接続側endpoint elevationを共有nodeまたはsplit位置の評価値から決め、
+free endpoint elevationは省略時にその値を継承する。`ExtendCorridorFromEnd`は既存終端node elevationを
+startへ使い、省略された新end elevationは同じ値にする。`MoveNode`は指定された場合だけnode elevationを
+明示編集する。`SplitSegmentAtDistance`とsegment targetへの接続splitは、split前vertical profileを
+`segment_distance_m`で評価し、新split nodeのelevationへ保存する。Add Lane、DeleteSegment、marking操作は
+node elevationを変更しない。
+
 新規`RoadState`は`layout_templates`が空である。道路製品として提供する断面の一覧と具体値は
 Webが所有し(`web/src/road_templates.ts`)、新規workspaceの作成時にだけ`AddRoadLayoutTemplate`で
 登録する。Loadは保存済みの断面をそのまま使い、Web presetを再注入しない。

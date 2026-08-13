@@ -50,9 +50,9 @@ Vec3d gate_point_at(const ConnectionGate &gate, double section_lateral_m,
                                ? -section_lateral_m
                                : section_lateral_m;
   return {
-      gate.position.x + gate.lateral.x * lateral_m,
-      gate.position.y + gate.lateral.y * lateral_m,
-      gate.position.z + height_m,
+      gate.position.x + gate.lateral.x * lateral_m + gate.normal.x * height_m,
+      gate.position.y + gate.lateral.y * lateral_m + gate.normal.y * height_m,
+      gate.position.z + gate.lateral.z * lateral_m + gate.normal.z * height_m,
   };
 }
 
@@ -62,9 +62,12 @@ Vec3d boundary_point(const ConnectionGate &gate,
                                ? -boundary.lateral_m
                                : boundary.lateral_m;
   return {
-      gate.position.x + gate.lateral.x * lateral_m,
-      gate.position.y + gate.lateral.y * lateral_m,
-      gate.position.z + boundary.height_m,
+      gate.position.x + gate.lateral.x * lateral_m +
+          gate.normal.x * boundary.height_m,
+      gate.position.y + gate.lateral.y * lateral_m +
+          gate.normal.y * boundary.height_m,
+      gate.position.z + gate.lateral.z * lateral_m +
+          gate.normal.z * boundary.height_m,
   };
 }
 

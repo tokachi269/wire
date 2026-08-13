@@ -4,6 +4,7 @@
 #include "../geometry/junction.hpp"
 #include "../geometry/section.hpp"
 #include "../lookup.hpp"
+#include "vertical.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -268,12 +269,22 @@ const ResolvedConnection *connection_of(
   return found == connections.end() ? nullptr : &*found;
 }
 
-Result<double> lane_lateral(const LaneBand &lane,
-                            const SectionEvaluation &section) {
+Result<internal::LaneSectionPosition>
+lane_section_position(const LaneBand &lane, const SectionEvaluation &section) {
   RoadLayoutTemplate resolved{};
   resolved.strips.push_back(RoadLayoutStrip{lane.surface_strip_id});
   const Result<internal::LaneSectionPosition> position =
       internal::lane_position(resolved, lane, section);
+  return position.ok
+             ? Result<internal::LaneSectionPosition>::Ok(position.value)
+             : Result<internal::LaneSectionPosition>::Fail(
+                   position.failure_category, position.error);
+}
+
+Result<double> lane_lateral(const LaneBand &lane,
+                            const SectionEvaluation &section) {
+  const Result<internal::LaneSectionPosition> position =
+      lane_section_position(lane, section);
   return position.ok
              ? Result<double>::Ok(position.value.lateral_m)
              : Result<double>::Fail(position.failure_category, position.error);
@@ -302,7 +313,45 @@ Vec2d endpoint_point(const ResolvedApproach &approach, double lateral_m) {
   return Vec2d{approach.gate.position.x +
                    approach.gate.lateral.x * lateral_m * section_sign,
                approach.gate.position.y +
-                   approach.gate.lateral.y * lateral_m * section_sign};
+               approach.gate.lateral.y * lateral_m * section_sign};
+}
+
+Vec3d endpoint_lane_point(const ResolvedApproach &approach,
+                          const internal::LaneSectionPosition &position) {
+  const double section_sign =
+      approach.key.endpoint_role == EndpointRole::kStart ? 1.0 : -1.0;
+  return Vec3d{
+      approach.gate.position.x +
+          approach.gate.lateral.x * position.lateral_m * section_sign +
+          approach.gate.normal.x * position.height_m,
+      approach.gate.position.y +
+          approach.gate.lateral.y * position.lateral_m * section_sign +
+          approach.gate.normal.y * position.height_m,
+      approach.gate.position.z +
+          approach.gate.lateral.z * position.lateral_m * section_sign +
+          approach.gate.normal.z * position.height_m,
+  };
+}
+
+Result<std::vector<Vec3d>> sample_lane_path_points(const Path &path,
+                                                   double length_m,
+                                                   Vec3d start,
+                                                   Vec3d end) {
+  constexpr int kLanePathSamples = 16;
+  std::vector<Vec3d> points{};
+  points.reserve(static_cast<std::size_t>(kLanePathSamples + 1));
+  for (int index = 0; index <= kLanePathSamples; ++index) {
+    const double t = static_cast<double>(index) /
+                     static_cast<double>(kLanePathSamples);
+    const double distance_m = length_m * t;
+    const Result<Vec2d> xy = EvaluatePath(path, distance_m);
+    if (!xy.ok) {
+      return Result<std::vector<Vec3d>>::Fail(xy.failure_category, xy.error);
+    }
+    points.push_back(Vec3d{xy.value.x, xy.value.y,
+                           start.z + (end.z - start.z) * t});
+  }
+  return Result<std::vector<Vec3d>>::Ok(std::move(points));
 }
 
 Path connect_g1_endpoint_points(const ResolvedApproach &source,
@@ -379,16 +428,16 @@ Vec2d evaluate_span(const BezierSpan &span, double t) {
           3.0 * u * t * t * span.p2.y + t * t * t * span.p3.y};
 }
 
-ConnectionGate gate_at(const ApproachKey &key, Vec2d position, Vec2d tangent,
-                       Vec2d lateral) {
+ConnectionGate gate_at(const ApproachKey &key, Vec3d position, Vec3d tangent,
+                       Vec3d lateral, Vec3d normal) {
   ConnectionGate gate{};
   gate.approach = key;
   gate.segment_id = key.segment_id;
   gate.node_id = key.node_id;
-  gate.position = to3(position);
-  gate.tangent = to3(tangent);
-  gate.lateral = to3(lateral);
-  gate.normal = Vec3d{0.0, 0.0, 1.0};
+  gate.position = position;
+  gate.tangent = tangent;
+  gate.lateral = lateral;
+  gate.normal = normal;
   return gate;
 }
 
@@ -419,32 +468,39 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
   const double distance = key.endpoint_role == EndpointRole::kStart
                              ? setback
                              : segment.length_m - setback;
-  const Result<Vec2d> position = EvaluatePath(segment.alignment, distance);
-  const Result<Vec2d> path_tangent = tangent_at(segment.alignment, distance);
-  if (!position.ok || !path_tangent.ok) {
+  const Result<RoadFrame> frame = road_frame_at(segment, distance);
+  if (!frame.ok) {
     return Result<ResolvedApproach>::Fail(
         CommitFailureCategory::kInternalError, "road approach frame could not be evaluated");
   }
-  const Vec2d tangent = key.endpoint_role == EndpointRole::kStart
-                            ? path_tangent.value
-                            : scale(path_tangent.value, -1.0);
-  const Vec2d lateral{-tangent.y, tangent.x};
-  const Vec2d shifted =
-      internal::add(position.value, scale(lateral, lateral_shift));
+  const Vec3d tangent = key.endpoint_role == EndpointRole::kStart
+                            ? frame.value.tangent
+                            : Vec3d{-frame.value.tangent.x,
+                                    -frame.value.tangent.y,
+                                    -frame.value.tangent.z};
+  const Vec3d lateral = key.endpoint_role == EndpointRole::kStart
+                            ? frame.value.lateral
+                            : Vec3d{-frame.value.lateral.x,
+                                    -frame.value.lateral.y,
+                                    -frame.value.lateral.z};
+  const Vec3d shifted{
+      frame.value.position.x + lateral.x * lateral_shift,
+      frame.value.position.y + lateral.y * lateral_shift,
+      frame.value.position.z + lateral.z * lateral_shift};
 
   ResolvedApproach approach{};
   approach.key = key;
   approach.endpoint_template_id = endpoint_section;
-  approach.position = to3(shifted);
-  approach.tangent = to3(tangent);
-  approach.lateral = to3(lateral);
-  approach.normal = Vec3d{0.0, 0.0, 1.0};
+  approach.position = shifted;
+  approach.tangent = tangent;
+  approach.lateral = lateral;
+  approach.normal = frame.value.normal;
   approach.auto_setback_m = auto_setback_m;
   approach.resolved_setback_m = setback;
   approach.auto_lateral_shift_m = auto_lateral_shift_m;
   approach.resolved_lateral_shift_m = lateral_shift;
   approach.gate_segment_distance_m = distance;
-  approach.gate = gate_at(key, shifted, tangent, lateral);
+  approach.gate = gate_at(key, shifted, tangent, lateral, frame.value.normal);
   return Result<ResolvedApproach>::Ok(std::move(approach));
 }
 
@@ -777,11 +833,11 @@ Result<bool> derive_topology_paths(
           CommitFailureCategory::kInternalError,
           "lane connection path input is missing from resolved road");
     }
-    const Result<double> source_lateral =
-        lane_lateral(*source_lookup.lane, *source_section);
-    const Result<double> target_lateral =
-        lane_lateral(*target_lookup.lane, *target_section);
-    if (!source_lateral.ok || !target_lateral.ok) {
+    const Result<internal::LaneSectionPosition> source_position =
+        lane_section_position(*source_lookup.lane, *source_section);
+    const Result<internal::LaneSectionPosition> target_position =
+        lane_section_position(*target_lookup.lane, *target_section);
+    if (!source_position.ok || !target_position.ok) {
       return Result<bool>::Fail(
           CommitFailureCategory::kInternalError,
           "lane connection path cannot resolve a lane center");
@@ -789,11 +845,11 @@ Result<bool> derive_topology_paths(
     Result<Path> resolved_path =
         topology.kind == LaneConnectionKind::kJunctionMovement
             ? resolve_junction_movement_path(
-                  *connection, *source, source_lateral.value, *target,
-                  target_lateral.value)
+                  *connection, *source, source_position.value.lateral_m,
+                  *target, target_position.value.lateral_m)
             : Result<Path>::Ok(resolve_lane_transition_path(
-                  *source, source_lateral.value, *target,
-                  target_lateral.value));
+                  *source, source_position.value.lateral_m, *target,
+                  target_position.value.lateral_m));
     if (!resolved_path.ok) {
       return Result<bool>::Fail(resolved_path.failure_category,
                                 resolved_path.error);
@@ -803,7 +859,8 @@ Result<bool> derive_topology_paths(
                    path.spans.front().p3.y - path.spans.front().p0.y) <=
         distance_epsilon) {
       lane_paths.push_back(DerivedLanePath{
-          topology.id, Path{}, 0.0,
+          topology.id, Path{},
+          {endpoint_lane_point(*source, source_position.value)}, 0.0,
           std::numeric_limits<double>::infinity()});
       continue;
     }
@@ -811,8 +868,15 @@ Result<bool> derive_topology_paths(
     if (!length.ok) {
       return Result<bool>::Fail(length.failure_category, length.error);
     }
-    lane_paths.push_back(DerivedLanePath{topology.id, std::move(path),
-                                         length.value, 0.0});
+    const Result<std::vector<Vec3d>> points = sample_lane_path_points(
+        path, length.value, endpoint_lane_point(*source, source_position.value),
+        endpoint_lane_point(*target, target_position.value));
+    if (!points.ok) {
+      return Result<bool>::Fail(points.failure_category, points.error);
+    }
+    lane_paths.push_back(DerivedLanePath{
+        topology.id, std::move(path), std::move(points.value), length.value,
+        0.0});
     lane_paths.back().minimum_radius_m =
         minimum_radius(lane_paths.back().centerline);
   }

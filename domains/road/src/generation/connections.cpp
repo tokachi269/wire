@@ -35,7 +35,6 @@ using internal::to3;
 
 struct policy {
   double straight_tolerance_rad = 5.0 * std::numbers::pi / 180.0;
-  double minimum_junction_setback_m = 4.0;
   double curve_control_factor = 0.45;
   double parallel_sine_tolerance = 1e-3;
   std::size_t maximum_approaches = 4;
@@ -109,12 +108,23 @@ struct junction_corner_resolution {
 };
 
 Result<junction_corner_resolution> resolve_junction_corner(
-    const SavedRoadGraph &graph, const ordered_approach &first,
-    const ordered_approach &second) {
+    const SavedRoadGraph &graph, const std::vector<DerivedSegment> &segments,
+    const ordered_approach &first, const ordered_approach &second) {
   using Out = Result<junction_corner_resolution>;
   const RoadSegment *first_segment = find_segment(graph, first.key.segment_id);
   const RoadSegment *second_segment = find_segment(graph, second.key.segment_id);
-  if (first_segment == nullptr || second_segment == nullptr) {
+  const auto find_derived = [&segments](RoadSegmentId id) {
+    const auto found =
+        std::find_if(segments.begin(), segments.end(),
+                     [id](const DerivedSegment &segment) {
+                       return segment.id == id;
+                     });
+    return found == segments.end() ? nullptr : &*found;
+  };
+  const DerivedSegment *first_derived = find_derived(first.key.segment_id);
+  const DerivedSegment *second_derived = find_derived(second.key.segment_id);
+  if (first_segment == nullptr || second_segment == nullptr ||
+      first_derived == nullptr || second_derived == nullptr) {
     return Out::Fail(CommitFailureCategory::kInternalError,
                      "road junction corner source segment is missing");
   }
@@ -152,12 +162,23 @@ Result<junction_corner_resolution> resolve_junction_corner(
     return Out::Fail(CommitFailureCategory::kNotImplemented,
                      "road junction corner angle is too small");
   }
-  const double tangent_extension_m =
-      resolved.corner.radius_m / half_angle_tangent;
-  resolved.first_setback_m =
-      std::max(0.0, first_sharp_m) + tangent_extension_m;
-  resolved.second_setback_m =
-      std::max(0.0, second_sharp_m) + tangent_extension_m;
+  double tangent_extension_m = resolved.corner.radius_m / half_angle_tangent;
+  const double first_sharp_setback_m = std::max(0.0, first_sharp_m);
+  const double second_sharp_setback_m = std::max(0.0, second_sharp_m);
+  const double first_radius_room_m =
+      first_derived->length_m - first_sharp_setback_m;
+  const double second_radius_room_m =
+      second_derived->length_m - second_sharp_setback_m;
+  const double radius_room_m = std::min(first_radius_room_m, second_radius_room_m);
+  if (radius_room_m < -distance_epsilon) {
+    return Out::Fail(CommitFailureCategory::kNotImplemented,
+                     "road approach setback exceeds the segment length");
+  }
+  tangent_extension_m =
+      std::min(tangent_extension_m, std::max(0.0, radius_room_m));
+  resolved.corner.radius_m = tangent_extension_m * half_angle_tangent;
+  resolved.first_setback_m = first_sharp_setback_m + tangent_extension_m;
+  resolved.second_setback_m = second_sharp_setback_m + tangent_extension_m;
   return Out::Ok(resolved);
 }
 
@@ -504,6 +525,138 @@ Result<ResolvedApproach> resolve_approach(const SavedRoadGraph &graph,
   return Result<ResolvedApproach>::Ok(std::move(approach));
 }
 
+struct approach_location {
+  ResolvedConnection *connection = nullptr;
+  std::size_t index = 0;
+};
+
+bool has_setback_override(const SavedRoadGraph &graph, ApproachKey key) {
+  const ApproachGeometryOverride *override = find_approach_override(graph, key);
+  return override != nullptr && override->setback_m.has_value;
+}
+
+Result<bool> refit_approach_setback(const SavedRoadGraph &graph,
+                                    const std::vector<DerivedSegment> &segments,
+                                    approach_location location,
+                                    double setback_m) {
+  if (location.connection == nullptr ||
+      location.index >= location.connection->approaches.size()) {
+    return Result<bool>::Fail(CommitFailureCategory::kInternalError,
+                              "road approach fit target is missing");
+  }
+  const ResolvedApproach &current =
+      location.connection->approaches[location.index];
+  const RoadSegment *source = find_segment(graph, current.key.segment_id);
+  const auto derived =
+      std::find_if(segments.begin(), segments.end(),
+                   [&current](const DerivedSegment &segment) {
+                     return segment.id == current.key.segment_id;
+                   });
+  if (source == nullptr || derived == segments.end()) {
+    return Result<bool>::Fail(CommitFailureCategory::kInternalError,
+                              "road approach fit source is missing");
+  }
+  const RoadLayoutTemplateId endpoint_section =
+      endpoint_template_id(graph, *source, current.key);
+  if (endpoint_section == 0) {
+    return Result<bool>::Fail(
+        CommitFailureCategory::kInvalidInput,
+        "road approach endpoint section template is missing");
+  }
+  Result<ResolvedApproach> resolved =
+      resolve_approach(graph, *derived, current.key, endpoint_section,
+                       setback_m, current.auto_lateral_shift_m);
+  if (!resolved.ok) {
+    return Result<bool>::Fail(resolved.failure_category, resolved.error);
+  }
+  location.connection->approaches[location.index] = std::move(resolved.value);
+  return Result<bool>::Ok(true);
+}
+
+Result<bool> fit_short_segment_gates(
+    const SavedRoadGraph &graph, const std::vector<DerivedSegment> &segments,
+    std::vector<ResolvedConnection> &connections) {
+  for (const DerivedSegment &segment : segments) {
+    approach_location start{};
+    approach_location end{};
+    for (ResolvedConnection &connection : connections) {
+      for (std::size_t index = 0; index < connection.approaches.size();
+           ++index) {
+        const ResolvedApproach &approach = connection.approaches[index];
+        if (approach.key.segment_id != segment.id)
+          continue;
+        approach_location location{&connection, index};
+        if (approach.key.endpoint_role == EndpointRole::kStart) {
+          start = location;
+        } else {
+          end = location;
+        }
+      }
+    }
+
+    const auto setback_of = [](approach_location location) {
+      return location.connection->approaches[location.index].resolved_setback_m;
+    };
+    const auto can_refit = [&graph](approach_location location) {
+      if (location.connection == nullptr)
+        return false;
+      const ResolvedApproach &approach =
+          location.connection->approaches[location.index];
+      return !has_setback_override(graph, approach.key);
+    };
+
+    if (start.connection != nullptr && end.connection != nullptr) {
+      const double start_setback = setback_of(start);
+      const double end_setback = setback_of(end);
+      const double total = start_setback + end_setback;
+      if (total > segment.length_m + distance_epsilon) {
+        if (!can_refit(start) || !can_refit(end)) {
+          return Result<bool>::Fail(CommitFailureCategory::kNotImplemented,
+                                    "road segment connection gates overlap");
+        }
+        const double scale =
+            segment.length_m <= distance_epsilon ? 0.0 : segment.length_m / total;
+        Result<bool> fitted =
+            refit_approach_setback(graph, segments, start, start_setback * scale);
+        if (!fitted.ok)
+          return fitted;
+        fitted =
+            refit_approach_setback(graph, segments, end, end_setback * scale);
+        if (!fitted.ok)
+          return fitted;
+      }
+    } else {
+      const approach_location location =
+          start.connection != nullptr ? start : end;
+      if (location.connection == nullptr)
+        continue;
+      const double setback = setback_of(location);
+      if (setback > segment.length_m + distance_epsilon) {
+        if (!can_refit(location)) {
+          return Result<bool>::Fail(
+              CommitFailureCategory::kNotImplemented,
+              "road approach setback exceeds the segment length");
+        }
+        Result<bool> fitted =
+            refit_approach_setback(graph, segments, location, segment.length_m);
+        if (!fitted.ok)
+          return fitted;
+      }
+    }
+  }
+
+  for (ResolvedConnection &connection : connections) {
+    if (connection.kind != NodeConnectionKind::kCorner)
+      continue;
+    double minimum_setback = std::numeric_limits<double>::infinity();
+    for (const ResolvedApproach &approach : connection.approaches)
+      minimum_setback = std::min(minimum_setback, approach.resolved_setback_m);
+    if (std::isfinite(minimum_setback))
+      connection.corner_control_m = minimum_setback * rules.curve_control_factor;
+  }
+  return Result<bool>::Ok(true);
+}
+
 } // namespace
 
 Result<std::vector<ResolvedConnection>>
@@ -609,7 +762,8 @@ resolve_connections(const SavedRoadGraph &graph,
       connection.junction_corners.reserve(ordered.size());
       for (std::size_t index = 0; index < ordered.size(); ++index) {
         Result<junction_corner_resolution> resolved = resolve_junction_corner(
-            graph, ordered[index], ordered[(index + 1) % ordered.size()]);
+            graph, segments, ordered[index],
+            ordered[(index + 1) % ordered.size()]);
         if (!resolved.ok) {
           return Out::Fail(resolved.failure_category, resolved.error);
         }
@@ -646,7 +800,7 @@ resolve_connections(const SavedRoadGraph &graph,
                            "road degree-two corner approach is missing");
         }
       } else if (connection.kind == NodeConnectionKind::kJunction) {
-        setback = rules.minimum_junction_setback_m;
+        setback = 0.0;
         for (const junction_corner_resolution &corner : junction_corners) {
           if (corner.corner.first_approach == approach.key) {
             setback = std::max(setback, corner.first_setback_m);
@@ -683,6 +837,10 @@ resolve_connections(const SavedRoadGraph &graph,
           minimum_setback * rules.curve_control_factor;
     }
     connections.push_back(std::move(connection));
+  }
+  Result<bool> fitted = fit_short_segment_gates(graph, segments, connections);
+  if (!fitted.ok) {
+    return Out::Fail(fitted.failure_category, fitted.error);
   }
   return Out::Ok(std::move(connections));
 }

@@ -1953,6 +1953,64 @@ bool P1_short_connections_use_required_setback(std::string& failure) {
   return true;
 }
 
+bool P1_short_junctions_shrink_auto_gate_setbacks(std::string& failure) {
+  {
+    RoadState state{};
+    const auto section =
+        road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({-20.0, 0.0}, {20.0, 0.0})}), section});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const auto branch = state.AddSegmentConnectedToSegment(
+        city::road::AddSegmentConnectedToSegmentRequest{
+            MakePath({MakeLine({0.0, 0.0}, {0.0, 6.0})}), section,
+            base.value, 20.0});
+    ROAD_TEST_EXPECT(
+        branch.ok,
+        "a 6m T branch rejected a corner that fits by shrinking radius: " +
+            branch.error);
+    const auto junctions = road_test_view::junctions(state.derived());
+    ROAD_TEST_EXPECT(junctions.size() == 1,
+                     "short T branch did not form one junction");
+    const auto branch_approach = std::find_if(
+        junctions.front()->approaches.begin(), junctions.front()->approaches.end(),
+        [id = branch.value](const auto& approach) {
+          return approach.key.segment_id == id;
+        });
+    ROAD_TEST_EXPECT(branch_approach != junctions.front()->approaches.end(),
+                     "short T branch approach is missing");
+    ROAD_TEST_EXPECT(
+        branch_approach->resolved_setback_m <= 6.0 + 1e-6,
+        "short T branch gate remained beyond the segment length");
+  }
+
+  {
+    RoadState state{};
+    const auto section =
+        road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+    const auto lower = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({-20.0, 0.0}, {20.0, 0.0})}), section});
+    const auto upper = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({-20.0, 10.0}, {20.0, 10.0})}), section});
+    ROAD_TEST_EXPECT(lower.ok && upper.ok,
+                     "short two-junction fixture could not be created");
+    const auto connected = state.AddSegmentBetween(
+        city::road::AddSegmentBetweenRequest{
+            MakePath({MakeLine({0.0, 0.0}, {0.0, 10.0})}), section,
+            city::road::RoadConnectionTarget{0, lower.value, 20.0},
+            city::road::RoadConnectionTarget{0, upper.value, 20.0}});
+    ROAD_TEST_EXPECT(
+        connected.ok,
+        "a short two-ended connection rejected overlapping auto gates: " +
+            connected.error);
+    const auto* derived = FindDerivedSegment(state.derived(), connected.value);
+    ROAD_TEST_EXPECT(derived != nullptr, "short connector was not derived");
+    ROAD_TEST_EXPECT(derived->surface_end_m + 1e-6 >= derived->surface_start_m,
+                     "short connector gates still overlap after fitting");
+  }
+  return true;
+}
+
 bool P1_segment_snap_splits_straight_road_for_t_junction(std::string& failure) {
   RoadState state{};
   const auto section = road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
@@ -6370,6 +6428,8 @@ int main() {
       {"P1_straight_connection_has_no_junction_area", P1_straight_connection_has_no_junction_area},
       {"P1_short_connections_use_required_setback",
        P1_short_connections_use_required_setback},
+      {"P1_short_junctions_shrink_auto_gate_setbacks",
+       P1_short_junctions_shrink_auto_gate_setbacks},
       {"P1_segment_snap_splits_straight_road_for_t_junction", P1_segment_snap_splits_straight_road_for_t_junction},
       {"P1_junction_setback_uses_the_facing_section_side",
        P1_junction_setback_uses_the_facing_section_side},

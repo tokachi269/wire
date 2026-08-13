@@ -58,8 +58,7 @@ double quantized_patch_u_end(double length_m) {
 }
 
 Vec2d world_uv(Vec3d point) {
-  return {point.x / kDefaultPatchUvSettings.reference_length_m,
-          point.y / kDefaultPatchUvSettings.reference_length_m};
+  return {point.x, point.y};
 }
 
 void append_vertex(Mesh& mesh, Vec3d point, Vec2d uv) {
@@ -130,6 +129,18 @@ struct segment_render_grid {
 
 RenderStyleRef asphalt_style() {
   return RenderStyleFromSurface(builtin_surface_styles::kAsphalt);
+}
+
+bool planar_surface_style(RenderStyleRef style) {
+  if (style.domain != RenderStyleDomain::kSurface) return false;
+  return style.value == builtin_surface_styles::kAsphalt.value ||
+         style.value == builtin_surface_styles::kSidewalk.value ||
+         style.value == builtin_surface_styles::kMedian.value;
+}
+
+MeshUvMapping uv_mapping_for_style(RenderStyleRef style) {
+  return planar_surface_style(style) ? MeshUvMapping::kWorld
+                                     : MeshUvMapping::kPatchQuantized;
 }
 
 std::optional<std::size_t> carriageway_crown_face(
@@ -221,7 +232,8 @@ segment_render_grid make_segment_render_grid(
 
 void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
                   const std::vector<Vec3d> &b,
-                  const std::vector<double>* shared_distances = nullptr) {
+                  const std::vector<double>* shared_distances = nullptr,
+                  MeshUvMapping mapping = MeshUvMapping::kPatchQuantized) {
   if (a.size() != b.size() || a.size() < 2)
     return;
   const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
@@ -235,13 +247,16 @@ void append_strip(Mesh &mesh, const std::vector<Vec3d> &a,
           (distance(a[i - 1], a[i]) + distance(b[i - 1], b[i])) * 0.5;
     }
   }
-  const double u_end = quantized_patch_u_end(distances.back());
+  const double u_end = mapping == MeshUvMapping::kPatchQuantized
+                           ? quantized_patch_u_end(distances.back())
+                           : distances.back();
   for (std::size_t i = 0; i < a.size(); ++i) {
     const double u =
         distances.back() > 1e-9 ? (distances[i] / distances.back()) * u_end
                                 : 0.0;
+    const double v = distance(a[i], b[i]);
     append_vertex(mesh, a[i], Vec2d{u, 0.0});
-    append_vertex(mesh, b[i], Vec2d{u, 1.0});
+    append_vertex(mesh, b[i], Vec2d{u, v});
   }
   for (std::uint32_t i = 0; i + 1 < a.size(); ++i) {
     const std::uint32_t p = base + i * 2;
@@ -343,7 +358,7 @@ Result<segment_output> emit_segment(const segment_input &input) {
     Mesh mesh{};
     mesh.owner_segment_id = input.segment_id;
     mesh.style = style;
-    mesh.uv_mapping = MeshUvMapping::kPatchQuantized;
+    mesh.uv_mapping = uv_mapping_for_style(style);
     output.surface_meshes.push_back(std::move(mesh));
   }
 
@@ -359,7 +374,8 @@ Result<segment_output> emit_segment(const segment_input &input) {
         0.0, input.samples[patch_end].segment_distance_m - patch_start_m);
     const double patch_u_end = quantized_patch_u_end(patch_length_m);
     std::vector<Vec3d> vertices{};
-    std::vector<Vec2d> uv0{};
+    std::vector<Vec2d> planar_uv0{};
+    std::vector<Vec2d> sweep_uv0{};
     for (std::size_t sample_index = patch_begin; sample_index <= patch_end;
          ++sample_index) {
       const segment_sample &sample = input.samples[sample_index];
@@ -395,13 +411,15 @@ Result<segment_output> emit_segment(const segment_input &input) {
                    sample.boundaries[column.source_index + 1].profile_v_m) *
                       0.5
                 : boundary.profile_v_m;
-        uv0.push_back(
-            Vec2d{u, v / kDefaultPatchUvSettings.reference_length_m});
+        planar_uv0.push_back(
+            Vec2d{sample.segment_distance_m - patch_start_m, lateral});
+        sweep_uv0.push_back(Vec2d{u, v});
         if (!column.generated_crown &&
             input.samples.front().boundaries[column.source_index].hard_edge) {
           vertices.push_back(vertex);
-          uv0.push_back(
-              Vec2d{u, v / kDefaultPatchUvSettings.reference_length_m});
+          planar_uv0.push_back(
+              Vec2d{sample.segment_distance_m - patch_start_m, lateral});
+          sweep_uv0.push_back(Vec2d{u, v});
         }
       }
     }
@@ -412,7 +430,9 @@ Result<segment_output> emit_segment(const segment_input &input) {
       const std::uint32_t base =
           static_cast<std::uint32_t>(mesh.vertices.size());
       mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
-      mesh.uv0.insert(mesh.uv0.end(), uv0.begin(), uv0.end());
+      const std::vector<Vec2d>& patch_uv0 =
+          mesh.uv_mapping == MeshUvMapping::kWorld ? planar_uv0 : sweep_uv0;
+      mesh.uv0.insert(mesh.uv0.end(), patch_uv0.begin(), patch_uv0.end());
       for (std::uint32_t row = 0; row + 1 < patch_rows; ++row) {
         for (std::uint32_t col = 0; col < grid.face_styles.size(); ++col) {
           if (grid.face_styles[col] != mesh.style)
@@ -432,7 +452,7 @@ Result<segment_output> emit_segment(const segment_input &input) {
     patch_begin = patch_end;
   }
   for (Mesh &mesh : output.surface_meshes) {
-    finalize_mesh(mesh, MeshUvMapping::kPatchQuantized);
+    finalize_mesh(mesh, mesh.uv_mapping);
   }
 
   output.terrain_mask.segment_id = input.segment_id;
@@ -476,16 +496,18 @@ Result<std::vector<Mesh>> emit_connection(const ConnectionGeometry &input) {
       meshes.push_back(Mesh{});
       found = std::prev(meshes.end());
       found->style = strip.style;
+      found->uv_mapping = uv_mapping_for_style(strip.style);
     }
+    const MeshUvMapping mapping = uv_mapping_for_style(strip.style);
     if (strip.winding == SurfaceWinding::kLeftToRight)
       append_strip(*found, strip.left, strip.right,
-                   &shared_distances[strip.left.size()]);
+                   &shared_distances[strip.left.size()], mapping);
     else
       append_strip(*found, strip.right, strip.left,
-                   &shared_distances[strip.left.size()]);
+                   &shared_distances[strip.left.size()], mapping);
   }
   for (Mesh& mesh : meshes)
-    finalize_mesh(mesh, MeshUvMapping::kPatchQuantized);
+    finalize_mesh(mesh, mesh.uv_mapping);
   return Result<std::vector<Mesh>>::Ok(std::move(meshes));
 }
 
@@ -527,14 +549,15 @@ Result<junction_output> emit_junction(const JunctionGeometry &input) {
       output.surface_meshes.push_back(Mesh{});
       found = std::prev(output.surface_meshes.end());
       found->style = strip.style;
-      found->uv_mapping = MeshUvMapping::kPatchQuantized;
+      found->uv_mapping = uv_mapping_for_style(strip.style);
     }
+    const MeshUvMapping mapping = uv_mapping_for_style(strip.style);
     if (strip.winding == SurfaceWinding::kLeftToRight)
       append_strip(*found, strip.left, strip.right,
-                   &shared_distances[strip.left.size()]);
+                   &shared_distances[strip.left.size()], mapping);
     else
       append_strip(*found, strip.right, strip.left,
-                   &shared_distances[strip.left.size()]);
+                   &shared_distances[strip.left.size()], mapping);
   }
   for (Mesh& mesh : output.surface_meshes)
     finalize_mesh(mesh, mesh.uv_mapping);
@@ -553,7 +576,7 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
       Mesh mesh{};
       mesh.owner_segment_id = marking.owner.segment_id;
       mesh.style = RenderStyleFromMarking(marking.style_id);
-      mesh.uv_mapping = MeshUvMapping::kPatchQuantized;
+      mesh.uv_mapping = MeshUvMapping::kWorld;
       std::vector<Vec3d> left{};
       std::vector<Vec3d> right{};
       const double half_width = marking.width_m * 0.5;
@@ -572,8 +595,8 @@ emit_markings(const std::vector<DerivedMarking> &markings) {
         right.push_back(Vec3d{current.x - lateral.x * half_width,
                               current.y - lateral.y * half_width, current.z});
       }
-      append_strip(mesh, right, left);
-      finalize_mesh(mesh, MeshUvMapping::kPatchQuantized);
+      append_strip(mesh, right, left, nullptr, MeshUvMapping::kWorld);
+      finalize_mesh(mesh, MeshUvMapping::kWorld);
       output.push_back(std::move(mesh));
     }
     if (!marking.polygon.empty()) {

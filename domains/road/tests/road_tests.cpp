@@ -348,6 +348,15 @@ bool junction_mesh_is_non_overlapping(const RoadState& state,
         const double area = orient_2d(a, b, c) * 0.5;
         ROAD_TEST_EXPECT(area > 1e-9,
                          label + " junction fan triangle has inconsistent winding");
+        const Vec2d& uva = mesh.uv0[mesh.indices[face]];
+        const Vec2d& uvb = mesh.uv0[mesh.indices[face + 1]];
+        const Vec2d& uvc = mesh.uv0[mesh.indices[face + 2]];
+        const double uv_area =
+            std::abs(((uvb.x - uva.x) * (uvc.y - uva.y) -
+                      (uvc.x - uva.x) * (uvb.y - uva.y)) *
+                     0.5);
+        ROAD_TEST_EXPECT(uv_area > 1e-12,
+                         label + " junction fan triangle has collapsed UV");
         const Vec3d centroid{(a.x + b.x + c.x) / 3.0,
                              (a.y + b.y + c.y) / 3.0,
                              (a.z + b.z + c.z) / 3.0};
@@ -593,6 +602,17 @@ double max_u(const Mesh& mesh) {
   return value;
 }
 
+double indexed_uv_v_span(const Mesh& mesh) {
+  double min_v = std::numeric_limits<double>::infinity();
+  double max_v = -std::numeric_limits<double>::infinity();
+  for (const std::uint32_t index : mesh.indices) {
+    if (index >= mesh.uv0.size()) continue;
+    min_v = std::min(min_v, mesh.uv0[index].y);
+    max_v = std::max(max_v, mesh.uv0[index].y);
+  }
+  return std::isfinite(min_v) && std::isfinite(max_v) ? max_v - min_v : 0.0;
+}
+
 std::vector<Vec2d> uvs_at_yz(const Mesh& mesh, double y, double z) {
   std::vector<Vec2d> out{};
   for (std::size_t index = 0; index < mesh.vertices.size(); ++index) {
@@ -652,15 +672,23 @@ bool mesh_uv_normals_and_material_groups_are_local(std::string& failure) {
       first_asphalt_mesh_for_segment(short_state, short_segment.value);
   ROAD_TEST_EXPECT(short_mesh != nullptr, "short segment asphalt mesh is missing");
   ROAD_TEST_EXPECT(mesh_attributes_are_complete(*short_mesh, failure), failure);
-  ROAD_TEST_EXPECT(short_mesh->uv_mapping == MeshUvMapping::kPatchQuantized,
-                   "directional road surface does not use patch-quantized UV");
-  ROAD_TEST_EXPECT(std::abs(max_u(*short_mesh) - 0.25) < 1e-9,
-                   "short segment did not receive the minimum safe-seam UV interval");
+  ROAD_TEST_EXPECT(short_mesh->uv_mapping == MeshUvMapping::kWorld,
+                   "planar asphalt surface does not use metric UV");
+  ROAD_TEST_EXPECT(std::abs(max_u(*short_mesh) - 2.0) < 1e-9,
+                   "short asphalt segment U is not measured in meters");
   ROAD_TEST_EXPECT(!short_state.derived().marking_meshes.empty(),
                    "short segment marking mesh is missing");
   ROAD_TEST_EXPECT(mesh_attributes_are_complete(
-                       short_state.derived().marking_meshes.front(), failure),
+                        short_state.derived().marking_meshes.front(), failure),
                    failure);
+  ROAD_TEST_EXPECT(short_state.derived().marking_meshes.front().uv_mapping ==
+                       MeshUvMapping::kWorld,
+                   "marking ribbon does not use metric local UV");
+  ROAD_TEST_EXPECT(max_u(short_state.derived().marking_meshes.front()) > 0.0,
+                   "marking ribbon U does not progress along the line");
+  ROAD_TEST_EXPECT(indexed_uv_v_span(short_state.derived().marking_meshes.front()) >
+                       0.0,
+                   "marking ribbon V does not span the line width");
 
   RoadState long_state{};
   const auto long_section =
@@ -673,8 +701,23 @@ bool mesh_uv_normals_and_material_groups_are_local(std::string& failure) {
       first_asphalt_mesh_for_segment(long_state, long_segment.value);
   ROAD_TEST_EXPECT(long_mesh != nullptr, "long segment asphalt mesh is missing");
   ROAD_TEST_EXPECT(mesh_attributes_are_complete(*long_mesh, failure), failure);
-  ROAD_TEST_EXPECT(std::abs(max_u(*long_mesh) - 1.25) < 1e-9,
-                   "long segment did not quantize past U=1 for repeating texture");
+  ROAD_TEST_EXPECT(std::abs(max_u(*long_mesh) - 78.0) < 1e-9,
+                   "long asphalt segment U is not measured in meters");
+  ROAD_TEST_EXPECT(std::abs(indexed_uv_v_span(*short_mesh) - 6.0) < 1e-9,
+                   "two-lane asphalt V is not measured in lateral meters");
+  RoadState wide_state{};
+  const auto wide_section =
+      road_fixture::AddLayout(wide_state, road_fixture::ExtraLaneLayout(0));
+  const auto wide_segment = wide_state.AddSegment(
+      city::road::AddSegmentRequest{
+          MakePath({MakeLine({0.0, 0.0}, {2.0, 0.0})}), wide_section});
+  ROAD_TEST_EXPECT(wide_segment.ok, wide_segment.error);
+  const Mesh* wide_mesh =
+      first_asphalt_mesh_for_segment(wide_state, wide_segment.value);
+  ROAD_TEST_EXPECT(wide_mesh != nullptr, "wide asphalt UV fixture is missing");
+  ROAD_TEST_EXPECT(indexed_uv_v_span(*wide_mesh) >
+                       indexed_uv_v_span(*short_mesh),
+                   "wider asphalt section was normalized to the same V span");
 
   auto branch_segment_u = [](double upstream_length_m) {
     RoadState state{};
@@ -748,6 +791,10 @@ bool gutter_profile_uv_uses_contour_v_and_patch_u(std::string& failure) {
       });
   ROAD_TEST_EXPECT(curb_mesh != state.derived().segment_meshes.end(),
                    "gutter UV fixture has no curb mesh");
+  ROAD_TEST_EXPECT(curb_mesh->uv_mapping == MeshUvMapping::kPatchQuantized,
+                   "gutter sweep does not use patch-quantized UV");
+  ROAD_TEST_EXPECT(std::abs(max_u(*curb_mesh) - 1.25) < 1e-9,
+                   "long gutter sweep did not quantize past U=1 for repeating texture");
   const std::vector<Vec2d> top =
       uvs_at_yz(*curb_mesh, boundaries[2].lateral_m, boundaries[2].height_m);
   const std::vector<Vec2d> bottom =
@@ -756,6 +803,9 @@ bool gutter_profile_uv_uses_contour_v_and_patch_u(std::string& failure) {
                    "gutter vertical face vertices were not emitted");
   ROAD_TEST_EXPECT(std::abs(top.front().y - bottom.front().y) > 1e-9,
                    "gutter vertical face collapsed to one V coordinate");
+  ROAD_TEST_EXPECT(std::abs(top.front().y - boundaries[2].profile_v_m) < 1e-9 &&
+                       std::abs(bottom.front().y - boundaries[3].profile_v_m) < 1e-9,
+                   "gutter V is not the profile-local contour distance");
   ROAD_TEST_EXPECT(boundaries[1].profile_v_m < boundaries[2].profile_v_m &&
                        boundaries[2].profile_v_m < boundaries[3].profile_v_m &&
                        boundaries[3].profile_v_m < boundaries[4].profile_v_m,
@@ -776,14 +826,14 @@ bool gutter_profile_uv_uses_contour_v_and_patch_u(std::string& failure) {
   const Mesh* asphalt =
       first_asphalt_mesh_for_segment(state, segment.value);
   ROAD_TEST_EXPECT(asphalt != nullptr, "transition UV fixture has no asphalt mesh");
-  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 20.0, 0.0),
-                   "transition start did not begin a new UV patch at U=0");
-  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 60.0, 0.0),
-                   "transition completion did not begin a new UV patch at U=0");
-  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 20.0, 0.25),
-                   "short pre-transition patch did not keep its own safe-seam end");
-  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 60.0, 0.75),
-                   "transition patch did not keep its own quantized safe-seam end: " +
+  ROAD_TEST_EXPECT(asphalt->uv_mapping == MeshUvMapping::kWorld,
+                   "transition asphalt did not keep metric planar UV");
+  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 20.0, 20.0) &&
+                       has_u_at_x(*asphalt, 20.0, 0.0),
+                   "transition start did not keep metric U while splitting the derived patch");
+  ROAD_TEST_EXPECT(has_u_at_x(*asphalt, 60.0, 40.0) &&
+                       has_u_at_x(*asphalt, 60.0, 0.0),
+                   "transition completion did not keep metric U while splitting the derived patch: " +
                        u_values_at_x(*asphalt, 60.0));
 
   RoadState short_state{};
@@ -808,9 +858,10 @@ bool gutter_profile_uv_uses_contour_v_and_patch_u(std::string& failure) {
   const Mesh* short_asphalt =
       first_asphalt_mesh_for_segment(short_state, short_segment.value);
   ROAD_TEST_EXPECT(short_asphalt != nullptr, "short transition UV fixture has no asphalt mesh");
-  ROAD_TEST_EXPECT(has_u_at_x(*short_asphalt, 2.0, 0.25) &&
-                       has_u_at_x(*short_asphalt, 4.0, 0.25),
-                   "short transition patches did not keep the minimum safe-seam interval");
+  ROAD_TEST_EXPECT(has_u_at_x(*short_asphalt, 2.0, 2.0) &&
+                       has_u_at_x(*short_asphalt, 2.0, 0.0) &&
+                       has_u_at_x(*short_asphalt, 4.0, 2.0),
+                   "short transition asphalt did not keep meter-scaled local U");
 
   RoadState curve_state{};
   const auto curve_layout =
@@ -835,9 +886,9 @@ bool gutter_profile_uv_uses_contour_v_and_patch_u(std::string& failure) {
   const Mesh* curve_asphalt =
       first_asphalt_mesh_for_segment(curve_state, curve_segment.value);
   ROAD_TEST_EXPECT(curve_asphalt != nullptr, "curve transition UV fixture has no asphalt mesh");
-  ROAD_TEST_EXPECT(has_u_near_segment_distance(*curve_asphalt, curve_path, 20.0, 0.0) &&
-                       has_u_near_segment_distance(*curve_asphalt, curve_path, 40.0, 0.0),
-                   "curve transition boundaries did not reset their UV patches");
+  ROAD_TEST_EXPECT(has_u_near_segment_distance(*curve_asphalt, curve_path, 20.0, 20.0) &&
+                       has_u_near_segment_distance(*curve_asphalt, curve_path, 40.0, 20.0),
+                   "curve transition asphalt did not keep meter-scaled local U");
 
   const auto saved = short_state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
@@ -854,9 +905,9 @@ bool gutter_profile_uv_uses_contour_v_and_patch_u(std::string& failure) {
       first_asphalt_mesh_for_segment(reversed.value, short_segment.value);
   ROAD_TEST_EXPECT(reversed_asphalt != nullptr,
                    "reversed transition UV fixture has no asphalt mesh");
-  ROAD_TEST_EXPECT(has_u_at_x(*reversed_asphalt, 2.0, 0.25) &&
-                       has_u_at_x(*reversed_asphalt, 4.0, 0.25),
-                   "reversed corridor changed segment-local UV patch lengths");
+  ROAD_TEST_EXPECT(has_u_at_x(*reversed_asphalt, 2.0, 2.0) &&
+                       has_u_at_x(*reversed_asphalt, 4.0, 2.0),
+                   "reversed corridor changed segment-local metric UV lengths");
   return true;
 }
 

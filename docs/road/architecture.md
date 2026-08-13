@@ -245,10 +245,17 @@ generated `Mesh`はposition、index、normal、uv0、material groupを持つ。�
 normalは完成したtriangleから積算して派生し、normalの都合でgeometryやUV topologyを変えない。
 
 roadのUVはnetwork/corridorの累積距離を使わない。上流segmentの長さを次segmentのUV originへ渡す依存鎖を
-作らず、branchやjunctionの先までUV continuityのために探索しない。UVはgeometry patchごとに局所的に閉じ、
-隣patchはU=0から始めてよい。
+作らず、branchやjunctionの先までUV continuityのために探索しない。Coreが決めるのはgeometryをどの
+2次元座標へparameterizeするかまでで、texture file、repeat scale、normal / roughness / overlayの使い方は
+viewer material側が決める。
 
-方向を持つsweep surfaceは`MeshUvMapping::kPatchQuantized`を使う。設定は`PatchUvSettings`で表し、
+asphalt、sidewalk、median等の面的surfaceは`MeshUvMapping::kWorld`を使い、UVを0..1へ道路幅・道路長で
+正規化しない。segment surfaceではUをそのsegment上のpatch-local距離m、Vを断面横方向mとして出す。
+transitionでDerived上のpatchが分かれても、各patch内のU/Vはmeter単位であり、幅が6mから12mへ変わっただけで
+同じV spanへ正規化しない。junction interiorのように単一の道路方向がない面はworld XYのmeter座標を使う。
+
+方向を持つsweep surface、つまりgutter、curb、将来のparapet、高架側面、retaining wall等は
+`MeshUvMapping::kPatchQuantized`を使う。設定は`PatchUvSettings`で表し、
 現行defaultは`reference_length_m=64.0`、`seam_divisions=4`である。safe seamの長さは
 `reference_length_m / seam_divisions`で、patch lengthを最も近いsafe seam数へ丸める。
 短いpatchでも最低1 intervalを割り当て、Uは1を超えてよい。現在のprocedural sectionではUをpatch長手方向、
@@ -258,21 +265,21 @@ Vを評価済み断面profileのcontour累積距離から生成する。L-gutter
 
 一つのsweep geometry patchは一つのlongitudinal U mappingを共有する。同じsample indexに属する
 top / wall / channel等のprofile faceは同じUを持ち、faceごとにarc lengthやsafe seam量子化をやり直さない。
-segment surfaceでは`surface_segment_distances_m`のsegment-local距離を共通U基準に使う。
+sweepを含むsegment boundary surfaceでは`surface_segment_distances_m`のsegment-local距離を共通U基準に使う。
 corner / junction boundary stripでは、同じ点数のresolved strip群から局所的な代表距離列を作り、各stripへ共有する。
 これはconnectionまたはjunction内のresolved geometryだけを見る処理で、corridorやnetworkを辿らない。
 
 `RoadLayoutTransition`を持つsegmentでは、segment start、transition start、transition completion、segment endを
-UV patch boundaryにする。各patchはU=0から始まり、前patchのU_endを次patchへ引き継がない。
-Add Laneも同じsection transitionなので、transition前、taper、completion後のpatchへ分かれる。
-UV patch分割はDerived/emit上の分割であり、RoadSegmentやcorridorをsplitしない。
+Derived UV patch boundaryにする。sweep patchは各patchでU=0から始まり、前patchのU_endを次patchへ引き継がない。
+planar surfaceはpatchが分かれてもmeter単位のscaleを維持する。Add Laneも同じsection transitionなので、
+transition前、taper、completion後のDerived patchへ分かれる。UV patch分割はDerived/emit上の分割であり、
+RoadSegmentやcorridorをsplitしない。
 
-方向性UVが不要なsurfaceは`MeshUvMapping::kWorld`を使う。現行junction interiorと面markingは
-world-space mappingで、junction/corridorの前後関係を読まない。junction interiorは解決済みperimeterを
-boundary頂点として保持し、追加した中心点からfan状に三角形を張る。corner subdivision由来のperimeter頂点を
-interior mesh側でも使うため、corner tessellationとinterior triangulationは境界で一致する。junctionの境界stripや
-corner/connection strip、segment surface、線marking ribbonはpatch-local mappingを使う。UVのためにroad topologyを
-追加しない。
+marking line/ribbonはgutter用のsafe seam方式へ合わせない。Uはribbon長手方向の局所距離m、Vはribbon幅方向mで、
+点線phase同期やshader dash生成はviewer/material側の将来課題とする。面markingとjunction interiorはworld XYの
+meter座標を使い、junction/corridorの前後関係を読まない。junction interiorは解決済みperimeterをboundary頂点として保持し、
+追加した中心点からfan状に三角形を張る。corner subdivision由来のperimeter頂点をinterior mesh側でも使うため、
+corner tessellationとinterior triangulationは境界で一致する。UVのためにroad topologyを追加しない。
 
 ## Style ownership
 

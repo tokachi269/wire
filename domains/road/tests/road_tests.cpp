@@ -299,9 +299,8 @@ std::string face_points(const Mesh& mesh, std::size_t face) {
   return text.str();
 }
 
-bool junction_mesh_is_non_overlapping(const RoadState& state,
-                                      const std::string& label,
-                                      std::string& failure) {
+bool junction_fan_is_valid(const RoadState& state, const std::string& label,
+                           std::string& failure) {
   const auto junctions = road_test_view::junctions(state.derived());
   ROAD_TEST_EXPECT(junctions.size() == 1 &&
                        junctions.front()->junction_geometry.surface_regions.size() == 1,
@@ -325,17 +324,6 @@ bool junction_mesh_is_non_overlapping(const RoadState& state,
   perimeter_area = std::abs(perimeter_area * 0.5);
   bool checked_fan = false;
   for (const Mesh& mesh : state.derived().junction_meshes) {
-    const auto overlap = overlapping_face_pair(mesh);
-    ROAD_TEST_EXPECT(
-        !overlap.has_value(),
-        label + " junction mesh overlaps in style " +
-            std::to_string(mesh.style.value) +
-            (overlap.has_value()
-                 ? " between triangles " + std::to_string(overlap->first) +
-                       " [" + face_points(mesh, overlap->first) + "] and " +
-                       std::to_string(overlap->second) + " [" +
-                       face_points(mesh, overlap->second) + "]"
-                 : ""));
     if (mesh.style == RenderStyleFromSurface(builtin_surface_styles::kAsphalt) &&
         mesh.uv_mapping == MeshUvMapping::kWorld &&
         mesh.vertices.size() == road_region.size() + 1 &&
@@ -372,6 +360,26 @@ bool junction_mesh_is_non_overlapping(const RoadState& state,
     }
   }
   ROAD_TEST_EXPECT(checked_fan, label + " junction fan mesh was not found");
+  return true;
+}
+
+bool junction_mesh_is_non_overlapping(const RoadState& state,
+                                      const std::string& label,
+                                      std::string& failure) {
+  ROAD_TEST_EXPECT(junction_fan_is_valid(state, label, failure), failure);
+  for (const Mesh& mesh : state.derived().junction_meshes) {
+    const auto overlap = overlapping_face_pair(mesh);
+    ROAD_TEST_EXPECT(
+        !overlap.has_value(),
+        label + " junction mesh overlaps in style " +
+            std::to_string(mesh.style.value) +
+            (overlap.has_value()
+                 ? " between triangles " + std::to_string(overlap->first) +
+                       " [" + face_points(mesh, overlap->first) + "] and " +
+                       std::to_string(overlap->second) + " [" +
+                       face_points(mesh, overlap->second) + "]"
+                 : ""));
+  }
   return true;
 }
 
@@ -767,6 +775,67 @@ bool mesh_uv_normals_and_material_groups_are_local(std::string& failure) {
   }
   ROAD_TEST_EXPECT(junction_interior != nullptr,
                    "junction interior is not emitted as a center fan over the resolved perimeter");
+  return true;
+}
+
+bool junction_fan_uv_covers_basic_and_asymmetric_cases(
+    std::string& failure) {
+  {
+    RoadState state{};
+    const auto section =
+        road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({-20.0, 0.0}, {20.0, 0.0})}), section});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const auto branch = state.AddSegmentConnectedToSegment(
+        city::road::AddSegmentConnectedToSegmentRequest{
+            MakePath({MakeLine({0.0, 0.0}, {0.0, 20.0})}), section,
+            base.value, 20.0});
+    ROAD_TEST_EXPECT(branch.ok, branch.error);
+    ROAD_TEST_EXPECT(junction_fan_is_valid(state, "normal T", failure),
+                     failure);
+  }
+  {
+    RoadState state{};
+    const auto section =
+        road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {40.0, 0.0})}), section});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const auto north = state.AddSegmentConnectedToSegment(
+        city::road::AddSegmentConnectedToSegmentRequest{
+            MakePath({MakeLine({20.0, 0.0}, {20.0, 24.0})}), section,
+            base.value, 20.0});
+    ROAD_TEST_EXPECT(north.ok, north.error);
+    const auto junctions = road_test_view::junctions(state.derived());
+    ROAD_TEST_EXPECT(junctions.size() == 1,
+                     "normal cross fixture did not create a T junction");
+    const auto south = state.AddSegmentConnectedTo(
+        city::road::AddSegmentConnectedToRequest{
+            MakePath({MakeLine({20.0, 0.0}, {20.0, -24.0})}), section,
+            junctions.front()->node_id});
+    ROAD_TEST_EXPECT(south.ok, south.error);
+    ROAD_TEST_EXPECT(junction_fan_is_valid(state, "normal cross", failure),
+                     failure);
+  }
+  {
+    RoadState state{};
+    auto asymmetric = road_fixture::BidirectionalLayout(0);
+    asymmetric.alignment_offset_from_left_m = 2.0;
+    const auto base_section = road_fixture::AddLayout(state, asymmetric);
+    const auto branch_section =
+        road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+    const auto base = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({-40.0, 0.0}, {40.0, 0.0})}), base_section});
+    ROAD_TEST_EXPECT(base.ok, base.error);
+    const auto branch = state.AddSegmentConnectedToSegment(
+        city::road::AddSegmentConnectedToSegmentRequest{
+            MakePath({MakeLine({0.0, 0.0}, {0.0, 40.0})}), branch_section,
+            base.value, 40.0});
+    ROAD_TEST_EXPECT(branch.ok, branch.error);
+    ROAD_TEST_EXPECT(junction_fan_is_valid(state, "asymmetric width T", failure),
+                     failure);
+  }
   return true;
 }
 
@@ -5969,6 +6038,8 @@ int main() {
       {"P0_two_lane_mesh_shows_sidewalks_curbs_and_markings", P0_two_lane_mesh_shows_sidewalks_curbs_and_markings},
       {"mesh_uv_normals_and_material_groups_are_local",
        mesh_uv_normals_and_material_groups_are_local},
+      {"junction_fan_uv_covers_basic_and_asymmetric_cases",
+       junction_fan_uv_covers_basic_and_asymmetric_cases},
       {"gutter_profile_uv_uses_contour_v_and_patch_u",
        gutter_profile_uv_uses_contour_v_and_patch_u},
       {"P0_odd_lane_carriageway_mesh_has_drainage_crown",

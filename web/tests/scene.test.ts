@@ -137,10 +137,10 @@ describe("road rendering", () => {
   });
 
   it("uses image texture placeholders for authored material channels", () => {
-    expect(defaultRoadMaterialTextureDefinition.albedoUrl).toMatch(/road_albedo_checker\.png/);
-    expect(defaultRoadMaterialTextureDefinition.normalUrl).toMatch(/road_normal_checker\.png/);
-    expect(defaultRoadMaterialTextureDefinition.roughnessUrl).toMatch(/road_roughness_checker\.png/);
-    expect(defaultRoadMaterialTextureDefinition.specularUrl).toMatch(/road_specular_checker\.png/);
+    expect(defaultRoadMaterialTextureDefinition.albedoUrl).toMatch(/Asphalt025A_2K-JPG_Color\.jpg/);
+    expect(defaultRoadMaterialTextureDefinition.normalUrl).toMatch(/Asphalt025A_2K-JPG_NormalGL\.jpg/);
+    expect(defaultRoadMaterialTextureDefinition.roughnessUrl).toMatch(/Asphalt025A_2K-JPG_Roughness\.jpg/);
+    expect(defaultRoadMaterialTextureDefinition.specularUrl).toMatch(/Asphalt025A_2K-JPG_Specular\.png/);
 
     const material = makeRoadSurfaceMaterial("asphalt");
     expect(material.map).toBeInstanceOf(THREE.Texture);
@@ -151,6 +151,17 @@ describe("road rendering", () => {
     expect(material.map?.wrapS).toBe(THREE.RepeatWrapping);
     expect(material.map?.wrapT).toBe(THREE.RepeatWrapping);
     material.dispose();
+  });
+
+  it("keeps non-asphalt road materials untextured", () => {
+    const sidewalk = makeRoadSurfaceMaterial("sidewalk");
+    const crosswalk = makeRoadSurfaceMaterial("road_marking_crosswalk");
+    expect(sidewalk.map).toBeNull();
+    expect(sidewalk.color.getHex()).toBe(roadSurfaceColor("sidewalk"));
+    expect(crosswalk.map).toBeNull();
+    expect(crosswalk.color.getHex()).toBe(roadSurfaceColor("road_marking_crosswalk"));
+    sidewalk.dispose();
+    crosswalk.dispose();
   });
 
   it("builds a local width guide from the same cubic request used for commit", () => {

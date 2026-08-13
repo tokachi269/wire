@@ -10,10 +10,10 @@ import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
 import type { RoadSnapInfo } from "../road";
 import type { RoadSegmentInput, RoadLayoutTemplateData } from "../road";
-import roadAlbedoUrl from "../assets/road/materials/road_albedo_checker.png";
-import roadNormalUrl from "../assets/road/materials/road_normal_checker.png";
-import roadRoughnessUrl from "../assets/road/materials/road_roughness_checker.png";
-import roadSpecularUrl from "../assets/road/materials/road_specular_checker.png";
+import roadAlbedoUrl from "../assets/road/materials/Asphalt025A_2K-JPG_Color.jpg";
+import roadNormalUrl from "../assets/road/materials/Asphalt025A_2K-JPG_NormalGL.jpg";
+import roadRoughnessUrl from "../assets/road/materials/Asphalt025A_2K-JPG_Roughness.jpg";
+import roadSpecularUrl from "../assets/road/materials/Asphalt025A_2K-JPG_Specular.png";
 import {
   type LoadedModelAsset,
   modelAssetCache
@@ -329,7 +329,19 @@ function makeRoadTextureSet(material: string): RoadTextureSet {
   return set;
 }
 
+function usesRoadSurfaceTexture(material: string): boolean {
+  return material === "asphalt";
+}
+
 export function makeRoadSurfaceMaterial(material: string): THREE.MeshPhysicalMaterial {
+  if (!usesRoadSurfaceTexture(material)) {
+    return new THREE.MeshPhysicalMaterial({
+      color: roadSurfaceColor(material),
+      roughness: material.startsWith("road_marking") ? 0.72 : 0.88,
+      metalness: 0,
+      specularIntensity: material.startsWith("road_marking") ? 0.28 : 0.12
+    });
+  }
   const textures = makeRoadTextureSet(material);
   return new THREE.MeshPhysicalMaterial({
     color: 0xffffff,

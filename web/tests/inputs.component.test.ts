@@ -131,6 +131,29 @@ describe("viewer numeric inputs", () => {
     expect(mounted.bridge.geometrySettings().sagFactor).toBeCloseTo(next, 8);
   });
 
+  it("changes the draw plane by three meters with PageUp and PageDown", async () => {
+    const mounted = await mountViewer(false);
+
+    expect(current(mounted.store).drawPlaneZ).toBe(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp" }));
+    await tick();
+    expect(current(mounted.store).drawPlaneZ).toBe(3);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown" }));
+    await tick();
+    expect(current(mounted.store).drawPlaneZ).toBe(0);
+
+    const planeInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Draw plane height"]'
+    );
+    expect(planeInput).not.toBeNull();
+    planeInput!.focus();
+    planeInput!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "PageUp", bubbles: true })
+    );
+    await tick();
+    expect(current(mounted.store).drawPlaneZ).toBe(0);
+  });
+
   it("starts with 24 curve samples and toggles the ground grid", async () => {
     const mounted = await mountViewer();
     expect(mounted.bridge.geometrySettings().curveSamples).toBe(24);

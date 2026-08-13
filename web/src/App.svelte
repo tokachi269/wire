@@ -225,6 +225,14 @@
         actions.undoActiveTool();
         return;
       }
+      if ((event.key === "PageUp" || event.key === "PageDown") && !editing) {
+        event.preventDefault();
+        actions.setDrawOption(
+          "drawPlaneZ",
+          snapshot.drawPlaneZ + (event.key === "PageUp" ? 3 : -3)
+        );
+        return;
+      }
       if (event.key === "Enter" && !editing) {
         event.preventDefault();
         actions.finishDrawSession();
@@ -484,7 +492,7 @@
               Flip Direction
             </button>
             <label>Plane Z
-              <input type="number" step="0.1" value={snapshot.drawPlaneZ}
+              <input aria-label="Draw plane height" type="number" step="0.1" value={snapshot.drawPlaneZ}
                 onchange={(event) => actions.setDrawOption("drawPlaneZ", Number(event.currentTarget.value))} />
             </label>
             <p class="hint">LMB: commit interval / Enter: commit and finish / Esc: cancel preview</p>

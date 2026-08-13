@@ -1153,6 +1153,17 @@ bool road_elevation_profile_drives_derived_geometry(std::string& failure) {
   }
   ROAD_TEST_EXPECT(elevated_branch_nodes >= 2,
                    "branch split/free nodes did not inherit source elevation");
+  bool junction_surface_on_grade = false;
+  for (const Mesh& mesh : branch_state.derived().junction_meshes) {
+    for (const Vec3d& vertex : mesh.vertices) {
+      if (vertex.z > 4.5) {
+        junction_surface_on_grade = true;
+        break;
+      }
+    }
+  }
+  ROAD_TEST_EXPECT(junction_surface_on_grade,
+                   "junction mesh fell back to a world-Z plane");
 
   RoadNodeId split_node_id = 0;
   RoadSegmentId west_segment = 0;

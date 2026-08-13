@@ -10,6 +10,10 @@ import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
 import type { RoadSnapInfo } from "../road";
 import type { RoadSegmentInput, RoadLayoutTemplateData } from "../road";
+import roadAlbedoUrl from "../assets/road/materials/road_albedo_checker.png";
+import roadNormalUrl from "../assets/road/materials/road_normal_checker.png";
+import roadRoughnessUrl from "../assets/road/materials/road_roughness_checker.png";
+import roadSpecularUrl from "../assets/road/materials/road_specular_checker.png";
 import {
   type LoadedModelAsset,
   modelAssetCache
@@ -201,14 +205,29 @@ export function roadSurfaceColor(material: string): number {
   return 0x3f4345;
 }
 
-interface RoadTextureSet {
-  albedo: THREE.DataTexture;
-  normal: THREE.DataTexture;
-  roughness: THREE.DataTexture;
-  specular: THREE.DataTexture;
+export interface RoadMaterialTextureDefinition {
+  albedoUrl: string;
+  normalUrl: string;
+  roughnessUrl: string;
+  specularUrl: string;
 }
 
+interface RoadTextureSet {
+  albedo: THREE.Texture;
+  normal: THREE.Texture;
+  roughness: THREE.Texture;
+  specular: THREE.Texture;
+}
+
+export const defaultRoadMaterialTextureDefinition: RoadMaterialTextureDefinition = {
+  albedoUrl: roadAlbedoUrl,
+  normalUrl: roadNormalUrl,
+  roughnessUrl: roadRoughnessUrl,
+  specularUrl: roadSpecularUrl
+};
+
 const roadTextureSets = new Map<string, RoadTextureSet>();
+const roadTextureLoader = new THREE.TextureLoader();
 
 function roadTextureSeed(material: string): number {
   let seed = 2166136261;
@@ -220,18 +239,40 @@ function roadTextureSeed(material: string): number {
 
 function makeDataTexture(data: Uint8Array, colorSpace: THREE.ColorSpace = THREE.NoColorSpace): THREE.DataTexture {
   const texture = new THREE.DataTexture(data, 64, 64, THREE.RGBAFormat);
+  configureRoadTexture(texture, colorSpace);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function configureRoadTexture(
+  texture: THREE.Texture,
+  colorSpace: THREE.ColorSpace = THREE.NoColorSpace
+): THREE.Texture {
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestMipmapNearestFilter;
   texture.colorSpace = colorSpace;
-  texture.needsUpdate = true;
   return texture;
 }
 
-function makeRoadTextureSet(material: string): RoadTextureSet {
-  const cached = roadTextureSets.get(material);
-  if (cached !== undefined) return cached;
+function loadRoadTexture(
+  url: string,
+  colorSpace: THREE.ColorSpace,
+  fallback: THREE.Texture
+): THREE.Texture {
+  if (url.length === 0) return fallback;
+  if (typeof document === "undefined") {
+    const texture = configureRoadTexture(new THREE.Texture(), colorSpace);
+    texture.userData.sourceUrl = url;
+    return texture;
+  }
+  const texture = configureRoadTexture(roadTextureLoader.load(url), colorSpace);
+  texture.userData.sourceUrl = url;
+  return texture;
+}
+
+function makeFallbackRoadTextureSet(material: string): RoadTextureSet {
   const color = new THREE.Color(roadSurfaceColor(material));
   const albedo = new Uint8Array(64 * 64 * 4);
   const normal = new Uint8Array(64 * 64 * 4);
@@ -265,11 +306,24 @@ function makeRoadTextureSet(material: string): RoadTextureSet {
       specular[offset + 3] = 255;
     }
   }
-  const set = {
+  return {
     albedo: makeDataTexture(albedo, THREE.SRGBColorSpace),
     normal: makeDataTexture(normal),
     roughness: makeDataTexture(roughness),
     specular: makeDataTexture(specular)
+  };
+}
+
+function makeRoadTextureSet(material: string): RoadTextureSet {
+  const cached = roadTextureSets.get(material);
+  if (cached !== undefined) return cached;
+  const fallback = makeFallbackRoadTextureSet(material);
+  const definition = defaultRoadMaterialTextureDefinition;
+  const set = {
+    albedo: loadRoadTexture(definition.albedoUrl, THREE.SRGBColorSpace, fallback.albedo),
+    normal: loadRoadTexture(definition.normalUrl, THREE.NoColorSpace, fallback.normal),
+    roughness: loadRoadTexture(definition.roughnessUrl, THREE.NoColorSpace, fallback.roughness),
+    specular: loadRoadTexture(definition.specularUrl, THREE.NoColorSpace, fallback.specular)
   };
   roadTextureSets.set(material, set);
   return set;

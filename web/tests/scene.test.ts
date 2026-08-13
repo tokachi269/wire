@@ -6,6 +6,7 @@ import {
   WireScene,
   WIRE_RADIAL_SEGMENTS,
   backboneNodeHitId,
+  defaultRoadMaterialTextureDefinition,
   distanceToScreenSegmentPx,
   makeSampledTubeGeometry,
   makeRoadSurfaceMaterial,
@@ -135,12 +136,18 @@ describe("road rendering", () => {
     expect(roadSurfaceColor("curb")).not.toBe(roadSurfaceColor("asphalt"));
   });
 
-  it("creates temporary road texture maps for authored material channels", () => {
+  it("uses image texture placeholders for authored material channels", () => {
+    expect(defaultRoadMaterialTextureDefinition.albedoUrl).toMatch(/road_albedo_checker\.png/);
+    expect(defaultRoadMaterialTextureDefinition.normalUrl).toMatch(/road_normal_checker\.png/);
+    expect(defaultRoadMaterialTextureDefinition.roughnessUrl).toMatch(/road_roughness_checker\.png/);
+    expect(defaultRoadMaterialTextureDefinition.specularUrl).toMatch(/road_specular_checker\.png/);
+
     const material = makeRoadSurfaceMaterial("asphalt");
-    expect(material.map).toBeInstanceOf(THREE.DataTexture);
-    expect(material.normalMap).toBeInstanceOf(THREE.DataTexture);
-    expect(material.roughnessMap).toBeInstanceOf(THREE.DataTexture);
-    expect(material.specularIntensityMap).toBeInstanceOf(THREE.DataTexture);
+    expect(material.map).toBeInstanceOf(THREE.Texture);
+    expect(material.normalMap).toBeInstanceOf(THREE.Texture);
+    expect(material.roughnessMap).toBeInstanceOf(THREE.Texture);
+    expect(material.specularIntensityMap).toBeInstanceOf(THREE.Texture);
+    expect(material.map).not.toBeInstanceOf(THREE.DataTexture);
     expect(material.map?.wrapS).toBe(THREE.RepeatWrapping);
     expect(material.map?.wrapT).toBe(THREE.RepeatWrapping);
     material.dispose();

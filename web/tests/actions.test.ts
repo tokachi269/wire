@@ -934,6 +934,34 @@ describe("viewport tool routing", () => {
     expect(current(store).road.draftStart).toEqual({ x: 18, y: 5 });
   });
 
+  it("passes draw plane height into road endpoint elevations", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({
+      ok: true,
+      error: "",
+      segmentId: 22,
+      corridorId: 9,
+      endNodeId: 13
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.setDrawOption("drawPlaneZ", 3);
+    actions.addViewportPoint([0, 0, 3]);
+    actions.setDrawOption("drawPlaneZ", 6);
+    actions.previewViewportPoint([18, 0, 6]);
+    actions.addViewportPoint([18, 0, 6]);
+
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startElevationM: 3,
+      endElevationM: 6
+    }));
+    expect(current(store).road.draftStartElevationM).toBe(6);
+    expect(current(store).road.draftEndElevationM).toBe(6);
+  });
+
   it("ignores a duplicate road endpoint click before committing an extension", () => {
     const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({
       ok: true,

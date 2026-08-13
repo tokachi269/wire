@@ -1580,6 +1580,14 @@ public:
     const double corner_radius_m = input["junctionCornerRadiusM"].isUndefined()
                                        ? city::road::kDefaultRoadCornerRadiusM
                                        : input["junctionCornerRadiusM"].as<double>();
+    const std::optional<double> start_elevation_m =
+        input["startElevationM"].isUndefined()
+            ? std::nullopt
+            : std::optional<double>{input["startElevationM"].as<double>()};
+    const std::optional<double> end_elevation_m =
+        input["endElevationM"].isUndefined()
+            ? std::nullopt
+            : std::optional<double>{input["endElevationM"].as<double>()};
     city::road::Result<city::road::RoadSegmentId> result{};
     if ((start_node_id != 0 || start_segment_id != 0 ||
          extension_corridor_id != 0) &&
@@ -1596,28 +1604,30 @@ public:
           city::road::AddSegmentConnectedToSegmentRequest{
               path, layout_template_id, end_segment_id,
               end_segment_distance_m, city::road::EndpointRole::kEnd,
-              corner_radius_m});
+              corner_radius_m, start_elevation_m});
     } else if (end_node_id != 0) {
       result = state_->AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{
               path, layout_template_id, end_node_id,
-              city::road::EndpointRole::kEnd, corner_radius_m});
+              city::road::EndpointRole::kEnd, corner_radius_m,
+              start_elevation_m});
     } else if (extension_corridor_id != 0) {
       result = state_->ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
               extension_corridor_id, start_node_id, path,
-              layout_template_id, road_shape_intent(input)});
+              layout_template_id, road_shape_intent(input), end_elevation_m});
     } else if (start_segment_id != 0) {
       result = state_->AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{path, layout_template_id, start_segment_id, start_segment_distance_m,
-                                                          city::road::EndpointRole::kStart, corner_radius_m});
+                                                          city::road::EndpointRole::kStart, corner_radius_m, end_elevation_m});
     } else if (start_node_id != 0) {
       result = state_->AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{path, layout_template_id, start_node_id,
-                                                   city::road::EndpointRole::kStart, corner_radius_m});
+                                                   city::road::EndpointRole::kStart, corner_radius_m, end_elevation_m});
     } else {
       result = state_->AddSegment(city::road::AddSegmentRequest{
-          path, layout_template_id, road_shape_intent(input), corner_radius_m});
+          path, layout_template_id, road_shape_intent(input), corner_radius_m,
+          start_elevation_m, end_elevation_m});
     }
     val output = road_result_value(result.ok, result.error, result.failure_category);
     if (result.ok) {
@@ -1697,6 +1707,14 @@ public:
     const double corner_radius_m = input["junctionCornerRadiusM"].isUndefined()
                                        ? city::road::kDefaultRoadCornerRadiusM
                                        : input["junctionCornerRadiusM"].as<double>();
+    const std::optional<double> start_elevation_m =
+        input["startElevationM"].isUndefined()
+            ? std::nullopt
+            : std::optional<double>{input["startElevationM"].as<double>()};
+    const std::optional<double> end_elevation_m =
+        input["endElevationM"].isUndefined()
+            ? std::nullopt
+            : std::optional<double>{input["endElevationM"].as<double>()};
     city::road::Result<city::road::RoadSegmentId> added{};
     if ((start_node_id != 0 || start_segment_id != 0 ||
          extension_corridor_id != 0) &&
@@ -1713,28 +1731,30 @@ public:
           city::road::AddSegmentConnectedToSegmentRequest{
               path, layout_template_id, end_segment_id,
               end_segment_distance_m, city::road::EndpointRole::kEnd,
-              corner_radius_m});
+              corner_radius_m, start_elevation_m});
     } else if (end_node_id != 0) {
       added = trial.AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{
               path, layout_template_id, end_node_id,
-              city::road::EndpointRole::kEnd, corner_radius_m});
+              city::road::EndpointRole::kEnd, corner_radius_m,
+              start_elevation_m});
     } else if (extension_corridor_id != 0) {
       added = trial.ExtendCorridorFromEnd(
           city::road::ExtendCorridorFromEndRequest{
               extension_corridor_id, start_node_id, path,
-              layout_template_id, road_shape_intent(input)});
+              layout_template_id, road_shape_intent(input), end_elevation_m});
     } else if (start_segment_id != 0) {
       added = trial.AddSegmentConnectedToSegment(
           city::road::AddSegmentConnectedToSegmentRequest{path, layout_template_id, start_segment_id, start_segment_distance_m,
-                                                          city::road::EndpointRole::kStart, corner_radius_m});
+                                                          city::road::EndpointRole::kStart, corner_radius_m, end_elevation_m});
     } else if (start_node_id != 0) {
       added = trial.AddSegmentConnectedTo(
           city::road::AddSegmentConnectedToRequest{path, layout_template_id, start_node_id,
-                                                   city::road::EndpointRole::kStart, corner_radius_m});
+                                                   city::road::EndpointRole::kStart, corner_radius_m, end_elevation_m});
     } else {
       added = trial.AddSegment(city::road::AddSegmentRequest{
-          path, layout_template_id, road_shape_intent(input), corner_radius_m});
+          path, layout_template_id, road_shape_intent(input), corner_radius_m,
+          start_elevation_m, end_elevation_m});
     }
     val result = road_result_value(added.ok, added.error, added.failure_category);
     val meshes = val::array();
@@ -1781,6 +1801,7 @@ public:
       item.set("id", static_cast<double>(node.id));
       item.set("x", node.position.x);
       item.set("y", node.position.y);
+      item.set("z", node.elevation_m);
       const auto incidence = node_incidence.find(node.id);
       item.set("extensionCorridorId",
                static_cast<double>(incidence != node_incidence.end() &&
@@ -1809,6 +1830,18 @@ public:
         }
       }
       const double total = city::road::PathLength(*alignment).value;
+      const city::road::DerivedSegment* derived_segment =
+          city::road::FindDerivedSegment(derived, segment.id);
+      const auto elevation_at_distance = [derived_segment, total](double distance_m) {
+        if (derived_segment == nullptr || total <= 1e-9) {
+          return derived_segment == nullptr ? 0.0 : derived_segment->start_elevation_m;
+        }
+        const double t = std::clamp(distance_m / total, 0.0, 1.0);
+        return derived_segment->start_elevation_m +
+               (derived_segment->end_elevation_m -
+                derived_segment->start_elevation_m) *
+                   t;
+      };
       const int piece_count = alignment->spans.size() == 1 &&
                                       city::road::IsLinearSpan(alignment->spans.front())
                                   ? 1
@@ -1822,8 +1855,10 @@ public:
         item.set("id", static_cast<double>(segment.id));
         item.set("startX", start.x);
         item.set("startY", start.y);
+        item.set("startZ", elevation_at_distance(start_distance));
         item.set("endX", end.x);
         item.set("endY", end.y);
+        item.set("endZ", elevation_at_distance(end_distance));
         item.set("startSegmentDistanceM", start_distance);
         item.set("endSegmentDistanceM", end_distance);
         item.set("pickHalfWidthM", pick_half_width_m);

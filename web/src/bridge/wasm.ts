@@ -261,6 +261,7 @@ export interface RoadNodePayload {
   id: number;
   x: number;
   y: number;
+  z: number;
   extensionCorridorId?: number;
 }
 
@@ -268,8 +269,10 @@ export interface RoadCenterlineSegmentPayload {
   id: number;
   startX: number;
   startY: number;
+  startZ: number;
   endX: number;
   endY: number;
+  endZ: number;
   startSegmentDistanceM: number;
   endSegmentDistanceM: number;
   pickHalfWidthM: number;

@@ -196,22 +196,26 @@ export class RoadActions {
 
   addViewportPoint(point: WorldPoint, snap?: RoadSnapInfo): DrawActionResult {
     const target = { x: point[0], y: point[1] };
+    const targetElevationM = point[2];
     const current = this.ctx.readSnapshot().road;
     if (current.operation !== "draw") {
       this.applyOperation(current, target, snap);
       return { kind: "operation-applied" };
     }
     if (current.phase === "start") {
-      this.beginAt(target, snap);
+      this.beginAt(target, snap, targetElevationM);
       return { kind: "anchor-accepted" };
     }
     if (sameRoadPoint(current.draftStart, target)) {
       this.clearPreview();
       return { kind: "ignored", reasonCode: "road_endpoint_matches_anchor" };
     }
-    const road = current.mode !== "line" ? withRoadCurveEnd(current, target) : withRoadEnd(current, target);
+    const road = current.mode !== "line"
+      ? withRoadCurveEnd({ ...current, draftEndElevationM: targetElevationM }, target)
+      : withRoadEnd({ ...current, draftEndElevationM: targetElevationM }, target);
     const request = current.previewState === "guide" && current.previewRequest !== null &&
-        sameRoadPoint({ x: current.previewRequest.endX, y: current.previewRequest.endY }, target)
+        sameRoadPoint({ x: current.previewRequest.endX, y: current.previewRequest.endY }, target) &&
+        current.previewRequest.endElevationM === targetElevationM
       ? current.previewRequest
       : roadSegmentInput(road, snap);
     return this.commitInterval(request, target, true);
@@ -261,7 +265,7 @@ export class RoadActions {
       this.clearPreview();
       return;
     }
-    const road = this.previewState(current, target);
+    const road = this.previewState({ ...current, draftEndElevationM: point[2] }, target);
     // Core owns the curve rule, so the guide asks for the interval it would
     // commit instead of shaping one of its own.
     const shaped = this.ctx.bridge.roadPreviewInterval(roadSegmentInput(road, snap));
@@ -485,6 +489,8 @@ export class RoadActions {
         draftStartNodeId: 0,
         draftStartSegmentId: 0,
         draftStartSegmentDistanceM: 0,
+        draftStartElevationM: 0,
+        draftEndElevationM: 0,
         draftExtensionCorridorId: 0,
         laneEditStage: "select",
         laneCorridorId: 0,
@@ -632,6 +638,8 @@ export class RoadActions {
             draftStartNodeId: result.endNodeId ?? 0,
             draftStartSegmentId: 0,
             draftStartSegmentDistanceM: 0,
+            draftStartElevationM: request.endElevationM ?? snapshot.road.draftEndElevationM,
+            draftEndElevationM: request.endElevationM ?? snapshot.road.draftEndElevationM,
             draftExtensionCorridorId: result.corridorId ?? 0,
 
             scene,
@@ -647,6 +655,8 @@ export class RoadActions {
             draftStartNodeId: 0,
             draftStartSegmentId: 0,
             draftStartSegmentDistanceM: 0,
+            draftStartElevationM: 0,
+            draftEndElevationM: 0,
             draftExtensionCorridorId: 0,
             scene,
             previewMeshes: [],
@@ -669,7 +679,7 @@ export class RoadActions {
     return withRoadCurveEnd(current, target);
   }
 
-  private beginAt(target: RoadPoint, snap?: RoadSnapInfo): void {
+  private beginAt(target: RoadPoint, snap?: RoadSnapInfo, elevationM = 0): void {
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       road: withRoadEnd({
@@ -678,6 +688,8 @@ export class RoadActions {
         draftStartNodeId: snap?.nodeId ?? 0,
         draftStartSegmentId: snap?.segmentId ?? 0,
         draftStartSegmentDistanceM: snap?.segmentDistanceM ?? 0,
+        draftStartElevationM: elevationM,
+        draftEndElevationM: elevationM,
         draftExtensionCorridorId: snap?.extensionCorridorId ?? 0,
         phase: "end"
       }, target),

@@ -1487,6 +1487,42 @@ describe("road wasm smoke", () => {
     state.delete();
   });
 
+  it("preserves road draw elevations through the wasm scene", () => {
+    const road = createRoadState();
+    try {
+      const drawn = road.addSegment({
+        roadLayoutTemplateId: sectionId,
+        kind: "line",
+        startX: 0,
+        startY: 0,
+        endX: 30,
+        endY: 0,
+        handleAX: 10,
+        handleAY: 0,
+        handleBX: 20,
+        handleBY: 0,
+        startNodeId: 0,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        startElevationM: 3,
+        endElevationM: 9,
+        connectToFirstNode: false
+      });
+      expect(drawn.ok, drawn.error).toBe(true);
+
+      const scene = road.scene();
+      expect(scene.nodes.map((node) => node.z).sort((a, b) => a - b))
+        .toEqual([3, 9]);
+      expect(scene.centerlineSegments).toHaveLength(1);
+      expect(scene.centerlineSegments[0]).toEqual(expect.objectContaining({
+        startZ: 3,
+        endZ: 9
+      }));
+    } finally {
+      road.delete();
+    }
+  });
+
   it("previews a continued curve as a curve, matching what it commits", () => {
     const road = createRoadState();
     try {

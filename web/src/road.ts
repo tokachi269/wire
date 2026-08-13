@@ -24,6 +24,8 @@ export interface RoadSegmentInput extends RoadSpanInput {
   startNodeId: number;
   startSegmentId: number;
   startSegmentDistanceM: number;
+  startElevationM?: number;
+  endElevationM?: number;
   endNodeId?: number;
   endSegmentId?: number;
   endSegmentDistanceM?: number;
@@ -137,6 +139,7 @@ export interface RoadNodeData {
   id: number;
   x: number;
   y: number;
+  z: number;
   extensionCorridorId?: number;
 }
 
@@ -144,8 +147,10 @@ export interface RoadCenterlineSegmentData {
   id: number;
   startX: number;
   startY: number;
+  startZ: number;
   endX: number;
   endY: number;
+  endZ: number;
   startSegmentDistanceM: number;
   endSegmentDistanceM: number;
   pickHalfWidthM: number;
@@ -198,6 +203,8 @@ export interface RoadToolState {
   draftStartNodeId: number;
   draftStartSegmentId: number;
   draftStartSegmentDistanceM: number;
+  draftStartElevationM: number;
+  draftEndElevationM: number;
   draftExtensionCorridorId: number;
   connectToFirstNode: boolean;
   selectedRoadLayoutTemplateId: number;
@@ -257,6 +264,8 @@ export function createRoadToolState(): RoadToolState {
     draftStartNodeId: 0,
     draftStartSegmentId: 0,
     draftStartSegmentDistanceM: 0,
+    draftStartElevationM: 0,
+    draftEndElevationM: 0,
     draftExtensionCorridorId: 0,
     connectToFirstNode: false,
     selectedRoadLayoutTemplateId: 0,
@@ -328,6 +337,8 @@ export function roadSegmentInput(
     startNodeId: state.draftStartNodeId,
     startSegmentId: state.draftStartSegmentId,
     startSegmentDistanceM: state.draftStartSegmentDistanceM,
+    startElevationM: state.draftStartElevationM,
+    endElevationM: state.draftEndElevationM,
     endNodeId: endSnap?.nodeId ?? 0,
     endSegmentId: endSnap?.segmentId ?? 0,
     endSegmentDistanceM: endSnap?.segmentDistanceM ?? 0,

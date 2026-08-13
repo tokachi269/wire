@@ -368,6 +368,8 @@ export function roadGuideHalfWidth(
 export function roadGuidePoints(request: RoadSegmentInput, sampleCount = 32): THREE.Vector3[] {
   const points: THREE.Vector3[] = [];
   const spans = request.spans?.length ? request.spans : [request];
+  const startZ = request.startElevationM ?? 0;
+  const endZ = request.endElevationM ?? startZ;
   for (const [spanIndex, span] of spans.entries()) {
     const count = span.kind === "line" ? 1 : sampleCount;
     for (let index = spanIndex === 0 ? 0 : 1; index <= count; index += 1) {
@@ -378,7 +380,7 @@ export function roadGuidePoints(request: RoadSegmentInput, sampleCount = 32): TH
           3 * inverse * t ** 2 * span.handleBX + t ** 3 * span.endX,
         inverse ** 3 * span.startY + 3 * inverse ** 2 * t * span.handleAY +
           3 * inverse * t ** 2 * span.handleBY + t ** 3 * span.endY,
-        0
+        startZ + (endZ - startZ) * t
       ));
     }
   }
@@ -982,7 +984,7 @@ export class WireScene {
     const pointerPx = new THREE.Vector2(clientX - bounds.left, clientY - bounds.top);
     let bestNode: { distance: number; point: WorldPoint; snap: RoadSnapInfo } | null = null;
     for (const node of this.snapshot.road.scene.nodes) {
-      const point: WorldPoint = [node.x, node.y, 0];
+      const point: WorldPoint = [node.x, node.y, node.z];
       const screenPoint = this.projectToCanvas(new THREE.Vector3(...point), bounds);
       if (screenPoint === null) continue;
       const distance = screenPoint.distanceTo(pointerPx);
@@ -1006,8 +1008,8 @@ export class WireScene {
 
     let bestSegment: { distance: number; point: WorldPoint; snap: RoadSnapInfo } | null = null;
     for (const segment of this.snapshot.road.scene.centerlineSegments) {
-      const endpointA: WorldPoint = [segment.startX, segment.startY, 0];
-      const endpointB: WorldPoint = [segment.endX, segment.endY, 0];
+      const endpointA: WorldPoint = [segment.startX, segment.startY, segment.startZ];
+      const endpointB: WorldPoint = [segment.endX, segment.endY, segment.endZ];
       const worldDx = endpointB[0] - endpointA[0];
       const worldDy = endpointB[1] - endpointA[1];
       const worldLength = Math.hypot(worldDx, worldDy);
@@ -1031,7 +1033,7 @@ export class WireScene {
         const worldClosest = new THREE.Vector3(
           endpointA[0] + worldDx * t,
           endpointA[1] + worldDy * t,
-          0
+          endpointA[2] + (endpointB[2] - endpointA[2]) * t
         );
         const normal = new THREE.Vector3(-worldDy / worldLength, worldDx / worldLength, 0);
         const edge = this.projectToCanvas(
@@ -1048,7 +1050,7 @@ export class WireScene {
       const point: WorldPoint = [
         endpointA[0] + (endpointB[0] - endpointA[0]) * t,
         endpointA[1] + (endpointB[1] - endpointA[1]) * t,
-        0
+        endpointA[2] + (endpointB[2] - endpointA[2]) * t
       ];
       bestSegment = {
         distance,
@@ -1480,7 +1482,7 @@ export class WireScene {
           ? new THREE.Vector3(-tangent.y, tangent.x, 0).normalize().multiplyScalar(halfWidth)
           : new THREE.Vector3();
         const raised = point.clone();
-        raised.z = snapshot.drawPlaneZ + 0.08;
+        raised.z += 0.08;
         left.push(raised.clone().add(lateral));
         right.push(raised.clone().sub(lateral));
       });

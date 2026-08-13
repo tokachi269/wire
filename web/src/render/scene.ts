@@ -201,6 +201,95 @@ export function roadSurfaceColor(material: string): number {
   return 0x3f4345;
 }
 
+interface RoadTextureSet {
+  albedo: THREE.DataTexture;
+  normal: THREE.DataTexture;
+  roughness: THREE.DataTexture;
+  specular: THREE.DataTexture;
+}
+
+const roadTextureSets = new Map<string, RoadTextureSet>();
+
+function roadTextureSeed(material: string): number {
+  let seed = 2166136261;
+  for (let index = 0; index < material.length; index += 1) {
+    seed = Math.imul(seed ^ material.charCodeAt(index), 16777619);
+  }
+  return seed >>> 0;
+}
+
+function makeDataTexture(data: Uint8Array, colorSpace: THREE.ColorSpace = THREE.NoColorSpace): THREE.DataTexture {
+  const texture = new THREE.DataTexture(data, 64, 64, THREE.RGBAFormat);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestMipmapNearestFilter;
+  texture.colorSpace = colorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function makeRoadTextureSet(material: string): RoadTextureSet {
+  const cached = roadTextureSets.get(material);
+  if (cached !== undefined) return cached;
+  const color = new THREE.Color(roadSurfaceColor(material));
+  const albedo = new Uint8Array(64 * 64 * 4);
+  const normal = new Uint8Array(64 * 64 * 4);
+  const roughness = new Uint8Array(64 * 64 * 4);
+  const specular = new Uint8Array(64 * 64 * 4);
+  const seed = roadTextureSeed(material);
+  const rough = material === "asphalt" ? 230 : material.startsWith("road_marking") ? 190 : 215;
+  const spec = material.startsWith("road_marking") ? 80 : material === "asphalt" ? 18 : 35;
+  for (let y = 0; y < 64; y += 1) {
+    for (let x = 0; x < 64; x += 1) {
+      const offset = (y * 64 + x) * 4;
+      const seam = x % 16 === 0 || y % 16 === 0;
+      const grain = (((x * 73856093) ^ (y * 19349663) ^ seed) & 15) - 7;
+      const shade = seam ? 1.16 : 0.92 + (((x >> 3) + (y >> 3)) % 2) * 0.08;
+      albedo[offset] = Math.max(0, Math.min(255, Math.round(color.r * 255 * shade + grain)));
+      albedo[offset + 1] = Math.max(0, Math.min(255, Math.round(color.g * 255 * shade + grain)));
+      albedo[offset + 2] = Math.max(0, Math.min(255, Math.round(color.b * 255 * shade + grain)));
+      albedo[offset + 3] = 255;
+
+      normal[offset] = 128 + (grain > 0 ? 2 : -2);
+      normal[offset + 1] = 128 + (seam ? 3 : 0);
+      normal[offset + 2] = 255;
+      normal[offset + 3] = 255;
+
+      roughness[offset] = roughness[offset + 1] = roughness[offset + 2] =
+        Math.max(0, Math.min(255, rough - (seam ? 18 : 0) + grain));
+      roughness[offset + 3] = 255;
+
+      specular[offset] = specular[offset + 1] = specular[offset + 2] =
+        Math.max(0, Math.min(255, spec + (seam ? 24 : 0) - grain));
+      specular[offset + 3] = 255;
+    }
+  }
+  const set = {
+    albedo: makeDataTexture(albedo, THREE.SRGBColorSpace),
+    normal: makeDataTexture(normal),
+    roughness: makeDataTexture(roughness),
+    specular: makeDataTexture(specular)
+  };
+  roadTextureSets.set(material, set);
+  return set;
+}
+
+export function makeRoadSurfaceMaterial(material: string): THREE.MeshPhysicalMaterial {
+  const textures = makeRoadTextureSet(material);
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    map: textures.albedo,
+    normalMap: textures.normal,
+    normalScale: new THREE.Vector2(0.18, 0.18),
+    roughnessMap: textures.roughness,
+    roughness: material === "asphalt" ? 0.96 : 0.88,
+    metalness: 0,
+    specularIntensity: material.startsWith("road_marking") ? 0.28 : 0.12,
+    specularIntensityMap: textures.specular
+  });
+}
+
 export function roadGuideHalfWidth(
   roadLayoutTemplates: RoadLayoutTemplateData[],
   roadLayoutTemplateId: number | undefined
@@ -1140,28 +1229,18 @@ export class WireScene {
 
   private rebuildRoadContent(snapshot: ViewerSnapshot): void {
     this.disposeGroup(this.road);
-    const markingMaterial = new THREE.MeshStandardMaterial({
-      color: 0xf2f0d9,
-      roughness: 0.75,
-      polygonOffset: true,
-      polygonOffsetFactor: -2
-    });
     for (const data of snapshot.road.scene.surfaceMeshes) {
-      const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), new THREE.MeshStandardMaterial({
-        color: roadSurfaceColor(data.material),
-        emissive: 0x000000,
-        roughness: data.material === "asphalt" ? 0.96 : 0.88,
-        metalness: 0
-      }));
+      const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), makeRoadSurfaceMaterial(data.material));
       mesh.receiveShadow = true;
       mesh.castShadow = true;
       this.road.add(mesh);
     }
     for (const data of snapshot.road.scene.markingMeshes) {
-      const material = markingMaterial.clone();
+      const material = makeRoadSurfaceMaterial(data.material);
+      material.polygonOffset = true;
+      material.polygonOffsetFactor = -2;
       this.road.add(new THREE.Mesh(makeRoadMeshGeometry(data), material));
     }
-    markingMaterial.dispose();
   }
 
   private rebuildRoadOverlay(snapshot: ViewerSnapshot): void {

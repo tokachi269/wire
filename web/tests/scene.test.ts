@@ -8,6 +8,7 @@ import {
   backboneNodeHitId,
   distanceToScreenSegmentPx,
   makeSampledTubeGeometry,
+  makeRoadSurfaceMaterial,
   makeRoadMeshGeometry,
   roadGuideHalfWidth,
   roadGuidePoints,
@@ -132,6 +133,17 @@ describe("road rendering", () => {
     expect(geometry.getAttribute("color")).toBeUndefined();
     expect(roadSurfaceColor("sidewalk")).not.toBe(roadSurfaceColor("asphalt"));
     expect(roadSurfaceColor("curb")).not.toBe(roadSurfaceColor("asphalt"));
+  });
+
+  it("creates temporary road texture maps for authored material channels", () => {
+    const material = makeRoadSurfaceMaterial("asphalt");
+    expect(material.map).toBeInstanceOf(THREE.DataTexture);
+    expect(material.normalMap).toBeInstanceOf(THREE.DataTexture);
+    expect(material.roughnessMap).toBeInstanceOf(THREE.DataTexture);
+    expect(material.specularIntensityMap).toBeInstanceOf(THREE.DataTexture);
+    expect(material.map?.wrapS).toBe(THREE.RepeatWrapping);
+    expect(material.map?.wrapT).toBe(THREE.RepeatWrapping);
+    material.dispose();
   });
 
   it("builds a local width guide from the same cubic request used for commit", () => {

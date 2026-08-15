@@ -43,15 +43,15 @@ BackboneSpec
 
 support detail は Core の authority ではなく、viewer / export adapter が表示用sceneから再生成する
 presentation detail である。Core は通常のtopology、layout、curve、fixture model、visual carrierだけを出力し、
-detail用の設備template、socket/guide recipe、primitive model keyを持たない。
+detail用の設備template、socket/guide recipe、proxy model keyを持たない。
 
 個々のlocal cable、fan-out、inline device、primitive equipmentは通常Spanではなく、SavedBackboneGraph、
 Span、Bundle、Port bindingへ保存しない。viewer側の入力は Core が出した `VisualCurvePart`、
 `VisualModelInstance`、`BundleTemplateInfo` などの既存scene情報である。
 
-templateやrecipeは近似サイズ、socket frame、guide point、primitive representationをpresentation層に置く。
-GLB assetが後から追加されても、Coreの生成結果や保存状態は変えない。viewerは `detail_*` model keyを
-primitive fallbackとして表示できるが、その結果をCoreへ書き戻してはいけない。
+templateやrecipeは近似サイズ、socket frame、guide point、presentation catalog proxyをpresentation層に置く。
+catalog proxyはGLB欠落時の任意fallbackではなく、暫定モデリング確認用の明示assetである。
+GLB assetが後から追加されても、Coreの生成結果や保存状態は変えない。
 
 ### session draft state
 

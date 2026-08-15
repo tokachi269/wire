@@ -386,7 +386,7 @@ export class WireBridge {
     }
     const timing = this.state.lastGenerationTiming();
     const lastGenerationTiming = timing.totalMs > 0 ? timing : null;
-    const detail = deriveSupportDetails(parts, this.bundleTemplates());
+    const detail = deriveSupportDetails(parts, this.bundleTemplates(), poles, supportNodes);
     return {
       parts: [...parts, ...detail.parts],
       models: [...visual.models, ...detail.models],

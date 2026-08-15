@@ -18,6 +18,8 @@ import {
   SUPPORT_DETAIL_SCENE_POINTS
 } from "./supportDetailScene";
 
+const SUPPORT_DETAIL_MODEL_KEY_SET = new Set<string>(SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS);
+
 function visualParts(state: WireStateHandle) {
   const scene = state.visualScene();
   const samples = new Float64Array(scene.samples);
@@ -40,7 +42,7 @@ function detailSceneSignature(scene: SceneData): string {
       Array.from(part.samples).map((value) => value.toPrecision(17)).join(",")
     ].join(":"));
   records.push(...scene.models
-    .filter((model) => model.modelKey.startsWith("detail_"))
+    .filter((model) => SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey))
     .map((model) => [
       "model",
       model.stableKey,
@@ -766,7 +768,9 @@ describe("wire wasm smoke", () => {
       SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
     );
     expect(rawGenerated.ok, rawGenerated.error).toBe(true);
-    expect(rawState.visualScene().models.some((model) => model.modelKey.startsWith("detail_"))).toBe(false);
+    expect(rawState.visualScene().models.some((model) =>
+      SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey)
+    )).toBe(false);
     expect(visualParts(rawState).some((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
@@ -784,22 +788,35 @@ describe("wire wasm smoke", () => {
     const scene = bridge.scene();
     const models = scene.models;
     expect(models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
-    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[1]).length)
-      .toBeGreaterThanOrEqual(3);
+    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[1])).toHaveLength(2);
     expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[2])).toHaveLength(1);
+    expect(models.filter((model) => model.modelKey === "pc6_cutout_proxy")).toHaveLength(0);
+    expect(models.filter((model) => model.modelKey === "arrester_gl_b6g_proxy")).toHaveLength(0);
+    expect(models.filter((model) => model.modelKey === "hv_triplex_termination_60_proxy")).toHaveLength(0);
+    expect(models.filter((model) => model.modelKey === "aerial_optical_closure_rca3ao_proxy")).toHaveLength(0);
+    expect(models.some((model) =>
+      model.modelKey === "detail_transformer_box" || model.modelKey === "detail_inline_device"
+    )).toBe(false);
     const transformers = models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]);
+    expect(transformers).toHaveLength(1);
+    expect(transformers[0].stableKey).toBe("support-detail:support-node:54:transformer");
     expect(transformers.every((model) =>
-      model.scaleX <= 0.35 && model.scaleY <= 0.22 && model.scaleZ <= 0.45
+      model.scaleX === 1 && model.scaleY === 1 && model.scaleZ === 1
     )).toBe(true);
 
     const detailParts = scene.parts;
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
-    ).length).toBeGreaterThanOrEqual(3);
+    ).length).toBeGreaterThanOrEqual(6);
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
-    )).toHaveLength(1);
-    expect(bridge.saveState()).not.toMatch(/detail_|LocalDetail|InlineDetail/);
+    )).toHaveLength(0);
+    const derivedDetailParts = detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
+    );
+    expect(derivedDetailParts.every((part) => Math.floor(part.samples.length / 3) <= 8)).toBe(true);
+    expect(bridge.saveState()).not.toMatch(/pole_transformer_20kva_proxy|transformer_intermediate_insulator_proxy|LocalDetail|InlineDetail/);
 
     const repeatedBridge = await WireBridge.create();
     const repeated = repeatedBridge.generate(
@@ -811,7 +828,7 @@ describe("wire wasm smoke", () => {
     expect(detailSceneSignature(repeatedBridge.scene())).toBe(detailSceneSignature(scene));
   });
 
-  it("does not attach HV support detail to an optical-only scene fixture", async () => {
+  it("does not attach support equipment detail to an optical-only scene fixture", async () => {
     const bridge = await WireBridge.create();
     const generated = bridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
@@ -821,9 +838,9 @@ describe("wire wasm smoke", () => {
     expect(generated.ok, generated.error).toBe(true);
 
     const scene = bridge.scene();
-    expect(scene.models.some((model) =>
-      model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]
-    )).toBe(false);
+    expect(scene.models.filter((model) =>
+      SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey)
+    )).toHaveLength(0);
     expect(scene.parts.some((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
     )).toBe(false);

@@ -7,6 +7,41 @@ import {
 } from "../src/render/modelAssets";
 
 describe("model asset cache", () => {
+  it("registers catalog support-detail proxies with fixed dimensions and no GLB load", async () => {
+    const load = vi.fn(async () => {
+      throw new Error("catalog support-detail proxies must not request GLB assets");
+    });
+    const cache = new ModelAssetCache(load);
+    const [transformer, pc6, mount, arrester, triplex, optical] = await Promise.all([
+      cache.load("poleTransformer20kvaProxy"),
+      cache.load("pc6CutoutProxy"),
+      cache.load("tma13CutoutMountProxy"),
+      cache.load("arresterGlB6gProxy"),
+      cache.load("hvTriplexTermination60Proxy"),
+      cache.load("aerialOpticalClosureRca3aoProxy")
+    ]);
+
+    expect(load).not.toHaveBeenCalled();
+    expect(transformer.size.x).toBeCloseTo(0.430, 3);
+    expect(transformer.size.y).toBeCloseTo(0.430, 3);
+    expect(transformer.size.z).toBeCloseTo(0.610, 3);
+    expect(pc6.size.x).toBeCloseTo(0.406, 3);
+    expect(pc6.size.y).toBeCloseTo(0.090, 3);
+    expect(pc6.size.z).toBeCloseTo(0.094, 3);
+    expect(mount.size.x).toBeCloseTo(0.150, 3);
+    expect(mount.size.y).toBeCloseTo(0.032, 3);
+    expect(mount.size.z).toBeCloseTo(0.115, 3);
+    expect(arrester.size.x).toBeCloseTo(0.082, 3);
+    expect(arrester.size.y).toBeCloseTo(0.082, 3);
+    expect(arrester.size.z).toBeCloseTo(0.250, 3);
+    expect(triplex.size.x).toBeCloseTo(0.580, 3);
+    expect(triplex.size.y).toBeCloseTo(0.495, 3);
+    expect(triplex.size.z).toBeLessThanOrEqual(0.130);
+    expect(optical.size.x).toBeCloseTo(0.730, 3);
+    expect(optical.size.y).toBeCloseTo(0.180, 3);
+    expect(optical.size.z).toBeCloseTo(0.220, 3);
+  });
+
   it("loads one source and shares geometry and material across clones", async () => {
     const geometry = new THREE.BoxGeometry(1, 12, 1);
     geometry.translate(0, 4, 0);

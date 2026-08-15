@@ -18,6 +18,8 @@ import {
   SUPPORT_DETAIL_SCENE_POINTS
 } from "./supportDetailScene";
 
+const SUPPORT_DETAIL_MODEL_KEY_SET = new Set<string>(SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS);
+
 function visualParts(state: WireStateHandle) {
   const scene = state.visualScene();
   const samples = new Float64Array(scene.samples);
@@ -40,7 +42,7 @@ function detailSceneSignature(scene: SceneData): string {
       Array.from(part.samples).map((value) => value.toPrecision(17)).join(",")
     ].join(":"));
   records.push(...scene.models
-    .filter((model) => model.modelKey.startsWith("detail_"))
+    .filter((model) => SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey))
     .map((model) => [
       "model",
       model.stableKey,
@@ -766,7 +768,9 @@ describe("wire wasm smoke", () => {
       SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
     );
     expect(rawGenerated.ok, rawGenerated.error).toBe(true);
-    expect(rawState.visualScene().models.some((model) => model.modelKey.startsWith("detail_"))).toBe(false);
+    expect(rawState.visualScene().models.some((model) =>
+      SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey)
+    )).toBe(false);
     expect(visualParts(rawState).some((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
@@ -786,10 +790,17 @@ describe("wire wasm smoke", () => {
     expect(models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
     expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[1]).length)
       .toBeGreaterThanOrEqual(3);
-    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[2])).toHaveLength(1);
+    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[2]).length)
+      .toBeGreaterThanOrEqual(3);
+    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[3]).length)
+      .toBeGreaterThanOrEqual(1);
+    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[4])).toHaveLength(1);
+    expect(models.some((model) =>
+      model.modelKey === "detail_transformer_box" || model.modelKey === "detail_inline_device"
+    )).toBe(false);
     const transformers = models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]);
     expect(transformers.every((model) =>
-      model.scaleX <= 0.35 && model.scaleY <= 0.22 && model.scaleZ <= 0.45
+      model.scaleX === 1 && model.scaleY === 1 && model.scaleZ === 1
     )).toBe(true);
 
     const detailParts = scene.parts;
@@ -798,8 +809,13 @@ describe("wire wasm smoke", () => {
     ).length).toBeGreaterThanOrEqual(3);
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
-    )).toHaveLength(1);
-    expect(bridge.saveState()).not.toMatch(/detail_|LocalDetail|InlineDetail/);
+    ).length).toBeGreaterThanOrEqual(4);
+    const derivedDetailParts = detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
+    );
+    expect(derivedDetailParts.every((part) => Math.floor(part.samples.length / 3) <= 8)).toBe(true);
+    expect(bridge.saveState()).not.toMatch(/pole_transformer_20kva_proxy|pc6_cutout_proxy|LocalDetail|InlineDetail/);
 
     const repeatedBridge = await WireBridge.create();
     const repeated = repeatedBridge.generate(
@@ -811,7 +827,7 @@ describe("wire wasm smoke", () => {
     expect(detailSceneSignature(repeatedBridge.scene())).toBe(detailSceneSignature(scene));
   });
 
-  it("does not attach HV support detail to an optical-only scene fixture", async () => {
+  it("attaches only optical closure detail to an optical-only scene fixture", async () => {
     const bridge = await WireBridge.create();
     const generated = bridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
@@ -824,6 +840,9 @@ describe("wire wasm smoke", () => {
     expect(scene.models.some((model) =>
       model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]
     )).toBe(false);
+    expect(scene.models.filter((model) =>
+      model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[5]
+    )).toHaveLength(1);
     expect(scene.parts.some((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
     )).toBe(false);

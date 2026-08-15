@@ -5,6 +5,10 @@ import { WireBridge } from "./bridge/wire";
 import { startConsoleLogging } from "./consoleLog";
 import { loadDefaultModelBootstrap } from "./render/modelAssets";
 import { WireScene } from "./render/scene";
+import {
+  supportDetailReferenceScene,
+  type SupportDetailReferenceKind
+} from "./bridge/supportDetails";
 import { ViewerStore } from "./store/viewer";
 import { buildIdentitiesMatch, loadRuntimeBuildInfo } from "./buildInfo";
 import {
@@ -19,6 +23,11 @@ if (target === null) {
   throw new Error("app mount point is missing");
 }
 const mountTarget = target;
+
+function supportDetailReferenceKind(): SupportDetailReferenceKind | null {
+  const value = new URLSearchParams(window.location.search).get("supportDetailReference");
+  return value === "transformer" || value === "triplex" || value === "optical" ? value : null;
+}
 
 async function main(): Promise<void> {
   const store = new ViewerStore();
@@ -71,7 +80,27 @@ async function main(): Promise<void> {
     new WorkspaceCache(workspaceStorage)
   );
   actions.initialize();
-  await actions.restoreWorkspace();
+  const referenceKind = supportDetailReferenceKind();
+  if (referenceKind === null) {
+    await actions.restoreWorkspace();
+  } else {
+    const reference = supportDetailReferenceScene(referenceKind);
+    store.update((snapshot) => ({
+      ...snapshot,
+      parts: reference.parts,
+      models: reference.models,
+      poles: [],
+      ports: [],
+      spans: [],
+      supportNodes: [],
+      backboneEdges: [],
+      generationMs: null,
+      generationTiming: null,
+      showBackboneOverlay: false,
+      showLeftPanel: false,
+      showRightPanel: false
+    }));
+  }
   const scene = new WireScene(
     store,
     (point, pick) => actions.addViewportPoint(point, pick),

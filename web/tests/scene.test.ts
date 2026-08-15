@@ -676,7 +676,7 @@ describe("scene model reuse", () => {
     (modelAssetCache as any).loaded.delete("poleBody");
   });
 
-  it("renders detail model keys through primitive assets without GLB load", () => {
+  it("renders support-detail proxy model keys through primitive assets without GLB load", () => {
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
@@ -687,7 +687,7 @@ describe("scene model reuse", () => {
     const snapshot = createViewerSnapshot();
     snapshot.models = [{
       stableKey: "detail:transformer:1",
-      modelKey: "detail_transformer_box",
+      modelKey: "pole_transformer_20kva_proxy",
       contentVersion: "1",
       positionX: 1,
       positionY: 2,
@@ -702,7 +702,7 @@ describe("scene model reuse", () => {
 
     expect(scene.syncContent(snapshot)).toBe(true);
     expect(scene.pendingModelKeys.size).toBe(0);
-    expect(scene.modelBatches.get("detail_transformer_box")!.capacity).toBe(1);
+    expect(scene.modelBatches.get("pole_transformer_20kva_proxy")!.capacity).toBe(1);
     expect(scene.content.children[0]).toBeInstanceOf(THREE.InstancedMesh);
   });
 });

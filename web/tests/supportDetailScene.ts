@@ -8,9 +8,12 @@ export const SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS = [101];
 export const SUPPORT_DETAIL_SCENE_COUNTS = [0];
 
 export const SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS = [
-  "detail_transformer_box",
-  "detail_terminal_post",
-  "detail_inline_device"
+  "pole_transformer_20kva_proxy",
+  "pc6_cutout_proxy",
+  "tma13_cutout_mount_proxy",
+  "arrester_gl_b6g_proxy",
+  "hv_triplex_termination_60_proxy",
+  "aerial_optical_closure_rca3ao_proxy"
 ] as const;
 
 export const SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS = {

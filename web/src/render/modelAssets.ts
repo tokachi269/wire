@@ -21,9 +21,12 @@ export type ModelAssetKind =
   | "crossarmHv"
   | "hvInsulator"
   | "poleBody"
-  | "detailTransformerBox"
-  | "detailTerminalPost"
-  | "detailInlineDevice";
+  | "poleTransformer20kvaProxy"
+  | "pc6CutoutProxy"
+  | "tma13CutoutMountProxy"
+  | "arresterGlB6gProxy"
+  | "hvTriplexTermination60Proxy"
+  | "aerialOpticalClosureRca3aoProxy";
 
 export type ModelKey =
   | "pole_belt"
@@ -32,9 +35,12 @@ export type ModelKey =
   | "hv_crossarm"
   | "hv_insulator"
   | "pole_body"
-  | "detail_transformer_box"
-  | "detail_terminal_post"
-  | "detail_inline_device";
+  | "pole_transformer_20kva_proxy"
+  | "pc6_cutout_proxy"
+  | "tma13_cutout_mount_proxy"
+  | "arrester_gl_b6g_proxy"
+  | "hv_triplex_termination_60_proxy"
+  | "aerial_optical_closure_rca3ao_proxy";
 
 type MountRule = "center" | "bottom" | "pole-ground";
 
@@ -116,21 +122,39 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     radialTopM: poleRadiusAtDistanceFromTop(0.0),
     adapterVersion: 5
   },
-  detailTransformerBox: {
-    modelKey: "detail_transformer_box",
-    url: "primitive:detail_transformer_box",
+  poleTransformer20kvaProxy: {
+    modelKey: "pole_transformer_20kva_proxy",
+    url: "primitive:pole_transformer_20kva_proxy",
     mountRule: "center",
     adapterVersion: 1
   },
-  detailTerminalPost: {
-    modelKey: "detail_terminal_post",
-    url: "primitive:detail_terminal_post",
+  pc6CutoutProxy: {
+    modelKey: "pc6_cutout_proxy",
+    url: "primitive:pc6_cutout_proxy",
     mountRule: "center",
     adapterVersion: 1
   },
-  detailInlineDevice: {
-    modelKey: "detail_inline_device",
-    url: "primitive:detail_inline_device",
+  tma13CutoutMountProxy: {
+    modelKey: "tma13_cutout_mount_proxy",
+    url: "primitive:tma13_cutout_mount_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  arresterGlB6gProxy: {
+    modelKey: "arrester_gl_b6g_proxy",
+    url: "primitive:arrester_gl_b6g_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  hvTriplexTermination60Proxy: {
+    modelKey: "hv_triplex_termination_60_proxy",
+    url: "primitive:hv_triplex_termination_60_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  aerialOpticalClosureRca3aoProxy: {
+    modelKey: "aerial_optical_closure_rca3ao_proxy",
+    url: "primitive:aerial_optical_closure_rca3ao_proxy",
     mountRule: "center",
     adapterVersion: 1
   }
@@ -182,26 +206,110 @@ function descriptorVersion(
   return hash >>> 0 || 1;
 }
 
+function material(color: number, metalness = 0.12, roughness = 0.72): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color, metalness, roughness });
+}
+
+function addMesh(
+  group: THREE.Group,
+  geometry: THREE.BufferGeometry,
+  color: number,
+  position: [number, number, number] = [0, 0, 0],
+  rotation: [number, number, number] = [0, 0, 0],
+  metalness = 0.12,
+  roughness = 0.72
+): THREE.Mesh {
+  const mesh = new THREE.Mesh(geometry, material(color, metalness, roughness));
+  mesh.position.set(...position);
+  mesh.rotation.set(...rotation);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return mesh;
+}
+
+function makePoleTransformer20kvaProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const zinc = 0x8f9698;
+  addMesh(group, new THREE.CylinderGeometry(0.200, 0.200, 0.550, 12), zinc, [0, 0, 0], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0xa8adb0, [0, 0, 0.290], [Math.PI / 2, 0, 0], 0.22);
+  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0x777f82, [0, 0, -0.290], [Math.PI / 2, 0, 0], 0.22);
+  return group;
+}
+
+function makePc6CutoutProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const porcelain = 0xd9d8cf;
+  const metal = 0x8e9699;
+  addMesh(group, new THREE.BoxGeometry(0.250, 0.090, 0.094, 2, 1, 1), porcelain);
+  addMesh(group, new THREE.CylinderGeometry(0.014, 0.014, 0.060, 8), metal, [-0.167, 0, 0], [0, 0, Math.PI / 2], 0.45);
+  addMesh(group, new THREE.CylinderGeometry(0.014, 0.014, 0.060, 8), metal, [0.167, 0, 0], [0, 0, Math.PI / 2], 0.45);
+  addMesh(group, new THREE.BoxGeometry(0.032, 0.072, 0.030), metal, [-0.187, 0, 0], [0, 0, 0], 0.45);
+  addMesh(group, new THREE.BoxGeometry(0.032, 0.072, 0.030), metal, [0.187, 0, 0], [0, 0, 0], 0.45);
+  return group;
+}
+
+function makeTma13CutoutMountProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const zinc = 0x9aa0a1;
+  addMesh(group, new THREE.BoxGeometry(0.135, 0.032, 0.010), zinc, [0, 0, 0.052], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.010, 0.032, 0.115), zinc, [-0.048, 0, 0], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.010, 0.032, 0.115), zinc, [0.048, 0, 0], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.CylinderGeometry(0.005, 0.005, 0.150, 8), zinc, [0, 0, -0.010], [0, 0, Math.PI / 2], 0.45);
+  return group;
+}
+
+function makeArresterGlB6gProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const porcelain = 0xdeddd4;
+  const metal = 0x858b8e;
+  addMesh(group, new THREE.CylinderGeometry(0.036, 0.036, 0.190, 8), porcelain, [0, 0, 0], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.041, 0.041, 0.018, 8), porcelain, [0, 0, 0.052], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.041, 0.041, 0.018, 8), porcelain, [0, 0, -0.052], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.010, 0.010, 0.020, 8), metal, [0, 0, 0.115], [Math.PI / 2, 0, 0], 0.48);
+  addMesh(group, new THREE.CylinderGeometry(0.010, 0.010, 0.020, 8), metal, [0, 0, -0.115], [Math.PI / 2, 0, 0], 0.48);
+  return group;
+}
+
+function makeHvTriplexTermination60Proxy(): THREE.Group {
+  const group = new THREE.Group();
+  const porcelain = 0xd9d8cf;
+  const metal = 0x878d90;
+  for (const y of [-0.200, 0, 0.200]) {
+    addMesh(group, new THREE.CylinderGeometry(0.0475, 0.034, 0.398, 8), porcelain, [-0.091, y, 0], [0, 0, Math.PI / 2]);
+    addMesh(group, new THREE.CylinderGeometry(0.010, 0.010, 0.182, 8), metal, [0.199, y, 0], [0, 0, Math.PI / 2], 0.48);
+    addMesh(group, new THREE.BoxGeometry(0.023, 0.023, 0.023), metal, [-0.250, y, 0], [0, 0, 0], 0.48);
+  }
+  addMesh(group, new THREE.BoxGeometry(0.040, 0.130, 0.035), metal, [-0.245, 0, -0.052], [0, 0, 0], 0.48);
+  return group;
+}
+
+function makeAerialOpticalClosureRca3aoProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const body = 0x3e464a;
+  const strap = 0x8a9294;
+  addMesh(group, new THREE.BoxGeometry(0.730, 0.150, 0.200, 4, 1, 1), body, [0, 0, 0], [0, 0, 0], 0.06, 0.82);
+  addMesh(group, new THREE.BoxGeometry(0.018, 0.180, 0.220), strap, [-0.225, 0, 0], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.018, 0.180, 0.220), strap, [0.225, 0, 0], [0, 0, 0], 0.35);
+  return group;
+}
+
 export class ModelAssetCache {
   private readonly promises = new Map<ModelAssetKind, Promise<LoadedModelAsset>>();
   private readonly loaded = new Map<ModelAssetKind, LoadedModelAsset>();
   private readonly loads = new Map<ModelAssetKind, number>();
 
   constructor(private readonly loadScene: SceneLoader = loadGltfScene) {
-    this.registerPrimitive("detailTransformerBox", new THREE.BoxGeometry(1, 1, 1), 0x3f4347);
-    this.registerPrimitive("detailTerminalPost", new THREE.CylinderGeometry(0.5, 0.5, 1, 12), 0x5f6164);
-    this.registerPrimitive("detailInlineDevice", new THREE.CapsuleGeometry(0.5, 1, 8, 12), 0x2d3436);
+    this.registerPrimitiveSource("poleTransformer20kvaProxy", makePoleTransformer20kvaProxy());
+    this.registerPrimitiveSource("pc6CutoutProxy", makePc6CutoutProxy());
+    this.registerPrimitiveSource("tma13CutoutMountProxy", makeTma13CutoutMountProxy());
+    this.registerPrimitiveSource("arresterGlB6gProxy", makeArresterGlB6gProxy());
+    this.registerPrimitiveSource("hvTriplexTermination60Proxy", makeHvTriplexTermination60Proxy());
+    this.registerPrimitiveSource("aerialOpticalClosureRca3aoProxy", makeAerialOpticalClosureRca3aoProxy());
   }
 
-  private registerPrimitive(kind: ModelAssetKind, geometry: THREE.BufferGeometry, color: number): void {
+  private registerPrimitiveSource(kind: ModelAssetKind, source: THREE.Group): void {
     const adapter = adapters[kind];
-    const material = new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.72,
-      metalness: 0.12
-    });
-    const source = new THREE.Group();
-    source.add(new THREE.Mesh(geometry, material));
     source.updateMatrixWorld(true);
     const bounds = new THREE.Box3().setFromObject(source, true);
     const size = bounds.getSize(new THREE.Vector3());
@@ -224,6 +332,8 @@ export class ModelAssetCache {
   }
 
   load(kind: ModelAssetKind): Promise<LoadedModelAsset> {
+    const loaded = this.loaded.get(kind);
+    if (loaded !== undefined) return Promise.resolve(loaded);
     const cached = this.promises.get(kind);
     if (cached !== undefined) return cached;
     const adapter = adapters[kind];

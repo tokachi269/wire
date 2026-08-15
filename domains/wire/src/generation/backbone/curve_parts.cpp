@@ -734,7 +734,10 @@ bool visual_part_less(const VisualCurvePart& a, const VisualCurvePart& b) {
   if (a.has_section_key && !same_cable_section(a.section_key, b.section_key)) {
     return section_key_less(a.section_key, b.section_key);
   }
-  return a.cable_run_id < b.cable_run_id;
+  if (a.cable_run_id != b.cable_run_id) {
+    return a.cable_run_id < b.cable_run_id;
+  }
+  return a.detail_key < b.detail_key;
 }
 
 void sort_visual_parts(VisualCurvePartCache* cache) {

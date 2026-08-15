@@ -7,6 +7,7 @@
 #include "port_placement.hpp"
 #include "../generation/support_policy.hpp"
 #include "../generation/backbone/curve_parts.hpp"
+#include "../generation/backbone/detail_plan.hpp"
 #include "../generation/backbone/emit_shared.hpp"
 #include "../generation/backbone/model_assembly.hpp"
 #include "../generation/backbone/row_representation.hpp"
@@ -44,6 +45,29 @@ double unit_random_from_u64(std::uint64_t x) {
 
 double deterministic_pole_tilt_factor(ObjectId pole_id) {
   return unit_random_from_u64(mix_u64(static_cast<std::uint64_t>(pole_id) ^ 0x54D3C92F7A6B1E29ull));
+}
+
+void append_backbone_detail_visuals(const CoreState& state, VisualCurvePartCache* visual_curves,
+                                    VisualModelInstanceCache* model_instances) {
+  if (visual_curves == nullptr || model_instances == nullptr) return;
+  model_instances->instances.erase(
+      std::remove_if(model_instances->instances.begin(), model_instances->instances.end(),
+                     [](const VisualModelInstance& instance) {
+                       return instance.model_key.rfind("detail_", 0) == 0;
+                     }),
+      model_instances->instances.end());
+  generation::backbone::DetailVisuals detail =
+      generation::backbone::make_detail_visuals(state, *visual_curves);
+  visual_curves->parts.insert(visual_curves->parts.end(),
+                              std::make_move_iterator(detail.curves.parts.begin()),
+                              std::make_move_iterator(detail.curves.parts.end()));
+  model_instances->instances.insert(model_instances->instances.end(),
+                                    std::make_move_iterator(detail.models.instances.begin()),
+                                    std::make_move_iterator(detail.models.instances.end()));
+  std::sort(model_instances->instances.begin(), model_instances->instances.end(),
+            [](const VisualModelInstance& a, const VisualModelInstance& b) {
+              return a.stable_key < b.stable_key;
+            });
 }
 
 void append_unique_ids(std::vector<ObjectId>* target, const std::vector<ObjectId>& source) {
@@ -2186,21 +2210,22 @@ EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
       result.error = visual_curves.error;
       return result;
     }
+    EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+        generation::backbone::fixture_placement_plan_from_cache(trial);
+    if (!fixture_plan.ok) {
+      result.error = fixture_plan.error;
+      return result;
+    }
+    EditResult<VisualModelInstanceCache> model_instances =
+        generation::backbone::materialize_model_assemblies(trial, fixture_plan.value);
+    if (!model_instances.ok) {
+      result.error = model_instances.error;
+      return result;
+    }
+    append_backbone_detail_visuals(trial, &visual_curves.value, &model_instances.value);
     trial.cache_visual_curve_parts(std::move(visual_curves.value));
+    trial.cache_visual_model_instances(std::move(model_instances.value));
   }
-  EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
-      generation::backbone::fixture_placement_plan_from_cache(trial);
-  if (!fixture_plan.ok) {
-    result.error = fixture_plan.error;
-    return result;
-  }
-  EditResult<VisualModelInstanceCache> model_instances =
-      generation::backbone::materialize_model_assemblies(trial, fixture_plan.value);
-  if (!model_instances.ok) {
-    result.error = model_instances.error;
-    return result;
-  }
-  trial.cache_visual_model_instances(std::move(model_instances.value));
   *this = std::move(trial);
   result.ok = true;
   result.value = true;

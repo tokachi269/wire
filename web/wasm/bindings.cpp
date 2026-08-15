@@ -742,6 +742,9 @@ private:
                     std::to_string(part.section_key.rule_owner_id) + ":" + std::to_string(part.section_key.rule_id) +
                     ":" + std::to_string(part.section_key.instance_index);
       }
+      if (part.detail_key != 0) {
+        part_key += ":d:" + std::to_string(part.detail_key);
+      }
       for (ObjectId edge_id : part.incident_edge_ids) {
         part_key += ":e:" + std::to_string(edge_id);
       }

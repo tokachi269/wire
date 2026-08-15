@@ -12,6 +12,7 @@ add_library(
   src/state/override_resolution.cpp
   src/state/template/update.cpp
   src/generation/backbone/curve_parts.cpp
+  src/generation/backbone/detail_plan.cpp
   src/generation/backbone/derive.cpp
   src/generation/backbone/derive_span_layout.cpp
   src/generation/backbone/emit_shared.cpp

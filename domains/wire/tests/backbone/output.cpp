@@ -3523,7 +3523,186 @@ std::string d1_derived_signature(const city::wire::CoreState& state) {
   return out.str();
 }
 
+std::size_t detail_model_count(const city::wire::CoreState& state, const std::string& model_key) {
+  return static_cast<std::size_t>(std::count_if(
+      state.view().visual_model_instances().instances.begin(),
+      state.view().visual_model_instances().instances.end(),
+      [&](const city::wire::VisualModelInstance& instance) {
+        return instance.model_key == model_key;
+      }));
+}
+
+std::size_t detail_curve_count(const city::wire::CoreState& state,
+                               city::wire::VisualSupplementalKind kind) {
+  return static_cast<std::size_t>(std::count_if(
+      state.view().visual_curve_parts().parts.begin(),
+      state.view().visual_curve_parts().parts.end(),
+      [&](const city::wire::VisualCurvePart& part) {
+        return part.supplemental_kind == kind;
+      }));
+}
+
+std::string detail_signature(const city::wire::CoreState& state) {
+  std::vector<std::string> records{};
+  for (const city::wire::VisualCurvePart& part :
+       state.view().visual_curve_parts().parts) {
+    if (part.supplemental_kind != city::wire::VisualSupplementalKind::kLocalDetailCable &&
+        part.supplemental_kind != city::wire::VisualSupplementalKind::kInlineDetailCable) {
+      continue;
+    }
+    std::ostringstream item{};
+    item << "curve:" << static_cast<int>(part.supplemental_kind) << ':'
+         << part.source_node_id << ':' << part.source_span_id << ':'
+         << part.source_bundle_id << ':' << part.bundle_template_id << ':'
+         << part.lane_index << ':' << part.detail_key;
+    for (const city::wire::Vec3d& sample : part.samples) {
+      item << ':';
+      append_vec_bits(&item, sample);
+    }
+    records.push_back(item.str());
+  }
+  for (const city::wire::VisualModelInstance& instance :
+       state.view().visual_model_instances().instances) {
+    if (instance.model_key.rfind("detail_", 0) != 0) continue;
+    std::ostringstream item{};
+    item << "model:" << instance.stable_key << ':' << instance.model_key << ':';
+    append_vec_bits(&item, instance.world_transform.position);
+    item << ':';
+    append_vec_bits(&item, instance.world_transform.rotation_euler_deg);
+    item << ':';
+    append_vec_bits(&item, instance.world_transform.scale);
+    records.push_back(item.str());
+  }
+  std::sort(records.begin(), records.end());
+  std::ostringstream out{};
+  for (const std::string& record : records) out << record << '\n';
+  return out.str();
+}
+
+std::optional<city::wire::Vec3d> first_detail_model_position(
+    const city::wire::CoreState& state, const std::string& model_key) {
+  for (const city::wire::VisualModelInstance& instance :
+       state.view().visual_model_instances().instances) {
+    if (instance.model_key == model_key) {
+      return instance.world_transform.position;
+    }
+  }
+  return std::nullopt;
+}
+
 } // namespace
+
+bool C838_backbone_detail_generates_primitive_equipment_and_local_cables_without_spans() {
+  city::wire::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  WIRE_TEST_EXPECT(generated.ok, "HV detail fixture generation failed");
+  WIRE_TEST_EXPECT(detail_model_count(state, "detail_transformer_box") > 0,
+                   "detail did not generate primitive transformer equipment");
+  WIRE_TEST_EXPECT(detail_model_count(state, "detail_terminal_post") >= 3,
+                   "detail did not generate multiple primitive terminals");
+  WIRE_TEST_EXPECT(detail_model_count(state, "detail_inline_device") == 1,
+                   "detail did not generate one inline device");
+  WIRE_TEST_EXPECT(detail_curve_count(state, city::wire::VisualSupplementalKind::kLocalDetailCable) >= 3,
+                   "detail did not generate fan-out local cables");
+  WIRE_TEST_EXPECT(detail_curve_count(state, city::wire::VisualSupplementalKind::kInlineDetailCable) == 1,
+                   "detail did not generate inline bypass cable");
+  WIRE_TEST_EXPECT(state.view().spans().size() == generated.value.generated_span_ids.size(),
+                   "local detail cables were saved as normal spans");
+  std::string saved;
+  WIRE_TEST_EXPECT(state.SerializeAuthoritative(&saved).ok,
+                   "failed to serialize detail fixture state");
+  WIRE_TEST_EXPECT(!contains_text(saved, "detail_transformer_box") &&
+                       !contains_text(saved, "detail_terminal_post") &&
+                       !contains_text(saved, "detail_inline_device") &&
+                       !contains_text(saved, "kLocalDetailCable") &&
+                       !contains_text(saved, "kInlineDetailCable"),
+                   "derived detail leaked into the authoritative archive");
+  return true;
+}
+
+bool C839_backbone_detail_generation_is_deterministic() {
+  city::wire::CoreState a;
+  city::wire::CoreState b;
+  WIRE_TEST_EXPECT(a.GenerateFromBackboneSpec(hv_poly3_req(a)).ok,
+                   "first HV detail fixture generation failed");
+  WIRE_TEST_EXPECT(b.GenerateFromBackboneSpec(hv_poly3_req(b)).ok,
+                   "second HV detail fixture generation failed");
+  const std::string left = detail_signature(a);
+  const std::string right = detail_signature(b);
+  WIRE_TEST_EXPECT(!left.empty(), "detail signature is empty");
+  WIRE_TEST_EXPECT(left == right, "same input generated different detail visuals");
+  return true;
+}
+
+bool C840_backbone_detail_skips_hv_equipment_for_optical_bundle() {
+  city::wire::CoreState state;
+  city::wire::BackboneSpec request = poly3_req(state);
+  request.bundles.clear();
+  add_backbone_bundle(request, city::wire::BundleKind::kOptical);
+  WIRE_TEST_EXPECT(state.GenerateFromBackboneSpec(request).ok,
+                   "optical detail fixture generation failed");
+  WIRE_TEST_EXPECT(detail_model_count(state, "detail_transformer_box") == 0,
+                   "HV transformer detail was generated for optical bundle");
+  WIRE_TEST_EXPECT(detail_curve_count(state, city::wire::VisualSupplementalKind::kLocalDetailCable) == 0,
+                   "HV local detail cables were generated for optical bundle");
+  return true;
+}
+
+bool C841_backbone_inline_detail_follows_carrier_reposition() {
+  city::wire::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  WIRE_TEST_EXPECT(generated.ok && generated.value.generated_pole_ids.size() >= 2,
+                   "HV detail reposition fixture generation failed");
+  const std::optional<city::wire::Vec3d> before =
+      first_detail_model_position(state, "detail_inline_device");
+  WIRE_TEST_EXPECT(before.has_value(), "inline detail model is missing before move");
+  const city::wire::ObjectId pole_id = generated.value.generated_pole_ids[1];
+  const city::wire::Pole* pole = state.view().poles().find(pole_id);
+  WIRE_TEST_EXPECT(pole != nullptr, "moving pole is missing");
+  city::wire::Transformd moved = pole->world_transform;
+  moved.position = moved.position + city::wire::Vec3d{0.0, 1.5, 0.0};
+  WIRE_TEST_EXPECT(state.MovePole(pole_id, moved).ok, "MovePole failed");
+  const std::optional<city::wire::Vec3d> after =
+      first_detail_model_position(state, "detail_inline_device");
+  WIRE_TEST_EXPECT(after.has_value(), "inline detail model is missing after move");
+  WIRE_TEST_EXPECT(dist2(*before, *after) > 0.01,
+                   "inline detail did not follow carrier after pole move");
+  return true;
+}
+
+bool C842_backbone_detail_logical_sockets_are_glb_independent() {
+  std::string detail_source;
+  std::string model_assets;
+  WIRE_TEST_EXPECT(file_text(repo_root() / "domains" / "wire" / "src" / "generation" /
+                                 "backbone" / "detail_plan.cpp",
+                             &detail_source),
+                   "failed to read detail_plan.cpp");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "web" / "src" / "render" / "modelAssets.ts",
+                             &model_assets),
+                   "failed to read modelAssets.ts");
+
+  WIRE_TEST_EXPECT(contains_text(detail_source, "struct DetailTemplate"),
+                   "detail plan does not own a template definition");
+  WIRE_TEST_EXPECT(contains_text(detail_source, "sockets") &&
+                       contains_text(detail_source, "guides") &&
+                       contains_text(detail_source, "approximate_size"),
+                   "detail template does not define logical sockets, guides, and dimensions");
+  WIRE_TEST_EXPECT(contains_text(detail_source, "detail_transformer_box") &&
+                       contains_text(detail_source, "detail_terminal_post") &&
+                       contains_text(detail_source, "detail_inline_device"),
+                   "detail plan does not declare the primitive detail model keys");
+  WIRE_TEST_EXPECT(!contains_text(detail_source, "GLB") &&
+                       !contains_text(detail_source, "gltf") &&
+                       !contains_text(detail_source, "loadedModel") &&
+                       !contains_text(detail_source, "ModelAssetCache") &&
+                       !contains_text(detail_source, "modelAssets"),
+                   "detail plan depends on viewer/model asset loading state");
+  WIRE_TEST_EXPECT(contains_text(model_assets, "primitive:detail_transformer_box") &&
+                       contains_text(model_assets, "primitive:detail_terminal_post") &&
+                       contains_text(model_assets, "primitive:detail_inline_device"),
+                   "viewer does not provide primitive fallback assets for detail models");
+  return true;
+}
 
 bool C810_backbone_normal_pair_uses_edge_ports_and_derived_fixture() {
   city::wire::CoreState state;

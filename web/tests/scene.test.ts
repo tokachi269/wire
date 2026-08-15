@@ -675,4 +675,34 @@ describe("scene model reuse", () => {
     });
     (modelAssetCache as any).loaded.delete("poleBody");
   });
+
+  it("renders detail model keys through primitive assets without GLB load", () => {
+    const scene = Object.create(WireScene.prototype) as any;
+    scene.content = new THREE.Group();
+    scene.partMeshes = new Map();
+    scene.modelObjects = new Map();
+    scene.modelBatches = new Map();
+    scene.pendingModelKeys = new Set();
+    scene.poleMeshes = new Map();
+    const snapshot = createViewerSnapshot();
+    snapshot.models = [{
+      stableKey: "detail:transformer:1",
+      modelKey: "detail_transformer_box",
+      contentVersion: "1",
+      positionX: 1,
+      positionY: 2,
+      positionZ: 3,
+      rotationX: 0,
+      rotationY: 0,
+      rotationZ: 45,
+      scaleX: 0.5,
+      scaleY: 0.4,
+      scaleZ: 0.8
+    }];
+
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.pendingModelKeys.size).toBe(0);
+    expect(scene.modelBatches.get("detail_transformer_box")!.capacity).toBe(1);
+    expect(scene.content.children[0]).toBeInstanceOf(THREE.InstancedMesh);
+  });
 });

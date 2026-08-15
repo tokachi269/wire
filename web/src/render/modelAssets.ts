@@ -20,7 +20,10 @@ export type ModelAssetKind =
   | "communicationClampLong"
   | "crossarmHv"
   | "hvInsulator"
-  | "poleBody";
+  | "poleBody"
+  | "detailTransformerBox"
+  | "detailTerminalPost"
+  | "detailInlineDevice";
 
 export type ModelKey =
   | "pole_belt"
@@ -28,7 +31,10 @@ export type ModelKey =
   | "communication_clamp_long"
   | "hv_crossarm"
   | "hv_insulator"
-  | "pole_body";
+  | "pole_body"
+  | "detail_transformer_box"
+  | "detail_terminal_post"
+  | "detail_inline_device";
 
 type MountRule = "center" | "bottom" | "pole-ground";
 
@@ -109,6 +115,24 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM),
     radialTopM: poleRadiusAtDistanceFromTop(0.0),
     adapterVersion: 5
+  },
+  detailTransformerBox: {
+    modelKey: "detail_transformer_box",
+    url: "primitive:detail_transformer_box",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  detailTerminalPost: {
+    modelKey: "detail_terminal_post",
+    url: "primitive:detail_terminal_post",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  detailInlineDevice: {
+    modelKey: "detail_inline_device",
+    url: "primitive:detail_inline_device",
+    mountRule: "center",
+    adapterVersion: 1
   }
 };
 
@@ -163,7 +187,41 @@ export class ModelAssetCache {
   private readonly loaded = new Map<ModelAssetKind, LoadedModelAsset>();
   private readonly loads = new Map<ModelAssetKind, number>();
 
-  constructor(private readonly loadScene: SceneLoader = loadGltfScene) {}
+  constructor(private readonly loadScene: SceneLoader = loadGltfScene) {
+    this.registerPrimitive("detailTransformerBox", new THREE.BoxGeometry(1, 1, 1), 0x3f4347);
+    this.registerPrimitive("detailTerminalPost", new THREE.CylinderGeometry(0.5, 0.5, 1, 12), 0x5f6164);
+    this.registerPrimitive("detailInlineDevice", new THREE.CapsuleGeometry(0.5, 1, 8, 12), 0x2d3436);
+  }
+
+  private registerPrimitive(kind: ModelAssetKind, geometry: THREE.BufferGeometry, color: number): void {
+    const adapter = adapters[kind];
+    const material = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.72,
+      metalness: 0.12
+    });
+    const source = new THREE.Group();
+    source.add(new THREE.Mesh(geometry, material));
+    source.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(source, true);
+    const size = bounds.getSize(new THREE.Vector3());
+    const anchor = mountAnchor(bounds, size, adapter.mountRule);
+    source.position.sub(anchor);
+    source.updateMatrixWorld(true);
+    const asset: LoadedModelAsset = {
+      kind,
+      modelKey: adapter.modelKey,
+      source,
+      bounds,
+      size,
+      mountAnchor: anchor,
+      radialReferenceM: null,
+      radialTopM: null,
+      descriptorVersion: descriptorVersion(kind, bounds, anchor, null, null, adapter),
+      adapter
+    };
+    this.loaded.set(kind, asset);
+  }
 
   load(kind: ModelAssetKind): Promise<LoadedModelAsset> {
     const cached = this.promises.get(kind);

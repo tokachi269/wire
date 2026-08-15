@@ -9,6 +9,13 @@ import {
   ModelAssetCache
 } from "../src/render/modelAssets";
 import { missingBackboneEntryCells } from "./backbone_semantics_contract";
+import {
+  SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS,
+  SUPPORT_DETAIL_SCENE_COUNTS,
+  SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS,
+  SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS,
+  SUPPORT_DETAIL_SCENE_POINTS
+} from "./fixtures/supportDetailScene";
 
 function visualParts(state: WireStateHandle) {
   const scene = state.visualScene();
@@ -17,6 +24,38 @@ function visualParts(state: WireStateHandle) {
     info,
     samples: samples.subarray(info.sampleOffset, info.sampleOffset + info.sampleCount * 3)
   }));
+}
+
+function detailSceneSignature(state: WireStateHandle): string {
+  const scene = state.visualScene();
+  const records = visualParts(state)
+    .filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
+    )
+    .map((part) => [
+      "part",
+      part.info.partKey,
+      part.info.supplementalKind,
+      Array.from(part.samples).map((value) => value.toPrecision(17)).join(",")
+    ].join(":"));
+  records.push(...scene.models
+    .filter((model) => model.modelKey.startsWith("detail_"))
+    .map((model) => [
+      "model",
+      model.stableKey,
+      model.modelKey,
+      model.positionX.toPrecision(17),
+      model.positionY.toPrecision(17),
+      model.positionZ.toPrecision(17),
+      model.rotationX.toPrecision(17),
+      model.rotationY.toPrecision(17),
+      model.rotationZ.toPrecision(17),
+      model.scaleX.toPrecision(17),
+      model.scaleY.toPrecision(17),
+      model.scaleZ.toPrecision(17)
+    ].join(":")));
+  return records.sort().join("\n");
 }
 
 const identityTransform = (): ModelTransformInput => ({
@@ -716,6 +755,61 @@ describe("wire wasm smoke", () => {
     );
     expect(obsoleteConnectors).toHaveLength(0);
     expect(modelState.visualScene().models.some((model) => model.modelKey === "hv_insulator")).toBe(true);
+    modelState.delete();
+  });
+
+  it("exports derived support detail equipment, fan-out cables, and inline device to the web scene", () => {
+    const modelState = createState();
+    const generated = modelState.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const models = modelState.visualScene().models;
+    expect(models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
+    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[1]).length)
+      .toBeGreaterThanOrEqual(3);
+    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[2])).toHaveLength(1);
+
+    const detailParts = visualParts(modelState);
+    expect(detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
+    ).length).toBeGreaterThanOrEqual(3);
+    expect(detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
+    )).toHaveLength(1);
+    expect(modelState.spanCount()).toBe(generated.generatedSpanCount);
+    expect(modelState.saveState()).not.toMatch(/detail_|LocalDetail|InlineDetail/);
+
+    const repeatedState = createState();
+    const repeated = repeatedState.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(repeated.ok, repeated.error).toBe(true);
+    expect(detailSceneSignature(repeatedState)).toBe(detailSceneSignature(modelState));
+    repeatedState.delete();
+    modelState.delete();
+  });
+
+  it("does not attach HV support detail to an optical-only scene fixture", () => {
+    const modelState = createState();
+    const generated = modelState.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      [105], 0, 1,
+      [0], 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    expect(modelState.visualScene().models.some((model) =>
+      model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]
+    )).toBe(false);
+    expect(visualParts(modelState).some((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
+    )).toBe(false);
     modelState.delete();
   });
 

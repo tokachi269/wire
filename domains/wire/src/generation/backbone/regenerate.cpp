@@ -4,6 +4,7 @@
 
 #include "../../collection_utils.hpp"
 #include "curve_parts.hpp"
+#include "detail_plan.hpp"
 #include "model_assembly.hpp"
 #include "pipeline.hpp"
 
@@ -27,6 +28,29 @@ const SavedBackboneNode* saved_node_by_id(const SavedBackboneGraph& graph, Objec
   const auto it = std::find_if(graph.nodes.begin(), graph.nodes.end(),
                                [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
   return it == graph.nodes.end() ? nullptr : &*it;
+}
+
+void append_detail_visuals(CoreState* state, VisualCurvePartCache* visual_curves,
+                           VisualModelInstanceCache* model_instances) {
+  if (state == nullptr || visual_curves == nullptr || model_instances == nullptr) return;
+  model_instances->instances.erase(
+      std::remove_if(model_instances->instances.begin(), model_instances->instances.end(),
+                     [](const VisualModelInstance& instance) {
+                       return instance.model_key.rfind("detail_", 0) == 0;
+                     }),
+      model_instances->instances.end());
+  generation::backbone::DetailVisuals detail =
+      generation::backbone::make_detail_visuals(*state, *visual_curves);
+  visual_curves->parts.insert(visual_curves->parts.end(),
+                              std::make_move_iterator(detail.curves.parts.begin()),
+                              std::make_move_iterator(detail.curves.parts.end()));
+  model_instances->instances.insert(model_instances->instances.end(),
+                                    std::make_move_iterator(detail.models.instances.begin()),
+                                    std::make_move_iterator(detail.models.instances.end()));
+  std::sort(model_instances->instances.begin(), model_instances->instances.end(),
+            [](const VisualModelInstance& a, const VisualModelInstance& b) {
+              return a.stable_key < b.stable_key;
+            });
 }
 
 const SavedBackboneEdge* saved_edge_by_id(const SavedBackboneGraph& graph, ObjectId edge_id) {
@@ -578,7 +602,10 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     result.error = visual_curves.error;
     return result;
   }
+  VisualModelInstanceCache model_instances = trial.view().visual_model_instances();
+  append_detail_visuals(&trial, &visual_curves.value, &model_instances);
   trial.cache_visual_curve_parts(std::move(visual_curves.value));
+  trial.cache_visual_model_instances(std::move(model_instances));
 
   identity_ = trial.identity_;
   authoritative_ = trial.authoritative_;
@@ -794,7 +821,6 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
     result.error = visual_curves.error;
     return result;
   }
-  cache_visual_curve_parts(std::move(visual_curves.value));
   EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
       generation::backbone::fixture_placement_plan_from_cache(*this);
   if (!fixture_plan.ok) {
@@ -808,6 +834,8 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
     result.error = model_instances.error;
     return result;
   }
+  append_detail_visuals(this, &visual_curves.value, &model_instances.value);
+  cache_visual_curve_parts(std::move(visual_curves.value));
   cache_visual_model_instances(std::move(model_instances.value));
   result.ok = true;
   result.value = true;

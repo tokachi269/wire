@@ -9,6 +9,7 @@
 
 #include "curve_parts.hpp"
 #include "derive_span_layout.hpp"
+#include "detail_plan.hpp"
 #include "emit_shared.hpp"
 #include "model_assembly.hpp"
 #include "out.hpp"
@@ -4289,7 +4290,12 @@ EditResult<geom> pipeline::make(const layout& made) const {
     out.error = visual_curves.error;
     return out;
   }
+  DetailVisuals detail = make_detail_visuals(state_, visual_curves.value);
+  visual_curves.value.parts.insert(visual_curves.value.parts.end(),
+                                   std::make_move_iterator(detail.curves.parts.begin()),
+                                   std::make_move_iterator(detail.curves.parts.end()));
   out.value.visual_curves = std::move(visual_curves.value);
+  out.value.detail_model_instances = std::move(detail.models);
   out.ok = true;
   return out;
 }
@@ -4375,6 +4381,17 @@ void pipeline::save(geom made) {
     state_.cache_span_bounds(item.first, std::move(item.second));
   }
   state_.cache_visual_curve_parts(std::move(made.visual_curves));
+  if (!made.detail_model_instances.instances.empty()) {
+    VisualModelInstanceCache merged = state_.view().visual_model_instances();
+    merged.instances.insert(merged.instances.end(),
+                            std::make_move_iterator(made.detail_model_instances.instances.begin()),
+                            std::make_move_iterator(made.detail_model_instances.instances.end()));
+    std::sort(merged.instances.begin(), merged.instances.end(),
+              [](const VisualModelInstance& a, const VisualModelInstance& b) {
+                return a.stable_key < b.stable_key;
+              });
+    state_.cache_visual_model_instances(std::move(merged));
+  }
 }
 
 void pipeline::save(draw made) {

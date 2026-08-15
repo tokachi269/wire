@@ -18,7 +18,6 @@ export interface SupportDetailScene {
 
 export const SUPPORT_DETAIL_MODEL_KEYS = {
   transformer: "pole_transformer_20kva_proxy",
-  transformerIntermediateInsulator: "transformer_intermediate_insulator_proxy",
   transformerSupportBracket: "transformer_support_bracket_proxy"
 } as const;
 
@@ -30,10 +29,6 @@ export const SUPPORT_DETAIL_DIMENSIONS = {
     lidThicknessM: 0.030,
     radialClearanceM: 0.060,
     defaultCenterBelowHvRowM: 1.35
-  },
-  transformerIntermediateInsulator: {
-    bodyLengthM: 0.220,
-    bodyDiameterM: 0.104
   },
   transformerSupportBracket: {
     lengthM: 0.700,
@@ -51,6 +46,8 @@ const LV_DETAIL_COLOR = 0x31363aff;
 const DECORATIVE_DETAIL_COLOR = 0x2f3437ff;
 const MAX_LOCAL_CABLE_SAMPLES = 8;
 const SUPPORT_ASSIGN_RADIUS_M = 1.60;
+const TRANSFORMER_BASIC_HASH_SLOT = 2;
+const HV_INSULATOR_MODEL_KEY = "hv_insulator";
 
 type PoleDetailPatternName = "hv_plain" | "transformer_basic";
 
@@ -68,7 +65,6 @@ interface SocketFrame {
 interface LaneEndpoint {
   part: SupportDetailPart;
   laneIndex: number;
-  edgeId: string;
   position: Vec3;
   forward: Vec3;
 }
@@ -78,7 +74,6 @@ interface SupportContext {
   poleId: string;
   position: Vec3;
   hvLanes: LaneEndpoint[];
-  hvEdgeIds: Set<string>;
 }
 
 interface PatternFrame {
@@ -88,13 +83,17 @@ interface PatternFrame {
 }
 
 interface TransformerBasicSockets {
+  transformerCenter: Vec3;
+  bracketCenter: Vec3;
   insulator0In: SocketFrame;
   insulator0Out: SocketFrame;
   insulator1In: SocketFrame;
   insulator1Out: SocketFrame;
   transformerHv0: SocketFrame;
   transformerHv1: SocketFrame;
-  transformerLv: SocketFrame;
+  transformerLv0: SocketFrame;
+  transformerLv1: SocketFrame;
+  transformerLv2: SocketFrame;
 }
 
 interface PoleDetailPattern {
@@ -244,15 +243,13 @@ function makeSupportContexts(poles: PoleInfo[], supportNodes: SupportNodeInfo[])
         id: `support-node:${support.id}`,
         poleId: support.poleId,
         position: v(support.x, support.y, support.z),
-        hvLanes: [],
-        hvEdgeIds: new Set<string>()
+        hvLanes: []
       }))
     : poles.map((pole) => ({
         id: `pole:${pole.id}`,
         poleId: pole.id,
         position: v(pole.positionX, pole.positionY, pole.positionZ),
-        hvLanes: [],
-        hvEdgeIds: new Set<string>()
+        hvLanes: []
       }));
   return contexts.sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -288,20 +285,17 @@ function collectSupportContexts(
     const endpoints: LaneEndpoint[] = [{
       part,
       laneIndex: part.info.laneIndex,
-      edgeId: part.info.sourceEdgeId,
       position: start,
       forward: norm(sub(second, start))
     }, {
       part,
       laneIndex: part.info.laneIndex,
-      edgeId: part.info.sourceEdgeId,
       position: end,
       forward: norm(sub(beforeEnd, end))
     }];
     for (const endpoint of endpoints) {
       const support = nearestSupportContext(endpoint.position, contexts);
       if (support === null) continue;
-      support.hvEdgeIds.add(endpoint.edgeId);
       if (!support.hvLanes.some((item) => item.laneIndex === endpoint.laneIndex)) support.hvLanes.push(endpoint);
     }
   }
@@ -317,7 +311,7 @@ function patternFrame(support: SupportContext): PatternFrame | null {
 }
 
 function choosePatternName(support: SupportContext): PoleDetailPatternName {
-  return support.hvEdgeIds.size >= 2 ? "transformer_basic" : "hv_plain";
+  return hashString(support.id) % 4 === TRANSFORMER_BASIC_HASH_SLOT ? "transformer_basic" : "hv_plain";
 }
 
 function makePattern(support: SupportContext): PoleDetailPattern {
@@ -340,57 +334,67 @@ function transformerBasicSockets(support: SupportContext, frame: PatternFrame): 
     add(poleAtHvRow, scale(frame.lateral, transformerOffset)),
     v(0, 0, -SUPPORT_DETAIL_DIMENSIONS.transformer.defaultCenterBelowHvRowM)
   );
-  const insulator0 = add(add(frame.rowCenter, scale(frame.lateral, 0.25)), v(0, 0, -0.35));
-  const insulator1 = add(add(frame.rowCenter, scale(frame.lateral, 0.50)), v(0, 0, -0.35));
+  const bracketCenter = add(add(
+    v(support.position.x, support.position.y, transformerCenter.z),
+    scale(frame.lateral, SUPPORT_DETAIL_DIMENSIONS.transformerSupportBracket.lengthM * 0.5)
+  ), v(0, 0, 0.03));
+  const insulator0 = add(add(bracketCenter, scale(frame.lateral, 0.06)), scale(frame.forward, -0.18));
+  const insulator1 = add(add(bracketCenter, scale(frame.lateral, 0.06)), scale(frame.forward, 0.18));
+  const lvBase = add(transformerCenter, v(0, 0, -0.16));
   return {
+    transformerCenter,
+    bracketCenter,
     insulator0In: { position: add(insulator0, scale(frame.forward, -0.12)), forward: frame.forward },
     insulator0Out: { position: add(insulator0, scale(frame.forward, 0.12)), forward: scale(frame.forward, -1) },
     insulator1In: { position: add(insulator1, scale(frame.forward, -0.12)), forward: frame.forward },
     insulator1Out: { position: add(insulator1, scale(frame.forward, 0.12)), forward: scale(frame.forward, -1) },
     transformerHv0: { position: add(add(transformerCenter, scale(frame.lateral, -0.06)), v(0, 0, 0.28)), forward: v(0, 0, 1) },
     transformerHv1: { position: add(add(transformerCenter, scale(frame.lateral, 0.06)), v(0, 0, 0.28)), forward: v(0, 0, 1) },
-    transformerLv: { position: add(transformerCenter, v(0, 0, -0.16)), forward: frame.lateral }
+    transformerLv0: { position: add(lvBase, scale(frame.forward, -0.045)), forward: frame.lateral },
+    transformerLv1: { position: lvBase, forward: frame.lateral },
+    transformerLv2: { position: add(lvBase, scale(frame.forward, 0.045)), forward: frame.lateral }
   };
 }
 
 function appendTransformerBasicParts(pattern: PoleDetailPattern, out: SupportDetailScene): void {
   if (pattern.frame === null || pattern.sockets === null) return;
-  const seed = hashString(pattern.support.id);
   const version = `${pattern.support.id}:transformer-basic:v1`;
-  const transformerCenter = add(pattern.sockets.transformerLv.position, v(0, 0, 0.16));
   const insulator0Center = scale(add(pattern.sockets.insulator0In.position, pattern.sockets.insulator0Out.position), 0.5);
   const insulator1Center = scale(add(pattern.sockets.insulator1In.position, pattern.sockets.insulator1Out.position), 0.5);
-  const bracketCenter = scale(add(insulator0Center, insulator1Center), 0.5);
-  const jittered = (point: Vec3, index: number): Vec3 =>
-    add(add(point, scale(pattern.frame!.lateral, jitter(seed, index, 0.025))), v(0, 0, jitter(seed, index + 7, 0.020)));
 
   out.models.push(makeModel(
     `support-detail:${pattern.support.id}:transformer`,
     SUPPORT_DETAIL_MODEL_KEYS.transformer,
     version,
-    jittered(transformerCenter, 1),
+    pattern.sockets.transformerCenter,
     pattern.frame.forward
   ));
   out.models.push(makeModel(
     `support-detail:${pattern.support.id}:transformer-bracket`,
     SUPPORT_DETAIL_MODEL_KEYS.transformerSupportBracket,
     `${version}:bracket`,
-    jittered(bracketCenter, 2),
-    pattern.frame.forward
+    pattern.sockets.bracketCenter,
+    pattern.frame.lateral
   ));
   out.models.push(makeModel(
     `support-detail:${pattern.support.id}:intermediate-insulator:0`,
-    SUPPORT_DETAIL_MODEL_KEYS.transformerIntermediateInsulator,
+    HV_INSULATOR_MODEL_KEY,
     `${version}:insulator:0`,
-    jittered(insulator0Center, 3),
-    pattern.frame.forward
+    insulator0Center,
+    pattern.frame.lateral,
+    v(0.42, 0.42, 0.42),
+    0,
+    90
   ));
   out.models.push(makeModel(
     `support-detail:${pattern.support.id}:intermediate-insulator:1`,
-    SUPPORT_DETAIL_MODEL_KEYS.transformerIntermediateInsulator,
+    HV_INSULATOR_MODEL_KEY,
     `${version}:insulator:1`,
-    jittered(insulator1Center, 4),
-    pattern.frame.forward
+    insulator1Center,
+    pattern.frame.lateral,
+    v(0.42, 0.42, 0.42),
+    0,
+    90
   ));
 }
 
@@ -406,13 +410,16 @@ function appendTransformerBasicConnections(pattern: PoleDetailPattern, out: Supp
   const lane0 = laneFor(pattern, 0);
   const lane2 = laneFor(pattern, 2);
   const seed = hashString(pattern.support.id);
-  const variantA = (seed & 1) === 0 ? "small_loop" : "drop_then_in";
-  const variantB = (seed & 2) === 0 ? "side_loop" : "small_loop";
+  const mirror = (seed & 1) === 0 ? 1 : -1;
+  const guideJitter = (index: number, lateralM = 0.035, verticalM = 0.030): Vec3 =>
+    add(scale(pattern.frame!.lateral, jitter(seed, index, lateralM) * mirror), v(0, 0, jitter(seed, index + 11, verticalM)));
+  const variantA = (seed & 2) === 0 ? "small_loop" : "drop_then_in";
+  const variantB = (seed & 4) === 0 ? "side_loop" : "small_loop";
   if (lane0 !== null) {
     pushCable(out, `support-detail:${pattern.support.id}:hv-lane0-to-insulator0`, lane0.part.info,
       routePoints(
         { position: lane0.position, forward: lane0.forward },
-        [add(lane0.position, scale(lane0.forward, 0.18))],
+        [add(add(lane0.position, scale(lane0.forward, 0.18)), guideJitter(1))],
         pattern.sockets.insulator0In,
         variantA
       ),
@@ -423,7 +430,7 @@ function appendTransformerBasicConnections(pattern: PoleDetailPattern, out: Supp
   pushCable(out, `support-detail:${pattern.support.id}:insulator0-to-transformer`, source,
     routePoints(
       pattern.sockets.insulator0Out,
-      [add(pattern.sockets.transformerHv0.position, scale(pattern.frame.lateral, -0.06))],
+      [add(add(pattern.sockets.transformerHv0.position, scale(pattern.frame.lateral, -0.06)), guideJitter(2))],
       pattern.sockets.transformerHv0,
       "drop_then_in"
     ),
@@ -434,7 +441,7 @@ function appendTransformerBasicConnections(pattern: PoleDetailPattern, out: Supp
     pushCable(out, `support-detail:${pattern.support.id}:hv-lane2-to-insulator1`, lane2.part.info,
       routePoints(
         { position: lane2.position, forward: lane2.forward },
-        [add(lane2.position, scale(lane2.forward, 0.18))],
+        [add(add(lane2.position, scale(lane2.forward, 0.18)), guideJitter(3))],
         pattern.sockets.insulator1In,
         variantB
       ),
@@ -445,32 +452,60 @@ function appendTransformerBasicConnections(pattern: PoleDetailPattern, out: Supp
   pushCable(out, `support-detail:${pattern.support.id}:insulator1-to-transformer`, source,
     routePoints(
       pattern.sockets.insulator1Out,
-      [add(pattern.sockets.transformerHv1.position, scale(pattern.frame.lateral, 0.06))],
+      [add(add(pattern.sockets.transformerHv1.position, scale(pattern.frame.lateral, 0.06)), guideJitter(4))],
       pattern.sockets.transformerHv1,
       "drop_then_in"
     ),
     0.010,
     HV_DETAIL_COLOR
   );
-  const lvEnd = add(add(pattern.sockets.transformerLv.position, scale(pattern.frame.lateral, 0.50)), v(0, 0, -0.10));
-  pushCable(out, `support-detail:${pattern.support.id}:transformer-lv-main`, source,
-    routePoints(
-      pattern.sockets.transformerLv,
-      [add(pattern.sockets.transformerLv.position, v(0, 0, -0.18))],
-      { position: lvEnd, forward: scale(pattern.frame.lateral, -1) },
-      "side_loop"
-    ),
-    0.011,
-    LV_DETAIL_COLOR
-  );
-  pushCable(out, `support-detail:${pattern.support.id}:decorative-loop`, source,
+  const lvSockets = [pattern.sockets.transformerLv0, pattern.sockets.transformerLv1, pattern.sockets.transformerLv2];
+  lvSockets.forEach((socket, index) => {
+    const closeGuide = add(add(socket.position, scale(pattern.frame!.lateral, 0.16)), guideJitter(5 + index, 0.018, 0.018));
+    const fanout = add(
+      add(pattern.sockets!.transformerCenter, scale(pattern.frame!.lateral, 0.82)),
+      add(scale(pattern.frame!.forward, (index - 1) * 0.18), v(0, 0, -0.34 - index * 0.035))
+    );
+    pushCable(out, `support-detail:${pattern.support.id}:transformer-lv:${index}`, source,
+      routePoints(
+        socket,
+        [closeGuide, add(fanout, guideJitter(8 + index, 0.025, 0.025))],
+        { position: fanout, forward: scale(pattern.frame!.lateral, -1) },
+        index === 1 ? "direct" : "side_loop"
+      ),
+      0.011,
+      LV_DETAIL_COLOR
+    );
+  });
+  const loopAnchor = add(pattern.sockets.transformerCenter, v(0, 0, -0.08));
+  pushCable(out, `support-detail:${pattern.support.id}:service-loop:0`, source,
     [
-      add(pattern.sockets.transformerLv.position, scale(pattern.frame.lateral, -0.10)),
-      add(add(pattern.sockets.transformerLv.position, scale(pattern.frame.lateral, -0.18)), v(0, 0, -0.20)),
-      add(add(pattern.sockets.transformerLv.position, scale(pattern.frame.lateral, 0.20)), v(0, 0, -0.18)),
-      add(pattern.sockets.transformerLv.position, scale(pattern.frame.lateral, 0.12))
+      add(loopAnchor, scale(pattern.frame.lateral, 0.18)),
+      add(add(loopAnchor, scale(pattern.frame.lateral, 0.36)), v(0, 0, -0.20 - Math.abs(jitter(seed, 20, 0.05)))),
+      add(add(loopAnchor, scale(pattern.frame.lateral, 0.08)), scale(pattern.frame.forward, 0.28 * mirror)),
+      add(loopAnchor, scale(pattern.frame.lateral, -0.02))
     ],
     0.008,
+    DECORATIVE_DETAIL_COLOR
+  );
+  pushCable(out, `support-detail:${pattern.support.id}:service-loop:1`, source,
+    [
+      add(pattern.sockets.transformerLv1.position, scale(pattern.frame.forward, -0.08 * mirror)),
+      add(add(pattern.sockets.transformerLv1.position, scale(pattern.frame.lateral, 0.30)), v(0, 0, -0.12)),
+      add(add(pattern.sockets.transformerLv1.position, scale(pattern.frame.lateral, 0.24)), scale(pattern.frame.forward, 0.30 * mirror)),
+      add(add(pattern.sockets.transformerLv1.position, scale(pattern.frame.lateral, 0.08)), v(0, 0, -0.02))
+    ],
+    0.007,
+    DECORATIVE_DETAIL_COLOR
+  );
+  pushCable(out, `support-detail:${pattern.support.id}:pole-drop`, source,
+    [
+      add(v(pattern.support.position.x, pattern.support.position.y, pattern.sockets.transformerCenter.z + 0.10), scale(pattern.frame.lateral, 0.10)),
+      add(v(pattern.support.position.x, pattern.support.position.y, pattern.sockets.transformerCenter.z - 0.20), scale(pattern.frame.lateral, 0.11)),
+      add(v(pattern.support.position.x, pattern.support.position.y, pattern.sockets.transformerCenter.z - 0.62), scale(pattern.frame.lateral, 0.10)),
+      add(v(pattern.support.position.x, pattern.support.position.y, pattern.sockets.transformerCenter.z - 0.96), scale(pattern.frame.lateral, 0.12))
+    ],
+    0.006,
     DECORATIVE_DETAIL_COLOR
   );
 }

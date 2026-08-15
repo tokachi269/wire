@@ -42,7 +42,7 @@ function detailSceneSignature(scene: SceneData): string {
       Array.from(part.samples).map((value) => value.toPrecision(17)).join(",")
     ].join(":"));
   records.push(...scene.models
-    .filter((model) => SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey))
+    .filter((model) => SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey) || model.stableKey.startsWith("support-detail:"))
     .map((model) => [
       "model",
       model.stableKey,
@@ -788,8 +788,11 @@ describe("wire wasm smoke", () => {
     const scene = bridge.scene();
     const models = scene.models;
     expect(models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
-    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[1])).toHaveLength(2);
-    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[2])).toHaveLength(1);
+    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[1])).toHaveLength(1);
+    expect(models.filter((model) => model.stableKey.includes(":intermediate-insulator:"))).toHaveLength(2);
+    expect(models.filter((model) =>
+      model.stableKey.includes(":intermediate-insulator:") && model.modelKey === "hv_insulator"
+    )).toHaveLength(2);
     expect(models.filter((model) => model.modelKey === "pc6_cutout_proxy")).toHaveLength(0);
     expect(models.filter((model) => model.modelKey === "arrester_gl_b6g_proxy")).toHaveLength(0);
     expect(models.filter((model) => model.modelKey === "hv_triplex_termination_60_proxy")).toHaveLength(0);
@@ -803,11 +806,26 @@ describe("wire wasm smoke", () => {
     expect(transformers.every((model) =>
       model.scaleX === 1 && model.scaleY === 1 && model.scaleZ === 1
     )).toBe(true);
+    const bracket = models.find((model) => model.stableKey === "support-detail:support-node:54:transformer-bracket");
+    expect(bracket).toBeDefined();
+    const pole = scene.supportNodes.find((node) => node.id === "54");
+    expect(pole).toBeDefined();
+    const xyDistance = (model: { positionX: number; positionY: number }): number =>
+      Math.hypot(model.positionX - pole!.x, model.positionY - pole!.y);
+    expect(xyDistance(bracket!)).toBeGreaterThan(0.30);
+    expect(xyDistance(bracket!)).toBeLessThan(xyDistance(transformers[0]));
+    expect(Math.abs(bracket!.positionZ - transformers[0].positionZ)).toBeLessThan(0.08);
+    const intermediateInsulators = models.filter((model) =>
+      model.stableKey.includes(":intermediate-insulator:")
+    );
+    expect(intermediateInsulators.every((model) =>
+      model.scaleX === 0.42 && model.scaleY === 0.42 && model.scaleZ === 0.42
+    )).toBe(true);
 
     const detailParts = scene.parts;
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
-    ).length).toBeGreaterThanOrEqual(6);
+    ).length).toBeGreaterThanOrEqual(10);
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
     )).toHaveLength(0);
@@ -816,7 +834,7 @@ describe("wire wasm smoke", () => {
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
     );
     expect(derivedDetailParts.every((part) => Math.floor(part.samples.length / 3) <= 8)).toBe(true);
-    expect(bridge.saveState()).not.toMatch(/pole_transformer_20kva_proxy|transformer_intermediate_insulator_proxy|LocalDetail|InlineDetail/);
+    expect(bridge.saveState()).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|LocalDetail|InlineDetail/);
 
     const repeatedBridge = await WireBridge.create();
     const repeated = repeatedBridge.generate(

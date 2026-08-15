@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { loadWireModule, type RoadStateHandle, type WireStateHandle } from "../src/bridge/wasm";
+import { WireBridge, type SceneData } from "../src/bridge/wire";
 import type { RoadSectionInput } from "../src/road_templates";
 import { ROAD_TEMPLATE_PRESETS, seedRoadSections } from "../src/road_templates";
 import { CommitFailureCategory, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
@@ -26,9 +27,8 @@ function visualParts(state: WireStateHandle) {
   }));
 }
 
-function detailSceneSignature(state: WireStateHandle): string {
-  const scene = state.visualScene();
-  const records = visualParts(state)
+function detailSceneSignature(scene: SceneData): string {
+  const records = scene.parts
     .filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
@@ -758,16 +758,31 @@ describe("wire wasm smoke", () => {
     modelState.delete();
   });
 
-  it("exports derived support detail equipment, fan-out cables, and inline device to the web scene", () => {
-    const modelState = createState();
-    const generated = modelState.generate(
+  it("keeps support detail out of the raw wasm scene and derives it in the web scene adapter", async () => {
+    const rawState = createState();
+    const rawGenerated = rawState.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(rawGenerated.ok, rawGenerated.error).toBe(true);
+    expect(rawState.visualScene().models.some((model) => model.modelKey.startsWith("detail_"))).toBe(false);
+    expect(visualParts(rawState).some((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
+    )).toBe(false);
+    rawState.delete();
+
+    const bridge = await WireBridge.create();
+    const generated = bridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
       SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
       SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
     );
     expect(generated.ok, generated.error).toBe(true);
 
-    const models = modelState.visualScene().models;
+    const scene = bridge.scene();
+    const models = scene.models;
     expect(models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
     expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[1]).length)
       .toBeGreaterThanOrEqual(3);
@@ -777,44 +792,41 @@ describe("wire wasm smoke", () => {
       model.scaleX <= 0.35 && model.scaleY <= 0.22 && model.scaleZ <= 0.45
     )).toBe(true);
 
-    const detailParts = visualParts(modelState);
+    const detailParts = scene.parts;
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
     ).length).toBeGreaterThanOrEqual(3);
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
     )).toHaveLength(1);
-    expect(modelState.spanCount()).toBe(generated.generatedSpanCount);
-    expect(modelState.saveState()).not.toMatch(/detail_|LocalDetail|InlineDetail/);
+    expect(bridge.saveState()).not.toMatch(/detail_|LocalDetail|InlineDetail/);
 
-    const repeatedState = createState();
-    const repeated = repeatedState.generate(
+    const repeatedBridge = await WireBridge.create();
+    const repeated = repeatedBridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
       SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
       SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
     );
     expect(repeated.ok, repeated.error).toBe(true);
-    expect(detailSceneSignature(repeatedState)).toBe(detailSceneSignature(modelState));
-    repeatedState.delete();
-    modelState.delete();
+    expect(detailSceneSignature(repeatedBridge.scene())).toBe(detailSceneSignature(scene));
   });
 
-  it("does not attach HV support detail to an optical-only scene fixture", () => {
-    const modelState = createState();
-    const generated = modelState.generate(
+  it("does not attach HV support detail to an optical-only scene fixture", async () => {
+    const bridge = await WireBridge.create();
+    const generated = bridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
       [105], 0, 1,
       [0], 0, 0, []
     );
     expect(generated.ok, generated.error).toBe(true);
 
-    expect(modelState.visualScene().models.some((model) =>
+    const scene = bridge.scene();
+    expect(scene.models.some((model) =>
       model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]
     )).toBe(false);
-    expect(visualParts(modelState).some((part) =>
+    expect(scene.parts.some((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
     )).toBe(false);
-    modelState.delete();
   });
 
   it("upgrades an older saved row assembly by adapter version during restore", () => {

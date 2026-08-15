@@ -185,7 +185,6 @@ struct geom {
   curve curves{};
   bounds boxes{};
   VisualCurvePartCache visual_curves{};
-  VisualModelInstanceCache detail_model_instances{};
 };
 
 struct draw {

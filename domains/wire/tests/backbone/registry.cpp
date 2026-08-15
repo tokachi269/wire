@@ -1181,26 +1181,6 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "source-bundle endpoint completion ignores an unrelated bundle's open row",
                          "Boundary", false,
                          C837_backbone_source_bundle_endpoint_completion_ignores_other_bundle_open);
-  test_registry::AddTest(tests, "C838_backbone_detail_generates_primitive_equipment_and_local_cables_without_spans",
-                         "wire support detail derives primitive equipment, fan-out cables, and inline device without new spans",
-                         "Invariant", false,
-                         C838_backbone_detail_generates_primitive_equipment_and_local_cables_without_spans);
-  test_registry::AddTest(tests, "C839_backbone_detail_generation_is_deterministic",
-                         "wire support detail is deterministic for the same input",
-                         "Invariant", false,
-                         C839_backbone_detail_generation_is_deterministic);
-  test_registry::AddTest(tests, "C840_backbone_detail_skips_hv_equipment_for_optical_bundle",
-                         "wire support detail does not attach HV equipment to optical bundles",
-                         "Invariant", false,
-                         C840_backbone_detail_skips_hv_equipment_for_optical_bundle);
-  test_registry::AddTest(tests, "C841_backbone_inline_detail_follows_carrier_reposition",
-                         "wire inline detail follows the carrier curve after support reposition",
-                         "Invariant", false,
-                         C841_backbone_inline_detail_follows_carrier_reposition);
-  test_registry::AddTest(tests, "C842_backbone_detail_logical_sockets_are_glb_independent",
-                         "wire support detail logical sockets are generated independently from GLB/model asset loading",
-                         "Boundary", false,
-                         C842_backbone_detail_logical_sockets_are_glb_independent);
   test_registry::AddTest(tests, "C775_backbone_incremental_canonical_pair_survives_save_load",
                          "incremental canonical pair rows survive authoritative save/load",
                          "Invariant", false,

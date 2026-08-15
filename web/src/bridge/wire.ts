@@ -35,6 +35,7 @@ import type {
 import type { RoadMeshData, RoadSceneData, RoadSegmentInput } from "../road";
 import type { RoadIntervalPreview } from "./wasm";
 import type { RoadSectionInput } from "../road_templates";
+import { deriveSupportDetails } from "./supportDetails";
 
 export interface VisualPartData {
   info: VisualPartInfo;
@@ -385,9 +386,10 @@ export class WireBridge {
     }
     const timing = this.state.lastGenerationTiming();
     const lastGenerationTiming = timing.totalMs > 0 ? timing : null;
+    const detail = deriveSupportDetails(parts, this.bundleTemplates());
     return {
-      parts,
-      models: visual.models,
+      parts: [...parts, ...detail.parts],
+      models: [...visual.models, ...detail.models],
       poles,
       ports,
       spans,

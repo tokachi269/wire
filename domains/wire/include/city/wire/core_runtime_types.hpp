@@ -105,8 +105,6 @@ enum class VisualSupplementalKind : std::uint8_t {
   kNone = 0,
   kSupportPath = 1,
   kHelix = 2,
-  kLocalDetailCable = 3,
-  kInlineDetailCable = 4,
 };
 
 enum class NodePatchClassification : std::uint8_t {
@@ -185,7 +183,6 @@ struct VisualCurvePart {
   bool has_section_key = false;
   CableSectionKey section_key{};
   CableRunId cable_run_id = 0;
-  std::uint64_t detail_key = 0;
   PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
   PoleTypeId endpoint_b_pole_type_id = kInvalidPoleTypeId;
   int endpoint_a_band_id = 0;

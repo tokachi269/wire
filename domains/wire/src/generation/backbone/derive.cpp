@@ -3,7 +3,6 @@
 #include "city/wire/coord_utils.hpp"
 
 #include "curve_parts.hpp"
-#include "detail_plan.hpp"
 #include "derive_span_layout.hpp"
 #include "model_assembly.hpp"
 #include "out.hpp"
@@ -480,24 +479,6 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     debug_.last_update_timing = timing;
     out.error = model_instances.error;
     return out;
-  }
-  {
-    const VisualCurvePartCache& detail_carriers =
-        has_rebuilt_visual_curves ? rebuilt_visual_curves : view().visual_curve_parts();
-    generation::backbone::DetailVisuals detail =
-        generation::backbone::make_detail_visuals(*this, detail_carriers);
-    if (has_rebuilt_visual_curves) {
-      rebuilt_visual_curves.parts.insert(rebuilt_visual_curves.parts.end(),
-                                         std::make_move_iterator(detail.curves.parts.begin()),
-                                         std::make_move_iterator(detail.curves.parts.end()));
-    }
-    model_instances.value.instances.insert(model_instances.value.instances.end(),
-                                           std::make_move_iterator(detail.models.instances.begin()),
-                                           std::make_move_iterator(detail.models.instances.end()));
-    std::sort(model_instances.value.instances.begin(), model_instances.value.instances.end(),
-              [](const VisualModelInstance& a, const VisualModelInstance& b) {
-                return a.stable_key < b.stable_key;
-              });
   }
   if (has_rebuilt_visual_curves) {
     cache_visual_curve_parts(std::move(rebuilt_visual_curves));

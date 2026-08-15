@@ -16,9 +16,9 @@ BackboneSpec
   -> SpanLayoutRules
   -> support group / SpanLayoutEntry
   -> DetailCurve / bounds
-  -> support / inline detail plan
   -> visual / render cache
   -> viewer / export adapter
+  -> presentation detail
 ```
 
 ## 正本と派生
@@ -31,8 +31,8 @@ BackboneSpec
 | rules | `SpanLayoutRules` | span layout intent |
 | layout | `SpanLayoutEntry` | `support_world` と `endpoint_world` |
 | geom | `DetailCurve` / bounds | layout endpointからの形状派生 |
-| support / inline detail | `generation/backbone/detail_plan` | support/span周辺の局所設備・短い配線・inline deviceを既存topology/layout/curveから派生 |
 | draw | visual / render cache | layout/geomからの表示出力 |
+| presentation detail | viewer / export adapter | support/span周辺の局所設備・短い配線・inline deviceを表示用sceneから派生 |
 | settings | `CoreStateAuthoritativeStorage` | geometry / visual / variation / context / layout のユーザー設定 |
 
 生成済みのspan、layout、curve、bounds、visual、port位置からtopologyを復元してはいけない。
@@ -41,18 +41,17 @@ BackboneSpec
 
 ### support / inline detail
 
-support detail は `SavedBackboneGraph`、Bundle/Span binding、`SpanLayoutEntry`、`VisualCurvePart` から再生成する
-表示用の派生層である。個々のlocal cable、fan-out、inline device、primitive equipmentは通常Spanではなく、
-SavedBackboneGraph、Span、Bundle、Port bindingへ保存しない。
+support detail は Core の authority ではなく、viewer / export adapter が表示用sceneから再生成する
+presentation detail である。Core は通常のtopology、layout、curve、fixture model、visual carrierだけを出力し、
+detail用の設備template、socket/guide recipe、primitive model keyを持たない。
 
-入力は既存のauthoritative topologyと、既存layout/curveから作られたvisual carrierである。
-出力は `VisualCurvePartKind::kSupplemental` の短いdetail cableと `VisualModelInstance` のprimitive/detail modelである。
-stable key、detail key、source versionはsource node/span/bundle/template/laneとtemplate versionから決める。
-乱数を使う場合もstable seedからだけ導出し、viewerのGLB有無やロード状態をCoreの接続判断へ戻してはいけない。
+個々のlocal cable、fan-out、inline device、primitive equipmentは通常Spanではなく、SavedBackboneGraph、
+Span、Bundle、Port bindingへ保存しない。viewer側の入力は Core が出した `VisualCurvePart`、
+`VisualModelInstance`、`BundleTemplateInfo` などの既存scene情報である。
 
-templateやrecipeは近似サイズ、socket frame、guide point、primitive representationをCore側の既定値として持てる。
-GLB assetが後から追加されても、Coreが出すlogical socket/guide接続とdetail identityは変えない。
-viewerは `detail_*` model keyをprimitive fallbackとして表示できるが、viewerでsocketや接続関係を再解釈しない。
+templateやrecipeは近似サイズ、socket frame、guide point、primitive representationをpresentation層に置く。
+GLB assetが後から追加されても、Coreの生成結果や保存状態は変えない。viewerは `detail_*` model keyを
+primitive fallbackとして表示できるが、その結果をCoreへ書き戻してはいけない。
 
 ### session draft state
 

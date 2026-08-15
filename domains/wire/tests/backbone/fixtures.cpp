@@ -1139,7 +1139,11 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
     if (state.view().bundles().find(edge_bundle.bundle_id) == nullptr) {
       return fail("edge bundle " + std::to_string(edge_bundle.edge_bundle_id) + " references missing bundle");
     }
-    for (city::wire::ObjectId span_id : edge_bundle.span_ids) {
+    const auto spans_it = state.view().backbone_index().edge_bundle_spans.find(edge_bundle.edge_bundle_id);
+    if (spans_it == state.view().backbone_index().edge_bundle_spans.end()) {
+      continue;
+    }
+    for (city::wire::ObjectId span_id : spans_it->second) {
       if (state.view().spans().find(span_id) == nullptr) {
         return fail("edge bundle " + std::to_string(edge_bundle.edge_bundle_id) + " references missing span");
       }

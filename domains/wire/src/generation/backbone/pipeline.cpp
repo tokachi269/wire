@@ -1523,11 +1523,6 @@ void pipeline::retire_untouched(route* route) {
     CoreState::add_unique_id(route->change_set.deleted_ids, port_id);
   }
   SavedBackboneGraph& graph = state_.authoritative_.backbone;
-  for (SavedBackboneEdgeBundle& item : graph.edge_bundles) {
-    if (contains_id(route->scope_edge_bundle_ids, item.edge_bundle_id)) {
-      erase_ids(item.span_ids, retired_spans);
-    }
-  }
   graph.span_bindings.erase(
       std::remove_if(graph.span_bindings.begin(), graph.span_bindings.end(),
                      [&](const SavedBackboneSpanBinding& binding) {
@@ -1559,13 +1554,11 @@ void pipeline::retire_untouched(route* route) {
     rebuilt.edge_bundle_by_edge_and_bundle[{item.edge_id, item.bundle_id}] = item.edge_bundle_id;
     rebuilt.edge_bundle_positions[item.edge_bundle_id] = position;
     CoreState::index_add(rebuilt.bundle_edge, item.bundle_id, item.edge_id);
-    for (ObjectId span_id : item.span_ids) {
-      CoreState::index_add(rebuilt.edge_bundle_spans, item.edge_bundle_id, span_id);
-      rebuilt.span_edge_bundle[span_id] = item.edge_bundle_id;
-    }
   }
   for (std::size_t i = 0; i < graph.span_bindings.size(); ++i) {
     const SavedBackboneSpanBinding& binding = graph.span_bindings[i];
+    CoreState::index_add(rebuilt.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
+    rebuilt.span_edge_bundle[binding.span_id] = binding.edge_bundle_id;
     rebuilt.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
     rebuilt.span_bindings_by_span[binding.span_id].push_back(i);
   }

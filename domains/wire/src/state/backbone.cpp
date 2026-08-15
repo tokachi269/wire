@@ -217,15 +217,14 @@ EditResult<bool> CoreState::bind_backbone_span(ObjectId edge_bundle_id, std::siz
     out.error = "backbone invalid input: duplicate backbone span binding";
     return out;
   }
-  add_unique_id(found->span_ids, span_id);
-  index_add(runtime_.backbone_index.edge_bundle_spans, edge_bundle_id, span_id);
-  runtime_.backbone_index.span_edge_bundle[span_id] = edge_bundle_id;
   SavedBackboneSpanBinding binding{};
   binding.edge_bundle_id = edge_bundle_id;
   binding.lane_index = lane_index;
   binding.span_id = span_id;
   const std::size_t index = authoritative_.backbone.span_bindings.size();
   authoritative_.backbone.span_bindings.push_back(binding);
+  index_add(runtime_.backbone_index.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
+  runtime_.backbone_index.span_edge_bundle[binding.span_id] = binding.edge_bundle_id;
   runtime_.backbone_index.edge_bundle_span_bindings[edge_bundle_id].push_back(index);
   runtime_.backbone_index.span_bindings_by_span[span_id].push_back(index);
   out.value = true;

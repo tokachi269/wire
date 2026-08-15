@@ -1344,6 +1344,26 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C836_backbone_operation_matrix_executes_declared_states",
                          "operation semantics matrix executes each declared core state", "Oracle", false,
                          C836_backbone_operation_matrix_executes_declared_states);
+  test_registry::AddTest(tests, "C838_backbone_span_bindings_rebuild_edge_bundle_span_index",
+                         "span bindings rebuild edge-bundle span runtime indexes",
+                         "Invariant", false,
+                         C838_backbone_span_bindings_rebuild_edge_bundle_span_index);
+  test_registry::AddTest(tests, "C839_backbone_span_bindings_preserve_lane_map_after_save_load",
+                         "span binding lane to span mapping survives save and load",
+                         "Invariant", false,
+                         C839_backbone_span_bindings_preserve_lane_map_after_save_load);
+  test_registry::AddTest(tests, "C840_backbone_span_binding_duplicate_lane_rejected_on_load",
+                         "duplicate span binding lanes are rejected on authoritative load",
+                         "Boundary", true,
+                         C840_backbone_span_binding_duplicate_lane_rejected_on_load);
+  test_registry::AddTest(tests, "C841_backbone_span_binding_duplicate_span_rejected_on_load",
+                         "duplicate span binding span ids are rejected on authoritative load",
+                         "Boundary", true,
+                         C841_backbone_span_binding_duplicate_span_rejected_on_load);
+  test_registry::AddTest(tests, "C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped",
+                         "legacy edge bundle span ids are consumed on load and omitted on save",
+                         "Boundary", false,
+                         C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

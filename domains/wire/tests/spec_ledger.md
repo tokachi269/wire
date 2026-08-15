@@ -586,5 +586,10 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C793 | SourceGuard | Boundary | derive/updateはcached ruleをcanonical span順でplan化し、affected spanはspan_id lookupで解決する | `source_guard` | unordered_map列挙順やaffected spanごとの線形rules探索、support group代表の偶然順序依存が戻る回帰を防ぐ |
 | C794 | SourceGuard | Boundary | ViewerActionContextのtimer/cancel/interaction/persistence/factory状態はprivateで、action moduleはmethod経由で操作する | `source_guard` | 役割分割後に巨大共有contextへpublic mutable stateが戻り、action module間でtimerやcancel状態を自由変更する回帰を防ぐ |
 | C768 | Behavior | Boundary | 新field導入前のauthoritative stateは暗黙supportと既定Bundle placementを維持し現行形式へ移行できる | `legacy_unclassified` | IndexedDBに残る旧workspaceのrestore不能化、旧helixから必須supportが消える回帰を防ぐ |
+| C838 | Behavior | Invariant | span binding だけから edge_bundle_spans / span_edge_bundle / binding index を再構築する | `legacy_unclassified` | SavedBackboneEdgeBundle::span_ids を再び所属正本として復活させる回帰を防ぐ |
+| C839 | Behavior | Invariant | span binding の lane→span 対応は save/load 後も一致し、span_ids は保存しない | `legacy_unclassified` | lane順をvector挿入順やedge bundle内span一覧から復元する回帰を防ぐ |
+| C840 | Behavior | Boundary | 同一 edge bundle 内の duplicate lane binding は load 時に拒否する | `legacy_unclassified` | lane identity が曖昧な保存状態をsilent acceptする回帰を防ぐ |
+| C841 | Behavior | Boundary | 同一 span の複数 backbone span binding は load 時に拒否する | `legacy_unclassified` | span が複数edge bundle/laneへ所属する二重authority状態を受け入れる回帰を防ぐ |
+| C842 | Behavior | Boundary | 旧saveに残る edge_bundle span_ids は読み捨て、再保存では出力しない | `legacy_unclassified` | 互換読み込みのために削除済みspan_idsを新しいauthoritative stateへ戻す回帰を防ぐ |
 
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |

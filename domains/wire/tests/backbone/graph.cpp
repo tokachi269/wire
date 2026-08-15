@@ -31,6 +31,59 @@ using namespace helpers;
 
 namespace backbone_tests {
 
+namespace {
+
+std::vector<city::wire::ObjectId> edge_bundle_span_ids(const city::wire::CoreState& state,
+                                                       city::wire::ObjectId edge_bundle_id) {
+  std::vector<city::wire::ObjectId> out{};
+  const auto it = state.view().backbone_index().edge_bundle_spans.find(edge_bundle_id);
+  if (it != state.view().backbone_index().edge_bundle_spans.end()) {
+    out = it->second;
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+std::size_t edge_bundle_span_count(const city::wire::CoreState& state,
+                                   city::wire::ObjectId edge_bundle_id) {
+  const auto it = state.view().backbone_index().edge_bundle_spans.find(edge_bundle_id);
+  return it == state.view().backbone_index().edge_bundle_spans.end() ? 0u : it->second.size();
+}
+
+bool set_line_value(std::string* text, const std::string& key, const std::string& value) {
+  const std::string prefix = key + "=";
+  const std::size_t begin = text->find(prefix);
+  if (begin == std::string::npos) return false;
+  const std::size_t value_begin = begin + prefix.size();
+  const std::size_t end = text->find('\n', value_begin);
+  if (end == std::string::npos) return false;
+  text->replace(value_begin, end - value_begin, value);
+  return true;
+}
+
+std::string line_value(const std::string& text, const std::string& key) {
+  const std::string prefix = key + "=";
+  const std::size_t begin = text.find(prefix);
+  if (begin == std::string::npos) return {};
+  const std::size_t value_begin = begin + prefix.size();
+  const std::size_t end = text.find('\n', value_begin);
+  return end == std::string::npos ? std::string{} : text.substr(value_begin, end - value_begin);
+}
+
+bool set_low_voltage_fixed_count(city::wire::CoreState* state, int count) {
+  const city::wire::BundleTemplateId template_id =
+      city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kLowVoltage);
+  auto it = state->view().bundle_templates().find(template_id);
+  if (it == state->view().bundle_templates().end()) return false;
+  city::wire::BundleTemplate edited = it->second;
+  edited.count_rule = city::wire::BundleCountRuleKind::kFixed;
+  edited.fixed_count = count;
+  edited.default_count = count;
+  return state->UpdateBundleTemplate(edited).ok;
+}
+
+} // namespace
+
 bool C422_backbone_rules_consume_topo_and_groups() {
   const std::filesystem::path header = repo_root() / "domains" / "wire" / "src" / "generation" / "backbone" / "pipeline.hpp";
   const std::filesystem::path source = repo_root() / "domains" / "wire" / "src" / "generation" / "backbone" / "pipeline.cpp";
@@ -280,11 +333,12 @@ bool C431_backbone_edge_bundle_is_saved_backbone_unit() {
   }
   const city::wire::SavedBackboneEdgeBundle& item = graph.edge_bundles.front();
   if (item.edge_id != graph.edges.front().edge_id || item.bundle_id != out.value.bundle_ids.front() ||
-      item.span_ids.size() != out.value.generated_span_ids.size()) {
+      edge_bundle_span_count(state, item.edge_bundle_id) != out.value.generated_span_ids.size()) {
     return false;
   }
+  const std::vector<city::wire::ObjectId> saved_span_ids = edge_bundle_span_ids(state, item.edge_bundle_id);
   for (city::wire::ObjectId span_id : out.value.generated_span_ids) {
-    if (!contains_id(item.span_ids, span_id)) {
+    if (!contains_id(saved_span_ids, span_id)) {
       return false;
     }
   }
@@ -307,7 +361,7 @@ bool C432_backbone_multiple_bundles_create_multiple_edge_bundles() {
     const auto it = std::find_if(graph.edge_bundles.begin(), graph.edge_bundles.end(),
                                  [&](const city::wire::SavedBackboneEdgeBundle& item) {
                                    return item.edge_id == graph.edges.front().edge_id && item.bundle_id == bundle_id &&
-                                          !item.span_ids.empty();
+                                          edge_bundle_span_count(state, item.edge_bundle_id) > 0;
                                  });
     if (it == graph.edge_bundles.end()) {
       return false;
@@ -374,7 +428,8 @@ bool C434_backbone_reverse_duplicate_same_bundle_rejected() {
   const auto second_out = state.GenerateFromBackboneSpec(second);
   return !second_out.ok && contains_text(second_out.error, "duplicate saved span binding") &&
          state.view().backbone().edges.size() == 1 && state.view().backbone().edge_bundles.size() == 1 &&
-         state.view().backbone().edge_bundles.front().span_ids.size() == first.value.generated_span_ids.size();
+         edge_bundle_span_count(state, state.view().backbone().edge_bundles.front().edge_bundle_id) ==
+             first.value.generated_span_ids.size();
 }
 
 bool C435_backbone_edge_metadata_is_not_overwritten_on_duplicate_reject() {
@@ -2748,7 +2803,8 @@ bool C463_backbone_duplicate_same_edge_bundle_rejected() {
   const std::size_t edge_count = state.view().backbone().edges.size();
   const std::size_t edge_bundle_count = state.view().backbone().edge_bundles.size();
   const std::size_t span_count = state.view().spans().size();
-  const std::size_t saved_span_count = state.view().backbone().edge_bundles.front().span_ids.size();
+  const city::wire::ObjectId edge_bundle_id = state.view().backbone().edge_bundles.front().edge_bundle_id;
+  const std::size_t saved_span_count = edge_bundle_span_count(state, edge_bundle_id);
   const city::wire::ObjectId a = first.value.generated_pole_ids[0];
   const city::wire::ObjectId b = first.value.generated_pole_ids[1];
   const auto* pa = state.view().poles().find(a);
@@ -2763,7 +2819,7 @@ bool C463_backbone_duplicate_same_edge_bundle_rejected() {
   return !second_out.ok && contains_text(second_out.error, "duplicate saved span binding") &&
          state.view().backbone().edges.size() == edge_count &&
          state.view().backbone().edge_bundles.size() == edge_bundle_count && state.view().spans().size() == span_count &&
-         state.view().backbone().edge_bundles.front().span_ids.size() == saved_span_count;
+         edge_bundle_span_count(state, edge_bundle_id) == saved_span_count;
 }
 
 bool C464_backbone_different_bundle_on_same_edge_allowed() {
@@ -2800,7 +2856,8 @@ bool C466_backbone_duplicate_reject_keeps_state_unchanged() {
   const std::size_t span_count = state.view().spans().size();
   const std::size_t edge_count = state.view().backbone().edges.size();
   const std::size_t edge_bundle_count = state.view().backbone().edge_bundles.size();
-  const std::size_t saved_span_count = state.view().backbone().edge_bundles.front().span_ids.size();
+  const city::wire::ObjectId edge_bundle_id = state.view().backbone().edge_bundles.front().edge_bundle_id;
+  const std::size_t saved_span_count = edge_bundle_span_count(state, edge_bundle_id);
   const city::wire::ObjectId a = first.value.generated_pole_ids[0];
   const city::wire::ObjectId b = first.value.generated_pole_ids[1];
   const auto* pa = state.view().poles().find(a);
@@ -2818,7 +2875,7 @@ bool C466_backbone_duplicate_reject_keeps_state_unchanged() {
          state.view().bundles().size() == bundle_count_before && state.view().spans().size() == span_count &&
          state.view().backbone().edges.size() == edge_count &&
          state.view().backbone().edge_bundles.size() == edge_bundle_count &&
-         state.view().backbone().edge_bundles.front().span_ids.size() == saved_span_count &&
+         edge_bundle_span_count(state, edge_bundle_id) == saved_span_count &&
          frontier.edge_ids.size() == 1 && frontier.edge_bundle_ids.size() == 1 &&
          frontier.span_ids.size() == saved_span_count;
 }
@@ -3812,6 +3869,109 @@ bool C502_backbone_span_bindings_save_lane() {
     }
   }
   return true;
+}
+
+bool C838_backbone_span_bindings_rebuild_edge_bundle_span_index() {
+  city::wire::CoreState state;
+  if (!set_low_voltage_fixed_count(&state, 3)) return false;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.size() != 3 || state.view().backbone().edge_bundles.size() != 1) {
+    return false;
+  }
+  const city::wire::ObjectId edge_bundle_id = state.view().backbone().edge_bundles.front().edge_bundle_id;
+  const std::vector<city::wire::ObjectId> indexed = edge_bundle_span_ids(state, edge_bundle_id);
+  std::vector<city::wire::ObjectId> generated = out.value.generated_span_ids;
+  std::sort(generated.begin(), generated.end());
+  if (indexed != generated || state.view().backbone_index().edge_bundle_span_bindings.at(edge_bundle_id).size() != 3) {
+    return false;
+  }
+  for (city::wire::ObjectId span_id : generated) {
+    const auto reverse = state.view().backbone_index().span_edge_bundle.find(span_id);
+    const auto by_span = state.view().backbone_index().span_bindings_by_span.find(span_id);
+    if (reverse == state.view().backbone_index().span_edge_bundle.end() || reverse->second != edge_bundle_id ||
+        by_span == state.view().backbone_index().span_bindings_by_span.end() || by_span->second.size() != 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C839_backbone_span_bindings_preserve_lane_map_after_save_load() {
+  city::wire::CoreState state;
+  if (!set_low_voltage_fixed_count(&state, 3)) return false;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.size() != 3) return false;
+  std::map<std::size_t, city::wire::ObjectId> before{};
+  for (const city::wire::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    before[binding.lane_index] = binding.span_id;
+  }
+  std::string saved{};
+  if (!state.SerializeAuthoritative(&saved).ok || saved.find("span_ids") != std::string::npos) return false;
+  city::wire::CoreState loaded;
+  if (!loaded.DeserializeAuthoritative(saved).ok) return false;
+  std::map<std::size_t, city::wire::ObjectId> after{};
+  for (const city::wire::SavedBackboneSpanBinding& binding : loaded.view().backbone().span_bindings) {
+    after[binding.lane_index] = binding.span_id;
+  }
+  return before == after;
+}
+
+bool C840_backbone_span_binding_duplicate_lane_rejected_on_load() {
+  city::wire::CoreState state;
+  if (!set_low_voltage_fixed_count(&state, 2)) return false;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  std::string saved{};
+  if (!out.ok || out.value.generated_span_ids.size() != 2 || !state.SerializeAuthoritative(&saved).ok) return false;
+  if (!set_line_value(&saved, "authoritative.backbone.span_bindings.1.lane_index", "0")) return false;
+  city::wire::CoreState loaded;
+  const auto result = loaded.DeserializeAuthoritative(saved);
+  return !result.ok;
+}
+
+bool C841_backbone_span_binding_duplicate_span_rejected_on_load() {
+  city::wire::CoreState state;
+  city::wire::BackboneSpec req = line_req(state);
+  add_backbone_bundle(req, city::wire::BundleKind::kCommunication);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  std::string saved{};
+  if (!out.ok || state.view().backbone().span_bindings.size() < 2 || !state.SerializeAuthoritative(&saved).ok) return false;
+  const std::string first_span = line_value(saved, "authoritative.backbone.span_bindings.0.span_id");
+  if (first_span.empty() ||
+      !set_line_value(&saved, "authoritative.backbone.span_bindings.1.span_id", first_span)) {
+    return false;
+  }
+  city::wire::CoreState loaded;
+  const auto result = loaded.DeserializeAuthoritative(saved);
+  return !result.ok;
+}
+
+bool C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped() {
+  city::wire::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  std::string saved{};
+  if (!out.ok || out.value.generated_span_ids.empty() || !state.SerializeAuthoritative(&saved).ok ||
+      saved.find("span_ids") != std::string::npos) {
+    return false;
+  }
+  const city::wire::ObjectId edge_bundle_id = state.view().backbone().edge_bundles.front().edge_bundle_id;
+  const std::string edge_bundle_prefix =
+      "authoritative.backbone.edge_bundles." + std::to_string(edge_bundle_id);
+  const std::string marker = edge_bundle_prefix + ".dir.z=";
+  const std::size_t line = saved.find(marker);
+  if (line == std::string::npos) return false;
+  const std::size_t insert_at = saved.find('\n', line);
+  if (insert_at == std::string::npos) return false;
+  const std::string legacy =
+      "\n" + edge_bundle_prefix + ".span_ids.count=1"
+      "\n" + edge_bundle_prefix + ".span_ids.0=" +
+      std::to_string(out.value.generated_span_ids.front());
+  saved.insert(insert_at, legacy);
+  city::wire::CoreState loaded;
+  std::string resaved{};
+  return loaded.DeserializeAuthoritative(saved).ok && loaded.SerializeAuthoritative(&resaved).ok &&
+         resaved.find("span_ids") == std::string::npos &&
+         edge_bundle_span_count(loaded, loaded.view().backbone().edge_bundles.front().edge_bundle_id) ==
+             out.value.generated_span_ids.size();
 }
 
 bool C503_backbone_duplicate_span_binding_rejected_by_lane() {

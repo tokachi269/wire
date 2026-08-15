@@ -285,6 +285,7 @@ public:
     writer_.value(key, input);
     return true;
   }
+  [[nodiscard]] bool contains(const std::string&) const { return false; }
 
   template <typename T> bool optional(const std::string& prefix, const std::optional<T>& input) {
     writer_.value(child(prefix, "has"), input.has_value());
@@ -326,6 +327,7 @@ public:
   }
 
   bool count(const std::string& key, std::size_t& output) { return reader_.count(key, &output); }
+  [[nodiscard]] bool contains(const std::string& key) const { return reader_.contains(key); }
 
   template <typename T> bool optional(const std::string& prefix, std::optional<T>& output) {
     bool has = false;
@@ -559,17 +561,22 @@ bool archive_saved_edge_bundle(Archive& archive, const std::string& prefix, Valu
       !archive.legacy_field(prefix, "route", value.route, std::size_t{0}) ||
       !archive.legacy_field(prefix, "order", value.order, std::size_t{0}) ||
       !archive_vec3(archive, child(prefix, "dir"), value.dir)) return false;
-  std::size_t count = value.span_ids.size();
-  if (!archive.count(child(prefix, "span_ids.count"), count)) return false;
-  if constexpr (Archive::loading) value.span_ids.resize(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    if (!archive.value(indexed(child(prefix, "span_ids"), i), value.span_ids[i])) return false;
+  if constexpr (Archive::loading) {
+    const std::string legacy_prefix = child(prefix, "span_ids");
+    if (archive.contains(child(legacy_prefix, "count"))) {
+      std::size_t legacy_count = 0;
+      if (!archive.count(child(legacy_prefix, "count"), legacy_count)) return false;
+      for (std::size_t i = 0; i < legacy_count; ++i) {
+        ObjectId ignored = kInvalidObjectId;
+        if (!archive.value(indexed(legacy_prefix, i), ignored)) return false;
+      }
+    }
   }
   return true;
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(SavedBackboneEdgeBundle) == 104, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(SavedBackboneEdgeBundle) == 72, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -2063,17 +2070,15 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
         {edge_bundle.edge_id, edge_bundle.bundle_id}] = edge_bundle.edge_bundle_id;
     trial.runtime_.backbone_index.edge_bundle_positions[edge_bundle.edge_bundle_id] = position;
     index_add(trial.runtime_.backbone_index.bundle_edge, edge_bundle.bundle_id, edge_bundle.edge_id);
-    for (ObjectId span_id : edge_bundle.span_ids) {
-      index_add(trial.runtime_.backbone_index.edge_bundle_spans, edge_bundle.edge_bundle_id, span_id);
-      if (!trial.runtime_.backbone_index.span_edge_bundle.emplace(span_id, edge_bundle.edge_bundle_id).second) {
-        result.error = "authoritative invalid input: authoritative deserialization: span belongs to multiple edge bundles";
-        result.classify_error();
-        return result;
-      }
-    }
   }
   for (std::size_t i = 0; i < graph.span_bindings.size(); ++i) {
     const SavedBackboneSpanBinding& binding = graph.span_bindings[i];
+    index_add(trial.runtime_.backbone_index.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
+    if (!trial.runtime_.backbone_index.span_edge_bundle.emplace(binding.span_id, binding.edge_bundle_id).second) {
+      result.error = "authoritative invalid input: authoritative deserialization: span belongs to multiple edge bundles";
+      result.classify_error();
+      return result;
+    }
     trial.runtime_.backbone_index.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
     trial.runtime_.backbone_index.span_bindings_by_span[binding.span_id].push_back(i);
   }
@@ -2170,13 +2175,11 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
         {edge_bundle.edge_id, edge_bundle.bundle_id}] = edge_bundle.edge_bundle_id;
     trial.runtime_.backbone_index.edge_bundle_positions[edge_bundle.edge_bundle_id] = position;
     index_add(trial.runtime_.backbone_index.bundle_edge, edge_bundle.bundle_id, edge_bundle.edge_id);
-    for (ObjectId span_id : edge_bundle.span_ids) {
-      index_add(trial.runtime_.backbone_index.edge_bundle_spans, edge_bundle.edge_bundle_id, span_id);
-      trial.runtime_.backbone_index.span_edge_bundle[span_id] = edge_bundle.edge_bundle_id;
-    }
   }
   for (std::size_t i = 0; i < trial.authoritative_.backbone.span_bindings.size(); ++i) {
     const SavedBackboneSpanBinding& binding = trial.authoritative_.backbone.span_bindings[i];
+    index_add(trial.runtime_.backbone_index.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
+    trial.runtime_.backbone_index.span_edge_bundle[binding.span_id] = binding.edge_bundle_id;
     trial.runtime_.backbone_index.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
     trial.runtime_.backbone_index.span_bindings_by_span[binding.span_id].push_back(i);
   }

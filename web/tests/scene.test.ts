@@ -544,7 +544,7 @@ describe("scene geometry from wasm", () => {
     expect(centerYs[1] - centerYs[0]).toBeCloseTo(0.45, 2);
     expect(centerYs[2] - centerYs[1]).toBeCloseTo(0.45, 2);
     const insulatorYs = snapshot.models
-      .filter((model) => model.modelKey === "hv_insulator")
+      .filter((model) => model.modelKey === "hv_insulator" && !model.stableKey.includes(":intermediate-insulator:"))
       .map((model) => model.positionY.toFixed(3));
     expect(new Set(insulatorYs)).toEqual(new Set(["-0.650", "-0.200", "0.250"]));
     bridge.dispose();

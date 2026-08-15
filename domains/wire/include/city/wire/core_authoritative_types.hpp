@@ -47,7 +47,6 @@ struct SavedBackboneEdgeBundle {
   std::size_t route = 0;
   std::size_t order = 0;
   Vec3d dir{};
-  std::vector<ObjectId> span_ids{};
 };
 
 struct SavedBackboneRowKey {

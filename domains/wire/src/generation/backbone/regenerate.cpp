@@ -773,17 +773,17 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
       return result;
     }
 
-    for (const SavedBackboneEdgeBundle& edge_bundle : saved.edge_bundles) {
-      if (!route_edge_ids.contains(edge_bundle.edge_id)) {
+    for (const SavedBackboneSpanBinding& binding : saved.span_bindings) {
+      const SavedBackboneEdgeBundle* edge_bundle =
+          saved_edge_bundle_by_id(saved, binding.edge_bundle_id);
+      if (edge_bundle == nullptr || !route_edge_ids.contains(edge_bundle->edge_id)) {
         continue;
       }
-      for (ObjectId span_id : edge_bundle.span_ids) {
-        EditResult<bool> merged =
-            assembled.merge_cached_span_outputs_from(route_trial, span_id);
-        if (!merged.ok) {
-          result.error = merged.error;
-          return result;
-        }
+      EditResult<bool> merged =
+          assembled.merge_cached_span_outputs_from(route_trial, binding.span_id);
+      if (!merged.ok) {
+        result.error = merged.error;
+        return result;
       }
     }
     assembled.merge_cached_support_groups_from(route_trial);

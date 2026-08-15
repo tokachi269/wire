@@ -1065,10 +1065,8 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       }
       fail("backbone internal: row continuity endpoint is missing node=" +
            std::to_string(continuity.node_id) + " a=" + std::to_string(continuity.a.edge_bundle_id) +
-           "/" + std::to_string(continuity.a.lane_index) + "/spans=" +
-           std::to_string(a_bundle == nullptr ? 0 : a_bundle->span_ids.size()) + " b=" +
+           "/" + std::to_string(continuity.a.lane_index) + " b=" +
            std::to_string(continuity.b.edge_bundle_id) + "/" + std::to_string(continuity.b.lane_index) +
-           "/spans=" + std::to_string(b_bundle == nullptr ? 0 : b_bundle->span_ids.size()) +
            endpoint_nodes);
       return result;
     }

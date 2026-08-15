@@ -50,6 +50,17 @@ bool same_visual_curve_samples(const city::wire::VisualCurvePartCache& lhs,
   return true;
 }
 
+std::vector<city::wire::ObjectId> edge_bundle_span_ids(const city::wire::CoreState& state,
+                                                       city::wire::ObjectId edge_bundle_id) {
+  std::vector<city::wire::ObjectId> out{};
+  const auto it = state.view().backbone_index().edge_bundle_spans.find(edge_bundle_id);
+  if (it != state.view().backbone_index().edge_bundle_spans.end()) {
+    out = it->second;
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
 bool visual_member_samples_differ(const city::wire::VisualCurvePartCache& lhs,
                                   const city::wire::VisualCurvePartCache& rhs) {
   if (lhs.parts.size() != rhs.parts.size()) return true;
@@ -320,9 +331,7 @@ EdgeBundleIdentitySnapshot edge_bundle_identity_snapshot(const city::wire::CoreS
       break;
     }
   }
-  if (edge_bundle != nullptr) {
-    out.span_ids = edge_bundle->span_ids;
-  }
+  if (edge_bundle != nullptr) out.span_ids = edge_bundle_span_ids(state, edge_bundle_id);
   for (const city::wire::SavedBackbonePortBinding* binding :
        state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id)) {
     if (binding == nullptr) {
@@ -520,11 +529,10 @@ bool no_binding_references(const city::wire::CoreState& state,
       return false;
     }
   }
-  for (const city::wire::SavedBackboneEdgeBundle& edge_bundle : state.view().backbone().edge_bundles) {
-    for (city::wire::ObjectId span_id : edge_bundle.span_ids) {
-      if (std::find(retired_spans.begin(), retired_spans.end(), span_id) != retired_spans.end()) {
-        return false;
-      }
+  for (const auto& [edge_bundle_id, span_ids] : state.view().backbone_index().edge_bundle_spans) {
+    static_cast<void>(edge_bundle_id);
+    for (city::wire::ObjectId span_id : span_ids) {
+      if (std::find(retired_spans.begin(), retired_spans.end(), span_id) != retired_spans.end()) return false;
     }
   }
   return true;
@@ -1066,11 +1074,12 @@ bool C660_backbone_bundle_fixed_count_migration_updates_downstream_only() {
       return false;
     }
   }
-  const city::wire::SavedBackboneEdgeBundle& bundle = state.view().backbone().edge_bundles.front();
-  if (bundle.span_ids.size() != 2) {
+  const city::wire::ObjectId edge_bundle_id = state.view().backbone().edge_bundles.front().edge_bundle_id;
+  const std::vector<city::wire::ObjectId> bundle_span_ids = edge_bundle_span_ids(state, edge_bundle_id);
+  if (bundle_span_ids.size() != 2) {
     return false;
   }
-  for (city::wire::ObjectId span_id : bundle.span_ids) {
+  for (city::wire::ObjectId span_id : bundle_span_ids) {
     if (!state.span_layout(span_id).has_layout() ||
         state.find_curve_cache(span_id) == nullptr ||
         state.find_span_visual_cache(span_id) == nullptr ||
@@ -1090,7 +1099,8 @@ bool C660_backbone_bundle_fixed_count_migration_updates_downstream_only() {
   const auto fresh_generated = fresh.GenerateFromBackboneSpec(line_req(fresh));
   if (!fresh_updated.ok || !fresh_generated.ok || fresh_generated.value.generated_span_ids.size() != 2 ||
       fresh.view().backbone().edge_bundles.empty() ||
-      fresh.view().backbone().edge_bundles.front().span_ids.size() != bundle.span_ids.size()) {
+      edge_bundle_span_ids(fresh, fresh.view().backbone().edge_bundles.front().edge_bundle_id).size() !=
+          bundle_span_ids.size()) {
     return false;
   }
   return same_span_curve_signatures(span_curve_signatures(state), span_curve_signatures(fresh));

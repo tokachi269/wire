@@ -169,7 +169,7 @@ function makeInfo(
   return {
     ...source,
     partKey: key,
-    sourceVersion: `${source.sourceVersion}:pole-detail-pattern`,
+    sourceVersion: `${source.sourceVersion}:attachment-detail`,
     sampleOffset: 0,
     sampleCount,
     kind: SUPPLEMENTAL_KIND,

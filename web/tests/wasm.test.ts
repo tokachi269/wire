@@ -802,7 +802,9 @@ describe("wire wasm smoke", () => {
     );
     expect(generated.ok, generated.error).toBe(true);
 
+    const beforeSceneState = bridge.saveState();
     const scene = bridge.scene();
+    expect(bridge.saveState()).toBe(beforeSceneState);
     const models = scene.models;
     expect(models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
     expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[1])).toHaveLength(1);
@@ -853,6 +855,7 @@ describe("wire wasm smoke", () => {
     expect(derivedDetailParts.every((part) => Math.floor(part.samples.length / 3) <= 8)).toBe(true);
     const saved = bridge.saveState();
     expect(saved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
+    expect(saved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv|service-loop|pole-drop/);
 
     const repeatedBridge = await WireBridge.create();
     const repeated = repeatedBridge.generate(
@@ -866,6 +869,7 @@ describe("wire wasm smoke", () => {
     const restorableBridge = await createRestorableSupportDetailBridge();
     const restorableSaved = restorableBridge.saveState();
     expect(restorableSaved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
+    expect(restorableSaved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv|service-loop|pole-drop/);
     const restorableSignature = detailSceneSignature(restorableBridge.scene());
     const restoredBridge = await WireBridge.create();
     const loaded = restoredBridge.loadState(restorableSaved);

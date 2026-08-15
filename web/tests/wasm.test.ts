@@ -42,7 +42,7 @@ function detailSceneSignature(scene: SceneData): string {
       Array.from(part.samples).map((value) => value.toPrecision(17)).join(",")
     ].join(":"));
   records.push(...scene.models
-    .filter((model) => SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey) || model.stableKey.startsWith("support-detail:"))
+    .filter((model) => SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey) || model.stableKey.startsWith("attachment:"))
     .map((model) => [
       "model",
       model.stableKey,
@@ -160,6 +160,23 @@ function defaultBundlePlacements(): BundlePlacement[] {
 
 function hvBundlePlacement(): BundlePlacement[] {
   return [defaultBundlePlacements()[0]];
+}
+
+async function createRestorableSupportDetailBridge(): Promise<WireBridge> {
+  const bridge = await WireBridge.create();
+  const placements = defaultBundlePlacements();
+  const base = bridge.generate(
+    new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
+    placements,
+    0,
+    2,
+    0,
+    0,
+    []
+  );
+  expect(base.ok, base.error).toBe(true);
+  expect(bridge.scene().models.some((model) => model.stableKey.startsWith("attachment:"))).toBe(true);
+  return bridge;
 }
 
 function uniqueRounded(values: number[]): number[] {
@@ -802,13 +819,13 @@ describe("wire wasm smoke", () => {
     )).toBe(false);
     const transformers = models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]);
     expect(transformers).toHaveLength(1);
-    expect(transformers[0].stableKey).toBe("support-detail:support-node:54:transformer");
+    expect(transformers[0].stableKey).toBe("attachment:support-node:55:transformer_basic:transformer");
     expect(transformers.every((model) =>
       model.scaleX === 1 && model.scaleY === 1 && model.scaleZ === 1
     )).toBe(true);
-    const bracket = models.find((model) => model.stableKey === "support-detail:support-node:54:transformer-bracket");
+    const bracket = models.find((model) => model.stableKey === "attachment:support-node:55:transformer_basic:transformer-bracket");
     expect(bracket).toBeDefined();
-    const pole = scene.supportNodes.find((node) => node.id === "54");
+    const pole = scene.supportNodes.find((node) => node.id === "55");
     expect(pole).toBeDefined();
     const xyDistance = (model: { positionX: number; positionY: number }): number =>
       Math.hypot(model.positionX - pole!.x, model.positionY - pole!.y);
@@ -834,7 +851,8 @@ describe("wire wasm smoke", () => {
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
     );
     expect(derivedDetailParts.every((part) => Math.floor(part.samples.length / 3) <= 8)).toBe(true);
-    expect(bridge.saveState()).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|LocalDetail|InlineDetail/);
+    const saved = bridge.saveState();
+    expect(saved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
 
     const repeatedBridge = await WireBridge.create();
     const repeated = repeatedBridge.generate(
@@ -844,6 +862,15 @@ describe("wire wasm smoke", () => {
     );
     expect(repeated.ok, repeated.error).toBe(true);
     expect(detailSceneSignature(repeatedBridge.scene())).toBe(detailSceneSignature(scene));
+
+    const restorableBridge = await createRestorableSupportDetailBridge();
+    const restorableSaved = restorableBridge.saveState();
+    expect(restorableSaved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
+    const restorableSignature = detailSceneSignature(restorableBridge.scene());
+    const restoredBridge = await WireBridge.create();
+    const loaded = restoredBridge.loadState(restorableSaved);
+    expect(loaded.ok, loaded.error).toBe(true);
+    expect(detailSceneSignature(restoredBridge.scene())).toBe(restorableSignature);
   });
 
   it("does not attach support equipment detail to an optical-only scene fixture", async () => {

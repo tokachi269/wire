@@ -46,10 +46,11 @@ const LV_DETAIL_COLOR = 0x31363aff;
 const DECORATIVE_DETAIL_COLOR = 0x2f3437ff;
 const MAX_LOCAL_CABLE_SAMPLES = 8;
 const SUPPORT_ASSIGN_RADIUS_M = 1.60;
-const TRANSFORMER_BASIC_HASH_SLOT = 2;
+const TRANSFORMER_BASIC_HASH_SLOT = 1;
 const HV_INSULATOR_MODEL_KEY = "hv_insulator";
 
-type PoleDetailPatternName = "hv_plain" | "transformer_basic";
+type AttachmentAnchorKind = "pole" | "span";
+type AttachmentTemplateId = "transformer_basic";
 
 interface Vec3 {
   x: number;
@@ -62,18 +63,33 @@ interface SocketFrame {
   forward: Vec3;
 }
 
-interface LaneEndpoint {
+interface CarrierRef {
+  category: number;
+  bundleTemplateId: number;
   part: SupportDetailPart;
   laneIndex: number;
   position: Vec3;
   forward: Vec3;
 }
 
-interface SupportContext {
+interface PoleDetailInput {
   id: string;
   poleId: string;
   position: Vec3;
-  hvLanes: LaneEndpoint[];
+  carriers: CarrierRef[];
+}
+
+interface AttachmentAnchor {
+  kind: AttachmentAnchorKind;
+  ownerId: string;
+  t?: number;
+}
+
+interface PresentationAttachment {
+  id: string;
+  anchor: AttachmentAnchor;
+  templateId: AttachmentTemplateId;
+  seed: number;
 }
 
 interface PatternFrame {
@@ -96,11 +112,12 @@ interface TransformerBasicSockets {
   transformerLv2: SocketFrame;
 }
 
-interface PoleDetailPattern {
-  name: PoleDetailPatternName;
-  support: SupportContext;
-  frame: PatternFrame | null;
-  sockets: TransformerBasicSockets | null;
+interface TransformerBasicRecipe {
+  attachment: PresentationAttachment;
+  input: PoleDetailInput;
+  frame: PatternFrame;
+  sockets: TransformerBasicSockets;
+  hvCarriers: CarrierRef[];
 }
 
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
@@ -231,102 +248,94 @@ function makeModel(
   };
 }
 
-function templateIdsForCategory(templates: BundleTemplateInfo[], category: number): Set<number> {
-  return new Set(templates
-    .filter((template) => template.category === category)
-    .map((template) => template.id));
+function templateCategoryById(templates: BundleTemplateInfo[]): Map<number, number> {
+  return new Map(templates.map((template) => [template.id, template.category]));
 }
 
-function makeSupportContexts(poles: PoleInfo[], supportNodes: SupportNodeInfo[]): SupportContext[] {
-  const contexts = supportNodes.length > 0
+function makePoleDetailInputs(poles: PoleInfo[], supportNodes: SupportNodeInfo[]): PoleDetailInput[] {
+  const inputs = supportNodes.length > 0
     ? supportNodes.map((support) => ({
         id: `support-node:${support.id}`,
         poleId: support.poleId,
         position: v(support.x, support.y, support.z),
-        hvLanes: []
+        carriers: []
       }))
     : poles.map((pole) => ({
         id: `pole:${pole.id}`,
         poleId: pole.id,
         position: v(pole.positionX, pole.positionY, pole.positionZ),
-        hvLanes: []
+        carriers: []
       }));
-  return contexts.sort((a, b) => a.id.localeCompare(b.id));
+  return inputs.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-function nearestSupportContext(point: Vec3, contexts: SupportContext[]): SupportContext | null {
-  let best: SupportContext | null = null;
+function nearestPoleDetailInput(point: Vec3, inputs: PoleDetailInput[]): PoleDetailInput | null {
+  let best: PoleDetailInput | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const context of contexts) {
-    const distance = Math.hypot(point.x - context.position.x, point.y - context.position.y);
+  for (const input of inputs) {
+    const distance = Math.hypot(point.x - input.position.x, point.y - input.position.y);
     if (distance < bestDistance) {
-      best = context;
+      best = input;
       bestDistance = distance;
     }
   }
   return best !== null && bestDistance <= SUPPORT_ASSIGN_RADIUS_M ? best : null;
 }
 
-function collectSupportContexts(
+function collectPoleDetailInputs(
   parts: SupportDetailPart[],
-  templateIds: Set<number>,
+  templateCategories: Map<number, number>,
   poles: PoleInfo[],
   supportNodes: SupportNodeInfo[]
-): SupportContext[] {
-  const contexts = makeSupportContexts(poles, supportNodes);
+): PoleDetailInput[] {
+  const inputs = makePoleDetailInputs(poles, supportNodes);
   for (const part of parts) {
-    if (part.info.kind !== EDGE_BODY_KIND || !templateIds.has(part.info.bundleTemplateId)) continue;
+    const category = templateCategories.get(part.info.bundleTemplateId);
+    if (part.info.kind !== EDGE_BODY_KIND || category === undefined) continue;
     const count = Math.floor(part.samples.length / 3);
     if (count < 2) continue;
     const start = pointAt(part.samples, 0);
     const second = pointAt(part.samples, 1);
     const end = pointAt(part.samples, count - 1);
     const beforeEnd = pointAt(part.samples, count - 2);
-    const endpoints: LaneEndpoint[] = [{
+    const endpoints: CarrierRef[] = [{
+      category,
+      bundleTemplateId: part.info.bundleTemplateId,
       part,
       laneIndex: part.info.laneIndex,
       position: start,
       forward: norm(sub(second, start))
     }, {
+      category,
+      bundleTemplateId: part.info.bundleTemplateId,
       part,
       laneIndex: part.info.laneIndex,
       position: end,
       forward: norm(sub(beforeEnd, end))
     }];
     for (const endpoint of endpoints) {
-      const support = nearestSupportContext(endpoint.position, contexts);
-      if (support === null) continue;
-      if (!support.hvLanes.some((item) => item.laneIndex === endpoint.laneIndex)) support.hvLanes.push(endpoint);
+      const input = nearestPoleDetailInput(endpoint.position, inputs);
+      if (input === null) continue;
+      if (!input.carriers.some((item) =>
+        item.part.info.partKey === endpoint.part.info.partKey && item.laneIndex === endpoint.laneIndex
+      )) {
+        input.carriers.push(endpoint);
+      }
     }
   }
-  return contexts.filter((context) => context.hvLanes.length > 0);
+  return inputs.filter((input) => input.carriers.length > 0);
 }
 
-function patternFrame(support: SupportContext): PatternFrame | null {
-  const lanes = [...support.hvLanes].sort((a, b) => a.laneIndex - b.laneIndex);
+function patternFrame(carriersInput: CarrierRef[]): PatternFrame | null {
+  const lanes = [...carriersInput].sort((a, b) => a.laneIndex - b.laneIndex);
   if (lanes.length === 0) return null;
   const rowCenter = scale(lanes.reduce((sum, lane) => add(sum, lane.position), v(0, 0, 0)), 1 / lanes.length);
   const forward = norm(lanes.reduce((sum, lane) => add(sum, lane.forward), v(0, 0, 0)));
   return { rowCenter, forward, lateral: norm(crossUp(forward), v(0, 1, 0)) };
 }
 
-function choosePatternName(support: SupportContext): PoleDetailPatternName {
-  return hashString(support.id) % 4 === TRANSFORMER_BASIC_HASH_SLOT ? "transformer_basic" : "hv_plain";
-}
-
-function makePattern(support: SupportContext): PoleDetailPattern {
-  const frame = patternFrame(support);
-  const name = choosePatternName(support);
-  return {
-    name,
-    support,
-    frame,
-    sockets: name === "transformer_basic" && frame !== null ? transformerBasicSockets(support, frame) : null
-  };
-}
-
-function transformerBasicSockets(support: SupportContext, frame: PatternFrame): TransformerBasicSockets {
-  const poleAtHvRow = v(support.position.x, support.position.y, frame.rowCenter.z);
+function transformerBasicSockets(input: PoleDetailInput, frame: PatternFrame): TransformerBasicSockets {
+  const poleAtHvRow = v(input.position.x, input.position.y, frame.rowCenter.z);
   const transformerOffset = poleRadiusAtHeight(frame.rowCenter.z) +
     SUPPORT_DETAIL_DIMENSIONS.transformer.bodyDiameterM * 0.5 +
     SUPPORT_DETAIL_DIMENSIONS.transformer.radialClearanceM;
@@ -335,7 +344,7 @@ function transformerBasicSockets(support: SupportContext, frame: PatternFrame): 
     v(0, 0, -SUPPORT_DETAIL_DIMENSIONS.transformer.defaultCenterBelowHvRowM)
   );
   const bracketCenter = add(add(
-    v(support.position.x, support.position.y, transformerCenter.z),
+    v(input.position.x, input.position.y, transformerCenter.z),
     scale(frame.lateral, SUPPORT_DETAIL_DIMENSIONS.transformerSupportBracket.lengthM * 0.5)
   ), v(0, 0, 0.03));
   const insulator0 = add(add(bracketCenter, scale(frame.lateral, 0.06)), scale(frame.forward, -0.18));
@@ -356,164 +365,200 @@ function transformerBasicSockets(support: SupportContext, frame: PatternFrame): 
   };
 }
 
-function appendTransformerBasicParts(pattern: PoleDetailPattern, out: SupportDetailScene): void {
-  if (pattern.frame === null || pattern.sockets === null) return;
-  const version = `${pattern.support.id}:transformer-basic:v1`;
-  const insulator0Center = scale(add(pattern.sockets.insulator0In.position, pattern.sockets.insulator0Out.position), 0.5);
-  const insulator1Center = scale(add(pattern.sockets.insulator1In.position, pattern.sockets.insulator1Out.position), 0.5);
+function populatePoleAttachments(inputs: PoleDetailInput[]): PresentationAttachment[] {
+  return inputs
+    .filter((input) => hashString(input.id) % 4 === TRANSFORMER_BASIC_HASH_SLOT)
+    .map((input) => ({
+      id: `attachment:${input.id}:transformer_basic`,
+      anchor: { kind: "pole", ownerId: input.id },
+      templateId: "transformer_basic",
+      seed: hashString(input.id)
+    }));
+}
+
+function transformerBasicRecipe(
+  attachment: PresentationAttachment,
+  input: PoleDetailInput
+): TransformerBasicRecipe | null {
+  if (attachment.anchor.kind !== "pole" || attachment.templateId !== "transformer_basic") return null;
+  const hvCarriers = input.carriers
+    .filter((carrier) => carrier.category === HV_CATEGORY)
+    .sort((a, b) => a.laneIndex - b.laneIndex);
+  const frame = patternFrame(hvCarriers);
+  if (frame === null || hvCarriers.length === 0) return null;
+  return {
+    attachment,
+    input,
+    frame,
+    sockets: transformerBasicSockets(input, frame),
+    hvCarriers
+  };
+}
+
+function appendTransformerBasicParts(recipe: TransformerBasicRecipe, out: SupportDetailScene): void {
+  const version = `${recipe.attachment.id}:v1`;
+  const insulator0Center = scale(add(recipe.sockets.insulator0In.position, recipe.sockets.insulator0Out.position), 0.5);
+  const insulator1Center = scale(add(recipe.sockets.insulator1In.position, recipe.sockets.insulator1Out.position), 0.5);
 
   out.models.push(makeModel(
-    `support-detail:${pattern.support.id}:transformer`,
+    `${recipe.attachment.id}:transformer`,
     SUPPORT_DETAIL_MODEL_KEYS.transformer,
     version,
-    pattern.sockets.transformerCenter,
-    pattern.frame.forward
+    recipe.sockets.transformerCenter,
+    recipe.frame.forward
   ));
   out.models.push(makeModel(
-    `support-detail:${pattern.support.id}:transformer-bracket`,
+    `${recipe.attachment.id}:transformer-bracket`,
     SUPPORT_DETAIL_MODEL_KEYS.transformerSupportBracket,
     `${version}:bracket`,
-    pattern.sockets.bracketCenter,
-    pattern.frame.lateral
+    recipe.sockets.bracketCenter,
+    recipe.frame.lateral
   ));
   out.models.push(makeModel(
-    `support-detail:${pattern.support.id}:intermediate-insulator:0`,
+    `${recipe.attachment.id}:intermediate-insulator:0`,
     HV_INSULATOR_MODEL_KEY,
     `${version}:insulator:0`,
     insulator0Center,
-    pattern.frame.lateral,
+    recipe.frame.lateral,
     v(0.42, 0.42, 0.42),
     0,
     90
   ));
   out.models.push(makeModel(
-    `support-detail:${pattern.support.id}:intermediate-insulator:1`,
+    `${recipe.attachment.id}:intermediate-insulator:1`,
     HV_INSULATOR_MODEL_KEY,
     `${version}:insulator:1`,
     insulator1Center,
-    pattern.frame.lateral,
+    recipe.frame.lateral,
     v(0.42, 0.42, 0.42),
     0,
     90
   ));
 }
 
-function laneFor(pattern: PoleDetailPattern, preferredLane: number): LaneEndpoint | null {
-  const lanes = [...pattern.support.hvLanes].sort((a, b) => a.laneIndex - b.laneIndex);
+function laneFor(recipe: TransformerBasicRecipe, preferredLane: number): CarrierRef | null {
+  const lanes = [...recipe.hvCarriers].sort((a, b) => a.laneIndex - b.laneIndex);
   return lanes.find((lane) => lane.laneIndex === preferredLane) ?? lanes[Math.min(preferredLane, lanes.length - 1)] ?? null;
 }
 
-function appendTransformerBasicConnections(pattern: PoleDetailPattern, out: SupportDetailScene): void {
-  if (pattern.frame === null || pattern.sockets === null) return;
-  const source = pattern.support.hvLanes[0]?.part.info;
+function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: SupportDetailScene): void {
+  const source = recipe.hvCarriers[0]?.part.info;
   if (source === undefined) return;
-  const lane0 = laneFor(pattern, 0);
-  const lane2 = laneFor(pattern, 2);
-  const seed = hashString(pattern.support.id);
+  const lane0 = laneFor(recipe, 0);
+  const lane2 = laneFor(recipe, 2);
+  const seed = recipe.attachment.seed;
   const mirror = (seed & 1) === 0 ? 1 : -1;
   const guideJitter = (index: number, lateralM = 0.035, verticalM = 0.030): Vec3 =>
-    add(scale(pattern.frame!.lateral, jitter(seed, index, lateralM) * mirror), v(0, 0, jitter(seed, index + 11, verticalM)));
+    add(scale(recipe.frame.lateral, jitter(seed, index, lateralM) * mirror), v(0, 0, jitter(seed, index + 11, verticalM)));
   const variantA = (seed & 2) === 0 ? "small_loop" : "drop_then_in";
   const variantB = (seed & 4) === 0 ? "side_loop" : "small_loop";
   if (lane0 !== null) {
-    pushCable(out, `support-detail:${pattern.support.id}:hv-lane0-to-insulator0`, lane0.part.info,
+    pushCable(out, `${recipe.attachment.id}:hv-lane0-to-insulator0`, lane0.part.info,
       routePoints(
         { position: lane0.position, forward: lane0.forward },
         [add(add(lane0.position, scale(lane0.forward, 0.18)), guideJitter(1))],
-        pattern.sockets.insulator0In,
+        recipe.sockets.insulator0In,
         variantA
       ),
       0.010,
       HV_DETAIL_COLOR
     );
   }
-  pushCable(out, `support-detail:${pattern.support.id}:insulator0-to-transformer`, source,
+  pushCable(out, `${recipe.attachment.id}:insulator0-to-transformer`, source,
     routePoints(
-      pattern.sockets.insulator0Out,
-      [add(add(pattern.sockets.transformerHv0.position, scale(pattern.frame.lateral, -0.06)), guideJitter(2))],
-      pattern.sockets.transformerHv0,
+      recipe.sockets.insulator0Out,
+      [add(add(recipe.sockets.transformerHv0.position, scale(recipe.frame.lateral, -0.06)), guideJitter(2))],
+      recipe.sockets.transformerHv0,
       "drop_then_in"
     ),
     0.010,
     HV_DETAIL_COLOR
   );
   if (lane2 !== null) {
-    pushCable(out, `support-detail:${pattern.support.id}:hv-lane2-to-insulator1`, lane2.part.info,
+    pushCable(out, `${recipe.attachment.id}:hv-lane2-to-insulator1`, lane2.part.info,
       routePoints(
         { position: lane2.position, forward: lane2.forward },
         [add(add(lane2.position, scale(lane2.forward, 0.18)), guideJitter(3))],
-        pattern.sockets.insulator1In,
+        recipe.sockets.insulator1In,
         variantB
       ),
       0.010,
       HV_DETAIL_COLOR
     );
   }
-  pushCable(out, `support-detail:${pattern.support.id}:insulator1-to-transformer`, source,
+  pushCable(out, `${recipe.attachment.id}:insulator1-to-transformer`, source,
     routePoints(
-      pattern.sockets.insulator1Out,
-      [add(add(pattern.sockets.transformerHv1.position, scale(pattern.frame.lateral, 0.06)), guideJitter(4))],
-      pattern.sockets.transformerHv1,
+      recipe.sockets.insulator1Out,
+      [add(add(recipe.sockets.transformerHv1.position, scale(recipe.frame.lateral, 0.06)), guideJitter(4))],
+      recipe.sockets.transformerHv1,
       "drop_then_in"
     ),
     0.010,
     HV_DETAIL_COLOR
   );
-  const lvSockets = [pattern.sockets.transformerLv0, pattern.sockets.transformerLv1, pattern.sockets.transformerLv2];
+  const lvSockets = [recipe.sockets.transformerLv0, recipe.sockets.transformerLv1, recipe.sockets.transformerLv2];
   lvSockets.forEach((socket, index) => {
-    const closeGuide = add(add(socket.position, scale(pattern.frame!.lateral, 0.16)), guideJitter(5 + index, 0.018, 0.018));
+    const closeGuide = add(add(socket.position, scale(recipe.frame.lateral, 0.16)), guideJitter(5 + index, 0.018, 0.018));
     const fanout = add(
-      add(pattern.sockets!.transformerCenter, scale(pattern.frame!.lateral, 0.82)),
-      add(scale(pattern.frame!.forward, (index - 1) * 0.18), v(0, 0, -0.34 - index * 0.035))
+      add(recipe.sockets.transformerCenter, scale(recipe.frame.lateral, 0.82)),
+      add(scale(recipe.frame.forward, (index - 1) * 0.18), v(0, 0, -0.34 - index * 0.035))
     );
-    pushCable(out, `support-detail:${pattern.support.id}:transformer-lv:${index}`, source,
+    pushCable(out, `${recipe.attachment.id}:transformer-lv:${index}`, source,
       routePoints(
         socket,
         [closeGuide, add(fanout, guideJitter(8 + index, 0.025, 0.025))],
-        { position: fanout, forward: scale(pattern.frame!.lateral, -1) },
+        { position: fanout, forward: scale(recipe.frame.lateral, -1) },
         index === 1 ? "direct" : "side_loop"
       ),
       0.011,
       LV_DETAIL_COLOR
     );
   });
-  const loopAnchor = add(pattern.sockets.transformerCenter, v(0, 0, -0.08));
-  pushCable(out, `support-detail:${pattern.support.id}:service-loop:0`, source,
+  const loopAnchor = add(recipe.sockets.transformerCenter, v(0, 0, -0.08));
+  pushCable(out, `${recipe.attachment.id}:service-loop:0`, source,
     [
-      add(loopAnchor, scale(pattern.frame.lateral, 0.18)),
-      add(add(loopAnchor, scale(pattern.frame.lateral, 0.36)), v(0, 0, -0.20 - Math.abs(jitter(seed, 20, 0.05)))),
-      add(add(loopAnchor, scale(pattern.frame.lateral, 0.08)), scale(pattern.frame.forward, 0.28 * mirror)),
-      add(loopAnchor, scale(pattern.frame.lateral, -0.02))
+      add(loopAnchor, scale(recipe.frame.lateral, 0.18)),
+      add(add(loopAnchor, scale(recipe.frame.lateral, 0.36)), v(0, 0, -0.20 - Math.abs(jitter(seed, 20, 0.05)))),
+      add(add(loopAnchor, scale(recipe.frame.lateral, 0.08)), scale(recipe.frame.forward, 0.28 * mirror)),
+      add(loopAnchor, scale(recipe.frame.lateral, -0.02))
     ],
     0.008,
     DECORATIVE_DETAIL_COLOR
   );
-  pushCable(out, `support-detail:${pattern.support.id}:service-loop:1`, source,
+  pushCable(out, `${recipe.attachment.id}:service-loop:1`, source,
     [
-      add(pattern.sockets.transformerLv1.position, scale(pattern.frame.forward, -0.08 * mirror)),
-      add(add(pattern.sockets.transformerLv1.position, scale(pattern.frame.lateral, 0.30)), v(0, 0, -0.12)),
-      add(add(pattern.sockets.transformerLv1.position, scale(pattern.frame.lateral, 0.24)), scale(pattern.frame.forward, 0.30 * mirror)),
-      add(add(pattern.sockets.transformerLv1.position, scale(pattern.frame.lateral, 0.08)), v(0, 0, -0.02))
+      add(recipe.sockets.transformerLv1.position, scale(recipe.frame.forward, -0.08 * mirror)),
+      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.30)), v(0, 0, -0.12)),
+      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.24)), scale(recipe.frame.forward, 0.30 * mirror)),
+      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.08)), v(0, 0, -0.02))
     ],
     0.007,
     DECORATIVE_DETAIL_COLOR
   );
-  pushCable(out, `support-detail:${pattern.support.id}:pole-drop`, source,
+  pushCable(out, `${recipe.attachment.id}:pole-drop`, source,
     [
-      add(v(pattern.support.position.x, pattern.support.position.y, pattern.sockets.transformerCenter.z + 0.10), scale(pattern.frame.lateral, 0.10)),
-      add(v(pattern.support.position.x, pattern.support.position.y, pattern.sockets.transformerCenter.z - 0.20), scale(pattern.frame.lateral, 0.11)),
-      add(v(pattern.support.position.x, pattern.support.position.y, pattern.sockets.transformerCenter.z - 0.62), scale(pattern.frame.lateral, 0.10)),
-      add(v(pattern.support.position.x, pattern.support.position.y, pattern.sockets.transformerCenter.z - 0.96), scale(pattern.frame.lateral, 0.12))
+      add(v(recipe.input.position.x, recipe.input.position.y, recipe.sockets.transformerCenter.z + 0.10), scale(recipe.frame.lateral, 0.10)),
+      add(v(recipe.input.position.x, recipe.input.position.y, recipe.sockets.transformerCenter.z - 0.20), scale(recipe.frame.lateral, 0.11)),
+      add(v(recipe.input.position.x, recipe.input.position.y, recipe.sockets.transformerCenter.z - 0.62), scale(recipe.frame.lateral, 0.10)),
+      add(v(recipe.input.position.x, recipe.input.position.y, recipe.sockets.transformerCenter.z - 0.96), scale(recipe.frame.lateral, 0.12))
     ],
     0.006,
     DECORATIVE_DETAIL_COLOR
   );
 }
 
-function appendPattern(pattern: PoleDetailPattern, out: SupportDetailScene): void {
-  if (pattern.name === "hv_plain") return;
-  appendTransformerBasicParts(pattern, out);
-  appendTransformerBasicConnections(pattern, out);
+function appendAttachmentVisual(
+  attachment: PresentationAttachment,
+  inputById: Map<string, PoleDetailInput>,
+  out: SupportDetailScene
+): void {
+  if (attachment.anchor.kind !== "pole") return;
+  const input = inputById.get(attachment.anchor.ownerId);
+  if (input === undefined) return;
+  const recipe = transformerBasicRecipe(attachment, input);
+  if (recipe === null) return;
+  appendTransformerBasicParts(recipe, out);
+  appendTransformerBasicConnections(recipe, out);
 }
 
 export function deriveSupportDetails(
@@ -522,10 +567,12 @@ export function deriveSupportDetails(
   poles: PoleInfo[] = [],
   supportNodes: SupportNodeInfo[] = []
 ): SupportDetailScene {
-  const hvTemplates = templateIdsForCategory(templates, HV_CATEGORY);
+  const templateCategories = templateCategoryById(templates);
   const out: SupportDetailScene = { parts: [], models: [] };
-  for (const support of collectSupportContexts(parts, hvTemplates, poles, supportNodes)) {
-    appendPattern(makePattern(support), out);
+  const inputs = collectPoleDetailInputs(parts, templateCategories, poles, supportNodes);
+  const inputById = new Map(inputs.map((input) => [input.id, input]));
+  for (const attachment of populatePoleAttachments(inputs)) {
+    appendAttachmentVisual(attachment, inputById, out);
   }
   return out;
 }

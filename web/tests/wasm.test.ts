@@ -202,6 +202,24 @@ function distance(a: [number, number, number], b: [number, number, number]): num
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
+function pointLineDistance(
+  point: [number, number, number],
+  start: [number, number, number],
+  end: [number, number, number]
+): number {
+  const line = [end[0] - start[0], end[1] - start[1], end[2] - start[2]];
+  const rel = [point[0] - start[0], point[1] - start[1], point[2] - start[2]];
+  const len2 = line[0] * line[0] + line[1] * line[1] + line[2] * line[2];
+  const t = len2 > 0
+    ? Math.max(0, Math.min(1, (rel[0] * line[0] + rel[1] * line[1] + rel[2] * line[2]) / len2))
+    : 0;
+  return Math.hypot(
+    point[0] - (start[0] + line[0] * t),
+    point[1] - (start[1] + line[1] * t),
+    point[2] - (start[2] + line[2] * t)
+  );
+}
+
 function assertSeparatedPoints(points: Array<[number, number, number]>, minDistance: number) {
   for (let index = 0; index < points.length; index += 1) {
     for (let other = index + 1; other < points.length; other += 1) {
@@ -853,6 +871,10 @@ describe("wire wasm smoke", () => {
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
     );
     expect(derivedDetailParts.every((part) => Math.floor(part.samples.length / 3) <= 8)).toBe(true);
+    const localCableSampleCounts = derivedDetailParts
+      .filter((part) => part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable)
+      .map((part) => Math.floor(part.samples.length / 3));
+    expect(localCableSampleCounts.every((count) => count >= 6)).toBe(true);
     const hvEndpoints = scene.parts
       .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 101)
       .flatMap((part) => [
@@ -871,6 +893,25 @@ describe("wire wasm smoke", () => {
       const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
       const nearest = Math.min(...hvEndpoints.map((endpoint) => distance(first, endpoint)));
       return nearest > 0.02 && nearest < 0.12;
+    })).toBe(true);
+    expect(hvTapCables.every((part) => {
+      const pointCount = Math.floor(part.samples.length / 3);
+      const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
+      const lastOffset = part.samples.length - 3;
+      const last = [
+        part.samples[lastOffset],
+        part.samples[lastOffset + 1],
+        part.samples[lastOffset + 2]
+      ] as [number, number, number];
+      const distances = Array.from({ length: pointCount - 2 }, (_, index) => {
+        const offset = (index + 1) * 3;
+        return pointLineDistance([
+          part.samples[offset],
+          part.samples[offset + 1],
+          part.samples[offset + 2]
+        ] as [number, number, number], first, last);
+      });
+      return Math.max(...distances) > 0.03;
     })).toBe(true);
     const saved = bridge.saveState();
     expect(saved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);

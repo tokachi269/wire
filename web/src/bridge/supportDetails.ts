@@ -230,6 +230,39 @@ function flatten(points: Vec3[]): Float64Array {
   return out;
 }
 
+function catmullRom(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, t: number): Vec3 {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return v(
+    0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+      (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+    0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+      (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+    0.5 * ((2 * p1.z) + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 +
+      (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3)
+  );
+}
+
+function smoothLocalCablePoints(points: Vec3[]): Vec3[] {
+  if (points.length <= 2) return points;
+  const sampleCount = MAX_LOCAL_CABLE_SAMPLES;
+  const out: Vec3[] = [];
+  const segmentCount = points.length - 1;
+  for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+    const pathT = sampleIndex / (sampleCount - 1) * segmentCount;
+    const segmentIndex = Math.min(Math.floor(pathT), segmentCount - 1);
+    const localT = pathT - segmentIndex;
+    const p0 = points[Math.max(0, segmentIndex - 1)];
+    const p1 = points[segmentIndex];
+    const p2 = points[segmentIndex + 1];
+    const p3 = points[Math.min(points.length - 1, segmentIndex + 2)];
+    out.push(sampleIndex === 0 ? points[0]
+      : sampleIndex === sampleCount - 1 ? points[points.length - 1]
+        : catmullRom(p0, p1, p2, p3, localT));
+  }
+  return out;
+}
+
 function pushCable(
   out: SupportDetailScene,
   key: string,
@@ -238,7 +271,7 @@ function pushCable(
   radius: number,
   color: number
 ): void {
-  const limited = points.slice(0, MAX_LOCAL_CABLE_SAMPLES);
+  const limited = smoothLocalCablePoints(points);
   out.parts.push({
     info: makeInfo(key, source, LOCAL_DETAIL_KIND, limited.length, radius, color),
     samples: flatten(limited)

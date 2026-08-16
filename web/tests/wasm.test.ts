@@ -964,6 +964,31 @@ describe("wire wasm smoke", () => {
     flat.delete();
   });
 
+  it("inherits pole tilt for derived support detail attachments", async () => {
+    const bridge = await WireBridge.create();
+    const generated = bridge.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const poleIds = bridge.scene().poles.map((pole) => pole.id);
+    const tilted = bridge.applyPoleTilt(poleIds, 9.5);
+    expect(tilted.ok, tilted.error).toBe(true);
+
+    const scene = bridge.scene();
+    const transformer = scene.models.find((model) =>
+      model.stableKey === "attachment:support-node:55:transformer_basic:transformer"
+    );
+    expect(transformer).toBeDefined();
+    const owner = scene.poles.find((pole) => pole.id === scene.supportNodes.find((node) => node.id === "55")?.poleId);
+    expect(owner).toBeDefined();
+    expect(Math.abs(owner!.rotationX) + Math.abs(owner!.rotationY)).toBeGreaterThan(0.01);
+    expect(transformer!.rotationX).toBeCloseTo(owner!.rotationX, 6);
+    expect(transformer!.rotationY).toBeCloseTo(owner!.rotationY, 6);
+  });
+
   it("exposes a shared run id for through edge bodies", () => {
     const runState = createState();
     const result = runState.generate(

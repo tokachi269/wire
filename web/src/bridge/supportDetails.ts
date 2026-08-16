@@ -76,6 +76,8 @@ interface PoleDetailInput {
   id: string;
   poleId: string;
   position: Vec3;
+  rotation: Vec3;
+  up: Vec3;
   carriers: CarrierRef[];
 }
 
@@ -96,6 +98,8 @@ interface PatternFrame {
   rowCenter: Vec3;
   forward: Vec3;
   lateral: Vec3;
+  up: Vec3;
+  heightAlongPole: number;
 }
 
 interface TransformerBasicSockets {
@@ -124,13 +128,52 @@ const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
 const add = (a: Vec3, b: Vec3): Vec3 => v(a.x + b.x, a.y + b.y, a.z + b.z);
 const sub = (a: Vec3, b: Vec3): Vec3 => v(a.x - b.x, a.y - b.y, a.z - b.z);
 const scale = (a: Vec3, k: number): Vec3 => v(a.x * k, a.y * k, a.z * k);
-const crossUp = (a: Vec3): Vec3 => v(-a.y, a.x, 0);
+const dot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
+const cross = (a: Vec3, b: Vec3): Vec3 => v(
+  a.y * b.z - a.z * b.y,
+  a.z * b.x - a.x * b.z,
+  a.x * b.y - a.y * b.x
+);
 const length = (a: Vec3): number => Math.hypot(a.x, a.y, a.z);
 const norm = (a: Vec3, fallback: Vec3 = v(1, 0, 0)): Vec3 => {
   const len = length(a);
   return len > 1e-9 ? scale(a, 1 / len) : fallback;
 };
+const projectOntoPlane = (a: Vec3, normal: Vec3): Vec3 => sub(a, scale(normal, dot(a, normal)));
 const yawDeg = (forward: Vec3): number => Math.atan2(forward.y, forward.x) * 180 / Math.PI;
+
+function rotateX(value: Vec3, deg: number): Vec3 {
+  const rad = deg * Math.PI / 180;
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  return v(value.x, value.y * c - value.z * s, value.y * s + value.z * c);
+}
+
+function rotateY(value: Vec3, deg: number): Vec3 {
+  const rad = deg * Math.PI / 180;
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  return v(value.x * c + value.z * s, value.y, -value.x * s + value.z * c);
+}
+
+function rotateZ(value: Vec3, deg: number): Vec3 {
+  const rad = deg * Math.PI / 180;
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  return v(value.x * c - value.y * s, value.x * s + value.y * c, value.z);
+}
+
+function rotateEulerXYZ(value: Vec3, eulerDeg: Vec3): Vec3 {
+  return rotateZ(rotateY(rotateX(value, eulerDeg.x), eulerDeg.y), eulerDeg.z);
+}
+
+function poleRelative(frame: PatternFrame, x: number, y: number, z: number): Vec3 {
+  return add(add(scale(frame.forward, x), scale(frame.lateral, y)), scale(frame.up, z));
+}
+
+function worldFromPole(input: PoleDetailInput, frame: PatternFrame, x: number, y: number, z: number): Vec3 {
+  return add(input.position, poleRelative(frame, x, y, z));
+}
 
 function pointAt(samples: Float64Array, index: number): Vec3 {
   const offset = index * 3;
@@ -206,7 +249,8 @@ function routePoints(
   start: SocketFrame,
   guides: Vec3[],
   end: SocketFrame,
-  variant: "direct" | "small_loop" | "side_loop" | "drop_then_in"
+  variant: "direct" | "small_loop" | "side_loop" | "drop_then_in",
+  up: Vec3 = v(0, 0, 1)
 ): Vec3[] {
   const base = [
     start.position,
@@ -217,9 +261,9 @@ function routePoints(
   ];
   if (variant === "direct") return base;
   const mid = scale(add(start.position, end.position), 0.5);
-  if (variant === "small_loop") return [base[0], base[1], add(mid, v(0, 0, -0.18)), base[base.length - 2], base[base.length - 1]];
-  if (variant === "side_loop") return [base[0], base[1], ...guides.slice(0, 1), add(mid, v(0, 0, 0.10)), base[base.length - 2], base[base.length - 1]];
-  return [base[0], add(base[0], v(0, 0, -0.16)), ...guides.slice(0, 1), base[base.length - 2], base[base.length - 1]];
+  if (variant === "small_loop") return [base[0], base[1], add(mid, scale(up, -0.18)), base[base.length - 2], base[base.length - 1]];
+  if (variant === "side_loop") return [base[0], base[1], ...guides.slice(0, 1), add(mid, scale(up, 0.10)), base[base.length - 2], base[base.length - 1]];
+  return [base[0], add(base[0], scale(up, -0.16)), ...guides.slice(0, 1), base[base.length - 2], base[base.length - 1]];
 }
 
 function makeModel(
@@ -253,19 +297,34 @@ function templateCategoryById(templates: BundleTemplateInfo[]): Map<number, numb
 }
 
 function makePoleDetailInputs(poles: PoleInfo[], supportNodes: SupportNodeInfo[]): PoleDetailInput[] {
+  const poleById = new Map(poles.map((pole) => [pole.id, pole]));
+  const poleFrame = (pole: PoleInfo | undefined): { rotation: Vec3; up: Vec3 } => {
+    const rotation = pole === undefined ? v(0, 0, 0) : v(pole.rotationX, pole.rotationY, pole.rotationZ);
+    return { rotation, up: norm(rotateEulerXYZ(v(0, 0, 1), rotation), v(0, 0, 1)) };
+  };
   const inputs = supportNodes.length > 0
-    ? supportNodes.map((support) => ({
-        id: `support-node:${support.id}`,
-        poleId: support.poleId,
-        position: v(support.x, support.y, support.z),
-        carriers: []
-      }))
-    : poles.map((pole) => ({
-        id: `pole:${pole.id}`,
-        poleId: pole.id,
-        position: v(pole.positionX, pole.positionY, pole.positionZ),
-        carriers: []
-      }));
+    ? supportNodes.map((support) => {
+        const frame = poleFrame(poleById.get(support.poleId));
+        return {
+          id: `support-node:${support.id}`,
+          poleId: support.poleId,
+          position: v(support.x, support.y, support.z),
+          rotation: frame.rotation,
+          up: frame.up,
+          carriers: []
+        };
+      })
+    : poles.map((pole) => {
+        const frame = poleFrame(pole);
+        return {
+          id: `pole:${pole.id}`,
+          poleId: pole.id,
+          position: v(pole.positionX, pole.positionY, pole.positionZ),
+          rotation: frame.rotation,
+          up: frame.up,
+          carriers: []
+        };
+      });
   return inputs.sort((a, b) => a.id.localeCompare(b.id));
 }
 
@@ -326,30 +385,43 @@ function collectPoleDetailInputs(
   return inputs.filter((input) => input.carriers.length > 0);
 }
 
-function patternFrame(carriersInput: CarrierRef[]): PatternFrame | null {
+function patternFrame(input: PoleDetailInput, carriersInput: CarrierRef[]): PatternFrame | null {
   const lanes = [...carriersInput].sort((a, b) => a.laneIndex - b.laneIndex);
   if (lanes.length === 0) return null;
   const rowCenter = scale(lanes.reduce((sum, lane) => add(sum, lane.position), v(0, 0, 0)), 1 / lanes.length);
-  const forward = norm(lanes.reduce((sum, lane) => add(sum, lane.forward), v(0, 0, 0)));
-  return { rowCenter, forward, lateral: norm(crossUp(forward), v(0, 1, 0)) };
+  const rawForward = lanes.reduce((sum, lane) => add(sum, lane.forward), v(0, 0, 0));
+  const fallbackForward = rotateEulerXYZ(v(1, 0, 0), input.rotation);
+  const forward = norm(projectOntoPlane(rawForward, input.up), fallbackForward);
+  return {
+    rowCenter,
+    forward,
+    lateral: norm(cross(input.up, forward), rotateEulerXYZ(v(0, 1, 0), input.rotation)),
+    up: input.up,
+    heightAlongPole: dot(sub(rowCenter, input.position), input.up)
+  };
 }
 
 function transformerBasicSockets(input: PoleDetailInput, frame: PatternFrame): TransformerBasicSockets {
-  const poleAtHvRow = v(input.position.x, input.position.y, frame.rowCenter.z);
-  const transformerOffset = poleRadiusAtHeight(frame.rowCenter.z) +
+  const transformerOffset = poleRadiusAtHeight(frame.heightAlongPole) +
     SUPPORT_DETAIL_DIMENSIONS.transformer.bodyDiameterM * 0.5 +
     SUPPORT_DETAIL_DIMENSIONS.transformer.radialClearanceM;
-  const transformerCenter = add(
-    add(poleAtHvRow, scale(frame.lateral, transformerOffset)),
-    v(0, 0, -SUPPORT_DETAIL_DIMENSIONS.transformer.defaultCenterBelowHvRowM)
+  const transformerCenter = worldFromPole(
+    input,
+    frame,
+    0,
+    transformerOffset,
+    frame.heightAlongPole - SUPPORT_DETAIL_DIMENSIONS.transformer.defaultCenterBelowHvRowM
   );
-  const bracketCenter = add(add(
-    v(input.position.x, input.position.y, transformerCenter.z),
-    scale(frame.lateral, SUPPORT_DETAIL_DIMENSIONS.transformerSupportBracket.lengthM * 0.5)
-  ), v(0, 0, 0.03));
+  const bracketCenter = worldFromPole(
+    input,
+    frame,
+    0,
+    SUPPORT_DETAIL_DIMENSIONS.transformerSupportBracket.lengthM * 0.5,
+    frame.heightAlongPole - SUPPORT_DETAIL_DIMENSIONS.transformer.defaultCenterBelowHvRowM + 0.03
+  );
   const insulator0 = add(add(bracketCenter, scale(frame.lateral, 0.06)), scale(frame.forward, -0.18));
   const insulator1 = add(add(bracketCenter, scale(frame.lateral, 0.06)), scale(frame.forward, 0.18));
-  const lvBase = add(transformerCenter, v(0, 0, -0.16));
+  const lvBase = add(transformerCenter, scale(frame.up, -0.16));
   return {
     transformerCenter,
     bracketCenter,
@@ -357,8 +429,8 @@ function transformerBasicSockets(input: PoleDetailInput, frame: PatternFrame): T
     insulator0Out: { position: add(insulator0, scale(frame.forward, 0.12)), forward: scale(frame.forward, -1) },
     insulator1In: { position: add(insulator1, scale(frame.forward, -0.12)), forward: frame.forward },
     insulator1Out: { position: add(insulator1, scale(frame.forward, 0.12)), forward: scale(frame.forward, -1) },
-    transformerHv0: { position: add(add(transformerCenter, scale(frame.lateral, -0.06)), v(0, 0, 0.28)), forward: v(0, 0, 1) },
-    transformerHv1: { position: add(add(transformerCenter, scale(frame.lateral, 0.06)), v(0, 0, 0.28)), forward: v(0, 0, 1) },
+    transformerHv0: { position: add(add(transformerCenter, scale(frame.lateral, -0.06)), scale(frame.up, 0.28)), forward: frame.up },
+    transformerHv1: { position: add(add(transformerCenter, scale(frame.lateral, 0.06)), scale(frame.up, 0.28)), forward: frame.up },
     transformerLv0: { position: add(lvBase, scale(frame.forward, -0.045)), forward: frame.lateral },
     transformerLv1: { position: lvBase, forward: frame.lateral },
     transformerLv2: { position: add(lvBase, scale(frame.forward, 0.045)), forward: frame.lateral }
@@ -384,7 +456,7 @@ function transformerBasicRecipe(
   const hvCarriers = input.carriers
     .filter((carrier) => carrier.category === HV_CATEGORY)
     .sort((a, b) => a.laneIndex - b.laneIndex);
-  const frame = patternFrame(hvCarriers);
+  const frame = patternFrame(input, hvCarriers);
   if (frame === null || hvCarriers.length === 0) return null;
   return {
     attachment,
@@ -405,14 +477,20 @@ function appendTransformerBasicParts(recipe: TransformerBasicRecipe, out: Suppor
     SUPPORT_DETAIL_MODEL_KEYS.transformer,
     version,
     recipe.sockets.transformerCenter,
-    recipe.frame.forward
+    recipe.frame.forward,
+    v(1, 1, 1),
+    recipe.input.rotation.x,
+    recipe.input.rotation.y
   ));
   out.models.push(makeModel(
     `${recipe.attachment.id}:transformer-bracket`,
     SUPPORT_DETAIL_MODEL_KEYS.transformerSupportBracket,
     `${version}:bracket`,
     recipe.sockets.bracketCenter,
-    recipe.frame.lateral
+    recipe.frame.lateral,
+    v(1, 1, 1),
+    recipe.input.rotation.x,
+    recipe.input.rotation.y
   ));
   out.models.push(makeModel(
     `${recipe.attachment.id}:intermediate-insulator:0`,
@@ -421,8 +499,8 @@ function appendTransformerBasicParts(recipe: TransformerBasicRecipe, out: Suppor
     insulator0Center,
     recipe.frame.lateral,
     v(0.42, 0.42, 0.42),
-    0,
-    90
+    recipe.input.rotation.x,
+    recipe.input.rotation.y + 90
   ));
   out.models.push(makeModel(
     `${recipe.attachment.id}:intermediate-insulator:1`,
@@ -431,8 +509,8 @@ function appendTransformerBasicParts(recipe: TransformerBasicRecipe, out: Suppor
     insulator1Center,
     recipe.frame.lateral,
     v(0.42, 0.42, 0.42),
-    0,
-    90
+    recipe.input.rotation.x,
+    recipe.input.rotation.y + 90
   ));
 }
 
@@ -449,7 +527,7 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   const seed = recipe.attachment.seed;
   const mirror = (seed & 1) === 0 ? 1 : -1;
   const guideJitter = (index: number, lateralM = 0.035, verticalM = 0.030): Vec3 =>
-    add(scale(recipe.frame.lateral, jitter(seed, index, lateralM) * mirror), v(0, 0, jitter(seed, index + 11, verticalM)));
+    add(scale(recipe.frame.lateral, jitter(seed, index, lateralM) * mirror), scale(recipe.frame.up, jitter(seed, index + 11, verticalM)));
   const variantA = (seed & 2) === 0 ? "small_loop" : "drop_then_in";
   const variantB = (seed & 4) === 0 ? "side_loop" : "small_loop";
   if (lane0 !== null) {
@@ -458,7 +536,8 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
         { position: lane0.position, forward: lane0.forward },
         [add(add(lane0.position, scale(lane0.forward, 0.18)), guideJitter(1))],
         recipe.sockets.insulator0In,
-        variantA
+        variantA,
+        recipe.frame.up
       ),
       0.010,
       HV_DETAIL_COLOR
@@ -469,7 +548,8 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
       recipe.sockets.insulator0Out,
       [add(add(recipe.sockets.transformerHv0.position, scale(recipe.frame.lateral, -0.06)), guideJitter(2))],
       recipe.sockets.transformerHv0,
-      "drop_then_in"
+      "drop_then_in",
+      recipe.frame.up
     ),
     0.010,
     HV_DETAIL_COLOR
@@ -480,7 +560,8 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
         { position: lane2.position, forward: lane2.forward },
         [add(add(lane2.position, scale(lane2.forward, 0.18)), guideJitter(3))],
         recipe.sockets.insulator1In,
-        variantB
+        variantB,
+        recipe.frame.up
       ),
       0.010,
       HV_DETAIL_COLOR
@@ -491,7 +572,8 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
       recipe.sockets.insulator1Out,
       [add(add(recipe.sockets.transformerHv1.position, scale(recipe.frame.lateral, 0.06)), guideJitter(4))],
       recipe.sockets.transformerHv1,
-      "drop_then_in"
+      "drop_then_in",
+      recipe.frame.up
     ),
     0.010,
     HV_DETAIL_COLOR
@@ -501,24 +583,25 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
     const closeGuide = add(add(socket.position, scale(recipe.frame.lateral, 0.16)), guideJitter(5 + index, 0.018, 0.018));
     const fanout = add(
       add(recipe.sockets.transformerCenter, scale(recipe.frame.lateral, 0.82)),
-      add(scale(recipe.frame.forward, (index - 1) * 0.18), v(0, 0, -0.34 - index * 0.035))
+      add(scale(recipe.frame.forward, (index - 1) * 0.18), scale(recipe.frame.up, -0.34 - index * 0.035))
     );
     pushCable(out, `${recipe.attachment.id}:transformer-lv:${index}`, source,
       routePoints(
         socket,
         [closeGuide, add(fanout, guideJitter(8 + index, 0.025, 0.025))],
         { position: fanout, forward: scale(recipe.frame.lateral, -1) },
-        index === 1 ? "direct" : "side_loop"
+        index === 1 ? "direct" : "side_loop",
+        recipe.frame.up
       ),
       0.011,
       LV_DETAIL_COLOR
     );
   });
-  const loopAnchor = add(recipe.sockets.transformerCenter, v(0, 0, -0.08));
+  const loopAnchor = add(recipe.sockets.transformerCenter, scale(recipe.frame.up, -0.08));
   pushCable(out, `${recipe.attachment.id}:service-loop:0`, source,
     [
       add(loopAnchor, scale(recipe.frame.lateral, 0.18)),
-      add(add(loopAnchor, scale(recipe.frame.lateral, 0.36)), v(0, 0, -0.20 - Math.abs(jitter(seed, 20, 0.05)))),
+      add(add(loopAnchor, scale(recipe.frame.lateral, 0.36)), scale(recipe.frame.up, -0.20 - Math.abs(jitter(seed, 20, 0.05)))),
       add(add(loopAnchor, scale(recipe.frame.lateral, 0.08)), scale(recipe.frame.forward, 0.28 * mirror)),
       add(loopAnchor, scale(recipe.frame.lateral, -0.02))
     ],
@@ -528,19 +611,19 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   pushCable(out, `${recipe.attachment.id}:service-loop:1`, source,
     [
       add(recipe.sockets.transformerLv1.position, scale(recipe.frame.forward, -0.08 * mirror)),
-      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.30)), v(0, 0, -0.12)),
+      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.30)), scale(recipe.frame.up, -0.12)),
       add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.24)), scale(recipe.frame.forward, 0.30 * mirror)),
-      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.08)), v(0, 0, -0.02))
+      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.08)), scale(recipe.frame.up, -0.02))
     ],
     0.007,
     DECORATIVE_DETAIL_COLOR
   );
   pushCable(out, `${recipe.attachment.id}:pole-drop`, source,
     [
-      add(v(recipe.input.position.x, recipe.input.position.y, recipe.sockets.transformerCenter.z + 0.10), scale(recipe.frame.lateral, 0.10)),
-      add(v(recipe.input.position.x, recipe.input.position.y, recipe.sockets.transformerCenter.z - 0.20), scale(recipe.frame.lateral, 0.11)),
-      add(v(recipe.input.position.x, recipe.input.position.y, recipe.sockets.transformerCenter.z - 0.62), scale(recipe.frame.lateral, 0.10)),
-      add(v(recipe.input.position.x, recipe.input.position.y, recipe.sockets.transformerCenter.z - 0.96), scale(recipe.frame.lateral, 0.12))
+      worldFromPole(recipe.input, recipe.frame, 0, 0.10, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) + 0.10),
+      worldFromPole(recipe.input, recipe.frame, 0, 0.11, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) - 0.20),
+      worldFromPole(recipe.input, recipe.frame, 0, 0.10, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) - 0.62),
+      worldFromPole(recipe.input, recipe.frame, 0, 0.12, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) - 0.96)
     ],
     0.006,
     DECORATIVE_DETAIL_COLOR

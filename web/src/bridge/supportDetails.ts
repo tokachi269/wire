@@ -519,6 +519,17 @@ function laneFor(recipe: TransformerBasicRecipe, preferredLane: number): Carrier
   return lanes.find((lane) => lane.laneIndex === preferredLane) ?? lanes[Math.min(preferredLane, lanes.length - 1)] ?? null;
 }
 
+function laneTapSocket(recipe: TransformerBasicRecipe, lane: CarrierRef, side: number): SocketFrame {
+  const tapPosition = add(
+    add(lane.position, scale(recipe.frame.lateral, 0.05 * side)),
+    scale(recipe.frame.up, -0.035)
+  );
+  return {
+    position: tapPosition,
+    forward: norm(add(scale(lane.forward, 0.7), scale(recipe.frame.lateral, 0.3 * side)), lane.forward)
+  };
+}
+
 function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: SupportDetailScene): void {
   const source = recipe.hvCarriers[0]?.part.info;
   if (source === undefined) return;
@@ -531,10 +542,11 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   const variantA = (seed & 2) === 0 ? "small_loop" : "drop_then_in";
   const variantB = (seed & 4) === 0 ? "side_loop" : "small_loop";
   if (lane0 !== null) {
+    const lane0Tap = laneTapSocket(recipe, lane0, -1);
     pushCable(out, `${recipe.attachment.id}:hv-lane0-to-insulator0`, lane0.part.info,
       routePoints(
-        { position: lane0.position, forward: lane0.forward },
-        [add(add(lane0.position, scale(lane0.forward, 0.18)), guideJitter(1))],
+        lane0Tap,
+        [add(add(lane0Tap.position, scale(lane0Tap.forward, 0.18)), guideJitter(1))],
         recipe.sockets.insulator0In,
         variantA,
         recipe.frame.up
@@ -555,10 +567,11 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
     HV_DETAIL_COLOR
   );
   if (lane2 !== null) {
+    const lane2Tap = laneTapSocket(recipe, lane2, 1);
     pushCable(out, `${recipe.attachment.id}:hv-lane2-to-insulator1`, lane2.part.info,
       routePoints(
-        { position: lane2.position, forward: lane2.forward },
-        [add(add(lane2.position, scale(lane2.forward, 0.18)), guideJitter(3))],
+        lane2Tap,
+        [add(add(lane2Tap.position, scale(lane2Tap.forward, 0.18)), guideJitter(3))],
         recipe.sockets.insulator1In,
         variantB,
         recipe.frame.up

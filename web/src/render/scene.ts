@@ -193,6 +193,18 @@ export function makeRoadMeshGeometry(data: {
   return geometry;
 }
 
+function sampleContentVersion(samples: Float64Array): string {
+  let hash = 2166136261;
+  for (let index = 0; index < samples.length; index += 1) {
+    const scaled = Math.round(samples[index] * 1_000_000);
+    hash ^= scaled;
+    hash = Math.imul(hash, 16777619);
+    hash ^= scaled >> 16;
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function roadSurfaceColor(material: string): number {
   if (material === "sidewalk") return 0x858b87;
   if (material === "curb") return 0xadb1ad;
@@ -1544,7 +1556,8 @@ export class WireScene {
         part.info.sourceVersion,
         part.info.wireRadius,
         part.info.colorRgba,
-        part.info.sampleCount
+        part.info.sampleCount,
+        sampleContentVersion(part.samples)
       ].join(":");
       const previous = this.partMeshes.get(key);
       if (previous?.version === version) {

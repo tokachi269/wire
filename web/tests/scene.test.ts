@@ -382,6 +382,13 @@ describe("scene part reuse", () => {
     first.geometry.boundingBox!.getCenter(center);
     expect(center.y).toBeCloseTo(2, 2);
 
+    snapshot.parts[0].samples = new Float64Array([0, 3, 0, 10, 3, 0]);
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.partMeshes.get("edge:1:lane:0").mesh).toBe(first);
+    first.geometry.computeBoundingBox();
+    first.geometry.boundingBox!.getCenter(center);
+    expect(center.y).toBeCloseTo(3, 2);
+
     snapshot.parts.splice(1, 1);
     expect(scene.syncContent(snapshot)).toBe(true);
     expect(scene.contentSyncStats).toEqual({

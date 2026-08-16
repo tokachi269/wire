@@ -853,6 +853,25 @@ describe("wire wasm smoke", () => {
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
     );
     expect(derivedDetailParts.every((part) => Math.floor(part.samples.length / 3) <= 8)).toBe(true);
+    const hvEndpoints = scene.parts
+      .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 101)
+      .flatMap((part) => [
+        [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number],
+        [
+          part.samples[part.samples.length - 3],
+          part.samples[part.samples.length - 2],
+          part.samples[part.samples.length - 1]
+        ] as [number, number, number]
+      ]);
+    const hvTapCables = detailParts.filter((part) =>
+      part.info.partKey.includes(":hv-lane") && part.info.partKey.includes("-to-insulator")
+    );
+    expect(hvTapCables.length).toBeGreaterThanOrEqual(2);
+    expect(hvTapCables.every((part) => {
+      const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
+      const nearest = Math.min(...hvEndpoints.map((endpoint) => distance(first, endpoint)));
+      return nearest > 0.02 && nearest < 0.12;
+    })).toBe(true);
     const saved = bridge.saveState();
     expect(saved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
     expect(saved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv|service-loop|pole-drop/);

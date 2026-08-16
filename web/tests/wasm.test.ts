@@ -839,13 +839,15 @@ describe("wire wasm smoke", () => {
     )).toBe(false);
     const transformers = models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]);
     expect(transformers).toHaveLength(1);
-    expect(transformers[0].stableKey).toBe("attachment:support-node:55:transformer_basic:transformer");
+    expect(transformers[0].stableKey).toMatch(/^attachment:support-node:\d+:transformer_basic:transformer$/);
     expect(transformers.every((model) =>
       model.scaleX === 1 && model.scaleY === 1 && model.scaleZ === 1
     )).toBe(true);
-    const bracket = models.find((model) => model.stableKey === "attachment:support-node:55:transformer_basic:transformer-bracket");
+    const attachmentId = transformers[0].stableKey.replace(/:transformer$/, "");
+    const bracket = models.find((model) => model.stableKey === `${attachmentId}:transformer-bracket`);
     expect(bracket).toBeDefined();
-    const pole = scene.supportNodes.find((node) => node.id === "55");
+    const supportNodeId = attachmentId.match(/^attachment:support-node:(\d+):transformer_basic$/)?.[1];
+    const pole = scene.supportNodes.find((node) => node.id === supportNodeId);
     expect(pole).toBeDefined();
     const xyDistance = (model: { positionX: number; positionY: number }): number =>
       Math.hypot(model.positionX - pole!.x, model.positionY - pole!.y);
@@ -862,7 +864,7 @@ describe("wire wasm smoke", () => {
     const detailParts = scene.parts;
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
-    ).length).toBeGreaterThanOrEqual(10);
+    ).length).toBeGreaterThanOrEqual(8);
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
     )).toHaveLength(0);
@@ -913,9 +915,31 @@ describe("wire wasm smoke", () => {
       });
       return Math.max(...distances) > 0.03;
     })).toBe(true);
+    const lvEndpoints = scene.parts
+      .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 102)
+      .flatMap((part) => [
+        [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number],
+        [
+          part.samples[part.samples.length - 3],
+          part.samples[part.samples.length - 2],
+          part.samples[part.samples.length - 1]
+        ] as [number, number, number]
+      ]);
+    const lvLeads = detailParts.filter((part) => part.info.partKey.includes(":transformer-lv:"));
+    expect(lvLeads).toHaveLength(3);
+    expect(lvLeads.every((part) => {
+      const end = [
+        part.samples[part.samples.length - 3],
+        part.samples[part.samples.length - 2],
+        part.samples[part.samples.length - 1]
+      ] as [number, number, number];
+      const nearest = Math.min(...lvEndpoints.map((endpoint) => distance(end, endpoint)));
+      return nearest > 0.02 && nearest < 0.14;
+    })).toBe(true);
+    expect(detailParts.some((part) => part.info.partKey.includes(":service-loop:"))).toBe(false);
     const saved = bridge.saveState();
     expect(saved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
-    expect(saved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv|service-loop|pole-drop/);
+    expect(saved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv|pole-drop/);
 
     const repeatedBridge = await WireBridge.create();
     const repeated = repeatedBridge.generate(
@@ -929,7 +953,7 @@ describe("wire wasm smoke", () => {
     const restorableBridge = await createRestorableSupportDetailBridge();
     const restorableSaved = restorableBridge.saveState();
     expect(restorableSaved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
-    expect(restorableSaved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv|service-loop|pole-drop/);
+    expect(restorableSaved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv|pole-drop/);
     const restorableSignature = detailSceneSignature(restorableBridge.scene());
     const restoredBridge = await WireBridge.create();
     const loaded = restoredBridge.loadState(restorableSaved);
@@ -953,6 +977,21 @@ describe("wire wasm smoke", () => {
     expect(scene.parts.some((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
     )).toBe(false);
+  });
+
+  it("does not create transformer LV leads without an existing LV carrier", async () => {
+    const bridge = await WireBridge.create();
+    const generated = bridge.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      [101], 0, 1,
+      [0], 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const scene = bridge.scene();
+    expect(scene.models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
+    expect(scene.parts.some((part) => part.info.partKey.includes(":transformer-lv:"))).toBe(false);
+    expect(scene.parts.some((part) => part.info.partKey.includes(":service-loop:"))).toBe(false);
   });
 
   it("upgrades an older saved row assembly by adapter version during restore", () => {
@@ -1039,10 +1078,12 @@ describe("wire wasm smoke", () => {
 
     const scene = bridge.scene();
     const transformer = scene.models.find((model) =>
-      model.stableKey === "attachment:support-node:55:transformer_basic:transformer"
+      model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]
     );
     expect(transformer).toBeDefined();
-    const owner = scene.poles.find((pole) => pole.id === scene.supportNodes.find((node) => node.id === "55")?.poleId);
+    const attachmentId = transformer!.stableKey.replace(/:transformer$/, "");
+    const supportNodeId = attachmentId.match(/^attachment:support-node:(\d+):transformer_basic$/)?.[1];
+    const owner = scene.poles.find((pole) => pole.id === scene.supportNodes.find((node) => node.id === supportNodeId)?.poleId);
     expect(owner).toBeDefined();
     expect(Math.abs(owner!.rotationX) + Math.abs(owner!.rotationY)).toBeGreaterThan(0.01);
     expect(transformer!.rotationX).toBeCloseTo(owner!.rotationX, 6);

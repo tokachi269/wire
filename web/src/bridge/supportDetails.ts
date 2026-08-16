@@ -40,6 +40,7 @@ export const SUPPORT_DETAIL_DIMENSIONS = {
 const EDGE_BODY_KIND = 0;
 const SUPPLEMENTAL_KIND = 4;
 const HV_CATEGORY = 0;
+const LV_CATEGORY = 1;
 const LOCAL_DETAIL_KIND = 3;
 const HV_DETAIL_COLOR = 0x262a2dff;
 const LV_DETAIL_COLOR = 0x31363aff;
@@ -122,6 +123,7 @@ interface TransformerBasicRecipe {
   frame: PatternFrame;
   sockets: TransformerBasicSockets;
   hvCarriers: CarrierRef[];
+  lvCarriers: CarrierRef[];
 }
 
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
@@ -489,6 +491,9 @@ function transformerBasicRecipe(
   const hvCarriers = input.carriers
     .filter((carrier) => carrier.category === HV_CATEGORY)
     .sort((a, b) => a.laneIndex - b.laneIndex);
+  const lvCarriers = input.carriers
+    .filter((carrier) => carrier.category === LV_CATEGORY)
+    .sort((a, b) => a.laneIndex - b.laneIndex);
   const frame = patternFrame(input, hvCarriers);
   if (frame === null || hvCarriers.length === 0) return null;
   return {
@@ -496,7 +501,8 @@ function transformerBasicRecipe(
     input,
     frame,
     sockets: transformerBasicSockets(input, frame),
-    hvCarriers
+    hvCarriers,
+    lvCarriers
   };
 }
 
@@ -563,6 +569,21 @@ function laneTapSocket(recipe: TransformerBasicRecipe, lane: CarrierRef, side: n
   };
 }
 
+function lvCarrierFor(recipe: TransformerBasicRecipe, index: number): CarrierRef | null {
+  return recipe.lvCarriers[index] ?? recipe.lvCarriers[Math.min(index, recipe.lvCarriers.length - 1)] ?? null;
+}
+
+function lvTapSocket(recipe: TransformerBasicRecipe, carrier: CarrierRef, index: number): SocketFrame {
+  const offset = add(
+    scale(recipe.frame.forward, (index - 1) * 0.08),
+    scale(recipe.frame.up, -0.025)
+  );
+  return {
+    position: add(carrier.position, offset),
+    forward: scale(carrier.forward, -1)
+  };
+}
+
 function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: SupportDetailScene): void {
   const source = recipe.hvCarriers[0]?.part.info;
   if (source === undefined) return;
@@ -626,16 +647,15 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   );
   const lvSockets = [recipe.sockets.transformerLv0, recipe.sockets.transformerLv1, recipe.sockets.transformerLv2];
   lvSockets.forEach((socket, index) => {
+    const lvCarrier = lvCarrierFor(recipe, index);
+    if (lvCarrier === null) return;
+    const lvTap = lvTapSocket(recipe, lvCarrier, index);
     const closeGuide = add(add(socket.position, scale(recipe.frame.lateral, 0.16)), guideJitter(5 + index, 0.018, 0.018));
-    const fanout = add(
-      add(recipe.sockets.transformerCenter, scale(recipe.frame.lateral, 0.82)),
-      add(scale(recipe.frame.forward, (index - 1) * 0.18), scale(recipe.frame.up, -0.34 - index * 0.035))
-    );
     pushCable(out, `${recipe.attachment.id}:transformer-lv:${index}`, source,
       routePoints(
         socket,
-        [closeGuide, add(fanout, guideJitter(8 + index, 0.025, 0.025))],
-        { position: fanout, forward: scale(recipe.frame.lateral, -1) },
+        [closeGuide, add(add(lvTap.position, scale(recipe.frame.lateral, -0.16)), guideJitter(8 + index, 0.025, 0.025))],
+        lvTap,
         index === 1 ? "direct" : "side_loop",
         recipe.frame.up
       ),
@@ -643,27 +663,6 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
       LV_DETAIL_COLOR
     );
   });
-  const loopAnchor = add(recipe.sockets.transformerCenter, scale(recipe.frame.up, -0.08));
-  pushCable(out, `${recipe.attachment.id}:service-loop:0`, source,
-    [
-      add(loopAnchor, scale(recipe.frame.lateral, 0.18)),
-      add(add(loopAnchor, scale(recipe.frame.lateral, 0.36)), scale(recipe.frame.up, -0.20 - Math.abs(jitter(seed, 20, 0.05)))),
-      add(add(loopAnchor, scale(recipe.frame.lateral, 0.08)), scale(recipe.frame.forward, 0.28 * mirror)),
-      add(loopAnchor, scale(recipe.frame.lateral, -0.02))
-    ],
-    0.008,
-    DECORATIVE_DETAIL_COLOR
-  );
-  pushCable(out, `${recipe.attachment.id}:service-loop:1`, source,
-    [
-      add(recipe.sockets.transformerLv1.position, scale(recipe.frame.forward, -0.08 * mirror)),
-      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.30)), scale(recipe.frame.up, -0.12)),
-      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.24)), scale(recipe.frame.forward, 0.30 * mirror)),
-      add(add(recipe.sockets.transformerLv1.position, scale(recipe.frame.lateral, 0.08)), scale(recipe.frame.up, -0.02))
-    ],
-    0.007,
-    DECORATIVE_DETAIL_COLOR
-  );
   pushCable(out, `${recipe.attachment.id}:pole-drop`, source,
     [
       worldFromPole(recipe.input, recipe.frame, 0, 0.10, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) + 0.10),

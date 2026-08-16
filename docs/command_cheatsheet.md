@@ -39,6 +39,22 @@ python tools\test_family_lint.py
 git diff --check
 ```
 
+## clang-tidy
+
+Configure with a generator that emits `compile_commands.json`, then run the helper target:
+
+```cmd
+call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+cmake -S . -B build-clang-tidy -G Ninja -DWIRE_BUILD_VIEWER=OFF -DWIRE_ENABLE_PCH=OFF -DWIRE_ENABLE_FORMAT_TARGETS=OFF -DWIRE_ENABLE_UML_TARGETS=OFF
+cmake --build build-clang-tidy --target tidy-check
+```
+
+To check a smaller subtree while tuning:
+
+```cmd
+python tools\clang_tidy_check.py --build-dir build-clang-tidy --path domains/wire/src/state
+```
+
 ## clang-uml
 
 ```cmd

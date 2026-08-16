@@ -1,0 +1,14 @@
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  -bugprone-throwing-static-initialization,
+  performance-*,
+  -performance-enum-size,
+  readability-misleading-indentation
+WarningsAsErrors: "*"
+HeaderFilterRegex: ".*[\\\\/](domains|viewer)[\\\\/].*"
+SystemHeaders: false
+FormatStyle: file

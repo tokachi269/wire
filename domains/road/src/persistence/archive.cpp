@@ -1521,7 +1521,7 @@ Result<LoadedRoad> LoadRoad(const std::string& text) {
                                                 target_boundary.value,
                                                 target_role.value};
     }
-    loaded.graph.junction_marking_overrides.push_back(std::move(override));
+    loaded.graph.junction_marking_overrides.push_back(override);
   }
 
   Result<std::size_t> segment_count = require_count("segment.count");

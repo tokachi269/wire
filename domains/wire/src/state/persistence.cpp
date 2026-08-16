@@ -756,19 +756,22 @@ void migrate_v1_row_continuities(
         graph->port_bindings[pair_bindings[first]];
     const LegacySavedBackboneRowKey& first_key =
         *legacy_row_keys[pair_bindings[first]];
-    while (last < pair_bindings.size() &&
-           legacy_row_keys[pair_bindings[last]]->node_id == first_key.node_id &&
-           legacy_row_keys[pair_bindings[last]]->source_edge_a ==
-               first_key.source_edge_a &&
-           legacy_row_keys[pair_bindings[last]]->source_edge_b ==
-               first_key.source_edge_b &&
-           graph->port_bindings[pair_bindings[last]].lane_index ==
-               first_binding.lane_index &&
-           migrated_edge_bundle_bundle_id(
-               *graph,
-               graph->port_bindings[pair_bindings[last]].edge_bundle_id) ==
-               migrated_edge_bundle_bundle_id(*graph,
-                                               first_binding.edge_bundle_id)) {
+    while (last < pair_bindings.size()) {
+      const std::optional<LegacySavedBackboneRowKey>& candidate_key =
+          legacy_row_keys[pair_bindings[last]];
+      if (!candidate_key.has_value() ||
+          candidate_key->node_id != first_key.node_id ||
+          candidate_key->source_edge_a != first_key.source_edge_a ||
+          candidate_key->source_edge_b != first_key.source_edge_b ||
+          graph->port_bindings[pair_bindings[last]].lane_index !=
+              first_binding.lane_index ||
+          migrated_edge_bundle_bundle_id(
+              *graph,
+              graph->port_bindings[pair_bindings[last]].edge_bundle_id) !=
+              migrated_edge_bundle_bundle_id(*graph,
+                                              first_binding.edge_bundle_id)) {
+        break;
+      }
       ++last;
     }
     if (last - first == 2 &&

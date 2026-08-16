@@ -74,9 +74,7 @@ int target_template_layer_for_category(ConnectionCategory category) {
   case ConnectionCategory::kHighVoltage:
     return 2;
   case ConnectionCategory::kLowVoltage:
-    return 1;
   case ConnectionCategory::kCommunication:
-    return 1;
   case ConnectionCategory::kOptical:
     return 1;
   case ConnectionCategory::kDrop:

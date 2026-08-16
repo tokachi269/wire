@@ -358,7 +358,7 @@ bool span_visual_assembly_equals(const SpanVisualAssemblyTemplate& a, const Span
          a.member_twist_phase == b.member_twist_phase;
 }
 
-enum BundleTemplateChange : std::uint32_t {
+enum BundleTemplateChange : std::uint8_t {
   kMetadata = 1u << 0,
   kDefinition = 1u << 1,
   kDraw = 1u << 2,

@@ -1183,6 +1183,45 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
     }
   }
 
+  for (const city::wire::SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+    const city::wire::SavedBackboneEdgeBundle* a_bundle =
+        state.view().backbone_edge_bundle(continuity.a.edge_bundle_id);
+    const city::wire::SavedBackboneEdgeBundle* b_bundle =
+        state.view().backbone_edge_bundle(continuity.b.edge_bundle_id);
+    const city::wire::Bundle* bundle =
+        a_bundle == nullptr ? nullptr : state.view().bundles().find(a_bundle->bundle_id);
+    if (a_bundle == nullptr || b_bundle == nullptr || bundle == nullptr) {
+      continue;
+    }
+    std::vector<city::wire::ObjectId> expected_edges{a_bundle->edge_id, b_bundle->edge_id};
+    std::sort(expected_edges.begin(), expected_edges.end());
+    const auto has_incident_edges = [&](const city::wire::VisualCurvePart& part) {
+      std::vector<city::wire::ObjectId> actual = part.incident_edge_ids;
+      std::sort(actual.begin(), actual.end());
+      return std::includes(actual.begin(), actual.end(),
+                           expected_edges.begin(), expected_edges.end());
+    };
+    const bool has_connection_visual =
+        std::any_of(state.view().visual_curve_parts().parts.begin(),
+                    state.view().visual_curve_parts().parts.end(),
+                    [&](const city::wire::VisualCurvePart& part) {
+                      return (part.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+                              part.kind == city::wire::VisualCurvePartKind::kJumper) &&
+                             part.source_node_id == continuity.node_id &&
+                             part.bundle_template_id == bundle->bundle_template_id &&
+                             (part.lane_index == continuity.a.lane_index ||
+                              part.lane_index == continuity.b.lane_index) &&
+                             has_incident_edges(part);
+                    });
+    if (!has_connection_visual) {
+      return fail("row continuity node " + std::to_string(continuity.node_id) +
+                  " edge bundles " + std::to_string(continuity.a.edge_bundle_id) +
+                  "/" + std::to_string(continuity.b.edge_bundle_id) +
+                  " lane " + std::to_string(continuity.a.lane_index) +
+                  " has no NodePatch/Jumper visual connection");
+    }
+  }
+
   for (const city::wire::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
     for (const city::wire::Vec3d& sample : part.samples) {
       if (!finite_vec(sample)) {

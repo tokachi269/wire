@@ -16,6 +16,14 @@
 - Web entry coverageは同じ意味論文書の`入口境界`をtestから直接読み、WASM adapterとViewerActionsの実payloadを通す。
 - `legacy_unclassified`は既存caseの根拠種別が未移行であることを明示する値であり、runtime coverage evidenceではない。
 
+## Test effectiveness audit notes
+
+- 2026-08-19: NodePatch materialization全欠落を一時注入したところ、既存suiteは専用NodePatch case中心で検出していた。`backbone_common_invariants_pass`へrow continuity -> NodePatch/Jumper visual存在契約を追加し、branch/viewer-default/incremental/operation-matrix/seeded route fuzzへ到達させた。
+- 2026-08-19: SavedBackboneRowContinuity保存欠落はC707/C797/C836とincremental/regenerate系で検出された。これはvisual層だけではなくconnectivity正本側の検出が届いている。
+- 2026-08-19: midair source-edge branchのconnection visual欠落はC836のmidspan familyが逃していた。source edge identityから保存済みmidair nodeを解決し、NodePatch/Jumper/Leadのいずれかを要求するminimum checkへ強化した。
+- 2026-08-19: NodePatch/Jumper/Leadのstraight chord退化はC639で検出される。presenceだけでなく代表scenarioでcurve shapeを守っている。
+- 2026-08-19: pole-owned modelのparent X/Y rotation無視はC764で検出されるが、C765/C803/C834には届かない。owner transform契約は存在するがfamily横断ではないため、tilt regression調査時はC764またはcommon invariant到達を確認する。
+
 ## Backbone Authority Guard Coverage
 
 matrix / aspect は外部仕様と観測点を表す。authority guard は、各観点を決める

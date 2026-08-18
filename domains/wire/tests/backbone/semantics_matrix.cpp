@@ -313,13 +313,41 @@ bool make_midspan_fixture(bool add_branch, MidspanFixture* out) {
 }
 
 bool source_node_is_saved(const city::wire::CoreState& state, const MidspanFixture& fixture) {
+  const auto matches_source = [&](city::wire::ObjectId node_a, city::wire::ObjectId node_b) {
+    return (node_a == fixture.source_node_a && node_b == fixture.source_node_b) ||
+           (node_a == fixture.source_node_b && node_b == fixture.source_node_a);
+  };
   return std::any_of(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
                      [&](const city::wire::SavedBackboneNode& node) {
-                       return node.has_source_edge &&
-                              node.source_edge_node_a == fixture.source_node_a &&
-                              node.source_edge_node_b == fixture.source_node_b;
+                       return node.has_source_edge && matches_source(node.source_edge_node_a,
+                                                                     node.source_edge_node_b);
                      });
 }
+
+bool midspan_connection_visual_exists(const city::wire::CoreState& state,
+                                      const MidspanFixture& fixture) {
+  const auto matches_source = [&](city::wire::ObjectId node_a, city::wire::ObjectId node_b) {
+    return (node_a == fixture.source_node_a && node_b == fixture.source_node_b) ||
+           (node_a == fixture.source_node_b && node_b == fixture.source_node_a);
+  };
+  std::vector<city::wire::ObjectId> saved_source_nodes{};
+  for (const city::wire::SavedBackboneNode& node : state.view().backbone().nodes) {
+    if (node.has_source_edge && matches_source(node.source_edge_node_a, node.source_edge_node_b)) {
+      saved_source_nodes.push_back(node.node_id);
+    }
+  }
+  return std::any_of(state.view().visual_curve_parts().parts.begin(),
+                     state.view().visual_curve_parts().parts.end(),
+                     [&](const city::wire::VisualCurvePart& part) {
+                       return (part.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+                               part.kind == city::wire::VisualCurvePartKind::kJumper ||
+                               part.kind == city::wire::VisualCurvePartKind::kLead) &&
+                              std::find(saved_source_nodes.begin(), saved_source_nodes.end(),
+                                        part.source_node_id) != saved_source_nodes.end() &&
+                              part.incident_edge_ids.size() >= 2;
+                     });
+}
+
 bool observe_midspan(MidspanFixture& fixture, Operation operation) {
   std::string error;
   WIRE_TEST_EXPECT_ANCHOR(
@@ -369,6 +397,8 @@ bool exercise_midspan_add_one() {
   WIRE_TEST_EXPECT_PRESENCE(fixture.state.view().spans().size() == spans_before + 1,
                             "SM add_one_edge silently dropped its span");
   WIRE_TEST_EXPECT_ANCHOR(source_node_is_saved(fixture.state, fixture), "SM add_one_edge did not preserve source identity");
+  WIRE_TEST_EXPECT_ANCHOR(midspan_connection_visual_exists(fixture.state, fixture),
+                          "SM add_one_edge did not derive a midspan connection visual");
   return expect_common_invariants(fixture.state, "SM add_one_edge");
 }
 
@@ -385,6 +415,8 @@ bool exercise_midspan_update() {
       bundle->id, true, bundle->height_m + 0.05, bundle->lateral_m, bundle->phase_spacing_m);
   WIRE_TEST_EXPECT_PRESENCE(updated.ok, updated.error);
   WIRE_TEST_EXPECT_ANCHOR(source_node_is_saved(fixture.state, fixture), "SM update lost source identity");
+  WIRE_TEST_EXPECT_ANCHOR(midspan_connection_visual_exists(fixture.state, fixture),
+                          "SM update lost midspan connection visual");
   return expect_common_invariants(fixture.state, "SM update_placement");
 }
 
@@ -400,6 +432,8 @@ bool exercise_midspan_save_load() {
   WIRE_TEST_EXPECT_PRESENCE(loaded_result.ok, loaded_result.error);
   WIRE_TEST_EXPECT_ANCHOR(source_node_is_saved(loaded, fixture),
                           "SM save_load lost source identity");
+  WIRE_TEST_EXPECT_ANCHOR(midspan_connection_visual_exists(loaded, fixture),
+                          "SM save_load lost midspan connection visual");
   return expect_common_invariants(loaded, "SM save_load");
 }
 
@@ -412,6 +446,8 @@ bool exercise_midspan_regenerate() {
   const auto updated = fixture.state.UpdateLayoutSettings(settings);
   WIRE_TEST_EXPECT_PRESENCE(updated.ok, updated.error);
   WIRE_TEST_EXPECT_ANCHOR(source_node_is_saved(fixture.state, fixture), "SM regenerate lost source identity");
+  WIRE_TEST_EXPECT_ANCHOR(midspan_connection_visual_exists(fixture.state, fixture),
+                          "SM regenerate lost midspan connection visual");
   return expect_common_invariants(fixture.state, "SM regenerate");
 }
 bool exercise_empty(Operation operation) {

@@ -4114,7 +4114,9 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
     rule.pass_mode = CurvePassMode::kPassThrough;
     auto endpoint = [&](const trow& row, ObjectId port_id) {
       EndpointLayoutRule e{};
-      e.endpoint_node_id = row.pole;
+      const bool ownerless =
+          row.node < g_.nodes.size() && ownerless_support(g_.nodes[row.node].support);
+      e.endpoint_node_id = ownerless ? g_.nodes[row.node].saved : row.pole;
       e.port_id = port_id;
       e.semantic.owner_pole_id = row.pole;
       e.flow_kind = BackboneFlowKind::kMain;

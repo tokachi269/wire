@@ -39,6 +39,9 @@ function detailSceneSignature(scene: SceneData): string {
       "part",
       part.info.partKey,
       part.info.supplementalKind,
+      part.info.wireRadius,
+      part.info.materialStyle,
+      part.info.colorRgba,
       Array.from(part.samples).map((value) => value.toPrecision(17)).join(",")
     ].join(":"));
   records.push(...scene.models
@@ -915,6 +918,19 @@ describe("wire wasm smoke", () => {
       });
       return Math.max(...distances) > 0.03;
     })).toBe(true);
+    const hvEdgeAppearance = scene.parts.find((part) =>
+      part.info.kind === 0 && part.info.bundleTemplateId === 101
+    )?.info;
+    expect(hvEdgeAppearance).toBeDefined();
+    const hvLocalCables = detailParts.filter((part) =>
+      part.info.partKey.includes(":hv-lane") || part.info.partKey.includes(":insulator")
+    );
+    expect(hvLocalCables).not.toHaveLength(0);
+    expect(hvLocalCables.every((part) =>
+      part.info.wireRadius === hvEdgeAppearance!.wireRadius &&
+      part.info.materialStyle === hvEdgeAppearance!.materialStyle &&
+      part.info.colorRgba === hvEdgeAppearance!.colorRgba
+    )).toBe(true);
     const lvEndpoints = scene.parts
       .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 102)
       .flatMap((part) => [
@@ -927,6 +943,15 @@ describe("wire wasm smoke", () => {
       ]);
     const lvLeads = detailParts.filter((part) => part.info.partKey.includes(":transformer-lv:"));
     expect(lvLeads).toHaveLength(3);
+    const lvEdgeAppearance = scene.parts.find((part) =>
+      part.info.kind === 0 && part.info.bundleTemplateId === 102
+    )?.info;
+    expect(lvEdgeAppearance).toBeDefined();
+    expect(lvLeads.every((part) =>
+      part.info.wireRadius === lvEdgeAppearance!.wireRadius &&
+      part.info.materialStyle === lvEdgeAppearance!.materialStyle &&
+      part.info.colorRgba === lvEdgeAppearance!.colorRgba
+    )).toBe(true);
     expect(lvLeads.every((part) => {
       const end = [
         part.samples[part.samples.length - 3],

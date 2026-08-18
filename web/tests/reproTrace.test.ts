@@ -20,7 +20,7 @@ describe("repro trace", () => {
           partKey: "patch:node-7",
           sourceVersion: "1",
           sampleOffset: 0,
-          kind: 1, supplementalKind: 0, wireRadius: 0.02, colorRgba: 0xffffffff,
+          kind: 1, supplementalKind: 0, wireRadius: 0.02, materialStyle: 0, colorRgba: 0xffffffff,
           sourceNodeId: "node-7", sourceEdgeId: "", sourceSpanId: "span-1",
           sourceBundleId: "bundle-3", bundleTemplateId: 102, laneIndex: 0,
           runId: 4, sampleCount: 99

@@ -1555,6 +1555,7 @@ export class WireScene {
       const version = [
         part.info.sourceVersion,
         part.info.wireRadius,
+        part.info.materialStyle,
         part.info.colorRgba,
         part.info.sampleCount,
         sampleContentVersion(part.samples)
@@ -1574,7 +1575,7 @@ export class WireScene {
       }
 
       const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
-      const materialKey = `${part.info.supplementalKind}:${part.info.colorRgba}`;
+      const materialKey = `${part.info.supplementalKind}:${part.info.materialStyle}:${part.info.colorRgba}`;
       if (previous !== undefined && this.updateSampledTubeGeometry(previous.mesh.geometry, part.samples, radius)) {
         if (previous.materialKey !== materialKey) {
           this.disposeMeshMaterial(previous.mesh);

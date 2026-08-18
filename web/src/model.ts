@@ -76,6 +76,7 @@ export interface VisualPartInfo {
   kind: number;
   supplementalKind: number;
   wireRadius: number;
+  materialStyle: number;
   colorRgba: number;
   sourceNodeId: string;
   sourceEdgeId: string;

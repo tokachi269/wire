@@ -1,5 +1,6 @@
 import type {
   BundleTemplateInfo,
+  CableTemplateInfo,
   PoleInfo,
   SupportNodeInfo,
   VisualModelInstanceInfo,
@@ -42,9 +43,6 @@ const SUPPLEMENTAL_KIND = 4;
 const HV_CATEGORY = 0;
 const LV_CATEGORY = 1;
 const LOCAL_DETAIL_KIND = 3;
-const HV_DETAIL_COLOR = 0x262a2dff;
-const LV_DETAIL_COLOR = 0x31363aff;
-const DECORATIVE_DETAIL_COLOR = 0x2f3437ff;
 const MAX_LOCAL_CABLE_SAMPLES = 8;
 const SUPPORT_ASSIGN_RADIUS_M = 1.60;
 const TRANSFORMER_BASIC_HASH_SLOT = 1;
@@ -67,6 +65,7 @@ interface SocketFrame {
 interface CarrierRef {
   category: number;
   bundleTemplateId: number;
+  appearance: CableAppearance;
   part: SupportDetailPart;
   laneIndex: number;
   position: Vec3;
@@ -106,10 +105,8 @@ interface PatternFrame {
 interface TransformerBasicSockets {
   transformerCenter: Vec3;
   bracketCenter: Vec3;
-  insulator0In: SocketFrame;
-  insulator0Out: SocketFrame;
-  insulator1In: SocketFrame;
-  insulator1Out: SocketFrame;
+  insulator0: SocketFrame;
+  insulator1: SocketFrame;
   transformerHv0: SocketFrame;
   transformerHv1: SocketFrame;
   transformerLv0: SocketFrame;
@@ -124,6 +121,20 @@ interface TransformerBasicRecipe {
   sockets: TransformerBasicSockets;
   hvCarriers: CarrierRef[];
   lvCarriers: CarrierRef[];
+}
+
+interface CableAppearance {
+  radius: number;
+  materialStyle: number;
+  color: number;
+}
+
+function fallbackAppearance(info: VisualPartInfo): CableAppearance {
+  return {
+    radius: info.wireRadius,
+    materialStyle: info.materialStyle,
+    color: info.colorRgba
+  };
 }
 
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
@@ -208,8 +219,7 @@ function makeInfo(
   source: VisualPartInfo,
   supplementalKind: number,
   sampleCount: number,
-  radius: number,
-  color: number
+  appearance: CableAppearance
 ): VisualPartInfo {
   return {
     ...source,
@@ -219,8 +229,9 @@ function makeInfo(
     sampleCount,
     kind: SUPPLEMENTAL_KIND,
     supplementalKind,
-    wireRadius: radius,
-    colorRgba: color,
+    wireRadius: appearance.radius,
+    materialStyle: appearance.materialStyle,
+    colorRgba: appearance.color,
     runId: 0
   };
 }
@@ -270,12 +281,11 @@ function pushCable(
   key: string,
   source: VisualPartInfo,
   points: Vec3[],
-  radius: number,
-  color: number
+  appearance: CableAppearance
 ): void {
   const limited = smoothLocalCablePoints(points);
   out.parts.push({
-    info: makeInfo(key, source, LOCAL_DETAIL_KIND, limited.length, radius, color),
+    info: makeInfo(key, source, LOCAL_DETAIL_KIND, limited.length, appearance),
     samples: flatten(limited)
   });
 }
@@ -283,22 +293,15 @@ function pushCable(
 function routePoints(
   start: SocketFrame,
   guides: Vec3[],
-  end: SocketFrame,
-  variant: "direct" | "small_loop" | "side_loop" | "drop_then_in",
-  up: Vec3 = v(0, 0, 1)
+  end: SocketFrame
 ): Vec3[] {
-  const base = [
+  return [
     start.position,
     add(start.position, scale(norm(start.forward, sub(end.position, start.position)), 0.14)),
     ...guides.slice(0, 2),
     sub(end.position, scale(norm(end.forward, sub(start.position, end.position)), 0.12)),
     end.position
   ];
-  if (variant === "direct") return base;
-  const mid = scale(add(start.position, end.position), 0.5);
-  if (variant === "small_loop") return [base[0], base[1], add(mid, scale(up, -0.18)), base[base.length - 2], base[base.length - 1]];
-  if (variant === "side_loop") return [base[0], base[1], ...guides.slice(0, 1), add(mid, scale(up, 0.10)), base[base.length - 2], base[base.length - 1]];
-  return [base[0], add(base[0], scale(up, -0.16)), ...guides.slice(0, 1), base[base.length - 2], base[base.length - 1]];
 }
 
 function makeModel(
@@ -329,6 +332,24 @@ function makeModel(
 
 function templateCategoryById(templates: BundleTemplateInfo[]): Map<number, number> {
   return new Map(templates.map((template) => [template.id, template.category]));
+}
+
+function templateAppearanceById(
+  templates: BundleTemplateInfo[],
+  cableTemplates: CableTemplateInfo[]
+): Map<number, CableAppearance> {
+  const cableById = new Map(cableTemplates.map((template) => [template.id, template]));
+  const out = new Map<number, CableAppearance>();
+  for (const template of templates) {
+    const cable = cableById.get(template.cableTemplateId);
+    if (cable === undefined) continue;
+    out.set(template.id, {
+      radius: cable.outerDiameter * 0.5,
+      materialStyle: cable.materialStyle,
+      color: cable.colorRgba
+    });
+  }
+  return out;
 }
 
 function makePoleDetailInputs(poles: PoleInfo[], supportNodes: SupportNodeInfo[]): PoleDetailInput[] {
@@ -379,6 +400,7 @@ function nearestPoleDetailInput(point: Vec3, inputs: PoleDetailInput[]): PoleDet
 function collectPoleDetailInputs(
   parts: SupportDetailPart[],
   templateCategories: Map<number, number>,
+  templateAppearances: Map<number, CableAppearance>,
   poles: PoleInfo[],
   supportNodes: SupportNodeInfo[]
 ): PoleDetailInput[] {
@@ -392,9 +414,11 @@ function collectPoleDetailInputs(
     const second = pointAt(part.samples, 1);
     const end = pointAt(part.samples, count - 1);
     const beforeEnd = pointAt(part.samples, count - 2);
+    const appearance = templateAppearances.get(part.info.bundleTemplateId) ?? fallbackAppearance(part.info);
     const endpoints: CarrierRef[] = [{
       category,
       bundleTemplateId: part.info.bundleTemplateId,
+      appearance,
       part,
       laneIndex: part.info.laneIndex,
       position: start,
@@ -402,6 +426,7 @@ function collectPoleDetailInputs(
     }, {
       category,
       bundleTemplateId: part.info.bundleTemplateId,
+      appearance,
       part,
       laneIndex: part.info.laneIndex,
       position: end,
@@ -460,10 +485,8 @@ function transformerBasicSockets(input: PoleDetailInput, frame: PatternFrame): T
   return {
     transformerCenter,
     bracketCenter,
-    insulator0In: { position: add(insulator0, scale(frame.forward, -0.12)), forward: frame.forward },
-    insulator0Out: { position: add(insulator0, scale(frame.forward, 0.12)), forward: scale(frame.forward, -1) },
-    insulator1In: { position: add(insulator1, scale(frame.forward, -0.12)), forward: frame.forward },
-    insulator1Out: { position: add(insulator1, scale(frame.forward, 0.12)), forward: scale(frame.forward, -1) },
+    insulator0: { position: insulator0, forward: frame.lateral },
+    insulator1: { position: insulator1, forward: frame.lateral },
     transformerHv0: { position: add(add(transformerCenter, scale(frame.lateral, -0.06)), scale(frame.up, 0.28)), forward: frame.up },
     transformerHv1: { position: add(add(transformerCenter, scale(frame.lateral, 0.06)), scale(frame.up, 0.28)), forward: frame.up },
     transformerLv0: { position: add(lvBase, scale(frame.forward, -0.045)), forward: frame.lateral },
@@ -508,8 +531,6 @@ function transformerBasicRecipe(
 
 function appendTransformerBasicParts(recipe: TransformerBasicRecipe, out: SupportDetailScene): void {
   const version = `${recipe.attachment.id}:v1`;
-  const insulator0Center = scale(add(recipe.sockets.insulator0In.position, recipe.sockets.insulator0Out.position), 0.5);
-  const insulator1Center = scale(add(recipe.sockets.insulator1In.position, recipe.sockets.insulator1Out.position), 0.5);
 
   out.models.push(makeModel(
     `${recipe.attachment.id}:transformer`,
@@ -535,7 +556,7 @@ function appendTransformerBasicParts(recipe: TransformerBasicRecipe, out: Suppor
     `${recipe.attachment.id}:intermediate-insulator:0`,
     HV_INSULATOR_MODEL_KEY,
     `${version}:insulator:0`,
-    insulator0Center,
+    recipe.sockets.insulator0.position,
     recipe.frame.lateral,
     v(0.42, 0.42, 0.42),
     recipe.input.rotation.x,
@@ -545,7 +566,7 @@ function appendTransformerBasicParts(recipe: TransformerBasicRecipe, out: Suppor
     `${recipe.attachment.id}:intermediate-insulator:1`,
     HV_INSULATOR_MODEL_KEY,
     `${version}:insulator:1`,
-    insulator1Center,
+    recipe.sockets.insulator1.position,
     recipe.frame.lateral,
     v(0.42, 0.42, 0.42),
     recipe.input.rotation.x,
@@ -565,7 +586,7 @@ function laneTapSocket(recipe: TransformerBasicRecipe, lane: CarrierRef, side: n
   );
   return {
     position: tapPosition,
-    forward: norm(add(scale(lane.forward, 0.7), scale(recipe.frame.lateral, 0.3 * side)), lane.forward)
+    forward: norm(add(scale(recipe.frame.lateral, 0.80 * side), scale(recipe.frame.up, -0.20)), lane.forward)
   };
 }
 
@@ -593,57 +614,89 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   const mirror = (seed & 1) === 0 ? 1 : -1;
   const guideJitter = (index: number, lateralM = 0.035, verticalM = 0.030): Vec3 =>
     add(scale(recipe.frame.lateral, jitter(seed, index, lateralM) * mirror), scale(recipe.frame.up, jitter(seed, index + 11, verticalM)));
-  const variantA = (seed & 2) === 0 ? "small_loop" : "drop_then_in";
-  const variantB = (seed & 4) === 0 ? "side_loop" : "small_loop";
   if (lane0 !== null) {
     const lane0Tap = laneTapSocket(recipe, lane0, -1);
+    const lane0DropGuide = add(
+      add(lane0Tap.position, scale(recipe.frame.lateral, -0.14)),
+      scale(recipe.frame.up, -0.11)
+    );
+    const insulator0Approach = add(
+      add(recipe.sockets.insulator0.position, scale(recipe.frame.forward, -0.08)),
+      scale(recipe.frame.up, -0.045)
+    );
     pushCable(out, `${recipe.attachment.id}:hv-lane0-to-insulator0`, lane0.part.info,
       routePoints(
         lane0Tap,
-        [add(add(lane0Tap.position, scale(lane0Tap.forward, 0.18)), guideJitter(1))],
-        recipe.sockets.insulator0In,
-        variantA,
-        recipe.frame.up
+        [
+          add(lane0DropGuide, guideJitter(1, 0.018, 0.018)),
+          add(insulator0Approach, guideJitter(2, 0.016, 0.016))
+        ],
+        recipe.sockets.insulator0
       ),
-      0.010,
-      HV_DETAIL_COLOR
+      lane0.appearance
     );
   }
+  const hv0Appearance = lane0?.appearance ?? recipe.hvCarriers[0].appearance;
+  const hv0LeadGuideA = add(
+    add(recipe.sockets.insulator0.position, scale(recipe.frame.lateral, -0.06)),
+    scale(recipe.frame.up, -0.08)
+  );
+  const hv0LeadGuideB = add(
+    add(recipe.sockets.transformerHv0.position, scale(recipe.frame.lateral, -0.16)),
+    scale(recipe.frame.up, 0.06)
+  );
   pushCable(out, `${recipe.attachment.id}:insulator0-to-transformer`, source,
     routePoints(
-      recipe.sockets.insulator0Out,
-      [add(add(recipe.sockets.transformerHv0.position, scale(recipe.frame.lateral, -0.06)), guideJitter(2))],
-      recipe.sockets.transformerHv0,
-      "drop_then_in",
-      recipe.frame.up
+      recipe.sockets.insulator0,
+      [
+        add(hv0LeadGuideA, guideJitter(3, 0.018, 0.018)),
+        add(hv0LeadGuideB, guideJitter(4, 0.018, 0.018))
+      ],
+      recipe.sockets.transformerHv0
     ),
-    0.010,
-    HV_DETAIL_COLOR
+    hv0Appearance
   );
   if (lane2 !== null) {
     const lane2Tap = laneTapSocket(recipe, lane2, 1);
+    const lane2DropGuide = add(
+      add(lane2Tap.position, scale(recipe.frame.lateral, 0.14)),
+      scale(recipe.frame.up, -0.11)
+    );
+    const insulator1Approach = add(
+      add(recipe.sockets.insulator1.position, scale(recipe.frame.forward, -0.08)),
+      scale(recipe.frame.up, -0.045)
+    );
     pushCable(out, `${recipe.attachment.id}:hv-lane2-to-insulator1`, lane2.part.info,
       routePoints(
         lane2Tap,
-        [add(add(lane2Tap.position, scale(lane2Tap.forward, 0.18)), guideJitter(3))],
-        recipe.sockets.insulator1In,
-        variantB,
-        recipe.frame.up
+        [
+          add(lane2DropGuide, guideJitter(5, 0.018, 0.018)),
+          add(insulator1Approach, guideJitter(6, 0.016, 0.016))
+        ],
+        recipe.sockets.insulator1
       ),
-      0.010,
-      HV_DETAIL_COLOR
+      lane2.appearance
     );
   }
+  const hv1Appearance = lane2?.appearance ?? recipe.hvCarriers[0].appearance;
+  const hv1LeadGuideA = add(
+    add(recipe.sockets.insulator1.position, scale(recipe.frame.lateral, 0.06)),
+    scale(recipe.frame.up, -0.08)
+  );
+  const hv1LeadGuideB = add(
+    add(recipe.sockets.transformerHv1.position, scale(recipe.frame.lateral, 0.16)),
+    scale(recipe.frame.up, 0.06)
+  );
   pushCable(out, `${recipe.attachment.id}:insulator1-to-transformer`, source,
     routePoints(
-      recipe.sockets.insulator1Out,
-      [add(add(recipe.sockets.transformerHv1.position, scale(recipe.frame.lateral, 0.06)), guideJitter(4))],
-      recipe.sockets.transformerHv1,
-      "drop_then_in",
-      recipe.frame.up
+      recipe.sockets.insulator1,
+      [
+        add(hv1LeadGuideA, guideJitter(7, 0.018, 0.018)),
+        add(hv1LeadGuideB, guideJitter(8, 0.018, 0.018))
+      ],
+      recipe.sockets.transformerHv1
     ),
-    0.010,
-    HV_DETAIL_COLOR
+    hv1Appearance
   );
   const lvSockets = [recipe.sockets.transformerLv0, recipe.sockets.transformerLv1, recipe.sockets.transformerLv2];
   lvSockets.forEach((socket, index) => {
@@ -655,12 +708,9 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
       routePoints(
         socket,
         [closeGuide, add(add(lvTap.position, scale(recipe.frame.lateral, -0.16)), guideJitter(8 + index, 0.025, 0.025))],
-        lvTap,
-        index === 1 ? "direct" : "side_loop",
-        recipe.frame.up
+        lvTap
       ),
-      0.011,
-      LV_DETAIL_COLOR
+      lvCarrier.appearance
     );
   });
   pushCable(out, `${recipe.attachment.id}:pole-drop`, source,
@@ -670,8 +720,7 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
       worldFromPole(recipe.input, recipe.frame, 0, 0.10, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) - 0.62),
       worldFromPole(recipe.input, recipe.frame, 0, 0.12, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) - 0.96)
     ],
-    0.006,
-    DECORATIVE_DETAIL_COLOR
+    recipe.hvCarriers[0].appearance
   );
 }
 
@@ -692,12 +741,14 @@ function appendAttachmentVisual(
 export function deriveSupportDetails(
   parts: SupportDetailPart[],
   templates: BundleTemplateInfo[],
+  cableTemplates: CableTemplateInfo[] = [],
   poles: PoleInfo[] = [],
   supportNodes: SupportNodeInfo[] = []
 ): SupportDetailScene {
   const templateCategories = templateCategoryById(templates);
+  const templateAppearances = templateAppearanceById(templates, cableTemplates);
   const out: SupportDetailScene = { parts: [], models: [] };
-  const inputs = collectPoleDetailInputs(parts, templateCategories, poles, supportNodes);
+  const inputs = collectPoleDetailInputs(parts, templateCategories, templateAppearances, poles, supportNodes);
   const inputById = new Map(inputs.map((input) => [input.id, input]));
   for (const attachment of populatePoleAttachments(inputs)) {
     appendAttachmentVisual(attachment, inputById, out);

@@ -579,30 +579,15 @@ function laneFor(recipe: TransformerBasicRecipe, preferredLane: number): Carrier
   return lanes.find((lane) => lane.laneIndex === preferredLane) ?? lanes[Math.min(preferredLane, lanes.length - 1)] ?? null;
 }
 
-function laneTapSocket(recipe: TransformerBasicRecipe, lane: CarrierRef, side: number): SocketFrame {
-  const tapPosition = add(
-    add(lane.position, scale(recipe.frame.lateral, 0.05 * side)),
-    scale(recipe.frame.up, -0.035)
-  );
+function carrierSocket(carrier: CarrierRef): SocketFrame {
   return {
-    position: tapPosition,
-    forward: norm(add(scale(recipe.frame.lateral, 0.80 * side), scale(recipe.frame.up, -0.20)), lane.forward)
+    position: carrier.position,
+    forward: carrier.forward
   };
 }
 
 function lvCarrierFor(recipe: TransformerBasicRecipe, index: number): CarrierRef | null {
   return recipe.lvCarriers[index] ?? recipe.lvCarriers[Math.min(index, recipe.lvCarriers.length - 1)] ?? null;
-}
-
-function lvTapSocket(recipe: TransformerBasicRecipe, carrier: CarrierRef, index: number): SocketFrame {
-  const offset = add(
-    scale(recipe.frame.forward, (index - 1) * 0.08),
-    scale(recipe.frame.up, -0.025)
-  );
-  return {
-    position: add(carrier.position, offset),
-    forward: scale(carrier.forward, -1)
-  };
 }
 
 function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: SupportDetailScene): void {
@@ -611,11 +596,10 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   const lane0 = laneFor(recipe, 0);
   const lane2 = laneFor(recipe, 2);
   const seed = recipe.attachment.seed;
-  const mirror = (seed & 1) === 0 ? 1 : -1;
   const guideJitter = (index: number, lateralM = 0.035, verticalM = 0.030): Vec3 =>
-    add(scale(recipe.frame.lateral, jitter(seed, index, lateralM) * mirror), scale(recipe.frame.up, jitter(seed, index + 11, verticalM)));
+    add(scale(recipe.frame.lateral, jitter(seed, index, lateralM)), scale(recipe.frame.up, jitter(seed, index + 11, verticalM)));
   if (lane0 !== null) {
-    const lane0Tap = laneTapSocket(recipe, lane0, -1);
+    const lane0Tap = carrierSocket(lane0);
     const lane0DropGuide = add(
       add(lane0Tap.position, scale(recipe.frame.lateral, -0.32)),
       scale(recipe.frame.up, -0.22)
@@ -657,7 +641,7 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
     hv0Appearance
   );
   if (lane2 !== null) {
-    const lane2Tap = laneTapSocket(recipe, lane2, 1);
+    const lane2Tap = carrierSocket(lane2);
     const lane2DropGuide = add(
       add(lane2Tap.position, scale(recipe.frame.lateral, 0.32)),
       scale(recipe.frame.up, -0.22)
@@ -702,7 +686,7 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   lvSockets.forEach((socket, index) => {
     const lvCarrier = lvCarrierFor(recipe, index);
     if (lvCarrier === null) return;
-    const lvTap = lvTapSocket(recipe, lvCarrier, index);
+    const lvTap = carrierSocket(lvCarrier);
     const side = index - 1;
     const closeGuide = add(
       add(socket.position, scale(recipe.frame.lateral, 0.18)),
@@ -717,15 +701,6 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
       lvCarrier.appearance
     );
   });
-  pushCable(out, `${recipe.attachment.id}:pole-drop`, source,
-    [
-      worldFromPole(recipe.input, recipe.frame, 0, 0.10, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) + 0.10),
-      worldFromPole(recipe.input, recipe.frame, 0, 0.11, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) - 0.20),
-      worldFromPole(recipe.input, recipe.frame, 0, 0.10, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) - 0.62),
-      worldFromPole(recipe.input, recipe.frame, 0, 0.12, dot(sub(recipe.sockets.transformerCenter, recipe.input.position), recipe.frame.up) - 0.96)
-    ],
-    recipe.hvCarriers[0].appearance
-  );
 }
 
 function appendAttachmentVisual(

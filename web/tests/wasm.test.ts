@@ -867,7 +867,7 @@ describe("wire wasm smoke", () => {
     const detailParts = scene.parts;
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
-    ).length).toBeGreaterThanOrEqual(8);
+    ).length).toBeGreaterThanOrEqual(7);
     expect(detailParts.filter((part) =>
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
     )).toHaveLength(0);
@@ -894,7 +894,7 @@ describe("wire wasm smoke", () => {
     expect(hvTapCables.every((part) => {
       const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
       const nearest = Math.min(...hvEndpoints.map((endpoint) => distance(first, endpoint)));
-      return nearest > 0.02 && nearest < 0.12;
+      return nearest < 1e-9;
     })).toBe(true);
     expect(hvTapCables.every((part) => {
       const pointCount = Math.floor(part.samples.length / 3);
@@ -957,7 +957,7 @@ describe("wire wasm smoke", () => {
         part.samples[part.samples.length - 1]
       ] as [number, number, number];
       const nearest = Math.min(...lvEndpoints.map((endpoint) => distance(end, endpoint)));
-      return nearest > 0.02 && nearest < 0.14;
+      return nearest < 1e-9;
     })).toBe(true);
     expect(lvLeads.every((part) => {
       const pointCount = Math.floor(part.samples.length / 3);
@@ -981,7 +981,7 @@ describe("wire wasm smoke", () => {
     expect(detailParts.some((part) => part.info.partKey.includes(":service-loop:"))).toBe(false);
     const saved = bridge.saveState();
     expect(saved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
-    expect(saved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv|pole-drop/);
+    expect(saved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv/);
 
     const repeatedBridge = await WireBridge.create();
     const repeated = repeatedBridge.generate(
@@ -995,7 +995,7 @@ describe("wire wasm smoke", () => {
     const restorableBridge = await createRestorableSupportDetailBridge();
     const restorableSaved = restorableBridge.saveState();
     expect(restorableSaved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
-    expect(restorableSaved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv|pole-drop/);
+    expect(restorableSaved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv/);
     const restorableSignature = detailSceneSignature(restorableBridge.scene());
     const restoredBridge = await WireBridge.create();
     const loaded = restoredBridge.loadState(restorableSaved);

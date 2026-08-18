@@ -290,7 +290,7 @@ function pushCable(
   });
 }
 
-function routePoints(
+function curvedRoutePoints(
   start: SocketFrame,
   guides: Vec3[],
   end: SocketFrame
@@ -617,19 +617,19 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   if (lane0 !== null) {
     const lane0Tap = laneTapSocket(recipe, lane0, -1);
     const lane0DropGuide = add(
-      add(lane0Tap.position, scale(recipe.frame.lateral, -0.14)),
-      scale(recipe.frame.up, -0.11)
+      add(lane0Tap.position, scale(recipe.frame.lateral, -0.32)),
+      scale(recipe.frame.up, -0.22)
     );
     const insulator0Approach = add(
-      add(recipe.sockets.insulator0.position, scale(recipe.frame.forward, -0.08)),
-      scale(recipe.frame.up, -0.045)
+      add(recipe.sockets.insulator0.position, scale(recipe.frame.forward, -0.18)),
+      scale(recipe.frame.up, -0.14)
     );
     pushCable(out, `${recipe.attachment.id}:hv-lane0-to-insulator0`, lane0.part.info,
-      routePoints(
+      curvedRoutePoints(
         lane0Tap,
         [
-          add(lane0DropGuide, guideJitter(1, 0.018, 0.018)),
-          add(insulator0Approach, guideJitter(2, 0.016, 0.016))
+          add(lane0DropGuide, guideJitter(1, 0.020, 0.020)),
+          add(insulator0Approach, guideJitter(2, 0.018, 0.018))
         ],
         recipe.sockets.insulator0
       ),
@@ -638,19 +638,19 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   }
   const hv0Appearance = lane0?.appearance ?? recipe.hvCarriers[0].appearance;
   const hv0LeadGuideA = add(
-    add(recipe.sockets.insulator0.position, scale(recipe.frame.lateral, -0.06)),
-    scale(recipe.frame.up, -0.08)
+    add(recipe.sockets.insulator0.position, scale(recipe.frame.lateral, -0.26)),
+    scale(recipe.frame.up, -0.22)
   );
   const hv0LeadGuideB = add(
-    add(recipe.sockets.transformerHv0.position, scale(recipe.frame.lateral, -0.16)),
-    scale(recipe.frame.up, 0.06)
+    add(recipe.sockets.transformerHv0.position, scale(recipe.frame.lateral, -0.30)),
+    scale(recipe.frame.up, 0.14)
   );
   pushCable(out, `${recipe.attachment.id}:insulator0-to-transformer`, source,
-    routePoints(
+    curvedRoutePoints(
       recipe.sockets.insulator0,
       [
-        add(hv0LeadGuideA, guideJitter(3, 0.018, 0.018)),
-        add(hv0LeadGuideB, guideJitter(4, 0.018, 0.018))
+        add(hv0LeadGuideA, guideJitter(3, 0.020, 0.020)),
+        add(hv0LeadGuideB, guideJitter(4, 0.020, 0.020))
       ],
       recipe.sockets.transformerHv0
     ),
@@ -659,19 +659,19 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   if (lane2 !== null) {
     const lane2Tap = laneTapSocket(recipe, lane2, 1);
     const lane2DropGuide = add(
-      add(lane2Tap.position, scale(recipe.frame.lateral, 0.14)),
-      scale(recipe.frame.up, -0.11)
+      add(lane2Tap.position, scale(recipe.frame.lateral, 0.32)),
+      scale(recipe.frame.up, -0.22)
     );
     const insulator1Approach = add(
-      add(recipe.sockets.insulator1.position, scale(recipe.frame.forward, -0.08)),
-      scale(recipe.frame.up, -0.045)
+      add(recipe.sockets.insulator1.position, scale(recipe.frame.forward, -0.18)),
+      scale(recipe.frame.up, -0.14)
     );
     pushCable(out, `${recipe.attachment.id}:hv-lane2-to-insulator1`, lane2.part.info,
-      routePoints(
+      curvedRoutePoints(
         lane2Tap,
         [
-          add(lane2DropGuide, guideJitter(5, 0.018, 0.018)),
-          add(insulator1Approach, guideJitter(6, 0.016, 0.016))
+          add(lane2DropGuide, guideJitter(5, 0.020, 0.020)),
+          add(insulator1Approach, guideJitter(6, 0.018, 0.018))
         ],
         recipe.sockets.insulator1
       ),
@@ -680,19 +680,19 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
   }
   const hv1Appearance = lane2?.appearance ?? recipe.hvCarriers[0].appearance;
   const hv1LeadGuideA = add(
-    add(recipe.sockets.insulator1.position, scale(recipe.frame.lateral, 0.06)),
-    scale(recipe.frame.up, -0.08)
+    add(recipe.sockets.insulator1.position, scale(recipe.frame.lateral, 0.26)),
+    scale(recipe.frame.up, -0.22)
   );
   const hv1LeadGuideB = add(
-    add(recipe.sockets.transformerHv1.position, scale(recipe.frame.lateral, 0.16)),
-    scale(recipe.frame.up, 0.06)
+    add(recipe.sockets.transformerHv1.position, scale(recipe.frame.lateral, 0.30)),
+    scale(recipe.frame.up, 0.14)
   );
   pushCable(out, `${recipe.attachment.id}:insulator1-to-transformer`, source,
-    routePoints(
+    curvedRoutePoints(
       recipe.sockets.insulator1,
       [
-        add(hv1LeadGuideA, guideJitter(7, 0.018, 0.018)),
-        add(hv1LeadGuideB, guideJitter(8, 0.018, 0.018))
+        add(hv1LeadGuideA, guideJitter(7, 0.020, 0.020)),
+        add(hv1LeadGuideB, guideJitter(8, 0.020, 0.020))
       ],
       recipe.sockets.transformerHv1
     ),
@@ -703,13 +703,17 @@ function appendTransformerBasicConnections(recipe: TransformerBasicRecipe, out: 
     const lvCarrier = lvCarrierFor(recipe, index);
     if (lvCarrier === null) return;
     const lvTap = lvTapSocket(recipe, lvCarrier, index);
-    const closeGuide = add(add(socket.position, scale(recipe.frame.lateral, 0.16)), guideJitter(5 + index, 0.018, 0.018));
+    const side = index - 1;
+    const closeGuide = add(
+      add(socket.position, scale(recipe.frame.lateral, 0.18)),
+      add(scale(recipe.frame.forward, side * 0.08), guideJitter(9 + index, 0.014, 0.014))
+    );
+    const tapGuide = add(
+      add(lvTap.position, scale(recipe.frame.lateral, -0.18)),
+      add(scale(recipe.frame.forward, side * 0.06), guideJitter(12 + index, 0.018, 0.018))
+    );
     pushCable(out, `${recipe.attachment.id}:transformer-lv:${index}`, source,
-      routePoints(
-        socket,
-        [closeGuide, add(add(lvTap.position, scale(recipe.frame.lateral, -0.16)), guideJitter(8 + index, 0.025, 0.025))],
-        lvTap
-      ),
+      curvedRoutePoints(socket, [closeGuide, tapGuide], lvTap),
       lvCarrier.appearance
     );
   });

@@ -876,10 +876,6 @@ describe("wire wasm smoke", () => {
       part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
     );
     expect(derivedDetailParts.every((part) => Math.floor(part.samples.length / 3) <= 8)).toBe(true);
-    const localCableSampleCounts = derivedDetailParts
-      .filter((part) => part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable)
-      .map((part) => Math.floor(part.samples.length / 3));
-    expect(localCableSampleCounts.every((count) => count >= 6)).toBe(true);
     const hvEndpoints = scene.parts
       .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 101)
       .flatMap((part) => [
@@ -894,6 +890,7 @@ describe("wire wasm smoke", () => {
       part.info.partKey.includes(":hv-lane") && part.info.partKey.includes("-to-insulator")
     );
     expect(hvTapCables.length).toBeGreaterThanOrEqual(2);
+    expect(hvTapCables.every((part) => Math.floor(part.samples.length / 3) >= 6)).toBe(true);
     expect(hvTapCables.every((part) => {
       const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
       const nearest = Math.min(...hvEndpoints.map((endpoint) => distance(first, endpoint)));
@@ -916,7 +913,7 @@ describe("wire wasm smoke", () => {
           part.samples[offset + 2]
         ] as [number, number, number], first, last);
       });
-      return Math.max(...distances) > 0.03;
+      return Math.max(...distances) > 0.12;
     })).toBe(true);
     const hvEdgeAppearance = scene.parts.find((part) =>
       part.info.kind === 0 && part.info.bundleTemplateId === 101
@@ -943,6 +940,7 @@ describe("wire wasm smoke", () => {
       ]);
     const lvLeads = detailParts.filter((part) => part.info.partKey.includes(":transformer-lv:"));
     expect(lvLeads).toHaveLength(3);
+    expect(lvLeads.every((part) => Math.floor(part.samples.length / 3) >= 6)).toBe(true);
     const lvEdgeAppearance = scene.parts.find((part) =>
       part.info.kind === 0 && part.info.bundleTemplateId === 102
     )?.info;
@@ -960,6 +958,25 @@ describe("wire wasm smoke", () => {
       ] as [number, number, number];
       const nearest = Math.min(...lvEndpoints.map((endpoint) => distance(end, endpoint)));
       return nearest > 0.02 && nearest < 0.14;
+    })).toBe(true);
+    expect(lvLeads.every((part) => {
+      const pointCount = Math.floor(part.samples.length / 3);
+      const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
+      const lastOffset = part.samples.length - 3;
+      const last = [
+        part.samples[lastOffset],
+        part.samples[lastOffset + 1],
+        part.samples[lastOffset + 2]
+      ] as [number, number, number];
+      const distances = Array.from({ length: pointCount - 2 }, (_, index) => {
+        const offset = (index + 1) * 3;
+        return pointLineDistance([
+          part.samples[offset],
+          part.samples[offset + 1],
+          part.samples[offset + 2]
+        ] as [number, number, number], first, last);
+      });
+      return Math.max(...distances) > 0.08;
     })).toBe(true);
     expect(detailParts.some((part) => part.info.partKey.includes(":service-loop:"))).toBe(false);
     const saved = bridge.saveState();

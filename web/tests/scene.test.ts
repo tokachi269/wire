@@ -399,7 +399,7 @@ describe("scene part reuse", () => {
     });
   });
 
-  it("shares one dedicated support material and renders conductor colors near black", () => {
+  it("renders supplemental parts from core color without a support material override", () => {
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
@@ -407,7 +407,6 @@ describe("scene part reuse", () => {
     scene.modelBatches = new Map();
     scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
-    scene.supportWireMaterial = null;
     const snapshot = createViewerSnapshot();
     const part = (partKey: string, supplementalKind: number, colorRgba: number, y: number) => ({
       info: {
@@ -438,15 +437,18 @@ describe("scene part reuse", () => {
 
     expect(scene.syncContent(snapshot)).toBe(true);
     const mainMaterial = scene.partMeshes.get("main").mesh.material as THREE.MeshStandardMaterial;
-    const supportA = scene.partMeshes.get("support-a").mesh.material;
-    const supportB = scene.partMeshes.get("support-b").mesh.material;
-    expect(supportA).toBe(supportB);
-    expect(supportA).not.toBe(mainMaterial);
+    const supportA = scene.partMeshes.get("support-a").mesh.material as THREE.MeshStandardMaterial;
+    const supportB = scene.partMeshes.get("support-b").mesh.material as THREE.MeshStandardMaterial;
+    expect(supportA).not.toBe(supportB);
     expect(Math.max(mainMaterial.color.r, mainMaterial.color.g, mainMaterial.color.b)).toBeLessThan(0.2);
+    expect(supportA.color.getHex()).toBe(mainMaterial.color.getHex());
+    expect(supportB.color.getHex()).not.toBe(supportA.color.getHex());
 
     snapshot.parts[1].info.sourceVersion = "2";
     expect(scene.syncContent(snapshot)).toBe(true);
-    expect(scene.partMeshes.get("support-a").mesh.material).toBe(supportB);
+    const rebuiltSupportA = scene.partMeshes.get("support-a").mesh.material as THREE.MeshStandardMaterial;
+    expect(rebuiltSupportA).not.toBe(supportB);
+    expect(rebuiltSupportA.color.getHex()).toBe(supportA.color.getHex());
   });
 });
 
@@ -531,7 +533,6 @@ describe("scene geometry from wasm", () => {
     scene.modelBatches = new Map();
     scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
-    scene.supportWireMaterial = null;
 
     expect(scene.syncContent(snapshot)).toBe(true);
     const hvKeys = snapshot.parts

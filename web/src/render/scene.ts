@@ -34,7 +34,6 @@ const POLE_TAPER_RATIO = 75;
 export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
-const SUPPORT_PATH_SUPPLEMENTAL_KIND = 1;
 
 interface ModelMeshSource {
   geometry: THREE.BufferGeometry;
@@ -529,7 +528,6 @@ export class WireScene {
     version: string;
     materialKey: string;
   }>();
-  private supportWireMaterial: THREE.MeshStandardMaterial | null = null;
   private readonly modelObjects = new Map<string, {
     modelKey: string;
     version: string;
@@ -783,8 +781,6 @@ export class WireScene {
     this.detachInput?.();
     this.unsubscribe();
     for (const item of this.partMeshes.values()) this.disposeContentMesh(item.mesh);
-    this.supportWireMaterial?.dispose();
-    this.supportWireMaterial = null;
     for (const batch of this.modelBatches.values()) this.disposeModelBatch(batch);
     for (const item of this.poleMeshes.values()) this.disposePoleObject(item);
     this.partMeshes.clear();
@@ -1737,9 +1733,7 @@ export class WireScene {
   }
 
   private makePartMaterial(part: ViewerSnapshot["parts"][number]): THREE.Material {
-    return part.info.supplementalKind === SUPPORT_PATH_SUPPLEMENTAL_KIND
-      ? this.getSupportWireMaterial()
-      : this.makeWireMaterial(part.info.colorRgba);
+    return this.makeWireMaterial(part.info.colorRgba);
   }
 
   private updateSampledTubeGeometry(geometry: THREE.BufferGeometry, samples: Float64Array, radius: number): boolean {
@@ -1784,17 +1778,6 @@ export class WireScene {
     });
   }
 
-  private getSupportWireMaterial(): THREE.MeshStandardMaterial {
-    if (this.supportWireMaterial === null || this.supportWireMaterial === undefined) {
-      this.supportWireMaterial = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(18 / 255, 21 / 255, 24 / 255),
-        metalness: 0.18,
-        roughness: 0.72
-      });
-    }
-    return this.supportWireMaterial;
-  }
-
   private disposeContentMesh(mesh: THREE.Mesh): void {
     mesh.geometry.dispose();
     this.disposeMeshMaterial(mesh);
@@ -1804,7 +1787,7 @@ export class WireScene {
   private disposeMeshMaterial(mesh: THREE.Mesh): void {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of materials) {
-      if (material !== this.supportWireMaterial) material.dispose();
+      material.dispose();
     }
   }
 

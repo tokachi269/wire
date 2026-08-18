@@ -32,8 +32,7 @@ function visualParts(state: WireStateHandle) {
 function detailSceneSignature(scene: SceneData): string {
   const records = scene.parts
     .filter((part) =>
-      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
-      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
     )
     .map((part) => [
       "part",
@@ -45,7 +44,7 @@ function detailSceneSignature(scene: SceneData): string {
       Array.from(part.samples).map((value) => value.toPrecision(17)).join(",")
     ].join(":"));
   records.push(...scene.models
-    .filter((model) => SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey) || model.stableKey.startsWith("attachment:"))
+    .filter((model) => SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey) || model.stableKey.startsWith("pole-decoration:"))
     .map((model) => [
       "model",
       model.stableKey,
@@ -119,6 +118,40 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
         }]
       }],
       wireSocket: { partId: 1, socketName: "wire" }
+    }, {
+      id: 9905,
+      version: 1,
+      parts: [{
+        partId: 1, modelKey: "pole_decoration_x", descriptorName: "poleDecorationX", descriptorVersion: 1,
+        fitMode: 0,
+        localTransform: {
+          positionX: 0.62, positionY: 0.42, positionZ: 7.7,
+          rotationX: 0, rotationY: 0, rotationZ: 0,
+          scaleX: 1, scaleY: 1, scaleZ: 1
+        },
+        sockets: [{
+          name: "connect_hv_0",
+          positionX: -0.6, positionY: -0.18, positionZ: 0.38,
+          directionX: -1, directionY: 0, directionZ: 0
+        }, {
+          name: "connect_hv_1",
+          positionX: -0.6, positionY: 0.18, positionZ: 0.38,
+          directionX: -1, directionY: 0, directionZ: 0
+        }, {
+          name: "connect_lv_0",
+          positionX: 0.16, positionY: -0.16, positionZ: -0.30,
+          directionX: 0, directionY: -1, directionZ: -0.2
+        }, {
+          name: "connect_lv_1",
+          positionX: 0.20, positionY: 0, positionZ: -0.32,
+          directionX: 0, directionY: -1, directionZ: -0.2
+        }, {
+          name: "connect_lv_2",
+          positionX: 0.16, positionY: 0.16, positionZ: -0.30,
+          directionX: 0, directionY: -1, directionZ: -0.2
+        }]
+      }],
+      wireSocket: null
     }],
     poleAssignments: [
       { poleTypeId: 1, assemblyId: 9901, radiusBaseM: 0.16, radiusTopM: 0.10 },
@@ -139,15 +172,16 @@ async function productionLikeModelBootstrap(): Promise<ModelAssemblyBootstrapInp
     return source;
   };
   const cache = new ModelAssetCache(load);
-  const [pole, crossarm, belt, insulator, clamp, clampLong] = await Promise.all([
+  const [pole, crossarm, belt, insulator, clamp, clampLong, poleDecoration] = await Promise.all([
     cache.load("poleBody"),
     cache.load("crossarmHv"),
     cache.load("belt"),
     cache.load("hvInsulator"),
     cache.load("communicationClamp"),
-    cache.load("communicationClampLong")
+    cache.load("communicationClampLong"),
+    cache.load("poleDecorationX")
   ]);
-  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp, clampLong);
+  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp, clampLong, poleDecoration);
 }
 
 function defaultBundlePlacements(): BundlePlacement[] {
@@ -167,6 +201,7 @@ function hvBundlePlacement(): BundlePlacement[] {
 
 async function createRestorableSupportDetailBridge(): Promise<WireBridge> {
   const bridge = await WireBridge.create();
+  expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
   const placements = defaultBundlePlacements();
   const base = bridge.generate(
     new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
@@ -178,7 +213,7 @@ async function createRestorableSupportDetailBridge(): Promise<WireBridge> {
     []
   );
   expect(base.ok, base.error).toBe(true);
-  expect(bridge.scene().models.some((model) => model.stableKey.startsWith("attachment:"))).toBe(true);
+  expect(bridge.scene().models.some((model) => model.stableKey.startsWith("pole-decoration:"))).toBe(true);
   return bridge;
 }
 
@@ -798,8 +833,9 @@ describe("wire wasm smoke", () => {
     modelState.delete();
   });
 
-  it("keeps support detail out of the raw wasm scene and derives it in the web scene adapter", async () => {
+  it("derives pole decoration model and local curves in the core visual output", async () => {
     const rawState = createState();
+    expect(rawState.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
     const rawGenerated = rawState.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
       SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
@@ -808,14 +844,14 @@ describe("wire wasm smoke", () => {
     expect(rawGenerated.ok, rawGenerated.error).toBe(true);
     expect(rawState.visualScene().models.some((model) =>
       SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey)
-    )).toBe(false);
+    )).toBe(true);
     expect(visualParts(rawState).some((part) =>
-      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
-      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
-    )).toBe(false);
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
+    )).toBe(true);
     rawState.delete();
 
     const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
     const generated = bridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
       SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
@@ -828,11 +864,6 @@ describe("wire wasm smoke", () => {
     expect(bridge.saveState()).toBe(beforeSceneState);
     const models = scene.models;
     expect(models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
-    expect(models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[1])).toHaveLength(1);
-    expect(models.filter((model) => model.stableKey.includes(":intermediate-insulator:"))).toHaveLength(2);
-    expect(models.filter((model) =>
-      model.stableKey.includes(":intermediate-insulator:") && model.modelKey === "hv_insulator"
-    )).toHaveLength(2);
     expect(models.filter((model) => model.modelKey === "pc6_cutout_proxy")).toHaveLength(0);
     expect(models.filter((model) => model.modelKey === "arrester_gl_b6g_proxy")).toHaveLength(0);
     expect(models.filter((model) => model.modelKey === "hv_triplex_termination_60_proxy")).toHaveLength(0);
@@ -840,28 +871,11 @@ describe("wire wasm smoke", () => {
     expect(models.some((model) =>
       model.modelKey === "detail_transformer_box" || model.modelKey === "detail_inline_device"
     )).toBe(false);
-    const transformers = models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]);
-    expect(transformers).toHaveLength(1);
-    expect(transformers[0].stableKey).toMatch(/^attachment:support-node:\d+:transformer_basic:transformer$/);
-    expect(transformers.every((model) =>
+    const decorations = models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]);
+    expect(decorations.length).toBeGreaterThan(0);
+    expect(decorations.every((model) => model.stableKey.startsWith("pole-decoration:"))).toBe(true);
+    expect(decorations.every((model) =>
       model.scaleX === 1 && model.scaleY === 1 && model.scaleZ === 1
-    )).toBe(true);
-    const attachmentId = transformers[0].stableKey.replace(/:transformer$/, "");
-    const bracket = models.find((model) => model.stableKey === `${attachmentId}:transformer-bracket`);
-    expect(bracket).toBeDefined();
-    const supportNodeId = attachmentId.match(/^attachment:support-node:(\d+):transformer_basic$/)?.[1];
-    const pole = scene.supportNodes.find((node) => node.id === supportNodeId);
-    expect(pole).toBeDefined();
-    const xyDistance = (model: { positionX: number; positionY: number }): number =>
-      Math.hypot(model.positionX - pole!.x, model.positionY - pole!.y);
-    expect(xyDistance(bracket!)).toBeGreaterThan(0.30);
-    expect(xyDistance(bracket!)).toBeLessThan(xyDistance(transformers[0]));
-    expect(Math.abs(bracket!.positionZ - transformers[0].positionZ)).toBeLessThan(0.08);
-    const intermediateInsulators = models.filter((model) =>
-      model.stableKey.includes(":intermediate-insulator:")
-    );
-    expect(intermediateInsulators.every((model) =>
-      model.scaleX === 0.42 && model.scaleY === 0.42 && model.scaleZ === 0.42
     )).toBe(true);
 
     const detailParts = scene.parts;
@@ -887,10 +901,11 @@ describe("wire wasm smoke", () => {
         ] as [number, number, number]
       ]);
     const hvTapCables = detailParts.filter((part) =>
-      part.info.partKey.includes(":hv-lane") && part.info.partKey.includes("-to-insulator")
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable &&
+      part.info.bundleTemplateId === 101
     );
     expect(hvTapCables.length).toBeGreaterThanOrEqual(2);
-    expect(hvTapCables.every((part) => Math.floor(part.samples.length / 3) >= 6)).toBe(true);
+    expect(hvTapCables.every((part) => Math.floor(part.samples.length / 3) >= 5)).toBe(true);
     expect(hvTapCables.every((part) => {
       const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
       const nearest = Math.min(...hvEndpoints.map((endpoint) => distance(first, endpoint)));
@@ -919,9 +934,7 @@ describe("wire wasm smoke", () => {
       part.info.kind === 0 && part.info.bundleTemplateId === 101
     )?.info;
     expect(hvEdgeAppearance).toBeDefined();
-    const hvLocalCables = detailParts.filter((part) =>
-      part.info.partKey.includes(":hv-lane") || part.info.partKey.includes(":insulator")
-    );
+    const hvLocalCables = hvTapCables;
     expect(hvLocalCables).not.toHaveLength(0);
     expect(hvLocalCables.every((part) =>
       part.info.wireRadius === hvEdgeAppearance!.wireRadius &&
@@ -938,9 +951,12 @@ describe("wire wasm smoke", () => {
           part.samples[part.samples.length - 1]
         ] as [number, number, number]
       ]);
-    const lvLeads = detailParts.filter((part) => part.info.partKey.includes(":transformer-lv:"));
-    expect(lvLeads).toHaveLength(3);
-    expect(lvLeads.every((part) => Math.floor(part.samples.length / 3) >= 6)).toBe(true);
+    const lvLeads = detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable &&
+      part.info.bundleTemplateId === 102
+    );
+    expect(lvLeads.length).toBeGreaterThanOrEqual(3);
+    expect(lvLeads.every((part) => Math.floor(part.samples.length / 3) >= 5)).toBe(true);
     const lvEdgeAppearance = scene.parts.find((part) =>
       part.info.kind === 0 && part.info.bundleTemplateId === 102
     )?.info;
@@ -951,12 +967,8 @@ describe("wire wasm smoke", () => {
       part.info.colorRgba === lvEdgeAppearance!.colorRgba
     )).toBe(true);
     expect(lvLeads.every((part) => {
-      const end = [
-        part.samples[part.samples.length - 3],
-        part.samples[part.samples.length - 2],
-        part.samples[part.samples.length - 1]
-      ] as [number, number, number];
-      const nearest = Math.min(...lvEndpoints.map((endpoint) => distance(end, endpoint)));
+      const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
+      const nearest = Math.min(...lvEndpoints.map((endpoint) => distance(first, endpoint)));
       return nearest < 1e-9;
     })).toBe(true);
     expect(lvLeads.every((part) => {
@@ -978,12 +990,12 @@ describe("wire wasm smoke", () => {
       });
       return Math.max(...distances) > 0.08;
     })).toBe(true);
-    expect(detailParts.some((part) => part.info.partKey.includes(":service-loop:"))).toBe(false);
     const saved = bridge.saveState();
-    expect(saved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
-    expect(saved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv/);
+    expect(saved).not.toMatch(/pole_decoration_x|LocalDecoration|pole-decoration:/);
+    expect(saved).not.toMatch(/connect_hv_0|connect_lv_0/);
 
     const repeatedBridge = await WireBridge.create();
+    expect(repeatedBridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
     const repeated = repeatedBridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
       SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
@@ -994,10 +1006,10 @@ describe("wire wasm smoke", () => {
 
     const restorableBridge = await createRestorableSupportDetailBridge();
     const restorableSaved = restorableBridge.saveState();
-    expect(restorableSaved).not.toMatch(/pole_transformer_20kva_proxy|transformer_support_bracket_proxy|transformer_basic|LocalDetail|InlineDetail/);
-    expect(restorableSaved).not.toMatch(/attachment:support-node|intermediate-insulator|transformer-lv/);
+    expect(restorableSaved).not.toMatch(/pole_decoration_x|LocalDecoration|pole-decoration:/);
     const restorableSignature = detailSceneSignature(restorableBridge.scene());
     const restoredBridge = await WireBridge.create();
+    expect(restoredBridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
     const loaded = restoredBridge.loadState(restorableSaved);
     expect(loaded.ok, loaded.error).toBe(true);
     expect(detailSceneSignature(restoredBridge.scene())).toBe(restorableSignature);
@@ -1005,6 +1017,7 @@ describe("wire wasm smoke", () => {
 
   it("does not attach support equipment detail to an optical-only scene fixture", async () => {
     const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
     const generated = bridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
       [105], 0, 1,
@@ -1021,8 +1034,9 @@ describe("wire wasm smoke", () => {
     )).toBe(false);
   });
 
-  it("does not create transformer LV leads without an existing LV carrier", async () => {
+  it("does not create LV decoration curves without an existing LV carrier", async () => {
     const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
     const generated = bridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
       [101], 0, 1,
@@ -1032,8 +1046,10 @@ describe("wire wasm smoke", () => {
 
     const scene = bridge.scene();
     expect(scene.models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
-    expect(scene.parts.some((part) => part.info.partKey.includes(":transformer-lv:"))).toBe(false);
-    expect(scene.parts.some((part) => part.info.partKey.includes(":service-loop:"))).toBe(false);
+    expect(scene.parts.some((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable &&
+      part.info.bundleTemplateId === 102
+    )).toBe(false);
   });
 
   it("upgrades an older saved row assembly by adapter version during restore", () => {
@@ -1107,6 +1123,7 @@ describe("wire wasm smoke", () => {
 
   it("inherits pole tilt for derived support detail attachments", async () => {
     const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
     const generated = bridge.generate(
       SUPPORT_DETAIL_SCENE_POINTS,
       SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
@@ -1119,17 +1136,16 @@ describe("wire wasm smoke", () => {
     expect(tilted.ok, tilted.error).toBe(true);
 
     const scene = bridge.scene();
-    const transformer = scene.models.find((model) =>
+    const decoration = scene.models.find((model) =>
       model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]
     );
-    expect(transformer).toBeDefined();
-    const attachmentId = transformer!.stableKey.replace(/:transformer$/, "");
-    const supportNodeId = attachmentId.match(/^attachment:support-node:(\d+):transformer_basic$/)?.[1];
-    const owner = scene.poles.find((pole) => pole.id === scene.supportNodes.find((node) => node.id === supportNodeId)?.poleId);
+    expect(decoration).toBeDefined();
+    const poleId = decoration!.stableKey.match(/^pole-decoration:(\d+):/)?.[1];
+    const owner = scene.poles.find((pole) => pole.id === poleId);
     expect(owner).toBeDefined();
     expect(Math.abs(owner!.rotationX) + Math.abs(owner!.rotationY)).toBeGreaterThan(0.01);
-    expect(transformer!.rotationX).toBeCloseTo(owner!.rotationX, 6);
-    expect(transformer!.rotationY).toBeCloseTo(owner!.rotationY, 6);
+    expect(decoration!.rotationX).toBeCloseTo(owner!.rotationX, 6);
+    expect(decoration!.rotationY).toBeCloseTo(owner!.rotationY, 6);
   });
 
   it("exposes a shared run id for through edge bodies", () => {

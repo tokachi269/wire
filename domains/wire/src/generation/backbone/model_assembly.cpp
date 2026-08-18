@@ -160,6 +160,94 @@ std::uint64_t content_version(const ModelAssemblyTemplate& assembly,
   return hash == 0 ? 1 : hash;
 }
 
+bool is_connect_socket_name(const std::string& name) {
+  return name.rfind("connect_", 0) == 0;
+}
+
+std::optional<ConnectionCategory> connection_category_from_socket_name(const std::string& name) {
+  if (name.rfind("connect_hv_", 0) == 0) {
+    return ConnectionCategory::kHighVoltage;
+  }
+  if (name.rfind("connect_lv_", 0) == 0) {
+    return ConnectionCategory::kLowVoltage;
+  }
+  if (name.rfind("connect_comm_", 0) == 0) {
+    return ConnectionCategory::kCommunication;
+  }
+  if (name.rfind("connect_optical_", 0) == 0) {
+    return ConnectionCategory::kOptical;
+  }
+  return std::nullopt;
+}
+
+bool is_pole_decoration_candidate(const ModelAssemblyTemplate& assembly) {
+  for (const ModelAssemblyPart& part : assembly.parts) {
+    for (const ModelAssemblySocket& socket : part.sockets) {
+      if (is_connect_socket_name(socket.name)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+const ModelAssemblyTemplate* first_pole_decoration_candidate(const CoreView& view) {
+  const ModelAssemblyTemplate* best = nullptr;
+  for (const auto& [id, assembly] : view.model_assembly_templates()) {
+    static_cast<void>(id);
+    if (!is_pole_decoration_candidate(assembly)) {
+      continue;
+    }
+    if (best == nullptr || assembly.id < best->id) {
+      best = &assembly;
+    }
+  }
+  return best;
+}
+
+std::vector<ConnectionCategory> connect_socket_categories(const ModelAssemblyTemplate& assembly) {
+  std::vector<ConnectionCategory> out{};
+  for (const ModelAssemblyPart& part : assembly.parts) {
+    for (const ModelAssemblySocket& socket : part.sockets) {
+      const std::optional<ConnectionCategory> category =
+          connection_category_from_socket_name(socket.name);
+      if (!category.has_value() ||
+          std::find(out.begin(), out.end(), *category) != out.end()) {
+        continue;
+      }
+      out.push_back(*category);
+    }
+  }
+  return out;
+}
+
+bool pole_has_decoration_target(const CoreView& view,
+                                const Pole& pole,
+                                const ModelAssemblyTemplate& assembly) {
+  const SavedBackboneNode* node = view.backbone_node_for_pole(pole.id);
+  if (node == nullptr) {
+    return false;
+  }
+  const std::vector<ConnectionCategory> categories = connect_socket_categories(assembly);
+  if (categories.empty()) {
+    return false;
+  }
+  for (const SavedBackbonePortBinding& binding : view.backbone().port_bindings) {
+    if (binding.row_key.node_id != node->node_id) {
+      continue;
+    }
+    const auto bundle_it = view.bundle_templates().find(binding.bundle_template_id);
+    if (bundle_it == view.bundle_templates().end()) {
+      continue;
+    }
+    if (std::find(categories.begin(), categories.end(), bundle_it->second.category) !=
+        categories.end()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 EditResult<PortFixtureContext> port_fixture_context(const CoreState& state, const Port& port) {
   EditResult<PortFixtureContext> out{};
   const CoreView view = state.view();
@@ -856,6 +944,22 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     if (!error.empty()) {
       out.error = std::move(error);
       return out;
+    }
+  }
+
+  if (const ModelAssemblyTemplate* decoration = first_pole_decoration_candidate(view);
+      decoration != nullptr) {
+    for (const Pole& pole : view.poles().items()) {
+      if (!pole_has_decoration_target(view, pole, *decoration)) {
+        continue;
+      }
+      std::string error{};
+      append_instances(state, pole, 0.0, *decoration, pole.world_transform, {},
+                       "pole-decoration:" + std::to_string(pole.id), &out.value, &error);
+      if (!error.empty()) {
+        out.error = std::move(error);
+        return out;
+      }
     }
   }
 

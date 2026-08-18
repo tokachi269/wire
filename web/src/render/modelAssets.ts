@@ -21,6 +21,7 @@ export type ModelAssetKind =
   | "crossarmHv"
   | "hvInsulator"
   | "poleBody"
+  | "poleDecorationX"
   | "poleTransformer20kvaProxy"
   | "transformerIntermediateInsulatorProxy"
   | "transformerSupportBracketProxy"
@@ -37,6 +38,7 @@ export type ModelKey =
   | "hv_crossarm"
   | "hv_insulator"
   | "pole_body"
+  | "pole_decoration_x"
   | "pole_transformer_20kva_proxy"
   | "transformer_intermediate_insulator_proxy"
   | "transformer_support_bracket_proxy"
@@ -125,6 +127,12 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM),
     radialTopM: poleRadiusAtDistanceFromTop(0.0),
     adapterVersion: 5
+  },
+  poleDecorationX: {
+    modelKey: "pole_decoration_x",
+    url: "primitive:pole_decoration_x",
+    mountRule: "center",
+    adapterVersion: 1
   },
   poleTransformer20kvaProxy: {
     modelKey: "pole_transformer_20kva_proxy",
@@ -274,6 +282,25 @@ function makeTransformerSupportBracketProxy(): THREE.Group {
   return group;
 }
 
+function makePoleDecorationX(): THREE.Group {
+  const group = new THREE.Group();
+  const zinc = 0x969d9f;
+  const porcelain = 0xd9d8cf;
+  const tank = 0x8f9698;
+  addMesh(group, new THREE.BoxGeometry(0.700, 0.040, 0.045), zinc, [-0.34, 0, -0.05], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.045, 0.260, 0.035), zinc, [-0.16, -0.110, -0.070], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.045, 0.260, 0.035), zinc, [-0.52, -0.110, -0.070], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.CylinderGeometry(0.200, 0.200, 0.550, 12), tank, [0.08, 0, 0], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0xa8adb0, [0.08, 0, 0.290], [Math.PI / 2, 0, 0], 0.22);
+  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0x777f82, [0.08, 0, -0.290], [Math.PI / 2, 0, 0], 0.22);
+  for (const y of [-0.18, 0.18]) {
+    addMesh(group, new THREE.CylinderGeometry(0.045, 0.045, 0.220, 8), porcelain, [-0.46, y, 0.38], [0, 0, Math.PI / 2]);
+    addMesh(group, new THREE.CylinderGeometry(0.012, 0.012, 0.080, 8), zinc, [-0.60, y, 0.38], [0, 0, Math.PI / 2], 0.48);
+    addMesh(group, new THREE.CylinderGeometry(0.012, 0.012, 0.080, 8), zinc, [-0.32, y, 0.38], [0, 0, Math.PI / 2], 0.48);
+  }
+  return group;
+}
+
 function makePc6CutoutProxy(): THREE.Group {
   const group = new THREE.Group();
   const porcelain = 0xd9d8cf;
@@ -337,6 +364,7 @@ export class ModelAssetCache {
   private readonly loads = new Map<ModelAssetKind, number>();
 
   constructor(private readonly loadScene: SceneLoader = loadGltfScene) {
+    this.registerPrimitiveSource("poleDecorationX", makePoleDecorationX());
     this.registerPrimitiveSource("poleTransformer20kvaProxy", makePoleTransformer20kvaProxy());
     this.registerPrimitiveSource("transformerIntermediateInsulatorProxy", makeTransformerIntermediateInsulatorProxy());
     this.registerPrimitiveSource("transformerSupportBracketProxy", makeTransformerSupportBracketProxy());
@@ -453,7 +481,7 @@ function part(
   partId: number,
   fitMode: number,
   localTransform = identityTransform(),
-  wireSocket: ModelSocketInput | null = null
+  wireSocket: ModelSocketInput | ModelSocketInput[] | null = null
 ): ModelAssemblyPartInput {
   return {
     partId,
@@ -462,7 +490,7 @@ function part(
     descriptorVersion: asset.descriptorVersion,
     fitMode,
     localTransform,
-    sockets: wireSocket === null ? [] : [wireSocket]
+    sockets: wireSocket === null ? [] : Array.isArray(wireSocket) ? wireSocket : [wireSocket]
   };
 }
 
@@ -502,7 +530,8 @@ export function buildDefaultModelBootstrap(
   belt: LoadedModelAsset,
   insulator: LoadedModelAsset,
   communicationClamp: LoadedModelAsset,
-  communicationClampLong: LoadedModelAsset
+  communicationClampLong: LoadedModelAsset,
+  poleDecoration: LoadedModelAsset
 ): ModelAssemblyBootstrapInput {
   const poleVisibleLength = pole.adapter.visibleLengthM;
   if (poleVisibleLength === undefined || !Number.isFinite(poleVisibleLength) || poleVisibleLength <= 0) {
@@ -553,6 +582,37 @@ export function buildDefaultModelBootstrap(
 
   const communicationInsertion = insertionFixture(communicationClamp);
   const lowVoltageInsertion = insertionFixture(communicationClampLong);
+  const decorationTransform = identityTransform();
+  decorationTransform.positionX = 0.62;
+  decorationTransform.positionY = 0.42;
+  decorationTransform.positionZ = 7.70;
+  const decorationSockets: ModelSocketInput[] = [
+    {
+      name: "connect_hv_0",
+      positionX: -0.60, positionY: -0.18, positionZ: 0.38,
+      directionX: -1, directionY: 0, directionZ: 0
+    },
+    {
+      name: "connect_hv_1",
+      positionX: -0.60, positionY: 0.18, positionZ: 0.38,
+      directionX: -1, directionY: 0, directionZ: 0
+    },
+    {
+      name: "connect_lv_0",
+      positionX: 0.16, positionY: -0.16, positionZ: -0.30,
+      directionX: 0, directionY: -1, directionZ: -0.2
+    },
+    {
+      name: "connect_lv_1",
+      positionX: 0.20, positionY: 0, positionZ: -0.32,
+      directionX: 0, directionY: -1, directionZ: -0.2
+    },
+    {
+      name: "connect_lv_2",
+      positionX: 0.16, positionY: 0.16, positionZ: -0.30,
+      directionX: 0, directionY: -1, directionZ: -0.2
+    }
+  ];
 
   const poleAssemblyId = 9201;
   const hvRowAssemblyId = 9202;
@@ -561,6 +621,7 @@ export function buildDefaultModelBootstrap(
   const communicationPoleAssemblyId = 9205;
   const lowVoltageEndpointAssemblyId = 9206;
   const beltRowAssemblyId = 9207;
+  const poleDecorationAssemblyId = 9208;
   return {
     assemblies: [
       {
@@ -618,6 +679,12 @@ export function buildDefaultModelBootstrap(
         version: 4,
         parts: [part(belt, 1, 2, beltTransform)],
         wireSocket: null
+      },
+      {
+        id: poleDecorationAssemblyId,
+        version: 1,
+        parts: [part(poleDecoration, 1, 0, decorationTransform, decorationSockets)],
+        wireSocket: null
       }
     ],
     poleAssignments: [
@@ -656,17 +723,18 @@ export function buildDefaultModelBootstrap(
 }
 
 export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstrapInput> {
-  const [pole, crossarm, belt, insulator, communicationClamp, communicationClampLong] =
+  const [pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, poleDecoration] =
     await Promise.all([
       modelAssetCache.load("poleBody"),
       modelAssetCache.load("crossarmHv"),
       modelAssetCache.load("belt"),
       modelAssetCache.load("hvInsulator"),
       modelAssetCache.load("communicationClamp"),
-      modelAssetCache.load("communicationClampLong")
+      modelAssetCache.load("communicationClampLong"),
+      modelAssetCache.load("poleDecorationX")
     ]);
   return buildDefaultModelBootstrap(
-    pole, crossarm, belt, insulator, communicationClamp, communicationClampLong
+    pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, poleDecoration
   );
 }
 

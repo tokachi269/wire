@@ -17,8 +17,8 @@ BackboneSpec
   -> support group / SpanLayoutEntry
   -> DetailCurve / bounds
   -> visual / render cache
+  -> derived decoration materialization
   -> viewer / export adapter
-  -> presentation detail
 ```
 
 ## 正本と派生
@@ -32,7 +32,7 @@ BackboneSpec
 | layout | `SpanLayoutEntry` | `support_world` と `endpoint_world` |
 | geom | `DetailCurve` / bounds | layout endpointからの形状派生 |
 | draw | visual / render cache | layout/geomからの表示出力 |
-| presentation detail | viewer / export adapter | support/span周辺の局所設備・短い配線・inline deviceを表示用sceneから派生 |
+| derived decoration | Core visual generation | support/span周辺の局所設備・短い配線・inline deviceをWire domainの意味から派生 |
 | settings | `CoreStateAuthoritativeStorage` | geometry / visual / variation / context / layout のユーザー設定 |
 
 生成済みのspan、layout、curve、bounds、visual、port位置からtopologyを復元してはいけない。
@@ -41,17 +41,19 @@ BackboneSpec
 
 ### support / inline detail
 
-support detail は Core の authority ではなく、viewer / export adapter が表示用sceneから再生成する
-presentation detail である。Core は通常のtopology、layout、curve、fixture model、visual carrierだけを出力し、
-detail用の設備template、socket/guide recipe、proxy model keyを持たない。
+support detail は authoritative entity ではないが、Wire domain の意味を必要とする derived geometry /
+materialization である。したがって生成、配置、接続先解決、curve、material semantics は Core visual generation が
+所有する。viewer / export adapter は Core が返した `VisualModelInstance` と `VisualCurvePart` を消費し、
+高さ、接続、material、可視性、support identity を再判断しない。
 
 個々のlocal cable、fan-out、inline device、primitive equipmentは通常Spanではなく、SavedBackboneGraph、
-Span、Bundle、Port bindingへ保存しない。viewer側の入力は Core が出した `VisualCurvePart`、
-`VisualModelInstance`、`BundleTemplateInfo` などの既存scene情報である。
+Span、Bundle、Port bindingへ保存しない。support/inline detail は通常の derived visual cache として
+正本から毎回再導出する。
 
-templateやrecipeは近似サイズ、socket frame、guide point、presentation catalog proxyをpresentation層に置く。
-catalog proxyはGLB欠落時の任意fallbackではなく、暫定モデリング確認用の明示assetである。
-GLB assetが後から追加されても、Coreの生成結果や保存状態は変えない。
+GLBを読む責務はasset adapterに留める。adapterはmodel key、local transform、名前付きsocketのmetadataを
+`ModelAssemblyTemplate` / `ModelAssemblyPart` / `ModelAssemblySocket` としてCoreへ渡すが、`connect_*`
+socketからcarrierを探したり、local cable curveやmaterialを決めたりしない。socket名のWire上の意味はCoreだけが
+解釈する。CoreはGLB parserを持たない。
 
 ### session draft state
 

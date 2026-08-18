@@ -12,7 +12,8 @@ describe("model asset cache", () => {
       throw new Error("catalog support-detail proxies must not request GLB assets");
     });
     const cache = new ModelAssetCache(load);
-    const [transformer, intermediateInsulator, supportBracket, pc6, mount, arrester, triplex, optical] = await Promise.all([
+    const [decoration, transformer, intermediateInsulator, supportBracket, pc6, mount, arrester, triplex, optical] = await Promise.all([
+      cache.load("poleDecorationX"),
       cache.load("poleTransformer20kvaProxy"),
       cache.load("transformerIntermediateInsulatorProxy"),
       cache.load("transformerSupportBracketProxy"),
@@ -24,6 +25,8 @@ describe("model asset cache", () => {
     ]);
 
     expect(load).not.toHaveBeenCalled();
+    expect(decoration.size.x).toBeGreaterThan(0.7);
+    expect(decoration.size.z).toBeGreaterThan(0.6);
     expect(transformer.size.x).toBeCloseTo(0.430, 3);
     expect(transformer.size.y).toBeCloseTo(0.430, 3);
     expect(transformer.size.z).toBeCloseTo(0.610, 3);
@@ -88,13 +91,14 @@ describe("model asset cache", () => {
       return source;
     });
     const cache = new ModelAssetCache(load);
-    const [pole, crossarm, belt, insulator, clamp, clampLong] = await Promise.all([
+    const [pole, crossarm, belt, insulator, clamp, clampLong, poleDecoration] = await Promise.all([
       cache.load("poleBody"),
       cache.load("crossarmHv"),
       cache.load("belt"),
       cache.load("hvInsulator"),
       cache.load("communicationClamp"),
-      cache.load("communicationClampLong")
+      cache.load("communicationClampLong"),
+      cache.load("poleDecorationX")
     ]);
     expect(cache.loadCount("poleBody")).toBe(1);
     expect(cache.loadCount("crossarmHv")).toBe(1);
@@ -103,7 +107,7 @@ describe("model asset cache", () => {
     expect(cache.loadCount("communicationClampLong")).toBe(1);
     expect(cache.loadCount("communicationClamp")).toBe(1);
     const bootstrap = buildDefaultModelBootstrap(
-      pole, crossarm, belt, insulator, clamp, clampLong
+      pole, crossarm, belt, insulator, clamp, clampLong, poleDecoration
     );
 
     expect(bootstrap.poleAssignments).toEqual([

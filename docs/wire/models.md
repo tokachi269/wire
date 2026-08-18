@@ -99,20 +99,21 @@ SavedBackboneRowKey          -> PlacementRule::at_row の row fixture assembly(c
 Port                         -> PlacementRule::at_endpoint の endpoint fixture assembly(insulator、clamp相当)
 Span anchor                  -> PlacementRule::interval の span上 assembly(テスト用。既定templateでは未使用)
 Entity-layer Attachment      -> span途中のinline model
-Presentation Attachment      -> Pole/Span anchor から局所detail recipeを派生するviewer側一時入力
+Core derived decoration      -> Pole/SupportNode/Span由来の局所detail modelと短い配線をCore visual outputへ派生
 ```
 
 Coreのmodel contractには用途名を持ち込まない。assemblyはpart、local transform、限定fit mode、
 名前付きsocketだけを持つ。socket無しassemblyは表示だけで、curve endpointを変更しない。
 
-`Presentation Attachment`はauthoritative entityではない。現段階ではviewer adapterがsceneから一時生成し、
-`anchor(kind, owner_id, t)`、`template_id`、stable seedだけを持つ。Bundle、lane、socket binding、生成済みmodel ID、
-local cable ID、collision結果、equipment listは保存しない。`transformer_basic`はPole/SupportNode anchorの
-presentation attachmentからderived visualとして生成し、既存のentity-layer span Attachmentの保存形式と意味は変えない。
+Core derived decoration はauthoritative entityではない。Bundle、lane、socket binding、生成済みmodel ID、
+local cable ID、collision結果、equipment listは保存しない。ただしWire domainの意味を使うため、
+viewer adapterではなくCore visual generationが、名前付きsocket、既存Bundle/Port/row/carrier情報、
+CableTemplate appearanceから `VisualModelInstance` / `VisualCurvePart` を再導出する。
+既存のentity-layer span Attachmentの保存形式と意味は変えない。
 
-model assemblyのworld materializationはbackboneのlayout endpoint resolverが所有し、初回生成とpost-editで
-同じ経路を使う。`VisualModelInstance`はderived cacheであり、Pole、row、PortやSavedBackboneGraphへ
-model instance identityを追加しない。
+model assemblyのworld materializationはCoreが所有し、初回生成とpost-editで同じ経路を使う。
+asset adapterはGLB/node/Empty由来のmodel/socket metadataを渡すだけで、Wireの接続先、curve、materialは判断しない。
+`VisualModelInstance`はderived cacheであり、Pole、row、PortやSavedBackboneGraphへmodel instance identityを追加しない。
 
 配置されるinstanceの親参照は次の3種だけに限定する。
 

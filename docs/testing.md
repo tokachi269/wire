@@ -51,6 +51,36 @@ reasonに残す。
 `derived_equality`だけのcaseは独立evidenceにならない。full core testは該当case一覧を
 終了時に出力し、件数を`docs/merge_readiness.md`へ記録する。
 
+## test effectiveness
+
+test count、line coverage、branch coverageだけでは、test suiteの価値は評価できない。
+coverageは「そのコードを通った」ことは示せるが、「そのコードが壊れたとき検出できる」
+ことまでは保証しない。重要なのは、重要な故障を実際に入れたとき、そのtest familyが
+意味のある場所で失敗できることである。
+
+通常のmutation testingは、return値変更、比較演算子変更、条件反転のようなsyntactic
+mutationでもpassしてしまう0点testの発見に有効である。一方、実際のregressionは、
+connection visualを丸ごと生成しない、incrementalだけ古い状態を使う、owner transformを
+modelへ伝播しない、production bootstrap時だけ意味が変わる、connectivityをsilent skipする、
+といったsemanticな壊れ方をする。test effectiveness評価ではsyntactic mutationだけでなく、
+現在codeへ小さなtemporary semantic faultを入れて、既存test familyが検出できるかを確認する。
+fault injection自体はcommitしない。
+
+評価単位は個別testではなく契約である。例えば「continuous connectionはvisual connectionを持つ」
+という契約は、fresh、continuation、branch、midair、reverse、regenerate、save/load、
+production configurationのどこから守られているかを見る。C番号やtest件数を増やすことを目的にせず、
+重要契約をsuite全体がどの程度守れているかを評価する。
+
+過去に実際に起きた不具合は、最も価値の高いfault modelの一つである。実際の過去commitを
+そのままbuildする必要はない。現在codeへ過去故障と意味的に同じtemporary mutationを入れ、
+現在のtest suiteが検出できるか確認してよい。安全に再現可能なら古いcommitを使ってもよい。
+
+全test pass後に実使用で見つかったregressionは、test effectiveness不足の証拠として扱う。
+bug修正時は、新しいregression testを追加しただけで完了にしない。なぜ既存testが逃したかを、
+common invariant不足、production fidelity不足、scenario不足、semantic assertion不足、
+condition complexity、実装詳細だけを見たassert、特定fixtureへ閉じた過去fixのいずれかとして
+分類し、必要なら既存common invariantやproduction-like sanityへ戻す。
+
 ## architecture guard
 
 `tools/arch_manifest.json`と`tools/arch_lint.py`は次を検出する。

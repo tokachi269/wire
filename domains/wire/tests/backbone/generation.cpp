@@ -171,10 +171,12 @@ bool C819_backbone_rejects_nonfinite_path_point_before_mutation() {
   city::wire::BackboneSpec req = line_req(state);
   req.path.polyline[0].x = std::numeric_limits<double>::quiet_NaN();
 
+  const city::wire::ObjectId next_id_before = state.next_id();
   const CoreCounts before = snapshot_counts(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   return !out.ok && contains_text(out.error, "invalid input") &&
          out.failure_category == city::wire::CommitFailureCategory::kInvalidInput &&
+         state.next_id() == next_id_before &&
          same_counts(before, snapshot_counts(state));
 }
 
@@ -184,10 +186,12 @@ bool C820_backbone_rejects_nonfinite_tilt_before_mutation() {
   req.pole_placement.enable_tilt = true;
   req.pole_placement.max_tilt_deg = std::numeric_limits<double>::infinity();
 
+  const city::wire::ObjectId next_id_before = state.next_id();
   const CoreCounts before = snapshot_counts(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   return !out.ok && contains_text(out.error, "invalid input") &&
          out.failure_category == city::wire::CommitFailureCategory::kInvalidInput &&
+         state.next_id() == next_id_before &&
          same_counts(before, snapshot_counts(state));
 }
 

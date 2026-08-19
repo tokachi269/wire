@@ -31,6 +31,11 @@
 - 2026-08-19: 通常EdgeBodyを2点straight chordへ退化させるfaultはsag ownerを直接検査するC642が検出した。C760/C764/C767はendpoint/support-path契約なのでPASSし、非曲線性を過剰保証しているとは扱わない。
 - 2026-08-19: Bundle placement update後だけ旧VisualCurvePart cacheを戻すfaultはC770/C816/C836が当初PASSした。C770へ更新後cacheとfull rederiveのsemantic snapshot一致を追加し、同faultを`bundle placement update left stale visual curve parts`で検出した。
 - 2026-08-19: full regenerate後のVisualModelInstance cache更新を抑止するfaultは、既存C836 operation matrixのrow-frame/model invariantがexpected 4件、actual 0件として検出した。個別C713/C717はmodel cacheを直接比較しないがcommon invariantのregenerate reachがあるため、新規testは追加しなかった。
+- 2026-08-19: 全VisualCurvePartのradiusを同じ固定値へ落とすappearance faultは当初全547 backbone caseがPASSした。C647はNodePatchとincident EdgeBodyの相互一致だけを見ていたため、BundleTemplateからCableTemplate正本を引く独立assertを追加し、同faultを`NodePatch appearance does not match its authoritative CableTemplate`で検出した。
+- 2026-08-19: regenerateで存続manual Portもautomatic frame update対象にするfaultはC672だけが検出した。C672はmanual markerとworld positionの双方を操作前値と比較しており、原因とuser-visible位置を直接守るため追加testは不要とした。
+- 2026-08-19: load時の`identity.id_generator.next`を1へ固定するfaultはC753がload後extensionで検出した。backbone名前filterにはC753が含まれないため、最終検証ではpersistence caseを別途実行する必要がある。
+- 2026-08-19: `PathDirectionMode::kReverse`処理を無視するfaultはC58/C777/C802を通過した。C58はpole position setだけ、C777/C802は逆順入力のcanonical topologyを守る別契約であり、direction mode自体のtopology/placement意味は未保証riskとして残る。
+- 2026-08-19: Generate entryでvalidation前に本stateのID generatorを進めるfaultはC819/C820を通過し、next-idまで見るC790だけが検出した。C819/C820へnext-id不変を追加し、同faultで両方がFAILすることを確認した。
 
 ## Backbone Authority Guard Coverage
 

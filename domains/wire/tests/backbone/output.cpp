@@ -1506,6 +1506,18 @@ bool C647_backbone_node_patch_uses_incident_cable_appearance() {
     if (patch.kind != city::wire::VisualCurvePartKind::kNodePatch) {
       continue;
     }
+    const auto bundle_template_it = state.view().bundle_templates().find(patch.bundle_template_id);
+    WIRE_TEST_EXPECT(bundle_template_it != state.view().bundle_templates().end(),
+                     "NodePatch bundle template is missing");
+    const auto cable_template_it =
+        state.view().cable_templates().find(bundle_template_it->second.cable_template_id);
+    WIRE_TEST_EXPECT(cable_template_it != state.view().cable_templates().end(),
+                     "NodePatch cable template is missing");
+    WIRE_TEST_EXPECT(
+        almost_equal(patch.wire_radius_m, cable_template_it->second.outer_diameter_m * 0.5, 1e-12) &&
+            patch.color_rgba == cable_template_it->second.color_rgba &&
+            patch.material_style == cable_template_it->second.material_style,
+        "NodePatch appearance does not match its authoritative CableTemplate");
     std::size_t matching_bodies = 0;
     for (const city::wire::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
       if (body.kind != city::wire::VisualCurvePartKind::kEdgeBody ||

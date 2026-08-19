@@ -3337,6 +3337,13 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
   const std::optional<double> port_height_after = average_port_height();
   const std::optional<double> row_height_after = row_model_height();
   if (after_bundle == nullptr || !port_height_after.has_value() || !row_height_after.has_value()) return false;
+  const city::wire::EditResult<city::wire::VisualCurvePartCache> full_visual =
+      city::wire::generation::backbone::make_visual_curve_parts(state, {});
+  WIRE_TEST_EXPECT(full_visual.ok, full_visual.error);
+  WIRE_TEST_EXPECT(
+      visual_part_snapshot(state.view().visual_curve_parts()) ==
+          visual_part_snapshot(full_visual.value),
+      "bundle placement update left stale visual curve parts");
 
   return almost_equal((*port_height_after - after_bundle->height_m), preserved_cross_offset, 1e-9) &&
          almost_equal(*port_height_after - *port_height_before, kHeightDelta, 1e-9) &&

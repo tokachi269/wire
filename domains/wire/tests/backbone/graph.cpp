@@ -2539,6 +2539,28 @@ bool C803_model_mount_graph_resolves_depth_four_chain() {
     return false;
   }
 
+  MountGraphNode rotated = node(5, {1.0, 2.0, 3.0}, "wire", {4.0, 5.0, 6.0});
+  rotated.parent.kind = MountRefKind::kPoleFrame;
+  rotated.parent.anchor_transform.position = {10.0, 20.0, 30.0};
+  rotated.parent.anchor_transform.rotation_euler_deg = {0.0, 0.0, 90.0};
+  rotated.parent.anchor_transform.scale = {2.0, 3.0, 4.0};
+  rotated.local_transform.rotation_euler_deg = {0.0, 0.0, 90.0};
+  rotated.local_transform.scale = {0.5, 2.0, 1.0};
+  nodes.push_back(rotated);
+  const auto resolved_rotated_node = resolve_mount_node(nodes, 5);
+  const auto resolved_rotated_socket = resolve_mount_socket(nodes, 5, "wire");
+  WIRE_TEST_EXPECT(resolved_rotated_node.ok && resolved_rotated_socket.ok,
+                   "rotated and scaled mount node did not resolve");
+  WIRE_TEST_EXPECT(
+      almost_equal(resolved_rotated_node.value.position, Vec3d{4.0, 22.0, 42.0}, 1e-12),
+      "parent yaw or scale did not propagate to mount local position");
+  WIRE_TEST_EXPECT(
+      almost_equal(resolved_rotated_node.value.scale, Vec3d{1.0, 6.0, 4.0}, 1e-12),
+      "parent and local mount scales were not composed component-wise");
+  WIRE_TEST_EXPECT(
+      almost_equal(resolved_rotated_socket.value.position, Vec3d{0.0, -8.0, 66.0}, 1e-12),
+      "composed parent/local rotation and scale did not propagate to socket position");
+
   if (resolve_mount_socket(nodes, 2, "missing").ok) {
     return false;
   }

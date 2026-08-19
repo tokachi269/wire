@@ -6,6 +6,7 @@
 #include "city/wire/core_test_hook.hpp"
 #include "city/wire/core_view.hpp"
 #include "city/wire/coord_utils.hpp"
+#include "city/wire/support/numeric_tolerances.hpp"
 
 #include "../../src/generation/backbone/emit_shared.hpp"
 #include "../../src/generation/backbone/model_assembly.hpp"
@@ -727,6 +728,79 @@ bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
   return true;
 }
 
+bool hv_edge_body_xy_intersections_absent(const city::wire::CoreState& state,
+                                          std::string* reason) {
+  const auto fail = [&](const std::string& message) {
+    if (reason != nullptr) {
+      *reason = message;
+    }
+    return false;
+  };
+  const auto orientation = [](const city::wire::Vec3d& a,
+                              const city::wire::Vec3d& b,
+                              const city::wire::Vec3d& c) {
+    return (b.x - a.x) * (c.y - a.y) -
+           (b.y - a.y) * (c.x - a.x);
+  };
+  const auto proper_intersection = [&](const city::wire::Vec3d& a,
+                                       const city::wire::Vec3d& b,
+                                       const city::wire::Vec3d& c,
+                                       const city::wire::Vec3d& d) {
+    const double ab_c = orientation(a, b, c);
+    const double ab_d = orientation(a, b, d);
+    const double cd_a = orientation(c, d, a);
+    const double cd_b = orientation(c, d, b);
+    return ab_c * ab_d < -city::wire::kIntersectionTolerance &&
+           cd_a * cd_b < -city::wire::kIntersectionTolerance;
+  };
+  const auto same_section = [](const city::wire::VisualCurvePart& a,
+                               const city::wire::VisualCurvePart& b) {
+    return a.has_section_key == b.has_section_key &&
+           (!a.has_section_key ||
+            (a.section_key.rule_owner_id == b.section_key.rule_owner_id &&
+             a.section_key.rule_id == b.section_key.rule_id &&
+             a.section_key.instance_index == b.section_key.instance_index));
+  };
+
+  const auto& parts = state.view().visual_curve_parts().parts;
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    const city::wire::VisualCurvePart& a = parts[i];
+    const auto a_template = state.view().bundle_templates().find(a.bundle_template_id);
+    if (a.kind != city::wire::VisualCurvePartKind::kEdgeBody ||
+        a.samples.size() < 2 ||
+        a_template == state.view().bundle_templates().end() ||
+        a_template->second.category != city::wire::ConnectionCategory::kHighVoltage) {
+      continue;
+    }
+    for (std::size_t j = i + 1; j < parts.size(); ++j) {
+      const city::wire::VisualCurvePart& b = parts[j];
+      if (b.kind != city::wire::VisualCurvePartKind::kEdgeBody ||
+          b.samples.size() < 2 || a.source_edge_id != b.source_edge_id ||
+          a.source_bundle_id != b.source_bundle_id ||
+          a.bundle_template_id != b.bundle_template_id ||
+          a.lane_index == b.lane_index || !same_section(a, b)) {
+        continue;
+      }
+      for (std::size_t ai = 1; ai < a.samples.size(); ++ai) {
+        for (std::size_t bi = 1; bi < b.samples.size(); ++bi) {
+          if (proper_intersection(a.samples[ai - 1], a.samples[ai],
+                                  b.samples[bi - 1], b.samples[bi])) {
+            return fail("HV edge " + std::to_string(a.source_edge_id) +
+                        " bundle " + std::to_string(a.source_bundle_id) +
+                        " lanes " + std::to_string(a.lane_index) + "/" +
+                        std::to_string(b.lane_index) +
+                        " have a proper XY intersection in final visual samples");
+          }
+        }
+      }
+    }
+  }
+  if (reason != nullptr) {
+    reason->clear();
+  }
+  return true;
+}
+
 bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::string* reason) {
   const auto fail = [&](const std::string& message) {
     if (reason != nullptr) {
@@ -770,6 +844,10 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
   };
   const city::wire::SavedBackboneGraph& graph = state.view().backbone();
   const city::wire::CoreView view = state.view();
+  std::string visual_geometry_error{};
+  if (!hv_edge_body_xy_intersections_absent(state, &visual_geometry_error)) {
+    return fail(visual_geometry_error);
+  }
   const auto saved_node_exists = [&](city::wire::ObjectId node_id) {
     return std::any_of(graph.nodes.begin(), graph.nodes.end(), [&](const city::wire::SavedBackboneNode& node) {
       return node.node_id == node_id;

@@ -2013,6 +2013,10 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
       state.view().bundles().size() != baseline.view().bundles().size()) {
     return false;
   }
+  std::string visual_geometry_error{};
+  WIRE_TEST_EXPECT(
+      hv_edge_body_xy_intersections_absent(state, &visual_geometry_error),
+      visual_geometry_error);
 
   std::unordered_set<city::wire::ObjectId> unique_ports{};
   for (city::wire::ObjectId span_id : generated.value.generated_span_ids) {

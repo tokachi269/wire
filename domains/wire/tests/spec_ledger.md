@@ -23,6 +23,9 @@
 - 2026-08-19: midair source-edge branchのconnection visual欠落はC836のmidspan familyが逃していた。source edge identityから保存済みmidair nodeを解決し、NodePatch/Jumper/Leadのいずれかを要求するminimum checkへ強化した。
 - 2026-08-19: C639がstraight chord退化を検出するのは代表的なNodePatchだけである。JumperはC755がincident EdgeBodyとのG1接続を検査するが、Leadを含む全connection visualの非直線性は保証していない。
 - 2026-08-19: pole-owned modelのparent X/Y rotation無視はC764で検出されるが、C765/C803/C834には届かない。owner transform契約は存在するがfamily横断ではないため、tilt regression調査時はC764またはcommon invariant到達を確認する。
+- 2026-08-19: spanのB端だけlane 0/2を交換するfaultはC662/C663/C785等が検出したが、C764はPASSしていた。final HV EdgeBody samplesのXY proper intersection invariantを追加しC764へ適用した。curve materializationの片端lane offset反転faultは、強化後C764が直接の交差理由で検出する。endpoint touch、同一正規接続point、collinear接触、connection visualは対象外である。
+- 2026-08-19: `support_level * branch_endpoint_offset_m`を0にするHV multi-level faultはC809/C815/C816/C834/C835が検出した。C809はpole-local endpoint down offset、C834はmodel socketとcurve endpointまで検査する。`row_offsets()`またはstable row slot空き探索だけを無効化するfaultは既存suiteが検出しなかったが、監査した代表HV multi-levelの最終高さは別のbranch endpoint offset経路で維持された。高さ決定経路の重複はcondition-complexity riskとして残る。
+- 2026-08-19: model socket local Zを0として扱うfaultはC764/C765/C770/C795/C834が検出し、lateral専用C766はPASSした。C764等はauthored socket local transformとemitted model world transformからexpected socket worldを独立計算し、final layout/curve endpointとの一致を検査する。
 
 ## Backbone Authority Guard Coverage
 

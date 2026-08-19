@@ -115,6 +115,22 @@ NaN / inf、負のinterval、負のavoid radius、負のmax tilt、負のspacing
 context linkは判断入力であり、生成・保存対象ではない。
 T/cross/branchのkind enumは作らず、continuityと派生rowの組合せで表す。
 
+`preserve_conductor_identity=false`かつ`order_decision_policy=kPermutableHomogeneous`の
+multi-lane rowは、XY上で横一列に並ぶ配置だけをsupportedとする。各径間で共有するedge方向から
+`span_lateral`を1つ作り、両端の`last lane - first lane`のXY方向を同じ`span_lateral`へ射影する。
+符号が異なる場合だけB端のlane対応を全体反転する。これは1 bitのmirror決定であり、任意permutationを
+探索しない。first/lastのXY方向が得られない縦積みやlateralでない配置はfallbackせずunsupportedとする。
+保存済みedgeでは保存済みedge方向を使い、新規edgeでは同一径間の共有方向を使う。共有方向の符号反転は
+両端の射影符号を同時に反転するため、mirror決定は入力pathのForward/Reverseに依存しない。
+
+`PathDirectionMode`はユーザーが引いた向きの意味を持ち、signed lateral offsetやsource/branchの進行方向へ
+適用する。permutable laneのnon-crossingとcanonical topology identityは`PathDirectionMode`へ依存させない。
+同じ物理pathをReverseで生成した場合、signed lateral offsetの物理側は反転する。
+
+midair branchのLeadは`SourceEdgeProjectionRef.from_node_id`が示すsource edge方向へsource curve tangentを
+向けてからbranch boundaryへ接続する。branch endpointへの位置ベクトルでsource tangentの符号を選ばない。
+attachment pointはsource curve projectionのまま維持し、branch側は確定後のEdgeBody boundary tangentを使う。
+
 ### pole / port配置座標
 
 pole local frameの配置原点は、poleのtiltを含む中心軸とする。mesh表面やmesh下端を原点にしない。

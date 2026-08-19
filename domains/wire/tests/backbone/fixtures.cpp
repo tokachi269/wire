@@ -340,10 +340,12 @@ std::vector<city::wire::Vec3d> offset_curve_points(double offset) {
   return span_curve_points(state, out.value.generated_span_ids);
 }
 
-std::vector<city::wire::Vec3d> offset_points(double offset) {
+std::vector<city::wire::Vec3d> offset_points(
+    double offset, city::wire::PathDirectionMode direction_mode) {
   city::wire::CoreState state;
   city::wire::BackboneSpec req = line_req(state);
   req.constraints.lateral_offset_m = offset;
+  req.direction_mode = direction_mode;
   const auto out = state.GenerateFromBackboneSpec(req);
   std::vector<city::wire::Vec3d> pts{};
   if (!out.ok) {

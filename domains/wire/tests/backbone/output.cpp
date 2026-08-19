@@ -1658,39 +1658,149 @@ bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
 }
 
 bool C665_backbone_midair_attachment_uses_derived_curve() {
-  city::wire::CoreState state;
-  city::wire::GeometrySettings geometry = state.view().geometry_settings();
-  geometry.sag_enabled = true;
-  if (!state.UpdateGeometrySettings(geometry).ok) {
-    return false;
-  }
-  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
-  if (!generated.ok || generated.value.generated_span_ids.size() != 1 ||
-      state.view().backbone().edges.size() != 1) {
-    return false;
-  }
-  const city::wire::ObjectId span_id = generated.value.generated_span_ids.front();
-  const city::wire::CurveCacheEntry* curve = state.find_curve_cache(span_id);
-  const city::wire::SavedBackboneEdge& edge = state.view().backbone().edges.front();
-  const auto attachment =
-      state.view().source_edge_projection_world(edge.edge_id, edge.node_a,
-                                                city::wire::kDefaultLowVoltageBundleTemplateId, 0, 0.5);
-  if (curve == nullptr || !attachment.has_value()) {
-    return false;
-  }
-  const city::wire::Vec3d expected = curve->detail.EvaluatePosition(0.5);
-  const city::wire::Span* span = state.view().spans().find(span_id);
-  const city::wire::Port* a = span == nullptr ? nullptr : state.view().ports().find(span->port_a_id);
-  const city::wire::Port* b = span == nullptr ? nullptr : state.view().ports().find(span->port_b_id);
-  if (a == nullptr || b == nullptr) {
-    return false;
-  }
-  const city::wire::Vec3d chord_mid{
-      (a->world_position.x + b->world_position.x) * 0.5,
-      (a->world_position.y + b->world_position.y) * 0.5,
-      (a->world_position.z + b->world_position.z) * 0.5,
+  struct Result {
+    bool ok = false;
+    int stage = 0;
+    city::wire::Vec3d source_tangent{};
   };
-  return almost_equal(*attachment, expected, 1e-9) && attachment->z < chord_mid.z - 1e-4;
+  const auto run = [](city::wire::PathDirectionMode direction_mode) {
+    Result result{};
+    city::wire::CoreState state;
+    city::wire::GeometrySettings geometry = state.view().geometry_settings();
+    geometry.sag_enabled = true;
+    if (!state.UpdateGeometrySettings(geometry).ok) return result;
+    result.stage = 1;
+    city::wire::BackboneSpec source_request = line_req(state);
+    source_request.direction_mode = direction_mode;
+    const auto generated = state.GenerateFromBackboneSpec(source_request);
+    if (!generated.ok || generated.value.generated_span_ids.size() != 1 ||
+        state.view().backbone().edges.size() != 1) return result;
+    result.stage = 2;
+
+    const city::wire::ObjectId source_span_id = generated.value.generated_span_ids.front();
+    const city::wire::CurveCacheEntry* source_curve = state.find_curve_cache(source_span_id);
+    const city::wire::SavedBackboneEdge edge = state.view().backbone().edges.front();
+    const city::wire::SavedBackboneNode* node_a = state.view().backbone_node(edge.node_a);
+    const city::wire::SavedBackboneNode* node_b = state.view().backbone_node(edge.node_b);
+    const auto attachment = state.view().source_edge_projection_world(
+        edge.edge_id, edge.node_a,
+        city::wire::kDefaultLowVoltageBundleTemplateId, 0, 0.5);
+    if (source_curve == nullptr || node_a == nullptr || node_b == nullptr ||
+        !attachment.has_value()) return result;
+    result.stage = 3;
+    const city::wire::Span* source_span = state.view().spans().find(source_span_id);
+    const city::wire::Port* port_a = source_span == nullptr
+                                         ? nullptr
+                                         : state.view().ports().find(source_span->port_a_id);
+    const city::wire::Port* port_b = source_span == nullptr
+                                         ? nullptr
+                                         : state.view().ports().find(source_span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr) return result;
+    const city::wire::Vec3d chord_mid{
+        (port_a->world_position.x + port_b->world_position.x) * 0.5,
+        (port_a->world_position.y + port_b->world_position.y) * 0.5,
+        (port_a->world_position.z + port_b->world_position.z) * 0.5};
+    if (!almost_equal(*attachment, source_curve->detail.EvaluatePosition(0.5), 1e-9) ||
+        attachment->z >= chord_mid.z - 1e-4) return result;
+    result.stage = 4;
+
+    city::wire::PickResult pick{};
+    pick.hit_kind = city::wire::PickHitKind::kSegment;
+    pick.hit_pos_world = city::wire::ScaleVec(node_a->position + node_b->position, 0.5);
+    pick.has_segment_endpoints = true;
+    pick.segment_node_a_id = edge.node_a;
+    pick.segment_node_b_id = edge.node_b;
+    pick.segment_endpoint_a_world = node_a->position;
+    pick.segment_endpoint_b_world = node_b->position;
+    city::wire::ResolveBranchPickOptions options{};
+    options.selected_bundle_template_ids = {
+        city::wire::kDefaultLowVoltageBundleTemplateId};
+    const auto resolved = state.ResolveBranchPick(pick, options);
+    if (!resolved.ok) return result;
+    result.stage = 5;
+
+    city::wire::BackboneSpec branch = line_req(state);
+    branch.path.polyline = {resolved.value.position,
+                            resolved.value.position + city::wire::Vec3d{-4.0, 8.0, 0.0}};
+    city::wire::BackboneInputSpec::NodeSpec source_node{};
+    source_node.point_index = 0;
+    source_node.support_kind = resolved.value.support_kind;
+    source_node.node_id = resolved.value.resolved_node_id;
+    branch.path.node_specs = {source_node};
+    const auto branched = state.GenerateFromBackboneSpec(branch);
+    if (!branched.ok || branched.value.generated_span_ids.size() != 1) return result;
+    result.stage = 6;
+    const city::wire::ObjectId branch_span_id = branched.value.generated_span_ids.front();
+    const city::wire::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
+    if (!branch_layout.has_layout()) return result;
+    const city::wire::LayoutEndpoint* source_endpoint =
+        branch_layout.entry->start.source_projection.valid()
+            ? &branch_layout.entry->start
+            : branch_layout.entry->end.source_projection.valid()
+                  ? &branch_layout.entry->end
+                  : nullptr;
+    if (source_endpoint == nullptr) return result;
+    result.stage = 7;
+
+    const city::wire::VisualCurvePart* lead = nullptr;
+    const city::wire::VisualCurvePart* branch_body = nullptr;
+    for (const city::wire::VisualCurvePart& part :
+         state.view().visual_curve_parts().parts) {
+      if (part.source_span_id != branch_span_id) continue;
+      if (part.kind == city::wire::VisualCurvePartKind::kLead) lead = &part;
+      if (part.kind == city::wire::VisualCurvePartKind::kEdgeBody) branch_body = &part;
+    }
+    if (lead == nullptr || branch_body == nullptr) return result;
+    result.stage = 71;
+    if (lead->samples.size() < 2 || !lead->has_attachment_point ||
+        !lead->passes_attachment_point) return result;
+    result.stage = 72;
+    if (!almost_equal(lead->boundary_a, lead->attachment_point, 1e-9) ||
+        !almost_equal(lead->boundary_a, *attachment, 1e-9)) return result;
+    result.stage = 73;
+    if (!almost_equal(branch_body->boundary_a, lead->boundary_b, 1e-9) &&
+        !almost_equal(branch_body->boundary_b, lead->boundary_b, 1e-9)) {
+      result.stage = 731;
+      return result;
+    }
+    result.stage = 74;
+    const city::wire::Vec3d body_tangent =
+        almost_equal(branch_body->boundary_a, lead->boundary_b, 1e-9)
+            ? branch_body->tangent_a
+            : branch_body->tangent_b;
+    if (!tangent_compatible(lead->tangent_b, body_tangent)) return result;
+    result.stage = 8;
+    for (const city::wire::Vec3d& point : lead->samples) {
+      if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+          !std::isfinite(point.z)) return result;
+    }
+
+    const city::wire::SourceEdgeProjectionRef& projection =
+        source_endpoint->source_projection;
+    const bool source_forward = projection.from_node_id == edge.node_a;
+    const double u = source_forward ? projection.t : 1.0 - projection.t;
+    source_curve = state.find_curve_cache(source_span_id);
+    if (source_curve == nullptr) return result;
+    city::wire::Vec3d expected_tangent = source_curve->detail.EvaluateTangent(u);
+    if (!source_forward) expected_tangent = city::wire::ScaleVec(expected_tangent, -1.0);
+    result.source_tangent = lead->tangent_a;
+    if (!tangent_compatible(lead->tangent_a, expected_tangent)) return result;
+    result.ok = true;
+    result.stage = 9;
+    result.source_tangent = lead->tangent_a;
+    return result;
+  };
+
+  const Result forward = run(city::wire::PathDirectionMode::kForward);
+  const Result reverse = run(city::wire::PathDirectionMode::kReverse);
+  if (!forward.ok || !reverse.ok) {
+    test_registry::SetFailureReason(
+        "midair lead contract failed at forward stage " +
+        std::to_string(forward.stage) + " reverse stage " +
+        std::to_string(reverse.stage));
+  }
+  return forward.ok && reverse.ok &&
+         !tangent_compatible(forward.source_tangent, reverse.source_tangent);
 }
 
 bool C666_backbone_terminal_extension_creates_connectivity_patch() {

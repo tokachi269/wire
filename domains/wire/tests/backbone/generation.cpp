@@ -1,5 +1,6 @@
 #include "fixtures.hpp"
 #include "cases.hpp"
+#include "../../src/generation/backbone/emit_shared.hpp"
 
 #include "../registry.hpp"
 
@@ -1208,11 +1209,27 @@ bool C411_backbone_lateral_offset_moves_ports_along_row_axis() {
 bool C412_backbone_lateral_offset_sign_is_deterministic() {
   const std::vector<city::wire::Vec3d> a = offset_points(1.0);
   const std::vector<city::wire::Vec3d> b = offset_points(1.0);
-  if (a.empty() || a.size() != b.size()) {
+  const std::vector<city::wire::Vec3d> reverse = offset_points(
+      1.0, city::wire::PathDirectionMode::kReverse);
+  if (a.empty() || a.size() != b.size() || a.size() != reverse.size()) {
     return false;
   }
   for (std::size_t i = 0; i < a.size(); ++i) {
     if (!almost_equal(a[i], b[i], 1e-9)) {
+      return false;
+    }
+  }
+  std::vector<double> forward_y{};
+  std::vector<double> reverse_y{};
+  forward_y.reserve(a.size());
+  reverse_y.reserve(reverse.size());
+  for (const city::wire::Vec3d& point : a) forward_y.push_back(point.y);
+  for (const city::wire::Vec3d& point : reverse) reverse_y.push_back(point.y);
+  std::sort(forward_y.begin(), forward_y.end());
+  std::sort(reverse_y.begin(), reverse_y.end());
+  for (std::size_t i = 0; i < forward_y.size(); ++i) {
+    if (!almost_equal(forward_y[i], -reverse_y[reverse_y.size() - 1 - i],
+                      1e-9)) {
       return false;
     }
   }
@@ -1252,6 +1269,18 @@ bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector() {
 }
 
 bool C662_backbone_pair_row_axis_does_not_flip_lane_order() {
+  const auto normal = city::wire::generation::backbone::PermutableLaneMirror(
+      {0.0, 1.0, 0.0}, {0.0, 1.0, 0.0}, {1.0, 0.0, 0.0});
+  const auto mirrored = city::wire::generation::backbone::PermutableLaneMirror(
+      {0.0, 1.0, 0.0}, {0.0, -1.0, 0.0}, {1.0, 0.0, 0.0});
+  const auto unsupported = city::wire::generation::backbone::PermutableLaneMirror(
+      {0.0, 0.0, 1.0}, {0.0, 1.0, 0.0}, {1.0, 0.0, 0.0});
+  WIRE_TEST_EXPECT(normal.ok && !normal.value,
+                   "matching row directions unexpectedly mirror lane pairing");
+  WIRE_TEST_EXPECT(mirrored.ok && mirrored.value,
+                   "opposed row directions did not mirror lane pairing");
+  WIRE_TEST_EXPECT(!unsupported.ok && contains_text(unsupported.error, "unsupported"),
+                   "vertical multi-lane row was not explicitly unsupported");
   city::wire::CoreState state;
   if (!prepare_two_lane_low_voltage(state)) {
     return false;

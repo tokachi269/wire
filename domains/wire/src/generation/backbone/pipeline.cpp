@@ -655,6 +655,37 @@ ObjectId port_for_link(const trow& row, std::size_t link_id,
   return (*ports)[bundle_index][lane_index];
 }
 
+EditResult<bool> mirror_permutable_row_endpoints(
+    const CoreState& state, const trow& row_a, const trow& row_b,
+    std::size_t link_id, std::size_t bundle_index, std::size_t lane_count,
+    const Vec3d& span_forward) {
+  EditResult<bool> out{};
+  out.ok = true;
+  if (lane_count < 2) {
+    return out;
+  }
+  const auto row_direction = [&](const trow& row, Vec3d* direction) {
+    const ObjectId first_id = port_for_link(row, link_id, bundle_index, 0);
+    const ObjectId last_id = port_for_link(row, link_id, bundle_index, lane_count - 1);
+    const Port* first = state.view().ports().find(first_id);
+    const Port* last = state.view().ports().find(last_id);
+    if (first == nullptr || last == nullptr || direction == nullptr) {
+      return false;
+    }
+    *direction = last->world_position - first->world_position;
+    return true;
+  };
+
+  Vec3d direction_a{};
+  Vec3d direction_b{};
+  if (!row_direction(row_a, &direction_a) || !row_direction(row_b, &direction_b)) {
+    out.ok = false;
+    out.error = "backbone internal: permutable multi-lane row ports are missing";
+    return out;
+  }
+  return PermutableLaneMirror(direction_a, direction_b, span_forward);
+}
+
 SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& made, const link& edge) {
   SavedBackboneEdgeRef out{};
   (void)made;
@@ -1429,11 +1460,11 @@ void pipeline::retire_untouched(route* route) {
     add_id(route->touched_span_ids, span.id);
     if (span.arow < route->made.rows.size()) {
       add_id(route->touched_port_ids,
-             port_for_link(route->made.rows[span.arow], span.link, span.bundle, span.lane));
+             port_for_link(route->made.rows[span.arow], span.link, span.bundle, span.a_lane));
     }
     if (span.brow < route->made.rows.size()) {
       add_id(route->touched_port_ids,
-             port_for_link(route->made.rows[span.brow], span.link, span.bundle, span.lane));
+             port_for_link(route->made.rows[span.brow], span.link, span.bundle, span.b_lane));
     }
   }
   for (const link& edge : route->ps.links) {
@@ -3623,13 +3654,37 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         out.error = v.error;
         return out;
       }
+      bool mirror_b = false;
+      if (!v.value.tmpl->preserve_conductor_identity &&
+          v.value.tmpl->order_decision_policy ==
+              OrderDecisionPolicyKind::kPermutableHomogeneous) {
+        Vec3d span_forward = edge.dir;
+        if (edge.saved != kInvalidObjectId) {
+          if (const SavedBackboneEdge* saved = state_.view().backbone_edge(edge.saved);
+              saved != nullptr) {
+            span_forward = saved->dir;
+          }
+        }
+        const EditResult<bool> mirror = mirror_permutable_row_endpoints(
+            state_, made->rows[edge.arow], made->rows[edge.brow], edge.id,
+            bundle_index, static_cast<std::size_t>(v.value.count), span_forward);
+        if (!mirror.ok) {
+          out.error = mirror.error;
+          return out;
+        }
+        mirror_b = mirror.value;
+      }
       for (int lane = 0; lane < v.value.count; ++lane) {
+        const std::size_t lane_a = static_cast<std::size_t>(lane);
+        const std::size_t lane_b = mirror_b
+                                       ? static_cast<std::size_t>(v.value.count - 1 - lane)
+                                       : lane_a;
         const ObjectId port_a =
             port_for_link(made->rows[edge.arow], edge.id, bundle_index,
-                          static_cast<std::size_t>(lane));
+                          lane_a);
         const ObjectId port_b =
             port_for_link(made->rows[edge.brow], edge.id, bundle_index,
-                          static_cast<std::size_t>(lane));
+                          lane_b);
         if (port_a == kInvalidObjectId || port_b == kInvalidObjectId) {
           out.error = "backbone internal: backbone topology: span port missing";
           return out;
@@ -3646,9 +3701,12 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
           if (!write_row_continuity_) {
             std::size_t span_arow = edge.arow;
             std::size_t span_brow = edge.brow;
+            std::size_t span_a_lane = lane_a;
+            std::size_t span_b_lane = lane_b;
             if (existing_span->port_a_id == port_b &&
                 existing_span->port_b_id == port_a) {
               std::swap(span_arow, span_brow);
+              std::swap(span_a_lane, span_b_lane);
             } else if (existing_span->port_a_id != port_a ||
                        existing_span->port_b_id != port_b) {
               out.error =
@@ -3658,7 +3716,8 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
             }
             made->spans.push_back(
                 tspan{existing_span_id, edge.id, bundle_index,
-                      static_cast<std::size_t>(lane), span_arow, span_brow,
+                      static_cast<std::size_t>(lane), span_a_lane, span_b_lane,
+                      span_arow, span_brow,
                       false});
             continue;
           }
@@ -3677,8 +3736,9 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
             out.error = endpoints.error;
             return out;
           }
-          made->spans.push_back(tspan{existing_span_id, edge.id, bundle_index, static_cast<std::size_t>(lane),
-                                      edge.arow, edge.brow, false});
+          made->spans.push_back(tspan{existing_span_id, edge.id, bundle_index,
+                                      static_cast<std::size_t>(lane), lane_a,
+                                      lane_b, edge.arow, edge.brow, false});
           continue;
         }
         EditResult<ObjectId> span = state_.AddSpan(
@@ -3697,7 +3757,9 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         }
         add(*changes, span.change_set);
         made->spans.push_back(
-            tspan{span.value, edge.id, bundle_index, static_cast<std::size_t>(lane), edge.arow, edge.brow, true});
+            tspan{span.value, edge.id, bundle_index,
+                  static_cast<std::size_t>(lane), lane_a, lane_b, edge.arow,
+                  edge.brow, true});
       }
     }
   }
@@ -3935,7 +3997,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
       out.error = span_bound.error;
       return out;
     }
-    auto bind_port = [&](std::size_t row_index) -> bool {
+    auto bind_port = [&](std::size_t row_index,
+                         std::size_t physical_lane) -> bool {
       if (row_index >= made.rows.size()) {
         out.error = "backbone internal: backbone graph: port binding row missing";
         return false;
@@ -3949,7 +4012,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         return false;
       }
       const ObjectId port_id =
-          port_for_link(made.rows[row_index], span.link, span.bundle, span.lane);
+          port_for_link(made.rows[row_index], span.link, span.bundle,
+                        physical_lane);
       const Port* port = state_.view().ports().find(port_id);
       if (port == nullptr) {
         out.error = "backbone internal: backbone graph: port missing for binding";
@@ -3974,7 +4038,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
       }
       return true;
     };
-    if (!bind_port(span.arow) || !bind_port(span.brow)) {
+    if (!bind_port(span.arow, span.a_lane) ||
+        !bind_port(span.brow, span.b_lane)) {
       return out;
     }
   }
@@ -4133,9 +4198,9 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       return e;
     };
     rule.start = endpoint(
-        arow, port_for_link(arow, span.link, span.bundle, span.lane));
+        arow, port_for_link(arow, span.link, span.bundle, span.a_lane));
     rule.end = endpoint(
-        brow, port_for_link(brow, span.link, span.bundle, span.lane));
+        brow, port_for_link(brow, span.link, span.bundle, span.b_lane));
     const Span* state_span = state_.view().spans().find(span.id);
     auto apply_group = [&](const group* source, EndpointLayoutRule* endpoint) {
       if (source == nullptr || endpoint == nullptr) {

@@ -1473,9 +1473,11 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     }
 
     const double t = std::clamp(endpoint.source_projection.t, 0.0, 1.0);
-    const double u = endpoint.source_projection.from_node_id == source_edge->node_a ? t : 1.0 - t;
+    const bool source_forward =
+        endpoint.source_projection.from_node_id == source_edge->node_a;
+    const double u = source_forward ? t : 1.0 - t;
     Vec3d source_tangent = source_curve.EvaluateTangent(u);
-    if (Dot(source_tangent, endpoint.away_from_node) < 0.0) {
+    if (!source_forward) {
       source_tangent = ScaleVec(source_tangent, -1.0);
     }
     if (!Normalize(&source_tangent)) {
@@ -1574,6 +1576,10 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
   }
 
   for (const source_lead_spec& spec : source_lead_specs) {
+    curve_boundary branch_boundary = spec.branch_boundary;
+    (void)boundary_for(boundaries, boundary_index,
+                       spec.endpoint.section_key, spec.endpoint.is_start,
+                       &branch_boundary);
     VisualCurvePart lead{};
     lead.kind = VisualCurvePartKind::kLead;
     lead.source_node_id = spec.endpoint.node_id;
@@ -1586,9 +1592,9 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     add_unique_incident(spec.endpoint.edge_id, &lead.incident_edge_ids);
     std::sort(lead.incident_edge_ids.begin(), lead.incident_edge_ids.end());
     lead.boundary_a = spec.source_point;
-    lead.boundary_b = spec.branch_boundary.point;
+    lead.boundary_b = branch_boundary.point;
     lead.tangent_a = spec.source_tangent;
-    lead.tangent_b = spec.branch_boundary.tangent;
+    lead.tangent_b = branch_boundary.tangent;
     lead.attachment_point = spec.source_point;
     lead.has_attachment_point = true;
     lead.passes_attachment_point = true;

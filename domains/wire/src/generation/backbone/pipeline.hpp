@@ -150,6 +150,8 @@ struct tspan {
   std::size_t link = bad;
   std::size_t bundle = bad;
   std::size_t lane = bad;
+  std::size_t a_lane = bad;
+  std::size_t b_lane = bad;
   std::size_t arow = bad;
   std::size_t brow = bad;
   bool is_new = true;

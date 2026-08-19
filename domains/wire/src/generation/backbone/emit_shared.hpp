@@ -13,6 +13,9 @@ int TemplateLayerForSpanLayer(SpanLayer layer);
 
 double LaneOffset(std::size_t lane_index, int count, double spacing_m);
 double PortLayoutYawDeg(const Vec3d& row_axis);
+EditResult<bool> PermutableLaneMirror(const Vec3d& row_direction_a,
+                                      const Vec3d& row_direction_b,
+                                      const Vec3d& span_forward);
 
 EditResult<std::vector<PortPlacementBand>> SelectPortPlacementBands(const PoleTypeDefinition& pole_type,
                                                                     ConnectionCategory category, SpanLayer layer,

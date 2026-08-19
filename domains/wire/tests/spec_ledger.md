@@ -36,6 +36,7 @@
 - 2026-08-19: load時の`identity.id_generator.next`を1へ固定するfaultはC753がload後extensionで検出した。backbone名前filterにはC753が含まれないため、最終検証ではpersistence caseを別途実行する必要がある。
 - 2026-08-19: `PathDirectionMode::kReverse`処理を無視するfaultはC58/C777/C802を通過した。C58はpole position setだけ、C777/C802は逆順入力のcanonical topologyを守る別契約であり、direction mode自体のtopology/placement意味は未保証riskとして残る。
 - 2026-08-19: Generate entryでvalidation前に本stateのID generatorを進めるfaultはC819/C820を通過し、next-idまで見るC790だけが検出した。C819/C820へnext-id不変を追加し、同faultで両方がFAILすることを確認した。
+- 2026-08-19: WASM scene bindingでVisualModelInstanceのrotation X/Yを0へ落とすtransport faultは、production bootstrapとWireBridgeを通す`inherits pole tilt for derived support detail attachments`がCore owner pole rotationとの差として検出した。bridgeはmodel transformを再判断せずpayloadをcopyするだけであり、追加testは不要とした。
 
 ## Backbone Authority Guard Coverage
 

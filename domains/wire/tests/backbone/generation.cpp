@@ -125,10 +125,18 @@ bool C368_backbone_smoke_line() {
   city::wire::BackboneSpec req = line_req(state);
   const int count = bundle_count(state, city::wire::BundleKind::kLowVoltage);
   const auto out = state.GenerateFromBackboneSpec(req);
-  return out.ok && out.value.generated_pole_ids.size() == 2 && out.value.bundle_ids.size() == 1 &&
-         out.value.generated_span_ids.size() == static_cast<std::size_t>(count) &&
-         state.view().poles().size() >= 2 && state.view().bundles().size() >= 1 &&
-         state.view().spans().size() >= static_cast<std::size_t>(count);
+  WIRE_TEST_EXPECT_PRESENCE(out.ok, out.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(
+      out.value.generated_pole_ids.size() == 2 &&
+          out.value.bundle_ids.size() == 1 &&
+          out.value.generated_span_ids.size() ==
+              static_cast<std::size_t>(count) &&
+          state.view().poles().size() >= 2 &&
+          state.view().bundles().size() >= 1 &&
+          state.view().spans().size() >= static_cast<std::size_t>(count),
+      "straight backbone output counts are wrong");
+  return true;
 }
 
 bool C369_backbone_rules_saved() {
@@ -511,27 +519,6 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
 }
 
 bool C824_backbone_seeded_route_fuzz_preserves_common_invariants() {
-  std::size_t representative_invariant_checks = 0;
-  const std::filesystem::path tests_dir = repo_root() / "domains/wire/tests/backbone";
-  for (const auto& entry : std::filesystem::recursive_directory_iterator(tests_dir)) {
-    if (!entry.is_regular_file() || entry.path().filename() == "fixtures.cpp") {
-      continue;
-    }
-    const std::string ext = entry.path().extension().string();
-    if (ext != ".cpp" && ext != ".hpp") {
-      continue;
-    }
-    std::string text{};
-    WIRE_TEST_EXPECT(file_text(entry.path(), &text), "failed to read invariant test source: " + entry.path().string());
-    std::size_t pos = 0;
-    while ((pos = text.find("backbone_common_invariants_pass(", pos)) != std::string::npos) {
-      ++representative_invariant_checks;
-      ++pos;
-    }
-  }
-  WIRE_TEST_EXPECT(representative_invariant_checks >= 10,
-                   "fewer than 10 representative tests call backbone_common_invariants_pass");
-
   const std::array<std::uint32_t, 8> seeds{11U, 29U, 47U, 83U, 131U, 197U, 251U, 307U};
   for (std::uint32_t seed : seeds) {
     std::mt19937 rng(seed);
@@ -558,9 +545,7 @@ bool C824_backbone_seeded_route_fuzz_preserves_common_invariants() {
                        "rejected fuzz request mutated state for seed " + std::to_string(seed));
       continue;
     }
-    std::string invariant_error{};
-    WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error),
-                     "seed " + std::to_string(seed) + ": " + invariant_error);
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   }
   return true;
 }
@@ -747,19 +732,19 @@ bool C392_backbone_polyline3_outputs() {
   city::wire::CoreState state;
   city::wire::BackboneSpec req = poly3_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
-  if (!out.ok || out.value.generated_span_ids.empty()) {
-    return false;
-  }
+  WIRE_TEST_EXPECT_PRESENCE(out.ok, out.error);
+  WIRE_TEST_EXPECT_PRESENCE(!out.value.generated_span_ids.empty(),
+                            "polyline generated no spans");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   for (city::wire::ObjectId span_id : out.value.generated_span_ids) {
-    if (!state.span_layout_rules(span_id).has_rule()) {
-      return false;
-    }
-    if (!state.span_layout(span_id).has_layout()) {
-      return false;
-    }
-    if (state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr) {
-      return false;
-    }
+    WIRE_TEST_EXPECT_ORACLE(state.span_layout_rules(span_id).has_rule(),
+                            "polyline span has no layout rule");
+    WIRE_TEST_EXPECT_ORACLE(state.span_layout(span_id).has_layout(),
+                            "polyline span has no layout");
+    WIRE_TEST_EXPECT_ORACLE(
+        state.find_curve_cache(span_id) != nullptr &&
+            state.find_bounds_cache(span_id) != nullptr,
+        "polyline span has no curve or bounds cache");
   }
   return true;
 }
@@ -855,8 +840,14 @@ bool C400_backbone_multiple_bundles_smoke() {
   add_backbone_bundle(req, city::wire::BundleKind::kCommunication);
   const int count = req_bundle_count(state, req);
   const auto out = state.GenerateFromBackboneSpec(req);
-  return out.ok && out.value.bundle_ids.size() == 2 &&
-         out.value.generated_span_ids.size() == static_cast<std::size_t>(count);
+  WIRE_TEST_EXPECT_PRESENCE(out.ok, out.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(
+      out.value.bundle_ids.size() == 2 &&
+          out.value.generated_span_ids.size() ==
+              static_cast<std::size_t>(count),
+      "multiple-bundle output counts are wrong");
+  return true;
 }
 
 bool C401_backbone_multiple_bundles_polyline3_outputs() {
@@ -1324,12 +1315,15 @@ bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
   city::wire::BackboneSpec req = line_req(state);
   req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 8.660254037844386, 0.0}};
   const auto generated = state.GenerateFromBackboneSpec(req);
+  WIRE_TEST_EXPECT_PRESENCE(generated.ok, generated.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   const city::wire::ObjectId corner_pole = pole_at(state, generated.value.generated_pole_ids, {10.0, 0.0, 0.0});
   const city::wire::SavedBackboneNode* corner_node = state.view().backbone_node_for_pole(corner_pole);
-  if (!generated.ok || generated.value.generated_span_ids.size() != 4 ||
-      state.view().backbone().edges.size() != 2 || corner_node == nullptr) {
-    return false;
-  }
+  WIRE_TEST_EXPECT_ORACLE(
+      generated.value.generated_span_ids.size() == 4 &&
+          state.view().backbone().edges.size() == 2 &&
+          corner_node != nullptr,
+      "sharp corner topology is wrong");
 
   std::unordered_map<city::wire::ObjectId, std::vector<city::wire::Vec3d>> rows{};
   std::unordered_set<city::wire::ObjectId> corner_ports{};

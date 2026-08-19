@@ -51,6 +51,35 @@ reasonに残す。
 `derived_equality`だけのcaseは独立evidenceにならない。full core testは該当case一覧を
 終了時に出力し、件数を`docs/merge_readiness.md`へ記録する。
 
+### canonical backbone acceptance
+
+正常な`CoreState`を生成、更新、regenerate、loadしたbackbone acceptanceは、安定した観測点ごとに
+次の順で検査する。
+
+```text
+canonical successful backbone scenario
+    -> WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state)
+    -> scenario-specific oracle
+```
+
+`WIRE_TEST_EXPECT_BACKBONE_INVARIANTS`は`backbone_common_invariants_pass()`を呼ぶ唯一の通常test入口で、
+scene全体の最低成立条件を`Anchor`として記録する。個別scenarioが守る形状、identity、差分、件数、
+方向等は`Oracle`または`Differential`等として後段に残し、common invariantへ吸収しない。
+
+対象はstraight、corner、branch、cross、multi-lane、incremental、regenerate、save/load、model/socket、
+midair、production-like configuration等の代表的な成功scenarioである。新しいcanonical successful
+scenarioも原則この入口を通す。複数操作を持つtestは、initial generation後、edit後、load後等のうち、
+仕様上安定した最終stateだけを観測する。
+
+invalid input/reject、SourceGuard、pure unit、parser/template単体、intentional intermediate stateには
+一律適用しない。全caseへの機械的追加やmacro文字列のgrep件数をcoverage根拠にしない。
+適用漏れが実際に再発するまでは専用lintやclassification hierarchyを追加しない。
+
+現在の`backbone_common_invariants_pass()`がauthoritative reference、layout/endpoint、row/frame、
+model/cache、visual geometry、connection、HV crossingまで含むため、別の
+`WIRE_TEST_EXPECT_SCENE_BASELINE`は設けない。共通でないmulti-levelの具体高さや曲線形状等は、
+引き続きscenario固有oracleが所有する。
+
 ## test effectiveness
 
 test count、line coverage、branch coverageだけでは、test suiteの価値は評価できない。

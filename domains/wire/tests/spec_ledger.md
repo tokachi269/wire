@@ -40,6 +40,7 @@
 - 2026-08-19: permutable multi-laneのB端対応だけを全体反転するfaultはC764のfinal HV samples XY proper-intersection invariantがlane 0/1の交差として検出した。row representative mirrorを常に無視するfaultは、既存C662へ追加したopposed-row oracleが検出した。productionはfirst/lastの2点と共有span lateralだけでmirrorを決め、交差探索はtestに限定した。
 - 2026-08-19: `PathDirectionMode::kReverse`のguide反転を無視するfaultは、signed lateral offsetの物理側反転を追加したC412が検出した。HV non-crossingはこのdirection modeではなくrow representative mirrorが所有する。
 - 2026-08-19: midair Lead tangentをbranch endpointとのdotで反転する旧faultは、斜めbranchのForward sourceでC665が検出した。C665はForward/Reverse source方向、source attachment、branch body boundary、G1 tangent、finite samplesを確認する。
+- 2026-08-19: canonical successful backbone scenario用のAnchor入口を`WIRE_TEST_EXPECT_BACKBONE_INVARIANTS`へ統一した。NodePatch全欠落faultはC392/C458/C775/C836、HVのB端lane対応全体反転faultはC764/C798/C809が、いずれもcommon invariant理由でFAILした。直接関数呼出し件数を数えていたC824のsource scanは保証にならないため削除し、seeded route fuzz本体は維持した。multi-levelの具体高さはrow offsetを再実装せずscenario oracleへ残し、commonの直接height anchorはsupport level 0またはbranch-down無効時に限定した。
 
 ## Backbone Authority Guard Coverage
 

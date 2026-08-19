@@ -998,7 +998,8 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
     }
     const auto template_it = view.bundle_templates().find(binding.bundle_template_id);
     const bool height_is_direct_anchor =
-        bundle->placement_explicit || template_it == view.bundle_templates().end() ||
+        binding.support_level == 0 ||
+        template_it == view.bundle_templates().end() ||
         !template_it->second.enable_branch_down_offset;
     const double expected_height =
         bundle->placement_explicit ? bundle->height_m : band->height_center_m;
@@ -1049,17 +1050,25 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
                     std::to_string(fixture_local.y));
       }
       if (plan_it->second.row_fixture.available) {
-        const double row_yaw_delta = city::wire::NormalizeYawDeg(
-            plan_it->second.row_fixture.root.rotation_euler_deg.z -
-            binding.layout_yaw_deg);
-        if (std::abs(row_yaw_delta) > 1e-9) {
+        const city::wire::Vec3d fixture_forward =
+            city::wire::RotateEulerXYZDeg(
+                city::wire::WorldForward(),
+                plan_it->second.row_fixture.root.rotation_euler_deg);
+        const city::wire::Vec3d fixture_lateral =
+            city::wire::RotateEulerXYZDeg(
+                city::wire::WorldLateral(),
+                plan_it->second.row_fixture.root.rotation_euler_deg);
+        const city::wire::Vec3d fixture_up =
+            city::wire::RotateEulerXYZDeg(
+                city::wire::WorldUp(),
+                plan_it->second.row_fixture.root.rotation_euler_deg);
+        if (!almost_equal(fixture_forward, frame.forward, 1e-9) ||
+            !almost_equal(fixture_lateral, frame.lateral, 1e-9) ||
+            !almost_equal(fixture_up, frame.up, 1e-9)) {
           return fail("row frame coherence binding " +
                       std::to_string(binding.edge_bundle_id) + " port " +
                       std::to_string(binding.port_id) +
-                      " row fixture yaw expected=" +
-                      std::to_string(binding.layout_yaw_deg) + " actual=" +
-                      std::to_string(
-                          plan_it->second.row_fixture.root.rotation_euler_deg.z));
+                      " row fixture axes do not match the pole-local row frame");
         }
       }
     }

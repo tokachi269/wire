@@ -730,10 +730,17 @@ bool C458_backbone_existing_branch_BD_on_ABC() {
   branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
   branch.path.node_specs = {pole_spec(0, b)};
   const auto second = state.GenerateFromBackboneSpec(branch);
+  WIRE_TEST_EXPECT_PRESENCE(second.ok, second.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   const city::wire::BackboneFrontier frontier = state.view().pole_frontier(b);
-  return second.ok && second.value.generated_pole_ids.size() == 1 &&
-         second.value.generated_span_ids.size() == static_cast<std::size_t>(count) &&
-         frontier.edge_ids.size() == 3 && state.view().backbone().edges.size() == 3;
+  WIRE_TEST_EXPECT_ORACLE(
+      second.value.generated_pole_ids.size() == 1 &&
+          second.value.generated_span_ids.size() ==
+              static_cast<std::size_t>(count) &&
+          frontier.edge_ids.size() == 3 &&
+          state.view().backbone().edges.size() == 3,
+      "branch topology or generated output counts are wrong");
+  return true;
 }
 
 bool C459_backbone_existing_cross_DBE_on_ABC() {
@@ -754,10 +761,17 @@ bool C459_backbone_existing_cross_DBE_on_ABC() {
   cross.path.polyline = {{12.0, -8.0, 0.0}, pole_b->world_transform.position, {20.0, 0.0, 0.0}};
   cross.path.node_specs = {pole_spec(1, b)};
   const auto second = state.GenerateFromBackboneSpec(cross);
+  WIRE_TEST_EXPECT_PRESENCE(second.ok, second.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   const city::wire::BackboneFrontier frontier = state.view().pole_frontier(b);
-  return second.ok && second.value.generated_pole_ids.size() == 2 &&
-         second.value.generated_span_ids.size() == static_cast<std::size_t>(count * 2) &&
-         frontier.edge_ids.size() == 4 && state.view().backbone().edges.size() == 4;
+  WIRE_TEST_EXPECT_ORACLE(
+      second.value.generated_pole_ids.size() == 2 &&
+          second.value.generated_span_ids.size() ==
+              static_cast<std::size_t>(count * 2) &&
+          frontier.edge_ids.size() == 4 &&
+          state.view().backbone().edges.size() == 4,
+      "cross topology or generated output counts are wrong");
+  return true;
 }
 
 namespace {
@@ -1685,15 +1699,23 @@ bool C771_backbone_incremental_cross_completion_matches_one_shot_rows() {
   const std::vector<city::wire::ObjectId> bd_ports_after =
       unique_generated_ports_on_pole(incremental, bd_spans_before, inc_b);
 
-  return inc_bd != city::wire::kInvalidObjectId && inc_be != city::wire::kInvalidObjectId &&
-         actual.pair_rows == 2 && actual.open_rows == 0 &&
-         has_row_key(actual.row_keys, false, inc_bd, inc_be) &&
-         bd_ports_before == bd_ports_after &&
-         std::all_of(bd_spans_before.begin(), bd_spans_before.end(), [&](city::wire::ObjectId span_id) {
-           return incremental.view().spans().find(span_id) != nullptr;
-         }) &&
-         eb_out.value.generated_span_ids.size() == bd_spans_before.size() &&
-         curve_endpoints_match_layout(incremental);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(one_shot);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(incremental);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      inc_bd != city::wire::kInvalidObjectId &&
+          inc_be != city::wire::kInvalidObjectId && actual.pair_rows == 2 &&
+          actual.open_rows == 0 &&
+          has_row_key(actual.row_keys, false, inc_bd, inc_be) &&
+          bd_ports_before == bd_ports_after &&
+          std::all_of(
+              bd_spans_before.begin(), bd_spans_before.end(),
+              [&](city::wire::ObjectId span_id) {
+                return incremental.view().spans().find(span_id) != nullptr;
+              }) &&
+          eb_out.value.generated_span_ids.size() == bd_spans_before.size() &&
+          curve_endpoints_match_layout(incremental),
+      "incremental cross does not match the one-shot row contract");
+  return true;
 }
 
 bool C772_backbone_incremental_pair_promotion_leaves_ambiguous_candidates_open() {
@@ -1764,8 +1786,7 @@ bool C773_backbone_incremental_sharp_completion_derives_jumper_from_continuity()
                        }) >= 1,
                    "sharp completion did not derive a jumper");
   WIRE_TEST_EXPECT(curve_endpoints_match_layout(fixture.state), "curve endpoints do not match layout");
-  std::string invariant_error{};
-  WIRE_TEST_EXPECT(backbone_common_invariants_pass(fixture.state, &invariant_error), invariant_error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(fixture.state);
   return true;
 }
 
@@ -1881,8 +1902,7 @@ bool C837_backbone_source_bundle_endpoint_completion_ignores_other_bundle_open()
                      "completion span is not owned by the source bundle");
   }
   WIRE_TEST_EXPECT(curve_endpoints_match_layout(state), "curve endpoints do not match layout");
-  std::string invariant_error{};
-  WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   return true;
 }
 
@@ -1891,10 +1911,7 @@ bool C775_backbone_incremental_canonical_pair_survives_save_load() {
   WIRE_TEST_EXPECT(make_incremental_cross(&source), "incremental cross fixture generation failed");
   WIRE_TEST_EXPECT(source.completion.ok, source.completion.error);
   WIRE_TEST_EXPECT(canonical_cross_at_b(source), "incremental cross was not canonical at B before save");
-  std::string source_invariant_error{};
-  WIRE_TEST_EXPECT_ANCHOR(
-      backbone_common_invariants_pass(source.state, &source_invariant_error),
-      "before save: " + source_invariant_error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(source.state);
   const JunctionRowSnapshot before = junction_snapshot(source.state, source.pole_b);
   std::string saved{};
   const auto serialized = source.state.SerializeAuthoritative(&saved);
@@ -1916,19 +1933,13 @@ bool C775_backbone_incremental_canonical_pair_survives_save_load() {
     patch_nodes += (patch_nodes.empty() ? "" : ",") +
                    std::to_string(part.source_node_id);
   }
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
   WIRE_TEST_EXPECT_DIFFERENTIAL(
       snapshots_match(before, after),
       "junction row snapshot changed after save/load: before " +
           junction_snapshot_counts(before) + " after " +
           junction_snapshot_counts(after) + " diagnostics=" +
           visual_diagnostics + " patch_nodes=" + patch_nodes);
-  WIRE_TEST_EXPECT_ANCHOR(
-      curve_endpoints_match_layout(loaded),
-      "curve endpoints do not match layout after save/load");
-  std::string invariant_error{};
-  WIRE_TEST_EXPECT_ANCHOR(
-      backbone_common_invariants_pass(loaded, &invariant_error),
-      invariant_error);
   return true;
 }
 
@@ -1995,9 +2006,13 @@ bool C776_backbone_incremental_canonical_pair_survives_regenerate() {
   if (bundle == nullptr) return false;
   const auto updated = fixture.state.UpdateBackboneBundlePlacement(
       bundle_id, true, bundle->height_m + 0.05, bundle->lateral_m, bundle->phase_spacing_m);
+  WIRE_TEST_EXPECT_PRESENCE(updated.ok, updated.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(fixture.state);
   const bool canonical = canonical_cross_at_b(fixture);
   const bool curves = curve_endpoints_match_layout(fixture.state);
-  return updated.ok && canonical && curves;
+  WIRE_TEST_EXPECT_ORACLE(canonical && curves,
+                          "regenerate changed the canonical pair or curve endpoints");
+  return true;
 }
 
 bool C777_backbone_incremental_reverse_completion_uses_same_pair_key() {
@@ -2008,10 +2023,15 @@ bool C777_backbone_incremental_reverse_completion_uses_same_pair_key() {
       !canonical_cross_at_b(reverse) || !canonical_cross_at_b(forward)) {
     return false;
   }
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(reverse.state);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(forward.state);
   const JunctionRowSnapshot a = junction_snapshot(reverse.state, reverse.pole_b);
   const JunctionRowSnapshot b = junction_snapshot(forward.state, forward.pole_b);
-  return snapshots_match(a, b) && curve_endpoints_match_layout(reverse.state) &&
-         curve_endpoints_match_layout(forward.state);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      snapshots_match(a, b) && curve_endpoints_match_layout(reverse.state) &&
+          curve_endpoints_match_layout(forward.state),
+      "reverse completion changed the canonical pair or curve endpoints");
+  return true;
 }
 
 bool C778_backbone_incremental_multi_bundle_completion_promotes_each_scope_once() {
@@ -4425,8 +4445,7 @@ bool viewer_default_t_branch_keeps_hv_and_only_flagged_lowering(bool anchor_at_e
   }
 
   WIRE_TEST_EXPECT(curve_endpoints_match_layout(state), "curve endpoints do not match layout");
-  std::string invariant_error{};
-  WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   return true;
 }
 
@@ -4583,8 +4602,10 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
   city::wire::BackboneSpec base_request = hv_poly3_req(state);
   WIRE_TEST_EXPECT(use_explicit_hv_placement(&base_request), "failed to apply explicit HV placement to base request");
   const auto base = state.GenerateFromBackboneSpec(base_request);
-  WIRE_TEST_EXPECT(base.ok, base.error);
-  WIRE_TEST_EXPECT(base.value.generated_pole_ids.size() == 3, "base HV polyline did not generate 3 poles");
+  WIRE_TEST_EXPECT_PRESENCE(base.ok, base.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(base.value.generated_pole_ids.size() == 3,
+                          "base HV polyline did not generate 3 poles");
   const city::wire::ObjectId junction = base.value.generated_pole_ids[1];
   WIRE_TEST_EXPECT(expected(state, junction, {0.0}), "base junction levels are not {0}");
   WIRE_TEST_EXPECT(add_hv_edge(junction, {20.0, -8.0, 0.0}, false), "failed to add first HV branch edge");
@@ -4594,15 +4615,19 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
   WIRE_TEST_EXPECT(add_hv_edge(junction, {20.0, 8.0, 0.0}, false), "failed to add third HV branch edge");
   WIRE_TEST_EXPECT(expected(state, junction, {0.0, 1.0, 2.0}), "degree 5 junction levels are not {0,1,2}");
   WIRE_TEST_EXPECT(add_hv_edge(junction, {4.0, -8.0, 0.0}, true), "failed to add fourth HV branch edge");
-  WIRE_TEST_EXPECT(expected(state, junction, {0.0, 1.0, 2.0}), "degree 6 junction levels changed unexpectedly");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(expected(state, junction, {0.0, 1.0, 2.0}),
+                          "degree 6 junction levels changed unexpectedly");
 
   std::string saved{};
   const auto saved_out = state.SerializeAuthoritative(&saved);
   WIRE_TEST_EXPECT(saved_out.ok, saved_out.error);
   city::wire::CoreState loaded;
   const auto loaded_result = loaded.DeserializeAuthoritative(saved);
-  WIRE_TEST_EXPECT(loaded_result.ok, loaded_result.error);
-  WIRE_TEST_EXPECT(expected(loaded, junction, {0.0, 1.0, 2.0}), "loaded junction levels are not {0,1,2}");
+  WIRE_TEST_EXPECT_PRESENCE(loaded_result.ok, loaded_result.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
+  WIRE_TEST_EXPECT_ORACLE(expected(loaded, junction, {0.0, 1.0, 2.0}),
+                          "loaded junction levels are not {0,1,2}");
   std::string legacy{};
   for (std::size_t line_begin = 0; line_begin < saved.size();) {
     const std::size_t line_end = saved.find('\n', line_begin);
@@ -4620,13 +4645,11 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
   }
   city::wire::CoreState legacy_loaded;
   const auto legacy_loaded_result = legacy_loaded.DeserializeAuthoritative(legacy);
-  WIRE_TEST_EXPECT(legacy_loaded_result.ok, legacy_loaded_result.error);
-  WIRE_TEST_EXPECT(expected(legacy_loaded, junction, {0.0, 1.0, 2.0}),
-                   "legacy loaded junction levels are not {0,1,2}");
-  std::string invariant_error{};
-  WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
-  WIRE_TEST_EXPECT(backbone_common_invariants_pass(loaded, &invariant_error), invariant_error);
-  WIRE_TEST_EXPECT(backbone_common_invariants_pass(legacy_loaded, &invariant_error), invariant_error);
+  WIRE_TEST_EXPECT_PRESENCE(legacy_loaded_result.ok,
+                            legacy_loaded_result.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(legacy_loaded);
+  WIRE_TEST_EXPECT_ORACLE(expected(legacy_loaded, junction, {0.0, 1.0, 2.0}),
+                          "legacy loaded junction levels are not {0,1,2}");
   return true;
 }
 
@@ -4635,22 +4658,19 @@ bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {
     city::wire::CoreState state;
     const auto out = state.GenerateFromBackboneSpec(line_req(state));
     if (!out.ok || !row_continuity_graph_lint_passes(state)) return false;
-    std::string invariant_error{};
-    WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   }
   {
     city::wire::CoreState state;
     const auto out = state.GenerateFromBackboneSpec(hv_poly3_req(state));
     if (!out.ok || !row_continuity_graph_lint_passes(state)) return false;
-    std::string invariant_error{};
-    WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   }
   {
     city::wire::CoreState state;
     const auto spans = lowering_branch_spans(state);
     if (spans.empty() || !row_continuity_graph_lint_passes(state)) return false;
-    std::string invariant_error{};
-    WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error), invariant_error);
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   }
   {
     IncrementalCrossFixture cross{};
@@ -4658,8 +4678,7 @@ bool C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross() {
         !row_continuity_graph_lint_passes(cross.state)) {
       return false;
     }
-    std::string invariant_error{};
-    WIRE_TEST_EXPECT(backbone_common_invariants_pass(cross.state, &invariant_error), invariant_error);
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(cross.state);
   }
   return true;
 }
@@ -4789,9 +4808,8 @@ bool C815_backbone_sharp_pair_height_is_operation_order_independent() {
   WIRE_TEST_EXPECT(one_levels == incremental_levels, "one-shot and incremental sharp endpoint levels differ");
   WIRE_TEST_EXPECT(curve_endpoints_match_layout(one_shot), "one-shot curve endpoints do not match layout");
   WIRE_TEST_EXPECT(curve_endpoints_match_layout(incremental), "incremental curve endpoints do not match layout");
-  std::string invariant_error{};
-  WIRE_TEST_EXPECT(backbone_common_invariants_pass(one_shot, &invariant_error), invariant_error);
-  WIRE_TEST_EXPECT(backbone_common_invariants_pass(incremental, &invariant_error), invariant_error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(one_shot);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(incremental);
   return true;
 }
 

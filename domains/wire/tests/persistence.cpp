@@ -397,16 +397,20 @@ bool C751_authoritative_load_roundtrip_rederives_bit_exact_outputs() {
   std::string saved{};
   if (!make_roundtrip_source(&source, &saved, nullptr)) return false;
   city::wire::CoreState first_load;
-  if (!first_load.DeserializeAuthoritative(saved).ok) return false;
+  const auto first_loaded = first_load.DeserializeAuthoritative(saved);
+  WIRE_TEST_EXPECT_PRESENCE(first_loaded.ok, first_loaded.error);
   DerivedSnapshot before{};
   std::string canonical{};
   if (!snapshot_derived(first_load, &before)) return false;
   if (!first_load.SerializeAuthoritative(&canonical).ok) return false;
   city::wire::CoreState second_load;
   DerivedSnapshot after{};
-  if (!second_load.DeserializeAuthoritative(canonical).ok) return false;
+  const auto second_loaded = second_load.DeserializeAuthoritative(canonical);
+  WIRE_TEST_EXPECT_PRESENCE(second_loaded.ok, second_loaded.error);
   if (!snapshot_derived(second_load, &after)) return false;
-  return same_derived(before, after);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(same_derived(before, after),
+                                "derived output changed across repeated load");
+  return true;
 }
 
 bool C752_authoritative_load_resave_is_byte_identical() {
@@ -436,7 +440,8 @@ bool C753_authoritative_load_continues_editing_without_id_collision() {
                               end_pole->world_transform.position.y + 8.0, 0.0}};
   extension.path.node_specs.push_back(backbone_tests::pole_spec(0, end_pole->id));
   const auto extended = loaded.GenerateFromBackboneSpec(extension);
-  if (!extended.ok) return false;
+  WIRE_TEST_EXPECT_PRESENCE(extended.ok, extended.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
   std::unordered_set<city::wire::ObjectId> ids{};
   for (const city::wire::Pole& pole : loaded.view().poles().items()) {
     if (!ids.insert(pole.id).second) return false;

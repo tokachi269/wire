@@ -342,7 +342,13 @@ bool C516_backbone_generated_pole_with_saved_graph_still_connects() {
   branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
   branch.path.node_specs = {pole_spec(0, b)};
   const auto second = state.GenerateFromBackboneSpec(branch);
-  return second.ok && !second.value.generated_span_ids.empty() && state.view().pole_frontier(b).edge_ids.size() == 3;
+  WIRE_TEST_EXPECT_PRESENCE(second.ok, second.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(
+      !second.value.generated_span_ids.empty() &&
+          state.view().pole_frontier(b).edge_ids.size() == 3,
+      "existing-pole continuation did not connect to the saved graph");
+  return true;
 }
 
 bool C518_backbone_lowered_layout_places_support_and_endpoint_at_final_height() {
@@ -2127,18 +2133,16 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
   if (!state.UpdateBundleTemplate(hv).ok) return false;
 
   const auto generated = state.GenerateFromBackboneSpec(request);
-  if (!generated.ok || generated.value.generated_pole_ids.size() != 2 ||
-      generated.value.generated_span_ids.size() != 3 ||
-      state.view().poles().size() != baseline.view().poles().size() ||
-      state.view().ports().size() != baseline.view().ports().size() ||
-      state.view().spans().size() != baseline.view().spans().size() ||
-      state.view().bundles().size() != baseline.view().bundles().size()) {
-    return false;
-  }
-  std::string visual_geometry_error{};
-  WIRE_TEST_EXPECT(
-      hv_edge_body_xy_intersections_absent(state, &visual_geometry_error),
-      visual_geometry_error);
+  WIRE_TEST_EXPECT_PRESENCE(generated.ok, generated.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(
+      generated.value.generated_pole_ids.size() == 2 &&
+          generated.value.generated_span_ids.size() == 3 &&
+          state.view().poles().size() == baseline.view().poles().size() &&
+          state.view().ports().size() == baseline.view().ports().size() &&
+          state.view().spans().size() == baseline.view().spans().size() &&
+          state.view().bundles().size() == baseline.view().bundles().size(),
+      "HV model scene changed authoritative output counts");
 
   std::unordered_set<city::wire::ObjectId> unique_ports{};
   for (city::wire::ObjectId span_id : generated.value.generated_span_ids) {
@@ -2318,7 +2322,9 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
   city::wire::Transformd moved_transform = moved_pole->world_transform;
   moved_transform.position = moved_transform.position + city::wire::Vec3d{1.0, 2.0, 0.5};
   moved_transform.rotation_euler_deg = {7.0, -4.0, 13.0};
-  if (!state.MovePole(moved_pole_id, moved_transform).ok) return false;
+  const auto moved = state.MovePole(moved_pole_id, moved_transform);
+  WIRE_TEST_EXPECT_PRESENCE(moved.ok, moved.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   std::vector<std::string> moved_keys{};
   bool moved_body_version_changed = false;
   bool moved_body_frame_matches = false;
@@ -3453,7 +3459,10 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
   const double next_height = *base_height_before + kHeightDelta;
   const auto updated = state.UpdateBackboneBundlePlacement(
       bundle_id, true, next_height, bundle->lateral_m, bundle->phase_spacing_m);
-  if (!updated.ok || !updated.value) return false;
+  WIRE_TEST_EXPECT_PRESENCE(updated.ok, updated.error);
+  WIRE_TEST_EXPECT_PRESENCE(updated.value,
+                            "bundle placement update reported no change");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
 
   const city::wire::Bundle* after_bundle = state.view().bundles().find(bundle_id);
   const std::optional<double> port_height_after = average_port_height();

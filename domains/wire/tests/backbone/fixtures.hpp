@@ -93,3 +93,14 @@ bool hv_edge_body_xy_intersections_absent(const city::wire::CoreState& state,
 bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::string* reason);
 
 } // namespace backbone_tests
+
+#define WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state)                         \
+  do {                                                                      \
+    std::string wire_backbone_invariant_reason{};                           \
+    WIRE_TEST_EXPECT_ANCHOR(                                                \
+        ::backbone_tests::backbone_common_invariants_pass(                  \
+            (state), &wire_backbone_invariant_reason),                      \
+        wire_backbone_invariant_reason.empty()                              \
+            ? "backbone common invariant failed without a reason"          \
+            : wire_backbone_invariant_reason);                              \
+  } while (false)

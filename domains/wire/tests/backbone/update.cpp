@@ -2183,11 +2183,25 @@ bool C713_backbone_regenerate_pole_type_structure_matches_fresh() {
   }
   const auto fresh_template_update = fresh.UpdatePoleTypeDefinition(fresh_edited);
   const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
-  return fresh_edited_band && fresh_template_update.ok && fresh_generated.ok &&
-         same_route_bundle_signatures(route_bundle_signatures(state, city::wire::BundleKind::kLowVoltage),
-                                      route_bundle_signatures(fresh, city::wire::BundleKind::kLowVoltage)) &&
-         visual_part_count(state, city::wire::VisualCurvePartKind::kNodePatch) ==
-             visual_part_count(fresh, city::wire::VisualCurvePartKind::kNodePatch);
+  WIRE_TEST_EXPECT_PRESENCE(fresh_edited_band,
+                            "fresh pole type has no matching LV band");
+  WIRE_TEST_EXPECT_PRESENCE(fresh_template_update.ok,
+                            fresh_template_update.error);
+  WIRE_TEST_EXPECT_PRESENCE(fresh_generated.ok, fresh_generated.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(fresh);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      same_route_bundle_signatures(
+          route_bundle_signatures(state,
+                                  city::wire::BundleKind::kLowVoltage),
+          route_bundle_signatures(fresh,
+                                  city::wire::BundleKind::kLowVoltage)) &&
+          visual_part_count(state,
+                            city::wire::VisualCurvePartKind::kNodePatch) ==
+              visual_part_count(fresh,
+                                city::wire::VisualCurvePartKind::kNodePatch),
+      "regenerated pole structure does not match fresh generation");
+  return true;
 }
 
 bool C676_backbone_noop_move_preserves_port_positions_exactly() {

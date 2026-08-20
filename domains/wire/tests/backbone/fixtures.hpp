@@ -90,6 +90,8 @@ bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
                                 const city::wire::CoreState& state);
 bool hv_edge_body_xy_intersections_absent(const city::wire::CoreState& state,
                                           std::string* reason);
+bool hv_edge_body_lane_order_consistent(const city::wire::CoreState& state,
+                                        std::string* reason);
 bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::string* reason);
 
 } // namespace backbone_tests

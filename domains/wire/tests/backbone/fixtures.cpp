@@ -860,6 +860,70 @@ bool hv_connection_xy_intersections_absent(const city::wire::CoreState& state,
   return true;
 }
 
+bool hv_edge_body_lane_order_consistent(const city::wire::CoreState& state,
+                                        std::string* reason) {
+  const auto fail = [&](const std::string& message) {
+    if (reason != nullptr) {
+      *reason = message;
+    }
+    return false;
+  };
+  const auto same_section = [](const city::wire::VisualCurvePart& a,
+                               const city::wire::VisualCurvePart& b) {
+    return a.has_section_key == b.has_section_key &&
+           (!a.has_section_key ||
+            (a.section_key.rule_owner_id == b.section_key.rule_owner_id &&
+             a.section_key.rule_id == b.section_key.rule_id &&
+             a.section_key.instance_index == b.section_key.instance_index));
+  };
+
+  const auto& parts = state.view().visual_curve_parts().parts;
+  for (const city::wire::VisualCurvePart& first : parts) {
+    const auto first_template = state.view().bundle_templates().find(first.bundle_template_id);
+    if (first.kind != city::wire::VisualCurvePartKind::kEdgeBody ||
+        first.samples.size() < 2 || first.lane_index != 0 ||
+        first_template == state.view().bundle_templates().end() ||
+        first_template->second.category != city::wire::ConnectionCategory::kHighVoltage) {
+      continue;
+    }
+
+    const city::wire::VisualCurvePart* last = nullptr;
+    for (const city::wire::VisualCurvePart& candidate : parts) {
+      if (candidate.kind != city::wire::VisualCurvePartKind::kEdgeBody ||
+          candidate.samples.size() < 2 ||
+          candidate.source_edge_id != first.source_edge_id ||
+          candidate.source_bundle_id != first.source_bundle_id ||
+          candidate.bundle_template_id != first.bundle_template_id ||
+          !same_section(first, candidate) ||
+          candidate.lane_index <= first.lane_index) {
+        continue;
+      }
+      if (last == nullptr || candidate.lane_index > last->lane_index) {
+        last = &candidate;
+      }
+    }
+    if (last == nullptr) {
+      continue;
+    }
+
+    const city::wire::Vec3d start_direction =
+        last->samples.front() - first.samples.front();
+    const city::wire::Vec3d end_direction =
+        last->samples.back() - first.samples.back();
+    const double alignment = start_direction.x * end_direction.x +
+                             start_direction.y * end_direction.y;
+    if (alignment < -city::wire::kIntersectionTolerance) {
+      return fail("HV edge " + std::to_string(first.source_edge_id) +
+                  " bundle " + std::to_string(first.source_bundle_id) +
+                  " reverses first-to-last lane order in final visual samples");
+    }
+  }
+  if (reason != nullptr) {
+    reason->clear();
+  }
+  return true;
+}
+
 bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::string* reason) {
   const auto fail = [&](const std::string& message) {
     if (reason != nullptr) {
@@ -905,6 +969,9 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
   const city::wire::CoreView view = state.view();
   std::string visual_geometry_error{};
   if (!hv_edge_body_xy_intersections_absent(state, &visual_geometry_error)) {
+    return fail(visual_geometry_error);
+  }
+  if (!hv_edge_body_lane_order_consistent(state, &visual_geometry_error)) {
     return fail(visual_geometry_error);
   }
   if (!hv_connection_xy_intersections_absent(state, &visual_geometry_error)) {
@@ -1394,7 +1461,13 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
           alignment < 0.0 ? lane_count - 1 - continuity.a.lane_index
                           : continuity.a.lane_index;
       if (continuity.b.lane_index != expected_b_lane) {
-        return fail("row continuity lane pairing disagrees with final Port row directions");
+        return fail("row continuity node " + std::to_string(continuity.node_id) +
+                    " edge bundles " + std::to_string(continuity.a.edge_bundle_id) +
+                    "/" + std::to_string(continuity.b.edge_bundle_id) +
+                    " lanes " + std::to_string(continuity.a.lane_index) +
+                    "/" + std::to_string(continuity.b.lane_index) +
+                    " disagrees with expected lane " +
+                    std::to_string(expected_b_lane));
       }
     }
   }

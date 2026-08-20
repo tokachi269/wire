@@ -190,11 +190,16 @@ private:
       std::size_t lane_index, double layout_yaw_deg,
       int support_level, int support_group_id, ObjectId port_id,
       const Vec3d& world_position);
+  EditResult<bool> reverse_backbone_row_lanes(
+      ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key);
   EditResult<bool> bind_backbone_row_continuity(ObjectId node_id,
                                                 ObjectId edge_bundle_a,
                                                 std::size_t lane_a,
                                                 ObjectId edge_bundle_b,
                                                 std::size_t lane_b);
+  void remove_backbone_row_continuities(ObjectId node_id,
+                                        ObjectId edge_bundle_a,
+                                        ObjectId edge_bundle_b);
   void remove_backbone_row_continuities_for_lanes(const std::vector<ObjectId>& edge_bundle_ids,
                                                   std::size_t first_retired_lane);
   enum class BackboneRegenerateCause : std::uint8_t {

@@ -70,26 +70,21 @@ double PortLayoutYawDeg(const Vec3d& row_axis) {
 }
 
 EditResult<bool> PermutableLaneMirror(const Vec3d& row_direction_a,
-                                      const Vec3d& row_direction_b,
-                                      const Vec3d& span_forward) {
+                                      const Vec3d& row_direction_b) {
   EditResult<bool> out{};
   Vec3d direction_a = row_direction_a;
   Vec3d direction_b = row_direction_b;
-  Vec3d lateral = ComputeLateralAxis(span_forward);
-  if (!NormalizeXY(&direction_a) || !NormalizeXY(&direction_b) ||
-      !NormalizeXY(&lateral)) {
+  if (!NormalizeXY(&direction_a) || !NormalizeXY(&direction_b)) {
     out.error =
         "backbone unsupported: permutable multi-lane row has no horizontal direction";
     return out;
   }
-  const double sign_a = Dot(direction_a, lateral);
-  const double sign_b = Dot(direction_b, lateral);
-  if (std::abs(sign_a) <= kUnitlessTolerance ||
-      std::abs(sign_b) <= kUnitlessTolerance) {
-    out.error = "backbone unsupported: permutable multi-lane row is not lateral";
+  const double alignment = Dot(direction_a, direction_b);
+  if (std::abs(alignment) <= kUnitlessTolerance) {
+    out.error = "backbone unsupported: permutable multi-lane rows are orthogonal";
     return out;
   }
-  out.value = sign_a * sign_b < 0.0;
+  out.value = alignment < 0.0;
   out.ok = true;
   return out;
 }

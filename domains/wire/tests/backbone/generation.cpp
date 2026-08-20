@@ -1261,17 +1261,17 @@ bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector() {
 
 bool C662_backbone_pair_row_axis_does_not_flip_lane_order() {
   const auto normal = city::wire::generation::backbone::PermutableLaneMirror(
-      {0.0, 1.0, 0.0}, {0.0, 1.0, 0.0}, {1.0, 0.0, 0.0});
+      {0.0, 1.0, 0.0}, {0.0, 1.0, 0.0});
   const auto mirrored = city::wire::generation::backbone::PermutableLaneMirror(
-      {0.0, 1.0, 0.0}, {0.0, -1.0, 0.0}, {1.0, 0.0, 0.0});
+      {0.0, 1.0, 0.0}, {0.0, -1.0, 0.0});
   const auto unsupported = city::wire::generation::backbone::PermutableLaneMirror(
-      {0.0, 0.0, 1.0}, {0.0, 1.0, 0.0}, {1.0, 0.0, 0.0});
+      {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0});
   WIRE_TEST_EXPECT(normal.ok && !normal.value,
                    "matching row directions unexpectedly mirror lane pairing");
   WIRE_TEST_EXPECT(mirrored.ok && mirrored.value,
                    "opposed row directions did not mirror lane pairing");
   WIRE_TEST_EXPECT(!unsupported.ok && contains_text(unsupported.error, "unsupported"),
-                   "vertical multi-lane row was not explicitly unsupported");
+                   "orthogonal multi-lane rows were not explicitly unsupported");
   city::wire::CoreState state;
   if (!prepare_two_lane_low_voltage(state)) {
     return false;

@@ -1694,7 +1694,7 @@ bool C728_backbone_pipeline_has_no_run_mode_flags() {
   WIRE_TEST_EXPECT(
       function_body(
           source,
-          "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+          "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,",
           &body),
       "pipeline::emit_ports body is missing");
   WIRE_TEST_EXPECT(contains_text(body, "Port* existing_port"),

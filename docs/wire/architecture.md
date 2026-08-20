@@ -116,12 +116,17 @@ context linkは判断入力であり、生成・保存対象ではない。
 T/cross/branchのkind enumは作らず、continuityと派生rowの組合せで表す。
 
 `preserve_conductor_identity=false`かつ`order_decision_policy=kPermutableHomogeneous`の
-multi-lane rowは、XY上で横一列に並ぶ配置だけをsupportedとする。各径間で共有するedge方向から
-`span_lateral`を1つ作り、両端の`last lane - first lane`のXY方向を同じ`span_lateral`へ射影する。
-符号が異なる場合だけB端のlane対応を全体反転する。これは1 bitのmirror決定であり、任意permutationを
-探索しない。first/lastのXY方向が得られない縦積みやlateralでない配置はfallbackせずunsupportedとする。
-保存済みedgeでは保存済みedge方向を使い、新規edgeでは同一径間の共有方向を使う。共有方向の符号反転は
-両端の射影符号を同時に反転するため、mirror決定は入力pathのForward/Reverseに依存しない。
+multi-lane rowは、XY上で横一列に並ぶ配置だけをsupportedとする。両端の
+`last lane - first lane`のXY方向を比較し、dotが負の場合だけ片端のlane対応を全体反転する。
+これは1 bitのmirror決定であり、任意permutationを探索しない。first/lastのXY方向が得られない縦積み、
+または両row方向が直交して1 bitで決められない配置はfallbackせずunsupportedとする。
+
+promotionで既存Portのrow frameが変わる場合は、全Port frameの確定後に`emit_ports`が
+`is_new=false`のcontext edgeだけを対象とし、既存edgeの反対側rowに対するmirrorを最終位置から1回だけ決める。
+Port entityは維持し、対象edge bundleのPortBindingとSpan endpointをidentityまたは全体reverseのどちらかで
+一括更新する。context linkはこの判断入力にだけ使い、`tspan`化または`save_graph()`の保存対象にしない。
+`emit_spans`は`is_new=true`のedgeだけを対象とし、新規Span endpointを最終Port位置から同じ1 bit規則で決める。
+同じedgeを両経路で処理してはいけない。
 
 異なるedge bundleを`SavedBackboneRowContinuity`で接続する場合も、permutable laneの対応は
 両rowの最終Port列`last lane - first lane`のXY方向から1 bitだけ決める。方向のdotが負ならB側laneを
@@ -129,6 +134,10 @@ multi-lane rowは、XY上で横一列に並ぶ配置だけをsupportedとする�
 peer edgeを選ばない。鋭角判定やJumper materializationはlane対応を再決定せず、保存済みcontinuityの
 異なるA/B lane indexを消費する。横方向が得られない、または両row方向が直交して1 bitで決められない
 配置はfallbackせずunsupportedとする。
+
+Span endpoint対応とcross-edge continuity対応は異なる正本関係である。前者は最終`trow`、後者は
+Span endpoint反映後の`SavedBackbonePortBinding`を各1回だけ読む。生成中の物理slotである`trow` laneを
+保存済みbinding laneの代用にせず、両経路は上記の1 bitベクトル判定だけを共有する。
 
 `PathDirectionMode`はユーザーが引いた向きの意味を持ち、signed lateral offsetやsource/branchの進行方向へ
 適用する。permutable laneのnon-crossingとcanonical topology identityは`PathDirectionMode`へ依存させない。

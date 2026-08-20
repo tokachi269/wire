@@ -597,7 +597,7 @@ bool C520_backbone_duplicate_span_binding_preflight_before_emit() {
   }
   const std::size_t route_pos = cpp.find("EditResult<pipeline::route> pipeline::emit_route");
   const std::size_t check_call = cpp.find("return check(ps.value)", route_pos);
-  const std::size_t emit_call = cpp.find("return emit(ps.value, intents.value)", route_pos);
+  const std::size_t emit_call = cpp.find("return emit(ps.value, placement.value)", route_pos);
   if (route_pos == std::string::npos || check_call == std::string::npos || emit_call == std::string::npos ||
       check_call > emit_call) {
     return false;
@@ -668,7 +668,7 @@ bool C523_backbone_scope_gate_matches_entrypoint() {
   const std::size_t route_pos = backbone_text.find("EditResult<pipeline::route> pipeline::emit_route");
   const std::size_t check_call = backbone_text.find("return check(ps.value)", route_pos);
   const std::size_t intent_call = backbone_text.find("return make(ps.value)", route_pos);
-  const std::size_t emit_call = backbone_text.find("return emit(ps.value, intents.value)", route_pos);
+  const std::size_t emit_call = backbone_text.find("return emit(ps.value, placement.value)", route_pos);
   const bool preflight_before_emit = route_pos != std::string::npos && check_call != std::string::npos &&
                                      intent_call != std::string::npos && emit_call != std::string::npos &&
                                      check_call < intent_call && intent_call < emit_call;
@@ -716,7 +716,7 @@ bool C533_backbone_build_mutation_order_is_fixed() {
   const std::size_t check_pos = cpp.find("return check(ps.value)", route_pos);
   const std::size_t intent_pos = cpp.find("return make(ps.value)", route_pos);
   const std::size_t group_pos = cpp.find("return make(ps.value, intents.value)", route_pos);
-  const std::size_t emit_pos = cpp.find("return emit(ps.value, intents.value)", route_pos);
+  const std::size_t emit_pos = cpp.find("return emit(ps.value, placement.value)", route_pos);
   const std::size_t graph_pos = cpp.find("return save_graph(", route_pos);
   const std::size_t rules_pos = cpp.find("rules next = make(route.made, route.ps, route.placement)", derived_pos);
   const std::size_t layout_pos = cpp.find("return make(saved)", derived_pos);
@@ -1627,7 +1627,7 @@ bool C720_source_edge_pipeline_front_half_does_not_read_curve_projection() {
   std::string check_body;
   std::string emit_ports_body;
   if (!function_body(text, "EditResult<bool> pipeline::check(const pairs& ps) const", &check_body) ||
-      !function_body(text, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+      !function_body(text, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,",
                      &emit_ports_body)) {
     return false;
   }

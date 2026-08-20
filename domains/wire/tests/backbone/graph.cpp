@@ -970,17 +970,23 @@ std::vector<PortBindingSnapshot> port_binding_snapshot(const city::wire::CoreSta
   return out;
 }
 
-bool same_port_binding_identity(const std::vector<PortBindingSnapshot>& a,
-                                const std::vector<PortBindingSnapshot>& b) {
+bool same_port_identity_or_reverse(const std::vector<PortBindingSnapshot>& a,
+                                   const std::vector<PortBindingSnapshot>& b) {
   if (a.size() != b.size()) {
     return false;
   }
-  for (std::size_t i = 0; i < a.size(); ++i) {
-    if (a[i].lane != b[i].lane || a[i].port_id != b[i].port_id) {
-      return false;
-    }
-  }
-  return true;
+  const bool identity = std::equal(
+      a.begin(), a.end(), b.begin(),
+      [](const PortBindingSnapshot& lhs, const PortBindingSnapshot& rhs) {
+        return lhs.lane == rhs.lane && lhs.port_id == rhs.port_id;
+      });
+  const bool reversed = std::equal(
+      a.begin(), a.end(), b.rbegin(),
+      [lane_count = a.size()](const PortBindingSnapshot& lhs,
+                              const PortBindingSnapshot& rhs) {
+        return lhs.lane + rhs.lane + 1 == lane_count && lhs.port_id == rhs.port_id;
+      });
+  return identity || reversed;
 }
 
 std::optional<city::wire::Transformd> endpoint_fixture_transform(
@@ -2240,6 +2246,33 @@ bool C779_backbone_incremental_same_template_multi_placement_uses_placement_key(
 }
 
 bool C785_backbone_incremental_hv_promotion_reframes_existing_ports() {
+  {
+    city::wire::CoreState replay;
+    city::wire::BackboneSpec base = line_req(replay);
+    base.bundles.clear();
+    add_backbone_bundle(base, city::wire::BundleKind::kHighVoltage);
+    base.path.polyline = {
+        {-2.064, 6.303, 0.0}, {17.360, 4.890, 0.0}, {31.800, 22.280, 0.0}};
+    const auto base_out = replay.GenerateFromBackboneSpec(base);
+    WIRE_TEST_EXPECT(base_out.ok && base_out.value.generated_pole_ids.size() == 3,
+                     base_out.error.empty() ? "workspace replay base generation failed"
+                                            : base_out.error);
+    const city::wire::ObjectId junction = base_out.value.generated_pole_ids.back();
+    const city::wire::Pole* junction_pole = replay.view().poles().find(junction);
+    WIRE_TEST_EXPECT(junction_pole != nullptr, "workspace replay junction is missing");
+
+    city::wire::BackboneSpec added = line_req(replay);
+    added.bundles.clear();
+    add_backbone_bundle(added, city::wire::BundleKind::kHighVoltage);
+    added.path.polyline = {{32.920, 0.323, 0.0}, junction_pole->world_transform.position};
+    added.path.node_specs = {pole_spec(1, junction)};
+    const auto added_out = replay.GenerateFromBackboneSpec(added);
+    WIRE_TEST_EXPECT(added_out.ok,
+                     added_out.error.empty() ? "workspace replay branch generation failed"
+                                             : added_out.error);
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(replay);
+  }
+
   city::wire::CoreState state;
   const auto abc = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!abc.ok || abc.value.generated_pole_ids.size() != 3) return false;
@@ -2310,11 +2343,20 @@ bool C785_backbone_incremental_hv_promotion_reframes_existing_ports() {
                std::abs(city::wire::NormalizeYawDeg(
                    after->layout_yaw_deg - old_binding.layout_yaw_deg)) > 1e-9;
       });
-  return snapshot.pair_rows == 2 && snapshot.open_rows == 0 &&
-         has_row_key(snapshot.row_keys, false, bd_edge, be_edge) &&
-         same_port_binding_identity(before, bd_after) && frame_changed &&
-         same_port_binding_geometry(bd_after, be_after, true) &&
-         curve_endpoints_match_layout(state);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT(snapshot.pair_rows == 2 && snapshot.open_rows == 0,
+                   "incremental HV promotion row counts are wrong");
+  WIRE_TEST_EXPECT(has_row_key(snapshot.row_keys, false, bd_edge, be_edge),
+                   "incremental HV promotion pair row is missing");
+  WIRE_TEST_EXPECT(same_port_identity_or_reverse(before, bd_after),
+                   "incremental HV promotion replaced existing Ports");
+  WIRE_TEST_EXPECT(frame_changed,
+                   "incremental HV promotion did not update the row frame");
+  WIRE_TEST_EXPECT(same_port_binding_geometry(bd_after, be_after, true),
+                   "incremental HV promotion pair rows disagree");
+  WIRE_TEST_EXPECT(curve_endpoints_match_layout(state),
+                   "incremental HV promotion curves disagree with layout");
+  return true;
 }
 
 bool C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry() {
@@ -2399,7 +2441,7 @@ bool C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry() {
       port_binding_snapshot(state, bd_edge_bundle, node_b->node_id);
   const std::vector<PortBindingSnapshot> be_after =
       port_binding_snapshot(state, be_edge_bundle, node_b->node_id);
-  if (!same_port_binding_identity(before, bd_after) ||
+  if (!same_port_identity_or_reverse(before, bd_after) ||
       !same_port_binding_geometry(bd_after, be_after, true)) {
     return false;
   }
@@ -3692,7 +3734,7 @@ bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
   std::string cpp;
   std::string emit_ports_body;
   if (!file_text(source, &cpp) ||
-      !function_body(cpp, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+      !function_body(cpp, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,",
                      &emit_ports_body)) {
     return false;
   }

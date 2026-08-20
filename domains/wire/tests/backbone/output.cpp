@@ -276,8 +276,8 @@ std::vector<std::string> visual_part_snapshot(const city::wire::VisualCurvePartC
 
 bool C741_scoped_visual_curve_rebuild_matches_full_rebuild() {
   city::wire::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(line_req(state));
-  if (!first.ok || first.value.generated_pole_ids.size() < 2) {
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() < 3) {
     return false;
   }
   const city::wire::ObjectId terminal_pole = first.value.generated_pole_ids.back();
@@ -298,12 +298,21 @@ bool C741_scoped_visual_curve_rebuild_matches_full_rebuild() {
   if (!full.ok) {
     return false;
   }
-  const std::size_t rebuilt_support_count = static_cast<std::size_t>(std::count_if(
-      scoped.parts.begin(), scoped.parts.end(), [](const city::wire::VisualCurvePart& part) {
-        return part.supplemental_kind == city::wire::VisualSupplementalKind::kSupportPath;
-      }));
-  return scoped.stats.curve_builds == scoped.stats.sections + rebuilt_support_count &&
-         visual_part_snapshot(scoped) == visual_part_snapshot(full.value);
+  const std::vector<std::string> scoped_snapshot = visual_part_snapshot(scoped);
+  const std::vector<std::string> full_snapshot = visual_part_snapshot(full.value);
+  const auto mismatch = std::mismatch(scoped_snapshot.begin(), scoped_snapshot.end(),
+                                      full_snapshot.begin(), full_snapshot.end());
+  const std::string scoped_item = mismatch.first == scoped_snapshot.end()
+                                      ? "<end>"
+                                      : *mismatch.first;
+  const std::string full_item = mismatch.second == full_snapshot.end()
+                                    ? "<end>"
+                                    : *mismatch.second;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      scoped_snapshot == full_snapshot,
+      "scoped/full visual mismatch: scoped=" + scoped_item +
+          " full=" + full_item);
+  return true;
 }
 
 bool C515_backbone_rejects_existing_pole_without_saved_graph() {

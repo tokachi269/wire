@@ -903,8 +903,10 @@ std::unordered_set<ObjectId> saved_nodes_for_spans(const CoreState& state, const
   return nodes;
 }
 
-std::unordered_set<ObjectId> scoped_visual_spans(const CoreState& state, const std::vector<ObjectId>& scope_span_ids) {
-  std::unordered_set<ObjectId> spans = span_set_from(scope_span_ids);
+std::unordered_set<ObjectId> visual_context_spans(
+    const CoreState& state,
+    const std::unordered_set<ObjectId>& changed_spans) {
+  std::unordered_set<ObjectId> spans = changed_spans;
   if (spans.empty()) {
     return spans;
   }
@@ -1008,28 +1010,77 @@ void sort_visual_parts(VisualCurvePartCache* cache) {
   std::sort(cache->parts.begin(), cache->parts.end(), visual_part_less);
 }
 
-VisualCurvePartCache merge_scoped_visual_curve_parts(const CoreState& state, VisualCurvePartCache rebuilt,
-                                                     const std::unordered_set<ObjectId>& rebuilt_spans) {
-  if (rebuilt_spans.empty()) {
+VisualCurvePartCache merge_visual_changes(const CoreState& state, VisualCurvePartCache rebuilt,
+                                          const std::unordered_set<ObjectId>& changed_spans,
+                                          const std::unordered_set<ObjectId>& affected_nodes) {
+  if (changed_spans.empty()) {
     sort_visual_parts(&rebuilt);
     return rebuilt;
   }
-  const std::unordered_set<ObjectId> affected_nodes = saved_nodes_for_spans(state, rebuilt_spans);
-  VisualCurvePartCache merged = state.view().visual_curve_parts();
-  merged.parts.erase(std::remove_if(merged.parts.begin(), merged.parts.end(), [&](const VisualCurvePart& part) {
-                       if (part.source_span_id != kInvalidObjectId && rebuilt_spans.contains(part.source_span_id)) {
-                         return true;
-                       }
-                       if (part.has_section_key && rebuilt_spans.contains(part.section_key.logical_span_id)) {
-                         return true;
-                       }
-                       return part.source_node_id != kInvalidObjectId && affected_nodes.contains(part.source_node_id);
+  const auto part_is_affected = [&](const VisualCurvePart& part) {
+    if (part.source_span_id != kInvalidObjectId &&
+        changed_spans.contains(part.source_span_id)) {
+      return true;
+    }
+    if (part.has_section_key &&
+        changed_spans.contains(part.section_key.logical_span_id)) {
+      return true;
+    }
+    return part.source_node_id != kInvalidObjectId &&
+           affected_nodes.contains(part.source_node_id);
+  };
+  rebuilt.parts.erase(
+      std::remove_if(rebuilt.parts.begin(), rebuilt.parts.end(),
+                     [&](const VisualCurvePart& part) {
+                       return !part_is_affected(part);
                      }),
-                     merged.parts.end());
+      rebuilt.parts.end());
+  VisualCurvePartCache merged = state.view().visual_curve_parts();
+  merged.parts.erase(
+      std::remove_if(merged.parts.begin(), merged.parts.end(), part_is_affected),
+      merged.parts.end());
   merged.parts.insert(merged.parts.end(), std::make_move_iterator(rebuilt.parts.begin()),
                       std::make_move_iterator(rebuilt.parts.end()));
-  merged.diagnostics = std::move(rebuilt.diagnostics);
-  merged.population_diagnostics = std::move(rebuilt.population_diagnostics);
+  const auto diagnostic_is_affected = [&](const VisualCurveDiagnostic& diagnostic) {
+    return (diagnostic.source_span_id != kInvalidObjectId &&
+            changed_spans.contains(diagnostic.source_span_id)) ||
+           (diagnostic.source_node_id != kInvalidObjectId &&
+            affected_nodes.contains(diagnostic.source_node_id));
+  };
+  rebuilt.diagnostics.erase(
+      std::remove_if(rebuilt.diagnostics.begin(), rebuilt.diagnostics.end(),
+                     [&](const VisualCurveDiagnostic& diagnostic) {
+                       return !diagnostic_is_affected(diagnostic);
+                     }),
+      rebuilt.diagnostics.end());
+  merged.diagnostics.erase(
+      std::remove_if(merged.diagnostics.begin(), merged.diagnostics.end(),
+                     diagnostic_is_affected),
+      merged.diagnostics.end());
+  merged.diagnostics.insert(
+      merged.diagnostics.end(),
+      std::make_move_iterator(rebuilt.diagnostics.begin()),
+      std::make_move_iterator(rebuilt.diagnostics.end()));
+  const auto population_is_affected = [&](const CablePopulationDiagnostic& diagnostic) {
+    return diagnostic.logical_span_id != kInvalidObjectId &&
+           changed_spans.contains(diagnostic.logical_span_id);
+  };
+  rebuilt.population_diagnostics.erase(
+      std::remove_if(rebuilt.population_diagnostics.begin(),
+                     rebuilt.population_diagnostics.end(),
+                     [&](const CablePopulationDiagnostic& diagnostic) {
+                       return !population_is_affected(diagnostic);
+                     }),
+      rebuilt.population_diagnostics.end());
+  merged.population_diagnostics.erase(
+      std::remove_if(merged.population_diagnostics.begin(),
+                     merged.population_diagnostics.end(),
+                     population_is_affected),
+      merged.population_diagnostics.end());
+  merged.population_diagnostics.insert(
+      merged.population_diagnostics.end(),
+      std::make_move_iterator(rebuilt.population_diagnostics.begin()),
+      std::make_move_iterator(rebuilt.population_diagnostics.end()));
   merged.stats = rebuilt.stats;
   sort_visual_parts(&merged);
   return merged;
@@ -1042,9 +1093,12 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
                                                          const curve* built_curves) {
   EditResult<VisualCurvePartCache> result{};
   const layout merged_layout = merged_visual_curve_layouts(state, made);
-  const std::unordered_set<ObjectId> scoped_spans = scoped_visual_spans(state, scope_span_ids);
-  const std::unordered_set<ObjectId> scoped_nodes = saved_nodes_for_spans(state, scoped_spans);
-  const layout placed = filter_layouts_to_spans(merged_layout, scoped_spans);
+  const std::unordered_set<ObjectId> changed_spans = span_set_from(scope_span_ids);
+  const std::unordered_set<ObjectId> affected_nodes =
+      saved_nodes_for_spans(state, changed_spans);
+  const std::unordered_set<ObjectId> context_spans =
+      visual_context_spans(state, changed_spans);
+  const layout placed = filter_layouts_to_spans(merged_layout, context_spans);
   std::unordered_map<ObjectId, const DetailCurve*> built_curve_by_span{};
   if (built_curves != nullptr) {
     built_curve_by_span.reserve(built_curves->data.size());
@@ -1269,23 +1323,12 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       return item.first.edge_bundle_id == edge_bundle_id && item.first.lane_index == lane;
     });
   };
-  auto continuity_endpoint_outside_scope = [&](ObjectId edge_bundle_id, std::size_t lane) {
-    if (scoped_spans.empty()) {
-      return false;
-    }
-    const SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(edge_bundle_id);
-    if (edge_bundle == nullptr) {
-      return false;
-    }
-    return !has_any_endpoint(edge_bundle_id, lane);
-  };
-
   std::unordered_map<curve_patch_key, std::vector<std::pair<std::size_t, std::size_t>>,
                      curve_patch_key_hash, curve_patch_key_equal>
       continuity_pairs_by_patch_key{};
   continuity_pairs_by_patch_key.reserve(state.view().backbone().row_continuities.size());
   for (const SavedBackboneRowContinuity& continuity : state.view().backbone().row_continuities) {
-    if (!scoped_spans.empty() && !scoped_nodes.contains(continuity.node_id)) {
+    if (!changed_spans.empty() && !affected_nodes.contains(continuity.node_id)) {
       continue;
     }
     const auto a_it = endpoints_by_continuity_key.find(
@@ -1304,18 +1347,6 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
                  std::to_string(continuity.a.lane_index) + " b=" +
                  std::to_string(continuity.b.edge_bundle_id) + "/" +
                  std::to_string(continuity.b.lane_index)});
-        continue;
-      }
-      if (!scoped_spans.empty()) {
-        continue;
-      }
-      const bool a_outside = a_it == endpoints_by_continuity_key.end() &&
-                             continuity_endpoint_outside_scope(continuity.a.edge_bundle_id,
-                                                               continuity.a.lane_index);
-      const bool b_outside = b_it == endpoints_by_continuity_key.end() &&
-                             continuity_endpoint_outside_scope(continuity.b.edge_bundle_id,
-                                                               continuity.b.lane_index);
-      if (a_outside || b_outside) {
         continue;
       }
       const SavedBackboneEdgeBundle* a_bundle = state.view().backbone_edge_bundle(continuity.a.edge_bundle_id);
@@ -1679,10 +1710,9 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     const auto peer = std::find_if(endpoints.begin(), endpoints.end(), [&](const curve_endpoint_ref& candidate) {
       return candidate.port_id == endpoint.jumper_peer_port_id &&
              candidate.jumper_peer_port_id == endpoint.port_id && candidate.node_id == endpoint.node_id &&
-             candidate.bundle_template_id == endpoint.bundle_template_id &&
-             candidate.lane_index == endpoint.lane_index;
+             candidate.bundle_template_id == endpoint.bundle_template_id;
     });
-    if (peer == endpoints.end()) {
+    if (peer == endpoints.end() || endpoint.port_id > peer->port_id) {
       continue;
     }
 
@@ -1716,9 +1746,10 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       emitted_jumper_ports.push_back(peer->port_id);
     }
   }
-  append_pole_decoration_curves(state, endpoints, scoped_nodes, &out);
-  if (!scoped_spans.empty()) {
-    result.value = merge_scoped_visual_curve_parts(state, std::move(out), scoped_spans);
+  append_pole_decoration_curves(state, endpoints, affected_nodes, &out);
+  if (!changed_spans.empty()) {
+    result.value = merge_visual_changes(
+        state, std::move(out), changed_spans, affected_nodes);
     result.ok = true;
     return result;
   }

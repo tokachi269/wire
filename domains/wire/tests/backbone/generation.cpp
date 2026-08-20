@@ -1309,10 +1309,9 @@ bool C662_backbone_pair_row_axis_does_not_flip_lane_order() {
 
 bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
   city::wire::CoreState state;
-  if (!prepare_two_lane_low_voltage(state)) {
-    return false;
-  }
   city::wire::BackboneSpec req = line_req(state);
+  req.bundles.clear();
+  add_backbone_bundle(req, city::wire::BundleKind::kHighVoltage);
   req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 8.660254037844386, 0.0}};
   const auto generated = state.GenerateFromBackboneSpec(req);
   WIRE_TEST_EXPECT_PRESENCE(generated.ok, generated.error);
@@ -1320,7 +1319,7 @@ bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
   const city::wire::ObjectId corner_pole = pole_at(state, generated.value.generated_pole_ids, {10.0, 0.0, 0.0});
   const city::wire::SavedBackboneNode* corner_node = state.view().backbone_node_for_pole(corner_pole);
   WIRE_TEST_EXPECT_ORACLE(
-      generated.value.generated_span_ids.size() == 4 &&
+      generated.value.generated_span_ids.size() == 6 &&
           state.view().backbone().edges.size() == 2 &&
           corner_node != nullptr,
       "sharp corner topology is wrong");
@@ -1347,12 +1346,12 @@ bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
       rows[binding->row_key.edge_id].push_back(port->world_position);
     }
   }
-  if (corner_ports.size() != 4 || rows.size() != 2) {
+  if (corner_ports.size() != 6 || rows.size() != 2) {
     return false;
   }
   for (const auto& [edge_id, ports] : rows) {
     const city::wire::SavedBackboneEdge* edge = state.view().backbone_edge(edge_id);
-    if (edge == nullptr || ports.size() != 2) {
+    if (edge == nullptr || ports.size() != 3) {
       return false;
     }
     const city::wire::Vec3d row_axis = normalize_xy(ports[1] - ports[0]);
@@ -1363,6 +1362,38 @@ bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
     if (alignment < 0.999 || spacing < 0.19) {
       return false;
     }
+  }
+
+  const std::vector<const city::wire::SavedBackboneRowContinuity*> continuities =
+      state.view().backbone_row_continuities_for_node(corner_node->node_id);
+  WIRE_TEST_EXPECT_ORACLE(continuities.size() == 3,
+                          "sharp corner did not save one continuity per lane");
+  const auto port_for_lane = [&](city::wire::ObjectId edge_bundle_id,
+                                 std::size_t lane) -> const city::wire::Port* {
+    for (const city::wire::SavedBackbonePortBinding* binding :
+         state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id)) {
+      if (binding != nullptr && binding->row_key.node_id == corner_node->node_id &&
+          binding->lane_index == lane) {
+        return state.view().ports().find(binding->port_id);
+      }
+    }
+    return nullptr;
+  };
+  const auto* first_continuity = continuities.front();
+  const city::wire::Port* a0 = port_for_lane(first_continuity->a.edge_bundle_id, 0);
+  const city::wire::Port* a1 = port_for_lane(first_continuity->a.edge_bundle_id, 2);
+  const city::wire::Port* b0 = port_for_lane(first_continuity->b.edge_bundle_id, 0);
+  const city::wire::Port* b1 = port_for_lane(first_continuity->b.edge_bundle_id, 2);
+  WIRE_TEST_EXPECT_PRESENCE(a0 != nullptr && a1 != nullptr && b0 != nullptr && b1 != nullptr,
+                            "sharp continuity row endpoints are missing");
+  const bool mirrored = dot_xy(a1->world_position - a0->world_position,
+                               b1->world_position - b0->world_position) < 0.0;
+  for (const city::wire::SavedBackboneRowContinuity* continuity : continuities) {
+    const std::size_t expected_b_lane = mirrored ? 2 - continuity->a.lane_index
+                                                  : continuity->a.lane_index;
+    WIRE_TEST_EXPECT_ORACLE(
+        continuity->b.lane_index == expected_b_lane,
+        "sharp continuity lane pairing disagrees with final row directions");
   }
 
   std::size_t jumper_count = 0;
@@ -1381,8 +1412,7 @@ bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
       ++jumper_count;
     }
   }
-  return jumper_count == 2 &&
-         two_lane_edge_bundles_do_not_twist(state, generated.value.generated_span_ids);
+  return jumper_count == 3;
 }
 
 bool C664_backbone_sharp_pole_facing_consumes_pair_decision() {

@@ -686,6 +686,80 @@ EditResult<bool> mirror_permutable_row_endpoints(
   return PermutableLaneMirror(direction_a, direction_b, span_forward);
 }
 
+EditResult<bool> mirror_permutable_continuity_lanes(
+    const CoreState& state, ObjectId node_id, ObjectId edge_bundle_a_id,
+    ObjectId edge_bundle_b_id) {
+  EditResult<bool> out{};
+  const SavedBackboneEdgeBundle* edge_bundle_a =
+      state.view().backbone_edge_bundle(edge_bundle_a_id);
+  const SavedBackboneEdgeBundle* edge_bundle_b =
+      state.view().backbone_edge_bundle(edge_bundle_b_id);
+  const Bundle* bundle_a = edge_bundle_a == nullptr
+                               ? nullptr
+                               : state.view().bundles().find(edge_bundle_a->bundle_id);
+  const Bundle* bundle_b = edge_bundle_b == nullptr
+                               ? nullptr
+                               : state.view().bundles().find(edge_bundle_b->bundle_id);
+  if (bundle_a == nullptr || bundle_b == nullptr ||
+      bundle_a->bundle_template_id != bundle_b->bundle_template_id ||
+      bundle_a->conductor_count != bundle_b->conductor_count) {
+    out.error = "backbone internal: continuity bundles have incompatible lane layouts";
+    return out;
+  }
+  const auto template_it =
+      state.view().bundle_templates().find(bundle_a->bundle_template_id);
+  if (template_it == state.view().bundle_templates().end()) {
+    out.error = "backbone internal: continuity bundle template is missing";
+    return out;
+  }
+  if (bundle_a->conductor_count < 2 ||
+      template_it->second.preserve_conductor_identity ||
+      template_it->second.order_decision_policy !=
+          OrderDecisionPolicyKind::kPermutableHomogeneous) {
+    out.ok = true;
+    return out;
+  }
+
+  const auto row_direction = [&](ObjectId edge_bundle_id, Vec3d* direction) {
+    const std::size_t last_lane =
+        static_cast<std::size_t>(bundle_a->conductor_count - 1);
+    const Port* first = nullptr;
+    const Port* last = nullptr;
+    for (const SavedBackbonePortBinding* binding :
+         state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id)) {
+      if (binding == nullptr || binding->row_key.node_id != node_id) {
+        continue;
+      }
+      if (binding->lane_index == 0) {
+        first = state.view().ports().find(binding->port_id);
+      } else if (binding->lane_index == last_lane) {
+        last = state.view().ports().find(binding->port_id);
+      }
+    }
+    if (first == nullptr || last == nullptr || direction == nullptr) {
+      return false;
+    }
+    *direction = last->world_position - first->world_position;
+    return NormalizeXY(direction);
+  };
+
+  Vec3d direction_a{};
+  Vec3d direction_b{};
+  if (!row_direction(edge_bundle_a_id, &direction_a) ||
+      !row_direction(edge_bundle_b_id, &direction_b)) {
+    out.error = "backbone unsupported: permutable continuity row has no horizontal direction";
+    return out;
+  }
+  const double alignment = Dot(direction_a, direction_b);
+  if (std::abs(alignment) <= kUnitlessTolerance) {
+    out.error = "backbone unsupported: permutable continuity rows are orthogonal";
+    return out;
+  }
+  out.value = alignment < 0.0;
+  out.ok = true;
+  return out;
+}
+
 SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& made, const link& edge) {
   SavedBackboneEdgeRef out{};
   (void)made;
@@ -4046,7 +4120,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
 
   auto bind_continuity_lane =
       [&](ObjectId node_id, std::size_t link_a, std::size_t link_b,
-          std::size_t bundle_index, std::size_t lane) {
+          std::size_t bundle_index, std::size_t lane_a,
+          std::size_t lane_b) {
         const ObjectId edge_bundle_a =
             refresh_edge_bundle_by_link_bundle(link_a, bundle_index);
         const ObjectId edge_bundle_b =
@@ -4057,17 +4132,17 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
             !edge_bundle_incident_to_node(edge_bundle_a, node_id) ||
             !edge_bundle_incident_to_node(edge_bundle_b, node_id) ||
             edge_bundle_lane_port_binding_count_at_node(
-                edge_bundle_a, lane, node_id) != 1 ||
+                edge_bundle_a, lane_a, node_id) != 1 ||
             edge_bundle_lane_port_binding_count_at_node(
-                edge_bundle_b, lane, node_id) != 1 ||
+                edge_bundle_b, lane_b, node_id) != 1 ||
             !edge_bundle_lane_binding_matches_span_at_node(
-                edge_bundle_a, lane, node_id) ||
+                edge_bundle_a, lane_a, node_id) ||
             !edge_bundle_lane_binding_matches_span_at_node(
-                edge_bundle_b, lane, node_id)) {
+                edge_bundle_b, lane_b, node_id)) {
           return true;
         }
         EditResult<bool> continuity = state_.bind_backbone_row_continuity(
-            node_id, edge_bundle_a, lane, edge_bundle_b, lane);
+            node_id, edge_bundle_a, lane_a, edge_bundle_b, lane_b);
         if (!continuity.ok) {
           out.error = continuity.error;
           return false;
@@ -4102,9 +4177,18 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         if (row_ports == nullptr || bundle_index >= row_ports->size()) {
           continue;
         }
+        const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
+            state_, node_id, left_edge_bundle_id, right_edge_bundle_id);
+        if (!mirror.ok) {
+          out.error = mirror.error;
+          return out;
+        }
+        const std::size_t lane_count = (*row_ports)[bundle_index].size();
         for (std::size_t lane = 0; lane < (*row_ports)[bundle_index].size(); ++lane) {
+          const std::size_t right_lane =
+              mirror.value ? lane_count - 1 - lane : lane;
           if (!bind_continuity_lane(node_id, joined.left, joined.right,
-                                    bundle_index, lane)) {
+                                    bundle_index, lane, right_lane)) {
             return out;
           }
         }
@@ -4139,11 +4223,29 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         if (bundle == nullptr) {
           continue;
         }
+        const ObjectId edge_bundle_a =
+            refresh_edge_bundle_by_link_bundle(link_a, bundle_index);
+        const ObjectId edge_bundle_b =
+            refresh_edge_bundle_by_link_bundle(link_b, bundle_index);
+        if (edge_bundle_a == kInvalidObjectId ||
+            edge_bundle_b == kInvalidObjectId) {
+          continue;
+        }
+        const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
+            state_, node_id, edge_bundle_a, edge_bundle_b);
+        if (!mirror.ok) {
+          out.error = mirror.error;
+          return out;
+        }
+        const std::size_t lane_count =
+            static_cast<std::size_t>(bundle->conductor_count);
         for (std::size_t lane = 0;
-             lane < static_cast<std::size_t>(bundle->conductor_count);
+             lane < lane_count;
              ++lane) {
+          const std::size_t right_lane =
+              mirror.value ? lane_count - 1 - lane : lane;
           if (!bind_continuity_lane(node_id, link_a, link_b, bundle_index,
-                                    lane)) {
+                                    lane, right_lane)) {
             return out;
           }
         }

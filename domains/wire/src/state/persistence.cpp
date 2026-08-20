@@ -1,4 +1,6 @@
 #include "city/wire/core_state.hpp"
+#include "city/wire/coord_utils.hpp"
+#include "city/wire/support/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -19,7 +21,7 @@ namespace {
 
 class StateWriter {
 public:
-  StateWriter() { text_ = "wire_state_v2\n"; }
+  StateWriter() { text_ = "wire_state_v3\n"; }
 
   void value(const std::string& key, bool input) { line(key, input ? "1" : "0"); }
 
@@ -74,8 +76,12 @@ public:
   bool parse(const std::string& text) {
     static constexpr std::string_view kHeaderV1 = "wire_state_v1\n";
     static constexpr std::string_view kHeaderV2 = "wire_state_v2\n";
+    static constexpr std::string_view kHeaderV3 = "wire_state_v3\n";
     std::size_t header_size = 0;
-    if (text.starts_with(kHeaderV2)) {
+    if (text.starts_with(kHeaderV3)) {
+      version_ = 3;
+      header_size = kHeaderV3.size();
+    } else if (text.starts_with(kHeaderV2)) {
       version_ = 2;
       header_size = kHeaderV2.size();
     } else if (text.starts_with(kHeaderV1)) {
@@ -1551,6 +1557,14 @@ bool normalize_saved_support_levels(CoreStateAuthoritativeStorage* authoritative
     return false;
   }
   SavedBackboneGraph& graph = authoritative->backbone;
+  const bool has_missing_support = std::any_of(
+      graph.port_bindings.begin(), graph.port_bindings.end(),
+      [](const SavedBackbonePortBinding& binding) {
+        return binding.support_level < 0 || binding.support_group_id < -1;
+      });
+  if (!has_missing_support) {
+    return true;
+  }
   struct record {
     std::size_t binding_index = 0;
     ObjectId node_id = kInvalidObjectId;
@@ -1818,7 +1832,7 @@ bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* auth
       !archive_geometry_settings(fields, "authoritative.geometry_settings", authoritative->geometry_settings) ||
       !archive_visual_settings(fields, "authoritative.visual_settings", authoritative->visual_settings) ||
       !archive_variation_settings(fields, "authoritative.variation_settings", authoritative->variation_settings)) return false;
-  return normalize_saved_support_levels(authoritative);
+  return true;
 }
 
 } // namespace
@@ -2032,6 +2046,114 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
     return true;
   };
   if (!migrate_shared_pair_ports()) {
+    result.classify_error();
+    return result;
+  }
+
+  auto migrate_permutable_continuity_lanes = [&]() -> bool {
+    if (reader.version() >= 3) {
+      return true;
+    }
+    SavedBackboneGraph& graph = trial.authoritative_.backbone;
+    const auto edge_bundle_for = [&](ObjectId edge_bundle_id)
+        -> const SavedBackboneEdgeBundle* {
+      const auto found = std::find_if(
+          graph.edge_bundles.begin(), graph.edge_bundles.end(),
+          [&](const SavedBackboneEdgeBundle& value) {
+            return value.edge_bundle_id == edge_bundle_id;
+          });
+      return found == graph.edge_bundles.end() ? nullptr : &*found;
+    };
+    for (SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+      const SavedBackboneEdgeBundle* edge_bundle_a =
+          edge_bundle_for(continuity.a.edge_bundle_id);
+      const SavedBackboneEdgeBundle* edge_bundle_b =
+          edge_bundle_for(continuity.b.edge_bundle_id);
+      const Bundle* bundle_a = edge_bundle_a == nullptr
+                                   ? nullptr
+                                   : trial.authoritative_.edit_state.bundles.find(
+                                         edge_bundle_a->bundle_id);
+      const Bundle* bundle_b = edge_bundle_b == nullptr
+                                   ? nullptr
+                                   : trial.authoritative_.edit_state.bundles.find(
+                                         edge_bundle_b->bundle_id);
+      if (bundle_a == nullptr || bundle_b == nullptr ||
+          bundle_a->bundle_template_id != bundle_b->bundle_template_id ||
+          bundle_a->conductor_count != bundle_b->conductor_count ||
+          bundle_a->conductor_count <= 0) {
+        result.error =
+            "authoritative unsupported: continuity migration has incompatible lane layouts";
+        return false;
+      }
+      const auto template_it = trial.authoritative_.bundle_templates.find(
+          bundle_a->bundle_template_id);
+      if (template_it == trial.authoritative_.bundle_templates.end()) {
+        result.error =
+            "authoritative unsupported: continuity migration bundle template is missing";
+        return false;
+      }
+      const std::size_t lane_count =
+          static_cast<std::size_t>(bundle_a->conductor_count);
+      if (continuity.a.lane_index >= lane_count ||
+          continuity.b.lane_index >= lane_count) {
+        result.error =
+            "authoritative unsupported: continuity migration lane is out of range";
+        return false;
+      }
+      if (lane_count < 2 || template_it->second.preserve_conductor_identity ||
+          template_it->second.order_decision_policy !=
+              OrderDecisionPolicyKind::kPermutableHomogeneous) {
+        continue;
+      }
+
+      const auto row_direction = [&](ObjectId edge_bundle_id,
+                                     Vec3d* direction) {
+        const Port* first = nullptr;
+        const Port* last = nullptr;
+        for (const SavedBackbonePortBinding& binding : graph.port_bindings) {
+          if (binding.edge_bundle_id != edge_bundle_id ||
+              binding.row_key.node_id != continuity.node_id) {
+            continue;
+          }
+          if (binding.lane_index == 0) {
+            first = trial.authoritative_.edit_state.ports.find(binding.port_id);
+          } else if (binding.lane_index == lane_count - 1) {
+            last = trial.authoritative_.edit_state.ports.find(binding.port_id);
+          }
+        }
+        if (first == nullptr || last == nullptr || direction == nullptr) {
+          return false;
+        }
+        *direction = last->world_position - first->world_position;
+        return NormalizeXY(direction);
+      };
+      Vec3d direction_a{};
+      Vec3d direction_b{};
+      if (!row_direction(continuity.a.edge_bundle_id, &direction_a) ||
+          !row_direction(continuity.b.edge_bundle_id, &direction_b)) {
+        result.error =
+            "authoritative unsupported: continuity migration row has no horizontal direction";
+        return false;
+      }
+      const double alignment = Dot(direction_a, direction_b);
+      if (std::abs(alignment) <= kUnitlessTolerance) {
+        result.error =
+            "authoritative unsupported: continuity migration rows are orthogonal";
+        return false;
+      }
+      continuity.b.lane_index = alignment < 0.0
+                                    ? lane_count - 1 - continuity.a.lane_index
+                                    : continuity.a.lane_index;
+    }
+    return true;
+  };
+  if (!migrate_permutable_continuity_lanes()) {
+    result.classify_error();
+    return result;
+  }
+  if (!normalize_saved_support_levels(&trial.authoritative_)) {
+    result.error =
+        "authoritative invalid input: saved support levels are inconsistent";
     result.classify_error();
     return result;
   }

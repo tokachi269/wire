@@ -28,7 +28,7 @@ bool C750_authoritative_save_is_deterministic_and_changes_after_edit() {
   std::string repeated_save{};
   if (!make_roundtrip_source(&state, &first_save, nullptr)) return false;
   const auto saved = state.SerializeAuthoritative(&repeated_save);
-  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v2\n", 0) != 0 ||
+  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v3\n", 0) != 0 ||
       first_save != repeated_save) {
     return false;
   }
@@ -459,7 +459,7 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   city::wire::CoreState valid_probe;
   if (!valid_probe.DeserializeAuthoritative(saved).ok) return false;
   const std::vector<std::string> invalid = {
-      "wire_state_v3\n",
+      "wire_state_v4\n",
       saved + "unknown.key=1\n",
       saved.substr(0, saved.find_last_of('\n', saved.size() - 2) + 1)};
   for (const std::string& text : invalid) {
@@ -470,7 +470,7 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   return true;
 }
 
-bool C799_authoritative_v1_load_migrates_row_continuity_to_v2() {
+bool C799_authoritative_v1_load_migrates_row_continuity_to_current() {
   std::string saved_v2{};
   if (!backbone_tests::file_text(
           backbone_tests::repo_root() / "domains" / "wire" / "tests" / "fixtures" /
@@ -499,19 +499,20 @@ bool C799_authoritative_v1_load_migrates_row_continuity_to_v2() {
 
   city::wire::CoreState loaded;
   if (!loaded.DeserializeAuthoritative(stripped).ok) return false;
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
   if (loaded.view().backbone().row_continuities.size() != 3) {
     return false;
   }
-  std::string migrated_v2{};
-  if (!loaded.SerializeAuthoritative(&migrated_v2).ok ||
-      migrated_v2.rfind("wire_state_v2\n", 0) != 0 ||
-      migrated_v2.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
+  std::string migrated_v3{};
+  if (!loaded.SerializeAuthoritative(&migrated_v3).ok ||
+      migrated_v3.rfind("wire_state_v3\n", 0) != 0 ||
+      migrated_v3.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
     return false;
   }
   city::wire::CoreState reloaded;
-  if (!reloaded.DeserializeAuthoritative(migrated_v2).ok) return false;
+  if (!reloaded.DeserializeAuthoritative(migrated_v3).ok) return false;
   std::string resaved{};
-  return reloaded.SerializeAuthoritative(&resaved).ok && resaved == migrated_v2;
+  return reloaded.SerializeAuthoritative(&resaved).ok && resaved == migrated_v3;
 }
 
 bool C801_authoritative_v2_rejects_broken_row_continuity_reference() {
@@ -718,10 +719,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C754_authoritative_load_rejects_invalid_text_without_mutation",
                          "authoritative load rejects version, unknown-key, and truncation errors without mutation",
                          "Boundary", true, C754_authoritative_load_rejects_invalid_text_without_mutation);
-  test_registry::AddTest(tests, "C799_authoritative_v1_load_migrates_row_continuity_to_v2",
-                         "authoritative v1 load migrates row continuity and resaves as v2",
+  test_registry::AddTest(tests, "C799_authoritative_v1_load_migrates_row_continuity_to_current",
+                         "authoritative v1 load migrates row continuity and resaves in the current format",
                          "Boundary", false,
-                         C799_authoritative_v1_load_migrates_row_continuity_to_v2);
+                         C799_authoritative_v1_load_migrates_row_continuity_to_current);
   test_registry::AddTest(tests, "C801_authoritative_v2_rejects_broken_row_continuity_reference",
                          "authoritative v2 load rejects broken row continuity references",
                          "Boundary", true,

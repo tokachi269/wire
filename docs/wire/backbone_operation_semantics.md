@@ -108,6 +108,10 @@ node specへそのまま渡ることを検証する。adapter/viewerは位置や
 
 同一操作で追加された2 edgeもこの規則を通す。操作内の隣接という理由だけで
 既存の未接続endpointより優先しない。
+peer edge確定後、`kPermutableHomogeneous`かつconductor identityを保存しないmulti-lane rowは、
+両rowの最終Port列方向からsame/reverseの1 bitでlane対応を決める。これは相手選択ではなく、
+選択済みpeer間の物理lane対応である。fixed orderまたはconductor identityを保存するtemplateは
+lane indexを維持する。
 
 ### 表現の規則
 
@@ -119,7 +123,7 @@ node specへそのまま渡ることを検証する。adapter/viewerは位置や
 | 鋭角 | edgeごとの2 open row/fixtureとlane別jumper |
 | 未接続 | edge固有open row。NodePatch/jumperなし |
 
-角度は表現だけを変え、`SavedBackboneRowContinuity`の相手を変更しない。
+角度は表現だけを変え、`SavedBackboneRowContinuity`のpeer edgeを変更しない。
 generated Portは常にedge endpointごとに別identityを持つ。通常角pairでもPortを
 共有せず、共有するのは派生row/fixtureだけとする。通常角pairの2 Portのworld位置は、
 同じrow layout決定から導出して浮動小数bitまで一致させる。2つの独立計算結果を
@@ -152,6 +156,8 @@ jumperはcontinuityを表すだけで、placement levelを共有させない。
 ### 既存saveの移行
 
 共有Portを含む既存`wire_state_v2`はload時にedge endpoint別Portへ移行する。
+`wire_state_v1`/`wire_state_v2`のpermutable continuityは、load時に保存済みPort列の
+`first -> last`方向からsame/reverseの1bitを再導出して`wire_state_v3`のlane対応へ移行する。
 片側endpointへ決定的に新しいObjectIdを割り当て、そのedge bundleのPort bindingと
 Span endpoint参照を同じIDへ書き換える。pair row keyは、各bindingが所有する
 edge bundleのedge IDを使う`(node_id, edge_id)`へ分割する。高さ、edge IDの大小、

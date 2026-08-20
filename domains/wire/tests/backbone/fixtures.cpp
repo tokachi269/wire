@@ -730,6 +730,24 @@ bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
   return true;
 }
 
+bool proper_xy_intersection(const city::wire::Vec3d& a,
+                            const city::wire::Vec3d& b,
+                            const city::wire::Vec3d& c,
+                            const city::wire::Vec3d& d) {
+  const auto orientation = [](const city::wire::Vec3d& p,
+                              const city::wire::Vec3d& q,
+                              const city::wire::Vec3d& r) {
+    return (q.x - p.x) * (r.y - p.y) -
+           (q.y - p.y) * (r.x - p.x);
+  };
+  const double ab_c = orientation(a, b, c);
+  const double ab_d = orientation(a, b, d);
+  const double cd_a = orientation(c, d, a);
+  const double cd_b = orientation(c, d, b);
+  return ab_c * ab_d < -city::wire::kIntersectionTolerance &&
+         cd_a * cd_b < -city::wire::kIntersectionTolerance;
+}
+
 bool hv_edge_body_xy_intersections_absent(const city::wire::CoreState& state,
                                           std::string* reason) {
   const auto fail = [&](const std::string& message) {
@@ -737,23 +755,6 @@ bool hv_edge_body_xy_intersections_absent(const city::wire::CoreState& state,
       *reason = message;
     }
     return false;
-  };
-  const auto orientation = [](const city::wire::Vec3d& a,
-                              const city::wire::Vec3d& b,
-                              const city::wire::Vec3d& c) {
-    return (b.x - a.x) * (c.y - a.y) -
-           (b.y - a.y) * (c.x - a.x);
-  };
-  const auto proper_intersection = [&](const city::wire::Vec3d& a,
-                                       const city::wire::Vec3d& b,
-                                       const city::wire::Vec3d& c,
-                                       const city::wire::Vec3d& d) {
-    const double ab_c = orientation(a, b, c);
-    const double ab_d = orientation(a, b, d);
-    const double cd_a = orientation(c, d, a);
-    const double cd_b = orientation(c, d, b);
-    return ab_c * ab_d < -city::wire::kIntersectionTolerance &&
-           cd_a * cd_b < -city::wire::kIntersectionTolerance;
   };
   const auto same_section = [](const city::wire::VisualCurvePart& a,
                                const city::wire::VisualCurvePart& b) {
@@ -785,11 +786,67 @@ bool hv_edge_body_xy_intersections_absent(const city::wire::CoreState& state,
       }
       for (std::size_t ai = 1; ai < a.samples.size(); ++ai) {
         for (std::size_t bi = 1; bi < b.samples.size(); ++bi) {
-          if (proper_intersection(a.samples[ai - 1], a.samples[ai],
-                                  b.samples[bi - 1], b.samples[bi])) {
+          if (proper_xy_intersection(a.samples[ai - 1], a.samples[ai],
+                                     b.samples[bi - 1], b.samples[bi])) {
             return fail("HV edge " + std::to_string(a.source_edge_id) +
                         " bundle " + std::to_string(a.source_bundle_id) +
                         " lanes " + std::to_string(a.lane_index) + "/" +
+                        std::to_string(b.lane_index) +
+                        " have a proper XY intersection in final visual samples");
+          }
+        }
+      }
+    }
+  }
+  if (reason != nullptr) {
+    reason->clear();
+  }
+  return true;
+}
+
+bool hv_connection_xy_intersections_absent(const city::wire::CoreState& state,
+                                           std::string* reason) {
+  const auto fail = [&](const std::string& message) {
+    if (reason != nullptr) {
+      *reason = message;
+    }
+    return false;
+  };
+  const auto& parts = state.view().visual_curve_parts().parts;
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    const city::wire::VisualCurvePart& a = parts[i];
+    const auto a_template = state.view().bundle_templates().find(a.bundle_template_id);
+    const bool a_connection =
+        a.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+        a.kind == city::wire::VisualCurvePartKind::kJumper;
+    if (!a_connection || a.samples.size() < 2 ||
+        a_template == state.view().bundle_templates().end() ||
+        a_template->second.category !=
+            city::wire::ConnectionCategory::kHighVoltage) {
+      continue;
+    }
+    std::vector<city::wire::ObjectId> a_edges = a.incident_edge_ids;
+    std::sort(a_edges.begin(), a_edges.end());
+    for (std::size_t j = i + 1; j < parts.size(); ++j) {
+      const city::wire::VisualCurvePart& b = parts[j];
+      const bool b_connection =
+          b.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+          b.kind == city::wire::VisualCurvePartKind::kJumper;
+      std::vector<city::wire::ObjectId> b_edges = b.incident_edge_ids;
+      std::sort(b_edges.begin(), b_edges.end());
+      if (!b_connection || b.samples.size() < 2 ||
+          a.source_node_id != b.source_node_id ||
+          a.bundle_template_id != b.bundle_template_id ||
+          a.lane_index == b.lane_index || a_edges != b_edges) {
+        continue;
+      }
+      for (std::size_t ai = 1; ai < a.samples.size(); ++ai) {
+        for (std::size_t bi = 1; bi < b.samples.size(); ++bi) {
+          if (proper_xy_intersection(a.samples[ai - 1], a.samples[ai],
+                                     b.samples[bi - 1], b.samples[bi])) {
+            return fail("HV connection node " +
+                        std::to_string(a.source_node_id) + " lanes " +
+                        std::to_string(a.lane_index) + "/" +
                         std::to_string(b.lane_index) +
                         " have a proper XY intersection in final visual samples");
           }
@@ -848,6 +905,9 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
   const city::wire::CoreView view = state.view();
   std::string visual_geometry_error{};
   if (!hv_edge_body_xy_intersections_absent(state, &visual_geometry_error)) {
+    return fail(visual_geometry_error);
+  }
+  if (!hv_connection_xy_intersections_absent(state, &visual_geometry_error)) {
     return fail(visual_geometry_error);
   }
   const auto saved_node_exists = [&](city::wire::ObjectId node_id) {
@@ -998,9 +1058,9 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
     }
     const auto template_it = view.bundle_templates().find(binding.bundle_template_id);
     const bool height_is_direct_anchor =
-        binding.support_level == 0 ||
+        !uses_lane_bands && (binding.support_level == 0 ||
         template_it == view.bundle_templates().end() ||
-        !template_it->second.enable_branch_down_offset;
+        !template_it->second.enable_branch_down_offset);
     const double expected_height =
         bundle->placement_explicit ? bundle->height_m : band->height_center_m;
     if (height_is_direct_anchor && std::abs(local.z - expected_height) > 1e-9) {
@@ -1269,6 +1329,73 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
         !edge_bundle_exists(continuity.b.edge_bundle_id) ||
         !edge_bundle_has_lane(continuity.b.edge_bundle_id, continuity.b.lane_index)) {
       return fail("row continuity references missing edge bundle lane");
+    }
+    const city::wire::SavedBackboneEdgeBundle* edge_bundle_a =
+        view.backbone_edge_bundle(continuity.a.edge_bundle_id);
+    const city::wire::SavedBackboneEdgeBundle* edge_bundle_b =
+        view.backbone_edge_bundle(continuity.b.edge_bundle_id);
+    const city::wire::Bundle* bundle_a = edge_bundle_a == nullptr
+                                            ? nullptr
+                                            : view.bundles().find(edge_bundle_a->bundle_id);
+    const city::wire::Bundle* bundle_b = edge_bundle_b == nullptr
+                                            ? nullptr
+                                            : view.bundles().find(edge_bundle_b->bundle_id);
+    if (bundle_a == nullptr || bundle_b == nullptr ||
+        bundle_a->bundle_template_id != bundle_b->bundle_template_id ||
+        bundle_a->conductor_count != bundle_b->conductor_count) {
+      return fail("row continuity bundles have incompatible lane layouts");
+    }
+    const auto template_it =
+        view.bundle_templates().find(bundle_a->bundle_template_id);
+    if (template_it == view.bundle_templates().end()) {
+      return fail("row continuity bundle template is missing");
+    }
+    if (bundle_a->conductor_count >= 2 &&
+        !template_it->second.preserve_conductor_identity &&
+        template_it->second.order_decision_policy ==
+            city::wire::OrderDecisionPolicyKind::kPermutableHomogeneous) {
+      const auto row_direction = [&](city::wire::ObjectId edge_bundle_id,
+                                     city::wire::Vec3d* direction) {
+        const city::wire::Port* first = nullptr;
+        const city::wire::Port* last = nullptr;
+        const std::size_t last_lane = static_cast<std::size_t>(
+            bundle_a->conductor_count - 1);
+        for (const city::wire::SavedBackbonePortBinding& binding :
+             graph.port_bindings) {
+          if (binding.edge_bundle_id != edge_bundle_id ||
+              binding.row_key.node_id != continuity.node_id) {
+            continue;
+          }
+          if (binding.lane_index == 0) {
+            first = view.ports().find(binding.port_id);
+          } else if (binding.lane_index == last_lane) {
+            last = view.ports().find(binding.port_id);
+          }
+        }
+        if (first == nullptr || last == nullptr || direction == nullptr) {
+          return false;
+        }
+        *direction = last->world_position - first->world_position;
+        return city::wire::NormalizeXY(direction);
+      };
+      city::wire::Vec3d direction_a{};
+      city::wire::Vec3d direction_b{};
+      if (!row_direction(continuity.a.edge_bundle_id, &direction_a) ||
+          !row_direction(continuity.b.edge_bundle_id, &direction_b)) {
+        return fail("row continuity permutable row direction is missing");
+      }
+      const double alignment = city::wire::Dot(direction_a, direction_b);
+      if (std::abs(alignment) <= city::wire::kUnitlessTolerance) {
+        return fail("row continuity permutable rows are orthogonal");
+      }
+      const std::size_t lane_count =
+          static_cast<std::size_t>(bundle_a->conductor_count);
+      const std::size_t expected_b_lane =
+          alignment < 0.0 ? lane_count - 1 - continuity.a.lane_index
+                          : continuity.a.lane_index;
+      if (continuity.b.lane_index != expected_b_lane) {
+        return fail("row continuity lane pairing disagrees with final Port row directions");
+      }
     }
   }
 

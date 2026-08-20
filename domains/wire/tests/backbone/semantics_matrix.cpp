@@ -83,13 +83,17 @@ bool add_edge(MatrixFixture* fixture, const city::wire::Vec3d& endpoint) {
 }
 
 bool add_two_edges(MatrixFixture* fixture, const city::wire::Vec3d& a,
-                   const city::wire::Vec3d& b) {
+                   const city::wire::Vec3d& b, std::string* error = nullptr) {
   const city::wire::Pole* pole = fixture->state.view().poles().find(fixture->pole_id);
   if (pole == nullptr) return false;
   city::wire::BackboneSpec request = poly3_req(fixture->state);
   request.path.polyline = {a, pole->world_transform.position, b};
   request.path.node_specs = {pole_spec(1, fixture->pole_id)};
-  return fixture->state.GenerateFromBackboneSpec(request).ok;
+  const auto generated = fixture->state.GenerateFromBackboneSpec(request);
+  if (!generated.ok && error != nullptr) {
+    *error = generated.error;
+  }
+  return generated.ok;
 }
 
 bool make_matrix_fixture(MatrixState target, MatrixFixture* out) {
@@ -165,8 +169,11 @@ bool exercise_add_two(MatrixState initial) {
   WIRE_TEST_EXPECT(observe(fixture, Operation::kAddTwoEdges), "matrix state classification failed");
   const std::size_t spans_before = fixture.state.view().spans().size();
   const std::size_t continuity_before = fixture.state.view().backbone().row_continuities.size();
-  WIRE_TEST_EXPECT_PRESENCE(add_two_edges(&fixture, {-18.0, 20.0, 0.0}, {18.0, 20.0, 0.0}),
-                            "add_two_edges matrix operation failed");
+  std::string operation_error{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      add_two_edges(&fixture, {-18.0, 20.0, 0.0}, {18.0, 20.0, 0.0},
+                    &operation_error),
+      "add_two_edges matrix operation failed: " + operation_error);
   WIRE_TEST_EXPECT_PRESENCE(fixture.state.view().spans().size() == spans_before + 2,
                             "add_two_edges silently dropped a span");
   const bool connects = initial == MatrixState::kS2 || initial == MatrixState::kS3;

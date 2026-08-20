@@ -123,6 +123,13 @@ multi-lane rowは、XY上で横一列に並ぶ配置だけをsupportedとする�
 保存済みedgeでは保存済みedge方向を使い、新規edgeでは同一径間の共有方向を使う。共有方向の符号反転は
 両端の射影符号を同時に反転するため、mirror決定は入力pathのForward/Reverseに依存しない。
 
+異なるedge bundleを`SavedBackboneRowContinuity`で接続する場合も、permutable laneの対応は
+両rowの最終Port列`last lane - first lane`のXY方向から1 bitだけ決める。方向のdotが負ならB側laneを
+全体反転し、非負なら維持する。peer edgeの選択は既存のcontinuity候補規則が所有し、この幾何判定は
+peer edgeを選ばない。鋭角判定やJumper materializationはlane対応を再決定せず、保存済みcontinuityの
+異なるA/B lane indexを消費する。横方向が得られない、または両row方向が直交して1 bitで決められない
+配置はfallbackせずunsupportedとする。
+
 `PathDirectionMode`はユーザーが引いた向きの意味を持ち、signed lateral offsetやsource/branchの進行方向へ
 適用する。permutable laneのnon-crossingとcanonical topology identityは`PathDirectionMode`へ依存させない。
 同じ物理pathをReverseで生成した場合、signed lateral offsetの物理側は反転する。
@@ -336,6 +343,11 @@ SavedBackboneSpanBindingから解決した派生curveを評価し、port間chord
 boundary tangentをdebug/captureで見えるようにするための派生出力である。描画やexport用に分割してもよいが、
 分割後のspan片が接続部curveのauthorityになってはいけない。長いrun全体を毎回正本として再計算する方式にはせず、
 dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
+
+scoped visual rebuildでは、`changed spans`、その端点でconnection visualを書き換える`affected nodes`、
+materializationのため読むだけの`context spans`を分ける。EdgeBody等のspan-owned partはchanged spanだけ、
+NodePatch/Jumper等のnode-owned partはaffected nodeだけを削除・置換する。context spanの反対側nodeは
+削除対象へ昇格させない。context不足時に既存connectionを削除してsilent skipすることは禁止する。
 
 ### cable population
 

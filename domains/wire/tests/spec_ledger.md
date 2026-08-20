@@ -41,6 +41,7 @@
 - 2026-08-19: `PathDirectionMode::kReverse`のguide反転を無視するfaultは、signed lateral offsetの物理側反転を追加したC412が検出した。HV non-crossingはこのdirection modeではなくrow representative mirrorが所有する。
 - 2026-08-19: midair Lead tangentをbranch endpointとのdotで反転する旧faultは、斜めbranchのForward sourceでC665が検出した。C665はForward/Reverse source方向、source attachment、branch body boundary、G1 tangent、finite samplesを確認する。
 - 2026-08-19: canonical successful backbone scenario用のAnchor入口を`WIRE_TEST_EXPECT_BACKBONE_INVARIANTS`へ統一した。NodePatch全欠落faultはC392/C458/C775/C836、HVのB端lane対応全体反転faultはC764/C798/C809が、いずれもcommon invariant理由でFAILした。直接関数呼出し件数を数えていたC824のsource scanは保証にならないため削除し、seeded route fuzz本体は維持した。multi-levelの具体高さはrow offsetを再実装せずscenario oracleへ残し、commonの直接height anchorはsupport level 0またはbranch-down無効時に限定した。
+- 2026-08-20: 実workspaceで鋭角HVのcross-edge lane twistと、追加spanの隣接nodeからconnection visualが消えるregressionが再発した。前者はspan endpoint mirrorだけが最終Port列を見て、`SavedBackboneRowContinuity`がsame-laneを別決定していたこと、後者はscoped rebuildのread context spanから反対側nodeまで削除scopeへ拡張していたことが原因だった。C663を3相HV鋭角へ変更してcontinuity lane mirrorと3 Jumperを検査し、common invariantへpermutable continuity pairingと同一incident-edge組のHV NodePatch/Jumper XY非交差を追加した。C741はA-B-CへC-Dを追加するhistorical shapeでscoped/full visual一致を検査する。修正前は両caseがFAILし、修正後はpassした。
 
 ## Backbone Authority Guard Coverage
 
@@ -486,7 +487,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 - モック過多か: モック未使用。
 - 異常系が入っているか: C10/C20/C21/C22/C23/C49で失敗診断・状態保全・復帰を検証。
 - フレーク要因がないか: 実時間待ち/非決定乱数なし。
-| C663 | Behavior | Invariant | 鋭角 continuity は共有rowではなく径間別 dead-end row と jumper で導出する | `legacy_unclassified` | 鋭角で横間隔を倍率補正し続ける、lane twist、または線が途切れる回帰防止 |
+| C663 | Behavior | Invariant | 3相HV鋭角 continuity は最終Port列に従ってlaneをmirrorし、径間別dead-end rowと3 Jumperを導出する | `oracle` `anchor` | span内部だけ直ってcross-edge continuity/Jumperがsame-laneのままねじれる回帰防止 |
 | C664 | SourceGuard | Boundary | 鋭角pole facingはpairsのcorner decisionを消費し再判定しない | `source_guard` | pole yawとrow/jumperが別々に鋭角を解釈する回帰防止 |
 | C665 | Behavior | Boundary | source-edge projectionは派生curve上に置く | `legacy_unclassified` | 途中分岐が既存cableから浮く回帰防止 |
 | C666 | Behavior | Boundary | 世代を跨ぐterminal continuationをcontinuityで接続する | `legacy_unclassified` | point proximityや同一port偶然一致へ依存する回帰防止 |
@@ -530,7 +531,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C716 | Behavior | Invariant | backbone span endpoint socket override は regenerate で layout に反映する | `legacy_unclassified` | socket override を非backbone専用の保存状態に閉じ込める回帰防止 |
 | C739 | Behavior | Invariant | span override regenerate は別routeを触らない | `legacy_unclassified` | span-local override が全route regenerate や雑なscope収集へ広がる回帰防止 |
 | C740 | Behavior | Invariant | geomで構築済みのbase curveをvisual curve partsが優先再利用する | `legacy_unclassified` | pipelineとvisualが同じbase spanのfull curveを二重構築する回帰防止 |
-| C741 | Behavior | Invariant | scoped visual curve rebuild は全量再構築と一致する | `legacy_unclassified` | visual curve parts scoped更新が古いpartを残す、または全量N本を再構築する回帰防止 |
+| C741 | Behavior | Invariant | A-B-CへC-Dを追加したscoped visual rebuildは隣接B connectionを保持して全量再構築と一致する | `differential` | read contextの反対側nodeをwrite scopeへ昇格し、既存NodePatch/Jumperを削除する回帰防止 |
 | C717 | Behavior | Invariant | layout settings 差分は regenerate で fresh と一致する | `legacy_unclassified` | layout settings 差分を部分 derive や stale 成功に逃がさず統一 regenerate へ通す |
 | C727 | SourceGuard | Boundary | pipeline execution entry は build(build_input) だけにする | `source_guard` | regenerate が第2 pipeline 化し、通常生成と別stage列を持つ回帰防止 |
 | C728 | SourceGuard | Boundary | pipeline は run mode / skip flag を持たない | `source_guard` | operation固有条件や検証skipが pipeline mode 分岐として復活する回帰防止 |

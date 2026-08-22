@@ -81,46 +81,85 @@ std::optional<BoundaryEndpointKey> remap_split_boundary_endpoint(
   return key;
 }
 
+template <typename Id>
+void append_once(std::vector<Id>& values, Id value) {
+  if (std::find(values.begin(), values.end(), value) == values.end()) {
+    values.push_back(value);
+  }
+}
+
 void plan_split_endpoint_topology_remap(const SavedRoadGraph& graph,
                                         RoadSegmentId source_id,
                                         RoadSegmentId second_id,
                                         operations::OperationPlan& plan) {
+  // A later split composes its endpoint substitution into the relation already
+  // planned by an earlier split, while the saved row is removed only once.
   for (const LaneConnection& connection : graph.lane_connections) {
+    const auto planned = std::find_if(
+        plan.add_lane_connections.begin(), plan.add_lane_connections.end(),
+        [&connection](const LaneConnection& candidate) {
+          return candidate.id == connection.id;
+        });
+    const LaneConnection& current =
+        planned == plan.add_lane_connections.end() ? connection : *planned;
     const std::optional<LaneEndpointKey> source =
-        remap_split_lane_endpoint(connection.source, source_id, second_id);
+        remap_split_lane_endpoint(current.source, source_id, second_id);
     const std::optional<LaneEndpointKey> target =
-        remap_split_lane_endpoint(connection.target, source_id, second_id);
+        remap_split_lane_endpoint(current.target, source_id, second_id);
     if (!source.has_value() || !target.has_value()) {
-      plan.remove_lane_connections.push_back(connection.id);
+      append_once(plan.remove_lane_connections, connection.id);
+      if (planned != plan.add_lane_connections.end()) {
+        plan.add_lane_connections.erase(planned);
+      }
       continue;
     }
-    if (*source == connection.source && *target == connection.target) continue;
-    LaneConnection mapped = connection;
+    if (*source == current.source && *target == current.target) continue;
+    LaneConnection mapped = current;
     mapped.source = *source;
     mapped.target = *target;
-    plan.remove_lane_connections.push_back(connection.id);
-    plan.add_lane_connections.push_back(std::move(mapped));
+    append_once(plan.remove_lane_connections, connection.id);
+    if (planned == plan.add_lane_connections.end()) {
+      plan.add_lane_connections.push_back(std::move(mapped));
+    } else {
+      *planned = std::move(mapped);
+    }
   }
   for (const BoundaryContinuation& continuation :
        graph.boundary_continuations) {
+    const auto planned = std::find_if(
+        plan.add_boundary_continuations.begin(),
+        plan.add_boundary_continuations.end(),
+        [&continuation](const BoundaryContinuation& candidate) {
+          return candidate.id == continuation.id;
+        });
+    const BoundaryContinuation& current =
+        planned == plan.add_boundary_continuations.end() ? continuation
+                                                         : *planned;
     const std::optional<BoundaryEndpointKey> source =
-        remap_split_boundary_endpoint(continuation.source, source_id,
+        remap_split_boundary_endpoint(current.source, source_id,
                                       second_id);
     const std::optional<BoundaryEndpointKey> target =
-        remap_split_boundary_endpoint(continuation.target, source_id,
+        remap_split_boundary_endpoint(current.target, source_id,
                                       second_id);
     if (!source.has_value() || !target.has_value()) {
-      plan.remove_boundary_continuations.push_back(continuation.id);
+      append_once(plan.remove_boundary_continuations, continuation.id);
+      if (planned != plan.add_boundary_continuations.end()) {
+        plan.add_boundary_continuations.erase(planned);
+      }
       continue;
     }
-    if (*source == continuation.source && *target == continuation.target) {
+    if (*source == current.source && *target == current.target) {
       continue;
     }
-    BoundaryContinuation mapped = continuation;
+    BoundaryContinuation mapped = current;
     mapped.source = *source;
     mapped.target = *target;
-    plan.remove_boundary_continuations.push_back(continuation.id);
-    plan.add_boundary_continuations.push_back(std::move(mapped));
+    append_once(plan.remove_boundary_continuations, continuation.id);
+    if (planned == plan.add_boundary_continuations.end()) {
+      plan.add_boundary_continuations.push_back(std::move(mapped));
+    } else {
+      *planned = std::move(mapped);
+    }
   }
 }
 
@@ -358,17 +397,32 @@ Result<PlannedSegmentSplit> plan_segment_split(
   }
   for (const JunctionMarkingOverride& override :
        graph.junction_marking_overrides) {
-    const bool source_end = override.source.approach == old_end_key;
-    const bool target_end = override.target.has_value() &&
-                            override.target->approach == old_end_key;
+    // The same override may name both split sources, so continue from its
+    // planned mapping instead of rebuilding the other approach from the graph.
+    const auto planned = std::find_if(
+        plan.add_junction_marking_overrides.begin(),
+        plan.add_junction_marking_overrides.end(),
+        [&override](const JunctionMarkingOverride& candidate) {
+          return candidate.id == override.id;
+        });
+    const JunctionMarkingOverride& current =
+        planned == plan.add_junction_marking_overrides.end() ? override
+                                                             : *planned;
+    const bool source_end = current.source.approach == old_end_key;
+    const bool target_end = current.target.has_value() &&
+                            current.target->approach == old_end_key;
     if (!source_end && !target_end) continue;
-    JunctionMarkingOverride mapped = override;
+    JunctionMarkingOverride mapped = current;
     const ApproachKey mapped_key{source->node_b, second_id,
                                  EndpointRole::kEnd};
     if (source_end) mapped.source.approach = mapped_key;
     if (target_end) mapped.target->approach = mapped_key;
-    plan.remove_junction_marking_overrides.push_back(override.id);
-    plan.add_junction_marking_overrides.push_back(std::move(mapped));
+    append_once(plan.remove_junction_marking_overrides, override.id);
+    if (planned == plan.add_junction_marking_overrides.end()) {
+      plan.add_junction_marking_overrides.push_back(std::move(mapped));
+    } else {
+      *planned = std::move(mapped);
+    }
   }
   plan_split_endpoint_topology_remap(graph, source->id, second_id, plan);
   return Result<PlannedSegmentSplit>::Ok(

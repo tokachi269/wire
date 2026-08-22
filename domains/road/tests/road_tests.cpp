@@ -63,6 +63,7 @@ using city::road::RoadState;
 using city::road::RoadCorridorId;
 using city::road::RoadCorridor;
 using city::road::RoadNodeId;
+using city::road::RoadLayoutTemplateId;
 using city::road::RoadSegment;
 using city::road::RoadSegmentId;
 using city::road::RoadLayoutTransitionRule;
@@ -4105,6 +4106,274 @@ bool connection_splits_reject_transitioning_sources(std::string& failure) {
   return true;
 }
 
+struct MultiSplitRelationFixture {
+  RoadState state{};
+  RoadLayoutTemplateId section_id = 0;
+  RoadSegmentId segment_a = 0;
+  RoadSegmentId segment_b = 0;
+  RoadNodeId common_end_node = 0;
+};
+
+city::road::Result<MultiSplitRelationFixture>
+make_multi_split_relation_fixture() {
+  RoadState authored{};
+  const RoadLayoutTemplateId section = road_fixture::AddLayout(
+      authored, road_fixture::BidirectionalLayout(0));
+  const auto a = authored.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({-100.0, 0.0}, {0.0, 0.0})}), section});
+  const auto b = authored.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, -100.0}, {0.0, 0.0})}), section});
+  if (!a.ok || !b.ok) {
+    return city::road::Result<MultiSplitRelationFixture>::Fail(
+        a.ok ? b.failure_category : a.failure_category,
+        a.ok ? b.error : a.error);
+  }
+  const auto a_segment = std::find_if(
+      authored.graph().segments.begin(), authored.graph().segments.end(),
+      [id = a.value](const RoadSegment& item) { return item.id == id; });
+  const auto b_segment = std::find_if(
+      authored.graph().segments.begin(), authored.graph().segments.end(),
+      [id = b.value](const RoadSegment& item) { return item.id == id; });
+  if (a_segment == authored.graph().segments.end() ||
+      b_segment == authored.graph().segments.end()) {
+    return city::road::Result<MultiSplitRelationFixture>::Fail(
+        CommitFailureCategory::kInternalError,
+        "multi-split relation fixture segments are missing");
+  }
+  const RoadNodeId common_end = a_segment->node_b;
+  const RoadNodeId duplicate_b_end = b_segment->node_b;
+  const auto third = authored.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({0.0, 0.0}, {70.0, 70.0})}), section,
+          common_end});
+  if (!third.ok) {
+    return city::road::Result<MultiSplitRelationFixture>::Fail(
+        third.failure_category, third.error);
+  }
+
+  SavedRoadGraph graph = authored.graph();
+  const auto graph_b = std::find_if(
+      graph.segments.begin(), graph.segments.end(),
+      [id = b.value](const RoadSegment& item) { return item.id == id; });
+  if (graph_b == graph.segments.end()) {
+    return city::road::Result<MultiSplitRelationFixture>::Fail(
+        CommitFailureCategory::kInternalError,
+        "multi-split relation fixture B is missing");
+  }
+  graph_b->node_b = common_end;
+  graph.nodes.erase(
+      std::remove_if(graph.nodes.begin(), graph.nodes.end(),
+                     [duplicate_b_end](const auto& node) {
+                       return node.id == duplicate_b_end;
+                     }),
+      graph.nodes.end());
+  graph.lane_connections.push_back(city::road::LaneConnection{
+      9101, {a.value, 1010, EndpointRole::kEnd},
+      {b.value, 1000, EndpointRole::kEnd},
+      city::road::LaneConnectionKind::kJunctionMovement});
+  graph.boundary_continuations.push_back(city::road::BoundaryContinuation{
+      9102, {a.value, 200, EndpointRole::kEnd},
+      {b.value, 200, EndpointRole::kEnd},
+      city::road::BoundaryContinuationKind::kContinuation});
+  graph.junction_marking_overrides.push_back(JunctionMarkingOverride{
+      9103, common_end,
+      {{common_end, a.value, EndpointRole::kEnd}, 200,
+       MarkingRole::kCenterLine},
+      JunctionMarkingAction::kConnectToApproach,
+      JunctionMarkingEndpoint{
+          {common_end, b.value, EndpointRole::kEnd}, 200,
+          MarkingRole::kCenterLine}});
+  const auto loaded = load_fixture(graph);
+  if (!loaded.ok) {
+    return city::road::Result<MultiSplitRelationFixture>::Fail(
+        loaded.failure_category, loaded.error);
+  }
+  return city::road::Result<MultiSplitRelationFixture>::Ok(
+      {loaded.value, section, a.value, b.value, common_end});
+}
+
+city::road::Result<std::string> observe_multi_split_relations(
+    const MultiSplitRelationFixture& fixture) {
+  const SavedRoadGraph& graph = fixture.state.graph();
+  if (graph.lane_connections.size() != 1 ||
+      graph.boundary_continuations.size() != 1 ||
+      graph.junction_marking_overrides.size() != 1) {
+    return city::road::Result<std::string>::Fail(
+        CommitFailureCategory::kInternalError,
+        "multi-split relations are not exactly one each");
+  }
+  const auto& lane = graph.lane_connections.front();
+  const auto& boundary = graph.boundary_continuations.front();
+  const auto& marking = graph.junction_marking_overrides.front();
+  const RoadSegmentId a2_id = lane.source.segment_id;
+  const RoadSegmentId b2_id = lane.target.segment_id;
+  if (lane.id != 9101 || boundary.id != 9102 || marking.id != 9103 ||
+      a2_id == fixture.segment_a || b2_id == fixture.segment_b ||
+      lane.source != city::road::LaneEndpointKey{
+                         a2_id, 1010, EndpointRole::kEnd} ||
+      lane.target != city::road::LaneEndpointKey{
+                         b2_id, 1000, EndpointRole::kEnd} ||
+      boundary.source != city::road::BoundaryEndpointKey{
+                              a2_id, 200, EndpointRole::kEnd} ||
+      boundary.target != city::road::BoundaryEndpointKey{
+                              b2_id, 200, EndpointRole::kEnd} ||
+      marking.source.approach != city::road::ApproachKey{
+                                     fixture.common_end_node, a2_id,
+                                     EndpointRole::kEnd} ||
+      !marking.target.has_value() ||
+      marking.target->approach != city::road::ApproachKey{
+                                      fixture.common_end_node, b2_id,
+                                      EndpointRole::kEnd}) {
+    return city::road::Result<std::string>::Fail(
+        CommitFailureCategory::kInternalError,
+        "multi-split endpoint substitutions were not composed");
+  }
+  const auto segment = [&](RoadSegmentId id) {
+    return std::find_if(graph.segments.begin(), graph.segments.end(),
+                        [id](const RoadSegment& item) {
+                          return item.id == id;
+                        });
+  };
+  const auto node = [&](RoadNodeId id) {
+    return std::find_if(graph.nodes.begin(), graph.nodes.end(),
+                        [id](const auto& item) { return item.id == id; });
+  };
+  const auto a1 = segment(fixture.segment_a);
+  const auto b1 = segment(fixture.segment_b);
+  const auto a2 = segment(a2_id);
+  const auto b2 = segment(b2_id);
+  if (a1 == graph.segments.end() || b1 == graph.segments.end() ||
+      a2 == graph.segments.end() || b2 == graph.segments.end() ||
+      a1->node_b == fixture.common_end_node ||
+      b1->node_b == fixture.common_end_node ||
+      a2->node_a != a1->node_b || b2->node_a != b1->node_b ||
+      a2->node_b != fixture.common_end_node ||
+      b2->node_b != fixture.common_end_node) {
+    return city::road::Result<std::string>::Fail(
+        CommitFailureCategory::kInternalError,
+        "multi-split segment identity or half ownership drifted");
+  }
+  const auto a_split = node(a1->node_b);
+  const auto b_split = node(b1->node_b);
+  if (a_split == graph.nodes.end() || b_split == graph.nodes.end() ||
+      std::abs(a_split->position.x + 50.0) > 1e-6 ||
+      std::abs(a_split->position.y) > 1e-9 ||
+      std::abs(b_split->position.x) > 1e-9 ||
+      std::abs(b_split->position.y + 50.0) > 1e-6) {
+    return city::road::Result<std::string>::Fail(
+        CommitFailureCategory::kInternalError,
+        "multi-split positions drifted");
+  }
+  const auto invariant =
+      ValidateGraphInvariants(graph, fixture.state.derived());
+  const auto lane_path = std::find_if(
+      fixture.state.derived().lane_paths.begin(),
+      fixture.state.derived().lane_paths.end(),
+      [](const auto& path) { return path.connection_id == 9101; });
+  const auto boundary_path = std::find_if(
+      fixture.state.derived().boundary_paths.begin(),
+      fixture.state.derived().boundary_paths.end(),
+      [](const auto& path) { return path.continuation_id == 9102; });
+  const bool junction_marking_derived =
+      0 < road_test_view::count_marking_lines(
+              fixture.state.derived(), [&fixture](const auto& path) {
+                return path.owner.kind == MarkingOwner::Kind::kJunction &&
+                       path.owner.node_id == fixture.common_end_node &&
+                       path.role == MarkingRole::kCenterLine;
+              });
+  if (!invariant.ok || lane_path == fixture.state.derived().lane_paths.end() ||
+      boundary_path == fixture.state.derived().boundary_paths.end() ||
+      !junction_marking_derived) {
+    return city::road::Result<std::string>::Fail(
+        invariant.ok ? CommitFailureCategory::kInternalError
+                     : invariant.failure_category,
+        invariant.ok ? "multi-split derived topology is missing"
+                     : invariant.error);
+  }
+  return city::road::Result<std::string>::Ok(
+      "lane=A2.End>B2.End;boundary=A2.End>B2.End;marking=A2.End>B2.End");
+}
+
+bool multi_split_composes_cross_source_relations(std::string& failure) {
+  const auto run = [](bool reverse_request) {
+    auto fixture = make_multi_split_relation_fixture();
+    if (!fixture.ok) {
+      return city::road::Result<std::string>::Fail(
+          fixture.failure_category, fixture.error);
+    }
+    const auto connected = fixture.value.state.AddSegmentBetween(
+        city::road::AddSegmentBetweenRequest{
+            reverse_request
+                ? MakePath({MakeLine({0.0, -50.0}, {-50.0, 0.0})})
+                : MakePath({MakeLine({-50.0, 0.0}, {0.0, -50.0})}),
+            fixture.value.section_id,
+            reverse_request
+                ? city::road::RoadConnectionTarget{
+                      0, fixture.value.segment_b, 50.0}
+                : city::road::RoadConnectionTarget{
+                      0, fixture.value.segment_a, 50.0},
+            reverse_request
+                ? city::road::RoadConnectionTarget{
+                      0, fixture.value.segment_a, 50.0}
+                : city::road::RoadConnectionTarget{
+                      0, fixture.value.segment_b, 50.0}});
+    if (!connected.ok) {
+      return city::road::Result<std::string>::Fail(
+          connected.failure_category, connected.error);
+    }
+    const auto observed = observe_multi_split_relations(fixture.value);
+    if (!observed.ok) return observed;
+    const auto saved = fixture.value.state.Save();
+    if (!saved.ok) {
+      return city::road::Result<std::string>::Fail(
+          saved.failure_category, saved.error);
+    }
+    const auto loaded = RoadState::Load(saved.value);
+    if (!loaded.ok) {
+      return city::road::Result<std::string>::Fail(
+          loaded.failure_category, loaded.error);
+    }
+    MultiSplitRelationFixture reloaded{
+        loaded.value, fixture.value.section_id, fixture.value.segment_a,
+        fixture.value.segment_b, fixture.value.common_end_node};
+    const auto round_trip = observe_multi_split_relations(reloaded);
+    if (!round_trip.ok) return round_trip;
+    if (round_trip.value != observed.value) {
+      return city::road::Result<std::string>::Fail(
+          CommitFailureCategory::kInternalError,
+          "multi-split relation semantics changed after save/load");
+    }
+    return observed;
+  };
+
+  const auto forward = run(false);
+  const auto reverse = run(true);
+  ROAD_TEST_EXPECT(forward.ok, forward.error);
+  ROAD_TEST_EXPECT(reverse.ok, reverse.error);
+  ROAD_TEST_EXPECT(forward.value == reverse.value,
+                   "multi-split relation semantics depend on split order");
+  return true;
+}
+
+bool multi_split_second_target_failure_is_atomic(std::string& failure) {
+  auto fixture = make_multi_split_relation_fixture();
+  ROAD_TEST_EXPECT(fixture.ok, fixture.error);
+  const auto before = fixture.value.state.Save();
+  ROAD_TEST_EXPECT(before.ok, before.error);
+  const auto rejected = fixture.value.state.AddSegmentBetween(
+      city::road::AddSegmentBetweenRequest{
+          MakePath({MakeLine({-50.0, 0.0}, {0.0, -50.0})}),
+          fixture.value.section_id,
+          {0, fixture.value.segment_a, 50.0},
+          {0, fixture.value.segment_b, 1000.0}});
+  ROAD_TEST_EXPECT(!rejected.ok,
+                   "multi-split invalid second target was accepted");
+  const auto after = fixture.value.state.Save();
+  ROAD_TEST_EXPECT(after.ok && after.value == before.value,
+                   "multi-split failure retained a split or relation remap");
+  return true;
+}
+
 bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   RoadState state{};
   const auto shouldered = road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
@@ -7063,6 +7332,10 @@ int main() {
        split_semantics_have_one_internal_planner},
       {"connection_splits_reject_transitioning_sources",
        connection_splits_reject_transitioning_sources},
+      {"multi_split_composes_cross_source_relations",
+       multi_split_composes_cross_source_relations},
+      {"multi_split_second_target_failure_is_atomic",
+       multi_split_second_target_failure_is_atomic},
       {"add_lane_propagates_from_middle_corridor_segment",
        add_lane_propagates_from_middle_corridor_segment},
       {"add_lane_normalizes_reversed_corridor_direction",

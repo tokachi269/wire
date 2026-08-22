@@ -2358,6 +2358,9 @@ describe("road wasm smoke", () => {
       laneWidthM: 3
     });
     expect(committed.ok).toBe(false);
+    expect(committed.failureCategory).toBe(3);
+    expect(committed.reasonCode)
+      .toBe("road_add_lane_taper_crosses_segment_boundary");
     expect(committed.error).toContain("taper must stay within one road segment");
     const scene = state.scene();
     expect(scene.segmentCount).toBe(before.segmentCount);

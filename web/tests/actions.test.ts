@@ -1552,8 +1552,81 @@ describe("viewport tool routing", () => {
     });
     expect(commit).toHaveBeenCalledOnce();
   });
-  it("rejects an add-lane taper crossing a segment boundary before commit", () => {
-    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+  it.each([
+    ["same segment", 12, 30, ""],
+    ["another segment in the corridor", 13, 30, "road_add_lane_taper_crosses_segment_boundary"],
+    ["another corridor", 14, 30, "road_add_lane_position_not_on_selected_corridor"],
+    ["the start position", 12, 10, "road_add_lane_positions_identical"]
+  ])("sends the same add-lane request for click and confirm at %s",
+    (_label, completeSegmentId, completeDistanceM, reasonCode) => {
+      const baseScene = actionBridge().roadScene();
+      const scene = {
+        ...baseScene,
+        corridors: [
+          { id: 30, roadLayoutTemplateId: 1, lengthM: 120, segments: [
+            { segmentId: 12, reversed: false, lengthM: 60 },
+            { segmentId: 13, reversed: false, lengthM: 60 }
+          ] },
+          { id: 31, roadLayoutTemplateId: 1, lengthM: 60,
+            segments: [{ segmentId: 14, reversed: false, lengthM: 60 }] }
+        ],
+        roadLayoutTemplates: [{
+          id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+          laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+          hasCenterLine: true, hasOuterLines: true,
+          lanes: [{ id: 1010, direction: 0 as const }], boundaries: []
+        }]
+      };
+      const requests: unknown[] = [];
+      const makeActions = () => {
+        const store = new ViewerStore();
+        const commit = vi.fn((input: unknown) => {
+          requests.push(input);
+          return {
+            ok: reasonCode === "",
+            error: reasonCode === "" ? "" : "mock Core rejection",
+            failureCategory: CommitFailureCategory.InvalidInput,
+            reasonCode
+          };
+        });
+        const actions = new ViewerActions(actionBridge({
+          roadScene: () => scene, roadAddLane: commit
+        }), store);
+        actions.initialize();
+        actions.setActiveTool("road");
+        actions.setRoadOperation("add-lane");
+        actions.addViewportPoint([10, 0, 0], {
+          kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+        });
+        return { actions, store, commit };
+      };
+      const snap = {
+        kind: "road" as const, nodeId: 0, segmentId: completeSegmentId,
+        segmentDistanceM: completeDistanceM
+      };
+      const clicked = makeActions();
+      clicked.actions.addViewportPoint([completeDistanceM, 0, 0], snap);
+      const confirmed = makeActions();
+      confirmed.actions.previewViewportPoint([completeDistanceM, 0, 0], snap);
+      confirmed.actions.commitRoadPath();
+
+      expect(clicked.commit).toHaveBeenCalledOnce();
+      expect(confirmed.commit).toHaveBeenCalledOnce();
+      expect(requests).toHaveLength(2);
+      expect(requests[1]).toEqual(requests[0]);
+      if (reasonCode !== "") {
+        expect(current(clicked.store).lastCommitFailure?.reasonCode).toBe(reasonCode);
+        expect(current(confirmed.store).lastCommitFailure?.reasonCode).toBe(reasonCode);
+        expect(current(confirmed.store).road.laneTransitionCompleteSegmentId)
+          .toBe(completeSegmentId);
+      }
+    });
+  it("uses the Core reason for an add-lane taper crossing a segment boundary", () => {
+    const commit = vi.fn((_input: unknown) => ({
+      ok: false, error: "lane taper must stay within one road segment",
+      failureCategory: CommitFailureCategory.NotImplemented,
+      reasonCode: "road_add_lane_taper_crosses_segment_boundary"
+    }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
     const scene = {
@@ -1583,9 +1656,9 @@ describe("viewport tool routing", () => {
       kind: "road", nodeId: 0, segmentId: 13, segmentDistanceM: 30
     });
 
-    expect(commit).not.toHaveBeenCalled();
+    expect(commit).toHaveBeenCalledOnce();
     expect(current(store).lastCommitFailure?.reasonCode)
-      .toBe("lane_taper_crosses_segment_boundary");
+      .toBe("road_add_lane_taper_crosses_segment_boundary");
     expect(current(store).road.laneEditStage).toBe("transition-complete");
   });
   it("normalizes add-lane picks against the hidden corridor direction", () => {
@@ -1632,8 +1705,12 @@ describe("viewport tool routing", () => {
       completeT: 10 / 60
     }));
   });
-  it("rejects identical add-lane start and completion before commit", () => {
-    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+  it("uses the Core reason for identical add-lane start and completion", () => {
+    const commit = vi.fn((_input: unknown) => ({
+      ok: false, error: "lane start and completion positions must be different",
+      failureCategory: CommitFailureCategory.InvalidInput,
+      reasonCode: "road_add_lane_positions_identical"
+    }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
     const scene = {
@@ -1662,13 +1739,17 @@ describe("viewport tool routing", () => {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
 
-    expect(commit).not.toHaveBeenCalled();
+    expect(commit).toHaveBeenCalledOnce();
     expect(current(store).lastCommitFailure?.reasonCode)
-      .toBe("lane_transition_complete_not_after_start");
+      .toBe("road_add_lane_positions_identical");
     expect(current(store).road.laneEditStage).toBe("transition-complete");
   });
-  it("explains unsupported add-lane completion points on another corridor before commit", () => {
-    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+  it("uses the Core reason for an add-lane completion point on another corridor", () => {
+    const commit = vi.fn((_input: unknown) => ({
+      ok: false, error: "lane position is not on the selected corridor",
+      failureCategory: CommitFailureCategory.InvalidInput,
+      reasonCode: "road_add_lane_position_not_on_selected_corridor"
+    }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
     const scene = {
@@ -1701,11 +1782,11 @@ describe("viewport tool routing", () => {
       kind: "road", nodeId: 0, segmentId: 13, segmentDistanceM: 50
     });
 
-    expect(commit).not.toHaveBeenCalled();
+    expect(commit).toHaveBeenCalledOnce();
     expect(current(store).lastCommitFailure?.reasonCode)
-      .toBe("lane_transition_complete_crosses_corridor");
+      .toBe("road_add_lane_position_not_on_selected_corridor");
     expect(current(store).lastCommitFailure?.message)
-      .toContain("交差点や別corridorを跨ぐADD LANE完成位置は未対応");
+      .toContain("lane position is not on the selected corridor");
     expect(current(store).road.laneEditStage).toBe("transition-complete");
   });
   it("keeps all add-lane selections after one rejected confirmation", () => {

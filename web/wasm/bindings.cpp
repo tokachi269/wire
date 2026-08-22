@@ -1549,7 +1549,8 @@ public:
                 input["completeSegmentId"].as<city::road::RoadSegmentId>(),
                 input["completeT"].as<double>()},
             input["laneWidthM"].as<double>()});
-    val output = road_result_value(result.ok, result.error, result.failure_category);
+    val output = road_result_value(result.ok, result.error, result.failure_category,
+                                   result.reason_code);
     if (result.ok) output.set("laneId", static_cast<double>(result.value));
     return output;
   }

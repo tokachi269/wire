@@ -412,7 +412,8 @@ struct ResolvedLanePosition {
   }
   return Result<ResolvedLanePosition>::Fail(
       CommitFailureCategory::kInvalidInput,
-      "lane position is not on the selected corridor");
+      "lane position is not on the selected corridor",
+      "road_add_lane_position_not_on_selected_corridor");
 }
 } // namespace
 
@@ -436,7 +437,8 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     const auto& failed = !start_position.ok
                              ? start_position
                              : complete_position;
-    return Result<LaneId>::Fail(failed.failure_category, failed.error);
+    return Result<LaneId>::Fail(failed.failure_category, failed.error,
+                                failed.reason_code);
   }
   const double operation_delta_m =
       complete_position.value.corridor_distance_m -
@@ -444,7 +446,8 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   if (std::abs(operation_delta_m) <= distance_epsilon) {
     return Result<LaneId>::Fail(
         CommitFailureCategory::kInvalidInput,
-        "lane start and completion positions must be different");
+        "lane start and completion positions must be different",
+        "road_add_lane_positions_identical");
   }
   const bool operation_forward = operation_delta_m > 0.0;
   const RoadSegment* segment =
@@ -476,7 +479,8 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
   if (segment->transition.has_value()) {
     return Result<LaneId>::Fail(
         CommitFailureCategory::kInvalidInput,
-        "this road segment already has a section transition; overlapping lane changes are not supported");
+        "this road segment already has a section transition; overlapping lane changes are not supported",
+        "road_add_lane_transition_conflict");
   }
   const Result<OuterLaneSelection> selected = select_outer_lane_strip(
       *source, local_direction, local_side,
@@ -633,7 +637,8 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     if (taper_begin_index != taper_end_index) {
       return Result<LaneId>::Fail(
           CommitFailureCategory::kNotImplemented,
-          "lane taper must stay within one road segment");
+          "lane taper must stay within one road segment",
+          "road_add_lane_taper_crosses_segment_boundary");
     }
     for (std::size_t index = taper_begin_index;
          index <= taper_end_index; ++index) {
@@ -648,7 +653,8 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
       if (item->transition.has_value()) {
         return Result<LaneId>::Fail(
             CommitFailureCategory::kInvalidInput,
-            "lane taper crosses a road segment that already has a section transition");
+            "lane taper crosses a road segment that already has a section transition",
+            "road_add_lane_transition_conflict");
       }
       const RoadLayoutTemplate* base =
           find_template(graph_, item->layout_template);

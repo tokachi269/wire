@@ -3465,6 +3465,8 @@ bool add_lane_rejects_taper_across_segment_boundaries(std::string& failure) {
   ROAD_TEST_EXPECT(!added.ok &&
                        added.failure_category ==
                            CommitFailureCategory::kNotImplemented &&
+                       added.reason_code ==
+                           "road_add_lane_taper_crosses_segment_boundary" &&
                        added.error.find("taper must stay within one road segment") !=
                            std::string::npos,
                    "ADD LANE accepted a cross-segment taper");
@@ -3499,6 +3501,8 @@ bool add_lane_conflict_is_specific_and_atomic(std::string& failure) {
   ROAD_TEST_EXPECT(!rejected.ok &&
                        rejected.failure_category ==
                            CommitFailureCategory::kInvalidInput &&
+                       rejected.reason_code ==
+                           "road_add_lane_transition_conflict" &&
                        rejected.error.find("already has a section transition") !=
                            std::string::npos,
                    "overlapping transition did not return a specific input error");
@@ -3656,6 +3660,40 @@ bool segment_split_remaps_saved_lane_topology(std::string& failure) {
                    "segment delete left saved lane or boundary topology orphaned");
   const auto saved = delete_state.Save();
   ROAD_TEST_EXPECT(saved.ok, saved.error);
+  return true;
+}
+
+bool add_lane_position_rejections_are_specific_and_atomic(std::string& failure) {
+  RoadState state{};
+  const auto section =
+      road_fixture::AddLayout(state, road_fixture::BidirectionalLayout(0));
+  const auto selected = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 0.0}, {60.0, 0.0})}), section});
+  const auto other = state.AddSegment(city::road::AddSegmentRequest{
+      MakePath({MakeLine({0.0, 20.0}, {60.0, 20.0})}), section});
+  ROAD_TEST_EXPECT(selected.ok && other.ok, "ADD LANE position fixture failed");
+  const auto* corridor = FindCorridorForSegment(state.graph(), selected.value);
+  ROAD_TEST_EXPECT(corridor != nullptr, "selected ADD LANE corridor is missing");
+  city::road::AddLaneRequest request{
+      corridor->id, city::road::LaneTravelDirection::kAlongSegment,
+      city::road::RoadSide::kRight, {selected.value, 0.25},
+      {selected.value, 0.25}, 3.0};
+  const auto before = state.Save();
+  ROAD_TEST_EXPECT(before.ok, before.error);
+  const auto identical = state.AddLane(request);
+  ROAD_TEST_EXPECT(!identical.ok &&
+                       identical.reason_code ==
+                           "road_add_lane_positions_identical",
+                   "identical ADD LANE positions lacked the Core reason");
+  request.transition_complete = {other.value, 0.5};
+  const auto outside = state.AddLane(request);
+  ROAD_TEST_EXPECT(!outside.ok &&
+                       outside.reason_code ==
+                           "road_add_lane_position_not_on_selected_corridor",
+                   "outside-corridor ADD LANE position lacked the Core reason");
+  const auto after = state.Save();
+  ROAD_TEST_EXPECT(after.ok && after.value == before.value,
+                   "rejected ADD LANE positions mutated authoritative state");
   return true;
 }
 
@@ -7320,6 +7358,8 @@ int main() {
        add_lane_rejects_taper_across_segment_boundaries},
       {"add_lane_conflict_is_specific_and_atomic",
        add_lane_conflict_is_specific_and_atomic},
+      {"add_lane_position_rejections_are_specific_and_atomic",
+       add_lane_position_rejections_are_specific_and_atomic},
       {"transitioning_segment_split_respects_transition_bounds",
        transitioning_segment_split_respects_transition_bounds},
       {"segment_split_remaps_saved_lane_topology",

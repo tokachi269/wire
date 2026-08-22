@@ -230,8 +230,7 @@ export class RoadActions {
       if (current.operation === "add-lane") {
         if (current.laneEditStage === "transition-complete" && snap !== undefined) {
           const position = segmentPositionForSnap(current, snap);
-          if (position !== null &&
-              positionBelongsToCorridor(current, position, current.laneCorridorId)) {
+          if (position !== null) {
             road = {
               ...road,
               laneTransitionCompleteSegmentId: position.segmentId,
@@ -391,49 +390,13 @@ export class RoadActions {
                            "lane_transition_complete_not_selected");
           return;
         }
-        if (!positionBelongsToCorridor(road, position, road.laneCorridorId)) {
-          this.rejectInput("road add lane",
-                           "交差点や別corridorを跨ぐADD LANE完成位置は未対応です。開始位置と同じ道路区間上を選択してください",
-                           "lane_transition_complete_crosses_corridor");
-          return;
-        }
-        if (position.segmentId !== road.laneTransitionStartSegmentId) {
-          this.rejectInput("road add lane", "車線が広がる区間は同じ道路区間内で選択してください",
-                           "lane_taper_crosses_segment_boundary");
-          return;
-        }
-        const startDistance = corridorDistanceForPosition(
-          road, { segmentId: road.laneTransitionStartSegmentId,
-            t: road.laneTransitionStartT }, road.laneCorridorId
-        );
-        const completeDistance = corridorDistanceForPosition(
-          road, position, road.laneCorridorId
-        );
-        if (startDistance === null || completeDistance === null ||
-            Math.abs(completeDistance - startDistance) <= 1e-9) {
-          this.rejectInput("road add lane", "開始位置とは別の道路上を選択してください",
-                           "lane_transition_complete_not_after_start");
-          return;
-        }
         const laneRoad = {
           ...road,
           laneTransitionCompleteSegmentId: position.segmentId,
           laneTransitionCompleteT: position.t
         };
-        const result = this.ctx.bridge.roadAddLane(laneTransitionInput(laneRoad));
-        if (!result.ok) {
-          this.ctx.store.update((snapshot) => ({
-            ...snapshot,
-            road: {
-              ...snapshot.road,
-              laneTransitionCompleteSegmentId: position.segmentId,
-              laneTransitionCompleteT: position.t,
-              previewIssue: "",
-              lastError: ""
-            }
-          }));
-        }
-        this.finish(result, "road add lane");
+        this.ctx.store.update((snapshot) => ({ ...snapshot, road: laneRoad }));
+        this.commitLane(laneRoad);
         return;
       }
       return;
@@ -583,8 +546,7 @@ export class RoadActions {
   private commitLane(road: RoadToolState): DrawActionResult {
     if (road.laneEditStage !== "transition-complete" ||
         road.laneTransitionStartSegmentId === 0 ||
-        road.laneTransitionCompleteSegmentId === 0 ||
-        Math.abs(road.laneTransitionCompleteT - road.laneTransitionStartT) <= 1e-9) {
+        road.laneTransitionCompleteSegmentId === 0) {
       return { kind: "ignored", reasonCode: "lane-range-incomplete" };
     }
     const result = this.ctx.bridge.roadAddLane(laneTransitionInput(road));
@@ -822,32 +784,4 @@ function segmentPositionForSnap(
     segmentId: snap.segmentId,
     t: Math.max(0, Math.min(1, snap.segmentDistanceM / ref.lengthM))
   };
-}
-
-function positionBelongsToCorridor(
-  road: RoadToolState,
-  position: { segmentId: number; t: number },
-  corridorId: number
-): boolean {
-  return road.scene.corridors
-    .find((corridor) => corridor.id === corridorId)
-    ?.segments.some((ref) => ref.segmentId === position.segmentId) ?? false;
-}
-
-function corridorDistanceForPosition(
-  road: RoadToolState,
-  position: { segmentId: number; t: number },
-  corridorId: number
-): number | null {
-  const corridor = road.scene.corridors.find((item) => item.id === corridorId);
-  if (corridor === undefined) return null;
-  let distance = 0;
-  for (const ref of corridor.segments) {
-    if (ref.segmentId === position.segmentId) {
-      const localDistance = Math.max(0, Math.min(1, position.t)) * ref.lengthM;
-      return distance + (ref.reversed ? ref.lengthM - localDistance : localDistance);
-    }
-    distance += ref.lengthM;
-  }
-  return null;
 }

@@ -555,23 +555,9 @@ Result<LaneId> RoadState::AddLane(AddLaneRequest request) {
     return &plan.replace_segments.back();
   };
   const auto execute_lane_plan = [&]() -> Result<LaneId> {
-    plan.next_id_after = next_id;
-    SavedRoadGraph planned_graph = graph_;
-    std::uint64_t planned_next_id = next_id_;
-    const Result<bool> planned =
-        operations::Apply(plan, planned_graph, planned_next_id);
-    if (!planned.ok) {
-      return Result<LaneId>::Fail(planned.failure_category, planned.error);
-    }
-    const RoadCorridor* planned_corridor =
-        FindRoadCorridor(planned_graph, request.corridor_id);
-    if (planned_corridor == nullptr || planned_corridor->segments.empty()) {
-      return Result<LaneId>::Fail(CommitFailureCategory::kInternalError,
-                                  "planned lane corridor is missing");
-    }
     const Result<bool> degree_two_topology =
         plan_same_identity_degree_two_topology(
-            planned_graph, terminal_segment_id, terminal_role, added_lane_id,
+            graph_, terminal_segment_id, terminal_role, added_lane_id,
             lane_ids.boundary_id, next_id, plan);
     if (!degree_two_topology.ok) {
       return Result<LaneId>::Fail(degree_two_topology.failure_category,

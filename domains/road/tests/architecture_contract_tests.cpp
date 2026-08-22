@@ -11,6 +11,8 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <locale>
@@ -1890,6 +1892,45 @@ bool lane_endpoint_identity_ignores_template_order(std::string& failure) {
   return true;
 }
 
+bool operation_plan_apply_is_owned_by_road_state_execute(
+    std::string& failure) {
+  std::filesystem::path root = std::filesystem::current_path();
+  while (!std::filesystem::exists(root / "domains" / "road" / "src") &&
+         root.has_parent_path() && root.parent_path() != root) {
+    root = root.parent_path();
+  }
+  const std::filesystem::path source_root =
+      root / "domains" / "road" / "src";
+  ROAD_CONTRACT_EXPECT(std::filesystem::exists(source_root),
+                       "road production source root is missing");
+  std::size_t apply_calls = 0;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(source_root)) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".cpp") {
+      continue;
+    }
+    std::ifstream in(entry.path());
+    ROAD_CONTRACT_EXPECT(in.good(),
+                         "road production source could not be read: " +
+                             entry.path().string());
+    const std::string text((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    constexpr std::string_view needle = "operations::Apply(";
+    for (std::size_t at = text.find(needle); at != std::string::npos;
+         at = text.find(needle, at + needle.size())) {
+      ++apply_calls;
+      ROAD_CONTRACT_EXPECT(
+          entry.path().filename() == "state.cpp",
+          "OperationPlan was applied outside RoadState::Execute: " +
+              entry.path().string());
+    }
+  }
+  ROAD_CONTRACT_EXPECT(
+      apply_calls == 1,
+      "RoadState::Execute must own the only production OperationPlan Apply");
+  return true;
+}
+
 bool seeded_operation_sequences_preserve_contracts(std::string& failure) {
   for (std::uint32_t seed = 1; seed <= 4; ++seed) {
     std::mt19937 random(seed);
@@ -2003,6 +2044,8 @@ int main() {
        marking_invalid_interval_splits_polyline_runs},
       {"lane_endpoint_identity_ignores_template_order",
        lane_endpoint_identity_ignores_template_order},
+      {"operation_plan_apply_is_owned_by_road_state_execute",
+       operation_plan_apply_is_owned_by_road_state_execute},
       {"seeded_operation_sequences_preserve_contracts", seeded_operation_sequences_preserve_contracts},
   };
   int failed = 0;

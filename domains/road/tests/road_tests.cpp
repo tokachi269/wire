@@ -4508,6 +4508,270 @@ bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   return true;
 }
 
+bool add_lane_degree_two_terminal_preserves_existing_identity(
+    std::string& failure) {
+  struct Scenario {
+    const char* name;
+    bool operation_forward;
+    bool reversed_ref;
+    city::road::RoadSide side;
+    bool seed_claimed_relations;
+  };
+  const std::array scenarios{
+      Scenario{"forward", true, false, city::road::RoadSide::kRight, false},
+      Scenario{"backward", false, false, city::road::RoadSide::kRight, false},
+      Scenario{"reversed_ref", true, true, city::road::RoadSide::kRight,
+               false},
+      Scenario{"left_side", true, false, city::road::RoadSide::kLeft, false},
+      Scenario{"claimed", true, false, city::road::RoadSide::kRight, true},
+  };
+  const auto topology_observation = [](const SavedRoadGraph& graph) {
+    std::vector<std::tuple<std::uint64_t, RoadSegmentId, LaneId, int,
+                           RoadSegmentId, LaneId, int, int>> lanes{};
+    for (const auto& relation : graph.lane_connections) {
+      lanes.emplace_back(
+          relation.id, relation.source.segment_id, relation.source.lane_id,
+          static_cast<int>(relation.source.endpoint_role),
+          relation.target.segment_id, relation.target.lane_id,
+          static_cast<int>(relation.target.endpoint_role),
+          static_cast<int>(relation.kind));
+    }
+    std::vector<std::tuple<std::uint64_t, RoadSegmentId, BoundaryId, int,
+                           RoadSegmentId, BoundaryId, int, int>> boundaries{};
+    for (const auto& relation : graph.boundary_continuations) {
+      boundaries.emplace_back(
+          relation.id, relation.source.segment_id,
+          relation.source.boundary_id,
+          static_cast<int>(relation.source.endpoint_role),
+          relation.target.segment_id, relation.target.boundary_id,
+          static_cast<int>(relation.target.endpoint_role),
+          static_cast<int>(relation.kind));
+    }
+    std::sort(lanes.begin(), lanes.end());
+    std::sort(boundaries.begin(), boundaries.end());
+    return std::pair{std::move(lanes), std::move(boundaries)};
+  };
+
+  for (const Scenario& scenario : scenarios) {
+    RoadState authored{};
+    const auto section = road_fixture::AddLayout(
+        authored, road_fixture::BidirectionalLayout(0));
+    const auto source = authored.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {80.0, 0.0})}), section});
+    ROAD_TEST_EXPECT(source.ok,
+                     std::string(scenario.name) + ": " + source.error);
+    const auto source_segment = std::find_if(
+        authored.graph().segments.begin(), authored.graph().segments.end(),
+        [&source](const auto& segment) { return segment.id == source.value; });
+    ROAD_TEST_EXPECT(source_segment != authored.graph().segments.end(),
+                     std::string(scenario.name) +
+                         ": source segment is missing");
+    const EndpointRole source_role =
+        scenario.operation_forward
+            ? (scenario.reversed_ref ? EndpointRole::kStart
+                                     : EndpointRole::kEnd)
+            : (scenario.reversed_ref ? EndpointRole::kEnd
+                                     : EndpointRole::kStart);
+    const EndpointRole target_role = source_role == EndpointRole::kStart
+                                         ? EndpointRole::kEnd
+                                         : EndpointRole::kStart;
+    const RoadNodeId terminal_node = source_role == EndpointRole::kStart
+                                         ? source_segment->node_a
+                                         : source_segment->node_b;
+    const auto node = std::find_if(
+        authored.graph().nodes.begin(), authored.graph().nodes.end(),
+        [terminal_node](const auto& item) { return item.id == terminal_node; });
+    ROAD_TEST_EXPECT(node != authored.graph().nodes.end(),
+                     std::string(scenario.name) +
+                         ": terminal node is missing");
+    const Vec2d before = {node->position.x - 80.0, node->position.y};
+    const Vec2d after = {node->position.x + 80.0, node->position.y};
+    const auto target = authored.AddSegmentConnectedTo(
+        city::road::AddSegmentConnectedToRequest{
+            MakePath({MakeLine(target_role == EndpointRole::kStart
+                                   ? node->position
+                                   : before,
+                               target_role == EndpointRole::kStart
+                                   ? after
+                                   : node->position)}),
+            section, terminal_node, target_role});
+    ROAD_TEST_EXPECT(target.ok,
+                     std::string(scenario.name) + ": " + target.error);
+    const auto* authored_corridor =
+        FindCorridorForSegment(authored.graph(), source.value);
+    ROAD_TEST_EXPECT(authored_corridor != nullptr &&
+                         authored_corridor->segments.size() == 1,
+                     std::string(scenario.name) +
+                         ": source corridor is missing");
+
+    SavedRoadGraph seeded = authored.graph();
+    auto corridor = std::find_if(
+        seeded.corridors.begin(), seeded.corridors.end(),
+        [id = authored_corridor->id](const auto& item) {
+          return item.id == id;
+        });
+    ROAD_TEST_EXPECT(corridor != seeded.corridors.end(),
+                     std::string(scenario.name) +
+                         ": saved source corridor is missing");
+    corridor->segments.front().reversed = scenario.reversed_ref;
+    const LaneId crossing_lane =
+        source_role == EndpointRole::kEnd ? 1010 : 1000;
+    if (scenario.seed_claimed_relations) {
+      seeded.lane_connections.push_back(city::road::LaneConnection{
+          9001,
+          {source.value, crossing_lane, source_role},
+          {target.value, crossing_lane, target_role},
+          city::road::LaneConnectionKind::kContinuation});
+      seeded.boundary_continuations.push_back(
+          city::road::BoundaryContinuation{
+              9002,
+              {source.value, 100, source_role},
+              {target.value, 100, target_role},
+              city::road::BoundaryContinuationKind::kContinuation});
+    }
+    auto loaded = load_fixture(seeded);
+    ROAD_TEST_EXPECT(loaded.ok,
+                     std::string(scenario.name) +
+                         ": fixture load failed: " + loaded.error);
+    RoadState& state = loaded.value;
+    city::road::AddLaneRequest request{};
+    request.corridor_id = authored_corridor->id;
+    request.direction = city::road::LaneTravelDirection::kAlongSegment;
+    request.side = scenario.side;
+    ROAD_TEST_EXPECT(
+        SetAddLaneRange(state, request,
+                        scenario.operation_forward ? 20.0 : 60.0,
+                        scenario.operation_forward ? 60.0 : 20.0),
+        std::string(scenario.name) + ": lane range could not be resolved");
+    request.lane_width_m = 3.0;
+    const auto added = state.AddLane(request);
+    ROAD_TEST_EXPECT(added.ok,
+                     std::string(scenario.name) +
+                         ": AddLane failed: " + added.error);
+
+    const auto lane_pair = [&](const auto& relation) {
+      return relation.source == city::road::LaneEndpointKey{
+                                    source.value, crossing_lane, source_role} &&
+             relation.target == city::road::LaneEndpointKey{
+                                    target.value, crossing_lane, target_role};
+    };
+    ROAD_TEST_EXPECT(
+        std::count_if(state.graph().lane_connections.begin(),
+                      state.graph().lane_connections.end(), lane_pair) == 1,
+        std::string(scenario.name) +
+            ": existing lane identity did not cross the terminal exactly once");
+    ROAD_TEST_EXPECT(
+        std::none_of(state.graph().lane_connections.begin(),
+                     state.graph().lane_connections.end(),
+                     [&added, &source](const auto& relation) {
+                       return relation.source.segment_id == source.value &&
+                              relation.source.lane_id == added.value;
+                     }),
+        std::string(scenario.name) +
+            ": newly added lane crossed the terminal");
+
+    for (const BoundaryId boundary_id :
+         std::array<BoundaryId, 3>{100, 200, 300}) {
+      const auto boundary_pair = [&](const auto& relation) {
+        return relation.source == city::road::BoundaryEndpointKey{
+                                      source.value, boundary_id, source_role} &&
+               relation.target == city::road::BoundaryEndpointKey{
+                                      target.value, boundary_id, target_role};
+      };
+      ROAD_TEST_EXPECT(
+          std::count_if(state.graph().boundary_continuations.begin(),
+                        state.graph().boundary_continuations.end(),
+                        boundary_pair) == 1,
+          std::string(scenario.name) + ": existing boundary " +
+              std::to_string(boundary_id) +
+              " did not cross the terminal exactly once");
+    }
+    std::set<BoundaryId> new_boundaries{};
+    for (const auto& layout : state.graph().layout_templates) {
+      const bool owns_added_lane = std::any_of(
+          layout.lane_bands.begin(), layout.lane_bands.end(),
+          [&added](const auto& lane) { return lane.id == added.value; });
+      if (!owns_added_lane) continue;
+      for (const auto& boundary : layout.boundaries) {
+        if (boundary.boundary_id != 100 && boundary.boundary_id != 200 &&
+            boundary.boundary_id != 300) {
+          new_boundaries.insert(boundary.boundary_id);
+        }
+      }
+    }
+    ROAD_TEST_EXPECT(new_boundaries.size() == 1,
+                     std::string(scenario.name) +
+                         ": added divider identity is ambiguous");
+    ROAD_TEST_EXPECT(
+        std::none_of(state.graph().boundary_continuations.begin(),
+                     state.graph().boundary_continuations.end(),
+                     [&source, source_role,
+                      divider = *new_boundaries.begin()](const auto& relation) {
+                       return relation.source ==
+                              city::road::BoundaryEndpointKey{
+                                  source.value, divider, source_role};
+                     }),
+        std::string(scenario.name) +
+            ": newly added divider crossed the terminal");
+
+    std::set<std::uint64_t> relation_ids{};
+    for (const auto& relation : state.graph().lane_connections) {
+      ROAD_TEST_EXPECT(relation_ids.insert(relation.id).second,
+                       std::string(scenario.name) +
+                           ": duplicate relation ID");
+    }
+    for (const auto& relation : state.graph().boundary_continuations) {
+      ROAD_TEST_EXPECT(relation_ids.insert(relation.id).second,
+                       std::string(scenario.name) +
+                           ": duplicate relation ID");
+    }
+    std::set<std::pair<city::road::LaneEndpointKey,
+                       city::road::LaneEndpointKey>> lane_pairs{};
+    for (const auto& relation : state.graph().lane_connections) {
+      ROAD_TEST_EXPECT(
+          lane_pairs.insert({relation.source, relation.target}).second,
+          std::string(scenario.name) + ": duplicate lane relation");
+    }
+    std::set<std::pair<city::road::BoundaryEndpointKey,
+                       city::road::BoundaryEndpointKey>> boundary_pairs{};
+    for (const auto& relation : state.graph().boundary_continuations) {
+      ROAD_TEST_EXPECT(
+          boundary_pairs.insert({relation.source, relation.target}).second,
+          std::string(scenario.name) + ": duplicate boundary relation");
+    }
+    if (scenario.seed_claimed_relations) {
+      ROAD_TEST_EXPECT(
+          std::any_of(state.graph().lane_connections.begin(),
+                      state.graph().lane_connections.end(),
+                      [](const auto& relation) { return relation.id == 9001; }) &&
+              std::any_of(state.graph().boundary_continuations.begin(),
+                          state.graph().boundary_continuations.end(),
+                          [](const auto& relation) {
+                            return relation.id == 9002;
+                          }),
+          "claimed relation identities were replaced");
+    }
+    const auto invariant =
+        ValidateGraphInvariants(state.graph(), state.derived());
+    ROAD_TEST_EXPECT(invariant.ok,
+                     std::string(scenario.name) +
+                         ": graph invariant failed: " + invariant.error);
+    const auto before_round_trip = topology_observation(state.graph());
+    const auto saved = state.Save();
+    ROAD_TEST_EXPECT(saved.ok,
+                     std::string(scenario.name) + ": " + saved.error);
+    const auto restored = RoadState::Load(saved.value);
+    ROAD_TEST_EXPECT(restored.ok,
+                     std::string(scenario.name) +
+                         ": round-trip load failed: " + restored.error);
+    ROAD_TEST_EXPECT(topology_observation(restored.value.graph()) ==
+                         before_round_trip,
+                     std::string(scenario.name) +
+                         ": terminal topology changed after save/load");
+  }
+  return true;
+}
+
 bool add_lane_normalizes_reversed_corridor_direction(std::string& failure) {
   RoadState forward{};
   const auto shouldered = road_fixture::AddLayout(forward, road_fixture::ShoulderedLayout(0));
@@ -7378,6 +7642,8 @@ int main() {
        multi_split_second_target_failure_is_atomic},
       {"add_lane_propagates_from_middle_corridor_segment",
        add_lane_propagates_from_middle_corridor_segment},
+      {"add_lane_degree_two_terminal_preserves_existing_identity",
+       add_lane_degree_two_terminal_preserves_existing_identity},
       {"add_lane_normalizes_reversed_corridor_direction",
        add_lane_normalizes_reversed_corridor_direction},
       {"add_lane_reaches_mixed_section_junction",

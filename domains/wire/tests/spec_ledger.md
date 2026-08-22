@@ -622,5 +622,8 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C844 | Behavior | Boundary | promotion frame更新はexact PortBindingを必須identityとし、missing / ambiguous / Port relation不成立を正本不変のまま拒否する | `legacy_unclassified` | missing exact bindingをno-op successとしてpromotionを継続する回帰を防ぐ |
 | C845 | Behavior | Invariant | permutable 3-lane rowのidentity / complete reverse双方で、PortBinding laneが参照するPortとplacement_band_idは同じphysical placementを表す | `legacy_unclassified` | mirror時にlogical span laneのbandをphysical Portへ保存してfixture・curve placementを分裂させる回帰を防ぐ |
 | C846 | SourceGuard | Boundary | save_graphのPortBinding保存はplacement_band_idをlogical span laneではなく、選択したPortと同じphysical trow laneから読む | `source_guard` | behavior fixtureが未到達のmirror形状でspan.lane参照が再導入される回帰を防ぐ |
+| C847 | Behavior | Invariant | 同一physical edge上のHV/LVが別peer edgeへ接続する独立edge-bundle continuity componentはauthoritative validation、save/load、derived rebuildを維持する | `differential` `presence` | edge-bundle identityをload前にphysical edgeへcollapseし、合法な保存状態をambiguousとして読めなくする回帰を防ぐ |
+| C848 | Behavior | Invariant | scoped regenerateは対象edge-bundle componentを先に選び、無関係componentをauthority・出力の判断入力にしない | `differential` `anchor` | 同じphysical edge上の別bundle continuityがHV/LV個別regenerateを失敗または変質させる回帰を防ぐ |
+| C849 | Behavior | Boundary | 同一edge-bundle component内で3方向へ分岐するsaved continuityはload時に明示失敗し、既存正本を変更しない | `anchor` | component identity修正をambiguityのsilent skipやfallbackへ変える回帰を防ぐ |
 
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |

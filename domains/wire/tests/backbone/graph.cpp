@@ -82,6 +82,283 @@ bool set_low_voltage_fixed_count(city::wire::CoreState* state, int count) {
   return state->UpdateBundleTemplate(edited).ok;
 }
 
+city::wire::ObjectId edge_between(const city::wire::CoreState& state,
+                                  city::wire::ObjectId a,
+                                  city::wire::ObjectId b);
+city::wire::ObjectId edge_bundle_for_template(
+    const city::wire::CoreState& state, city::wire::ObjectId edge_id,
+    city::wire::BundleKind kind);
+
+struct IndependentBundleContinuityFixture {
+  city::wire::CoreState state{};
+  city::wire::ObjectId junction_node_id = city::wire::kInvalidObjectId;
+  city::wire::ObjectId hv_bundle_id = city::wire::kInvalidObjectId;
+  city::wire::ObjectId lv_bundle_id = city::wire::kInvalidObjectId;
+  city::wire::ObjectId shared_hv_edge_bundle = city::wire::kInvalidObjectId;
+  city::wire::ObjectId peer_hv_edge_bundle = city::wire::kInvalidObjectId;
+  city::wire::ObjectId shared_lv_edge_bundle = city::wire::kInvalidObjectId;
+  city::wire::ObjectId peer_lv_edge_bundle = city::wire::kInvalidObjectId;
+};
+
+city::wire::ObjectId result_bundle_for_template(
+    const city::wire::CoreState& state,
+    const city::wire::GenerateBundleFromPathResult& generated,
+    city::wire::BundleKind kind) {
+  const city::wire::BundleTemplateId template_id =
+      city::wire::DefaultBundleTemplateId(kind);
+  for (city::wire::ObjectId bundle_id : generated.bundle_ids) {
+    const city::wire::Bundle* bundle = state.view().bundles().find(bundle_id);
+    if (bundle != nullptr && bundle->bundle_template_id == template_id) {
+      return bundle_id;
+    }
+  }
+  return city::wire::kInvalidObjectId;
+}
+
+bool make_independent_bundle_continuities(
+    IndependentBundleContinuityFixture* fixture, bool include_lv_peer) {
+  if (fixture == nullptr) {
+    return false;
+  }
+  city::wire::BackboneSpec shared = line_req(fixture->state);
+  shared.bundles.clear();
+  add_backbone_bundle(shared, city::wire::BundleKind::kHighVoltage);
+  add_backbone_bundle(shared, city::wire::BundleKind::kLowVoltage);
+  shared.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  const auto shared_out = fixture->state.GenerateFromBackboneSpec(shared);
+  if (!shared_out.ok || shared_out.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  fixture->hv_bundle_id = result_bundle_for_template(
+      fixture->state, shared_out.value, city::wire::BundleKind::kHighVoltage);
+  fixture->lv_bundle_id = result_bundle_for_template(
+      fixture->state, shared_out.value, city::wire::BundleKind::kLowVoltage);
+  const city::wire::Bundle* shared_hv_bundle =
+      fixture->state.view().bundles().find(fixture->hv_bundle_id);
+  const city::wire::Bundle* shared_lv_bundle =
+      fixture->state.view().bundles().find(fixture->lv_bundle_id);
+  const city::wire::ObjectId junction_pole_id =
+      shared_out.value.generated_pole_ids.back();
+  const city::wire::Pole* junction_pole =
+      fixture->state.view().poles().find(junction_pole_id);
+  const city::wire::SavedBackboneNode* junction_node =
+      fixture->state.view().backbone_node_for_pole(junction_pole_id);
+  const city::wire::SavedBackboneNode* shared_start_node =
+      fixture->state.view().backbone_node_for_pole(
+          shared_out.value.generated_pole_ids.front());
+  if (fixture->hv_bundle_id == city::wire::kInvalidObjectId ||
+      fixture->lv_bundle_id == city::wire::kInvalidObjectId ||
+      shared_hv_bundle == nullptr || shared_lv_bundle == nullptr ||
+      junction_pole == nullptr || junction_node == nullptr ||
+      shared_start_node == nullptr) {
+    return false;
+  }
+  fixture->junction_node_id = junction_node->node_id;
+  const city::wire::ObjectId shared_start_node_id =
+      shared_start_node->node_id;
+  const city::wire::Vec3d junction_position =
+      junction_pole->world_transform.position;
+  const city::wire::Bundle hv_placement = *shared_hv_bundle;
+  const city::wire::Bundle lv_placement = *shared_lv_bundle;
+  auto apply_placement = [](city::wire::BackboneBundleSpec* spec,
+                            const city::wire::Bundle& placement) {
+    spec->placement_key = placement.placement_key;
+    spec->placement_explicit = placement.placement_explicit;
+    spec->height_m = placement.height_m;
+    spec->lateral_m = placement.lateral_m;
+    spec->spacing_m = placement.spacing_override_m;
+  };
+  const city::wire::ObjectId shared_edge = edge_between(
+      fixture->state, shared_start_node_id, fixture->junction_node_id);
+  fixture->shared_hv_edge_bundle = edge_bundle_for_template(
+      fixture->state, shared_edge, city::wire::BundleKind::kHighVoltage);
+  fixture->shared_lv_edge_bundle = edge_bundle_for_template(
+      fixture->state, shared_edge, city::wire::BundleKind::kLowVoltage);
+
+  auto generate_peer = [&](city::wire::BundleKind kind,
+                           city::wire::ObjectId source_bundle_id,
+                           const city::wire::Bundle& placement,
+                           const city::wire::Vec3d& endpoint,
+                           city::wire::ObjectId* edge_bundle_id) {
+    city::wire::BackboneSpec request = line_req(fixture->state);
+    request.bundles.clear();
+    add_backbone_bundle(request, kind);
+    request.bundles.front().existing_bundle_id = source_bundle_id;
+    apply_placement(&request.bundles.front(), placement);
+    request.path.polyline = {junction_position, endpoint};
+    request.path.node_specs = {pole_spec(0, junction_pole_id)};
+    const auto generated = fixture->state.GenerateFromBackboneSpec(request);
+    if (!generated.ok || generated.value.generated_pole_ids.size() != 1) {
+      return false;
+    }
+    const city::wire::SavedBackboneNode* peer_node =
+        fixture->state.view().backbone_node_for_pole(
+            generated.value.generated_pole_ids.front());
+    if (peer_node == nullptr) {
+      return false;
+    }
+    const city::wire::ObjectId edge = edge_between(
+        fixture->state, fixture->junction_node_id, peer_node->node_id);
+    *edge_bundle_id = edge_bundle_for_template(fixture->state, edge, kind);
+    return *edge_bundle_id != city::wire::kInvalidObjectId;
+  };
+  if ((include_lv_peer &&
+       !generate_peer(city::wire::BundleKind::kLowVoltage,
+                      fixture->lv_bundle_id, lv_placement,
+                      {18.0, 0.0, 0.0},
+                      &fixture->peer_lv_edge_bundle)) ||
+      !generate_peer(city::wire::BundleKind::kHighVoltage,
+                     fixture->hv_bundle_id, hv_placement, {24.0, 0.0, 0.0},
+                     &fixture->peer_hv_edge_bundle)) {
+    return false;
+  }
+  auto ensure_pair = [&](city::wire::ObjectId edge_bundle_a,
+                         city::wire::ObjectId edge_bundle_b,
+                         city::wire::ObjectId bundle_id) {
+    const city::wire::Bundle* bundle =
+        fixture->state.view().bundles().find(bundle_id);
+    if (bundle == nullptr || bundle->conductor_count <= 0) {
+      return false;
+    }
+    for (std::size_t lane = 0;
+         lane < static_cast<std::size_t>(bundle->conductor_count); ++lane) {
+      const auto existing = std::find_if(
+          fixture->state.view().backbone().row_continuities.begin(),
+          fixture->state.view().backbone().row_continuities.end(),
+          [&](const city::wire::SavedBackboneRowContinuity& continuity) {
+            if (continuity.node_id != fixture->junction_node_id) {
+              return false;
+            }
+            const bool forward =
+                continuity.a.edge_bundle_id == edge_bundle_a &&
+                continuity.a.lane_index == lane &&
+                continuity.b.edge_bundle_id == edge_bundle_b &&
+                continuity.b.lane_index == lane;
+            const bool reverse =
+                continuity.b.edge_bundle_id == edge_bundle_a &&
+                continuity.b.lane_index == lane &&
+                continuity.a.edge_bundle_id == edge_bundle_b &&
+                continuity.a.lane_index == lane;
+            return forward || reverse;
+          });
+      if (existing != fixture->state.view().backbone().row_continuities.end()) {
+        continue;
+      }
+      auto binding_for = [&](city::wire::ObjectId edge_bundle_id) {
+        const city::wire::SavedBackbonePortBinding* found = nullptr;
+        for (const city::wire::SavedBackbonePortBinding& binding :
+             fixture->state.view().backbone().port_bindings) {
+          if (binding.edge_bundle_id != edge_bundle_id ||
+              binding.row_key.node_id != fixture->junction_node_id ||
+              binding.lane_index != lane) {
+            continue;
+          }
+          if (found != nullptr) {
+            return static_cast<const city::wire::SavedBackbonePortBinding*>(
+                nullptr);
+          }
+          found = &binding;
+        }
+        return found;
+      };
+      const city::wire::SavedBackbonePortBinding* binding_a =
+          binding_for(edge_bundle_a);
+      const city::wire::SavedBackbonePortBinding* binding_b =
+          binding_for(edge_bundle_b);
+      if (binding_a == nullptr || binding_b == nullptr) {
+        return false;
+      }
+      const city::wire::SavedBackbonePortBinding target = *binding_b;
+      const city::wire::Port* frame_port =
+          fixture->state.view().ports().find(binding_a->port_id);
+      if (frame_port == nullptr) {
+        return false;
+      }
+      const auto promoted =
+          city::wire::CoreStateTestHook::update_backbone_port_binding_frame_exact(
+              fixture->state, target.edge_bundle_id, target.row_key,
+              target.lane_index, binding_a->layout_yaw_deg,
+              binding_a->support_level, binding_a->support_group_id,
+              target.port_id, frame_port->world_position);
+      if (!promoted.ok) {
+        return false;
+      }
+      const auto bound =
+          city::wire::CoreStateTestHook::bind_backbone_row_continuity(
+              fixture->state, fixture->junction_node_id, edge_bundle_a, lane,
+              edge_bundle_b, lane);
+      if (!bound.ok) {
+        return false;
+      }
+    }
+    return true;
+  };
+  if (!ensure_pair(fixture->shared_hv_edge_bundle,
+                   fixture->peer_hv_edge_bundle, fixture->hv_bundle_id) ||
+      (include_lv_peer &&
+       !ensure_pair(fixture->shared_lv_edge_bundle,
+                    fixture->peer_lv_edge_bundle, fixture->lv_bundle_id))) {
+    return false;
+  }
+  return fixture->shared_hv_edge_bundle != city::wire::kInvalidObjectId &&
+         fixture->peer_hv_edge_bundle != city::wire::kInvalidObjectId &&
+         fixture->shared_lv_edge_bundle != city::wire::kInvalidObjectId &&
+         (!include_lv_peer ||
+          fixture->peer_lv_edge_bundle != city::wire::kInvalidObjectId);
+}
+
+bool regenerate_cable_for_kind(city::wire::CoreState* state,
+                               city::wire::BundleKind kind,
+                               std::string* error = nullptr) {
+  if (state == nullptr) {
+    return false;
+  }
+  const auto bundle_template = state->view().bundle_templates().find(
+      city::wire::DefaultBundleTemplateId(kind));
+  if (bundle_template == state->view().bundle_templates().end()) {
+    return false;
+  }
+  const auto cable = state->view().cable_templates().find(
+      bundle_template->second.cable_template_id);
+  if (cable == state->view().cable_templates().end()) {
+    return false;
+  }
+  city::wire::CableTemplate edited = cable->second;
+  edited.continuity_policy =
+      edited.continuity_policy == city::wire::CableContinuityPolicyHint::kPreferG1
+          ? city::wire::CableContinuityPolicyHint::kPreferG2
+          : city::wire::CableContinuityPolicyHint::kPreferG1;
+  const auto updated = state->UpdateCableTemplate(edited);
+  if (!updated.ok && error != nullptr) {
+    *error = updated.error;
+  }
+  return updated.ok;
+}
+
+bool reload_authoritative(city::wire::CoreState* state, std::string* error) {
+  if (state == nullptr) {
+    return false;
+  }
+  std::string saved{};
+  const auto serialized = state->SerializeAuthoritative(&saved);
+  if (!serialized.ok) {
+    if (error != nullptr) {
+      *error = serialized.error;
+    }
+    return false;
+  }
+  city::wire::CoreState loaded{};
+  const auto deserialized = loaded.DeserializeAuthoritative(saved);
+  if (!deserialized.ok) {
+    if (error != nullptr) {
+      *error = deserialized.error;
+    }
+    return false;
+  }
+  *state = std::move(loaded);
+  return true;
+}
+
 } // namespace
 
 bool C422_backbone_rules_consume_topo_and_groups() {
@@ -941,6 +1218,128 @@ city::wire::ObjectId edge_bundle_for_template(const city::wire::CoreState& state
     }
   }
   return city::wire::kInvalidObjectId;
+}
+
+bool continuity_pair_is_exact(const city::wire::CoreState& state,
+                              city::wire::ObjectId node_id,
+                              city::wire::ObjectId edge_bundle_a,
+                              city::wire::ObjectId edge_bundle_b) {
+  const city::wire::SavedBackboneEdgeBundle* saved_a =
+      state.view().backbone_edge_bundle(edge_bundle_a);
+  const city::wire::Bundle* bundle_a =
+      saved_a == nullptr ? nullptr
+                         : state.view().bundles().find(saved_a->bundle_id);
+  if (bundle_a == nullptr || bundle_a->conductor_count <= 0) {
+    return false;
+  }
+  const std::size_t lane_count =
+      static_cast<std::size_t>(bundle_a->conductor_count);
+  std::vector<bool> lanes_a(lane_count, false);
+  std::vector<bool> lanes_b(lane_count, false);
+  std::size_t matches = 0;
+  for (const city::wire::SavedBackboneRowContinuity& continuity :
+       state.view().backbone().row_continuities) {
+    if (continuity.node_id != node_id) {
+      continue;
+    }
+    const bool a_is_first =
+        continuity.a.edge_bundle_id == edge_bundle_a;
+    const bool a_is_second =
+        continuity.b.edge_bundle_id == edge_bundle_a;
+    if (!a_is_first && !a_is_second) {
+      continue;
+    }
+    const city::wire::SavedBackboneRowContinuityEndpoint& own =
+        a_is_first ? continuity.a : continuity.b;
+    const city::wire::SavedBackboneRowContinuityEndpoint& peer =
+        a_is_first ? continuity.b : continuity.a;
+    if (peer.edge_bundle_id != edge_bundle_b ||
+        own.lane_index >= lane_count || peer.lane_index >= lane_count ||
+        lanes_a[own.lane_index] || lanes_b[peer.lane_index]) {
+      return false;
+    }
+    lanes_a[own.lane_index] = true;
+    lanes_b[peer.lane_index] = true;
+    ++matches;
+  }
+  return matches == lane_count &&
+         std::find(lanes_a.begin(), lanes_a.end(), false) == lanes_a.end() &&
+         std::find(lanes_b.begin(), lanes_b.end(), false) == lanes_b.end();
+}
+
+std::vector<city::wire::ObjectId> span_ids_for_edge_bundles(
+    const city::wire::CoreState& state,
+    std::initializer_list<city::wire::ObjectId> edge_bundle_ids) {
+  std::vector<city::wire::ObjectId> out{};
+  for (city::wire::ObjectId edge_bundle_id : edge_bundle_ids) {
+    const std::vector<city::wire::ObjectId> spans =
+        edge_bundle_span_ids(state, edge_bundle_id);
+    for (city::wire::ObjectId span_id : spans) {
+      if (std::find(out.begin(), out.end(), span_id) == out.end()) {
+        out.push_back(span_id);
+      }
+    }
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+bool same_span_output_values(const std::vector<SpanOutputSnapshot>& a,
+                             const std::vector<SpanOutputSnapshot>& b) {
+  if (a.size() != b.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    if (!almost_equal(a[i].layout_start_support, b[i].layout_start_support,
+                      1e-12) ||
+        !almost_equal(a[i].layout_start_endpoint,
+                      b[i].layout_start_endpoint, 1e-12) ||
+        !almost_equal(a[i].layout_end_support, b[i].layout_end_support,
+                      1e-12) ||
+        !almost_equal(a[i].layout_end_endpoint, b[i].layout_end_endpoint,
+                      1e-12) ||
+        !almost_equal(a[i].bounds.min, b[i].bounds.min, 1e-12) ||
+        !almost_equal(a[i].bounds.max, b[i].bounds.max, 1e-12) ||
+        a[i].curve_samples.size() != b[i].curve_samples.size()) {
+      return false;
+    }
+    for (std::size_t sample = 0; sample < a[i].curve_samples.size(); ++sample) {
+      if (!almost_equal(a[i].curve_samples[sample],
+                        b[i].curve_samples[sample], 1e-12)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+std::string replace_row_continuities(
+    const std::string& saved,
+    const std::vector<city::wire::SavedBackboneRowContinuity>& continuities) {
+  std::istringstream input(saved);
+  std::ostringstream output{};
+  std::string line{};
+  while (std::getline(input, line)) {
+    if (!line.starts_with("authoritative.backbone.row_continuities.")) {
+      output << line << '\n';
+    }
+  }
+  output << "authoritative.backbone.row_continuities.count="
+         << continuities.size() << '\n';
+  for (std::size_t i = 0; i < continuities.size(); ++i) {
+    const std::string prefix =
+        "authoritative.backbone.row_continuities." + std::to_string(i);
+    output << prefix << ".node_id=" << continuities[i].node_id << '\n'
+           << prefix << ".a.edge_bundle_id="
+           << continuities[i].a.edge_bundle_id << '\n'
+           << prefix << ".a.lane_index=" << continuities[i].a.lane_index
+           << '\n'
+           << prefix << ".b.edge_bundle_id="
+           << continuities[i].b.edge_bundle_id << '\n'
+           << prefix << ".b.lane_index=" << continuities[i].b.lane_index
+           << '\n';
+  }
+  return output.str();
 }
 
 struct PortBindingSnapshot {
@@ -3015,6 +3414,299 @@ bool C846_backbone_port_binding_band_is_selected_by_physical_lane() {
   WIRE_TEST_EXPECT(contains_text(selection, "physical_lane") &&
                        !contains_text(selection, "span.lane"),
                    "PortBinding placement band is not selected by physical lane");
+  return true;
+}
+
+bool C847_backbone_independent_bundle_continuities_survive_save_load() {
+  IndependentBundleContinuityFixture source{};
+  WIRE_TEST_EXPECT(
+      make_independent_bundle_continuities(&source, true),
+      "independent continuity fixture generation failed");
+  WIRE_TEST_EXPECT(city::wire::CoreStateTestHook::validate(source.state).ok(),
+                   "independent bundle continuities failed authoritative validation");
+  WIRE_TEST_EXPECT(
+      continuity_pair_is_exact(source.state, source.junction_node_id,
+                               source.shared_hv_edge_bundle,
+                               source.peer_hv_edge_bundle),
+      "HV continuity component is incomplete before save");
+  WIRE_TEST_EXPECT(
+      continuity_pair_is_exact(source.state, source.junction_node_id,
+                               source.shared_lv_edge_bundle,
+                               source.peer_lv_edge_bundle),
+      "LV continuity component is incomplete before save\n" +
+          edge_bundle_authority_snapshot(source.state,
+                                         source.shared_lv_edge_bundle) +
+          edge_bundle_authority_snapshot(source.state,
+                                         source.peer_lv_edge_bundle));
+
+  std::string saved{};
+  const auto serialized = source.state.SerializeAuthoritative(&saved);
+  WIRE_TEST_EXPECT(serialized.ok, serialized.error);
+  city::wire::CoreState loaded{};
+  const auto deserialized = loaded.DeserializeAuthoritative(saved);
+  WIRE_TEST_EXPECT(
+      deserialized.ok,
+      deserialized.error + "\nHV:\n" +
+          edge_bundle_authority_snapshot(source.state,
+                                         source.shared_hv_edge_bundle) +
+          edge_bundle_authority_snapshot(source.state,
+                                         source.peer_hv_edge_bundle) +
+          "LV:\n" +
+          edge_bundle_authority_snapshot(source.state,
+                                         source.shared_lv_edge_bundle) +
+          edge_bundle_authority_snapshot(source.state,
+                                         source.peer_lv_edge_bundle));
+  WIRE_TEST_EXPECT(
+      continuity_pair_is_exact(loaded, source.junction_node_id,
+                               source.shared_hv_edge_bundle,
+                               source.peer_hv_edge_bundle),
+      "HV continuity component changed across save/load");
+  WIRE_TEST_EXPECT(
+      continuity_pair_is_exact(loaded, source.junction_node_id,
+                               source.shared_lv_edge_bundle,
+                               source.peer_lv_edge_bundle),
+      "LV continuity component changed across save/load");
+  const std::vector<city::wire::ObjectId> span_ids =
+      span_ids_for_edge_bundles(
+          loaded, {source.shared_hv_edge_bundle, source.peer_hv_edge_bundle,
+                   source.shared_lv_edge_bundle, source.peer_lv_edge_bundle});
+  WIRE_TEST_EXPECT(!span_ids.empty() &&
+                       snapshot_span_outputs(loaded, span_ids).size() ==
+                           span_ids.size(),
+                   "load did not rebuild all independent continuity outputs");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
+  return true;
+}
+
+bool C848_backbone_scoped_regenerate_uses_edge_bundle_continuity_component() {
+  IndependentBundleContinuityFixture hv_scope{};
+  std::string fixture_error{};
+  WIRE_TEST_EXPECT(make_independent_bundle_continuities(&hv_scope, true),
+                   "HV scoped continuity fixture generation failed");
+  WIRE_TEST_EXPECT(reload_authoritative(&hv_scope.state, &fixture_error),
+                   "HV scoped continuity fixture load failed: " +
+                       fixture_error);
+  const std::string lv_authority_before =
+      edge_bundle_authority_snapshot(hv_scope.state,
+                                     hv_scope.shared_lv_edge_bundle) +
+      edge_bundle_authority_snapshot(hv_scope.state,
+                                     hv_scope.peer_lv_edge_bundle);
+  std::string hv_error{};
+  WIRE_TEST_EXPECT(
+      regenerate_cable_for_kind(&hv_scope.state,
+                                city::wire::BundleKind::kHighVoltage,
+                                &hv_error),
+      "HV-only regenerate was affected by independent LV continuity: " +
+          hv_error);
+  WIRE_TEST_EXPECT(
+      edge_bundle_authority_snapshot(hv_scope.state,
+                                     hv_scope.shared_lv_edge_bundle) +
+              edge_bundle_authority_snapshot(hv_scope.state,
+                                             hv_scope.peer_lv_edge_bundle) ==
+          lv_authority_before,
+      "HV-only regenerate changed LV authoritative relations\nbefore:\n" +
+          lv_authority_before + "after:\n" +
+          edge_bundle_authority_snapshot(hv_scope.state,
+                                         hv_scope.shared_lv_edge_bundle) +
+          edge_bundle_authority_snapshot(hv_scope.state,
+                                         hv_scope.peer_lv_edge_bundle));
+  WIRE_TEST_EXPECT(
+      continuity_pair_is_exact(hv_scope.state, hv_scope.junction_node_id,
+                               hv_scope.shared_hv_edge_bundle,
+                               hv_scope.peer_hv_edge_bundle) &&
+          continuity_pair_is_exact(hv_scope.state, hv_scope.junction_node_id,
+                                   hv_scope.shared_lv_edge_bundle,
+                                   hv_scope.peer_lv_edge_bundle),
+      "HV-only regenerate changed an independent continuity component");
+
+  IndependentBundleContinuityFixture lv_scope{};
+  WIRE_TEST_EXPECT(make_independent_bundle_continuities(&lv_scope, true),
+                   "LV scoped continuity fixture generation failed");
+  fixture_error.clear();
+  WIRE_TEST_EXPECT(reload_authoritative(&lv_scope.state, &fixture_error),
+                   "LV scoped continuity fixture load failed: " +
+                       fixture_error);
+  const std::string hv_authority_before =
+      edge_bundle_authority_snapshot(lv_scope.state,
+                                     lv_scope.shared_hv_edge_bundle) +
+      edge_bundle_authority_snapshot(lv_scope.state,
+                                     lv_scope.peer_hv_edge_bundle);
+  const std::vector<city::wire::ObjectId> lv_scope_hv_spans =
+      span_ids_for_edge_bundles(
+          lv_scope.state, {lv_scope.shared_hv_edge_bundle,
+                           lv_scope.peer_hv_edge_bundle});
+  const std::vector<SpanOutputSnapshot> hv_outputs_before =
+      snapshot_span_outputs(lv_scope.state, lv_scope_hv_spans);
+  std::string lv_error{};
+  WIRE_TEST_EXPECT(
+      regenerate_cable_for_kind(&lv_scope.state,
+                                city::wire::BundleKind::kLowVoltage,
+                                &lv_error),
+      "LV-only regenerate was affected by independent HV continuity: " +
+          lv_error);
+  WIRE_TEST_EXPECT(
+      edge_bundle_authority_snapshot(lv_scope.state,
+                                     lv_scope.shared_hv_edge_bundle) +
+              edge_bundle_authority_snapshot(lv_scope.state,
+                                             lv_scope.peer_hv_edge_bundle) ==
+          hv_authority_before,
+      "LV-only regenerate changed HV authoritative relations");
+  WIRE_TEST_EXPECT(
+      same_span_output_values(
+          snapshot_span_outputs(lv_scope.state, lv_scope_hv_spans),
+          hv_outputs_before),
+      "LV-only regenerate changed HV derived span outputs");
+  WIRE_TEST_EXPECT(
+      continuity_pair_is_exact(lv_scope.state, lv_scope.junction_node_id,
+                               lv_scope.shared_hv_edge_bundle,
+                               lv_scope.peer_hv_edge_bundle) &&
+          continuity_pair_is_exact(lv_scope.state, lv_scope.junction_node_id,
+                                   lv_scope.shared_lv_edge_bundle,
+                                   lv_scope.peer_lv_edge_bundle),
+      "LV-only regenerate changed an independent continuity component");
+
+  IndependentBundleContinuityFixture with_lv{};
+  IndependentBundleContinuityFixture without_lv{};
+  WIRE_TEST_EXPECT(make_independent_bundle_continuities(&with_lv, true) &&
+                       make_independent_bundle_continuities(&without_lv, false),
+                   "metamorphic continuity fixtures failed");
+  fixture_error.clear();
+  WIRE_TEST_EXPECT(reload_authoritative(&with_lv.state, &fixture_error),
+                   "metamorphic fixture with LV load failed: " +
+                       fixture_error);
+  fixture_error.clear();
+  WIRE_TEST_EXPECT(reload_authoritative(&without_lv.state, &fixture_error),
+                   "metamorphic fixture without LV load failed: " +
+                       fixture_error);
+  WIRE_TEST_EXPECT(
+      regenerate_cable_for_kind(&with_lv.state,
+                                city::wire::BundleKind::kHighVoltage) &&
+          regenerate_cable_for_kind(&without_lv.state,
+                                    city::wire::BundleKind::kHighVoltage),
+      "metamorphic HV regenerate failed");
+  WIRE_TEST_EXPECT(
+      continuity_pair_is_exact(with_lv.state, with_lv.junction_node_id,
+                               with_lv.shared_hv_edge_bundle,
+                               with_lv.peer_hv_edge_bundle) &&
+          continuity_pair_is_exact(without_lv.state,
+                                   without_lv.junction_node_id,
+                                   without_lv.shared_hv_edge_bundle,
+                                   without_lv.peer_hv_edge_bundle),
+      "metamorphic HV continuity changed");
+  const std::vector<city::wire::ObjectId> with_lv_hv_spans =
+      span_ids_for_edge_bundles(
+          with_lv.state, {with_lv.shared_hv_edge_bundle,
+                          with_lv.peer_hv_edge_bundle});
+  const std::vector<city::wire::ObjectId> without_lv_hv_spans =
+      span_ids_for_edge_bundles(
+          without_lv.state, {without_lv.shared_hv_edge_bundle,
+                             without_lv.peer_hv_edge_bundle});
+  WIRE_TEST_EXPECT(
+      same_span_output_values(
+          snapshot_span_outputs(with_lv.state, with_lv_hv_spans),
+          snapshot_span_outputs(without_lv.state,
+                                without_lv_hv_spans)),
+      "independent LV continuity changed the HV-only regenerate result");
+  std::string hv_invariant_error{};
+  WIRE_TEST_EXPECT(
+      backbone_common_invariants_pass(hv_scope.state, &hv_invariant_error),
+      "HV scoped regenerate invariant failed: " + hv_invariant_error);
+  std::string lv_invariant_error{};
+  WIRE_TEST_EXPECT(
+      backbone_common_invariants_pass(lv_scope.state, &lv_invariant_error),
+      "LV scoped regenerate invariant failed: " + lv_invariant_error);
+  return true;
+}
+
+bool C849_backbone_load_rejects_ambiguous_edge_bundle_component() {
+  city::wire::CoreState source{};
+  city::wire::BackboneSpec base = line_req(source);
+  base.bundles.clear();
+  add_backbone_bundle(base, city::wire::BundleKind::kHighVoltage);
+  base.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  const auto base_out = source.GenerateFromBackboneSpec(base);
+  WIRE_TEST_EXPECT(base_out.ok && base_out.value.generated_pole_ids.size() == 2,
+                   base_out.error);
+  const city::wire::ObjectId bundle_id = result_bundle_for_template(
+      source, base_out.value, city::wire::BundleKind::kHighVoltage);
+  const city::wire::ObjectId junction_pole_id =
+      base_out.value.generated_pole_ids.back();
+  const city::wire::Pole* junction_pole =
+      source.view().poles().find(junction_pole_id);
+  const city::wire::SavedBackboneNode* junction_node =
+      source.view().backbone_node_for_pole(junction_pole_id);
+  const city::wire::SavedBackboneNode* base_start_node =
+      source.view().backbone_node_for_pole(
+          base_out.value.generated_pole_ids.front());
+  WIRE_TEST_EXPECT(bundle_id != city::wire::kInvalidObjectId &&
+                       junction_pole != nullptr && junction_node != nullptr &&
+                       base_start_node != nullptr,
+                   "ambiguous component base identities are missing");
+  const city::wire::ObjectId junction_node_id = junction_node->node_id;
+  const city::wire::ObjectId base_start_node_id = base_start_node->node_id;
+  const city::wire::Vec3d junction_position =
+      junction_pole->world_transform.position;
+  const city::wire::ObjectId base_edge = edge_between(
+      source, base_start_node_id, junction_node_id);
+  const city::wire::ObjectId base_edge_bundle = edge_bundle_for_template(
+      source, base_edge, city::wire::BundleKind::kHighVoltage);
+  std::vector<city::wire::ObjectId> peer_edge_bundles{};
+  for (const city::wire::Vec3d& endpoint :
+       std::array<city::wire::Vec3d, 3>{{{24.0, 0.0, 0.0},
+                                        {12.0, -12.0, 0.0},
+                                        {12.0, 12.0, 0.0}}}) {
+    city::wire::BackboneSpec peer = line_req(source);
+    peer.bundles.clear();
+    add_backbone_bundle(peer, city::wire::BundleKind::kHighVoltage);
+    peer.bundles.front().existing_bundle_id = bundle_id;
+    peer.path.polyline = {junction_position, endpoint};
+    peer.path.node_specs = {pole_spec(0, junction_pole_id)};
+    const auto peer_out = source.GenerateFromBackboneSpec(peer);
+    WIRE_TEST_EXPECT(peer_out.ok && peer_out.value.generated_pole_ids.size() == 1,
+                     peer_out.error);
+    const city::wire::SavedBackboneNode* peer_node =
+        source.view().backbone_node_for_pole(
+            peer_out.value.generated_pole_ids.front());
+    WIRE_TEST_EXPECT(peer_node != nullptr,
+                     "ambiguous component peer node is missing");
+    const city::wire::ObjectId peer_edge = edge_between(
+        source, junction_node_id, peer_node->node_id);
+    peer_edge_bundles.push_back(edge_bundle_for_template(
+        source, peer_edge, city::wire::BundleKind::kHighVoltage));
+  }
+  WIRE_TEST_EXPECT(
+      base_edge_bundle != city::wire::kInvalidObjectId &&
+          std::none_of(peer_edge_bundles.begin(), peer_edge_bundles.end(),
+                       [](city::wire::ObjectId id) {
+                         return id == city::wire::kInvalidObjectId;
+                       }),
+      "ambiguous component edge bundles are missing");
+  std::vector<city::wire::SavedBackboneRowContinuity> ambiguous{};
+  for (std::size_t lane = 0; lane < peer_edge_bundles.size(); ++lane) {
+    city::wire::SavedBackboneRowContinuity continuity{};
+    continuity.node_id = junction_node_id;
+    continuity.a = {base_edge_bundle, lane};
+    continuity.b = {peer_edge_bundles[lane], lane};
+    ambiguous.push_back(continuity);
+  }
+  std::string saved{};
+  WIRE_TEST_EXPECT(source.SerializeAuthoritative(&saved).ok,
+                   "ambiguous component serialization failed");
+  const std::string broken = replace_row_continuities(saved, ambiguous);
+  city::wire::CoreState target{};
+  const auto target_seed = target.GenerateFromBackboneSpec(line_req(target));
+  WIRE_TEST_EXPECT(target_seed.ok, target_seed.error);
+  std::string before{};
+  WIRE_TEST_EXPECT(target.SerializeAuthoritative(&before).ok,
+                   "ambiguous component target snapshot failed");
+  const auto loaded = target.DeserializeAuthoritative(broken);
+  std::string after{};
+  WIRE_TEST_EXPECT(target.SerializeAuthoritative(&after).ok,
+                   "ambiguous component post-failure snapshot failed");
+  WIRE_TEST_EXPECT(!loaded.ok && contains_text(loaded.error, "ambiguous"),
+                   "ambiguous edge-bundle component was not explicitly rejected");
+  WIRE_TEST_EXPECT(after == before,
+                   "ambiguous component load changed authoritative state");
   return true;
 }
 

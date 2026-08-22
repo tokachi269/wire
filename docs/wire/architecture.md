@@ -174,6 +174,10 @@ pole表面へ直接取り付けるportや部品は、中心軸原点を変えず
 
 接続相手は`SavedBackboneRowContinuity`だけが保持し、row表現は共通のendpoint row導出が現在幾何から決める。
 生成中routeの隣接も同じcontinuityへ記録する。route/orderは永続化しない導出補助であり、接続相手やpair/open表現の判定入力にしない。
+saved load / regenerateのroute復元は、最初に`edge_bundle_id`単位のrow continuity componentを確定し、
+そのcomponent内だけをphysical edge routeへ投影する。同じphysical edgeが複数の独立bundle componentへ属する場合、
+physical edgeは各componentの派生routeへそれぞれ現れてよい。scope/component確定前に`edge_id`だけのglobal adjacencyへ
+collapseせず、bundle template IDや同じtemplateを使う別Bundle placementをcomponent identityの代用にしない。
 通常cornerでは前後linkの単位接線和から二等分方向を作り、その直交方向をrow axisにする。
 径間長の差でrow axisを回さず、各incident spanのlane順が反転しない範囲に保つ。
 鋭角cornerはcontinuityを維持したまま、各incident edgeに直交する2つのdead-end rowとjumperへ派生する。

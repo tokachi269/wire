@@ -1380,6 +1380,18 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "saved PortBinding band selection follows the physical trow lane rather than logical Span lane",
                          "Boundary", false,
                          C846_backbone_port_binding_band_is_selected_by_physical_lane);
+  test_registry::AddTest(tests, "C847_backbone_independent_bundle_continuities_survive_save_load",
+                         "independent edge-bundle continuity components sharing a physical edge survive save and load",
+                         "Invariant", false,
+                         C847_backbone_independent_bundle_continuities_survive_save_load);
+  test_registry::AddTest(tests, "C848_backbone_scoped_regenerate_uses_edge_bundle_continuity_component",
+                         "scoped regenerate derives only its authoritative edge-bundle continuity component",
+                         "Invariant", false,
+                         C848_backbone_scoped_regenerate_uses_edge_bundle_continuity_component);
+  test_registry::AddTest(tests, "C849_backbone_load_rejects_ambiguous_edge_bundle_component",
+                         "load still rejects a genuinely ambiguous edge-bundle continuity component atomically",
+                         "Boundary", true,
+                         C849_backbone_load_rejects_ambiguous_edge_bundle_component);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

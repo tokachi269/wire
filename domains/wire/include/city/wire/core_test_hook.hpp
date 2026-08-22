@@ -18,6 +18,12 @@ struct CoreStateTestHook {
     return state.runtime_.span_runtime_states;
   }
   static ValidationResult validate(CoreState& state) { return state.Validate(); }
+  static EditResult<bool> bind_backbone_row_continuity(
+      CoreState& state, ObjectId node_id, ObjectId edge_bundle_a,
+      std::size_t lane_a, ObjectId edge_bundle_b, std::size_t lane_b) {
+    return state.bind_backbone_row_continuity(
+        node_id, edge_bundle_a, lane_a, edge_bundle_b, lane_b);
+  }
   static std::unordered_map<BundleTemplateId, BundleTemplate>& bundle_templates(CoreState& state) {
     return state.authoritative_.bundle_templates;
   }

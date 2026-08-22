@@ -58,8 +58,6 @@ export class RoadActions {
         hoveredLaneSegmentId: 0,
         hoveredLaneId: 0,
         selectedLaneSegmentId: 0,
-        selectedLaneId: 0,
-        selectedLaneNodeId: 0,
         laneEditStage: "select",
         laneCorridorId: 0,
         laneTransitionStartSegmentId: 0,
@@ -151,23 +149,6 @@ export class RoadActions {
         lastError: ""
       }
     }));
-  }
-
-  setLaneTargetTemplate(templateId: number): void {
-    this.ctx.store.update((current) => {
-      const template = current.road.scene.roadLayoutTemplates.find((item) => item.id === templateId);
-      return {
-        ...current,
-        road: {
-          ...current.road,
-          laneTargetTemplateId: templateId,
-          laneTargetLaneId: template?.lanes[0]?.id ?? 0,
-          laneTargetBoundaryId: template?.boundaries[0]?.id ?? 0,
-          previewIssue: "",
-          lastError: ""
-        }
-      };
-    });
   }
 
   updateSelectedRoadLayoutTemplate(input: {
@@ -399,40 +380,6 @@ export class RoadActions {
         this.commitLane(laneRoad);
         return;
       }
-      return;
-    }
-    if (road.laneEditStage === "select") {
-      if (snap?.laneId === undefined || snap.endpointRole === undefined || snap.nodeId === 0) {
-        this.rejectInput("road lane connection", "Select a lane endpoint",
-                         "lane_endpoint_not_selected");
-        return;
-      }
-      const path = road.scene.lanePaths.find((item) =>
-        item.segmentId === snap.segmentId && item.laneId === snap.laneId);
-      const sourceTemplateId = snap.endpointRole === 0
-        ? path?.startRoadLayoutTemplateId
-        : path?.endRoadLayoutTemplateId;
-      const sourceTemplate = road.scene.roadLayoutTemplates.find((item) => item.id === sourceTemplateId);
-      const targetTemplate = road.scene.roadLayoutTemplates.find((item) => item.id === road.laneTargetTemplateId) ??
-        road.scene.roadLayoutTemplates[0];
-      this.ctx.store.update((snapshot) => ({
-        ...snapshot,
-        road: {
-          ...snapshot.road,
-          selectedLaneSegmentId: snap.segmentId,
-          selectedLaneId: snap.laneId ?? 0,
-          selectedLaneEndpointRole: snap.endpointRole ?? 0,
-          selectedLaneNodeId: snap.nodeId,
-          selectedLaneDirection: snap.laneDirection ?? 0,
-          laneEditStage: "target",
-          laneTargetTemplateId: targetTemplate?.id ?? snapshot.road.selectedRoadLayoutTemplateId,
-          laneTargetLaneId: snapshot.road.laneTargetLaneId || targetTemplate?.lanes[0]?.id || 0,
-          laneSourceBoundaryId: snapshot.road.laneSourceBoundaryId || sourceTemplate?.boundaries[0]?.id || 0,
-          laneTargetBoundaryId: snapshot.road.laneTargetBoundaryId || targetTemplate?.boundaries[0]?.id || 0,
-          previewIssue: "",
-          lastError: ""
-        }
-      }));
       return;
     }
   }
@@ -680,8 +627,6 @@ export class RoadActions {
         hoveredLaneSegmentId: 0,
         hoveredLaneId: 0,
         selectedLaneSegmentId: 0,
-        selectedLaneId: 0,
-        selectedLaneNodeId: 0,
         laneEditStage: "select",
         scene,
         previewMeshes: [],

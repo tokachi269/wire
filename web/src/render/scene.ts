@@ -1294,7 +1294,6 @@ export class WireScene {
           : JSON.stringify(snapshot.road.previewRequest)),
       `delete-hover:${snapshot.road.hoveredDeleteSegmentId}`,
       `lane-hover:${snapshot.road.hoveredLaneSegmentId}:${snapshot.road.hoveredLaneId}`,
-      `lane-selected:${snapshot.road.selectedLaneSegmentId}:${snapshot.road.selectedLaneId}`,
       `lane-range:${snapshot.road.laneCorridorId}:${snapshot.road.laneEditStage}:` +
         `${snapshot.road.laneTransitionStartSegmentId}:${snapshot.road.laneTransitionStartT}:` +
         `${snapshot.road.laneTransitionCompleteSegmentId}:${snapshot.road.laneTransitionCompleteT}`,
@@ -1510,9 +1509,7 @@ export class WireScene {
     for (const lane of snapshot.road.scene.lanePaths) {
       const hovered = lane.segmentId === snapshot.road.hoveredLaneSegmentId &&
         lane.laneId === snapshot.road.hoveredLaneId;
-      const selected = lane.segmentId === snapshot.road.selectedLaneSegmentId &&
-        lane.laneId === snapshot.road.selectedLaneId;
-      if (!hovered && !selected) continue;
+      if (!hovered) continue;
       const points: THREE.Vector3[] = [];
       for (let index = 0; index + 2 < lane.points.length; index += 3) {
         points.push(new THREE.Vector3(lane.points[index], lane.points[index + 1], lane.points[index + 2] + 0.08));
@@ -1520,7 +1517,7 @@ export class WireScene {
       if (points.length < 2) continue;
       const line = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(points),
-        new THREE.LineBasicMaterial({ color: selected ? 0xffb13b : 0x58b9dc, depthTest: false })
+        new THREE.LineBasicMaterial({ color: 0x58b9dc, depthTest: false })
       );
       line.renderOrder = 80;
       this.roadPreview.add(line);

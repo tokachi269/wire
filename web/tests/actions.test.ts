@@ -1506,14 +1506,28 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([10, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
     });
-    expect(current(store).road.selectedLaneDirection).toBe(1);
-    actions.previewViewportPoint([30, 0, 0], {
-      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    expect(current(store).road).toMatchObject({
+      selectedLaneSegmentId: 12,
+      selectedLaneDirection: 1,
+      laneCorridorId: 30,
+      laneEditStage: "transition-complete",
+      laneTransitionStartSegmentId: 12,
+      laneTransitionStartT: 10 / 60
     });
-    expect(current(store).road.laneTransitionCompleteT).toBe(0.5);
+    actions.previewViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30,
+      laneId: 1010
+    });
+    expect(current(store).road).toMatchObject({
+      hoveredLaneSegmentId: 12,
+      hoveredLaneId: 1010,
+      laneTransitionCompleteSegmentId: 12,
+      laneTransitionCompleteT: 0.5
+    });
     actions.addViewportPoint([30, 0, 0], {
       kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
     });
+    expect(commit).toHaveBeenCalledOnce();
     expect(commit).toHaveBeenCalledWith(expect.objectContaining({
       corridorId: 30,
       direction: 1,
@@ -1522,6 +1536,49 @@ describe("viewport tool routing", () => {
       completeSegmentId: 12,
       completeT: 0.5
     }));
+  });
+  it("resets the active add-lane range on cancel and operation switch", () => {
+    const store = new ViewerStore();
+    const scene = {
+      ...actionBridge().roadScene(),
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 1 as const }], boundaries: []
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({ roadScene: () => scene }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    const start = () => actions.addViewportPoint([10, 0, 0], {
+      kind: "road" as const, nodeId: 0, segmentId: 12,
+      segmentDistanceM: 10
+    });
+
+    start();
+    actions.cancelDrawSession();
+    expect(current(store).road).toMatchObject({
+      laneEditStage: "select",
+      selectedLaneSegmentId: 0,
+      laneCorridorId: 0,
+      laneTransitionStartSegmentId: 0,
+      laneTransitionCompleteSegmentId: 0
+    });
+
+    actions.setRoadOperation("add-lane");
+    start();
+    actions.setRoadOperation("draw");
+    expect(current(store).road).toMatchObject({
+      laneEditStage: "select",
+      selectedLaneSegmentId: 0,
+      laneCorridorId: 0,
+      laneTransitionStartSegmentId: 0,
+      laneTransitionCompleteSegmentId: 0
+    });
   });
   it("commits add-lane after the completion point without a maintained end", () => {
     const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
@@ -1829,8 +1886,7 @@ describe("viewport tool routing", () => {
     expect(rejected.road.laneTransitionStartT).toBe(10 / 60);
     expect(rejected.road.laneTransitionCompleteT).toBe(0.5);
     actions.previewViewportPoint([55, 0, 0], {
-      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 55,
-      endpointRole: 1
+      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 55
     });
     expect(commit).toHaveBeenCalledTimes(1);
     expect(current(store).lastCommitFailure?.reasonCode)

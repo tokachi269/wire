@@ -40,4 +40,36 @@ describe("wire architecture boundary", () => {
     expect(scene).not.toContain("SUPPORT_PATH_SUPPLEMENTAL_KIND");
     expect(scene).not.toContain("getSupportWireMaterial");
   });
+
+  it("does not retain the removed road lane connection editor", () => {
+    const road = text("src/road.ts");
+    expect(road).toContain(
+      'export type RoadOperation = "draw" | "edit" | "delete" | "add-lane"'
+    );
+    expect(road).not.toMatch(/laneEditStage:\s*[^;\n]*["']target["']/);
+
+    const production = [
+      "src/road.ts",
+      "src/actions/road_actions.ts",
+      "src/actions/viewer.ts",
+      "src/panels/RoadPanel.svelte",
+      "src/render/scene.ts"
+    ].map(text).join("\n");
+    for (const token of [
+      "selectedLaneId",
+      "selectedLaneEndpointRole",
+      "selectedLaneNodeId",
+      "laneTargetTemplateId",
+      "laneTargetLaneId",
+      "laneSourceBoundaryId",
+      "laneTargetBoundaryId",
+      "setLaneTargetTemplate",
+      "setRoadLaneTargetTemplate",
+      "road lane connection",
+      "lane_endpoint_not_selected"
+    ]) {
+      expect(production, `production contains removed lane editor token ${token}`)
+        .not.toContain(token);
+    }
+  });
 });

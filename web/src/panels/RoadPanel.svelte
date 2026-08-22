@@ -19,19 +19,6 @@
     snapshot.road.scene.roadLayoutTemplates.find((template) => template.id === snapshot.road.selectedRoadLayoutTemplateId)
   );
   const selectedStrips = $derived(selectedTemplate?.strips ?? []);
-  const laneTargetTemplate = $derived(
-    snapshot.road.scene.roadLayoutTemplates.find((template) => template.id === snapshot.road.laneTargetTemplateId)
-  );
-  const selectedLanePath = $derived(
-    snapshot.road.scene.lanePaths.find((lane) =>
-      lane.segmentId === snapshot.road.selectedLaneSegmentId && lane.laneId === snapshot.road.selectedLaneId)
-  );
-  const selectedLaneTemplateId = $derived(snapshot.road.selectedLaneEndpointRole === 0
-    ? selectedLanePath?.startRoadLayoutTemplateId
-    : selectedLanePath?.endRoadLayoutTemplateId);
-  const selectedLaneTemplate = $derived(
-    snapshot.road.scene.roadLayoutTemplates.find((template) => template.id === selectedLaneTemplateId)
-  );
   const selectedLaneCorridor = $derived(
     snapshot.road.scene.corridors.find((corridor) =>
       corridor.segments.some((segment) => segment.segmentId === snapshot.road.selectedLaneSegmentId)

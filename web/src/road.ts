@@ -188,8 +188,6 @@ export interface RoadSnapInfo {
   segmentDistanceM: number;
   extensionCorridorId?: number;
   laneId?: number;
-  laneDirection?: 0 | 1;
-  endpointRole?: 0 | 1;
 }
 
 export interface RoadToolState {
@@ -222,11 +220,8 @@ export interface RoadToolState {
   hoveredLaneSegmentId: number;
   hoveredLaneId: number;
   selectedLaneSegmentId: number;
-  selectedLaneId: number;
-  selectedLaneEndpointRole: 0 | 1;
-  selectedLaneNodeId: number;
   selectedLaneDirection: 0 | 1;
-  laneEditStage: "select" | "transition-complete" | "target";
+  laneEditStage: "select" | "transition-complete";
   laneSide: "left" | "right";
   laneWidthM: number;
   laneTransitionStartSegmentId: number;
@@ -234,10 +229,6 @@ export interface RoadToolState {
   laneTransitionCompleteSegmentId: number;
   laneTransitionCompleteT: number;
   laneCorridorId: number;
-  laneTargetTemplateId: number;
-  laneTargetLaneId: number;
-  laneSourceBoundaryId: number;
-  laneTargetBoundaryId: number;
   selectedEditSegmentId: number;
   selectedEditNodeAId: number;
   selectedEditNodeBId: number;
@@ -281,9 +272,6 @@ export function createRoadToolState(): RoadToolState {
     hoveredLaneSegmentId: 0,
     hoveredLaneId: 0,
     selectedLaneSegmentId: 0,
-    selectedLaneId: 0,
-    selectedLaneEndpointRole: 0,
-    selectedLaneNodeId: 0,
     selectedLaneDirection: 0,
     laneEditStage: "select",
     laneSide: "right",
@@ -293,10 +281,6 @@ export function createRoadToolState(): RoadToolState {
     laneTransitionCompleteSegmentId: 0,
     laneTransitionCompleteT: 0,
     laneCorridorId: 0,
-    laneTargetTemplateId: 1,
-    laneTargetLaneId: 0,
-    laneSourceBoundaryId: 0,
-    laneTargetBoundaryId: 0,
     selectedEditSegmentId: 0,
     selectedEditNodeAId: 0,
     selectedEditNodeBId: 0,

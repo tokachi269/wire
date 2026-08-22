@@ -187,10 +187,6 @@ export class ViewerActions {
     this.road.selectRoadLayoutTemplate(templateId);
   }
 
-  setRoadLaneTargetTemplate(templateId: number): void {
-    this.road.setLaneTargetTemplate(templateId);
-  }
-
   updateSelectedRoadLayoutTemplate(input: {
     sidewalkWidthM: number;
     laneWidthM: number;

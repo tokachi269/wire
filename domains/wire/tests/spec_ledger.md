@@ -582,7 +582,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C780 | Behavior | Invariant | 同じtemplate・同じ数値配置でもplacement_keyが違えば別placementとして扱い、request順序に依存しない | `legacy_unclassified` | height/offset/spacingやrequest配列順でmatchingする回帰を防ぐ |
 | C781 | Behavior | Invariant | completed cross からさらにedgeを伸ばしても既存spanをretireしない | `legacy_unclassified` | 既存Bundle IDを継続したedge bundleをcontext edge側までretire scopeに含め、元のspanを削除する回帰を防ぐ |
 | C782 | Behavior | Invariant | 接続済みsharp pairがあるjunctionへさらに鋭角edgeを追加しても既存pairを奪わず新規edgeをopenで残す | `legacy_unclassified` | 接続済みedgeを候補へ戻す、角度で再pairする、または追加操作を拒否する回帰を防ぐ |
-| C785 | Behavior | Invariant | HV 3相のincremental pair promotionは既存Port identityを維持し、通常pairの二等分frameへPort位置とbinding yawを再導出する | `legacy_unclassified` | lane対応反転、bindingとPortのframe分裂、shared Port再導入を防ぐ |
+| C785 | Behavior | Invariant | HV 3相のincremental pair promotionは既存Port identityを維持し、通常pairの二等分frameへPort位置とbinding yawを再導出する。lane対応はidentity / complete reverseに限定し、context側正本を変更せず、必須frameを再構築できない失敗時は正本を不変に保つ | `legacy_unclassified` | lane対応反転、contextの通常生成、失敗時の部分更新、bindingとPortのframe分裂、shared Port再導入を防ぐ |
 | C786 | SourceGuard | Boundary | hash mix helper は production で1定義だけを持つ | `source_guard` | hash helper copy family が curve / geometry に再発することを防ぐ |
 | C787 | SourceGuard | Boundary | BundleTemplate category と既定配置は Core/WASM payload を正本にし、JS は layer から推測しない | `source_guard` | web が SpanLayer→category 対応表や band matching を複製し、Core/WASM の分類とdriftする回帰を防ぐ |
 | C788 | SourceGuard | Boundary | belt radial fit と endpoint socket placement は materialization が所有する | `source_guard` | curve_parts や renderer が socket/mesh geometry を再解釈する、またはbelt半径をmesh実体からCoreで読む回帰を防ぐ |

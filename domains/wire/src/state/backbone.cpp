@@ -538,24 +538,6 @@ EditResult<bool> CoreState::bind_backbone_row_continuity(ObjectId node_id,
   return out;
 }
 
-void CoreState::remove_backbone_row_continuities(ObjectId node_id,
-                                                 ObjectId edge_bundle_a,
-                                                 ObjectId edge_bundle_b) {
-  auto& continuities = authoritative_.backbone.row_continuities;
-  continuities.erase(
-      std::remove_if(continuities.begin(), continuities.end(),
-                     [&](const SavedBackboneRowContinuity& continuity) {
-                       if (continuity.node_id != node_id) {
-                         return false;
-                       }
-                       return (continuity.a.edge_bundle_id == edge_bundle_a &&
-                               continuity.b.edge_bundle_id == edge_bundle_b) ||
-                              (continuity.a.edge_bundle_id == edge_bundle_b &&
-                               continuity.b.edge_bundle_id == edge_bundle_a);
-                     }),
-      continuities.end());
-}
-
 void CoreState::remove_backbone_row_continuities_for_lanes(const std::vector<ObjectId>& edge_bundle_ids,
                                                            std::size_t first_retired_lane) {
   auto retires = [&](const SavedBackboneRowContinuityEndpoint& endpoint) {

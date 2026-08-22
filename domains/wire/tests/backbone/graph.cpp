@@ -950,6 +950,54 @@ struct PortBindingSnapshot {
   double layout_yaw_deg = 0.0;
 };
 
+std::string edge_bundle_authority_snapshot(const city::wire::CoreState& state,
+                                           city::wire::ObjectId edge_bundle_id) {
+  std::vector<std::string> records{};
+  for (const city::wire::SavedBackbonePortBinding& binding :
+       state.view().backbone().port_bindings) {
+    if (binding.edge_bundle_id != edge_bundle_id) {
+      continue;
+    }
+    std::ostringstream record{};
+    record << "port " << binding.row_key.node_id << ' ' << binding.row_key.edge_id
+           << ' ' << binding.lane_index << ' ' << binding.port_id << ' '
+           << binding.placement_band_id << ' ' << binding.support_level << ' '
+           << binding.support_group_id << ' ' << binding.layout_yaw_deg;
+    records.push_back(record.str());
+  }
+  for (const city::wire::SavedBackboneSpanBinding& binding :
+       state.view().backbone().span_bindings) {
+    if (binding.edge_bundle_id != edge_bundle_id) {
+      continue;
+    }
+    const city::wire::Span* span = state.view().spans().find(binding.span_id);
+    std::ostringstream record{};
+    record << "span " << binding.lane_index << ' ' << binding.span_id;
+    if (span != nullptr) {
+      record << ' ' << span->port_a_id << ' ' << span->port_b_id;
+    }
+    records.push_back(record.str());
+  }
+  for (const city::wire::SavedBackboneRowContinuity& continuity :
+       state.view().backbone().row_continuities) {
+    if (continuity.a.edge_bundle_id != edge_bundle_id &&
+        continuity.b.edge_bundle_id != edge_bundle_id) {
+      continue;
+    }
+    std::ostringstream record{};
+    record << "continuity " << continuity.node_id << ' '
+           << continuity.a.edge_bundle_id << ' ' << continuity.a.lane_index << ' '
+           << continuity.b.edge_bundle_id << ' ' << continuity.b.lane_index;
+    records.push_back(record.str());
+  }
+  std::sort(records.begin(), records.end());
+  std::ostringstream out{};
+  for (const std::string& record : records) {
+    out << record << '\n';
+  }
+  return out.str();
+}
+
 std::vector<PortBindingSnapshot> port_binding_snapshot(const city::wire::CoreState& state,
                                                        city::wire::ObjectId edge_bundle_id,
                                                        city::wire::ObjectId node_id) {
@@ -2260,6 +2308,30 @@ bool C785_backbone_incremental_hv_promotion_reframes_existing_ports() {
     const city::wire::ObjectId junction = base_out.value.generated_pole_ids.back();
     const city::wire::Pole* junction_pole = replay.view().poles().find(junction);
     WIRE_TEST_EXPECT(junction_pole != nullptr, "workspace replay junction is missing");
+    const city::wire::SavedBackboneNode* first_node =
+        replay.view().backbone_node_for_pole(base_out.value.generated_pole_ids[0]);
+    const city::wire::SavedBackboneNode* second_node =
+        replay.view().backbone_node_for_pole(base_out.value.generated_pole_ids[1]);
+    WIRE_TEST_EXPECT(first_node != nullptr && second_node != nullptr,
+                     "workspace replay unrelated context nodes are missing");
+    const city::wire::ObjectId unrelated_edge =
+        edge_between(replay, first_node->node_id, second_node->node_id);
+    const city::wire::ObjectId unrelated_edge_bundle = edge_bundle_for_template(
+        replay, unrelated_edge, city::wire::BundleKind::kHighVoltage);
+    WIRE_TEST_EXPECT(unrelated_edge_bundle != city::wire::kInvalidObjectId,
+                     "workspace replay unrelated context edge bundle is missing");
+    const std::string unrelated_before =
+        edge_bundle_authority_snapshot(replay, unrelated_edge_bundle);
+    const std::size_t edge_count_before = replay.view().backbone().edges.size();
+    const std::size_t edge_bundle_count_before =
+        replay.view().backbone().edge_bundles.size();
+    const std::size_t span_count_before = replay.view().spans().size();
+    const std::size_t span_binding_count_before =
+        replay.view().backbone().span_bindings.size();
+    const std::size_t port_binding_count_before =
+        replay.view().backbone().port_bindings.size();
+    const std::size_t continuity_count_before =
+        replay.view().backbone().row_continuities.size();
 
     city::wire::BackboneSpec added = line_req(replay);
     added.bundles.clear();
@@ -2270,7 +2342,91 @@ bool C785_backbone_incremental_hv_promotion_reframes_existing_ports() {
     WIRE_TEST_EXPECT(added_out.ok,
                      added_out.error.empty() ? "workspace replay branch generation failed"
                                              : added_out.error);
+    WIRE_TEST_EXPECT(added_out.value.generated_span_ids.size() == 3,
+                     "context link was emitted as an additional normal Span");
+    WIRE_TEST_EXPECT(replay.view().backbone().edges.size() == edge_count_before + 1 &&
+                         replay.view().backbone().edge_bundles.size() ==
+                             edge_bundle_count_before + 1 &&
+                         replay.view().spans().size() == span_count_before + 3 &&
+                         replay.view().backbone().span_bindings.size() ==
+                             span_binding_count_before + 3 &&
+                         replay.view().backbone().port_bindings.size() ==
+                             port_binding_count_before + 6 &&
+                         replay.view().backbone().row_continuities.size() ==
+                             continuity_count_before + 3,
+                     "context link changed normal saved topology counts");
+    WIRE_TEST_EXPECT(edge_bundle_authority_snapshot(replay, unrelated_edge_bundle) ==
+                         unrelated_before,
+                     "unrelated context Span, binding, or continuity changed");
     WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(replay);
+  }
+
+  {
+    city::wire::CoreState rejected;
+    const auto abc = rejected.GenerateFromBackboneSpec(hv_poly3_req(rejected));
+    WIRE_TEST_EXPECT(abc.ok && abc.value.generated_pole_ids.size() == 3,
+                     abc.error.empty() ? "atomic rejection base generation failed"
+                                       : abc.error);
+    const city::wire::ObjectId junction = abc.value.generated_pole_ids[1];
+    const city::wire::Pole* junction_pole = rejected.view().poles().find(junction);
+    WIRE_TEST_EXPECT(junction_pole != nullptr,
+                     "atomic rejection junction is missing");
+    const city::wire::Vec3d junction_position = junction_pole->world_transform.position;
+    city::wire::BackboneSpec first_branch = line_req(rejected);
+    first_branch.bundles.clear();
+    add_backbone_bundle(first_branch, city::wire::BundleKind::kHighVoltage);
+    first_branch.path.polyline = {junction_position, {12.0, -8.0, 0.0}};
+    first_branch.path.node_specs = {pole_spec(0, junction)};
+    const auto first_branch_out = rejected.GenerateFromBackboneSpec(first_branch);
+    WIRE_TEST_EXPECT(first_branch_out.ok,
+                     first_branch_out.error.empty()
+                         ? "atomic rejection first branch generation failed"
+                         : first_branch_out.error);
+    const city::wire::SavedBackboneNode* junction_node =
+        rejected.view().backbone_node_for_pole(junction);
+    WIRE_TEST_EXPECT(junction_node != nullptr,
+                     "atomic rejection saved junction is missing");
+    const city::wire::SavedBackboneNode* saved_branch_node =
+        rejected.view().backbone_node_for_pole(
+            first_branch_out.value.generated_pole_ids.front());
+    WIRE_TEST_EXPECT(saved_branch_node != nullptr,
+                     "atomic rejection saved branch node is missing");
+    const city::wire::ObjectId branch_node = saved_branch_node->node_id;
+    const city::wire::ObjectId branch_edge =
+        edge_between(rejected, junction_node->node_id, branch_node);
+    const city::wire::ObjectId branch_edge_bundle = edge_bundle_for_template(
+        rejected, branch_edge, city::wire::BundleKind::kHighVoltage);
+    const std::vector<PortBindingSnapshot> branch_ports =
+        port_binding_snapshot(rejected, branch_edge_bundle, junction_node->node_id);
+    WIRE_TEST_EXPECT(branch_ports.size() == 3,
+                     "atomic rejection promotion row ports are missing");
+    const city::wire::Port* manual_port =
+        rejected.view().ports().find(branch_ports.front().port_id);
+    WIRE_TEST_EXPECT(manual_port != nullptr,
+                     "atomic rejection manual Port is missing");
+    const auto manual = rejected.SetPortWorldPositionManual(
+        manual_port->id, manual_port->world_position);
+    WIRE_TEST_EXPECT(manual.ok,
+                     manual.error.empty() ? "failed to mark promotion Port manual"
+                                          : manual.error);
+    std::string authoritative_before{};
+    WIRE_TEST_EXPECT(rejected.SerializeAuthoritative(&authoritative_before).ok,
+                     "failed to serialize state before rejected promotion");
+
+    city::wire::BackboneSpec second_branch = line_req(rejected);
+    second_branch.bundles.clear();
+    add_backbone_bundle(second_branch, city::wire::BundleKind::kHighVoltage);
+    second_branch.path.polyline = {{20.0, 0.0, 0.0}, junction_position};
+    second_branch.path.node_specs = {pole_spec(1, junction)};
+    const auto rejected_out = rejected.GenerateFromBackboneSpec(second_branch);
+    std::string authoritative_after{};
+    WIRE_TEST_EXPECT(rejected.SerializeAuthoritative(&authoritative_after).ok,
+                     "failed to serialize state after rejected promotion");
+    WIRE_TEST_EXPECT(!rejected_out.ok &&
+                         rejected_out.error.find("unsupported") != std::string::npos,
+                     "unreconstructable promotion frame silently succeeded");
+    WIRE_TEST_EXPECT(authoritative_after == authoritative_before,
+                     "failed promotion changed authoritative state");
   }
 
   city::wire::CoreState state;

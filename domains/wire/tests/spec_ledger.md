@@ -618,5 +618,9 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C840 | Behavior | Boundary | 同一 edge bundle 内の duplicate lane binding は load 時に拒否する | `legacy_unclassified` | lane identity が曖昧な保存状態をsilent acceptする回帰を防ぐ |
 | C841 | Behavior | Boundary | 同一 span の複数 backbone span binding は load 時に拒否する | `legacy_unclassified` | span が複数edge bundle/laneへ所属する二重authority状態を受け入れる回帰を防ぐ |
 | C842 | Behavior | Boundary | 旧saveに残る edge_bundle span_ids は読み捨て、再保存では出力しない | `legacy_unclassified` | 互換読み込みのために削除済みspan_idsを新しいauthoritative stateへ戻す回帰を防ぐ |
+| C843 | Behavior | Boundary | continuity構築対象のlaneでPortBinding / SpanBinding / Span endpoint relationが不足・不整合なら、既存continuityを変更せずoperationを失敗させる | `legacy_unclassified` | continuity不要bundleの対象外判定と、必須relation欠落のsilent skipを混同する回帰を防ぐ |
+| C844 | Behavior | Boundary | promotion frame更新はexact PortBindingを必須identityとし、missing / ambiguous / Port relation不成立を正本不変のまま拒否する | `legacy_unclassified` | missing exact bindingをno-op successとしてpromotionを継続する回帰を防ぐ |
+| C845 | Behavior | Invariant | permutable 3-lane rowのidentity / complete reverse双方で、PortBinding laneが参照するPortとplacement_band_idは同じphysical placementを表す | `legacy_unclassified` | mirror時にlogical span laneのbandをphysical Portへ保存してfixture・curve placementを分裂させる回帰を防ぐ |
+| C846 | SourceGuard | Boundary | save_graphのPortBinding保存はplacement_band_idをlogical span laneではなく、選択したPortと同じphysical trow laneから読む | `source_guard` | behavior fixtureが未到達のmirror形状でspan.lane参照が再導入される回帰を防ぐ |
 
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |

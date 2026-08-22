@@ -998,6 +998,121 @@ std::string edge_bundle_authority_snapshot(const city::wire::CoreState& state,
   return out.str();
 }
 
+struct LaneBandAudit {
+  bool ok = true;
+  bool saw_identity = false;
+  bool saw_reverse = false;
+  std::string error{};
+};
+
+LaneBandAudit audit_hv_lane_bands(const city::wire::CoreState& state) {
+  LaneBandAudit out{};
+  using RowKey =
+      std::tuple<city::wire::ObjectId, city::wire::ObjectId,
+                 city::wire::ObjectId>;
+  std::map<RowKey,
+           std::vector<const city::wire::SavedBackbonePortBinding*>> rows{};
+  for (const city::wire::SavedBackbonePortBinding& binding :
+       state.view().backbone().port_bindings) {
+    if (binding.bundle_template_id !=
+        city::wire::kDefaultHighVoltageBundleTemplateId) {
+      continue;
+    }
+    rows[{binding.edge_bundle_id, binding.row_key.node_id,
+          binding.row_key.edge_id}]
+        .push_back(&binding);
+  }
+  for (auto& [row_key, bindings] : rows) {
+    static_cast<void>(row_key);
+    if (bindings.size() != 3) {
+      continue;
+    }
+    std::sort(bindings.begin(), bindings.end(), [](const auto* a,
+                                                   const auto* b) {
+      return a->lane_index < b->lane_index;
+    });
+    const city::wire::Port* first_port =
+        state.view().ports().find(bindings.front()->port_id);
+    const city::wire::Pole* pole =
+        first_port == nullptr
+            ? nullptr
+            : state.view().poles().find(first_port->owner_pole_id);
+    const auto pole_type_it =
+        pole == nullptr ? state.view().pole_types().end()
+                        : state.view().pole_types().find(pole->pole_type_id);
+    if (pole == nullptr || pole_type_it == state.view().pole_types().end()) {
+      continue;
+    }
+    std::vector<const city::wire::PortPlacementBand*> bands{};
+    for (const city::wire::PortPlacementBand& band :
+         pole_type_it->second.port_bands) {
+      if (band.enabled &&
+          band.category == city::wire::ConnectionCategory::kHighVoltage &&
+          band.layer == 2) {
+        bands.push_back(&band);
+      }
+    }
+    std::sort(bands.begin(), bands.end(), [](const auto* a, const auto* b) {
+      if (std::abs(a->lateral_center_m - b->lateral_center_m) > 1e-12) {
+        return a->lateral_center_m < b->lateral_center_m;
+      }
+      return a->band_id < b->band_id;
+    });
+    if (bands.size() != 3 ||
+        bands[0]->band_id == bands[1]->band_id ||
+        bands[1]->band_id == bands[2]->band_id) {
+      out.ok = false;
+      out.error = "HV lane-band fixture does not have three distinct bands";
+      return out;
+    }
+
+    std::array<std::size_t, 3> physical_order{};
+    for (std::size_t lane = 0; lane < bindings.size(); ++lane) {
+      const city::wire::SavedBackbonePortBinding& binding = *bindings[lane];
+      const city::wire::Port* port =
+          state.view().ports().find(binding.port_id);
+      if (binding.lane_index != lane || port == nullptr ||
+          port->owner_pole_id != pole->id) {
+        out.ok = false;
+        out.error = "HV lane-band row has incomplete lane or Port identity";
+        return out;
+      }
+      const city::wire::PoleFrame frame = city::wire::BuildPoleFrame(
+          pole->world_transform, binding.layout_yaw_deg);
+      const double physical_lateral =
+          city::wire::WorldPointToLocal(frame, port->world_position).y;
+      const auto physical = std::find_if(
+          bands.begin(), bands.end(), [&](const auto* band) {
+            return std::abs(band->lateral_center_m - physical_lateral) <=
+                   1e-9;
+          });
+      if (physical == bands.end()) {
+        out.ok = false;
+        out.error = "HV Port does not occupy a declared physical lane band";
+        return out;
+      }
+      physical_order[lane] =
+          static_cast<std::size_t>(std::distance(bands.begin(), physical));
+      if (binding.placement_band_id != (*physical)->band_id) {
+        out.ok = false;
+        out.error =
+            "PortBinding placement_band_id does not match its physical Port";
+        return out;
+      }
+    }
+    if (physical_order == std::array<std::size_t, 3>{0, 1, 2}) {
+      out.saw_identity = true;
+    } else if (physical_order == std::array<std::size_t, 3>{2, 1, 0}) {
+      out.saw_reverse = true;
+    } else {
+      out.ok = false;
+      out.error = "HV lane-band mapping is not identity or complete reverse";
+      return out;
+    }
+  }
+  return out;
+}
+
 std::vector<PortBindingSnapshot> port_binding_snapshot(const city::wire::CoreState& state,
                                                        city::wire::ObjectId edge_bundle_id,
                                                        city::wire::ObjectId node_id) {
@@ -2699,6 +2814,208 @@ bool C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry() {
     }
   }
   return curve_endpoints_match_layout(state);
+}
+
+bool C843_backbone_continuity_binding_rejects_incomplete_lane_relation() {
+  city::wire::CoreState state;
+  const auto base = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  WIRE_TEST_EXPECT(base.ok && base.value.generated_pole_ids.size() == 3,
+                   base.error.empty() ? "continuity rejection base failed"
+                                      : base.error);
+  const city::wire::ObjectId junction = base.value.generated_pole_ids[1];
+  const city::wire::Pole* junction_pole =
+      state.view().poles().find(junction);
+  WIRE_TEST_EXPECT(junction_pole != nullptr,
+                   "continuity rejection junction is missing");
+  const city::wire::Vec3d origin = junction_pole->world_transform.position;
+
+  city::wire::BackboneSpec first = line_req(state);
+  first.bundles.clear();
+  add_backbone_bundle(first, city::wire::BundleKind::kHighVoltage);
+  first.path.polyline = {origin, {origin.x + 2.0, origin.y - 8.0, origin.z}};
+  first.path.node_specs = {pole_spec(0, junction)};
+  const auto first_out = state.GenerateFromBackboneSpec(first);
+  WIRE_TEST_EXPECT(first_out.ok &&
+                       first_out.value.generated_pole_ids.size() == 1,
+                   first_out.error.empty()
+                       ? "continuity rejection first edge failed"
+                       : first_out.error);
+  const city::wire::SavedBackboneNode* junction_node =
+      state.view().backbone_node_for_pole(junction);
+  const city::wire::SavedBackboneNode* first_node =
+      state.view().backbone_node_for_pole(
+          first_out.value.generated_pole_ids.front());
+  WIRE_TEST_EXPECT(junction_node != nullptr && first_node != nullptr,
+                   "continuity rejection saved nodes are missing");
+  const city::wire::ObjectId first_edge =
+      edge_between(state, junction_node->node_id, first_node->node_id);
+  const city::wire::ObjectId first_edge_bundle = edge_bundle_for_template(
+      state, first_edge, city::wire::BundleKind::kHighVoltage);
+  WIRE_TEST_EXPECT(first_edge_bundle != city::wire::kInvalidObjectId,
+                   "continuity rejection edge bundle is missing");
+  WIRE_TEST_EXPECT(
+      city::wire::CoreStateTestHook::erase_backbone_span_binding(
+          state, first_edge_bundle, 0),
+      "continuity rejection could not remove one SpanBinding");
+
+  std::string authoritative_before{};
+  WIRE_TEST_EXPECT(state.SerializeAuthoritative(&authoritative_before).ok,
+                   "continuity rejection pre-state serialization failed");
+  city::wire::BackboneSpec second = line_req(state);
+  second.bundles.clear();
+  add_backbone_bundle(second, city::wire::BundleKind::kHighVoltage);
+  second.path.polyline = {
+      {origin.x - 2.0, origin.y + 8.0, origin.z}, origin};
+  second.path.node_specs = {pole_spec(1, junction)};
+  const auto second_out = state.GenerateFromBackboneSpec(second);
+  std::string authoritative_after{};
+  WIRE_TEST_EXPECT(state.SerializeAuthoritative(&authoritative_after).ok,
+                   "continuity rejection post-state serialization failed");
+  WIRE_TEST_EXPECT(!second_out.ok,
+                   "incomplete continuity lane relation silently succeeded");
+  WIRE_TEST_EXPECT(authoritative_after == authoritative_before,
+                   "failed continuity construction changed authoritative state");
+  return true;
+}
+
+bool C844_backbone_promotion_exact_binding_missing_is_atomic() {
+  city::wire::CoreState state;
+  city::wire::BackboneSpec request = line_req(state);
+  request.bundles.clear();
+  add_backbone_bundle(request, city::wire::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(request);
+  WIRE_TEST_EXPECT(generated.ok && generated.value.generated_pole_ids.size() == 2,
+                   generated.error.empty()
+                       ? "exact binding rejection fixture failed"
+                       : generated.error);
+  const city::wire::SavedBackboneNode* node =
+      state.view().backbone_node_for_pole(
+          generated.value.generated_pole_ids.front());
+  WIRE_TEST_EXPECT(node != nullptr,
+                   "exact binding rejection node is missing");
+  std::vector<const city::wire::SavedBackbonePortBinding*> bindings{};
+  for (const city::wire::SavedBackbonePortBinding& binding :
+       state.view().backbone().port_bindings) {
+    if (binding.row_key.node_id == node->node_id &&
+        binding.bundle_template_id ==
+            city::wire::kDefaultHighVoltageBundleTemplateId) {
+      bindings.push_back(&binding);
+    }
+  }
+  std::sort(bindings.begin(), bindings.end(), [](const auto* a, const auto* b) {
+    return a->lane_index < b->lane_index;
+  });
+  WIRE_TEST_EXPECT(bindings.size() == 3,
+                   "exact binding rejection row is incomplete");
+  const city::wire::Port* other_port =
+      state.view().ports().find(bindings[1]->port_id);
+  WIRE_TEST_EXPECT(other_port != nullptr,
+                   "exact binding rejection alternate Port is missing");
+  const city::wire::SavedBackbonePortBinding target = *bindings[0];
+  std::string authoritative_before{};
+  WIRE_TEST_EXPECT(state.SerializeAuthoritative(&authoritative_before).ok,
+                   "exact binding rejection pre-state serialization failed");
+  const auto updated =
+      city::wire::CoreStateTestHook::update_backbone_port_binding_frame_exact(
+          state, target.edge_bundle_id, target.row_key, target.lane_index,
+          target.layout_yaw_deg, target.support_level,
+          target.support_group_id, other_port->id,
+          other_port->world_position);
+  std::string authoritative_after{};
+  WIRE_TEST_EXPECT(state.SerializeAuthoritative(&authoritative_after).ok,
+                   "exact binding rejection post-state serialization failed");
+  WIRE_TEST_EXPECT(!updated.ok,
+                   "missing exact promoted PortBinding silently succeeded");
+  WIRE_TEST_EXPECT(authoritative_after == authoritative_before,
+                   "failed exact binding update changed authoritative state");
+  return true;
+}
+
+bool C845_backbone_port_binding_band_tracks_physical_lane_for_mirror() {
+  city::wire::CoreState identity;
+  city::wire::BackboneSpec identity_request = line_req(identity);
+  identity_request.bundles.clear();
+  add_backbone_bundle(identity_request, city::wire::BundleKind::kHighVoltage);
+  const auto identity_out =
+      identity.GenerateFromBackboneSpec(identity_request);
+  WIRE_TEST_EXPECT(identity_out.ok,
+                   identity_out.error.empty()
+                       ? "identity lane-band generation failed"
+                       : identity_out.error);
+  const LaneBandAudit identity_audit = audit_hv_lane_bands(identity);
+  WIRE_TEST_EXPECT(identity_audit.ok,
+                   identity_audit.error.empty()
+                       ? "identity lane-band audit failed"
+                       : identity_audit.error);
+  WIRE_TEST_EXPECT(identity_audit.saw_identity,
+                   "identity lane-band mapping was not exercised");
+
+  city::wire::CoreState reversed;
+  city::wire::BackboneSpec base = line_req(reversed);
+  base.bundles.clear();
+  add_backbone_bundle(base, city::wire::BundleKind::kHighVoltage);
+  base.path.polyline = {{-2.064, 6.303, 0.0},
+                        {17.360, 4.890, 0.0},
+                        {31.800, 22.280, 0.0}};
+  const auto base_out = reversed.GenerateFromBackboneSpec(base);
+  WIRE_TEST_EXPECT(base_out.ok && base_out.value.generated_pole_ids.size() == 3,
+                   base_out.error.empty()
+                       ? "reverse lane-band base generation failed"
+                       : base_out.error);
+  const city::wire::ObjectId junction =
+      base_out.value.generated_pole_ids.back();
+  const city::wire::Pole* junction_pole =
+      reversed.view().poles().find(junction);
+  WIRE_TEST_EXPECT(junction_pole != nullptr,
+                   "reverse lane-band junction is missing");
+  city::wire::BackboneSpec added = line_req(reversed);
+  added.bundles.clear();
+  add_backbone_bundle(added, city::wire::BundleKind::kHighVoltage);
+  added.path.polyline = {{32.920, 0.323, 0.0},
+                         junction_pole->world_transform.position};
+  added.path.node_specs = {pole_spec(1, junction)};
+  const auto added_out = reversed.GenerateFromBackboneSpec(added);
+  WIRE_TEST_EXPECT(added_out.ok,
+                   added_out.error.empty()
+                       ? "reverse lane-band promotion failed"
+                       : added_out.error);
+  const LaneBandAudit reverse_audit = audit_hv_lane_bands(reversed);
+  WIRE_TEST_EXPECT(reverse_audit.ok,
+                   reverse_audit.error.empty()
+                       ? "reverse lane-band audit failed"
+                       : reverse_audit.error);
+  WIRE_TEST_EXPECT(reverse_audit.saw_reverse,
+                   "complete-reverse lane-band mapping was not exercised");
+  return true;
+}
+
+bool C846_backbone_port_binding_band_is_selected_by_physical_lane() {
+  const std::filesystem::path source =
+      repo_root() / "domains" / "wire" / "src" / "generation" /
+      "backbone" / "pipeline.cpp";
+  std::string cpp{};
+  WIRE_TEST_EXPECT(file_text(source, &cpp),
+                   "failed to read backbone pipeline source");
+  std::string body{};
+  WIRE_TEST_EXPECT(
+      function_body(
+          cpp,
+          "EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,",
+          &body),
+      "failed to isolate save_graph source");
+  const std::size_t band_begin = body.find("const int placement_band_id");
+  const std::size_t band_end =
+      body.find("const double layout_yaw_deg", band_begin);
+  WIRE_TEST_EXPECT(band_begin != std::string::npos &&
+                       band_end != std::string::npos &&
+                       band_begin < band_end,
+                   "save_graph placement band selection is missing");
+  const std::string selection =
+      body.substr(band_begin, band_end - band_begin);
+  WIRE_TEST_EXPECT(contains_text(selection, "physical_lane") &&
+                       !contains_text(selection, "span.lane"),
+                   "PortBinding placement band is not selected by physical lane");
+  return true;
 }
 
 bool C803_model_mount_graph_resolves_depth_four_chain() {

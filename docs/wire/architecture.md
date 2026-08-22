@@ -165,6 +165,9 @@ explicit placementでもpole band identityはfixture・roleの解決に使うが
 lateral順に1つずつ使用する。既定HV 3相は左・中央・右bandを各laneが使用し、3相全体を片側のpole表面へ寄せない。
 異なるband位置がlane数に足りない場合だけ、priority最上位の1 bandをrow中心としてlane spacingを展開する。
 保存済みport bindingはlaneごとのplacement band identityを保持する。
+`SavedBackbonePortBinding::lane_index`はSpan側のlogical conductor identity、`port_id`はそのendpointで選ばれた
+physical trow laneのPort identityである。`placement_band_id`は`port_id`の実physical placementに属し、
+mirror時にlogical laneとphysical laneが異なる場合もlogical lane番号から再選択しない。
 
 pole表面へ直接取り付けるportや部品は、中心軸原点を変えず、その高さのsection半径とstandoff / clearanceから
 表面位置を導出する。表面位置を既定offsetへ混ぜず、laneごとに後処理してbundle重心をずらしてはならない。

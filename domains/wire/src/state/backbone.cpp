@@ -308,7 +308,7 @@ EditResult<bool> CoreState::update_backbone_port_binding_frame_exact(
       row_key.edge_id == kInvalidObjectId || port_id == kInvalidObjectId ||
       support_level < 0 || support_group_id < -1 ||
       (support_level > 0 && support_group_id < 0)) {
-    out.ok = true;
+    out.error = "backbone internal: promoted row frame identity is invalid";
     return out;
   }
   std::size_t match_index = static_cast<std::size_t>(-1);
@@ -325,7 +325,7 @@ EditResult<bool> CoreState::update_backbone_port_binding_frame_exact(
     match_index = i;
   }
   if (match_index == static_cast<std::size_t>(-1)) {
-    out.ok = true;
+    out.error = "backbone internal: exact promoted open row binding is missing";
     return out;
   }
   Port* port = authoritative_.edit_state.ports.find(port_id);

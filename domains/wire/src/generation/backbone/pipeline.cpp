@@ -4154,16 +4154,20 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     if (bound_port_id == kInvalidObjectId) {
       return false;
     }
+    std::size_t span_binding_count = 0;
+    bool endpoint_matches = false;
     for (const SavedBackboneSpanBinding& binding : state_.view().backbone().span_bindings) {
       if (binding.edge_bundle_id != edge_bundle_id || binding.lane_index != lane) {
         continue;
       }
+      ++span_binding_count;
       const Span* span = state_.view().spans().find(binding.span_id);
-      if (span != nullptr && (span->port_a_id == bound_port_id || span->port_b_id == bound_port_id)) {
-        return true;
-      }
+      endpoint_matches =
+          span != nullptr &&
+          (span->port_a_id == bound_port_id ||
+           span->port_b_id == bound_port_id);
     }
-    return false;
+    return span_binding_count == 1 && endpoint_matches;
   };
   auto edge_bundle_incident_to_node = [&](ObjectId edge_bundle_id, ObjectId node_id) {
     const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
@@ -4232,8 +4236,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
       }
       const int placement_band_id =
           span.bundle < made.rows[row_index].placement_band_ids.size() &&
-                  span.lane < made.rows[row_index].placement_band_ids[span.bundle].size()
-              ? made.rows[row_index].placement_band_ids[span.bundle][span.lane]
+                  physical_lane < made.rows[row_index].placement_band_ids[span.bundle].size()
+              ? made.rows[row_index].placement_band_ids[span.bundle][physical_lane]
               : 0;
       const double layout_yaw_deg = PortLayoutYawDeg(made.rows[row_index].axis);
       const auto [support_level, support_group_id] =
@@ -4265,10 +4269,18 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
             refresh_edge_bundle_by_link_bundle(link_b, bundle_index);
         if (edge_bundle_a == kInvalidObjectId ||
             edge_bundle_b == kInvalidObjectId ||
-            edge_bundle_a == edge_bundle_b ||
-            !edge_bundle_incident_to_node(edge_bundle_a, node_id) ||
-            !edge_bundle_incident_to_node(edge_bundle_b, node_id) ||
-            edge_bundle_lane_port_binding_count_at_node(
+            edge_bundle_a == edge_bundle_b) {
+          out.error =
+              "backbone internal: row continuity target edge bundle relation is missing";
+          return false;
+        }
+        if (!edge_bundle_incident_to_node(edge_bundle_a, node_id) ||
+            !edge_bundle_incident_to_node(edge_bundle_b, node_id)) {
+          out.error =
+              "backbone internal: row continuity edge bundle is not incident to its node";
+          return false;
+        }
+        if (edge_bundle_lane_port_binding_count_at_node(
                 edge_bundle_a, lane_a, node_id) != 1 ||
             edge_bundle_lane_port_binding_count_at_node(
                 edge_bundle_b, lane_b, node_id) != 1 ||
@@ -4276,7 +4288,9 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
                 edge_bundle_a, lane_a, node_id) ||
             !edge_bundle_lane_binding_matches_span_at_node(
                 edge_bundle_b, lane_b, node_id)) {
-          return true;
+          out.error =
+              "backbone internal: row continuity lane relation is incomplete";
+          return false;
         }
         EditResult<bool> continuity = state_.bind_backbone_row_continuity(
             node_id, edge_bundle_a, lane_a, edge_bundle_b, lane_b);
@@ -4312,7 +4326,9 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         const auto* row_ports =
             row.endpoints.empty() ? nullptr : &row.endpoints.front().ports;
         if (row_ports == nullptr || bundle_index >= row_ports->size()) {
-          continue;
+          out.error =
+              "backbone internal: row continuity lane input is missing";
+          return out;
         }
         const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
             state_, node_id, left_edge_bundle_id, right_edge_bundle_id);
@@ -4365,7 +4381,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         const ObjectId edge_bundle_b =
             refresh_edge_bundle_by_link_bundle(link_b, bundle_index);
         if (edge_bundle_a == kInvalidObjectId ||
-            edge_bundle_b == kInvalidObjectId) {
+            edge_bundle_b == kInvalidObjectId ||
+            edge_bundle_a == edge_bundle_b) {
           continue;
         }
         const EditResult<bool> mirror = mirror_permutable_continuity_lanes(

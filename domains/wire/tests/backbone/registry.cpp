@@ -1364,6 +1364,22 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "legacy edge bundle span ids are consumed on load and omitted on save",
                          "Boundary", false,
                          C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped);
+  test_registry::AddTest(tests, "C843_backbone_continuity_binding_rejects_incomplete_lane_relation",
+                         "continuity construction rejects a missing authoritative lane relation without mutation",
+                         "Boundary", true,
+                         C843_backbone_continuity_binding_rejects_incomplete_lane_relation);
+  test_registry::AddTest(tests, "C844_backbone_promotion_exact_binding_missing_is_atomic",
+                         "promotion frame update rejects a missing exact PortBinding without mutation",
+                         "Boundary", true,
+                         C844_backbone_promotion_exact_binding_missing_is_atomic);
+  test_registry::AddTest(tests, "C845_backbone_port_binding_band_tracks_physical_lane_for_mirror",
+                         "identity and reversed lane mappings retain the physical Port placement band",
+                         "Invariant", false,
+                         C845_backbone_port_binding_band_tracks_physical_lane_for_mirror);
+  test_registry::AddSourceGuardTest(tests, "C846_backbone_port_binding_band_is_selected_by_physical_lane",
+                         "saved PortBinding band selection follows the physical trow lane rather than logical Span lane",
+                         "Boundary", false,
+                         C846_backbone_port_binding_band_is_selected_by_physical_lane);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

@@ -18,6 +18,7 @@
 #include <locale>
 #include <map>
 #include <random>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -1931,6 +1932,28 @@ bool operation_plan_apply_is_owned_by_road_state_execute(
   return true;
 }
 
+bool road_state_does_not_define_basic_entity_lookups(std::string& failure) {
+  std::filesystem::path root = std::filesystem::current_path();
+  while (!std::filesystem::exists(root / "domains" / "road" / "src") &&
+         root.has_parent_path() && root.parent_path() != root) {
+    root = root.parent_path();
+  }
+  const std::filesystem::path state_source =
+      root / "domains" / "road" / "src" / "state.cpp";
+  ROAD_CONTRACT_EXPECT(std::filesystem::exists(state_source),
+                       "road state source is missing");
+  std::ifstream in(state_source);
+  ROAD_CONTRACT_EXPECT(in.good(), "road state source could not be read");
+  const std::string text((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+  const std::regex local_lookup_definition{
+      R"((?:const\s+)?(?:RoadLayoutTemplate|RoadLayoutTransition|RoadSegment|RoadNode|NodeConnectionPolicyOverride|ApproachGeometryOverride)\s*\*\s*(?:find_template|find_transition|find_segment|find_node|find_policy_override|find_approach_override)\s*\([^;{}]*\)\s*\{)"};
+  ROAD_CONTRACT_EXPECT(
+      !std::regex_search(text, local_lookup_definition),
+      "state.cpp defines a basic entity lookup owned by lookup.cpp");
+  return true;
+}
+
 bool seeded_operation_sequences_preserve_contracts(std::string& failure) {
   for (std::uint32_t seed = 1; seed <= 4; ++seed) {
     std::mt19937 random(seed);
@@ -2046,6 +2069,8 @@ int main() {
        lane_endpoint_identity_ignores_template_order},
       {"operation_plan_apply_is_owned_by_road_state_execute",
        operation_plan_apply_is_owned_by_road_state_execute},
+      {"road_state_does_not_define_basic_entity_lookups",
+       road_state_does_not_define_basic_entity_lookups},
       {"seeded_operation_sequences_preserve_contracts", seeded_operation_sequences_preserve_contracts},
   };
   int failed = 0;

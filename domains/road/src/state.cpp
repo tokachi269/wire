@@ -26,6 +26,10 @@ using internal::align_last_span_end;
 using internal::almost_same;
 using internal::cross;
 using internal::distance;
+using internal::find_node;
+using internal::find_policy_override;
+using internal::find_segment;
+using internal::find_template;
 using internal::is_finite;
 using internal::kCurveSamples;
 using internal::distance_epsilon;
@@ -44,62 +48,6 @@ using internal::split_path_at_distance;
 using internal::subtract;
 
 constexpr double kSnapDistancePointToleranceM = 0.6;
-
-
-
-
-[[nodiscard]] const RoadLayoutTemplate* find_template(const SavedRoadGraph& graph, RoadLayoutTemplateId id) {
-  const auto it = std::find_if(graph.layout_templates.begin(), graph.layout_templates.end(),
-                               [id](const RoadLayoutTemplate& item) { return item.id == id; });
-  return it == graph.layout_templates.end() ? nullptr : &*it;
-}
-
-[[nodiscard]] const RoadLayoutTransition* find_transition(const SavedRoadGraph& graph, RoadLayoutTransitionId id) {
-  const auto it = std::find_if(graph.transitions.begin(), graph.transitions.end(),
-                               [id](const RoadLayoutTransition& item) { return item.id == id; });
-  return it == graph.transitions.end() ? nullptr : &*it;
-}
-
-[[nodiscard]] const RoadSegment* find_segment(const SavedRoadGraph& graph, RoadSegmentId id) {
-  const auto it = std::find_if(graph.segments.begin(), graph.segments.end(),
-                               [id](const RoadSegment& item) { return item.id == id; });
-  return it == graph.segments.end() ? nullptr : &*it;
-}
-
-[[nodiscard]] RoadSegment* find_segment(SavedRoadGraph& graph, RoadSegmentId id) {
-  const auto it = std::find_if(graph.segments.begin(), graph.segments.end(),
-                               [id](const RoadSegment& item) { return item.id == id; });
-  return it == graph.segments.end() ? nullptr : &*it;
-}
-
-[[nodiscard]] const RoadNode* find_node(const SavedRoadGraph& graph, RoadNodeId id) {
-  const auto it = std::find_if(graph.nodes.begin(), graph.nodes.end(),
-                               [id](const RoadNode& item) { return item.id == id; });
-  return it == graph.nodes.end() ? nullptr : &*it;
-}
-
-[[nodiscard]] const NodeConnectionPolicyOverride* find_policy_override(const SavedRoadGraph& graph,
-                                                                                   RoadNodeId node_id) {
-  const auto it = std::find_if(graph.connection_policy_overrides.begin(), graph.connection_policy_overrides.end(),
-                               [node_id](const auto& item) { return item.node_id == node_id; });
-  return it == graph.connection_policy_overrides.end() ? nullptr : &*it;
-}
-
-[[nodiscard]] const ApproachGeometryOverride* find_approach_override(const SavedRoadGraph& graph,
-                                                                               const ApproachKey& key) {
-  const auto it = std::find_if(graph.approach_geometry_overrides.begin(), graph.approach_geometry_overrides.end(),
-                               [&key](const ApproachGeometryOverride& item) { return item.key == key; });
-  return it == graph.approach_geometry_overrides.end() ? nullptr : &*it;
-}
-
-[[nodiscard]] RoadNode* find_node(SavedRoadGraph& graph, RoadNodeId id) {
-  const auto it = std::find_if(graph.nodes.begin(), graph.nodes.end(),
-                               [id](const RoadNode& item) { return item.id == id; });
-  return it == graph.nodes.end() ? nullptr : &*it;
-}
-
-
-
 
 } // namespace
 

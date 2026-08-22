@@ -496,6 +496,140 @@ bool set_low_voltage_count_before_generation(city::wire::CoreState& state, int f
   return updated.ok && updated.value;
 }
 
+struct FixedCountBundleComponent {
+  city::wire::ObjectId bundle_id = city::wire::kInvalidObjectId;
+  std::vector<city::wire::ObjectId> edge_bundle_ids{};
+};
+
+FixedCountBundleComponent generate_fixed_count_component(city::wire::CoreState& state,
+                                                         double y) {
+  FixedCountBundleComponent out{};
+  city::wire::BackboneSpec request = poly3_req(state);
+  for (city::wire::Vec3d& point : request.path.polyline) {
+    point.y += y;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(request);
+  if (!generated.ok) return out;
+  const city::wire::BundleTemplateId template_id =
+      city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kLowVoltage);
+  for (city::wire::ObjectId bundle_id : generated.value.bundle_ids) {
+    const city::wire::Bundle* bundle = state.view().bundles().find(bundle_id);
+    if (bundle != nullptr && bundle->bundle_template_id == template_id) {
+      out.bundle_id = bundle_id;
+      break;
+    }
+  }
+  for (const city::wire::SavedBackboneEdgeBundle& edge_bundle :
+       state.view().backbone().edge_bundles) {
+    if (edge_bundle.bundle_id == out.bundle_id) {
+      out.edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+    }
+  }
+  return out;
+}
+
+bool fixed_count_component_relations_are_internal(
+    const city::wire::CoreState& state,
+    const FixedCountBundleComponent& component,
+    std::size_t lane_count) {
+  if (component.bundle_id == city::wire::kInvalidObjectId ||
+      component.edge_bundle_ids.size() != 2) return false;
+  const city::wire::Bundle* bundle = state.view().bundles().find(component.bundle_id);
+  if (bundle == nullptr || bundle->conductor_count != static_cast<int>(lane_count)) return false;
+  std::unordered_set<city::wire::ObjectId> component_edge_bundles(
+      component.edge_bundle_ids.begin(), component.edge_bundle_ids.end());
+  for (city::wire::ObjectId edge_bundle_id : component.edge_bundle_ids) {
+    const auto saved_edge_bundle = std::find_if(
+        state.view().backbone().edge_bundles.begin(),
+        state.view().backbone().edge_bundles.end(),
+        [&](const city::wire::SavedBackboneEdgeBundle& candidate) {
+          return candidate.edge_bundle_id == edge_bundle_id;
+        });
+    if (saved_edge_bundle == state.view().backbone().edge_bundles.end() ||
+        saved_edge_bundle->bundle_id != component.bundle_id) return false;
+    std::unordered_set<city::wire::ObjectId> bound_ports{};
+    std::vector<std::size_t> span_lanes{};
+    std::vector<std::size_t> port_lanes{};
+    for (const city::wire::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+      if (binding.edge_bundle_id == edge_bundle_id) {
+        bound_ports.insert(binding.port_id);
+        port_lanes.push_back(binding.lane_index);
+      }
+    }
+    for (const city::wire::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id) continue;
+      const city::wire::Span* span = state.view().spans().find(binding.span_id);
+      if (span == nullptr || span->bundle_id != component.bundle_id ||
+          !bound_ports.contains(span->port_a_id) || !bound_ports.contains(span->port_b_id)) {
+        return false;
+      }
+      span_lanes.push_back(binding.lane_index);
+    }
+    std::sort(span_lanes.begin(), span_lanes.end());
+    std::sort(port_lanes.begin(), port_lanes.end());
+    std::vector<std::size_t> expected_span_lanes{};
+    std::vector<std::size_t> expected_port_lanes{};
+    for (std::size_t lane = 0; lane < lane_count; ++lane) {
+      expected_span_lanes.push_back(lane);
+      expected_port_lanes.push_back(lane);
+      expected_port_lanes.push_back(lane);
+    }
+    if (span_lanes != expected_span_lanes || port_lanes != expected_port_lanes) return false;
+  }
+  std::vector<std::size_t> lanes_a{};
+  std::vector<std::size_t> lanes_b{};
+  for (const city::wire::SavedBackboneRowContinuity& continuity :
+       state.view().backbone().row_continuities) {
+    const bool a_inside = component_edge_bundles.contains(continuity.a.edge_bundle_id);
+    const bool b_inside = component_edge_bundles.contains(continuity.b.edge_bundle_id);
+    if (!a_inside && !b_inside) continue;
+    if (!a_inside || !b_inside || continuity.a.edge_bundle_id == continuity.b.edge_bundle_id) return false;
+    if (continuity.a.edge_bundle_id == component.edge_bundle_ids.front()) {
+      lanes_a.push_back(continuity.a.lane_index);
+      lanes_b.push_back(continuity.b.lane_index);
+    } else {
+      lanes_a.push_back(continuity.b.lane_index);
+      lanes_b.push_back(continuity.a.lane_index);
+    }
+  }
+  std::sort(lanes_a.begin(), lanes_a.end());
+  std::sort(lanes_b.begin(), lanes_b.end());
+  std::vector<std::size_t> expected_lanes{};
+  for (std::size_t lane = 0; lane < lane_count; ++lane) expected_lanes.push_back(lane);
+  return lanes_a == expected_lanes && lanes_b == expected_lanes;
+}
+
+std::vector<city::wire::ObjectId> component_lane_span_ids(
+    const city::wire::CoreState& state, const FixedCountBundleComponent& component,
+    std::size_t lane) {
+  std::vector<city::wire::ObjectId> out{};
+  for (const city::wire::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    if (binding.lane_index == lane &&
+        std::find(component.edge_bundle_ids.begin(), component.edge_bundle_ids.end(),
+                  binding.edge_bundle_id) != component.edge_bundle_ids.end()) {
+      out.push_back(binding.span_id);
+    }
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+std::vector<city::wire::ObjectId> component_lane_port_ids(
+    const city::wire::CoreState& state, const FixedCountBundleComponent& component,
+    std::size_t lane) {
+  std::vector<city::wire::ObjectId> out{};
+  for (const city::wire::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (binding.lane_index == lane &&
+        std::find(component.edge_bundle_ids.begin(), component.edge_bundle_ids.end(),
+                  binding.edge_bundle_id) != component.edge_bundle_ids.end()) {
+      out.push_back(binding.port_id);
+    }
+  }
+  std::sort(out.begin(), out.end());
+  out.erase(std::unique(out.begin(), out.end()), out.end());
+  return out;
+}
+
 std::vector<city::wire::ObjectId> span_ids_for_lane(const city::wire::CoreState& state, std::size_t lane) {
   std::vector<city::wire::ObjectId> out{};
   for (const city::wire::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
@@ -2659,6 +2793,146 @@ bool C759_span_visual_assembly_has_one_geometry_owner() {
          !contains_text(assembly, "AddPort") && contains_text(curve_parts, "apply_span_visual_assemblies(state, assembly_endpoints, &out)") &&
          !contains_text(curve_parts, "make_primary_curve_between") &&
          !contains_text(curve_parts, "member_wander_ratio") && !contains_text(curve_parts, "helix_turns_per_meter");
+}
+
+bool C850_backbone_fixed_count_increase_scopes_independent_bundle_components() {
+  auto increase_to_four = [](city::wire::CoreState* state) {
+    city::wire::BundleTemplate edited = state->view().bundle_templates().at(
+        city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kLowVoltage));
+    edited.fixed_count = 4;
+    return state->UpdateBundleTemplate(edited);
+  };
+
+  city::wire::CoreState alone{};
+  WIRE_TEST_EXPECT(set_low_voltage_count_before_generation(alone, 3),
+                   "failed to set the single-component fixed count to three");
+  const FixedCountBundleComponent alone_a = generate_fixed_count_component(alone, 0.0);
+  WIRE_TEST_EXPECT(fixed_count_component_relations_are_internal(alone, alone_a, 3),
+                   "single-component fixture is incomplete before increase");
+  const auto alone_update = increase_to_four(&alone);
+  WIRE_TEST_EXPECT(alone_update.ok && alone_update.value,
+                   alone_update.error.empty() ? "single-component 3 to 4 update failed"
+                                              : alone_update.error);
+  const auto alone_signature = route_bundle_signatures_for_ids(alone, alone_a.edge_bundle_ids);
+
+  city::wire::CoreState together{};
+  WIRE_TEST_EXPECT(set_low_voltage_count_before_generation(together, 3),
+                   "failed to set the two-component fixed count to three");
+  const FixedCountBundleComponent together_a = generate_fixed_count_component(together, 0.0);
+  const FixedCountBundleComponent together_b = generate_fixed_count_component(together, 30.0);
+  WIRE_TEST_EXPECT(together_a.bundle_id != together_b.bundle_id,
+                   "independent placements were merged before fixed-count update");
+  const auto together_update = increase_to_four(&together);
+  WIRE_TEST_EXPECT(together_update.ok && together_update.value,
+                   together_update.error.empty() ? "two-component 3 to 4 update failed"
+                                                 : together_update.error);
+  WIRE_TEST_EXPECT(
+      fixed_count_component_relations_are_internal(together, together_a, 4) &&
+          fixed_count_component_relations_are_internal(together, together_b, 4),
+      "3 to 4 update mixed PortBinding, SpanBinding, or continuity across Bundle components");
+  WIRE_TEST_EXPECT(
+      same_route_bundle_signatures(alone_signature,
+                                   route_bundle_signatures_for_ids(together, together_a.edge_bundle_ids)),
+      "Bundle A semantic regenerate result changed when unrelated Bundle B existed");
+
+  city::wire::CoreState reversed{};
+  WIRE_TEST_EXPECT(set_low_voltage_count_before_generation(reversed, 3),
+                   "failed to set reversed-order fixed count to three");
+  const FixedCountBundleComponent reversed_b = generate_fixed_count_component(reversed, 30.0);
+  const FixedCountBundleComponent reversed_a = generate_fixed_count_component(reversed, 0.0);
+  const auto reversed_update = increase_to_four(&reversed);
+  WIRE_TEST_EXPECT(reversed_update.ok && reversed_update.value,
+                   reversed_update.error.empty() ? "reversed-order 3 to 4 update failed"
+                                                 : reversed_update.error);
+  WIRE_TEST_EXPECT(
+      fixed_count_component_relations_are_internal(reversed, reversed_a, 4) &&
+          fixed_count_component_relations_are_internal(reversed, reversed_b, 4),
+      "reversed generation order mixed component relations");
+  WIRE_TEST_EXPECT(
+      same_route_bundle_signatures(
+          route_bundle_signatures_for_ids(together, together_a.edge_bundle_ids),
+          route_bundle_signatures_for_ids(reversed, reversed_a.edge_bundle_ids)) &&
+          same_route_bundle_signatures(
+              route_bundle_signatures_for_ids(together, together_b.edge_bundle_ids),
+              route_bundle_signatures_for_ids(reversed, reversed_b.edge_bundle_ids)),
+      "fixed-count regenerate result depends on independent Bundle generation order");
+  return true;
+}
+
+bool C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes() {
+  city::wire::CoreState state{};
+  WIRE_TEST_EXPECT(set_low_voltage_count_before_generation(state, 4),
+                   "failed to set the two-component fixed count to four");
+  const FixedCountBundleComponent component_a = generate_fixed_count_component(state, 0.0);
+  const FixedCountBundleComponent component_b = generate_fixed_count_component(state, 30.0);
+  WIRE_TEST_EXPECT(
+      fixed_count_component_relations_are_internal(state, component_a, 4) &&
+          fixed_count_component_relations_are_internal(state, component_b, 4),
+      "two-component fixture is incomplete before decrease");
+  const std::vector<city::wire::ObjectId> retired_a_spans = component_lane_span_ids(state, component_a, 3);
+  const std::vector<city::wire::ObjectId> retired_b_spans = component_lane_span_ids(state, component_b, 3);
+  const std::vector<city::wire::ObjectId> retired_a_ports = component_lane_port_ids(state, component_a, 3);
+  const std::vector<city::wire::ObjectId> retired_b_ports = component_lane_port_ids(state, component_b, 3);
+  std::vector<city::wire::ObjectId> surviving_a_spans{};
+  std::vector<city::wire::ObjectId> surviving_b_spans{};
+  std::vector<city::wire::ObjectId> surviving_a_ports{};
+  std::vector<city::wire::ObjectId> surviving_b_ports{};
+  for (std::size_t lane = 0; lane < 3; ++lane) {
+    const auto a_spans = component_lane_span_ids(state, component_a, lane);
+    const auto b_spans = component_lane_span_ids(state, component_b, lane);
+    const auto a_ports = component_lane_port_ids(state, component_a, lane);
+    const auto b_ports = component_lane_port_ids(state, component_b, lane);
+    surviving_a_spans.insert(surviving_a_spans.end(), a_spans.begin(), a_spans.end());
+    surviving_b_spans.insert(surviving_b_spans.end(), b_spans.begin(), b_spans.end());
+    surviving_a_ports.insert(surviving_a_ports.end(), a_ports.begin(), a_ports.end());
+    surviving_b_ports.insert(surviving_b_ports.end(), b_ports.begin(), b_ports.end());
+  }
+  WIRE_TEST_EXPECT(retired_a_spans.size() == 2 && retired_b_spans.size() == 2 &&
+                       retired_a_ports.size() == 4 && retired_b_ports.size() == 4,
+                   "lane three retirement identities are incomplete");
+  city::wire::BundleTemplate edited = state.view().bundle_templates().at(
+      city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kLowVoltage));
+  edited.fixed_count = 3;
+  const auto updated = state.UpdateBundleTemplate(edited);
+  WIRE_TEST_EXPECT(updated.ok && updated.value,
+                   updated.error.empty() ? "two-component 4 to 3 update failed" : updated.error);
+  WIRE_TEST_EXPECT(
+      fixed_count_component_relations_are_internal(state, component_a, 3) &&
+          fixed_count_component_relations_are_internal(state, component_b, 3),
+      "4 to 3 update damaged surviving component-local relations");
+  for (city::wire::ObjectId span_id : surviving_a_spans) {
+    WIRE_TEST_EXPECT(state.view().spans().find(span_id) != nullptr,
+                     "Bundle A surviving Span was deleted by decrease");
+  }
+  for (city::wire::ObjectId span_id : surviving_b_spans) {
+    WIRE_TEST_EXPECT(state.view().spans().find(span_id) != nullptr,
+                     "Bundle B surviving Span was deleted by decrease");
+  }
+  for (city::wire::ObjectId port_id : surviving_a_ports) {
+    WIRE_TEST_EXPECT(state.view().ports().find(port_id) != nullptr,
+                     "Bundle A surviving Port was deleted by decrease");
+  }
+  for (city::wire::ObjectId port_id : surviving_b_ports) {
+    WIRE_TEST_EXPECT(state.view().ports().find(port_id) != nullptr,
+                     "Bundle B surviving Port was deleted by decrease");
+  }
+  for (city::wire::ObjectId span_id : retired_a_spans) {
+    WIRE_TEST_EXPECT(state.view().spans().find(span_id) == nullptr,
+                     "Bundle A retired Span survived decrease");
+  }
+  for (city::wire::ObjectId span_id : retired_b_spans) {
+    WIRE_TEST_EXPECT(state.view().spans().find(span_id) == nullptr,
+                     "Bundle B retired Span survived decrease");
+  }
+  for (city::wire::ObjectId port_id : retired_a_ports) {
+    WIRE_TEST_EXPECT(state.view().ports().find(port_id) == nullptr,
+                     "Bundle A retired Port survived decrease");
+  }
+  for (city::wire::ObjectId port_id : retired_b_ports) {
+    WIRE_TEST_EXPECT(state.view().ports().find(port_id) == nullptr,
+                     "Bundle B retired Port survived decrease");
+  }
+  return true;
 }
 
 } // namespace backbone_tests

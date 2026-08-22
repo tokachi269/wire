@@ -625,5 +625,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C847 | Behavior | Invariant | 同一physical edge上のHV/LVが別peer edgeへ接続する独立edge-bundle continuity componentはauthoritative validation、save/load、derived rebuildを維持する | `differential` `presence` | edge-bundle identityをload前にphysical edgeへcollapseし、合法な保存状態をambiguousとして読めなくする回帰を防ぐ |
 | C848 | Behavior | Invariant | scoped regenerateは対象edge-bundle componentを先に選び、無関係componentをauthority・出力の判断入力にしない | `differential` `anchor` | 同じphysical edge上の別bundle continuityがHV/LV個別regenerateを失敗または変質させる回帰を防ぐ |
 | C849 | Behavior | Boundary | 同一edge-bundle component内で3方向へ分岐するsaved continuityはload時に明示失敗し、既存正本を変更しない | `anchor` | component identity修正をambiguityのsilent skipやfallbackへ変える回帰を防ぐ |
+| C850 | Behavior | Invariant | 同じfixed BundleTemplateを使う独立Bundle placementは、各Bundle identityとedge-bundle continuity componentをscopeに3→4更新し、単独実行・配置順反転と同じ意味結果を得る | `differential` `anchor` | template全体を一括regenerateして独立componentを混同する、または無関係componentを判断入力にする回帰を防ぐ |
+| C851 | Behavior | Invariant | 同じfixed BundleTemplateを使う独立Bundle placementの4→3更新は、各componentのlane 3だけをretireし、残存PortBinding・SpanBinding・continuityをcomponent内に保つ | `presence` `anchor` | component横断でSpan/Portを削除する、または残存relationを別Bundleへ結ぶ回帰を防ぐ |
 
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |

@@ -788,6 +788,9 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.fixed_count != previous.fixed_count;
   constexpr std::uint32_t kRegenerateChangeMask = kMetadata | kDefinition | kCount;
   const bool topology_regenerate = (changes & kTopology) != 0;
+  const bool scoped_bundle_regenerate =
+      topology_regenerate ||
+      (fixed_count_change && (changes & ~kRegenerateChangeMask) == 0);
 
   std::vector<ObjectId> affected_spans{};
   std::vector<ObjectId> affected_bundle_ids{};
@@ -801,7 +804,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       append_unique(affected_spans, spans_it->second);
     }
   }
-  if (topology_regenerate) {
+  if (scoped_bundle_regenerate) {
     for (ObjectId span_id : affected_spans) {
       if (state.runtime_.backbone_index.span_edge_bundle.find(span_id) ==
           state.runtime_.backbone_index.span_edge_bundle.end()) {
@@ -865,14 +868,6 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       (!fixed_count_change || (changes & ~kRegenerateChangeMask) != 0)) {
     result.error = "backbone unsupported: bundle count changes require fixed count regeneration";
     return result;
-  }
-  if (fixed_count_change) {
-    auto regenerated = state.regenerate_backbone_edge_bundles(normalized.id, previous, normalized,
-                                                              &result.change_set);
-    if (!regenerated.ok) {
-      result.error = regenerated.error;
-      return result;
-    }
   }
   auto updated_template_it = state.authoritative_.bundle_templates.find(normalized.id);
   if (updated_template_it == state.authoritative_.bundle_templates.end()) {

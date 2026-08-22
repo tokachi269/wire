@@ -1392,6 +1392,14 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "load still rejects a genuinely ambiguous edge-bundle continuity component atomically",
                          "Boundary", true,
                          C849_backbone_load_rejects_ambiguous_edge_bundle_component);
+  test_registry::AddTest(tests, "C850_backbone_fixed_count_increase_scopes_independent_bundle_components",
+                         "fixed-count increase scopes same-template placements by Bundle continuity component",
+                         "Invariant", false,
+                         C850_backbone_fixed_count_increase_scopes_independent_bundle_components);
+  test_registry::AddTest(tests, "C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes",
+                         "fixed-count decrease retires lanes within each independent Bundle component",
+                         "Invariant", false,
+                         C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

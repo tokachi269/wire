@@ -284,6 +284,8 @@ preflight を増やしたことを理由に本 state 直接変更へ戻すこと
 統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
 既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
+`UpdateBundleTemplate` の fixed count 増減は、同じtemplateを使う全placementを一括scopeにせず、
+exact `Bundle` identityごとにsaved row continuityで接続された`edge_bundle_id` componentを選び、全component成功後に一度だけcommitする。
 現対応は `UpdateBundleTemplate` の fixed count 増減と `kTopology` policy 差分、`UpdateCableTemplate` の backbone continuity policy / default endpoint attachment decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeの接続は saved row continuity と saved node から

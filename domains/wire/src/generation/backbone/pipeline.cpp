@@ -1,7 +1,6 @@
 #include "pipeline.hpp"
 
 #include "../../collection_utils.hpp"
-#include "../../support/hash_mix.hpp"
 #include "../../support/instrumentation.hpp"
 #include "city/wire/core_view.hpp"
 #include "city/wire/support/numeric_tolerances.hpp"
@@ -290,7 +289,6 @@ EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* ti
 
 namespace {
 
-constexpr double kRowHeightSeparationM = 0.5;
 constexpr double kRadiansToDegrees = 57.2957795130823208768;
 
 void add(ChangeSet& dst, const ChangeSet& src) {
@@ -1100,53 +1098,6 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
   return out;
 }
 
-std::vector<Vec3d> row_height_offsets(const pairs& ps) {
-  std::vector<Vec3d> offsets(ps.rows.size(), Vec3d{});
-  std::vector<bool> active_rows(ps.rows.size(), false);
-  for (const link& edge : ps.links) {
-    if (!edge.is_new) {
-      continue;
-    }
-    if (edge.arow < active_rows.size()) {
-      active_rows[edge.arow] = true;
-    }
-    if (edge.brow < active_rows.size()) {
-      active_rows[edge.brow] = true;
-    }
-  }
-  std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
-  for (const row& r : ps.rows) {
-    rows_by_node[r.node].push_back(r.id);
-  }
-  for (auto& item : rows_by_node) {
-    std::vector<std::size_t>& rows = item.second;
-    std::sort(rows.begin(), rows.end(), [&](std::size_t lhs, std::size_t rhs) {
-      const bool lhs_active = lhs < active_rows.size() && active_rows[lhs];
-      const bool rhs_active = rhs < active_rows.size() && active_rows[rhs];
-      if (lhs_active != rhs_active) {
-        return lhs_active;
-      }
-      return lhs < rhs;
-    });
-    const double center = (static_cast<double>(rows.size()) - 1.0) * 0.5;
-    for (std::size_t order = 0; order < rows.size(); ++order) {
-      const std::size_t row_id = rows[order];
-      if (row_id >= ps.rows.size()) {
-        continue;
-      }
-      const double amount = (static_cast<double>(order) - center) * kRowHeightSeparationM;
-      offsets[row_id] = Vec3d{0.0, 0.0, amount};
-    }
-  }
-  return offsets;
-}
-
-bool AllowsBranchHeightOffset(const BackboneBundleSpec& spec,
-                              const BundleTemplate& tmpl) {
-  return !spec.placement_explicit && tmpl.enable_branch_down_offset &&
-         tmpl.branch_endpoint_offset_m != 0.0;
-}
-
 bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& points, double radius) {
   if (points.empty() || radius <= 0.0) {
     return true;
@@ -1176,105 +1127,6 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
   }
   return true;
 }
-
-struct stable_row_occupancy_key {
-  ObjectId pole_id = kInvalidObjectId;
-  BundleTemplateId bundle_template_id = 0;
-  std::uint64_t placement_key = 0;
-  int placement_band_id = 0;
-
-  bool operator==(const stable_row_occupancy_key& other) const {
-    return pole_id == other.pole_id && bundle_template_id == other.bundle_template_id &&
-           placement_key == other.placement_key && placement_band_id == other.placement_band_id;
-  }
-};
-
-struct stable_row_plan_key {
-  std::size_t row_id = 0;
-  ObjectId bundle_id = kInvalidObjectId;
-  stable_row_occupancy_key occupancy{};
-
-  bool operator==(const stable_row_plan_key& other) const {
-    return row_id == other.row_id && bundle_id == other.bundle_id && occupancy == other.occupancy;
-  }
-};
-
-struct stable_row_key_hash {
-  std::size_t operator()(const stable_row_occupancy_key& key) const {
-    std::uint64_t seed = support::hash_combine(0, static_cast<std::uint64_t>(key.pole_id));
-    seed = support::hash_combine(seed, static_cast<std::uint64_t>(key.bundle_template_id));
-    seed = support::hash_combine(seed, key.placement_key);
-    seed = support::hash_combine(seed, static_cast<std::uint64_t>(key.placement_band_id));
-    return static_cast<std::size_t>(seed);
-  }
-
-  std::size_t operator()(const stable_row_plan_key& key) const {
-    std::uint64_t seed = support::hash_combine(0, static_cast<std::uint64_t>(key.row_id));
-    seed = support::hash_combine(seed, static_cast<std::uint64_t>(key.bundle_id));
-    seed = support::hash_combine(seed, static_cast<std::uint64_t>((*this)(key.occupancy)));
-    return static_cast<std::size_t>(seed);
-  }
-};
-
-class stable_row_slot_plan {
-public:
-  explicit stable_row_slot_plan(const CoreState& state) {
-    for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
-      const Port* port = state.view().ports().find(binding.port_id);
-      if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
-        continue;
-      }
-      std::uint64_t placement_key = 0;
-      if (const SavedBackboneEdgeBundle* edge_bundle =
-              state.view().backbone_edge_bundle(binding.edge_bundle_id)) {
-        if (const Bundle* bundle = state.view().bundles().find(edge_bundle->bundle_id)) {
-          placement_key = bundle->placement_key;
-        }
-      }
-      occupied_[{port->owner_pole_id, binding.bundle_template_id, placement_key,
-                 binding.placement_band_id}].push_back(port->world_position.z);
-    }
-  }
-
-  double height_for(std::size_t row_id, ObjectId bundle_id, ObjectId pole_id,
-                    BundleTemplateId bundle_template_id, std::uint64_t placement_key, int placement_band_id,
-                    double requested_height_m) {
-    instrumentation::count_stable_row_slot_lookup();
-    if (pole_id == kInvalidObjectId) {
-      return requested_height_m;
-    }
-    const stable_row_occupancy_key occupancy{pole_id, bundle_template_id, placement_key,
-                                             placement_band_id};
-    const stable_row_plan_key plan_key{row_id, bundle_id, occupancy};
-    const auto planned_it = planned_.find(plan_key);
-    if (planned_it != planned_.end()) {
-      return planned_it->second;
-    }
-    std::vector<double>& heights = occupied_[occupancy];
-    const auto available = [&](double candidate) {
-      return std::all_of(heights.begin(), heights.end(), [&](double height) {
-      return std::abs(candidate - height) + kLengthToleranceM >= kRowHeightSeparationM;
-    });
-    };
-    double selected = requested_height_m;
-    if (!available(selected)) {
-      for (std::size_t order = 0; order < 16; ++order) {
-        const double slot = static_cast<double>((order / 2) + 1) * kRowHeightSeparationM;
-        const double candidate = requested_height_m + ((order % 2 == 0) ? -slot : slot);
-        if (available(candidate)) {
-          selected = candidate;
-          break;
-        }
-      }
-    }
-    planned_[plan_key] = selected;
-    return selected;
-  }
-
-private:
-  std::unordered_map<stable_row_occupancy_key, std::vector<double>, stable_row_key_hash> occupied_{};
-  std::unordered_map<stable_row_plan_key, double, stable_row_key_hash> planned_{};
-};
 
 struct segment_insert {
   double t = 0.0;
@@ -2982,7 +2834,8 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       if (!NormalizeXY(&away)) {
         continue;
       }
-      angle = std::min(angle, std::atan2(away.y, away.x));
+      const double angle_deg = std::atan2(away.y, away.x) * kRadiansToDegrees;
+      angle = std::min(angle, angle_deg);
     }
     return std::isfinite(angle) ? angle : 0.0;
   };
@@ -3417,8 +3270,6 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
       active_rows[edge.brow] = true;
     }
   }
-  const std::vector<Vec3d> row_offsets = row_height_offsets(ps);
-  stable_row_slot_plan row_slot_plan{state_};
   made->rows.resize(ps.rows.size());
   for (const row& r : ps.rows) {
     if (r.node >= made->poles.size() || r.node >= g_.nodes.size()) {
@@ -3497,10 +3348,6 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
                                spec_.bundles[spec_index].placement_key,
                                PortKindForCategory(v.value.tmpl->category),
                                PortLayerForSpanLayer(v.value.layer), band.band_id};
-        const bool allow_branch_height_offset =
-            AllowsBranchHeightOffset(bundle_spec, *v.value.tmpl);
-        const Vec3d row_offset =
-            (!allow_branch_height_offset || r.id >= row_offsets.size()) ? Vec3d{} : row_offsets[r.id];
         const double lane_offset =
             uses_lane_bands
                 ? 0.0
@@ -3531,7 +3378,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
             return out;
           }
           p = PortWorldPosition(*pole, r.axis, placement_band, lane_offset,
-                                spec_.constraints.lateral_offset_m, row_offset);
+                                spec_.constraints.lateral_offset_m, Vec3d{});
         }
         ObjectId planned_port = kInvalidObjectId;
         PromotionPlanEntry* planned_entry = nullptr;
@@ -3542,45 +3389,6 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
             planned_entry = &entry;
             break;
           }
-        }
-        bool has_existing_endpoint = planned_port != kInvalidObjectId;
-        if (!has_existing_endpoint) {
-          for (const trow::endpoint& endpoint : tr.endpoints) {
-            const link* endpoint_link =
-                endpoint.link < ps.links.size() ? &ps.links[endpoint.link] : nullptr;
-            const ObjectId edge_bundle_id =
-                endpoint_link == nullptr
-                    ? kInvalidObjectId
-                    : edge_bundle_for(state_, g_, *endpoint_link,
-                                      made->bundles[bundle_index]);
-            const SavedBackboneRowKey row_key =
-                key_for_link(tr, endpoint.link, node_id_by_local, edge_by_link);
-            const EditResult<ObjectId> existing =
-                resolve_port_binding(state_, tr.pole, edge_bundle_id, row_key,
-                                     static_cast<std::size_t>(lane), scope);
-            if (!existing.ok) {
-              out.error = existing.error;
-              return out;
-            }
-            has_existing_endpoint =
-                has_existing_endpoint ||
-                existing.value != kInvalidObjectId;
-          }
-        }
-        if (!ownerless && !has_existing_endpoint) {
-          const Pole* pole = state_.authoritative_.edit_state.poles.find(tr.pole);
-          if (pole == nullptr) {
-            out.error = "backbone internal: backbone topology: row pole missing";
-            return out;
-          }
-          const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
-          Vec3d local = WorldPointToLocal(frame, p);
-          if (allow_branch_height_offset) {
-            local.z = row_slot_plan.height_for(r.id, made->bundles[bundle_index], tr.pole,
-                                               scope.bundle, scope.placement_key,
-                                               scope.placement_band_id, local.z);
-          }
-          p = LocalPointToWorld(frame, local);
         }
         if (planned_entry != nullptr) {
           planned_entry->resolved_world_position = p;
@@ -3665,7 +3473,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
                 }
                 p = PortWorldPosition(
                     *pole, resolved_row_axis, placement_band, lane_offset,
-                    spec_.constraints.lateral_offset_m, row_offset);
+                    spec_.constraints.lateral_offset_m, Vec3d{});
               }
             }
             const double layout_yaw_deg =

@@ -3277,7 +3277,7 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
   return true;
 }
 
-bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
+bool C770_backbone_bundle_placement_update_preserves_resolved_row_placement() {
   constexpr city::wire::ModelAssemblyTemplateId kRowAssembly = 9130;
   constexpr city::wire::ModelAssemblyTemplateId kEndpointAssembly = 9131;
   constexpr double kHeightDelta = 0.6;
@@ -3462,8 +3462,9 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
   if (!port_height_before.has_value() || !row_height_before.has_value() || !base_height_before.has_value()) {
     return false;
   }
-  const double preserved_cross_offset = *port_height_before - *base_height_before;
-  if (std::abs(preserved_cross_offset) < 0.1) return false;
+  WIRE_TEST_EXPECT_ORACLE(
+      almost_equal(*port_height_before, *base_height_before, 1e-9),
+      "cross-row Port does not match its placement-band anchor");
 
   const double next_height = *base_height_before + kHeightDelta;
   const auto updated = state.UpdateBackboneBundlePlacement(
@@ -3485,7 +3486,7 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
           visual_part_snapshot(full_visual.value),
       "bundle placement update left stale visual curve parts");
 
-  return almost_equal((*port_height_after - after_bundle->height_m), preserved_cross_offset, 1e-9) &&
+  return almost_equal(*port_height_after, after_bundle->height_m, 1e-9) &&
          almost_equal(*port_height_after - *port_height_before, kHeightDelta, 1e-9) &&
          almost_equal(*row_height_after - *row_height_before, kHeightDelta, 1e-9) &&
          incident_layouts_match_fixtures();

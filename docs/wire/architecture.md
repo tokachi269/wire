@@ -198,6 +198,9 @@ jumperはcontinuity表現であり、2つのrowを同じplacement levelへまと
 無効なplacementはrow数に関係なくlevel 0を維持する。
 `SavedBackbonePortBinding`はrowごとの`support_level`と`support_group_id`を保存し、
 save/loadやincremental generationで同じ配置判断を再利用する。
+Port生成はpole bandまたはexplicit placementの論理anchorだけを使い、row数や保存済みPort高さから
+別のZ slotを決めない。support level/groupを確定するrow placementが唯一の段差decisionであり、
+Span layoutはそのdecisionから解決済みのbranch endpoint offsetを読む。
 段変更後の最終wire socketを`support_world`と`endpoint_world`の両方に使い、port位置は論理anchorとして保持する。
 LV/HVなどのcategory名自体はlowering条件にしない。
 

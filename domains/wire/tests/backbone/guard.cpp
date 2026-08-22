@@ -2064,7 +2064,6 @@ bool C829_core_policy_constants_are_classified() {
       "Tuning candidate",
       "kNodePatchHorizontalLengthM",
       "kPatchMetersPerSegment",
-      "kRowHeightSeparationM",
       "kAvoidClearanceM",
       "kDefaultCornerThresholdDeg",
       "kMaxCornerSideScale",

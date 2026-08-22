@@ -52,9 +52,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 
 | Authority | Owner | Required owner tokens | Unique production tokens | Forbidden owner tokens |
 |---|---|---|---|---|
-| support_level_spacing | `domains/wire/src/generation/backbone/pipeline.cpp` | `kRowHeightSeparationM` | `kRowHeightSeparationM` |  |
-| branch_height_offset_eligibility | `domains/wire/src/generation/backbone/pipeline.cpp` | `AllowsBranchHeightOffset` `enable_branch_down_offset` | `AllowsBranchHeightOffset` | `BundleKind::kHighVoltage` |
-| branch_lowering_formula | `domains/wire/src/generation/backbone/pipeline.cpp` | `branch_endpoint_offset_m * static_cast<double>(support_level)` `endpoint->branch_down_offset_m` | `branch_endpoint_offset_m * static_cast<double>(support_level)` | `BundleKind::kHighVoltage` |
+| row_support_placement | `domains/wire/src/generation/backbone/pipeline.cpp` | `enable_branch_down_offset` `branch_endpoint_offset_m * static_cast<double>(support_level)` `endpoint->branch_down_offset_m` | `branch_endpoint_offset_m * static_cast<double>(support_level)` | `BundleKind::kHighVoltage` `row_height_offsets` `stable_row_slot_plan` `kRowHeightSeparationM` |
 | layout_endpoint_lowering_projection | `domains/wire/include/city/wire/span_layout_types.hpp` | `ApplyEndpointLayoutRule` `dst.branch_down_offset_m = rule.branch_down_offset_m` | `ApplyEndpointLayoutRule` |  |
 | sharp_representation_threshold | `domains/wire/src/generation/backbone/row_representation.cpp` | `kSharpCornerInteriorAngleMaxDeg` | `kSharpCornerInteriorAngleMaxDeg` |  |
 | sharp_jumper_derivation | `domains/wire/src/generation/backbone/curve_parts.cpp` | `endpoint.jumper_peer_port_id` `VisualCurvePartKind::kJumper` |  | `Length(peer->point - endpoint.point)` |
@@ -271,11 +269,11 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C473 | Behavior | Boundary | 隣接spanは各edge endpoint Portを参照する | `legacy_unclassified` | Spanがpeer edgeのPortを共有する回帰防止 |
 | C474 | SourceGuard | Boundary | backbone port resolution は ambiguous binding を reject する | `source_guard` | 曖昧な resolution を恣意的に選ぶ回帰防止 |
 | C475 | SourceGuard | Boundary | backbone port resolution は existing layout を読まない | `source_guard` | port resolution が layout/materialization/位置推測に戻る回帰防止 |
-| C476 | SourceGuard | Boundary | backbone branch row は kind なしで高さだけ分離され、HV bundle の水平中心を動かさない | `source_guard` | branch 相当入力で row が潰れる、または row 分離が bundle 中心を横へ動かす回帰防止 |
+| C476 | Behavior | Invariant | backbone branch rowはkindなしでPortの論理anchorとHV bundle水平中心を維持し、resolved support levelで最終endpointだけを分離する | `oracle` `anchor` | branch相当入力で物理rowが潰れる、Port Zを別decisionで動かす、またはbundle中心を横へ動かす回帰防止 |
 | C477 | SourceGuard | Boundary | backbone cross row は kind なしでcontinuityから導出される | `source_guard` | cross 相当入力で未接続openが残る、または cross enum が再発する回帰防止 |
 | C478 | Behavior | Invariant | backbone row height separation は deterministic | `legacy_unclassified` | row height separation が unordered context や生成順で揺れる回帰防止 |
 | C479 | SourceGuard | Boundary | backbone row height separation は pairs を変えない | `source_guard` | port placement policy が pair/open/row source 決定へ混ざる回帰防止 |
-| C480 | SourceGuard | Boundary | backbone context rows はordering入力に使い未存在portはmaterializeしない | `source_guard` | context-only row を新規port/spanとして生成する、またはflag無効bundleを高さ分離で動かす回帰防止 |
+| C480 | Behavior | Invariant | backbone context rowは既存Portを動かさずcontext側port/spanを再materializeせず、branch-down無効bundleの新rowへsupport offsetを混入しない | `oracle` `anchor` | context-only rowを新規port/spanとして生成する、既存Portをreflowする、またはflag無効bundleを高さ分離する回帰防止 |
 | C481 | Behavior | Boundary | backbone pass-through mode は限定範囲で受ける | `legacy_unclassified` | node mode を無制限に受けて pair/row 決定へ混ぜる回帰防止 |
 | C482 | Behavior | Boundary | backbone pass-through は explicit intent を保存する | `legacy_unclassified` | pass-through 指定が保存されず後段推測へ戻る回帰防止 |
 | C483 | SourceGuard | Boundary | backbone pass-through ambiguous target は reject する | `source_guard` | geometry や順序で曖昧な target row を選ぶ回帰防止 |
@@ -292,7 +290,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C494 | Behavior | Boundary | backbone lowering v1 draw は再判断しない | `legacy_unclassified` | draw が lowering intent を新規判断する回帰防止 |
 | C495 | SourceGuard | Boundary | backbone lowering v1 は existing span を読まない | `source_guard` | lowering が v1/recalc/materialization へ戻る回帰防止 |
 | C496 | Behavior | Invariant | backbone junction v1 は deterministic | `legacy_unclassified` | existing junction output が traversal/order で揺れる回帰防止 |
-| C497 | SourceGuard | Boundary | backbone context rows は order に使い未存在portはmaterializeしない | `source_guard` | context-only row を新規port/spanとして生成する、またはflag無効bundleをcanonical spacingで動かす回帰防止 |
+| C497 | Behavior | Invariant | backbone context rowはsupport-level constraintに使い未存在portをmaterializeしない | `oracle` `anchor` | context-only rowを新規port/spanとして生成する、またはflag無効bundleのPort anchorを動かす回帰防止 |
 | C498 | Behavior | Boundary | backbone saved graph は topology authority のまま | `legacy_unclassified` | topology を spans/layout/seed から復元する構造へ戻る回帰防止 |
 | C499 | Behavior | Boundary | backbone context link は save target ではない | `legacy_unclassified` | context link が `save_backbone_edge` 対象になり new link と混ざる回帰防止 |
 | C500 | SourceGuard | Boundary | backbone context link は saved edge ref を要求する | `source_guard` | context link を node pair / geometry / span/layout から推測して保存する回帰防止 |
@@ -512,7 +510,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C747 | Behavior | Invariant | range count policy は保存済み conductor count を検証し、範囲内なら出力を再生成せず、範囲外なら対象 bundle を示して state 不変で拒否する | `legacy_unclassified` | range化を不要にregenerateする、または範囲外の既存 bundle を黙って不整合にする回帰防止 |
 | C748 | Behavior | Invariant | bundle policy差分はscopeをfresh等価へreconcileし、fresh-invalid入力はmutation前に拒否する | `legacy_unclassified` | topology policyをrejectし続ける、scope外を再導出する、freshでは拒否される入力をpartial mutationする回帰防止 |
 | C749 | Behavior | Invariant | Offset=0はband既定位置から追加移動せず、他bundleにも影響されない | `legacy_unclassified` | bundle index由来の隠れた横offset、band中心無視、HV全laneの単一band展開への回帰防止 |
-| C789 | Behavior | Invariant | multi-route同一band rowは既存routeと新規routeのPort間隔を保つ | `legacy_unclassified` | generationを跨ぐ同一band routeでrow separationが落ち、portが数cmまで近接する回帰防止 |
+| C789 | Behavior | Invariant | multi-route同一band rowはPortを共通の論理anchorに保ちながら、support levelを適用した最終endpoint間隔を保つ | `oracle` `anchor` | 論理Portの人工的Z分離を復活させる、または物理fixture/socketのrow separationを失う回帰を防ぐ |
 | C790 | Behavior | Boundary | 既存supportと同一座標のpath pointは明示node referenceを要求する | `legacy_unclassified` | 既存supportを暗黙選択または重複poleとして後段処理へ進め、pair/occupancy探索を肥大化させる回帰防止 |
 | C703 | SourceGuard | Boundary | bundle count migration シンボルは domains/wire/src から消える | `source_guard` | 差分別 migration operation が残る回帰防止 |
 | C704 | SourceGuard | Boundary | regenerate は post-edit API から直接呼ばれ update plan 経由で実行しない | `source_guard` | pipeline 内に migration 語が残る、または plan が差分入力なしで regenerate 実行経路になる回帰防止 |
@@ -569,7 +567,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C766 | Behavior | Invariant | row mount・endpoint fixture・接続線は一つのendpoint placementを共有し、band lateral変更へ追従する。beltは柱軸に残る | `legacy_unclassified` | 腕金のmodel offsetだけが碍子・線へ伝わらない、腕金だけがband offsetへ追従しない、またはbeltまで柱から外れる回帰を防ぐ |
 | C767 | Behavior | Invariant | default HV/LVのsupport pathはOpticalと同じprimary curve生成を使い、接続曲線境界で切れず解決済みendpointへ届く | `legacy_unclassified` | EdgeBody複製によるnode patch境界での切断、カテゴリ別curve family、碍子socket無視、support-onlyでmember geometryを変える回帰を防ぐ |
 | C769 | Behavior | Invariant | 同じBundleTemplateを複数配置してもBundle単位でidentity・絶対配置・node patch・中間分岐attachmentを分離する | `legacy_unclassified` | template id集合へ畳む、同templateの最初のsource attachmentを使う、support/helix/node patchだけ旧位置や別Bundleへ混ざる回帰を防ぐ |
-| C770 | Behavior | Invariant | Bundle placementのheight更新は交差routeのrow height offsetを保ったままPort・碍子・腕金・線端へ反映する | `legacy_unclassified` | placement更新時にrow height offsetまたはmodel socket補正を線端から落として、交差部の碍子・腕金と線が分離する回帰を防ぐ |
+| C770 | Behavior | Invariant | Bundle placementのheight更新はPortを新しいexplicit base heightへ置き、保存済みsupport level/groupによるrow placementを維持して碍子・腕金・線端へ反映する | `oracle` `anchor` | placement更新で旧Port offsetを別authorityとして温存する、またはmodel socket補正を線端から落として交差部の碍子・腕金と線を分離する回帰を防ぐ |
 | C771 | Behavior | Invariant | incremental cross completion は既存endpoint identityを維持して2 continuityへ収束する | `legacy_unclassified` | degree four のsaved/current差で未接続openが残る、または接続時に既存endpoint frameを動かす回帰を防ぐ |
 | C772 | Behavior | Boundary | incremental pairing は複数の未接続候補を推測せず新edgeをopenで残す | `legacy_unclassified` | first-match、最小角度選択、曖昧時の操作拒否を防ぐ |
 | C773 | Behavior | Invariant | sharp corner の incremental completion はcontinuityを記録し2 dead-end rowとjumperを導出する | `legacy_unclassified` | sharp接続を未接続として保存する、または通常NodePatchとして描く回帰を防ぐ |
@@ -587,7 +585,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C787 | SourceGuard | Boundary | BundleTemplate category と既定配置は Core/WASM payload を正本にし、JS は layer から推測しない | `source_guard` | web が SpanLayer→category 対応表や band matching を複製し、Core/WASM の分類とdriftする回帰を防ぐ |
 | C788 | SourceGuard | Boundary | belt radial fit と endpoint socket placement は materialization が所有する | `source_guard` | curve_parts や renderer が socket/mesh geometry を再解釈する、またはbelt半径をmesh実体からCoreで読む回帰を防ぐ |
 | C791 | Behavior | Boundary | 大きめの既存sceneへrouteを1本追加してもfixture pipelineはoperation単位でだけ走る | `legacy_unclassified` | scene規模に比例してplan構築・materialization・fallbackが再発する回帰をwall-clockに依存せず検出する |
-| C792 | Behavior | Invariant | incrementalで新しい独立rowを追加しても既存rowは動かさず、新rowは空きstable slotへ入る | `legacy_unclassified` | active row優先reflowやshared Port前提への回帰を防ぐ |
+| C792 | Behavior | Invariant | incrementalで新しい独立rowを追加しても既存Port anchorは動かさず、新rowはband anchorを保ったまま次のsupport level/groupを使い、そのresolved offsetをendpointへ適用する | `oracle` `anchor` | Port高さのstable-slot再決定、既存row reflow、support levelとendpoint loweringの分裂を防ぐ |
 | C795 | Behavior | Invariant | model-aware HV pair promotionはPort/Span identityを維持し、正本placement anchorから同一pair frameでPort/row fixture/endpoint fixture/curveを導出してNodePatch laneをcollapseさせない | `legacy_unclassified` | modelありpromotionでfixtureとPortのframe分裂、3相collapse、shared Port再導入を防ぐ |
 | C796 | Behavior | Invariant | explicit placement heightはincremental row reflowで変更されず、mixed bundleとsame-template duplicateを混同しない | `legacy_unclassified` | explicit heightをrow spacingやstable slotでband既定値へずらす、same-template duplicateが混ざる、pair promotionで既存row高さが変わる回帰を防ぐ |
 | C797 | Behavior | Boundary | row continuity table はrouteとpair promotionの各lane継続を保存する | `legacy_unclassified` | NodePatchの存在をcurve層がbundle/port/位置epsから推測し続ける回帰を防ぐ |
@@ -627,5 +625,8 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C849 | Behavior | Boundary | 同一edge-bundle component内で3方向へ分岐するsaved continuityはload時に明示失敗し、既存正本を変更しない | `anchor` | component identity修正をambiguityのsilent skipやfallbackへ変える回帰を防ぐ |
 | C850 | Behavior | Invariant | 同じfixed BundleTemplateを使う独立Bundle placementは、各Bundle identityとedge-bundle continuity componentをscopeに3→4更新し、単独実行・配置順反転と同じ意味結果を得る | `differential` `anchor` | template全体を一括regenerateして独立componentを混同する、または無関係componentを判断入力にする回帰を防ぐ |
 | C851 | Behavior | Invariant | 同じfixed BundleTemplateを使う独立Bundle placementの4→3更新は、各componentのlane 3だけをretireし、残存PortBinding・SpanBinding・continuityをcomponent内に保つ | `presence` `anchor` | component横断でSpan/Portを削除する、または残存relationを別Bundleへ結ぶ回帰を防ぐ |
+| C852 | Behavior | Invariant | row角度差が1e-6 degreeより大きく1e-6 radianより小さい場合も、support levelは実角度順で決まりpath入力方向に依存しない | `metamorphic` `oracle` | atan2のradian値をdegree toleranceと比較し、ID順tieへ約57.3倍広げる回帰を防ぐ |
+| C853 | Behavior | Invariant | Portはband/explicit placementの論理anchorを保持し、support level/groupから一度resolveしたbranch downだけが物理endpointへ適用され、save/loadとscoped placement regenerateでも同じ意味結果を保つ | `differential` `oracle` `anchor` | row offset、stable slot、support level loweringが独立にPort/endpoint Zを決めて相互補償する回帰を防ぐ |
+| C854 | SourceGuard | Boundary | productionのrow height経路にrow-height offset、stable slot、bundle update時の保存offsetを残さず、row ordering角度はatan2直後にdegreeへ正規化する | `source_guard` | 別経路のno-op faultを他経路が補償する構造とradian/degree混在が再導入される回帰を防ぐ |
 
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |

@@ -317,8 +317,8 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddSourceGuardTest(tests, "C475_backbone_port_resolution_does_not_read_existing_layout",
                          "backbone port resolution does not read existing layout", "Boundary", false,
                          C475_backbone_port_resolution_does_not_read_existing_layout);
-  test_registry::AddSourceGuardTest(tests, "C476_backbone_branch_rows_are_separated_without_branch_kind",
-                         "backbone branch rows are separated without branch kind", "Boundary", false,
+  test_registry::AddTest(tests, "C476_backbone_branch_rows_are_separated_without_branch_kind",
+                         "backbone branch endpoints are separated without branch kind", "Invariant", false,
                          C476_backbone_branch_rows_are_separated_without_branch_kind);
   test_registry::AddSourceGuardTest(tests, "C477_backbone_cross_rows_are_separated_without_cross_kind",
                          "backbone cross rows are separated without cross kind", "Boundary", false,
@@ -329,8 +329,8 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddSourceGuardTest(tests, "C479_backbone_row_separation_does_not_change_pairs",
                          "backbone row separation does not change pair source", "Boundary", false,
                          C479_backbone_row_separation_does_not_change_pairs);
-  test_registry::AddSourceGuardTest(tests, "C480_backbone_context_rows_affect_order_but_are_not_emitted",
-                         "backbone context rows affect separation order but are not emitted", "Boundary", false,
+  test_registry::AddTest(tests, "C480_backbone_context_rows_affect_order_but_are_not_emitted",
+                         "backbone context rows are not re-emitted or mixed into disabled lowering", "Invariant", false,
                          C480_backbone_context_rows_affect_order_but_are_not_emitted);
   test_registry::AddTest(tests, "C481_backbone_pass_through_mode_is_accepted_in_limited_scope",
                          "backbone accepts pass-through mode for saved junction nodes", "Boundary", false,
@@ -380,8 +380,8 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C496_backbone_junction_v1_deterministic",
                          "backbone junction v1 output is deterministic", "Invariant", false,
                          C496_backbone_junction_v1_deterministic);
-  test_registry::AddSourceGuardTest(tests, "C497_backbone_context_rows_order_but_do_not_materialize",
-                         "backbone context rows order placement without materializing", "Boundary", false,
+  test_registry::AddTest(tests, "C497_backbone_context_rows_order_but_do_not_materialize",
+                         "backbone context rows constrain placement without materializing", "Invariant", false,
                          C497_backbone_context_rows_order_but_do_not_materialize);
   test_registry::AddTest(tests, "C498_backbone_saved_graph_remains_topology_authority",
                          "backbone saved graph remains topology authority", "Boundary", false,
@@ -1000,10 +1000,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "zero offset uses each lane band center without cross-bundle drift",
                          "Invariant", false,
                          C749_backbone_zero_offset_keeps_bundle_centers_on_band_center);
-  test_registry::AddTest(tests, "C789_backbone_multi_route_same_band_rows_keep_spacing",
-                         "multi-route same-band rows keep generated port spacing",
+  test_registry::AddTest(tests, "C789_backbone_multi_route_same_band_endpoints_keep_spacing",
+                         "multi-route same-band rows keep final endpoint spacing",
                          "Invariant", false,
-                         C789_backbone_multi_route_same_band_rows_keep_spacing);
+                         C789_backbone_multi_route_same_band_endpoints_keep_spacing);
   test_registry::AddTest(tests, "C790_backbone_duplicate_support_point_requires_node_reference",
                          "duplicate support point requires an explicit node reference",
                          "Boundary", true,
@@ -1157,10 +1157,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "duplicate Bundle placements keep independent identity and move their complete visual output",
                          "Invariant", false,
                          C769_bundle_placements_duplicate_template_as_independent_bundles);
-  test_registry::AddTest(tests, "C770_backbone_bundle_placement_update_preserves_cross_row_height",
-                         "Bundle placement height updates preserve crossing row height and move row fixtures",
+  test_registry::AddTest(tests, "C770_backbone_bundle_placement_update_preserves_resolved_row_placement",
+                         "Bundle placement height updates preserve support-level placement and move row fixtures",
                          "Invariant", false,
-                         C770_backbone_bundle_placement_update_preserves_cross_row_height);
+                         C770_backbone_bundle_placement_update_preserves_resolved_row_placement);
   test_registry::AddTest(tests, "C771_backbone_incremental_cross_completion_matches_one_shot_rows",
                          "incremental cross completion preserves existing open row frame while forming pair rows",
                          "Invariant", false,
@@ -1273,10 +1273,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "large route addition builds one fixture plan and materializes models once",
                          "Boundary", false,
                          C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters);
-  test_registry::AddTest(tests, "C792_backbone_incremental_new_row_uses_empty_stable_slot",
-                         "incremental row insertion preserves existing row and uses an empty stable slot",
+  test_registry::AddTest(tests, "C792_backbone_incremental_new_row_uses_resolved_support_level",
+                         "incremental row preserves Port anchors and uses the next support level",
                          "Invariant", false,
-                         C792_backbone_incremental_new_row_uses_empty_stable_slot);
+                         C792_backbone_incremental_new_row_uses_resolved_support_level);
   test_registry::AddTest(tests, "C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry",
                          "incremental HV promotion keeps Port, row fixture, endpoint fixture, and curves in one resolved frame",
                          "Invariant", false,
@@ -1400,6 +1400,18 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "fixed-count decrease retires lanes within each independent Bundle component",
                          "Invariant", false,
                          C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes);
+  test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
+                         "near-angle physical rows use degree ordering independent of path direction",
+                         "Invariant", false,
+                         C852_backbone_near_angle_row_order_uses_degree_contract);
+  test_registry::AddTest(tests, "C853_backbone_row_placement_has_one_resolved_height_authority",
+                         "support level resolves endpoint lowering while Port height remains the placement anchor",
+                         "Invariant", false,
+                         C853_backbone_row_placement_has_one_resolved_height_authority);
+  test_registry::AddSourceGuardTest(tests, "C854_backbone_row_height_has_one_production_decision_path",
+                         "row height has no row-offset, stable-slot, or preserved-offset decision path",
+                         "Boundary", false,
+                         C854_backbone_row_height_has_one_production_decision_path);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

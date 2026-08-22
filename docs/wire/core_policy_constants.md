@@ -35,7 +35,6 @@ T3 classifies constants that are easy to confuse with each other. This file is a
 
 | Constant | Source | Classification | Notes |
 |---|---|---|---|
-| `kRowHeightSeparationM` | `pipeline.cpp` | Tuning candidate | Support-level vertical separation. User-visible and likely should become layout policy if adjusted often. |
 | `kAvoidClearanceM` | `pipeline.cpp` | Tuning candidate | Route avoid detour clearance. Input/constraint policy rather than physical law. |
 | `kAutoCollapseDistanceM` | `pipeline.cpp` | Tuning candidate | Automatic near-node collapse distance. User interaction and topology policy. |
 | `kG2MinChordLengthM` | `detail_curve.cpp` | Tuning candidate | Minimum length for attempting G2-like detail continuity. |

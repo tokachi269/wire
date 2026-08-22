@@ -13,6 +13,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -60,6 +61,7 @@ using city::road::RenderStyleFromSurface;
 using city::road::RenderStyleRef;
 using city::road::RoadState;
 using city::road::RoadCorridorId;
+using city::road::RoadCorridor;
 using city::road::RoadNodeId;
 using city::road::RoadSegment;
 using city::road::RoadSegmentId;
@@ -3656,6 +3658,453 @@ bool segment_split_remaps_saved_lane_topology(std::string& failure) {
   return true;
 }
 
+struct SplitSemanticsFixture {
+  RoadState state{};
+  RoadSegmentId source_id = 0;
+  RoadNodeId old_end_node_id = 0;
+  RoadNodeId connector_target_node_id = 0;
+};
+
+city::road::Result<SplitSemanticsFixture> make_split_semantics_fixture(
+    bool create_connector_target_first, bool crossing_owner = false) {
+  RoadState authored{};
+  const auto section = road_fixture::AddLayout(
+      authored, road_fixture::BidirectionalLayout(0));
+  if (section == 0) {
+    return city::road::Result<SplitSemanticsFixture>::Fail(
+        CommitFailureCategory::kInternalError,
+        "split semantics fixture layout is missing");
+  }
+  city::road::Result<RoadSegmentId> connector_target{};
+  if (create_connector_target_first) {
+    connector_target = authored.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({40.0, 50.0}, {80.0, 50.0})}), section});
+  }
+  city::road::AddSegmentRequest source_request{
+      MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), section};
+  source_request.start_elevation_m = 3.0;
+  source_request.end_elevation_m = 13.0;
+  source_request.corner_radius_m = 7.0;
+  const auto source = authored.AddSegment(source_request);
+  if (!source.ok) {
+    return city::road::Result<SplitSemanticsFixture>::Fail(
+        source.failure_category, source.error);
+  }
+  if (!create_connector_target_first) {
+    connector_target = authored.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({40.0, 50.0}, {80.0, 50.0})}), section});
+  }
+  if (!connector_target.ok) {
+    return city::road::Result<SplitSemanticsFixture>::Fail(
+        connector_target.failure_category, connector_target.error);
+  }
+  const auto source_segment_it = std::find_if(
+      authored.graph().segments.begin(), authored.graph().segments.end(),
+      [id = source.value](const RoadSegment& item) { return item.id == id; });
+  const RoadSegment* source_segment =
+      source_segment_it == authored.graph().segments.end()
+          ? nullptr
+          : &*source_segment_it;
+  const auto* source_corridor =
+      FindCorridorForSegment(authored.graph(), source.value);
+  if (source_segment == nullptr || source_corridor == nullptr) {
+    return city::road::Result<SplitSemanticsFixture>::Fail(
+        CommitFailureCategory::kInternalError,
+        "split semantics fixture source is incomplete");
+  }
+  const RoadNodeId old_end_node_id = source_segment->node_b;
+  const RoadCorridorId corridor_id = source_corridor->id;
+  const auto tail = authored.ExtendCorridorFromEnd(
+      city::road::ExtendCorridorFromEndRequest{
+          corridor_id, old_end_node_id,
+          MakePath({MakeLine({100.0, 0.0}, {140.0, 0.0})}), section});
+  if (!tail.ok) {
+    return city::road::Result<SplitSemanticsFixture>::Fail(
+        tail.failure_category, tail.error);
+  }
+  const auto old_end_branch = authored.AddSegmentConnectedTo(
+      city::road::AddSegmentConnectedToRequest{
+          MakePath({MakeLine({100.0, 0.0}, {100.0, 40.0})}), section,
+          old_end_node_id});
+  if (!old_end_branch.ok) {
+    return city::road::Result<SplitSemanticsFixture>::Fail(
+        old_end_branch.failure_category, old_end_branch.error);
+  }
+  const auto connector_segment_it = std::find_if(
+      authored.graph().segments.begin(), authored.graph().segments.end(),
+      [id = connector_target.value](const RoadSegment& item) {
+        return item.id == id;
+      });
+  const RoadSegment* connector_segment =
+      connector_segment_it == authored.graph().segments.end()
+          ? nullptr
+          : &*connector_segment_it;
+  if (connector_segment == nullptr) {
+    return city::road::Result<SplitSemanticsFixture>::Fail(
+        CommitFailureCategory::kInternalError,
+        "split semantics connector target is missing");
+  }
+
+  SavedRoadGraph graph = authored.graph();
+  auto corridor = std::find_if(
+      graph.corridors.begin(), graph.corridors.end(),
+      [corridor_id](const auto& value) { return value.id == corridor_id; });
+  if (corridor == graph.corridors.end()) {
+    return city::road::Result<SplitSemanticsFixture>::Fail(
+        CommitFailureCategory::kInternalError,
+        "split semantics corridor is missing");
+  }
+  corridor->segments = {{tail.value, true}, {source.value, true}};
+
+  graph.manual_lines.push_back(city::road::ManualLineMarking{
+      9001, source.value,
+      MakePath({MakeLine(crossing_owner ? Vec2d{35.0, 0.4}
+                                         : Vec2d{5.0, 0.4},
+                         crossing_owner ? Vec2d{45.0, 0.4}
+                                         : Vec2d{15.0, 0.4})}),
+      builtin_marking_styles::kWhiteSolid});
+  graph.manual_lines.push_back(city::road::ManualLineMarking{
+      9002, source.value, MakePath({MakeLine({60.0, 0.6}, {70.0, 0.6})}),
+      builtin_marking_styles::kWhiteSolid});
+  graph.manual_areas.push_back(city::road::ManualAreaMarking{
+      9003, source.value, {20.0, 0.0}, 0.0, 2.0, 5.0,
+      builtin_marking_styles::kCrosswalk});
+  graph.manual_areas.push_back(city::road::ManualAreaMarking{
+      9004, source.value, crossing_owner ? Vec2d{38.0, 0.0}
+                                          : Vec2d{75.0, 0.0},
+      0.0, 2.0, 5.0, builtin_marking_styles::kCrosswalk});
+  graph.auto_marking_overrides.push_back(city::road::AutoMarkingOverride{
+      AutoMarkingKey{
+          MarkingOwner{MarkingOwner::Kind::kRoadSegment, source.value, 0, 0},
+          MarkingRole::kCenterLine,
+          MarkingTrackKey{source.value, 200, MarkingRole::kCenterLine},
+          std::nullopt},
+      true});
+  graph.approach_geometry_overrides.push_back(
+      city::road::ApproachGeometryOverride{
+          {old_end_node_id, source.value, EndpointRole::kEnd},
+          city::road::ManualDoubleOverride{true, 1.0}, {}});
+  graph.lane_connections.push_back(city::road::LaneConnection{
+      9005, {source.value, 1010, EndpointRole::kEnd},
+      {tail.value, 1010, EndpointRole::kStart},
+      city::road::LaneConnectionKind::kContinuation});
+  graph.boundary_continuations.push_back(city::road::BoundaryContinuation{
+      9006, {source.value, 200, EndpointRole::kEnd},
+      {tail.value, 200, EndpointRole::kStart},
+      city::road::BoundaryContinuationKind::kContinuation});
+  graph.junction_marking_overrides.push_back(JunctionMarkingOverride{
+      9007, old_end_node_id,
+      {{old_end_node_id, source.value, EndpointRole::kEnd}, 200,
+       MarkingRole::kCenterLine},
+      JunctionMarkingAction::kConnectToApproach,
+      JunctionMarkingEndpoint{
+          {old_end_node_id, tail.value, EndpointRole::kStart}, 200,
+          MarkingRole::kCenterLine}});
+
+  const auto loaded = load_fixture(graph);
+  if (!loaded.ok) {
+    return city::road::Result<SplitSemanticsFixture>::Fail(
+        loaded.failure_category, loaded.error);
+  }
+  return city::road::Result<SplitSemanticsFixture>::Ok(
+      SplitSemanticsFixture{loaded.value, source.value, old_end_node_id,
+                            connector_segment->node_a});
+}
+
+city::road::Result<std::string> normalized_split_semantics(
+    const SplitSemanticsFixture& fixture) {
+  const SavedRoadGraph& graph = fixture.state.graph();
+  const auto first_it = std::find_if(
+      graph.segments.begin(), graph.segments.end(),
+      [id = fixture.source_id](const RoadSegment& item) {
+        return item.id == id;
+      });
+  const RoadSegment* first =
+      first_it == graph.segments.end() ? nullptr : &*first_it;
+  if (first == nullptr) {
+    return city::road::Result<std::string>::Fail(
+        CommitFailureCategory::kInternalError,
+        "split semantics retained segment is missing");
+  }
+  const auto second = std::find_if(
+      graph.segments.begin(), graph.segments.end(), [&](const RoadSegment& item) {
+        return item.id != fixture.source_id &&
+               item.node_b == fixture.old_end_node_id;
+      });
+  if (second == graph.segments.end() || first->node_b != second->node_a) {
+    return city::road::Result<std::string>::Fail(
+        CommitFailureCategory::kInternalError,
+        "split semantics end-side segment is missing");
+  }
+  const auto split_node = std::find_if(
+      graph.nodes.begin(), graph.nodes.end(),
+      [id = first->node_b](const auto& item) { return item.id == id; });
+  const Path* second_path =
+      FindCanonicalAlignment(fixture.state.derived(), second->id);
+  const RoadCorridor* corridor =
+      FindCorridorForSegment(graph, fixture.source_id);
+  if (split_node == graph.nodes.end() || second_path == nullptr ||
+      corridor == nullptr) {
+    return city::road::Result<std::string>::Fail(
+        CommitFailureCategory::kInternalError,
+        "split semantics derived state is incomplete");
+  }
+  if (std::abs(split_node->position.x - 40.0) > 1e-6 ||
+      std::abs(split_node->position.y) > 1e-9 ||
+      std::abs(split_node->elevation_m - 7.0) > 1e-9 ||
+      std::abs(second_path->spans.front().p0.x - 40.0) > 1e-6 ||
+      std::abs(second_path->spans.front().p0.y) > 1e-9 ||
+      std::abs(second_path->spans.back().p3.x - 100.0) > 1e-9 ||
+      std::abs(second_path->spans.back().p3.y) > 1e-9) {
+    return city::road::Result<std::string>::Fail(
+        CommitFailureCategory::kInternalError,
+        "split semantics position, elevation, or second alignment drifted");
+  }
+  const auto segment_label = [&](RoadSegmentId id) {
+    if (id == fixture.source_id) return std::string{"first"};
+    if (id == second->id) return std::string{"second"};
+    return std::string{"other"};
+  };
+  std::ostringstream out;
+  out << std::setprecision(17) << "split=" << split_node->position.x << ','
+      << split_node->position.y << ',' << split_node->elevation_m
+      << ";second_path=" << second_path->spans.front().p0.x << ','
+      << second_path->spans.front().p0.y << '>'
+      << second_path->spans.back().p3.x << ','
+      << second_path->spans.back().p3.y << ";layout=" << first->layout_template << ','
+      << second->layout_template << ";radius=" << first->corner_radius_m << ','
+      << second->corner_radius_m << ";corridor=";
+  for (const auto& ref : corridor->segments) {
+    out << segment_label(ref.segment_id) << ':' << ref.reversed << ',';
+  }
+  out << ";manual_lines=";
+  for (const auto& marking : graph.manual_lines) {
+    if (marking.id == 9001 || marking.id == 9002) {
+      out << marking.id << ':' << segment_label(marking.owner_segment_id)
+          << ':' << marking.path.spans.front().p0.x << ',';
+    }
+  }
+  out << ";manual_areas=";
+  for (const auto& marking : graph.manual_areas) {
+    if (marking.id == 9003 || marking.id == 9004) {
+      out << marking.id << ':' << segment_label(marking.owner_segment_id)
+          << ':' << marking.frame_origin.x << ',';
+    }
+  }
+  out << ";approach=";
+  for (const auto& value : graph.approach_geometry_overrides) {
+    if (value.key.node_id == fixture.old_end_node_id) {
+      out << segment_label(value.key.segment_id) << ':'
+          << static_cast<int>(value.key.endpoint_role) << ',';
+    }
+  }
+  out << ";auto=";
+  for (const auto& value : graph.auto_marking_overrides) {
+    if (value.key.owner.kind == MarkingOwner::Kind::kRoadSegment &&
+        (value.key.owner.segment_id == fixture.source_id ||
+         value.key.owner.segment_id == second->id)) {
+      out << segment_label(value.key.owner.segment_id) << ':'
+          << segment_label(value.key.track->segment_id) << ',';
+    }
+  }
+  out << ";junction=";
+  for (const auto& value : graph.junction_marking_overrides) {
+    if (value.id == 9007) {
+      out << segment_label(value.source.approach.segment_id) << ':'
+          << (value.target.has_value()
+                  ? segment_label(value.target->approach.segment_id)
+                  : "none");
+    }
+  }
+  out << ";lane=";
+  for (const auto& value : graph.lane_connections) {
+    if (value.id == 9005) {
+      out << segment_label(value.source.segment_id) << ':'
+          << static_cast<int>(value.source.endpoint_role) << ">"
+          << segment_label(value.target.segment_id) << ':'
+          << static_cast<int>(value.target.endpoint_role);
+    }
+  }
+  out << ";boundary=";
+  for (const auto& value : graph.boundary_continuations) {
+    if (value.id == 9006) {
+      out << segment_label(value.source.segment_id) << ':'
+          << static_cast<int>(value.source.endpoint_role) << ">"
+          << segment_label(value.target.segment_id) << ':'
+          << static_cast<int>(value.target.endpoint_role);
+    }
+  }
+  return city::road::Result<std::string>::Ok(out.str());
+}
+
+bool split_public_operations_share_normalized_semantics(std::string& failure) {
+  const auto run = [](int operation, bool target_first) {
+    auto fixture = make_split_semantics_fixture(target_first);
+    if (!fixture.ok) {
+      return city::road::Result<std::string>::Fail(
+          fixture.failure_category, fixture.error);
+    }
+    city::road::Result<RoadSegmentId> result{};
+    if (operation == 0) {
+      result = fixture.value.state.SplitSegmentAtDistance(
+          {fixture.value.source_id, 40.0});
+    } else if (operation == 1) {
+      result = fixture.value.state.AddSegmentConnectedToSegment(
+          city::road::AddSegmentConnectedToSegmentRequest{
+              MakePath({MakeLine({40.0, 0.0}, {40.0, -50.0})}),
+              fixture.value.state.graph().layout_templates.front().id,
+              fixture.value.source_id, 40.0});
+    } else {
+      result = fixture.value.state.AddSegmentBetween(
+          city::road::AddSegmentBetweenRequest{
+              MakePath({MakeLine({40.0, 0.0}, {40.0, 50.0})}),
+              fixture.value.state.graph().layout_templates.front().id,
+              {0, fixture.value.source_id, 40.0},
+              {fixture.value.connector_target_node_id, 0, 0.0}});
+    }
+    if (!result.ok) {
+      return city::road::Result<std::string>::Fail(
+          result.failure_category, result.error);
+    }
+    return normalized_split_semantics(fixture.value);
+  };
+
+  const auto direct = run(0, false);
+  const auto branch = run(1, false);
+  const auto between = run(2, false);
+  const auto reordered = run(0, true);
+  ROAD_TEST_EXPECT(direct.ok, direct.error);
+  ROAD_TEST_EXPECT(branch.ok, branch.error);
+  ROAD_TEST_EXPECT(between.ok, between.error);
+  ROAD_TEST_EXPECT(reordered.ok, reordered.error);
+  ROAD_TEST_EXPECT(direct.value == branch.value &&
+                       direct.value == between.value,
+                   "public operations drifted in normalized split semantics\n" +
+                       direct.value + "\n" + branch.value + "\n" +
+                       between.value);
+  ROAD_TEST_EXPECT(direct.value == reordered.value,
+                   "split semantics depend on creation order or source IDs\n" +
+                       direct.value + "\n" + reordered.value);
+  const std::array<std::string_view, 11> required{
+      "layout=1,1", "radius=7,7",
+      "corridor=other:1,second:1,first:1", "9001:first:5",
+      "9002:second:20", "9003:first:20", "9004:second:35",
+      "approach=second:1", "auto=first:first,second:second",
+      "junction=second:other", "lane=second:1>other:0;boundary=second:1>other:0"};
+  for (const std::string_view expected : required) {
+    ROAD_TEST_EXPECT(direct.value.find(expected) != std::string::npos,
+                     "normalized split snapshot is missing " +
+                         std::string(expected) + "\n" + direct.value);
+  }
+  return true;
+}
+
+bool split_crossing_owners_are_rejected_atomically(std::string& failure) {
+  for (int operation = 0; operation != 3; ++operation) {
+    auto fixture = make_split_semantics_fixture(false, true);
+    ROAD_TEST_EXPECT(fixture.ok, fixture.error);
+    const auto before = fixture.value.state.Save();
+    ROAD_TEST_EXPECT(before.ok, before.error);
+    city::road::Result<RoadSegmentId> result{};
+    if (operation == 0) {
+      result = fixture.value.state.SplitSegmentAtDistance(
+          {fixture.value.source_id, 40.0});
+    } else if (operation == 1) {
+      result = fixture.value.state.AddSegmentConnectedToSegment(
+          {MakePath({MakeLine({40.0, 0.0}, {40.0, -50.0})}),
+           fixture.value.state.graph().layout_templates.front().id,
+           fixture.value.source_id, 40.0});
+    } else {
+      result = fixture.value.state.AddSegmentBetween(
+          {MakePath({MakeLine({40.0, 0.0}, {40.0, 50.0})}),
+           fixture.value.state.graph().layout_templates.front().id,
+           {0, fixture.value.source_id, 40.0},
+           {fixture.value.connector_target_node_id, 0, 0.0}});
+    }
+    ROAD_TEST_EXPECT(!result.ok &&
+                         result.failure_category ==
+                             CommitFailureCategory::kNotImplemented,
+                     "crossing split owner was not explicitly rejected");
+    const auto after = fixture.value.state.Save();
+    ROAD_TEST_EXPECT(after.ok && after.value == before.value,
+                     "rejected crossing split mutated authoritative state");
+  }
+  return true;
+}
+
+bool split_semantics_have_one_internal_planner(std::string& failure) {
+  const std::filesystem::path source =
+      std::filesystem::current_path() / "domains" / "road" / "src" /
+      "operations" / "create.cpp";
+  if (!std::filesystem::exists(source)) return true;
+  std::ifstream in(source);
+  const std::string text((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+  const auto occurrences = [&text](std::string_view needle) {
+    std::size_t count = 0;
+    for (std::size_t at = text.find(needle); at != std::string::npos;
+         at = text.find(needle, at + needle.size())) {
+      ++count;
+    }
+    return count;
+  };
+  ROAD_TEST_EXPECT(occurrences("split_path_at_distance(") == 1,
+                   "Road split primitive has more than one operation owner");
+  ROAD_TEST_EXPECT(occurrences("plan_segment_split(") == 4,
+                   "the three public split operations do not share one planner");
+  return true;
+}
+
+bool connection_splits_reject_transitioning_sources(std::string& failure) {
+  for (int operation = 0; operation != 2; ++operation) {
+    RoadState state{};
+    const auto section = road_fixture::AddLayout(
+        state, road_fixture::ShoulderedLayout(0));
+    const auto source = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({0.0, 0.0}, {100.0, 0.0})}), section});
+    const auto target = state.AddSegment(city::road::AddSegmentRequest{
+        MakePath({MakeLine({10.0, 40.0}, {50.0, 40.0})}), section});
+    ROAD_TEST_EXPECT(source.ok && target.ok,
+                     source.ok ? target.error : source.error);
+    const RoadCorridor* corridor =
+        FindCorridorForSegment(state.graph(), source.value);
+    const auto target_segment = std::find_if(
+        state.graph().segments.begin(), state.graph().segments.end(),
+        [id = target.value](const RoadSegment& item) { return item.id == id; });
+    ROAD_TEST_EXPECT(corridor != nullptr &&
+                         target_segment != state.graph().segments.end(),
+                     "transition rejection fixture is incomplete");
+    const RoadCorridorId corridor_id = corridor->id;
+    const RoadNodeId target_node_id = target_segment->node_a;
+    const auto lane_added = state.AddLane(city::road::AddLaneRequest{
+        corridor_id, city::road::LaneTravelDirection::kAlongSegment,
+        city::road::RoadSide::kRight, {source.value, 0.2},
+        {source.value, 0.6}, 3.0});
+    ROAD_TEST_EXPECT(lane_added.ok, lane_added.error);
+    const auto before = state.Save();
+    ROAD_TEST_EXPECT(before.ok, before.error);
+    city::road::Result<RoadSegmentId> result{};
+    if (operation == 0) {
+      result = state.AddSegmentConnectedToSegment(
+          {MakePath({MakeLine({10.0, 0.0}, {10.0, -40.0})}), section,
+           source.value, 10.0});
+    } else {
+      result = state.AddSegmentBetween(
+          {MakePath({MakeLine({10.0, 0.0}, {10.0, 40.0})}), section,
+           {0, source.value, 10.0}, {target_node_id, 0, 0.0}});
+    }
+    ROAD_TEST_EXPECT(!result.ok &&
+                         result.failure_category ==
+                             CommitFailureCategory::kNotImplemented &&
+                         result.error.find("transitioning") != std::string::npos,
+                     "connection split did not preserve transition rejection policy");
+    const auto after = state.Save();
+    ROAD_TEST_EXPECT(after.ok && after.value == before.value,
+                     "rejected transition connection mutated authoritative state");
+  }
+  return true;
+}
+
 bool add_lane_propagates_from_middle_corridor_segment(std::string& failure) {
   RoadState state{};
   const auto shouldered = road_fixture::AddLayout(state, road_fixture::ShoulderedLayout(0));
@@ -6606,6 +7055,14 @@ int main() {
        transitioning_segment_split_respects_transition_bounds},
       {"segment_split_remaps_saved_lane_topology",
        segment_split_remaps_saved_lane_topology},
+      {"split_public_operations_share_normalized_semantics",
+       split_public_operations_share_normalized_semantics},
+      {"split_crossing_owners_are_rejected_atomically",
+       split_crossing_owners_are_rejected_atomically},
+      {"split_semantics_have_one_internal_planner",
+       split_semantics_have_one_internal_planner},
+      {"connection_splits_reject_transitioning_sources",
+       connection_splits_reject_transitioning_sources},
       {"add_lane_propagates_from_middle_corridor_segment",
        add_lane_propagates_from_middle_corridor_segment},
       {"add_lane_normalizes_reversed_corridor_direction",

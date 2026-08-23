@@ -484,7 +484,6 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
   std::string runner_cpp{};
   std::string graph_cpp{};
   std::string testing_doc{};
-  std::string agents{};
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains" / "wire" / "tests" / "registry.hpp", &registry_hpp),
                    "registry.hpp is missing");
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains" / "wire" / "tests" / "registry.cpp", &registry_cpp),
@@ -495,7 +494,6 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
                    "graph.cpp is missing");
   WIRE_TEST_EXPECT(file_text(repo_root() / "docs" / "testing.md", &testing_doc),
                    "docs/testing.md is missing");
-  WIRE_TEST_EXPECT(file_text(repo_root() / "AGENTS.md", &agents), "AGENTS.md is missing");
   const std::array<const char*, 5> migrated_functions{
       "bool C773_backbone_incremental_sharp_completion_derives_jumper_from_continuity()",
       "bool C775_backbone_incremental_canonical_pair_survives_save_load()",
@@ -514,7 +512,6 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
   WIRE_TEST_EXPECT(contains_text(runner_cpp, "reason: "), "runner does not print failure reason");
   WIRE_TEST_EXPECT(contains_text(testing_doc, "WIRE_TEST_EXPECT(condition, reason)"),
                    "docs/testing.md does not document failure diagnostics");
-  WIRE_TEST_EXPECT(contains_text(agents, "WIRE_TEST_EXPECT"), "AGENTS.md does not require diagnostic helper use");
   return true;
 }
 

@@ -1,5 +1,9 @@
 # Core Spec Ledger (Phase4.8)
 
+このledgerは現行のevidence、test family、authority guard mapping、machine coverageのindexであり、
+architecture semanticsの正本ではない。Wireの意味は`docs/wire/architecture.md`、
+`docs/wire/backbone_operation_semantics.md`、関連するmodel文書を正本とする。
+
 ## Scope and policy
 - 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`port_resolution_debug_records()`、`last_path_direction_debug()`、`last_generation_edge_orientations()`、`SavedBackboneResult()`、`Validate()` のみ。`last_generation_backbone` 系は midair 入力まわりの一時 snapshot 観測としてのみ扱う。
 - 期待値粒度: `Exact` は決定論のみ、`Invariant` は不変条件のみ。
@@ -16,32 +20,7 @@
 - Web entry coverageは同じ意味論文書の`入口境界`をtestから直接読み、WASM adapterとViewerActionsの実payloadを通す。
 - `legacy_unclassified`は既存caseの根拠種別が未移行であることを明示する値であり、runtime coverage evidenceではない。
 
-## Test effectiveness audit notes
-
-- 2026-08-19: NodePatch materialization全欠落を一時注入したところ、既存suiteは専用NodePatch case中心で検出していた。`backbone_common_invariants_pass`へrow continuity -> NodePatch/Jumper visual存在契約を追加し、branch/viewer-default/incremental/operation-matrix/seeded route fuzzへ到達させた。
-- 2026-08-19: SavedBackboneRowContinuity保存欠落はC707/C797/C836とincremental/regenerate系で検出された。これはvisual層だけではなくconnectivity正本側の検出が届いている。
-- 2026-08-19: midair source-edge branchのconnection visual欠落はC836のmidspan familyが逃していた。source edge identityから保存済みmidair nodeを解決し、NodePatch/Jumper/Leadのいずれかを要求するminimum checkへ強化した。
-- 2026-08-19: C639がstraight chord退化を検出するのは代表的なNodePatchだけである。JumperはC755がincident EdgeBodyとのG1接続を検査するが、Leadを含む全connection visualの非直線性は保証していない。
-- 2026-08-19: pole-owned modelのparent X/Y rotation無視はC764で検出されるが、C765/C803/C834には届かない。owner transform契約は存在するがfamily横断ではないため、tilt regression調査時はC764またはcommon invariant到達を確認する。
-- 2026-08-19: spanのB端だけlane 0/2を交換するfaultはC662/C663/C785等が検出したが、C764はPASSしていた。final HV EdgeBody samplesのXY proper intersection invariantを追加しC764へ適用した。curve materializationの片端lane offset反転faultは、強化後C764が直接の交差理由で検出する。endpoint touch、同一正規接続point、collinear接触、connection visualは対象外である。
-- 2026-08-19: `support_level * branch_endpoint_offset_m`を0にするHV multi-level faultはC809/C815/C816/C834/C835が検出した。C809はpole-local endpoint down offset、C834はmodel socketとcurve endpointまで検査する。`row_offsets()`またはstable row slot空き探索だけを無効化するfaultは既存suiteが検出しなかったが、監査した代表HV multi-levelの最終高さは別のbranch endpoint offset経路で維持された。高さ決定経路の重複はcondition-complexity riskとして残る。
-- 2026-08-19: model socket local Zを0として扱うfaultはC764/C765/C770/C795/C834が検出し、lateral専用C766はPASSした。C764等はauthored socket local transformとemitted model world transformからexpected socket worldを独立計算し、final layout/curve endpointとの一致を検査する。
-- 2026-08-19: `LaneOffset()`を0へ固定するfaultはmodel-awareなC764/C795が検出した一方、C662/C785/C789はPASSした。row placement common invariantはexpectedにもproduction `LaneOffset()`を使うself-consistency checkであり、このfaultの独立oracleではない。final model/socket/curveを持つ代表scenarioがuser-visibleなlane collapseを守るが、family全体へのreachは残存riskである。
-- 2026-08-19: mount parentのrotationをlocal positionへ適用しないfaultはC764が検出したが、mount graph単体C803は当初PASSした。C803へ手計算したparent yaw/scale、local yaw/scale、socket位置を追加し、同faultが`parent yaw or scale did not propagate`でFAILすることを確認した。
-- 2026-08-19: 通常EdgeBodyを2点straight chordへ退化させるfaultはsag ownerを直接検査するC642が検出した。C760/C764/C767はendpoint/support-path契約なのでPASSし、非曲線性を過剰保証しているとは扱わない。
-- 2026-08-19: Bundle placement update後だけ旧VisualCurvePart cacheを戻すfaultはC770/C816/C836が当初PASSした。C770へ更新後cacheとfull rederiveのsemantic snapshot一致を追加し、同faultを`bundle placement update left stale visual curve parts`で検出した。
-- 2026-08-19: full regenerate後のVisualModelInstance cache更新を抑止するfaultは、既存C836 operation matrixのrow-frame/model invariantがexpected 4件、actual 0件として検出した。個別C713/C717はmodel cacheを直接比較しないがcommon invariantのregenerate reachがあるため、新規testは追加しなかった。
-- 2026-08-19: 全VisualCurvePartのradiusを同じ固定値へ落とすappearance faultは当初全547 backbone caseがPASSした。C647はNodePatchとincident EdgeBodyの相互一致だけを見ていたため、BundleTemplateからCableTemplate正本を引く独立assertを追加し、同faultを`NodePatch appearance does not match its authoritative CableTemplate`で検出した。
-- 2026-08-19: regenerateで存続manual Portもautomatic frame update対象にするfaultはC672だけが検出した。C672はmanual markerとworld positionの双方を操作前値と比較しており、原因とuser-visible位置を直接守るため追加testは不要とした。
-- 2026-08-19: load時の`identity.id_generator.next`を1へ固定するfaultはC753がload後extensionで検出した。backbone名前filterにはC753が含まれないため、最終検証ではpersistence caseを別途実行する必要がある。
-- 2026-08-19: `PathDirectionMode::kReverse`処理を無視するfaultはC58/C777/C802を通過した。C58はpole position setだけ、C777/C802は逆順入力のcanonical topologyを守る別契約であり、direction mode自体のtopology/placement意味は未保証riskとして残る。
-- 2026-08-19: Generate entryでvalidation前に本stateのID generatorを進めるfaultはC819/C820を通過し、next-idまで見るC790だけが検出した。C819/C820へnext-id不変を追加し、同faultで両方がFAILすることを確認した。
-- 2026-08-19: WASM scene bindingでVisualModelInstanceのrotation X/Yを0へ落とすtransport faultは、production bootstrapとWireBridgeを通す`inherits pole tilt for derived support detail attachments`がCore owner pole rotationとの差として検出した。bridgeはmodel transformを再判断せずpayloadをcopyするだけであり、追加testは不要とした。
-- 2026-08-19: permutable multi-laneのB端対応だけを全体反転するfaultはC764のfinal HV samples XY proper-intersection invariantがlane 0/1の交差として検出した。row representative mirrorを常に無視するfaultは、既存C662へ追加したopposed-row oracleが検出した。productionはfirst/lastの2点と共有span lateralだけでmirrorを決め、交差探索はtestに限定した。
-- 2026-08-19: `PathDirectionMode::kReverse`のguide反転を無視するfaultは、signed lateral offsetの物理側反転を追加したC412が検出した。HV non-crossingはこのdirection modeではなくrow representative mirrorが所有する。
-- 2026-08-19: midair Lead tangentをbranch endpointとのdotで反転する旧faultは、斜めbranchのForward sourceでC665が検出した。C665はForward/Reverse source方向、source attachment、branch body boundary、G1 tangent、finite samplesを確認する。
-- 2026-08-19: canonical successful backbone scenario用のAnchor入口を`WIRE_TEST_EXPECT_BACKBONE_INVARIANTS`へ統一した。NodePatch全欠落faultはC392/C458/C775/C836、HVのB端lane対応全体反転faultはC764/C798/C809が、いずれもcommon invariant理由でFAILした。直接関数呼出し件数を数えていたC824のsource scanは保証にならないため削除し、seeded route fuzz本体は維持した。multi-levelの具体高さはrow offsetを再実装せずscenario oracleへ残し、commonの直接height anchorはsupport level 0またはbranch-down無効時に限定した。
-- 2026-08-20: 実workspaceの鋭角HV twistを再調査すると、保存continuityは既に0↔2へmirrorされていたが、既存Portのpromotion frame更新がSpan mirror判定より後だったため、Span endpointは旧Port列で決めたlane対応のまま最終Port列だけ反転していた。C785へ実座標の縮小操作列を追加し、common invariantへfinal HV EdgeBodyのfirst/last lane方向反転を直接検査するanchorを追加した。旧C785はPort identity/frameとcurve-layout自己整合だけを見ており、reverse向きのincremental promotionを再現していなかった。修正前の縮小caseはfinal HV intersectionでFAILし、修正後はpassした。提供されたv3 workspaceも同じload/rederive経路でfinal HV lane順序とXY非交差を確認した。別件のconnection visual消失は、scoped rebuildのread context spanから反対側nodeまで削除scopeへ拡張していたことが原因で、C741のscoped/full visual一致が保持する。
+Historical effectiveness audits are retained under [`audits/`](audits/); this ledger contains only current proof/index data.
 
 ## Backbone Authority Guard Coverage
 

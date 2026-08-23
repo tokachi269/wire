@@ -38,6 +38,44 @@ def check_road_architecture(root: Path) -> list[str]:
     def relative(path: Path) -> str:
         return path.relative_to(root).as_posix()
 
+    # OperationPlan commit authority belongs to RoadState::Execute. This is a
+    # source boundary, not runtime behavior, so keep it in architecture lint.
+    apply_sites: list[str] = []
+    for path in sources:
+        if path.suffix != ".cpp" or not relative(path).startswith("domains/road/src/"):
+            continue
+        apply_sites.extend(
+            relative(path) for _ in re.finditer(r"operations::Apply\s*\(", source_text(path))
+        )
+    if apply_sites != ["domains/road/src/state.cpp"]:
+        errors.append(
+            "domains/road/src: RoadState::Execute must own the only production "
+            f"OperationPlan Apply; found {', '.join(apply_sites) or 'none'}"
+        )
+    state_text = source_text(root / "domains/road/src/state.cpp")
+    execute_owns_apply = re.search(
+        r"Result<bool>\s+RoadState::Execute\s*\([^)]*\)\s*\{[^}]*operations::Apply\s*\(",
+        state_text,
+        re.DOTALL,
+    )
+    if apply_sites == ["domains/road/src/state.cpp"] and execute_owns_apply is None:
+        errors.append(
+            "domains/road/src/state.cpp: OperationPlan Apply is outside RoadState::Execute"
+        )
+
+    # Basic entity lookups are shared by lookup.cpp. state.cpp may consume
+    # them, but must not grow local definitions of the same authority.
+    local_lookup_definition = re.compile(
+        r"(?:const\s+)?(?:RoadLayoutTemplate|RoadLayoutTransition|RoadSegment|RoadNode|"
+        r"NodeConnectionPolicyOverride|ApproachGeometryOverride)\s*\*\s*"
+        r"(?:find_template|find_transition|find_segment|find_node|find_policy_override|"
+        r"find_approach_override)\s*\([^;{}]*\)\s*\{"
+    )
+    if local_lookup_definition.search(state_text):
+        errors.append(
+            "domains/road/src/state.cpp: basic entity lookup is defined outside lookup.cpp"
+        )
+
     # 1. Authority layers exist and stay separated.
     for boundary in (
         "domains/road/include/city/road/input_types",

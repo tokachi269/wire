@@ -1,5 +1,33 @@
 # テスト体系
 
+この文書はrepository全体のverification policyの唯一の正本である。architecture semanticsは
+`docs/architecture.md`と各domain architecture、操作意味は各operation semanticsを正本とし、
+test、ledger、manifestから意味を逆算しない。
+
+## Contract-centered verification
+
+verificationの管理単位はtest case数ではなくcontractである。各重要contractは原則として次を持つ。
+
+- Primary proof: contractを最も直接証明するものを1つ
+- Secondary proof: production-likeな別経路や別表現から必要な場合だけ1～2個
+- Structural guard: dependency、type、compile/link boundary、安定したsource structureなど、behaviorでは証明しづらい境界だけ
+
+Primary proofの不在を多数の間接scenarioやSourceGuardで代替しない。同じfaultを捕まえるcaseを追加するときは、
+既存proofの強化、置換、退役を先に検討する。
+
+## Evidence classes
+
+| class | 証明対象 |
+|---|---|
+| Structural | dependency、type、compile/link boundary、安定したsource architecture |
+| Invariant / Contract | authoritative stateと意味的不変条件 |
+| Metamorphic | reversed input、operation order、representation changeでも保存される意味 |
+| Differential | scoped/full、click/Enter、同等な2つのentry pathの一致 |
+| Scenario | 重要incident reproducer、production-like configuration |
+| End-to-end | adapter、WASM、viewer transportを含む境界 |
+
+SourceGuardはStructural evidenceであり、behavior proofの代わりにしない。
+
 ## test family
 
 | family | 目的 |
@@ -104,11 +132,32 @@ production configurationのどこから守られているかを見る。C番号�
 そのままbuildする必要はない。現在codeへ過去故障と意味的に同じtemporary mutationを入れ、
 現在のtest suiteが検出できるか確認してよい。安全に再現可能なら古いcommitを使ってもよい。
 
+mutationやsemantic fault injectionはverification suite自身を評価する一時作業であり、通常testとしてcommitしない。
+結果はcurrent contract specへ継ぎ足さず、必要ならhistorical audit logへ残す。
+
 全test pass後に実使用で見つかったregressionは、test effectiveness不足の証拠として扱う。
 bug修正時は、新しいregression testを追加しただけで完了にしない。なぜ既存testが逃したかを、
 common invariant不足、production fidelity不足、scenario不足、semantic assertion不足、
 condition complexity、実装詳細だけを見たassert、特定fixtureへ閉じた過去fixのいずれかとして
 分類し、必要なら既存common invariantやproduction-like sanityへ戻す。
+
+## Regression lifecycle
+
+新規scenarioとbug修正はfail-firstとし、修正前のproductionでcontract違反を検出することを先に確認する。
+既にpassするcaseを追加するだけではregression proofとしない。bug修正は次の順で扱う。
+
+```text
+incident reproducer
+  -> root cause
+  -> underlying contract
+  -> Primary proofの新設または強化
+  -> semantic faultの再注入
+  -> stronger proofがfaultを検出することを確認
+  -> reproducerが完全にsubsumedされた場合は削除または縮小
+```
+
+bugごとに永久testを1件追加することを既定にしない。incident固有の入力やoracleに独立価値が残る場合だけ
+Scenario evidenceとして維持する。
 
 ## architecture guard
 
@@ -123,6 +172,28 @@ condition complexity、実装詳細だけを見たassert、特定fixtureへ閉�
   `domains/wire/tests/spec_ledger.md` の `BOS:<operation>:<state>` coverage 対応漏れ
 
 source scanは安定した境界だけに使う。広い単語grepをtest semanticsの代わりにしない。
+
+source grep / regex guardは、より強いtype system、compile boundary、module dependency、architecture lintへ
+置換できた時点で退役する。古いimplementation shapeを永久固定するためには残さない。
+
+## Test retirement
+
+既存testは、次の条件をすべて満たす場合にverification consolidationとして削除できる。
+
+1. 守っているcontractが特定済みである
+2. 別のPrimary proofが存在する
+3. 元testが捕まえたfaultを再現できる
+4. Primary proofがそのfaultを捕まえる
+5. 元testだけが持つ独立oracleがない
+
+条件を確認できない完全重複候補は残す。削除数そのものを進捗にしない。
+
+## Full suite
+
+focused proofはroot causeと直接contractを示す。full suiteはdomain横断の副作用、登録漏れ、transport、
+既存contractとの衝突を確認するsecondary safety netであり、Primary proofやfail-firstの代わりではない。
+skipはpassに数えず、結果報告ではskip数を確認する。挙動変更ゼロのrefactorはauthoritative byte一致、
+bit一致、既存test無変更通過など、変更に対応する等価性証明を明示する。
 
 ## 旧test
 

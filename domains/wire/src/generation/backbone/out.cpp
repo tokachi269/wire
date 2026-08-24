@@ -189,11 +189,12 @@ EditResult<DetailCurve> make_primary_curve_between_impl(const CoreState& state, 
       }
     }
     sag_ratio = std::max(0.0, sag_ratio);
+    const double endpoint_sag_ratio = sag_ratio * 0.5;
     const CurveConstraint start_constraint =
-        detail_curve_constraint(start, data.input.start_tangent_hint, settings, sag_ratio, data.continuity_policy,
+        detail_curve_constraint(start, data.input.start_tangent_hint, settings, endpoint_sag_ratio, data.continuity_policy,
                                 data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length);
     CurveConstraint end_constraint =
-        detail_curve_constraint(end, data.input.end_tangent_hint, settings, sag_ratio, data.continuity_policy,
+        detail_curve_constraint(end, data.input.end_tangent_hint, settings, endpoint_sag_ratio, data.continuity_policy,
                                 data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length);
     result.value = BuildDetailCurve(start_constraint, end_constraint, std::max(2, settings.curve_samples));
   } else {

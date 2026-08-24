@@ -452,6 +452,7 @@ bool C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes();
 bool C852_backbone_near_angle_row_order_uses_degree_contract();
 bool C853_backbone_row_placement_has_one_resolved_height_authority();
 bool C854_backbone_row_height_has_one_production_decision_path();
+bool C855_backbone_cable_sag_ratio_is_applied_once_per_span();
 bool C803_model_mount_graph_resolves_depth_four_chain();
 bool C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors();
 bool C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore();

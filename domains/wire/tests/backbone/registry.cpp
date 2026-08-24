@@ -1412,6 +1412,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "row height has no row-offset, stable-slot, or preserved-offset decision path",
                          "Boundary", false,
                          C854_backbone_row_height_has_one_production_decision_path);
+  test_registry::AddTest(tests, "C855_backbone_cable_sag_ratio_is_applied_once_per_span",
+                         "CableTemplate sag and slack define one span ratio rather than one contribution per endpoint",
+                         "Invariant", false,
+                         C855_backbone_cable_sag_ratio_is_applied_once_per_span);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

@@ -596,6 +596,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C852 | Behavior | Invariant | row角度差が1e-6 degreeより大きく1e-6 radianより小さい場合も、support levelは実角度順で決まりpath入力方向に依存しない | `metamorphic` `oracle` | atan2のradian値をdegree toleranceと比較し、ID順tieへ約57.3倍広げる回帰を防ぐ |
 | C853 | Behavior | Invariant | Portはband/explicit placementの論理anchorを保持し、support level/groupから一度resolveしたbranch downだけが物理endpointへ適用され、save/loadとscoped placement regenerateでも同じ意味結果を保つ | `differential` `oracle` `anchor` | row offset、stable slot、support level loweringが独立にPort/endpoint Zを決めて相互補償する回帰を防ぐ |
 | C854 | SourceGuard | Boundary | productionのrow height経路にrow-height offset、stable slot、bundle update時の保存offsetを残さず、row ordering角度はatan2直後にdegreeへ正規化する | `source_guard` | 別経路のno-op faultを他経路が補償する構造とradian/degree混在が再導入される回帰を防ぐ |
+| C855 | Behavior | Invariant | CableTemplateのsag_factorとslack_factorはendpointごとの加算値ではなく、span全体へ1回適用するratioである | `oracle` `presence` | 既定sagがstart/endで二重加算され、設定値の2倍を起点に深いお椀型curveを生成する回帰を防ぐ |
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |
 
 ## 廃止済み旧pipeline検査

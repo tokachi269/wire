@@ -3901,4 +3901,34 @@ bool C813_backbone_move_pole_rederives_pair_representation() {
              0;
 }
 
+bool C855_backbone_cable_sag_ratio_is_applied_once_per_span() {
+  city::wire::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  WIRE_TEST_EXPECT(generated.ok, generated.error);
+  WIRE_TEST_EXPECT_PRESENCE(!generated.value.generated_span_ids.empty(),
+                            "HV sag fixture generated no spans");
+
+  const auto bundle_template = state.view().bundle_templates().find(
+      city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kHighVoltage));
+  WIRE_TEST_EXPECT_PRESENCE(bundle_template != state.view().bundle_templates().end(),
+                            "default HV BundleTemplate is missing");
+  const auto cable_template =
+      state.view().cable_templates().find(bundle_template->second.cable_template_id);
+  WIRE_TEST_EXPECT_PRESENCE(cable_template != state.view().cable_templates().end(),
+                            "default HV CableTemplate is missing");
+  const double expected_span_sag_ratio =
+      cable_template->second.sag_factor + cable_template->second.slack_factor;
+
+  for (city::wire::ObjectId span_id : generated.value.generated_span_ids) {
+    const city::wire::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+    WIRE_TEST_EXPECT_PRESENCE(curve != nullptr,
+                              "generated HV span is missing its DetailCurve");
+    WIRE_TEST_EXPECT_ORACLE(
+        almost_equal(curve->detail.quality.sag_base_ratio,
+                     expected_span_sag_ratio, 1e-12),
+        "span sag ratio was counted once for each endpoint instead of once for the span");
+  }
+  return true;
+}
+
 } // namespace backbone_tests

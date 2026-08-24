@@ -2,7 +2,7 @@
 
 workdir: `D:\GitHub\wire`
 
-## core tests
+## Core test
 
 ```cmd
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
@@ -11,9 +11,9 @@ call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\v
 build-vs18-coretests\domains\wire\Debug\wire_core_tests.exe
 ```
 
-## viewer
+## Viewer
 
-Fetch viewer dependencies when local source trees are not already present.
+Viewer dependencyのlocal source treeがまだない場合は取得する。
 
 ```cmd
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
@@ -22,14 +22,14 @@ call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\v
 build-vs18-viewer-fetch\viewer\Debug\wire_viewer.exe
 ```
 
-If you already have `build-viewer\_deps\raylib-src`, `build-viewer\_deps\imgui-src`, and `build-viewer\_deps\rlimgui-src`, you can instead use local source directories with `WIRE_VIEWER_FETCH_DEPS=OFF`.
+`build-viewer\_deps\raylib-src`、`build-viewer\_deps\imgui-src`、`build-viewer\_deps\rlimgui-src`がすでにある場合は、`WIRE_VIEWER_FETCH_DEPS=OFF`でlocal source directoryを使える。
 
-## notes
+## 注意事項
 
-- No `Ninja` is required for the normal build/test path.
-- If you open `Developer Command Prompt` or `Developer PowerShell for VS` first, `vcvars64.bat` is not needed.
-- If you use plain PowerShell, keep the build and run in the same initialized shell or wrap them with `cmd.exe /c`.
-- Building `wire_core_tests` also runs architecture and test-family lint targets.
+- 通常のbuild/test経路では`Ninja`は不要。
+- 最初に`Developer Command Prompt`または`Developer PowerShell for VS`を開いた場合、`vcvars64.bat`は不要。
+- 通常のPowerShellを使う場合は、初期化した同じshell内でbuildと実行を行うか、`cmd.exe /c`で囲む。
+- `wire_core_tests`のbuild時にはarchitecture lintとtest-family lint targetも実行される。
 
 ## lint
 
@@ -43,7 +43,7 @@ git diff --check
 
 ## clang-tidy
 
-Configure with a generator that emits `compile_commands.json`, then run the helper target:
+`compile_commands.json`を出力するgeneratorでconfigureし、helper targetを実行する。
 
 ```cmd
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
@@ -51,7 +51,7 @@ cmake -S . -B build-clang-tidy -G Ninja -DWIRE_BUILD_VIEWER=OFF -DWIRE_ENABLE_PC
 cmake --build build-clang-tidy --target tidy-check
 ```
 
-To check a smaller subtree while tuning:
+調整中に小さいsubtreeだけを検査する場合:
 
 ```cmd
 python tools\clang_tidy_check.py --build-dir build-clang-tidy --path domains/wire/src/state
@@ -65,7 +65,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\prepare_clang_uml_comp
 "C:\Program Files\clang-uml\bin\clang-uml.exe" -c .clang-uml -n core_packages -g plantuml -p
 ```
 
-## web viewer wasm
+## Web viewer WASM
 
 `emcc` / `emcmake` が PATH にある Emscripten shell で実行する。
 

@@ -1,10 +1,10 @@
-# Core Spec Ledger (Phase4.8)
+# Core仕様台帳（Phase 4.8）
 
 このledgerは現行のevidence、test family、authority guard mapping、machine coverageのindexであり、
 architecture semanticsの正本ではない。Wireの意味は`docs/wire/architecture.md`、
 `docs/wire/backbone_operation_semantics.md`、関連するmodel文書を正本とする。
 
-## Scope and policy
+## 対象範囲と方針
 - 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`port_resolution_debug_records()`、`last_path_direction_debug()`、`last_generation_edge_orientations()`、`SavedBackboneResult()`、`Validate()` のみ。`last_generation_backbone` 系は midair 入力まわりの一時 snapshot 観測としてのみ扱う。
 - 期待値粒度: `Exact` は決定論のみ、`Invariant` は不変条件のみ。
 - モック方針: ドメインロジックのモック禁止（本スイートはモック未使用）。
@@ -12,7 +12,7 @@ architecture semanticsの正本ではない。Wireの意味は`docs/wire/archite
 - 分類ルール: `分類=Symptom` は最終症状やユーザ価値を直接固定する行、`分類=Authority` は正本・ownership・decision origin を固定する行。
 - 永続化 Boundary: `CoreStateAuthoritativeStorage` へ field を追加する変更は、serializer・deserializer・roundtrip test の更新を伴う。
 
-## Runtime coverage policy
+## 実行時coverage方針
 
 - 操作×状態coverageはこのledgerへ手書きしない。`C836`が正本状態を実行時分類し、full `wire_core_tests`の終了時に意味論文書のrequired cellと照合する。
 - coverageとして認めるcaseは`oracle` / `anchor` / `presence` / `differential`のいずれかを実行時記録する。`derived_equality`単独は認めない。
@@ -20,9 +20,9 @@ architecture semanticsの正本ではない。Wireの意味は`docs/wire/archite
 - Web entry coverageは同じ意味論文書の`入口境界`をtestから直接読み、WASM adapterとViewerActionsの実payloadを通す。
 - `legacy_unclassified`は既存caseの根拠種別が未移行であることを明示する値であり、runtime coverage evidenceではない。
 
-Historical effectiveness audits are retained under [`audits/`](audits/); this ledger contains only current proof/index data.
+過去の有効性監査は[`audits/`](audits/)に保管する。この台帳には現行の証明とindexだけを記載する。
 
-## Backbone Authority Guard Coverage
+## Backbone正本guardの検査範囲
 
 matrix / aspect は外部仕様と観測点を表す。authority guard は、各観点を決める
 production式が分散しないことを固定する。`Required owner tokens` は owner に必須、
@@ -453,17 +453,6 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C660 | Behavior | Boundary | regenerate fixed count increase は SavedGraph identity を維持して下流だけ更新する | `legacy_unclassified` | route-local regenerate が入力replayや位置推測でgraphを作り直す回帰防止 |
 | C661 | Behavior | Invariant | pair row axis は径間長ではなく単位接線二等分で決める | `legacy_unclassified` | pass-through cornerの横並びが長い径間へ引っ張られる回帰防止 |
 | C662 | Behavior | Invariant | pair row axis は incident span の lane順を反転しない | `legacy_unclassified` | row axis変更で片側spanのlane順がねじれる回帰防止 |
-
-## Retired old-pipeline checks
-- Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.
-- Their constraints are now covered in backbone terms by the saved graph, pair/open/row authority, no-recalc/no-materialization, and layout/geom/draw consumer-chain checks.
-
-## LLM self-review
-- 実装依存か: private順序/内部関数呼び出し順には依存しない。
-- 期待値は観測可能か: すべて公開APIと公開状態で観測。
-- モック過多か: モック未使用。
-- 異常系が入っているか: C10/C20/C21/C22/C23/C49で失敗診断・状態保全・復帰を検証。
-- フレーク要因がないか: 実時間待ち/非決定乱数なし。
 | C663 | Behavior | Invariant | 3相HV鋭角 continuity は最終Port列に従ってlaneをmirrorし、径間別dead-end rowと3 Jumperを導出する | `oracle` `anchor` | span内部だけ直ってcross-edge continuity/Jumperがsame-laneのままねじれる回帰防止 |
 | C664 | SourceGuard | Boundary | 鋭角pole facingはpairsのcorner decisionを消費し再判定しない | `source_guard` | pole yawとrow/jumperが別々に鋭角を解釈する回帰防止 |
 | C665 | Behavior | Boundary | source-edge projectionは派生curve上に置く | `legacy_unclassified` | 途中分岐が既存cableから浮く回帰防止 |
@@ -607,5 +596,17 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C852 | Behavior | Invariant | row角度差が1e-6 degreeより大きく1e-6 radianより小さい場合も、support levelは実角度順で決まりpath入力方向に依存しない | `metamorphic` `oracle` | atan2のradian値をdegree toleranceと比較し、ID順tieへ約57.3倍広げる回帰を防ぐ |
 | C853 | Behavior | Invariant | Portはband/explicit placementの論理anchorを保持し、support level/groupから一度resolveしたbranch downだけが物理endpointへ適用され、save/loadとscoped placement regenerateでも同じ意味結果を保つ | `differential` `oracle` `anchor` | row offset、stable slot、support level loweringが独立にPort/endpoint Zを決めて相互補償する回帰を防ぐ |
 | C854 | SourceGuard | Boundary | productionのrow height経路にrow-height offset、stable slot、bundle update時の保存offsetを残さず、row ordering角度はatan2直後にdegreeへ正規化する | `source_guard` | 別経路のno-op faultを他経路が補償する構造とradian/degree混在が再導入される回帰を防ぐ |
-
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |
+
+## 廃止済み旧pipeline検査
+
+- 旧case 365〜367は登録済みsuiteから削除した。これらはbackbone本流ではなく、移行中の`BackboneBuilder`、support-layout authority seed、materialization surfaceを固定していた。
+- これらの制約は現在、saved graph、pair/open/row authority、再計算・再materialization禁止、layout/geometry/drawのconsumer chainを検査するbackbone側の証明で保護している。
+
+## LLM自己レビュー
+
+- 実装依存か: private順序/内部関数呼び出し順には依存しない。
+- 期待値は観測可能か: すべて公開APIと公開状態で観測。
+- モック過多か: モック未使用。
+- 異常系が入っているか: C10/C20/C21/C22/C23/C49で失敗診断・状態保全・復帰を検証。
+- フレーク要因がないか: 実時間待ち/非決定乱数なし。

@@ -50,7 +50,7 @@ class RepositoryArchitectureChecksTest(unittest.TestCase):
     def test_authority_unique_owner_markdown_reaches_checker(self) -> None:
         ledger = "\n".join(
             (
-                "## Backbone Authority Guard Coverage",
+                "## Backbone正本guardの検査範囲",
                 "| Guard | Owner | Required | Unique | Forbidden |",
                 "|---|---|---|---|---|",
                 "| decision_owner | `domains/wire/src/owner.cpp` | - | `decision_token` | - |",

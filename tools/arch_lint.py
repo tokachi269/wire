@@ -96,9 +96,9 @@ def parse_aspect_list(value: str) -> set[str]:
 def parse_backbone_authority_guards(text: str) -> tuple[list[dict[str, object]], list[str]]:
     errors: list[str] = []
     guards: list[dict[str, object]] = []
-    table = table_after_heading(text, "## Backbone Authority Guard Coverage")
+    table = table_after_heading(text, "## Backbone正本guardの検査範囲")
     if len(table) < 2:
-        return guards, ["domains/wire/tests/spec_ledger.md: missing Backbone Authority Guard Coverage table"]
+        return guards, ["domains/wire/tests/spec_ledger.md: Backbone正本guardの検査表がありません"]
     for line in table[1:]:
         cells = markdown_cells(line)
         if not cells or is_separator_row(cells):
@@ -264,23 +264,23 @@ def check_architecture_documents(root: Path) -> list[str]:
             "## Dependency direction",
         ),
         "docs/testing.md": (
-            "# Verification policy",
-            "## Contract-centered verification",
-            "## Protection hierarchy",
-            "## Oracle independence",
-            "## Behavioral probe catalog",
-            "### Pattern selection guide",
+            "# 検証方針",
+            "## 契約を中心とした検証",
+            "## 保護手段の優先順位",
+            "## Oracleの独立性",
+            "## 振る舞いprobe catalog",
+            "### Pattern選択guide",
             "## Regression lifecycle",
-            "## Test retirement",
+            "## Testの退役",
         ),
         "docs/wire/architecture.md": (
             "# Wire architecture",
             "backbone_operation_semantics.md",
         ),
         "docs/wire/testing.md": (
-            "# Wire verification",
+            "# Wire検証",
             "WIRE_TEST_EXPECT(condition, reason)",
-            "## Operation-state coverage",
+            "## 操作×状態coverage",
         ),
         "docs/wire/backbone_operation_semantics.md": (
             "## 操作×状態",
@@ -295,16 +295,16 @@ def check_architecture_documents(root: Path) -> list[str]:
             "## 操作 x 状態",
         ),
         "docs/road/testing.md": (
-            "# Road verification",
+            "# Road検証",
             "ValidateGraphInvariants",
         ),
         "docs/engineering/agent_harness.md": (
-            "# Portable Agent Engineering Harness",
-            "## New concept protocol",
-            "## Guardrail Promotion Ladder",
-            "## Bug fix protocol",
-            "## Reusable task templates",
-            "## New project bootstrap",
+            "# 移植可能なAgent Engineering Harness",
+            "## 新しい概念を導入する手順",
+            "## Guardrail昇格の段階",
+            "## バグ修正手順",
+            "## 再利用可能なtask template",
+            "## 新規projectの立ち上げ",
         ),
     }
     errors: list[str] = []

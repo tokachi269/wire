@@ -1,28 +1,22 @@
-# Verification policy
+# 検証方針
 
-This document is the repository-wide, project-independent source of truth for verification policy.
-Architecture semantics belong to `docs/architecture.md` and domain architecture documents; operation meaning
-belongs to operation semantics documents. Tests, ledgers, manifests, and coverage reports are evidence, not the
-semantic source of truth.
+この文書はrepository全体で共有する、project非依存の検証方針の正本である。Architectureの意味論は`docs/architecture.md`と各domain architecture文書、操作の意味は操作意味論文書を正本とする。Test、ledger、manifest、coverage reportはevidenceであり、意味論の正本ではない。
 
-Project-specific machinery is documented separately. In this repository, see
-[`wire/testing.md`](wire/testing.md) and [`road/testing.md`](road/testing.md).
+Project固有の仕組みは別文書で定義する。このrepositoryでは[`wire/testing.md`](wire/testing.md)と[`road/testing.md`](road/testing.md)を参照する。
 
-## Contract-centered verification
+## 契約を中心とした検証
 
-The management unit is a contract, not a test case count. Each critical contract should normally have:
+管理単位はtest case数ではなく契約である。重要な契約は通常、次のevidenceを持つ。
 
-- Primary proof: the single most direct proof of the contract
-- Secondary proof: one or two alternate production-like paths when they detect a distinct risk
-- Structural guard: a dependency, type, compile/link, module, or stable source boundary when behavior alone
-  cannot prove the structure
+- Primary proof: 契約を最も直接的に証明する1件
+- Secondary proof: 異なるriskを検出できる場合に限る、1〜2件のproductionに近い別経路
+- Structural guard: 振る舞いだけでは構造を証明できない場合のdependency、type、compile/link、module、安定したsource境界
 
-Do not replace a missing Primary proof with many indirect scenarios or SourceGuards. Before adding another case
-for the same fault, consider strengthening, replacing, or retiring existing evidence.
+Primary proofの欠落を、多数の間接scenarioやSourceGuardで代用しない。同じfaultへcaseを追加する前に、既存evidenceの強化・置換・退役を検討する。
 
-## Protection hierarchy
+## 保護手段の優先順位
 
-Prefer the strongest mechanism that prevents the relevant fault class:
+対象のfault classを防げる最も強い仕組みを優先する。
 
 ```text
 capability / type / module boundary
@@ -33,136 +27,109 @@ capability / type / module boundary
   > full regression suite
 ```
 
-This is not a rule that higher layers make all lower layers unnecessary. Keep mechanisms that detect different
-fault classes. Evaluate quality by whether every critical contract has independent proof, not by test count or
-coverage percentage.
+上位の仕組みが下位の仕組みを常に不要にするという意味ではない。異なるfault classを検出する仕組みは残す。品質はtest数やcoverage率ではなく、各重要契約に独立した証明があるかで評価する。
 
-## Evidence classes
+## Evidenceの分類
 
-| Class | What it proves |
+| 分類 | 証明するもの |
 |---|---|
-| Structural | dependency, type, compile/link boundary, stable source architecture |
-| Invariant / Contract | authoritative state and semantic invariants |
-| Metamorphic | meaning preserved across input reversal, operation order, or representation changes |
-| Differential | agreement between scoped/full or equivalent entry paths |
-| Scenario | an important incident reproducer or production-like configuration |
-| End-to-end | adapter, transport, runtime, and user-facing boundary |
+| Structural | dependency、type、compile/link境界、安定したsource architecture |
+| Invariant / Contract | 正本状態と意味上の不変条件 |
+| Metamorphic | 入力反転、操作順、表現変更をまたいだ意味の保存 |
+| Differential | scoped/fullまたは等価なentry path間の一致 |
+| Scenario | 重要incidentの再現またはproductionに近い構成 |
+| End-to-end | adapter、transport、runtime、user-facing境界 |
 
-SourceGuard is Structural evidence. It does not substitute for behavioral proof.
+SourceGuardはStructural evidenceであり、振る舞いの証明を代替しない。
 
-## Oracle independence
+## Oracleの独立性
 
-A Primary proof must not compute its expected result by calling the same production decision or helper that it is
-checking. That proves self-consistency, not correctness. Prefer an independent formula or oracle, a known anchor, a
-metamorphic relation, or a differential implementation/path. Reusing a production helper can still be useful as a
-Secondary consistency assertion when the Primary proof has an independent basis.
+Primary proofの期待値を、検査対象と同じproduction decisionやhelperを呼んで計算してはいけない。それで証明できるのは自己整合だけであり、正しさではない。独立した式またはoracle、既知のanchor、metamorphic relation、別実装・別経路とのdifferentialを使う。Production helperの再利用は、独立したPrimary proofがある場合のSecondary consistency assertionとしては利用できる。
 
-## Behavioral probe catalog
+## 振る舞いprobe catalog
 
-Select probes from system characteristics and credible fault models. This catalog is not a mandatory checklist or a
-test-count quota.
+Systemの性質と現実的なfault modelからprobeを選ぶ。このcatalogは必須checklistでもtest数quotaでもない。
 
-| Characteristic | Representative probes |
+| Systemの性質 | 代表的なprobe |
 |---|---|
-| Stateful mutation | failure atomicity; unrelated-state non-interference; deterministic repeat when the operation promises it |
-| Persistence | save -> load -> save; derived rebuild equivalence after load; failed load leaves identities, IDs, and counters unchanged |
-| Incremental or cached result | incremental result vs clean/full rebuild differential; update followed by stale-cache detection |
-| Stable identity | reorder arrays without changing identity; change geometry without changing identity; reject missing identity instead of guessing from proximity, name, or order |
-| Independent composition | compare A with the A portion of A+B; permute independent component order |
-| Equivalent entries | compare semantic request and result across API, adapter, UI, or transport entries |
-| Geometry or directional data | reverse input, symmetry, and permutation relations that preserve the defined meaning |
-| Stateful sequence | deterministic seeded operations; invariant at every step; periodic persistence roundtrip; invalid operation leaves state unchanged |
+| Stateful mutation | failure atomicity、無関係なstateへの非干渉、操作が保証する場合の決定的repeat |
+| Persistence | save → load → save、load後のderived rebuild equivalence、失敗したloadでidentity・ID・counterが不変 |
+| Incremental / cache結果 | incremental結果とclean/full rebuildのdifferential、update後のstale cache検出 |
+| Stable identity | array reorderでidentity不変、geometry変更でidentity不変、missing identityを近接・名前・順序から推測せず拒否 |
+| 独立したcomposition | A単独とA+B内のAを比較、独立componentの順序をpermutation |
+| 等価なentry | API、adapter、UI、transport entry間で意味上のrequest/resultを比較 |
+| Geometry / directional data | 定義された意味を保つinput reverse、symmetry、permutation |
+| Stateful sequence | seed固定の決定的操作列、各stepのinvariant、定期的persistence roundtrip、invalid操作でstate不変 |
 
-### Pattern selection guide
+### Pattern選択guide
 
-| Feature characteristic | Consider first |
+| Featureの性質 | 最初に検討するもの |
 |---|---|
-| authoritative mutation | atomicity and non-interference |
-| cache or incremental derivation | full-vs-incremental differential and stale-cache probe |
-| stable identity | reorder and geometry-change metamorphic probes |
-| persistence | roundtrip, derived rebuild, and failed-load counter stability |
-| multiple adapters or entries | semantic entry differential |
-| order-independent composition | component permutation and A-vs-A+B |
-| directional geometry | reverse, symmetry, or defined permutation relation |
-| multi-step state machine | seeded sequence, per-step invariant, periodic roundtrip, invalid-step unchanged |
+| authoritative mutation | atomicityとnon-interference |
+| cache / incremental derivation | full-vs-incremental differentialとstale-cache probe |
+| stable identity | reorderとgeometry-changeのmetamorphic probe |
+| persistence | roundtrip、derived rebuild、failed-load時のcounter安定性 |
+| 複数adapter / entry | semantic entry differential |
+| 順序非依存のcomposition | component permutationとA-vs-A+B |
+| directional geometry | reverse、symmetry、定義済みpermutation relation |
+| multi-step state machine | seeded sequence、stepごとのinvariant、定期roundtrip、invalid stepで不変 |
 
-Choose only probes that correspond to actual contracts and plausible faults. A characteristic can require more than
-one probe when the probes have independent oracles.
+実在する契約と現実的なfaultに対応するprobeだけを選ぶ。独立したoracleを持つ場合は、1つの性質に複数probeが必要なこともある。
 
-## Fail-first and diagnostics
+## Fail-firstと診断
 
-For a new scenario or bug fix, first show that the current production behavior violates the contract. Adding a
-case that already passes is not regression proof. Assertions should identify the first failed operation boundary
-or invariant rather than returning an unexplained boolean.
+新scenarioまたはbug fixでは、現行production behaviorが契約に違反することを最初に示す。すでにpassするcaseを追加するだけではregression proofにならない。Assertionは説明のないboolではなく、最初に失敗したoperation境界またはinvariantを示す。
 
-When a change claims zero behavior change, state the equivalence proof: authoritative byte equality, bit equality,
-unchanged behavioral tests, or another contract-specific comparison. A skipped test is not a pass.
+挙動変更ゼロを主張する変更では、authoritative byte equality、bit equality、既存behavioral testの無変更通過など、契約に適した等価性の証明方法を明示する。Skipされたtestはpassではない。
 
-## Test effectiveness
+## Testの有効性
 
-Line and branch coverage show execution, not fault detection. Evaluate a verification family by injecting a small,
-representative semantic fault and observing whether it fails at a meaningful contract boundary. Syntactic mutation
-is useful for finding assertions that prove nothing, but it does not cover state ownership, stale derived output,
-partial mutation, transport drift, or silent fallback failures.
+Line/branch coverageが示すのは実行でありfault検出ではない。小さく代表的なsemantic faultを注入し、意味のある契約境界でfailするかによりverification familyを評価する。構文的mutationは何も証明しないassertionの検出には有効だが、state ownership、stale derived output、partial mutation、transport drift、silent fallback failureまでは覆わない。
 
-Historical incidents are high-value fault models. Reproduce the same semantic fault in current code when practical;
-building an old commit is optional. Mutation and semantic fault injection are temporary verification-audit work and
-are not normally committed as permanent tests. Store useful investigation history in an audit log, not in the
-current contract specification.
+過去incidentは価値の高いfault modelである。実用的ならold commitをbuildする代わりに同じsemantic faultを現行codeへ再現する。Mutationとsemantic fault injectionは一時的なverification auditであり、通常は恒久testとしてcommitしない。有用な調査履歴は現行契約仕様ではなくaudit logへ残す。
 
-If a regression escaped a green suite, classify why: missing invariant, insufficient production fidelity, missing
-scenario, weak semantic assertion, condition complexity, implementation-detail assertion, or an old fix trapped in
-one fixture. Strengthen the contract owner rather than only adding another symptom case.
+Green suiteからregressionが漏れた場合は、missing invariant、production fidelity不足、missing scenario、weak semantic assertion、condition complexity、implementation-detail assertion、旧fixが1 fixtureだけに閉じ込められている、のどれかを分類する。症状caseだけを追加せず、契約ownerを強化する。
 
 ## Regression lifecycle
 
-Use this lifecycle for a bug fix:
+Bug fixでは次のlifecycleを使う。
 
 ```text
 incident reproducer
   -> root cause
   -> underlying contract
-  -> create or strengthen the Primary proof
-  -> re-inject the semantic fault
-  -> confirm the stronger proof detects it
-  -> implement the fix
-  -> check the counterfactual and unrelated state
-  -> delete or shrink a fully subsumed reproducer
+  -> Primary proofの作成または強化
+  -> semantic faultの再注入
+  -> 強化したproofが検出することを確認
+  -> fixを実装
+  -> counterfactualと無関係stateを確認
+  -> 完全に包含されたreproducerを削除または縮小
 ```
 
-Do not default to one permanent test per bug. Retain an incident-specific Scenario only when its input or oracle has
-independent value after the underlying contract is directly protected.
+Bugごとに恒久testを1件残すことを既定にしない。その入力またはoracleが基礎契約の直接証明とは別の価値を持つ場合だけincident固有Scenarioを残す。
 
-When a production fix causes a new failure, first ask whether the previous change can be narrowed or reverted.
-Do not make compensating behavior the first response.
+Production fixで新しいfailureが出た場合、まず直前の変更を縮小またはrevertできるか検討する。補償behaviorの追加を第一選択にしない。
 
-## Architecture structural guards
+## Architecture structural guard
 
-A project architecture manifest may define scan roots, source extensions, exclusions, exactly-one-layer patterns,
-and per-layer forbidden tokens. Structural lint protects dependency and ownership boundaries; it must not copy the
-project's production semantics into the manifest or claim semantic correctness from token scans alone.
+Project architecture manifestはscan root、source extension、exclude、exactly-one-layer pattern、layerごとのforbidden tokenを定義できる。Structural lintはdependencyとownership境界を保護するが、projectのproduction semanticsをmanifestへ複写したり、token scanだけで意味上の正しさを主張したりしてはいけない。
 
-Retire source grep or regex guards when a stronger type system, compile boundary, module dependency, capability, or
-architecture lint makes the invalid state unrepresentable. Do not permanently freeze an obsolete implementation
-shape.
+より強いtype system、compile境界、module dependency、capability、architecture lintによりinvalid stateを表現不能にできた場合、source grep/regex guardは退役させる。廃止済み実装形状を恒久的に固定しない。
 
-## Test retirement
+## Testの退役
 
-An existing test may be removed as verification consolidation only when all conditions hold:
+既存testをverification consolidationとして削除できるのは、次をすべて満たす場合だけである。
 
-1. Its contract is identified.
-2. Another Primary proof exists.
-3. The fault caught by the old test can be reproduced.
-4. The Primary proof catches that fault.
-5. The old test has no independent oracle.
+1. 契約が特定されている。
+2. 別のPrimary proofが存在する。
+3. 旧testが検出したfaultを再現できる。
+4. Primary proofがそのfaultを検出する。
+5. 旧testが独立したoracleを持たない。
 
-Keep a suspected duplicate when these conditions are not proven. Deletion count is not progress.
+条件を証明できない疑似duplicateは残す。削除数を進捗にしない。
 
 ## Full suite
 
-Focused proof establishes root cause and the direct contract. The full suite is a secondary safety net for
-cross-domain effects, registration gaps, transports, and conflicts with existing contracts. It is not a substitute
-for fail-first evidence or a focused Primary proof.
+Focused proofはroot causeと直接の契約を証明する。Full suiteはcross-domain effect、registration gap、transport、既存契約との競合を調べるSecondary safety netであり、fail-first evidenceやfocused Primary proofの代替ではない。
 
-Completion requires the requested behavior, its architecture contract, focused proof, relevant structural checks,
-no unexplained compensation, and scope containment. A green full suite alone is insufficient.
+完了には、要求されたbehavior、そのarchitecture contract、focused proof、関連structural check、説明不能な補償がないこと、scope containmentが必要である。Full suiteがgreenであるだけでは不十分である。

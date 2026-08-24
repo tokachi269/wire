@@ -1,7 +1,6 @@
-# Portable architecture lint
+# 移植可能なarchitecture lint
 
-`architecture_lint.py` is a repository-independent engine for source boundary checks. It accepts a manifest value
-with:
+`architecture_lint.py`はsource境界を検査するrepository非依存engineである。次の値を持つmanifestを受け取る。
 
 - `scan.roots`
 - `scan.extensions`
@@ -10,27 +9,18 @@ with:
 - `layers[].patterns`
 - `layers[].forbidden_tokens`
 
-It returns every scanned file, the exactly-one-layer classification, and errors for unclassified, multiply
-classified, or forbidden-token sources. Declared scan roots are required, and a scan that yields no configured files
-fails. It contains no project domain vocabulary.
+Scanした全file、各fileのexactly-one-layer分類、未分類・複数分類・forbidden tokenのerrorを返す。宣言したscan rootは必須であり、設定された対象fileが0件のscanはfailする。Project固有のdomain語彙は持たない。
 
-Patterns are slash-separated and support `*` and `?` within one path segment. A complete `**` segment matches zero
-or more nested directories, so `source/**/*.ext` includes direct children and arbitrarily deep descendants.
-Recursive exclusions use the same semantics. Character classes and other shell-specific glob features are not part
-of the portable contract.
+Patternはslash区切りで、1つのpath segment内の`*`と`?`をsupportする。完全な`**` segmentは0個以上のnested directoryにmatchするため、`source/**/*.ext`はdirect childから任意の深さまでを含む。Recursive exclusionも同じ意味論を使う。Character classなどshell固有のglob機能はportable contractに含めない。
 
-Manifest errors are returned as lint diagnostics. Roots and extensions are non-empty string lists; layer names are
-non-empty and unique; patterns and forbidden tokens are string lists. There is no implicit optional-root behavior.
+Manifest errorはlint diagnosticとして返す。Rootとextensionは空でないstring list、layer nameは空でなく一意、patternとforbidden tokenはstring listでなければならない。暗黙のoptional-root behaviorは存在しない。
 
-Projects keep their own manifest and composition root. A composition root loads project configuration, calls
-`lint_architecture`, then adds project-specific document, semantic-coverage, and stable authority checks.
+各projectは固有のmanifestとcomposition rootを持つ。Composition rootはproject設定をloadし、`lint_architecture`を呼び、その後にproject固有のdocument、semantic coverage、stable authorityの検査を追加する。
 
-Run the synthetic self-tests with:
+合成fixtureによるself-testは次で実行する。
 
 ```powershell
 python tools/harness/test_architecture_lint.py
 ```
 
-The tests use temporary projects and cover valid classification, required roots, empty scans, malformed manifests,
-unclassified and multiply classified sources, forbidden tokens, nested patterns, recursive exclusions, multiple
-scan roots, and composition-root delegation.
+Testはtemporary projectを使い、valid classification、required root、empty scan、malformed manifest、unclassified/multiply classified source、forbidden token、nested pattern、recursive exclusion、multiple scan root、composition-root delegationを検査する。

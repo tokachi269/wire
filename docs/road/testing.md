@@ -1,14 +1,7 @@
-# Road verification
+# Road検証
 
-Road verification follows the repository-wide policy in [`../testing.md`](../testing.md). This document owns only
-Road-specific verification machinery.
+Road検証はrepository共通方針[`../testing.md`](../testing.md)に従う。この文書が所有するのはRoad固有の検証機構だけである。
 
-Production edit/load boundaries and representative test observation points use the production
-`ValidateGraphInvariants`; tests do not define a competing invariant. `tools/road_arch_lint.py` owns stable Road
-source-architecture guards, while `road_architecture_contract_tests` remains for runtime invariant, metamorphic,
-differential, and scenario evidence.
+Productionのedit/load境界と代表的なtest観測点ではproduction実装の`ValidateGraphInvariants`を使い、test側に競合するinvariantを定義しない。`tools/road_arch_lint.py`は安定したRoad source architecture guardを所有し、`road_architecture_contract_tests`はruntime invariant、metamorphic、differential、scenario evidenceを所有する。
 
-Representative catalog examples are `lane_endpoint_identity_ignores_template_order` for stable identity under
-reordering, `add_lane_leaves_unrelated_corridors_bit_identical` for non-interference, and
-`seeded_operation_sequences_preserve_contracts` for stateful sequence invariants. These names are navigation aids,
-not portable policy or required metadata.
+Catalogの代表例は、reorder時のstable identityを検証する`lane_endpoint_identity_ignores_template_order`、non-interferenceを検証する`add_lane_leaves_unrelated_corridors_bit_identical`、stateful sequence invariantを検証する`seeded_operation_sequences_preserve_contracts`である。これらの名前は参照先を見つけるための手掛かりであり、portable policyや必須metadataではない。

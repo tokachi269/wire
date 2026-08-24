@@ -1,11 +1,10 @@
-# Portable Agent Engineering Harness
+# 移植可能なAgent Engineering Harness
 
-This playbook is a project-independent workflow for agent-assisted engineering. It supplies boundary and
-verification discipline; project architecture documents continue to own product semantics.
+このplaybookはagent支援engineeringのproject非依存workflowである。境界と検証の規律を定めるが、product semanticsの正本は各projectのarchitecture文書に置く。
 
-## New concept protocol
+## 新しい概念を導入する手順
 
-Before implementation, record only the decisions that already exist:
+実装前に、すでに決まっている判断だけを記録する。
 
 ```text
 Decision
@@ -17,26 +16,23 @@ Decision
   -> transaction boundary
 ```
 
-One Decision has one Owner. Consumers use the authoritative output rather than repeating the decision from the
-same inputs. Do not design abstractions for concepts that do not yet exist.
+1つのDecisionには1つのOwnerを置く。Consumerは同じinputから判断を繰り返さず、authoritative outputを使う。まだ存在しない概念のために抽象化を設計しない。
 
-For each contract, choose protection in this order:
+各契約の保護手段は次の順で選ぶ。
 
-1. Can the invalid state be structurally unrepresentable?
-2. Can a type, module, or capability prevent it?
-3. Can architecture lint protect the stable boundary?
-4. Is a behavioral Primary proof required?
-5. Is there a meaningful metamorphic relation?
-6. Is there an equivalent path for differential proof?
-7. Is a user-facing Scenario or End-to-end proof required?
+1. Invalid stateを構造的に表現不能にできるか。
+2. Type、module、capabilityで防げるか。
+3. 安定した境界をarchitecture lintで保護できるか。
+4. Behavioral Primary proofが必要か。
+5. 意味のあるmetamorphic relationがあるか。
+6. Differential proofに使える等価経路があるか。
+7. User-facing ScenarioまたはEnd-to-end proofが必要か。
 
-Different fault classes can justify evidence at multiple levels. A token scan does not prove behavior, and an E2E
-scenario does not prove dependency ownership. Select behavioral probes from the system characteristics catalog in
-`docs/testing.md`; do not turn the catalog into a quota.
+異なるfault classには複数levelのevidenceが必要な場合がある。Token scanはbehaviorを証明せず、E2E scenarioはdependency ownershipを証明しない。Behavioral probeは`docs/testing.md`のsystem characteristic catalogから選び、quotaにしない。
 
-## Guardrail Promotion Ladder
+## Guardrail昇格の段階
 
-Do not accumulate defenses forever. Promote them when the underlying contract becomes clearer:
+防御を無制限に積み上げない。基礎契約が明確になったら次の順に昇格させる。
 
 ```text
 incident-specific assertion
@@ -45,10 +41,9 @@ incident-specific assertion
   -> type / module / capability boundary
 ```
 
-After promotion, re-inject the original fault. If the stronger mechanism detects or prevents it and the weaker
-guard has no independent oracle, evaluate the weaker test or guard for retirement.
+昇格後は元のfaultを再注入する。強い仕組みがそれを検出または防止でき、弱いguardに独立したoracleがない場合は、そのtestまたはguardを退役候補として評価する。
 
-## Bug fix protocol
+## バグ修正手順
 
 ```text
 fail-first
@@ -62,42 +57,38 @@ fail-first
   -> reproducer retirement evaluation
 ```
 
-Every production edit must be explainable as root cause, why the edit is necessary, and which focused proof fails
-without it. If a new failure appears after the fix, first narrow or revert the previous change before adding
-compensating behavior. Do not weaken an existing contract merely to make implementation pass.
+各production editは、root cause、このeditが必要な理由、このeditがなければfailするfocused proofで説明できなければならない。Fix後に新しいfailureが出た場合、補償behaviorを足す前に直前の変更を縮小またはrevertできるか調べる。実装を通すために既存契約を弱めない。
 
-## Independent verification
+## 独立検証
 
-The implementer's statement that tests pass is not completion evidence. When practical, use a separate context or
-agent to audit:
+実装者によるtest passの申告だけでは完了evidenceにならない。実用的なら別contextまたは別agentで次を監査する。
 
-- the complete diff and architecture boundaries
-- causal necessity of each production edit
-- the counterfactual or injected fault
-- unrelated changes and scope expansion
-- weakened, deleted, or implementation-coupled tests
+- 完全なdiffとarchitecture境界
+- 各production editの因果上の必要性
+- counterfactualまたは注入したfault
+- 無関係な変更とscope拡大
+- 弱体化・削除されたtest、または実装にcoupleしたtest
 
-An independent audit reports evidence and uncertainty; it does not replace focused proof.
+独立監査はevidenceと不確実性を報告するものであり、focused proofを代替しない。
 
-## Stop rule
+## 停止条件
 
-A green full suite alone is insufficient. Stop only when evidence proves:
+Full suiteがgreenであるだけでは不十分である。次をevidenceで証明できたときだけ停止する。
 
-- requested behavior
-- architecture contract and Decision owner
-- focused Primary proof
-- relevant structural checks
-- no unexplained compensation
-- scope containment
+- 要求されたbehavior
+- Architecture contractとDecision owner
+- Focused Primary proof
+- 関連するstructural check
+- 説明不能な補償がないこと
+- Scope containment
 
-Stop at the requested boundary. Do not continue into cleanup, adjacent audits, or speculative frameworks.
+要求された境界で停止し、cleanup、隣接audit、推測によるframeworkへ先回りしない。
 
-## Reusable task templates
+## 再利用可能なtask template
 
-Use these as small decision records, not as a completion checklist game. Remove a field only when it genuinely does
-not apply; do not fill it with invented detail.
+完了checklistの点取りではなく、小さなdecision recordとして使う。実際に適用不能なfieldだけを削除し、想像したdetailで埋めない。
 
-### New concept / feature
+### 新しい概念・feature
 
 ```text
 Goal:
@@ -113,7 +104,7 @@ Counterfactual: invalid owner/path or feature-disabled behavior
 Stop condition:
 ```
 
-### Bug fix / regression
+### バグ修正・regression
 
 ```text
 Goal:
@@ -145,26 +136,22 @@ Counterfactual: temporary boundary violation is detected
 Stop condition:
 ```
 
-## New project bootstrap
+## 新規projectの立ち上げ
 
-Start with the smallest harness that protects real decisions:
+実在するDecisionを保護できる最小のharnessから始める。
 
-- a short `AGENTS.md` that maps to canonical documents and commands
-- `docs/architecture.md` for state layers, identity, ownership, dependencies, and transactions
-- `docs/testing.md` for contract-centered verification policy
-- a domain architecture document when a domain first appears
-- an architecture manifest plus the generic architecture lint engine
-- one representative End-to-end path
-- focused Primary proofs for critical contracts
-- formatter, lint, build, and test commands
-- an independent review or audit path
+- 正本文書とcommandへの対応を示す短い`AGENTS.md`
+- state layer、identity、ownership、dependency、transactionを定義する`docs/architecture.md`
+- 契約中心の検証方針を定義する`docs/testing.md`
+- domainが初めて現れる時点でのdomain architecture文書
+- architecture manifestとgeneric architecture lint engine
+- 代表的なEnd-to-end path 1件
+- 重要契約のfocused Primary proof
+- formatter、lint、build、test command
+- 独立reviewまたはaudit path
 
-Do not design the complete future architecture at bootstrap. Add boundaries only for Decisions and dependencies that
-exist. Keep project semantics in project architecture, not in the portable harness or manifest.
+立ち上げ時に将来のarchitecture全体を設計しない。実在するDecisionとdependencyにだけ境界を追加する。Project semanticsはportable harnessやmanifestではなくproject architectureに置く。
 
-## Goodhart protection
+## Goodhart化の防止
 
-The harness is not a score. Do not mass-annotate tests, duplicate every contract into JSON/YAML, set test-count or
-coverage thresholds as quality targets, claim semantics from source tokens, or treat completed template fields as
-success. Measure whether critical contracts have independent fault-detecting evidence and whether invalid ownership
-is prevented at the strongest practical boundary.
+Harnessはscoreではない。Testへのmetadata一括付与、全契約のJSON/YAMLへの複写、test数やcoverage thresholdの品質目標化、source tokenからのsemantics主張、template fieldを埋めたことによる成功判定を行わない。重要契約が独立したfault-detecting evidenceを持つか、invalid ownershipを実用上最も強い境界で防いでいるかを評価する。

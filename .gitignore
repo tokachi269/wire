@@ -25,4 +25,5 @@ cmake_abi_probe.exe
 *.recipe
 *.lastbuildstate
 web/dev-*.log
-tools/__pycache__/
+__pycache__/
+*.pyc

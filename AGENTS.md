@@ -17,6 +17,7 @@ In Code Mode, within each bounded stage, run independent, functions.exec-availab
 ## 実装の判断
 - まず直近の指示から決定事項・非対象・受け入れ条件を整理する。
 - production変更前に`docs/architecture.md`、`docs/testing.md`、該当domainのarchitecture、該当operation semanticsを読む。
+- agent-development workflowは`docs/engineering/agent_harness.md`を読む。内容を本ファイルへ複製しない。
 - architecture semanticsを本ファイルへ複製しない。新しいdecisionは、実装前にcanonical architecture文書でownerを決める。
 - 操作または対応状態を増やす変更は、先に該当domainの操作×状態意味論表を更新する。未定義セルを現在の実装やtestから推測して埋めない。
 - 局所修正で済むなら局所で直す。ただし同じ意味を別の場所で再判定しているなら構造改善を優先する。

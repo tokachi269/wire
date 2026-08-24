@@ -34,6 +34,7 @@ If you already have `build-viewer\_deps\raylib-src`, `build-viewer\_deps\imgui-s
 ## lint
 
 ```cmd
+python tools\harness\test_architecture_lint.py
 python tools\arch_lint.py
 python tools\test_family_lint.py
 git diff --check

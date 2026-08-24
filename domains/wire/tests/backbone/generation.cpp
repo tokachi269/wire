@@ -483,7 +483,7 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
   std::string registry_cpp{};
   std::string runner_cpp{};
   std::string graph_cpp{};
-  std::string testing_doc{};
+  std::string wire_testing_doc{};
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains" / "wire" / "tests" / "registry.hpp", &registry_hpp),
                    "registry.hpp is missing");
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains" / "wire" / "tests" / "registry.cpp", &registry_cpp),
@@ -492,8 +492,8 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
                    "runner.cpp is missing");
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains" / "wire" / "tests" / "backbone" / "graph.cpp", &graph_cpp),
                    "graph.cpp is missing");
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs" / "testing.md", &testing_doc),
-                   "docs/testing.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs" / "wire" / "testing.md", &wire_testing_doc),
+                   "docs/wire/testing.md is missing");
   const std::array<const char*, 5> migrated_functions{
       "bool C773_backbone_incremental_sharp_completion_derives_jumper_from_continuity()",
       "bool C775_backbone_incremental_canonical_pair_survives_save_load()",
@@ -510,8 +510,8 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
   WIRE_TEST_EXPECT(contains_text(registry_hpp, "WIRE_TEST_EXPECT"), "WIRE_TEST_EXPECT macro is missing");
   WIRE_TEST_EXPECT(contains_text(registry_cpp, "SetFailureReason"), "SetFailureReason storage is missing");
   WIRE_TEST_EXPECT(contains_text(runner_cpp, "reason: "), "runner does not print failure reason");
-  WIRE_TEST_EXPECT(contains_text(testing_doc, "WIRE_TEST_EXPECT(condition, reason)"),
-                   "docs/testing.md does not document failure diagnostics");
+  WIRE_TEST_EXPECT(contains_text(wire_testing_doc, "WIRE_TEST_EXPECT(condition, reason)"),
+                   "docs/wire/testing.md does not document failure diagnostics");
   return true;
 }
 

@@ -68,6 +68,7 @@ if(BUILD_TESTING)
 
   add_custom_target(
     wire_arch_lint
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/harness/test_architecture_lint.py
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/arch_lint.py --root ${CMAKE_SOURCE_DIR}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     VERBATIM

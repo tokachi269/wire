@@ -5,17 +5,16 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
+from harness.architecture_lint import ArchitectureLintResult, lint_architecture
 from road_arch_lint import check_road_architecture
 
 
-def rel(path: Path, root: Path) -> str:
-    return path.resolve().relative_to(root.resolve()).as_posix()
-
-
-def matches(path: str, pattern: str) -> bool:
-    return PurePosixPath(path).match(pattern)
+def run_generic_architecture_checks(
+    root: Path, manifest: dict[str, object]
+) -> ArchitectureLintResult:
+    return lint_architecture(root, manifest)
 
 
 def word_present(text: str, symbol: str) -> bool:
@@ -213,7 +212,8 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
         if path.is_file() and path.suffix in {".cpp", ".hpp"}
     ]
     production_text: dict[str, str] = {
-        rel(path, root): path.read_text(encoding="utf-8", errors="replace") for path in production_files
+        path.resolve().relative_to(root.resolve()).as_posix(): path.read_text(encoding="utf-8", errors="replace")
+        for path in production_files
     }
     for guard in authority_guards:
         name = str(guard["name"])
@@ -245,9 +245,21 @@ def check_architecture_documents(root: Path) -> list[str]:
             "## Operations and build",
             "## Dependency direction",
         ),
+        "docs/testing.md": (
+            "# Verification policy",
+            "## Contract-centered verification",
+            "## Protection hierarchy",
+            "## Regression lifecycle",
+            "## Test retirement",
+        ),
         "docs/wire/architecture.md": (
             "# Wire architecture",
             "backbone_operation_semantics.md",
+        ),
+        "docs/wire/testing.md": (
+            "# Wire verification",
+            "WIRE_TEST_EXPECT(condition, reason)",
+            "## Operation-state coverage",
         ),
         "docs/wire/backbone_operation_semantics.md": (
             "## 操作×状態",
@@ -260,6 +272,18 @@ def check_architecture_documents(root: Path) -> list[str]:
         ),
         "docs/road/operation_semantics.md": (
             "## 操作 x 状態",
+        ),
+        "docs/road/testing.md": (
+            "# Road verification",
+            "ValidateGraphInvariants",
+        ),
+        "docs/engineering/agent_harness.md": (
+            "# Portable Agent Engineering Harness",
+            "## New concept protocol",
+            "## Guardrail Promotion Ladder",
+            "## Bug fix protocol",
+            "## Reusable task templates",
+            "## New project bootstrap",
         ),
     }
     errors: list[str] = []
@@ -378,14 +402,6 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
     return errors
 
 
-def excluded(path: str, patterns: list[str]) -> bool:
-    return any(
-        matches(path, pattern)
-        or (pattern.endswith("/**") and path.startswith(pattern[:-2]))
-        for pattern in patterns
-    )
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fail-closed wire architecture lint.")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -397,47 +413,15 @@ def main() -> int:
     with manifest_path.open("r", encoding="utf-8") as stream:
         manifest = json.load(stream)
 
-    extensions = set(manifest["scan"]["extensions"])
-    exclude_patterns = manifest["scan"].get("exclude_patterns", [])
-    files: list[Path] = []
-    for scan_root in manifest["scan"]["roots"]:
-        base = root / scan_root
-        if not base.exists():
+    generic = run_generic_architecture_checks(root, manifest)
+    errors = list(generic.errors)
+    guards = manifest.get("guards", {})
+    forbidden_symbols = guards.get("forbidden_symbols", [])
+    domain_symbols = guards.get("forbidden_core_domain_symbols", [])
+    for source in generic.files:
+        if source not in generic.classified:
             continue
-        files.extend(path for path in base.rglob("*") if path.is_file() and path.suffix in extensions)
-    files = [
-        path
-        for path in files
-        if not excluded(rel(path, root), exclude_patterns)
-    ]
-
-    errors: list[str] = []
-    classified: dict[str, str] = {}
-    layers = manifest.get("layers", [])
-    for path in sorted(set(files)):
-        source = rel(path, root)
-        layer_matches = [
-            layer
-            for layer in layers
-            if any(matches(source, pattern) for pattern in layer.get("patterns", []))
-        ]
-        if len(layer_matches) != 1:
-            names = [layer["name"] for layer in layer_matches]
-            errors.append(f"{source}: expected exactly one layer, found {names or 'none'}")
-            continue
-        classified[source] = layer_matches[0]["name"]
-
-    forbidden_symbols = manifest["guards"].get("forbidden_symbols", [])
-    domain_symbols = manifest["guards"].get("forbidden_core_domain_symbols", [])
-    for path in sorted(set(files)):
-        source = rel(path, root)
-        if source not in classified:
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        layer = next(item for item in layers if item["name"] == classified[source])
-        for token in layer.get("forbidden_tokens", []):
-            if token in text:
-                errors.append(f"{source}: {classified[source]} forbids {token!r}")
+        text = (root / source).read_text(encoding="utf-8", errors="replace")
         if source.startswith(("domains/wire/include/", "domains/wire/src/", "viewer/src/")):
             for symbol in forbidden_symbols:
                 if word_present(text, symbol):
@@ -457,7 +441,10 @@ def main() -> int:
             print(f"arch-lint: {error}", file=sys.stderr)
         return 1
 
-    print(f"arch-lint: pass ({len(classified)} files, {len(layers)} layers)")
+    print(
+        f"arch-lint: pass ({len(generic.classified)} files, "
+        f"{len(manifest.get('layers', []))} layers)"
+    )
     return 0
 
 

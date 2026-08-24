@@ -1,209 +1,129 @@
-# テスト体系
+# Verification policy
 
-この文書はrepository全体のverification policyの唯一の正本である。architecture semanticsは
-`docs/architecture.md`と各domain architecture、操作意味は各operation semanticsを正本とし、
-test、ledger、manifestから意味を逆算しない。
+This document is the repository-wide, project-independent source of truth for verification policy.
+Architecture semantics belong to `docs/architecture.md` and domain architecture documents; operation meaning
+belongs to operation semantics documents. Tests, ledgers, manifests, and coverage reports are evidence, not the
+semantic source of truth.
+
+Project-specific machinery is documented separately. In this repository, see
+[`wire/testing.md`](wire/testing.md) and [`road/testing.md`](road/testing.md).
 
 ## Contract-centered verification
 
-verificationの管理単位はtest case数ではなくcontractである。各重要contractは原則として次を持つ。
+The management unit is a contract, not a test case count. Each critical contract should normally have:
 
-- Primary proof: contractを最も直接証明するものを1つ
-- Secondary proof: production-likeな別経路や別表現から必要な場合だけ1～2個
-- Structural guard: dependency、type、compile/link boundary、安定したsource structureなど、behaviorでは証明しづらい境界だけ
+- Primary proof: the single most direct proof of the contract
+- Secondary proof: one or two alternate production-like paths when they detect a distinct risk
+- Structural guard: a dependency, type, compile/link, module, or stable source boundary when behavior alone
+  cannot prove the structure
 
-Primary proofの不在を多数の間接scenarioやSourceGuardで代替しない。同じfaultを捕まえるcaseを追加するときは、
-既存proofの強化、置換、退役を先に検討する。
+Do not replace a missing Primary proof with many indirect scenarios or SourceGuards. Before adding another case
+for the same fault, consider strengthening, replacing, or retiring existing evidence.
+
+## Protection hierarchy
+
+Prefer the strongest mechanism that prevents the relevant fault class:
+
+```text
+capability / type / module boundary
+  > architecture structural lint
+  > behavioral Primary proof
+  > metamorphic / differential proof
+  > Scenario / End-to-end proof
+  > full regression suite
+```
+
+This is not a rule that higher layers make all lower layers unnecessary. Keep mechanisms that detect different
+fault classes. Evaluate quality by whether every critical contract has independent proof, not by test count or
+coverage percentage.
 
 ## Evidence classes
 
-| class | 証明対象 |
+| Class | What it proves |
 |---|---|
-| Structural | dependency、type、compile/link boundary、安定したsource architecture |
-| Invariant / Contract | authoritative stateと意味的不変条件 |
-| Metamorphic | reversed input、operation order、representation changeでも保存される意味 |
-| Differential | scoped/full、click/Enter、同等な2つのentry pathの一致 |
-| Scenario | 重要incident reproducer、production-like configuration |
-| End-to-end | adapter、WASM、viewer transportを含む境界 |
+| Structural | dependency, type, compile/link boundary, stable source architecture |
+| Invariant / Contract | authoritative state and semantic invariants |
+| Metamorphic | meaning preserved across input reversal, operation order, or representation changes |
+| Differential | agreement between scoped/full or equivalent entry paths |
+| Scenario | an important incident reproducer or production-like configuration |
+| End-to-end | adapter, transport, runtime, and user-facing boundary |
 
-SourceGuardはStructural evidenceであり、behavior proofの代わりにしない。
+SourceGuard is Structural evidence. It does not substitute for behavioral proof.
 
-## test family
+## Fail-first and diagnostics
 
-| family | 目的 |
-|---|---|
-| default core tests | public behavior、validation、geometry、state serviceを含む通常回帰 |
-| backbone acceptance | generation、SavedGraph、binding、layout/geom/draw、update境界 |
-| viewer tests | input policy、座標変換、selection、代表sceneの表示出力 |
-| architecture lint | source layer分類と禁止依存 |
-| test family lint | 登録testのowner分類 |
+For a new scenario or bug fix, first show that the current production behavior violates the contract. Adding a
+case that already passes is not regression proof. Assertions should identify the first failed operation boundary
+or invariant rather than returning an unexplained boolean.
 
-backbone acceptanceのfilterは`backbone`である。旧`bb2` filter aliasは持たない。
+When a change claims zero behavior change, state the equivalence proof: authoritative byte equality, bit equality,
+unchanged behavioral tests, or another contract-specific comparison. A skipped test is not a pass.
 
-```powershell
-build-vs18-coretests\domains\wire\Debug\wire_core_tests.exe backbone
-```
+## Test effectiveness
 
-## fixture
+Line and branch coverage show execution, not fault detection. Evaluate a verification family by injecting a small,
+representative semantic fault and observing whether it fails at a meaningful contract boundary. Syntactic mutation
+is useful for finding assertions that prove nothing, but it does not cover state ownership, stale derived output,
+partial mutation, transport drift, or silent fallback failures.
 
-backbone fixtureは`domains/wire/tests/backbone/fixtures.*`に置く。
-testはv1 topology API、existing span geometry、position proximityから入力正本を組み立てない。
-代表sceneは結果だけでなく、topology/connectivity/placementのownerも検証する。
+Historical incidents are high-value fault models. Reproduce the same semantic fault in current code when practical;
+building an old commit is optional. Mutation and semantic fault injection are temporary verification-audit work and
+are not normally committed as permanent tests. Store useful investigation history in an audit log, not in the
+current contract specification.
 
-## test family manifest
-
-`domains/wire/tests/test_family_manifest.json`はtest sourceのownerをfamily単位で管理する。
-新しい登録test sourceが未分類、または複数familyへ分類された場合はlintを失敗させる。
-C番号は履歴識別子として維持するが、C番号の増加を進捗指標にしない。
-
-## failure diagnostics
-
-新規testは `WIRE_TEST_EXPECT(condition, reason)` で主要な前提と不変条件を検査する。
-既存testを触る場合は、その関数内の入口条件や複数手順の主要境界から理由付きへ移行する。
-全既存testの機械的一括移行は進捗ではない。複数手順のfailは、最初に壊れた操作名や期待した不変条件を
-reasonに残す。
-
-## 操作×状態coverageと不変条件
-
-操作×状態coverageは、意味論表のrequired cellへ実際に到達したことを保証する。
-内部整合の正しさはcoverageへ詰め込まず、各観測点で共通不変条件を実行して保証する。
-
-- wire: `Observe` / `ObserveEmpty` / `ObserveMidspan`がrow frame coherenceを検査してから
-  `(cell, entry)`を記録する
-- core entry: 全required cellを`core_api`で実行する
-- WASM / viewer entry: `docs/wire/backbone_operation_semantics.md`の入口境界表を
-  web testが読み、実WASM stateと`ViewerActions` payloadで必須cellを実行する
-- road: productionのedit/load境界とtestの代表観測点、seed付き操作列で、同じ
-  `ValidateGraphInvariants`を使用する。test専用の別invariantは作らない
-
-`derived_equality`だけのcaseは独立evidenceにならない。full core testは該当case一覧を
-終了時に出力し、件数を`docs/merge_readiness.md`へ記録する。
-
-### canonical backbone acceptance
-
-正常な`CoreState`を生成、更新、regenerate、loadしたbackbone acceptanceは、安定した観測点ごとに
-次の順で検査する。
-
-```text
-canonical successful backbone scenario
-    -> WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state)
-    -> scenario-specific oracle
-```
-
-`WIRE_TEST_EXPECT_BACKBONE_INVARIANTS`は`backbone_common_invariants_pass()`を呼ぶ唯一の通常test入口で、
-scene全体の最低成立条件を`Anchor`として記録する。個別scenarioが守る形状、identity、差分、件数、
-方向等は`Oracle`または`Differential`等として後段に残し、common invariantへ吸収しない。
-
-対象はstraight、corner、branch、cross、multi-lane、incremental、regenerate、save/load、model/socket、
-midair、production-like configuration等の代表的な成功scenarioである。新しいcanonical successful
-scenarioも原則この入口を通す。複数操作を持つtestは、initial generation後、edit後、load後等のうち、
-仕様上安定した最終stateだけを観測する。
-
-invalid input/reject、SourceGuard、pure unit、parser/template単体、intentional intermediate stateには
-一律適用しない。全caseへの機械的追加やmacro文字列のgrep件数をcoverage根拠にしない。
-適用漏れが実際に再発するまでは専用lintやclassification hierarchyを追加しない。
-
-現在の`backbone_common_invariants_pass()`がauthoritative reference、layout/endpoint、row/frame、
-model/cache、visual geometry、connection、HV crossingまで含むため、別の
-`WIRE_TEST_EXPECT_SCENE_BASELINE`は設けない。共通でないmulti-levelの具体高さや曲線形状等は、
-引き続きscenario固有oracleが所有する。
-
-## test effectiveness
-
-test count、line coverage、branch coverageだけでは、test suiteの価値は評価できない。
-coverageは「そのコードを通った」ことは示せるが、「そのコードが壊れたとき検出できる」
-ことまでは保証しない。重要なのは、重要な故障を実際に入れたとき、そのtest familyが
-意味のある場所で失敗できることである。
-
-通常のmutation testingは、return値変更、比較演算子変更、条件反転のようなsyntactic
-mutationでもpassしてしまう0点testの発見に有効である。一方、実際のregressionは、
-connection visualを丸ごと生成しない、incrementalだけ古い状態を使う、owner transformを
-modelへ伝播しない、production bootstrap時だけ意味が変わる、connectivityをsilent skipする、
-といったsemanticな壊れ方をする。test effectiveness評価ではsyntactic mutationだけでなく、
-現在codeへ小さなtemporary semantic faultを入れて、既存test familyが検出できるかを確認する。
-fault injection自体はcommitしない。
-
-評価単位は個別testではなく契約である。例えば「continuous connectionはvisual connectionを持つ」
-という契約は、fresh、continuation、branch、midair、reverse、regenerate、save/load、
-production configurationのどこから守られているかを見る。C番号やtest件数を増やすことを目的にせず、
-重要契約をsuite全体がどの程度守れているかを評価する。
-
-過去に実際に起きた不具合は、最も価値の高いfault modelの一つである。実際の過去commitを
-そのままbuildする必要はない。現在codeへ過去故障と意味的に同じtemporary mutationを入れ、
-現在のtest suiteが検出できるか確認してよい。安全に再現可能なら古いcommitを使ってもよい。
-
-mutationやsemantic fault injectionはverification suite自身を評価する一時作業であり、通常testとしてcommitしない。
-結果はcurrent contract specへ継ぎ足さず、必要ならhistorical audit logへ残す。
-
-全test pass後に実使用で見つかったregressionは、test effectiveness不足の証拠として扱う。
-bug修正時は、新しいregression testを追加しただけで完了にしない。なぜ既存testが逃したかを、
-common invariant不足、production fidelity不足、scenario不足、semantic assertion不足、
-condition complexity、実装詳細だけを見たassert、特定fixtureへ閉じた過去fixのいずれかとして
-分類し、必要なら既存common invariantやproduction-like sanityへ戻す。
+If a regression escaped a green suite, classify why: missing invariant, insufficient production fidelity, missing
+scenario, weak semantic assertion, condition complexity, implementation-detail assertion, or an old fix trapped in
+one fixture. Strengthen the contract owner rather than only adding another symptom case.
 
 ## Regression lifecycle
 
-新規scenarioとbug修正はfail-firstとし、修正前のproductionでcontract違反を検出することを先に確認する。
-既にpassするcaseを追加するだけではregression proofとしない。bug修正は次の順で扱う。
+Use this lifecycle for a bug fix:
 
 ```text
 incident reproducer
   -> root cause
   -> underlying contract
-  -> Primary proofの新設または強化
-  -> semantic faultの再注入
-  -> stronger proofがfaultを検出することを確認
-  -> reproducerが完全にsubsumedされた場合は削除または縮小
+  -> create or strengthen the Primary proof
+  -> re-inject the semantic fault
+  -> confirm the stronger proof detects it
+  -> implement the fix
+  -> check the counterfactual and unrelated state
+  -> delete or shrink a fully subsumed reproducer
 ```
 
-bugごとに永久testを1件追加することを既定にしない。incident固有の入力やoracleに独立価値が残る場合だけ
-Scenario evidenceとして維持する。
+Do not default to one permanent test per bug. Retain an incident-specific Scenario only when its input or oracle has
+independent value after the underlying contract is directly protected.
 
-## architecture guard
+When a production fix causes a new failure, first ask whether the previous change can be narrowed or reverted.
+Do not make compensating behavior the first response.
 
-`tools/arch_manifest.json`と`tools/arch_lint.py`は次を検出する。
+## Architecture structural guards
 
-- 未分類source/header
-- viewerからcore private headerへの依存
-- geometry/validationからgeneration privateへの逆依存
-- recalc/support-layout familyの復活
-- domains/road/rail/building/city domain identityのcore流入
-- `docs/wire/backbone_operation_semantics.md` の操作×状態表と
-  `domains/wire/tests/spec_ledger.md` の `BOS:<operation>:<state>` coverage 対応漏れ
+A project architecture manifest may define scan roots, source extensions, exclusions, exactly-one-layer patterns,
+and per-layer forbidden tokens. Structural lint protects dependency and ownership boundaries; it must not copy the
+project's production semantics into the manifest or claim semantic correctness from token scans alone.
 
-source scanは安定した境界だけに使う。広い単語grepをtest semanticsの代わりにしない。
-
-source grep / regex guardは、より強いtype system、compile boundary、module dependency、architecture lintへ
-置換できた時点で退役する。古いimplementation shapeを永久固定するためには残さない。
+Retire source grep or regex guards when a stronger type system, compile boundary, module dependency, capability, or
+architecture lint makes the invalid state unrepresentable. Do not permanently freeze an obsolete implementation
+shape.
 
 ## Test retirement
 
-既存testは、次の条件をすべて満たす場合にverification consolidationとして削除できる。
+An existing test may be removed as verification consolidation only when all conditions hold:
 
-1. 守っているcontractが特定済みである
-2. 別のPrimary proofが存在する
-3. 元testが捕まえたfaultを再現できる
-4. Primary proofがそのfaultを捕まえる
-5. 元testだけが持つ独立oracleがない
+1. Its contract is identified.
+2. Another Primary proof exists.
+3. The fault caught by the old test can be reproduced.
+4. The Primary proof catches that fault.
+5. The old test has no independent oracle.
 
-条件を確認できない完全重複候補は残す。削除数そのものを進捗にしない。
+Keep a suspected duplicate when these conditions are not proven. Deletion count is not progress.
 
 ## Full suite
 
-focused proofはroot causeと直接contractを示す。full suiteはdomain横断の副作用、登録漏れ、transport、
-既存contractとの衝突を確認するsecondary safety netであり、Primary proofやfail-firstの代わりではない。
-skipはpassに数えず、結果報告ではskip数を確認する。挙動変更ゼロのrefactorはauthoritative byte一致、
-bit一致、既存test無変更通過など、変更に対応する等価性証明を明示する。
+Focused proof establishes root cause and the direct contract. The full suite is a secondary safety net for
+cross-domain effects, registration gaps, transports, and conflicts with existing contracts. It is not a substitute
+for fail-first evidence or a focused Primary proof.
 
-## 旧test
-
-旧testの期待値をそのままbackboneの合格基準にしない。
-守っていた制約を抽出し、次のいずれかに分類する。
-
-- そのまま維持
-- backboneの正本/派生出力で書き換え
-- v1実装詳細としてfamily退役
-- 現設計と衝突するため削除
-
-unsupported testはstate unchangedまで確認する。
-post-edit testはmarkerではなく、実際のlayout/geom/draw更新またはmutation前rejectを確認する。
+Completion requires the requested behavior, its architecture contract, focused proof, relevant structural checks,
+no unexplained compensation, and scope containment. A green full suite alone is insufficient.

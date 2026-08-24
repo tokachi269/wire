@@ -167,7 +167,7 @@
     },
     {
       "name": "tools",
-      "patterns": ["domains/wire/tools/*.cpp", "tools/*.py"],
+      "patterns": ["domains/wire/tools/*.cpp", "tools/*.py", "tools/harness/*.py"],
       "forbidden_tokens": []
     }
   ],

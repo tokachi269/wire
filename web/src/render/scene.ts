@@ -34,6 +34,18 @@ const POLE_TAPER_RATIO = 75;
 export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
+const LOCAL_DECORATION_SUPPLEMENTAL_KIND = 3;
+const HIDDEN_SUPPORT_DETAIL_MODEL_KEYS = new Set([
+  "pole_decoration_x",
+  "pole_transformer_20kva_proxy",
+  "transformer_intermediate_insulator_proxy",
+  "transformer_support_bracket_proxy",
+  "pc6_cutout_proxy",
+  "tma13_cutout_mount_proxy",
+  "arrester_gl_b6g_proxy",
+  "hv_triplex_termination_60_proxy",
+  "aerial_optical_closure_rca3ao_proxy"
+]);
 
 interface ModelMeshSource {
   geometry: THREE.BufferGeometry;
@@ -1541,8 +1553,11 @@ export class WireScene {
     let reused = 0;
     let rebuilt = 0;
     let removed = 0;
+    let visiblePartCount = 0;
     const nextPartKeys = new Set<string>();
     for (const part of snapshot.parts) {
+      if (part.info.supplementalKind === LOCAL_DECORATION_SUPPLEMENTAL_KIND) continue;
+      visiblePartCount += 1;
       const key = part.info.partKey;
       nextPartKeys.add(key);
       const version = [
@@ -1609,7 +1624,11 @@ export class WireScene {
     const modeledPoleIds = new Set<string>();
     const nextModelKeys = new Set<string>();
     const modelsByKey = new Map<string, VisualModelInstanceInfo[]>();
+    let visibleModelCount = 0;
     for (const model of snapshot.models) {
+      if (model.stableKey.startsWith("pole-decoration:") ||
+          HIDDEN_SUPPORT_DETAIL_MODEL_KEYS.has(model.modelKey)) continue;
+      visibleModelCount += 1;
       nextModelKeys.add(model.stableKey);
       if (model.stableKey.startsWith("pole:")) {
         const separator = model.stableKey.indexOf(":", 5);
@@ -1716,11 +1735,11 @@ export class WireScene {
       changed = true;
     }
     this.contentSyncStats = {
-      total: snapshot.parts.length,
+      total: visiblePartCount,
       reused,
       rebuilt,
       removed,
-      modelTotal: snapshot.models.length,
+      modelTotal: visibleModelCount,
       modelReused,
       modelUpdated,
       modelRebuilt,

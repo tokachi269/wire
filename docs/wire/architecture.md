@@ -55,6 +55,9 @@ GLBを読む責務はasset adapterに留める。adapterはmodel key、local tra
 socketからcarrierを探したり、local cable curveやmaterialを決めたりしない。socket名のWire上の意味はCoreだけが
 解釈する。CoreはGLB parserを持たない。
 
+未完成のsupport detail catalogは、Coreの派生・保存契約を変えずviewerのpresentation availabilityとして
+非表示にしてよい。この境界で配置、接続先、curve、material semanticsを再計算してはいけない。
+
 ### session draft state
 
 `ResolveBranchPick()` が作る pending support node は、次の draw request へ pick 結果を渡すための

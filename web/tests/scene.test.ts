@@ -687,7 +687,7 @@ describe("scene model reuse", () => {
     (modelAssetCache as any).loaded.delete("poleBody");
   });
 
-  it("renders support-detail proxy model keys through primitive assets without GLB load", () => {
+  it("keeps unfinished pole decorations out of viewer content", () => {
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
@@ -696,8 +696,29 @@ describe("scene model reuse", () => {
     scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
     const snapshot = createViewerSnapshot();
+    snapshot.parts = [{
+      info: {
+        partKey: "pole-decoration-lead:1",
+        sourceVersion: "1",
+        sampleOffset: 0,
+        kind: 3,
+        supplementalKind: 3,
+        wireRadius: 0.02,
+        materialStyle: 0,
+        colorRgba: 0xffffffff,
+        sourceNodeId: "1",
+        sourceEdgeId: "1",
+        sourceSpanId: "1",
+        sourceBundleId: "1",
+        bundleTemplateId: 101,
+        laneIndex: 0,
+        runId: 1,
+        sampleCount: 2
+      },
+      samples: new Float64Array([0, 0, 0, 1, 0, 0])
+    }];
     snapshot.models = [{
-      stableKey: "detail:transformer:1",
+      stableKey: "pole-decoration:1:9208:1",
       modelKey: "pole_transformer_20kva_proxy",
       contentVersion: "1",
       positionX: 1,
@@ -711,9 +732,15 @@ describe("scene model reuse", () => {
       scaleZ: 0.8
     }];
 
-    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.syncContent(snapshot)).toBe(false);
     expect(scene.pendingModelKeys.size).toBe(0);
-    expect(scene.modelBatches.get("pole_transformer_20kva_proxy")!.capacity).toBe(1);
-    expect(scene.content.children[0]).toBeInstanceOf(THREE.InstancedMesh);
+    expect(scene.partMeshes.size).toBe(0);
+    expect(scene.modelObjects.size).toBe(0);
+    expect(scene.modelBatches.size).toBe(0);
+    expect(scene.content.children).toHaveLength(0);
+    expect(scene.contentSyncStats).toEqual({
+      total: 0, reused: 0, rebuilt: 0, removed: 0,
+      modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
+    });
   });
 });

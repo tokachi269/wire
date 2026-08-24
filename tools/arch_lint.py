@@ -126,6 +126,42 @@ def parse_backbone_authority_guards(text: str) -> tuple[list[dict[str, object]],
     return guards, errors
 
 
+def check_authority_guard_owners(
+    authority_guards: list[dict[str, object]],
+    production_text: dict[str, str],
+) -> list[str]:
+    errors: list[str] = []
+    for guard in authority_guards:
+        name = str(guard["name"])
+        owner = str(guard["owner"])
+        owner_text = production_text.get(owner)
+        if owner_text is None:
+            errors.append(
+                f"domains/wire/tests/spec_ledger.md: authority guard {name} owner is missing: {owner}"
+            )
+            continue
+        for token in sorted(guard["required"]):
+            if token not in owner_text:
+                errors.append(
+                    f"domains/wire/tests/spec_ledger.md: authority guard {name} owner missing token {token}"
+                )
+        for token in sorted(guard["forbidden"]):
+            if token in owner_text:
+                errors.append(
+                    f"domains/wire/tests/spec_ledger.md: authority guard {name} owner contains forbidden token {token}"
+                )
+        for token in sorted(guard["unique"]):
+            owners = sorted(
+                path for path, text in production_text.items() if token in text
+            )
+            if owners != [owner]:
+                errors.append(
+                    f"domains/wire/tests/spec_ledger.md: authority guard {name} token {token} "
+                    f"appears outside owner: {', '.join(owners) or 'none'}"
+                )
+    return errors
+
+
 def check_backbone_semantics_coverage(root: Path) -> list[str]:
     docs_path = root / "docs" / "wire" / "backbone_operation_semantics.md"
     ledger_path = root / "domains" / "wire" / "tests" / "spec_ledger.md"
@@ -215,25 +251,7 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
         path.resolve().relative_to(root.resolve()).as_posix(): path.read_text(encoding="utf-8", errors="replace")
         for path in production_files
     }
-    for guard in authority_guards:
-        name = str(guard["name"])
-        owner = str(guard["owner"])
-        owner_text = production_text.get(owner)
-        if owner_text is None:
-            errors.append(f"domains/wire/tests/spec_ledger.md: authority guard {name} owner is missing: {owner}")
-            continue
-        for token in sorted(guard["required"]):
-            if token not in owner_text:
-                errors.append(f"domains/wire/tests/spec_ledger.md: authority guard {name} owner missing token {token}")
-        for token in sorted(guard["forbidden"]):
-            if token in owner_text:
-                errors.append(f"domains/wire/tests/spec_ledger.md: authority guard {name} owner contains forbidden token {token}")
-        for token in sorted(guard["unique"]):
-            owners = sorted(path for path, text in production_text.items() if token in text)
-            if owners != [owner]:
-                errors.append(
-                    f"domains/wire/tests/spec_ledger.md: authority guard {name} token {token} appears outside owner: {', '.join(owners) or 'none'}"
-                )
+    errors.extend(check_authority_guard_owners(authority_guards, production_text))
     return errors
 
 def check_architecture_documents(root: Path) -> list[str]:
@@ -249,6 +267,9 @@ def check_architecture_documents(root: Path) -> list[str]:
             "# Verification policy",
             "## Contract-centered verification",
             "## Protection hierarchy",
+            "## Oracle independence",
+            "## Behavioral probe catalog",
+            "### Pattern selection guide",
             "## Regression lifecycle",
             "## Test retirement",
         ),
@@ -410,12 +431,17 @@ def main() -> int:
     root = args.root.resolve()
     manifest_path = args.manifest if args.manifest.is_absolute() else root / args.manifest
 
-    with manifest_path.open("r", encoding="utf-8") as stream:
-        manifest = json.load(stream)
+    try:
+        with manifest_path.open("r", encoding="utf-8") as stream:
+            manifest = json.load(stream)
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"arch-lint: cannot load manifest {manifest_path}: {error}", file=sys.stderr)
+        return 1
 
     generic = run_generic_architecture_checks(root, manifest)
     errors = list(generic.errors)
-    guards = manifest.get("guards", {})
+    manifest_object = manifest if isinstance(manifest, dict) else {}
+    guards = manifest_object.get("guards", {})
     forbidden_symbols = guards.get("forbidden_symbols", [])
     domain_symbols = guards.get("forbidden_core_domain_symbols", [])
     for source in generic.files:
@@ -443,7 +469,7 @@ def main() -> int:
 
     print(
         f"arch-lint: pass ({len(generic.classified)} files, "
-        f"{len(manifest.get('layers', []))} layers)"
+        f"{len(manifest_object.get('layers', []))} layers)"
     )
     return 0
 

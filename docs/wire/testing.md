@@ -75,6 +75,13 @@ scenario-specific oracles.
 retired source families, domain-identity leakage, operation-state/BOS coverage mapping, and authority guard owners.
 Stable source checks remain Structural evidence and do not replace behavior tests.
 
+## Portable catalog examples
+
+Examples of the common behavioral probe catalog are `C741_scoped_visual_curve_rebuild_matches_full_rebuild` for
+incremental-vs-full differential, `C754_authoritative_load_rejects_invalid_text_without_mutation` for failed-load
+atomicity, and `C780_backbone_incremental_duplicate_values_are_order_independent_by_placement_key` for independent
+component ordering. These are examples, not a second definition of the common policy.
+
 ## Legacy tests
 
 Do not treat a legacy test expectation as the Backbone acceptance source of truth. Extract its contract and classify

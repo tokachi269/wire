@@ -50,6 +50,45 @@ coverage percentage.
 
 SourceGuard is Structural evidence. It does not substitute for behavioral proof.
 
+## Oracle independence
+
+A Primary proof must not compute its expected result by calling the same production decision or helper that it is
+checking. That proves self-consistency, not correctness. Prefer an independent formula or oracle, a known anchor, a
+metamorphic relation, or a differential implementation/path. Reusing a production helper can still be useful as a
+Secondary consistency assertion when the Primary proof has an independent basis.
+
+## Behavioral probe catalog
+
+Select probes from system characteristics and credible fault models. This catalog is not a mandatory checklist or a
+test-count quota.
+
+| Characteristic | Representative probes |
+|---|---|
+| Stateful mutation | failure atomicity; unrelated-state non-interference; deterministic repeat when the operation promises it |
+| Persistence | save -> load -> save; derived rebuild equivalence after load; failed load leaves identities, IDs, and counters unchanged |
+| Incremental or cached result | incremental result vs clean/full rebuild differential; update followed by stale-cache detection |
+| Stable identity | reorder arrays without changing identity; change geometry without changing identity; reject missing identity instead of guessing from proximity, name, or order |
+| Independent composition | compare A with the A portion of A+B; permute independent component order |
+| Equivalent entries | compare semantic request and result across API, adapter, UI, or transport entries |
+| Geometry or directional data | reverse input, symmetry, and permutation relations that preserve the defined meaning |
+| Stateful sequence | deterministic seeded operations; invariant at every step; periodic persistence roundtrip; invalid operation leaves state unchanged |
+
+### Pattern selection guide
+
+| Feature characteristic | Consider first |
+|---|---|
+| authoritative mutation | atomicity and non-interference |
+| cache or incremental derivation | full-vs-incremental differential and stale-cache probe |
+| stable identity | reorder and geometry-change metamorphic probes |
+| persistence | roundtrip, derived rebuild, and failed-load counter stability |
+| multiple adapters or entries | semantic entry differential |
+| order-independent composition | component permutation and A-vs-A+B |
+| directional geometry | reverse, symmetry, or defined permutation relation |
+| multi-step state machine | seeded sequence, per-step invariant, periodic roundtrip, invalid-step unchanged |
+
+Choose only probes that correspond to actual contracts and plausible faults. A characteristic can require more than
+one probe when the probes have independent oracles.
+
 ## Fail-first and diagnostics
 
 For a new scenario or bug fix, first show that the current production behavior violates the contract. Adding a

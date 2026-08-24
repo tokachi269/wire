@@ -31,7 +31,8 @@ For each contract, choose protection in this order:
 7. Is a user-facing Scenario or End-to-end proof required?
 
 Different fault classes can justify evidence at multiple levels. A token scan does not prove behavior, and an E2E
-scenario does not prove dependency ownership.
+scenario does not prove dependency ownership. Select behavioral probes from the system characteristics catalog in
+`docs/testing.md`; do not turn the catalog into a quota.
 
 ## Guardrail Promotion Ladder
 

@@ -299,6 +299,35 @@ h1 {
   pointer-events: none;
 }
 
+.session-controls {
+  position: absolute;
+  z-index: 17;
+  left: 50%;
+  bottom: 48px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(83, 96, 102, 0.85);
+  border-radius: 3px;
+  background: rgba(27, 32, 35, 0.9);
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
+}
+
+.session-controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.session-controls button:disabled {
+  cursor: default;
+  opacity: 0.42;
+  transform: none;
+}
+
 .tool-group {
   display: flex;
   gap: 3px;
@@ -387,9 +416,8 @@ h1 {
   background: #44494b;
 }
 
-.repro-button {
-  width: 100%;
-  margin-bottom: 0.55rem;
+.road-profile .shoulder {
+  background: #343a3c;
 }
 
 .path-preview,
@@ -428,9 +456,9 @@ h1 {
   font-size: var(--sidebar-small-size);
 }
 
-.road-error {
+.road-preview-issue {
   margin: 0.55rem 0 0;
-  color: #ffb4a8;
+  color: #c7b98a;
   font-size: var(--sidebar-small-size);
 }
 
@@ -585,7 +613,8 @@ aside {
 
 aside > span,
 aside > .metric-button,
-.error {
+.error,
+.commit-failure {
   border: 1px solid var(--line);
   background: var(--panel);
   padding: 0.3rem 0.5rem;
@@ -701,9 +730,6 @@ aside .metric:focus {
 }
 
 .outliner {
-  border: 0;
-  background: var(--panel);
-  padding: 0.6rem;
   max-height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
@@ -713,13 +739,6 @@ aside .metric:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.outliner h2,
-.outliner h3 {
-  margin: 0 0 0.5rem;
-  font: 600 var(--sidebar-title-size) "JetBrains Mono", monospace;
-  color: var(--accent);
 }
 
 .entity-lists {
@@ -753,7 +772,7 @@ aside .metric:focus {
   padding-top: 0.3rem;
 }
 
-.selection-inspector {
+.sidebar-card {
   display: grid;
   min-width: 0;
   gap: 0.55rem;
@@ -763,12 +782,17 @@ aside .metric:focus {
   font-size: var(--sidebar-control-size);
 }
 
-.selection-inspector h2 {
+.sidebar-card h2 {
   margin: 0 0 0.15rem;
   font: 600 var(--sidebar-title-size) "JetBrains Mono", monospace;
   color: var(--accent);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.outliner-title button {
+  width: auto;
+  margin: 0 0 0.15rem;
 }
 
 .template-grid section {
@@ -936,6 +960,41 @@ summary {
   gap: 0.4rem;
 }
 
+.commit-failure {
+  display: grid;
+  max-width: min(620px, calc(100vw - 12px));
+  gap: 0.18rem;
+  border-color: #b3763d;
+  border-left: 3px solid #e3a45f;
+  color: #e8ecea;
+  background: rgba(50, 37, 27, 0.96);
+  pointer-events: auto;
+}
+
+.commit-failure strong {
+  color: #ffd0a0;
+}
+
+.commit-failure span,
+.commit-failure code {
+  overflow-wrap: anywhere;
+}
+
+.commit-failure code {
+  color: #b9c2bf;
+  font-size: 0.72rem;
+}
+
+.commit-failure details {
+  margin-top: 0.2rem;
+  padding-top: 0.25rem;
+}
+
+.commit-failure summary {
+  color: #cbd3d0;
+  font-size: 0.72rem;
+}
+
 .settings button {
   width: 100%;
   margin-top: 0.65rem;
@@ -951,6 +1010,48 @@ summary {
   background: #17201d;
   color: var(--accent);
   font-size: var(--sidebar-control-size);
+}
+
+.build-mismatch {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(13, 16, 18, 0.82);
+}
+
+.build-mismatch section {
+  width: min(520px, 100%);
+  padding: 1rem;
+  border: 1px solid #a55047;
+  border-radius: 4px;
+  background: #242a2d;
+  color: #e4e8e6;
+}
+
+.build-mismatch section > strong {
+  color: #ffb4a8;
+  font-size: 1rem;
+}
+
+.build-mismatch dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0.75rem 0 0;
+}
+
+.build-mismatch dt {
+  color: var(--muted);
+}
+
+.build-mismatch dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: "JetBrains Mono", monospace;
 }
 
 .last-log {
@@ -1005,6 +1106,16 @@ summary {
     max-width: calc(100vw - 12px);
     flex-wrap: wrap;
     justify-content: center;
+  }
+
+  .session-controls {
+    bottom: 48px;
+    width: min-content;
+    max-width: calc(100vw - 8px);
+  }
+
+  .session-controls button {
+    padding: 0.42rem;
   }
 
   .right-region {

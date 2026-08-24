@@ -18,9 +18,10 @@ viewerは不足したtopologyやplacementを推測しない。
 2. [wire architecture](docs/wire/architecture.md)
 3. [merge readiness](docs/merge_readiness.md)
 4. [testing](docs/testing.md)
-5. [command cheatsheet](docs/command_cheatsheet.md)
-6. [wire documents](docs/wire/README.md)
-7. [road documents](docs/road/README.md)
+5. [portable agent engineering harness](docs/engineering/agent_harness.md)
+6. [command cheatsheet](docs/command_cheatsheet.md)
+7. [wire documents](docs/wire/README.md)
+8. [road documents](docs/road/README.md)
 
 ## Quick check
 

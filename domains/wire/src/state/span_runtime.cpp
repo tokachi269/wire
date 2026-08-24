@@ -440,13 +440,63 @@ void CoreState::cache_span_rules(const SpanLayoutRules& rules) {
 void CoreState::remove_span_from_caches(ObjectId span_id) {
   runtime_.cache_state.curve_cache.by_span.erase(span_id);
   runtime_.cache_state.bounds_cache.by_span.erase(span_id);
-  runtime_.cache_state.span_layout_cache.clear_layout(span_id);
+  runtime_.cache_state.span_layout_cache.erase_record(span_id);
   runtime_.cache_state.visual_cache.by_span.erase(span_id);
   runtime_.cache_state.render_cache.by_span.erase(span_id);
   auto& parts = runtime_.cache_state.visual_curve_part_cache.parts;
   parts.erase(std::remove_if(parts.begin(), parts.end(),
                              [&](const VisualCurvePart& part) { return part.source_span_id == span_id; }),
               parts.end());
+}
+
+EditResult<bool> CoreState::merge_cached_span_outputs_from(
+    const CoreState& source, ObjectId span_id) {
+  EditResult<bool> out{};
+  const auto layout_it =
+      source.runtime_.cache_state.span_layout_cache.records_by_span.find(span_id);
+  const auto curve_it =
+      source.runtime_.cache_state.curve_cache.by_span.find(span_id);
+  const auto bounds_it =
+      source.runtime_.cache_state.bounds_cache.by_span.find(span_id);
+  const auto visual_it =
+      source.runtime_.cache_state.visual_cache.by_span.find(span_id);
+  const auto render_it =
+      source.runtime_.cache_state.render_cache.by_span.find(span_id);
+  if (layout_it ==
+          source.runtime_.cache_state.span_layout_cache.records_by_span.end() ||
+      curve_it == source.runtime_.cache_state.curve_cache.by_span.end() ||
+      bounds_it == source.runtime_.cache_state.bounds_cache.by_span.end() ||
+      visual_it == source.runtime_.cache_state.visual_cache.by_span.end() ||
+      render_it == source.runtime_.cache_state.render_cache.by_span.end()) {
+    out.error =
+        "backbone internal: authoritative deserialization: span " +
+        std::to_string(span_id) + " outputs are incomplete";
+    return out;
+  }
+  runtime_.cache_state.span_layout_cache.records_by_span[span_id] =
+      layout_it->second;
+  runtime_.cache_state.curve_cache.by_span[span_id] = curve_it->second;
+  runtime_.cache_state.bounds_cache.by_span[span_id] = bounds_it->second;
+  runtime_.cache_state.visual_cache.by_span[span_id] = visual_it->second;
+  runtime_.cache_state.render_cache.by_span[span_id] = render_it->second;
+  out.ok = true;
+  out.value = true;
+  return out;
+}
+
+void CoreState::merge_cached_support_groups_from(const CoreState& source) {
+  for (const auto& [key, decision] :
+       source.runtime_.cache_state.span_layout_cache.support_groups.decision
+           .by_key) {
+    runtime_.cache_state.span_layout_cache.support_groups.decision.by_key[key] =
+        decision;
+  }
+  for (const auto& [key, placement] :
+       source.runtime_.cache_state.span_layout_cache.support_groups.placement
+           .by_key) {
+    runtime_.cache_state.span_layout_cache.support_groups.placement.by_key[key] =
+        placement;
+  }
 }
 
 } // namespace city::wire

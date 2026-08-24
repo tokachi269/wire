@@ -6,9 +6,13 @@ import {
   WireScene,
   WIRE_RADIAL_SEGMENTS,
   backboneNodeHitId,
+  defaultRoadMaterialTextureDefinition,
   distanceToScreenSegmentPx,
   makeSampledTubeGeometry,
+  makeRoadSurfaceMaterial,
   makeRoadMeshGeometry,
+  roadGuideHalfWidth,
+  roadGuidePoints,
   roadSurfaceColor,
   makeBackbonePick,
   poleAxisEndpoints,
@@ -80,6 +84,44 @@ describe("sampled wire curve", () => {
 });
 
 describe("road rendering", () => {
+  it("keeps authoritative road content stable across transient pointer updates", () => {
+    const scene = Object.create(WireScene.prototype) as any;
+    const snapshot = createViewerSnapshot();
+    snapshot.road.scene.surfaceMeshes = [{
+      ownerSegmentId: 7,
+      material: "asphalt",
+      uvMapping: "patch_quantized",
+      vertices: new Float64Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+      indices: new Uint32Array([0, 1, 2]),
+      normals: new Float64Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
+      uv0: new Float64Array([0, 0, 0.25, 0, 0, 1]),
+      materialGroups: [{ material: "asphalt", indexStart: 0, indexCount: 3 }]
+    }];
+    expect(scene.roadContentSourcesChanged(snapshot)).toBe(true);
+    const contentSignature = scene.sceneRoadContentSignature(snapshot);
+    const firstOverlay = scene.sceneRoadOverlaySignature(snapshot);
+    for (let index = 1; index <= 100; ++index) {
+      snapshot.road.previewState = "guide";
+      snapshot.road.laneTransitionCompleteT = index / 100;
+      snapshot.road.hoveredDeleteSegmentId = index % 2 === 0 ? 7 : 0;
+      expect(scene.roadContentSourcesChanged(snapshot)).toBe(false);
+    }
+    expect(scene.sceneRoadContentSignature(snapshot)).toBe(contentSignature);
+    expect(scene.sceneRoadOverlaySignature(snapshot)).not.toBe(firstOverlay);
+  });
+
+  it("does not rescan wire content for pointer-only snapshot updates", () => {
+    const scene = Object.create(WireScene.prototype) as any;
+    const snapshot = createViewerSnapshot();
+    expect(scene.wireContentSourcesChanged(snapshot)).toBe(true);
+    for (let index = 1; index <= 100; ++index) {
+      snapshot.road.laneTransitionCompleteT = index / 100;
+      expect(scene.wireContentSourcesChanged(snapshot)).toBe(false);
+    }
+    snapshot.parts = [...snapshot.parts];
+    expect(scene.wireContentSourcesChanged(snapshot)).toBe(true);
+  });
+
   it("uses core material keys instead of deriving materials from vertex height", () => {
     const geometry = makeRoadMeshGeometry({
       vertices: new Float64Array([
@@ -92,6 +134,101 @@ describe("road rendering", () => {
     expect(geometry.getAttribute("color")).toBeUndefined();
     expect(roadSurfaceColor("sidewalk")).not.toBe(roadSurfaceColor("asphalt"));
     expect(roadSurfaceColor("curb")).not.toBe(roadSurfaceColor("asphalt"));
+  });
+
+  it("uses image texture placeholders for authored material channels", () => {
+    expect(defaultRoadMaterialTextureDefinition.albedoUrl).toMatch(/Asphalt025A_2K-JPG_Color\.jpg/);
+    expect(defaultRoadMaterialTextureDefinition.normalUrl).toMatch(/Asphalt025A_2K-JPG_NormalGL\.jpg/);
+    expect(defaultRoadMaterialTextureDefinition.roughnessUrl).toMatch(/Asphalt025A_2K-JPG_Roughness\.jpg/);
+    expect(defaultRoadMaterialTextureDefinition.specularUrl).toMatch(/Asphalt025A_2K-JPG_Specular\.png/);
+
+    const material = makeRoadSurfaceMaterial("asphalt");
+    expect(material.map).toBeInstanceOf(THREE.Texture);
+    expect(material.normalMap).toBeInstanceOf(THREE.Texture);
+    expect(material.roughnessMap).toBeInstanceOf(THREE.Texture);
+    expect(material.specularIntensityMap).toBeInstanceOf(THREE.Texture);
+    expect(material.map).not.toBeInstanceOf(THREE.DataTexture);
+    expect(material.map?.wrapS).toBe(THREE.RepeatWrapping);
+    expect(material.map?.wrapT).toBe(THREE.RepeatWrapping);
+    material.dispose();
+  });
+
+  it("keeps non-asphalt road materials untextured", () => {
+    const sidewalk = makeRoadSurfaceMaterial("sidewalk");
+    const crosswalk = makeRoadSurfaceMaterial("road_marking_crosswalk");
+    expect(sidewalk.map).toBeNull();
+    expect(sidewalk.color.getHex()).toBe(roadSurfaceColor("sidewalk"));
+    expect(crosswalk.map).toBeNull();
+    expect(crosswalk.color.getHex()).toBe(roadSurfaceColor("road_marking_crosswalk"));
+    sidewalk.dispose();
+    crosswalk.dispose();
+  });
+
+  it("builds a local width guide from the same cubic request used for commit", () => {
+    const points = roadGuidePoints({
+      kind: "bezier",
+      startX: 0,
+      startY: 0,
+      endX: 9,
+      endY: 0,
+      handleAX: 3,
+      handleAY: 4,
+      handleBX: 6,
+      handleBY: 4,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      connectToFirstNode: false,
+      roadLayoutTemplateId: 7
+    }, 8);
+    expect(points).toHaveLength(9);
+    expect(points[0].toArray()).toEqual([0, 0, 0]);
+    expect(points.at(-1)?.toArray()).toEqual([9, 0, 0]);
+    expect(points[4].y).toBeGreaterThan(0);
+    expect(roadGuideHalfWidth([{
+      id: 7,
+      strips: [
+        { id: 1, function: "sidewalk", widthM: 2 },
+        { id: 2, function: "carriageway", widthM: 7 },
+        { id: 3, function: "sidewalk", widthM: 2 }
+      ],
+      sidewalkWidthM: 2,
+      laneWidthM: 3.5,
+      medianWidthM: 0,
+      laneCount: 2,
+      hasCenterLine: true,
+      hasOuterLines: false,
+      lanes: [],
+      boundaries: []
+    }], 7)).toBe(5.5);
+  });
+
+  it("picks road surface width instead of requiring centerline clicks", () => {
+    const scene = Object.create(WireScene.prototype) as any;
+    scene.snapshot = createViewerSnapshot();
+    scene.snapshot.road.scene.centerlineSegments = [{
+      id: 12,
+      startX: 0,
+      startY: 0,
+      endX: 100,
+      endY: 0,
+      startSegmentDistanceM: 0,
+      endSegmentDistanceM: 100,
+      pickHalfWidthM: 5
+    }];
+    scene.snapshot.road.scene.nodes = [];
+    scene.renderer = {
+      domElement: {
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 })
+      }
+    };
+    scene.projectToCanvas = (point: THREE.Vector3) =>
+      new THREE.Vector2(point.x * 10, -point.y * 10);
+
+    const hit = scene.pickRoadPoint(200, -40);
+    expect(hit).not.toBeNull();
+    expect(hit?.snap.segmentId).toBe(12);
+    expect(hit?.snap.segmentDistanceM).toBeCloseTo(20);
   });
 });
 
@@ -182,6 +319,7 @@ describe("scene part reuse", () => {
         kind: 0,
         supplementalKind: 0,
         wireRadius: 0.02,
+        materialStyle: 0,
         colorRgba: 0xffffffff,
         sourceNodeId: "0",
         sourceEdgeId: "1",
@@ -201,6 +339,7 @@ describe("scene part reuse", () => {
         kind: 0,
         supplementalKind: 0,
         wireRadius: 0.02,
+        materialStyle: 0,
         colorRgba: 0xffffffff,
         sourceNodeId: "0",
         sourceEdgeId: "2",
@@ -245,6 +384,13 @@ describe("scene part reuse", () => {
     first.geometry.boundingBox!.getCenter(center);
     expect(center.y).toBeCloseTo(2, 2);
 
+    snapshot.parts[0].samples = new Float64Array([0, 3, 0, 10, 3, 0]);
+    expect(scene.syncContent(snapshot)).toBe(true);
+    expect(scene.partMeshes.get("edge:1:lane:0").mesh).toBe(first);
+    first.geometry.computeBoundingBox();
+    first.geometry.boundingBox!.getCenter(center);
+    expect(center.y).toBeCloseTo(3, 2);
+
     snapshot.parts.splice(1, 1);
     expect(scene.syncContent(snapshot)).toBe(true);
     expect(scene.contentSyncStats).toEqual({
@@ -253,7 +399,7 @@ describe("scene part reuse", () => {
     });
   });
 
-  it("shares one dedicated support material and renders conductor colors near black", () => {
+  it("renders supplemental parts from core color without a support material override", () => {
     const scene = Object.create(WireScene.prototype) as any;
     scene.content = new THREE.Group();
     scene.partMeshes = new Map();
@@ -261,7 +407,6 @@ describe("scene part reuse", () => {
     scene.modelBatches = new Map();
     scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
-    scene.supportWireMaterial = null;
     const snapshot = createViewerSnapshot();
     const part = (partKey: string, supplementalKind: number, colorRgba: number, y: number) => ({
       info: {
@@ -271,6 +416,7 @@ describe("scene part reuse", () => {
         kind: supplementalKind === 0 ? 0 : 3,
         supplementalKind,
         wireRadius: 0.02,
+        materialStyle: 0,
         colorRgba,
         sourceNodeId: "0",
         sourceEdgeId: "1",
@@ -291,15 +437,18 @@ describe("scene part reuse", () => {
 
     expect(scene.syncContent(snapshot)).toBe(true);
     const mainMaterial = scene.partMeshes.get("main").mesh.material as THREE.MeshStandardMaterial;
-    const supportA = scene.partMeshes.get("support-a").mesh.material;
-    const supportB = scene.partMeshes.get("support-b").mesh.material;
-    expect(supportA).toBe(supportB);
-    expect(supportA).not.toBe(mainMaterial);
+    const supportA = scene.partMeshes.get("support-a").mesh.material as THREE.MeshStandardMaterial;
+    const supportB = scene.partMeshes.get("support-b").mesh.material as THREE.MeshStandardMaterial;
+    expect(supportA).not.toBe(supportB);
     expect(Math.max(mainMaterial.color.r, mainMaterial.color.g, mainMaterial.color.b)).toBeLessThan(0.2);
+    expect(supportA.color.getHex()).toBe(mainMaterial.color.getHex());
+    expect(supportB.color.getHex()).not.toBe(supportA.color.getHex());
 
     snapshot.parts[1].info.sourceVersion = "2";
     expect(scene.syncContent(snapshot)).toBe(true);
-    expect(scene.partMeshes.get("support-a").mesh.material).toBe(supportB);
+    const rebuiltSupportA = scene.partMeshes.get("support-a").mesh.material as THREE.MeshStandardMaterial;
+    expect(rebuiltSupportA).not.toBe(supportB);
+    expect(rebuiltSupportA.color.getHex()).toBe(supportA.color.getHex());
   });
 });
 
@@ -384,7 +533,6 @@ describe("scene geometry from wasm", () => {
     scene.modelBatches = new Map();
     scene.pendingModelKeys = new Set();
     scene.poleMeshes = new Map();
-    scene.supportWireMaterial = null;
 
     expect(scene.syncContent(snapshot)).toBe(true);
     const hvKeys = snapshot.parts
@@ -407,7 +555,7 @@ describe("scene geometry from wasm", () => {
     expect(centerYs[1] - centerYs[0]).toBeCloseTo(0.45, 2);
     expect(centerYs[2] - centerYs[1]).toBeCloseTo(0.45, 2);
     const insulatorYs = snapshot.models
-      .filter((model) => model.modelKey === "hv_insulator")
+      .filter((model) => model.modelKey === "hv_insulator" && !model.stableKey.includes(":intermediate-insulator:"))
       .map((model) => model.positionY.toFixed(3));
     expect(new Set(insulatorYs)).toEqual(new Set(["-0.650", "-0.200", "0.250"]));
     bridge.dispose();
@@ -537,5 +685,62 @@ describe("scene model reuse", () => {
       modelTotal: 2, modelReused: 2, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
     });
     (modelAssetCache as any).loaded.delete("poleBody");
+  });
+
+  it("keeps unfinished pole decorations out of viewer content", () => {
+    const scene = Object.create(WireScene.prototype) as any;
+    scene.content = new THREE.Group();
+    scene.partMeshes = new Map();
+    scene.modelObjects = new Map();
+    scene.modelBatches = new Map();
+    scene.pendingModelKeys = new Set();
+    scene.poleMeshes = new Map();
+    const snapshot = createViewerSnapshot();
+    snapshot.parts = [{
+      info: {
+        partKey: "pole-decoration-lead:1",
+        sourceVersion: "1",
+        sampleOffset: 0,
+        kind: 3,
+        supplementalKind: 3,
+        wireRadius: 0.02,
+        materialStyle: 0,
+        colorRgba: 0xffffffff,
+        sourceNodeId: "1",
+        sourceEdgeId: "1",
+        sourceSpanId: "1",
+        sourceBundleId: "1",
+        bundleTemplateId: 101,
+        laneIndex: 0,
+        runId: 1,
+        sampleCount: 2
+      },
+      samples: new Float64Array([0, 0, 0, 1, 0, 0])
+    }];
+    snapshot.models = [{
+      stableKey: "pole-decoration:1:9208:1",
+      modelKey: "pole_transformer_20kva_proxy",
+      contentVersion: "1",
+      positionX: 1,
+      positionY: 2,
+      positionZ: 3,
+      rotationX: 0,
+      rotationY: 0,
+      rotationZ: 45,
+      scaleX: 0.5,
+      scaleY: 0.4,
+      scaleZ: 0.8
+    }];
+
+    expect(scene.syncContent(snapshot)).toBe(false);
+    expect(scene.pendingModelKeys.size).toBe(0);
+    expect(scene.partMeshes.size).toBe(0);
+    expect(scene.modelObjects.size).toBe(0);
+    expect(scene.modelBatches.size).toBe(0);
+    expect(scene.content.children).toHaveLength(0);
+    expect(scene.contentSyncStats).toEqual({
+      total: 0, reused: 0, rebuilt: 0, removed: 0,
+      modelTotal: 0, modelReused: 0, modelUpdated: 0, modelRebuilt: 0, modelRemoved: 0
+    });
   });
 });

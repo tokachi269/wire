@@ -2,7 +2,7 @@
 
 workdir: `D:\GitHub\wire`
 
-## core tests
+## Core test
 
 ```cmd
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
@@ -11,9 +11,9 @@ call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\v
 build-vs18-coretests\domains\wire\Debug\wire_core_tests.exe
 ```
 
-## viewer
+## Viewer
 
-Fetch viewer dependencies when local source trees are not already present.
+Viewer dependencyのlocal source treeがまだない場合は取得する。
 
 ```cmd
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
@@ -22,21 +22,39 @@ call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\v
 build-vs18-viewer-fetch\viewer\Debug\wire_viewer.exe
 ```
 
-If you already have `build-viewer\_deps\raylib-src`, `build-viewer\_deps\imgui-src`, and `build-viewer\_deps\rlimgui-src`, you can instead use local source directories with `WIRE_VIEWER_FETCH_DEPS=OFF`.
+`build-viewer\_deps\raylib-src`、`build-viewer\_deps\imgui-src`、`build-viewer\_deps\rlimgui-src`がすでにある場合は、`WIRE_VIEWER_FETCH_DEPS=OFF`でlocal source directoryを使える。
 
-## notes
+## 注意事項
 
-- No `Ninja` is required for the normal build/test path.
-- If you open `Developer Command Prompt` or `Developer PowerShell for VS` first, `vcvars64.bat` is not needed.
-- If you use plain PowerShell, keep the build and run in the same initialized shell or wrap them with `cmd.exe /c`.
-- Building `wire_core_tests` also runs architecture and test-family lint targets.
+- 通常のbuild/test経路では`Ninja`は不要。
+- 最初に`Developer Command Prompt`または`Developer PowerShell for VS`を開いた場合、`vcvars64.bat`は不要。
+- 通常のPowerShellを使う場合は、初期化した同じshell内でbuildと実行を行うか、`cmd.exe /c`で囲む。
+- `wire_core_tests`のbuild時にはarchitecture lintとtest-family lint targetも実行される。
 
 ## lint
 
 ```cmd
+python tools\harness\test_architecture_lint.py
+python tools\test_arch_lint.py
 python tools\arch_lint.py
 python tools\test_family_lint.py
 git diff --check
+```
+
+## clang-tidy
+
+`compile_commands.json`を出力するgeneratorでconfigureし、helper targetを実行する。
+
+```cmd
+call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+cmake -S . -B build-clang-tidy -G Ninja -DWIRE_BUILD_VIEWER=OFF -DWIRE_ENABLE_PCH=OFF -DWIRE_ENABLE_FORMAT_TARGETS=OFF -DWIRE_ENABLE_UML_TARGETS=OFF
+cmake --build build-clang-tidy --target tidy-check
+```
+
+調整中に小さいsubtreeだけを検査する場合:
+
+```cmd
+python tools\clang_tidy_check.py --build-dir build-clang-tidy --path domains/wire/src/state
 ```
 
 ## clang-uml
@@ -47,7 +65,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\prepare_clang_uml_comp
 "C:\Program Files\clang-uml\bin\clang-uml.exe" -c .clang-uml -n core_packages -g plantuml -p
 ```
 
-## web viewer wasm
+## Web viewer WASM
 
 `emcc` / `emcmake` が PATH にある Emscripten shell で実行する。
 
@@ -72,6 +90,10 @@ npm run wasm:build
 
 ```powershell
 Set-Location web
-npm run wasm:build
 npm run dev
 ```
+
+`npm run dev`は起動時にCore/road/WASM bindingのsource fingerprintを確認する。
+生成済みWASMが同じsourceならそのまま起動し、古い場合だけ一度自動buildする。
+起動中もCore/road/WASM bindingの変更を監視し、source fingerprintが変わった場合はWASMを自動buildしてブラウザをfull reloadする。
+Git commit、docs、test、Web UIだけの変更ではWASMを再buildしない。

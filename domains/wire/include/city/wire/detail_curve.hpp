@@ -77,7 +77,6 @@ struct CurveConstraint {
   double min_bend_radius_hint_m = 0.0;
   Vec3d endpoint_offset{};
   double sag_hint = 0.0;
-  double slack_hint = 0.0;
   CableContinuityPolicyHint continuity_preference = CableContinuityPolicyHint::kAuto;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;

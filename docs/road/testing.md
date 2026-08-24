@@ -1,0 +1,7 @@
+# Road検証
+
+Road検証はrepository共通方針[`../testing.md`](../testing.md)に従う。この文書が所有するのはRoad固有の検証機構だけである。
+
+Productionのedit/load境界と代表的なtest観測点ではproduction実装の`ValidateGraphInvariants`を使い、test側に競合するinvariantを定義しない。`tools/road_arch_lint.py`は安定したRoad source architecture guardを所有し、`road_architecture_contract_tests`はruntime invariant、metamorphic、differential、scenario evidenceを所有する。
+
+Catalogの代表例は、reorder時のstable identityを検証する`lane_endpoint_identity_ignores_template_order`、non-interferenceを検証する`add_lane_leaves_unrelated_corridors_bit_identical`、stateful sequence invariantを検証する`seeded_operation_sequences_preserve_contracts`である。これらの名前は参照先を見つけるための手掛かりであり、portable policyや必須metadataではない。

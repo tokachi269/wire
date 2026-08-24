@@ -69,6 +69,26 @@ double PortLayoutYawDeg(const Vec3d& row_axis) {
   return YawDegFromXY(ScaleVec(ComputeLateralAxis(axis), -1.0));
 }
 
+EditResult<bool> PermutableLaneMirror(const Vec3d& row_direction_a,
+                                      const Vec3d& row_direction_b) {
+  EditResult<bool> out{};
+  Vec3d direction_a = row_direction_a;
+  Vec3d direction_b = row_direction_b;
+  if (!NormalizeXY(&direction_a) || !NormalizeXY(&direction_b)) {
+    out.error =
+        "backbone unsupported: permutable multi-lane row has no horizontal direction";
+    return out;
+  }
+  const double alignment = Dot(direction_a, direction_b);
+  if (std::abs(alignment) <= kUnitlessTolerance) {
+    out.error = "backbone unsupported: permutable multi-lane rows are orthogonal";
+    return out;
+  }
+  out.value = alignment < 0.0;
+  out.ok = true;
+  return out;
+}
+
 EditResult<std::vector<PortPlacementBand>> SelectPortPlacementBands(const PoleTypeDefinition& pole_type,
                                                                     ConnectionCategory category, SpanLayer layer,
                                                                     int lane_count) {

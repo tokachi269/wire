@@ -14,20 +14,26 @@ export interface GenerationTiming {
   totalMs: number;
 }
 
-export enum EditErrorKind {
+export enum CommitFailureCategory {
   None = 0,
-  Validation = 1,
-  Unsupported = 2,
-  Internal = 3
+  RequirementConstraint = 1,
+  InvalidInput = 2,
+  NotImplemented = 3,
+  StateConflict = 4,
+  InternalError = 5
 }
 
 export interface EditResult {
   ok: boolean;
   error: string;
-  errorKind?: EditErrorKind;
+  failureCategory?: CommitFailureCategory;
+  reasonCode?: string;
   generatedPoleCount: number;
   generatedSpanCount: number;
   generatedBundleIds?: string[];
+  generatedPoleIds?: string[];
+  generatedNodeIds?: string[];
+  generatedSpanIds?: string[];
   totalMs: number;
   timing: GenerationTiming;
 }
@@ -35,7 +41,32 @@ export interface EditResult {
 export interface OperationResult {
   ok: boolean;
   error: string;
-  errorKind?: EditErrorKind;
+  failureCategory?: CommitFailureCategory;
+  reasonCode?: string;
+}
+
+export interface CommitFailure {
+  category: CommitFailureCategory;
+  reasonCode: string;
+  message: string;
+  operation: string;
+  attemptedPosition: [number, number, number] | null;
+}
+
+export interface WireIntervalRequest {
+  points: [[number, number, number], [number, number, number]];
+  pointSpecs: Array<{ supportKind: number; nodeId: string } | null>;
+  targetPick?: PathPickInfo;
+  bundlePlacements: BundlePlacement[];
+  intervalM: number;
+  poleTypeId: number;
+  directionMode: number;
+  maxTiltDeg: number;
+}
+
+export interface WireIntervalResult extends EditResult {
+  endpoint: [number, number, number];
+  endpointSpec: { supportKind: number; nodeId: string } | null;
 }
 
 export interface VisualPartInfo {
@@ -45,6 +76,7 @@ export interface VisualPartInfo {
   kind: number;
   supplementalKind: number;
   wireRadius: number;
+  materialStyle: number;
   colorRgba: number;
   sourceNodeId: string;
   sourceEdgeId: string;
@@ -304,7 +336,6 @@ export interface CableTemplateInfo {
   materialStyle: number;
   colorRgba: number;
   sagFactor: number;
-  slackFactor: number;
   continuityPolicy: number;
   supplementalEnabled: boolean;
   supplementalLateralOffset: number;

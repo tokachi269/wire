@@ -28,14 +28,12 @@ T3 classifies constants that are easy to confuse with each other. This file is a
 | `kNodePatchMaxSpanFraction` | `curve_parts.cpp` | Visual policy | Prevents patch boundary from consuming too much of a short span. |
 | `kPatchMetersPerSegment` | `curve_parts.cpp` | Visual policy | Tessellation density for patch sampling. |
 | `kPatchRadiansPerSegment` | `curve_parts.cpp` | Visual policy | Angular tessellation density for patch sampling. |
-| `kNormalizedCatenarySteepness` | `detail_curve.cpp` | Visual policy | Shape approximation for detail curve sag presentation. |
 | `kFallbackTangentScale` | `detail_curve.cpp` | Visual policy | Quality fallback handle scale for hard tangents. |
 
 ## Tuning candidate
 
 | Constant | Source | Classification | Notes |
 |---|---|---|---|
-| `kRowHeightSeparationM` | `pipeline.cpp` | Tuning candidate | Support-level vertical separation. User-visible and likely should become layout policy if adjusted often. |
 | `kAvoidClearanceM` | `pipeline.cpp` | Tuning candidate | Route avoid detour clearance. Input/constraint policy rather than physical law. |
 | `kAutoCollapseDistanceM` | `pipeline.cpp` | Tuning candidate | Automatic near-node collapse distance. User interaction and topology policy. |
 | `kG2MinChordLengthM` | `detail_curve.cpp` | Tuning candidate | Minimum length for attempting G2-like detail continuity. |

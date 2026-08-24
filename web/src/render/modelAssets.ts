@@ -20,7 +20,16 @@ export type ModelAssetKind =
   | "communicationClampLong"
   | "crossarmHv"
   | "hvInsulator"
-  | "poleBody";
+  | "poleBody"
+  | "poleDecorationX"
+  | "poleTransformer20kvaProxy"
+  | "transformerIntermediateInsulatorProxy"
+  | "transformerSupportBracketProxy"
+  | "pc6CutoutProxy"
+  | "tma13CutoutMountProxy"
+  | "arresterGlB6gProxy"
+  | "hvTriplexTermination60Proxy"
+  | "aerialOpticalClosureRca3aoProxy";
 
 export type ModelKey =
   | "pole_belt"
@@ -28,7 +37,16 @@ export type ModelKey =
   | "communication_clamp_long"
   | "hv_crossarm"
   | "hv_insulator"
-  | "pole_body";
+  | "pole_body"
+  | "pole_decoration_x"
+  | "pole_transformer_20kva_proxy"
+  | "transformer_intermediate_insulator_proxy"
+  | "transformer_support_bracket_proxy"
+  | "pc6_cutout_proxy"
+  | "tma13_cutout_mount_proxy"
+  | "arrester_gl_b6g_proxy"
+  | "hv_triplex_termination_60_proxy"
+  | "aerial_optical_closure_rca3ao_proxy";
 
 type MountRule = "center" | "bottom" | "pole-ground";
 
@@ -109,6 +127,60 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM),
     radialTopM: poleRadiusAtDistanceFromTop(0.0),
     adapterVersion: 5
+  },
+  poleDecorationX: {
+    modelKey: "pole_decoration_x",
+    url: "primitive:pole_decoration_x",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  poleTransformer20kvaProxy: {
+    modelKey: "pole_transformer_20kva_proxy",
+    url: "primitive:pole_transformer_20kva_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  transformerIntermediateInsulatorProxy: {
+    modelKey: "transformer_intermediate_insulator_proxy",
+    url: "primitive:transformer_intermediate_insulator_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  transformerSupportBracketProxy: {
+    modelKey: "transformer_support_bracket_proxy",
+    url: "primitive:transformer_support_bracket_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  pc6CutoutProxy: {
+    modelKey: "pc6_cutout_proxy",
+    url: "primitive:pc6_cutout_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  tma13CutoutMountProxy: {
+    modelKey: "tma13_cutout_mount_proxy",
+    url: "primitive:tma13_cutout_mount_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  arresterGlB6gProxy: {
+    modelKey: "arrester_gl_b6g_proxy",
+    url: "primitive:arrester_gl_b6g_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  hvTriplexTermination60Proxy: {
+    modelKey: "hv_triplex_termination_60_proxy",
+    url: "primitive:hv_triplex_termination_60_proxy",
+    mountRule: "center",
+    adapterVersion: 1
+  },
+  aerialOpticalClosureRca3aoProxy: {
+    modelKey: "aerial_optical_closure_rca3ao_proxy",
+    url: "primitive:aerial_optical_closure_rca3ao_proxy",
+    mountRule: "center",
+    adapterVersion: 1
   }
 };
 
@@ -158,14 +230,177 @@ function descriptorVersion(
   return hash >>> 0 || 1;
 }
 
+function material(color: number, metalness = 0.12, roughness = 0.72): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color, metalness, roughness });
+}
+
+function addMesh(
+  group: THREE.Group,
+  geometry: THREE.BufferGeometry,
+  color: number,
+  position: [number, number, number] = [0, 0, 0],
+  rotation: [number, number, number] = [0, 0, 0],
+  metalness = 0.12,
+  roughness = 0.72
+): THREE.Mesh {
+  const mesh = new THREE.Mesh(geometry, material(color, metalness, roughness));
+  mesh.position.set(...position);
+  mesh.rotation.set(...rotation);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return mesh;
+}
+
+function makePoleTransformer20kvaProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const zinc = 0x8f9698;
+  addMesh(group, new THREE.CylinderGeometry(0.200, 0.200, 0.550, 12), zinc, [0, 0, 0], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0xa8adb0, [0, 0, 0.290], [Math.PI / 2, 0, 0], 0.22);
+  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0x777f82, [0, 0, -0.290], [Math.PI / 2, 0, 0], 0.22);
+  return group;
+}
+
+function makeTransformerIntermediateInsulatorProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const porcelain = 0xd9d8cf;
+  const metal = 0x858b8e;
+  addMesh(group, new THREE.CylinderGeometry(0.045, 0.045, 0.220, 8), porcelain, [0, 0, 0], [0, 0, Math.PI / 2]);
+  addMesh(group, new THREE.CylinderGeometry(0.052, 0.052, 0.020, 8), porcelain, [-0.045, 0, 0], [0, 0, Math.PI / 2]);
+  addMesh(group, new THREE.CylinderGeometry(0.052, 0.052, 0.020, 8), porcelain, [0.045, 0, 0], [0, 0, Math.PI / 2]);
+  addMesh(group, new THREE.CylinderGeometry(0.012, 0.012, 0.070, 8), metal, [-0.145, 0, 0], [0, 0, Math.PI / 2], 0.48);
+  addMesh(group, new THREE.CylinderGeometry(0.012, 0.012, 0.070, 8), metal, [0.145, 0, 0], [0, 0, Math.PI / 2], 0.48);
+  return group;
+}
+
+function makeTransformerSupportBracketProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const zinc = 0x969d9f;
+  addMesh(group, new THREE.BoxGeometry(0.700, 0.040, 0.045), zinc, [0, 0, 0], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.045, 0.260, 0.035), zinc, [0.245, -0.110, -0.020], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.045, 0.260, 0.035), zinc, [-0.245, -0.110, -0.020], [0, 0, 0], 0.35);
+  return group;
+}
+
+function makePoleDecorationX(): THREE.Group {
+  const group = new THREE.Group();
+  const zinc = 0x969d9f;
+  const porcelain = 0xd9d8cf;
+  const tank = 0x8f9698;
+  addMesh(group, new THREE.BoxGeometry(0.700, 0.040, 0.045), zinc, [-0.34, 0, -0.05], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.045, 0.260, 0.035), zinc, [-0.16, -0.110, -0.070], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.045, 0.260, 0.035), zinc, [-0.52, -0.110, -0.070], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.CylinderGeometry(0.200, 0.200, 0.550, 12), tank, [0.08, 0, 0], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0xa8adb0, [0.08, 0, 0.290], [Math.PI / 2, 0, 0], 0.22);
+  addMesh(group, new THREE.CylinderGeometry(0.215, 0.215, 0.030, 12), 0x777f82, [0.08, 0, -0.290], [Math.PI / 2, 0, 0], 0.22);
+  for (const y of [-0.18, 0.18]) {
+    addMesh(group, new THREE.CylinderGeometry(0.045, 0.045, 0.220, 8), porcelain, [-0.46, y, 0.38], [0, 0, Math.PI / 2]);
+    addMesh(group, new THREE.CylinderGeometry(0.012, 0.012, 0.080, 8), zinc, [-0.60, y, 0.38], [0, 0, Math.PI / 2], 0.48);
+    addMesh(group, new THREE.CylinderGeometry(0.012, 0.012, 0.080, 8), zinc, [-0.32, y, 0.38], [0, 0, Math.PI / 2], 0.48);
+  }
+  return group;
+}
+
+function makePc6CutoutProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const porcelain = 0xd9d8cf;
+  const metal = 0x8e9699;
+  addMesh(group, new THREE.BoxGeometry(0.250, 0.090, 0.094, 2, 1, 1), porcelain);
+  addMesh(group, new THREE.CylinderGeometry(0.014, 0.014, 0.060, 8), metal, [-0.167, 0, 0], [0, 0, Math.PI / 2], 0.45);
+  addMesh(group, new THREE.CylinderGeometry(0.014, 0.014, 0.060, 8), metal, [0.167, 0, 0], [0, 0, Math.PI / 2], 0.45);
+  addMesh(group, new THREE.BoxGeometry(0.032, 0.072, 0.030), metal, [-0.187, 0, 0], [0, 0, 0], 0.45);
+  addMesh(group, new THREE.BoxGeometry(0.032, 0.072, 0.030), metal, [0.187, 0, 0], [0, 0, 0], 0.45);
+  return group;
+}
+
+function makeTma13CutoutMountProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const zinc = 0x9aa0a1;
+  addMesh(group, new THREE.BoxGeometry(0.135, 0.032, 0.010), zinc, [0, 0, 0.052], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.010, 0.032, 0.115), zinc, [-0.048, 0, 0], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.010, 0.032, 0.115), zinc, [0.048, 0, 0], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.CylinderGeometry(0.005, 0.005, 0.150, 8), zinc, [0, 0, -0.010], [0, 0, Math.PI / 2], 0.45);
+  return group;
+}
+
+function makeArresterGlB6gProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const porcelain = 0xdeddd4;
+  const metal = 0x858b8e;
+  addMesh(group, new THREE.CylinderGeometry(0.036, 0.036, 0.190, 8), porcelain, [0, 0, 0], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.041, 0.041, 0.018, 8), porcelain, [0, 0, 0.052], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.041, 0.041, 0.018, 8), porcelain, [0, 0, -0.052], [Math.PI / 2, 0, 0]);
+  addMesh(group, new THREE.CylinderGeometry(0.010, 0.010, 0.020, 8), metal, [0, 0, 0.115], [Math.PI / 2, 0, 0], 0.48);
+  addMesh(group, new THREE.CylinderGeometry(0.010, 0.010, 0.020, 8), metal, [0, 0, -0.115], [Math.PI / 2, 0, 0], 0.48);
+  return group;
+}
+
+function makeHvTriplexTermination60Proxy(): THREE.Group {
+  const group = new THREE.Group();
+  const porcelain = 0xd9d8cf;
+  const metal = 0x878d90;
+  for (const y of [-0.200, 0, 0.200]) {
+    addMesh(group, new THREE.CylinderGeometry(0.0475, 0.034, 0.398, 8), porcelain, [-0.091, y, 0], [0, 0, Math.PI / 2]);
+    addMesh(group, new THREE.CylinderGeometry(0.010, 0.010, 0.182, 8), metal, [0.199, y, 0], [0, 0, Math.PI / 2], 0.48);
+    addMesh(group, new THREE.BoxGeometry(0.023, 0.023, 0.023), metal, [-0.250, y, 0], [0, 0, 0], 0.48);
+  }
+  addMesh(group, new THREE.BoxGeometry(0.040, 0.130, 0.035), metal, [-0.245, 0, -0.052], [0, 0, 0], 0.48);
+  return group;
+}
+
+function makeAerialOpticalClosureRca3aoProxy(): THREE.Group {
+  const group = new THREE.Group();
+  const body = 0x3e464a;
+  const strap = 0x8a9294;
+  addMesh(group, new THREE.BoxGeometry(0.730, 0.150, 0.200, 4, 1, 1), body, [0, 0, 0], [0, 0, 0], 0.06, 0.82);
+  addMesh(group, new THREE.BoxGeometry(0.018, 0.180, 0.220), strap, [-0.225, 0, 0], [0, 0, 0], 0.35);
+  addMesh(group, new THREE.BoxGeometry(0.018, 0.180, 0.220), strap, [0.225, 0, 0], [0, 0, 0], 0.35);
+  return group;
+}
+
 export class ModelAssetCache {
   private readonly promises = new Map<ModelAssetKind, Promise<LoadedModelAsset>>();
   private readonly loaded = new Map<ModelAssetKind, LoadedModelAsset>();
   private readonly loads = new Map<ModelAssetKind, number>();
 
-  constructor(private readonly loadScene: SceneLoader = loadGltfScene) {}
+  constructor(private readonly loadScene: SceneLoader = loadGltfScene) {
+    this.registerPrimitiveSource("poleDecorationX", makePoleDecorationX());
+    this.registerPrimitiveSource("poleTransformer20kvaProxy", makePoleTransformer20kvaProxy());
+    this.registerPrimitiveSource("transformerIntermediateInsulatorProxy", makeTransformerIntermediateInsulatorProxy());
+    this.registerPrimitiveSource("transformerSupportBracketProxy", makeTransformerSupportBracketProxy());
+    this.registerPrimitiveSource("pc6CutoutProxy", makePc6CutoutProxy());
+    this.registerPrimitiveSource("tma13CutoutMountProxy", makeTma13CutoutMountProxy());
+    this.registerPrimitiveSource("arresterGlB6gProxy", makeArresterGlB6gProxy());
+    this.registerPrimitiveSource("hvTriplexTermination60Proxy", makeHvTriplexTermination60Proxy());
+    this.registerPrimitiveSource("aerialOpticalClosureRca3aoProxy", makeAerialOpticalClosureRca3aoProxy());
+  }
+
+  private registerPrimitiveSource(kind: ModelAssetKind, source: THREE.Group): void {
+    const adapter = adapters[kind];
+    source.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(source, true);
+    const size = bounds.getSize(new THREE.Vector3());
+    const anchor = mountAnchor(bounds, size, adapter.mountRule);
+    source.position.sub(anchor);
+    source.updateMatrixWorld(true);
+    const asset: LoadedModelAsset = {
+      kind,
+      modelKey: adapter.modelKey,
+      source,
+      bounds,
+      size,
+      mountAnchor: anchor,
+      radialReferenceM: null,
+      radialTopM: null,
+      descriptorVersion: descriptorVersion(kind, bounds, anchor, null, null, adapter),
+      adapter
+    };
+    this.loaded.set(kind, asset);
+  }
 
   load(kind: ModelAssetKind): Promise<LoadedModelAsset> {
+    const loaded = this.loaded.get(kind);
+    if (loaded !== undefined) return Promise.resolve(loaded);
     const cached = this.promises.get(kind);
     if (cached !== undefined) return cached;
     const adapter = adapters[kind];
@@ -246,7 +481,7 @@ function part(
   partId: number,
   fitMode: number,
   localTransform = identityTransform(),
-  wireSocket: ModelSocketInput | null = null
+  wireSocket: ModelSocketInput | ModelSocketInput[] | null = null
 ): ModelAssemblyPartInput {
   return {
     partId,
@@ -255,7 +490,7 @@ function part(
     descriptorVersion: asset.descriptorVersion,
     fitMode,
     localTransform,
-    sockets: wireSocket === null ? [] : [wireSocket]
+    sockets: wireSocket === null ? [] : Array.isArray(wireSocket) ? wireSocket : [wireSocket]
   };
 }
 
@@ -295,7 +530,8 @@ export function buildDefaultModelBootstrap(
   belt: LoadedModelAsset,
   insulator: LoadedModelAsset,
   communicationClamp: LoadedModelAsset,
-  communicationClampLong: LoadedModelAsset
+  communicationClampLong: LoadedModelAsset,
+  poleDecoration: LoadedModelAsset
 ): ModelAssemblyBootstrapInput {
   const poleVisibleLength = pole.adapter.visibleLengthM;
   if (poleVisibleLength === undefined || !Number.isFinite(poleVisibleLength) || poleVisibleLength <= 0) {
@@ -346,6 +582,37 @@ export function buildDefaultModelBootstrap(
 
   const communicationInsertion = insertionFixture(communicationClamp);
   const lowVoltageInsertion = insertionFixture(communicationClampLong);
+  const decorationTransform = identityTransform();
+  decorationTransform.positionX = 0.62;
+  decorationTransform.positionY = 0.42;
+  decorationTransform.positionZ = 7.70;
+  const decorationSockets: ModelSocketInput[] = [
+    {
+      name: "connect_hv_0",
+      positionX: -0.60, positionY: -0.18, positionZ: 0.38,
+      directionX: -1, directionY: 0, directionZ: 0
+    },
+    {
+      name: "connect_hv_1",
+      positionX: -0.60, positionY: 0.18, positionZ: 0.38,
+      directionX: -1, directionY: 0, directionZ: 0
+    },
+    {
+      name: "connect_lv_0",
+      positionX: 0.16, positionY: -0.16, positionZ: -0.30,
+      directionX: 0, directionY: -1, directionZ: -0.2
+    },
+    {
+      name: "connect_lv_1",
+      positionX: 0.20, positionY: 0, positionZ: -0.32,
+      directionX: 0, directionY: -1, directionZ: -0.2
+    },
+    {
+      name: "connect_lv_2",
+      positionX: 0.16, positionY: 0.16, positionZ: -0.30,
+      directionX: 0, directionY: -1, directionZ: -0.2
+    }
+  ];
 
   const poleAssemblyId = 9201;
   const hvRowAssemblyId = 9202;
@@ -354,6 +621,7 @@ export function buildDefaultModelBootstrap(
   const communicationPoleAssemblyId = 9205;
   const lowVoltageEndpointAssemblyId = 9206;
   const beltRowAssemblyId = 9207;
+  const poleDecorationAssemblyId = 9208;
   return {
     assemblies: [
       {
@@ -411,6 +679,12 @@ export function buildDefaultModelBootstrap(
         version: 4,
         parts: [part(belt, 1, 2, beltTransform)],
         wireSocket: null
+      },
+      {
+        id: poleDecorationAssemblyId,
+        version: 1,
+        parts: [part(poleDecoration, 1, 0, decorationTransform, decorationSockets)],
+        wireSocket: null
       }
     ],
     poleAssignments: [
@@ -449,17 +723,18 @@ export function buildDefaultModelBootstrap(
 }
 
 export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstrapInput> {
-  const [pole, crossarm, belt, insulator, communicationClamp, communicationClampLong] =
+  const [pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, poleDecoration] =
     await Promise.all([
       modelAssetCache.load("poleBody"),
       modelAssetCache.load("crossarmHv"),
       modelAssetCache.load("belt"),
       modelAssetCache.load("hvInsulator"),
       modelAssetCache.load("communicationClamp"),
-      modelAssetCache.load("communicationClampLong")
+      modelAssetCache.load("communicationClampLong"),
+      modelAssetCache.load("poleDecorationX")
     ]);
   return buildDefaultModelBootstrap(
-    pole, crossarm, belt, insulator, communicationClamp, communicationClampLong
+    pole, crossarm, belt, insulator, communicationClamp, communicationClampLong, poleDecoration
   );
 }
 

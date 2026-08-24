@@ -1,5 +1,6 @@
 #include "fixtures.hpp"
 #include "cases.hpp"
+#include "../../src/generation/backbone/emit_shared.hpp"
 
 #include "../registry.hpp"
 
@@ -124,10 +125,18 @@ bool C368_backbone_smoke_line() {
   city::wire::BackboneSpec req = line_req(state);
   const int count = bundle_count(state, city::wire::BundleKind::kLowVoltage);
   const auto out = state.GenerateFromBackboneSpec(req);
-  return out.ok && out.value.generated_pole_ids.size() == 2 && out.value.bundle_ids.size() == 1 &&
-         out.value.generated_span_ids.size() == static_cast<std::size_t>(count) &&
-         state.view().poles().size() >= 2 && state.view().bundles().size() >= 1 &&
-         state.view().spans().size() >= static_cast<std::size_t>(count);
+  WIRE_TEST_EXPECT_PRESENCE(out.ok, out.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(
+      out.value.generated_pole_ids.size() == 2 &&
+          out.value.bundle_ids.size() == 1 &&
+          out.value.generated_span_ids.size() ==
+              static_cast<std::size_t>(count) &&
+          state.view().poles().size() >= 2 &&
+          state.view().bundles().size() >= 1 &&
+          state.view().spans().size() >= static_cast<std::size_t>(count),
+      "straight backbone output counts are wrong");
+  return true;
 }
 
 bool C369_backbone_rules_saved() {
@@ -151,7 +160,7 @@ bool C371_backbone_rejects_unsupported() {
   empty.bundles.clear();
   const auto empty_out = state.GenerateFromBackboneSpec(empty);
   if (empty_out.ok || !contains_text(empty_out.error, "unsupported") ||
-      empty_out.error_kind != city::wire::EditErrorKind::kUnsupported) {
+      empty_out.failure_category != city::wire::CommitFailureCategory::kNotImplemented) {
     return false;
   }
 
@@ -162,7 +171,8 @@ bool C371_backbone_rejects_unsupported() {
   node.node_id = 1;
   building.path.node_specs.push_back(node);
   const auto building_out = state.GenerateFromBackboneSpec(building);
-  return !building_out.ok && contains_text(building_out.error, "unsupported");
+  return !building_out.ok && contains_text(building_out.error, "state conflict") &&
+         building_out.failure_category == city::wire::CommitFailureCategory::kStateConflict;
 }
 
 bool C819_backbone_rejects_nonfinite_path_point_before_mutation() {
@@ -170,10 +180,12 @@ bool C819_backbone_rejects_nonfinite_path_point_before_mutation() {
   city::wire::BackboneSpec req = line_req(state);
   req.path.polyline[0].x = std::numeric_limits<double>::quiet_NaN();
 
+  const city::wire::ObjectId next_id_before = state.next_id();
   const CoreCounts before = snapshot_counts(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   return !out.ok && contains_text(out.error, "invalid input") &&
-         out.error_kind == city::wire::EditErrorKind::kValidation &&
+         out.failure_category == city::wire::CommitFailureCategory::kInvalidInput &&
+         state.next_id() == next_id_before &&
          same_counts(before, snapshot_counts(state));
 }
 
@@ -183,10 +195,12 @@ bool C820_backbone_rejects_nonfinite_tilt_before_mutation() {
   req.pole_placement.enable_tilt = true;
   req.pole_placement.max_tilt_deg = std::numeric_limits<double>::infinity();
 
+  const city::wire::ObjectId next_id_before = state.next_id();
   const CoreCounts before = snapshot_counts(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   return !out.ok && contains_text(out.error, "invalid input") &&
-         out.error_kind == city::wire::EditErrorKind::kValidation &&
+         out.failure_category == city::wire::CommitFailureCategory::kInvalidInput &&
+         state.next_id() == next_id_before &&
          same_counts(before, snapshot_counts(state));
 }
 
@@ -438,11 +452,15 @@ bool C381_backbone_m1_no_recalc_contract() {
   return C370_backbone_no_v1_deps();
 }
 
-bool C822_edit_result_error_kind_classifies_core_error_prefixes() {
+bool C822_edit_result_failure_category_classifies_core_error_prefixes() {
   city::wire::EditResult<bool> validation{};
   validation.error = "backbone invalid input: path.polyline";
   city::wire::EditResult<bool> unsupported{};
   unsupported.error = "backbone unsupported: empty bundles";
+  city::wire::EditResult<bool> requirement{};
+  requirement.error = "backbone requirement constraint: midair branch is disabled";
+  city::wire::EditResult<bool> conflict{};
+  conflict.error = "backbone state conflict: unknown node reference";
   city::wire::EditResult<bool> internal{};
   internal.error = "backbone internal: row continuity endpoint is missing";
   city::wire::EditResult<bool> unknown{};
@@ -451,11 +469,13 @@ bool C822_edit_result_error_kind_classifies_core_error_prefixes() {
   ok.ok = true;
   ok.error = "backbone internal: ignored on success";
 
-  return validation.effective_error_kind() == city::wire::EditErrorKind::kValidation &&
-         unsupported.effective_error_kind() == city::wire::EditErrorKind::kUnsupported &&
-         internal.effective_error_kind() == city::wire::EditErrorKind::kInternal &&
-         unknown.effective_error_kind() == city::wire::EditErrorKind::kInternal &&
-         ok.effective_error_kind() == city::wire::EditErrorKind::kNone;
+  return validation.effective_failure_category() == city::wire::CommitFailureCategory::kInvalidInput &&
+         unsupported.effective_failure_category() == city::wire::CommitFailureCategory::kNotImplemented &&
+         requirement.effective_failure_category() == city::wire::CommitFailureCategory::kRequirementConstraint &&
+         conflict.effective_failure_category() == city::wire::CommitFailureCategory::kStateConflict &&
+         internal.effective_failure_category() == city::wire::CommitFailureCategory::kInternalError &&
+         unknown.effective_failure_category() == city::wire::CommitFailureCategory::kInternalError &&
+         ok.effective_failure_category() == city::wire::CommitFailureCategory::kNone;
 }
 
 bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
@@ -463,8 +483,7 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
   std::string registry_cpp{};
   std::string runner_cpp{};
   std::string graph_cpp{};
-  std::string testing_doc{};
-  std::string agents{};
+  std::string wire_testing_doc{};
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains" / "wire" / "tests" / "registry.hpp", &registry_hpp),
                    "registry.hpp is missing");
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains" / "wire" / "tests" / "registry.cpp", &registry_cpp),
@@ -473,9 +492,8 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
                    "runner.cpp is missing");
   WIRE_TEST_EXPECT(file_text(repo_root() / "domains" / "wire" / "tests" / "backbone" / "graph.cpp", &graph_cpp),
                    "graph.cpp is missing");
-  WIRE_TEST_EXPECT(file_text(repo_root() / "docs" / "testing.md", &testing_doc),
-                   "docs/testing.md is missing");
-  WIRE_TEST_EXPECT(file_text(repo_root() / "AGENTS.md", &agents), "AGENTS.md is missing");
+  WIRE_TEST_EXPECT(file_text(repo_root() / "docs" / "wire" / "testing.md", &wire_testing_doc),
+                   "docs/wire/testing.md is missing");
   const std::array<const char*, 5> migrated_functions{
       "bool C773_backbone_incremental_sharp_completion_derives_jumper_from_continuity()",
       "bool C775_backbone_incremental_canonical_pair_survives_save_load()",
@@ -492,34 +510,12 @@ bool C823_test_failure_diagnostics_are_available_for_backbone_scenarios() {
   WIRE_TEST_EXPECT(contains_text(registry_hpp, "WIRE_TEST_EXPECT"), "WIRE_TEST_EXPECT macro is missing");
   WIRE_TEST_EXPECT(contains_text(registry_cpp, "SetFailureReason"), "SetFailureReason storage is missing");
   WIRE_TEST_EXPECT(contains_text(runner_cpp, "reason: "), "runner does not print failure reason");
-  WIRE_TEST_EXPECT(contains_text(testing_doc, "WIRE_TEST_EXPECT(condition, reason)"),
-                   "docs/testing.md does not document failure diagnostics");
-  WIRE_TEST_EXPECT(contains_text(agents, "WIRE_TEST_EXPECT"), "AGENTS.md does not require diagnostic helper use");
+  WIRE_TEST_EXPECT(contains_text(wire_testing_doc, "WIRE_TEST_EXPECT(condition, reason)"),
+                   "docs/wire/testing.md does not document failure diagnostics");
   return true;
 }
 
 bool C824_backbone_seeded_route_fuzz_preserves_common_invariants() {
-  std::size_t representative_invariant_checks = 0;
-  const std::filesystem::path tests_dir = repo_root() / "domains/wire/tests/backbone";
-  for (const auto& entry : std::filesystem::recursive_directory_iterator(tests_dir)) {
-    if (!entry.is_regular_file() || entry.path().filename() == "fixtures.cpp") {
-      continue;
-    }
-    const std::string ext = entry.path().extension().string();
-    if (ext != ".cpp" && ext != ".hpp") {
-      continue;
-    }
-    std::string text{};
-    WIRE_TEST_EXPECT(file_text(entry.path(), &text), "failed to read invariant test source: " + entry.path().string());
-    std::size_t pos = 0;
-    while ((pos = text.find("backbone_common_invariants_pass(", pos)) != std::string::npos) {
-      ++representative_invariant_checks;
-      ++pos;
-    }
-  }
-  WIRE_TEST_EXPECT(representative_invariant_checks >= 10,
-                   "fewer than 10 representative tests call backbone_common_invariants_pass");
-
   const std::array<std::uint32_t, 8> seeds{11U, 29U, 47U, 83U, 131U, 197U, 251U, 307U};
   for (std::uint32_t seed : seeds) {
     std::mt19937 rng(seed);
@@ -546,9 +542,7 @@ bool C824_backbone_seeded_route_fuzz_preserves_common_invariants() {
                        "rejected fuzz request mutated state for seed " + std::to_string(seed));
       continue;
     }
-    std::string invariant_error{};
-    WIRE_TEST_EXPECT(backbone_common_invariants_pass(state, &invariant_error),
-                     "seed " + std::to_string(seed) + ": " + invariant_error);
+    WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   }
   return true;
 }
@@ -735,19 +729,19 @@ bool C392_backbone_polyline3_outputs() {
   city::wire::CoreState state;
   city::wire::BackboneSpec req = poly3_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
-  if (!out.ok || out.value.generated_span_ids.empty()) {
-    return false;
-  }
+  WIRE_TEST_EXPECT_PRESENCE(out.ok, out.error);
+  WIRE_TEST_EXPECT_PRESENCE(!out.value.generated_span_ids.empty(),
+                            "polyline generated no spans");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   for (city::wire::ObjectId span_id : out.value.generated_span_ids) {
-    if (!state.span_layout_rules(span_id).has_rule()) {
-      return false;
-    }
-    if (!state.span_layout(span_id).has_layout()) {
-      return false;
-    }
-    if (state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr) {
-      return false;
-    }
+    WIRE_TEST_EXPECT_ORACLE(state.span_layout_rules(span_id).has_rule(),
+                            "polyline span has no layout rule");
+    WIRE_TEST_EXPECT_ORACLE(state.span_layout(span_id).has_layout(),
+                            "polyline span has no layout");
+    WIRE_TEST_EXPECT_ORACLE(
+        state.find_curve_cache(span_id) != nullptr &&
+            state.find_bounds_cache(span_id) != nullptr,
+        "polyline span has no curve or bounds cache");
   }
   return true;
 }
@@ -802,7 +796,9 @@ bool C397_backbone_rejects_missing_saved_midair_node_spec() {
   node.node_id = 1;
   req.path.node_specs.push_back(node);
   const auto out = state.GenerateFromBackboneSpec(req);
-  return !out.ok && contains_text(out.error, "unsupported");
+  return !out.ok && contains_text(out.error, "state conflict") &&
+         out.failure_category == city::wire::CommitFailureCategory::kStateConflict &&
+         out.reason_code == "stale_anchor_reference";
 }
 
 bool C398_backbone_rejects_missing_existing_pole() {
@@ -814,7 +810,9 @@ bool C398_backbone_rejects_missing_existing_pole() {
   node.node_id = 999999;
   req.path.node_specs.push_back(node);
   const auto out = state.GenerateFromBackboneSpec(req);
-  return !out.ok && contains_text(out.error, "unsupported");
+  return !out.ok && contains_text(out.error, "state conflict") &&
+         out.failure_category == city::wire::CommitFailureCategory::kStateConflict &&
+         out.reason_code == "stale_anchor_reference";
 }
 
 bool C399_backbone_existing_pole_sequence_is_deterministic() {
@@ -839,8 +837,14 @@ bool C400_backbone_multiple_bundles_smoke() {
   add_backbone_bundle(req, city::wire::BundleKind::kCommunication);
   const int count = req_bundle_count(state, req);
   const auto out = state.GenerateFromBackboneSpec(req);
-  return out.ok && out.value.bundle_ids.size() == 2 &&
-         out.value.generated_span_ids.size() == static_cast<std::size_t>(count);
+  WIRE_TEST_EXPECT_PRESENCE(out.ok, out.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(
+      out.value.bundle_ids.size() == 2 &&
+          out.value.generated_span_ids.size() ==
+              static_cast<std::size_t>(count),
+      "multiple-bundle output counts are wrong");
+  return true;
 }
 
 bool C401_backbone_multiple_bundles_polyline3_outputs() {
@@ -1193,11 +1197,27 @@ bool C411_backbone_lateral_offset_moves_ports_along_row_axis() {
 bool C412_backbone_lateral_offset_sign_is_deterministic() {
   const std::vector<city::wire::Vec3d> a = offset_points(1.0);
   const std::vector<city::wire::Vec3d> b = offset_points(1.0);
-  if (a.empty() || a.size() != b.size()) {
+  const std::vector<city::wire::Vec3d> reverse = offset_points(
+      1.0, city::wire::PathDirectionMode::kReverse);
+  if (a.empty() || a.size() != b.size() || a.size() != reverse.size()) {
     return false;
   }
   for (std::size_t i = 0; i < a.size(); ++i) {
     if (!almost_equal(a[i], b[i], 1e-9)) {
+      return false;
+    }
+  }
+  std::vector<double> forward_y{};
+  std::vector<double> reverse_y{};
+  forward_y.reserve(a.size());
+  reverse_y.reserve(reverse.size());
+  for (const city::wire::Vec3d& point : a) forward_y.push_back(point.y);
+  for (const city::wire::Vec3d& point : reverse) reverse_y.push_back(point.y);
+  std::sort(forward_y.begin(), forward_y.end());
+  std::sort(reverse_y.begin(), reverse_y.end());
+  for (std::size_t i = 0; i < forward_y.size(); ++i) {
+    if (!almost_equal(forward_y[i], -reverse_y[reverse_y.size() - 1 - i],
+                      1e-9)) {
       return false;
     }
   }
@@ -1237,6 +1257,18 @@ bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector() {
 }
 
 bool C662_backbone_pair_row_axis_does_not_flip_lane_order() {
+  const auto normal = city::wire::generation::backbone::PermutableLaneMirror(
+      {0.0, 1.0, 0.0}, {0.0, 1.0, 0.0});
+  const auto mirrored = city::wire::generation::backbone::PermutableLaneMirror(
+      {0.0, 1.0, 0.0}, {0.0, -1.0, 0.0});
+  const auto unsupported = city::wire::generation::backbone::PermutableLaneMirror(
+      {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0});
+  WIRE_TEST_EXPECT(normal.ok && !normal.value,
+                   "matching row directions unexpectedly mirror lane pairing");
+  WIRE_TEST_EXPECT(mirrored.ok && mirrored.value,
+                   "opposed row directions did not mirror lane pairing");
+  WIRE_TEST_EXPECT(!unsupported.ok && contains_text(unsupported.error, "unsupported"),
+                   "orthogonal multi-lane rows were not explicitly unsupported");
   city::wire::CoreState state;
   if (!prepare_two_lane_low_voltage(state)) {
     return false;
@@ -1274,18 +1306,20 @@ bool C662_backbone_pair_row_axis_does_not_flip_lane_order() {
 
 bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
   city::wire::CoreState state;
-  if (!prepare_two_lane_low_voltage(state)) {
-    return false;
-  }
   city::wire::BackboneSpec req = line_req(state);
+  req.bundles.clear();
+  add_backbone_bundle(req, city::wire::BundleKind::kHighVoltage);
   req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 8.660254037844386, 0.0}};
   const auto generated = state.GenerateFromBackboneSpec(req);
+  WIRE_TEST_EXPECT_PRESENCE(generated.ok, generated.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   const city::wire::ObjectId corner_pole = pole_at(state, generated.value.generated_pole_ids, {10.0, 0.0, 0.0});
   const city::wire::SavedBackboneNode* corner_node = state.view().backbone_node_for_pole(corner_pole);
-  if (!generated.ok || generated.value.generated_span_ids.size() != 4 ||
-      state.view().backbone().edges.size() != 2 || corner_node == nullptr) {
-    return false;
-  }
+  WIRE_TEST_EXPECT_ORACLE(
+      generated.value.generated_span_ids.size() == 6 &&
+          state.view().backbone().edges.size() == 2 &&
+          corner_node != nullptr,
+      "sharp corner topology is wrong");
 
   std::unordered_map<city::wire::ObjectId, std::vector<city::wire::Vec3d>> rows{};
   std::unordered_set<city::wire::ObjectId> corner_ports{};
@@ -1309,12 +1343,12 @@ bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
       rows[binding->row_key.edge_id].push_back(port->world_position);
     }
   }
-  if (corner_ports.size() != 4 || rows.size() != 2) {
+  if (corner_ports.size() != 6 || rows.size() != 2) {
     return false;
   }
   for (const auto& [edge_id, ports] : rows) {
     const city::wire::SavedBackboneEdge* edge = state.view().backbone_edge(edge_id);
-    if (edge == nullptr || ports.size() != 2) {
+    if (edge == nullptr || ports.size() != 3) {
       return false;
     }
     const city::wire::Vec3d row_axis = normalize_xy(ports[1] - ports[0]);
@@ -1325,6 +1359,38 @@ bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
     if (alignment < 0.999 || spacing < 0.19) {
       return false;
     }
+  }
+
+  const std::vector<const city::wire::SavedBackboneRowContinuity*> continuities =
+      state.view().backbone_row_continuities_for_node(corner_node->node_id);
+  WIRE_TEST_EXPECT_ORACLE(continuities.size() == 3,
+                          "sharp corner did not save one continuity per lane");
+  const auto port_for_lane = [&](city::wire::ObjectId edge_bundle_id,
+                                 std::size_t lane) -> const city::wire::Port* {
+    for (const city::wire::SavedBackbonePortBinding* binding :
+         state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id)) {
+      if (binding != nullptr && binding->row_key.node_id == corner_node->node_id &&
+          binding->lane_index == lane) {
+        return state.view().ports().find(binding->port_id);
+      }
+    }
+    return nullptr;
+  };
+  const auto* first_continuity = continuities.front();
+  const city::wire::Port* a0 = port_for_lane(first_continuity->a.edge_bundle_id, 0);
+  const city::wire::Port* a1 = port_for_lane(first_continuity->a.edge_bundle_id, 2);
+  const city::wire::Port* b0 = port_for_lane(first_continuity->b.edge_bundle_id, 0);
+  const city::wire::Port* b1 = port_for_lane(first_continuity->b.edge_bundle_id, 2);
+  WIRE_TEST_EXPECT_PRESENCE(a0 != nullptr && a1 != nullptr && b0 != nullptr && b1 != nullptr,
+                            "sharp continuity row endpoints are missing");
+  const bool mirrored = dot_xy(a1->world_position - a0->world_position,
+                               b1->world_position - b0->world_position) < 0.0;
+  for (const city::wire::SavedBackboneRowContinuity* continuity : continuities) {
+    const std::size_t expected_b_lane = mirrored ? 2 - continuity->a.lane_index
+                                                  : continuity->a.lane_index;
+    WIRE_TEST_EXPECT_ORACLE(
+        continuity->b.lane_index == expected_b_lane,
+        "sharp continuity lane pairing disagrees with final row directions");
   }
 
   std::size_t jumper_count = 0;
@@ -1343,8 +1409,7 @@ bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
       ++jumper_count;
     }
   }
-  return jumper_count == 2 &&
-         two_lane_edge_bundles_do_not_twist(state, generated.value.generated_span_ids);
+  return jumper_count == 3;
 }
 
 bool C664_backbone_sharp_pole_facing_consumes_pair_decision() {

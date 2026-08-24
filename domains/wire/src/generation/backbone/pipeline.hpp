@@ -150,6 +150,8 @@ struct tspan {
   std::size_t link = bad;
   std::size_t bundle = bad;
   std::size_t lane = bad;
+  std::size_t a_lane = bad;
+  std::size_t b_lane = bad;
   std::size_t arow = bad;
   std::size_t brow = bad;
   bool is_new = true;
@@ -228,6 +230,8 @@ private:
     ObjectId existing_bundle_id = kInvalidObjectId;
     std::uint64_t placement_key = 0;
     ObjectId port_id = kInvalidObjectId;
+    Vec3d resolved_world_position{};
+    bool frame_resolved = false;
   };
 
   struct route {
@@ -249,10 +253,11 @@ private:
   [[nodiscard]] EditResult<groups> make(const pairs& ps, const intent& intents) const;
   [[nodiscard]] EditResult<bool> check(const pairs& ps) const;
   [[nodiscard]] EditResult<std::vector<PromotionPlanEntry>> plan_promotions(const pairs& ps) const;
-  [[nodiscard]] EditResult<topo> emit(const pairs& ps, const intent& intents);
+  [[nodiscard]] EditResult<topo> emit(const pairs& ps, const groups& placement);
   [[nodiscard]] EditResult<bool> emit_poles(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_bundles(topo* made, ChangeSet* changes);
-  [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps, ChangeSet* changes);
+  [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps,
+                                            const groups& placement, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_spans(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] rules make(const topo& made, const pairs& ps, const groups& placement) const;
   [[nodiscard]] EditResult<layout> make(const rules& made) const;
@@ -272,6 +277,7 @@ private:
   graph g_{};
   std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};
+  std::vector<ObjectId> saved_node_by_input_{};
   std::vector<PromotionPlanEntry> promotion_plan_{};
   bool write_row_continuity_ = true;
 };

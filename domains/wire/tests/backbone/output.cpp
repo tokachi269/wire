@@ -276,8 +276,8 @@ std::vector<std::string> visual_part_snapshot(const city::wire::VisualCurvePartC
 
 bool C741_scoped_visual_curve_rebuild_matches_full_rebuild() {
   city::wire::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(line_req(state));
-  if (!first.ok || first.value.generated_pole_ids.size() < 2) {
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() < 3) {
     return false;
   }
   const city::wire::ObjectId terminal_pole = first.value.generated_pole_ids.back();
@@ -298,12 +298,21 @@ bool C741_scoped_visual_curve_rebuild_matches_full_rebuild() {
   if (!full.ok) {
     return false;
   }
-  const std::size_t rebuilt_support_count = static_cast<std::size_t>(std::count_if(
-      scoped.parts.begin(), scoped.parts.end(), [](const city::wire::VisualCurvePart& part) {
-        return part.supplemental_kind == city::wire::VisualSupplementalKind::kSupportPath;
-      }));
-  return scoped.stats.curve_builds == scoped.stats.sections + rebuilt_support_count &&
-         visual_part_snapshot(scoped) == visual_part_snapshot(full.value);
+  const std::vector<std::string> scoped_snapshot = visual_part_snapshot(scoped);
+  const std::vector<std::string> full_snapshot = visual_part_snapshot(full.value);
+  const auto mismatch = std::mismatch(scoped_snapshot.begin(), scoped_snapshot.end(),
+                                      full_snapshot.begin(), full_snapshot.end());
+  const std::string scoped_item = mismatch.first == scoped_snapshot.end()
+                                      ? "<end>"
+                                      : *mismatch.first;
+  const std::string full_item = mismatch.second == full_snapshot.end()
+                                    ? "<end>"
+                                    : *mismatch.second;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      scoped_snapshot == full_snapshot,
+      "scoped/full visual mismatch: scoped=" + scoped_item +
+          " full=" + full_item);
+  return true;
 }
 
 bool C515_backbone_rejects_existing_pole_without_saved_graph() {
@@ -342,7 +351,13 @@ bool C516_backbone_generated_pole_with_saved_graph_still_connects() {
   branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
   branch.path.node_specs = {pole_spec(0, b)};
   const auto second = state.GenerateFromBackboneSpec(branch);
-  return second.ok && !second.value.generated_span_ids.empty() && state.view().pole_frontier(b).edge_ids.size() == 3;
+  WIRE_TEST_EXPECT_PRESENCE(second.ok, second.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(
+      !second.value.generated_span_ids.empty() &&
+          state.view().pole_frontier(b).edge_ids.size() == 3,
+      "existing-pole continuation did not connect to the saved graph");
+  return true;
 }
 
 bool C518_backbone_lowered_layout_places_support_and_endpoint_at_final_height() {
@@ -1506,6 +1521,18 @@ bool C647_backbone_node_patch_uses_incident_cable_appearance() {
     if (patch.kind != city::wire::VisualCurvePartKind::kNodePatch) {
       continue;
     }
+    const auto bundle_template_it = state.view().bundle_templates().find(patch.bundle_template_id);
+    WIRE_TEST_EXPECT(bundle_template_it != state.view().bundle_templates().end(),
+                     "NodePatch bundle template is missing");
+    const auto cable_template_it =
+        state.view().cable_templates().find(bundle_template_it->second.cable_template_id);
+    WIRE_TEST_EXPECT(cable_template_it != state.view().cable_templates().end(),
+                     "NodePatch cable template is missing");
+    WIRE_TEST_EXPECT(
+        almost_equal(patch.wire_radius_m, cable_template_it->second.outer_diameter_m * 0.5, 1e-12) &&
+            patch.color_rgba == cable_template_it->second.color_rgba &&
+            patch.material_style == cable_template_it->second.material_style,
+        "NodePatch appearance does not match its authoritative CableTemplate");
     std::size_t matching_bodies = 0;
     for (const city::wire::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
       if (body.kind != city::wire::VisualCurvePartKind::kEdgeBody ||
@@ -1646,39 +1673,149 @@ bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
 }
 
 bool C665_backbone_midair_attachment_uses_derived_curve() {
-  city::wire::CoreState state;
-  city::wire::GeometrySettings geometry = state.view().geometry_settings();
-  geometry.sag_enabled = true;
-  if (!state.UpdateGeometrySettings(geometry).ok) {
-    return false;
-  }
-  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
-  if (!generated.ok || generated.value.generated_span_ids.size() != 1 ||
-      state.view().backbone().edges.size() != 1) {
-    return false;
-  }
-  const city::wire::ObjectId span_id = generated.value.generated_span_ids.front();
-  const city::wire::CurveCacheEntry* curve = state.find_curve_cache(span_id);
-  const city::wire::SavedBackboneEdge& edge = state.view().backbone().edges.front();
-  const auto attachment =
-      state.view().source_edge_projection_world(edge.edge_id, edge.node_a,
-                                                city::wire::kDefaultLowVoltageBundleTemplateId, 0, 0.5);
-  if (curve == nullptr || !attachment.has_value()) {
-    return false;
-  }
-  const city::wire::Vec3d expected = curve->detail.EvaluatePosition(0.5);
-  const city::wire::Span* span = state.view().spans().find(span_id);
-  const city::wire::Port* a = span == nullptr ? nullptr : state.view().ports().find(span->port_a_id);
-  const city::wire::Port* b = span == nullptr ? nullptr : state.view().ports().find(span->port_b_id);
-  if (a == nullptr || b == nullptr) {
-    return false;
-  }
-  const city::wire::Vec3d chord_mid{
-      (a->world_position.x + b->world_position.x) * 0.5,
-      (a->world_position.y + b->world_position.y) * 0.5,
-      (a->world_position.z + b->world_position.z) * 0.5,
+  struct Result {
+    bool ok = false;
+    int stage = 0;
+    city::wire::Vec3d source_tangent{};
   };
-  return almost_equal(*attachment, expected, 1e-9) && attachment->z < chord_mid.z - 1e-4;
+  const auto run = [](city::wire::PathDirectionMode direction_mode) {
+    Result result{};
+    city::wire::CoreState state;
+    city::wire::GeometrySettings geometry = state.view().geometry_settings();
+    geometry.sag_enabled = true;
+    if (!state.UpdateGeometrySettings(geometry).ok) return result;
+    result.stage = 1;
+    city::wire::BackboneSpec source_request = line_req(state);
+    source_request.direction_mode = direction_mode;
+    const auto generated = state.GenerateFromBackboneSpec(source_request);
+    if (!generated.ok || generated.value.generated_span_ids.size() != 1 ||
+        state.view().backbone().edges.size() != 1) return result;
+    result.stage = 2;
+
+    const city::wire::ObjectId source_span_id = generated.value.generated_span_ids.front();
+    const city::wire::CurveCacheEntry* source_curve = state.find_curve_cache(source_span_id);
+    const city::wire::SavedBackboneEdge edge = state.view().backbone().edges.front();
+    const city::wire::SavedBackboneNode* node_a = state.view().backbone_node(edge.node_a);
+    const city::wire::SavedBackboneNode* node_b = state.view().backbone_node(edge.node_b);
+    const auto attachment = state.view().source_edge_projection_world(
+        edge.edge_id, edge.node_a,
+        city::wire::kDefaultLowVoltageBundleTemplateId, 0, 0.5);
+    if (source_curve == nullptr || node_a == nullptr || node_b == nullptr ||
+        !attachment.has_value()) return result;
+    result.stage = 3;
+    const city::wire::Span* source_span = state.view().spans().find(source_span_id);
+    const city::wire::Port* port_a = source_span == nullptr
+                                         ? nullptr
+                                         : state.view().ports().find(source_span->port_a_id);
+    const city::wire::Port* port_b = source_span == nullptr
+                                         ? nullptr
+                                         : state.view().ports().find(source_span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr) return result;
+    const city::wire::Vec3d chord_mid{
+        (port_a->world_position.x + port_b->world_position.x) * 0.5,
+        (port_a->world_position.y + port_b->world_position.y) * 0.5,
+        (port_a->world_position.z + port_b->world_position.z) * 0.5};
+    if (!almost_equal(*attachment, source_curve->detail.EvaluatePosition(0.5), 1e-9) ||
+        attachment->z >= chord_mid.z - 1e-4) return result;
+    result.stage = 4;
+
+    city::wire::PickResult pick{};
+    pick.hit_kind = city::wire::PickHitKind::kSegment;
+    pick.hit_pos_world = city::wire::ScaleVec(node_a->position + node_b->position, 0.5);
+    pick.has_segment_endpoints = true;
+    pick.segment_node_a_id = edge.node_a;
+    pick.segment_node_b_id = edge.node_b;
+    pick.segment_endpoint_a_world = node_a->position;
+    pick.segment_endpoint_b_world = node_b->position;
+    city::wire::ResolveBranchPickOptions options{};
+    options.selected_bundle_template_ids = {
+        city::wire::kDefaultLowVoltageBundleTemplateId};
+    const auto resolved = state.ResolveBranchPick(pick, options);
+    if (!resolved.ok) return result;
+    result.stage = 5;
+
+    city::wire::BackboneSpec branch = line_req(state);
+    branch.path.polyline = {resolved.value.position,
+                            resolved.value.position + city::wire::Vec3d{-4.0, 8.0, 0.0}};
+    city::wire::BackboneInputSpec::NodeSpec source_node{};
+    source_node.point_index = 0;
+    source_node.support_kind = resolved.value.support_kind;
+    source_node.node_id = resolved.value.resolved_node_id;
+    branch.path.node_specs = {source_node};
+    const auto branched = state.GenerateFromBackboneSpec(branch);
+    if (!branched.ok || branched.value.generated_span_ids.size() != 1) return result;
+    result.stage = 6;
+    const city::wire::ObjectId branch_span_id = branched.value.generated_span_ids.front();
+    const city::wire::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
+    if (!branch_layout.has_layout()) return result;
+    const city::wire::LayoutEndpoint* source_endpoint =
+        branch_layout.entry->start.source_projection.valid()
+            ? &branch_layout.entry->start
+            : branch_layout.entry->end.source_projection.valid()
+                  ? &branch_layout.entry->end
+                  : nullptr;
+    if (source_endpoint == nullptr) return result;
+    result.stage = 7;
+
+    const city::wire::VisualCurvePart* lead = nullptr;
+    const city::wire::VisualCurvePart* branch_body = nullptr;
+    for (const city::wire::VisualCurvePart& part :
+         state.view().visual_curve_parts().parts) {
+      if (part.source_span_id != branch_span_id) continue;
+      if (part.kind == city::wire::VisualCurvePartKind::kLead) lead = &part;
+      if (part.kind == city::wire::VisualCurvePartKind::kEdgeBody) branch_body = &part;
+    }
+    if (lead == nullptr || branch_body == nullptr) return result;
+    result.stage = 71;
+    if (lead->samples.size() < 2 || !lead->has_attachment_point ||
+        !lead->passes_attachment_point) return result;
+    result.stage = 72;
+    if (!almost_equal(lead->boundary_a, lead->attachment_point, 1e-9) ||
+        !almost_equal(lead->boundary_a, *attachment, 1e-9)) return result;
+    result.stage = 73;
+    if (!almost_equal(branch_body->boundary_a, lead->boundary_b, 1e-9) &&
+        !almost_equal(branch_body->boundary_b, lead->boundary_b, 1e-9)) {
+      result.stage = 731;
+      return result;
+    }
+    result.stage = 74;
+    const city::wire::Vec3d body_tangent =
+        almost_equal(branch_body->boundary_a, lead->boundary_b, 1e-9)
+            ? branch_body->tangent_a
+            : branch_body->tangent_b;
+    if (!tangent_compatible(lead->tangent_b, body_tangent)) return result;
+    result.stage = 8;
+    for (const city::wire::Vec3d& point : lead->samples) {
+      if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+          !std::isfinite(point.z)) return result;
+    }
+
+    const city::wire::SourceEdgeProjectionRef& projection =
+        source_endpoint->source_projection;
+    const bool source_forward = projection.from_node_id == edge.node_a;
+    const double u = source_forward ? projection.t : 1.0 - projection.t;
+    source_curve = state.find_curve_cache(source_span_id);
+    if (source_curve == nullptr) return result;
+    city::wire::Vec3d expected_tangent = source_curve->detail.EvaluateTangent(u);
+    if (!source_forward) expected_tangent = city::wire::ScaleVec(expected_tangent, -1.0);
+    result.source_tangent = lead->tangent_a;
+    if (!tangent_compatible(lead->tangent_a, expected_tangent)) return result;
+    result.ok = true;
+    result.stage = 9;
+    result.source_tangent = lead->tangent_a;
+    return result;
+  };
+
+  const Result forward = run(city::wire::PathDirectionMode::kForward);
+  const Result reverse = run(city::wire::PathDirectionMode::kReverse);
+  if (!forward.ok || !reverse.ok) {
+    test_registry::SetFailureReason(
+        "midair lead contract failed at forward stage " +
+        std::to_string(forward.stage) + " reverse stage " +
+        std::to_string(reverse.stage));
+  }
+  return forward.ok && reverse.ok &&
+         !tangent_compatible(forward.source_tangent, reverse.source_tangent);
 }
 
 bool C666_backbone_terminal_extension_creates_connectivity_patch() {
@@ -2005,14 +2142,16 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
   if (!state.UpdateBundleTemplate(hv).ok) return false;
 
   const auto generated = state.GenerateFromBackboneSpec(request);
-  if (!generated.ok || generated.value.generated_pole_ids.size() != 2 ||
-      generated.value.generated_span_ids.size() != 3 ||
-      state.view().poles().size() != baseline.view().poles().size() ||
-      state.view().ports().size() != baseline.view().ports().size() ||
-      state.view().spans().size() != baseline.view().spans().size() ||
-      state.view().bundles().size() != baseline.view().bundles().size()) {
-    return false;
-  }
+  WIRE_TEST_EXPECT_PRESENCE(generated.ok, generated.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_ORACLE(
+      generated.value.generated_pole_ids.size() == 2 &&
+          generated.value.generated_span_ids.size() == 3 &&
+          state.view().poles().size() == baseline.view().poles().size() &&
+          state.view().ports().size() == baseline.view().ports().size() &&
+          state.view().spans().size() == baseline.view().spans().size() &&
+          state.view().bundles().size() == baseline.view().bundles().size(),
+      "HV model scene changed authoritative output counts");
 
   std::unordered_set<city::wire::ObjectId> unique_ports{};
   for (city::wire::ObjectId span_id : generated.value.generated_span_ids) {
@@ -2192,7 +2331,9 @@ bool C764_straight_hv_model_assemblies_own_fixture_and_wire_placement() {
   city::wire::Transformd moved_transform = moved_pole->world_transform;
   moved_transform.position = moved_transform.position + city::wire::Vec3d{1.0, 2.0, 0.5};
   moved_transform.rotation_euler_deg = {7.0, -4.0, 13.0};
-  if (!state.MovePole(moved_pole_id, moved_transform).ok) return false;
+  const auto moved = state.MovePole(moved_pole_id, moved_transform);
+  WIRE_TEST_EXPECT_PRESENCE(moved.ok, moved.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   std::vector<std::string> moved_keys{};
   bool moved_body_version_changed = false;
   bool moved_body_frame_matches = false;
@@ -3136,7 +3277,7 @@ bool C769_bundle_placements_duplicate_template_as_independent_bundles() {
   return true;
 }
 
-bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
+bool C770_backbone_bundle_placement_update_preserves_resolved_row_placement() {
   constexpr city::wire::ModelAssemblyTemplateId kRowAssembly = 9130;
   constexpr city::wire::ModelAssemblyTemplateId kEndpointAssembly = 9131;
   constexpr double kHeightDelta = 0.6;
@@ -3321,20 +3462,31 @@ bool C770_backbone_bundle_placement_update_preserves_cross_row_height() {
   if (!port_height_before.has_value() || !row_height_before.has_value() || !base_height_before.has_value()) {
     return false;
   }
-  const double preserved_cross_offset = *port_height_before - *base_height_before;
-  if (std::abs(preserved_cross_offset) < 0.1) return false;
+  WIRE_TEST_EXPECT_ORACLE(
+      almost_equal(*port_height_before, *base_height_before, 1e-9),
+      "cross-row Port does not match its placement-band anchor");
 
   const double next_height = *base_height_before + kHeightDelta;
   const auto updated = state.UpdateBackboneBundlePlacement(
       bundle_id, true, next_height, bundle->lateral_m, bundle->phase_spacing_m);
-  if (!updated.ok || !updated.value) return false;
+  WIRE_TEST_EXPECT_PRESENCE(updated.ok, updated.error);
+  WIRE_TEST_EXPECT_PRESENCE(updated.value,
+                            "bundle placement update reported no change");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
 
   const city::wire::Bundle* after_bundle = state.view().bundles().find(bundle_id);
   const std::optional<double> port_height_after = average_port_height();
   const std::optional<double> row_height_after = row_model_height();
   if (after_bundle == nullptr || !port_height_after.has_value() || !row_height_after.has_value()) return false;
+  const city::wire::EditResult<city::wire::VisualCurvePartCache> full_visual =
+      city::wire::generation::backbone::make_visual_curve_parts(state, {});
+  WIRE_TEST_EXPECT(full_visual.ok, full_visual.error);
+  WIRE_TEST_EXPECT(
+      visual_part_snapshot(state.view().visual_curve_parts()) ==
+          visual_part_snapshot(full_visual.value),
+      "bundle placement update left stale visual curve parts");
 
-  return almost_equal((*port_height_after - after_bundle->height_m), preserved_cross_offset, 1e-9) &&
+  return almost_equal(*port_height_after, after_bundle->height_m, 1e-9) &&
          almost_equal(*port_height_after - *port_height_before, kHeightDelta, 1e-9) &&
          almost_equal(*row_height_after - *row_height_before, kHeightDelta, 1e-9) &&
          incident_layouts_match_fixtures();
@@ -3585,43 +3737,63 @@ bool C810_backbone_normal_pair_uses_edge_ports_and_derived_fixture() {
 
 bool C811_authoritative_v2_migrates_shared_pair_ports_without_visual_change() {
   std::string legacy{};
-  if (!file_text(repo_root() / "domains" / "wire" / "tests" / "fixtures" /
-                     "legacy_shared_pair_v2.txt",
-                 &legacy)) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(
+      file_text(repo_root() / "domains" / "wire" / "tests" / "fixtures" /
+                    "legacy_shared_pair_v2.txt",
+                &legacy),
+      "legacy shared-port fixture is missing");
   city::wire::CoreState loaded;
-  if (!loaded.DeserializeAuthoritative(legacy).ok) return false;
+  const auto loaded_result = loaded.DeserializeAuthoritative(legacy);
+  WIRE_TEST_EXPECT(loaded_result.ok, loaded_result.error);
   const std::string actual_signature = d1_derived_signature(loaded);
-  if (actual_signature.empty()) return false;
+  WIRE_TEST_EXPECT(!actual_signature.empty(), "migrated derived signature is empty");
 
   const std::filesystem::path expected_path =
       repo_root() / "domains" / "wire" / "tests" / "fixtures" /
       "legacy_shared_pair_v2.expected.txt";
   std::string expected_signature{};
-  if (!file_text(expected_path, &expected_signature)) {
-    return false;
-  }
-  if (actual_signature != expected_signature) return false;
+  WIRE_TEST_EXPECT(file_text(expected_path, &expected_signature),
+                   "legacy expected signature is missing");
+  const std::size_t signature_difference =
+      std::mismatch(actual_signature.begin(), actual_signature.end(),
+                    expected_signature.begin(), expected_signature.end())
+          .first -
+      actual_signature.begin();
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      actual_signature == expected_signature,
+      "migrated derived signature changed at byte " +
+          std::to_string(signature_difference) + " actual_size=" +
+          std::to_string(actual_signature.size()) + " expected_size=" +
+          std::to_string(expected_signature.size()) + " actual=" +
+          actual_signature.substr(signature_difference, 96) + " expected=" +
+          expected_signature.substr(signature_difference, 96));
 
   for (const city::wire::SavedBackbonePortBinding& binding :
        loaded.view().backbone().port_bindings) {
-    if (loaded.view()
-            .backbone_port_bindings_for_port(binding.port_id)
-            .size() != 1) {
-      return false;
-    }
+    WIRE_TEST_EXPECT_ANCHOR(
+        loaded.view()
+                .backbone_port_bindings_for_port(binding.port_id)
+                .size() == 1,
+        "migrated Port " + std::to_string(binding.port_id) +
+            " is not owned by exactly one edge endpoint binding");
   }
   std::string migrated{};
-  if (!loaded.SerializeAuthoritative(&migrated).ok || migrated == legacy) {
-    return false;
-  }
+  const auto migrated_save = loaded.SerializeAuthoritative(&migrated);
+  WIRE_TEST_EXPECT(migrated_save.ok, migrated_save.error);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      migrated != legacy, "v2 shared-Port fixture was not migrated");
   city::wire::CoreState reloaded;
   std::string resaved{};
-  return reloaded.DeserializeAuthoritative(migrated).ok &&
-         d1_derived_signature(reloaded) == expected_signature &&
-         reloaded.SerializeAuthoritative(&resaved).ok &&
-         resaved == migrated;
+  const auto reloaded_result = reloaded.DeserializeAuthoritative(migrated);
+  WIRE_TEST_EXPECT(reloaded_result.ok, reloaded_result.error);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      d1_derived_signature(reloaded) == expected_signature,
+      "migrated signature changed after reload");
+  const auto resaved_result = reloaded.SerializeAuthoritative(&resaved);
+  WIRE_TEST_EXPECT(resaved_result.ok, resaved_result.error);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      resaved == migrated, "migrated authoritative bytes are not stable");
+  return true;
 }
 
 bool C812_authoritative_v2_rejects_ambiguous_shared_port_migration() {
@@ -3727,6 +3899,56 @@ bool C813_backbone_move_pole_rederives_pair_representation() {
                           city::wire::VisualCurvePartKind::kNodePatch) == 1 &&
          curve_part_count(state, city::wire::VisualCurvePartKind::kJumper) ==
              0;
+}
+
+bool C855_backbone_non_auto_main_span_sag_is_parabolic_once() {
+  city::wire::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  WIRE_TEST_EXPECT(generated.ok, generated.error);
+  WIRE_TEST_EXPECT_PRESENCE(!generated.value.generated_span_ids.empty(),
+                            "HV sag fixture generated no spans");
+
+  const auto bundle_template = state.view().bundle_templates().find(
+      city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kHighVoltage));
+  WIRE_TEST_EXPECT_PRESENCE(bundle_template != state.view().bundle_templates().end(),
+                            "default HV BundleTemplate is missing");
+  const auto cable_template =
+      state.view().cable_templates().find(bundle_template->second.cable_template_id);
+  WIRE_TEST_EXPECT_PRESENCE(cable_template != state.view().cable_templates().end(),
+                            "default HV CableTemplate is missing");
+  const double expected_span_sag_ratio = cable_template->second.sag_factor;
+
+  for (city::wire::ObjectId span_id : generated.value.generated_span_ids) {
+    const city::wire::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+    WIRE_TEST_EXPECT_PRESENCE(curve != nullptr,
+                              "generated HV span is missing its DetailCurve");
+    WIRE_TEST_EXPECT_ORACLE(
+        almost_equal(curve->detail.quality.sag_base_ratio,
+                     expected_span_sag_ratio, 1e-12),
+        "span sag ratio was counted once for each endpoint instead of once for the span");
+    const double chord_length = city::wire::Length(
+        curve->detail.EvaluatePosition(1.0) -
+        curve->detail.EvaluatePosition(0.0));
+    const double expected_sag_amplitude =
+        chord_length * expected_span_sag_ratio;
+    WIRE_TEST_EXPECT_ORACLE(
+        almost_equal(curve->detail.sag_amplitude_m,
+                     expected_sag_amplitude, 1e-12),
+        "non-Auto main span reinterpreted the requested physical sag amplitude");
+    constexpr double kQuarter = 0.25;
+    const double expected_quarter_height =
+        city::wire::HeightAlongWorldUp(curve->detail.EvaluatePosition(0.0)) +
+        (city::wire::HeightAlongWorldUp(curve->detail.EvaluatePosition(1.0)) -
+         city::wire::HeightAlongWorldUp(curve->detail.EvaluatePosition(0.0))) *
+            kQuarter -
+        expected_sag_amplitude * 4.0 * kQuarter * (1.0 - kQuarter);
+    WIRE_TEST_EXPECT_ORACLE(
+        almost_equal(city::wire::HeightAlongWorldUp(
+                         curve->detail.EvaluatePosition(kQuarter)),
+                     expected_quarter_height, 1e-9),
+        "non-Auto main span sag does not follow the parabolic 4u(1-u) profile");
+  }
+  return true;
 }
 
 } // namespace backbone_tests

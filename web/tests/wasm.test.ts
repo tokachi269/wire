@@ -1,11 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { loadWireModule, type RoadStateHandle, type WireStateHandle } from "../src/bridge/wasm";
-import { EditErrorKind, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
+import { WireBridge, type SceneData } from "../src/bridge/wire";
+import type { RoadSectionInput } from "../src/road_templates";
+import { ROAD_TEMPLATE_PRESETS, seedRoadSections } from "../src/road_templates";
+import { CommitFailureCategory, type BundlePlacement, type ModelAssemblyBootstrapInput, type ModelTransformInput } from "../src/model";
 import {
   buildDefaultModelBootstrap,
   ModelAssetCache
 } from "../src/render/modelAssets";
+import { missingBackboneEntryCells } from "./backbone_semantics_contract";
+import {
+  SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS,
+  SUPPORT_DETAIL_SCENE_COUNTS,
+  SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS,
+  SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS,
+  SUPPORT_DETAIL_SCENE_POINTS
+} from "./supportDetailScene";
+
+const SUPPORT_DETAIL_MODEL_KEY_SET = new Set<string>(SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS);
 
 function visualParts(state: WireStateHandle) {
   const scene = state.visualScene();
@@ -14,6 +27,39 @@ function visualParts(state: WireStateHandle) {
     info,
     samples: samples.subarray(info.sampleOffset, info.sampleOffset + info.sampleCount * 3)
   }));
+}
+
+function detailSceneSignature(scene: SceneData): string {
+  const records = scene.parts
+    .filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
+    )
+    .map((part) => [
+      "part",
+      part.info.partKey,
+      part.info.supplementalKind,
+      part.info.wireRadius,
+      part.info.materialStyle,
+      part.info.colorRgba,
+      Array.from(part.samples).map((value) => value.toPrecision(17)).join(",")
+    ].join(":"));
+  records.push(...scene.models
+    .filter((model) => SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey) || model.stableKey.startsWith("pole-decoration:"))
+    .map((model) => [
+      "model",
+      model.stableKey,
+      model.modelKey,
+      model.positionX.toPrecision(17),
+      model.positionY.toPrecision(17),
+      model.positionZ.toPrecision(17),
+      model.rotationX.toPrecision(17),
+      model.rotationY.toPrecision(17),
+      model.rotationZ.toPrecision(17),
+      model.scaleX.toPrecision(17),
+      model.scaleY.toPrecision(17),
+      model.scaleZ.toPrecision(17)
+    ].join(":")));
+  return records.sort().join("\n");
 }
 
 const identityTransform = (): ModelTransformInput => ({
@@ -72,6 +118,40 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
         }]
       }],
       wireSocket: { partId: 1, socketName: "wire" }
+    }, {
+      id: 9905,
+      version: 1,
+      parts: [{
+        partId: 1, modelKey: "pole_decoration_x", descriptorName: "poleDecorationX", descriptorVersion: 1,
+        fitMode: 0,
+        localTransform: {
+          positionX: 0.62, positionY: 0.42, positionZ: 7.7,
+          rotationX: 0, rotationY: 0, rotationZ: 0,
+          scaleX: 1, scaleY: 1, scaleZ: 1
+        },
+        sockets: [{
+          name: "connect_hv_0",
+          positionX: -0.6, positionY: -0.18, positionZ: 0.38,
+          directionX: -1, directionY: 0, directionZ: 0
+        }, {
+          name: "connect_hv_1",
+          positionX: -0.6, positionY: 0.18, positionZ: 0.38,
+          directionX: -1, directionY: 0, directionZ: 0
+        }, {
+          name: "connect_lv_0",
+          positionX: 0.16, positionY: -0.16, positionZ: -0.30,
+          directionX: 0, directionY: -1, directionZ: -0.2
+        }, {
+          name: "connect_lv_1",
+          positionX: 0.20, positionY: 0, positionZ: -0.32,
+          directionX: 0, directionY: -1, directionZ: -0.2
+        }, {
+          name: "connect_lv_2",
+          positionX: 0.16, positionY: 0.16, positionZ: -0.30,
+          directionX: 0, directionY: -1, directionZ: -0.2
+        }]
+      }],
+      wireSocket: null
     }],
     poleAssignments: [
       { poleTypeId: 1, assemblyId: 9901, radiusBaseM: 0.16, radiusTopM: 0.10 },
@@ -92,15 +172,16 @@ async function productionLikeModelBootstrap(): Promise<ModelAssemblyBootstrapInp
     return source;
   };
   const cache = new ModelAssetCache(load);
-  const [pole, crossarm, belt, insulator, clamp, clampLong] = await Promise.all([
+  const [pole, crossarm, belt, insulator, clamp, clampLong, poleDecoration] = await Promise.all([
     cache.load("poleBody"),
     cache.load("crossarmHv"),
     cache.load("belt"),
     cache.load("hvInsulator"),
     cache.load("communicationClamp"),
-    cache.load("communicationClampLong")
+    cache.load("communicationClampLong"),
+    cache.load("poleDecorationX")
   ]);
-  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp, clampLong);
+  return buildDefaultModelBootstrap(pole, crossarm, belt, insulator, clamp, clampLong, poleDecoration);
 }
 
 function defaultBundlePlacements(): BundlePlacement[] {
@@ -116,6 +197,24 @@ function defaultBundlePlacements(): BundlePlacement[] {
 
 function hvBundlePlacement(): BundlePlacement[] {
   return [defaultBundlePlacements()[0]];
+}
+
+async function createRestorableSupportDetailBridge(): Promise<WireBridge> {
+  const bridge = await WireBridge.create();
+  expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+  const placements = defaultBundlePlacements();
+  const base = bridge.generate(
+    new Float64Array([0, 0, 0, 12, 0, 0, 12, 8, 0]),
+    placements,
+    0,
+    2,
+    0,
+    0,
+    []
+  );
+  expect(base.ok, base.error).toBe(true);
+  expect(bridge.scene().models.some((model) => model.stableKey.startsWith("pole-decoration:"))).toBe(true);
+  return bridge;
 }
 
 function uniqueRounded(values: number[]): number[] {
@@ -139,6 +238,24 @@ function endPoint(part: ReturnType<typeof visualParts>[number]): [number, number
 
 function distance(a: [number, number, number], b: [number, number, number]): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+function pointLineDistance(
+  point: [number, number, number],
+  start: [number, number, number],
+  end: [number, number, number]
+): number {
+  const line = [end[0] - start[0], end[1] - start[1], end[2] - start[2]];
+  const rel = [point[0] - start[0], point[1] - start[1], point[2] - start[2]];
+  const len2 = line[0] * line[0] + line[1] * line[1] + line[2] * line[2];
+  const t = len2 > 0
+    ? Math.max(0, Math.min(1, (rel[0] * line[0] + rel[1] * line[1] + rel[2] * line[2]) / len2))
+    : 0;
+  return Math.hypot(
+    point[0] - (start[0] + line[0] * t),
+    point[1] - (start[1] + line[1] * t),
+    point[2] - (start[2] + line[2] * t)
+  );
 }
 
 function assertSeparatedPoints(points: Array<[number, number, number]>, minDistance: number) {
@@ -335,18 +452,70 @@ function expectSamplesChangedOnlyWithVersionChange(
 describe("wire wasm smoke", () => {
   let state: WireStateHandle;
   let createState: () => WireStateHandle;
+  let wasmBuildSourceHash = "";
+  let wasmBuildVersion = "";
 
   beforeAll(async () => {
     const module = await loadWireModule();
     createState = () => new module.WireState();
+    wasmBuildSourceHash = module.wireBuildSourceHash();
+    wasmBuildVersion = module.wireBuildVersion();
     state = new module.WireState();
   });
 
   it("loads the generated wasm module", () => {
     expect(createState).toBeTypeOf("function");
+    expect(wasmBuildSourceHash).toMatch(/^(unknown|[0-9a-f]{12})$/);
+    expect(wasmBuildVersion).toMatch(/^(unknown|\d+\.\d+\.\d+)$/);
     const loaded = createState();
     expect(loaded.poleCount()).toBe(0);
     loaded.delete();
+  });
+
+  it("keeps non-Auto final viewer samples on the requested parabola", () => {
+    const runState = createState();
+    const bundleTemplate = Array.from({ length: runState.bundleTemplateCount() }, (_, index) =>
+      runState.bundleTemplate(index)
+    ).find((template) => template.id === 102);
+    expect(bundleTemplate).toBeDefined();
+    const cableTemplate = Array.from({ length: runState.cableTemplateCount() }, (_, index) =>
+      runState.cableTemplate(index)
+    ).find((template) => template.id === bundleTemplate!.cableTemplateId);
+    expect(cableTemplate).toBeDefined();
+    const updated = runState.updateCableTemplate({
+      ...cableTemplate!,
+      sagFactor: 0.025,
+      continuityPolicy: 1,
+      supplementalEnabled: false
+    }, []);
+    expect(updated.ok, updated.error).toBe(true);
+
+    const generated = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 20, 0, 0]),
+      [{ id: 1, bundleTemplateId: 102, count: 1, explicit: true,
+         height: 7.7, offset: 0, spacing: 0.2 }],
+      0, 1, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const bodies = visualParts(runState).filter((part) =>
+      part.info.kind === 0 && part.info.bundleTemplateId === 102
+    );
+    expect(bodies).toHaveLength(1);
+    const body = bodies[0];
+    const pointCount = body.samples.length / 3;
+    expect(pointCount).toBeGreaterThan(2);
+    const start = startPoint(body);
+    const end = endPoint(body);
+    expect(end[0] - start[0]).toBe(20);
+    expect(end[2]).toBe(start[2]);
+    for (let index = 0; index < pointCount; index += 1) {
+      const u = index / (pointCount - 1);
+      const chordZ = start[2] + (end[2] - start[2]) * u;
+      const expectedZ = chordZ - 0.5 * 4 * u * (1 - u);
+      expect(Math.abs(body.samples[index * 3 + 2] - expectedZ),
+        `viewer sample ${index} at u=${u}`).toBeLessThanOrEqual(1e-12);
+    }
+    runState.delete();
   });
 
   it("returns machine-readable edit error kinds from wasm operations", () => {
@@ -361,7 +530,8 @@ describe("wire wasm smoke", () => {
       []
     );
     expect(validation.ok).toBe(false);
-    expect(validation.errorKind).toBe(EditErrorKind.Validation);
+    expect(validation.failureCategory).toBe(CommitFailureCategory.InvalidInput);
+    expect(validation.reasonCode).toBe("invalid_input");
 
     const unsupported = runState.generatePlacements(
       new Float64Array([0, 0, 0, 12, 0, 0]),
@@ -373,7 +543,154 @@ describe("wire wasm smoke", () => {
       []
     );
     expect(unsupported.ok).toBe(false);
-    expect(unsupported.errorKind).toBe(EditErrorKind.Unsupported);
+    expect(unsupported.failureCategory).toBe(CommitFailureCategory.NotImplemented);
+    expect(unsupported.reasonCode).toBe("not_implemented");
+    runState.delete();
+  });
+
+  it("previews one wire interval through the commit generator without mutating state", () => {
+    const runState = createState();
+    expect(runState.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const points = new Float64Array([0, 0, 0, 20, 4, 0]);
+    const placements = hvBundlePlacement();
+    const before = runState.saveState();
+
+    const preview = runState.previewPlacements(points, placements, 0, 1, 0, 12, []);
+    expect(preview.ok, preview.error).toBe(true);
+    expect(preview.generatedPoleIds).toHaveLength(2);
+    expect(preview.generatedSpanIds).toHaveLength(3);
+    expect(preview.parts.length).toBeGreaterThan(0);
+    expect(preview.poles).toHaveLength(2);
+    expect(runState.saveState()).toBe(before);
+    expect(runState.poleCount()).toBe(0);
+
+    const generated = runState.generatePlacements(points, placements, 0, 1, 0, 12, []);
+    expect(generated.ok, generated.error).toBe(true);
+    expect(generated.generatedPoleIds).toEqual(preview.generatedPoleIds);
+    expect(generated.generatedSpanIds).toEqual(preview.generatedSpanIds);
+    const committedParts = visualParts(runState);
+    const previewSamples = new Float64Array(preview.samples);
+    const previewByKey = new Map(preview.parts.map((part) => [
+      part.partKey,
+      [...previewSamples.subarray(part.sampleOffset, part.sampleOffset + part.sampleCount * 3)]
+    ]));
+    for (const part of committedParts) {
+      expect(previewByKey.get(part.info.partKey)).toEqual([...part.samples]);
+    }
+    runState.delete();
+  });
+
+  it("continues previewing and committing wire intervals after two committed corners", () => {
+    const runState = createState();
+    const configured = runState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+
+    let placements = defaultBundlePlacements();
+    const first = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0]), placements, 0, 2, 0, 12, []
+    );
+    expect(first.ok, first.error).toBe(true);
+    expect(first.generatedPoleIds).toHaveLength(2);
+    expect(first.generatedBundleIds).toBeDefined();
+    expect(first.generatedPoleIds).toBeDefined();
+    placements = placements.map((placement, index) => ({
+      ...placement,
+      generatedBundleId: first.generatedBundleIds![index]
+    }));
+
+    const secondStart = first.generatedPoleIds!.at(-1)!;
+    const second = runState.generatePlacements(
+      new Float64Array([12, 0, 0, 12, 10, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: secondStart }]
+    );
+    expect(second.ok, second.error).toBe(true);
+    expect(second.generatedPoleIds).toHaveLength(1);
+    expect(second.generatedPoleIds).toBeDefined();
+
+    const beforeThird = runState.saveState();
+    const thirdStart = second.generatedPoleIds!.at(-1)!;
+    const third = runState.previewPlacements(
+      new Float64Array([12, 10, 0, 0, 10, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: thirdStart }]
+    );
+    expect(third.ok, third.error).toBe(true);
+    expect(runState.saveState()).toBe(beforeThird);
+
+    const thirdCommitted = runState.generatePlacements(
+      new Float64Array([12, 10, 0, 0, 10, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: thirdStart }]
+    );
+    expect(thirdCommitted.ok, thirdCommitted.error).toBe(true);
+    expect(thirdCommitted.generatedPoleIds).toHaveLength(1);
+    expect(thirdCommitted.generatedPoleIds).toBeDefined();
+
+    const fourthStart = thirdCommitted.generatedPoleIds!.at(-1)!;
+    const fourth = runState.generatePlacements(
+      new Float64Array([0, 10, 0, 0, 20, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: fourthStart }]
+    );
+    expect(fourth.ok, fourth.error).toBe(true);
+    expect(fourth.generatedPoleIds).toHaveLength(1);
+    expect(fourth.generatedPoleIds).toBeDefined();
+
+    const beforeFifth = runState.saveState();
+    const fifthStart = fourth.generatedPoleIds!.at(-1)!;
+    const fifth = runState.previewPlacements(
+      new Float64Array([0, 20, 0, 10, 20, 0]), placements, 0, 2, 0, 12,
+      [{ pointIndex: 0, supportKind: 0, nodeId: fifthStart }]
+    );
+    expect(fifth.ok, fifth.error).toBe(true);
+    expect(runState.saveState()).toBe(beforeFifth);
+    runState.delete();
+  });
+
+  it("creates twelve independent model-aware wire routes without stale session state", () => {
+    const runState = createState();
+    const configured = runState.configureModelAssemblies(modelBootstrap());
+    expect(configured.ok, configured.error).toBe(true);
+
+    for (let routeIndex = 0; routeIndex < 12; routeIndex += 1) {
+      const originX = routeIndex * 30;
+      let placements = defaultBundlePlacements();
+      const first = runState.generatePlacements(
+        new Float64Array([originX, 0, 0, originX + 12, 0, 0]),
+        placements,
+        0,
+        2,
+        0,
+        12,
+        []
+      );
+      expect(first.ok, `route ${routeIndex} first: ${first.error}`).toBe(true);
+      expect(first.generatedPoleIds, `route ${routeIndex} first poles`).toHaveLength(2);
+      expect(first.generatedBundleIds, `route ${routeIndex} bundle ids`).toBeDefined();
+      placements = placements.map((placement, index) => ({
+        ...placement,
+        generatedBundleId: first.generatedBundleIds![index]
+      }));
+
+      const secondStart = first.generatedPoleIds!.at(-1)!;
+      const beforePreview = runState.saveState();
+      const secondPoints = new Float64Array([
+        originX + 12, 0, 0,
+        originX + 12, 10, 0
+      ]);
+      const nodeSpecs = [{ pointIndex: 0, supportKind: 0, nodeId: secondStart }];
+      const preview = runState.previewPlacements(
+        secondPoints, placements, 0, 2, 0, 12, nodeSpecs
+      );
+      expect(preview.ok, `route ${routeIndex} preview: ${preview.error}`).toBe(true);
+      expect(runState.saveState(), `route ${routeIndex} preview atomicity`).toBe(beforePreview);
+
+      const second = runState.generatePlacements(
+        secondPoints, placements, 0, 2, 0, 12, nodeSpecs
+      );
+      expect(second.ok, `route ${routeIndex} second: ${second.error}`).toBe(true);
+      expect(second.generatedPoleIds, `route ${routeIndex} second poles`).toHaveLength(1);
+    }
+
+    expect(runState.poleCount()).toBe(36);
+    expect(runState.visualScene().models.length).toBeGreaterThan(36);
     runState.delete();
   });
 
@@ -562,6 +879,225 @@ describe("wire wasm smoke", () => {
     modelState.delete();
   });
 
+  it("derives pole decoration model and local curves in the core visual output", async () => {
+    const rawState = createState();
+    expect(rawState.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const rawGenerated = rawState.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(rawGenerated.ok, rawGenerated.error).toBe(true);
+    expect(rawState.visualScene().models.some((model) =>
+      SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey)
+    )).toBe(true);
+    expect(visualParts(rawState).some((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
+    )).toBe(true);
+    rawState.delete();
+
+    const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const generated = bridge.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const beforeSceneState = bridge.saveState();
+    const scene = bridge.scene();
+    expect(bridge.saveState()).toBe(beforeSceneState);
+    const models = scene.models;
+    expect(models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
+    expect(models.filter((model) => model.modelKey === "pc6_cutout_proxy")).toHaveLength(0);
+    expect(models.filter((model) => model.modelKey === "arrester_gl_b6g_proxy")).toHaveLength(0);
+    expect(models.filter((model) => model.modelKey === "hv_triplex_termination_60_proxy")).toHaveLength(0);
+    expect(models.filter((model) => model.modelKey === "aerial_optical_closure_rca3ao_proxy")).toHaveLength(0);
+    expect(models.some((model) =>
+      model.modelKey === "detail_transformer_box" || model.modelKey === "detail_inline_device"
+    )).toBe(false);
+    const decorations = models.filter((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]);
+    expect(decorations.length).toBeGreaterThan(0);
+    expect(decorations.every((model) => model.stableKey.startsWith("pole-decoration:"))).toBe(true);
+    expect(decorations.every((model) =>
+      model.scaleX === 1 && model.scaleY === 1 && model.scaleZ === 1
+    )).toBe(true);
+
+    const detailParts = scene.parts;
+    expect(detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
+    ).length).toBeGreaterThanOrEqual(7);
+    expect(detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
+    )).toHaveLength(0);
+    const derivedDetailParts = detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable ||
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.inlineCable
+    );
+    expect(derivedDetailParts.every((part) => Math.floor(part.samples.length / 3) <= 8)).toBe(true);
+    const hvEndpoints = scene.parts
+      .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 101)
+      .flatMap((part) => [
+        [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number],
+        [
+          part.samples[part.samples.length - 3],
+          part.samples[part.samples.length - 2],
+          part.samples[part.samples.length - 1]
+        ] as [number, number, number]
+      ]);
+    const hvTapCables = detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable &&
+      part.info.bundleTemplateId === 101
+    );
+    expect(hvTapCables.length).toBeGreaterThanOrEqual(2);
+    expect(hvTapCables.every((part) => Math.floor(part.samples.length / 3) >= 5)).toBe(true);
+    expect(hvTapCables.every((part) => {
+      const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
+      const nearest = Math.min(...hvEndpoints.map((endpoint) => distance(first, endpoint)));
+      return nearest < 1e-9;
+    })).toBe(true);
+    expect(hvTapCables.every((part) => {
+      const pointCount = Math.floor(part.samples.length / 3);
+      const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
+      const lastOffset = part.samples.length - 3;
+      const last = [
+        part.samples[lastOffset],
+        part.samples[lastOffset + 1],
+        part.samples[lastOffset + 2]
+      ] as [number, number, number];
+      const distances = Array.from({ length: pointCount - 2 }, (_, index) => {
+        const offset = (index + 1) * 3;
+        return pointLineDistance([
+          part.samples[offset],
+          part.samples[offset + 1],
+          part.samples[offset + 2]
+        ] as [number, number, number], first, last);
+      });
+      return Math.max(...distances) > 0.12;
+    })).toBe(true);
+    const hvEdgeAppearance = scene.parts.find((part) =>
+      part.info.kind === 0 && part.info.bundleTemplateId === 101
+    )?.info;
+    expect(hvEdgeAppearance).toBeDefined();
+    const hvLocalCables = hvTapCables;
+    expect(hvLocalCables).not.toHaveLength(0);
+    expect(hvLocalCables.every((part) =>
+      part.info.wireRadius === hvEdgeAppearance!.wireRadius &&
+      part.info.materialStyle === hvEdgeAppearance!.materialStyle &&
+      part.info.colorRgba === hvEdgeAppearance!.colorRgba
+    )).toBe(true);
+    const lvEndpoints = scene.parts
+      .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 102)
+      .flatMap((part) => [
+        [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number],
+        [
+          part.samples[part.samples.length - 3],
+          part.samples[part.samples.length - 2],
+          part.samples[part.samples.length - 1]
+        ] as [number, number, number]
+      ]);
+    const lvLeads = detailParts.filter((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable &&
+      part.info.bundleTemplateId === 102
+    );
+    expect(lvLeads.length).toBeGreaterThanOrEqual(3);
+    expect(lvLeads.every((part) => Math.floor(part.samples.length / 3) >= 5)).toBe(true);
+    const lvEdgeAppearance = scene.parts.find((part) =>
+      part.info.kind === 0 && part.info.bundleTemplateId === 102
+    )?.info;
+    expect(lvEdgeAppearance).toBeDefined();
+    expect(lvLeads.every((part) =>
+      part.info.wireRadius === lvEdgeAppearance!.wireRadius &&
+      part.info.materialStyle === lvEdgeAppearance!.materialStyle &&
+      part.info.colorRgba === lvEdgeAppearance!.colorRgba
+    )).toBe(true);
+    expect(lvLeads.every((part) => {
+      const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
+      const nearest = Math.min(...lvEndpoints.map((endpoint) => distance(first, endpoint)));
+      return nearest < 1e-9;
+    })).toBe(true);
+    expect(lvLeads.every((part) => {
+      const pointCount = Math.floor(part.samples.length / 3);
+      const first = [part.samples[0], part.samples[1], part.samples[2]] as [number, number, number];
+      const lastOffset = part.samples.length - 3;
+      const last = [
+        part.samples[lastOffset],
+        part.samples[lastOffset + 1],
+        part.samples[lastOffset + 2]
+      ] as [number, number, number];
+      const distances = Array.from({ length: pointCount - 2 }, (_, index) => {
+        const offset = (index + 1) * 3;
+        return pointLineDistance([
+          part.samples[offset],
+          part.samples[offset + 1],
+          part.samples[offset + 2]
+        ] as [number, number, number], first, last);
+      });
+      return Math.max(...distances) > 0.08;
+    })).toBe(true);
+    const saved = bridge.saveState();
+    expect(saved).not.toMatch(/pole_decoration_x|LocalDecoration|pole-decoration:/);
+    expect(saved).not.toMatch(/connect_hv_0|connect_lv_0/);
+
+    const repeatedBridge = await WireBridge.create();
+    expect(repeatedBridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const repeated = repeatedBridge.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(repeated.ok, repeated.error).toBe(true);
+    expect(detailSceneSignature(repeatedBridge.scene())).toBe(detailSceneSignature(scene));
+
+    const restorableBridge = await createRestorableSupportDetailBridge();
+    const restorableSaved = restorableBridge.saveState();
+    expect(restorableSaved).not.toMatch(/pole_decoration_x|LocalDecoration|pole-decoration:/);
+    const restorableSignature = detailSceneSignature(restorableBridge.scene());
+    const restoredBridge = await WireBridge.create();
+    expect(restoredBridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const loaded = restoredBridge.loadState(restorableSaved);
+    expect(loaded.ok, loaded.error).toBe(true);
+    expect(detailSceneSignature(restoredBridge.scene())).toBe(restorableSignature);
+  });
+
+  it("does not attach support equipment detail to an optical-only scene fixture", async () => {
+    const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const generated = bridge.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      [105], 0, 1,
+      [0], 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const scene = bridge.scene();
+    expect(scene.models.filter((model) =>
+      SUPPORT_DETAIL_MODEL_KEY_SET.has(model.modelKey)
+    )).toHaveLength(0);
+    expect(scene.parts.some((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable
+    )).toBe(false);
+  });
+
+  it("does not create LV decoration curves without an existing LV carrier", async () => {
+    const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const generated = bridge.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      [101], 0, 1,
+      [0], 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const scene = bridge.scene();
+    expect(scene.models.some((model) => model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0])).toBe(true);
+    expect(scene.parts.some((part) =>
+      part.info.supplementalKind === SUPPORT_DETAIL_SCENE_EXPECTED_SUPPLEMENTAL_KINDS.localCable &&
+      part.info.bundleTemplateId === 102
+    )).toBe(false);
+  });
+
   it("upgrades an older saved row assembly by adapter version during restore", () => {
     const oldState = createState();
     const oldBootstrap = modelBootstrap();
@@ -629,6 +1165,33 @@ describe("wire wasm smoke", () => {
       )
     ).toBe(true);
     flat.delete();
+  });
+
+  it("inherits pole tilt for derived support detail attachments", async () => {
+    const bridge = await WireBridge.create();
+    expect(bridge.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const generated = bridge.generate(
+      SUPPORT_DETAIL_SCENE_POINTS,
+      SUPPORT_DETAIL_SCENE_BUNDLE_TEMPLATE_IDS, 0, 1,
+      SUPPORT_DETAIL_SCENE_COUNTS, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const poleIds = bridge.scene().poles.map((pole) => pole.id);
+    const tilted = bridge.applyPoleTilt(poleIds, 9.5);
+    expect(tilted.ok, tilted.error).toBe(true);
+
+    const scene = bridge.scene();
+    const decoration = scene.models.find((model) =>
+      model.modelKey === SUPPORT_DETAIL_SCENE_EXPECTED_MODEL_KEYS[0]
+    );
+    expect(decoration).toBeDefined();
+    const poleId = decoration!.stableKey.match(/^pole-decoration:(\d+):/)?.[1];
+    const owner = scene.poles.find((pole) => pole.id === poleId);
+    expect(owner).toBeDefined();
+    expect(Math.abs(owner!.rotationX) + Math.abs(owner!.rotationY)).toBeGreaterThan(0.01);
+    expect(decoration!.rotationX).toBeCloseTo(owner!.rotationX, 6);
+    expect(decoration!.rotationY).toBeCloseTo(owner!.rotationY, 6);
   });
 
   it("exposes a shared run id for through edge bodies", () => {
@@ -1005,6 +1568,7 @@ describe("wire wasm smoke", () => {
   });
 
   it("keeps HV when resolving a pole snap through the UI hit payload and excludes HV for midair branch", () => {
+    const coveredEntries = new Set<string>();
     const runState = createState();
     const configured = runState.configureModelAssemblies(modelBootstrap());
     expect(configured.ok, configured.error).toBe(true);
@@ -1072,6 +1636,7 @@ describe("wire wasm smoke", () => {
       .filter((part) => !beforePoleHvSpanIds.has(part.info.sourceSpanId));
     expect(newPoleHvParts).toHaveLength(3);
     expect(uniqueRounded(newPoleHvParts.map((part) => part.info.laneIndex))).toEqual([0, 1, 2]);
+    coveredEntries.add("BOS:add_one_edge:S1");
 
     const midairState = createState();
     const midairConfigured = midairState.configureModelAssemblies(modelBootstrap());
@@ -1123,6 +1688,8 @@ describe("wire wasm smoke", () => {
     const newMidairHvParts = hvEdgeBodies(midairState)
       .filter((part) => !beforeMidairHvSpanIds.has(part.info.sourceSpanId));
     expect(newMidairHvParts).toHaveLength(0);
+    coveredEntries.add("BOS:add_one_edge:SM");
+    expect(missingBackboneEntryCells("wasm_adapter", coveredEntries)).toEqual([]);
     midairState.delete();
     runState.delete();
   });
@@ -1139,7 +1706,7 @@ describe("wire wasm smoke", () => {
     }));
 
     const text = savedState.saveState();
-    expect(text.startsWith("wire_state_v2\n")).toBe(true);
+    expect(text.startsWith("wire_state_v4\n")).toBe(true);
     const loadedState = createState();
     const loaded = loadedState.loadState(text);
     expect(loaded.ok, loaded.error).toBe(true);
@@ -1295,10 +1862,30 @@ describe("wire wasm smoke", () => {
 describe("road wasm smoke", () => {
   let state: RoadStateHandle;
   let createRoadState: () => RoadStateHandle;
+  // A road state with nothing registered, which is what Core now constructs.
+  let createEmptyRoadState: () => RoadStateHandle;
+  // A road state starts with no cross section, so these tests register the
+  // product catalogue the way a new workspace does and draw with the ID Core
+  // handed back. Clearing discards the sections too, so it re-registers them.
+  let sectionId = 0;
+  const seedRoad = (road: RoadStateHandle): void => {
+    const seeded = seedRoadSections((section) => road.addRoadLayoutTemplate(section));
+    if (!seeded.ok) throw new Error(seeded.error);
+    sectionId = seeded.sections.initialId;
+  };
+  const clearRoad = (road: RoadStateHandle): void => {
+    road.clear();
+    seedRoad(road);
+  };
 
   beforeAll(async () => {
     const module = await loadWireModule();
-    createRoadState = () => new module.RoadState();
+    createEmptyRoadState = () => new module.RoadState();
+    createRoadState = () => {
+      const road = createEmptyRoadState();
+      seedRoad(road);
+      return road;
+    };
     state = createRoadState();
   });
 
@@ -1306,8 +1893,352 @@ describe("road wasm smoke", () => {
     state.delete();
   });
 
+  it("preserves road draw elevations through the wasm scene", () => {
+    const road = createRoadState();
+    try {
+      const drawn = road.addSegment({
+        roadLayoutTemplateId: sectionId,
+        kind: "line",
+        startX: 0,
+        startY: 0,
+        endX: 30,
+        endY: 0,
+        handleAX: 10,
+        handleAY: 0,
+        handleBX: 20,
+        handleBY: 0,
+        startNodeId: 0,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        startElevationM: 3,
+        endElevationM: 9,
+        connectToFirstNode: false
+      });
+      expect(drawn.ok, drawn.error).toBe(true);
+
+      const scene = road.scene();
+      expect(scene.nodes.map((node) => node.z).sort((a, b) => a - b))
+        .toEqual([3, 9]);
+      expect(scene.centerlineSegments).toHaveLength(1);
+      expect(scene.centerlineSegments[0]).toEqual(expect.objectContaining({
+        startZ: 3,
+        endZ: 9
+      }));
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("previews a continued curve as a curve, matching what it commits", () => {
+    const road = createRoadState();
+    try {
+      const first = road.addSegment({
+      roadLayoutTemplateId: sectionId,
+        kind: "bezier",
+        startX: 0,
+        startY: 0,
+        endX: 40,
+        endY: 0,
+        handleAX: 40 / 3,
+        handleAY: 0,
+        handleBX: (40 * 2) / 3,
+        handleBY: 0,
+        startNodeId: 0,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        connectToFirstNode: false
+      });
+      expect(first.ok, first.error).toBe(true);
+      const corridorId = road.scene().corridors[0].id;
+      const endNodeId = first.endNodeId ?? 0;
+
+      // The chord the viewer reports for the pending interval.
+      const pending = {
+        roadLayoutTemplateId: sectionId,
+        kind: "bezier" as const,
+        startX: 40,
+        startY: 0,
+        endX: 70,
+        endY: 22,
+        handleAX: 50,
+        handleAY: 22 / 3,
+        handleBX: 60,
+        handleBY: (22 * 2) / 3,
+        startNodeId: endNodeId,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        extensionCorridorId: corridorId,
+        connectToFirstNode: false
+      };
+
+      const preview = road.previewInterval(pending);
+      const chordHandleAX = 40 + (70 - 40) / 3;
+      const chordHandleAY = 0 + 22 / 3;
+      // A straight guide would sit exactly on the chord.
+      expect(
+        Math.hypot(preview.handleAX - chordHandleAX, preview.handleAY - chordHandleAY)
+      ).toBeGreaterThan(0.5);
+
+      const committed = road.addSegment({
+        ...pending,
+        handleAX: preview.handleAX,
+        handleAY: preview.handleAY,
+        handleBX: preview.handleBX,
+        handleBY: preview.handleBY
+      });
+      expect(committed.ok, committed.error).toBe(true);
+      const editable = road
+        .scene()
+        .editableSegments.find((segment) => segment.id === committed.segmentId);
+      expect(editable).toBeDefined();
+      // The guide and the committed road are the same four control points.
+      expect(editable?.points).toHaveLength(4);
+      expect(Math.abs((editable?.points[1].x ?? 0) - preview.handleAX)).toBeLessThan(1e-6);
+      expect(Math.abs((editable?.points[1].y ?? 0) - preview.handleAY)).toBeLessThan(1e-6);
+      expect(Math.abs((editable?.points[2].x ?? 0) - preview.handleBX)).toBeLessThan(1e-6);
+      expect(Math.abs((editable?.points[2].y ?? 0) - preview.handleBY)).toBeLessThan(1e-6);
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("starts with no cross section until the product registers its own", () => {
+    const road = createEmptyRoadState();
+    try {
+      expect(road.scene().roadLayoutTemplateCount).toBe(0);
+      const drawn = road.addSegment({
+        roadLayoutTemplateId: 1,
+        kind: "line",
+        startX: 0,
+        startY: 0,
+        endX: 24,
+        endY: 0,
+        handleAX: 8,
+        handleAY: 0,
+        handleBX: 16,
+        handleBY: 0,
+        startNodeId: 0,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        extensionCorridorId: 0,
+        connectToFirstNode: false
+      });
+      expect(drawn.ok).toBe(false);
+      expect(drawn.error).toContain("section template");
+
+      const seeded = seedRoadSections((section) => road.addRoadLayoutTemplate(section));
+      expect(seeded.ok).toBe(true);
+      if (!seeded.ok) return;
+      const registered = road.scene().roadLayoutTemplates;
+      expect(registered).toHaveLength(ROAD_TEMPLATE_PRESETS.length);
+      // Every ID came back from Core; none of them is chosen by the catalogue.
+      const ids = registered.map((template) => template.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(Object.keys(seeded.sections.labels).map(Number).sort()).toEqual(
+        [...ids].sort()
+      );
+      expect(ids).toContain(seeded.sections.initialId);
+      expect(seeded.sections.labels[seeded.sections.initialId]).toBe(
+        ROAD_TEMPLATE_PRESETS.find((preset) => preset.initial)?.label
+      );
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("carries each registered section's own measurements into core", () => {
+    const road = createRoadState();
+    try {
+      const registered = road.scene().roadLayoutTemplates;
+      const shape = (
+        strips: ReadonlyArray<{ function: string; widthM: number }>
+      ) => strips.map((strip) => `${strip.function}:${strip.widthM}`).join("|");
+      for (const preset of ROAD_TEMPLATE_PRESETS) {
+        const match = registered.find(
+          (template) => shape(template.strips) === shape(preset.section.strips)
+        );
+        expect(match, `no core section matches ${preset.key}`).toBeDefined();
+        expect(match!.laneCount).toBe(preset.section.laneBands.length);
+        expect(match!.lanes.map((lane) => lane.id)).toEqual(
+          preset.section.laneBands.map((lane) => lane.id)
+        );
+        expect(match!.boundaries.map((boundary) => boundary.id)).toEqual(
+          preset.section.boundaries.map((boundary) => boundary.id)
+        );
+      }
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("registers shouldered opposing four and six lane road presets", () => {
+    const road = createRoadState();
+    try {
+      const templates = road.scene().roadLayoutTemplates;
+      const fourPreset = ROAD_TEMPLATE_PRESETS.find((preset) => preset.key === "shouldered-four-lane");
+      const sixPreset = ROAD_TEMPLATE_PRESETS.find((preset) => preset.key === "shouldered-six-lane");
+      expect(fourPreset).toBeDefined();
+      expect(sixPreset).toBeDefined();
+
+      const findPresetTemplate = (preset: NonNullable<typeof fourPreset>) =>
+        templates.find((template) =>
+          template.laneCount === preset.section.laneBands.length &&
+          template.strips.map((strip) => `${strip.function}:${strip.widthM}`).join("|") ===
+            preset.section.strips.map((strip) => `${strip.function}:${strip.widthM}`).join("|")
+        );
+
+      const four = findPresetTemplate(fourPreset!);
+      const six = findPresetTemplate(sixPreset!);
+      expect(four).toBeDefined();
+      expect(six).toBeDefined();
+      expect(four!.lanes.map((lane) => lane.direction)).toEqual([1, 1, 0, 0]);
+      expect(six!.lanes.map((lane) => lane.direction)).toEqual([1, 1, 1, 0, 0, 0]);
+      expect(four!.strips.filter((strip) => strip.function === "shoulder").map((strip) => strip.widthM))
+        .toEqual([0.75, 0.75]);
+      expect(six!.strips.filter((strip) => strip.function === "shoulder").map((strip) => strip.widthM))
+        .toEqual([0.75, 0.75]);
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("keeps saved sections when a workspace is loaded back", () => {
+    const road = createRoadState();
+    const reopened = createEmptyRoadState();
+    try {
+      const drawn = road.addSegment({
+        roadLayoutTemplateId: sectionId,
+        kind: "line",
+        startX: 0,
+        startY: 0,
+        endX: 40,
+        endY: 0,
+        handleAX: 40 / 3,
+        handleAY: 0,
+        handleBX: 80 / 3,
+        handleBY: 0,
+        startNodeId: 0,
+        startSegmentId: 0,
+        startSegmentDistanceM: 0,
+        extensionCorridorId: 0,
+        connectToFirstNode: false
+      });
+      expect(drawn.ok, drawn.error).toBe(true);
+      const saved = road.saveState();
+      const before = road.scene().roadLayoutTemplates;
+
+      const loaded = reopened.loadState(saved);
+      expect(loaded.ok, loaded.error).toBe(true);
+      const after = reopened.scene().roadLayoutTemplates;
+      // Loading uses what the archive holds. It neither adds the catalogue
+      // again nor refreshes the saved measurements from it.
+      expect(after).toHaveLength(before.length);
+      expect(after).toEqual(before);
+      expect(reopened.saveState()).toBe(saved);
+    } finally {
+      reopened.delete();
+      road.delete();
+    }
+  });
+
+  it("registers each preset with the alignment offset the preset asked for", () => {
+    const road = createRoadState();
+    try {
+      const registered = road.scene().roadLayoutTemplates;
+      expect(registered.length).toBe(ROAD_TEMPLATE_PRESETS.length);
+      // The presets are registered in order, so the ID Core handed back for the
+      // Nth registration belongs to the Nth preset.
+      registered.forEach((template, index) => {
+        const preset = ROAD_TEMPLATE_PRESETS[index];
+        expect(
+          template.alignmentOffsetFromLeftM,
+          `${preset.label} lost its alignment offset`
+        ).toBeCloseTo(preset.section.alignmentOffsetFromLeftM, 12);
+      });
+      // A section with no sidewalk on one side is still centred on its own
+      // width, which is what these presets mean; Core does not re-derive it.
+      const noLeftSidewalk = registered[2];
+      expect(noLeftSidewalk.alignmentOffsetFromLeftM).toBeCloseTo(4.0, 12);
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("rejects a section that does not say where its alignment runs", () => {
+    const road = createEmptyRoadState();
+    try {
+      const { alignmentOffsetFromLeftM, ...withoutOffset } =
+        ROAD_TEMPLATE_PRESETS[0].section;
+      expect(alignmentOffsetFromLeftM).toBeGreaterThan(0);
+      const added = road.addRoadLayoutTemplate(
+        withoutOffset as unknown as RoadSectionInput
+      );
+      expect(added.ok).toBe(false);
+      expect(road.scene().roadLayoutTemplateCount).toBe(0);
+    } finally {
+      road.delete();
+    }
+  });
+
+  it("edits one shared section without touching roads on another", () => {
+    const road = createRoadState();
+    try {
+      const other = road
+        .scene()
+        .roadLayoutTemplates.find((template) => template.id !== sectionId);
+      expect(other).toBeDefined();
+      const draw = (templateId: number, y: number) =>
+        road.addSegment({
+          roadLayoutTemplateId: templateId,
+          kind: "line",
+          startX: 0,
+          startY: y,
+          endX: 40,
+          endY: y,
+          handleAX: 40 / 3,
+          handleAY: y,
+          handleBX: 80 / 3,
+          handleBY: y,
+          startNodeId: 0,
+          startSegmentId: 0,
+          startSegmentDistanceM: 0,
+          extensionCorridorId: 0,
+          connectToFirstNode: false
+        });
+      expect(draw(sectionId, 0).ok).toBe(true);
+      expect(draw(other!.id, 200).ok).toBe(true);
+      const templateOf = (templateId: number) =>
+        road.scene().roadLayoutTemplates.find((template) => template.id === templateId)!;
+      const widthOf = (templateId: number) => templateOf(templateId).laneWidthM;
+      const otherBefore = widthOf(other!.id);
+      const otherOffsetBefore = templateOf(other!.id).alignmentOffsetFromLeftM;
+
+      // Widening the strips moves the section's outer ends, so the caller says
+      // where the alignment should end up. This one keeps the road centred:
+      // 2.5 + 3.5 + 3.5 + 2.5 = 12m wide, with the curbs coming out of the
+      // walkways rather than adding to them.
+      const edited = road.updateRoadLayoutTemplate({
+        id: sectionId,
+        sidewalkWidthM: 2.5,
+        laneWidthM: 3.5,
+        medianWidthM: 2,
+        alignmentOffsetFromLeftM: 6.0,
+        hasCenterLine: true,
+        hasOuterLines: true
+      });
+      expect(edited.ok, edited.error).toBe(true);
+      expect(widthOf(sectionId)).toBeCloseTo(3.5, 9);
+      expect(templateOf(sectionId).alignmentOffsetFromLeftM).toBeCloseTo(6.0, 9);
+      expect(widthOf(other!.id)).toBe(otherBefore);
+      expect(templateOf(other!.id).alignmentOffsetFromLeftM).toBe(otherOffsetBefore);
+    } finally {
+      road.delete();
+    }
+  });
+
   it("builds the Japanese two-lane surface from a clicked line", () => {
     const added = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1319,19 +2250,35 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       connectToFirstNode: false
     });
 
     expect(added.ok, added.error).toBe(true);
     const scene = state.scene();
     expect(scene.segmentCount).toBe(1);
+    expect(scene.corridorCount).toBe(1);
+    expect(scene.corridors).toHaveLength(1);
+    expect(scene.corridors[0].segments).toEqual([
+      expect.objectContaining({ segmentId: added.segmentId, reversed: false })
+    ]);
     expect(new Set(scene.surfaceMeshes.map((mesh) => mesh.material))).toEqual(
       new Set(["asphalt", "sidewalk", "curb"])
     );
     expect(scene.surfaceMeshes[0].vertices.length).toBeGreaterThan(0);
     expect(scene.surfaceMeshes[0].indices.length).toBeGreaterThan(0);
+    expect(scene.surfaceMeshes[0].normals.length).toBe(scene.surfaceMeshes[0].vertices.length);
+    expect(scene.surfaceMeshes[0].uv0.length).toBe(
+      Math.floor(scene.surfaceMeshes[0].vertices.length / 3) * 2
+    );
+    expect(scene.surfaceMeshes[0].materialGroups).toEqual([
+      expect.objectContaining({ material: scene.surfaceMeshes[0].material, indexStart: 0 })
+    ]);
     expect(scene.markingMeshes.length).toBeGreaterThan(0);
+    expect(scene.markingMeshes[0].normals.length).toBe(scene.markingMeshes[0].vertices.length);
+    expect(scene.markingMeshes[0].uv0.length).toBe(
+      Math.floor(scene.markingMeshes[0].vertices.length / 3) * 2
+    );
     expect(scene.nodes.length).toBe(2);
     expect(scene.centerlineSegments.length).toBe(1);
 
@@ -1342,9 +2289,136 @@ describe("road wasm smoke", () => {
     restored.delete();
   });
 
-  it("extends a degree-one endpoint without creating gesture boundaries", () => {
-    state.clear();
+  it("exposes stable lane paths and commits an outer lane", () => {
+    clearRoad(state);
+    const added = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 60,
+      endY: 0,
+      handleAX: 20,
+      handleAY: 0,
+      handleBX: 40,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    expect(added.ok, added.error).toBe(true);
+
+    const initial = state.scene();
+    expect(initial.lanePaths).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        segmentId: added.segmentId,
+        laneId: 1000,
+        direction: 1,
+        startRoadLayoutTemplateId: 1,
+        endRoadLayoutTemplateId: 1
+      }),
+      expect.objectContaining({
+        segmentId: added.segmentId,
+        laneId: 1010,
+        direction: 0,
+        startRoadLayoutTemplateId: 1,
+        endRoadLayoutTemplateId: 1
+      })
+    ]));
+    for (const lane of initial.lanePaths) {
+      expect(lane.points.length).toBeGreaterThanOrEqual(6);
+      expect(lane.points.every(Number.isFinite)).toBe(true);
+    }
+
+    const request = {
+      corridorId: added.corridorId!,
+      direction: 0 as const,
+      side: "right" as const,
+      startSegmentId: added.segmentId!,
+      startT: 0.25,
+      completeSegmentId: added.segmentId!,
+      completeT: 1,
+      laneWidthM: 3
+    };
+    expect(state.scene().transitionCount).toBe(0);
+
+    const committed = state.addLane(request);
+    expect(committed.ok, committed.error).toBe(true);
+    expect(committed.laneId).toBeGreaterThan(0);
+    const after = state.scene();
+    expect(after.transitionCount).toBe(1);
+    expect(after.lanePaths.some((lane) =>
+      lane.segmentId === added.segmentId && lane.laneId === committed.laneId
+    )).toBe(true);
+  });
+
+  it("rejects an Add Lane taper across segment boundaries", () => {
+    clearRoad(state);
     const first = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 60,
+      endY: 0,
+      handleAX: 20,
+      handleAY: 0,
+      handleBX: 40,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(first.ok, first.error).toBe(true);
+    const second = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 60,
+      startY: 0,
+      endX: 120,
+      endY: 0,
+      handleAX: 80,
+      handleAY: 0,
+      handleBX: 100,
+      handleBY: 0,
+      startNodeId: first.endNodeId!,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: first.corridorId!,
+      connectToFirstNode: false
+    });
+    expect(second.ok, second.error).toBe(true);
+
+    const before = state.scene();
+    const committed = state.addLane({
+      corridorId: first.corridorId!,
+      direction: 0,
+      side: "right",
+      startSegmentId: first.segmentId!,
+      startT: 0.5,
+      completeSegmentId: second.segmentId!,
+      completeT: 0.5,
+      laneWidthM: 3
+    });
+    expect(committed.ok).toBe(false);
+    expect(committed.failureCategory).toBe(3);
+    expect(committed.reasonCode)
+      .toBe("road_add_lane_taper_crosses_segment_boundary");
+    expect(committed.error).toContain("taper must stay within one road segment");
+    const scene = state.scene();
+    expect(scene.segmentCount).toBe(before.segmentCount);
+    expect(scene.transitionCount).toBe(before.transitionCount);
+    expect(scene.corridors[0].segments).toHaveLength(before.corridors[0].segments.length);
+  });
+
+
+  it("extends a degree-one corridor by adding a local segment", () => {
+    clearRoad(state);
+    const first = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1356,8 +2430,8 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
-      extensionSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: 0,
       connectToFirstNode: false
     });
     expect(first.ok, first.error).toBe(true);
@@ -1365,8 +2439,9 @@ describe("road wasm smoke", () => {
     expect(first.endNodeId).toBeGreaterThan(0);
 
     const extended = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "line",
-      startX: 20,
+      startX: 20.2,
       startY: 0,
       endX: 32,
       endY: 16,
@@ -1376,31 +2451,282 @@ describe("road wasm smoke", () => {
       handleBY: 32 / 3,
       startNodeId: first.endNodeId!,
       startSegmentId: 0,
-      startStationM: 0,
-      extensionSegmentId: first.segmentId!,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: first.corridorId!,
       connectToFirstNode: false
     });
     expect(extended.ok, extended.error).toBe(true);
-    expect(extended.segmentId).toBe(first.segmentId);
-    expect(extended.endNodeId).toBe(first.endNodeId);
+    expect(extended.segmentId).not.toBe(first.segmentId);
+    expect(extended.endNodeId).not.toBe(first.endNodeId);
+    expect(extended.corridorId).toBe(first.corridorId);
     const scene = state.scene();
-    expect(scene.segmentCount).toBe(1);
-    expect(scene.nodes).toHaveLength(2);
-    expect(scene.centerlineSegments.length).toBeGreaterThan(1);
+    expect(scene.segmentCount).toBe(2);
+    expect(scene.corridorCount).toBe(1);
+    expect(scene.nodes).toHaveLength(3);
     expect(new Set(scene.centerlineSegments.map((segment) => segment.id))).toEqual(
-      new Set([first.segmentId!])
+      new Set([first.segmentId!, extended.segmentId!])
     );
-    const endpoint = scene.nodes.find((node) => node.id === first.endNodeId);
+    const editedExtension = scene.editableSegments.find(
+      (segment) => segment.id === extended.segmentId
+    );
+    expect(editedExtension).toMatchObject({
+      kind: "line",
+      nodeAId: first.endNodeId,
+      nodeBId: extended.endNodeId
+    });
+    expect(editedExtension?.points).toHaveLength(4);
+    expect(editedExtension?.points[0]).toEqual({ x: 20, y: 0 });
+    expect(editedExtension?.points[3]).toEqual({ x: 32, y: 16 });
+    expect(scene.corridors[0]).toMatchObject({
+      id: first.corridorId,
+      segments: [
+        { segmentId: first.segmentId, reversed: false },
+        { segmentId: extended.segmentId, reversed: false }
+      ]
+    });
+    const endpoint = scene.nodes.find((node) => node.id === extended.endNodeId);
     expect(endpoint).toMatchObject({
       x: 32,
       y: 16,
-      extensionSegmentId: first.segmentId
+      extensionCorridorId: first.corridorId
     });
   });
 
-  it("keeps the final cross section perpendicular to an angled road", () => {
-    state.clear();
+  it("exposes local split through the wasm boundary", () => {
+    clearRoad(state);
     const added = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 60,
+      endY: 0,
+      handleAX: 20,
+      handleAY: 0,
+      handleBX: 40,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(added.ok, added.error).toBe(true);
+
+    const split = state.splitSegmentAtDistance({
+      segmentId: added.segmentId!,
+      segmentDistanceM: 20
+    });
+    expect(split.ok, split.error).toBe(true);
+    let scene = state.scene();
+    expect(scene.segmentCount).toBe(2);
+    expect(scene.corridorCount).toBe(1);
+    expect(scene.corridors[0].segments).toHaveLength(2);
+
+  });
+
+  it("exposes exact segment ownership and standard deletion through wasm", () => {
+    clearRoad(state);
+    const first = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 20,
+      endY: 0,
+      handleAX: 20 / 3,
+      handleAY: 0,
+      handleBX: 40 / 3,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(first.ok, first.error).toBe(true);
+    const middle = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 20,
+      startY: 0,
+      endX: 40,
+      endY: 0,
+      handleAX: 80 / 3,
+      handleAY: 0,
+      handleBX: 100 / 3,
+      handleBY: 0,
+      startNodeId: first.endNodeId!,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: first.corridorId!,
+      connectToFirstNode: false
+    });
+    expect(middle.ok, middle.error).toBe(true);
+    const last = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 40,
+      startY: 0,
+      endX: 60,
+      endY: 0,
+      handleAX: 140 / 3,
+      handleAY: 0,
+      handleBX: 160 / 3,
+      handleBY: 0,
+      startNodeId: middle.endNodeId!,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: first.corridorId!,
+      connectToFirstNode: false
+    });
+    expect(last.ok, last.error).toBe(true);
+
+    const before = state.scene();
+    expect(before.surfaceMeshes.some(
+      (mesh) => mesh.ownerSegmentId === middle.segmentId
+    )).toBe(true);
+    expect(before.markingMeshes.some(
+      (mesh) => mesh.ownerSegmentId === middle.segmentId
+    )).toBe(true);
+
+    const deleted = state.deleteSegment(middle.segmentId!);
+    expect(deleted.ok, deleted.error).toBe(true);
+    const after = state.scene();
+    expect(after.segmentCount).toBe(2);
+    expect(after.corridorCount).toBe(2);
+    expect(after.centerlineSegments.map((segment) => segment.id)).toEqual(
+      expect.arrayContaining([first.segmentId!, last.segmentId!])
+    );
+    expect(after.centerlineSegments.some(
+      (segment) => segment.id === middle.segmentId
+    )).toBe(false);
+    expect(after.surfaceMeshes.some(
+      (mesh) => mesh.ownerSegmentId === middle.segmentId
+    )).toBe(false);
+    expect(after.markingMeshes.some(
+      (mesh) => mesh.ownerSegmentId === middle.segmentId
+    )).toBe(false);
+  });
+
+  it("keeps one continuous multi-span drawing as one deletion unit through wasm", () => {
+    clearRoad(state);
+    const added = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 20,
+      endY: 0,
+      handleAX: 20 / 3,
+      handleAY: 0,
+      handleBX: 40 / 3,
+      handleBY: 0,
+      spans: [
+        {
+          kind: "line",
+          startX: 0,
+          startY: 0,
+          endX: 20,
+          endY: 0,
+          handleAX: 20 / 3,
+          handleAY: 0,
+          handleBX: 40 / 3,
+          handleBY: 0
+        },
+        {
+          kind: "line",
+          startX: 20,
+          startY: 0,
+          endX: 34,
+          endY: 12,
+          handleAX: 74 / 3,
+          handleAY: 4,
+          handleBX: 88 / 3,
+          handleBY: 8
+        }
+      ],
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(added.ok, added.error).toBe(true);
+
+    const before = state.scene();
+    expect(before.segmentCount).toBe(1);
+    expect(before.centerlineSegments.length).toBeGreaterThan(1);
+    expect(before.centerlineSegments.every(
+      (segment) => segment.id === added.segmentId
+    )).toBe(true);
+    expect(before.surfaceMeshes.length).toBeGreaterThan(0);
+    expect(before.surfaceMeshes.every(
+      (mesh) => mesh.ownerSegmentId === added.segmentId
+    )).toBe(true);
+    expect(before.markingMeshes.length).toBeGreaterThan(0);
+    expect(before.markingMeshes.every(
+      (mesh) => mesh.ownerSegmentId === added.segmentId
+    )).toBe(true);
+
+    const deleted = state.deleteSegment(added.segmentId!);
+    expect(deleted.ok, deleted.error).toBe(true);
+    const after = state.scene();
+    expect(after.segmentCount).toBe(0);
+    expect(after.surfaceMeshes).toHaveLength(0);
+    expect(after.markingMeshes).toHaveLength(0);
+  });
+
+  it("previews and commits endpoint movement through the node operation", () => {
+    clearRoad(state);
+    const added = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0,
+      startY: 0,
+      endX: 30,
+      endY: 0,
+      handleAX: 10,
+      handleAY: 0,
+      handleBX: 20,
+      handleBY: 0,
+      startNodeId: 0,
+      startSegmentId: 0,
+      startSegmentDistanceM: 0,
+      extensionCorridorId: 0,
+      connectToFirstNode: false
+    });
+    expect(added.ok, added.error).toBe(true);
+    const before = state.scene();
+    const editable = before.editableSegments.find(
+      (segment) => segment.id === added.segmentId
+    );
+    expect(editable).toBeDefined();
+
+    const preview = state.previewMoveNode({
+      nodeId: editable!.nodeBId,
+      x: 30,
+      y: 8
+    });
+    expect(preview.ok, preview.error).toBe(true);
+    expect(preview.meshes.length).toBeGreaterThan(0);
+    expect(state.scene().nodes.find((node) => node.id === editable!.nodeBId))
+      .toMatchObject({ x: 30, y: 0 });
+
+    const moved = state.moveNode({
+      nodeId: editable!.nodeBId,
+      x: 30,
+      y: 8
+    });
+    expect(moved.ok, moved.error).toBe(true);
+    expect(state.scene().nodes.find((node) => node.id === editable!.nodeBId))
+      .toMatchObject({ x: 30, y: 8 });
+  });
+
+  it("keeps the final cross section perpendicular to an angled road", () => {
+    clearRoad(state);
+    const added = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1412,7 +2738,7 @@ describe("road wasm smoke", () => {
       handleBY: 8,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       connectToFirstNode: false
     });
     expect(added.ok, added.error).toBe(true);
@@ -1429,19 +2755,21 @@ describe("road wasm smoke", () => {
   });
 
   it("derives a curved degree-two connector without junction markings", () => {
-    state.clear();
+    clearRoad(state);
     const base = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "line", startX: 0, startY: 0, endX: 20, endY: 0,
       handleAX: 6, handleAY: 0, handleBX: 14, handleBY: 0,
-      startNodeId: 0, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
     const endpoint = state.scene().nodes.find((node) => Math.abs(node.x - 20) < 1e-6 && Math.abs(node.y) < 1e-6);
     expect(endpoint).toBeDefined();
     const corner = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "line", startX: 20, startY: 0, endX: 20, endY: 24,
       handleAX: 20, handleAY: 8, handleBX: 20, handleBY: 16,
-      startNodeId: endpoint!.id, startSegmentId: 0, startStationM: 0, connectToFirstNode: false
+      startNodeId: endpoint!.id, startSegmentId: 0, startSegmentDistanceM: 0, connectToFirstNode: false
     });
     expect(corner.ok, corner.error).toBe(true);
     const scene = state.scene();
@@ -1455,8 +2783,9 @@ describe("road wasm smoke", () => {
   });
 
   it("splits a straight segment when a branch starts from a centerline snap", () => {
-    state.clear();
+    clearRoad(state);
     const base = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 0,
       startY: 0,
@@ -1468,12 +2797,13 @@ describe("road wasm smoke", () => {
       handleBY: 0,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
     const baseSegmentId = state.scene().centerlineSegments[0].id;
     const branch = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: 20,
       startY: 0,
@@ -1485,7 +2815,7 @@ describe("road wasm smoke", () => {
       handleBY: 16,
       startNodeId: 0,
       startSegmentId: baseSegmentId,
-      startStationM: 20,
+      startSegmentDistanceM: 20,
       connectToFirstNode: false
     });
     expect(branch.ok, branch.error).toBe(true);
@@ -1503,9 +2833,120 @@ describe("road wasm smoke", () => {
     expect(scene.markingMeshes.length).toBeGreaterThanOrEqual(9);
   });
 
-  it("splits a Bezier segment at the explicit centerline station", () => {
-    state.clear();
+  it("keeps a zero-radius T local when the existing road uses 4m", () => {
+    clearRoad(state);
     const base = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      junctionCornerRadiusM: 4,
+      kind: "line",
+      startX: -40, startY: 0, endX: 40, endY: 0,
+      handleAX: -13, handleAY: 0, handleBX: 13, handleBY: 0,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    expect(base.ok, base.error).toBe(true);
+    const baseSegmentId = state.scene().centerlineSegments[0].id;
+    const branch = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      junctionCornerRadiusM: 0,
+      kind: "line",
+      startX: 0, startY: 0, endX: 0, endY: 40,
+      handleAX: 0, handleAY: 13, handleBX: 0, handleBY: 27,
+      startNodeId: 0, startSegmentId: baseSegmentId,
+      startSegmentDistanceM: 40, connectToFirstNode: false
+    });
+    expect(branch.ok, branch.error).toBe(true);
+    const scene = state.scene();
+    const crosswalks = scene.markingMeshes.filter(
+      (mesh) => mesh.material === "road_marking_crosswalk"
+    );
+    expect(crosswalks.length).toBeGreaterThan(0);
+    const farthestCoordinate = Math.max(...crosswalks.flatMap((mesh) =>
+      Array.from(mesh.vertices).filter((_value, index) => index % 3 !== 2).map(Math.abs)
+    ));
+    expect(farthestCoordinate).toBeLessThanOrEqual(10);
+  });
+
+  it("splits a straight segment when a branch ends at a centerline snap", () => {
+    clearRoad(state);
+    const base = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0, startY: 0, endX: 40, endY: 0,
+      handleAX: 13, handleAY: 0, handleBX: 27, handleBY: 0,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    expect(base.ok, base.error).toBe(true);
+    const baseSegmentId = state.scene().centerlineSegments[0].id;
+    const branch = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 20, startY: 24, endX: 20, endY: 0,
+      handleAX: 20, handleAY: 16, handleBX: 20, handleBY: 8,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      endNodeId: 0, endSegmentId: baseSegmentId, endSegmentDistanceM: 20,
+      connectToFirstNode: false
+    });
+    expect(branch.ok, branch.error).toBe(true);
+    const scene = state.scene();
+    expect(scene.segmentCount).toBe(3);
+    expect(scene.nodes.length).toBe(4);
+    expect(scene.connectionGateCount).toBe(3);
+    expect(scene.junctionCount).toBe(1);
+  });
+
+  it("connects two existing roads in one atomic interval", () => {
+    clearRoad(state);
+    const lower = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: -20, startY: 0, endX: 20, endY: 0,
+      handleAX: -7, handleAY: 0, handleBX: 7, handleBY: 0,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    const upper = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: -20, startY: 40, endX: 20, endY: 40,
+      handleAX: -7, handleAY: 40, handleBX: 7, handleBY: 40,
+      startNodeId: 0, startSegmentId: 0, startSegmentDistanceM: 0,
+      connectToFirstNode: false
+    });
+    expect(lower.ok && upper.ok).toBe(true);
+    const [lowerId, upperId] = state.scene().editableSegments.map((item) => item.id);
+    const preview = state.previewSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0, startY: 0, endX: 0, endY: 40,
+      handleAX: 0, handleAY: 13, handleBX: 0, handleBY: 27,
+      startNodeId: 0, startSegmentId: lowerId, startSegmentDistanceM: 20,
+      endNodeId: 0, endSegmentId: upperId, endSegmentDistanceM: 20,
+      connectToFirstNode: false
+    });
+    expect(preview.ok, preview.error).toBe(true);
+    expect(preview.meshes.length).toBeGreaterThan(0);
+    const connected = state.addSegment({
+      roadLayoutTemplateId: sectionId,
+      kind: "line",
+      startX: 0, startY: 0, endX: 0, endY: 40,
+      handleAX: 0, handleAY: 13, handleBX: 0, handleBY: 27,
+      startNodeId: 0, startSegmentId: lowerId, startSegmentDistanceM: 20,
+      endNodeId: 0, endSegmentId: upperId, endSegmentDistanceM: 20,
+      connectToFirstNode: false
+    });
+    expect(connected.ok, connected.error).toBe(true);
+    const scene = state.scene();
+    expect(scene.segmentCount).toBe(5);
+    expect(scene.junctionCount).toBe(2);
+    expect(scene.corridorCount).toBe(3);
+  });
+
+  it("splits a Bezier segment at the explicit centerline distance", () => {
+    clearRoad(state);
+    const base = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "bezier",
       startX: 0,
       startY: 0,
@@ -1517,18 +2958,19 @@ describe("road wasm smoke", () => {
       handleBY: 10,
       startNodeId: 0,
       startSegmentId: 0,
-      startStationM: 0,
+      startSegmentDistanceM: 0,
       connectToFirstNode: false
     });
     expect(base.ok, base.error).toBe(true);
     const centerlines = state.scene().centerlineSegments;
-    const total = centerlines.at(-1)!.endStationM;
+    const total = centerlines.at(-1)!.endSegmentDistanceM;
     const target = centerlines.reduce((best, segment) =>
-      Math.abs(segment.startStationM - total * 0.5) < Math.abs(best.startStationM - total * 0.5)
+      Math.abs(segment.startSegmentDistanceM - total * 0.5) < Math.abs(best.startSegmentDistanceM - total * 0.5)
         ? segment
         : best
     );
     const branch = state.addSegment({
+      roadLayoutTemplateId: sectionId,
       kind: "line",
       startX: target.startX,
       startY: target.startY,
@@ -1540,77 +2982,11 @@ describe("road wasm smoke", () => {
       handleBY: target.startY + 20,
       startNodeId: 0,
       startSegmentId: target.id,
-      startStationM: target.startStationM,
+      startSegmentDistanceM: target.startSegmentDistanceM,
       connectToFirstNode: false
     });
     expect(branch.ok, branch.error).toBe(true);
     expect(state.scene().segmentCount).toBe(3);
     expect(state.scene().junctionCount).toBe(1);
-  });
-
-  it("edits sections and applies P2 transitions and manual markings through wasm", () => {
-    state.clear();
-    const added = state.addSegment({
-      kind: "line",
-      startX: 0,
-      startY: 0,
-      endX: 60,
-      endY: 0,
-      handleAX: 20,
-      handleAY: 0,
-      handleBX: 40,
-      handleBY: 0,
-      startNodeId: 0,
-      startSegmentId: 0,
-      startStationM: 0,
-      connectToFirstNode: false,
-      sectionTemplateId: 1
-    });
-    expect(added.ok, added.error).toBe(true);
-    const segmentId = state.scene().centerlineSegments[0].id;
-
-    const updated = state.updateSectionTemplate({
-      id: 1,
-      sidewalkWidthM: 2.4,
-      laneWidthM: 3.2,
-      medianWidthM: 0,
-      hasCenterLine: true,
-      hasOuterLines: false
-    });
-    expect(updated.ok, updated.error).toBe(true);
-    expect(state.scene().sectionTemplates.find((template) => template.id === 1)?.laneWidthM).toBe(3.2);
-
-    const transitioned = state.applyTransition({
-      segmentId,
-      targetTemplateId: 2,
-      lengthM: 20,
-      endOffsetM: 2,
-      anchor: 1
-    });
-    expect(transitioned.ok, transitioned.error).toBe(true);
-    expect(state.scene().transitionCount).toBe(1);
-
-    expect(state.addManualLine({
-      segmentId,
-      startStationM: 5,
-      endStationM: 20,
-      lateralM: 0.8,
-      style: "white"
-    }).ok).toBe(true);
-    expect(state.addManualArea({
-      segmentId,
-      stationM: 30,
-      lateralM: 0,
-      widthM: 4,
-      lengthM: 6,
-      style: "zebra"
-    }).ok).toBe(true);
-    expect(state.scene().markingCount).toBe(2);
-
-    const restored = createRoadState();
-    expect(restored.loadState(state.saveState()).ok).toBe(true);
-    expect(restored.scene().transitionCount).toBe(1);
-    expect(restored.scene().markingCount).toBe(2);
-    restored.delete();
   });
 });

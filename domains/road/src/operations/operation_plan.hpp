@@ -17,18 +17,31 @@ struct OperationPlan {
   std::vector<RoadSegment> add_segments{};
   std::vector<RoadSegment> replace_segments{};
   std::vector<RoadSegmentId> remove_segments{};
+  std::vector<RoadCorridor> add_corridors{};
+  std::vector<RoadCorridor> replace_corridors{};
+  std::vector<RoadCorridorId> remove_corridors{};
 
-  std::vector<CrossSectionTemplate> add_section_templates{};
-  std::vector<CrossSectionTemplate> replace_section_templates{};
+  std::vector<RoadLayoutTemplate> add_layout_templates{};
+  std::vector<RoadLayoutTemplate> replace_layout_templates{};
 
-  std::vector<SectionTransition> add_transitions{};
-  std::vector<SectionTransitionId> remove_transitions{};
+  std::vector<RoadLayoutTransition> add_transitions{};
+  std::vector<RoadLayoutTransitionId> remove_transitions{};
 
-  std::vector<NodeConnectionPolicyOverride> add_connection_policy_overrides{};
+  std::vector<LaneConnection> add_lane_connections{};
+  std::vector<LaneConnectionId> remove_lane_connections{};
+  std::vector<BoundaryContinuation> add_boundary_continuations{};
+  std::vector<BoundaryContinuationId> remove_boundary_continuations{};
+
   std::vector<NodeConnectionPolicyOverrideId> remove_connection_policy_overrides{};
 
   std::vector<ApproachGeometryOverride> add_approach_geometry_overrides{};
   std::vector<ApproachKey> remove_approach_geometry_overrides{};
+
+  std::vector<AutoMarkingOverride> add_auto_marking_overrides{};
+  std::vector<AutoMarkingKey> remove_auto_marking_overrides{};
+
+  std::vector<JunctionMarkingOverride> add_junction_marking_overrides{};
+  std::vector<JunctionMarkingOverrideId> remove_junction_marking_overrides{};
 
   std::vector<ManualLineMarking> add_manual_lines{};
   std::vector<ManualMarkingId> remove_manual_lines{};

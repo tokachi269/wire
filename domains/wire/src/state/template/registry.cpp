@@ -307,7 +307,6 @@ void CoreState::register_default_cable_templates() {
   hv.material_style = CableMaterialStyleKind::kBareConductor;
   hv.color_rgba = 0xBFC7CFFFu;
   hv.sag_factor = 0.025;
-  hv.slack_factor = 0.0;
   hv.continuity_policy = CableContinuityPolicyHint::kPreferG1;
   hv.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   authoritative_.cable_templates[hv.id] = hv;
@@ -322,7 +321,6 @@ void CoreState::register_default_cable_templates() {
   lv.material_style = CableMaterialStyleKind::kInsulated;
   lv.color_rgba = 0x2E2E2EFFu;
   lv.sag_factor = 0.03;
-  lv.slack_factor = 0.0;
   lv.continuity_policy = CableContinuityPolicyHint::kAuto;
   lv.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   authoritative_.cable_templates[lv.id] = lv;
@@ -336,8 +334,7 @@ void CoreState::register_default_cable_templates() {
   drop.min_bend_radius_m = 0.20;
   drop.material_style = CableMaterialStyleKind::kInsulated;
   drop.color_rgba = 0x1E1E1EFFu;
-  drop.sag_factor = 0.035;
-  drop.slack_factor = 0.01;
+  drop.sag_factor = 0.045000000000000005;  // Preserve the pre-v4 effective sag ratio exactly.
   drop.continuity_policy = CableContinuityPolicyHint::kPreferG1;
   drop.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   authoritative_.cable_templates[drop.id] = drop;
@@ -351,8 +348,7 @@ void CoreState::register_default_cable_templates() {
   comm.min_bend_radius_m = 0.18;
   comm.material_style = CableMaterialStyleKind::kGeneric;
   comm.color_rgba = 0x5D5D5DFFu;
-  comm.sag_factor = 0.01;
-  comm.slack_factor = 0.02;
+  comm.sag_factor = 0.03;
   comm.continuity_policy = CableContinuityPolicyHint::kPreferG2;
   comm.attachment_style = CableAttachmentStyleHint::kAuto;
   authoritative_.cable_templates[comm.id] = comm;
@@ -366,8 +362,7 @@ void CoreState::register_default_cable_templates() {
   optical.min_bend_radius_m = 0.20;
   optical.material_style = CableMaterialStyleKind::kOptical;
   optical.color_rgba = 0x6EC9D8FFu;
-  optical.sag_factor = 0.005;
-  optical.slack_factor = 0.03;
+  optical.sag_factor = 0.034999999999999996;  // Preserve the pre-v4 effective sag ratio exactly.
   optical.continuity_policy = CableContinuityPolicyHint::kPreferG2;
   optical.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   optical.default_endpoint_attachment_template_id = kInvalidAttachmentTemplateId;
@@ -382,8 +377,7 @@ void CoreState::register_default_cable_templates() {
   support.min_bend_radius_m = 0.18;
   support.material_style = CableMaterialStyleKind::kGeneric;
   support.color_rgba = 0x1E1E1EFFu;
-  support.sag_factor = 0.01;
-  support.slack_factor = 0.02;
+  support.sag_factor = 0.03;
   support.continuity_policy = CableContinuityPolicyHint::kPreferG2;
   support.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   authoritative_.cable_templates[support.id] = support;

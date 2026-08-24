@@ -523,7 +523,7 @@ bool test_detail_curve_sag_preserves_endpoints_and_supports_length_queries() {
          almost_equal(sag.PositionAtLength(sag.Length()), sag.EvaluatePosition(1.0), 1e-9);
 }
 
-bool test_detail_curve_sag_uses_catenary_like_support_slope() {
+bool test_detail_curve_sag_uses_parabolic_support_slope() {
   city::wire::CurveConstraint start{};
   start.point = {0.0, 0.0, 6.0};
   start.tangent_dir = {1.0, 0.0, 0.0};
@@ -537,7 +537,11 @@ bool test_detail_curve_sag_uses_catenary_like_support_slope() {
   const city::wire::DetailCurve curve = city::wire::BuildDetailCurve(start, end, 33);
   const city::wire::Vec3d tangent0 = curve.EvaluateTangent(0.0);
   const city::wire::Vec3d tangent1 = curve.EvaluateTangent(1.0);
-  return curve.sag_amplitude_m > 0.0 && tangent0.z < -0.02 && tangent1.z > 0.02;
+  WIRE_TEST_EXPECT_ORACLE(curve.sag_amplitude_m > 0.0,
+                          "parabolic sag amplitude was not applied");
+  WIRE_TEST_EXPECT_ORACLE(tangent0.z < -0.02 && tangent1.z > 0.02,
+                          "parabolic sag lost its non-flat support slopes");
+  return true;
 }
 
 bool test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways() {
@@ -800,7 +804,7 @@ bool test_detail_curve_branch_short_span_keeps_more_local_departure_than_long_sp
          long_curve.quality.start_tangent_rule == city::wire::DetailCurveEndpointTangentRule::kBranchChordPriority;
 }
 
-bool test_detail_curve_main_sag_reads_stronger_than_branch() {
+bool test_detail_curve_sag_amplitude_is_not_reweighted_by_pass_mode() {
   auto midpoint_drop = [](city::wire::CurvePassMode pass_mode) {
     city::wire::CurveConstraint start{};
     start.point = {0.0, 0.0, 6.0};
@@ -823,8 +827,17 @@ bool test_detail_curve_main_sag_reads_stronger_than_branch() {
 
   const auto main_result = midpoint_drop(city::wire::CurvePassMode::kPassThrough);
   const auto branch_result = midpoint_drop(city::wire::CurvePassMode::kBranch);
-  return main_result.second.quality.sag_pass_scale > branch_result.second.quality.sag_pass_scale &&
-         main_result.first > branch_result.first + 0.08 && branch_result.first > 0.0;
+  constexpr double kExpectedSagAmplitudeM = 20.0 * (0.03 + 0.03);
+  WIRE_TEST_EXPECT_ORACLE(
+      almost_equal(main_result.second.sag_amplitude_m, kExpectedSagAmplitudeM, 1e-12),
+      "pass-through policy reweighted the requested physical sag amplitude");
+  WIRE_TEST_EXPECT_ORACLE(
+      almost_equal(branch_result.second.sag_amplitude_m, kExpectedSagAmplitudeM, 1e-12),
+      "branch policy reweighted the requested physical sag amplitude");
+  WIRE_TEST_EXPECT_ORACLE(
+      almost_equal(main_result.first, branch_result.first, 1e-12),
+      "pass mode changed the equal-height parabolic midpoint sag");
+  return true;
 }
 
 bool test_detail_curve_large_height_difference_uses_composite_segments() {
@@ -1152,9 +1165,9 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
                          "DetailCurve sag preserves endpoints and supports length-based placement via arc table",
                          "Invariant", false, test_detail_curve_sag_preserves_endpoints_and_supports_length_queries);
   test_registry::AddTest(
-      tests, "C141_DetailCurve_CatenarySupportSlope",
-      "DetailCurve sag uses a catenary-like support slope instead of staying flat at the endpoints", "Invariant",
-      false, test_detail_curve_sag_uses_catenary_like_support_slope);
+      tests, "C141_DetailCurve_ParabolicSupportSlope",
+      "DetailCurve parabolic sag has non-flat support slopes", "Invariant",
+      false, test_detail_curve_sag_uses_parabolic_support_slope);
   test_registry::AddTest(tests, "C142_DetailCurve_NearStraightNoSideWobble",
                          "Near-straight endpoint tangents do not introduce visible sideways wobble",
                          "Invariant", false, test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways);
@@ -1197,9 +1210,9 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C162_DetailCurve_BranchShortVsLong_LocalDepartureScaling",
                          "Branch local departure stays stronger on short spans and decays on long spans",
                          "Invariant", false, test_detail_curve_branch_short_span_keeps_more_local_departure_than_long_span);
-  test_registry::AddTest(tests, "C163_DetailCurve_MainSag_StrongerThanBranch",
-                         "Main spans keep a stronger sag read than branch spans without breaking endpoint constraints",
-                         "Invariant", false, test_detail_curve_main_sag_reads_stronger_than_branch);
+  test_registry::AddTest(tests, "C163_DetailCurve_SagAmplitude_NotReweightedByPassMode",
+                         "Pass mode changes endpoint handling without reweighting the requested physical sag amplitude",
+                         "Invariant", false, test_detail_curve_sag_amplitude_is_not_reweighted_by_pass_mode);
   test_registry::AddTest(tests, "C629_CableCurve_ParabolicSagSemantics",
                          "CableCurve preserves endpoints, applies exact midpoint sag, and has no top-view drift",
                          "Invariant", false, test_cable_curve_parabolic_sag_has_exact_semantics);

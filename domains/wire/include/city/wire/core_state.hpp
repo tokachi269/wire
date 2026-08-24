@@ -185,10 +185,13 @@ private:
                                       int support_group_id,
                                       double layout_yaw_deg,
                                       ObjectId port_id);
-  EditResult<bool> update_backbone_port_binding_layout_exact(
+  EditResult<bool> update_backbone_port_binding_frame_exact(
       ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
       std::size_t lane_index, double layout_yaw_deg,
-      int support_level, int support_group_id, ObjectId port_id);
+      int support_level, int support_group_id, ObjectId port_id,
+      const Vec3d& world_position);
+  EditResult<bool> reverse_backbone_row_lanes(
+      ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key);
   EditResult<bool> bind_backbone_row_continuity(ObjectId node_id,
                                                 ObjectId edge_bundle_a,
                                                 std::size_t lane_a,
@@ -217,6 +220,9 @@ private:
   [[nodiscard]] bool authoritative_equals(const CoreState& other) const;
   void cache_span_rules(const SpanLayoutRules& rules);
   void remove_span_from_caches(ObjectId span_id);
+  EditResult<bool> merge_cached_span_outputs_from(const CoreState& source,
+                                                   ObjectId span_id);
+  void merge_cached_support_groups_from(const CoreState& source);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
   [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;
   [[nodiscard]] SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) const;

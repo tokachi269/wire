@@ -17,6 +17,7 @@ BackboneSpec
   -> support group / SpanLayoutEntry
   -> DetailCurve / bounds
   -> visual / render cache
+  -> derived decoration materialization
   -> viewer / export adapter
 ```
 
@@ -31,11 +32,31 @@ BackboneSpec
 | layout | `SpanLayoutEntry` | `support_world` と `endpoint_world` |
 | geom | `DetailCurve` / bounds | layout endpointからの形状派生 |
 | draw | visual / render cache | layout/geomからの表示出力 |
+| derived decoration | Core visual generation | support/span周辺の局所設備・短い配線・inline deviceをWire domainの意味から派生 |
 | settings | `CoreStateAuthoritativeStorage` | geometry / visual / variation / context / layout のユーザー設定 |
 
 生成済みのspan、layout、curve、bounds、visual、port位置からtopologyを復元してはいけない。
 同じ意味を複数段で再判断せず、下流は上流の決定済み値だけを消費する。
 ユーザーが Update API で設定し derived 出力に影響する値は authoritative に置き、runtime cache に mirror を持たない。
+
+### support / inline detail
+
+support detail は authoritative entity ではないが、Wire domain の意味を必要とする derived geometry /
+materialization である。したがって生成、配置、接続先解決、curve、material semantics は Core visual generation が
+所有する。viewer / export adapter は Core が返した `VisualModelInstance` と `VisualCurvePart` を消費し、
+高さ、接続、material、可視性、support identity を再判断しない。
+
+個々のlocal cable、fan-out、inline device、primitive equipmentは通常Spanではなく、SavedBackboneGraph、
+Span、Bundle、Port bindingへ保存しない。support/inline detail は通常の derived visual cache として
+正本から毎回再導出する。
+
+GLBを読む責務はasset adapterに留める。adapterはmodel key、local transform、名前付きsocketのmetadataを
+`ModelAssemblyTemplate` / `ModelAssemblyPart` / `ModelAssemblySocket` としてCoreへ渡すが、`connect_*`
+socketからcarrierを探したり、local cable curveやmaterialを決めたりしない。socket名のWire上の意味はCoreだけが
+解釈する。CoreはGLB parserを持たない。
+
+未完成のsupport detail catalogは、Coreの派生・保存契約を変えずviewerのpresentation availabilityとして
+非表示にしてよい。この境界で配置、接続先、curve、material semanticsを再計算してはいけない。
 
 ### session draft state
 
@@ -75,13 +96,13 @@ NaN / inf、負のinterval、負のavoid radius、負のmax tilt、負のspacing
 
 ### EditResult error kind
 
-`EditResult` は人間向けの `error` 文字列に加えて、機械可読な `EditErrorKind` を返す。
+`EditResult` は人間向けの `error` 文字列に加えて、機械可読な `CommitFailureCategory` と `reason_code` を返す。
 
 - `kValidation`: 外部入力が不正で、ユーザー入力またはadapter payloadを直せばよいもの。
 - `kUnsupported`: 入力は読めたが、現在の仕様で扱わないもの。分類に迷う既存エラーはここへ倒す。
 - `kInternal`: 保存済み正本や派生再構築の整合が壊れており、通常操作では起きてはいけないもの。
 
-既存の `error` 文字列は互換のため維持する。境界adapterは `effective_error_kind()` で分類済み値を読み、
+既存の `error` 文字列は診断情報として維持する。境界adapterは `effective_failure_category()` で分類済み値を読み、
 表示層は文字列prefixを再解釈しない。
 
 処理順は次の通り。
@@ -96,6 +117,38 @@ NaN / inf、負のinterval、負のavoid radius、負のmax tilt、負のspacing
 
 context linkは判断入力であり、生成・保存対象ではない。
 T/cross/branchのkind enumは作らず、continuityと派生rowの組合せで表す。
+
+`preserve_conductor_identity=false`かつ`order_decision_policy=kPermutableHomogeneous`の
+multi-lane rowは、XY上で横一列に並ぶ配置だけをsupportedとする。両端の
+`last lane - first lane`のXY方向を比較し、dotが負の場合だけ片端のlane対応を全体反転する。
+これは1 bitのmirror決定であり、任意permutationを探索しない。first/lastのXY方向が得られない縦積み、
+または両row方向が直交して1 bitで決められない配置はfallbackせずunsupportedとする。
+
+promotionで既存Portのrow frameが変わる場合は、全Port frameの確定後に`emit_ports`が
+`is_new=false`のcontext edgeだけを対象とし、既存edgeの反対側rowに対するmirrorを最終位置から1回だけ決める。
+Port entityは維持し、対象edge bundleのPortBindingとSpan endpointをidentityまたは全体reverseのどちらかで
+一括更新する。context linkはこの判断入力にだけ使い、`tspan`化または`save_graph()`の保存対象にしない。
+`emit_spans`は`is_new=true`のedgeだけを対象とし、新規Span endpointを最終Port位置から同じ1 bit規則で決める。
+同じedgeを両経路で処理してはいけない。
+
+異なるedge bundleを`SavedBackboneRowContinuity`で接続する場合も、permutable laneの対応は
+両rowの最終Port列`last lane - first lane`のXY方向から1 bitだけ決める。方向のdotが負ならB側laneを
+全体反転し、非負なら維持する。peer edgeの選択は既存のcontinuity候補規則が所有し、この幾何判定は
+peer edgeを選ばない。鋭角判定やJumper materializationはlane対応を再決定せず、保存済みcontinuityの
+異なるA/B lane indexを消費する。横方向が得られない、または両row方向が直交して1 bitで決められない
+配置はfallbackせずunsupportedとする。
+
+Span endpoint対応とcross-edge continuity対応は異なる正本関係である。前者は最終`trow`、後者は
+Span endpoint反映後の`SavedBackbonePortBinding`を各1回だけ読む。生成中の物理slotである`trow` laneを
+保存済みbinding laneの代用にせず、両経路は上記の1 bitベクトル判定だけを共有する。
+
+`PathDirectionMode`はユーザーが引いた向きの意味を持ち、signed lateral offsetやsource/branchの進行方向へ
+適用する。permutable laneのnon-crossingとcanonical topology identityは`PathDirectionMode`へ依存させない。
+同じ物理pathをReverseで生成した場合、signed lateral offsetの物理側は反転する。
+
+midair branchのLeadは`SourceEdgeProjectionRef.from_node_id`が示すsource edge方向へsource curve tangentを
+向けてからbranch boundaryへ接続する。branch endpointへの位置ベクトルでsource tangentの符号を選ばない。
+attachment pointはsource curve projectionのまま維持し、branch側は確定後のEdgeBody boundary tangentを使う。
 
 ### pole / port配置座標
 
@@ -115,12 +168,19 @@ explicit placementでもpole band identityはfixture・roleの解決に使うが
 lateral順に1つずつ使用する。既定HV 3相は左・中央・右bandを各laneが使用し、3相全体を片側のpole表面へ寄せない。
 異なるband位置がlane数に足りない場合だけ、priority最上位の1 bandをrow中心としてlane spacingを展開する。
 保存済みport bindingはlaneごとのplacement band identityを保持する。
+`SavedBackbonePortBinding::lane_index`はSpan側のlogical conductor identity、`port_id`はそのendpointで選ばれた
+physical trow laneのPort identityである。`placement_band_id`は`port_id`の実physical placementに属し、
+mirror時にlogical laneとphysical laneが異なる場合もlogical lane番号から再選択しない。
 
 pole表面へ直接取り付けるportや部品は、中心軸原点を変えず、その高さのsection半径とstandoff / clearanceから
 表面位置を導出する。表面位置を既定offsetへ混ぜず、laneごとに後処理してbundle重心をずらしてはならない。
 
 接続相手は`SavedBackboneRowContinuity`だけが保持し、row表現は共通のendpoint row導出が現在幾何から決める。
 生成中routeの隣接も同じcontinuityへ記録する。route/orderは永続化しない導出補助であり、接続相手やpair/open表現の判定入力にしない。
+saved load / regenerateのroute復元は、最初に`edge_bundle_id`単位のrow continuity componentを確定し、
+そのcomponent内だけをphysical edge routeへ投影する。同じphysical edgeが複数の独立bundle componentへ属する場合、
+physical edgeは各componentの派生routeへそれぞれ現れてよい。scope/component確定前に`edge_id`だけのglobal adjacencyへ
+collapseせず、bundle template IDや同じtemplateを使う別Bundle placementをcomponent identityの代用にしない。
 通常cornerでは前後linkの単位接線和から二等分方向を作り、その直交方向をrow axisにする。
 径間長の差でrow axisを回さず、各incident spanのlane順が反転しない範囲に保つ。
 鋭角cornerはcontinuityを維持したまま、各incident edgeに直交する2つのdead-end rowとjumperへ派生する。
@@ -141,6 +201,9 @@ jumperはcontinuity表現であり、2つのrowを同じplacement levelへまと
 無効なplacementはrow数に関係なくlevel 0を維持する。
 `SavedBackbonePortBinding`はrowごとの`support_level`と`support_group_id`を保存し、
 save/loadやincremental generationで同じ配置判断を再利用する。
+Port生成はpole bandまたはexplicit placementの論理anchorだけを使い、row数や保存済みPort高さから
+別のZ slotを決めない。support level/groupを確定するrow placementが唯一の段差decisionであり、
+Span layoutはそのdecisionから解決済みのbranch endpoint offsetを読む。
 段変更後の最終wire socketを`support_world`と`endpoint_world`の両方に使い、port位置は論理anchorとして保持する。
 LV/HVなどのcategory名自体はlowering条件にしない。
 
@@ -227,6 +290,8 @@ preflight を増やしたことを理由に本 state 直接変更へ戻すこと
 統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
 既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
+`UpdateBundleTemplate` の fixed count 増減は、同じtemplateを使う全placementを一括scopeにせず、
+exact `Bundle` identityごとにsaved row continuityで接続された`edge_bundle_id` componentを選び、全component成功後に一度だけcommitする。
 現対応は `UpdateBundleTemplate` の fixed count 増減と `kTopology` policy 差分、`UpdateCableTemplate` の backbone continuity policy / default endpoint attachment decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeの接続は saved row continuity と saved node から
@@ -277,6 +342,11 @@ frame、boundsを生成し、具体的な計算方式は`CurveMethod`で差し�
 
 main spanの既定方式はparabolic sagとし、支持点でsag勾配を持つ実接線を維持する。
 端点微分が0になるdecorative offsetをmain cable centerlineへ使わない。中心線へ横揺れnoiseを入れない。
+continuity policyは端点接線とhandleを決めるが、main spanのsag profileを別方式へ切り替えない。
+`CableTemplate.sag_factor`はspan全体に1回適用する単一のratioであり、start/endごとの加算値ではない。
+Endpoint constraintを経由するcurve方式でも、両端へ同じratioを重複適用してはならない。
+このratioが指定する物理sag量は`endpoint chord length * ratio`であり、span長、pass種別、continuity、
+曲げ剛性を理由に別倍率で再解釈しない。これらは端点接線やhandleを決めても、sag量を変更しない。
 bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。
 G2接続は現時点の必須条件ではない。support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、
 未対応familyは別方式へsilent fallbackせず明示的に拒否する。
@@ -302,6 +372,11 @@ SavedBackboneSpanBindingから解決した派生curveを評価し、port間chord
 boundary tangentをdebug/captureで見えるようにするための派生出力である。描画やexport用に分割してもよいが、
 分割後のspan片が接続部curveのauthorityになってはいけない。長いrun全体を毎回正本として再計算する方式にはせず、
 dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
+
+scoped visual rebuildでは、`changed spans`、その端点でconnection visualを書き換える`affected nodes`、
+materializationのため読むだけの`context spans`を分ける。EdgeBody等のspan-owned partはchanged spanだけ、
+NodePatch/Jumper等のnode-owned partはaffected nodeだけを削除・置換する。context spanの反対側nodeは
+削除対象へ昇格させない。context不足時に既存connectionを削除してsilent skipすることは禁止する。
 
 ### cable population
 

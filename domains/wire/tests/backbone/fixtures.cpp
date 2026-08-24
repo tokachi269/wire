@@ -5,11 +5,19 @@
 
 #include "city/wire/core_test_hook.hpp"
 #include "city/wire/core_view.hpp"
+#include "city/wire/coord_utils.hpp"
+#include "city/wire/support/numeric_tolerances.hpp"
+
+#include "../../src/generation/backbone/emit_shared.hpp"
+#include "../../src/generation/backbone/model_assembly.hpp"
+#include "../../src/generation/backbone/mount_graph.hpp"
+#include "../../src/generation/backbone/row_representation.hpp"
 
 #include <algorithm>
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -332,10 +340,12 @@ std::vector<city::wire::Vec3d> offset_curve_points(double offset) {
   return span_curve_points(state, out.value.generated_span_ids);
 }
 
-std::vector<city::wire::Vec3d> offset_points(double offset) {
+std::vector<city::wire::Vec3d> offset_points(
+    double offset, city::wire::PathDirectionMode direction_mode) {
   city::wire::CoreState state;
   city::wire::BackboneSpec req = line_req(state);
   req.constraints.lateral_offset_m = offset;
+  req.direction_mode = direction_mode;
   const auto out = state.GenerateFromBackboneSpec(req);
   std::vector<city::wire::Vec3d> pts{};
   if (!out.ok) {
@@ -720,6 +730,200 @@ bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
   return true;
 }
 
+bool proper_xy_intersection(const city::wire::Vec3d& a,
+                            const city::wire::Vec3d& b,
+                            const city::wire::Vec3d& c,
+                            const city::wire::Vec3d& d) {
+  const auto orientation = [](const city::wire::Vec3d& p,
+                              const city::wire::Vec3d& q,
+                              const city::wire::Vec3d& r) {
+    return (q.x - p.x) * (r.y - p.y) -
+           (q.y - p.y) * (r.x - p.x);
+  };
+  const double ab_c = orientation(a, b, c);
+  const double ab_d = orientation(a, b, d);
+  const double cd_a = orientation(c, d, a);
+  const double cd_b = orientation(c, d, b);
+  return ab_c * ab_d < -city::wire::kIntersectionTolerance &&
+         cd_a * cd_b < -city::wire::kIntersectionTolerance;
+}
+
+bool hv_edge_body_xy_intersections_absent(const city::wire::CoreState& state,
+                                          std::string* reason) {
+  const auto fail = [&](const std::string& message) {
+    if (reason != nullptr) {
+      *reason = message;
+    }
+    return false;
+  };
+  const auto same_section = [](const city::wire::VisualCurvePart& a,
+                               const city::wire::VisualCurvePart& b) {
+    return a.has_section_key == b.has_section_key &&
+           (!a.has_section_key ||
+            (a.section_key.rule_owner_id == b.section_key.rule_owner_id &&
+             a.section_key.rule_id == b.section_key.rule_id &&
+             a.section_key.instance_index == b.section_key.instance_index));
+  };
+
+  const auto& parts = state.view().visual_curve_parts().parts;
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    const city::wire::VisualCurvePart& a = parts[i];
+    const auto a_template = state.view().bundle_templates().find(a.bundle_template_id);
+    if (a.kind != city::wire::VisualCurvePartKind::kEdgeBody ||
+        a.samples.size() < 2 ||
+        a_template == state.view().bundle_templates().end() ||
+        a_template->second.category != city::wire::ConnectionCategory::kHighVoltage) {
+      continue;
+    }
+    for (std::size_t j = i + 1; j < parts.size(); ++j) {
+      const city::wire::VisualCurvePart& b = parts[j];
+      if (b.kind != city::wire::VisualCurvePartKind::kEdgeBody ||
+          b.samples.size() < 2 || a.source_edge_id != b.source_edge_id ||
+          a.source_bundle_id != b.source_bundle_id ||
+          a.bundle_template_id != b.bundle_template_id ||
+          a.lane_index == b.lane_index || !same_section(a, b)) {
+        continue;
+      }
+      for (std::size_t ai = 1; ai < a.samples.size(); ++ai) {
+        for (std::size_t bi = 1; bi < b.samples.size(); ++bi) {
+          if (proper_xy_intersection(a.samples[ai - 1], a.samples[ai],
+                                     b.samples[bi - 1], b.samples[bi])) {
+            return fail("HV edge " + std::to_string(a.source_edge_id) +
+                        " bundle " + std::to_string(a.source_bundle_id) +
+                        " lanes " + std::to_string(a.lane_index) + "/" +
+                        std::to_string(b.lane_index) +
+                        " have a proper XY intersection in final visual samples");
+          }
+        }
+      }
+    }
+  }
+  if (reason != nullptr) {
+    reason->clear();
+  }
+  return true;
+}
+
+bool hv_connection_xy_intersections_absent(const city::wire::CoreState& state,
+                                           std::string* reason) {
+  const auto fail = [&](const std::string& message) {
+    if (reason != nullptr) {
+      *reason = message;
+    }
+    return false;
+  };
+  const auto& parts = state.view().visual_curve_parts().parts;
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    const city::wire::VisualCurvePart& a = parts[i];
+    const auto a_template = state.view().bundle_templates().find(a.bundle_template_id);
+    const bool a_connection =
+        a.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+        a.kind == city::wire::VisualCurvePartKind::kJumper;
+    if (!a_connection || a.samples.size() < 2 ||
+        a_template == state.view().bundle_templates().end() ||
+        a_template->second.category !=
+            city::wire::ConnectionCategory::kHighVoltage) {
+      continue;
+    }
+    std::vector<city::wire::ObjectId> a_edges = a.incident_edge_ids;
+    std::sort(a_edges.begin(), a_edges.end());
+    for (std::size_t j = i + 1; j < parts.size(); ++j) {
+      const city::wire::VisualCurvePart& b = parts[j];
+      const bool b_connection =
+          b.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+          b.kind == city::wire::VisualCurvePartKind::kJumper;
+      std::vector<city::wire::ObjectId> b_edges = b.incident_edge_ids;
+      std::sort(b_edges.begin(), b_edges.end());
+      if (!b_connection || b.samples.size() < 2 ||
+          a.source_node_id != b.source_node_id ||
+          a.bundle_template_id != b.bundle_template_id ||
+          a.lane_index == b.lane_index || a_edges != b_edges) {
+        continue;
+      }
+      for (std::size_t ai = 1; ai < a.samples.size(); ++ai) {
+        for (std::size_t bi = 1; bi < b.samples.size(); ++bi) {
+          if (proper_xy_intersection(a.samples[ai - 1], a.samples[ai],
+                                     b.samples[bi - 1], b.samples[bi])) {
+            return fail("HV connection node " +
+                        std::to_string(a.source_node_id) + " lanes " +
+                        std::to_string(a.lane_index) + "/" +
+                        std::to_string(b.lane_index) +
+                        " have a proper XY intersection in final visual samples");
+          }
+        }
+      }
+    }
+  }
+  if (reason != nullptr) {
+    reason->clear();
+  }
+  return true;
+}
+
+bool hv_edge_body_lane_order_consistent(const city::wire::CoreState& state,
+                                        std::string* reason) {
+  const auto fail = [&](const std::string& message) {
+    if (reason != nullptr) {
+      *reason = message;
+    }
+    return false;
+  };
+  const auto same_section = [](const city::wire::VisualCurvePart& a,
+                               const city::wire::VisualCurvePart& b) {
+    return a.has_section_key == b.has_section_key &&
+           (!a.has_section_key ||
+            (a.section_key.rule_owner_id == b.section_key.rule_owner_id &&
+             a.section_key.rule_id == b.section_key.rule_id &&
+             a.section_key.instance_index == b.section_key.instance_index));
+  };
+
+  const auto& parts = state.view().visual_curve_parts().parts;
+  for (const city::wire::VisualCurvePart& first : parts) {
+    const auto first_template = state.view().bundle_templates().find(first.bundle_template_id);
+    if (first.kind != city::wire::VisualCurvePartKind::kEdgeBody ||
+        first.samples.size() < 2 || first.lane_index != 0 ||
+        first_template == state.view().bundle_templates().end() ||
+        first_template->second.category != city::wire::ConnectionCategory::kHighVoltage) {
+      continue;
+    }
+
+    const city::wire::VisualCurvePart* last = nullptr;
+    for (const city::wire::VisualCurvePart& candidate : parts) {
+      if (candidate.kind != city::wire::VisualCurvePartKind::kEdgeBody ||
+          candidate.samples.size() < 2 ||
+          candidate.source_edge_id != first.source_edge_id ||
+          candidate.source_bundle_id != first.source_bundle_id ||
+          candidate.bundle_template_id != first.bundle_template_id ||
+          !same_section(first, candidate) ||
+          candidate.lane_index <= first.lane_index) {
+        continue;
+      }
+      if (last == nullptr || candidate.lane_index > last->lane_index) {
+        last = &candidate;
+      }
+    }
+    if (last == nullptr) {
+      continue;
+    }
+
+    const city::wire::Vec3d start_direction =
+        last->samples.front() - first.samples.front();
+    const city::wire::Vec3d end_direction =
+        last->samples.back() - first.samples.back();
+    const double alignment = start_direction.x * end_direction.x +
+                             start_direction.y * end_direction.y;
+    if (alignment < -city::wire::kIntersectionTolerance) {
+      return fail("HV edge " + std::to_string(first.source_edge_id) +
+                  " bundle " + std::to_string(first.source_bundle_id) +
+                  " reverses first-to-last lane order in final visual samples");
+    }
+  }
+  if (reason != nullptr) {
+    reason->clear();
+  }
+  return true;
+}
+
 bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::string* reason) {
   const auto fail = [&](const std::string& message) {
     if (reason != nullptr) {
@@ -730,7 +934,49 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
   const auto finite_vec = [](const city::wire::Vec3d& value) {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
   };
+  const auto vec_text = [](const city::wire::Vec3d& value) {
+    return "(" + std::to_string(value.x) + "," + std::to_string(value.y) +
+           "," + std::to_string(value.z) + ")";
+  };
+  const auto transform_equal = [](const city::wire::Transformd& a,
+                                  const city::wire::Transformd& b) {
+    return a.position.x == b.position.x &&
+           a.position.y == b.position.y &&
+           a.position.z == b.position.z &&
+           a.rotation_euler_deg.x == b.rotation_euler_deg.x &&
+           a.rotation_euler_deg.y == b.rotation_euler_deg.y &&
+           a.rotation_euler_deg.z == b.rotation_euler_deg.z &&
+           a.scale.x == b.scale.x && a.scale.y == b.scale.y &&
+           a.scale.z == b.scale.z;
+  };
+  const auto transform_close = [&](const city::wire::Transformd& a,
+                                   const city::wire::Transformd& b) {
+    return almost_equal(a.position, b.position, 1e-9) &&
+           almost_equal(a.rotation_euler_deg, b.rotation_euler_deg, 1e-9) &&
+           almost_equal(a.scale, b.scale, 1e-9);
+  };
+  const auto transform_text = [](const city::wire::Transformd& value) {
+    std::ostringstream out;
+    out << std::hexfloat << "p(" << value.position.x << ","
+        << value.position.y << "," << value.position.z << ") r("
+        << value.rotation_euler_deg.x << ","
+        << value.rotation_euler_deg.y << ","
+        << value.rotation_euler_deg.z << ") s(" << value.scale.x << ","
+        << value.scale.y << "," << value.scale.z << ")";
+    return out.str();
+  };
   const city::wire::SavedBackboneGraph& graph = state.view().backbone();
+  const city::wire::CoreView view = state.view();
+  std::string visual_geometry_error{};
+  if (!hv_edge_body_xy_intersections_absent(state, &visual_geometry_error)) {
+    return fail(visual_geometry_error);
+  }
+  if (!hv_edge_body_lane_order_consistent(state, &visual_geometry_error)) {
+    return fail(visual_geometry_error);
+  }
+  if (!hv_connection_xy_intersections_absent(state, &visual_geometry_error)) {
+    return fail(visual_geometry_error);
+  }
   const auto saved_node_exists = [&](city::wire::ObjectId node_id) {
     return std::any_of(graph.nodes.begin(), graph.nodes.end(), [&](const city::wire::SavedBackboneNode& node) {
       return node.node_id == node_id;
@@ -754,18 +1000,349 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
                        });
   };
 
-  for (const city::wire::Span& span : state.view().spans().items()) {
-    if (state.view().ports().find(span.port_a_id) == nullptr) {
-      return fail("span " + std::to_string(span.id) + " has missing port_a");
+  const auto placement_band = [&](const city::wire::Pole& pole,
+                                  int placement_band_id) -> const city::wire::PortPlacementBand* {
+    const auto type_it = view.pole_types().find(pole.pole_type_id);
+    if (type_it == view.pole_types().end()) return nullptr;
+    const auto band_it = std::find_if(
+        type_it->second.port_bands.begin(), type_it->second.port_bands.end(),
+        [&](const city::wire::PortPlacementBand& band) {
+          return band.band_id == placement_band_id;
+        });
+    return band_it == type_it->second.port_bands.end() ? nullptr : &*band_it;
+  };
+
+  const auto resolved_fixture_plan =
+      city::wire::generation::backbone::fixture_placement_plan_from_cache(state);
+  if (!resolved_fixture_plan.ok) {
+    return fail("row frame coherence fixture plan failed: " +
+                resolved_fixture_plan.error);
+  }
+  const auto& fixture_plan = resolved_fixture_plan.value;
+
+  for (const city::wire::SavedBackbonePortBinding& binding : graph.port_bindings) {
+    const city::wire::SavedBackboneEdgeBundle* edge_bundle =
+        view.backbone_edge_bundle(binding.edge_bundle_id);
+    const city::wire::Bundle* bundle =
+        edge_bundle == nullptr ? nullptr : view.bundles().find(edge_bundle->bundle_id);
+    const city::wire::Port* port = view.ports().find(binding.port_id);
+    const city::wire::Pole* pole =
+        port == nullptr ? nullptr : view.poles().find(port->owner_pole_id);
+    if (edge_bundle == nullptr || bundle == nullptr || port == nullptr) {
+      return fail("row frame coherence binding " + std::to_string(binding.edge_bundle_id) +
+                  " lane " + std::to_string(binding.lane_index) +
+                  " is missing its edge bundle, bundle, or port " +
+                  std::to_string(binding.port_id));
     }
-    if (state.view().ports().find(span.port_b_id) == nullptr) {
-      return fail("span " + std::to_string(span.id) + " has missing port_b");
+    if (pole == nullptr) {
+      continue;
+    }
+
+    const auto representation =
+        city::wire::generation::backbone::DeriveEndpointRowRepresentation(state, binding);
+    if (!representation.ok) {
+      return fail("row frame coherence binding " + std::to_string(binding.edge_bundle_id) +
+                  " port " + std::to_string(binding.port_id) +
+                  " has no derived row representation: " + representation.error);
+    }
+    const double yaw_delta = city::wire::NormalizeYawDeg(
+        binding.layout_yaw_deg - representation.value.layout_yaw_deg);
+    if (representation.value.connected && !representation.value.sharp &&
+        std::abs(yaw_delta) > 1e-9) {
+      const city::wire::SavedBackboneEdgeBundle* peer_edge_bundle =
+          view.backbone_edge_bundle(
+              representation.value.peer_edge_bundle_id);
+      return fail("row frame coherence binding " + std::to_string(binding.edge_bundle_id) +
+                  " port " + std::to_string(binding.port_id) +
+                  " pole " + std::to_string(pole->id) + " node " +
+                  std::to_string(binding.row_key.node_id) + " edge " +
+                  std::to_string(binding.row_key.edge_id) + " pair=" +
+                  std::to_string(representation.value.row_key.edge_a) + ":" +
+                  std::to_string(representation.value.row_key.edge_b) +
+                  " peer_edge_bundle=" +
+                  std::to_string(representation.value.peer_edge_bundle_id) +
+                  " peer_edge=" +
+                  std::to_string(peer_edge_bundle == nullptr
+                                     ? city::wire::kInvalidObjectId
+                                     : peer_edge_bundle->edge_id) +
+                  " row_axis=" + vec_text(representation.value.row_axis) +
+                  " yaw expected=" + std::to_string(representation.value.layout_yaw_deg) +
+                  " actual=" + std::to_string(binding.layout_yaw_deg));
+    }
+
+    const city::wire::PortPlacementBand* band = placement_band(*pole, binding.placement_band_id);
+    if (band == nullptr) {
+      return fail("row frame coherence binding " + std::to_string(binding.edge_bundle_id) +
+                  " port " + std::to_string(binding.port_id) +
+                  " references missing placement band " +
+                  std::to_string(binding.placement_band_id));
+    }
+    std::unordered_set<int> lane_band_ids{};
+    for (const city::wire::SavedBackbonePortBinding& candidate : graph.port_bindings) {
+      if (candidate.edge_bundle_id == binding.edge_bundle_id &&
+          candidate.row_key.node_id == binding.row_key.node_id) {
+        lane_band_ids.insert(candidate.placement_band_id);
+      }
+    }
+    const bool uses_lane_bands = bundle->conductor_count > 1 &&
+                                 lane_band_ids.size() ==
+                                     static_cast<std::size_t>(bundle->conductor_count);
+    const double expected_lateral =
+        bundle->placement_explicit
+            ? bundle->lateral_m +
+                  city::wire::generation::backbone::LaneOffset(
+                      binding.lane_index, bundle->conductor_count,
+                      bundle->phase_spacing_m)
+            : band->lateral_center_m +
+                  (uses_lane_bands
+                       ? 0.0
+                       : city::wire::generation::backbone::LaneOffset(
+                             binding.lane_index, bundle->conductor_count,
+                             bundle->phase_spacing_m));
+    const city::wire::PoleFrame frame =
+        city::wire::BuildPoleFrame(pole->world_transform, binding.layout_yaw_deg);
+    const city::wire::Vec3d local =
+        city::wire::WorldPointToLocal(frame, port->world_position);
+    if (std::abs(local.y - expected_lateral) > 1e-9) {
+      const std::size_t port_binding_count = static_cast<std::size_t>(
+          std::count_if(graph.port_bindings.begin(), graph.port_bindings.end(),
+                        [&](const city::wire::SavedBackbonePortBinding& candidate) {
+                          return candidate.port_id == binding.port_id;
+                        }));
+      return fail("row frame coherence binding " + std::to_string(binding.edge_bundle_id) +
+                  " port " + std::to_string(binding.port_id) +
+                  " pole " + std::to_string(pole->id) + " node " +
+                  std::to_string(binding.row_key.node_id) + " edge " +
+                  std::to_string(binding.row_key.edge_id) + " band " +
+                  std::to_string(binding.placement_band_id) + " yaw=" +
+                  std::to_string(binding.layout_yaw_deg) + " pole_origin=" +
+                  vec_text(pole->world_transform.position) + " world=" +
+                  vec_text(port->world_position) + " local=" + vec_text(local) +
+                  " bindings=" +
+                  std::to_string(port_binding_count) +
+                  " lateral expected=" + std::to_string(expected_lateral) +
+                  " actual=" + std::to_string(local.y));
+    }
+    const auto template_it = view.bundle_templates().find(binding.bundle_template_id);
+    const bool height_is_direct_anchor =
+        !uses_lane_bands && (binding.support_level == 0 ||
+        template_it == view.bundle_templates().end() ||
+        !template_it->second.enable_branch_down_offset);
+    const double expected_height =
+        bundle->placement_explicit ? bundle->height_m : band->height_center_m;
+    if (height_is_direct_anchor && std::abs(local.z - expected_height) > 1e-9) {
+      return fail("row frame coherence binding " + std::to_string(binding.edge_bundle_id) +
+                  " port " + std::to_string(binding.port_id) +
+                  " height expected=" + std::to_string(expected_height) +
+                  " actual=" + std::to_string(local.z));
+    }
+
+    const bool binding_has_fixture =
+        template_it != view.bundle_templates().end() &&
+        (template_it->second.row_fixture_assembly_id !=
+             city::wire::kInvalidModelAssemblyTemplateId ||
+         template_it->second.endpoint_fixture_assembly_id !=
+             city::wire::kInvalidModelAssemblyTemplateId);
+    if (binding_has_fixture) {
+      const auto plan_it = fixture_plan.find(binding.port_id);
+      if (plan_it == fixture_plan.end()) {
+        std::string cache_spans{};
+        view.cache_state().span_layout_cache.for_each_layout_record(
+            [&](city::wire::ObjectId span_id,
+                const city::wire::SpanLayoutCacheRecord& record,
+                const city::wire::SpanLayoutEntry&) {
+              const city::wire::SpanLayoutRule* rule =
+                  record.span_layout_rule();
+              cache_spans += (cache_spans.empty() ? "" : ",") +
+                             std::to_string(span_id);
+              if (rule != nullptr) {
+                cache_spans += "(" + std::to_string(rule->start.port_id) +
+                               ":" + std::to_string(rule->end.port_id) + ")";
+              }
+            });
+        return fail("row frame coherence binding " +
+                    std::to_string(binding.edge_bundle_id) + " port " +
+                    std::to_string(binding.port_id) +
+                    " has no endpoint fixture plan; cache spans=" +
+                    cache_spans);
+      }
+      const city::wire::Vec3d fixture_local = city::wire::WorldPointToLocal(
+          frame, plan_it->second.endpoint_fixture_root.position);
+      if (std::abs(fixture_local.y - expected_lateral) > 1e-9) {
+        return fail("row frame coherence binding " +
+                    std::to_string(binding.edge_bundle_id) + " port " +
+                    std::to_string(binding.port_id) +
+                    " endpoint fixture lateral expected=" +
+                    std::to_string(expected_lateral) + " actual=" +
+                    std::to_string(fixture_local.y));
+      }
+      if (plan_it->second.row_fixture.available) {
+        const city::wire::Vec3d fixture_forward =
+            city::wire::RotateEulerXYZDeg(
+                city::wire::WorldForward(),
+                plan_it->second.row_fixture.root.rotation_euler_deg);
+        const city::wire::Vec3d fixture_lateral =
+            city::wire::RotateEulerXYZDeg(
+                city::wire::WorldLateral(),
+                plan_it->second.row_fixture.root.rotation_euler_deg);
+        const city::wire::Vec3d fixture_up =
+            city::wire::RotateEulerXYZDeg(
+                city::wire::WorldUp(),
+                plan_it->second.row_fixture.root.rotation_euler_deg);
+        if (!almost_equal(fixture_forward, frame.forward, 1e-9) ||
+            !almost_equal(fixture_lateral, frame.lateral, 1e-9) ||
+            !almost_equal(fixture_up, frame.up, 1e-9)) {
+          return fail("row frame coherence binding " +
+                      std::to_string(binding.edge_bundle_id) + " port " +
+                      std::to_string(binding.port_id) +
+                      " row fixture axes do not match the pole-local row frame");
+        }
+      }
+    }
+  }
+
+  for (const city::wire::Span& span : state.view().spans().items()) {
+    const auto endpoint_exists = [&](city::wire::ObjectId port_id,
+                                     city::wire::ObjectId anchor_id,
+                                     const char* endpoint) {
+      const bool has_port = port_id != city::wire::kInvalidObjectId &&
+                            state.view().ports().find(port_id) != nullptr;
+      const bool has_anchor = anchor_id != city::wire::kInvalidObjectId &&
+                              state.view().anchors().find(anchor_id) != nullptr;
+      if (has_port == has_anchor) {
+        std::string binding_scope;
+        for (const city::wire::SavedBackbonePortBinding& binding : graph.port_bindings) {
+          if (binding.port_id == port_id) {
+            binding_scope += " edge_bundle=" + std::to_string(binding.edge_bundle_id) +
+                             " node=" + std::to_string(binding.row_key.node_id);
+          }
+        }
+        return fail("span " + std::to_string(span.id) + " endpoint " + endpoint +
+                    " must reference exactly one existing port or anchor (port=" +
+                    std::to_string(port_id) + ", anchor=" + std::to_string(anchor_id) +
+                    binding_scope + ")");
+      }
+      return true;
+    };
+    if (!endpoint_exists(span.port_a_id, span.anchor_a_id, "a") ||
+        !endpoint_exists(span.port_b_id, span.anchor_b_id, "b")) {
+      return false;
     }
     if (state.view().bundles().find(span.bundle_id) == nullptr) {
       return fail("span " + std::to_string(span.id) + " has missing bundle");
     }
+    const city::wire::SpanLayoutEntry* layout = state.span_layout(span.id).entry;
+    const city::wire::CurveCacheEntry* curve = state.find_curve_cache(span.id);
+    if (layout == nullptr || curve == nullptr || curve->detail.sample_points.size() < 2) {
+      return fail("span " + std::to_string(span.id) +
+                  " has no complete layout and curve for row frame coherence");
+    }
+    const auto check_endpoint = [&](city::wire::ObjectId port_id,
+                                    const city::wire::LayoutEndpoint& endpoint,
+                                    const city::wire::Vec3d& curve_point,
+                                    const char* endpoint_name) {
+      if (port_id == city::wire::kInvalidObjectId) return true;
+      const city::wire::Port* port = view.ports().find(port_id);
+      if (port == nullptr) {
+        return fail("span " + std::to_string(span.id) + " endpoint " +
+                    endpoint_name + " port " + std::to_string(port_id) +
+                    " is missing");
+      }
+      const auto plan_it = fixture_plan.find(port_id);
+      const city::wire::Vec3d expected_endpoint =
+          plan_it == fixture_plan.end() ? port->world_position
+                                        : plan_it->second.wire_endpoint;
+      if (!endpoint.source_projection.valid() &&
+          (!almost_equal(endpoint.support_world, expected_endpoint, 1e-9) ||
+           !almost_equal(endpoint.endpoint_world, expected_endpoint, 1e-9))) {
+        return fail("span " + std::to_string(span.id) + " endpoint " +
+                    endpoint_name + " port " + std::to_string(port_id) +
+                    " resolved anchor expected=" +
+                    vec_text(expected_endpoint) + " support=" +
+                    vec_text(endpoint.support_world) + " endpoint=" +
+                    vec_text(endpoint.endpoint_world));
+      }
+      if (!almost_equal(curve_point, endpoint.endpoint_world, 1e-9)) {
+        return fail("span " + std::to_string(span.id) + " endpoint " +
+                    endpoint_name + " port " + std::to_string(port_id) +
+                    " curve endpoint differs from layout endpoint");
+      }
+      return true;
+    };
+    if (!check_endpoint(span.port_a_id, layout->start,
+                        curve->detail.sample_points.front(), "a") ||
+        !check_endpoint(span.port_b_id, layout->end,
+                        curve->detail.sample_points.back(), "b")) {
+      return false;
+    }
   }
 
+  const auto rematerialized =
+      city::wire::generation::backbone::materialize_model_assemblies(
+          state, fixture_plan);
+  if (!rematerialized.ok) {
+    return fail("row frame coherence model materialization failed: " +
+                rematerialized.error);
+  }
+  const auto& expected = rematerialized.value.instances;
+  const auto& actual = view.visual_model_instances().instances;
+  const bool cache_matches =
+      expected.size() == actual.size() &&
+      std::equal(expected.begin(), expected.end(), actual.begin(),
+                 [&](const city::wire::VisualModelInstance& expected_instance,
+                     const city::wire::VisualModelInstance& actual_instance) {
+                   return expected_instance.stable_key ==
+                              actual_instance.stable_key &&
+                          expected_instance.model_key ==
+                              actual_instance.model_key &&
+                          transform_close(expected_instance.world_transform,
+                                          actual_instance.world_transform);
+                 });
+  if (!cache_matches) {
+    std::string detail = " expected_count=" + std::to_string(expected.size()) +
+                         " actual_count=" + std::to_string(actual.size());
+    const std::size_t common = std::min(expected.size(), actual.size());
+    for (std::size_t i = 0; i < common; ++i) {
+      if (expected[i].stable_key != actual[i].stable_key ||
+          expected[i].model_key != actual[i].model_key ||
+          !transform_close(expected[i].world_transform,
+                           actual[i].world_transform)) {
+        detail += " first_difference=" + std::to_string(i) +
+                  " expected_key=" + expected[i].stable_key +
+                  " actual_key=" + actual[i].stable_key +
+                  " expected_position=" +
+                  vec_text(expected[i].world_transform.position) +
+                  " actual_position=" +
+                  vec_text(actual[i].world_transform.position) +
+                  " expected_version=" +
+                  std::to_string(expected[i].content_version) +
+                  " actual_version=" +
+                  std::to_string(actual[i].content_version) +
+                  " expected_yaw=" +
+                  std::to_string(
+                      expected[i].world_transform.rotation_euler_deg.z) +
+                  " actual_yaw=" +
+                  std::to_string(
+                      actual[i].world_transform.rotation_euler_deg.z);
+        if (expected[i].model_key != actual[i].model_key) {
+          detail += " model_key";
+        }
+        if (!transform_equal(expected[i].world_transform,
+                             actual[i].world_transform)) {
+          detail += " transform expected_transform=" +
+                    transform_text(expected[i].world_transform) +
+                    " actual_transform=" +
+                    transform_text(actual[i].world_transform);
+        }
+        if (expected[i].content_version != actual[i].content_version) {
+          detail += " content_version";
+        }
+        break;
+      }
+    }
+    return fail("row frame coherence visual model cache differs from the resolved fixture plan" +
+                detail);
+  }
   for (const city::wire::SavedBackboneEdge& edge : graph.edges) {
     if (!saved_node_exists(edge.node_a) || !saved_node_exists(edge.node_b)) {
       return fail("saved edge " + std::to_string(edge.edge_id) + " references missing node");
@@ -778,7 +1355,11 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
     if (state.view().bundles().find(edge_bundle.bundle_id) == nullptr) {
       return fail("edge bundle " + std::to_string(edge_bundle.edge_bundle_id) + " references missing bundle");
     }
-    for (city::wire::ObjectId span_id : edge_bundle.span_ids) {
+    const auto spans_it = state.view().backbone_index().edge_bundle_spans.find(edge_bundle.edge_bundle_id);
+    if (spans_it == state.view().backbone_index().edge_bundle_spans.end()) {
+      continue;
+    }
+    for (city::wire::ObjectId span_id : spans_it->second) {
       if (state.view().spans().find(span_id) == nullptr) {
         return fail("edge bundle " + std::to_string(edge_bundle.edge_bundle_id) + " references missing span");
       }
@@ -815,6 +1396,118 @@ bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::st
         !edge_bundle_exists(continuity.b.edge_bundle_id) ||
         !edge_bundle_has_lane(continuity.b.edge_bundle_id, continuity.b.lane_index)) {
       return fail("row continuity references missing edge bundle lane");
+    }
+    const city::wire::SavedBackboneEdgeBundle* edge_bundle_a =
+        view.backbone_edge_bundle(continuity.a.edge_bundle_id);
+    const city::wire::SavedBackboneEdgeBundle* edge_bundle_b =
+        view.backbone_edge_bundle(continuity.b.edge_bundle_id);
+    const city::wire::Bundle* bundle_a = edge_bundle_a == nullptr
+                                            ? nullptr
+                                            : view.bundles().find(edge_bundle_a->bundle_id);
+    const city::wire::Bundle* bundle_b = edge_bundle_b == nullptr
+                                            ? nullptr
+                                            : view.bundles().find(edge_bundle_b->bundle_id);
+    if (bundle_a == nullptr || bundle_b == nullptr ||
+        bundle_a->bundle_template_id != bundle_b->bundle_template_id ||
+        bundle_a->conductor_count != bundle_b->conductor_count) {
+      return fail("row continuity bundles have incompatible lane layouts");
+    }
+    const auto template_it =
+        view.bundle_templates().find(bundle_a->bundle_template_id);
+    if (template_it == view.bundle_templates().end()) {
+      return fail("row continuity bundle template is missing");
+    }
+    if (bundle_a->conductor_count >= 2 &&
+        !template_it->second.preserve_conductor_identity &&
+        template_it->second.order_decision_policy ==
+            city::wire::OrderDecisionPolicyKind::kPermutableHomogeneous) {
+      const auto row_direction = [&](city::wire::ObjectId edge_bundle_id,
+                                     city::wire::Vec3d* direction) {
+        const city::wire::Port* first = nullptr;
+        const city::wire::Port* last = nullptr;
+        const std::size_t last_lane = static_cast<std::size_t>(
+            bundle_a->conductor_count - 1);
+        for (const city::wire::SavedBackbonePortBinding& binding :
+             graph.port_bindings) {
+          if (binding.edge_bundle_id != edge_bundle_id ||
+              binding.row_key.node_id != continuity.node_id) {
+            continue;
+          }
+          if (binding.lane_index == 0) {
+            first = view.ports().find(binding.port_id);
+          } else if (binding.lane_index == last_lane) {
+            last = view.ports().find(binding.port_id);
+          }
+        }
+        if (first == nullptr || last == nullptr || direction == nullptr) {
+          return false;
+        }
+        *direction = last->world_position - first->world_position;
+        return city::wire::NormalizeXY(direction);
+      };
+      city::wire::Vec3d direction_a{};
+      city::wire::Vec3d direction_b{};
+      if (!row_direction(continuity.a.edge_bundle_id, &direction_a) ||
+          !row_direction(continuity.b.edge_bundle_id, &direction_b)) {
+        return fail("row continuity permutable row direction is missing");
+      }
+      const double alignment = city::wire::Dot(direction_a, direction_b);
+      if (std::abs(alignment) <= city::wire::kUnitlessTolerance) {
+        return fail("row continuity permutable rows are orthogonal");
+      }
+      const std::size_t lane_count =
+          static_cast<std::size_t>(bundle_a->conductor_count);
+      const std::size_t expected_b_lane =
+          alignment < 0.0 ? lane_count - 1 - continuity.a.lane_index
+                          : continuity.a.lane_index;
+      if (continuity.b.lane_index != expected_b_lane) {
+        return fail("row continuity node " + std::to_string(continuity.node_id) +
+                    " edge bundles " + std::to_string(continuity.a.edge_bundle_id) +
+                    "/" + std::to_string(continuity.b.edge_bundle_id) +
+                    " lanes " + std::to_string(continuity.a.lane_index) +
+                    "/" + std::to_string(continuity.b.lane_index) +
+                    " disagrees with expected lane " +
+                    std::to_string(expected_b_lane));
+      }
+    }
+  }
+
+  for (const city::wire::SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+    const city::wire::SavedBackboneEdgeBundle* a_bundle =
+        state.view().backbone_edge_bundle(continuity.a.edge_bundle_id);
+    const city::wire::SavedBackboneEdgeBundle* b_bundle =
+        state.view().backbone_edge_bundle(continuity.b.edge_bundle_id);
+    const city::wire::Bundle* bundle =
+        a_bundle == nullptr ? nullptr : state.view().bundles().find(a_bundle->bundle_id);
+    if (a_bundle == nullptr || b_bundle == nullptr || bundle == nullptr) {
+      continue;
+    }
+    std::vector<city::wire::ObjectId> expected_edges{a_bundle->edge_id, b_bundle->edge_id};
+    std::sort(expected_edges.begin(), expected_edges.end());
+    const auto has_incident_edges = [&](const city::wire::VisualCurvePart& part) {
+      std::vector<city::wire::ObjectId> actual = part.incident_edge_ids;
+      std::sort(actual.begin(), actual.end());
+      return std::includes(actual.begin(), actual.end(),
+                           expected_edges.begin(), expected_edges.end());
+    };
+    const bool has_connection_visual =
+        std::any_of(state.view().visual_curve_parts().parts.begin(),
+                    state.view().visual_curve_parts().parts.end(),
+                    [&](const city::wire::VisualCurvePart& part) {
+                      return (part.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+                              part.kind == city::wire::VisualCurvePartKind::kJumper) &&
+                             part.source_node_id == continuity.node_id &&
+                             part.bundle_template_id == bundle->bundle_template_id &&
+                             (part.lane_index == continuity.a.lane_index ||
+                              part.lane_index == continuity.b.lane_index) &&
+                             has_incident_edges(part);
+                    });
+    if (!has_connection_visual) {
+      return fail("row continuity node " + std::to_string(continuity.node_id) +
+                  " edge bundles " + std::to_string(continuity.a.edge_bundle_id) +
+                  "/" + std::to_string(continuity.b.edge_bundle_id) +
+                  " lane " + std::to_string(continuity.a.lane_index) +
+                  " has no NodePatch/Jumper visual connection");
     }
   }
 

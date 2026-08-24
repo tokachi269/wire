@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import App from "../src/App.svelte";
 import { ViewerActions } from "../src/actions/viewer";
 import { WireBridge } from "../src/bridge/wire";
+import { CommitFailureCategory } from "../src/model";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 
 describe("viewer numeric inputs", () => {
@@ -128,6 +129,29 @@ describe("viewer numeric inputs", () => {
     await tick();
 
     expect(mounted.bridge.geometrySettings().sagFactor).toBeCloseTo(next, 8);
+  });
+
+  it("changes the draw plane by three meters with PageUp and PageDown", async () => {
+    const mounted = await mountViewer(false);
+
+    expect(current(mounted.store).drawPlaneZ).toBe(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp" }));
+    await tick();
+    expect(current(mounted.store).drawPlaneZ).toBe(3);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown" }));
+    await tick();
+    expect(current(mounted.store).drawPlaneZ).toBe(0);
+
+    const planeInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Draw plane height"]'
+    );
+    expect(planeInput).not.toBeNull();
+    planeInput!.focus();
+    planeInput!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "PageUp", bubbles: true })
+    );
+    await tick();
+    expect(current(mounted.store).drawPlaneZ).toBe(0);
   });
 
   it("starts with 24 curve samples and toggles the ground grid", async () => {
@@ -262,11 +286,15 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).rightPanelMode).toBe("wire");
     expect(document.body.textContent).toContain("DRAW PATH");
     expect(document.body.textContent).not.toContain("Add segment");
-    expect(document.body.textContent).toContain("Repro capture");
 
     mounted.actions.addViewportPoint([0, 0, 0]);
     mounted.actions.previewViewportPoint([24, 0, 0]);
-    expect(current(mounted.store).road.previewMeshes.length).toBeGreaterThan(0);
+    expect(current(mounted.store).road.previewState).toBe("guide");
+    expect(current(mounted.store).road.previewRequest).toEqual(expect.objectContaining({
+      startX: 0,
+      endX: 24
+    }));
+    expect(current(mounted.store).road.previewMeshes).toEqual([]);
     mounted.actions.addViewportPoint([24, 0, 0]);
     await tick();
     expect(current(mounted.store).road.scene.segmentCount).toBe(1);
@@ -277,12 +305,221 @@ describe("viewer numeric inputs", () => {
     roadTab.click();
     await tick();
     expect(current(mounted.store).rightPanelMode).toBe("road");
-    expect(document.body.textContent).not.toContain("Repro capture");
+    expect(document.body.textContent).toContain("Junction corner radius (m)");
 
     (document.querySelector('[aria-label="Wire tool"]') as HTMLButtonElement).click();
     await tick();
     expect(current(mounted.store).activeTool).toBe("wire");
     expect(current(mounted.store).rightPanelMode).toBe("road");
+  });
+
+  it("lists roads in the Outliner and inspects a selected road segment", async () => {
+    const mounted = await mountViewer(false);
+    mounted.actions.setActiveTool("road");
+    mounted.actions.addViewportPoint([0, 0, 0]);
+    mounted.actions.addViewportPoint([24, 0, 0]);
+    await tick();
+
+    const snapshot = current(mounted.store);
+    const corridor = snapshot.road.scene.corridors[0];
+    const segmentId = corridor.segments[0].segmentId;
+    expect(document.querySelector(".outliner.sidebar-card")).toBeInstanceOf(HTMLElement);
+    expect(document.querySelector(".selection-inspector.sidebar-card")).toBeInstanceOf(HTMLElement);
+    expect(document.querySelector(".outliner")?.textContent).toContain(`Road ${corridor.id}`);
+    const segmentButton = document.querySelector<HTMLButtonElement>(
+      `[aria-label="Select road segment ${segmentId}"]`
+    );
+    expect(segmentButton).toBeInstanceOf(HTMLButtonElement);
+
+    const roadTab = [...document.querySelectorAll(".domain-tabs button")]
+      .find((button) => button.textContent?.trim() === "Road") as HTMLButtonElement;
+    roadTab.click();
+    segmentButton!.click();
+    await tick();
+
+    expect(current(mounted.store).selection).toEqual({
+      kind: "roadSegment",
+      id: String(segmentId)
+    });
+    expect(document.querySelector(".selection-inspector")?.textContent)
+      .toContain(`Road segment ${segmentId}`);
+  });
+
+  it("shows one categorized commit failure without turning pointer movement into an error", async () => {
+    const mounted = await mountViewer(false);
+    mounted.actions.setActiveTool("road");
+    mounted.actions.addViewportPoint([0, 0, 0]);
+    mounted.store.setCommitFailure({
+      ok: false,
+      error: "road connection needs more length",
+      failureCategory: CommitFailureCategory.NotImplemented,
+      reasonCode: "road_connection_too_short"
+    }, "road segment", [12, 4, 0]);
+    await tick();
+
+    const failure = document.querySelector(".commit-failure");
+    expect(failure?.textContent).toContain("Not implemented");
+    expect(failure?.textContent).toContain("road connection needs more length");
+    expect(failure?.textContent).toContain("road_connection_too_short");
+    expect(document.querySelectorAll(".commit-failure")).toHaveLength(1);
+
+    mounted.actions.previewViewportPoint([20, 0, 0]);
+    await tick();
+    expect(document.querySelector(".commit-failure")?.textContent)
+      .toContain("road_connection_too_short");
+  });
+
+  it("uses one operation error surface and keeps the reason code in details", async () => {
+    const mounted = await mountViewer(false);
+    mounted.store.update((snapshot) => ({
+      ...snapshot,
+      error: "legacy operation error",
+      road: { ...snapshot.road, lastError: "legacy road panel error" }
+    }));
+    mounted.store.setCommitFailure({
+      ok: false,
+      error: "the selected lane cannot be extended",
+      failureCategory: CommitFailureCategory.NotImplemented,
+      reasonCode: "lane_destination_ambiguous"
+    }, "road add lane");
+    await tick();
+
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(document.querySelector(".road-error")).toBeNull();
+    const details = document.querySelector(".commit-failure details");
+    expect(details).toBeInstanceOf(HTMLDetailsElement);
+    expect(details?.hasAttribute("open")).toBe(false);
+    expect(details?.querySelector("code")?.textContent)
+      .toContain("lane_destination_ambiguous");
+  });
+
+  it("returns an explicit outcome for every primary click and Enter action", async () => {
+    const mounted = await mountViewer(false);
+
+    expect(mounted.actions.addViewportPoint([0, 0, 0])).toEqual({ kind: "anchor-accepted" });
+    mounted.actions.previewViewportPoint([12, 0, 0]);
+    expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+    expect(current(mounted.store).lastDrawActionResult).toEqual({ kind: "commit-succeeded" });
+
+    mounted.actions.setActiveTool("road");
+    expect(mounted.actions.finishDrawSession()).toEqual({
+      kind: "ignored",
+      reasonCode: "session-inactive"
+    });
+    expect(mounted.actions.addViewportPoint([0, 40, 0])).toEqual({ kind: "anchor-accepted" });
+    expect(mounted.actions.finishDrawSession()).toEqual({ kind: "session-ended" });
+    expect(current(mounted.store).road.phase).toBe("start");
+  });
+
+  it("offers the same confirm finish cancel and undo controls on screen", async () => {
+    const mounted = await mountViewer(false);
+    mounted.actions.setActiveTool("road");
+    mounted.actions.addViewportPoint([0, 0, 0]);
+    mounted.actions.previewViewportPoint([20, 0, 0]);
+    await tick();
+
+    const controls = document.querySelector('[aria-label="Drawing session controls"]');
+    expect(controls).toBeInstanceOf(HTMLElement);
+    const button = (label: string) => controls?.querySelector(
+      `button[aria-label="${label}"]`
+    ) as HTMLButtonElement;
+    expect(button("Confirm").disabled).toBe(false);
+    expect(button("Finish").disabled).toBe(false);
+    expect(button("Cancel").disabled).toBe(false);
+    expect(button("Undo")).toBeInstanceOf(HTMLButtonElement);
+
+    button("Confirm").click();
+    await tick();
+    expect(current(mounted.store).road.scene.segmentCount).toBe(1);
+    expect(current(mounted.store).road.phase).toBe("end");
+
+    mounted.actions.previewViewportPoint([40, 0, 0]);
+    await tick();
+    button("Finish").click();
+    await tick();
+    expect(current(mounted.store).road.scene.segmentCount).toBe(2);
+    expect(current(mounted.store).road.phase).toBe("start");
+
+    button("Undo").click();
+    await tick();
+    expect(current(mounted.store).road.scene.segmentCount).toBe(1);
+  });
+
+  it("runs repeated wire and road sessions through ViewerActions and the real wasm bridge", async () => {
+    const mounted = await mountViewer(false);
+
+    for (let index = 0; index < 12; index += 1) {
+      const x = index * 30;
+      expect(mounted.actions.addViewportPoint([x, 0, 0])).toEqual({ kind: "anchor-accepted" });
+      mounted.actions.previewViewportPoint([x + 12, 0, 0]);
+      expect(mounted.actions.addViewportPoint([x + 12, 0, 0])).toEqual({ kind: "commit-succeeded" });
+      mounted.actions.previewViewportPoint([x + 12, 10, 0]);
+      expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+      expect(current(mounted.store).pathPoints).toEqual([]);
+      expect(current(mounted.store).lastCommitFailure).toBeNull();
+    }
+    expect(current(mounted.store).poles).toHaveLength(36);
+
+    mounted.actions.setActiveTool("road");
+    for (let index = 0; index < 10; index += 1) {
+      const y = 40 + index * 12;
+      expect(mounted.actions.addViewportPoint([0, y, 0])).toEqual({ kind: "anchor-accepted" });
+      mounted.actions.previewViewportPoint([18, y, 0]);
+      expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+    }
+    expect(current(mounted.store).road.scene.segmentCount).toBe(10);
+
+    mounted.actions.setRoadMode("bezier");
+    for (let index = 0; index < 10; index += 1) {
+      const y = 260 + index * 12;
+      expect(mounted.actions.addViewportPoint([0, y, 0])).toEqual({ kind: "anchor-accepted" });
+      mounted.actions.previewViewportPoint([18, y + 4, 0]);
+      expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+    }
+    expect(current(mounted.store).road.scene.segmentCount).toBe(20);
+
+    mounted.actions.setRoadMode("line");
+    expect(mounted.actions.addViewportPoint([0, 400, 0])).toEqual({ kind: "anchor-accepted" });
+    mounted.actions.previewViewportPoint([0, 400, 0]);
+    expect(mounted.actions.finishDrawSession()).toEqual({
+      kind: "session-ended"
+    });
+    expect(current(mounted.store).road.phase).toBe("start");
+    expect(current(mounted.store).lastCommitFailure).toBeNull();
+    expect(mounted.actions.addViewportPoint([0, 400, 0])).toEqual({ kind: "anchor-accepted" });
+    mounted.actions.previewViewportPoint([18, 400, 0]);
+    expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+    expect(current(mounted.store).lastCommitFailure).toBeNull();
+
+    expect(mounted.actions.addViewportPoint([0, 180, 0])).toEqual({ kind: "anchor-accepted" });
+    expect(mounted.actions.cancelDrawSession()).toEqual({ kind: "session-ended" });
+    mounted.actions.setActiveTool("wire");
+    expect(mounted.actions.addViewportPoint([0, 200, 0])).toEqual({ kind: "anchor-accepted" });
+    mounted.actions.setActiveTool("road");
+    expect(current(mounted.store).pathPoints).toEqual([]);
+    expect(mounted.actions.addViewportPoint([0, 220, 0])).toEqual({ kind: "anchor-accepted" });
+    mounted.actions.previewViewportPoint([18, 220, 0]);
+    expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+  }, 15_000);
+
+  it("blocks the editor when the Web and WASM build identities differ", async () => {
+    const mounted = await mountViewer(false);
+    mounted.store.update((snapshot) => ({
+      ...snapshot,
+      buildMismatch: {
+        webSourceHash: "source123",
+        webVersion: "0.2.0",
+        wasmSourceHash: "stale456",
+        wasmVersion: "0.2.0"
+      }
+    }));
+    await tick();
+
+    const mismatch = document.querySelector(".build-mismatch");
+    expect(mismatch?.getAttribute("role")).toBe("alertdialog");
+    expect(mismatch?.textContent).toContain("Web and WASM builds do not match");
+    expect(mismatch?.textContent).toContain("source123");
+    expect(mismatch?.textContent).toContain("stale456");
   });
 
   it("resets both core state and viewer settings", async () => {

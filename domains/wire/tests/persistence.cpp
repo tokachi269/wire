@@ -28,7 +28,7 @@ bool C750_authoritative_save_is_deterministic_and_changes_after_edit() {
   std::string repeated_save{};
   if (!make_roundtrip_source(&state, &first_save, nullptr)) return false;
   const auto saved = state.SerializeAuthoritative(&repeated_save);
-  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v2\n", 0) != 0 ||
+  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v4\n", 0) != 0 ||
       first_save != repeated_save) {
     return false;
   }
@@ -397,16 +397,20 @@ bool C751_authoritative_load_roundtrip_rederives_bit_exact_outputs() {
   std::string saved{};
   if (!make_roundtrip_source(&source, &saved, nullptr)) return false;
   city::wire::CoreState first_load;
-  if (!first_load.DeserializeAuthoritative(saved).ok) return false;
+  const auto first_loaded = first_load.DeserializeAuthoritative(saved);
+  WIRE_TEST_EXPECT_PRESENCE(first_loaded.ok, first_loaded.error);
   DerivedSnapshot before{};
   std::string canonical{};
   if (!snapshot_derived(first_load, &before)) return false;
   if (!first_load.SerializeAuthoritative(&canonical).ok) return false;
   city::wire::CoreState second_load;
   DerivedSnapshot after{};
-  if (!second_load.DeserializeAuthoritative(canonical).ok) return false;
+  const auto second_loaded = second_load.DeserializeAuthoritative(canonical);
+  WIRE_TEST_EXPECT_PRESENCE(second_loaded.ok, second_loaded.error);
   if (!snapshot_derived(second_load, &after)) return false;
-  return same_derived(before, after);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(same_derived(before, after),
+                                "derived output changed across repeated load");
+  return true;
 }
 
 bool C752_authoritative_load_resave_is_byte_identical() {
@@ -436,7 +440,8 @@ bool C753_authoritative_load_continues_editing_without_id_collision() {
                               end_pole->world_transform.position.y + 8.0, 0.0}};
   extension.path.node_specs.push_back(backbone_tests::pole_spec(0, end_pole->id));
   const auto extended = loaded.GenerateFromBackboneSpec(extension);
-  if (!extended.ok) return false;
+  WIRE_TEST_EXPECT_PRESENCE(extended.ok, extended.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
   std::unordered_set<city::wire::ObjectId> ids{};
   for (const city::wire::Pole& pole : loaded.view().poles().items()) {
     if (!ids.insert(pole.id).second) return false;
@@ -454,7 +459,7 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   city::wire::CoreState valid_probe;
   if (!valid_probe.DeserializeAuthoritative(saved).ok) return false;
   const std::vector<std::string> invalid = {
-      "wire_state_v3\n",
+      "wire_state_v5\n",
       saved + "unknown.key=1\n",
       saved.substr(0, saved.find_last_of('\n', saved.size() - 2) + 1)};
   for (const std::string& text : invalid) {
@@ -465,7 +470,7 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   return true;
 }
 
-bool C799_authoritative_v1_load_migrates_row_continuity_to_v2() {
+bool C799_authoritative_v1_load_migrates_row_continuity_to_current() {
   std::string saved_v2{};
   if (!backbone_tests::file_text(
           backbone_tests::repo_root() / "domains" / "wire" / "tests" / "fixtures" /
@@ -494,19 +499,20 @@ bool C799_authoritative_v1_load_migrates_row_continuity_to_v2() {
 
   city::wire::CoreState loaded;
   if (!loaded.DeserializeAuthoritative(stripped).ok) return false;
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
   if (loaded.view().backbone().row_continuities.size() != 3) {
     return false;
   }
-  std::string migrated_v2{};
-  if (!loaded.SerializeAuthoritative(&migrated_v2).ok ||
-      migrated_v2.rfind("wire_state_v2\n", 0) != 0 ||
-      migrated_v2.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
+  std::string migrated_v4{};
+  if (!loaded.SerializeAuthoritative(&migrated_v4).ok ||
+      migrated_v4.rfind("wire_state_v4\n", 0) != 0 ||
+      migrated_v4.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
     return false;
   }
   city::wire::CoreState reloaded;
-  if (!reloaded.DeserializeAuthoritative(migrated_v2).ok) return false;
+  if (!reloaded.DeserializeAuthoritative(migrated_v4).ok) return false;
   std::string resaved{};
-  return reloaded.SerializeAuthoritative(&resaved).ok && resaved == migrated_v2;
+  return reloaded.SerializeAuthoritative(&resaved).ok && resaved == migrated_v4;
 }
 
 bool C801_authoritative_v2_rejects_broken_row_continuity_reference() {
@@ -713,19 +719,19 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C754_authoritative_load_rejects_invalid_text_without_mutation",
                          "authoritative load rejects version, unknown-key, and truncation errors without mutation",
                          "Boundary", true, C754_authoritative_load_rejects_invalid_text_without_mutation);
-  test_registry::AddTest(tests, "C799_authoritative_v1_load_migrates_row_continuity_to_v2",
-                         "authoritative v1 load migrates row continuity and resaves as v2",
+  test_registry::AddTest(tests, "C799_authoritative_v1_load_migrates_row_continuity_to_current",
+                         "authoritative v1 load migrates row continuity and resaves in the current format",
                          "Boundary", false,
-                         C799_authoritative_v1_load_migrates_row_continuity_to_v2);
+                         C799_authoritative_v1_load_migrates_row_continuity_to_current);
   test_registry::AddTest(tests, "C801_authoritative_v2_rejects_broken_row_continuity_reference",
                          "authoritative v2 load rejects broken row continuity references",
                          "Boundary", true,
                          C801_authoritative_v2_rejects_broken_row_continuity_reference);
-  test_registry::AddTest(tests, "C806_authoritative_v2_does_not_persist_backbone_route_order",
+  test_registry::AddSourceGuardTest(tests, "C806_authoritative_v2_does_not_persist_backbone_route_order",
                          "authoritative v2 does not persist backbone route/order helpers",
                          "Boundary", false,
                          C806_authoritative_v2_does_not_persist_backbone_route_order);
-  test_registry::AddTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
+  test_registry::AddSourceGuardTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
                          "persistence derives write and read from type archive visitors",
                          "Boundary", false, C756_persistence_has_no_type_specific_write_read_wrappers);
   test_registry::AddTest(tests, "C757_authoritative_roundtrip_compares_fields_directly",

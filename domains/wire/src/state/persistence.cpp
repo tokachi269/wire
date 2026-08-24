@@ -1,4 +1,6 @@
 #include "city/wire/core_state.hpp"
+#include "city/wire/coord_utils.hpp"
+#include "city/wire/support/numeric_tolerances.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -19,7 +21,7 @@ namespace {
 
 class StateWriter {
 public:
-  StateWriter() { text_ = "wire_state_v2\n"; }
+  StateWriter() { text_ = "wire_state_v4\n"; }
 
   void value(const std::string& key, bool input) { line(key, input ? "1" : "0"); }
 
@@ -74,8 +76,16 @@ public:
   bool parse(const std::string& text) {
     static constexpr std::string_view kHeaderV1 = "wire_state_v1\n";
     static constexpr std::string_view kHeaderV2 = "wire_state_v2\n";
+    static constexpr std::string_view kHeaderV3 = "wire_state_v3\n";
+    static constexpr std::string_view kHeaderV4 = "wire_state_v4\n";
     std::size_t header_size = 0;
-    if (text.starts_with(kHeaderV2)) {
+    if (text.starts_with(kHeaderV4)) {
+      version_ = 4;
+      header_size = kHeaderV4.size();
+    } else if (text.starts_with(kHeaderV3)) {
+      version_ = 3;
+      header_size = kHeaderV3.size();
+    } else if (text.starts_with(kHeaderV2)) {
       version_ = 2;
       header_size = kHeaderV2.size();
     } else if (text.starts_with(kHeaderV1)) {
@@ -285,6 +295,7 @@ public:
     writer_.value(key, input);
     return true;
   }
+  [[nodiscard]] bool contains(const std::string&) const { return false; }
 
   template <typename T> bool optional(const std::string& prefix, const std::optional<T>& input) {
     writer_.value(child(prefix, "has"), input.has_value());
@@ -326,7 +337,7 @@ public:
   }
 
   bool count(const std::string& key, std::size_t& output) { return reader_.count(key, &output); }
-
+  [[nodiscard]] bool contains(const std::string& key) const { return reader_.contains(key); }
   template <typename T> bool optional(const std::string& prefix, std::optional<T>& output) {
     bool has = false;
     if (!reader_.value(child(prefix, "has"), &has)) return false;
@@ -559,17 +570,22 @@ bool archive_saved_edge_bundle(Archive& archive, const std::string& prefix, Valu
       !archive.legacy_field(prefix, "route", value.route, std::size_t{0}) ||
       !archive.legacy_field(prefix, "order", value.order, std::size_t{0}) ||
       !archive_vec3(archive, child(prefix, "dir"), value.dir)) return false;
-  std::size_t count = value.span_ids.size();
-  if (!archive.count(child(prefix, "span_ids.count"), count)) return false;
-  if constexpr (Archive::loading) value.span_ids.resize(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    if (!archive.value(indexed(child(prefix, "span_ids"), i), value.span_ids[i])) return false;
+  if constexpr (Archive::loading) {
+    const std::string legacy_prefix = child(prefix, "span_ids");
+    if (archive.contains(child(legacy_prefix, "count"))) {
+      std::size_t legacy_count = 0;
+      if (!archive.count(child(legacy_prefix, "count"), legacy_count)) return false;
+      for (std::size_t i = 0; i < legacy_count; ++i) {
+        ObjectId ignored = kInvalidObjectId;
+        if (!archive.value(indexed(legacy_prefix, i), ignored)) return false;
+      }
+    }
   }
   return true;
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(SavedBackboneEdgeBundle) == 104, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(SavedBackboneEdgeBundle) == 72, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -749,19 +765,22 @@ void migrate_v1_row_continuities(
         graph->port_bindings[pair_bindings[first]];
     const LegacySavedBackboneRowKey& first_key =
         *legacy_row_keys[pair_bindings[first]];
-    while (last < pair_bindings.size() &&
-           legacy_row_keys[pair_bindings[last]]->node_id == first_key.node_id &&
-           legacy_row_keys[pair_bindings[last]]->source_edge_a ==
-               first_key.source_edge_a &&
-           legacy_row_keys[pair_bindings[last]]->source_edge_b ==
-               first_key.source_edge_b &&
-           graph->port_bindings[pair_bindings[last]].lane_index ==
-               first_binding.lane_index &&
-           migrated_edge_bundle_bundle_id(
-               *graph,
-               graph->port_bindings[pair_bindings[last]].edge_bundle_id) ==
-               migrated_edge_bundle_bundle_id(*graph,
-                                               first_binding.edge_bundle_id)) {
+    while (last < pair_bindings.size()) {
+      const std::optional<LegacySavedBackboneRowKey>& candidate_key =
+          legacy_row_keys[pair_bindings[last]];
+      if (!candidate_key.has_value() ||
+          candidate_key->node_id != first_key.node_id ||
+          candidate_key->source_edge_a != first_key.source_edge_a ||
+          candidate_key->source_edge_b != first_key.source_edge_b ||
+          graph->port_bindings[pair_bindings[last]].lane_index !=
+              first_binding.lane_index ||
+          migrated_edge_bundle_bundle_id(
+              *graph,
+              graph->port_bindings[pair_bindings[last]].edge_bundle_id) !=
+              migrated_edge_bundle_bundle_id(*graph,
+                                              first_binding.edge_bundle_id)) {
+        break;
+      }
       ++last;
     }
     if (last - first == 2 &&
@@ -924,8 +943,8 @@ bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "default_grouped_support_fanout_spacing_m", v.default_grouped_support_fanout_spacing_m) ||
       !ar.field(p, "bend_stiffness", v.bend_stiffness) || !ar.field(p, "min_bend_radius_m", v.min_bend_radius_m) ||
       !ar.field(p, "material_style", v.material_style) || !ar.field(p, "color_rgba", v.color_rgba) ||
-      !ar.field(p, "sag_factor", v.sag_factor) || !ar.field(p, "slack_factor", v.slack_factor) ||
-      !ar.field(p, "continuity_policy", v.continuity_policy) || !ar.field(p, "attachment_style", v.attachment_style) ||
+      !ar.field(p, "sag_factor", v.sag_factor)) return false;
+  if (!ar.field(p, "continuity_policy", v.continuity_policy) || !ar.field(p, "attachment_style", v.attachment_style) ||
       !ar.field(p, "default_endpoint_attachment_template_id", v.default_endpoint_attachment_template_id)) return false;
   std::size_t count = v.supplemental_paths.size();
   if (!ar.count(child(p, "supplemental_paths.count"), count)) return false;
@@ -937,7 +956,7 @@ bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(CableTemplate) == 152, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(CableTemplate) == 144, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -1541,6 +1560,14 @@ bool normalize_saved_support_levels(CoreStateAuthoritativeStorage* authoritative
     return false;
   }
   SavedBackboneGraph& graph = authoritative->backbone;
+  const bool has_missing_support = std::any_of(
+      graph.port_bindings.begin(), graph.port_bindings.end(),
+      [](const SavedBackbonePortBinding& binding) {
+        return binding.support_level < 0 || binding.support_group_id < -1;
+      });
+  if (!has_missing_support) {
+    return true;
+  }
   struct record {
     std::size_t binding_index = 0;
     ObjectId node_id = kInvalidObjectId;
@@ -1808,7 +1835,7 @@ bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* auth
       !archive_geometry_settings(fields, "authoritative.geometry_settings", authoritative->geometry_settings) ||
       !archive_visual_settings(fields, "authoritative.visual_settings", authoritative->visual_settings) ||
       !archive_variation_settings(fields, "authoritative.variation_settings", authoritative->variation_settings)) return false;
-  return normalize_saved_support_levels(authoritative);
+  return true;
 }
 
 } // namespace
@@ -2026,6 +2053,114 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
     return result;
   }
 
+  auto migrate_permutable_continuity_lanes = [&]() -> bool {
+    if (reader.version() >= 3) {
+      return true;
+    }
+    SavedBackboneGraph& graph = trial.authoritative_.backbone;
+    const auto edge_bundle_for = [&](ObjectId edge_bundle_id)
+        -> const SavedBackboneEdgeBundle* {
+      const auto found = std::find_if(
+          graph.edge_bundles.begin(), graph.edge_bundles.end(),
+          [&](const SavedBackboneEdgeBundle& value) {
+            return value.edge_bundle_id == edge_bundle_id;
+          });
+      return found == graph.edge_bundles.end() ? nullptr : &*found;
+    };
+    for (SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+      const SavedBackboneEdgeBundle* edge_bundle_a =
+          edge_bundle_for(continuity.a.edge_bundle_id);
+      const SavedBackboneEdgeBundle* edge_bundle_b =
+          edge_bundle_for(continuity.b.edge_bundle_id);
+      const Bundle* bundle_a = edge_bundle_a == nullptr
+                                   ? nullptr
+                                   : trial.authoritative_.edit_state.bundles.find(
+                                         edge_bundle_a->bundle_id);
+      const Bundle* bundle_b = edge_bundle_b == nullptr
+                                   ? nullptr
+                                   : trial.authoritative_.edit_state.bundles.find(
+                                         edge_bundle_b->bundle_id);
+      if (bundle_a == nullptr || bundle_b == nullptr ||
+          bundle_a->bundle_template_id != bundle_b->bundle_template_id ||
+          bundle_a->conductor_count != bundle_b->conductor_count ||
+          bundle_a->conductor_count <= 0) {
+        result.error =
+            "authoritative unsupported: continuity migration has incompatible lane layouts";
+        return false;
+      }
+      const auto template_it = trial.authoritative_.bundle_templates.find(
+          bundle_a->bundle_template_id);
+      if (template_it == trial.authoritative_.bundle_templates.end()) {
+        result.error =
+            "authoritative unsupported: continuity migration bundle template is missing";
+        return false;
+      }
+      const std::size_t lane_count =
+          static_cast<std::size_t>(bundle_a->conductor_count);
+      if (continuity.a.lane_index >= lane_count ||
+          continuity.b.lane_index >= lane_count) {
+        result.error =
+            "authoritative unsupported: continuity migration lane is out of range";
+        return false;
+      }
+      if (lane_count < 2 || template_it->second.preserve_conductor_identity ||
+          template_it->second.order_decision_policy !=
+              OrderDecisionPolicyKind::kPermutableHomogeneous) {
+        continue;
+      }
+
+      const auto row_direction = [&](ObjectId edge_bundle_id,
+                                     Vec3d* direction) {
+        const Port* first = nullptr;
+        const Port* last = nullptr;
+        for (const SavedBackbonePortBinding& binding : graph.port_bindings) {
+          if (binding.edge_bundle_id != edge_bundle_id ||
+              binding.row_key.node_id != continuity.node_id) {
+            continue;
+          }
+          if (binding.lane_index == 0) {
+            first = trial.authoritative_.edit_state.ports.find(binding.port_id);
+          } else if (binding.lane_index == lane_count - 1) {
+            last = trial.authoritative_.edit_state.ports.find(binding.port_id);
+          }
+        }
+        if (first == nullptr || last == nullptr || direction == nullptr) {
+          return false;
+        }
+        *direction = last->world_position - first->world_position;
+        return NormalizeXY(direction);
+      };
+      Vec3d direction_a{};
+      Vec3d direction_b{};
+      if (!row_direction(continuity.a.edge_bundle_id, &direction_a) ||
+          !row_direction(continuity.b.edge_bundle_id, &direction_b)) {
+        result.error =
+            "authoritative unsupported: continuity migration row has no horizontal direction";
+        return false;
+      }
+      const double alignment = Dot(direction_a, direction_b);
+      if (std::abs(alignment) <= kUnitlessTolerance) {
+        result.error =
+            "authoritative unsupported: continuity migration rows are orthogonal";
+        return false;
+      }
+      continuity.b.lane_index = alignment < 0.0
+                                    ? lane_count - 1 - continuity.a.lane_index
+                                    : continuity.a.lane_index;
+    }
+    return true;
+  };
+  if (!migrate_permutable_continuity_lanes()) {
+    result.classify_error();
+    return result;
+  }
+  if (!normalize_saved_support_levels(&trial.authoritative_)) {
+    result.error =
+        "authoritative invalid input: saved support levels are inconsistent";
+    result.classify_error();
+    return result;
+  }
+
   for (const Port& port : trial.authoritative_.edit_state.ports.items()) {
     index_add(trial.runtime_.relation_index.ports_by_pole, port.owner_pole_id, port.id);
   }
@@ -2063,17 +2198,15 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
         {edge_bundle.edge_id, edge_bundle.bundle_id}] = edge_bundle.edge_bundle_id;
     trial.runtime_.backbone_index.edge_bundle_positions[edge_bundle.edge_bundle_id] = position;
     index_add(trial.runtime_.backbone_index.bundle_edge, edge_bundle.bundle_id, edge_bundle.edge_id);
-    for (ObjectId span_id : edge_bundle.span_ids) {
-      index_add(trial.runtime_.backbone_index.edge_bundle_spans, edge_bundle.edge_bundle_id, span_id);
-      if (!trial.runtime_.backbone_index.span_edge_bundle.emplace(span_id, edge_bundle.edge_bundle_id).second) {
-        result.error = "authoritative invalid input: authoritative deserialization: span belongs to multiple edge bundles";
-        result.classify_error();
-        return result;
-      }
-    }
   }
   for (std::size_t i = 0; i < graph.span_bindings.size(); ++i) {
     const SavedBackboneSpanBinding& binding = graph.span_bindings[i];
+    index_add(trial.runtime_.backbone_index.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
+    if (!trial.runtime_.backbone_index.span_edge_bundle.emplace(binding.span_id, binding.edge_bundle_id).second) {
+      result.error = "authoritative invalid input: authoritative deserialization: span belongs to multiple edge bundles";
+      result.classify_error();
+      return result;
+    }
     trial.runtime_.backbone_index.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
     trial.runtime_.backbone_index.span_bindings_by_span[binding.span_id].push_back(i);
   }
@@ -2130,11 +2263,13 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   const auto rebuilt = trial.rebuild_loaded_outputs();
   if (!rebuilt.ok) {
     result.error = rebuilt.error;
-    result.error_kind = rebuilt.effective_error_kind();
+    result.failure_category = rebuilt.effective_failure_category();
     return result;
   }
   trial.identity_ = persisted_identity;
   trial.authoritative_ = persisted_authoritative;
+  trial.runtime_.connection_index = {};
+  trial.runtime_.span_runtime_states = {};
   trial.runtime_.relation_index = {};
   trial.runtime_.backbone_index = {};
   for (const Port& port : trial.authoritative_.edit_state.ports.items()) {
@@ -2143,8 +2278,11 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   for (const Anchor& anchor : trial.authoritative_.edit_state.anchors.items()) {
     index_add(trial.runtime_.relation_index.anchors_by_pole, anchor.owner_pole_id, anchor.id);
   }
+  loaded_span_data_version = 1;
   for (const Span& span : trial.authoritative_.edit_state.spans.items()) {
     trial.add_span_to_index(span);
+    trial.initialize_span_runtime_state(span.id);
+    trial.runtime_.span_runtime_states.at(span.id).data_version = loaded_span_data_version++;
   }
   for (const Attachment& attachment : trial.authoritative_.edit_state.attachments.items()) {
     index_add(trial.runtime_.relation_index.attachments_by_span, attachment.span_id, attachment.id);
@@ -2165,13 +2303,11 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
         {edge_bundle.edge_id, edge_bundle.bundle_id}] = edge_bundle.edge_bundle_id;
     trial.runtime_.backbone_index.edge_bundle_positions[edge_bundle.edge_bundle_id] = position;
     index_add(trial.runtime_.backbone_index.bundle_edge, edge_bundle.bundle_id, edge_bundle.edge_id);
-    for (ObjectId span_id : edge_bundle.span_ids) {
-      index_add(trial.runtime_.backbone_index.edge_bundle_spans, edge_bundle.edge_bundle_id, span_id);
-      trial.runtime_.backbone_index.span_edge_bundle[span_id] = edge_bundle.edge_bundle_id;
-    }
   }
   for (std::size_t i = 0; i < trial.authoritative_.backbone.span_bindings.size(); ++i) {
     const SavedBackboneSpanBinding& binding = trial.authoritative_.backbone.span_bindings[i];
+    index_add(trial.runtime_.backbone_index.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
+    trial.runtime_.backbone_index.span_edge_bundle[binding.span_id] = binding.edge_bundle_id;
     trial.runtime_.backbone_index.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
     trial.runtime_.backbone_index.span_bindings_by_span[binding.span_id].push_back(i);
   }

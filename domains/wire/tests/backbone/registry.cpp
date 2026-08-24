@@ -8,7 +8,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          C368_backbone_smoke_line);
   test_registry::AddTest(tests, "C369_backbone_rules_saved", "backbone saves SpanLayoutRules for each generated span", "Invariant",
                          false, C369_backbone_rules_saved);
-  test_registry::AddTest(tests, "C370_backbone_no_v1_deps", "backbone source does not depend on v1 generation internals",
+  test_registry::AddSourceGuardTest(tests, "C370_backbone_no_v1_deps", "backbone source does not depend on v1 generation internals",
                          "Boundary", false, C370_backbone_no_v1_deps);
   test_registry::AddTest(tests, "C371_backbone_rejects_unsupported", "backbone rejects unsupported milestone-1 inputs",
                          "Boundary", true, C371_backbone_rejects_unsupported);
@@ -18,13 +18,13 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C820_backbone_rejects_nonfinite_tilt_before_mutation",
                          "backbone rejects non-finite pole tilt input before mutation", "Boundary", true,
                          C820_backbone_rejects_nonfinite_tilt_before_mutation);
-  test_registry::AddTest(tests, "C821_backbone_external_input_validation_lists_numeric_fields",
+  test_registry::AddSourceGuardTest(tests, "C821_backbone_external_input_validation_lists_numeric_fields",
                          "backbone external input validation lists every numeric BackboneSpec field", "Boundary", false,
                          C821_backbone_external_input_validation_lists_numeric_fields);
-  test_registry::AddTest(tests, "C822_edit_result_error_kind_classifies_core_error_prefixes",
-                         "EditResult classifies validation, unsupported, and internal error prefixes", "Boundary", false,
-                         C822_edit_result_error_kind_classifies_core_error_prefixes);
-  test_registry::AddTest(tests, "C823_test_failure_diagnostics_are_available_for_backbone_scenarios",
+  test_registry::AddTest(tests, "C822_edit_result_failure_category_classifies_core_error_prefixes",
+                         "EditResult classifies all commit failure category prefixes", "Boundary", false,
+                         C822_edit_result_failure_category_classifies_core_error_prefixes);
+  test_registry::AddSourceGuardTest(tests, "C823_test_failure_diagnostics_are_available_for_backbone_scenarios",
                          "test failure diagnostics are available and used by representative backbone scenarios",
                          "Boundary", false,
                          C823_test_failure_diagnostics_are_available_for_backbone_scenarios);
@@ -50,28 +50,28 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Boundary", false, C379_backbone_m1_required_outputs);
   test_registry::AddTest(tests, "C380_backbone_m1_draw_outputs_saved", "backbone milestone 1 saves draw caches",
                          "Boundary", false, C380_backbone_m1_draw_outputs_saved);
-  test_registry::AddTest(tests, "C381_backbone_m1_no_recalc_contract", "backbone milestone 1 has no recalc contract",
+  test_registry::AddSourceGuardTest(tests, "C381_backbone_m1_no_recalc_contract", "backbone milestone 1 has no recalc contract",
                          "Boundary", false, C381_backbone_m1_no_recalc_contract);
-  test_registry::AddTest(tests, "C382_backbone_geom_is_single_pipeline_layer", "backbone keeps geom as one pipeline layer",
+  test_registry::AddSourceGuardTest(tests, "C382_backbone_geom_is_single_pipeline_layer", "backbone keeps geom as one pipeline layer",
                          "Boundary", false, C382_backbone_geom_is_single_pipeline_layer);
-  test_registry::AddTest(tests, "C383_backbone_draw_is_pipeline_layer", "backbone draw is a pipeline layer",
+  test_registry::AddSourceGuardTest(tests, "C383_backbone_draw_is_pipeline_layer", "backbone draw is a pipeline layer",
                          "Boundary", false, C383_backbone_draw_is_pipeline_layer);
-  test_registry::AddTest(tests, "C384_backbone_topo_is_single_output_layer", "backbone keeps topology as one output layer",
+  test_registry::AddSourceGuardTest(tests, "C384_backbone_topo_is_single_output_layer", "backbone keeps topology as one output layer",
                          "Boundary", false, C384_backbone_topo_is_single_output_layer);
-  test_registry::AddTest(tests, "C385_backbone_emit_is_split_by_topology_parts", "backbone splits topology emission by part",
+  test_registry::AddSourceGuardTest(tests, "C385_backbone_emit_is_split_by_topology_parts", "backbone splits topology emission by part",
                          "Boundary", false, C385_backbone_emit_is_split_by_topology_parts);
-  test_registry::AddTest(tests, "C386_backbone_link_pair_row_are_separate", "backbone separates links, pairs, opens, and rows",
+  test_registry::AddSourceGuardTest(tests, "C386_backbone_link_pair_row_are_separate", "backbone separates links, pairs, opens, and rows",
                          "Boundary", false, C386_backbone_link_pair_row_are_separate);
-  test_registry::AddTest(tests, "C387_backbone_pairs_are_single_source", "backbone creates pairs from graph in one place",
+  test_registry::AddSourceGuardTest(tests, "C387_backbone_pairs_are_single_source", "backbone creates pairs from graph in one place",
                          "Boundary", false, C387_backbone_pairs_are_single_source);
-  test_registry::AddTest(tests, "C388_backbone_polyline3_pair_model", "backbone represents a three-point route as links, pair, and opens",
+  test_registry::AddSourceGuardTest(tests, "C388_backbone_polyline3_pair_model", "backbone represents a three-point route as links, pair, and opens",
                          "Invariant", false, C388_backbone_polyline3_pair_model);
-  test_registry::AddTest(tests, "C389_backbone_row_axis_owned_by_pairs", "backbone port rows consume pair-owned axes",
+  test_registry::AddSourceGuardTest(tests, "C389_backbone_row_axis_owned_by_pairs", "backbone port rows consume pair-owned axes",
                          "Boundary", false, C389_backbone_row_axis_owned_by_pairs);
-  test_registry::AddTest(tests, "C390_backbone_rejects_already_used_incident",
+  test_registry::AddSourceGuardTest(tests, "C390_backbone_rejects_already_used_incident",
                          "backbone rejects invalid pair incident ownership", "Boundary", true,
                          C390_backbone_rejects_already_used_incident);
-  test_registry::AddTest(tests, "C391_backbone_no_kind_label", "backbone does not add junction kind labels",
+  test_registry::AddSourceGuardTest(tests, "C391_backbone_no_kind_label", "backbone does not add junction kind labels",
                          "Boundary", false, C391_backbone_no_kind_label);
   test_registry::AddTest(tests, "C392_backbone_polyline3_outputs", "backbone saves required outputs for three-point routes",
                          "Invariant", false, C392_backbone_polyline3_outputs);
@@ -107,7 +107,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          C403_backbone_existing_pole_with_multiple_bundles);
   test_registry::AddTest(tests, "C404_backbone_rejects_empty_bundles", "backbone rejects empty bundle requests", "Boundary", true,
                          C404_backbone_rejects_empty_bundles);
-  test_registry::AddTest(tests, "C405_backbone_no_bundle_pair_branching", "backbone pair building does not inspect bundle specs",
+  test_registry::AddSourceGuardTest(tests, "C405_backbone_no_bundle_pair_branching", "backbone pair building does not inspect bundle specs",
                          "Boundary", false, C405_backbone_no_bundle_pair_branching);
   test_registry::AddTest(tests, "C406_backbone_port_height_uses_pole_band", "backbone port height comes from pole bands",
                          "Invariant", false, C406_backbone_port_height_uses_pole_band);
@@ -119,7 +119,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          C408_backbone_existing_pole_uses_actual_pole_type_height);
   test_registry::AddTest(tests, "C409_backbone_rejects_missing_port_band", "backbone rejects missing port bands", "Boundary",
                          true, C409_backbone_rejects_missing_port_band);
-  test_registry::AddTest(tests, "C410_placement_height_does_not_affect_pairs",
+  test_registry::AddSourceGuardTest(tests, "C410_placement_height_does_not_affect_pairs",
                          "placement height selection does not affect pairs", "Boundary", false,
                          C410_placement_height_does_not_affect_pairs);
   test_registry::AddTest(tests, "C411_backbone_lateral_offset_moves_ports_along_row_axis",
@@ -128,13 +128,13 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C412_backbone_lateral_offset_sign_is_deterministic",
                          "backbone lateral offset sign is deterministic", "Invariant", false,
                          C412_backbone_lateral_offset_sign_is_deterministic);
-  test_registry::AddTest(tests, "C413_backbone_lateral_offset_does_not_affect_pairs",
+  test_registry::AddSourceGuardTest(tests, "C413_backbone_lateral_offset_does_not_affect_pairs",
                          "backbone lateral offset does not affect pairs", "Boundary", false,
                          C413_backbone_lateral_offset_does_not_affect_pairs);
   test_registry::AddTest(tests, "C414_backbone_simple_avoid_detour_supported",
                          "backbone supports a simple avoid detour", "Boundary", false,
                          C414_backbone_simple_avoid_detour_supported);
-  test_registry::AddTest(tests, "C415_backbone_has_no_empty_levels_layer",
+  test_registry::AddSourceGuardTest(tests, "C415_backbone_has_no_empty_levels_layer",
                          "backbone has no empty levels layer", "Boundary", false,
                          C415_backbone_has_no_empty_levels_layer);
   test_registry::AddTest(tests, "C416_backbone_node_mode_not_present_is_noop",
@@ -149,16 +149,16 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C419_backbone_node_mode_point_index_rejected",
                          "backbone rejects out-of-range node mode point indices", "Boundary", true,
                          C419_backbone_node_mode_point_index_rejected);
-  test_registry::AddTest(tests, "C420_backbone_node_mode_does_not_affect_pairs",
+  test_registry::AddSourceGuardTest(tests, "C420_backbone_node_mode_does_not_affect_pairs",
                          "backbone node modes do not affect pairs", "Boundary", false,
                          C420_backbone_node_mode_does_not_affect_pairs);
-  test_registry::AddTest(tests, "C421_backbone_topo_row_carries_source",
+  test_registry::AddSourceGuardTest(tests, "C421_backbone_topo_row_carries_source",
                          "backbone topology rows carry pair row source", "Boundary", false,
                          C421_backbone_topo_row_carries_source);
-  test_registry::AddTest(tests, "C422_backbone_rules_consume_topo_and_groups",
+  test_registry::AddSourceGuardTest(tests, "C422_backbone_rules_consume_topo_and_groups",
                          "backbone rules consume topology and placement without re-deciding jumper relations", "Boundary", false,
                          C422_backbone_rules_consume_topo_and_groups);
-  test_registry::AddTest(tests, "C423_backbone_tspan_carries_endpoint_rows",
+  test_registry::AddSourceGuardTest(tests, "C423_backbone_tspan_carries_endpoint_rows",
                          "backbone topology spans carry endpoint row indices", "Boundary", false,
                          C423_backbone_tspan_carries_endpoint_rows);
   test_registry::AddTest(tests, "C424_backbone_saves_backbone_graph_nodes_edges",
@@ -179,7 +179,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C429_backbone_span_frontier_collects_edge_bundle_spans",
                          "backbone span frontier collects spans from its backbone edge bundle", "Boundary", false,
                          C429_backbone_span_frontier_collects_edge_bundle_spans);
-  test_registry::AddTest(tests, "C430_backbone_frontier_uses_saved_graph_index",
+  test_registry::AddSourceGuardTest(tests, "C430_backbone_frontier_uses_saved_graph_index",
                          "backbone frontier reads saved graph indexes", "Boundary", false,
                          C430_backbone_frontier_uses_saved_graph_index);
   test_registry::AddTest(tests, "C431_backbone_edge_bundle_is_saved_backbone_unit",
@@ -200,31 +200,31 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C436_backbone_frontier_reads_edge_bundles",
                          "backbone frontier reads edge bundles", "Boundary", false,
                          C436_backbone_frontier_reads_edge_bundles);
-  test_registry::AddTest(tests, "C437_backbone_layout_save_is_direct",
+  test_registry::AddSourceGuardTest(tests, "C437_backbone_layout_save_is_direct",
                          "backbone layout save uses direct layout storage", "Boundary", false,
                          C437_backbone_layout_save_is_direct);
   test_registry::AddTest(tests, "C438_backbone_layout_save_keeps_no_authority_contract",
                          "backbone direct layout save keeps authority contract empty", "Boundary", false,
                          C438_backbone_layout_save_keeps_no_authority_contract);
-  test_registry::AddTest(tests, "C439_backbone_source_still_avoids_support_layout_entrypoint",
+  test_registry::AddSourceGuardTest(tests, "C439_backbone_source_still_avoids_support_layout_entrypoint",
                          "backbone source avoids support layout entrypoints", "Boundary", false,
                          C439_backbone_source_still_avoids_support_layout_entrypoint);
-  test_registry::AddTest(tests, "C440_backbone_does_not_read_authoritative_backbone_directly",
+  test_registry::AddSourceGuardTest(tests, "C440_backbone_does_not_read_authoritative_backbone_directly",
                          "backbone does not read authoritative backbone directly", "Boundary", false,
                          C440_backbone_does_not_read_authoritative_backbone_directly);
-  test_registry::AddTest(tests, "C441_backbone_save_backbone_edge_returns_saved_ref",
+  test_registry::AddSourceGuardTest(tests, "C441_backbone_save_backbone_edge_returns_saved_ref",
                          "backbone backbone edge save returns saved edge ref", "Boundary", false,
                          C441_backbone_save_backbone_edge_returns_saved_ref);
-  test_registry::AddTest(tests, "C442_backbone_edge_forward_uses_saved_ref",
+  test_registry::AddSourceGuardTest(tests, "C442_backbone_edge_forward_uses_saved_ref",
                          "backbone edge forward uses saved edge ref", "Boundary", false,
                          C442_backbone_edge_forward_uses_saved_ref);
   test_registry::AddTest(tests, "C443_backbone_edge_resolution_behavior_unchanged",
                          "backbone edge resolution behavior remains unchanged after duplicate reject", "Boundary", false,
                          C443_backbone_edge_resolution_behavior_unchanged);
-  test_registry::AddTest(tests, "C444_backbone_layout_uses_neutral_types",
+  test_registry::AddSourceGuardTest(tests, "C444_backbone_layout_uses_neutral_types",
                          "backbone layout source uses neutral layout types", "Boundary", false,
                          C444_backbone_layout_uses_neutral_types);
-  test_registry::AddTest(tests, "C445_backbone_cache_span_layout_accepts_neutral_entry",
+  test_registry::AddSourceGuardTest(tests, "C445_backbone_cache_span_layout_accepts_neutral_entry",
                          "backbone layout save accepts neutral layout entries", "Boundary", false,
                          C445_backbone_cache_span_layout_accepts_neutral_entry);
   test_registry::AddTest(tests, "C446_backbone_layout_boundary_behavior_unchanged",
@@ -233,31 +233,31 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C447_backbone_span_layout_view_reads_neutral_layout",
                          "backbone reads generated layout through neutral view", "Boundary", false,
                          C447_backbone_span_layout_view_reads_neutral_layout);
-  test_registry::AddTest(tests, "C448_backbone_tests_use_neutral_layout_read",
+  test_registry::AddSourceGuardTest(tests, "C448_backbone_tests_use_neutral_layout_read",
                          "backbone tests use neutral layout reads", "Boundary", false,
                          C448_backbone_tests_use_neutral_layout_read);
-  test_registry::AddTest(tests, "C449_backbone_layout_read_does_not_expose_authority",
+  test_registry::AddSourceGuardTest(tests, "C449_backbone_layout_read_does_not_expose_authority",
                          "backbone neutral layout read does not expose authority", "Boundary", false,
                          C449_backbone_layout_read_does_not_expose_authority);
   test_registry::AddTest(tests, "C450_backbone_span_layout_state_is_neutral",
                          "backbone layout state observes outputs without old contract", "Boundary", false,
                          C450_backbone_span_layout_state_is_neutral);
-  test_registry::AddTest(tests, "C451_backbone_tests_do_not_read_support_layout_contract",
+  test_registry::AddSourceGuardTest(tests, "C451_backbone_tests_do_not_read_support_layout_contract",
                          "backbone tests do not read support layout contract", "Boundary", false,
                          C451_backbone_tests_do_not_read_old_contract);
-  test_registry::AddTest(tests, "C452_backbone_layout_state_does_not_expose_old_contract_names",
+  test_registry::AddSourceGuardTest(tests, "C452_backbone_layout_state_does_not_expose_old_contract_names",
                          "backbone layout state does not expose old contract names", "Boundary", false,
                          C452_backbone_layout_state_does_not_expose_old_contract_names);
-  test_registry::AddTest(tests, "C453_backbone_layout_state_reads_existing_cache_without_seed_path",
+  test_registry::AddSourceGuardTest(tests, "C453_backbone_layout_state_reads_existing_cache_without_seed_path",
                          "backbone layout state read avoids seed path", "Boundary", false,
                          C453_backbone_layout_state_reads_existing_cache_without_seed_path);
-  test_registry::AddTest(tests, "C454_backbone_cache_state_uses_span_layout_cache",
+  test_registry::AddSourceGuardTest(tests, "C454_backbone_cache_state_uses_span_layout_cache",
                          "backbone cache state uses span layout cache owner name", "Boundary", false,
                          C454_backbone_cache_state_uses_span_layout_cache);
-  test_registry::AddTest(tests, "C455_backbone_neutral_layout_api_uses_span_layout_cache",
+  test_registry::AddSourceGuardTest(tests, "C455_backbone_neutral_layout_api_uses_span_layout_cache",
                          "backbone neutral layout API uses span layout cache", "Boundary", false,
                          C455_backbone_neutral_layout_api_uses_span_layout_cache);
-  test_registry::AddTest(tests, "C456_backbone_source_avoids_old_layout_cache_names",
+  test_registry::AddSourceGuardTest(tests, "C456_backbone_source_avoids_old_layout_cache_names",
                          "backbone source avoids old layout cache names", "Boundary", false,
                          C456_backbone_source_avoids_old_layout_cache_names);
   test_registry::AddTest(tests, "C457_backbone_layout_cache_boundary_behavior_unchanged",
@@ -275,7 +275,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C461_backbone_same_edge_request_skips_duplicate_context",
                          "backbone skips duplicate saved context for same-edge requests", "Boundary", false,
                          C461_backbone_same_edge_request_skips_duplicate_context);
-  test_registry::AddTest(tests, "C462_backbone_no_junction_kind_after_existing_context",
+  test_registry::AddSourceGuardTest(tests, "C462_backbone_no_junction_kind_after_existing_context",
                          "backbone existing graph context does not add junction kind labels", "Boundary", false,
                          C462_backbone_no_junction_kind_after_existing_context);
   test_registry::AddTest(tests, "C463_backbone_duplicate_same_edge_bundle_rejected",
@@ -284,7 +284,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C464_backbone_different_bundle_on_same_edge_allowed",
                          "backbone different bundles on the same edge are allowed", "Boundary", false,
                          C464_backbone_different_bundle_on_same_edge_allowed);
-  test_registry::AddTest(tests, "C465_backbone_duplicate_policy_does_not_read_existing_spans",
+  test_registry::AddSourceGuardTest(tests, "C465_backbone_duplicate_policy_does_not_read_existing_spans",
                          "backbone duplicate policy reads saved edge bundles, not existing spans", "Boundary", false,
                          C465_backbone_duplicate_policy_does_not_read_existing_spans);
   test_registry::AddTest(tests, "C466_backbone_duplicate_reject_keeps_state_unchanged",
@@ -299,7 +299,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C469_backbone_row_port_binding_rejects_duplicate_without_resolution",
                          "backbone duplicate row-port binding is rejected without port resolution", "Boundary", false,
                          C469_backbone_row_port_binding_rejects_duplicate_without_resolution);
-  test_registry::AddTest(tests, "C470_backbone_row_port_identity_does_not_use_position_match",
+  test_registry::AddSourceGuardTest(tests, "C470_backbone_row_port_identity_does_not_use_position_match",
                          "backbone row-port identity does not use position matching", "Boundary", false,
                          C470_backbone_row_port_identity_does_not_use_position_match);
   test_registry::AddTest(tests, "C471_backbone_resolves_existing_port_by_binding",
@@ -311,26 +311,26 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C473_backbone_resolved_port_used_by_new_span_endpoint",
                          "backbone adjacent spans use distinct bit-equal endpoint ports", "Boundary", false,
                          C473_backbone_resolved_port_used_by_new_span_endpoint);
-  test_registry::AddTest(tests, "C474_backbone_port_resolution_rejects_ambiguous_binding",
+  test_registry::AddSourceGuardTest(tests, "C474_backbone_port_resolution_rejects_ambiguous_binding",
                          "backbone port resolution rejects ambiguous row-port bindings", "Boundary", false,
                          C474_backbone_port_resolution_rejects_ambiguous_binding);
-  test_registry::AddTest(tests, "C475_backbone_port_resolution_does_not_read_existing_layout",
+  test_registry::AddSourceGuardTest(tests, "C475_backbone_port_resolution_does_not_read_existing_layout",
                          "backbone port resolution does not read existing layout", "Boundary", false,
                          C475_backbone_port_resolution_does_not_read_existing_layout);
   test_registry::AddTest(tests, "C476_backbone_branch_rows_are_separated_without_branch_kind",
-                         "backbone branch rows are separated without branch kind", "Boundary", false,
+                         "backbone branch endpoints are separated without branch kind", "Invariant", false,
                          C476_backbone_branch_rows_are_separated_without_branch_kind);
-  test_registry::AddTest(tests, "C477_backbone_cross_rows_are_separated_without_cross_kind",
+  test_registry::AddSourceGuardTest(tests, "C477_backbone_cross_rows_are_separated_without_cross_kind",
                          "backbone cross rows are separated without cross kind", "Boundary", false,
                          C477_backbone_cross_rows_are_separated_without_cross_kind);
   test_registry::AddTest(tests, "C478_backbone_row_separation_is_deterministic",
                          "backbone row separation is deterministic", "Invariant", false,
                          C478_backbone_row_separation_is_deterministic);
-  test_registry::AddTest(tests, "C479_backbone_row_separation_does_not_change_pairs",
+  test_registry::AddSourceGuardTest(tests, "C479_backbone_row_separation_does_not_change_pairs",
                          "backbone row separation does not change pair source", "Boundary", false,
                          C479_backbone_row_separation_does_not_change_pairs);
   test_registry::AddTest(tests, "C480_backbone_context_rows_affect_order_but_are_not_emitted",
-                         "backbone context rows affect separation order but are not emitted", "Boundary", false,
+                         "backbone context rows are not re-emitted or mixed into disabled lowering", "Invariant", false,
                          C480_backbone_context_rows_affect_order_but_are_not_emitted);
   test_registry::AddTest(tests, "C481_backbone_pass_through_mode_is_accepted_in_limited_scope",
                          "backbone accepts pass-through mode for saved junction nodes", "Boundary", false,
@@ -338,13 +338,13 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C482_backbone_pass_through_creates_explicit_intent",
                          "backbone pass-through node mode creates explicit layout intent", "Boundary", false,
                          C482_backbone_pass_through_creates_explicit_intent);
-  test_registry::AddTest(tests, "C483_backbone_pass_through_ambiguous_target_rejected",
+  test_registry::AddSourceGuardTest(tests, "C483_backbone_pass_through_ambiguous_target_rejected",
                          "backbone pass-through ambiguous row target is rejected", "Boundary", false,
                          C483_backbone_pass_through_ambiguous_target_rejected);
   test_registry::AddTest(tests, "C484_backbone_lowering_draw_uses_layout_only",
                          "backbone lowering draw uses layout only", "Boundary", false,
                          C484_backbone_lowering_draw_uses_layout_only);
-  test_registry::AddTest(tests, "C485_backbone_lowering_intent_does_not_read_existing_spans",
+  test_registry::AddSourceGuardTest(tests, "C485_backbone_lowering_intent_does_not_read_existing_spans",
                          "backbone lowering intent does not read existing spans", "Boundary", false,
                          C485_backbone_lowering_intent_does_not_read_existing_spans);
   test_registry::AddTest(tests, "C486_backbone_pass_through_is_deterministic",
@@ -368,20 +368,20 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C492_backbone_cross_lowering_v1_affects_only_new_links",
                          "backbone cross lowering v1 affects generated links only", "Invariant", false,
                          C492_backbone_cross_lowering_v1_affects_only_new_links);
-  test_registry::AddTest(tests, "C493_backbone_pass_through_does_not_change_pair_open",
+  test_registry::AddSourceGuardTest(tests, "C493_backbone_pass_through_does_not_change_pair_open",
                          "backbone pass-through does not change pair open authority", "Boundary", false,
                          C493_backbone_pass_through_does_not_change_pair_open);
   test_registry::AddTest(tests, "C494_backbone_lowering_v1_draw_does_not_redecide",
                          "backbone lowering v1 draw does not redecide", "Boundary", false,
                          C494_backbone_lowering_v1_draw_does_not_redecide);
-  test_registry::AddTest(tests, "C495_backbone_lowering_v1_does_not_read_existing_spans",
+  test_registry::AddSourceGuardTest(tests, "C495_backbone_lowering_v1_does_not_read_existing_spans",
                          "backbone lowering v1 does not read existing spans", "Boundary", false,
                          C495_backbone_lowering_v1_does_not_read_existing_spans);
   test_registry::AddTest(tests, "C496_backbone_junction_v1_deterministic",
                          "backbone junction v1 output is deterministic", "Invariant", false,
                          C496_backbone_junction_v1_deterministic);
   test_registry::AddTest(tests, "C497_backbone_context_rows_order_but_do_not_materialize",
-                         "backbone context rows order placement without materializing", "Boundary", false,
+                         "backbone context rows constrain placement without materializing", "Invariant", false,
                          C497_backbone_context_rows_order_but_do_not_materialize);
   test_registry::AddTest(tests, "C498_backbone_saved_graph_remains_topology_authority",
                          "backbone saved graph remains topology authority", "Boundary", false,
@@ -389,49 +389,49 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C499_backbone_context_link_is_not_saved",
                          "backbone context links are not saved as new edges", "Boundary", false,
                          C499_backbone_context_link_is_not_saved);
-  test_registry::AddTest(tests, "C500_backbone_context_link_requires_saved_edge_ref",
+  test_registry::AddSourceGuardTest(tests, "C500_backbone_context_link_requires_saved_edge_ref",
                          "backbone context links require saved edge refs", "Boundary", false,
                          C500_backbone_context_link_requires_saved_edge_ref);
-  test_registry::AddTest(tests, "C501_backbone_gate3_contract_passes",
+  test_registry::AddSourceGuardTest(tests, "C501_backbone_gate3_contract_passes",
                          "backbone save graph keeps context links out of save targets", "Boundary", false,
                          C501_backbone_gate3_contract_passes);
   test_registry::AddTest(tests, "C502_backbone_span_bindings_save_lane",
                          "backbone saved span bindings carry lane identity", "Boundary", false,
                          C502_backbone_span_bindings_save_lane);
-  test_registry::AddTest(tests, "C503_backbone_duplicate_span_binding_rejected_by_lane",
+  test_registry::AddSourceGuardTest(tests, "C503_backbone_duplicate_span_binding_rejected_by_lane",
                          "backbone rejects duplicate saved span binding lanes", "Boundary", false,
                          C503_backbone_duplicate_span_binding_rejected_by_lane);
-  test_registry::AddTest(tests, "C504_backbone_span_resolution_does_not_read_geometry_or_layout",
+  test_registry::AddSourceGuardTest(tests, "C504_backbone_span_resolution_does_not_read_geometry_or_layout",
                          "backbone span resolution reads saved bindings only", "Boundary", false,
                          C504_backbone_span_resolution_does_not_read_geometry_or_layout);
-  test_registry::AddTest(tests, "C505_backbone_save_graph_propagates_span_binding_failure",
+  test_registry::AddSourceGuardTest(tests, "C505_backbone_save_graph_propagates_span_binding_failure",
                          "backbone save graph propagates span binding failures", "Boundary", false,
                          C505_backbone_save_graph_propagates_span_binding_failure);
-  test_registry::AddTest(tests, "C506_backbone_support_group_is_placement_layer",
+  test_registry::AddSourceGuardTest(tests, "C506_backbone_support_group_is_placement_layer",
                          "backbone support group is a placement layer", "Boundary", false,
                          C506_backbone_support_group_is_placement_layer);
-  test_registry::AddTest(tests, "C507_backbone_support_group_built_after_intent",
+  test_registry::AddSourceGuardTest(tests, "C507_backbone_support_group_built_after_intent",
                          "backbone support group is built after intent", "Boundary", false,
                          C507_backbone_support_group_built_after_intent);
   test_registry::AddTest(tests, "C508_backbone_support_group_drives_lowered_rules",
                          "backbone support group drives lowered rules", "Boundary", false,
                          C508_backbone_support_group_drives_lowered_rules);
-  test_registry::AddTest(tests, "C509_backbone_support_group_avoids_visual_terms",
+  test_registry::AddSourceGuardTest(tests, "C509_backbone_support_group_avoids_visual_terms",
                          "backbone support group avoids visual terms", "Boundary", false,
                          C509_backbone_support_group_avoids_visual_terms);
-  test_registry::AddTest(tests, "C510_backbone_layout_consumes_group_offset",
+  test_registry::AddSourceGuardTest(tests, "C510_backbone_layout_consumes_group_offset",
                          "backbone layout consumes support group offset", "Boundary", false,
                          C510_backbone_layout_consumes_group_offset);
   test_registry::AddTest(tests, "C511_backbone_draw_saved_from_geom",
                          "backbone draw is saved from geom", "Boundary", false,
                          C511_backbone_draw_saved_from_geom);
-  test_registry::AddTest(tests, "C512_backbone_draw_does_not_read_topology",
+  test_registry::AddSourceGuardTest(tests, "C512_backbone_draw_does_not_read_topology",
                          "backbone draw does not read topology", "Boundary", false,
                          C512_backbone_draw_does_not_read_topology);
   test_registry::AddTest(tests, "C513_backbone_lowered_layout_does_not_emit_support_arm_placeholder",
                          "backbone lowered layout no longer emits a support-arm placeholder", "Boundary", false,
                          C513_backbone_lowered_layout_does_not_emit_support_arm_placeholder);
-  test_registry::AddTest(tests, "C514_backbone_draw_save_is_direct",
+  test_registry::AddSourceGuardTest(tests, "C514_backbone_draw_save_is_direct",
                          "backbone draw save is direct", "Boundary", false,
                          C514_backbone_draw_save_is_direct);
   test_registry::AddTest(tests, "C515_backbone_rejects_existing_pole_without_saved_graph",
@@ -440,28 +440,28 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C516_backbone_generated_pole_with_saved_graph_still_connects",
                          "backbone generated poles with saved graph still connect", "Boundary", false,
                          C516_backbone_generated_pole_with_saved_graph_still_connects);
-  test_registry::AddTest(tests, "C517_backbone_migration_gate_does_not_infer_from_outputs",
+  test_registry::AddSourceGuardTest(tests, "C517_backbone_migration_gate_does_not_infer_from_outputs",
                          "backbone migration gate does not infer from outputs", "Boundary", false,
                          C517_backbone_migration_gate_does_not_infer_from_outputs);
   test_registry::AddTest(tests, "C518_backbone_lowered_layout_places_support_and_endpoint_at_final_height",
                          "backbone lowered layout places support and endpoint at the final fixture height", "Boundary", false,
                          C518_backbone_lowered_layout_places_support_and_endpoint_at_final_height);
-  test_registry::AddTest(tests, "C519_backbone_draw_does_not_emit_lowering_placeholder",
+  test_registry::AddSourceGuardTest(tests, "C519_backbone_draw_does_not_emit_lowering_placeholder",
                          "backbone draw does not emit a lowering placeholder after fixture placement consumes lowering", "Boundary", false,
                          C519_backbone_draw_does_not_emit_lowering_placeholder);
-  test_registry::AddTest(tests, "C520_backbone_duplicate_span_binding_preflight_before_emit",
+  test_registry::AddSourceGuardTest(tests, "C520_backbone_duplicate_span_binding_preflight_before_emit",
                          "backbone duplicate span binding preflight runs before emit", "Boundary", false,
                          C520_backbone_duplicate_span_binding_preflight_before_emit);
-  test_registry::AddTest(tests, "C521_backbone_context_link_preserves_saved_dir",
+  test_registry::AddSourceGuardTest(tests, "C521_backbone_context_link_preserves_saved_dir",
                          "backbone context link preserves saved direction", "Boundary", false,
                          C521_backbone_context_link_preserves_saved_dir);
-  test_registry::AddTest(tests, "C522_backbone_supported_scope_is_documented",
+  test_registry::AddSourceGuardTest(tests, "C522_backbone_supported_scope_is_documented",
                          "backbone supported generation scope is documented", "Boundary", false,
                          C522_backbone_supported_scope_is_documented);
-  test_registry::AddTest(tests, "C523_backbone_scope_gate_matches_entrypoint",
+  test_registry::AddSourceGuardTest(tests, "C523_backbone_scope_gate_matches_entrypoint",
                          "backbone scope gate matches the entrypoint", "Boundary", false,
                          C523_backbone_scope_gate_matches_entrypoint);
-  test_registry::AddTest(tests, "C524_backbone_scenario_simple_line_mainline",
+  test_registry::AddSourceGuardTest(tests, "C524_backbone_scenario_simple_line_mainline",
                          "backbone simple line scenario covers outputs and authority", "Boundary", false,
                          C524_backbone_scenario_simple_line_mainline);
   test_registry::AddTest(tests, "C525_backbone_scenario_polyline3_connectivity_once",
@@ -476,7 +476,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C528_backbone_scenario_branch_emits_new_link_only",
                          "backbone branch scenario emits only the new link", "Boundary", false,
                          C528_backbone_scenario_branch_emits_new_link_only);
-  test_registry::AddTest(tests, "C529_backbone_scenario_cross_without_kind_label",
+  test_registry::AddSourceGuardTest(tests, "C529_backbone_scenario_cross_without_kind_label",
                          "backbone cross scenario runs without kind labels", "Boundary", false,
                          C529_backbone_scenario_cross_without_kind_label);
   test_registry::AddTest(tests, "C530_backbone_scenario_same_edge_different_bundle",
@@ -488,31 +488,31 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C532_backbone_scenario_pass_through_lowering_consumer_chain",
                          "backbone pass-through lowering scenario preserves consumer chain", "Boundary", false,
                          C532_backbone_scenario_pass_through_lowering_consumer_chain);
-  test_registry::AddTest(tests, "C533_backbone_build_mutation_order_is_fixed",
+  test_registry::AddSourceGuardTest(tests, "C533_backbone_build_mutation_order_is_fixed",
                          "backbone build mutation order is fixed", "Boundary", false,
                          C533_backbone_build_mutation_order_is_fixed);
   test_registry::AddTest(tests, "C534_backbone_invalid_inputs_stop_before_emit",
                          "backbone invalid inputs stop before emit", "Boundary", true,
                          C534_backbone_invalid_inputs_stop_before_emit);
-  test_registry::AddTest(tests, "C535_backbone_duplicate_preflight_is_mutation_boundary",
+  test_registry::AddSourceGuardTest(tests, "C535_backbone_duplicate_preflight_is_mutation_boundary",
                          "backbone duplicate preflight is the mutation boundary", "Boundary", false,
                          C535_backbone_duplicate_preflight_is_mutation_boundary);
   test_registry::AddTest(tests, "C536_backbone_draw_consumer_outputs_are_minimal",
                          "backbone draw consumer outputs are minimal", "Boundary", false,
                          C536_backbone_draw_consumer_outputs_are_minimal);
-  test_registry::AddTest(tests, "C537_backbone_draw_source_has_no_decision_inputs",
+  test_registry::AddSourceGuardTest(tests, "C537_backbone_draw_source_has_no_decision_inputs",
                          "backbone draw source has no decision inputs", "Boundary", false,
                          C537_backbone_draw_source_has_no_decision_inputs);
-  test_registry::AddTest(tests, "C538_backbone_viewer_deps_are_not_core_draw_gate",
+  test_registry::AddSourceGuardTest(tests, "C538_backbone_viewer_deps_are_not_core_draw_gate",
                          "backbone viewer deps are not the core draw gate", "Boundary", false,
                          C538_backbone_viewer_deps_are_not_core_draw_gate);
-  test_registry::AddTest(tests, "C539_backbone_supported_request_creates_saved_graph_outputs",
+  test_registry::AddSourceGuardTest(tests, "C539_backbone_supported_request_creates_saved_graph_outputs",
                          "backbone supported request creates saved graph outputs", "Boundary", false,
                          C539_backbone_supported_request_creates_saved_graph_outputs);
   test_registry::AddTest(tests, "C540_backbone_unsupported_request_does_not_create_v1_outputs",
                          "backbone unsupported request does not create v1 outputs", "Boundary", true,
                          C540_backbone_unsupported_request_does_not_create_v1_outputs);
-  test_registry::AddTest(tests, "C541_backbone_manual_existing_pole_without_graph_is_gate_rejected",
+  test_registry::AddSourceGuardTest(tests, "C541_backbone_manual_existing_pole_without_graph_is_gate_rejected",
                          "backbone manual existing pole without graph is gate rejected", "Boundary", true,
                          C541_backbone_manual_existing_pole_without_graph_is_gate_rejected);
   test_registry::AddTest(tests, "C542_backbone_usable_mainline_architecture_audit_passes",
@@ -605,7 +605,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C571_backbone_lowering_survives_insulator_visual_disable",
                          "backbone lowering stays resolved when insulator visuals are disabled", "Boundary", false,
                          C571_backbone_lowering_survives_insulator_visual_disable);
-  test_registry::AddTest(tests, "C572_backbone_support_arm_radius_setting_does_not_restore_placeholder",
+  test_registry::AddSourceGuardTest(tests, "C572_backbone_support_arm_radius_setting_does_not_restore_placeholder",
                          "backbone support-arm radius setting does not restore the obsolete placeholder", "Boundary", false,
                          C572_backbone_support_arm_radius_setting_does_not_restore_placeholder);
   test_registry::AddTest(tests, "C573_backbone_saved_context_node_carries_support_metadata",
@@ -725,7 +725,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C611_backbone_direct_derive_restores_saved_span_outputs",
                          "backbone direct derive restores saved span outputs without recalc", "Boundary", false,
                          C611_backbone_direct_derive_restores_saved_span_outputs);
-  test_registry::AddTest(tests, "C612_backbone_direct_derive_does_not_call_recalc_paths",
+  test_registry::AddSourceGuardTest(tests, "C612_backbone_direct_derive_does_not_call_recalc_paths",
                          "backbone direct derive avoids recalc and materialization paths", "Boundary", false,
                          C612_backbone_direct_derive_does_not_call_recalc_paths);
   test_registry::AddTest(tests, "C613_backbone_port_edit_rederives_generated_span_without_recalc",
@@ -749,7 +749,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C619_backbone_reposition_updates_only_affected_spans",
                          "backbone reposition updates only affected spans", "Boundary", false,
                          C619_backbone_reposition_updates_only_affected_spans);
-  test_registry::AddTest(tests, "C620_backbone_update_boundary_has_no_operation_specific_kinds",
+  test_registry::AddSourceGuardTest(tests, "C620_backbone_update_boundary_has_no_operation_specific_kinds",
                          "backbone update boundary has no operation-specific update kinds", "Boundary", false,
                          C620_backbone_update_boundary_has_no_operation_specific_kinds);
   test_registry::AddTest(tests, "C621_backbone_sag_reshape_updates_geom_only",
@@ -770,7 +770,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C626_backbone_cable_template_updates_derive_outputs",
                          "backbone cable shape and render updates directly derive outputs", "Boundary", false,
                          C626_backbone_cable_template_updates_derive_outputs);
-  test_registry::AddTest(tests, "C627_backbone_legacy_topology_apis_are_removed",
+  test_registry::AddSourceGuardTest(tests, "C627_backbone_legacy_topology_apis_are_removed",
                          "retired topology APIs are absent from the public surface", "Boundary", false,
                          C627_backbone_legacy_topology_apis_are_removed);
   test_registry::AddTest(tests, "C628_backbone_active_pole_type_update_repositions",
@@ -828,7 +828,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C647_backbone_node_patch_uses_incident_cable_appearance",
                          "backbone node patch uses the same cable appearance as incident edge bodies", "Boundary",
                          false, C647_backbone_node_patch_uses_incident_cable_appearance);
-  test_registry::AddTest(tests, "C655_backbone_node_patch_grouping_uses_band_identity",
+  test_registry::AddSourceGuardTest(tests, "C655_backbone_node_patch_grouping_uses_band_identity",
                          "backbone node patch grouping includes local band identity", "Boundary", false,
                          C655_backbone_node_patch_grouping_uses_band_identity);
   test_registry::AddTest(tests, "C656_backbone_node_patch_does_not_mix_base_and_extra_sections",
@@ -879,10 +879,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C734_cable_template_lookup_is_not_kind_based",
                          "duplicate-kind bundle templates use their own cable template",
                          "Invariant", false, C734_cable_template_lookup_is_not_kind_based);
-  test_registry::AddTest(tests, "C735_bundle_template_id_source_guard",
+  test_registry::AddSourceGuardTest(tests, "C735_bundle_template_id_source_guard",
                          "source guard rejects BundleKind as bundle template identity",
                          "Boundary", false, C735_bundle_template_id_source_guard);
-  test_registry::AddTest(tests, "C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates",
+  test_registry::AddSourceGuardTest(tests, "C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates",
                          "source guard keeps supported backbone updates out of the unsupported hold list",
                          "Boundary", false, C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates);
   test_registry::AddTest(tests, "C737_backbone_overlay_edge_endpoint_snap_returns_saved_node_spec_id",
@@ -903,7 +903,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C695_cable_run_id_is_deterministic",
                          "cable run id assignment is deterministic for identical fresh states",
                          "Invariant", false, C695_cable_run_id_is_deterministic);
-  test_registry::AddTest(tests, "C696_cable_run_id_is_visual_derived_only",
+  test_registry::AddSourceGuardTest(tests, "C696_cable_run_id_is_visual_derived_only",
                          "cable run id is derived in curve parts and not stored in authoritative backbone state",
                          "Boundary", false, C696_cable_run_id_is_visual_derived_only);
   test_registry::AddTest(tests, "C697_backbone_edge_saves_lateral_offset_echo",
@@ -922,7 +922,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers",
                          "backbone sharp corners use per-edge dead-end rows and derived jumper curves",
                          "Invariant", false, C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers);
-  test_registry::AddTest(tests, "C664_backbone_sharp_pole_facing_consumes_pair_decision",
+  test_registry::AddSourceGuardTest(tests, "C664_backbone_sharp_pole_facing_consumes_pair_decision",
                          "backbone sharp pole facing consumes the connectivity-owned corner decision",
                          "Boundary", false, C664_backbone_sharp_pole_facing_consumes_pair_decision);
   test_registry::AddTest(tests, "C665_backbone_midair_attachment_uses_derived_curve",
@@ -944,7 +944,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C670_backbone_regenerate_pair_rows_match_fresh",
                          "backbone regenerate pair rows match fresh generation",
                          "Invariant", false, C670_backbone_bundle_count_migration_rejects_pair_rows);
-  test_registry::AddTest(tests, "C671_backbone_regenerate_reuses_pipeline_stages",
+  test_registry::AddSourceGuardTest(tests, "C671_backbone_regenerate_reuses_pipeline_stages",
                          "backbone regenerate reuses pipeline stages instead of local emit copies",
                          "Boundary", false, C671_backbone_bundle_count_migration_reuses_pipeline_stages);
   test_registry::AddTest(tests, "C672_backbone_regenerate_preserves_manual_ports_on_surviving_lanes",
@@ -964,7 +964,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate fixed count decrease rejects attachments on retired lanes",
                          "Boundary", false,
                          C700_backbone_regenerate_fixed_count_decrease_rejects_retired_attachment);
-  test_registry::AddTest(tests, "C701_backbone_regenerate_source_does_not_infer_topology_from_outputs",
+  test_registry::AddSourceGuardTest(tests, "C701_backbone_regenerate_source_does_not_infer_topology_from_outputs",
                          "backbone regenerate source does not infer topology from derived outputs",
                          "Boundary", false,
                          C701_backbone_regenerate_source_does_not_infer_topology_from_outputs);
@@ -976,11 +976,11 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone fixed count decrease permits a simultaneous metadata rename",
                          "Invariant", false,
                          C742_backbone_bundle_count_decrease_allows_metadata_change);
-  test_registry::AddTest(tests, "C743_backbone_bundle_template_change_classification_has_one_field_owner",
+  test_registry::AddSourceGuardTest(tests, "C743_backbone_bundle_template_change_classification_has_one_field_owner",
                          "bundle template fields are compared only by the change classifier",
                          "Boundary", false,
                          C743_backbone_bundle_template_change_classification_has_one_field_owner);
-  test_registry::AddTest(tests, "C744_backbone_span_layout_group_keys_have_one_definition",
+  test_registry::AddSourceGuardTest(tests, "C744_backbone_span_layout_group_keys_have_one_definition",
                          "span layout group-key collection has one shared definition",
                          "Boundary", false,
                          C744_backbone_span_layout_group_keys_have_one_definition);
@@ -1000,19 +1000,19 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "zero offset uses each lane band center without cross-bundle drift",
                          "Invariant", false,
                          C749_backbone_zero_offset_keeps_bundle_centers_on_band_center);
-  test_registry::AddTest(tests, "C789_backbone_multi_route_same_band_rows_keep_spacing",
-                         "multi-route same-band rows keep generated port spacing",
+  test_registry::AddTest(tests, "C789_backbone_multi_route_same_band_endpoints_keep_spacing",
+                         "multi-route same-band rows keep final endpoint spacing",
                          "Invariant", false,
-                         C789_backbone_multi_route_same_band_rows_keep_spacing);
+                         C789_backbone_multi_route_same_band_endpoints_keep_spacing);
   test_registry::AddTest(tests, "C790_backbone_duplicate_support_point_requires_node_reference",
                          "duplicate support point requires an explicit node reference",
                          "Boundary", true,
                          C790_backbone_duplicate_support_point_requires_node_reference);
-  test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
+  test_registry::AddSourceGuardTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,
                          C703_backbone_regenerate_removes_migration_symbols);
-  test_registry::AddTest(tests, "C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution",
+  test_registry::AddSourceGuardTest(tests, "C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution",
                          "backbone regenerate uses per API entrypoint instead of update plan execution",
                          "Boundary", false,
                          C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution);
@@ -1078,13 +1078,13 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C717_backbone_layout_settings_regenerate_matches_fresh",
                          "backbone layout settings regenerate and match fresh generation",
                          "Invariant", false, C717_backbone_layout_settings_regenerate_matches_fresh);
-  test_registry::AddTest(tests, "C727_backbone_pipeline_execution_entry_is_build_input",
+  test_registry::AddSourceGuardTest(tests, "C727_backbone_pipeline_execution_entry_is_build_input",
                          "pipeline execution entry is build(build_input) only",
                          "Boundary", false, C727_backbone_pipeline_execution_entry_is_build_input);
-  test_registry::AddTest(tests, "C728_backbone_pipeline_has_no_run_mode_flags",
+  test_registry::AddSourceGuardTest(tests, "C728_backbone_pipeline_has_no_run_mode_flags",
                          "backbone pipeline has no run mode or skip flags",
                          "Boundary", false, C728_backbone_pipeline_has_no_run_mode_flags);
-  test_registry::AddTest(tests, "C729_backbone_regenerate_source_does_not_handbuild_outputs",
+  test_registry::AddSourceGuardTest(tests, "C729_backbone_regenerate_source_does_not_handbuild_outputs",
                          "backbone regenerate source does not handbuild pipeline outputs",
                          "Boundary", false, C729_backbone_regenerate_source_does_not_handbuild_outputs);
   test_registry::AddTest(tests, "C718_viewer_hit_world_height_is_not_source_edge_branch_authority",
@@ -1093,7 +1093,7 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C719_source_edge_branch_endpoint_follows_current_curve_projection",
                          "source-edge branch endpoint follows current curve projection",
                          "Invariant", false, C719_source_edge_branch_endpoint_follows_current_curve_projection);
-  test_registry::AddTest(tests, "C720_source_edge_pipeline_front_half_does_not_read_curve_projection",
+  test_registry::AddSourceGuardTest(tests, "C720_source_edge_pipeline_front_half_does_not_read_curve_projection",
                          "source-edge pipeline front half does not read curve projection",
                          "Boundary", false, C720_source_edge_pipeline_front_half_does_not_read_curve_projection);
   test_registry::AddTest(tests, "C721_source_edge_identity_survives_projection_update",
@@ -1114,16 +1114,16 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C726_source_edge_branch_projection_does_not_require_prior_curve_cache",
                          "source-edge branch projection does not require prior curve cache",
                          "Boundary", false, C726_source_edge_branch_projection_does_not_require_prior_curve_cache);
-  test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
+  test_registry::AddSourceGuardTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);
-  test_registry::AddTest(tests, "C675_backbone_layout_yaw_does_not_read_debug_records",
+  test_registry::AddSourceGuardTest(tests, "C675_backbone_layout_yaw_does_not_read_debug_records",
                          "production port layout yaw reads saved binding instead of debug records",
                          "Boundary", false, C675_backbone_layout_yaw_does_not_read_debug_records);
   test_registry::AddTest(tests, "C676_backbone_noop_move_preserves_port_positions_exactly",
                          "no-op pole movement preserves generated backbone port positions exactly",
                          "Invariant", false, C676_backbone_noop_move_preserves_port_positions_exactly);
-  test_registry::AddTest(tests, "C677_backbone_corner_scale_has_one_definition",
+  test_registry::AddSourceGuardTest(tests, "C677_backbone_corner_scale_has_one_definition",
                          "corner side scale and inner turn side each have one production definition",
                          "Boundary", false, C677_backbone_corner_scale_has_one_definition);
   test_registry::AddTest(tests, "C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies",
@@ -1132,10 +1132,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C758_span_visual_assembly_emits_support_and_helix",
                          "enabled span visual assembly emits one support path and helix per logical span",
                          "Invariant", false, C758_span_visual_assembly_emits_support_and_helix);
-  test_registry::AddTest(tests, "C759_span_visual_assembly_has_one_geometry_owner",
+  test_registry::AddSourceGuardTest(tests, "C759_span_visual_assembly_has_one_geometry_owner",
                          "span visual assembly geometry has one derived-output owner",
                          "Boundary", false, C759_span_visual_assembly_has_one_geometry_owner);
-  test_registry::AddTest(tests, "C745_legacy_wrap_family_is_absent",
+  test_registry::AddSourceGuardTest(tests, "C745_legacy_wrap_family_is_absent",
                          "legacy population wrap and cable-template coil families are absent from production surfaces",
                          "Boundary", false, C745_legacy_wrap_family_is_absent);
   test_registry::AddTest(tests, "C764_straight_hv_model_assemblies_own_fixture_and_wire_placement",
@@ -1157,10 +1157,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "duplicate Bundle placements keep independent identity and move their complete visual output",
                          "Invariant", false,
                          C769_bundle_placements_duplicate_template_as_independent_bundles);
-  test_registry::AddTest(tests, "C770_backbone_bundle_placement_update_preserves_cross_row_height",
-                         "Bundle placement height updates preserve crossing row height and move row fixtures",
+  test_registry::AddTest(tests, "C770_backbone_bundle_placement_update_preserves_resolved_row_placement",
+                         "Bundle placement height updates preserve support-level placement and move row fixtures",
                          "Invariant", false,
-                         C770_backbone_bundle_placement_update_preserves_cross_row_height);
+                         C770_backbone_bundle_placement_update_preserves_resolved_row_placement);
   test_registry::AddTest(tests, "C771_backbone_incremental_cross_completion_matches_one_shot_rows",
                          "incremental cross completion preserves existing open row frame while forming pair rows",
                          "Invariant", false,
@@ -1177,6 +1177,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental pair promotion does not share ports across incompatible bundle scope",
                          "Invariant", false,
                          C774_backbone_incremental_scope_mismatch_does_not_share_ports);
+  test_registry::AddTest(tests, "C837_backbone_source_bundle_endpoint_completion_ignores_other_bundle_open",
+                         "source-bundle endpoint completion ignores an unrelated bundle's open row",
+                         "Boundary", false,
+                         C837_backbone_source_bundle_endpoint_completion_ignores_other_bundle_open);
   test_registry::AddTest(tests, "C775_backbone_incremental_canonical_pair_survives_save_load",
                          "incremental canonical pair rows survive authoritative save/load",
                          "Invariant", false,
@@ -1209,51 +1213,51 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "incremental sharp extension adds an open row instead of choosing among ambiguous sharp candidates",
                          "Invariant", false,
                          C782_backbone_incremental_sharp_extension_adds_open_when_sharp_candidates_are_ambiguous);
-  test_registry::AddTest(tests, "C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization",
+  test_registry::AddSourceGuardTest(tests, "C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization",
                          "fixture placement plan is built once per reposition operation and not per endpoint materialization",
                          "Boundary", false,
                          C784_backbone_fixture_plan_is_operation_scoped_for_reposition_and_materialization);
-  test_registry::AddTest(tests, "C785_backbone_incremental_hv_promotion_preserves_existing_row_frame",
-                         "incremental HV promotion preserves the existing open row physical frame",
+  test_registry::AddTest(tests, "C785_backbone_incremental_hv_promotion_reframes_existing_ports",
+                         "incremental HV promotion preserves Port identity while reframing positions with the pair row",
                          "Invariant", false,
-                         C785_backbone_incremental_hv_promotion_preserves_existing_row_frame);
-  test_registry::AddTest(tests, "C786_hash_mix_has_one_production_definition",
+                         C785_backbone_incremental_hv_promotion_reframes_existing_ports);
+  test_registry::AddSourceGuardTest(tests, "C786_hash_mix_has_one_production_definition",
                          "hash mix helpers have one shared production definition",
                          "Boundary", false,
                          C786_hash_mix_has_one_production_definition);
-  test_registry::AddTest(tests, "C787_web_bundle_template_category_has_no_layer_fallback",
+  test_registry::AddSourceGuardTest(tests, "C787_web_bundle_template_category_has_no_layer_fallback",
                          "web bundle template category is read from the marshalled template payload",
                          "Boundary", false,
                          C787_web_bundle_template_category_has_no_layer_fallback);
-  test_registry::AddTest(tests, "C825_core_silent_fallback_audit_is_recorded",
+  test_registry::AddSourceGuardTest(tests, "C825_core_silent_fallback_audit_is_recorded",
                          "core silent fallback candidates are classified in the audit table",
                          "Boundary", false,
                          C825_core_silent_fallback_audit_is_recorded);
-  test_registry::AddTest(tests, "C826_geometry_generation_tolerances_are_named",
+  test_registry::AddSourceGuardTest(tests, "C826_geometry_generation_tolerances_are_named",
                          "geometry and backbone generation tolerances use named constants",
                          "Boundary", false,
                          C826_geometry_generation_tolerances_are_named);
-  test_registry::AddTest(tests, "C827_model_rotation_frame_contract_is_documented",
+  test_registry::AddSourceGuardTest(tests, "C827_model_rotation_frame_contract_is_documented",
                          "model rotation and pole frame contract is documented",
                          "Boundary", false,
                          C827_model_rotation_frame_contract_is_documented);
-  test_registry::AddTest(tests, "C828_core_state_mutable_accessors_are_audited",
+  test_registry::AddSourceGuardTest(tests, "C828_core_state_mutable_accessors_are_audited",
                          "CoreState mutable accessors are audited and minimized",
                          "Boundary", false,
                          C828_core_state_mutable_accessors_are_audited);
-  test_registry::AddTest(tests, "C829_core_policy_constants_are_classified",
+  test_registry::AddSourceGuardTest(tests, "C829_core_policy_constants_are_classified",
                          "core policy constants are classified without moving them",
                          "Boundary", false,
                          C829_core_policy_constants_are_classified);
-  test_registry::AddTest(tests, "C830_edit_errors_require_registered_prefixes",
+  test_registry::AddSourceGuardTest(tests, "C830_edit_errors_require_registered_prefixes",
                          "core edit errors use registered machine-readable prefixes",
                          "Boundary", false,
                          C830_edit_errors_require_registered_prefixes);
-  test_registry::AddTest(tests, "C831_normalization_fallback_calls_are_classified_in_source",
+  test_registry::AddSourceGuardTest(tests, "C831_normalization_fallback_calls_are_classified_in_source",
                          "normalization fallback call sites carry local classification comments",
                          "Boundary", false,
                          C831_normalization_fallback_calls_are_classified_in_source);
-  test_registry::AddTest(tests, "C832_resolve_branch_pick_pure_split_is_merge_readiness_hold",
+  test_registry::AddSourceGuardTest(tests, "C832_resolve_branch_pick_pure_split_is_merge_readiness_hold",
                          "ResolveBranchPick pure split remains an explicit merge readiness hold",
                          "Boundary", false,
                          C832_resolve_branch_pick_pure_split_is_merge_readiness_hold);
@@ -1261,7 +1265,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "branch-down override zero is the final lowering authority for fixture sockets and curve endpoints",
                          "Invariant", false,
                          C833_branch_down_override_zero_reaches_model_socket_plan);
-  test_registry::AddTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
+  test_registry::AddSourceGuardTest(tests, "C788_model_assembly_keeps_belt_and_socket_authority_in_materialization",
                          "model assembly owns belt radial fit and endpoint socket placement decisions",
                          "Boundary", false,
                          C788_model_assembly_keeps_belt_and_socket_authority_in_materialization);
@@ -1269,12 +1273,12 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "large route addition builds one fixture plan and materializes models once",
                          "Boundary", false,
                          C791_backbone_large_route_add_has_bounded_fixture_pipeline_counters);
-  test_registry::AddTest(tests, "C792_backbone_incremental_new_row_uses_empty_stable_slot",
-                         "incremental row insertion preserves existing row and uses an empty stable slot",
+  test_registry::AddTest(tests, "C792_backbone_incremental_new_row_uses_resolved_support_level",
+                         "incremental row preserves Port anchors and uses the next support level",
                          "Invariant", false,
-                         C792_backbone_incremental_new_row_uses_empty_stable_slot);
+                         C792_backbone_incremental_new_row_uses_resolved_support_level);
   test_registry::AddTest(tests, "C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry",
-                         "incremental HV promotion preserves model fixture geometry and lane patch order",
+                         "incremental HV promotion keeps Port, row fixture, endpoint fixture, and curves in one resolved frame",
                          "Invariant", false,
                          C795_backbone_incremental_hv_promotion_preserves_model_fixture_geometry);
   test_registry::AddTest(tests, "C796_backbone_incremental_explicit_placement_height_is_not_row_reflowed",
@@ -1337,11 +1341,86 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "same-operation sharp route corners use staggered physical support levels",
                          "Invariant", false,
                          C835_backbone_sharp_route_corner_uses_branch_down_level);
+  test_registry::AddTest(tests, "C836_backbone_operation_matrix_executes_declared_states",
+                         "operation semantics matrix executes each declared core state", "Oracle", false,
+                         C836_backbone_operation_matrix_executes_declared_states);
+  test_registry::AddTest(tests, "C838_backbone_span_bindings_rebuild_edge_bundle_span_index",
+                         "span bindings rebuild edge-bundle span runtime indexes",
+                         "Invariant", false,
+                         C838_backbone_span_bindings_rebuild_edge_bundle_span_index);
+  test_registry::AddTest(tests, "C839_backbone_span_bindings_preserve_lane_map_after_save_load",
+                         "span binding lane to span mapping survives save and load",
+                         "Invariant", false,
+                         C839_backbone_span_bindings_preserve_lane_map_after_save_load);
+  test_registry::AddTest(tests, "C840_backbone_span_binding_duplicate_lane_rejected_on_load",
+                         "duplicate span binding lanes are rejected on authoritative load",
+                         "Boundary", true,
+                         C840_backbone_span_binding_duplicate_lane_rejected_on_load);
+  test_registry::AddTest(tests, "C841_backbone_span_binding_duplicate_span_rejected_on_load",
+                         "duplicate span binding span ids are rejected on authoritative load",
+                         "Boundary", true,
+                         C841_backbone_span_binding_duplicate_span_rejected_on_load);
+  test_registry::AddTest(tests, "C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped",
+                         "legacy edge bundle span ids are consumed on load and omitted on save",
+                         "Boundary", false,
+                         C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped);
+  test_registry::AddTest(tests, "C843_backbone_continuity_binding_rejects_incomplete_lane_relation",
+                         "continuity construction rejects a missing authoritative lane relation without mutation",
+                         "Boundary", true,
+                         C843_backbone_continuity_binding_rejects_incomplete_lane_relation);
+  test_registry::AddTest(tests, "C844_backbone_promotion_exact_binding_missing_is_atomic",
+                         "promotion frame update rejects a missing exact PortBinding without mutation",
+                         "Boundary", true,
+                         C844_backbone_promotion_exact_binding_missing_is_atomic);
+  test_registry::AddTest(tests, "C845_backbone_port_binding_band_tracks_physical_lane_for_mirror",
+                         "identity and reversed lane mappings retain the physical Port placement band",
+                         "Invariant", false,
+                         C845_backbone_port_binding_band_tracks_physical_lane_for_mirror);
+  test_registry::AddSourceGuardTest(tests, "C846_backbone_port_binding_band_is_selected_by_physical_lane",
+                         "saved PortBinding band selection follows the physical trow lane rather than logical Span lane",
+                         "Boundary", false,
+                         C846_backbone_port_binding_band_is_selected_by_physical_lane);
+  test_registry::AddTest(tests, "C847_backbone_independent_bundle_continuities_survive_save_load",
+                         "independent edge-bundle continuity components sharing a physical edge survive save and load",
+                         "Invariant", false,
+                         C847_backbone_independent_bundle_continuities_survive_save_load);
+  test_registry::AddTest(tests, "C848_backbone_scoped_regenerate_uses_edge_bundle_continuity_component",
+                         "scoped regenerate derives only its authoritative edge-bundle continuity component",
+                         "Invariant", false,
+                         C848_backbone_scoped_regenerate_uses_edge_bundle_continuity_component);
+  test_registry::AddTest(tests, "C849_backbone_load_rejects_ambiguous_edge_bundle_component",
+                         "load still rejects a genuinely ambiguous edge-bundle continuity component atomically",
+                         "Boundary", true,
+                         C849_backbone_load_rejects_ambiguous_edge_bundle_component);
+  test_registry::AddTest(tests, "C850_backbone_fixed_count_increase_scopes_independent_bundle_components",
+                         "fixed-count increase scopes same-template placements by Bundle continuity component",
+                         "Invariant", false,
+                         C850_backbone_fixed_count_increase_scopes_independent_bundle_components);
+  test_registry::AddTest(tests, "C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes",
+                         "fixed-count decrease retires lanes within each independent Bundle component",
+                         "Invariant", false,
+                         C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes);
+  test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
+                         "near-angle physical rows use degree ordering independent of path direction",
+                         "Invariant", false,
+                         C852_backbone_near_angle_row_order_uses_degree_contract);
+  test_registry::AddTest(tests, "C853_backbone_row_placement_has_one_resolved_height_authority",
+                         "support level resolves endpoint lowering while Port height remains the placement anchor",
+                         "Invariant", false,
+                         C853_backbone_row_placement_has_one_resolved_height_authority);
+  test_registry::AddSourceGuardTest(tests, "C854_backbone_row_height_has_one_production_decision_path",
+                         "row height has no row-offset, stable-slot, or preserved-offset decision path",
+                         "Boundary", false,
+                         C854_backbone_row_height_has_one_production_decision_path);
+  test_registry::AddTest(tests, "C855_backbone_non_auto_main_span_sag_is_parabolic_once",
+                         "non-Auto main spans use one CableTemplate sag ratio with a parabolic profile",
+                         "Invariant", false,
+                         C855_backbone_non_auto_main_span_sag_is_parabolic_once);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,
                          C803_model_mount_graph_resolves_depth_four_chain);
-  test_registry::AddTest(tests, "C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors",
+  test_registry::AddSourceGuardTest(tests, "C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors",
                          "model placement rules adapt legacy fixture fields and expose interval anchors",
                          "Boundary", false,
                          C804_model_placement_rules_adapt_legacy_fields_and_interval_anchors);
@@ -1349,7 +1428,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "generation-scoped route order does not create ambiguous saved T branch restore",
                          "Invariant", false,
                          C805_backbone_generation_scoped_route_order_does_not_break_t_branch_restore);
-  test_registry::AddTest(tests, "C807_backbone_pipeline_does_not_infer_continuity_from_route_order",
+  test_registry::AddSourceGuardTest(tests, "C807_backbone_pipeline_does_not_infer_continuity_from_route_order",
                          "backbone continuity is not inferred from route/order fields",
                          "Boundary", false,
                          C807_backbone_pipeline_does_not_infer_continuity_from_route_order);
@@ -1357,11 +1436,11 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "row continuity graph lint covers route branch and cross outputs",
                          "Boundary", false,
                          C800_backbone_row_continuity_graph_lint_covers_route_branch_and_cross);
-  test_registry::AddTest(tests, "C793_backbone_derive_uses_canonical_rule_order_and_lookup",
+  test_registry::AddSourceGuardTest(tests, "C793_backbone_derive_uses_canonical_rule_order_and_lookup",
                          "derive builds fixture rules in canonical span order and resolves affected spans by lookup",
                          "Boundary", false,
                          C793_backbone_derive_uses_canonical_rule_order_and_lookup);
-  test_registry::AddTest(tests, "C794_web_viewer_action_context_keeps_mutable_state_private",
+  test_registry::AddSourceGuardTest(tests, "C794_web_viewer_action_context_keeps_mutable_state_private",
                          "viewer action context keeps timers, cancel, interaction, persistence, and factory state private",
                          "Boundary", false,
                          C794_web_viewer_action_context_keeps_mutable_state_private);

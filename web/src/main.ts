@@ -6,6 +6,7 @@ import { startConsoleLogging } from "./consoleLog";
 import { loadDefaultModelBootstrap } from "./render/modelAssets";
 import { WireScene } from "./render/scene";
 import { ViewerStore } from "./store/viewer";
+import { buildIdentitiesMatch, loadRuntimeBuildInfo } from "./buildInfo";
 import {
   IndexedDbWorkspaceStorage,
   WORKSPACE_CACHE_KEY,
@@ -24,6 +25,30 @@ async function main(): Promise<void> {
   const stopConsoleLogging = startConsoleLogging(store);
   const modelBootstrap = await loadDefaultModelBootstrap();
   const bridge = await WireBridge.create();
+  const wasmBuild = bridge.buildIdentity();
+  const runtimeBuildInfo = await loadRuntimeBuildInfo();
+  if (!buildIdentitiesMatch(runtimeBuildInfo, wasmBuild)) {
+    store.update((snapshot) => ({
+      ...snapshot,
+      buildMismatch: {
+        webSourceHash: runtimeBuildInfo.wasmSourceHash,
+        webVersion: runtimeBuildInfo.packageVersion,
+        wasmSourceHash: wasmBuild.sourceHash,
+        wasmVersion: wasmBuild.version
+      }
+    }));
+    const actions = new ViewerActions(bridge, store);
+    mount(App, {
+      target: mountTarget,
+      props: { actions, store, mountScene: () => undefined }
+    });
+    window.addEventListener("beforeunload", () => {
+      stopConsoleLogging();
+      actions.dispose();
+      bridge.dispose();
+    });
+    return;
+  }
   const modelBootstrapResult = bridge.configureModelAssemblies(modelBootstrap);
   if (!modelBootstrapResult.ok) {
     throw new Error(`Model bootstrap failed: ${modelBootstrapResult.error}`);
@@ -50,8 +75,9 @@ async function main(): Promise<void> {
   const scene = new WireScene(
     store,
     (point, pick) => actions.addViewportPoint(point, pick),
-    (point) => actions.previewViewportPoint(point),
-    () => actions.undoActiveTool(),
+    (point, pick) => actions.previewViewportPoint(point, pick),
+    () => actions.clearViewportPreview(),
+    () => actions.cancelDrawSession(),
     (deltaMs) => actions.recordFrame(deltaMs),
     (stats) => actions.recordSceneContentSync(stats),
     (handleIndex, point) => actions.previewRoadEditHandle(handleIndex, point),

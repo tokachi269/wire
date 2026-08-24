@@ -7,7 +7,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 
 - `そのまま`: 現行の責務と呼び出し単位を維持できる。
 - `直して移植`: 操作の目的は維持するが、暗黙連結、エラー非表示、更新粒度を修正する。
-- `捨てる`: desktop 固有、debug/capture、実験機能、または正本を迂回する操作。
+- `捨てる`: desktop 固有、debug、実験機能、または正本を迂回する操作。
 - P1 は W4 の対象、P2 は対象外とする。W2/W3 で先に実装する表示・Draw Path も表では P1 とする。
 - `preview` と `commit` は同じ core API を呼び、`preview` はログへ残さない。
 
@@ -52,7 +52,6 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Generate From Path | `GenerateFromBackboneSpec` | button | `kRegenerate` | commit | 直して移植 | W3 の action。`EditResult.error`を必ず表示する | P1 |
 | Undo Last Point / Clear Path | draw store | button | UI | 即時 | そのまま | committed core state は変更しない | P1 |
 | Bundle Population Rules | `UpdateBundleTemplate(population_rules)` | folded rule editor | `kReshape` | number preview / count commit | 直して移植 | population は BundleTemplate の性質。Draw Path の global toggle/seed は置かず、rule が空なら追加線なし | P1 |
-| Save Repro Trace | web viewer action | header button | debug/capture | explicit | 直して移植 | 操作順、生成入力、anchor と VisualCurvePart の種類別件数だけを text download する。curve sample と UI log は含めない | P2 |
 
 ## Geometry / layout / orientation
 
@@ -78,7 +77,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Outer Diameter / Bend Stiffness / Min Bend Radius | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | `preferred_visible_span_ids` を必ず渡す | P1 |
 | Cable Material | `UpdateCableTemplate` | select | `kRedraw` | 約30 Hz | そのまま | render/visual のみ | P1 |
 | Requires Insulator / Insulator Attach Height | `UpdateCableTemplate` | toggle / number | `kRedraw` | commit | そのまま | endpoint detail curveが設定を消費する | P1 |
-| Sag Factor / Slack Factor | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | geom/draw の再導出 | P1 |
+| Sag Factor | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | geom/draw の再導出 | P1 |
 | Cable Continuity | `UpdateCableTemplate` | select | `kRegenerate` | release commit | そのまま | decision 差分。現行保留条件を表示する | P1 |
 | CurveOffset Straight Supplemental | `UpdateCableTemplate` | toggle | `kReshape` | 約30 Hz | そのまま | explicit supplemental visual setting | P1 |
 | Supplemental Lateral / Vertical Offset | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | JS で offset geometry を作らない | P1 |
@@ -170,8 +169,6 @@ P1 だが意図的に除外した項目:
 - Related entity links: W1の最小inspection境界にlinkを含めていない。ID関係をJSで再構成しない。
 - Unified UI toggle: webは単一workspaceを唯一の構成とし、旧window modeを持たない。
 - direct object edit: desktop側も無効であり、Draw Pathと明示template/update actionだけを入口にする。
-
-P2 は Repro Trace のみ実装済みである。walk modeは未実装である。
 
 ## Workspace persistence
 

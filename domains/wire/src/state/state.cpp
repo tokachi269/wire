@@ -1983,7 +1983,6 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
     result.error = "core invalid input: bundle not found";
     return result;
   }
-  const Bundle previous_bundle = *trial_bundle;
   trial_bundle->placement_explicit = placement_explicit;
   trial_bundle->height_m = height_m;
   trial_bundle->lateral_m = lateral_m;
@@ -2029,11 +2028,6 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
         result.error = "backbone internal: bundle placement update: saved port placement is missing";
         return result;
       }
-      const PoleFrame frame = BuildPoleFrame(pole->world_transform, binding->layout_yaw_deg);
-      const Vec3d current_local = WorldPointToLocal(frame, port->world_position);
-      const double previous_base_height =
-          previous_bundle.placement_explicit ? previous_bundle.height_m : band->height_center_m;
-      const double preserved_row_height_offset = current_local.z - previous_base_height;
       PortPlacementBand placement_band = *band;
       if (placement_explicit) {
         placement_band.height_center_m = height_m;
@@ -2045,7 +2039,7 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
                                            binding->lane_index, trial_bundle->conductor_count, spacing_m);
       const Vec3d next_position = generation::backbone::PortWorldPositionForLayoutYaw(
           *pole, binding->layout_yaw_deg, placement_band, lane_offset, edge->lateral_offset_m,
-          preserved_row_height_offset);
+          0.0);
       if ((port->position_mode == PortPositionMode::kManual || port->user_edited_position) &&
           Length(port->world_position - next_position) > kStrictLengthToleranceM) {
         result.error = "backbone unsupported: bundle placement update unsupported: manual port would move";
@@ -2186,21 +2180,21 @@ EditResult<bool> CoreState::UpdateModelAssemblyTemplate(
       result.error = visual_curves.error;
       return result;
     }
+    EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+        generation::backbone::fixture_placement_plan_from_cache(trial);
+    if (!fixture_plan.ok) {
+      result.error = fixture_plan.error;
+      return result;
+    }
+    EditResult<VisualModelInstanceCache> model_instances =
+        generation::backbone::materialize_model_assemblies(trial, fixture_plan.value);
+    if (!model_instances.ok) {
+      result.error = model_instances.error;
+      return result;
+    }
     trial.cache_visual_curve_parts(std::move(visual_curves.value));
+    trial.cache_visual_model_instances(std::move(model_instances.value));
   }
-  EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
-      generation::backbone::fixture_placement_plan_from_cache(trial);
-  if (!fixture_plan.ok) {
-    result.error = fixture_plan.error;
-    return result;
-  }
-  EditResult<VisualModelInstanceCache> model_instances =
-      generation::backbone::materialize_model_assemblies(trial, fixture_plan.value);
-  if (!model_instances.ok) {
-    result.error = model_instances.error;
-    return result;
-  }
-  trial.cache_visual_model_instances(std::move(model_instances.value));
   *this = std::move(trial);
   result.ok = true;
   result.value = true;

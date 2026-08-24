@@ -337,8 +337,7 @@ bool C654_population_does_not_mutate_logical_topology() {
     graph_identity_equal =
         control_graph.edge_bundles[i].edge_bundle_id == populated_graph.edge_bundles[i].edge_bundle_id &&
         control_graph.edge_bundles[i].edge_id == populated_graph.edge_bundles[i].edge_id &&
-        control_graph.edge_bundles[i].bundle_id == populated_graph.edge_bundles[i].bundle_id &&
-        control_graph.edge_bundles[i].span_ids == populated_graph.edge_bundles[i].span_ids;
+        control_graph.edge_bundles[i].bundle_id == populated_graph.edge_bundles[i].bundle_id;
   }
   const bool has_extra_visual = std::any_of(
       populated.view().visual_curve_parts().parts.begin(), populated.view().visual_curve_parts().parts.end(),

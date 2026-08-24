@@ -68,6 +68,8 @@ if(BUILD_TESTING)
 
   add_custom_target(
     wire_arch_lint
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/harness/test_architecture_lint.py
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_arch_lint.py
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/arch_lint.py --root ${CMAKE_SOURCE_DIR}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     VERBATIM
@@ -102,6 +104,8 @@ if(BUILD_TESTING)
     tests/backbone/input.cpp
     tests/backbone/output.cpp
     tests/backbone/population.cpp
+    tests/backbone/semantics_coverage.cpp
+    tests/backbone/semantics_matrix.cpp
     tests/backbone/update.cpp
     tests/backbone/registry.cpp
   )
@@ -138,6 +142,7 @@ if(BUILD_TESTING)
     PRIVATE
     WIRE_INTERNAL=1
     WIRE_TEST_SPEC_LEDGER_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tests/spec_ledger.md"
+    WIRE_TEST_BACKBONE_SEMANTICS_PATH="${CMAKE_SOURCE_DIR}/docs/wire/backbone_operation_semantics.md"
   )
 
   wire_enable_builtin_vcpkg_applocal(wire_core_tests)

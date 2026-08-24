@@ -6,80 +6,72 @@
 
 namespace city::road {
 
-struct AddSegmentRequest { Path alignment{}; CrossSectionTemplateId section_template = 0; };
+struct AddSegmentRequest {
+  Path alignment{};
+  RoadLayoutTemplateId layout_template = 0;
+  // The drawing mode the user chose. Left empty the intent is read back from
+  // the control points, which cannot tell a drawn curve from a drawn line.
+  std::optional<SegmentShapeIntent> intent{};
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
+  std::optional<double> start_elevation_m{};
+  std::optional<double> end_elevation_m{};
+};
 struct AddSegmentConnectedToRequest {
   Path alignment{};
-  CrossSectionTemplateId section_template = 0;
+  RoadLayoutTemplateId layout_template = 0;
   RoadNodeId start_node = 0;
+  EndpointRole connected_endpoint = EndpointRole::kStart;
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
+  std::optional<double> free_endpoint_elevation_m{};
 };
 struct AddSegmentConnectedToSegmentRequest {
   Path alignment{};
-  CrossSectionTemplateId section_template = 0;
+  RoadLayoutTemplateId layout_template = 0;
   RoadSegmentId start_segment = 0;
-  double station_m = 0.0;
+  double segment_distance_m = 0.0;
+  EndpointRole connected_endpoint = EndpointRole::kStart;
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
+  std::optional<double> free_endpoint_elevation_m{};
 };
-struct ExtendSegmentRequest {
+struct RoadConnectionTarget {
+  RoadNodeId node_id = 0;
   RoadSegmentId segment_id = 0;
+  double segment_distance_m = 0.0;
+};
+struct AddSegmentBetweenRequest {
+  Path alignment{};
+  RoadLayoutTemplateId layout_template = 0;
+  RoadConnectionTarget start{};
+  RoadConnectionTarget end{};
+  double corner_radius_m = kDefaultRoadCornerRadiusM;
+};
+struct ExtendCorridorFromEndRequest {
+  RoadCorridorId corridor_id = 0;
   RoadNodeId endpoint_node_id = 0;
   Path extension{};
-  CrossSectionTemplateId section_template = 0;
+  RoadLayoutTemplateId layout_template = 0;
+  std::optional<SegmentShapeIntent> intent{};
+  std::optional<double> end_elevation_m{};
+};
+struct SplitSegmentAtDistanceRequest {
+  RoadSegmentId segment_id = 0;
+  double segment_distance_m = 0.0;
 };
 struct EditSegmentShapeRequest { RoadSegmentId segment_id = 0; SegmentShape shape{}; };
-struct MoveNodeRequest { RoadNodeId node_id = 0; Vec2d position{}; };
+struct MoveNodeRequest {
+  RoadNodeId node_id = 0;
+  Vec2d position{};
+  std::optional<double> elevation_m{};
+};
 struct DeleteSegmentRequest { RoadSegmentId segment_id = 0; };
-struct SetApproachSetbackOverrideRequest {
-  ApproachKey key{};
-  double setback_m = 0.0;
+struct AddRoadLayoutTemplateRequest { RoadLayoutTemplate layout_template{}; };
+struct EditRoadLayoutTemplateRequest { RoadLayoutTemplate layout_template{}; };
+struct AddLaneRequest {
+  RoadCorridorId corridor_id = 0;
+  LaneTravelDirection direction = LaneTravelDirection::kAlongSegment;
+  RoadSide side = RoadSide::kRight;
+  SegmentPosition transition_start{};
+  SegmentPosition transition_complete{};
+  double lane_width_m = 0.0;
 };
-struct SetApproachLateralShiftOverrideRequest {
-  ApproachKey key{};
-  double lateral_shift_m = 0.0;
-};
-enum class ApproachOverrideField {
-  kSetback,
-  kLateralShift,
-};
-struct ResetApproachOverrideFieldRequest {
-  ApproachKey key{};
-  ApproachOverrideField field = ApproachOverrideField::kSetback;
-};
-struct ResetAllApproachOverridesRequest {
-  ApproachKey key{};
-};
-struct AddSectionTemplateRequest { CrossSectionTemplate section_template{}; };
-struct EditSectionTemplateRequest { CrossSectionTemplate section_template{}; };
-struct SectionTransitionRequest {
-  CrossSectionTemplateId from_template = 0;
-  CrossSectionTemplateId to_template = 0;
-  StationRef start{};
-  StationRef end{};
-  TransitionAnchor anchor = TransitionAnchor::kCenter;
-  std::vector<SectionTransitionRule> rules{};
-};
-struct AddTransitionToSegmentRequest {
-  RoadSegmentId segment_id = 0;
-  SectionTransitionRequest transition{};
-};
-struct AttachSectionTransitionRequest {
-  RoadSegmentId segment_id = 0;
-  SectionTransitionId transition_id = 0;
-};
-struct ManualLineRequest {
-  RoadSegmentId owner_segment_id = 0;
-  Path path{};
-  MarkingStyleId style_id = builtin_marking_styles::kWhiteSolid;
-};
-struct ManualAreaRequest {
-  RoadSegmentId owner_segment_id = 0;
-  Vec2d frame_origin{};
-  double width_m = 0.0;
-  double length_m = 0.0;
-  MarkingStyleId style_id = builtin_marking_styles::kWhiteSolid;
-};
-struct RoadToolDraft {
-  Path preview_path{};
-  bool has_live_preview = false;
-  bool supports_bezier_handles = false;
-};
-
 } // namespace city::road

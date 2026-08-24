@@ -1,6 +1,7 @@
 import {
   loadWireModule,
   type RoadMeshPayload,
+  type RoadAddLaneInput,
   type RoadSegmentResult,
   type RoadStateHandle,
   type WireModuleOptions,
@@ -27,9 +28,13 @@ import type {
   SupportNodeInfo,
   VisualPartInfo,
   VisualModelInstanceInfo,
-  VisualSettings
+  VisualSettings,
+  WireIntervalRequest,
+  WireIntervalResult
 } from "../model";
 import type { RoadMeshData, RoadSceneData, RoadSegmentInput } from "../road";
+import type { RoadIntervalPreview } from "./wasm";
+import type { RoadSectionInput } from "../road_templates";
 
 export interface VisualPartData {
   info: VisualPartInfo;
@@ -47,17 +52,33 @@ export interface SceneData {
   lastGenerationTiming?: GenerationTiming | null;
 }
 
+export interface WireIntervalPreview extends WireIntervalResult {
+  parts: VisualPartData[];
+  poles: PoleInfo[];
+}
+
 export class WireBridge {
   private modelBootstrap: ModelAssemblyBootstrapInput | null = null;
 
   private constructor(
     private readonly state: WireStateHandle,
-    private readonly roadState: RoadStateHandle
+    private readonly roadState: RoadStateHandle,
+    private readonly wasmBuildSourceHash: string,
+    private readonly wasmBuildVersion: string
   ) {}
 
   static async create(options?: WireModuleOptions): Promise<WireBridge> {
     const module = await loadWireModule(options);
-    return new WireBridge(new module.WireState(), new module.RoadState());
+    return new WireBridge(
+      new module.WireState(),
+      new module.RoadState(),
+      module.wireBuildSourceHash(),
+      module.wireBuildVersion()
+    );
+  }
+
+  buildIdentity(): { sourceHash: string; version: string } {
+    return { sourceHash: this.wasmBuildSourceHash, version: this.wasmBuildVersion };
   }
 
   generate(
@@ -131,6 +152,95 @@ export class WireBridge {
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo {
     return this.state.resolveBranchPick(input, selectedBundleTemplateIds);
+  }
+
+  previewWireInterval(input: WireIntervalRequest): WireIntervalPreview {
+    const prepared = this.prepareWireInterval(input, true);
+    if (!prepared.ok) return { ...prepared, parts: [], poles: [] };
+    const preview = this.state.previewPlacements(
+      prepared.points,
+      input.bundlePlacements,
+      input.intervalM,
+      input.poleTypeId,
+      input.directionMode,
+      input.maxTiltDeg,
+      prepared.nodeSpecs
+    );
+    if (!preview.ok) {
+      return {
+        ...preview,
+        endpoint: prepared.endpoint,
+        endpointSpec: prepared.endpointSpec,
+        parts: [],
+        poles: []
+      };
+    }
+    const sceneSamples = new Float64Array(preview.samples);
+    const generatedSpanIds = new Set(preview.generatedSpanIds ?? []);
+    return {
+      ...preview,
+      endpoint: prepared.endpoint,
+      endpointSpec: prepared.endpointSpec,
+      parts: preview.parts
+        .filter((info) => generatedSpanIds.has(info.sourceSpanId))
+        .map((info) => ({
+          info,
+          samples: sceneSamples.subarray(info.sampleOffset, info.sampleOffset + info.sampleCount * 3)
+        })),
+      poles: preview.poles
+    };
+  }
+
+  generateWireInterval(input: WireIntervalRequest): WireIntervalResult {
+    const prepared = this.prepareWireInterval(input, false);
+    if (!prepared.ok) return prepared;
+    const generated = this.state.generatePlacements(
+      prepared.points,
+      input.bundlePlacements,
+      input.intervalM,
+      input.poleTypeId,
+      input.directionMode,
+      input.maxTiltDeg,
+      prepared.nodeSpecs
+    );
+    return {
+      ...generated,
+      endpoint: prepared.endpoint,
+      endpointSpec: prepared.endpointSpec
+    };
+  }
+
+  private prepareWireInterval(input: WireIntervalRequest, preview: boolean): WireIntervalResult & {
+    points: Float64Array;
+    nodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }>;
+  } {
+    let endpoint = input.points[1];
+    let endpointSpec = input.pointSpecs[1];
+    if (input.targetPick !== undefined) {
+      const selected = [...new Set(input.bundlePlacements.map((placement) => placement.bundleTemplateId))];
+      const resolved = preview
+        ? this.state.previewResolveBranchPick(input.targetPick, selected)
+        : this.state.resolveBranchPick(input.targetPick, selected);
+      if (!resolved.ok) {
+        return {
+          ...emptyWireIntervalResult(endpoint, endpointSpec, resolved.error),
+          points: new Float64Array(),
+          nodeSpecs: []
+        };
+      }
+      endpoint = [resolved.positionX, resolved.positionY, resolved.positionZ];
+      endpointSpec = { supportKind: resolved.supportKind, nodeId: resolved.nodeId };
+    }
+    const points = new Float64Array([...input.points[0], ...endpoint]);
+    const nodeSpecs = [input.pointSpecs[0], endpointSpec]
+      .map((spec, pointIndex) => spec === null ? null : ({ pointIndex, ...spec }))
+      .filter((spec): spec is { pointIndex: number; supportKind: number; nodeId: string } => spec !== null);
+    return {
+      ...emptyWireIntervalResult(endpoint, endpointSpec, ""),
+      ok: true,
+      points,
+      nodeSpecs
+    };
   }
 
   clearPendingSupportNodes(): OperationResult {
@@ -308,6 +418,10 @@ export class WireBridge {
     return { ...result, meshes: result.meshes.map(copyRoadMesh) };
   }
 
+  roadPreviewInterval(input: RoadSegmentInput): RoadIntervalPreview {
+    return this.roadState.previewInterval(input);
+  }
+
   roadScene(): RoadSceneData {
     const scene = this.roadState.scene();
     return {
@@ -321,6 +435,23 @@ export class WireBridge {
     return this.roadState.deleteSegment(segmentId);
   }
 
+  roadAddLane(input: RoadAddLaneInput): OperationResult & { laneId?: number } {
+    return this.roadState.addLane(input);
+  }
+
+  roadMoveNode(nodeId: number, x: number, y: number): OperationResult {
+    return this.roadState.moveNode({ nodeId, x, y });
+  }
+
+  roadPreviewMoveNode(
+    nodeId: number,
+    x: number,
+    y: number
+  ): OperationResult & { meshes: RoadMeshData[] } {
+    const result = this.roadState.previewMoveNode({ nodeId, x, y });
+    return { ...result, meshes: result.meshes.map(copyRoadMesh) };
+  }
+
   roadEditSegment(segmentId: number, input: RoadSegmentInput): OperationResult {
     return this.roadState.editSegment(segmentId, input);
   }
@@ -330,20 +461,14 @@ export class WireBridge {
     return { ...result, meshes: result.meshes.map(copyRoadMesh) };
   }
 
-  roadUpdateSectionTemplate(input: Record<string, number | boolean>): OperationResult {
-    return this.roadState.updateSectionTemplate(input);
+  roadAddRoadLayoutTemplate(
+    input: RoadSectionInput
+  ): OperationResult & { roadLayoutTemplateId?: number } {
+    return this.roadState.addRoadLayoutTemplate(input);
   }
 
-  roadApplyTransition(input: Record<string, number>): OperationResult {
-    return this.roadState.applyTransition(input);
-  }
-
-  roadAddManualLine(input: Record<string, number | string>): OperationResult {
-    return this.roadState.addManualLine(input);
-  }
-
-  roadAddManualArea(input: Record<string, number | string>): OperationResult {
-    return this.roadState.addManualArea(input);
+  roadUpdateRoadLayoutTemplate(input: Record<string, number | boolean>): OperationResult {
+    return this.roadState.updateRoadLayoutTemplate(input);
   }
 
   roadUndoSegment(): OperationResult {
@@ -370,8 +495,48 @@ export class WireBridge {
 
 function copyRoadMesh(mesh: RoadMeshPayload): RoadMeshData {
   return {
+    ownerSegmentId: mesh.ownerSegmentId,
     material: mesh.material,
+    uvMapping: mesh.uvMapping ?? "world",
     vertices: new Float64Array(mesh.vertices),
-    indices: new Uint32Array(mesh.indices)
+    indices: new Uint32Array(mesh.indices),
+    normals: new Float64Array(mesh.normals ?? []),
+    uv0: new Float64Array(mesh.uv0 ?? []),
+    materialGroups: (mesh.materialGroups ?? []).map((group) => ({
+      material: group.material,
+      indexStart: group.indexStart,
+      indexCount: group.indexCount
+    }))
+  };
+}
+
+function emptyWireIntervalResult(
+  endpoint: [number, number, number],
+  endpointSpec: { supportKind: number; nodeId: string } | null,
+  error: string
+): WireIntervalResult {
+  return {
+    ok: error.length === 0,
+    error,
+    generatedPoleCount: 0,
+    generatedSpanCount: 0,
+    totalMs: 0,
+    timing: {
+      prepareMs: 0,
+      checkMs: 0,
+      pairsMs: 0,
+      preflightMs: 0,
+      intentMs: 0,
+      supportGroupsMs: 0,
+      emitMs: 0,
+      saveGraphMs: 0,
+      rulesMs: 0,
+      layoutMs: 0,
+      geomMs: 0,
+      drawMs: 0,
+      totalMs: 0
+    },
+    endpoint,
+    endpointSpec
   };
 }

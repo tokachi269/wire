@@ -1,7 +1,6 @@
 #include "pipeline.hpp"
 
 #include "../../collection_utils.hpp"
-#include "../../support/hash_mix.hpp"
 #include "../../support/instrumentation.hpp"
 #include "city/wire/core_view.hpp"
 #include "city/wire/support/numeric_tolerances.hpp"
@@ -113,6 +112,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
   g_ = std::move(input.made);
   active_bundle_indices_ = std::move(input.active_bundle_indices);
   local_by_input_ = std::move(input.local_by_input);
+  saved_node_by_input_.clear();
   write_row_continuity_ = input.write_row_continuity;
 
   EditResult<GenerateBundleFromPathResult> out{};
@@ -168,6 +168,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
   }
   if (input.retire_untouched) retire_untouched(&made.value);
   write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made));
+  out.value.generated_node_ids = saved_node_by_input_;
   if (timing != nullptr) {
     timing->total_ms = elapsed_ms_since(total_started);
     state_.debug_.last_generation_timing = *timing;
@@ -217,13 +218,17 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
     out.ok = true;
     return out;
   }
-  EditResult<std::vector<PromotionPlanEntry>> promotions =
-      timed(timing, &GenerationTiming::preflight_ms, [&] { return plan_promotions(ps.value); });
-  if (!promotions.ok) {
-    out.error = promotions.error;
-    return out;
+  promotion_plan_.clear();
+  if (write_row_continuity_) {
+    EditResult<std::vector<PromotionPlanEntry>> promotions =
+        timed(timing, &GenerationTiming::preflight_ms,
+              [&] { return plan_promotions(ps.value); });
+    if (!promotions.ok) {
+      out.error = promotions.error;
+      return out;
+    }
+    promotion_plan_ = std::move(promotions.value);
   }
-  promotion_plan_ = std::move(promotions.value);
 
   EditResult<groups> placement =
       timed(timing, &GenerationTiming::support_groups_ms, [&] { return make(ps.value, intents.value); });
@@ -231,7 +236,9 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
     out.error = placement.error;
     return out;
   }
-  EditResult<topo> made = timed(timing, &GenerationTiming::emit_ms, [&] { return emit(ps.value, intents.value); });
+  EditResult<topo> made = timed(timing, &GenerationTiming::emit_ms, [&] {
+    return emit(ps.value, placement.value);
+  });
   if (!made.ok) {
     out.error = made.error;
     return out;
@@ -282,7 +289,6 @@ EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* ti
 
 namespace {
 
-constexpr double kRowHeightSeparationM = 0.5;
 constexpr double kRadiansToDegrees = 57.2957795130823208768;
 
 void add(ChangeSet& dst, const ChangeSet& src) {
@@ -567,6 +573,38 @@ ObjectId existing_span_for_lane(const CoreState& state, ObjectId edge_bundle_id,
   }
   return found;
 }
+EditResult<Vec3d> bound_row_direction(
+    const CoreState& state, ObjectId edge_bundle_id,
+    const SavedBackboneRowKey& row_key, std::size_t lane_count) {
+  EditResult<Vec3d> out{};
+  if (lane_count < 2) {
+    out.error = "backbone internal: saved row has fewer than two lanes";
+    return out;
+  }
+  std::vector<const Port*> ports(lane_count, nullptr);
+  for (const SavedBackbonePortBinding* binding :
+       state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id)) {
+    if (binding == nullptr || binding->row_key != row_key) {
+      continue;
+    }
+    if (binding->lane_index >= lane_count ||
+        ports[binding->lane_index] != nullptr) {
+      out.error = "backbone internal: saved row lane identity is ambiguous";
+      return out;
+    }
+    ports[binding->lane_index] = state.view().ports().find(binding->port_id);
+  }
+  for (const Port* port : ports) {
+    if (port == nullptr) {
+      out.error = "backbone internal: saved row lane identity is missing";
+      return out;
+    }
+  }
+  out.value = ports.back()->world_position - ports.front()->world_position;
+  out.ok = true;
+  return out;
+}
+
 ObjectId resolve_existing_bundle(const CoreState& state, const graph& made, const BackboneBundleSpec& spec) {
   if (spec.existing_bundle_id != kInvalidObjectId) {
     return spec.existing_bundle_id;
@@ -647,6 +685,110 @@ ObjectId port_for_link(const trow& row, std::size_t link_id,
     return kInvalidObjectId;
   }
   return (*ports)[bundle_index][lane_index];
+}
+
+EditResult<bool> mirror_permutable_row_endpoints(
+    const CoreState& state, const trow& row_a, const trow& row_b,
+    std::size_t link_id, std::size_t bundle_index, std::size_t lane_count) {
+  EditResult<bool> out{};
+  out.ok = true;
+  if (lane_count < 2) {
+    return out;
+  }
+  const auto row_direction = [&](const trow& row, Vec3d* direction) {
+    const ObjectId first_id = port_for_link(row, link_id, bundle_index, 0);
+    const ObjectId last_id = port_for_link(row, link_id, bundle_index, lane_count - 1);
+    const Port* first = state.view().ports().find(first_id);
+    const Port* last = state.view().ports().find(last_id);
+    if (first == nullptr || last == nullptr || direction == nullptr) {
+      return false;
+    }
+    *direction = last->world_position - first->world_position;
+    return true;
+  };
+
+  Vec3d direction_a{};
+  Vec3d direction_b{};
+  if (!row_direction(row_a, &direction_a) || !row_direction(row_b, &direction_b)) {
+    out.ok = false;
+    out.error = "backbone internal: permutable multi-lane row ports are missing";
+    return out;
+  }
+  return PermutableLaneMirror(direction_a, direction_b);
+}
+
+EditResult<bool> mirror_permutable_continuity_lanes(
+    const CoreState& state, ObjectId node_id, ObjectId edge_bundle_a_id,
+    ObjectId edge_bundle_b_id) {
+  EditResult<bool> out{};
+  const SavedBackboneEdgeBundle* edge_bundle_a =
+      state.view().backbone_edge_bundle(edge_bundle_a_id);
+  const SavedBackboneEdgeBundle* edge_bundle_b =
+      state.view().backbone_edge_bundle(edge_bundle_b_id);
+  const Bundle* bundle_a = edge_bundle_a == nullptr
+                               ? nullptr
+                               : state.view().bundles().find(edge_bundle_a->bundle_id);
+  const Bundle* bundle_b = edge_bundle_b == nullptr
+                               ? nullptr
+                               : state.view().bundles().find(edge_bundle_b->bundle_id);
+  if (bundle_a == nullptr || bundle_b == nullptr ||
+      bundle_a->bundle_template_id != bundle_b->bundle_template_id ||
+      bundle_a->conductor_count != bundle_b->conductor_count) {
+    out.error = "backbone internal: continuity bundles have incompatible lane layouts";
+    return out;
+  }
+  const auto template_it =
+      state.view().bundle_templates().find(bundle_a->bundle_template_id);
+  if (template_it == state.view().bundle_templates().end()) {
+    out.error = "backbone internal: continuity bundle template is missing";
+    return out;
+  }
+  if (bundle_a->conductor_count < 2 ||
+      template_it->second.preserve_conductor_identity ||
+      template_it->second.order_decision_policy !=
+          OrderDecisionPolicyKind::kPermutableHomogeneous) {
+    out.ok = true;
+    return out;
+  }
+
+  const auto row_direction = [&](ObjectId edge_bundle_id, Vec3d* direction) {
+    const std::size_t last_lane =
+        static_cast<std::size_t>(bundle_a->conductor_count - 1);
+    const Port* first = nullptr;
+    const Port* last = nullptr;
+    for (const SavedBackbonePortBinding* binding :
+         state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id)) {
+      if (binding == nullptr || binding->row_key.node_id != node_id) {
+        continue;
+      }
+      if (binding->lane_index == 0) {
+        first = state.view().ports().find(binding->port_id);
+      } else if (binding->lane_index == last_lane) {
+        last = state.view().ports().find(binding->port_id);
+      }
+    }
+    if (first == nullptr || last == nullptr || direction == nullptr) {
+      return false;
+    }
+    *direction = last->world_position - first->world_position;
+    return NormalizeXY(direction);
+  };
+
+  Vec3d direction_a{};
+  Vec3d direction_b{};
+  if (!row_direction(edge_bundle_a_id, &direction_a) ||
+      !row_direction(edge_bundle_b_id, &direction_b)) {
+    out.error = "backbone unsupported: permutable continuity row has no horizontal direction";
+    return out;
+  }
+  const double alignment = Dot(direction_a, direction_b);
+  if (std::abs(alignment) <= kUnitlessTolerance) {
+    out.error = "backbone unsupported: permutable continuity rows are orthogonal";
+    return out;
+  }
+  out.value = alignment < 0.0;
+  out.ok = true;
+  return out;
 }
 
 SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& made, const link& edge) {
@@ -925,7 +1067,7 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
   EditResult<ObjectId> out{};
   out.value = kInvalidObjectId;
   out.ok = true;
-  if (edge_bundle_id == kInvalidObjectId || pole_id == kInvalidObjectId ||
+  if (edge_bundle_id == kInvalidObjectId ||
       row_key.node_id == kInvalidObjectId ||
       row_key.edge_id == kInvalidObjectId) {
     return out;
@@ -954,53 +1096,6 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
   }
   out.value = found;
   return out;
-}
-
-std::vector<Vec3d> row_height_offsets(const pairs& ps) {
-  std::vector<Vec3d> offsets(ps.rows.size(), Vec3d{});
-  std::vector<bool> active_rows(ps.rows.size(), false);
-  for (const link& edge : ps.links) {
-    if (!edge.is_new) {
-      continue;
-    }
-    if (edge.arow < active_rows.size()) {
-      active_rows[edge.arow] = true;
-    }
-    if (edge.brow < active_rows.size()) {
-      active_rows[edge.brow] = true;
-    }
-  }
-  std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
-  for (const row& r : ps.rows) {
-    rows_by_node[r.node].push_back(r.id);
-  }
-  for (auto& item : rows_by_node) {
-    std::vector<std::size_t>& rows = item.second;
-    std::sort(rows.begin(), rows.end(), [&](std::size_t lhs, std::size_t rhs) {
-      const bool lhs_active = lhs < active_rows.size() && active_rows[lhs];
-      const bool rhs_active = rhs < active_rows.size() && active_rows[rhs];
-      if (lhs_active != rhs_active) {
-        return lhs_active;
-      }
-      return lhs < rhs;
-    });
-    const double center = (static_cast<double>(rows.size()) - 1.0) * 0.5;
-    for (std::size_t order = 0; order < rows.size(); ++order) {
-      const std::size_t row_id = rows[order];
-      if (row_id >= ps.rows.size()) {
-        continue;
-      }
-      const double amount = (static_cast<double>(order) - center) * kRowHeightSeparationM;
-      offsets[row_id] = Vec3d{0.0, 0.0, amount};
-    }
-  }
-  return offsets;
-}
-
-bool AllowsBranchHeightOffset(const BackboneBundleSpec& spec,
-                              const BundleTemplate& tmpl) {
-  return !spec.placement_explicit && tmpl.enable_branch_down_offset &&
-         tmpl.branch_endpoint_offset_m != 0.0;
 }
 
 bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& points, double radius) {
@@ -1032,105 +1127,6 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
   }
   return true;
 }
-
-struct stable_row_occupancy_key {
-  ObjectId pole_id = kInvalidObjectId;
-  BundleTemplateId bundle_template_id = 0;
-  std::uint64_t placement_key = 0;
-  int placement_band_id = 0;
-
-  bool operator==(const stable_row_occupancy_key& other) const {
-    return pole_id == other.pole_id && bundle_template_id == other.bundle_template_id &&
-           placement_key == other.placement_key && placement_band_id == other.placement_band_id;
-  }
-};
-
-struct stable_row_plan_key {
-  std::size_t row_id = 0;
-  ObjectId bundle_id = kInvalidObjectId;
-  stable_row_occupancy_key occupancy{};
-
-  bool operator==(const stable_row_plan_key& other) const {
-    return row_id == other.row_id && bundle_id == other.bundle_id && occupancy == other.occupancy;
-  }
-};
-
-struct stable_row_key_hash {
-  std::size_t operator()(const stable_row_occupancy_key& key) const {
-    std::uint64_t seed = support::hash_combine(0, static_cast<std::uint64_t>(key.pole_id));
-    seed = support::hash_combine(seed, static_cast<std::uint64_t>(key.bundle_template_id));
-    seed = support::hash_combine(seed, key.placement_key);
-    seed = support::hash_combine(seed, static_cast<std::uint64_t>(key.placement_band_id));
-    return static_cast<std::size_t>(seed);
-  }
-
-  std::size_t operator()(const stable_row_plan_key& key) const {
-    std::uint64_t seed = support::hash_combine(0, static_cast<std::uint64_t>(key.row_id));
-    seed = support::hash_combine(seed, static_cast<std::uint64_t>(key.bundle_id));
-    seed = support::hash_combine(seed, static_cast<std::uint64_t>((*this)(key.occupancy)));
-    return static_cast<std::size_t>(seed);
-  }
-};
-
-class stable_row_slot_plan {
-public:
-  explicit stable_row_slot_plan(const CoreState& state) {
-    for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
-      const Port* port = state.view().ports().find(binding.port_id);
-      if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
-        continue;
-      }
-      std::uint64_t placement_key = 0;
-      if (const SavedBackboneEdgeBundle* edge_bundle =
-              state.view().backbone_edge_bundle(binding.edge_bundle_id)) {
-        if (const Bundle* bundle = state.view().bundles().find(edge_bundle->bundle_id)) {
-          placement_key = bundle->placement_key;
-        }
-      }
-      occupied_[{port->owner_pole_id, binding.bundle_template_id, placement_key,
-                 binding.placement_band_id}].push_back(port->world_position.z);
-    }
-  }
-
-  double height_for(std::size_t row_id, ObjectId bundle_id, ObjectId pole_id,
-                    BundleTemplateId bundle_template_id, std::uint64_t placement_key, int placement_band_id,
-                    double requested_height_m) {
-    instrumentation::count_stable_row_slot_lookup();
-    if (pole_id == kInvalidObjectId) {
-      return requested_height_m;
-    }
-    const stable_row_occupancy_key occupancy{pole_id, bundle_template_id, placement_key,
-                                             placement_band_id};
-    const stable_row_plan_key plan_key{row_id, bundle_id, occupancy};
-    const auto planned_it = planned_.find(plan_key);
-    if (planned_it != planned_.end()) {
-      return planned_it->second;
-    }
-    std::vector<double>& heights = occupied_[occupancy];
-    const auto available = [&](double candidate) {
-      return std::all_of(heights.begin(), heights.end(), [&](double height) {
-      return std::abs(candidate - height) + kLengthToleranceM >= kRowHeightSeparationM;
-    });
-    };
-    double selected = requested_height_m;
-    if (!available(selected)) {
-      for (std::size_t order = 0; order < 16; ++order) {
-        const double slot = static_cast<double>((order / 2) + 1) * kRowHeightSeparationM;
-        const double candidate = requested_height_m + ((order % 2 == 0) ? -slot : slot);
-        if (available(candidate)) {
-          selected = candidate;
-          break;
-        }
-      }
-    }
-    planned_[plan_key] = selected;
-    return selected;
-  }
-
-private:
-  std::unordered_map<stable_row_occupancy_key, std::vector<double>, stable_row_key_hash> occupied_{};
-  std::unordered_map<stable_row_plan_key, double, stable_row_key_hash> planned_{};
-};
 
 struct segment_insert {
   double t = 0.0;
@@ -1382,41 +1378,6 @@ Vec3d canonical_pair_axis(const link& a, const link& b, std::size_t node_id) {
   return high - low;
 }
 
-Vec3d row_axis_from_layout_yaw(double layout_yaw_deg) {
-  constexpr double kPi = 3.14159265358979323846;
-  const double yaw_rad = layout_yaw_deg * (kPi / 180.0);
-  return {-std::sin(yaw_rad), std::cos(yaw_rad), 0.0};
-}
-
-EditResult<Vec3d> saved_open_row_axis_for_edge(const CoreState& state, ObjectId node_id, ObjectId edge_id) {
-  EditResult<Vec3d> out{};
-  bool found = false;
-  Vec3d axis{};
-  for (const SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
-    if (!is_open_row_for_edge(binding.row_key, node_id, edge_id)) {
-      continue;
-    }
-    Vec3d candidate = row_axis_from_layout_yaw(binding.layout_yaw_deg);
-    if (!NormalizeXY(&candidate)) {
-      out.error = "backbone unsupported: promoted open row axis is invalid";
-      return out;
-    }
-    if (found && Dot(axis, candidate) < 1.0 - kUnitlessTolerance) {
-      out.error = "backbone unsupported: ambiguous promoted open row axis";
-      return out;
-    }
-    axis = candidate;
-    found = true;
-  }
-  if (!found) {
-    out.error = "backbone unsupported: promoted open row axis is missing";
-    return out;
-  }
-  out.value = axis;
-  out.ok = true;
-  return out;
-}
-
 bool is_promoted_open_continuation(const CoreState& state, const node& n, const link& a, const link& b) {
   if (!n.on_route || a.is_new == b.is_new) {
     return false;
@@ -1458,11 +1419,11 @@ void pipeline::retire_untouched(route* route) {
     add_id(route->touched_span_ids, span.id);
     if (span.arow < route->made.rows.size()) {
       add_id(route->touched_port_ids,
-             port_for_link(route->made.rows[span.arow], span.link, span.bundle, span.lane));
+             port_for_link(route->made.rows[span.arow], span.link, span.bundle, span.a_lane));
     }
     if (span.brow < route->made.rows.size()) {
       add_id(route->touched_port_ids,
-             port_for_link(route->made.rows[span.brow], span.link, span.bundle, span.lane));
+             port_for_link(route->made.rows[span.brow], span.link, span.bundle, span.b_lane));
     }
   }
   for (const link& edge : route->ps.links) {
@@ -1533,6 +1494,14 @@ void pipeline::retire_untouched(route* route) {
     state_.runtime_.relation_index.attachments_by_span.erase(span_id);
     CoreState::add_unique_id(route->change_set.deleted_ids, span_id);
   }
+  retired_ports.erase(
+      std::remove_if(retired_ports.begin(), retired_ports.end(), [&](ObjectId port_id) {
+        const auto spans_it = state_.runtime_.connection_index.spans_by_port.find(port_id);
+        return spans_it != state_.runtime_.connection_index.spans_by_port.end() &&
+               std::any_of(spans_it->second.begin(), spans_it->second.end(),
+                           [&](ObjectId span_id) { return !contains_id(retired_spans, span_id); });
+      }),
+      retired_ports.end());
   for (ObjectId port_id : retired_ports) {
     const Port* port = state_.authoritative_.edit_state.ports.find(port_id);
     if (port == nullptr) {
@@ -1543,13 +1512,7 @@ void pipeline::retire_untouched(route* route) {
     state_.authoritative_.edit_state.ports.remove(port_id);
     CoreState::add_unique_id(route->change_set.deleted_ids, port_id);
   }
-
   SavedBackboneGraph& graph = state_.authoritative_.backbone;
-  for (SavedBackboneEdgeBundle& item : graph.edge_bundles) {
-    if (contains_id(route->scope_edge_bundle_ids, item.edge_bundle_id)) {
-      erase_ids(item.span_ids, retired_spans);
-    }
-  }
   graph.span_bindings.erase(
       std::remove_if(graph.span_bindings.begin(), graph.span_bindings.end(),
                      [&](const SavedBackboneSpanBinding& binding) {
@@ -1581,13 +1544,11 @@ void pipeline::retire_untouched(route* route) {
     rebuilt.edge_bundle_by_edge_and_bundle[{item.edge_id, item.bundle_id}] = item.edge_bundle_id;
     rebuilt.edge_bundle_positions[item.edge_bundle_id] = position;
     CoreState::index_add(rebuilt.bundle_edge, item.bundle_id, item.edge_id);
-    for (ObjectId span_id : item.span_ids) {
-      CoreState::index_add(rebuilt.edge_bundle_spans, item.edge_bundle_id, span_id);
-      rebuilt.span_edge_bundle[span_id] = item.edge_bundle_id;
-    }
   }
   for (std::size_t i = 0; i < graph.span_bindings.size(); ++i) {
     const SavedBackboneSpanBinding& binding = graph.span_bindings[i];
+    CoreState::index_add(rebuilt.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
+    rebuilt.span_edge_bundle[binding.span_id] = binding.edge_bundle_id;
     rebuilt.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
     rebuilt.span_bindings_by_span[binding.span_id].push_back(i);
   }
@@ -1890,7 +1851,7 @@ EditResult<bool> pipeline::prepare() {
           continue;
         }
         if (saved == nullptr || saved->pole_id != kInvalidObjectId || saved->support_kind != n.support) {
-          out.error = "backbone unsupported: unknown node reference";
+          out.error = "backbone state conflict: unknown node reference";
           return out;
         }
       }
@@ -1915,7 +1876,7 @@ EditResult<bool> pipeline::prepare() {
       }
       const Pole* pole = state_.view().poles().find(pole_id);
       if (pole == nullptr) {
-        out.error = "backbone unsupported: unknown node reference";
+        out.error = "backbone state conflict: unknown node reference";
         return out;
       }
       n.pole = pole->id;
@@ -2325,20 +2286,10 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       }
       const bool promoted_pair = is_promoted_open_continuation(state_, n, a, b);
       const bool canonical_saved_pair = is_saved_pair_continuation(state_, n, a, b) || promoted_pair;
-      Vec3d row_axis{};
-      if (promoted_pair) {
-        const link& existing_edge = a.is_new ? b : a;
-        EditResult<Vec3d> existing_axis = saved_open_row_axis_for_edge(state_, n.saved, existing_edge.saved);
-        if (!existing_axis.ok) {
-          return unsupported_pairs(existing_axis.error);
-        }
-        row_axis = existing_axis.value;
-      } else {
-        const Vec3d pair_axis = canonical_saved_pair
-                                    ? canonical_pair_axis(out.value.links[left], out.value.links[matched], n.id)
-                                    : out.value.links[left].dir + out.value.links[matched].dir;
-        row_axis = ComputeLateralAxis(pair_axis);
-      }
+      const Vec3d pair_axis = canonical_saved_pair
+                                  ? canonical_pair_axis(out.value.links[left], out.value.links[matched], n.id)
+                                  : out.value.links[left].dir + out.value.links[matched].dir;
+      Vec3d row_axis = ComputeLateralAxis(pair_axis);
       if (!NormalizeXY(&row_axis)) {
         return unsupported_pairs("zero length pair tangent sum");
       }
@@ -2584,6 +2535,9 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
       const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
       const Bundle* bundle = edge_bundle == nullptr ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
       if (bundle == nullptr || bundle->bundle_template_id != spec.bundle_template_id) {
+        continue;
+      }
+      if (spec.source_bundle_id != kInvalidObjectId && bundle->id != spec.source_bundle_id) {
         continue;
       }
       if (spec.placement_key != 0 && bundle->placement_key != 0 &&
@@ -2880,7 +2834,8 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       if (!NormalizeXY(&away)) {
         continue;
       }
-      angle = std::min(angle, std::atan2(away.y, away.x));
+      const double angle_deg = std::atan2(away.y, away.x) * kRadiansToDegrees;
+      angle = std::min(angle, angle_deg);
     }
     return std::isfinite(angle) ? angle : 0.0;
   };
@@ -3125,7 +3080,7 @@ EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const 
   return out;
 }
 
-EditResult<topo> pipeline::emit(const pairs& ps, const intent& intents) {
+EditResult<topo> pipeline::emit(const pairs& ps, const groups& placement) {
   EditResult<topo> out{};
   topo made{};
   auto step = [&](EditResult<bool> result) -> bool {
@@ -3136,7 +3091,8 @@ EditResult<topo> pipeline::emit(const pairs& ps, const intent& intents) {
     return true;
   };
   if (!step(emit_poles(&made, ps, &out.change_set)) || !step(emit_bundles(&made, &out.change_set)) ||
-      !step(emit_ports(&made, ps, &out.change_set)) || !step(emit_spans(&made, ps, &out.change_set))) {
+      !step(emit_ports(&made, ps, placement, &out.change_set)) ||
+      !step(emit_spans(&made, ps, &out.change_set))) {
     return out;
   }
   out.value = std::move(made);
@@ -3283,7 +3239,9 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
   return out;
 }
 
-EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes) {
+EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
+                                      const groups& placement,
+                                      ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
     out.error = "backbone internal: backbone topology: output missing";
@@ -3312,8 +3270,6 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       active_rows[edge.brow] = true;
     }
   }
-  const std::vector<Vec3d> row_offsets = row_height_offsets(ps);
-  stable_row_slot_plan row_slot_plan{state_};
   made->rows.resize(ps.rows.size());
   for (const row& r : ps.rows) {
     if (r.node >= made->poles.size() || r.node >= g_.nodes.size()) {
@@ -3392,10 +3348,16 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
                                spec_.bundles[spec_index].placement_key,
                                PortKindForCategory(v.value.tmpl->category),
                                PortLayerForSpanLayer(v.value.layer), band.band_id};
-        const bool allow_branch_height_offset =
-            AllowsBranchHeightOffset(bundle_spec, *v.value.tmpl);
-        const Vec3d row_offset =
-            (!allow_branch_height_offset || r.id >= row_offsets.size()) ? Vec3d{} : row_offsets[r.id];
+        const double lane_offset =
+            uses_lane_bands
+                ? 0.0
+                : LaneOffset(static_cast<std::size_t>(lane), v.value.count,
+                             v.value.spacing_m);
+        PortPlacementBand placement_band = band;
+        if (bundle_spec.placement_explicit) {
+          placement_band.height_center_m = bundle_spec.height_m;
+          placement_band.lateral_center_m = bundle_spec.lateral_m;
+        }
         Vec3d p{};
         if (ownerless) {
           if (g_.nodes[r.node].has_source_edge) {
@@ -3415,72 +3377,22 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             out.error = "backbone internal: backbone topology: row pole missing";
             return out;
           }
-          const double lane_offset = uses_lane_bands
-                                         ? 0.0
-                                         : LaneOffset(static_cast<std::size_t>(lane), v.value.count,
-                                                      v.value.spacing_m);
-          PortPlacementBand placement_band = band;
-          if (bundle_spec.placement_explicit) {
-            placement_band.height_center_m = bundle_spec.height_m;
-            placement_band.lateral_center_m = bundle_spec.lateral_m;
-          }
           p = PortWorldPosition(*pole, r.axis, placement_band, lane_offset,
-                                spec_.constraints.lateral_offset_m, row_offset);
+                                spec_.constraints.lateral_offset_m, Vec3d{});
         }
         ObjectId planned_port = kInvalidObjectId;
-        for (const PromotionPlanEntry& entry : promotion_plan_) {
+        PromotionPlanEntry* planned_entry = nullptr;
+        for (PromotionPlanEntry& entry : promotion_plan_) {
           if (entry.row == r.id && entry.spec_index == spec_index &&
               entry.lane_index == static_cast<std::size_t>(lane)) {
             planned_port = entry.port_id;
+            planned_entry = &entry;
             break;
           }
         }
-        bool has_existing_endpoint = planned_port != kInvalidObjectId;
-        if (!has_existing_endpoint) {
-          for (const trow::endpoint& endpoint : tr.endpoints) {
-            const link* endpoint_link =
-                endpoint.link < ps.links.size() ? &ps.links[endpoint.link] : nullptr;
-            const ObjectId edge_bundle_id =
-                endpoint_link == nullptr
-                    ? kInvalidObjectId
-                    : edge_bundle_for(state_, g_, *endpoint_link,
-                                      made->bundles[bundle_index]);
-            const SavedBackboneRowKey row_key =
-                key_for_link(tr, endpoint.link, node_id_by_local, edge_by_link);
-            const EditResult<ObjectId> existing =
-                resolve_port_binding(state_, tr.pole, edge_bundle_id, row_key,
-                                     static_cast<std::size_t>(lane), scope);
-            if (!existing.ok) {
-              out.error = existing.error;
-              return out;
-            }
-            has_existing_endpoint =
-                has_existing_endpoint ||
-                existing.value != kInvalidObjectId;
-          }
-        }
-        if (!ownerless && !has_existing_endpoint) {
-          const Pole* pole = state_.authoritative_.edit_state.poles.find(tr.pole);
-          if (pole == nullptr) {
-            out.error = "backbone internal: backbone topology: row pole missing";
-            return out;
-          }
-          const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
-          Vec3d local = WorldPointToLocal(frame, p);
-          if (allow_branch_height_offset) {
-            local.z = row_slot_plan.height_for(r.id, made->bundles[bundle_index], tr.pole,
-                                               scope.bundle, scope.placement_key,
-                                               scope.placement_band_id, local.z);
-          }
-          p = LocalPointToWorld(frame, local);
-        }
-        if (planned_port != kInvalidObjectId) {
-          const Port* existing = state_.view().ports().find(planned_port);
-          if (existing == nullptr) {
-            out.error = "backbone internal: backbone topology: promoted port missing";
-            return out;
-          }
-          p = existing->world_position;
+        if (planned_entry != nullptr) {
+          planned_entry->resolved_world_position = p;
+          planned_entry->frame_resolved = true;
         }
         for (trow::endpoint& endpoint : tr.endpoints) {
           const link* endpoint_link =
@@ -3516,6 +3428,56 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
               out.error = "backbone internal: backbone topology: resolved port missing";
               return out;
             }
+            const SavedBackbonePortBinding* exact_binding = nullptr;
+            if (write_row_continuity_ && !promoted_endpoint) {
+              for (const SavedBackbonePortBinding* candidate :
+                   state_.view().backbone_port_bindings_for_row(
+                       row_key, static_cast<std::size_t>(lane))) {
+                if (candidate == nullptr ||
+                    candidate->edge_bundle_id != edge_bundle_id ||
+                    candidate->port_id != existing_port->id) {
+                  continue;
+                }
+                if (exact_binding != nullptr) {
+                  out.error =
+                      "backbone unsupported: canonical row frame binding is ambiguous";
+                  return out;
+                }
+                exact_binding = candidate;
+              }
+              if (exact_binding == nullptr) {
+                out.error =
+                    "backbone internal: canonical row frame binding is missing";
+                return out;
+              }
+            }
+            const bool saved_connected =
+                exact_binding != nullptr &&
+                binding_is_connected(state_, *exact_binding);
+            Vec3d resolved_row_axis = r.axis;
+            if (saved_connected) {
+              const EditResult<EndpointRowRepresentation> representation =
+                  DeriveEndpointRowRepresentation(state_, *exact_binding);
+              if (!representation.ok) {
+                out.error = representation.error;
+                return out;
+              }
+              resolved_row_axis = representation.value.row_axis;
+              if (!ownerless) {
+                const Pole* pole =
+                    state_.authoritative_.edit_state.poles.find(tr.pole);
+                if (pole == nullptr) {
+                  out.error =
+                      "backbone internal: backbone topology: row pole missing";
+                  return out;
+                }
+                p = PortWorldPosition(
+                    *pole, resolved_row_axis, placement_band, lane_offset,
+                    spec_.constraints.lateral_offset_m, Vec3d{});
+              }
+            }
+            const double layout_yaw_deg =
+                PortLayoutYawDeg(resolved_row_axis);
             const bool moved = moved_more_than_epsilon(existing_port->world_position, p);
             bool height_reflow_required = moved;
             if (!ownerless) {
@@ -3524,25 +3486,39 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
                 out.error = "backbone internal: backbone topology: row pole missing";
                 return out;
               }
-              const PoleFrame frame = BuildPoleFrame(pole->world_transform, PortLayoutYawDeg(r.axis));
+              const PoleFrame frame = BuildPoleFrame(pole->world_transform, layout_yaw_deg);
               height_reflow_required =
                   std::abs(WorldPointToLocal(frame, existing_port->world_position).z -
                            WorldPointToLocal(frame, p).z) > kLengthToleranceM;
             }
-            if (!promoted_endpoint && moved &&
+            if (write_row_continuity_ && !promoted_endpoint && moved &&
                 (existing_port->position_mode == PortPositionMode::kManual ||
                  existing_port->user_edited_position) &&
                 height_reflow_required) {
               out.error = "backbone unsupported: canonical row reflow requires moving manual ports";
               return out;
             }
-            if (!promoted_endpoint && moved &&
+            if (write_row_continuity_ && !promoted_endpoint &&
                 existing_port->position_mode != PortPositionMode::kManual &&
                 !existing_port->user_edited_position) {
-              existing_port->world_position = p;
+              const int support_level = exact_binding->support_level;
+              const int support_group_id = exact_binding->support_group_id;
+              EditResult<bool> frame_updated =
+                  state_.update_backbone_port_binding_frame_exact(
+                      edge_bundle_id, row_key, static_cast<std::size_t>(lane),
+                      layout_yaw_deg, support_level, support_group_id,
+                      existing_port->id, p);
+              if (!frame_updated.ok) {
+                out.error = frame_updated.error;
+                return out;
+              }
               ApplyPortBandTemplateFields(existing_port, band);
-              CoreState::add_unique_id(changes->updated_ids, existing_port->id);
-              state_.touch_connected_spans_from_port(existing_port->id, changes);
+              if (frame_updated.value) {
+                CoreState::add_unique_id(changes->updated_ids,
+                                         existing_port->id);
+                state_.touch_connected_spans_from_port(existing_port->id,
+                                                       changes);
+              }
             }
             endpoint.ports[bundle_index].push_back(resolved.value);
             continue;
@@ -3563,6 +3539,155 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           endpoint.ports[bundle_index].push_back(port.value);
         }
       }
+    }
+  }
+
+  auto support_for = [&](std::size_t row_index, std::size_t bundle_index) {
+    for (const group& item : placement.items) {
+      if (std::any_of(item.row_members.begin(), item.row_members.end(),
+                      [&](const group_member& member) {
+                        return member.row == row_index && member.bundle == bundle_index;
+                      })) {
+        return std::pair<int, int>{item.vertical_order,
+                                   static_cast<int>(item.id)};
+      }
+    }
+    return std::pair<int, int>{0, -1};
+  };
+  auto bundle_index_for_spec = [&](std::size_t spec_index) {
+    for (std::size_t bundle_index = 0; bundle_index < made->bundle_specs.size();
+         ++bundle_index) {
+      if (made->bundle_specs[bundle_index] == spec_index) {
+        return bundle_index;
+      }
+    }
+    return bad;
+  };
+  for (const PromotionPlanEntry& entry : promotion_plan_) {
+    if (entry.row >= made->rows.size()) {
+      out.error = "backbone internal: promoted binding row missing";
+      return out;
+    }
+    const std::size_t bundle_index = bundle_index_for_spec(entry.spec_index);
+    if (bundle_index == bad) {
+      out.error = "backbone internal: promoted binding bundle missing";
+      return out;
+    }
+    if (!entry.frame_resolved) {
+      out.error = "backbone internal: promoted binding frame is missing";
+      return out;
+    }
+    const double layout_yaw_deg = PortLayoutYawDeg(made->rows[entry.row].axis);
+    const auto [support_level, support_group_id] =
+        support_for(entry.row, bundle_index);
+    EditResult<bool> promoted =
+        state_.update_backbone_port_binding_frame_exact(
+            entry.existing_edge_bundle_id, entry.row_key,
+            entry.lane_index, layout_yaw_deg,
+            support_level, support_group_id, entry.port_id,
+            entry.resolved_world_position);
+    if (!promoted.ok) {
+      out.error = promoted.error;
+      return out;
+    }
+    if (promoted.value) {
+      CoreState::add_unique_id(changes->updated_ids, entry.port_id);
+      state_.touch_connected_spans_from_port(entry.port_id, changes);
+    }
+  }
+
+  for (const PromotionPlanEntry& entry : promotion_plan_) {
+    if (entry.lane_index != 0) {
+      continue;
+    }
+    const auto bundle_it = std::find(made->bundle_specs.begin(),
+                                     made->bundle_specs.end(), entry.spec_index);
+    if (bundle_it == made->bundle_specs.end()) {
+      out.error = "backbone internal: promoted binding bundle missing";
+      return out;
+    }
+    const std::size_t bundle_index = static_cast<std::size_t>(
+        std::distance(made->bundle_specs.begin(), bundle_it));
+    const EditResult<spec_view> v =
+        view_for(state_, spec_.bundles[entry.spec_index]);
+    if (!v.ok) {
+      out.error = v.error;
+      return out;
+    }
+    if (v.value.count < 2 || v.value.tmpl->preserve_conductor_identity ||
+        v.value.tmpl->order_decision_policy !=
+            OrderDecisionPolicyKind::kPermutableHomogeneous) {
+      continue;
+    }
+
+    const link* context = nullptr;
+    for (const link& edge : ps.links) {
+      if (edge.is_new ||
+          (edge.arow != entry.row && edge.brow != entry.row) ||
+          edge_bundle_for(state_, g_, edge, made->bundles[bundle_index]) !=
+              entry.existing_edge_bundle_id) {
+        continue;
+      }
+      if (context != nullptr) {
+        out.error = "backbone unsupported: promoted row context is ambiguous";
+        return out;
+      }
+      context = &edge;
+    }
+    if (context == nullptr) {
+      out.error = "backbone internal: promoted row context is missing";
+      return out;
+    }
+
+    const auto* row_ports = ports_for_link(made->rows[entry.row], context->id);
+    if (row_ports == nullptr || bundle_index >= row_ports->size() ||
+        (*row_ports)[bundle_index].size() !=
+            static_cast<std::size_t>(v.value.count)) {
+      out.error = "backbone internal: promoted row lane input is missing";
+      return out;
+    }
+    const std::size_t far_row =
+        entry.row == context->arow ? context->brow : context->arow;
+    if (far_row >= made->rows.size()) {
+      out.error = "backbone internal: promoted row far context is missing";
+      return out;
+    }
+    const SavedBackboneRowKey far_key = key_for_link(
+        made->rows[far_row], context->id, node_id_by_local, edge_by_link);
+    if (far_key.node_id == kInvalidObjectId ||
+        far_key.edge_id == kInvalidObjectId) {
+      out.error = "backbone internal: promoted row far identity is missing";
+      return out;
+    }
+    const EditResult<Vec3d> far_direction = bound_row_direction(
+        state_, entry.existing_edge_bundle_id, far_key,
+        static_cast<std::size_t>(v.value.count));
+    const Port* promoted_first =
+        state_.view().ports().find((*row_ports)[bundle_index].front());
+    const Port* promoted_last =
+        state_.view().ports().find((*row_ports)[bundle_index].back());
+    if (!far_direction.ok || promoted_first == nullptr ||
+        promoted_last == nullptr) {
+      out.error = far_direction.ok
+                      ? "backbone internal: promoted row direction is missing"
+                      : far_direction.error;
+      return out;
+    }
+    const EditResult<bool> mirror = PermutableLaneMirror(
+        far_direction.value,
+        promoted_last->world_position - promoted_first->world_position);
+    if (!mirror.ok) {
+      out.error = mirror.error;
+      return out;
+    }
+    if (mirror.value) {
+      EditResult<bool> reversed = state_.reverse_backbone_row_lanes(
+          entry.existing_edge_bundle_id, entry.row_key);
+      if (!reversed.ok) {
+        out.error = reversed.error;
+        return out;
+      }
+      add(*changes, reversed.change_set);
     }
   }
 
@@ -3596,13 +3721,30 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         out.error = v.error;
         return out;
       }
+      bool mirror_b = false;
+      if (!v.value.tmpl->preserve_conductor_identity &&
+          v.value.tmpl->order_decision_policy ==
+              OrderDecisionPolicyKind::kPermutableHomogeneous) {
+        const EditResult<bool> mirror = mirror_permutable_row_endpoints(
+            state_, made->rows[edge.arow], made->rows[edge.brow], edge.id,
+            bundle_index, static_cast<std::size_t>(v.value.count));
+        if (!mirror.ok) {
+          out.error = mirror.error;
+          return out;
+        }
+        mirror_b = mirror.value;
+      }
       for (int lane = 0; lane < v.value.count; ++lane) {
+        const std::size_t lane_a = static_cast<std::size_t>(lane);
+        const std::size_t lane_b = mirror_b
+                                       ? static_cast<std::size_t>(v.value.count - 1 - lane)
+                                       : lane_a;
         const ObjectId port_a =
             port_for_link(made->rows[edge.arow], edge.id, bundle_index,
-                          static_cast<std::size_t>(lane));
+                          lane_a);
         const ObjectId port_b =
             port_for_link(made->rows[edge.brow], edge.id, bundle_index,
-                          static_cast<std::size_t>(lane));
+                          lane_b);
         if (port_a == kInvalidObjectId || port_b == kInvalidObjectId) {
           out.error = "backbone internal: backbone topology: span port missing";
           return out;
@@ -3611,8 +3753,52 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         const ObjectId existing_span_id = existing_span_for_lane(state_, existing_edge_bundle_id,
                                                                  static_cast<std::size_t>(lane));
         if (existing_span_id != kInvalidObjectId) {
-          made->spans.push_back(tspan{existing_span_id, edge.id, bundle_index, static_cast<std::size_t>(lane),
-                                      edge.arow, edge.brow, false});
+          Span* existing_span = state_.authoritative_.edit_state.spans.find(existing_span_id);
+          if (existing_span == nullptr) {
+            out.error = "backbone internal: backbone topology: existing span is missing";
+            return out;
+          }
+          if (!write_row_continuity_) {
+            std::size_t span_arow = edge.arow;
+            std::size_t span_brow = edge.brow;
+            std::size_t span_a_lane = lane_a;
+            std::size_t span_b_lane = lane_b;
+            if (existing_span->port_a_id == port_b &&
+                existing_span->port_b_id == port_a) {
+              std::swap(span_arow, span_brow);
+              std::swap(span_a_lane, span_b_lane);
+            } else if (existing_span->port_a_id != port_a ||
+                       existing_span->port_b_id != port_b) {
+              out.error =
+                  "backbone internal: authoritative deserialization: saved "
+                  "span endpoints do not match either route direction";
+              return out;
+            }
+            made->spans.push_back(
+                tspan{existing_span_id, edge.id, bundle_index,
+                      static_cast<std::size_t>(lane), span_a_lane, span_b_lane,
+                      span_arow, span_brow,
+                      false});
+            continue;
+          }
+          if (existing_span->port_a_id != port_a || existing_span->port_b_id != port_b) {
+            const Span before = *existing_span;
+            state_.remove_span_from_indexes(before);
+            existing_span->port_a_id = port_a;
+            existing_span->port_b_id = port_b;
+            state_.add_span_to_index(*existing_span);
+            state_.touch_span(existing_span_id, true);
+            CoreState::add_unique_id(changes->updated_ids, existing_span_id);
+          }
+          EditResult<bool> endpoints = state_.set_span_endpoint_nodes(
+              existing_span_id, made->rows[edge.arow].pole, made->rows[edge.brow].pole);
+          if (!endpoints.ok) {
+            out.error = endpoints.error;
+            return out;
+          }
+          made->spans.push_back(tspan{existing_span_id, edge.id, bundle_index,
+                                      static_cast<std::size_t>(lane), lane_a,
+                                      lane_b, edge.arow, edge.brow, false});
           continue;
         }
         EditResult<ObjectId> span = state_.AddSpan(
@@ -3631,7 +3817,9 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         }
         add(*changes, span.change_set);
         made->spans.push_back(
-            tspan{span.value, edge.id, bundle_index, static_cast<std::size_t>(lane), edge.arow, edge.brow, true});
+            tspan{span.value, edge.id, bundle_index,
+                  static_cast<std::size_t>(lane), lane_a, lane_b, edge.arow,
+                  edge.brow, true});
       }
     }
   }
@@ -3685,6 +3873,13 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         out.error = indexed.error;
         return out;
       }
+    }
+  }
+  saved_node_by_input_.assign(local_by_input_.size(), kInvalidObjectId);
+  for (std::size_t input_index = 0; input_index < local_by_input_.size(); ++input_index) {
+    const std::size_t local = local_by_input_[input_index];
+    if (local < node_id_by_local.size()) {
+      saved_node_by_input_[input_index] = node_id_by_local[local];
     }
   }
 
@@ -3767,16 +3962,20 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     if (bound_port_id == kInvalidObjectId) {
       return false;
     }
+    std::size_t span_binding_count = 0;
+    bool endpoint_matches = false;
     for (const SavedBackboneSpanBinding& binding : state_.view().backbone().span_bindings) {
       if (binding.edge_bundle_id != edge_bundle_id || binding.lane_index != lane) {
         continue;
       }
+      ++span_binding_count;
       const Span* span = state_.view().spans().find(binding.span_id);
-      if (span != nullptr && (span->port_a_id == bound_port_id || span->port_b_id == bound_port_id)) {
-        return true;
-      }
+      endpoint_matches =
+          span != nullptr &&
+          (span->port_a_id == bound_port_id ||
+           span->port_b_id == bound_port_id);
     }
-    return false;
+    return span_binding_count == 1 && endpoint_matches;
   };
   auto edge_bundle_incident_to_node = [&](ObjectId edge_bundle_id, ObjectId node_id) {
     const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
@@ -3796,41 +3995,6 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
     return std::pair<int, int>{0, -1};
   };
-  auto bundle_index_for_spec = [&](std::size_t spec_index) {
-    for (std::size_t bundle_index = 0; bundle_index < made.bundle_specs.size();
-         ++bundle_index) {
-      if (made.bundle_specs[bundle_index] == spec_index) {
-        return bundle_index;
-      }
-    }
-    return bad;
-  };
-  for (const PromotionPlanEntry& entry : promotion_plan_) {
-    if (entry.row >= made.rows.size()) {
-      out.error = "backbone internal: promoted binding row missing";
-      return out;
-    }
-    const std::size_t bundle_index = bundle_index_for_spec(entry.spec_index);
-    if (bundle_index == bad) {
-      out.error = "backbone internal: promoted binding bundle missing";
-      return out;
-    }
-    const double layout_yaw_deg = PortLayoutYawDeg(made.rows[entry.row].axis);
-    const auto [support_level, support_group_id] =
-        support_for(entry.row, bundle_index);
-    EditResult<bool> promoted =
-        state_.update_backbone_port_binding_layout_exact(
-            entry.existing_edge_bundle_id, entry.row_key,
-            entry.lane_index, layout_yaw_deg,
-            support_level, support_group_id, entry.port_id);
-    if (!promoted.ok) {
-      out.error = promoted.error;
-      return out;
-    }
-    if (promoted.value) {
-      state_.touch_connected_spans_from_port(entry.port_id, changes);
-    }
-  }
   for (const tspan& span : made.spans) {
     if (!span.is_new) {
       continue;
@@ -3856,7 +4020,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
       out.error = span_bound.error;
       return out;
     }
-    auto bind_port = [&](std::size_t row_index) -> bool {
+    auto bind_port = [&](std::size_t row_index,
+                         std::size_t physical_lane) -> bool {
       if (row_index >= made.rows.size()) {
         out.error = "backbone internal: backbone graph: port binding row missing";
         return false;
@@ -3870,7 +4035,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         return false;
       }
       const ObjectId port_id =
-          port_for_link(made.rows[row_index], span.link, span.bundle, span.lane);
+          port_for_link(made.rows[row_index], span.link, span.bundle,
+                        physical_lane);
       const Port* port = state_.view().ports().find(port_id);
       if (port == nullptr) {
         out.error = "backbone internal: backbone graph: port missing for binding";
@@ -3878,8 +4044,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
       }
       const int placement_band_id =
           span.bundle < made.rows[row_index].placement_band_ids.size() &&
-                  span.lane < made.rows[row_index].placement_band_ids[span.bundle].size()
-              ? made.rows[row_index].placement_band_ids[span.bundle][span.lane]
+                  physical_lane < made.rows[row_index].placement_band_ids[span.bundle].size()
+              ? made.rows[row_index].placement_band_ids[span.bundle][physical_lane]
               : 0;
       const double layout_yaw_deg = PortLayoutYawDeg(made.rows[row_index].axis);
       const auto [support_level, support_group_id] =
@@ -3895,35 +4061,47 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
       }
       return true;
     };
-    if (!bind_port(span.arow) || !bind_port(span.brow)) {
+    if (!bind_port(span.arow, span.a_lane) ||
+        !bind_port(span.brow, span.b_lane)) {
       return out;
     }
   }
 
   auto bind_continuity_lane =
       [&](ObjectId node_id, std::size_t link_a, std::size_t link_b,
-          std::size_t bundle_index, std::size_t lane) {
+          std::size_t bundle_index, std::size_t lane_a,
+          std::size_t lane_b) {
         const ObjectId edge_bundle_a =
             refresh_edge_bundle_by_link_bundle(link_a, bundle_index);
         const ObjectId edge_bundle_b =
             refresh_edge_bundle_by_link_bundle(link_b, bundle_index);
         if (edge_bundle_a == kInvalidObjectId ||
             edge_bundle_b == kInvalidObjectId ||
-            edge_bundle_a == edge_bundle_b ||
-            !edge_bundle_incident_to_node(edge_bundle_a, node_id) ||
-            !edge_bundle_incident_to_node(edge_bundle_b, node_id) ||
+            edge_bundle_a == edge_bundle_b) {
+          out.error =
+              "backbone internal: row continuity target edge bundle relation is missing";
+          return false;
+        }
+        if (!edge_bundle_incident_to_node(edge_bundle_a, node_id) ||
+            !edge_bundle_incident_to_node(edge_bundle_b, node_id)) {
+          out.error =
+              "backbone internal: row continuity edge bundle is not incident to its node";
+          return false;
+        }
+        if (edge_bundle_lane_port_binding_count_at_node(
+                edge_bundle_a, lane_a, node_id) != 1 ||
             edge_bundle_lane_port_binding_count_at_node(
-                edge_bundle_a, lane, node_id) != 1 ||
-            edge_bundle_lane_port_binding_count_at_node(
-                edge_bundle_b, lane, node_id) != 1 ||
+                edge_bundle_b, lane_b, node_id) != 1 ||
             !edge_bundle_lane_binding_matches_span_at_node(
-                edge_bundle_a, lane, node_id) ||
+                edge_bundle_a, lane_a, node_id) ||
             !edge_bundle_lane_binding_matches_span_at_node(
-                edge_bundle_b, lane, node_id)) {
-          return true;
+                edge_bundle_b, lane_b, node_id)) {
+          out.error =
+              "backbone internal: row continuity lane relation is incomplete";
+          return false;
         }
         EditResult<bool> continuity = state_.bind_backbone_row_continuity(
-            node_id, edge_bundle_a, lane, edge_bundle_b, lane);
+            node_id, edge_bundle_a, lane_a, edge_bundle_b, lane_b);
         if (!continuity.ok) {
           out.error = continuity.error;
           return false;
@@ -3956,11 +4134,22 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         const auto* row_ports =
             row.endpoints.empty() ? nullptr : &row.endpoints.front().ports;
         if (row_ports == nullptr || bundle_index >= row_ports->size()) {
-          continue;
+          out.error =
+              "backbone internal: row continuity lane input is missing";
+          return out;
         }
+        const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
+            state_, node_id, left_edge_bundle_id, right_edge_bundle_id);
+        if (!mirror.ok) {
+          out.error = mirror.error;
+          return out;
+        }
+        const std::size_t lane_count = (*row_ports)[bundle_index].size();
         for (std::size_t lane = 0; lane < (*row_ports)[bundle_index].size(); ++lane) {
+          const std::size_t right_lane =
+              mirror.value ? lane_count - 1 - lane : lane;
           if (!bind_continuity_lane(node_id, joined.left, joined.right,
-                                    bundle_index, lane)) {
+                                    bundle_index, lane, right_lane)) {
             return out;
           }
         }
@@ -3995,11 +4184,30 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         if (bundle == nullptr) {
           continue;
         }
+        const ObjectId edge_bundle_a =
+            refresh_edge_bundle_by_link_bundle(link_a, bundle_index);
+        const ObjectId edge_bundle_b =
+            refresh_edge_bundle_by_link_bundle(link_b, bundle_index);
+        if (edge_bundle_a == kInvalidObjectId ||
+            edge_bundle_b == kInvalidObjectId ||
+            edge_bundle_a == edge_bundle_b) {
+          continue;
+        }
+        const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
+            state_, node_id, edge_bundle_a, edge_bundle_b);
+        if (!mirror.ok) {
+          out.error = mirror.error;
+          return out;
+        }
+        const std::size_t lane_count =
+            static_cast<std::size_t>(bundle->conductor_count);
         for (std::size_t lane = 0;
-             lane < static_cast<std::size_t>(bundle->conductor_count);
+             lane < lane_count;
              ++lane) {
+          const std::size_t right_lane =
+              mirror.value ? lane_count - 1 - lane : lane;
           if (!bind_continuity_lane(node_id, link_a, link_b, bundle_index,
-                                    lane)) {
+                                    lane, right_lane)) {
             return out;
           }
         }
@@ -4035,7 +4243,9 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
     rule.pass_mode = CurvePassMode::kPassThrough;
     auto endpoint = [&](const trow& row, ObjectId port_id) {
       EndpointLayoutRule e{};
-      e.endpoint_node_id = row.pole;
+      const bool ownerless =
+          row.node < g_.nodes.size() && ownerless_support(g_.nodes[row.node].support);
+      e.endpoint_node_id = ownerless ? g_.nodes[row.node].saved : row.pole;
       e.port_id = port_id;
       e.semantic.owner_pole_id = row.pole;
       e.flow_kind = BackboneFlowKind::kMain;
@@ -4052,9 +4262,9 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       return e;
     };
     rule.start = endpoint(
-        arow, port_for_link(arow, span.link, span.bundle, span.lane));
+        arow, port_for_link(arow, span.link, span.bundle, span.a_lane));
     rule.end = endpoint(
-        brow, port_for_link(brow, span.link, span.bundle, span.lane));
+        brow, port_for_link(brow, span.link, span.bundle, span.b_lane));
     const Span* state_span = state_.view().spans().find(span.id);
     auto apply_group = [&](const group* source, EndpointLayoutRule* endpoint) {
       if (source == nullptr || endpoint == nullptr) {

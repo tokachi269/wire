@@ -9,7 +9,6 @@ namespace city::wire {
 
 namespace {
 
-constexpr double kNormalizedCatenarySteepness = 3.4;
 constexpr double kG2MinChordLengthM = 4.0;
 constexpr double kG2EndpointOffsetRatioLimit = 0.08;
 constexpr double kG2EndpointOffsetMetersLimit = 0.45;
@@ -214,17 +213,13 @@ Vec3d ResolveEndpointPoint(const CurveConstraint& constraint) {
 }
 
 double SagShape(double u) {
-  const double x = Clamp01(u) - 0.5;
-  const double edge = std::cosh(kNormalizedCatenarySteepness * 0.5);
-  const double denom = std::max(kLengthToleranceM, edge - 1.0);
-  return std::max(0.0, (edge - std::cosh(kNormalizedCatenarySteepness * x)) / denom);
+  const double t = Clamp01(u);
+  return 4.0 * t * (1.0 - t);
 }
 
 double SagShapeDerivative(double u) {
-  const double x = Clamp01(u) - 0.5;
-  const double edge = std::cosh(kNormalizedCatenarySteepness * 0.5);
-  const double denom = std::max(kLengthToleranceM, edge - 1.0);
-  return (-kNormalizedCatenarySteepness * std::sinh(kNormalizedCatenarySteepness * x)) / denom;
+  const double t = Clamp01(u);
+  return 4.0 * (1.0 - 2.0 * t);
 }
 
 Vec3d EvaluateBezier(const std::array<Vec3d, 4>& cp, double u) {
@@ -825,52 +820,12 @@ ContinuityDecision DecideContinuity(const CurveConstraint& start_constraint, con
 }
 
 double ComputeSagAmplitudeM(const CurveConstraint& start_constraint, const CurveConstraint& end_constraint, double chord_length,
-                            const CurveShapePolicyDecision& shape_policy, double* out_base_ratio,
-                            double* out_length_scale, double* out_pass_scale, double* out_rigidity_scale) {
-  const double base_ratio = std::max(0.0, start_constraint.sag_hint + end_constraint.sag_hint + start_constraint.slack_hint +
-                                              end_constraint.slack_hint);
-  const double length_scale = 0.82 + 0.40 * SmoothStep(6.0, 32.0, chord_length);
-  double pass_scale = 1.0;
-  switch (shape_policy.kind) {
-  case CurveShapePolicyKind::kBranchPass:
-    pass_scale = 0.72;
-    break;
-  case CurveShapePolicyKind::kTerminate:
-    pass_scale = 0.78;
-    break;
-  case CurveShapePolicyKind::kSmoothPass:
-    pass_scale = 1.14;
-    break;
-  case CurveShapePolicyKind::kNearStraight:
-    pass_scale = 1.05;
-    break;
-  case CurveShapePolicyKind::kViaAttachment:
-    pass_scale = 0.92;
-    break;
-  case CurveShapePolicyKind::kSharpCorner:
-    pass_scale = 0.86;
-    break;
-  default:
-    pass_scale = 1.0;
-    break;
-  }
-  const double avg_stiffness =
-      0.5 * (std::clamp(start_constraint.bend_stiffness_hint, 0.25, 3.0) + std::clamp(end_constraint.bend_stiffness_hint, 0.25, 3.0));
-  const double rigidity_scale = std::clamp(1.16 - 0.14 * avg_stiffness, 0.72, 1.12);
-
+                            double* out_base_ratio) {
+  const double base_ratio = std::max(0.0, start_constraint.sag_hint + end_constraint.sag_hint);
   if (out_base_ratio != nullptr) {
     *out_base_ratio = base_ratio;
   }
-  if (out_length_scale != nullptr) {
-    *out_length_scale = length_scale;
-  }
-  if (out_pass_scale != nullptr) {
-    *out_pass_scale = pass_scale;
-  }
-  if (out_rigidity_scale != nullptr) {
-    *out_rigidity_scale = rigidity_scale;
-  }
-  return chord_length * base_ratio * length_scale * pass_scale * rigidity_scale;
+  return chord_length * base_ratio;
 }
 
 void PopulateLengthData(DetailCurve* curve) {
@@ -1004,8 +959,7 @@ DetailCurve BuildDetailCurve(const CurveConstraint& start_constraint, const Curv
   double sag_pass_scale = 1.0;
   double sag_rigidity_scale = 1.0;
   const double sag_amplitude_m =
-      ComputeSagAmplitudeM(start_constraint, end_constraint, chord_length, shape_policy, &sag_base_ratio,
-                           &sag_length_scale, &sag_pass_scale, &sag_rigidity_scale);
+      ComputeSagAmplitudeM(start_constraint, end_constraint, chord_length, &sag_base_ratio);
 
   double tangent_scale = continuity.handle_scale;
   std::array<Vec3d, 4> cp{};

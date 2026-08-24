@@ -9,6 +9,11 @@ import type {
 import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
 import type { RoadSnapInfo } from "../road";
+import type { RoadSegmentInput, RoadLayoutTemplateData } from "../road";
+import roadAlbedoUrl from "../assets/road/materials/Asphalt025A_2K-JPG_Color.jpg";
+import roadNormalUrl from "../assets/road/materials/Asphalt025A_2K-JPG_NormalGL.jpg";
+import roadRoughnessUrl from "../assets/road/materials/Asphalt025A_2K-JPG_Roughness.jpg";
+import roadSpecularUrl from "../assets/road/materials/Asphalt025A_2K-JPG_Specular.png";
 import {
   type LoadedModelAsset,
   modelAssetCache
@@ -29,7 +34,18 @@ const POLE_TAPER_RATIO = 75;
 export const POLE_RENDER_SIDES = 16;
 export const WIRE_RADIAL_SEGMENTS = 3;
 const BACKBONE_DISPLAY_PLANE_Z = 0.0;
-const SUPPORT_PATH_SUPPLEMENTAL_KIND = 1;
+const LOCAL_DECORATION_SUPPLEMENTAL_KIND = 3;
+const HIDDEN_SUPPORT_DETAIL_MODEL_KEYS = new Set([
+  "pole_decoration_x",
+  "pole_transformer_20kva_proxy",
+  "transformer_intermediate_insulator_proxy",
+  "transformer_support_bracket_proxy",
+  "pc6_cutout_proxy",
+  "tma13_cutout_mount_proxy",
+  "arrester_gl_b6g_proxy",
+  "hv_triplex_termination_60_proxy",
+  "aerial_optical_closure_rca3ao_proxy"
+]);
 
 interface ModelMeshSource {
   geometry: THREE.BufferGeometry;
@@ -159,15 +175,45 @@ export function makeSampledTubeGeometry(samples: Float64Array, radius: number): 
 export function makeRoadMeshGeometry(data: {
   vertices: Float64Array;
   indices: Uint32Array;
+  normals?: Float64Array;
+  uv0?: Float64Array;
+  materialGroups?: Array<{ material: string; indexStart: number; indexCount: number }>;
 }): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(data.vertices);
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(data.indices), 1));
-  geometry.computeVertexNormals();
+  const vertexCount = Math.floor(data.vertices.length / 3);
+  if (data.normals !== undefined && data.normals.length === vertexCount * 3) {
+    geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(data.normals), 3));
+  } else {
+    geometry.computeVertexNormals();
+  }
+  if (data.uv0 !== undefined && data.uv0.length === vertexCount * 2) {
+    geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(data.uv0), 2));
+  }
+  if (data.materialGroups !== undefined && data.materialGroups.length > 0) {
+    geometry.clearGroups();
+    for (let index = 0; index < data.materialGroups.length; index += 1) {
+      const group = data.materialGroups[index];
+      geometry.addGroup(group.indexStart, group.indexCount, index);
+    }
+  }
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+function sampleContentVersion(samples: Float64Array): string {
+  let hash = 2166136261;
+  for (let index = 0; index < samples.length; index += 1) {
+    const scaled = Math.round(samples[index] * 1_000_000);
+    hash ^= scaled;
+    hash = Math.imul(hash, 16777619);
+    hash ^= scaled >> 16;
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function roadSurfaceColor(material: string): number {
@@ -178,7 +224,190 @@ export function roadSurfaceColor(material: string): number {
   if (material === "road_marking_center") return 0xf2efe8;
   if (material === "road_marking_stop") return 0xfff8e1;
   if (material === "road_marking_crosswalk") return 0xffffff;
+  if (material === "road_marking_dashed") return 0xf7f4e8;
   return 0x3f4345;
+}
+
+export interface RoadMaterialTextureDefinition {
+  albedoUrl: string;
+  normalUrl: string;
+  roughnessUrl: string;
+  specularUrl: string;
+}
+
+interface RoadTextureSet {
+  albedo: THREE.Texture;
+  normal: THREE.Texture;
+  roughness: THREE.Texture;
+  specular: THREE.Texture;
+}
+
+export const defaultRoadMaterialTextureDefinition: RoadMaterialTextureDefinition = {
+  albedoUrl: roadAlbedoUrl,
+  normalUrl: roadNormalUrl,
+  roughnessUrl: roadRoughnessUrl,
+  specularUrl: roadSpecularUrl
+};
+
+const roadTextureSets = new Map<string, RoadTextureSet>();
+const roadTextureLoader = new THREE.TextureLoader();
+
+function roadTextureSeed(material: string): number {
+  let seed = 2166136261;
+  for (let index = 0; index < material.length; index += 1) {
+    seed = Math.imul(seed ^ material.charCodeAt(index), 16777619);
+  }
+  return seed >>> 0;
+}
+
+function makeDataTexture(data: Uint8Array, colorSpace: THREE.ColorSpace = THREE.NoColorSpace): THREE.DataTexture {
+  const texture = new THREE.DataTexture(data, 64, 64, THREE.RGBAFormat);
+  configureRoadTexture(texture, colorSpace);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function configureRoadTexture(
+  texture: THREE.Texture,
+  colorSpace: THREE.ColorSpace = THREE.NoColorSpace
+): THREE.Texture {
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestMipmapNearestFilter;
+  texture.colorSpace = colorSpace;
+  return texture;
+}
+
+function loadRoadTexture(
+  url: string,
+  colorSpace: THREE.ColorSpace,
+  fallback: THREE.Texture
+): THREE.Texture {
+  if (url.length === 0) return fallback;
+  if (typeof document === "undefined") {
+    const texture = configureRoadTexture(new THREE.Texture(), colorSpace);
+    texture.userData.sourceUrl = url;
+    return texture;
+  }
+  const texture = configureRoadTexture(roadTextureLoader.load(url), colorSpace);
+  texture.userData.sourceUrl = url;
+  return texture;
+}
+
+function makeFallbackRoadTextureSet(material: string): RoadTextureSet {
+  const color = new THREE.Color(roadSurfaceColor(material));
+  const albedo = new Uint8Array(64 * 64 * 4);
+  const normal = new Uint8Array(64 * 64 * 4);
+  const roughness = new Uint8Array(64 * 64 * 4);
+  const specular = new Uint8Array(64 * 64 * 4);
+  const seed = roadTextureSeed(material);
+  const rough = material === "asphalt" ? 230 : material.startsWith("road_marking") ? 190 : 215;
+  const spec = material.startsWith("road_marking") ? 80 : material === "asphalt" ? 18 : 35;
+  for (let y = 0; y < 64; y += 1) {
+    for (let x = 0; x < 64; x += 1) {
+      const offset = (y * 64 + x) * 4;
+      const seam = x % 16 === 0 || y % 16 === 0;
+      const grain = (((x * 73856093) ^ (y * 19349663) ^ seed) & 15) - 7;
+      const shade = seam ? 1.16 : 0.92 + (((x >> 3) + (y >> 3)) % 2) * 0.08;
+      albedo[offset] = Math.max(0, Math.min(255, Math.round(color.r * 255 * shade + grain)));
+      albedo[offset + 1] = Math.max(0, Math.min(255, Math.round(color.g * 255 * shade + grain)));
+      albedo[offset + 2] = Math.max(0, Math.min(255, Math.round(color.b * 255 * shade + grain)));
+      albedo[offset + 3] = 255;
+
+      normal[offset] = 128 + (grain > 0 ? 2 : -2);
+      normal[offset + 1] = 128 + (seam ? 3 : 0);
+      normal[offset + 2] = 255;
+      normal[offset + 3] = 255;
+
+      roughness[offset] = roughness[offset + 1] = roughness[offset + 2] =
+        Math.max(0, Math.min(255, rough - (seam ? 18 : 0) + grain));
+      roughness[offset + 3] = 255;
+
+      specular[offset] = specular[offset + 1] = specular[offset + 2] =
+        Math.max(0, Math.min(255, spec + (seam ? 24 : 0) - grain));
+      specular[offset + 3] = 255;
+    }
+  }
+  return {
+    albedo: makeDataTexture(albedo, THREE.SRGBColorSpace),
+    normal: makeDataTexture(normal),
+    roughness: makeDataTexture(roughness),
+    specular: makeDataTexture(specular)
+  };
+}
+
+function makeRoadTextureSet(material: string): RoadTextureSet {
+  const cached = roadTextureSets.get(material);
+  if (cached !== undefined) return cached;
+  const fallback = makeFallbackRoadTextureSet(material);
+  const definition = defaultRoadMaterialTextureDefinition;
+  const set = {
+    albedo: loadRoadTexture(definition.albedoUrl, THREE.SRGBColorSpace, fallback.albedo),
+    normal: loadRoadTexture(definition.normalUrl, THREE.NoColorSpace, fallback.normal),
+    roughness: loadRoadTexture(definition.roughnessUrl, THREE.NoColorSpace, fallback.roughness),
+    specular: loadRoadTexture(definition.specularUrl, THREE.NoColorSpace, fallback.specular)
+  };
+  roadTextureSets.set(material, set);
+  return set;
+}
+
+function usesRoadSurfaceTexture(material: string): boolean {
+  return material === "asphalt";
+}
+
+export function makeRoadSurfaceMaterial(material: string): THREE.MeshPhysicalMaterial {
+  if (!usesRoadSurfaceTexture(material)) {
+    return new THREE.MeshPhysicalMaterial({
+      color: roadSurfaceColor(material),
+      roughness: material.startsWith("road_marking") ? 0.72 : 0.88,
+      metalness: 0,
+      specularIntensity: material.startsWith("road_marking") ? 0.28 : 0.12
+    });
+  }
+  const textures = makeRoadTextureSet(material);
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    map: textures.albedo,
+    normalMap: textures.normal,
+    normalScale: new THREE.Vector2(0.18, 0.18),
+    roughnessMap: textures.roughness,
+    roughness: material === "asphalt" ? 0.96 : 0.88,
+    metalness: 0,
+    specularIntensity: material.startsWith("road_marking") ? 0.28 : 0.12,
+    specularIntensityMap: textures.specular
+  });
+}
+
+export function roadGuideHalfWidth(
+  roadLayoutTemplates: RoadLayoutTemplateData[],
+  roadLayoutTemplateId: number | undefined
+): number {
+  const section = roadLayoutTemplates.find((item) => item.id === roadLayoutTemplateId);
+  const width = section?.strips.reduce((sum, strip) => sum + strip.widthM, 0) ?? 0;
+  return Math.max(0.5, width * 0.5);
+}
+
+export function roadGuidePoints(request: RoadSegmentInput, sampleCount = 32): THREE.Vector3[] {
+  const points: THREE.Vector3[] = [];
+  const spans = request.spans?.length ? request.spans : [request];
+  const startZ = request.startElevationM ?? 0;
+  const endZ = request.endElevationM ?? startZ;
+  for (const [spanIndex, span] of spans.entries()) {
+    const count = span.kind === "line" ? 1 : sampleCount;
+    for (let index = spanIndex === 0 ? 0 : 1; index <= count; index += 1) {
+      const t = count === 0 ? 0 : index / count;
+      const inverse = 1 - t;
+      points.push(new THREE.Vector3(
+        inverse ** 3 * span.startX + 3 * inverse ** 2 * t * span.handleAX +
+          3 * inverse * t ** 2 * span.handleBX + t ** 3 * span.endX,
+        inverse ** 3 * span.startY + 3 * inverse ** 2 * t * span.handleAY +
+          3 * inverse * t ** 2 * span.handleBY + t ** 3 * span.endY,
+        startZ + (endZ - startZ) * t
+      ));
+    }
+  }
+  return points;
 }
 
 function makeSampledTubeBuffers(pointCount: number): SampledTubeBuffers {
@@ -297,14 +526,20 @@ export class WireScene {
   private lastFrameTime: number | null = null;
   private backboneSignature = "";
   private guideSignature = "";
-  private roadSignature = "";
+  private roadContentSignature = "";
+  private roadOverlaySignature = "";
+  private contentParts: ViewerSnapshot["parts"] | null = null;
+  private contentModels: ViewerSnapshot["models"] | null = null;
+  private contentPoles: ViewerSnapshot["poles"] | null = null;
+  private contentSolidSupportRender: boolean | null = null;
+  private roadSurfaceMeshes: ViewerSnapshot["road"]["scene"]["surfaceMeshes"] | null = null;
+  private roadMarkingMeshes: ViewerSnapshot["road"]["scene"]["markingMeshes"] | null = null;
   private cameraFov: number | null = null;
   private readonly partMeshes = new Map<string, {
     mesh: THREE.Mesh;
     version: string;
     materialKey: string;
   }>();
-  private supportWireMaterial: THREE.MeshStandardMaterial | null = null;
   private readonly modelObjects = new Map<string, {
     modelKey: string;
     version: string;
@@ -335,7 +570,8 @@ export class WireScene {
   constructor(
     private readonly store: ViewerStore,
     private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo) => void,
-    private readonly onGroundPreview: (point: WorldPoint) => void,
+    private readonly onGroundPreview: (point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo) => void,
+    private readonly onGroundPreviewCancel: () => void,
     private readonly onContextAction: () => void,
     private readonly onFrame: (deltaMs: number) => void,
     private readonly onContentSync?: (stats: SceneContentSyncStats) => void,
@@ -519,6 +755,7 @@ export class WireScene {
       pinch = null;
       pointerDown = null;
       this.clearSnapPreview();
+      this.onGroundPreviewCancel();
     };
     const onContextMenu = (event: MouseEvent) => {
       event.preventDefault();
@@ -556,8 +793,6 @@ export class WireScene {
     this.detachInput?.();
     this.unsubscribe();
     for (const item of this.partMeshes.values()) this.disposeContentMesh(item.mesh);
-    this.supportWireMaterial?.dispose();
-    this.supportWireMaterial = null;
     for (const batch of this.modelBatches.values()) this.disposeModelBatch(batch);
     for (const item of this.poleMeshes.values()) this.disposePoleObject(item);
     this.partMeshes.clear();
@@ -769,7 +1004,7 @@ export class WireScene {
     const pointerPx = new THREE.Vector2(clientX - bounds.left, clientY - bounds.top);
     let bestNode: { distance: number; point: WorldPoint; snap: RoadSnapInfo } | null = null;
     for (const node of this.snapshot.road.scene.nodes) {
-      const point: WorldPoint = [node.x, node.y, 0];
+      const point: WorldPoint = [node.x, node.y, node.z];
       const screenPoint = this.projectToCanvas(new THREE.Vector3(...point), bounds);
       if (screenPoint === null) continue;
       const distance = screenPoint.distanceTo(pointerPx);
@@ -781,8 +1016,8 @@ export class WireScene {
             kind: "road",
             nodeId: node.id,
             segmentId: 0,
-            stationM: 0,
-            extensionSegmentId: node.extensionSegmentId ?? 0
+            segmentDistanceM: 0,
+            extensionCorridorId: node.extensionCorridorId ?? 0
           }
         };
       }
@@ -793,8 +1028,11 @@ export class WireScene {
 
     let bestSegment: { distance: number; point: WorldPoint; snap: RoadSnapInfo } | null = null;
     for (const segment of this.snapshot.road.scene.centerlineSegments) {
-      const endpointA: WorldPoint = [segment.startX, segment.startY, 0];
-      const endpointB: WorldPoint = [segment.endX, segment.endY, 0];
+      const endpointA: WorldPoint = [segment.startX, segment.startY, segment.startZ];
+      const endpointB: WorldPoint = [segment.endX, segment.endY, segment.endZ];
+      const worldDx = endpointB[0] - endpointA[0];
+      const worldDy = endpointB[1] - endpointA[1];
+      const worldLength = Math.hypot(worldDx, worldDy);
       const screenA = this.projectToCanvas(new THREE.Vector3(...endpointA), bounds);
       const screenB = this.projectToCanvas(new THREE.Vector3(...endpointB), bounds);
       if (screenA === null || screenB === null) continue;
@@ -810,13 +1048,29 @@ export class WireScene {
         : 0;
       const closest = new THREE.Vector2(screenA.x + dx * t, screenA.y + dy * t);
       const distance = closest.distanceTo(pointerPx);
-      if (distance > BACKBONE_EDGE_SNAP_PX || (bestSegment !== null && distance >= bestSegment.distance)) {
+      let snapPx = BACKBONE_EDGE_SNAP_PX;
+      if (worldLength > 1e-9 && segment.pickHalfWidthM > 0) {
+        const worldClosest = new THREE.Vector3(
+          endpointA[0] + worldDx * t,
+          endpointA[1] + worldDy * t,
+          endpointA[2] + (endpointB[2] - endpointA[2]) * t
+        );
+        const normal = new THREE.Vector3(-worldDy / worldLength, worldDx / worldLength, 0);
+        const edge = this.projectToCanvas(
+          worldClosest.clone().addScaledVector(normal, segment.pickHalfWidthM),
+          bounds
+        );
+        if (edge !== null) {
+          snapPx = Math.max(snapPx, edge.distanceTo(closest) + 8);
+        }
+      }
+      if (distance > snapPx || (bestSegment !== null && distance >= bestSegment.distance)) {
         continue;
       }
       const point: WorldPoint = [
         endpointA[0] + (endpointB[0] - endpointA[0]) * t,
         endpointA[1] + (endpointB[1] - endpointA[1]) * t,
-        0
+        endpointA[2] + (endpointB[2] - endpointA[2]) * t
       ];
       bestSegment = {
         distance,
@@ -825,7 +1079,7 @@ export class WireScene {
           kind: "road",
           nodeId: 0,
           segmentId: segment.id,
-          stationM: segment.startStationM + (segment.endStationM - segment.startStationM) * t
+          segmentDistanceM: segment.startSegmentDistanceM + (segment.endSegmentDistanceM - segment.startSegmentDistanceM) * t
         }
       };
     }
@@ -933,7 +1187,7 @@ export class WireScene {
       this.camera.updateProjectionMatrix();
     }
 
-    if (this.syncContent(snapshot)) {
+    if (this.wireContentSourcesChanged(snapshot) && this.syncContent(snapshot)) {
       this.clearSnapPreview();
     }
     this.onContentSync?.(this.contentSyncStats);
@@ -951,10 +1205,17 @@ export class WireScene {
       this.rebuildGuide(snapshot);
     }
 
-    const nextRoadSignature = this.sceneRoadSignature(snapshot);
-    if (this.roadSignature !== nextRoadSignature) {
-      this.roadSignature = nextRoadSignature;
-      this.rebuildRoad(snapshot);
+    if (this.roadContentSourcesChanged(snapshot)) {
+      const nextRoadContentSignature = this.sceneRoadContentSignature(snapshot);
+      if (this.roadContentSignature !== nextRoadContentSignature) {
+        this.roadContentSignature = nextRoadContentSignature;
+        this.rebuildRoadContent(snapshot);
+      }
+    }
+    const nextRoadOverlaySignature = this.sceneRoadOverlaySignature(snapshot);
+    if (this.roadOverlaySignature !== nextRoadOverlaySignature) {
+      this.roadOverlaySignature = nextRoadOverlaySignature;
+      this.rebuildRoadOverlay(snapshot);
     }
   }
 
@@ -980,44 +1241,236 @@ export class WireScene {
     const specs = snapshot.pathPointSpecs.map((spec) =>
       spec === null ? "null" : `${spec.supportKind}:${spec.nodeId}`
     ).join("|");
-    return `${points};${specs}`;
+    const preview = snapshot.wirePreview;
+    const request = preview.request?.points.map((point) => point.join(":")).join("|") ?? "";
+    return `${points};${specs};${preview.state};${request}`;
   }
 
-  private sceneRoadSignature(snapshot: ViewerSnapshot): string {
-    const meshKey = (mesh: { material: string; vertices: Float64Array; indices: Uint32Array }) =>
-      `${mesh.material}:${mesh.vertices.length}:${mesh.indices.length}:${mesh.vertices[0] ?? 0}:${mesh.vertices.at(-1) ?? 0}`;
+  private wireContentSourcesChanged(snapshot: ViewerSnapshot): boolean {
+    const changed = this.contentParts !== snapshot.parts ||
+      this.contentModels !== snapshot.models ||
+      this.contentPoles !== snapshot.poles ||
+      this.contentSolidSupportRender !== snapshot.solidSupportRender;
+    this.contentParts = snapshot.parts;
+    this.contentModels = snapshot.models;
+    this.contentPoles = snapshot.poles;
+    this.contentSolidSupportRender = snapshot.solidSupportRender;
+    return changed;
+  }
+
+  private roadContentSourcesChanged(snapshot: ViewerSnapshot): boolean {
+    const changed = this.roadSurfaceMeshes !== snapshot.road.scene.surfaceMeshes ||
+      this.roadMarkingMeshes !== snapshot.road.scene.markingMeshes;
+    this.roadSurfaceMeshes = snapshot.road.scene.surfaceMeshes;
+    this.roadMarkingMeshes = snapshot.road.scene.markingMeshes;
+    return changed;
+  }
+
+  private sceneRoadContentSignature(snapshot: ViewerSnapshot): string {
+    const arrayKey = (values?: Float64Array | Uint32Array) => {
+      if (values === undefined || values.length === 0) return "0:0";
+      const samples = Math.min(16, values.length);
+      let hash = 2166136261;
+      for (let i = 0; i < samples; i += 1) {
+        const index = Math.floor((i * (values.length - 1)) / Math.max(1, samples - 1));
+        hash = Math.imul(hash ^ Math.round(Number(values[index]) * 1000000), 16777619);
+      }
+      return `${values.length}:${hash >>> 0}`;
+    };
+    const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array; normals?: Float64Array; uv0?: Float64Array }) =>
+      `${mesh.ownerSegmentId}:${mesh.material}:${arrayKey(mesh.vertices)}:${arrayKey(mesh.indices)}:${arrayKey(mesh.normals)}:${arrayKey(mesh.uv0)}`;
     return [
       ...snapshot.road.scene.surfaceMeshes.map(meshKey),
-      ...snapshot.road.scene.markingMeshes.map(meshKey),
-      "preview",
+      ...snapshot.road.scene.markingMeshes.map(meshKey)
+    ].join("|");
+  }
+
+  private sceneRoadOverlaySignature(snapshot: ViewerSnapshot): string {
+    const arrayKey = (values?: Float64Array | Uint32Array) => {
+      if (values === undefined || values.length === 0) return "0:0";
+      const samples = Math.min(16, values.length);
+      let hash = 2166136261;
+      for (let i = 0; i < samples; i += 1) {
+        const index = Math.floor((i * (values.length - 1)) / Math.max(1, samples - 1));
+        hash = Math.imul(hash ^ Math.round(Number(values[index]) * 1000000), 16777619);
+      }
+      return `${values.length}:${hash >>> 0}`;
+    };
+    const meshKey = (mesh: { ownerSegmentId: number; material: string; vertices: Float64Array; indices: Uint32Array; normals?: Float64Array; uv0?: Float64Array }) =>
+      `${mesh.ownerSegmentId}:${mesh.material}:${arrayKey(mesh.vertices)}:${arrayKey(mesh.indices)}:${arrayKey(mesh.normals)}:${arrayKey(mesh.uv0)}`;
+    return [
       ...snapshot.road.previewMeshes.map(meshKey),
+      `guide:${snapshot.road.previewState}:` +
+        (snapshot.road.previewRequest === null
+          ? ""
+          : JSON.stringify(snapshot.road.previewRequest)),
+      `delete-hover:${snapshot.road.hoveredDeleteSegmentId}`,
+      `lane-hover:${snapshot.road.hoveredLaneSegmentId}:${snapshot.road.hoveredLaneId}`,
+      `lane-range:${snapshot.road.laneCorridorId}:${snapshot.road.laneEditStage}:` +
+        `${snapshot.road.laneTransitionStartSegmentId}:${snapshot.road.laneTransitionStartT}:` +
+        `${snapshot.road.laneTransitionCompleteSegmentId}:${snapshot.road.laneTransitionCompleteT}`,
       `edit:${snapshot.road.operation}:${snapshot.road.selectedEditSegmentId}:` +
         snapshot.road.editPoints.map((point) => `${point.x}:${point.y}`).join("|")
     ].join("|");
   }
 
-  private rebuildRoad(snapshot: ViewerSnapshot): void {
+  private rebuildRoadContent(snapshot: ViewerSnapshot): void {
     this.disposeGroup(this.road);
-    this.disposeGroup(this.roadPreview);
-    this.disposeGroup(this.roadEditHandles);
-    const markingMaterial = new THREE.MeshStandardMaterial({
-      color: 0xf2f0d9,
-      roughness: 0.75,
-      polygonOffset: true,
-      polygonOffsetFactor: -2
-    });
     for (const data of snapshot.road.scene.surfaceMeshes) {
-      const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), new THREE.MeshStandardMaterial({
-        color: roadSurfaceColor(data.material),
-        roughness: data.material === "asphalt" ? 0.96 : 0.88,
-        metalness: 0
-      }));
+      const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), makeRoadSurfaceMaterial(data.material));
       mesh.receiveShadow = true;
       mesh.castShadow = true;
       this.road.add(mesh);
     }
     for (const data of snapshot.road.scene.markingMeshes) {
-      this.road.add(new THREE.Mesh(makeRoadMeshGeometry(data), markingMaterial.clone()));
+      const material = makeRoadSurfaceMaterial(data.material);
+      material.polygonOffset = true;
+      material.polygonOffsetFactor = -2;
+      this.road.add(new THREE.Mesh(makeRoadMeshGeometry(data), material));
+    }
+  }
+
+  private rebuildRoadOverlay(snapshot: ViewerSnapshot): void {
+    this.disposeGroup(this.roadPreview);
+    this.disposeGroup(this.roadEditHandles);
+    if (snapshot.road.operation === "delete" &&
+        snapshot.road.hoveredDeleteSegmentId !== 0) {
+      for (const data of snapshot.road.scene.surfaceMeshes) {
+        if (data.ownerSegmentId !== snapshot.road.hoveredDeleteSegmentId)
+          continue;
+        const mesh = new THREE.Mesh(
+          makeRoadMeshGeometry(data),
+          new THREE.MeshStandardMaterial({
+            color: 0xe85d3f,
+            emissive: 0x522012,
+            roughness: 0.9,
+            transparent: true,
+            opacity: 0.82,
+            depthWrite: false
+          })
+        );
+        mesh.position.z += 0.025;
+        mesh.renderOrder = 75;
+        this.roadPreview.add(mesh);
+      }
+      for (const data of snapshot.road.scene.markingMeshes) {
+        if (data.ownerSegmentId !== snapshot.road.hoveredDeleteSegmentId)
+          continue;
+        const mesh = new THREE.Mesh(
+          makeRoadMeshGeometry(data),
+          new THREE.MeshStandardMaterial({
+            color: 0xffb13b,
+            emissive: 0x4a2600,
+            transparent: true,
+            opacity: 0.9,
+            depthWrite: false
+          })
+        );
+        mesh.position.z += 0.03;
+        mesh.renderOrder = 76;
+        this.roadPreview.add(mesh);
+      }
+    }
+    if (snapshot.road.operation === "add-lane" &&
+        snapshot.road.laneEditStage !== "select") {
+      const corridor = snapshot.road.scene.corridors.find(
+        (item) => item.id === snapshot.road.laneCorridorId
+      );
+      if (corridor !== undefined) {
+        const material = new THREE.LineBasicMaterial({
+          color: 0x66a8d8,
+          depthTest: false,
+          transparent: true,
+          opacity: 0.95
+        });
+        const corridorDistance = (segmentId: number, t: number) => {
+          let distance = 0;
+          for (const ref of corridor.segments) {
+            if (ref.segmentId === segmentId) {
+              const localDistance = THREE.MathUtils.clamp(t, 0, 1) * ref.lengthM;
+              return distance + (ref.reversed
+                ? ref.lengthM - localDistance
+                : localDistance);
+            }
+            distance += ref.lengthM;
+          }
+          return null;
+        };
+        const startDistance = corridorDistance(
+          snapshot.road.laneTransitionStartSegmentId,
+          snapshot.road.laneTransitionStartT
+        );
+        const completeDistance = corridorDistance(
+          snapshot.road.laneTransitionCompleteSegmentId,
+          snapshot.road.laneTransitionCompleteT
+        );
+        const operationDelta = startDistance === null || completeDistance === null
+          ? 0
+          : completeDistance - startDistance;
+        const rangeEndDistance = completeDistance === null
+          ? null
+          : Math.abs(operationDelta) <= 1e-9
+            ? completeDistance
+            : (operationDelta > 0 ? corridor.lengthM : 0);
+        const rangeMinimum = startDistance === null || rangeEndDistance === null
+          ? null
+          : Math.min(startDistance, rangeEndDistance);
+        const rangeMaximum = startDistance === null || rangeEndDistance === null
+          ? null
+          : Math.max(startDistance, rangeEndDistance);
+        let segmentBegin = 0;
+        for (let refIndex = 0; refIndex < corridor.segments.length; ++refIndex) {
+          const ref = corridor.segments[refIndex];
+          const segmentEnd = segmentBegin + ref.lengthM;
+          const corridorMinimum = rangeMinimum === null
+            ? segmentBegin
+            : Math.max(segmentBegin, rangeMinimum);
+          const corridorMaximum = rangeMaximum === null
+            ? segmentBegin
+            : Math.min(segmentEnd, rangeMaximum);
+          if (corridorMaximum <= corridorMinimum) {
+            segmentBegin = segmentEnd;
+            continue;
+          }
+          const localMinimum = ref.reversed
+            ? segmentEnd - corridorMaximum
+            : corridorMinimum - segmentBegin;
+          const localMaximum = ref.reversed
+            ? segmentEnd - corridorMinimum
+            : corridorMaximum - segmentBegin;
+          for (const segment of snapshot.road.scene.centerlineSegments) {
+            if (segment.id !== ref.segmentId) continue;
+            const pieceMinimum = Math.min(segment.startSegmentDistanceM,
+              segment.endSegmentDistanceM);
+            const pieceMaximum = Math.max(segment.startSegmentDistanceM,
+              segment.endSegmentDistanceM);
+            const overlapStart = Math.max(localMinimum, pieceMinimum);
+            const overlapEnd = Math.min(localMaximum, pieceMaximum);
+            if (overlapEnd <= overlapStart ||
+                Math.abs(segment.endSegmentDistanceM -
+                  segment.startSegmentDistanceM) <= 1e-9) continue;
+            const pointAt = (distance: number) => {
+              const t = (distance - segment.startSegmentDistanceM) /
+                (segment.endSegmentDistanceM - segment.startSegmentDistanceM);
+              return new THREE.Vector3(
+                THREE.MathUtils.lerp(segment.startX, segment.endX, t),
+                THREE.MathUtils.lerp(segment.startY, segment.endY, t),
+                snapshot.drawPlaneZ + 0.1
+              );
+            };
+            const line = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints([
+                pointAt(overlapStart), pointAt(overlapEnd)
+              ]),
+              material.clone()
+            );
+            line.renderOrder = 80;
+            this.roadPreview.add(line);
+          }
+          segmentBegin = segmentEnd;
+        }
+        material.dispose();
+      }
     }
     for (const data of snapshot.road.previewMeshes) {
       const material = new THREE.MeshStandardMaterial({
@@ -1030,6 +1483,56 @@ export class WireScene {
       const mesh = new THREE.Mesh(makeRoadMeshGeometry(data), material);
       mesh.position.z += 0.03;
       this.roadPreview.add(mesh);
+    }
+    if (snapshot.road.operation === "draw" && snapshot.road.previewState === "guide" &&
+        snapshot.road.previewRequest !== null) {
+      const centerline = roadGuidePoints(snapshot.road.previewRequest);
+      const halfWidth = roadGuideHalfWidth(
+        snapshot.road.scene.roadLayoutTemplates,
+        snapshot.road.previewRequest.roadLayoutTemplateId
+      );
+      const left: THREE.Vector3[] = [];
+      const right: THREE.Vector3[] = [];
+      centerline.forEach((point, index) => {
+        const previous = centerline[Math.max(0, index - 1)];
+        const next = centerline[Math.min(centerline.length - 1, index + 1)];
+        const tangent = next.clone().sub(previous);
+        const lateral = tangent.lengthSq() > 1e-12
+          ? new THREE.Vector3(-tangent.y, tangent.x, 0).normalize().multiplyScalar(halfWidth)
+          : new THREE.Vector3();
+        const raised = point.clone();
+        raised.z += 0.08;
+        left.push(raised.clone().add(lateral));
+        right.push(raised.clone().sub(lateral));
+      });
+      const material = new THREE.LineBasicMaterial({
+        color: 0x66a8d8,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.9
+      });
+      for (const points of [left, right]) {
+        if (points.length < 2) continue;
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), material.clone());
+        line.renderOrder = 45;
+        this.roadPreview.add(line);
+      }
+    }
+    for (const lane of snapshot.road.scene.lanePaths) {
+      const hovered = lane.segmentId === snapshot.road.hoveredLaneSegmentId &&
+        lane.laneId === snapshot.road.hoveredLaneId;
+      if (!hovered) continue;
+      const points: THREE.Vector3[] = [];
+      for (let index = 0; index + 2 < lane.points.length; index += 3) {
+        points.push(new THREE.Vector3(lane.points[index], lane.points[index + 1], lane.points[index + 2] + 0.08));
+      }
+      if (points.length < 2) continue;
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({ color: 0x58b9dc, depthTest: false })
+      );
+      line.renderOrder = 80;
+      this.roadPreview.add(line);
     }
     if (snapshot.road.operation === "edit" && snapshot.road.selectedEditSegmentId !== 0) {
       snapshot.road.editPoints.forEach((point, index) => {
@@ -1050,15 +1553,20 @@ export class WireScene {
     let reused = 0;
     let rebuilt = 0;
     let removed = 0;
+    let visiblePartCount = 0;
     const nextPartKeys = new Set<string>();
     for (const part of snapshot.parts) {
+      if (part.info.supplementalKind === LOCAL_DECORATION_SUPPLEMENTAL_KIND) continue;
+      visiblePartCount += 1;
       const key = part.info.partKey;
       nextPartKeys.add(key);
       const version = [
         part.info.sourceVersion,
         part.info.wireRadius,
+        part.info.materialStyle,
         part.info.colorRgba,
-        part.info.sampleCount
+        part.info.sampleCount,
+        sampleContentVersion(part.samples)
       ].join(":");
       const previous = this.partMeshes.get(key);
       if (previous?.version === version) {
@@ -1075,7 +1583,7 @@ export class WireScene {
       }
 
       const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
-      const materialKey = `${part.info.supplementalKind}:${part.info.colorRgba}`;
+      const materialKey = `${part.info.supplementalKind}:${part.info.materialStyle}:${part.info.colorRgba}`;
       if (previous !== undefined && this.updateSampledTubeGeometry(previous.mesh.geometry, part.samples, radius)) {
         if (previous.materialKey !== materialKey) {
           this.disposeMeshMaterial(previous.mesh);
@@ -1116,7 +1624,11 @@ export class WireScene {
     const modeledPoleIds = new Set<string>();
     const nextModelKeys = new Set<string>();
     const modelsByKey = new Map<string, VisualModelInstanceInfo[]>();
+    let visibleModelCount = 0;
     for (const model of snapshot.models) {
+      if (model.stableKey.startsWith("pole-decoration:") ||
+          HIDDEN_SUPPORT_DETAIL_MODEL_KEYS.has(model.modelKey)) continue;
+      visibleModelCount += 1;
       nextModelKeys.add(model.stableKey);
       if (model.stableKey.startsWith("pole:")) {
         const separator = model.stableKey.indexOf(":", 5);
@@ -1223,11 +1735,11 @@ export class WireScene {
       changed = true;
     }
     this.contentSyncStats = {
-      total: snapshot.parts.length,
+      total: visiblePartCount,
       reused,
       rebuilt,
       removed,
-      modelTotal: snapshot.models.length,
+      modelTotal: visibleModelCount,
       modelReused,
       modelUpdated,
       modelRebuilt,
@@ -1237,9 +1749,7 @@ export class WireScene {
   }
 
   private makePartMaterial(part: ViewerSnapshot["parts"][number]): THREE.Material {
-    return part.info.supplementalKind === SUPPORT_PATH_SUPPLEMENTAL_KIND
-      ? this.getSupportWireMaterial()
-      : this.makeWireMaterial(part.info.colorRgba);
+    return this.makeWireMaterial(part.info.colorRgba);
   }
 
   private updateSampledTubeGeometry(geometry: THREE.BufferGeometry, samples: Float64Array, radius: number): boolean {
@@ -1284,17 +1794,6 @@ export class WireScene {
     });
   }
 
-  private getSupportWireMaterial(): THREE.MeshStandardMaterial {
-    if (this.supportWireMaterial === null || this.supportWireMaterial === undefined) {
-      this.supportWireMaterial = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(18 / 255, 21 / 255, 24 / 255),
-        metalness: 0.18,
-        roughness: 0.72
-      });
-    }
-    return this.supportWireMaterial;
-  }
-
   private disposeContentMesh(mesh: THREE.Mesh): void {
     mesh.geometry.dispose();
     this.disposeMeshMaterial(mesh);
@@ -1304,7 +1803,7 @@ export class WireScene {
   private disposeMeshMaterial(mesh: THREE.Mesh): void {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of materials) {
-      if (material !== this.supportWireMaterial) material.dispose();
+      material.dispose();
     }
   }
 
@@ -1433,6 +1932,23 @@ export class WireScene {
   private rebuildGuide(snapshot: ViewerSnapshot): void {
     this.disposeGroup(this.guide);
     this.buildPathGuide(snapshot);
+    this.buildWirePreview(snapshot);
+  }
+
+  private buildWirePreview(snapshot: ViewerSnapshot): void {
+    const preview = snapshot.wirePreview;
+    if (preview.state === "none" || preview.request === null) return;
+    const color = 0x39b8d4;
+    const candidate = preview.request.points.map(
+      (point) => new THREE.Vector3(point[0], point[1], point[2] + 0.08)
+    );
+    const candidateLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(candidate),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false })
+    );
+    candidateLine.renderOrder = 45;
+    this.guide.add(candidateLine);
+
   }
 
   private buildPathGuide(snapshot: ViewerSnapshot): void {
@@ -1497,7 +2013,7 @@ export class WireScene {
         const point = new THREE.Vector3(roadHit.point[0], roadHit.point[1], roadHit.point[2] + 0.08);
         this.snapPreviewRing.position.copy(point);
         this.snapPreview.visible = true;
-        this.onGroundPreview(roadHit.point);
+        this.onGroundPreview(roadHit.point, roadHit.snap);
         return;
       }
       const ray = new THREE.Raycaster();
@@ -1510,11 +2026,20 @@ export class WireScene {
       return;
     }
     const hit = this.pickBackbonePoint(event.clientX, event.clientY);
-    if (hit === null) return;
-
-    const point = new THREE.Vector3(hit.point[0], hit.point[1], hit.point[2] + 0.08);
-    this.snapPreviewRing.position.copy(point);
-    this.snapPreview.visible = true;
+    if (hit !== null) {
+      const point = new THREE.Vector3(hit.point[0], hit.point[1], hit.point[2] + 0.08);
+      this.snapPreviewRing.position.copy(point);
+      this.snapPreview.visible = true;
+      this.onGroundPreview(hit.point, hit.pick);
+      return;
+    }
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(this.pointerFromClient(event.clientX, event.clientY), this.camera);
+    const point = new THREE.Vector3();
+    const planeZ = this.snapshot?.drawPlaneZ ?? 0;
+    if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ), point)) {
+      this.onGroundPreview([point.x, point.y, point.z]);
+    }
   }
 
   private clearSnapPreview(): void {

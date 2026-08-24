@@ -2,15 +2,28 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { ViewerActions } from "../src/actions/viewer";
 import type { SceneData, WireBridge } from "../src/bridge/wire";
+import { CommitFailureCategory } from "../src/model";
+import {
+  createRoadToolState,
+  withRoadCurveEnd,
+  type RoadSegmentInput
+} from "../src/road";
+import {
+  ROAD_TEMPLATE_PRESETS,
+  type RoadSectionInput
+} from "../src/road_templates";
 import type {
   BundleTemplateInfo,
   BundlePlacement,
   CableTemplateInfo,
   GenerationTiming,
-  PoleTemplateInfo
+  PoleTemplateInfo,
+  WireIntervalRequest
 } from "../src/model";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 import { decodeWorkspaceText, WorkspaceCache, WORKSPACE_CACHE_KEY } from "../src/store/workspace";
+import { missingBackboneEntryCells } from "./backbone_semantics_contract";
+import { verifySharedDrawContract } from "./drawSessionContract";
 
 function current(store: ViewerStore): ViewerSnapshot {
   let snapshot: ViewerSnapshot | undefined;
@@ -252,6 +265,7 @@ describe("viewer actions", () => {
             kind: 0,
             supplementalKind: 0,
             wireRadius: 0.02,
+            materialStyle: 0,
             colorRgba: 0xffffffff,
             sourceNodeId: "0",
             sourceEdgeId: "1",
@@ -295,6 +309,7 @@ describe("viewer actions", () => {
       ],
       cableTemplates: () => [],
       poleTemplates: () => [],
+      roadAddRoadLayoutTemplate: () => ({ ok: true, error: "", roadLayoutTemplateId: 41 }),
       geometrySettings: () => ({
         curveSamples: 16,
         sagEnabled: true,
@@ -394,6 +409,7 @@ describe("viewer actions", () => {
         kind: 0,
         supplementalKind: 0,
         wireRadius: 0.02,
+        materialStyle: 0,
         colorRgba: 0xffffffff,
         sourceNodeId: "0",
         sourceEdgeId: "1",
@@ -489,7 +505,6 @@ const cableTemplate: CableTemplateInfo = {
   materialStyle: 2,
   colorRgba: 0xffffffff,
   sagFactor: 0.03,
-  slackFactor: 0,
   continuityPolicy: 0,
   supplementalEnabled: false,
   supplementalLateralOffset: 0,
@@ -511,6 +526,7 @@ const poleTemplate: PoleTemplateInfo = {
 };
 
 function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
+  let nextRoadLayoutTemplateId = 41;
   const emptyScene: SceneData = {
     parts: [],
     models: [],
@@ -554,28 +570,48 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     clearPendingSupportNodes: () => ({ ok: true, error: "" }),
     roadAddSegment: () => ({ ok: true, error: "" }),
     roadPreviewSegment: () => ({ ok: true, error: "", meshes: [] }),
+    roadPreviewInterval: (input: RoadSegmentInput) => ({
+      startX: input.startX,
+      startY: input.startY,
+      handleAX: input.handleAX,
+      handleAY: input.handleAY,
+      handleBX: input.handleBX,
+      handleBY: input.handleBY,
+      endX: input.endX,
+      endY: input.endY
+    }),
+    roadAddLane: () => ({ ok: true, error: "" }),
     roadScene: () => ({
       segmentCount: 0,
-      sectionTemplateCount: 1,
+      roadLayoutTemplateCount: 0,
       transitionCount: 0,
       markingCount: 0,
       connectionGateCount: 0,
       junctionCount: 0,
+      corridorCount: 0,
       nodes: [],
       centerlineSegments: [],
-      sectionTemplates: [],
+      lanePaths: [],
+      corridors: [],
+      roadLayoutTemplates: [],
       editableSegments: [],
       surfaceMeshes: [],
       markingMeshes: []
     }),
     roadUndoSegment: () => ({ ok: true, error: "" }),
     roadDeleteSegment: () => ({ ok: true, error: "" }),
+    roadMoveNode: () => ({ ok: true, error: "" }),
+    roadPreviewMoveNode: () => ({ ok: true, error: "", meshes: [] }),
     roadEditSegment: () => ({ ok: true, error: "" }),
     roadPreviewEditSegment: () => ({ ok: true, error: "", meshes: [] }),
-    roadUpdateSectionTemplate: () => ({ ok: true, error: "" }),
-    roadApplyTransition: () => ({ ok: true, error: "" }),
-    roadAddManualLine: () => ({ ok: true, error: "" }),
-    roadAddManualArea: () => ({ ok: true, error: "" }),
+    roadUpdateRoadLayoutTemplate: () => ({ ok: true, error: "" }),
+    // Core assigns section IDs; the mock hands back a fresh one per call so no
+    // test can lean on a particular number.
+    roadAddRoadLayoutTemplate: () => ({
+      ok: true,
+      error: "",
+      roadLayoutTemplateId: nextRoadLayoutTemplateId++
+    }),
     roadClear: () => ({ ok: true, error: "" }),
     roadSaveState: () => "factory-road-state",
     roadLoadState: () => ({ ok: true, error: "" }),
@@ -587,11 +623,287 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
 }
 
 describe("viewport tool routing", () => {
-  it("draws a road through two viewport clicks without adding Wire path points", () => {
-    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+  it("derives curved road handles independently of pointer motion history", () => {
+    const base = {
+      ...createRoadToolState(),
+      mode: "bezier" as const,
+      phase: "end" as const,
+      draftStart: { x: 0, y: 0 },
+      curveContinuationTangent: { x: 1, y: 0 }
+    };
+    const fromAbove = withRoadCurveEnd(
+      { ...base, draftEnd: { x: 7, y: 12 } },
+      { x: 20, y: 20 }
+    );
+    const fromBelow = withRoadCurveEnd(
+      { ...base, draftEnd: { x: 12, y: 3 } },
+      { x: 20, y: 20 }
+    );
+    expect(fromAbove.handleA).toEqual(fromBelow.handleA);
+    expect(fromAbove.handleB).toEqual(fromBelow.handleB);
+  });
+
+  it("uses a lightweight wire guide and commits each interval without preview validation", () => {
+    const previewWireInterval = vi.fn(() => ({
+      ok: false,
+      error: "preview generation must not gate a primary click",
+      generatedPoleCount: 0,
+      generatedSpanCount: 0,
+      totalMs: 0,
+      timing: timing(0),
+      parts: [],
+      poles: [],
+      endpoint: [0, 0, 0] as [number, number, number],
+      endpointSpec: null
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true,
+      error: "",
+      generatedPoleCount: 2,
+      generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"],
+      generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"],
+      totalMs: 1,
+      timing: timing(1),
+      endpoint: request.points[1],
+      endpointSpec: null
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval, generateWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 0, 0]);
+    expect(previewWireInterval).not.toHaveBeenCalled();
+    expect(current(store).wirePreview.request?.points).toEqual([[0, 0, 0], [12, 0, 0]]);
+
+    actions.addViewportPoint([12, 0, 0]);
+    expect(generateWireInterval).toHaveBeenCalledOnce();
+    expect(generateWireInterval.mock.calls[0][0].points).toEqual([[0, 0, 0], [12, 0, 0]]);
+    expect(current(store).pathPoints).toEqual([[12, 0, 0]]);
+    expect(current(store).pathPointSpecs).toEqual([{ supportKind: 0, nodeId: "102" }]);
+
+    actions.previewViewportPoint([24, 4, 0]);
+    actions.addViewportPoint([24, 4, 0]);
+    expect(generateWireInterval).toHaveBeenCalledTimes(2);
+    expect(generateWireInterval.mock.calls[1][0].points).toEqual([[12, 0, 0], [24, 4, 0]]);
+    expect(previewWireInterval).not.toHaveBeenCalled();
+  });
+
+  it("commits the displayed wire interval with Enter and then ends the session", () => {
+    const requestResult = {
+      ok: true,
+      error: "",
+      generatedPoleCount: 2,
+      generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"],
+      generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"],
+      totalMs: 1,
+      timing: timing(1)
+    };
+    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ...requestResult, parts: [], poles: [], endpoint: request.points[1], endpointSpec: null
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ...requestResult, endpoint: request.points[1], endpointSpec: null
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval, generateWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 3, 0]);
+    actions.finishDrawSession();
+
+    expect(generateWireInterval).toHaveBeenCalledOnce();
+    expect(generateWireInterval.mock.calls[0][0].points).toEqual([[0, 0, 0], [12, 3, 0]]);
+    expect(previewWireInterval).not.toHaveBeenCalled();
+    expect(current(store).pathPoints).toEqual([]);
+    expect(current(store).wirePreview.state).toBe("none");
+  });
+
+  it("keeps the wire guide and reports the commit reason when Enter fails", () => {
+    const previewWireInterval = vi.fn();
+    const generateWireInterval = vi.fn(() => ({
+      ok: false,
+      error: "wire connection needs more length",
+      generatedPoleCount: 0,
+      generatedSpanCount: 0,
+      totalMs: 0,
+      timing: timing(0),
+      endpoint: [0.1, 0, 0] as [number, number, number],
+      endpointSpec: null
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval, generateWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([0.1, 0, 0]);
+    actions.finishDrawSession();
+
+    expect(previewWireInterval).not.toHaveBeenCalled();
+    expect(generateWireInterval).toHaveBeenCalledOnce();
+    expect(current(store).pathPoints).toEqual([[0, 0, 0]]);
+    expect(current(store).wirePreview.state).toBe("guide");
+    expect(current(store).error).toBe("");
+    expect(current(store).lastCommitFailure).toEqual(expect.objectContaining({
+      message: "wire connection needs more length",
+      operation: "wire interval"
+    }));
+  });
+
+  it("updates the lightweight wire guide without asking Core to validate it", () => {
+    const previewWireInterval = vi.fn();
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([1, 0, 0]);
+    expect(current(store).wirePreview.state).toBe("guide");
+    expect(current(store).wirePreview.request?.points[1]).toEqual([1, 0, 0]);
+    actions.previewViewportPoint([10, 0, 0]);
+    expect(current(store).wirePreview.state).toBe("guide");
+    expect(current(store).wirePreview.request?.points[1]).toEqual([10, 0, 0]);
+    expect(previewWireInterval).not.toHaveBeenCalled();
+  });
+
+  it("keeps committed wire intervals when Escape cancels the next preview", () => {
+    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"], totalMs: 1, timing: timing(1), parts: [], poles: [],
+      endpoint: request.points[1], endpointSpec: null
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"], totalMs: 1, timing: timing(1),
+      endpoint: request.points[1], endpointSpec: null
+    }));
+    const loadState = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ previewWireInterval, generateWireInterval, loadState }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 0, 0]);
+    actions.addViewportPoint([12, 0, 0]);
+    actions.previewViewportPoint([24, 4, 0]);
+    actions.cancelDrawSession();
+    actions.cancelDrawSession();
+
+    expect(generateWireInterval).toHaveBeenCalledOnce();
+    expect(loadState).not.toHaveBeenCalled();
+    expect(current(store).pathPoints).toEqual([]);
+    expect(current(store).wirePreview.state).toBe("none");
+  });
+
+  it("keeps a committed picked midair endpoint usable as the next wire anchor", () => {
+    const midairPick = {
+      hitKind: 2,
+      hitId: "201",
+      hitX: 6,
+      hitY: 0,
+      hitZ: 7.4,
+      hasSegmentEndpoints: true,
+      segmentNodeAId: "101",
+      segmentNodeBId: "102",
+      segmentEndpointAX: 0,
+      segmentEndpointAY: 0,
+      segmentEndpointAZ: 7.4,
+      segmentEndpointBX: 12,
+      segmentEndpointBY: 0,
+      segmentEndpointBZ: 7.4
+    };
+    const resolveBranchPick = vi.fn(() => ({
+      ok: true,
+      error: "",
+      positionX: 6,
+      positionY: 0,
+      positionZ: 7.4,
+      supportKind: 1,
+      nodeId: "9001",
+      resolution: 1,
+      snappedFromSegmentEndpoint: false
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true,
+      error: "",
+      generatedPoleCount: 1,
+      generatedSpanCount: 1,
+      generatedPoleIds: request.targetPick === undefined ? ["104"] : ["103"],
+      generatedNodeIds: request.targetPick === undefined ? ["5001", "5002"] : ["5000", "7001"],
+      generatedSpanIds: request.targetPick === undefined ? ["203"] : ["202"],
+      generatedBundleIds: request.targetPick === undefined ? ["303"] : ["302"],
+      totalMs: 1,
+      timing: timing(1),
+      endpoint: request.targetPick === undefined ? request.points[1] : [6, 0, 7.4] as [number, number, number],
+      endpointSpec: request.targetPick === undefined ? null : { supportKind: 1, nodeId: "9001" }
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ resolveBranchPick, generateWireInterval }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 8, 0]);
+    actions.addViewportPoint([6, 0, 7.4], midairPick);
+    expect(current(store).pathPointSpecs).toEqual([{ supportKind: 1, nodeId: "7001" }]);
+
+    actions.addViewportPoint([12, 8, 0]);
+    expect(generateWireInterval).toHaveBeenCalledTimes(2);
+    expect(generateWireInterval.mock.calls[1][0].pointSpecs[0]).toEqual({ supportKind: 1, nodeId: "7001" });
+  });
+
+  it("undoes only the last committed wire interval with the operation snapshot", () => {
+    let coreState = "before-wire-interval";
+    const previewWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+      generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"],
+      generatedBundleIds: ["301"], totalMs: 1, timing: timing(1), parts: [], poles: [],
+      endpoint: request.points[1], endpointSpec: null
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => {
+      coreState = "after-wire-interval";
+      return {
+        ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+        generatedPoleIds: ["101", "102"], generatedSpanIds: ["201"],
+        generatedBundleIds: ["301"], totalMs: 1, timing: timing(1),
+        endpoint: request.points[1], endpointSpec: null
+      };
+    });
+    const loadState = vi.fn((text: string) => {
+      coreState = text;
+      return { ok: true, error: "" };
+    });
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({
+      previewWireInterval,
+      generateWireInterval,
+      saveState: () => coreState,
+      loadState
+    }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 0, 0]);
+    actions.addViewportPoint([12, 0, 0]);
+    actions.undoActiveTool();
+
+    expect(loadState).toHaveBeenCalledOnce();
+    expect(loadState).toHaveBeenCalledWith("before-wire-interval");
+    expect(coreState).toBe("before-wire-interval");
+    expect(current(store).pathPoints).toEqual([]);
+  });
+
+  it("commits a complete straight road interval on the second viewport click", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
     actions.initialize();
+    actions.setRoadSetting("junctionCornerRadiusM", 6.5);
 
     actions.setActiveTool("road");
     actions.addViewportPoint([2, 3, 0]);
@@ -603,21 +915,195 @@ describe("viewport tool routing", () => {
 
     actions.addViewportPoint([18, 5, 0]);
 
+    expect(roadAddSegment).toHaveBeenCalledOnce();
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       kind: "line",
+      junctionCornerRadiusM: 6.5,
       startX: 2,
       startY: 3,
       endX: 18,
-      endY: 5
+      endY: 5,
+      spans: [expect.objectContaining({
+        startX: 2,
+        startY: 3,
+        endX: 18,
+        endY: 5
+      })]
     }));
     expect(current(store).pathPoints).toEqual([]);
     expect(current(store).road.phase).toBe("end");
+    expect(current(store).road.draftStart).toEqual({ x: 18, y: 5 });
   });
 
-  it("normalizes continuous road drawing to extension of the same segment", () => {
-    const roadAddSegment = vi.fn()
-      .mockReturnValueOnce({ ok: true, error: "", segmentId: 11, endNodeId: 12 })
-      .mockReturnValue({ ok: true, error: "", segmentId: 11, endNodeId: 12 });
+  it("passes draw plane height into road endpoint elevations", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({
+      ok: true,
+      error: "",
+      segmentId: 22,
+      corridorId: 9,
+      endNodeId: 13
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.setDrawOption("drawPlaneZ", 3);
+    actions.addViewportPoint([0, 0, 3]);
+    actions.setDrawOption("drawPlaneZ", 6);
+    actions.previewViewportPoint([18, 0, 6]);
+    actions.addViewportPoint([18, 0, 6]);
+
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startElevationM: 3,
+      endElevationM: 6
+    }));
+    expect(current(store).road.draftStartElevationM).toBe(6);
+    expect(current(store).road.draftEndElevationM).toBe(6);
+  });
+
+  it("ignores a duplicate road endpoint click before committing an extension", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({
+      ok: true,
+      error: "",
+      segmentId: 22,
+      corridorId: 9,
+      endNodeId: 13
+    }));
+    const roadPreviewInterval = vi.fn((input: RoadSegmentInput) => ({
+      startX: input.startX,
+      startY: input.startY,
+      handleAX: input.handleAX,
+      handleAY: input.handleAY,
+      handleBX: input.handleBX,
+      handleBY: input.handleBY,
+      endX: input.endX,
+      endY: input.endY
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment, roadPreviewInterval }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint(
+      [40, 0, 0],
+      {
+        kind: "road",
+        nodeId: 12,
+        segmentId: 7,
+        segmentDistanceM: 40,
+        extensionCorridorId: 9
+      }
+    );
+    const duplicate = actions.addViewportPoint(
+      [40, 0, 0],
+      {
+        kind: "road",
+        nodeId: 12,
+        segmentId: 7,
+        segmentDistanceM: 40,
+        extensionCorridorId: 9
+      }
+    );
+    actions.previewViewportPoint([60, 12, 0]);
+    actions.addViewportPoint([60, 12, 0]);
+
+    expect(duplicate).toEqual({
+      kind: "ignored",
+      reasonCode: "road_endpoint_matches_anchor"
+    });
+    expect(roadPreviewInterval).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startX: 40,
+      startY: 0,
+      endX: 60,
+      endY: 12,
+      startNodeId: 12,
+      startSegmentId: 7,
+      startSegmentDistanceM: 40,
+      extensionCorridorId: 9
+    }));
+    expect(current(store).lastCommitFailure).toBeNull();
+    expect(current(store).road.phase).toBe("end");
+    expect(current(store).road.draftStart).toEqual({ x: 60, y: 12 });
+  });
+
+  it("uses a local road guide without calling Core during pointer movement", () => {
+    const roadPreviewSegment = vi.fn(() => ({
+      ok: false,
+      error: "road span has zero length",
+      failureCategory: CommitFailureCategory.InvalidInput,
+      meshes: []
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ roadPreviewSegment }),
+      store
+    );
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([0.1, 0, 0]);
+
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
+    expect(current(store).error).toBe("");
+    expect(current(store).road.previewState).toBe("guide");
+    expect(current(store).road.previewRequest).toEqual(expect.objectContaining({
+      startX: 0,
+      startY: 0,
+      endX: 0.1,
+      endY: 0
+    }));
+    expect(current(store).road.previewIssue).toBe("");
+    expect(current(store).road.lastError).toBe("");
+  });
+
+  it("does not let pointer movement replace a prior commit failure", () => {
+    const roadPreviewSegment = vi.fn(() => ({
+      ok: false,
+      error: "road preview internal failure",
+      failureCategory: CommitFailureCategory.InternalError,
+      meshes: []
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ roadPreviewSegment }),
+      store
+    );
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    store.setCommitFailure({
+      ok: false,
+      error: "commit failed",
+      failureCategory: CommitFailureCategory.StateConflict,
+      reasonCode: "stale_road_anchor"
+    }, "road segment", [2, 3, 0]);
+    actions.previewViewportPoint([10, 0, 0]);
+
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
+    expect(current(store).error).toBe("");
+    expect(current(store).road.previewIssue).toBe("");
+    expect(current(store).lastCommitFailure).toEqual(expect.objectContaining({
+      category: CommitFailureCategory.StateConflict,
+      reasonCode: "stale_road_anchor",
+      message: "commit failed"
+    }));
+  });
+
+  it("commits each straight interval as one operation while continuing the session", () => {
+    const roadAddSegment = vi.fn(() => ({
+      ok: true,
+      error: "",
+      segmentId: 11,
+      corridorId: 21,
+      endNodeId: 12
+    }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
     actions.initialize();
@@ -627,13 +1113,84 @@ describe("viewport tool routing", () => {
     actions.addViewportPoint([20, 0, 0]);
     actions.addViewportPoint([32, 16, 0]);
 
+    expect(roadAddSegment).toHaveBeenCalledTimes(2);
+    expect(roadAddSegment).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      startNodeId: 0,
+      extensionCorridorId: 0,
+      spans: [expect.objectContaining({ startX: 0, startY: 0, endX: 20, endY: 0 })]
+    }));
     expect(roadAddSegment).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      startX: 20,
+      spans: [expect.objectContaining({ startX: 20, startY: 0, endX: 32, endY: 16 })]
+    }));
+    expect(current(store).road.phase).toBe("end");
+  });
+
+  it("commits the current straight preview with Enter and then ends the session", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "", segmentId: 11, corridorId: 21, endNodeId: 12 }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 4, 0]);
+    actions.finishDrawSession();
+
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startX: 0,
       startY: 0,
-      endX: 32,
-      endY: 16,
-      startNodeId: 12,
-      extensionSegmentId: 11
+      endX: 12,
+      endY: 4
+    }));
+    expect(current(store).road.phase).toBe("start");
+  });
+
+  it("keeps committed road intervals when Escape cancels the next preview", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "", segmentId: 11, corridorId: 21, endNodeId: 12 }));
+    const roadUndoSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment, roadUndoSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([10, 0, 0]);
+    actions.addViewportPoint([10, 0, 0]);
+    actions.previewViewportPoint([20, 4, 0]);
+    actions.cancelDrawSession();
+    actions.cancelDrawSession();
+
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadUndoSegment).not.toHaveBeenCalled();
+    expect(current(store).road.phase).toBe("start");
+    expect(current(store).road.previewState).toBe("none");
+  });
+
+  it("retains the straight anchor and preview request when commit fails", () => {
+    const roadAddSegment = vi.fn(() => ({
+      ok: false,
+      error: "road connection needs more length",
+      failureCategory: CommitFailureCategory.NotImplemented
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([10, 2, 0]);
+    actions.addViewportPoint([10, 2, 0]);
+
+    expect(current(store).road.phase).toBe("end");
+    expect(current(store).road.previewState).toBe("guide");
+    expect(current(store).road.previewRequest).not.toBeNull();
+    expect(current(store).road.previewIssue).toBe("");
+    expect(current(store).lastCommitFailure).toEqual(expect.objectContaining({
+      category: CommitFailureCategory.NotImplemented,
+      message: "road connection needs more length",
+      operation: "road segment",
+      attemptedPosition: [10, 2, 0]
     }));
   });
 
@@ -646,13 +1203,14 @@ describe("viewport tool routing", () => {
     actions.setActiveTool("road");
     actions.addViewportPoint(
       [20, 0, 0],
-      { kind: "road", nodeId: 12, segmentId: 0, stationM: 0, extensionSegmentId: 11 }
+      { kind: "road", nodeId: 12, segmentId: 0, segmentDistanceM: 0, extensionCorridorId: 11 }
     );
     actions.addViewportPoint([32, 16, 0]);
+    actions.commitRoadPath();
 
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       startNodeId: 12,
-      extensionSegmentId: 11
+      extensionCorridorId: 11
     }));
   });
 
@@ -663,8 +1221,9 @@ describe("viewport tool routing", () => {
     actions.initialize();
 
     actions.setActiveTool("road");
-    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7, stationM: 20 });
+    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7, segmentDistanceM: 20 });
     actions.addViewportPoint([20, 24, 0]);
+    actions.commitRoadPath();
 
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       startX: 20,
@@ -673,7 +1232,56 @@ describe("viewport tool routing", () => {
       endY: 24,
       startNodeId: 0,
       startSegmentId: 7,
-      startStationM: 20
+      startSegmentDistanceM: 20
+    }));
+  });
+
+  it("passes an end road segment snap target to the authoritative road state", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([20, 24, 0]);
+    actions.addViewportPoint(
+      [20, 0, 0],
+      { kind: "road", nodeId: 0, segmentId: 7, segmentDistanceM: 20 }
+    );
+
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startX: 20,
+      startY: 24,
+      endX: 20,
+      endY: 0,
+      endNodeId: 0,
+      endSegmentId: 7,
+      endSegmentDistanceM: 20
+    }));
+  });
+
+  it("passes both road segment snap targets in one authoritative request", () => {
+    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint(
+      [20, 0, 0],
+      { kind: "road", nodeId: 0, segmentId: 7, segmentDistanceM: 20 }
+    );
+    actions.addViewportPoint(
+      [20, 24, 0],
+      { kind: "road", nodeId: 0, segmentId: 9, segmentDistanceM: 12 }
+    );
+
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
+      startSegmentId: 7,
+      startSegmentDistanceM: 20,
+      endSegmentId: 9,
+      endSegmentDistanceM: 12
     }));
   });
 
@@ -686,8 +1294,10 @@ describe("viewport tool routing", () => {
     actions.setActiveTool("road");
     actions.addViewportPoint([0, 0, 0]);
     actions.addViewportPoint([40, 0, 0]);
-    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7, stationM: 20 });
+    actions.commitRoadPath();
+    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 7, segmentDistanceM: 20 });
     actions.addViewportPoint([20, 24, 0]);
+    actions.commitRoadPath();
 
     expect(roadAddSegment).toHaveBeenLastCalledWith(expect.objectContaining({
       startX: 20,
@@ -696,81 +1306,133 @@ describe("viewport tool routing", () => {
       endY: 24,
       startNodeId: 0,
       startSegmentId: 7,
-      startStationM: 20
+      startSegmentDistanceM: 20
     }));
     expect(current(store).road.draftStartSegmentId).toBe(0);
-    expect(current(store).road.draftStartStationM).toBe(0);
+    expect(current(store).road.draftStartSegmentDistanceM).toBe(0);
   });
 
-  it("draws a curved road with a Cities-style bend point before the end point", () => {
-    const roadAddSegment = vi.fn(() => ({ ok: true, error: "" }));
+  it("commits one curved road interval with one primary action after the anchor", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "" }));
+    const roadPreviewSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "", meshes: [] }));
     const store = new ViewerStore();
-    const actions = new ViewerActions(actionBridge({ roadAddSegment }), store);
+    const actions = new ViewerActions(actionBridge({ roadAddSegment, roadPreviewSegment }), store);
     actions.initialize();
 
     actions.setActiveTool("road");
     actions.setRoadMode("bezier");
     actions.addViewportPoint([0, 0, 0]);
 
-    expect(current(store).road.phase).toBe("bend");
-
-    actions.previewViewportPoint([9, 9, 0]);
-    expect(current(store).road.draftBend).toEqual({ x: 9, y: 9 });
-
-    actions.addViewportPoint([9, 9, 0]);
-    expect(roadAddSegment).not.toHaveBeenCalled();
     expect(current(store).road.phase).toBe("end");
 
+    actions.previewViewportPoint([9, 9, 0]);
+    actions.previewViewportPoint([18, 0, 0]);
+    const displayedRequest = current(store).road.previewRequest;
     actions.addViewportPoint([18, 0, 0]);
 
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
+    expect(roadAddSegment.mock.calls[0]?.[0]).toEqual(displayedRequest);
     expect(roadAddSegment).toHaveBeenCalledWith(expect.objectContaining({
       kind: "bezier",
       startX: 0,
       startY: 0,
       endX: 18,
       endY: 0,
-      handleAX: 6,
-      handleAY: 6,
-      handleBX: 12,
-      handleBY: 6
+      handleAX: expect.any(Number),
+      handleAY: expect.any(Number),
+      handleBX: expect.any(Number),
+      handleBY: expect.any(Number)
     }));
-    expect(current(store).road.phase).toBe("bend");
+    expect(current(store).road.phase).toBe("end");
   });
 
-  it("routes marking and delete tools from centerline picks", () => {
-    const roadAddManualLine = vi.fn(() => ({ ok: true, error: "" }));
-    const roadAddManualArea = vi.fn(() => ({ ok: true, error: "" }));
+  it("commits the displayed curved preview with Enter and ends the session", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "", segmentId: 11, corridorId: 21, endNodeId: 12 }));
+    const roadPreviewSegment = vi.fn((_input: RoadSegmentInput) => ({ ok: true, error: "", meshes: [] }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ roadAddSegment, roadPreviewSegment }), store);
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.setRoadMode("bezier");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([8, 6, 0]);
+    actions.previewViewportPoint([18, 0, 0]);
+    actions.finishDrawSession();
+
+    expect(roadAddSegment).toHaveBeenCalledOnce();
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
+    expect(current(store).road.phase).toBe("start");
+  });
+
+  it("reports the drawing mode on every interval of a continued curve", () => {
+    const roadAddSegment = vi.fn((_input: RoadSegmentInput) => ({
+      ok: true,
+      error: "",
+      segmentId: 11,
+      endNodeId: 12,
+      corridorId: 21
+    }));
+    const roadPreviewSegment = vi.fn((_input: RoadSegmentInput) => ({
+      ok: true,
+      error: "",
+      meshes: []
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ roadAddSegment, roadPreviewSegment }),
+      store
+    );
+    actions.initialize();
+
+    actions.setActiveTool("road");
+    actions.setRoadMode("bezier");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([9, 9, 0]);
+    actions.previewViewportPoint([18, 0, 0]);
+    actions.addViewportPoint([18, 0, 0]);
+    actions.previewViewportPoint([24, -6, 0]);
+    actions.addViewportPoint([30, -12, 0]);
+
+    expect(roadAddSegment).toHaveBeenCalledTimes(2);
+    expect(roadPreviewSegment).not.toHaveBeenCalled();
+    // The tangent at a shared point needs the points on both sides of it, which
+    // only core has. The viewer has to say which mode was drawn so core can
+    // decide; it must not decide the shape itself.
+    const first = roadAddSegment.mock.calls[0]?.[0];
+    const continued = roadAddSegment.mock.calls[1]?.[0];
+    expect(first?.kind).toBe("bezier");
+    expect(continued?.kind).toBe("bezier");
+    expect(continued?.extensionCorridorId).toBe(21);
+  });
+
+  it("routes one-click whole-segment deletion from the hovered centerline pick", () => {
     const roadDeleteSegment = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({
-      roadAddManualLine,
-      roadAddManualArea,
       roadDeleteSegment
     }), store);
     actions.initialize();
     actions.setActiveTool("road");
 
-    actions.setRoadOperation("line-marking");
-    actions.addViewportPoint([5, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 5 });
-    actions.addViewportPoint([20, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 20 });
-    expect(roadAddManualLine).toHaveBeenCalledWith(expect.objectContaining({
-      segmentId: 12,
-      startStationM: 5,
-      endStationM: 20
-    }));
-
-    actions.setRoadOperation("area-marking");
-    actions.addViewportPoint([15, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 15 });
-    expect(roadAddManualArea).toHaveBeenCalledWith(expect.objectContaining({ segmentId: 12, stationM: 15 }));
-
     actions.setRoadOperation("delete");
-    actions.addViewportPoint([15, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 15 });
+    actions.previewViewportPoint(
+      [8, 0, 0],
+      { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 8 }
+    );
+    expect(current(store).road.hoveredDeleteSegmentId).toBe(12);
+    actions.addViewportPoint([8, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 8 });
+    expect(roadDeleteSegment).toHaveBeenCalledOnce();
     expect(roadDeleteSegment).toHaveBeenCalledWith(12);
+    expect(current(store).road.hoveredDeleteSegmentId).toBe(0);
   });
 
-  it("previews and commits a dragged road alignment handle", () => {
+  it("routes endpoint and control handle edits to their owning operations", () => {
     const roadPreviewEditSegment = vi.fn(() => ({ ok: true, error: "", meshes: [] }));
     const roadEditSegment = vi.fn(() => ({ ok: true, error: "" }));
+    const roadPreviewMoveNode = vi.fn(() => ({ ok: true, error: "", meshes: [] }));
+    const roadMoveNode = vi.fn(() => ({ ok: true, error: "" }));
     const store = new ViewerStore();
     const baseScene = actionBridge().roadScene();
     const actions = new ViewerActions(actionBridge({
@@ -778,18 +1440,30 @@ describe("viewport tool routing", () => {
         ...baseScene,
         editableSegments: [{
           id: 12,
-          kind: "bezier",
-          points: [{ x: 0, y: 0 }, { x: 6, y: 8 }, { x: 14, y: 8 }, { x: 20, y: 0 }]
+          nodeAId: 20,
+          nodeBId: 21,
+          kind: "line",
+          points: [{ x: 0, y: 0 }, { x: 6.6666666667, y: 0 }, { x: 13.3333333333, y: 0 }, { x: 20, y: 0 }]
         }]
       }),
       roadPreviewEditSegment,
-      roadEditSegment
+      roadEditSegment,
+      roadPreviewMoveNode,
+      roadMoveNode
     }), store);
     actions.initialize();
     actions.setActiveTool("road");
     actions.setRoadOperation("edit");
-    actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, stationM: 10 });
+    actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10 });
 
+    actions.previewRoadEditHandle(0, [-2, 3, 0]);
+    expect(roadPreviewMoveNode).toHaveBeenCalledWith(20, -2, 3);
+    actions.commitRoadEditHandle();
+    expect(roadMoveNode).toHaveBeenCalledWith(20, -2, 3);
+    expect(roadEditSegment).not.toHaveBeenCalled();
+
+    actions.setRoadOperation("edit");
+    actions.addViewportPoint([10, 0, 0], { kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10 });
     actions.previewRoadEditHandle(1, [7, 10, 0]);
     expect(roadPreviewEditSegment).toHaveBeenCalledWith(12, expect.objectContaining({
       kind: "bezier",
@@ -798,6 +1472,614 @@ describe("viewport tool routing", () => {
     }));
     actions.commitRoadEditHandle();
     expect(roadEditSegment).toHaveBeenCalledWith(12, expect.objectContaining({ handleAX: 7, handleAY: 10 }));
+  });
+
+
+
+  it("collects three arbitrary positions on one corridor", () => {
+    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 1 as const }],
+        boundaries: [
+          { id: 100, role: 1 },
+          { id: 200, role: 2 }
+        ]
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene,
+      roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+    expect(current(store).road).toMatchObject({
+      selectedLaneSegmentId: 12,
+      selectedLaneDirection: 1,
+      laneCorridorId: 30,
+      laneEditStage: "transition-complete",
+      laneTransitionStartSegmentId: 12,
+      laneTransitionStartT: 10 / 60
+    });
+    actions.previewViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30,
+      laneId: 1010
+    });
+    expect(current(store).road).toMatchObject({
+      hoveredLaneSegmentId: 12,
+      hoveredLaneId: 1010,
+      laneTransitionCompleteSegmentId: 12,
+      laneTransitionCompleteT: 0.5
+    });
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    });
+    expect(commit).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledWith(expect.objectContaining({
+      corridorId: 30,
+      direction: 1,
+      startSegmentId: 12,
+      startT: 10 / 60,
+      completeSegmentId: 12,
+      completeT: 0.5
+    }));
+  });
+  it("resets the active add-lane range on cancel and operation switch", () => {
+    const store = new ViewerStore();
+    const scene = {
+      ...actionBridge().roadScene(),
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 1 as const }], boundaries: []
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({ roadScene: () => scene }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    const start = () => actions.addViewportPoint([10, 0, 0], {
+      kind: "road" as const, nodeId: 0, segmentId: 12,
+      segmentDistanceM: 10
+    });
+
+    start();
+    actions.cancelDrawSession();
+    expect(current(store).road).toMatchObject({
+      laneEditStage: "select",
+      selectedLaneSegmentId: 0,
+      laneCorridorId: 0,
+      laneTransitionStartSegmentId: 0,
+      laneTransitionCompleteSegmentId: 0
+    });
+
+    actions.setRoadOperation("add-lane");
+    start();
+    actions.setRoadOperation("draw");
+    expect(current(store).road).toMatchObject({
+      laneEditStage: "select",
+      selectedLaneSegmentId: 0,
+      laneCorridorId: 0,
+      laneTransitionStartSegmentId: 0,
+      laneTransitionCompleteSegmentId: 0
+    });
+  });
+  it("commits add-lane after the completion point without a maintained end", () => {
+    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 1 as const }], boundaries: []
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene, roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    });
+    expect(commit).toHaveBeenCalledOnce();
+  });
+  it.each([
+    ["same segment", 12, 30, ""],
+    ["another segment in the corridor", 13, 30, "road_add_lane_taper_crosses_segment_boundary"],
+    ["another corridor", 14, 30, "road_add_lane_position_not_on_selected_corridor"],
+    ["the start position", 12, 10, "road_add_lane_positions_identical"]
+  ])("sends the same add-lane request for click and confirm at %s",
+    (_label, completeSegmentId, completeDistanceM, reasonCode) => {
+      const baseScene = actionBridge().roadScene();
+      const scene = {
+        ...baseScene,
+        corridors: [
+          { id: 30, roadLayoutTemplateId: 1, lengthM: 120, segments: [
+            { segmentId: 12, reversed: false, lengthM: 60 },
+            { segmentId: 13, reversed: false, lengthM: 60 }
+          ] },
+          { id: 31, roadLayoutTemplateId: 1, lengthM: 60,
+            segments: [{ segmentId: 14, reversed: false, lengthM: 60 }] }
+        ],
+        roadLayoutTemplates: [{
+          id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+          laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+          hasCenterLine: true, hasOuterLines: true,
+          lanes: [{ id: 1010, direction: 0 as const }], boundaries: []
+        }]
+      };
+      const requests: unknown[] = [];
+      const makeActions = () => {
+        const store = new ViewerStore();
+        const commit = vi.fn((input: unknown) => {
+          requests.push(input);
+          return {
+            ok: reasonCode === "",
+            error: reasonCode === "" ? "" : "mock Core rejection",
+            failureCategory: CommitFailureCategory.InvalidInput,
+            reasonCode
+          };
+        });
+        const actions = new ViewerActions(actionBridge({
+          roadScene: () => scene, roadAddLane: commit
+        }), store);
+        actions.initialize();
+        actions.setActiveTool("road");
+        actions.setRoadOperation("add-lane");
+        actions.addViewportPoint([10, 0, 0], {
+          kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+        });
+        return { actions, store, commit };
+      };
+      const snap = {
+        kind: "road" as const, nodeId: 0, segmentId: completeSegmentId,
+        segmentDistanceM: completeDistanceM
+      };
+      const clicked = makeActions();
+      clicked.actions.addViewportPoint([completeDistanceM, 0, 0], snap);
+      const confirmed = makeActions();
+      confirmed.actions.previewViewportPoint([completeDistanceM, 0, 0], snap);
+      confirmed.actions.commitRoadPath();
+
+      expect(clicked.commit).toHaveBeenCalledOnce();
+      expect(confirmed.commit).toHaveBeenCalledOnce();
+      expect(requests).toHaveLength(2);
+      expect(requests[1]).toEqual(requests[0]);
+      if (reasonCode !== "") {
+        expect(current(clicked.store).lastCommitFailure?.reasonCode).toBe(reasonCode);
+        expect(current(confirmed.store).lastCommitFailure?.reasonCode).toBe(reasonCode);
+        expect(current(confirmed.store).road.laneTransitionCompleteSegmentId)
+          .toBe(completeSegmentId);
+      }
+    });
+  it("uses the Core reason for an add-lane taper crossing a segment boundary", () => {
+    const commit = vi.fn((_input: unknown) => ({
+      ok: false, error: "lane taper must stay within one road segment",
+      failureCategory: CommitFailureCategory.NotImplemented,
+      reasonCode: "road_add_lane_taper_crosses_segment_boundary"
+    }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 120,
+        segments: [
+          { segmentId: 12, reversed: false, lengthM: 60 },
+          { segmentId: 13, reversed: false, lengthM: 60 }
+        ] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 0 as const }], boundaries: []
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene, roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    });
+    actions.addViewportPoint([90, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 13, segmentDistanceM: 30
+    });
+
+    expect(commit).toHaveBeenCalledOnce();
+    expect(current(store).lastCommitFailure?.reasonCode)
+      .toBe("road_add_lane_taper_crosses_segment_boundary");
+    expect(current(store).road.laneEditStage).toBe("transition-complete");
+  });
+  it("normalizes add-lane picks against the hidden corridor direction", () => {
+    const commit = vi.fn((_input: unknown) => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: true, lengthM: 60 }] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 0 as const }],
+        boundaries: [
+          { id: 100, role: 1 },
+          { id: 200, role: 2 }
+        ]
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene,
+      roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    });
+    actions.previewViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+
+    expect(current(store).road.laneTransitionCompleteT).toBe(10 / 60);
+
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+    expect(commit).toHaveBeenCalledWith(expect.objectContaining({
+      corridorId: 30,
+      startT: 0.5,
+      completeT: 10 / 60
+    }));
+  });
+  it("uses the Core reason for identical add-lane start and completion", () => {
+    const commit = vi.fn((_input: unknown) => ({
+      ok: false, error: "lane start and completion positions must be different",
+      failureCategory: CommitFailureCategory.InvalidInput,
+      reasonCode: "road_add_lane_positions_identical"
+    }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 0 as const }],
+        boundaries: []
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene,
+      roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+
+    expect(commit).toHaveBeenCalledOnce();
+    expect(current(store).lastCommitFailure?.reasonCode)
+      .toBe("road_add_lane_positions_identical");
+    expect(current(store).road.laneEditStage).toBe("transition-complete");
+  });
+  it("uses the Core reason for an add-lane completion point on another corridor", () => {
+    const commit = vi.fn((_input: unknown) => ({
+      ok: false, error: "lane position is not on the selected corridor",
+      failureCategory: CommitFailureCategory.InvalidInput,
+      reasonCode: "road_add_lane_position_not_on_selected_corridor"
+    }));
+    const store = new ViewerStore();
+    const baseScene = actionBridge().roadScene();
+    const scene = {
+      ...baseScene,
+      corridors: [
+        { id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+          segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] },
+        { id: 31, roadLayoutTemplateId: 1, lengthM: 60,
+          segments: [{ segmentId: 13, reversed: false, lengthM: 60 }] }
+      ],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 0 as const }],
+        boundaries: []
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene,
+      roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 13, segmentDistanceM: 50
+    });
+
+    expect(commit).toHaveBeenCalledOnce();
+    expect(current(store).lastCommitFailure?.reasonCode)
+      .toBe("road_add_lane_position_not_on_selected_corridor");
+    expect(current(store).lastCommitFailure?.message)
+      .toContain("lane position is not on the selected corridor");
+    expect(current(store).road.laneEditStage).toBe("transition-complete");
+  });
+  it("keeps all add-lane selections after one rejected confirmation", () => {
+    const commit = vi.fn(() => ({
+      ok: false,
+      error: "this road segment already has a section transition",
+      failureCategory: CommitFailureCategory.InvalidInput,
+      reasonCode: "road_add_lane_transition_conflict"
+    }));
+    const store = new ViewerStore();
+    const scene = {
+      ...actionBridge().roadScene(),
+      corridors: [{ id: 30, roadLayoutTemplateId: 1, lengthM: 60,
+        segments: [{ segmentId: 12, reversed: false, lengthM: 60 }] }],
+      roadLayoutTemplates: [{
+        id: 1, name: "JP 2 lane", strips: [], sidewalkWidthM: 2,
+        laneWidthM: 3, medianWidthM: 0, laneCount: 2,
+        hasCenterLine: true, hasOuterLines: true,
+        lanes: [{ id: 1010, direction: 0 as const }],
+        boundaries: [{ id: 200, role: 2 }]
+      }]
+    };
+    const actions = new ViewerActions(actionBridge({
+      roadScene: () => scene,
+      roadAddLane: commit
+    }), store);
+    actions.initialize();
+    actions.setActiveTool("road");
+    actions.setRoadOperation("add-lane");
+    actions.addViewportPoint([10, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 10
+    });
+    actions.addViewportPoint([30, 0, 0], {
+      kind: "road", nodeId: 0, segmentId: 12, segmentDistanceM: 30
+    });
+    const rejected = current(store);
+    expect(rejected.lastCommitFailure?.reasonCode)
+      .toBe("road_add_lane_transition_conflict");
+    expect(rejected.road.laneEditStage).toBe("transition-complete");
+    expect(rejected.road.laneTransitionStartT).toBe(10 / 60);
+    expect(rejected.road.laneTransitionCompleteT).toBe(0.5);
+    actions.previewViewportPoint([55, 0, 0], {
+      kind: "road", nodeId: 22, segmentId: 12, segmentDistanceM: 55
+    });
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(current(store).lastCommitFailure?.reasonCode)
+      .toBe("road_add_lane_transition_conflict");
+  });
+});
+describe("shared draw outcomes", () => {
+  // Road and wire answer the same questions about a draw session. Both run the
+  // one contract so the viewer never reads an error string to tell what
+  // happened.
+  const rejection = {
+    ok: false,
+    error: "core state conflict: unknown node reference",
+    failureCategory: CommitFailureCategory.StateConflict,
+    reasonCode: "stale_anchor_reference"
+  };
+
+  it("road reports draw outcomes through the shared contract", () => {
+    let reject = false;
+    let committed = 0;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        roadAddSegment: () => {
+          if (reject) return rejection;
+          committed += 1;
+          return { ok: true, error: "" };
+        }
+      }),
+      store
+    );
+    actions.initialize();
+    actions.setActiveTool("road");
+
+    verifySharedDrawContract({
+      anchor: () => actions.addViewportPoint([0, 0, 0]),
+      hoverValid: () => actions.previewViewportPoint([20, 0, 0]),
+      commit: () => {
+        reject = false;
+        return actions.addViewportPoint([20, 0, 0]);
+      },
+      commitRejected: () => {
+        reject = true;
+        return actions.addViewportPoint([20, 0, 0]);
+      },
+      confirm: () => actions.finishDrawSession(),
+      cancel: () => actions.cancelDrawSession(),
+      hasAnchor: () => current(store).road.phase !== "start",
+      committedCount: () => committed,
+      lastFailure: () => {
+        const failure = current(store).lastCommitFailure;
+        return failure === null
+          ? null
+          : { category: failure.category, reasonCode: failure.reasonCode };
+      }
+    });
+  });
+
+  it("wire reports draw outcomes through the shared contract", () => {
+    let reject = false;
+    let committed = 0;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        generateWireInterval: (request: WireIntervalRequest) => {
+          const base = {
+            generatedPoleCount: 0,
+            generatedSpanCount: 0,
+            generatedPoleIds: [] as string[],
+            generatedSpanIds: [] as string[],
+            generatedBundleIds: [] as string[],
+            totalMs: 1,
+            timing: timing(1),
+            endpoint: request.points[1],
+            endpointSpec: null
+          };
+          if (reject) return { ...base, ...rejection };
+          committed += 1;
+          return { ...base, ok: true, error: "", generatedSpanCount: 1 };
+        }
+      }),
+      store
+    );
+    actions.initialize();
+    actions.setActiveTool("wire");
+
+    let x = 0;
+    verifySharedDrawContract({
+      anchor: () => actions.addViewportPoint([0, 0, 0]),
+      hoverValid: () => actions.previewViewportPoint([x + 20, 0, 0]),
+      commit: () => {
+        reject = false;
+        x += 20;
+        return actions.addViewportPoint([x, 0, 0]);
+      },
+      commitRejected: () => {
+        reject = true;
+        return actions.addViewportPoint([x + 20, 0, 0]);
+      },
+      confirm: () => actions.finishDrawSession(),
+      cancel: () => actions.cancelDrawSession(),
+      hasAnchor: () => current(store).pathPoints.length > 0,
+      committedCount: () => committed,
+      lastFailure: () => {
+        const failure = current(store).lastCommitFailure;
+        return failure === null
+          ? null
+          : { category: failure.category, reasonCode: failure.reasonCode };
+      }
+    });
+  });
+});
+
+describe("road section catalogue", () => {
+  it("registers the catalogue once and selects the initial section by its assigned ID", () => {
+    const registered: RoadSectionInput[] = [];
+    let nextId = 71;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        roadAddRoadLayoutTemplate: (section: RoadSectionInput) => {
+          registered.push(section);
+          return { ok: true, error: "", roadLayoutTemplateId: nextId++ };
+        }
+      }),
+      store
+    );
+
+    expect(actions.initialize()).toBe(true);
+
+    expect(registered).toHaveLength(ROAD_TEMPLATE_PRESETS.length);
+    expect(registered.map((section) => section.strips.length)).toEqual(
+      ROAD_TEMPLATE_PRESETS.map((preset) => preset.section.strips.length)
+    );
+    const snapshot = current(store);
+    const initialPreset = ROAD_TEMPLATE_PRESETS.findIndex((preset) => preset.initial);
+    expect(snapshot.road.selectedRoadLayoutTemplateId).toBe(71 + initialPreset);
+    expect(snapshot.road.junctionCornerRadiusM).toBe(4);
+    expect(snapshot.road.roadJunctionCornerRadiusDefaults[71 + initialPreset]).toBe(4);
+    expect(snapshot.road.roadLayoutTemplateLabels[71 + initialPreset]).toBe(
+      ROAD_TEMPLATE_PRESETS[initialPreset].label
+    );
+    // Restoring a saved workspace must not run the catalogue a second time.
+    expect(registered).toHaveLength(ROAD_TEMPLATE_PRESETS.length);
+
+    actions.setRoadSetting("junctionCornerRadiusM", 7.5);
+    expect(current(store).road.junctionCornerRadiusM).toBe(7.5);
+    actions.selectRoadLayoutTemplate(72);
+    expect(current(store).road.selectedRoadLayoutTemplateId).toBe(72);
+    expect(current(store).road.junctionCornerRadiusM).toBe(4);
+  });
+
+  it("leaves the workspace unset when a section is rejected part way", () => {
+    let calls = 0;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        roadAddRoadLayoutTemplate: () => {
+          calls += 1;
+          return calls < 3
+            ? { ok: true, error: "", roadLayoutTemplateId: 80 + calls }
+            : { ok: false, error: "section template chain is incomplete" };
+        }
+      }),
+      store
+    );
+
+    expect(actions.initialize()).toBe(false);
+
+    const snapshot = current(store);
+    expect(snapshot.error).toContain("section template chain is incomplete");
+    expect(snapshot.road.selectedRoadLayoutTemplateId).toBe(0);
+    expect(snapshot.road.roadLayoutTemplateLabels).toEqual({});
+  });
+
+  it("does not commit a road while no section is selected", () => {
+    const added = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        roadAddRoadLayoutTemplate: () => ({ ok: false, error: "rejected" }),
+        roadAddSegment: added
+      }),
+      store
+    );
+
+    expect(actions.initialize()).toBe(false);
+    expect(current(store).road.selectedRoadLayoutTemplateId).toBe(0);
+
+    actions.setActiveTool("road");
+    actions.addViewportPoint([0, 0, 0]);
+    actions.addViewportPoint([20, 0, 0]);
+
+    expect(added).not.toHaveBeenCalled();
   });
 });
 
@@ -902,7 +2184,7 @@ describe("P1 action contracts", () => {
 
   it("keeps startup free of authoritative update calls in source", () => {
     const source = readFileSync(new URL("../src/actions/viewer.ts", import.meta.url), "utf8");
-    const start = source.indexOf("  initialize(): void {");
+    const start = source.indexOf("  initialize(): boolean {");
     const end = source.indexOf("  async restoreWorkspace()", start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
@@ -1264,62 +2546,75 @@ describe("P1 action contracts", () => {
     expect(placements?.[0]?.generatedBundleId).toBeUndefined();
   });
 
-  it("passes resolved source snap node identity through to generation", () => {
-    let nodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }> | undefined;
-    const store = new ViewerStore();
-    const actions = new ViewerActions(actionBridge({
-      resolveBranchPick: () => ({
-        ok: true,
-        error: "",
-        positionX: 5,
-        positionY: 0,
-        positionZ: 4,
-        supportKind: 1,
-        nodeId: "9001"
-      }),
-      generate: (_points, _placements, _interval, _poleType, _direction, _tilt, specs) => {
-        nodeSpecs = Array.isArray(specs) ? specs : undefined;
-        return {
+  it("passes required resolved snap identities through the viewer action entry", () => {
+    const coveredEntries = new Set<string>();
+    const scenarios = [
+      { cell: "BOS:add_one_edge:S1", supportKind: 0, nodeId: "42" },
+      { cell: "BOS:add_one_edge:SM", supportKind: 1, nodeId: "9001" }
+    ];
+    for (const scenario of scenarios) {
+      let nodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }> | undefined;
+      const store = new ViewerStore();
+      const actions = new ViewerActions(actionBridge({
+        resolveBranchPick: () => ({
           ok: true,
           error: "",
-          generatedPoleCount: 1,
-          generatedSpanCount: 1,
-          totalMs: 1,
-          timing: timing(1)
-        };
-      },
-      scene: () => ({
-        parts: [],
-        models: [],
-        poles: [],
-        ports: [],
-        spans: [],
-        supportNodes: [],
-        backboneEdges: []
-      })
-    }), store);
-    actions.initialize();
+          positionX: 5,
+          positionY: 0,
+          positionZ: 4,
+          supportKind: scenario.supportKind,
+          nodeId: scenario.nodeId
+        }),
+        generate: (_points, _placements, _interval, _poleType, _direction, _tilt, specs) => {
+          nodeSpecs = Array.isArray(specs) ? specs : undefined;
+          return {
+            ok: true,
+            error: "",
+            generatedPoleCount: 1,
+            generatedSpanCount: 1,
+            totalMs: 1,
+            timing: timing(1)
+          };
+        },
+        scene: () => ({
+          parts: [],
+          models: [],
+          poles: [],
+          ports: [],
+          spans: [],
+          supportNodes: [],
+          backboneEdges: []
+        })
+      }), store);
+      actions.initialize();
 
-    actions.addPathPoint([5, 0, 0], {
-      hitKind: 2,
-      hitId: "0",
-      hitX: 5,
-      hitY: 0,
-      hitZ: 0,
-      hasSegmentEndpoints: true,
-      segmentNodeAId: "10",
-      segmentNodeBId: "11",
-      segmentEndpointAX: 0,
-      segmentEndpointAY: 0,
-      segmentEndpointAZ: 0,
-      segmentEndpointBX: 10,
-      segmentEndpointBY: 0,
-      segmentEndpointBZ: 0
-    });
-    actions.addPathPoint([5, 8, 0]);
-    actions.generatePath();
+      actions.addPathPoint([5, 0, 0], {
+        hitKind: 2,
+        hitId: "0",
+        hitX: 5,
+        hitY: 0,
+        hitZ: 0,
+        hasSegmentEndpoints: true,
+        segmentNodeAId: "10",
+        segmentNodeBId: "11",
+        segmentEndpointAX: 0,
+        segmentEndpointAY: 0,
+        segmentEndpointAZ: 0,
+        segmentEndpointBX: 10,
+        segmentEndpointBY: 0,
+        segmentEndpointBZ: 0
+      });
+      actions.addPathPoint([5, 8, 0]);
+      actions.generatePath();
 
-    expect(nodeSpecs).toEqual([{ pointIndex: 0, supportKind: 1, nodeId: "9001" }]);
+      expect(nodeSpecs).toEqual([{
+        pointIndex: 0,
+        supportKind: scenario.supportKind,
+        nodeId: scenario.nodeId
+      }]);
+      coveredEntries.add(scenario.cell);
+    }
+    expect(missingBackboneEntryCells("viewer_action", coveredEntries)).toEqual([]);
   });
 
   it("starts a new path after generation by default and undoes one point", () => {

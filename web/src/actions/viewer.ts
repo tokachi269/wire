@@ -10,10 +10,11 @@ import type {
   SceneContentSyncStats,
   VisualSettings
 } from "../model";
-import type { SelectionKind, ViewerStore, WorldPoint } from "../store/viewer";
+import type { DrawActionResult, SelectionKind, ViewerStore, WorldPoint } from "../store/viewer";
 import type { WorkspaceCache } from "../store/workspace";
 import { ViewerActionContext } from "./context";
 import { DrawActions } from "./draw_actions";
+import { DrawSessionController, type DrawPick } from "./draw_session";
 import { SelectionActions } from "./selection_actions";
 import type { RoadSnapInfo } from "../road";
 import { RoadActions } from "./road_actions";
@@ -24,6 +25,7 @@ import { WorkspaceActions } from "./workspace_actions";
 export class ViewerActions {
   private readonly ctx: ViewerActionContext;
   private readonly draw: DrawActions;
+  private readonly drawSession: DrawSessionController;
   private readonly selection: SelectionActions;
   private readonly road: RoadActions;
   private readonly settings: SettingsActions;
@@ -39,13 +41,36 @@ export class ViewerActions {
     this.draw = new DrawActions(this.ctx);
     this.selection = new SelectionActions(this.ctx);
     this.road = new RoadActions(this.ctx);
+    this.drawSession = new DrawSessionController(
+      () => this.ctx.readSnapshot().activeTool,
+      {
+        road: {
+          primary: (point, pick) => this.road.addViewportPoint(point, roadPick(pick)),
+          confirm: () => this.road.confirmSession(),
+          preview: (point, pick) => this.road.previewViewportPoint(point, roadPick(pick)),
+          leave: () => this.road.clearPreview(),
+          enter: () => this.road.commitPath(),
+          escape: () => this.road.cancelSession(),
+          undo: () => this.road.undoCommitted()
+        },
+        wire: {
+          primary: (point, pick) => this.draw.primaryViewportPoint(point, wirePick(pick)),
+          confirm: () => this.draw.confirmSession(),
+          preview: (point, pick) => this.draw.previewViewportPoint(point, wirePick(pick)),
+          leave: () => this.draw.clearPreview(),
+          enter: () => this.draw.finishSession(),
+          escape: () => this.draw.cancelSession(),
+          undo: () => this.draw.undoCommitted(() => this.selection.clearSelection())
+        }
+      }
+    );
     this.settings = new SettingsActions(this.ctx);
     this.templates = new TemplateActions(this.ctx);
     this.workspace = new WorkspaceActions(this.ctx);
   }
 
-  initialize(): void {
-    this.workspace.initialize();
+  initialize(): boolean {
+    return this.workspace.initialize();
   }
 
   async restoreWorkspace(): Promise<void> {
@@ -57,30 +82,35 @@ export class ViewerActions {
   }
 
   setActiveTool(tool: "wire" | "road"): void {
-    this.settings.setDrawOption("activeTool", tool);
+    this.drawSession.switchTool(tool, (next) => this.settings.setDrawOption("activeTool", next));
   }
 
-  addViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): void {
-    const roadSnap = pick !== undefined && "kind" in pick && pick.kind === "road" ? pick : undefined;
-    if (this.ctx.readSnapshot().activeTool === "road") {
-      this.road.addViewportPoint(point, roadSnap);
-      return;
-    }
-    this.draw.addPathPoint(point, roadSnap === undefined ? pick as PathPickInfo | undefined : undefined);
+  addViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): DrawActionResult {
+    return this.recordDrawAction(this.drawSession.primary(point, pick));
   }
 
-  previewViewportPoint(point: WorldPoint): void {
-    if (this.ctx.readSnapshot().activeTool === "road") {
-      this.road.previewViewportPoint(point);
-    }
+  confirmDrawStep(): DrawActionResult {
+    return this.recordDrawAction(this.drawSession.confirm());
+  }
+
+  previewViewportPoint(point: WorldPoint, pick?: PathPickInfo | RoadSnapInfo): void {
+    this.drawSession.preview(point, pick);
+  }
+
+  clearViewportPreview(): void {
+    this.drawSession.leave();
   }
 
   undoActiveTool(): void {
-    if (this.ctx.readSnapshot().activeTool === "road") {
-      this.road.undoOrCancel();
-      return;
-    }
-    this.draw.undoPathPointOrClearSelection(() => this.selection.clearSelection());
+    this.drawSession.undo();
+  }
+
+  cancelDrawSession(): DrawActionResult {
+    return this.recordDrawAction(this.drawSession.escape());
+  }
+
+  finishDrawSession(): DrawActionResult {
+    return this.recordDrawAction(this.drawSession.enter());
   }
 
   clearActiveTool(): void {
@@ -153,14 +183,18 @@ export class ViewerActions {
     this.road.setSetting(key, value);
   }
 
-  updateSelectedRoadSectionTemplate(input: {
+  selectRoadLayoutTemplate(templateId: number): void {
+    this.road.selectRoadLayoutTemplate(templateId);
+  }
+
+  updateSelectedRoadLayoutTemplate(input: {
     sidewalkWidthM: number;
     laneWidthM: number;
     medianWidthM: number;
     hasCenterLine: boolean;
     hasOuterLines: boolean;
   }): void {
-    this.road.updateSelectedSectionTemplate(input);
+    this.road.updateSelectedRoadLayoutTemplate(input);
   }
 
   previewRoadEditHandle(handleIndex: number, point: WorldPoint): void {
@@ -169,6 +203,15 @@ export class ViewerActions {
 
   commitRoadEditHandle(): void {
     this.road.commitEditHandle();
+  }
+
+  commitRoadPath(): void {
+    this.recordDrawAction(this.road.commitPath());
+  }
+
+  private recordDrawAction(result: DrawActionResult): DrawActionResult {
+    this.ctx.store.update((snapshot) => ({ ...snapshot, lastDrawActionResult: result }));
+    return result;
   }
 
   setRoadConnectToFirstNode(value: boolean): void {
@@ -193,10 +236,6 @@ export class ViewerActions {
 
   selectPoleTemplate(id: number): void {
     this.templates.selectPoleTemplate(id);
-  }
-
-  exportReproCapture(): void {
-    this.workspace.exportReproCapture();
   }
 
   exportWorkspaceText(): Promise<string> {
@@ -334,4 +373,14 @@ export class ViewerActions {
   recordSceneContentSync(stats: SceneContentSyncStats): void {
     this.ctx.recordSceneContentSync(stats);
   }
+}
+
+function roadPick(pick: DrawPick): RoadSnapInfo | undefined {
+  return pick !== undefined && "kind" in pick && pick.kind === "road" ? pick : undefined;
+}
+
+function wirePick(pick: DrawPick): PathPickInfo | undefined {
+  return pick !== undefined && (!("kind" in pick) || pick.kind !== "road")
+    ? pick as PathPickInfo
+    : undefined;
 }

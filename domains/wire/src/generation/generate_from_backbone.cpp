@@ -41,7 +41,10 @@ EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(con
   if (!prepare_out.ok) {
     EditResult<GenerateBundleFromPathResult> out{};
     out.error = prepare_out.error;
-    out.error_kind = prepare_out.effective_error_kind();
+    out.failure_category = prepare_out.effective_failure_category();
+    out.reason_code = prepare_out.reason_code.empty()
+                          ? CommitFailureReasonCode(out.error, out.failure_category)
+                          : prepare_out.reason_code;
     return out;
   }
   const auto check_started = std::chrono::steady_clock::now();
@@ -51,7 +54,10 @@ EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(con
   if (!check_out.ok) {
     EditResult<GenerateBundleFromPathResult> out{};
     out.error = check_out.error;
-    out.error_kind = check_out.effective_error_kind();
+    out.failure_category = check_out.effective_failure_category();
+    out.reason_code = check_out.reason_code.empty()
+                          ? CommitFailureReasonCode(out.error, out.failure_category)
+                          : check_out.reason_code;
     return out;
   }
   EditResult<GenerateBundleFromPathResult> out = pipeline.build(pipeline.build_input_from_spec());

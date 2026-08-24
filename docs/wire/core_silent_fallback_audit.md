@@ -1,5 +1,7 @@
 # Core Silent Fallback Audit
 
+Status: frozen audit record. This file records the completed R5 review and is not a living coverage matrix.
+
 R5 classifies core paths that replace missing or degenerate geometry with a default value. This is not a permission to add more fallback. New fallback-like code must be classified here first, and behavior changes need a separate fail-first test.
 
 ## Classification

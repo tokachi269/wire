@@ -98,15 +98,22 @@ Pole                         -> pole visual assembly(body、電線非関連装�
 SavedBackboneRowKey          -> PlacementRule::at_row の row fixture assembly(crossarm、belt)
 Port                         -> PlacementRule::at_endpoint の endpoint fixture assembly(insulator、clamp相当)
 Span anchor                  -> PlacementRule::interval の span上 assembly(テスト用。既定templateでは未使用)
-Attachment                   -> span途中のinline model
+Entity-layer Attachment      -> span途中のinline model
+Core derived decoration      -> Pole/SupportNode/Span由来の局所detail modelと短い配線をCore visual outputへ派生
 ```
 
 Coreのmodel contractには用途名を持ち込まない。assemblyはpart、local transform、限定fit mode、
 名前付きsocketだけを持つ。socket無しassemblyは表示だけで、curve endpointを変更しない。
 
-model assemblyのworld materializationはbackboneのlayout endpoint resolverが所有し、初回生成とpost-editで
-同じ経路を使う。`VisualModelInstance`はderived cacheであり、Pole、row、PortやSavedBackboneGraphへ
-model instance identityを追加しない。
+Core derived decoration はauthoritative entityではない。Bundle、lane、socket binding、生成済みmodel ID、
+local cable ID、collision結果、equipment listは保存しない。ただしWire domainの意味を使うため、
+viewer adapterではなくCore visual generationが、名前付きsocket、既存Bundle/Port/row/carrier情報、
+CableTemplate appearanceから `VisualModelInstance` / `VisualCurvePart` を再導出する。
+既存のentity-layer span Attachmentの保存形式と意味は変えない。
+
+model assemblyのworld materializationはCoreが所有し、初回生成とpost-editで同じ経路を使う。
+asset adapterはGLB/node/Empty由来のmodel/socket metadataを渡すだけで、Wireの接続先、curve、materialは判断しない。
+`VisualModelInstance`はderived cacheであり、Pole、row、PortやSavedBackboneGraphへmodel instance identityを追加しない。
 
 配置されるinstanceの親参照は次の3種だけに限定する。
 
@@ -144,6 +151,12 @@ row/port配置軸をpole軸まわりに回す派生入力である。
 `WorldForward`はlocal X、`WorldLateral`はlocal Y、`WorldUp`はlocal Zの基準軸である。Port、row fixture、
 endpoint fixture、belt fitはこの`BuildPoleFrame`の`forward/lateral/up`を読む。adapter/viewer側で
 Euler順やlayout yaw合成を再解釈しない。
+
+同一の派生rowに属するPort位置、row fixture、endpoint fixture、wire socket、curve endpointは、
+同じ`layout_yaw_deg`から作った`PoleFrame`を使用する。pair promotionでrow frameが変わる場合は
+Port identityを維持したまま位置を再導出し、binding yawとPort位置を一つのexact frame更新として
+適用する。派生物同士の一致だけでなく、Portをそのframeへ戻したlocal lateralが正本のband、
+placement lateral、lane spacingから得るanchorと一致することを不変条件とする。
 
 templateの配置指定はbit flagではなく`PlacementRule`のリストとする。
 

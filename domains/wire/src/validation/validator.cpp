@@ -404,10 +404,44 @@ ValidationResult CoreState::Validate() const {
   const auto& attachment_templates = core.attachment_templates();
   const auto& model_assembly_templates = core.model_assembly_templates();
   const auto& port_resolution_debug_records = core.port_resolution_debug_records();
+  const SavedBackboneGraph& backbone = core.backbone();
 
   const auto finite_vec3 = [](const Vec3d& value) {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
   };
+  std::unordered_map<ObjectId, const SavedBackboneEdgeBundle*> edge_bundle_by_id{};
+  edge_bundle_by_id.reserve(backbone.edge_bundles.size());
+  for (const SavedBackboneEdgeBundle& edge_bundle : backbone.edge_bundles) {
+    if (edge_bundle.edge_bundle_id != kInvalidObjectId) {
+      edge_bundle_by_id.emplace(edge_bundle.edge_bundle_id, &edge_bundle);
+    }
+  }
+  std::unordered_map<ObjectId, std::unordered_set<std::size_t>> lanes_by_edge_bundle{};
+  std::unordered_set<ObjectId> bound_span_ids{};
+  for (const SavedBackboneSpanBinding& binding : backbone.span_bindings) {
+    const auto edge_bundle_it = edge_bundle_by_id.find(binding.edge_bundle_id);
+    if (edge_bundle_it == edge_bundle_by_id.end()) {
+      result.issues.push_back({ValidationSeverity::kError, "BackboneSpanBindingDanglingEdgeBundle",
+                               "Backbone span binding references a missing edge bundle", binding.edge_bundle_id});
+      continue;
+    }
+    const Span* span = edit_state.spans.find(binding.span_id);
+    if (span == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "BackboneSpanBindingDanglingSpan",
+                               "Backbone span binding references a missing span", binding.span_id});
+    } else if (span->bundle_id != edge_bundle_it->second->bundle_id) {
+      result.issues.push_back({ValidationSeverity::kError, "BackboneSpanBindingBundleMismatch",
+                               "Backbone span binding span bundle must match edge bundle", binding.span_id});
+    }
+    if (!lanes_by_edge_bundle[binding.edge_bundle_id].insert(binding.lane_index).second) {
+      result.issues.push_back({ValidationSeverity::kError, "BackboneSpanBindingDuplicateLane",
+                               "Backbone span binding lane must be unique per edge bundle", binding.edge_bundle_id});
+    }
+    if (!bound_span_ids.insert(binding.span_id).second) {
+      result.issues.push_back({ValidationSeverity::kError, "BackboneSpanBindingDuplicateSpan",
+                               "Span must not have multiple backbone span bindings", binding.span_id});
+    }
+  }
   for (const auto& [assembly_id, assembly] : model_assembly_templates) {
     if (assembly.id != assembly_id || assembly.id == kInvalidModelAssemblyTemplateId || assembly.version == 0) {
       result.issues.push_back({ValidationSeverity::kError, "ModelAssemblyIdentityInvalid",

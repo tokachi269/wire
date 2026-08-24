@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scan": {
-    "roots": ["domains/wire/include", "domains/wire/src", "domains/wire/tests", "domains/wire/tools", "domains/road/include", "domains/road/src", "domains/road/tests", "viewer/src", "viewer/tests", "web/src", "web/tests", "web/wasm", "tools"],
+    "roots": ["domains/wire/include", "domains/wire/src", "domains/wire/tests", "domains/road/include", "domains/road/src", "domains/road/tests", "viewer/src", "viewer/tests", "web/src", "web/tests", "web/wasm", "tools"],
     "extensions": [".cpp", ".hpp", ".py", ".ts", ".svelte"],
     "exclude_patterns": [
       "web/wasm/build/**",
@@ -112,7 +112,7 @@
     },
     {
       "name": "web_model",
-      "patterns": ["web/src/model.ts", "web/src/road.ts"],
+      "patterns": ["web/src/model.ts", "web/src/road.ts", "web/src/road_templates.ts"],
       "forbidden_tokens": ["./bridge/", "./actions/", "./render/", "city/wire", "viewer/"]
     },
     {
@@ -167,7 +167,7 @@
     },
     {
       "name": "tools",
-      "patterns": ["domains/wire/tools/*.cpp", "tools/*.py"],
+      "patterns": ["tools/*.py", "tools/harness/*.py"],
       "forbidden_tokens": []
     }
   ],

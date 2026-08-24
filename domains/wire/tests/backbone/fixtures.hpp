@@ -59,7 +59,10 @@ std::vector<city::wire::Vec3d> existing_sequence_points(city::wire::CoreState& s
 std::vector<city::wire::Vec3d> pole_positions_for(city::wire::CoreState& state,
                                                  const city::wire::BackboneSpec& req);
 std::vector<city::wire::Vec3d> offset_curve_points(double offset);
-std::vector<city::wire::Vec3d> offset_points(double offset);
+std::vector<city::wire::Vec3d> offset_points(
+    double offset,
+    city::wire::PathDirectionMode direction_mode =
+        city::wire::PathDirectionMode::kForward);
 std::vector<city::wire::Vec3d> node_mode_points(bool with_mode);
 city::wire::BackboneInputSpec::NodeSpec pole_spec(std::size_t point_index, city::wire::ObjectId pole_id);
 double dist2(const city::wire::Vec3d& a, const city::wire::Vec3d& b);
@@ -85,6 +88,21 @@ std::vector<SpanOutputSnapshot> snapshot_span_outputs(const city::wire::CoreStat
                                                        const std::vector<city::wire::ObjectId>& span_ids);
 bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
                                 const city::wire::CoreState& state);
+bool hv_edge_body_xy_intersections_absent(const city::wire::CoreState& state,
+                                          std::string* reason);
+bool hv_edge_body_lane_order_consistent(const city::wire::CoreState& state,
+                                        std::string* reason);
 bool backbone_common_invariants_pass(const city::wire::CoreState& state, std::string* reason);
 
 } // namespace backbone_tests
+
+#define WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state)                         \
+  do {                                                                      \
+    std::string wire_backbone_invariant_reason{};                           \
+    WIRE_TEST_EXPECT_ANCHOR(                                                \
+        ::backbone_tests::backbone_common_invariants_pass(                  \
+            (state), &wire_backbone_invariant_reason),                      \
+        wire_backbone_invariant_reason.empty()                              \
+            ? "backbone common invariant failed without a reason"          \
+            : wire_backbone_invariant_reason);                              \
+  } while (false)

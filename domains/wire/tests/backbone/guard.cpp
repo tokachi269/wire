@@ -464,15 +464,11 @@ bool C465_backbone_duplicate_policy_does_not_read_existing_spans() {
 bool C470_backbone_row_port_identity_does_not_use_position_match() {
   const std::filesystem::path source = repo_root() / "domains" / "wire" / "src" / "state" / "backbone.cpp";
   std::string cpp;
-  if (!file_text(source, &cpp)) {
+  std::string body;
+  if (!file_text(source, &cpp) ||
+      !function_body(cpp, "EditResult<bool> CoreState::bind_backbone_port", &body)) {
     return false;
   }
-  const std::size_t fn_pos = cpp.find("EditResult<bool> CoreState::bind_backbone_port");
-  const std::size_t next_pos = cpp.find("PoleDetailInfo CoreState::GetPoleDetail", fn_pos);
-  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
-    return false;
-  }
-  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
   return contains_text(body, "edge_bundle_id") && contains_text(body, "row_key") &&
          !contains_text(body, "world_position") && !contains_text(body, "span_layout") &&
          !contains_text(body, "seed") && !contains_text(body, "position");
@@ -601,7 +597,7 @@ bool C520_backbone_duplicate_span_binding_preflight_before_emit() {
   }
   const std::size_t route_pos = cpp.find("EditResult<pipeline::route> pipeline::emit_route");
   const std::size_t check_call = cpp.find("return check(ps.value)", route_pos);
-  const std::size_t emit_call = cpp.find("return emit(ps.value, intents.value)", route_pos);
+  const std::size_t emit_call = cpp.find("return emit(ps.value, placement.value)", route_pos);
   if (route_pos == std::string::npos || check_call == std::string::npos || emit_call == std::string::npos ||
       check_call > emit_call) {
     return false;
@@ -672,7 +668,7 @@ bool C523_backbone_scope_gate_matches_entrypoint() {
   const std::size_t route_pos = backbone_text.find("EditResult<pipeline::route> pipeline::emit_route");
   const std::size_t check_call = backbone_text.find("return check(ps.value)", route_pos);
   const std::size_t intent_call = backbone_text.find("return make(ps.value)", route_pos);
-  const std::size_t emit_call = backbone_text.find("return emit(ps.value, intents.value)", route_pos);
+  const std::size_t emit_call = backbone_text.find("return emit(ps.value, placement.value)", route_pos);
   const bool preflight_before_emit = route_pos != std::string::npos && check_call != std::string::npos &&
                                      intent_call != std::string::npos && emit_call != std::string::npos &&
                                      check_call < intent_call && intent_call < emit_call;
@@ -720,7 +716,7 @@ bool C533_backbone_build_mutation_order_is_fixed() {
   const std::size_t check_pos = cpp.find("return check(ps.value)", route_pos);
   const std::size_t intent_pos = cpp.find("return make(ps.value)", route_pos);
   const std::size_t group_pos = cpp.find("return make(ps.value, intents.value)", route_pos);
-  const std::size_t emit_pos = cpp.find("return emit(ps.value, intents.value)", route_pos);
+  const std::size_t emit_pos = cpp.find("return emit(ps.value, placement.value)", route_pos);
   const std::size_t graph_pos = cpp.find("return save_graph(", route_pos);
   const std::size_t rules_pos = cpp.find("rules next = make(route.made, route.ps, route.placement)", derived_pos);
   const std::size_t layout_pos = cpp.find("return make(saved)", derived_pos);
@@ -1631,7 +1627,7 @@ bool C720_source_edge_pipeline_front_half_does_not_read_curve_projection() {
   std::string check_body;
   std::string emit_ports_body;
   if (!function_body(text, "EditResult<bool> pipeline::check(const pairs& ps) const", &check_body) ||
-      !function_body(text, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+      !function_body(text, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,",
                      &emit_ports_body)) {
     return false;
   }
@@ -2068,7 +2064,6 @@ bool C829_core_policy_constants_are_classified() {
       "Tuning candidate",
       "kNodePatchHorizontalLengthM",
       "kPatchMetersPerSegment",
-      "kRowHeightSeparationM",
       "kAvoidClearanceM",
       "kDefaultCornerThresholdDeg",
       "kMaxCornerSideScale",
@@ -2084,9 +2079,13 @@ bool C829_core_policy_constants_are_classified() {
 bool C830_edit_errors_require_registered_prefixes() {
   const std::vector<std::string> prefixes = {
       "backbone invalid input:",
+      "backbone requirement constraint:",
+      "backbone state conflict:",
       "backbone unsupported:",
       "backbone internal:",
       "core invalid input:",
+      "core requirement constraint:",
+      "core state conflict:",
       "core unsupported:",
       "core internal:",
       "authoritative invalid input:",
@@ -2106,7 +2105,7 @@ bool C830_edit_errors_require_registered_prefixes() {
   };
   city::wire::EditResult<bool> unknown{};
   unknown.error = "missing prefix example";
-  WIRE_TEST_EXPECT(unknown.effective_error_kind() == city::wire::EditErrorKind::kInternal,
+  WIRE_TEST_EXPECT(unknown.effective_failure_category() == city::wire::CommitFailureCategory::kInternalError,
                    "missing edit error prefix must be internal, not unsupported");
 
   const std::filesystem::path root = repo_root() / "domains/wire/src";

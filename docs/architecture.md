@@ -19,7 +19,7 @@ production実装より先に、domain文書へ次の対応表を作る。
 | 正本 | 保存するidentityとユーザー決定値 |
 | 派生 | 正本から再構築できる値とcache |
 | 操作owner | 正本を変更できるAPIとatomicity |
-| 検証 | operation x state、roundtrip、依存方向、不変条件 |
+| Decision ownership | Decision、Owner、Inputs、Authoritative output、downstream consumers |
 
 対応が未決定の項目を現在の実装、test、UIから推測して埋めない。
 類似実装を再利用しない場合は、名前の違いではなく意味と責務の違いを記録する。
@@ -39,6 +39,18 @@ production実装より先に、domain文書へ次の対応表を作る。
 正本を書き換えてよいのは、それを所有するoperation APIだけである。
 派生、viewer、adapter、testから正本へ書き戻さない。loadは正本を復元した後、通常のbuild経路で
 派生とruntime cacheを再構築する。
+
+## Decision ownership
+
+domain architectureは、意味を決める責務を必要に応じて次の標準形で記録する。
+
+```text
+Decision -> Owner -> Inputs -> Authoritative output -> downstream consumers
+```
+
+同じDecisionのOwnerは1つだけとする。downstream consumerはAuthoritative outputを消費し、
+同じInputsからDecisionを再判定しない。repository共通文書は標準形だけを定め、domain固有の
+Decision一覧やowner名は各domain architectureに置く。
 
 ## Identity and decisions
 
@@ -93,11 +105,3 @@ domain authoritative types
 
 domain間の直接依存は設計文書で明示された場合だけ許可する。共有概念は一方のdomainを経由せず、
 意味が安定してからfoundationへ置く。adapterとviewerはdomain正本を所有しない。
-
-## Verification
-
-- 新規scenarioとbug fixはfail-firstでoperation contractを固定する。
-- refactorはauthoritative byte一致または同等の等価性証明を持つ。
-- skipはpassに数えない。
-- architecture lintは依存方向、必須文書、operation semanticsの存在を検査する。
-- 見た目を持つ出力はcore幾何とviewer表示を分離して確認し、実画面の自然さも受け入れ条件に含める。

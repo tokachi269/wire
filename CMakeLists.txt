@@ -16,6 +16,7 @@ include(CTest)
 option(WIRE_BUILD_VIEWER "Build lightweight viewer app" ON)
 option(WIRE_VIEWER_FETCH_DEPS "Allow viewer to fetch third-party dependencies when local sources are not provided" ON)
 option(WIRE_ENABLE_FORMAT_TARGETS "Enable clang-format helper targets" ON)
+option(WIRE_ENABLE_CLANG_TIDY_TARGETS "Enable clang-tidy helper targets" ON)
 option(WIRE_ENABLE_UML_TARGETS "Enable clang-uml helper targets" ON)
 option(WIRE_ENABLE_COMPILER_CACHE "Enable sccache/ccache when available" ON)
 option(WIRE_ENABLE_UNITY_BUILD "Enable CMake unity builds primarily for core test iteration targets" OFF)
@@ -158,6 +159,39 @@ if(WIRE_ENABLE_FORMAT_TARGETS)
     )
   else()
     message(WARNING "clang-format was not found; 'format' and 'format-check' targets are disabled.")
+  endif()
+endif()
+
+if(WIRE_ENABLE_CLANG_TIDY_TARGETS)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  find_program(
+    CLANG_TIDY_EXE
+    NAMES clang-tidy clang-tidy.exe
+    HINTS
+      "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/bin"
+      "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/x64/bin"
+      "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/ARM64/bin"
+      "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/bin"
+      "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin"
+      "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/ARM64/bin"
+      "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/Llvm/bin"
+  )
+
+  if(CLANG_TIDY_EXE)
+    add_custom_target(
+      tidy-check
+      COMMAND
+        ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/clang_tidy_check.py
+        --build-dir ${CMAKE_BINARY_DIR}
+        --clang-tidy ${CLANG_TIDY_EXE}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMENT "Checking C/C++ sources with clang-tidy"
+      USES_TERMINAL
+      VERBATIM
+    )
+  else()
+    message(WARNING "clang-tidy was not found; 'tidy-check' target is disabled.")
   endif()
 endif()
 

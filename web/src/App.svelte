@@ -2,13 +2,18 @@
   import { onMount } from "svelte";
   import {
     Cable,
+    Check,
+    CheckCheck,
+    ListPlus,
     Minus,
     PenLine,
     Pencil,
     Route,
     Spline,
     SquareDashed,
-    Trash2
+    Trash2,
+    Undo2,
+    X
   } from "@lucide/svelte";
   import type { ViewerActions } from "./actions/viewer";
   import Settings from "./panels/Settings.svelte";
@@ -17,8 +22,8 @@
   import RoadPanel from "./panels/RoadPanel.svelte";
   import SelectionInspector from "./panels/SelectionInspector.svelte";
   import { buildInfo } from "./buildInfo";
-  import { categoryShort } from "./labels";
-  import type { GenerationTiming } from "./model";
+  import { categoryShort, drawIssueText } from "./labels";
+  import { CommitFailureCategory, type CommitFailure, type GenerationTiming } from "./model";
   import {
     createViewerSnapshot,
     type ViewerSnapshot,
@@ -77,6 +82,49 @@
     return Math.max(0, total - core);
   }
 
+  function commitFailureLabel(category: CommitFailureCategory): string {
+    if (category === CommitFailureCategory.RequirementConstraint) return "Requirement constraint";
+    if (category === CommitFailureCategory.InvalidInput) return "Invalid input";
+    if (category === CommitFailureCategory.NotImplemented) return "Not implemented";
+    if (category === CommitFailureCategory.StateConflict) return "State conflict";
+    return "Internal error";
+  }
+
+  function commitFailureRecovery(failure: CommitFailure): string {
+    if (failure.category === CommitFailureCategory.RequirementConstraint) {
+      return "Adjust the endpoint or connection and try again.";
+    }
+    if (failure.category === CommitFailureCategory.InvalidInput) {
+      return "Correct the selected points or numeric input and try again.";
+    }
+    if (failure.category === CommitFailureCategory.NotImplemented) {
+      return "This shape is not supported yet. Use a simpler connection.";
+    }
+    if (failure.category === CommitFailureCategory.StateConflict) {
+      return "Refresh the selection from the current scene, then try again.";
+    }
+    return "The operation detected an internal inconsistency. Keep this reason code for diagnosis.";
+  }
+
+  function hasSession(value: ViewerSnapshot): boolean {
+    if (value.activeTool === "wire") return value.pathPoints.length > 0;
+    return value.road.phase !== "start" || value.road.laneEditStage !== "select";
+  }
+
+  function canConfirm(value: ViewerSnapshot): boolean {
+    if (value.activeTool === "wire") {
+      return value.wirePreview.state === "guide" && value.wirePreview.request !== null;
+    }
+    if (value.road.operation === "add-lane") {
+      return value.road.laneEditStage === "transition-complete" &&
+        value.road.laneTransitionStartSegmentId !== 0 &&
+        value.road.laneTransitionCompleteSegmentId !== 0 &&
+        Math.abs(value.road.laneTransitionCompleteT -
+          value.road.laneTransitionStartT) > 1e-9;
+    }
+    return value.road.operation === "draw" && value.road.previewRequest !== null;
+  }
+
   function beginResize(side: "left" | "right", event: PointerEvent): void {
     event.preventDefault();
     const startX = event.clientX;
@@ -133,6 +181,7 @@
       }
     };
     const handleKey = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
       if (event.key === "Escape") {
         event.preventDefault();
         const active = event.target;
@@ -157,11 +206,7 @@
             active.checked = editStart.checked;
           }
         } else if (!editing) {
-          if (snapshot.activeTool === "wire" && snapshot.pathPoints.length > 0) {
-            actions.clearPath();
-          } else if (snapshot.activeTool === "road") {
-            actions.undoActiveTool();
-          }
+          actions.cancelDrawSession();
         }
         actions.cancel(editing);
         if (editing) {
@@ -175,11 +220,22 @@
         target instanceof HTMLSelectElement ||
         target instanceof HTMLTextAreaElement ||
         target?.isContentEditable;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !editing) {
+        event.preventDefault();
+        actions.undoActiveTool();
+        return;
+      }
+      if ((event.key === "PageUp" || event.key === "PageDown") && !editing) {
+        event.preventDefault();
+        actions.setDrawOption(
+          "drawPlaneZ",
+          snapshot.drawPlaneZ + (event.key === "PageUp" ? 3 : -3)
+        );
+        return;
+      }
       if (event.key === "Enter" && !editing) {
-        if (snapshot.activeTool === "wire") {
-          event.preventDefault();
-          actions.generatePath();
-        }
+        event.preventDefault();
+        actions.finishDrawSession();
       }
     };
     window.addEventListener("focusin", handleFocusIn);
@@ -209,10 +265,10 @@
       <h1>Viewer</h1>
     </div>
     <div class="header-actions">
-      <button class="secondary mini-action" type="button" onclick={() => actions.undoPathPoint()}>
+      <button class="secondary mini-action" type="button" onclick={() => actions.undoActiveTool()}>
         Undo
       </button>
-      <button class="secondary mini-action" type="button" onclick={() => actions.clearPath()}>
+      <button class="secondary mini-action" type="button" onclick={() => actions.clearActiveTool()}>
         Clear
       </button>
       <button class="secondary mini-action" type="button" onclick={() => void actions.exportWorkspaceFile()}>
@@ -220,9 +276,6 @@
       </button>
       <button class="secondary" type="button" onclick={() => actions.resetWorkspace()}>
         Reset
-      </button>
-      <button type="button" onclick={() => actions.generatePath()}>
-        Generate Path
       </button>
     </div>
   </header>
@@ -293,14 +346,10 @@
           <button class:active={snapshot.road.operation === "delete"} type="button"
             aria-label="Delete road" title="Delete road" onclick={() => actions.setRoadOperation("delete")}
           ><Trash2 size={19} aria-hidden="true" /></button>
-          <button class:active={snapshot.road.operation === "line-marking"} type="button"
-            aria-label="Add line marking" title="Add line marking"
-            onclick={() => actions.setRoadOperation("line-marking")}
-          ><PenLine size={19} aria-hidden="true" /></button>
-          <button class:active={snapshot.road.operation === "area-marking"} type="button"
-            aria-label="Add area marking" title="Add area marking"
-            onclick={() => actions.setRoadOperation("area-marking")}
-          ><SquareDashed size={19} aria-hidden="true" /></button>
+          <button class:active={snapshot.road.operation === "add-lane"} type="button"
+            aria-label="Add lane" title="Add lane"
+            onclick={() => actions.setRoadOperation("add-lane")}
+          ><ListPlus size={19} aria-hidden="true" /></button>
         </div>
       {/if}
       {#if snapshot.activeTool === "road" && snapshot.road.operation === "draw"}
@@ -321,6 +370,25 @@
           ><Spline size={20} aria-hidden="true" /></button>
         </div>
       {/if}
+    </div>
+
+    <div class="session-controls" aria-label="Drawing session controls">
+      <button type="button" aria-label="Confirm" title="Confirm and continue"
+        disabled={!canConfirm(snapshot)} onclick={() => actions.confirmDrawStep()}>
+        <Check size={17} aria-hidden="true" />Confirm
+      </button>
+      <button type="button" aria-label="Finish" title="Confirm and finish"
+        disabled={!hasSession(snapshot)} onclick={() => actions.finishDrawSession()}>
+        <CheckCheck size={17} aria-hidden="true" />Finish
+      </button>
+      <button class="secondary" type="button" aria-label="Cancel" title="Cancel"
+        disabled={!hasSession(snapshot)} onclick={() => actions.cancelDrawSession()}>
+        <X size={17} aria-hidden="true" />Cancel
+      </button>
+      <button class="secondary" type="button" aria-label="Undo" title="Undo"
+        onclick={() => actions.undoActiveTool()}>
+        <Undo2 size={17} aria-hidden="true" />Undo
+      </button>
     </div>
 
     {#if snapshot.showRightPanel}
@@ -353,9 +421,6 @@
               <p class="panel-label">DRAW PATH</p>
               <strong class="point-count">{snapshot.pathPoints.length} points</strong>
             </div>
-            <button class="secondary repro-button" type="button" onclick={() => actions.exportReproCapture()}>
-              Repro capture
-            </button>
             <label>
               Pole template
               <select
@@ -424,16 +489,18 @@
               Flip Direction
             </button>
             <label>Plane Z
-              <input type="number" step="0.1" value={snapshot.drawPlaneZ}
+              <input aria-label="Draw plane height" type="number" step="0.1" value={snapshot.drawPlaneZ}
                 onchange={(event) => actions.setDrawOption("drawPlaneZ", Number(event.currentTarget.value))} />
             </label>
-            <p class="hint">LMB: add point / RMB: undo point / Enter: generate / Esc: cancel</p>
+            <p class="hint">LMB: commit interval / Enter: commit and finish / Esc: cancel preview</p>
           </div>
-          <SelectionInspector {actions} {snapshot} />
-          <Settings {actions} {snapshot} />
-          <Templates {actions} {snapshot} />
         {:else}
           <RoadPanel {actions} {snapshot} />
+        {/if}
+        <SelectionInspector {actions} {snapshot} />
+        {#if snapshot.rightPanelMode === "wire"}
+          <Settings {actions} {snapshot} />
+          <Templates {actions} {snapshot} />
         {/if}
       </div>
     {/if}
@@ -516,8 +583,20 @@
       </button>
     </aside>
 
-    {#if snapshot.error}
+    {#if snapshot.error && !snapshot.lastCommitFailure}
       <div class="error" role="alert">{snapshot.error}</div>
+    {/if}
+
+    {#if snapshot.lastCommitFailure}
+      <div class="commit-failure" role="alert">
+        <strong>{commitFailureLabel(snapshot.lastCommitFailure.category)} · {snapshot.lastCommitFailure.operation}</strong>
+        <span>{snapshot.lastCommitFailure.message}</span>
+        <span>{commitFailureRecovery(snapshot.lastCommitFailure)}</span>
+        <details>
+          <summary>Details</summary>
+          <code>{snapshot.lastCommitFailure.reasonCode}</code>
+        </details>
+      </div>
     {/if}
 
     {#if snapshot.logs.length > 0}
@@ -528,6 +607,22 @@
   {#if snapshot.interaction}
     <div class="interaction">
       editing {snapshot.interaction.param} · Esc to cancel
+    </div>
+  {/if}
+
+  {#if snapshot.buildMismatch}
+    <div class="build-mismatch" role="alertdialog" aria-modal="true">
+      <section>
+        <strong>Web and WASM builds do not match</strong>
+        <p>Editing is disabled until the dev server rebuilds WASM and reloads this page.</p>
+        <dl>
+          <dt>Source</dt><dd>{snapshot.buildMismatch.webSourceHash} · v{snapshot.buildMismatch.webVersion}</dd>
+          <dt>WASM</dt><dd>{snapshot.buildMismatch.wasmSourceHash} · v{snapshot.buildMismatch.wasmVersion}</dd>
+          <dt>Tool</dt><dd>{snapshot.activeTool}</dd>
+          <dt>Session</dt><dd>{snapshot.activeTool === "road" ? snapshot.road.phase : snapshot.wirePreview.state}</dd>
+          <dt>Failure</dt><dd>{snapshot.lastCommitFailure?.category ?? "none"} · {snapshot.lastCommitFailure?.reasonCode ?? "none"}</dd>
+        </dl>
+      </section>
     </div>
   {/if}
 </main>

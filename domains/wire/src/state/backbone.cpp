@@ -49,7 +49,7 @@ void CoreState::cache_support_group(SupportGroupDecision decision, LoweredSuppor
   if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
     return;
   }
-  runtime_.cache_state.span_layout_cache.support_groups.decision.by_key[key] = std::move(decision);
+  runtime_.cache_state.span_layout_cache.support_groups.decision.by_key[key] = decision;
   const LoweredSupportGroupPlacement incoming = placement;
   auto [it, inserted] =
       runtime_.cache_state.span_layout_cache.support_groups.placement.by_key.emplace(key, std::move(placement));
@@ -217,15 +217,14 @@ EditResult<bool> CoreState::bind_backbone_span(ObjectId edge_bundle_id, std::siz
     out.error = "backbone invalid input: duplicate backbone span binding";
     return out;
   }
-  add_unique_id(found->span_ids, span_id);
-  index_add(runtime_.backbone_index.edge_bundle_spans, edge_bundle_id, span_id);
-  runtime_.backbone_index.span_edge_bundle[span_id] = edge_bundle_id;
   SavedBackboneSpanBinding binding{};
   binding.edge_bundle_id = edge_bundle_id;
   binding.lane_index = lane_index;
   binding.span_id = span_id;
   const std::size_t index = authoritative_.backbone.span_bindings.size();
   authoritative_.backbone.span_bindings.push_back(binding);
+  index_add(runtime_.backbone_index.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
+  runtime_.backbone_index.span_edge_bundle[binding.span_id] = binding.edge_bundle_id;
   runtime_.backbone_index.edge_bundle_span_bindings[edge_bundle_id].push_back(index);
   runtime_.backbone_index.span_bindings_by_span[span_id].push_back(index);
   out.value = true;
@@ -297,10 +296,11 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
   return out;
 }
 
-EditResult<bool> CoreState::update_backbone_port_binding_layout_exact(
+EditResult<bool> CoreState::update_backbone_port_binding_frame_exact(
     ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
     std::size_t lane_index, double layout_yaw_deg,
-    int support_level, int support_group_id, ObjectId port_id) {
+    int support_level, int support_group_id, ObjectId port_id,
+    const Vec3d& world_position) {
   EditResult<bool> out{};
   out.value = false;
   if (edge_bundle_id == kInvalidObjectId ||
@@ -308,7 +308,7 @@ EditResult<bool> CoreState::update_backbone_port_binding_layout_exact(
       row_key.edge_id == kInvalidObjectId || port_id == kInvalidObjectId ||
       support_level < 0 || support_group_id < -1 ||
       (support_level > 0 && support_group_id < 0)) {
-    out.ok = true;
+    out.error = "backbone internal: promoted row frame identity is invalid";
     return out;
   }
   std::size_t match_index = static_cast<std::size_t>(-1);
@@ -325,18 +325,168 @@ EditResult<bool> CoreState::update_backbone_port_binding_layout_exact(
     match_index = i;
   }
   if (match_index == static_cast<std::size_t>(-1)) {
-    out.ok = true;
+    out.error = "backbone internal: exact promoted open row binding is missing";
+    return out;
+  }
+  Port* port = authoritative_.edit_state.ports.find(port_id);
+  if (port == nullptr) {
+    out.error = "backbone internal: promoted row frame Port is missing";
     return out;
   }
   SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[match_index];
   const double normalized_yaw = NormalizeYawDeg(layout_yaw_deg);
+  const bool moved =
+      DistanceSquared(port->world_position, world_position) >
+      kLengthToleranceM * kLengthToleranceM;
+  if (moved && (port->position_mode == PortPositionMode::kManual ||
+                port->user_edited_position)) {
+    out.error =
+        "backbone unsupported: promoted row frame requires moving manual ports";
+    return out;
+  }
   out.value = binding.support_level != support_level ||
               binding.support_group_id != support_group_id ||
               std::abs(NormalizeYawDeg(binding.layout_yaw_deg - normalized_yaw)) >
-                  kLengthToleranceM;
+                  kStrictAngleToleranceDeg ||
+              moved;
   binding.layout_yaw_deg = normalized_yaw;
   binding.support_level = support_level;
   binding.support_group_id = support_group_id;
+  port->world_position = world_position;
+  out.ok = true;
+  return out;
+}
+
+EditResult<bool> CoreState::reverse_backbone_row_lanes(
+    ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key) {
+  EditResult<bool> out{};
+  constexpr std::size_t kMissing = static_cast<std::size_t>(-1);
+
+  const auto ports_it = runtime_.backbone_index.edge_bundle_ports.find(edge_bundle_id);
+  if (ports_it == runtime_.backbone_index.edge_bundle_ports.end()) {
+    out.error = "backbone internal: row lane bindings are missing";
+    return out;
+  }
+  std::size_t lane_count = 0;
+  for (std::size_t index : ports_it->second) {
+    if (index >= authoritative_.backbone.port_bindings.size()) {
+      continue;
+    }
+    const SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[index];
+    if (binding.row_key == row_key) {
+      lane_count = std::max(lane_count, binding.lane_index + 1);
+    }
+  }
+  if (lane_count < 2) {
+    out.error = "backbone internal: reversible row has fewer than two lanes";
+    return out;
+  }
+
+  std::vector<std::size_t> port_binding_indices(lane_count, kMissing);
+  for (std::size_t index : ports_it->second) {
+    if (index >= authoritative_.backbone.port_bindings.size()) {
+      continue;
+    }
+    const SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[index];
+    if (binding.row_key != row_key) {
+      continue;
+    }
+    if (binding.lane_index >= lane_count || port_binding_indices[binding.lane_index] != kMissing) {
+      out.error = "backbone internal: row lane bindings are ambiguous";
+      return out;
+    }
+    port_binding_indices[binding.lane_index] = index;
+  }
+
+  const auto spans_it = runtime_.backbone_index.edge_bundle_span_bindings.find(edge_bundle_id);
+  if (spans_it == runtime_.backbone_index.edge_bundle_span_bindings.end()) {
+    out.error = "backbone internal: row lane span bindings are missing";
+    return out;
+  }
+  std::vector<std::size_t> span_binding_indices(lane_count, kMissing);
+  for (std::size_t index : spans_it->second) {
+    if (index >= authoritative_.backbone.span_bindings.size()) {
+      continue;
+    }
+    const SavedBackboneSpanBinding& binding = authoritative_.backbone.span_bindings[index];
+    if (binding.lane_index >= lane_count || span_binding_indices[binding.lane_index] != kMissing) {
+      out.error = "backbone internal: row lane span bindings are ambiguous";
+      return out;
+    }
+    span_binding_indices[binding.lane_index] = index;
+  }
+
+  std::vector<ObjectId> old_port_ids(lane_count, kInvalidObjectId);
+  std::vector<int> old_band_ids(lane_count, -1);
+  std::vector<bool> replace_port_a(lane_count, false);
+  std::vector<int> rule_endpoint(lane_count, -1);
+  for (std::size_t lane = 0; lane < lane_count; ++lane) {
+    if (port_binding_indices[lane] == kMissing || span_binding_indices[lane] == kMissing) {
+      out.error = "backbone internal: row lane relation is incomplete";
+      return out;
+    }
+    const SavedBackbonePortBinding& binding =
+        authoritative_.backbone.port_bindings[port_binding_indices[lane]];
+    old_port_ids[lane] = binding.port_id;
+    old_band_ids[lane] = binding.placement_band_id;
+
+    const ObjectId span_id = authoritative_.backbone.span_bindings[span_binding_indices[lane]].span_id;
+    const Span* span = authoritative_.edit_state.spans.find(span_id);
+    if (span == nullptr ||
+        (span->port_a_id != binding.port_id && span->port_b_id != binding.port_id)) {
+      out.error = "backbone internal: row lane Span endpoint is inconsistent";
+      return out;
+    }
+    replace_port_a[lane] = span->port_a_id == binding.port_id;
+    const auto rule_it = runtime_.cache_state.span_layout_cache.records_by_span.find(span_id);
+    if (rule_it != runtime_.cache_state.span_layout_cache.records_by_span.end() &&
+        rule_it->second.rule.has_value()) {
+      const SpanLayoutRule& rule = *rule_it->second.rule;
+      const bool start_matches = rule.start.port_id == binding.port_id;
+      const bool end_matches = rule.end.port_id == binding.port_id;
+      if (start_matches == end_matches) {
+        out.error = "backbone internal: row lane layout rule is inconsistent";
+        return out;
+      }
+      rule_endpoint[lane] = start_matches ? 0 : 1;
+    }
+  }
+
+  for (std::size_t lane = 0; lane < lane_count; ++lane) {
+    const std::size_t index = port_binding_indices[lane];
+    auto old_index = runtime_.backbone_index.port_bindings_by_port.find(old_port_ids[lane]);
+    if (old_index != runtime_.backbone_index.port_bindings_by_port.end()) {
+      std::erase(old_index->second, index);
+      if (old_index->second.empty()) {
+        runtime_.backbone_index.port_bindings_by_port.erase(old_index);
+      }
+    }
+  }
+  for (std::size_t lane = 0; lane < lane_count; ++lane) {
+    const std::size_t reversed_lane = lane_count - 1 - lane;
+    const ObjectId new_port_id = old_port_ids[reversed_lane];
+    SavedBackbonePortBinding& port_binding =
+        authoritative_.backbone.port_bindings[port_binding_indices[lane]];
+    port_binding.port_id = new_port_id;
+    port_binding.placement_band_id = old_band_ids[reversed_lane];
+    runtime_.backbone_index.port_bindings_by_port[new_port_id].push_back(port_binding_indices[lane]);
+
+    const ObjectId span_id = authoritative_.backbone.span_bindings[span_binding_indices[lane]].span_id;
+    Span* span = authoritative_.edit_state.spans.find(span_id);
+    const Span before = *span;
+    remove_span_from_indexes(before);
+    (replace_port_a[lane] ? span->port_a_id : span->port_b_id) = new_port_id;
+    auto rule_it = runtime_.cache_state.span_layout_cache.records_by_span.find(span_id);
+    if (rule_endpoint[lane] == 0) {
+      rule_it->second.rule->start.port_id = new_port_id;
+    } else if (rule_endpoint[lane] == 1) {
+      rule_it->second.rule->end.port_id = new_port_id;
+    }
+    add_span_to_index(*span);
+    touch_span(span_id, true);
+    add_unique_id(out.change_set.updated_ids, span_id);
+  }
+  out.value = true;
   out.ok = true;
   return out;
 }
@@ -636,7 +786,9 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                   return selected.allow_midair_path;
                                                 });
       if (!any_allow_midair) {
-        result.error = "backbone invalid input: no selected bundle template allows midair branch";
+        result.error = "backbone requirement constraint: no selected bundle template allows midair branch";
+        result.failure_category = CommitFailureCategory::kRequirementConstraint;
+        result.reason_code = "midair_branch_disabled";
         return;
       }
     }
@@ -804,7 +956,9 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                 return selected.allow_midair_path;
                                               });
     if (!any_allow_midair) {
-      result.error = "backbone invalid input: no selected bundle template allows midair branch";
+      result.error = "backbone requirement constraint: no selected bundle template allows midair branch";
+      result.failure_category = CommitFailureCategory::kRequirementConstraint;
+      result.reason_code = "midair_branch_disabled";
       return result;
     }
   }

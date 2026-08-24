@@ -1,22 +1,24 @@
 add_library(
   road
   STATIC
-  src/road.cpp
-  src/build/build_pipeline.cpp
-  src/build/auto_node_layout.cpp
-  src/build/canonical_alignment.cpp
-  src/build/connection_gate.cpp
-  src/build/junction_geometry.cpp
-  src/build/marking_anchor.cpp
-  src/build/node_connection_decision.cpp
-  src/build/resolved_node_layout.cpp
-  src/build/sampling_plan.cpp
-  src/build/section_evaluation.cpp
-  src/build/stage_support.cpp
-  src/build/topology.cpp
-  src/materialization/materialize.cpp
+  src/state.cpp
+  src/geometry/alignment.cpp
+  src/operations/create.cpp
+  src/operations/edit.cpp
+  src/operations/layout_template.cpp
+  src/operations/add_lane.cpp
+  src/lookup.cpp
+  src/generation/generate.cpp
+  src/generation/segments.cpp
+  src/generation/connections.cpp
+  src/generation/markings.cpp
+  src/generation/emit.cpp
+  src/generation/vertical.cpp
+  src/geometry/geometry.cpp
+  src/geometry/section.cpp
+  src/geometry/junction.cpp
   src/operations/operation_plan.cpp
-  src/persistence/road_archive.cpp
+  src/persistence/archive.cpp
 )
 
 target_include_directories(
@@ -31,6 +33,7 @@ if(BUILD_TESTING)
   add_executable(
     road_tests
     tests/road_tests.cpp
+    tests/fixtures/layouts.cpp
   )
 
   target_link_libraries(
@@ -46,6 +49,7 @@ if(BUILD_TESTING)
   add_executable(
     road_architecture_contract_tests
     tests/architecture_contract_tests.cpp
+    tests/fixtures/layouts.cpp
   )
 
   target_link_libraries(

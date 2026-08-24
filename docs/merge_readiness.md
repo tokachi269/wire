@@ -16,6 +16,17 @@
 
 実行コマンドは[command_cheatsheet.md](command_cheatsheet.md)を参照する。
 
+## test evidence debt
+
+2026-07-29時点のfull core test実測:
+
+- `derived_equality`単独case: 0
+- `legacy_unclassified`: 419
+
+`legacy_unclassified`は一括書換えしない。matrix観測に使うcaseは即時分類し、その他は
+production/testを触った作業単位で分類する。case総数の増加ではなく、この残件数の減少を
+進捗として扱う。
+
 ## architecture条件
 
 - `SavedBackboneGraph`がtopology authorityである
@@ -46,6 +57,8 @@ viewerはこれらを事前に判別せず、Apply後のerror logで初めてuns
 |---|---|---|---|---|
 | D2. Generator input not consumed | `UpdateVariationSettings` | viewer未接続 | backbone spanあり | regenerateではない。backbone派生がvariation settingsを実際の出力生成で消費した時点で解除する。現在の拒否は stale success 防止 |
 | D3. Generator input not consumed | `UpdateContextProfile` | viewer未接続 | backbone spanあり | regenerateではない。生成側が`ResolveStyleContext`を実際の出力生成で消費した時点で解除する。現在の拒否は stale success 防止 |
+| R1. Road section not expressible | 断面外端の`BoundaryProfile` | viewer到達可(preset作成時) | `boundaries.size() + 1 == strips.size()` | boundaryをgapごと(`strips.size() + 1`個)へ変え、外端も実boundaryにする。合成ID 1 / 999が消え、`merge_boundary_policies`のindexとjunctionの外端判定が連動する。歩道のない側のL字溝と、`road/architecture.md`の「歩道がない場合」の張り出しがこれで解ける |
+| R2. Road connection mapping | 断面styleが異なる道路同士の接続 | viewer到達可 | `AddSegmentConnectedTo` 等 | `connection_geometry_from_gates`が`surface_styles`完全一致を要求している。片側だけ溝がある、左右で溝が違う、溝つきと縁石をつなぐ、が通らない。gate間のsurface対応をID/roleで解決してから解除する |
 
 ## 決定済みの制限
 
@@ -63,6 +76,7 @@ E. Docs stale only: `docs/viewer/operations.md` に残っていた backbone span
 | ID | 操作 | 現状 | 解除条件 |
 |---|---|---|---|
 | R2 | `ResolveBranchPick` の pure 化 | `ResolveBranchPick` は現在、viewer の draw bridge が次の generation に渡す pending support node を作る操作でもある。照会APIとして pure に分離するには bridge 協定変更が必要 | `ResolveBranchPick` は副作用なしの解決だけを返し、pending support node の作成/消費は別の確定操作へ移す。web bridge と clear/cancel lifecycle を同時に更新し、既存 pending lifecycle tests を通す |
+| R3 | road authored profile / reference mesh UV source がない | `Mesh`はnormal、uv0、material groupを持つが、現行UVはprocedural defaultである。Blender等で制作したgutter/highway reference meshからcross section、V、material groupを取り込む経路はまだない | reference mesh/profile asset importerを追加し、procedural default UVをauthored metadataへ置換できることを実メッシュで確認する |
 | J2 | `MovePole`で接続済みpairの角度が通常/鋭角閾値を跨ぐ | endpoint Port identityとcontinuityは維持されるが、repositionは保存済みlayout ruleを再利用するため、row/fixtureとNodePatch/jumperの表現切替を再導出しない | `SavedBackboneRowContinuity`と現在幾何から通常/鋭角表現を再導出し、Port ID不変のままfixture 1↔2、NodePatch↔jumperを切り替えるfail-first testを通す |
 
 J2がsource上の既知blockerである。必須check、実画面の最終確認、mainとの差分・競合確認も必要である。

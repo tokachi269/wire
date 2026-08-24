@@ -105,6 +105,7 @@ enum class VisualSupplementalKind : std::uint8_t {
   kNone = 0,
   kSupportPath = 1,
   kHelix = 2,
+  kLocalDecoration = 3,
 };
 
 enum class NodePatchClassification : std::uint8_t {

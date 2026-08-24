@@ -4,6 +4,7 @@
 
 #include "../../collection_utils.hpp"
 #include "curve_parts.hpp"
+#include "model_assembly.hpp"
 #include "pipeline.hpp"
 
 #include <algorithm>
@@ -55,15 +56,21 @@ struct RegenerateTarget {
 };
 
 struct ContinuityNeighbor {
-  ObjectId edge_id = kInvalidObjectId;
+  ObjectId edge_bundle_id = kInvalidObjectId;
   ObjectId via_node_id = kInvalidObjectId;
 };
 
 struct LoadedRouteEdge {
+  ObjectId edge_bundle_id = kInvalidObjectId;
   const SavedBackboneEdge* edge = nullptr;
   ObjectId from_node_id = kInvalidObjectId;
   ObjectId to_node_id = kInvalidObjectId;
   Vec3d dir{};
+};
+
+struct LoadedRoute {
+  std::vector<LoadedRouteEdge> edges{};
+  std::vector<ObjectId> edge_bundle_ids{};
 };
 
 ObjectId other_edge_node(const SavedBackboneEdge& edge, ObjectId node_id) {
@@ -80,26 +87,29 @@ Vec3d oriented_edge_dir(const SavedBackboneEdge& edge, ObjectId from_node_id, Ob
 
 void add_continuity_neighbor(
     std::unordered_map<ObjectId, std::vector<ContinuityNeighbor>>* adjacency,
-    ObjectId edge_id,
-    ObjectId neighbor_edge_id,
+    ObjectId edge_bundle_id,
+    ObjectId neighbor_edge_bundle_id,
     ObjectId via_node_id) {
-  if (adjacency == nullptr || edge_id == kInvalidObjectId ||
-      neighbor_edge_id == kInvalidObjectId || edge_id == neighbor_edge_id ||
+  if (adjacency == nullptr || edge_bundle_id == kInvalidObjectId ||
+      neighbor_edge_bundle_id == kInvalidObjectId ||
+      edge_bundle_id == neighbor_edge_bundle_id ||
       via_node_id == kInvalidObjectId) {
     return;
   }
-  std::vector<ContinuityNeighbor>& neighbors = (*adjacency)[edge_id];
+  std::vector<ContinuityNeighbor>& neighbors = (*adjacency)[edge_bundle_id];
   const auto duplicate = std::find_if(neighbors.begin(), neighbors.end(), [&](const ContinuityNeighbor& item) {
-    return item.edge_id == neighbor_edge_id && item.via_node_id == via_node_id;
+    return item.edge_bundle_id == neighbor_edge_bundle_id &&
+           item.via_node_id == via_node_id;
   });
   if (duplicate == neighbors.end()) {
-    neighbors.push_back(ContinuityNeighbor{neighbor_edge_id, via_node_id});
+    neighbors.push_back(
+        ContinuityNeighbor{neighbor_edge_bundle_id, via_node_id});
   }
 }
 
-EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes_from_saved_graph(
-    const SavedBackboneGraph& graph) {
-  EditResult<std::vector<std::vector<LoadedRouteEdge>>> result{};
+EditResult<LoadedRoute> continuity_route_from_saved_graph(
+    const SavedBackboneGraph& graph, ObjectId seed_edge_bundle_id) {
+  EditResult<LoadedRoute> result{};
   std::unordered_map<ObjectId, const SavedBackboneEdge*> edge_by_id{};
   std::unordered_map<ObjectId, const SavedBackboneEdgeBundle*> edge_bundle_by_id{};
   for (const SavedBackboneEdge& edge : graph.edges) {
@@ -111,21 +121,39 @@ EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes_from_sav
 
   std::unordered_map<ObjectId, std::vector<ContinuityNeighbor>> adjacency{};
   for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
-    const auto a_it = edge_bundle_by_id.find(continuity.a.edge_bundle_id);
-    const auto b_it = edge_bundle_by_id.find(continuity.b.edge_bundle_id);
-    if (a_it == edge_bundle_by_id.end() || b_it == edge_bundle_by_id.end()) {
+    add_continuity_neighbor(&adjacency, continuity.a.edge_bundle_id,
+                            continuity.b.edge_bundle_id, continuity.node_id);
+    add_continuity_neighbor(&adjacency, continuity.b.edge_bundle_id,
+                            continuity.a.edge_bundle_id, continuity.node_id);
+  }
+
+  if (!edge_bundle_by_id.contains(seed_edge_bundle_id)) {
+    result.error = "authoritative invalid input: authoritative deserialization: row continuity edge bundle is missing";
+    return result;
+  }
+  std::vector<ObjectId> component{};
+  std::vector<ObjectId> pending{seed_edge_bundle_id};
+  for (std::size_t i = 0; i < pending.size(); ++i) {
+    const ObjectId current_id = pending[i];
+    if (contains_id(component, current_id)) {
+      continue;
+    }
+    if (!edge_bundle_by_id.contains(current_id)) {
       result.error = "authoritative invalid input: authoritative deserialization: row continuity edge bundle is missing";
       return result;
     }
-    add_continuity_neighbor(&adjacency, a_it->second->edge_id, b_it->second->edge_id, continuity.node_id);
-    add_continuity_neighbor(&adjacency, b_it->second->edge_id, a_it->second->edge_id, continuity.node_id);
+    component.push_back(current_id);
+    const auto neighbors_it = adjacency.find(current_id);
+    if (neighbors_it == adjacency.end()) {
+      continue;
+    }
+    for (const ContinuityNeighbor& neighbor : neighbors_it->second) {
+      if (!contains_id(pending, neighbor.edge_bundle_id)) {
+        pending.push_back(neighbor.edge_bundle_id);
+      }
+    }
   }
-
-  std::vector<ObjectId> remaining{};
-  remaining.reserve(graph.edges.size());
-  for (const SavedBackboneEdge& edge : graph.edges) {
-    remaining.push_back(edge.edge_id);
-  }
+  std::vector<ObjectId> remaining = component;
   auto remove_remaining = [&](ObjectId edge_id) {
     remaining.erase(std::remove(remaining.begin(), remaining.end(), edge_id), remaining.end());
   };
@@ -135,96 +163,149 @@ EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes_from_sav
   };
   auto choose_start = [&]() {
     ObjectId selected = kInvalidObjectId;
-    for (ObjectId edge_id : remaining) {
+    for (ObjectId edge_bundle_id : remaining) {
       if (selected == kInvalidObjectId ||
-          (degree(edge_id) <= 1 && (degree(selected) > 1 || edge_id < selected)) ||
-          (degree(edge_id) == degree(selected) && edge_id < selected)) {
-        selected = edge_id;
+          (degree(edge_bundle_id) <= 1 &&
+           (degree(selected) > 1 || edge_bundle_id < selected)) ||
+          (degree(edge_bundle_id) == degree(selected) &&
+           edge_bundle_id < selected)) {
+        selected = edge_bundle_id;
       }
     }
     return selected;
   };
 
-  while (!remaining.empty()) {
-    const ObjectId start_id = choose_start();
-    const auto start_it = edge_by_id.find(start_id);
-    if (start_it == edge_by_id.end()) {
+  const ObjectId start_id = choose_start();
+  std::vector<const SavedBackboneEdgeBundle*> edge_bundles{};
+  std::vector<const SavedBackboneEdge*> edges{};
+  std::vector<ObjectId> shared_nodes{};
+  ObjectId previous_edge_bundle_id = kInvalidObjectId;
+  ObjectId current_edge_bundle_id = start_id;
+  for (;;) {
+    const auto current_bundle_it =
+        edge_bundle_by_id.find(current_edge_bundle_id);
+    if (current_bundle_it == edge_bundle_by_id.end()) {
+      result.error = "authoritative invalid input: authoritative deserialization: row continuity edge bundle is missing";
+      return result;
+    }
+    const auto current_edge_it =
+        edge_by_id.find(current_bundle_it->second->edge_id);
+    if (current_edge_it == edge_by_id.end()) {
       result.error = "authoritative invalid input: authoritative deserialization: saved route edge is missing";
       return result;
     }
-    std::vector<const SavedBackboneEdge*> edges{};
-    std::vector<ObjectId> shared_nodes{};
-    ObjectId previous_edge_id = kInvalidObjectId;
-    ObjectId current_edge_id = start_id;
-    for (;;) {
-      const auto current_it = edge_by_id.find(current_edge_id);
-      if (current_it == edge_by_id.end()) {
-        result.error = "authoritative invalid input: authoritative deserialization: saved route edge is missing";
-        return result;
-      }
-      if (std::find(remaining.begin(), remaining.end(), current_edge_id) == remaining.end()) {
-        result.error = "authoritative invalid input: authoritative deserialization: saved route continuity cycle is ambiguous";
-        return result;
-      }
-      edges.push_back(current_it->second);
-      remove_remaining(current_edge_id);
+    if (!contains_id(remaining, current_edge_bundle_id)) {
+      result.error = "authoritative invalid input: authoritative deserialization: saved route continuity cycle is ambiguous";
+      return result;
+    }
+    edge_bundles.push_back(current_bundle_it->second);
+    edges.push_back(current_edge_it->second);
+    remove_remaining(current_edge_bundle_id);
 
-      std::vector<ContinuityNeighbor> next_candidates{};
-      const auto neighbors_it = adjacency.find(current_edge_id);
-      if (neighbors_it != adjacency.end()) {
-        for (const ContinuityNeighbor& neighbor : neighbors_it->second) {
-          if (neighbor.edge_id != previous_edge_id) {
-            next_candidates.push_back(neighbor);
-          }
+    std::vector<ContinuityNeighbor> next_candidates{};
+    const auto neighbors_it = adjacency.find(current_edge_bundle_id);
+    if (neighbors_it != adjacency.end()) {
+      for (const ContinuityNeighbor& neighbor : neighbors_it->second) {
+        if (neighbor.edge_bundle_id != previous_edge_bundle_id) {
+          next_candidates.push_back(neighbor);
         }
       }
-      if (next_candidates.empty()) {
-        break;
-      }
-      if (next_candidates.size() > 1) {
-        result.error = "authoritative invalid input: authoritative deserialization: saved route continuity is ambiguous";
-        return result;
-      }
-      shared_nodes.push_back(next_candidates.front().via_node_id);
-      previous_edge_id = current_edge_id;
-      current_edge_id = next_candidates.front().edge_id;
     }
-
-    std::vector<LoadedRouteEdge> route{};
-    route.reserve(edges.size());
-    for (std::size_t i = 0; i < edges.size(); ++i) {
-      const SavedBackboneEdge& edge = *edges[i];
-      ObjectId from_node_id = kInvalidObjectId;
-      ObjectId to_node_id = kInvalidObjectId;
-      if (edges.size() == 1) {
-        from_node_id = edge.node_a;
-        to_node_id = edge.node_b;
-      } else if (i == 0) {
-        to_node_id = shared_nodes.front();
-        from_node_id = other_edge_node(edge, to_node_id);
-      } else if (i + 1 == edges.size()) {
-        from_node_id = shared_nodes[i - 1];
-        to_node_id = other_edge_node(edge, from_node_id);
-      } else {
-        from_node_id = shared_nodes[i - 1];
-        to_node_id = shared_nodes[i];
-      }
-      if (from_node_id == kInvalidObjectId || to_node_id == kInvalidObjectId ||
-          from_node_id == to_node_id) {
-        result.error = "authoritative invalid input: authoritative deserialization: saved route continuity endpoint is invalid";
-        return result;
-      }
-      route.push_back(LoadedRouteEdge{&edge, from_node_id, to_node_id,
-                                      oriented_edge_dir(edge, from_node_id, to_node_id)});
+    if (next_candidates.empty()) {
+      break;
     }
-    result.value.push_back(std::move(route));
+    if (next_candidates.size() > 1) {
+      result.error = "authoritative invalid input: authoritative deserialization: saved route continuity is ambiguous";
+      return result;
+    }
+    shared_nodes.push_back(next_candidates.front().via_node_id);
+    previous_edge_bundle_id = current_edge_bundle_id;
+    current_edge_bundle_id = next_candidates.front().edge_bundle_id;
+  }
+  if (!remaining.empty()) {
+    result.error = "authoritative invalid input: authoritative deserialization: saved route continuity is ambiguous";
+    return result;
   }
 
-  std::sort(result.value.begin(), result.value.end(), [](const auto& a, const auto& b) {
-    const ObjectId a_id = a.empty() || a.front().edge == nullptr ? kInvalidObjectId : a.front().edge->edge_id;
-    const ObjectId b_id = b.empty() || b.front().edge == nullptr ? kInvalidObjectId : b.front().edge->edge_id;
-    return a_id < b_id;
-  });
+  result.value.edges.reserve(edges.size());
+  result.value.edge_bundle_ids.reserve(edge_bundles.size());
+  for (std::size_t i = 0; i < edges.size(); ++i) {
+    const SavedBackboneEdge& edge = *edges[i];
+    ObjectId from_node_id = kInvalidObjectId;
+    ObjectId to_node_id = kInvalidObjectId;
+    if (edges.size() == 1) {
+      from_node_id = edge.node_a;
+      to_node_id = edge.node_b;
+    } else if (i == 0) {
+      to_node_id = shared_nodes.front();
+      from_node_id = other_edge_node(edge, to_node_id);
+    } else if (i + 1 == edges.size()) {
+      from_node_id = shared_nodes[i - 1];
+      to_node_id = other_edge_node(edge, from_node_id);
+    } else {
+      from_node_id = shared_nodes[i - 1];
+      to_node_id = shared_nodes[i];
+    }
+    if (from_node_id == kInvalidObjectId ||
+        to_node_id == kInvalidObjectId || from_node_id == to_node_id) {
+      result.error = "authoritative invalid input: authoritative deserialization: saved route continuity endpoint is invalid";
+      return result;
+    }
+    result.value.edge_bundle_ids.push_back(
+        edge_bundles[i]->edge_bundle_id);
+    result.value.edges.push_back(
+        LoadedRouteEdge{edge_bundles[i]->edge_bundle_id, &edge,
+                        from_node_id, to_node_id,
+                        oriented_edge_dir(edge, from_node_id, to_node_id)});
+  }
+  result.ok = true;
+  return result;
+}
+
+EditResult<std::vector<LoadedRoute>> continuity_routes_from_saved_graph(
+    const SavedBackboneGraph& graph) {
+  EditResult<std::vector<LoadedRoute>> result{};
+  std::vector<ObjectId> remaining{};
+  remaining.reserve(graph.edge_bundles.size());
+  for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    remaining.push_back(edge_bundle.edge_bundle_id);
+  }
+  while (!remaining.empty()) {
+    const ObjectId seed = *std::min_element(remaining.begin(), remaining.end());
+    EditResult<LoadedRoute> route =
+        continuity_route_from_saved_graph(graph, seed);
+    if (!route.ok) {
+      result.error = route.error;
+      return result;
+    }
+    for (ObjectId edge_bundle_id : route.value.edge_bundle_ids) {
+      remaining.erase(
+          std::remove(remaining.begin(), remaining.end(), edge_bundle_id),
+          remaining.end());
+    }
+    result.value.push_back(std::move(route.value));
+  }
+  for (const SavedBackboneEdge& edge : graph.edges) {
+    const bool has_bundle = std::any_of(
+        graph.edge_bundles.begin(), graph.edge_bundles.end(),
+        [&](const SavedBackboneEdgeBundle& edge_bundle) {
+          return edge_bundle.edge_id == edge.edge_id;
+        });
+    if (!has_bundle) {
+      result.error = "authoritative invalid input: authoritative deserialization: saved route has no bundles";
+      return result;
+    }
+  }
+  std::sort(result.value.begin(), result.value.end(),
+            [](const LoadedRoute& a, const LoadedRoute& b) {
+              const ObjectId a_id = a.edge_bundle_ids.empty()
+                                        ? kInvalidObjectId
+                                        : a.edge_bundle_ids.front();
+              const ObjectId b_id = b.edge_bundle_ids.empty()
+                                        ? kInvalidObjectId
+                                        : b.edge_bundle_ids.front();
+              return a_id < b_id;
+            });
   result.ok = true;
   return result;
 }
@@ -339,22 +420,14 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   if (edge == nullptr) {
     return fail("backbone regenerate: edge missing");
   }
-  const EditResult<std::vector<std::vector<LoadedRouteEdge>>> continuity_routes =
-      continuity_routes_from_saved_graph(graph);
-  if (!continuity_routes.ok) {
-    return fail(continuity_routes.error);
+  const EditResult<LoadedRoute> continuity_route =
+      continuity_route_from_saved_graph(graph, target.edge_bundle_id);
+  if (!continuity_route.ok) {
+    return fail(continuity_route.error);
   }
-  const std::vector<LoadedRouteEdge>* route_edges = nullptr;
-  for (const std::vector<LoadedRouteEdge>& route : continuity_routes.value) {
-    const bool contains_seed = std::any_of(route.begin(), route.end(), [&](const LoadedRouteEdge& item) {
-      return item.edge != nullptr && item.edge->edge_id == edge->edge_id;
-    });
-    if (contains_seed) {
-      route_edges = &route;
-      break;
-    }
-  }
-  if (route_edges == nullptr || route_edges->empty()) {
+  const std::vector<LoadedRouteEdge>& route_edges =
+      continuity_route.value.edges;
+  if (route_edges.empty()) {
     return fail("backbone regenerate: row continuity route missing");
   }
   for (ObjectId affected_edge_bundle_id : affected_edge_bundle_ids) {
@@ -364,8 +437,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     if (affected_edge_bundle == nullptr || affected_edge == nullptr) {
       return fail("backbone regenerate: scoped edge bundle is incomplete");
     }
-    const bool in_route = std::any_of(route_edges->begin(), route_edges->end(), [&](const LoadedRouteEdge& item) {
-      return item.edge != nullptr && item.edge->edge_id == affected_edge->edge_id;
+    const bool in_route = std::any_of(route_edges.begin(), route_edges.end(), [&](const LoadedRouteEdge& item) {
+      return item.edge_bundle_id == affected_edge_bundle_id;
     });
     if (!in_route) {
       return fail("backbone unsupported: regenerate supports one row-continuity component at a time");
@@ -377,11 +450,11 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   target.edge_id = edge->edge_id;
   target.edge = edge;
   std::vector<const SavedBackboneNode*> route_nodes{};
-  for (std::size_t edge_index = 0; edge_index < route_edges->size(); ++edge_index) {
-    const LoadedRouteEdge& route_edge = (*route_edges)[edge_index];
+  for (std::size_t edge_index = 0; edge_index < route_edges.size(); ++edge_index) {
+    const LoadedRouteEdge& route_edge = route_edges[edge_index];
     if (edge_index == 0) {
       route_nodes.push_back(saved_node_by_id(graph, route_edge.from_node_id));
-    } else if ((*route_edges)[edge_index - 1].to_node_id != route_edge.from_node_id) {
+    } else if (route_edges[edge_index - 1].to_node_id != route_edge.from_node_id) {
       return fail("backbone unsupported: regenerate requires contiguous saved route edges");
     }
     route_nodes.push_back(saved_node_by_id(graph, route_edge.to_node_id));
@@ -484,8 +557,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     made_node.bundle_modes = saved_node.bundle_modes;
     made_graph.nodes.push_back(std::move(made_node));
   }
-  for (std::size_t edge_index = 0; edge_index < route_edges->size(); ++edge_index) {
-    const LoadedRouteEdge& route_edge = (*route_edges)[edge_index];
+  for (std::size_t edge_index = 0; edge_index < route_edges.size(); ++edge_index) {
+    const LoadedRouteEdge& route_edge = route_edges[edge_index];
     if (route_edge.edge == nullptr) {
       return fail("backbone regenerate: route edge is missing");
     }
@@ -505,38 +578,24 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   spec.pole_type_id = kInvalidPoleTypeId;
   spec.constraints.lateral_offset_m = edge->lateral_offset_m;
   std::vector<std::size_t> active_bundle_indices{};
-  for (const SavedBackboneEdgeBundle& scoped_edge_bundle : graph.edge_bundles) {
-    if (scoped_edge_bundle.edge_id != route_edges->front().edge->edge_id) {
-      continue;
-    }
-    const Bundle* scoped_bundle = view().bundles().find(scoped_edge_bundle.bundle_id);
-    if (scoped_bundle == nullptr) {
-      return fail("backbone regenerate: scoped bundle missing");
-    }
-    const auto template_it = authoritative_.bundle_templates.find(scoped_bundle->bundle_template_id);
-    if (template_it == authoritative_.bundle_templates.end()) {
-      return fail("backbone regenerate: scoped bundle template missing");
-    }
-    BackboneBundleSpec bundle_spec{};
-    bundle_spec.bundle_template_id = scoped_bundle->bundle_template_id;
-    bundle_spec.placement_key = scoped_bundle->placement_key;
-    bundle_spec.existing_bundle_id = scoped_bundle->id;
-    bundle_spec.layer = scoped_bundle->bundle_template_id == bundle_template_id ? next_template.default_layer
-                                                                                  : template_it->second.default_layer;
-    bundle_spec.placement_explicit = scoped_bundle->placement_explicit;
-    bundle_spec.height_m = scoped_bundle->height_m;
-    bundle_spec.lateral_m = scoped_bundle->lateral_m;
-    bundle_spec.spacing_m = scoped_bundle->spacing_override_m;
-    spec.bundles.push_back(bundle_spec);
-    active_bundle_indices.push_back(spec.bundles.size() - 1);
+  const auto template_it =
+      authoritative_.bundle_templates.find(bundle->bundle_template_id);
+  if (template_it == authoritative_.bundle_templates.end()) {
+    return fail("backbone regenerate: scoped bundle template missing");
   }
-  auto target_spec_it = std::find_if(spec.bundles.begin(), spec.bundles.end(),
-                                    [&](const BackboneBundleSpec& item) {
-                                      return item.bundle_template_id == bundle_template_id;
-                                    });
-  if (target_spec_it == spec.bundles.end()) {
-    return fail("backbone regenerate: target bundle spec missing");
-  }
+  BackboneBundleSpec bundle_spec{};
+  bundle_spec.bundle_template_id = bundle->bundle_template_id;
+  bundle_spec.placement_key = bundle->placement_key;
+  bundle_spec.existing_bundle_id = bundle->id;
+  bundle_spec.layer = bundle->bundle_template_id == bundle_template_id
+                          ? next_template.default_layer
+                          : template_it->second.default_layer;
+  bundle_spec.placement_explicit = bundle->placement_explicit;
+  bundle_spec.height_m = bundle->height_m;
+  bundle_spec.lateral_m = bundle->lateral_m;
+  bundle_spec.spacing_m = bundle->spacing_override_m;
+  spec.bundles.push_back(bundle_spec);
+  active_bundle_indices.push_back(0);
 
   CoreState trial = *this;
   trial.authoritative_.bundle_templates[bundle_template_id] = next_template;
@@ -577,7 +636,9 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     result.error = visual_curves.error;
     return result;
   }
+  VisualModelInstanceCache model_instances = trial.view().visual_model_instances();
   trial.cache_visual_curve_parts(std::move(visual_curves.value));
+  trial.cache_visual_model_instances(std::move(model_instances));
 
   identity_ = trial.identity_;
   authoritative_ = trial.authoritative_;
@@ -616,14 +677,18 @@ EditResult<bool> CoreState::regenerate_backbone_span_override(ObjectId span_id, 
 EditResult<bool> CoreState::rebuild_loaded_outputs() {
   EditResult<bool> result{};
   const SavedBackboneGraph saved = view().backbone();
-  EditResult<std::vector<std::vector<LoadedRouteEdge>>> saved_routes =
+  const CoreState loaded_state = *this;
+  CoreState assembled = loaded_state;
+  assembled.runtime_.cache_state = {};
+  EditResult<std::vector<LoadedRoute>> saved_routes =
       continuity_routes_from_saved_graph(saved);
   if (!saved_routes.ok) {
     result.error = saved_routes.error;
     return result;
   }
 
-  for (const std::vector<LoadedRouteEdge>& edges : saved_routes.value) {
+  for (const LoadedRoute& saved_route : saved_routes.value) {
+    const std::vector<LoadedRouteEdge>& edges = saved_route.edges;
     if (edges.empty()) {
       continue;
     }
@@ -721,53 +786,88 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
     spec.pole_type_id = kInvalidPoleTypeId;
     spec.constraints.lateral_offset_m = edges.front().edge->lateral_offset_m;
     std::vector<std::size_t> active_bundle_indices{};
-    for (const SavedBackboneEdgeBundle& edge_bundle : saved.edge_bundles) {
-      if (edge_bundle.edge_id != edges.front().edge->edge_id) continue;
-      const Bundle* bundle = authoritative_.edit_state.bundles.find(edge_bundle.bundle_id);
-      if (bundle == nullptr) {
-        result.error = "authoritative invalid input: authoritative deserialization: saved edge bundle is missing its bundle";
-        return result;
-      }
-      const auto template_it = authoritative_.bundle_templates.find(bundle->bundle_template_id);
-      if (template_it == authoritative_.bundle_templates.end()) {
-        result.error = "authoritative invalid input: authoritative deserialization: saved bundle template is missing";
-        return result;
-      }
-      BackboneBundleSpec bundle_spec{};
-      bundle_spec.bundle_template_id = bundle->bundle_template_id;
-      bundle_spec.placement_key = bundle->placement_key;
-      bundle_spec.existing_bundle_id = bundle->id;
-      bundle_spec.layer = template_it->second.default_layer;
-      bundle_spec.placement_explicit = bundle->placement_explicit;
-      bundle_spec.height_m = bundle->height_m;
-      bundle_spec.lateral_m = bundle->lateral_m;
-      bundle_spec.spacing_m = bundle->spacing_override_m;
-      if (template_it->second.count_rule == BundleCountRuleKind::kRange) {
-        bundle_spec.count = bundle->conductor_count;
-      }
-      spec.bundles.push_back(bundle_spec);
-      active_bundle_indices.push_back(spec.bundles.size() - 1);
-    }
-    if (spec.bundles.empty()) {
-      result.error = "authoritative invalid input: authoritative deserialization: saved route has no bundles";
+    const SavedBackboneEdgeBundle* first_edge_bundle =
+        saved_edge_bundle_by_id(saved, edges.front().edge_bundle_id);
+    const Bundle* bundle = first_edge_bundle == nullptr
+                               ? nullptr
+                               : authoritative_.edit_state.bundles.find(
+                                     first_edge_bundle->bundle_id);
+    if (bundle == nullptr) {
+      result.error = "authoritative invalid input: authoritative deserialization: saved edge bundle is missing its bundle";
       return result;
     }
-    generation::backbone::pipeline pipeline(*this, spec);
+    const auto template_it =
+        authoritative_.bundle_templates.find(bundle->bundle_template_id);
+    if (template_it == authoritative_.bundle_templates.end()) {
+      result.error = "authoritative invalid input: authoritative deserialization: saved bundle template is missing";
+      return result;
+    }
+    BackboneBundleSpec bundle_spec{};
+    bundle_spec.bundle_template_id = bundle->bundle_template_id;
+    bundle_spec.placement_key = bundle->placement_key;
+    bundle_spec.existing_bundle_id = bundle->id;
+    bundle_spec.layer = template_it->second.default_layer;
+    bundle_spec.placement_explicit = bundle->placement_explicit;
+    bundle_spec.height_m = bundle->height_m;
+    bundle_spec.lateral_m = bundle->lateral_m;
+    bundle_spec.spacing_m = bundle->spacing_override_m;
+    if (template_it->second.count_rule == BundleCountRuleKind::kRange) {
+      bundle_spec.count = bundle->conductor_count;
+    }
+    spec.bundles.push_back(bundle_spec);
+    active_bundle_indices.push_back(0);
+    CoreState route_trial = loaded_state;
+    route_trial.runtime_.cache_state = assembled.runtime_.cache_state;
+    generation::backbone::pipeline pipeline(route_trial, spec);
     const auto replay = pipeline.build(
         pipeline.build_input_from_saved_scope(std::move(graph), std::move(active_bundle_indices), false, false));
     if (!replay.ok) {
-      result.error = replay.error;
+      result.error =
+          "backbone load route " +
+          std::to_string(edges.front().edge == nullptr
+                             ? kInvalidObjectId
+                             : edges.front().edge->edge_id) +
+          ": " + replay.error;
       return result;
     }
+
+    for (const SavedBackboneSpanBinding& binding : saved.span_bindings) {
+      if (!contains_id(saved_route.edge_bundle_ids,
+                       binding.edge_bundle_id)) {
+        continue;
+      }
+      EditResult<bool> merged =
+          assembled.merge_cached_span_outputs_from(route_trial, binding.span_id);
+      if (!merged.ok) {
+        result.error = merged.error;
+        return result;
+      }
+    }
+    assembled.merge_cached_support_groups_from(route_trial);
   }
 
+  runtime_.cache_state = std::move(assembled.runtime_.cache_state);
   EditResult<VisualCurvePartCache> visual_curves =
       generation::backbone::make_visual_curve_parts(*this, {});
   if (!visual_curves.ok) {
     result.error = visual_curves.error;
     return result;
   }
+  EditResult<generation::backbone::FixturePlacementPlanByPort> fixture_plan =
+      generation::backbone::fixture_placement_plan_from_cache(*this);
+  if (!fixture_plan.ok) {
+    result.error = fixture_plan.error;
+    return result;
+  }
+  EditResult<VisualModelInstanceCache> model_instances =
+      generation::backbone::materialize_model_assemblies(
+          *this, fixture_plan.value);
+  if (!model_instances.ok) {
+    result.error = model_instances.error;
+    return result;
+  }
   cache_visual_curve_parts(std::move(visual_curves.value));
+  cache_visual_model_instances(std::move(model_instances.value));
   result.ok = true;
   result.value = true;
   return result;

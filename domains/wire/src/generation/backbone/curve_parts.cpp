@@ -6,6 +6,7 @@
 
 #include "../../support/hash_mix.hpp"
 #include "out.hpp"
+#include "mount_graph.hpp"
 #include "population.hpp"
 #include "row_representation.hpp"
 #include "span_visual_assembly.hpp"
@@ -14,6 +15,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -24,6 +27,7 @@ constexpr double kNodePatchHorizontalLengthM = 0.35;
 constexpr double kNodePatchMaxSpanFraction = 0.25;
 constexpr double kPatchMetersPerSegment = 0.08;
 constexpr double kPatchRadiansPerSegment = 0.17453292519943295;
+constexpr double kLocalDecorationCurveOffsetM = 0.18;
 
 struct curve_endpoint_ref {
   CableSectionKey section_key{};
@@ -40,6 +44,7 @@ struct curve_endpoint_ref {
   SavedBackboneRowKey row_key{};
   Vec3d point{};
   Vec3d away_from_node{};
+  SourceEdgeProjectionRef source_projection{};
   double span_length_m = 0.0;
   std::size_t source_curve_index = std::numeric_limits<std::size_t>::max();
   bool has_curve_tangent = false;
@@ -79,6 +84,14 @@ struct curve_patch_spec {
   Vec3d attachment_point{};
 };
 
+struct source_lead_spec {
+  curve_endpoint_ref endpoint{};
+  curve_boundary branch_boundary{};
+  ObjectId source_span_id = kInvalidObjectId;
+  Vec3d source_point{};
+  Vec3d source_tangent{};
+};
+
 struct continuity_endpoint_key {
   ObjectId node_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
@@ -95,6 +108,8 @@ struct visual_cable_section {
   ObjectId end_jumper_peer_port_id = kInvalidObjectId;
   SavedBackboneRowKey start_row_key{};
   SavedBackboneRowKey end_row_key{};
+  SourceEdgeProjectionRef start_source_projection{};
+  SourceEdgeProjectionRef end_source_projection{};
   std::size_t source_curve_index = std::numeric_limits<std::size_t>::max();
 };
 
@@ -121,6 +136,93 @@ bool cable_section_less_for_run(const CableSectionKey& a, const CableSectionKey&
 }
 
 using support::hash_combine;
+
+struct decoration_socket_ref {
+  const ModelAssemblyTemplate* assembly = nullptr;
+  const ModelAssemblyPart* part = nullptr;
+  const ModelAssemblySocket* socket = nullptr;
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  std::size_t index = 0;
+  std::size_t ordinal = 0;
+};
+
+bool is_connect_socket_name(const std::string& name) {
+  return name.rfind("connect_", 0) == 0;
+}
+
+std::optional<ConnectionCategory> connection_category_from_socket_name(const std::string& name) {
+  if (name.rfind("connect_hv_", 0) == 0) {
+    return ConnectionCategory::kHighVoltage;
+  }
+  if (name.rfind("connect_lv_", 0) == 0) {
+    return ConnectionCategory::kLowVoltage;
+  }
+  if (name.rfind("connect_comm_", 0) == 0) {
+    return ConnectionCategory::kCommunication;
+  }
+  if (name.rfind("connect_optical_", 0) == 0) {
+    return ConnectionCategory::kOptical;
+  }
+  return std::nullopt;
+}
+
+std::optional<std::size_t> socket_index_from_name(const std::string& name) {
+  const std::size_t pos = name.find_last_of('_');
+  if (pos == std::string::npos || pos + 1 >= name.size()) {
+    return std::nullopt;
+  }
+  std::size_t value = 0;
+  for (std::size_t i = pos + 1; i < name.size(); ++i) {
+    if (name[i] < '0' || name[i] > '9') {
+      return std::nullopt;
+    }
+    value = value * 10 + static_cast<std::size_t>(name[i] - '0');
+  }
+  return value;
+}
+
+std::vector<decoration_socket_ref> decoration_sockets(const ModelAssemblyTemplate& assembly) {
+  std::vector<decoration_socket_ref> out{};
+  std::size_t ordinal = 0;
+  for (const ModelAssemblyPart& part : assembly.parts) {
+    for (const ModelAssemblySocket& socket : part.sockets) {
+      const std::optional<ConnectionCategory> category =
+          connection_category_from_socket_name(socket.name);
+      const std::optional<std::size_t> index = socket_index_from_name(socket.name);
+      if (!category.has_value() || !index.has_value()) {
+        continue;
+      }
+      out.push_back({&assembly, &part, &socket, *category, *index, ordinal++});
+    }
+  }
+  return out;
+}
+
+const ModelAssemblyTemplate* first_pole_decoration_candidate(const CoreView& view) {
+  const ModelAssemblyTemplate* best = nullptr;
+  for (const auto& [id, assembly] : view.model_assembly_templates()) {
+    static_cast<void>(id);
+    bool has_connect_socket = false;
+    for (const ModelAssemblyPart& part : assembly.parts) {
+      for (const ModelAssemblySocket& socket : part.sockets) {
+        if (is_connect_socket_name(socket.name)) {
+          has_connect_socket = true;
+          break;
+        }
+      }
+      if (has_connect_socket) {
+        break;
+      }
+    }
+    if (!has_connect_socket) {
+      continue;
+    }
+    if (best == nullptr || assembly.id < best->id) {
+      best = &assembly;
+    }
+  }
+  return best;
+}
 
 CableRunId run_id_from_canonical_section(const CableSectionKey& key) {
   std::uint64_t hash = hash_combine(0, static_cast<std::uint64_t>(key.edge_bundle_id));
@@ -584,6 +686,165 @@ void copy_span_appearance(const CoreState& state, ObjectId span_id, VisualCurveP
   part->material_style = appearance.material_style;
 }
 
+std::uint64_t span_source_version(const CoreState& state, ObjectId span_id);
+
+const Pole* pole_for_saved_node(const CoreState& state, ObjectId node_id) {
+  const SavedBackboneNode* node = state.view().backbone_node(node_id);
+  if (node == nullptr || node->pole_id == kInvalidObjectId) {
+    return nullptr;
+  }
+  return state.view().poles().find(node->pole_id);
+}
+
+ConnectionCategory category_for_endpoint(const CoreState& state, const curve_endpoint_ref& endpoint) {
+  const auto bundle_it = state.view().bundle_templates().find(endpoint.bundle_template_id);
+  return bundle_it == state.view().bundle_templates().end()
+      ? ConnectionCategory::kLowVoltage
+      : bundle_it->second.category;
+}
+
+Vec3d socket_direction_world(const Transformd& part_world, Vec3d local_direction) {
+  const Vec3d scaled{
+      local_direction.x * part_world.scale.x,
+      local_direction.y * part_world.scale.y,
+      local_direction.z * part_world.scale.z,
+  };
+  Vec3d out = RotateEulerXYZDeg(scaled, part_world.rotation_euler_deg);
+  if (!Normalize(&out)) {
+    out = WorldForward();
+  }
+  return out;
+}
+
+std::vector<Vec3d> local_decoration_samples(const Vec3d& target,
+                                            const Vec3d& target_out,
+                                            const Vec3d& socket,
+                                            const Vec3d& socket_out,
+                                            const PoleFrame& frame,
+                                            std::uint64_t seed) {
+  Vec3d chord = socket - target;
+  if (!Normalize(&chord)) {
+    chord = frame.forward;
+  }
+  const double sign = (seed & 1ull) == 0 ? 1.0 : -1.0;
+  const Vec3d lateral = ScaleVec(frame.lateral, sign * kLocalDecorationCurveOffsetM);
+  const Vec3d lift = ScaleVec(frame.up, ((seed >> 1ull) & 1ull) == 0 ? 0.06 : -0.04);
+  const Vec3d guide_a = target + ScaleVec(target_out, 0.12) + lateral;
+  const Vec3d guide_b = target + ScaleVec(chord, 0.50) + lateral + lift;
+  const Vec3d guide_c = socket + ScaleVec(socket_out, 0.12) + ScaleVec(lateral, 0.35);
+  return {target, guide_a, guide_b, guide_c, socket};
+}
+
+void append_pole_decoration_curves_for_node(const CoreState& state,
+                                            ObjectId node_id,
+                                            const std::vector<curve_endpoint_ref>& endpoints,
+                                            const ModelAssemblyTemplate& assembly,
+                                            VisualCurvePartCache* out) {
+  if (out == nullptr) {
+    return;
+  }
+  const Pole* pole = pole_for_saved_node(state, node_id);
+  if (pole == nullptr) {
+    return;
+  }
+  const PoleFrame frame = BuildPoleFrame(pole->world_transform, pole->world_transform.rotation_euler_deg.z);
+  const std::vector<decoration_socket_ref> sockets = decoration_sockets(assembly);
+  if (sockets.empty()) {
+    return;
+  }
+  std::unordered_map<int, std::vector<const curve_endpoint_ref*>> endpoints_by_category{};
+  for (const curve_endpoint_ref& endpoint : endpoints) {
+    if (endpoint.node_id != node_id) {
+      continue;
+    }
+    const int category_key = static_cast<int>(category_for_endpoint(state, endpoint));
+    endpoints_by_category[category_key].push_back(&endpoint);
+  }
+  for (auto& [category_key, refs] : endpoints_by_category) {
+    static_cast<void>(category_key);
+    std::sort(refs.begin(), refs.end(), [](const curve_endpoint_ref* a, const curve_endpoint_ref* b) {
+      if (a->lane_index != b->lane_index) return a->lane_index < b->lane_index;
+      if (a->edge_bundle_id != b->edge_bundle_id) return a->edge_bundle_id < b->edge_bundle_id;
+      return a->section_key.logical_span_id < b->section_key.logical_span_id;
+    });
+  }
+
+  for (const decoration_socket_ref& socket_ref : sockets) {
+    const auto endpoints_it = endpoints_by_category.find(static_cast<int>(socket_ref.category));
+    if (endpoints_it == endpoints_by_category.end() ||
+        socket_ref.index >= endpoints_it->second.size()) {
+      continue;
+    }
+    if (socket_ref.part->fit_mode != ModelFitMode::kRigid) {
+      out->diagnostics.push_back({node_id, kInvalidObjectId, kInvalidBundleTemplateId, socket_ref.index,
+                                  "pole decoration connect socket requires a rigid part"});
+      continue;
+    }
+    const curve_endpoint_ref& target = *endpoints_it->second[socket_ref.index];
+    const Transformd part_world = compose_mount_transform(pole->world_transform, socket_ref.part->local_transform);
+    const Vec3d socket_world = transform_mount_point(part_world, socket_ref.socket->local_position);
+    const Vec3d socket_out = socket_direction_world(part_world, socket_ref.socket->local_direction);
+    std::uint64_t seed = hash_combine(0, static_cast<std::uint64_t>(node_id));
+    seed = hash_combine(seed, static_cast<std::uint64_t>(assembly.id));
+    seed = hash_combine(seed, static_cast<std::uint64_t>(socket_ref.part->part_id));
+    seed = hash_combine(seed, static_cast<std::uint64_t>(socket_ref.ordinal));
+
+    VisualCurvePart part{};
+    part.kind = VisualCurvePartKind::kSupplemental;
+    part.supplemental_kind = VisualSupplementalKind::kLocalDecoration;
+    part.source_node_id = node_id;
+    part.source_edge_id = target.edge_id;
+    part.source_span_id = target.section_key.logical_span_id;
+    part.source_bundle_id = target.bundle_id;
+    part.bundle_template_id = target.bundle_template_id;
+    part.lane_index = target.lane_index;
+    part.has_section_key = true;
+    part.section_key = target.section_key;
+    part.section_key.rule_owner_id = assembly.id;
+    part.section_key.rule_id = static_cast<CableSectionRuleId>(socket_ref.ordinal + 1);
+    part.section_key.instance_index = socket_ref.index;
+    add_unique_incident(target.edge_id, &part.incident_edge_ids);
+    part.boundary_a = target.point;
+    part.boundary_b = socket_world;
+    part.tangent_a = target.away_from_node;
+    part.tangent_b = ScaleVec(socket_out, -1.0);
+    copy_span_appearance(state, target.section_key.logical_span_id, &part);
+    part.source_version = hash_combine(span_source_version(state, target.section_key.logical_span_id), seed);
+    part.samples = local_decoration_samples(target.point, target.away_from_node, socket_world, part.tangent_b,
+                                            frame, seed);
+    part.bounds = curve_part_bounds(part.samples);
+    if (part.samples.size() >= 2 && finite_point(part.samples.front()) &&
+        finite_point(part.samples.back())) {
+      out->parts.push_back(std::move(part));
+    }
+  }
+}
+
+void append_pole_decoration_curves(const CoreState& state,
+                                   const std::vector<curve_endpoint_ref>& endpoints,
+                                   const std::unordered_set<ObjectId>& scoped_nodes,
+                                   VisualCurvePartCache* out) {
+  const ModelAssemblyTemplate* assembly = first_pole_decoration_candidate(state.view());
+  if (assembly == nullptr) {
+    return;
+  }
+  std::unordered_set<ObjectId> node_ids{};
+  for (const curve_endpoint_ref& endpoint : endpoints) {
+    if (endpoint.node_id == kInvalidObjectId) {
+      continue;
+    }
+    if (!scoped_nodes.empty() && !scoped_nodes.contains(endpoint.node_id)) {
+      continue;
+    }
+    node_ids.insert(endpoint.node_id);
+  }
+  std::vector<ObjectId> ordered_nodes(node_ids.begin(), node_ids.end());
+  std::sort(ordered_nodes.begin(), ordered_nodes.end());
+  for (ObjectId node_id : ordered_nodes) {
+    append_pole_decoration_curves_for_node(state, node_id, endpoints, *assembly, out);
+  }
+}
+
 std::uint64_t span_source_version(const CoreState& state, ObjectId span_id) {
   const SpanRuntimeState* runtime = state.view().find_span_runtime_state(span_id);
   return runtime == nullptr ? 0 : runtime->data_version;
@@ -642,8 +903,10 @@ std::unordered_set<ObjectId> saved_nodes_for_spans(const CoreState& state, const
   return nodes;
 }
 
-std::unordered_set<ObjectId> scoped_visual_spans(const CoreState& state, const std::vector<ObjectId>& scope_span_ids) {
-  std::unordered_set<ObjectId> spans = span_set_from(scope_span_ids);
+std::unordered_set<ObjectId> visual_context_spans(
+    const CoreState& state,
+    const std::unordered_set<ObjectId>& changed_spans) {
+  std::unordered_set<ObjectId> spans = changed_spans;
   if (spans.empty()) {
     return spans;
   }
@@ -734,7 +997,10 @@ bool visual_part_less(const VisualCurvePart& a, const VisualCurvePart& b) {
   if (a.has_section_key && !same_cable_section(a.section_key, b.section_key)) {
     return section_key_less(a.section_key, b.section_key);
   }
-  return a.cable_run_id < b.cable_run_id;
+  if (a.cable_run_id != b.cable_run_id) {
+    return a.cable_run_id < b.cable_run_id;
+  }
+  return false;
 }
 
 void sort_visual_parts(VisualCurvePartCache* cache) {
@@ -744,28 +1010,77 @@ void sort_visual_parts(VisualCurvePartCache* cache) {
   std::sort(cache->parts.begin(), cache->parts.end(), visual_part_less);
 }
 
-VisualCurvePartCache merge_scoped_visual_curve_parts(const CoreState& state, VisualCurvePartCache rebuilt,
-                                                     const std::unordered_set<ObjectId>& rebuilt_spans) {
-  if (rebuilt_spans.empty()) {
+VisualCurvePartCache merge_visual_changes(const CoreState& state, VisualCurvePartCache rebuilt,
+                                          const std::unordered_set<ObjectId>& changed_spans,
+                                          const std::unordered_set<ObjectId>& affected_nodes) {
+  if (changed_spans.empty()) {
     sort_visual_parts(&rebuilt);
     return rebuilt;
   }
-  const std::unordered_set<ObjectId> affected_nodes = saved_nodes_for_spans(state, rebuilt_spans);
-  VisualCurvePartCache merged = state.view().visual_curve_parts();
-  merged.parts.erase(std::remove_if(merged.parts.begin(), merged.parts.end(), [&](const VisualCurvePart& part) {
-                       if (part.source_span_id != kInvalidObjectId && rebuilt_spans.contains(part.source_span_id)) {
-                         return true;
-                       }
-                       if (part.has_section_key && rebuilt_spans.contains(part.section_key.logical_span_id)) {
-                         return true;
-                       }
-                       return part.source_node_id != kInvalidObjectId && affected_nodes.contains(part.source_node_id);
+  const auto part_is_affected = [&](const VisualCurvePart& part) {
+    if (part.source_span_id != kInvalidObjectId &&
+        changed_spans.contains(part.source_span_id)) {
+      return true;
+    }
+    if (part.has_section_key &&
+        changed_spans.contains(part.section_key.logical_span_id)) {
+      return true;
+    }
+    return part.source_node_id != kInvalidObjectId &&
+           affected_nodes.contains(part.source_node_id);
+  };
+  rebuilt.parts.erase(
+      std::remove_if(rebuilt.parts.begin(), rebuilt.parts.end(),
+                     [&](const VisualCurvePart& part) {
+                       return !part_is_affected(part);
                      }),
-                     merged.parts.end());
+      rebuilt.parts.end());
+  VisualCurvePartCache merged = state.view().visual_curve_parts();
+  merged.parts.erase(
+      std::remove_if(merged.parts.begin(), merged.parts.end(), part_is_affected),
+      merged.parts.end());
   merged.parts.insert(merged.parts.end(), std::make_move_iterator(rebuilt.parts.begin()),
                       std::make_move_iterator(rebuilt.parts.end()));
-  merged.diagnostics = std::move(rebuilt.diagnostics);
-  merged.population_diagnostics = std::move(rebuilt.population_diagnostics);
+  const auto diagnostic_is_affected = [&](const VisualCurveDiagnostic& diagnostic) {
+    return (diagnostic.source_span_id != kInvalidObjectId &&
+            changed_spans.contains(diagnostic.source_span_id)) ||
+           (diagnostic.source_node_id != kInvalidObjectId &&
+            affected_nodes.contains(diagnostic.source_node_id));
+  };
+  rebuilt.diagnostics.erase(
+      std::remove_if(rebuilt.diagnostics.begin(), rebuilt.diagnostics.end(),
+                     [&](const VisualCurveDiagnostic& diagnostic) {
+                       return !diagnostic_is_affected(diagnostic);
+                     }),
+      rebuilt.diagnostics.end());
+  merged.diagnostics.erase(
+      std::remove_if(merged.diagnostics.begin(), merged.diagnostics.end(),
+                     diagnostic_is_affected),
+      merged.diagnostics.end());
+  merged.diagnostics.insert(
+      merged.diagnostics.end(),
+      std::make_move_iterator(rebuilt.diagnostics.begin()),
+      std::make_move_iterator(rebuilt.diagnostics.end()));
+  const auto population_is_affected = [&](const CablePopulationDiagnostic& diagnostic) {
+    return diagnostic.logical_span_id != kInvalidObjectId &&
+           changed_spans.contains(diagnostic.logical_span_id);
+  };
+  rebuilt.population_diagnostics.erase(
+      std::remove_if(rebuilt.population_diagnostics.begin(),
+                     rebuilt.population_diagnostics.end(),
+                     [&](const CablePopulationDiagnostic& diagnostic) {
+                       return !population_is_affected(diagnostic);
+                     }),
+      rebuilt.population_diagnostics.end());
+  merged.population_diagnostics.erase(
+      std::remove_if(merged.population_diagnostics.begin(),
+                     merged.population_diagnostics.end(),
+                     population_is_affected),
+      merged.population_diagnostics.end());
+  merged.population_diagnostics.insert(
+      merged.population_diagnostics.end(),
+      std::make_move_iterator(rebuilt.population_diagnostics.begin()),
+      std::make_move_iterator(rebuilt.population_diagnostics.end()));
   merged.stats = rebuilt.stats;
   sort_visual_parts(&merged);
   return merged;
@@ -778,9 +1093,12 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
                                                          const curve* built_curves) {
   EditResult<VisualCurvePartCache> result{};
   const layout merged_layout = merged_visual_curve_layouts(state, made);
-  const std::unordered_set<ObjectId> scoped_spans = scoped_visual_spans(state, scope_span_ids);
-  const std::unordered_set<ObjectId> scoped_nodes = saved_nodes_for_spans(state, scoped_spans);
-  const layout placed = filter_layouts_to_spans(merged_layout, scoped_spans);
+  const std::unordered_set<ObjectId> changed_spans = span_set_from(scope_span_ids);
+  const std::unordered_set<ObjectId> affected_nodes =
+      saved_nodes_for_spans(state, changed_spans);
+  const std::unordered_set<ObjectId> context_spans =
+      visual_context_spans(state, changed_spans);
+  const layout placed = filter_layouts_to_spans(merged_layout, context_spans);
   std::unordered_map<ObjectId, const DetailCurve*> built_curve_by_span{};
   if (built_curves != nullptr) {
     built_curve_by_span.reserve(built_curves->data.size());
@@ -843,6 +1161,8 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     section.end_jumper_peer_port_id = end_peer.value;
     section.start_row_key = start_binding->row_key;
     section.end_row_key = end_binding->row_key;
+    section.start_source_projection = entry.start.source_projection;
+    section.end_source_projection = entry.end.source_projection;
     sections.push_back(section);
   }
   CablePopulation population = make_cable_population(state, placed.entries);
@@ -866,6 +1186,8 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     if (base_section != sections.end()) {
       section.start_row_key = base_section->start_row_key;
       section.end_row_key = base_section->end_row_key;
+      section.start_source_projection = base_section->start_source_projection;
+      section.end_source_projection = base_section->end_source_projection;
     }
     sections.push_back(std::move(section));
   }
@@ -949,6 +1271,7 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     start.row_key = section.start_row_key;
     start.point = entry.endpoint_a;
     start.away_from_node = start_away;
+    start.source_projection = section.start_source_projection;
     start.span_length_m = span_length;
     start.source_curve_index = source_curve_index;
     start.has_curve_tangent = has_curve_tangent;
@@ -966,6 +1289,7 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     end.row_key = section.end_row_key;
     end.point = entry.endpoint_b;
     end.away_from_node = end_away;
+    end.source_projection = section.end_source_projection;
     end.is_start = false;
     endpoints.push_back(end);
   }
@@ -973,6 +1297,7 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
   std::vector<curve_boundary> boundaries{};
   boundary_index_map boundary_index{};
   std::vector<curve_patch_spec> patch_specs{};
+  std::vector<source_lead_spec> source_lead_specs{};
 
   std::vector<curve_patch_key> patch_key_order{};
   std::unordered_set<curve_patch_key, curve_patch_key_hash, curve_patch_key_equal> seen_patch_keys{};
@@ -998,23 +1323,12 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       return item.first.edge_bundle_id == edge_bundle_id && item.first.lane_index == lane;
     });
   };
-  auto continuity_endpoint_outside_scope = [&](ObjectId edge_bundle_id, std::size_t lane) {
-    if (scoped_spans.empty()) {
-      return false;
-    }
-    const SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(edge_bundle_id);
-    if (edge_bundle == nullptr) {
-      return false;
-    }
-    return !has_any_endpoint(edge_bundle_id, lane);
-  };
-
   std::unordered_map<curve_patch_key, std::vector<std::pair<std::size_t, std::size_t>>,
                      curve_patch_key_hash, curve_patch_key_equal>
       continuity_pairs_by_patch_key{};
   continuity_pairs_by_patch_key.reserve(state.view().backbone().row_continuities.size());
   for (const SavedBackboneRowContinuity& continuity : state.view().backbone().row_continuities) {
-    if (!scoped_spans.empty() && !scoped_nodes.contains(continuity.node_id)) {
+    if (!changed_spans.empty() && !affected_nodes.contains(continuity.node_id)) {
       continue;
     }
     const auto a_it = endpoints_by_continuity_key.find(
@@ -1026,18 +1340,13 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
                             continuity.a.lane_index) ||
           !has_any_endpoint(continuity.b.edge_bundle_id,
                             continuity.b.lane_index)) {
-        continue;
-      }
-      if (!scoped_spans.empty()) {
-        continue;
-      }
-      const bool a_outside = a_it == endpoints_by_continuity_key.end() &&
-                             continuity_endpoint_outside_scope(continuity.a.edge_bundle_id,
-                                                               continuity.a.lane_index);
-      const bool b_outside = b_it == endpoints_by_continuity_key.end() &&
-                             continuity_endpoint_outside_scope(continuity.b.edge_bundle_id,
-                                                               continuity.b.lane_index);
-      if (a_outside || b_outside) {
+        out.diagnostics.push_back(
+            {continuity.node_id, kInvalidObjectId, kInvalidBundleTemplateId, 0,
+             "continuity endpoint absent from derived sections: a=" +
+                 std::to_string(continuity.a.edge_bundle_id) + "/" +
+                 std::to_string(continuity.a.lane_index) + " b=" +
+                 std::to_string(continuity.b.edge_bundle_id) + "/" +
+                 std::to_string(continuity.b.lane_index)});
         continue;
       }
       const SavedBackboneEdgeBundle* a_bundle = state.view().backbone_edge_bundle(continuity.a.edge_bundle_id);
@@ -1055,10 +1364,8 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       }
       fail("backbone internal: row continuity endpoint is missing node=" +
            std::to_string(continuity.node_id) + " a=" + std::to_string(continuity.a.edge_bundle_id) +
-           "/" + std::to_string(continuity.a.lane_index) + "/spans=" +
-           std::to_string(a_bundle == nullptr ? 0 : a_bundle->span_ids.size()) + " b=" +
+           "/" + std::to_string(continuity.a.lane_index) + " b=" +
            std::to_string(continuity.b.edge_bundle_id) + "/" + std::to_string(continuity.b.lane_index) +
-           "/spans=" + std::to_string(b_bundle == nullptr ? 0 : b_bundle->span_ids.size()) +
            endpoint_nodes);
       return result;
     }
@@ -1071,6 +1378,21 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
         }
         const curve_patch_key key = patch_key_for(endpoint_a);
         if (!same_key(key, patch_key_for(endpoint_b))) {
+          const curve_patch_key peer_key = patch_key_for(endpoint_b);
+          out.diagnostics.push_back(
+              {continuity.node_id, endpoint_a.section_key.logical_span_id,
+               endpoint_a.bundle_template_id, endpoint_a.lane_index,
+               "continuity patch key mismatch: pole=" +
+                   std::to_string(key.pole_type_id) + "/" +
+                   std::to_string(peer_key.pole_type_id) + " band=" +
+                   std::to_string(key.band_id) + "/" +
+                   std::to_string(peer_key.band_id) + " rule_owner=" +
+                   std::to_string(key.rule_owner_id) + "/" +
+                   std::to_string(peer_key.rule_owner_id) + " rule=" +
+                   std::to_string(key.rule_id) + "/" +
+                   std::to_string(peer_key.rule_id) + " instance=" +
+                   std::to_string(key.instance_index) + "/" +
+                   std::to_string(peer_key.instance_index)});
           continue;
         }
         continuity_pairs_by_patch_key[key].push_back({endpoint_a_index, endpoint_b_index});
@@ -1111,6 +1433,10 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       }
       if (patch_a.jumper_peer_port_id != kInvalidObjectId ||
           patch_b.jumper_peer_port_id != kInvalidObjectId) {
+        out.diagnostics.push_back(
+            {key.node_id, patch_a.section_key.logical_span_id,
+             key.bundle_template_id, key.lane_index,
+             "continuity node patch suppressed by sharp jumper peer"});
         continue;
       }
       const double a_len =
@@ -1131,6 +1457,74 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       insert_boundary_once(&boundaries, &boundary_index, b_boundary);
       patch_specs.push_back({key, patch_a, patch_b, ScaleVec(patch_a.point + patch_b.point, 0.5)});
     }
+  }
+
+  for (const curve_endpoint_ref& endpoint : endpoints) {
+    if (!endpoint.source_projection.valid() || !endpoint.has_curve_tangent ||
+        endpoint.source_curve_index >= source_curves.size()) {
+      continue;
+    }
+    const SavedBackboneSpanBinding* source_binding =
+        source_span_binding_for(state, endpoint.source_projection);
+    const SavedBackboneEdge* source_edge =
+        state.view().backbone_edge(endpoint.source_projection.source_edge_id);
+    const std::optional<Vec3d> source_point =
+        source_edge_projection_world(state, endpoint.source_projection);
+    if (source_binding == nullptr || source_edge == nullptr || !source_point.has_value()) {
+      out.diagnostics.push_back(
+          {endpoint.node_id, endpoint.section_key.logical_span_id,
+           endpoint.bundle_template_id, endpoint.lane_index,
+           "midspan source lead projection is missing"});
+      continue;
+    }
+
+    DetailCurve source_curve{};
+    if (const CurveCacheEntry* cached = state.find_curve_cache(source_binding->span_id);
+        cached != nullptr && cached->detail.sample_points.size() >= 2) {
+      source_curve = cached->detail;
+    } else {
+      const SpanLayoutView source_layout = state.span_layout(source_binding->span_id);
+      if (!source_layout.has_layout()) {
+        out.diagnostics.push_back(
+            {endpoint.node_id, endpoint.section_key.logical_span_id,
+             endpoint.bundle_template_id, endpoint.lane_index,
+             "midspan source lead layout is missing"});
+        continue;
+      }
+      const EditResult<DetailCurve> built =
+          make_curve(state, source_binding->span_id, *source_layout.entry);
+      if (!built.ok || built.value.sample_points.size() < 2) {
+        out.diagnostics.push_back(
+            {endpoint.node_id, endpoint.section_key.logical_span_id,
+             endpoint.bundle_template_id, endpoint.lane_index,
+             "midspan source lead curve is missing"});
+        continue;
+      }
+      source_curve = built.value;
+    }
+
+    const double t = std::clamp(endpoint.source_projection.t, 0.0, 1.0);
+    const bool source_forward =
+        endpoint.source_projection.from_node_id == source_edge->node_a;
+    const double u = source_forward ? t : 1.0 - t;
+    Vec3d source_tangent = source_curve.EvaluateTangent(u);
+    if (!source_forward) {
+      source_tangent = ScaleVec(source_tangent, -1.0);
+    }
+    if (!Normalize(&source_tangent)) {
+      source_tangent = endpoint.away_from_node;
+    }
+
+    const double lead_len =
+        std::min(kNodePatchHorizontalLengthM, endpoint.span_length_m * kNodePatchMaxSpanFraction);
+    if (lead_len <= kLengthToleranceM) {
+      continue;
+    }
+    curve_boundary branch_boundary = boundary_from_source_curve(
+        endpoint, source_curves[endpoint.source_curve_index], lead_len);
+    insert_boundary_once(&boundaries, &boundary_index, branch_boundary);
+    source_lead_specs.push_back(
+        {endpoint, branch_boundary, source_binding->span_id, *source_point, source_tangent});
   }
 
   const cable_run_assignments cable_runs = derive_cable_run_ids(sections, patch_specs);
@@ -1212,6 +1606,46 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     }
   }
 
+  for (const source_lead_spec& spec : source_lead_specs) {
+    curve_boundary branch_boundary = spec.branch_boundary;
+    (void)boundary_for(boundaries, boundary_index,
+                       spec.endpoint.section_key, spec.endpoint.is_start,
+                       &branch_boundary);
+    VisualCurvePart lead{};
+    lead.kind = VisualCurvePartKind::kLead;
+    lead.source_node_id = spec.endpoint.node_id;
+    lead.source_edge_id = spec.endpoint.edge_id;
+    lead.source_span_id = spec.endpoint.section_key.logical_span_id;
+    lead.source_bundle_id = spec.endpoint.bundle_id;
+    lead.bundle_template_id = spec.endpoint.bundle_template_id;
+    lead.lane_index = spec.endpoint.lane_index;
+    add_unique_incident(spec.endpoint.source_projection.source_edge_id, &lead.incident_edge_ids);
+    add_unique_incident(spec.endpoint.edge_id, &lead.incident_edge_ids);
+    std::sort(lead.incident_edge_ids.begin(), lead.incident_edge_ids.end());
+    lead.boundary_a = spec.source_point;
+    lead.boundary_b = branch_boundary.point;
+    lead.tangent_a = spec.source_tangent;
+    lead.tangent_b = branch_boundary.tangent;
+    lead.attachment_point = spec.source_point;
+    lead.has_attachment_point = true;
+    lead.passes_attachment_point = true;
+    lead.section_count = 1;
+    lead.has_section_key = true;
+    lead.section_key = spec.endpoint.section_key;
+    lead.cable_run_id = run_id_for_section(cable_runs, spec.endpoint.section_key);
+    copy_span_appearance(state, spec.endpoint.section_key.logical_span_id, &lead);
+    lead.source_version = hash_combine(
+        span_source_version(state, spec.endpoint.section_key.logical_span_id),
+        span_source_version(state, spec.source_span_id));
+    append_patch_section(lead.boundary_a, lead.tangent_a, lead.boundary_b, lead.tangent_b,
+                         true, &lead.bezier_control_points, &lead.samples);
+    lead.bounds = curve_part_bounds(lead.samples);
+    if (lead.samples.size() >= 2 && finite_point(lead.samples.front()) &&
+        finite_point(lead.samples.back())) {
+      out.parts.push_back(std::move(lead));
+    }
+  }
+
   SpanVisualAssemblyEndpointMap assembly_endpoints{};
   assembly_endpoints.reserve(placed.entries.size());
   for (const SpanLayoutEntry& entry : placed.entries) {
@@ -1276,10 +1710,9 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     const auto peer = std::find_if(endpoints.begin(), endpoints.end(), [&](const curve_endpoint_ref& candidate) {
       return candidate.port_id == endpoint.jumper_peer_port_id &&
              candidate.jumper_peer_port_id == endpoint.port_id && candidate.node_id == endpoint.node_id &&
-             candidate.bundle_template_id == endpoint.bundle_template_id &&
-             candidate.lane_index == endpoint.lane_index;
+             candidate.bundle_template_id == endpoint.bundle_template_id;
     });
-    if (peer == endpoints.end()) {
+    if (peer == endpoints.end() || endpoint.port_id > peer->port_id) {
       continue;
     }
 
@@ -1313,8 +1746,10 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       emitted_jumper_ports.push_back(peer->port_id);
     }
   }
-  if (!scoped_spans.empty()) {
-    result.value = merge_scoped_visual_curve_parts(state, std::move(out), scoped_spans);
+  append_pole_decoration_curves(state, endpoints, affected_nodes, &out);
+  if (!changed_spans.empty()) {
+    result.value = merge_visual_changes(
+        state, std::move(out), changed_spans, affected_nodes);
     result.ok = true;
     return result;
   }

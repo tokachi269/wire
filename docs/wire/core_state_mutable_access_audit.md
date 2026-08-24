@@ -1,5 +1,7 @@
 # CoreState Mutable Access Audit
 
+Status: frozen audit record. This file records the completed R8 review and is not a living coverage matrix.
+
 R8 keeps mutable access paths classified. The normal rule is that production code mutates authoritative state through `CoreState` operation APIs, and tests use `CoreStateTestHook` for white-box setup.
 
 ## Removed from `core_state.hpp`

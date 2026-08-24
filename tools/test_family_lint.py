@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -12,27 +13,10 @@ def rel(path: Path, root: Path) -> str:
 
 
 def registered_cases(text: str) -> list[str]:
-    cases: list[str] = []
-    start = 0
-    while True:
-        add_test = text.find("AddTest", start)
-        if add_test < 0:
-            break
-        line_start = text.rfind("\n", 0, add_test) + 1
-        if text[line_start:add_test].strip().startswith("void"):
-            start = add_test + len("AddTest")
-            continue
-        open_paren = text.find("(", add_test)
-        first_comma = text.find(",", open_paren)
-        first_quote = text.find('"', first_comma)
-        second_quote = text.find('"', first_quote + 1)
-        if open_paren < 0 or first_comma < 0 or first_quote < 0 or second_quote < 0:
-            start = add_test + len("AddTest")
-            continue
-        cases.append(text[first_quote + 1 : second_quote])
-        start = second_quote + 1
-    return cases
-
+    pattern = re.compile(
+        r'(?:AddTest|AddSourceGuardTest)\s*\(\s*tests\s*,\s*"([^"]+)"'
+    )
+    return [match.group(1) for match in pattern.finditer(text)]
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate core test family ownership.")

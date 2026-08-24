@@ -61,7 +61,7 @@ curve_input_data make_curve_input_data(const CoreState& state, ObjectId span_id,
       if (bundle_template != state.view().bundle_templates().end()) {
         const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
         if (cable != state.view().cable_templates().end()) {
-          sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
+          sag_ratio = cable->second.sag_factor;
           radius_m = std::max(0.0, cable->second.outer_diameter_m * 0.5);
           data.continuity_policy = cable->second.continuity_policy;
           data.bend_stiffness_hint = cable->second.bend_stiffness;
@@ -183,17 +183,18 @@ EditResult<DetailCurve> make_primary_curve_between_impl(const CoreState& state, 
         if (bundle_template != state.view().bundle_templates().end()) {
           const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
           if (cable != state.view().cable_templates().end()) {
-            sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
+            sag_ratio = cable->second.sag_factor;
           }
         }
       }
     }
     sag_ratio = std::max(0.0, sag_ratio);
+    const double endpoint_sag_ratio = sag_ratio * 0.5;
     const CurveConstraint start_constraint =
-        detail_curve_constraint(start, data.input.start_tangent_hint, settings, sag_ratio, data.continuity_policy,
+        detail_curve_constraint(start, data.input.start_tangent_hint, settings, endpoint_sag_ratio, data.continuity_policy,
                                 data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length);
     CurveConstraint end_constraint =
-        detail_curve_constraint(end, data.input.end_tangent_hint, settings, sag_ratio, data.continuity_policy,
+        detail_curve_constraint(end, data.input.end_tangent_hint, settings, endpoint_sag_ratio, data.continuity_policy,
                                 data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length);
     result.value = BuildDetailCurve(start_constraint, end_constraint, std::max(2, settings.curve_samples));
   } else {

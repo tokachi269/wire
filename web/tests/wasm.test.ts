@@ -472,28 +472,6 @@ describe("wire wasm smoke", () => {
     loaded.delete();
   });
 
-  it("accepts legacy slackFactor input but exposes one canonical sagFactor", () => {
-    const runState = createState();
-    const cable = Array.from({ length: runState.cableTemplateCount() }, (_, index) =>
-      runState.cableTemplate(index)
-    ).find((template) => template.id === 2);
-    expect(cable).toBeDefined();
-    const legacyCable = {
-      ...cable!,
-      sagFactor: 0.02,
-      slackFactor: 0.03
-    };
-    const updated = runState.updateCableTemplate(legacyCable, []);
-    expect(updated.ok, updated.error).toBe(true);
-    const migrated = Array.from({ length: runState.cableTemplateCount() }, (_, index) =>
-      runState.cableTemplate(index)
-    ).find((template) => template.id === 2);
-    expect(migrated).toBeDefined();
-    expect(migrated!.sagFactor).toBeCloseTo(0.05, 12);
-    expect(Object.prototype.hasOwnProperty.call(migrated, "slackFactor")).toBe(false);
-    runState.delete();
-  });
-
   it("keeps non-Auto final viewer samples on the requested parabola", () => {
     const runState = createState();
     const bundleTemplate = Array.from({ length: runState.bundleTemplateCount() }, (_, index) =>

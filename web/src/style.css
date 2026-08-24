@@ -420,11 +420,6 @@ h1 {
   background: #343a3c;
 }
 
-.repro-button {
-  width: 100%;
-  margin-bottom: 0.55rem;
-}
-
 .path-preview,
 .road-summary {
   display: grid;

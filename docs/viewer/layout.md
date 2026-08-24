@@ -22,7 +22,7 @@ panels.cpp の1:1移植は禁止する。
 
 | region | 位置 | 内容 | 幅の目安 |
 |---|---|---|---|
-| top bar | 上・全幅 | mode 切替、generate、save capture、pause | 全幅 |
+| top bar | 上・全幅 | mode 切替、generate、pause | 全幅 |
 | left | 左 | scene tree(outliner) | 狭・固定 |
 | center | 中央 | 3D viewport(遮らない) | 可変・最大 |
 | right | 右 | draw path、scene settings、template editor、selection inspector | 中・固定 |
@@ -60,8 +60,8 @@ panels.cpp の1:1移植は禁止する。
 
 ## 累進的開示
 
-- Advanced Port Bands、Anchor Slots、Junction Debug、Visual Cache 内部値、capture の詳細は既定折りたたみ。Repro Trace の保存ボタンだけは top bar に置く。
-- P1(編集操作と主要表示)を最初に見せる。P2(debug/capture 系)は畳む。
+- Advanced Port Bands、Anchor Slots、Junction Debug、Visual Cache 内部値は既定折りたたみにする。
+- P1(編集操作と主要表示)を最初に見せる。
 
 ## 反映モデル
 
@@ -70,7 +70,7 @@ panels.cpp の1:1移植は禁止する。
 - kReshape の生反映では `preferred_visible_span_ids` を必ず渡す(既存 `UpdateCableTemplate` 機構)。
 - 明示 Apply ボタンは regenerate 級・構造差分にのみ置く。
 - 操作中フラグは store 側に持つ(`interaction`)。preview と commit は同じ core API を呼び、
-  ログ/undo/capture は commit にだけ紐づける。core に transient/preview 概念を追加しない。
+  ログ/undo は commit にだけ紐づける。core に transient/preview 概念を追加しない。
 - **暗黙の連結呼び出しを禁止する。** 現行の「Apply Pole/Bundle Template 成功後に
   `ApplyBundleRelatedPoleTypeToExistingPoles` を自動で呼ぶ」挙動は移植しない。related 適用は独立ボタンにする。
 - 全操作の `EditResult.error` を bottom diagnostics に一級表示する。ログに握り潰さない。

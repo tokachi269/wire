@@ -338,8 +338,6 @@ public:
 
   bool count(const std::string& key, std::size_t& output) { return reader_.count(key, &output); }
   [[nodiscard]] bool contains(const std::string& key) const { return reader_.contains(key); }
-  [[nodiscard]] int version() const { return reader_.version(); }
-
   template <typename T> bool optional(const std::string& prefix, std::optional<T>& output) {
     bool has = false;
     if (!reader_.value(child(prefix, "has"), &has)) return false;
@@ -946,13 +944,6 @@ bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "bend_stiffness", v.bend_stiffness) || !ar.field(p, "min_bend_radius_m", v.min_bend_radius_m) ||
       !ar.field(p, "material_style", v.material_style) || !ar.field(p, "color_rgba", v.color_rgba) ||
       !ar.field(p, "sag_factor", v.sag_factor)) return false;
-  if constexpr (Archive::loading) {
-    if (ar.version() <= 3) {
-      double legacy_slack_factor = 0.0;
-      if (!ar.field(p, "slack_factor", legacy_slack_factor)) return false;
-      v.sag_factor += legacy_slack_factor;
-    }
-  }
   if (!ar.field(p, "continuity_policy", v.continuity_policy) || !ar.field(p, "attachment_style", v.attachment_style) ||
       !ar.field(p, "default_endpoint_attachment_template_id", v.default_endpoint_attachment_template_id)) return false;
   std::size_t count = v.supplemental_paths.size();

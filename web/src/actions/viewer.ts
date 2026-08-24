@@ -238,10 +238,6 @@ export class ViewerActions {
     this.templates.selectPoleTemplate(id);
   }
 
-  exportReproCapture(): void {
-    this.workspace.exportReproCapture();
-  }
-
   exportWorkspaceText(): Promise<string> {
     return this.workspace.exportWorkspaceText();
   }

@@ -286,7 +286,6 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).rightPanelMode).toBe("wire");
     expect(document.body.textContent).toContain("DRAW PATH");
     expect(document.body.textContent).not.toContain("Add segment");
-    expect(document.body.textContent).toContain("Repro capture");
 
     mounted.actions.addViewportPoint([0, 0, 0]);
     mounted.actions.previewViewportPoint([24, 0, 0]);
@@ -306,7 +305,6 @@ describe("viewer numeric inputs", () => {
     roadTab.click();
     await tick();
     expect(current(mounted.store).rightPanelMode).toBe("road");
-    expect(document.body.textContent).not.toContain("Repro capture");
     expect(document.body.textContent).toContain("Junction corner radius (m)");
 
     (document.querySelector('[aria-label="Wire tool"]') as HTMLButtonElement).click();

@@ -421,9 +421,6 @@
               <p class="panel-label">DRAW PATH</p>
               <strong class="point-count">{snapshot.pathPoints.length} points</strong>
             </div>
-            <button class="secondary repro-button" type="button" onclick={() => actions.exportReproCapture()}>
-              Repro capture
-            </button>
             <label>
               Pole template
               <select

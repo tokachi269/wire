@@ -124,7 +124,6 @@ export class DrawActions {
   }
 
   addPathPoint(point: WorldPoint, pick?: PathPickInfo): void {
-    const previousPointCount = this.ctx.readSnapshot().pathPoints.length;
     let nextPoint = point;
     let nextSpec: PathPointSpec | null = null;
     if (pick !== undefined) {
@@ -167,33 +166,24 @@ export class DrawActions {
         error: ""
       };
     });
-    const after = this.ctx.readSnapshot();
-    if (after.pathPoints.length > previousPointCount) {
-      const index = after.pathPoints.length - 1;
-      this.ctx.reproTrace.recordPathPoint(point, after.pathPoints[index], pick, after.pathPointSpecs[index]);
-    }
   }
 
   clearPath(): void {
-    const hadPoints = this.ctx.readSnapshot().pathPoints.length > 0;
     const cleared = this.ctx.bridge.clearPendingSupportNodes();
     if (!cleared.ok) {
       this.ctx.store.setError(cleared.error);
       return;
     }
     this.ctx.store.update((current) => ({ ...current, pathPoints: [], pathPointSpecs: [], error: "" }));
-    if (hadPoints) this.ctx.reproTrace.recordPathEdit("clear-path");
   }
 
   undoPathPoint(): void {
-    const hadPoints = this.ctx.readSnapshot().pathPoints.length > 0;
     this.ctx.store.update((current) => ({
       ...current,
       pathPoints: current.pathPoints.slice(0, -1),
       pathPointSpecs: current.pathPointSpecs.slice(0, -1),
       error: ""
     }));
-    if (hadPoints) this.ctx.reproTrace.recordPathEdit("undo-path-point");
   }
 
   undoPathPointOrClearSelection(clearSelection: () => void): void {
@@ -392,7 +382,6 @@ export class DrawActions {
     );
     const generateEnd = performance.now();
     if (!result.ok) {
-      this.ctx.reproTrace.recordGeneration(before, points, result);
       this.ctx.store.setError(result.error);
       return;
     }
@@ -421,7 +410,6 @@ export class DrawActions {
       bundleTemplates,
       drawBundlePlacements: placementsWithGeneratedIds
     }));
-    this.ctx.reproTrace.recordGeneration(before, points, result, this.ctx.readSnapshot());
     const sceneUpdateMs = performance.now() - sceneStart;
     const viewerUpdateMs = performance.now() - generateStart;
     const sceneStats = this.ctx.consumeSceneContentSyncStats();

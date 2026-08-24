@@ -147,7 +147,6 @@ struct ViewerUiState {
   double layout_corner_threshold_deg = city::wire::kDefaultCornerThresholdDeg;
   double layout_min_side_scale = 1.0;
   double layout_max_side_scale = city::wire::kMaxCornerSideScale;
-  std::string last_repro_capture_path{};
   std::vector<ObjectId> preferred_visible_span_ids{};
   int preferred_visible_span_count = 0;
 
@@ -242,8 +241,6 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const cit
                             bool clear_draw_path_on_success, const char* success_log,
                             const char* failure_log);
 void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key);
-bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_state, std::string* out_path,
-                              std::string* out_error);
 void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state);
 void DrawPathPreview(const ViewerUiState& ui_state);
 void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state);

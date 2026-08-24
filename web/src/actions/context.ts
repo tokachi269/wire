@@ -1,4 +1,3 @@
-import { ReproTrace } from "./reproTrace";
 import type { WireBridge } from "../bridge/wire";
 import type {
   BundleTemplateInfo,
@@ -16,7 +15,6 @@ export class ViewerActionContext {
   private interactionFrames: number[] = [];
   private interactionActive = false;
   private suppressNextCommit = false;
-  readonly reproTrace = new ReproTrace();
   private factoryCoreState = "";
   private factoryRoadState = "";
   private workspaceSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -279,7 +277,6 @@ export class ViewerActionContext {
 
   finishOperation(result: OperationResult, log: string): void {
     if (!result.ok) {
-      this.reproTrace.recordFailure(log, result.error);
       this.store.setError(result.error);
       return;
     }
@@ -289,12 +286,10 @@ export class ViewerActionContext {
       error: "",
       logs: [...current.logs, log]
     }));
-    this.reproTrace.recordOperation(log, this.readSnapshot());
   }
 
   finishTemplateOperation(result: OperationResult, log: string): void {
     if (!result.ok) {
-      this.reproTrace.recordFailure(log, result.error);
       this.refreshCatalogs();
       this.store.setError(result.error);
       return;

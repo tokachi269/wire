@@ -1175,10 +1175,6 @@ public:
         static_cast<city::wire::CableMaterialStyleKind>(property<int>(input, "materialStyle"));
     cable_template.color_rgba = property<std::uint32_t>(input, "colorRgba");
     cable_template.sag_factor = property<double>(input, "sagFactor");
-    const val legacy_slack_factor = input["slackFactor"];
-    if (!legacy_slack_factor.isUndefined() && !legacy_slack_factor.isNull()) {
-      cable_template.sag_factor += legacy_slack_factor.as<double>();
-    }
     cable_template.continuity_policy =
         static_cast<city::wire::CableContinuityPolicyHint>(property<int>(input, "continuityPolicy"));
 

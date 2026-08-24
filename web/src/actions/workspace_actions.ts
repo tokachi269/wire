@@ -138,22 +138,6 @@ export class WorkspaceActions {
     this.startWorkspacePersistence();
   }
 
-  exportReproCapture(): void {
-    const text = this.ctx.reproTrace.toText(this.ctx.readSnapshot());
-    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `wire-repro-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    this.ctx.store.update((current) => ({
-      ...current,
-      logs: [...current.logs, "repro trace downloaded"]
-    }));
-  }
-
   async exportWorkspaceText(): Promise<string> {
     const document = createWorkspaceDocument(
       this.ctx.currentCoreState(),

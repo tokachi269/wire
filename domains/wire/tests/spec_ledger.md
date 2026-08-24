@@ -597,7 +597,6 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C853 | Behavior | Invariant | Portはband/explicit placementの論理anchorを保持し、support level/groupから一度resolveしたbranch downだけが物理endpointへ適用され、save/loadとscoped placement regenerateでも同じ意味結果を保つ | `differential` `oracle` `anchor` | row offset、stable slot、support level loweringが独立にPort/endpoint Zを決めて相互補償する回帰を防ぐ |
 | C854 | SourceGuard | Boundary | productionのrow height経路にrow-height offset、stable slot、bundle update時の保存offsetを残さず、row ordering角度はatan2直後にdegreeへ正規化する | `source_guard` | 別経路のno-op faultを他経路が補償する構造とradian/degree混在が再導入される回帰を防ぐ |
 | C855 | Behavior | Invariant | 非Autoのmain spanも単一のsag_factorをspan全体へ1回適用し、`chord length * ratio`の物理sag量と独立式`4u(1-u)`のparabolic profileを使う | `oracle` `presence` | continuity policyによるprofile分岐、sag ratio二重加算、長さ・pass・剛性による隠れ倍率を防ぐ |
-| C856 | Behavior | Boundary | v1-v3のslack_factorはload時にsag_factorへ1回だけ統合し、v4以降は単一sag正本だけを保存する | `oracle` `presence` `differential` | 旧workspaceのsag量を失う、二重加算する、またはslackを現行正本へ残す回帰を防ぐ |
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |
 
 ## 廃止済み旧pipeline検査

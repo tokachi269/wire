@@ -109,7 +109,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C127 | Behavior | Symptom | PoleFrame の local/world roundtrip | `legacy_unclassified` | Pole傾き適用の回転順序ずれ防止 |
 | C128 | Behavior | Symptom | uベース曲線APIの端点拘束 | `legacy_unclassified` | 曲線生成を u ベースに固定する |
 | C129 | Behavior | Symptom | sベース配置APIと sag 合成 | `legacy_unclassified` | 正確な配置を s ベースで扱える |
-| C141 | Behavior | Symptom | 懸垂寄り support slope | `legacy_unclassified` | quartic 的な平坦 sag に戻る回帰防止 |
+| C141 | Behavior | Symptom | parabolic sagがsupportで実勾配を持つ | `legacy_unclassified` | supportで平坦になるdecorative sagへ戻る回帰防止 |
 | C142 | Behavior | Symptom | 近直線での横揺れ抑止強化 | `legacy_unclassified` | 微小な横成分で左右にぐにゃる回帰防止 |
 | C143 | Behavior | Symptom | SmoothPass の横揺れ抑止 | `legacy_unclassified` | 継続カーブで不要な左右揺れを残す回帰防止 |
 | C130 | Behavior | Symptom | OffsetEndpoint 端点 | `legacy_unclassified` | 支点近傍で急に折れない離脱表現の土台 |
@@ -596,7 +596,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C852 | Behavior | Invariant | row角度差が1e-6 degreeより大きく1e-6 radianより小さい場合も、support levelは実角度順で決まりpath入力方向に依存しない | `metamorphic` `oracle` | atan2のradian値をdegree toleranceと比較し、ID順tieへ約57.3倍広げる回帰を防ぐ |
 | C853 | Behavior | Invariant | Portはband/explicit placementの論理anchorを保持し、support level/groupから一度resolveしたbranch downだけが物理endpointへ適用され、save/loadとscoped placement regenerateでも同じ意味結果を保つ | `differential` `oracle` `anchor` | row offset、stable slot、support level loweringが独立にPort/endpoint Zを決めて相互補償する回帰を防ぐ |
 | C854 | SourceGuard | Boundary | productionのrow height経路にrow-height offset、stable slot、bundle update時の保存offsetを残さず、row ordering角度はatan2直後にdegreeへ正規化する | `source_guard` | 別経路のno-op faultを他経路が補償する構造とradian/degree混在が再導入される回帰を防ぐ |
-| C855 | Behavior | Invariant | CableTemplateのsag_factorとslack_factorはendpointごとの加算値ではなく、span全体へ1回適用するratioである | `oracle` `presence` | 既定sagがstart/endで二重加算され、設定値の2倍を起点に深いお椀型curveを生成する回帰を防ぐ |
+| C855 | Behavior | Invariant | 非Autoのmain spanもsag_factorとslack_factorをspan全体へ1回適用し、独立式`4u(1-u)`のparabolic profileを使う | `oracle` `presence` | continuity policyによってcosh profileへ分岐し、既定の多くのcableがお椀型になる回帰とsag ratio二重加算を防ぐ |
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |
 
 ## 廃止済み旧pipeline検査

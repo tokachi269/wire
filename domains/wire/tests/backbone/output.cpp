@@ -3901,7 +3901,7 @@ bool C813_backbone_move_pole_rederives_pair_representation() {
              0;
 }
 
-bool C855_backbone_cable_sag_ratio_is_applied_once_per_span() {
+bool C855_backbone_non_auto_main_span_sag_is_parabolic_once() {
   city::wire::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   WIRE_TEST_EXPECT(generated.ok, generated.error);
@@ -3927,6 +3927,18 @@ bool C855_backbone_cable_sag_ratio_is_applied_once_per_span() {
         almost_equal(curve->detail.quality.sag_base_ratio,
                      expected_span_sag_ratio, 1e-12),
         "span sag ratio was counted once for each endpoint instead of once for the span");
+    constexpr double kQuarter = 0.25;
+    const double expected_quarter_height =
+        city::wire::HeightAlongWorldUp(curve->detail.EvaluatePosition(0.0)) +
+        (city::wire::HeightAlongWorldUp(curve->detail.EvaluatePosition(1.0)) -
+         city::wire::HeightAlongWorldUp(curve->detail.EvaluatePosition(0.0))) *
+            kQuarter -
+        curve->detail.sag_amplitude_m * 4.0 * kQuarter * (1.0 - kQuarter);
+    WIRE_TEST_EXPECT_ORACLE(
+        almost_equal(city::wire::HeightAlongWorldUp(
+                         curve->detail.EvaluatePosition(kQuarter)),
+                     expected_quarter_height, 1e-9),
+        "non-Auto main span sag does not follow the parabolic 4u(1-u) profile");
   }
   return true;
 }

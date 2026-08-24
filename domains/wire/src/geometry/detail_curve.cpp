@@ -9,7 +9,6 @@ namespace city::wire {
 
 namespace {
 
-constexpr double kNormalizedCatenarySteepness = 3.4;
 constexpr double kG2MinChordLengthM = 4.0;
 constexpr double kG2EndpointOffsetRatioLimit = 0.08;
 constexpr double kG2EndpointOffsetMetersLimit = 0.45;
@@ -214,17 +213,13 @@ Vec3d ResolveEndpointPoint(const CurveConstraint& constraint) {
 }
 
 double SagShape(double u) {
-  const double x = Clamp01(u) - 0.5;
-  const double edge = std::cosh(kNormalizedCatenarySteepness * 0.5);
-  const double denom = std::max(kLengthToleranceM, edge - 1.0);
-  return std::max(0.0, (edge - std::cosh(kNormalizedCatenarySteepness * x)) / denom);
+  const double t = Clamp01(u);
+  return 4.0 * t * (1.0 - t);
 }
 
 double SagShapeDerivative(double u) {
-  const double x = Clamp01(u) - 0.5;
-  const double edge = std::cosh(kNormalizedCatenarySteepness * 0.5);
-  const double denom = std::max(kLengthToleranceM, edge - 1.0);
-  return (-kNormalizedCatenarySteepness * std::sinh(kNormalizedCatenarySteepness * x)) / denom;
+  const double t = Clamp01(u);
+  return 4.0 * (1.0 - 2.0 * t);
 }
 
 Vec3d EvaluateBezier(const std::array<Vec3d, 4>& cp, double u) {

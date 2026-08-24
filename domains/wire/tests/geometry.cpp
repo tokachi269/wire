@@ -523,7 +523,7 @@ bool test_detail_curve_sag_preserves_endpoints_and_supports_length_queries() {
          almost_equal(sag.PositionAtLength(sag.Length()), sag.EvaluatePosition(1.0), 1e-9);
 }
 
-bool test_detail_curve_sag_uses_catenary_like_support_slope() {
+bool test_detail_curve_sag_uses_parabolic_support_slope() {
   city::wire::CurveConstraint start{};
   start.point = {0.0, 0.0, 6.0};
   start.tangent_dir = {1.0, 0.0, 0.0};
@@ -537,7 +537,11 @@ bool test_detail_curve_sag_uses_catenary_like_support_slope() {
   const city::wire::DetailCurve curve = city::wire::BuildDetailCurve(start, end, 33);
   const city::wire::Vec3d tangent0 = curve.EvaluateTangent(0.0);
   const city::wire::Vec3d tangent1 = curve.EvaluateTangent(1.0);
-  return curve.sag_amplitude_m > 0.0 && tangent0.z < -0.02 && tangent1.z > 0.02;
+  WIRE_TEST_EXPECT_ORACLE(curve.sag_amplitude_m > 0.0,
+                          "parabolic sag amplitude was not applied");
+  WIRE_TEST_EXPECT_ORACLE(tangent0.z < -0.02 && tangent1.z > 0.02,
+                          "parabolic sag lost its non-flat support slopes");
+  return true;
 }
 
 bool test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways() {
@@ -1152,9 +1156,9 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
                          "DetailCurve sag preserves endpoints and supports length-based placement via arc table",
                          "Invariant", false, test_detail_curve_sag_preserves_endpoints_and_supports_length_queries);
   test_registry::AddTest(
-      tests, "C141_DetailCurve_CatenarySupportSlope",
-      "DetailCurve sag uses a catenary-like support slope instead of staying flat at the endpoints", "Invariant",
-      false, test_detail_curve_sag_uses_catenary_like_support_slope);
+      tests, "C141_DetailCurve_ParabolicSupportSlope",
+      "DetailCurve parabolic sag has non-flat support slopes", "Invariant",
+      false, test_detail_curve_sag_uses_parabolic_support_slope);
   test_registry::AddTest(tests, "C142_DetailCurve_NearStraightNoSideWobble",
                          "Near-straight endpoint tangents do not introduce visible sideways wobble",
                          "Invariant", false, test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways);

@@ -339,6 +339,7 @@ frame、boundsを生成し、具体的な計算方式は`CurveMethod`で差し�
 
 main spanの既定方式はparabolic sagとし、支持点でsag勾配を持つ実接線を維持する。
 端点微分が0になるdecorative offsetをmain cable centerlineへ使わない。中心線へ横揺れnoiseを入れない。
+continuity policyは端点接線とhandleを決めるが、main spanのsag profileを別方式へ切り替えない。
 `CableTemplate.sag_factor + slack_factor`はspan全体に1回適用するratioであり、start/endごとの加算値ではない。
 Endpoint constraintを経由するcurve方式でも、両端へ同じratioを重複適用してはならない。
 bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。

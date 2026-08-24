@@ -28,7 +28,6 @@ T3 classifies constants that are easy to confuse with each other. This file is a
 | `kNodePatchMaxSpanFraction` | `curve_parts.cpp` | Visual policy | Prevents patch boundary from consuming too much of a short span. |
 | `kPatchMetersPerSegment` | `curve_parts.cpp` | Visual policy | Tessellation density for patch sampling. |
 | `kPatchRadiansPerSegment` | `curve_parts.cpp` | Visual policy | Angular tessellation density for patch sampling. |
-| `kNormalizedCatenarySteepness` | `detail_curve.cpp` | Visual policy | Shape approximation for detail curve sag presentation. |
 | `kFallbackTangentScale` | `detail_curve.cpp` | Visual policy | Quality fallback handle scale for hard tangents. |
 
 ## Tuning candidate

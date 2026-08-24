@@ -1,4 +1,4 @@
-#include "pipeline.hpp"
+﻿#include "pipeline.hpp"
 
 #include "../../collection_utils.hpp"
 #include "../../support/instrumentation.hpp"
@@ -108,6 +108,7 @@ EditResult<bool> validate_backbone_spec_external_input(const BackboneSpec& spec)
 } // namespace
 
 EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
+  // 今回の生成範囲をpipelineの作業状態へ取り込み、authoritative topologyの生成を開始する。
   const auto total_started = std::chrono::steady_clock::now();
   g_ = std::move(input.made);
   active_bundle_indices_ = std::move(input.active_bundle_indices);
@@ -127,6 +128,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
     return out;
   }
 
+  // Spanが確定した後で、各endpointに必要な既定Attachmentを揃える。
   for (const tspan& span : made.value.made.spans) {
     const EditResult<bool> attachments = state_.ensure_default_endpoint_attachments_for_span(span.id);
     if (!attachments.ok) {
@@ -138,11 +140,13 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
     append_unique(made.value.change_set.deleted_ids, attachments.change_set.deleted_ids);
   }
 
+  // authoritative relationを入力としてlayout以降のderived cacheを一方向に再構築する。
   EditResult<bool> derived = save_derived(made.value, timing);
   if (!derived.ok) {
     out.error = derived.error;
     return out;
   }
+  // 既存Spanを再利用した場合は、生成済みruleを保ったまま通常のreposition経路へ合流させる。
   std::vector<ObjectId> touched_existing_spans{};
   const auto was_created = [&](ObjectId id) {
     return std::find(made.value.change_set.created_ids.begin(),
@@ -166,6 +170,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
       return out;
     }
   }
+  // scope regenerationでは今回触れなかった旧要素を退役させてから、呼び出し側へ結果を返す。
   if (input.retire_untouched) retire_untouched(&made.value);
   write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made));
   out.value.generated_node_ids = saved_node_by_input_;
@@ -198,16 +203,19 @@ pipeline::build_input pipeline::build_input_from_saved_scope(
 
 EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
   EditResult<route> out{};
+  // graph上の各nodeで、連続するlinkと開放端をrowへ分類する。
   EditResult<pairs> ps = timed(timing, &GenerationTiming::pairs_ms, [&] { return make(g_); });
   if (!ps.ok) {
     out.error = ps.error;
     return out;
   }
+  // stateを書き換える前に、pairingと既存authoritative relationの整合を検証する。
   EditResult<bool> duplicates = timed(timing, &GenerationTiming::preflight_ms, [&] { return check(ps.value); });
   if (!duplicates.ok) {
     out.error = duplicates.error;
     return out;
   }
+  // 競合するrowに必要な上下配置とsupport groupの意図を決める。
   EditResult<intent> intents = timed(timing, &GenerationTiming::intent_ms, [&] { return make(ps.value); });
   if (!intents.ok) {
     out.error = intents.error;
@@ -218,6 +226,7 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
     out.ok = true;
     return out;
   }
+  // open rowをpair rowへ昇格する場合に再利用するPort identityを、emit前に固定する。
   promotion_plan_.clear();
   if (write_row_continuity_) {
     EditResult<std::vector<PromotionPlanEntry>> promotions =
@@ -230,12 +239,14 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
     promotion_plan_ = std::move(promotions.value);
   }
 
+  // row intentを実際のsupport group配置へ変換する。
   EditResult<groups> placement =
       timed(timing, &GenerationTiming::support_groups_ms, [&] { return make(ps.value, intents.value); });
   if (!placement.ok) {
     out.error = placement.error;
     return out;
   }
+  // Pole、Bundle、最終Port/frame、Spanの順でauthoritative objectを生成・更新する。
   EditResult<topo> made = timed(timing, &GenerationTiming::emit_ms, [&] {
     return emit(ps.value, placement.value);
   });
@@ -243,6 +254,7 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
     out.error = made.error;
     return out;
   }
+  // 生成済みobjectをSavedBackboneGraphの正本identityへ結び付ける。
   EditResult<bool> graph_saved =
       timed(timing, &GenerationTiming::save_graph_ms,
             [&] { return save_graph(made.value, ps.value, placement.value,
@@ -263,6 +275,7 @@ EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
 
 EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* timing) {
   EditResult<bool> out{};
+  // rules → layout → geometry → drawの順序を崩さず、全段階が成功してからcacheへ保存する。
   rules saved = timed(timing, &GenerationTiming::rules_ms, [&] {
     rules next = make(route.made, route.ps, route.placement);
     return next;
@@ -1415,6 +1428,7 @@ void pipeline::retire_untouched(route* route) {
       ids.push_back(id);
     }
   };
+  // 今回の生成結果から、scope内で保持すべきSpanとPortを先に収集する。
   for (const tspan& span : route->made.spans) {
     add_id(route->touched_span_ids, span.id);
     if (span.arow < route->made.rows.size()) {
@@ -1438,6 +1452,7 @@ void pipeline::retire_untouched(route* route) {
     return;
   }
 
+  // scope内の既存bindingと比較し、今回触れなかった要素だけを退役候補にする。
   std::vector<ObjectId> retired_spans{};
   std::vector<ObjectId> retired_ports{};
   const SavedBackboneGraph& saved = state_.view().backbone();
@@ -1471,6 +1486,7 @@ void pipeline::retire_untouched(route* route) {
     return;
   }
 
+  // Spanとその従属Attachmentを除去した後、他のSpanが使わないPortだけを除去する。
   for (ObjectId span_id : retired_spans) {
     const Span* span = state_.authoritative_.edit_state.spans.find(span_id);
     if (span == nullptr) {
@@ -1526,6 +1542,7 @@ void pipeline::retire_untouched(route* route) {
                      }),
       graph.port_bindings.end());
 
+  // authoritative graphを削除後の唯一の入力としてruntime indexを再構築する。
   BackboneIndex rebuilt{};
   for (const SavedBackboneNode& node : graph.nodes) {
     if (node.pole_id != kInvalidObjectId) {
@@ -1566,6 +1583,7 @@ std::size_t pipeline::local(std::size_t input_point) const {
 
 EditResult<bool> pipeline::prepare() {
   EditResult<bool> out{};
+  // 外部入力を検証し、前回の作業状態を持ち越さずにroute graphを組み直す。
   g_ = {};
   active_bundle_indices_.clear();
   local_by_input_.clear();
@@ -1599,6 +1617,7 @@ EditResult<bool> pipeline::prepare() {
       return out;
     }
   }
+  // 指定方向を先に正規化し、以降は常に生成方向のindexだけを扱う。
   if (spec_.direction_mode == PathDirectionMode::kReverse) {
     std::reverse(guide.begin(), guide.end());
     std::unordered_map<std::size_t, const BackboneInputSpec::NodeSpec*> reversed{};
@@ -1619,6 +1638,7 @@ EditResult<bool> pipeline::prepare() {
       }
     }
   }
+  // guide segmentへinterval supportとavoid detourを挿入し、実際に生成する点列を作る。
   std::vector<Vec3d> pts{};
   std::vector<std::size_t> guide_by_local{};
   std::vector<SupportKind> support_by_local{};
@@ -1708,6 +1728,7 @@ EditResult<bool> pipeline::prepare() {
       push_point(b, i + 1);
     }
   }
+  // 自動生成された近接supportだけを畳み、明示点と固定点は残す。
   if (pts.size() > 2 && !spec_.pole_placement.pin_vertices) {
     constexpr double kAutoCollapseDistanceM = 1.5;
     constexpr double kAutoCollapseDistanceSq = kAutoCollapseDistanceM * kAutoCollapseDistanceM;
@@ -1771,6 +1792,7 @@ EditResult<bool> pipeline::prepare() {
     const std::size_t guide_index = (spec_.direction_mode == PathDirectionMode::kReverse) ? input.size() - 1 - i : i;
     local_by_input_[i] = guide_index < local_by_guide.size() ? local_by_guide[guide_index] : bad;
   }
+  // 点列をnodeへ変換し、明示された既存support identityを解決する。
   g_.nodes.reserve(pts.size());
   for (std::size_t i = 0; i < pts.size(); ++i) {
     node n{};
@@ -1893,6 +1915,7 @@ EditResult<bool> pipeline::prepare() {
     }
     g_.nodes.push_back(n);
   }
+  // requested route本体のlinkを生成する。
   g_.links.reserve(pts.size() > 0 ? pts.size() - 1 : 0);
   for (std::size_t i = 0; i + 1 < pts.size(); ++i) {
     link edge{};
@@ -1956,6 +1979,7 @@ EditResult<bool> pipeline::prepare() {
     local_by_saved[n.saved] = n.id;
     return n.id;
   };
+  // 既存edgeはpairing判断のcontextとしてgraphへ加えるが、新規生成対象にはしない。
   std::unordered_set<ObjectId> context_edges{};
   const std::size_t route_node_count = pts.size();
   for (std::size_t i = 0; i < route_node_count && i < g_.nodes.size(); ++i) {
@@ -2055,6 +2079,7 @@ EditResult<bool> pipeline::prepare() {
     add_source_context(a, n.id, 0);
     add_source_context(n.id, b, 1);
   }
+  // route上の全nodeで許可されているBundleだけを今回の生成対象に残す。
   active_bundle_indices_.reserve(spec_.bundles.size());
   for (std::size_t bundle_index = 0; bundle_index < spec_.bundles.size(); ++bundle_index) {
     bool allowed = true;
@@ -2086,6 +2111,7 @@ EditResult<bool> pipeline::prepare() {
 }
 
 EditResult<bool> pipeline::check() const {
+  // graph全体とnode単位のmode指定が、対応可能なrouteを表しているか検証する。
   if (g_.nodes.size() < 2 || g_.links.empty()) {
     return unsupported("path needs at least two points");
   }
@@ -2130,6 +2156,7 @@ EditResult<bool> pipeline::check() const {
       return unsupported("node bundle mode is not supported");
     }
   }
+  // detour処理後の最終routeがavoid制約を満たすことを確認する。
   if (!route_clear_of_avoid_points(g_, spec_.constraints.avoid_points, spec_.constraints.avoid_radius_m)) {
     return unsupported("avoid routing cannot satisfy the requested constraints");
   }
@@ -2141,6 +2168,7 @@ EditResult<bool> pipeline::check() const {
       return failed;
     }
   }
+  // 使用するtemplateとPort bandを、state変更前にすべて解決できることを確認する。
   for (const BackboneBundleSpec& spec : spec_.bundles) {
     EditResult<spec_view> checked = view_for(state_, spec);
     if (!checked.ok) {
@@ -2180,6 +2208,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     in[edge.b].push_back(edge.id);
   }
 
+  // 各nodeで一意に対応できるincoming/outgoingを同じrowへまとめる。
   std::vector<bool> aused(out.value.links.size(), false);
   std::vector<bool> bused(out.value.links.size(), false);
   for (const node& n : made.nodes) {
@@ -2265,6 +2294,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       if (interior_angle <= kAngleToleranceDeg) {
         return unsupported_pairs("zero angle route reversal");
       }
+      // 急角度はpass-through rowへ畳まず、2つのopen rowとjumperとして表す。
       if (IsSharpBackboneInteriorAngle(interior_angle)) {
         bused[left] = true;
         aused[matched] = true;
@@ -2303,6 +2333,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       out.value.links[matched].arow = row_id;
     }
 
+    // pairにならなかったincident linkには、それぞれ独立したopen rowを割り当てる。
     for (std::size_t link_id : outgoing) {
       if (aused[link_id]) {
         continue;
@@ -2332,12 +2363,14 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       return unsupported_pairs("link row is unresolved");
     }
   }
+  // terminal open rowの軸を隣接pairへ揃え、後段のPort配置方向を安定させる。
   align_terminal_open_rows_to_pairs(&out.value);
   out.ok = true;
   return out;
 }
 
 EditResult<bool> pipeline::check(const pairs& ps) const {
+  // ownerless supportが参照するsource Span identityを、Bundle/lane単位で検証する。
   for (const node& source : g_.nodes) {
     if (!source.has_source_edge || !ownerless_support(source.support)) {
       continue;
@@ -2362,6 +2395,7 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
       }
     }
   }
+  // pairingが参照する既存node/edge identityを解決し、欠落をstate変更前に止める。
   std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
   for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
     node_id_by_local[i] = g_.nodes[i].saved;
@@ -2381,6 +2415,7 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
       return failed;
     }
   }
+  // 新規routeが実際に使用するrowだけを抽出し、PoleとPort bandを検証する。
   std::vector<bool> active_rows(ps.rows.size(), false);
   for (const link& edge : ps.links) {
     if (!edge.is_new) {
@@ -2457,6 +2492,7 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
       }
     }
   }
+  // 同じsaved edgeとBundle templateに重複生成しないことを確認する。
   for (const link& edge : ps.links) {
     if (!edge.is_new) {
       continue;
@@ -2577,6 +2613,7 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
     return found;
   };
 
+  // 既存open rowの正本bindingから、昇格後も引き継ぐPort identityをlaneごとに収集する。
   auto plan_existing_row = [&](std::size_t row_id,
                                const link& existing) -> bool {
     if (row_id >= ps.rows.size()) {
@@ -2648,6 +2685,7 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
     return true;
   };
 
+  // 通常のpair rowと急角度jumperの両方から、既存側rowのpromotionを計画する。
   for (const row& r : ps.rows) {
     if (r.source.is_open || r.source.id >= ps.joins.size() ||
         r.node >= node_id_by_local.size()) {
@@ -2704,6 +2742,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     int support_level = 0;
     int support_group_id = -1;
   };
+  // 保存済みsupport groupを予約し、新規group idが衝突しない開始位置を求める。
   std::unordered_map<ObjectId, int> next_support_group_id_by_node{};
   for (const SavedBackbonePortBinding& binding :
        state_.view().backbone().port_bindings) {
@@ -2899,6 +2938,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     return out;
   };
 
+  // nodeごとの有効rowを集め、既存配置を尊重しながら上下levelを割り当てる。
   std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
   std::vector<bool> referenced(ps.rows.size(), false);
   for (const link& edge : ps.links) {
@@ -3054,6 +3094,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
 
 EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const {
   EditResult<groups> out{};
+  // loweringが必要なrow intentだけを、後段が消費する配置groupへ写す。
   for (const row_intent& item : intents.rows) {
     if (!item.lower_required) {
       continue;
@@ -3090,6 +3131,7 @@ EditResult<topo> pipeline::emit(const pairs& ps, const groups& placement) {
     }
     return true;
   };
+  // Port frameをSpan pairingより先に確定するため、この呼び出し順序を維持する。
   if (!step(emit_poles(&made, ps, &out.change_set)) || !step(emit_bundles(&made, &out.change_set)) ||
       !step(emit_ports(&made, ps, placement, &out.change_set)) ||
       !step(emit_spans(&made, ps, &out.change_set))) {
@@ -3106,6 +3148,7 @@ EditResult<bool> pipeline::emit_poles(topo* made, const pairs& ps, ChangeSet* ch
     out.error = "backbone internal: backbone topology: output missing";
     return out;
   }
+  // ownerless supportはPoleを持たず、既存Poleは再利用し、新規nodeだけを生成する。
   made->poles.reserve(g_.nodes.size());
   PoleTypeId pole_type = kInvalidPoleTypeId;
   if (needs_pole_type(g_)) {
@@ -3191,6 +3234,7 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
     out.error = "backbone internal: backbone topology: output missing";
     return out;
   }
+  // promotion対象、同一scopeの既存Bundle、新規Bundleの順でidentityを解決する。
   made->bundles.reserve(active_bundle_indices_.size());
   made->bundle_specs.reserve(active_bundle_indices_.size());
   for (std::size_t spec_index : active_bundle_indices_) {
@@ -3248,6 +3292,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
     return out;
   }
 
+  // pairing結果を、linkごとのendpointとBundle/laneを持つ最終rowへ展開する。
   std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
   for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
     node_id_by_local[i] = g_.nodes[i].saved;
@@ -3270,6 +3315,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
       active_rows[edge.brow] = true;
     }
   }
+  // 各rowでPort bandと最終world positionを決め、既存Portを解決または新規作成する。
   made->rows.resize(ps.rows.size());
   for (const row& r : ps.rows) {
     if (r.node >= made->poles.size() || r.node >= g_.nodes.size()) {
@@ -3563,6 +3609,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
     }
     return bad;
   };
+  // promotionで再利用するPortBindingを、確定済みの最終frameへ更新する。
   for (const PromotionPlanEntry& entry : promotion_plan_) {
     if (entry.row >= made->rows.size()) {
       out.error = "backbone internal: promoted binding row missing";
@@ -3596,6 +3643,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps,
     }
   }
 
+  // permutable rowは最終Port方向からmirrorを一度だけ決め、必要ならrow全体をreverseする。
   for (const PromotionPlanEntry& entry : promotion_plan_) {
     if (entry.lane_index != 0) {
       continue;
@@ -3702,6 +3750,7 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
     out.error = "backbone internal: backbone topology: output missing";
     return out;
   }
+  // context linkは判断入力に留め、新規route linkだけをSpan生成対象にする。
   for (const link& edge : ps.links) {
     if (!edge.is_new) {
       continue;
@@ -3721,6 +3770,7 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         out.error = v.error;
         return out;
       }
+      // permutable multi-lane rowはidentityかcomplete reverseのどちらかでendpointを対応させる。
       bool mirror_b = false;
       if (!v.value.tmpl->preserve_conductor_identity &&
           v.value.tmpl->order_decision_policy ==
@@ -3833,6 +3883,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
                                       const groups& placement,
                                       ChangeSet* changes) {
   EditResult<bool> out{};
+  // local nodeをSavedBackboneNodeへ対応付け、入力点から正本nodeを引けるようにする。
   std::vector<int> path_index_by_local(g_.nodes.size(), -1);
   for (std::size_t input_index = 0; input_index < local_by_input_.size(); ++input_index) {
     const std::size_t local = local_by_input_[input_index];
@@ -3883,6 +3934,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
   }
 
+  // 新規route edgeを保存し、context edgeは既存identityの参照だけを保持する。
   std::vector<SavedBackboneEdgeRef> edge_by_link(ps.links.size());
   for (const link& edge : ps.links) {
     if (edge.a >= node_id_by_local.size() || edge.b >= node_id_by_local.size() || edge.id >= edge_by_link.size()) {
@@ -3909,6 +3961,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
   }
 
+  // 後続のSpan/Port/continuity bindingが共有するedge bundle identityを解決する。
   std::vector<std::vector<ObjectId>> edge_bundle_by_link_bundle(
       ps.links.size(), std::vector<ObjectId>(made.bundles.size(), kInvalidObjectId));
   auto refresh_edge_bundle_by_link_bundle = [&](std::size_t link_id, std::size_t bundle_index) {
@@ -3995,6 +4048,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
     return std::pair<int, int>{0, -1};
   };
+  // Span endpoint対応を正本SpanBindingとPortBindingへ保存する。
   for (const tspan& span : made.spans) {
     if (!span.is_new) {
       continue;
@@ -4109,6 +4163,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         return true;
       };
 
+  // cross-edge continuityはSpan endpoint対応とは別の正本relationとして保存する。
   if (write_row_continuity_) {
     for (std::size_t row_index = 0; row_index < made.rows.size(); ++row_index) {
       const trow& row = made.rows[row_index];
@@ -4222,6 +4277,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
 
 rules pipeline::make(const topo& made, const pairs& ps, const groups& placement) const {
   rules out{};
+  // authoritative topologyと配置groupから、各Span endpointのlayout契約を作る。
   auto group_for = [&](std::size_t row, std::size_t bundle) -> const group* {
     for (const group& item : placement.items) {
       for (const group_member& member : item.row_members) {
@@ -4354,6 +4410,7 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
 
 EditResult<layout> pipeline::make(const rules& made) const {
   EditResult<layout> out{};
+  // rulesを実座標へ解決し、同じfixture planからmodel instanceもmaterializeする。
   const EditState& edit = state_.view().edit_state();
   EditResult<FixturePlacementPlanByPort> fixture_plan =
       fixture_placement_plan_from_cache_with_rules(state_, made.data.spans);
@@ -4390,6 +4447,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
 
 EditResult<geom> pipeline::make(const layout& made) const {
   EditResult<geom> out{};
+  // 確定済みlayoutからcurve、bounds、viewer向けcurve partを派生する。
   out.value.curves.data.reserve(made.entries.size());
   out.value.boxes.data.reserve(made.entries.size());
   for (const SpanLayoutEntry& entry : made.entries) {
@@ -4420,6 +4478,7 @@ EditResult<geom> pipeline::make(const layout& made) const {
 
 draw pipeline::make(const layout& placed, const geom& shaped) const {
   draw out{};
+  // geometryを描画用mesh情報へ変換し、layoutからvisual metadataを作る。
   out.visuals.reserve(placed.entries.size());
   out.renders.reserve(shaped.curves.data.size());
   const VisualSettings& visual_settings = state_.view().visual_settings();

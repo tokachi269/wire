@@ -28,7 +28,7 @@ bool C750_authoritative_save_is_deterministic_and_changes_after_edit() {
   std::string repeated_save{};
   if (!make_roundtrip_source(&state, &first_save, nullptr)) return false;
   const auto saved = state.SerializeAuthoritative(&repeated_save);
-  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v3\n", 0) != 0 ||
+  if (!saved.ok || first_save.empty() || first_save.rfind("wire_state_v4\n", 0) != 0 ||
       first_save != repeated_save) {
     return false;
   }
@@ -459,7 +459,7 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   city::wire::CoreState valid_probe;
   if (!valid_probe.DeserializeAuthoritative(saved).ok) return false;
   const std::vector<std::string> invalid = {
-      "wire_state_v4\n",
+      "wire_state_v5\n",
       saved + "unknown.key=1\n",
       saved.substr(0, saved.find_last_of('\n', saved.size() - 2) + 1)};
   for (const std::string& text : invalid) {
@@ -503,16 +503,58 @@ bool C799_authoritative_v1_load_migrates_row_continuity_to_current() {
   if (loaded.view().backbone().row_continuities.size() != 3) {
     return false;
   }
-  std::string migrated_v3{};
-  if (!loaded.SerializeAuthoritative(&migrated_v3).ok ||
-      migrated_v3.rfind("wire_state_v3\n", 0) != 0 ||
-      migrated_v3.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
+  std::string migrated_v4{};
+  if (!loaded.SerializeAuthoritative(&migrated_v4).ok ||
+      migrated_v4.rfind("wire_state_v4\n", 0) != 0 ||
+      migrated_v4.find("authoritative.backbone.row_continuities.count=3\n") == std::string::npos) {
     return false;
   }
   city::wire::CoreState reloaded;
-  if (!reloaded.DeserializeAuthoritative(migrated_v3).ok) return false;
+  if (!reloaded.DeserializeAuthoritative(migrated_v4).ok) return false;
   std::string resaved{};
-  return reloaded.SerializeAuthoritative(&resaved).ok && resaved == migrated_v3;
+  return reloaded.SerializeAuthoritative(&resaved).ok && resaved == migrated_v4;
+}
+
+bool C856_legacy_cable_slack_migrates_into_canonical_sag() {
+  std::string legacy{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      backbone_tests::file_text(
+          backbone_tests::repo_root() / "domains" / "wire" / "tests" /
+              "fixtures" / "legacy_shared_pair_v2.txt",
+          &legacy),
+      "legacy cable-template fixture is missing");
+
+  city::wire::CoreState loaded;
+  const auto loaded_result = loaded.DeserializeAuthoritative(legacy);
+  WIRE_TEST_EXPECT_PRESENCE(loaded_result.ok, loaded_result.error);
+  const auto optical = loaded.view().cable_templates().find(4);
+  WIRE_TEST_EXPECT_PRESENCE(
+      optical != loaded.view().cable_templates().end(),
+      "legacy optical cable template is missing after load");
+  WIRE_TEST_EXPECT_ORACLE(
+      same_double(optical->second.sag_factor, 0.005 + 0.03),
+      "legacy slack_factor was not folded into the canonical sag_factor");
+
+  std::string migrated{};
+  const auto saved = loaded.SerializeAuthoritative(&migrated);
+  WIRE_TEST_EXPECT_PRESENCE(saved.ok, saved.error);
+  WIRE_TEST_EXPECT(
+      migrated.rfind("wire_state_v4\n", 0) == 0,
+      "slack migration did not write the current v4 format");
+  WIRE_TEST_EXPECT(
+      migrated.find(".slack_factor=") == std::string::npos,
+      "current authoritative output still persists slack_factor");
+
+  city::wire::CoreState reloaded;
+  const auto reloaded_result = reloaded.DeserializeAuthoritative(migrated);
+  WIRE_TEST_EXPECT_PRESENCE(reloaded_result.ok, reloaded_result.error);
+  std::string resaved{};
+  WIRE_TEST_EXPECT_PRESENCE(reloaded.SerializeAuthoritative(&resaved).ok,
+                            "migrated state could not be resaved");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      resaved == migrated,
+      "canonical sag state changed across save-load-save");
+  return true;
 }
 
 bool C801_authoritative_v2_rejects_broken_row_continuity_reference() {
@@ -723,6 +765,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "authoritative v1 load migrates row continuity and resaves in the current format",
                          "Boundary", false,
                          C799_authoritative_v1_load_migrates_row_continuity_to_current);
+  test_registry::AddTest(tests, "C856_legacy_cable_slack_migrates_into_canonical_sag",
+                         "legacy slack migrates into one canonical sag field without changing its total",
+                         "Boundary", false,
+                         C856_legacy_cable_slack_migrates_into_canonical_sag);
   test_registry::AddTest(tests, "C801_authoritative_v2_rejects_broken_row_continuity_reference",
                          "authoritative v2 load rejects broken row continuity references",
                          "Boundary", true,

@@ -516,11 +516,6 @@
           oninput={(event) => actions.previewCableTemplate("sagFactor", numberValue(event))}
           onblur={(event) => actions.commitCableTemplate(patchCable(cable, "sagFactor", numberValue(event)))} />
       </label>
-      <label>Slack factor
-        <input type="number" step="0.005" value={fmt(cable.slackFactor)}
-          oninput={(event) => actions.previewCableTemplate("slackFactor", numberValue(event))}
-          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "slackFactor", numberValue(event)))} />
-      </label>
       <label>Continuity
         <select value={cable.continuityPolicy}
           onchange={(event) => actions.commitCableTemplate(patchCable(cable, "continuityPolicy", numberValue(event)))}>

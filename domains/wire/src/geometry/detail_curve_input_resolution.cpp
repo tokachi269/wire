@@ -154,8 +154,8 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
     }
   }
 
-  const double sag_ratio = (cable_template == nullptr) ? view.geometry_settings().sag_factor
-                                                       : (cable_template->sag_factor + cable_template->slack_factor);
+  const double sag_ratio =
+      (cable_template == nullptr) ? view.geometry_settings().sag_factor : cable_template->sag_factor;
   const bool use_reference_length = true;
   const ResolvedStyleContext style = resolve_style_context_for_span(state, span, StyleObjectKind::kSpan, 0, false);
 

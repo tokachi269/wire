@@ -336,7 +336,6 @@ export interface CableTemplateInfo {
   materialStyle: number;
   colorRgba: number;
   sagFactor: number;
-  slackFactor: number;
   continuityPolicy: number;
   supplementalEnabled: boolean;
   supplementalLateralOffset: number;

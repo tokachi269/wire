@@ -21,7 +21,7 @@ namespace {
 
 class StateWriter {
 public:
-  StateWriter() { text_ = "wire_state_v3\n"; }
+  StateWriter() { text_ = "wire_state_v4\n"; }
 
   void value(const std::string& key, bool input) { line(key, input ? "1" : "0"); }
 
@@ -77,8 +77,12 @@ public:
     static constexpr std::string_view kHeaderV1 = "wire_state_v1\n";
     static constexpr std::string_view kHeaderV2 = "wire_state_v2\n";
     static constexpr std::string_view kHeaderV3 = "wire_state_v3\n";
+    static constexpr std::string_view kHeaderV4 = "wire_state_v4\n";
     std::size_t header_size = 0;
-    if (text.starts_with(kHeaderV3)) {
+    if (text.starts_with(kHeaderV4)) {
+      version_ = 4;
+      header_size = kHeaderV4.size();
+    } else if (text.starts_with(kHeaderV3)) {
       version_ = 3;
       header_size = kHeaderV3.size();
     } else if (text.starts_with(kHeaderV2)) {
@@ -334,6 +338,7 @@ public:
 
   bool count(const std::string& key, std::size_t& output) { return reader_.count(key, &output); }
   [[nodiscard]] bool contains(const std::string& key) const { return reader_.contains(key); }
+  [[nodiscard]] int version() const { return reader_.version(); }
 
   template <typename T> bool optional(const std::string& prefix, std::optional<T>& output) {
     bool has = false;
@@ -940,8 +945,15 @@ bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "default_grouped_support_fanout_spacing_m", v.default_grouped_support_fanout_spacing_m) ||
       !ar.field(p, "bend_stiffness", v.bend_stiffness) || !ar.field(p, "min_bend_radius_m", v.min_bend_radius_m) ||
       !ar.field(p, "material_style", v.material_style) || !ar.field(p, "color_rgba", v.color_rgba) ||
-      !ar.field(p, "sag_factor", v.sag_factor) || !ar.field(p, "slack_factor", v.slack_factor) ||
-      !ar.field(p, "continuity_policy", v.continuity_policy) || !ar.field(p, "attachment_style", v.attachment_style) ||
+      !ar.field(p, "sag_factor", v.sag_factor)) return false;
+  if constexpr (Archive::loading) {
+    if (ar.version() <= 3) {
+      double legacy_slack_factor = 0.0;
+      if (!ar.field(p, "slack_factor", legacy_slack_factor)) return false;
+      v.sag_factor += legacy_slack_factor;
+    }
+  }
+  if (!ar.field(p, "continuity_policy", v.continuity_policy) || !ar.field(p, "attachment_style", v.attachment_style) ||
       !ar.field(p, "default_endpoint_attachment_template_id", v.default_endpoint_attachment_template_id)) return false;
   std::size_t count = v.supplemental_paths.size();
   if (!ar.count(child(p, "supplemental_paths.count"), count)) return false;
@@ -953,7 +965,7 @@ bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(CableTemplate) == 152, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(CableTemplate) == 144, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

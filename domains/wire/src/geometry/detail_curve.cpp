@@ -821,8 +821,7 @@ ContinuityDecision DecideContinuity(const CurveConstraint& start_constraint, con
 
 double ComputeSagAmplitudeM(const CurveConstraint& start_constraint, const CurveConstraint& end_constraint, double chord_length,
                             double* out_base_ratio) {
-  const double base_ratio = std::max(0.0, start_constraint.sag_hint + end_constraint.sag_hint + start_constraint.slack_hint +
-                                              end_constraint.slack_hint);
+  const double base_ratio = std::max(0.0, start_constraint.sag_hint + end_constraint.sag_hint);
   if (out_base_ratio != nullptr) {
     *out_base_ratio = base_ratio;
   }

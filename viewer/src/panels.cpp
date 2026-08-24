@@ -600,7 +600,6 @@ void LoadCableTemplateState(const city::wire::CoreView& view, ViewerUiState& ui_
   ui_state.cable_requires_insulator = it->second.requires_insulator;
   ui_state.cable_insulator_attachment_height = it->second.insulator_attachment_height_m;
   ui_state.cable_sag_factor = it->second.sag_factor;
-  ui_state.cable_slack_factor = it->second.slack_factor;
   ui_state.cable_default_grouped_support_fanout_spacing = it->second.default_grouped_support_fanout_spacing_m;
   ui_state.cable_continuity_policy = static_cast<int>(it->second.continuity_policy);
   if (const auto* supplemental = FindCurveOffsetStraightSupplemental(it->second); supplemental != nullptr) {
@@ -725,8 +724,7 @@ void ApplyStartupCableEditorDefaults(ViewerUiState& ui_state) {
   ui_state.cable_material_style = static_cast<int>(city::wire::CableMaterialStyleKind::kBareConductor);
   ui_state.cable_requires_insulator = true;
   ui_state.cable_insulator_attachment_height = 0.145;
-  ui_state.cable_sag_factor = 0.045;
-  ui_state.cable_slack_factor = 0.025;
+  ui_state.cable_sag_factor = 0.070;
   ui_state.cable_default_grouped_support_fanout_spacing = 0.35;
   ui_state.cable_continuity_policy = static_cast<int>(city::wire::CableContinuityPolicyHint::kPreferG1);
   ui_state.cable_curve_offset_straight_supplemental_enabled = true;
@@ -2315,7 +2313,6 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Checkbox("Cable Requires Insulator", &ui_state.cable_requires_insulator);
     ImGui::InputDouble("Cable Insulator Attach Height", &ui_state.cable_insulator_attachment_height, 0.005, 0.01, "%.3f");
     ImGui::InputDouble("Cable Sag Factor", &ui_state.cable_sag_factor, 0.005, 0.01, "%.4f");
-    ImGui::InputDouble("Cable Slack Factor", &ui_state.cable_slack_factor, 0.005, 0.01, "%.4f");
     ImGui::InputDouble("Cable Default Grouped Fanout Spacing", &ui_state.cable_default_grouped_support_fanout_spacing,
                        0.01, 0.05, "%.3f");
     const auto selected_cable_continuity =
@@ -2363,7 +2360,6 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         tpl.requires_insulator = ui_state.cable_requires_insulator;
         tpl.insulator_attachment_height_m = ui_state.cable_insulator_attachment_height;
         tpl.sag_factor = ui_state.cable_sag_factor;
-        tpl.slack_factor = ui_state.cable_slack_factor;
         tpl.default_grouped_support_fanout_spacing_m = ui_state.cable_default_grouped_support_fanout_spacing;
         tpl.continuity_policy =
             static_cast<city::wire::CableContinuityPolicyHint>(ui_state.cable_continuity_policy);

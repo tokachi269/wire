@@ -494,7 +494,6 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
   normalized.bend_stiffness = std::max(0.0, normalized.bend_stiffness);
   normalized.min_bend_radius_m = std::max(0.0, normalized.min_bend_radius_m);
   normalized.sag_factor = std::max(0.0, normalized.sag_factor);
-  normalized.slack_factor = std::max(0.0, normalized.slack_factor);
   for (auto& path : normalized.supplemental_paths) {
     path.endpoint_trim_m = std::max(0.0, path.endpoint_trim_m);
   }
@@ -516,7 +515,7 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
       std::abs(normalized.bend_stiffness - it->second.bend_stiffness) > kStrictLengthToleranceM ||
       std::abs(normalized.min_bend_radius_m - it->second.min_bend_radius_m) > kStrictLengthToleranceM ||
       std::abs(normalized.sag_factor - it->second.sag_factor) > kStrictLengthToleranceM ||
-      std::abs(normalized.slack_factor - it->second.slack_factor) > kStrictLengthToleranceM || supplemental_paths_changed;
+      supplemental_paths_changed;
   const bool render_change =
       normalized.material_style != it->second.material_style || normalized.color_rgba != it->second.color_rgba ||
       normalized.attachment_style != it->second.attachment_style;

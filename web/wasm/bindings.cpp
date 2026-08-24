@@ -1143,7 +1143,6 @@ public:
     output.set("materialStyle", static_cast<int>(cable_template.material_style));
     output.set("colorRgba", cable_template.color_rgba);
     output.set("sagFactor", cable_template.sag_factor);
-    output.set("slackFactor", cable_template.slack_factor);
     output.set("continuityPolicy", static_cast<int>(cable_template.continuity_policy));
     const auto supplemental = std::ranges::find_if(
         cable_template.supplemental_paths, [](const city::wire::CableSupplementalPathTemplate& path) {
@@ -1176,7 +1175,10 @@ public:
         static_cast<city::wire::CableMaterialStyleKind>(property<int>(input, "materialStyle"));
     cable_template.color_rgba = property<std::uint32_t>(input, "colorRgba");
     cable_template.sag_factor = property<double>(input, "sagFactor");
-    cable_template.slack_factor = property<double>(input, "slackFactor");
+    const val legacy_slack_factor = input["slackFactor"];
+    if (!legacy_slack_factor.isUndefined() && !legacy_slack_factor.isNull()) {
+      cable_template.sag_factor += legacy_slack_factor.as<double>();
+    }
     cable_template.continuity_policy =
         static_cast<city::wire::CableContinuityPolicyHint>(property<int>(input, "continuityPolicy"));
 

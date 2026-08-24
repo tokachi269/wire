@@ -85,8 +85,7 @@ struct ViewerUiState {
   int cable_material_style = static_cast<int>(city::wire::CableMaterialStyleKind::kBareConductor);
   bool cable_requires_insulator = true;
   double cable_insulator_attachment_height = 0.145;
-  double cable_sag_factor = 0.045;
-  double cable_slack_factor = 0.025;
+  double cable_sag_factor = 0.070;
   double cable_default_grouped_support_fanout_spacing = 0.35;
   int cable_continuity_policy = static_cast<int>(city::wire::CableContinuityPolicyHint::kPreferG1);
   bool cable_curve_offset_straight_supplemental_enabled = true;

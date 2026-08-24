@@ -78,7 +78,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Outer Diameter / Bend Stiffness / Min Bend Radius | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | `preferred_visible_span_ids` を必ず渡す | P1 |
 | Cable Material | `UpdateCableTemplate` | select | `kRedraw` | 約30 Hz | そのまま | render/visual のみ | P1 |
 | Requires Insulator / Insulator Attach Height | `UpdateCableTemplate` | toggle / number | `kRedraw` | commit | そのまま | endpoint detail curveが設定を消費する | P1 |
-| Sag Factor / Slack Factor | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | geom/draw の再導出 | P1 |
+| Sag Factor | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | geom/draw の再導出 | P1 |
 | Cable Continuity | `UpdateCableTemplate` | select | `kRegenerate` | release commit | そのまま | decision 差分。現行保留条件を表示する | P1 |
 | CurveOffset Straight Supplemental | `UpdateCableTemplate` | toggle | `kReshape` | 約30 Hz | そのまま | explicit supplemental visual setting | P1 |
 | Supplemental Lateral / Vertical Offset | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | JS で offset geometry を作らない | P1 |

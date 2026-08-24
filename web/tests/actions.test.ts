@@ -505,7 +505,6 @@ const cableTemplate: CableTemplateInfo = {
   materialStyle: 2,
   colorRgba: 0xffffffff,
   sagFactor: 0.03,
-  slackFactor: 0,
   continuityPolicy: 0,
   supplementalEnabled: false,
   supplementalLateralOffset: 0,

@@ -3916,8 +3916,7 @@ bool C855_backbone_non_auto_main_span_sag_is_parabolic_once() {
       state.view().cable_templates().find(bundle_template->second.cable_template_id);
   WIRE_TEST_EXPECT_PRESENCE(cable_template != state.view().cable_templates().end(),
                             "default HV CableTemplate is missing");
-  const double expected_span_sag_ratio =
-      cable_template->second.sag_factor + cable_template->second.slack_factor;
+  const double expected_span_sag_ratio = cable_template->second.sag_factor;
 
   for (city::wire::ObjectId span_id : generated.value.generated_span_ids) {
     const city::wire::CurveCacheEntry* curve = state.find_curve_cache(span_id);

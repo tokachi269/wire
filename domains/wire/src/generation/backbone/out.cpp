@@ -61,7 +61,7 @@ curve_input_data make_curve_input_data(const CoreState& state, ObjectId span_id,
       if (bundle_template != state.view().bundle_templates().end()) {
         const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
         if (cable != state.view().cable_templates().end()) {
-          sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
+          sag_ratio = cable->second.sag_factor;
           radius_m = std::max(0.0, cable->second.outer_diameter_m * 0.5);
           data.continuity_policy = cable->second.continuity_policy;
           data.bend_stiffness_hint = cable->second.bend_stiffness;
@@ -183,7 +183,7 @@ EditResult<DetailCurve> make_primary_curve_between_impl(const CoreState& state, 
         if (bundle_template != state.view().bundle_templates().end()) {
           const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
           if (cable != state.view().cable_templates().end()) {
-            sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
+            sag_ratio = cable->second.sag_factor;
           }
         }
       }

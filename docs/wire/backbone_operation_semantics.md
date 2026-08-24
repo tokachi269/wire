@@ -157,7 +157,7 @@ jumperはcontinuityを表すだけで、placement levelを共有させない。
 
 共有Portを含む既存`wire_state_v2`はload時にedge endpoint別Portへ移行する。
 `wire_state_v1`/`wire_state_v2`のpermutable continuityは、load時に保存済みPort列の
-`first -> last`方向からsame/reverseの1bitを再導出して`wire_state_v3`のlane対応へ移行する。
+`first -> last`方向からsame/reverseの1bitを再導出して`wire_state_v3`以降のlane対応へ移行する。
 片側endpointへ決定的に新しいObjectIdを割り当て、そのedge bundleのPort bindingと
 Span endpoint参照を同じIDへ書き換える。pair row keyは、各bindingが所有する
 edge bundleのedge IDを使う`(node_id, edge_id)`へ分割する。高さ、edge IDの大小、

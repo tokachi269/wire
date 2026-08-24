@@ -186,7 +186,6 @@ struct CableTemplate {
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
   std::uint32_t color_rgba = 0xFFFFFFFFu;
   double sag_factor = 0.03;
-  double slack_factor = 0.0;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
   CableAttachmentStyleHint attachment_style = CableAttachmentStyleHint::kAuto;
   AttachmentTemplateId default_endpoint_attachment_template_id = kInvalidAttachmentTemplateId;

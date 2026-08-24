@@ -347,6 +347,8 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
             "GenerateFromBackboneSpec(spec)",
             'result.set("failureCategory"',
             'result.set("reasonCode"',
+            "wireBuildSourceHash",
+            "wireBuildVersion",
         ),
         "docs/editor/commit_failure_categories.md": (
             "RequirementConstraint",
@@ -376,10 +378,6 @@ def check_draw_interaction_contract(root: Path) -> list[str]:
         "web/src/main.ts": (
             "buildIdentitiesMatch",
             "buildMismatch",
-        ),
-        "web/wasm/bindings.cpp": (
-            "wireBuildSourceHash",
-            "wireBuildVersion",
         ),
     }
     for source, tokens in required.items():

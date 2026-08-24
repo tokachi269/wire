@@ -47,16 +47,17 @@ class RepositoryArchitectureChecksTest(unittest.TestCase):
             any("malformed operation-state row" in error for error in errors)
         )
 
-    def test_authority_unique_owner_violation_fails(self) -> None:
-        guards = [
-            {
-                "name": "decision_owner",
-                "owner": "domains/wire/src/owner.cpp",
-                "required": set(),
-                "unique": {"decision_token"},
-                "forbidden": set(),
-            }
-        ]
+    def test_authority_unique_owner_markdown_reaches_checker(self) -> None:
+        ledger = "\n".join(
+            (
+                "## Backbone Authority Guard Coverage",
+                "| Guard | Owner | Required | Unique | Forbidden |",
+                "|---|---|---|---|---|",
+                "| decision_owner | `domains/wire/src/owner.cpp` | - | `decision_token` | - |",
+            )
+        )
+        guards, parse_errors = arch_lint.parse_backbone_authority_guards(ledger)
+        self.assertEqual([], parse_errors)
         production_text = {
             "domains/wire/src/owner.cpp": "decision_token",
             "domains/wire/src/duplicate.cpp": "decision_token",
@@ -69,6 +70,32 @@ class RepositoryArchitectureChecksTest(unittest.TestCase):
                 for error in errors
             )
         )
+
+    def test_bindings_required_tokens_are_each_connected(self) -> None:
+        required_tokens = (
+            "preview_placements",
+            "CoreState trial = *state_",
+            "GenerateFromBackboneSpec(spec)",
+            'result.set("failureCategory"',
+            'result.set("reasonCode"',
+            "wireBuildSourceHash",
+            "wireBuildVersion",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for missing in required_tokens:
+                with self.subTest(missing=missing):
+                    self.write(
+                        root,
+                        "web/wasm/bindings.cpp",
+                        "\n".join(token for token in required_tokens if token != missing),
+                    )
+                    errors = arch_lint.check_draw_interaction_contract(root)
+                    self.assertIn(
+                        "web/wasm/bindings.cpp: shared draw interaction contract "
+                        f"is missing {missing!r}",
+                        errors,
+                    )
 
     def test_required_draw_contract_missing_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

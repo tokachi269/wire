@@ -313,6 +313,38 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).rightPanelMode).toBe("road");
   });
 
+  it("lists roads in the Outliner and inspects a selected road segment", async () => {
+    const mounted = await mountViewer(false);
+    mounted.actions.setActiveTool("road");
+    mounted.actions.addViewportPoint([0, 0, 0]);
+    mounted.actions.addViewportPoint([24, 0, 0]);
+    await tick();
+
+    const snapshot = current(mounted.store);
+    const corridor = snapshot.road.scene.corridors[0];
+    const segmentId = corridor.segments[0].segmentId;
+    expect(document.querySelector(".outliner.sidebar-card")).toBeInstanceOf(HTMLElement);
+    expect(document.querySelector(".selection-inspector.sidebar-card")).toBeInstanceOf(HTMLElement);
+    expect(document.querySelector(".outliner")?.textContent).toContain(`Road ${corridor.id}`);
+    const segmentButton = document.querySelector<HTMLButtonElement>(
+      `[aria-label="Select road segment ${segmentId}"]`
+    );
+    expect(segmentButton).toBeInstanceOf(HTMLButtonElement);
+
+    const roadTab = [...document.querySelectorAll(".domain-tabs button")]
+      .find((button) => button.textContent?.trim() === "Road") as HTMLButtonElement;
+    roadTab.click();
+    segmentButton!.click();
+    await tick();
+
+    expect(current(mounted.store).selection).toEqual({
+      kind: "roadSegment",
+      id: String(segmentId)
+    });
+    expect(document.querySelector(".selection-inspector")?.textContent)
+      .toContain(`Road segment ${segmentId}`);
+  });
+
   it("shows one categorized commit failure without turning pointer movement into an error", async () => {
     const mounted = await mountViewer(false);
     mounted.actions.setActiveTool("road");

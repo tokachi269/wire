@@ -30,9 +30,14 @@
     matches(`Pole ${poleId}`) ||
     portsForPole(poleId).some((port) => matches(`Port ${port.id}`)) ||
     spansForPole(poleId).some((span) => matches(`Span ${span.id}`));
+  const roadMatches = (roadId: number) => {
+    const road = snapshot.road.scene.corridors.find((corridor) => corridor.id === roadId);
+    return matches(`Road ${roadId}`) ||
+      road?.segments.some((segment) => matches(`Segment ${segment.segmentId}`)) === true;
+  };
 </script>
 
-<section class="outliner">
+<section class="outliner sidebar-card">
   <div class="outliner-title">
     <h2>Outliner</h2>
     <button class="secondary" type="button" onclick={() => actions.clearSelection()}>
@@ -41,7 +46,7 @@
   </div>
   <label>
     Filter
-    <input bind:value={filter} placeholder="pole / port / span id" />
+    <input bind:value={filter} placeholder="pole / port / span / road id" />
   </label>
   <div class="entity-lists">
     <details open>
@@ -92,6 +97,34 @@
         {#if matches(`Node ${node.id}`)}
           <button class:active={selected("supportNode", node.id)}
             onclick={() => actions.select("supportNode", node.id)}>Node {node.id}</button>
+        {/if}
+      {/each}
+    </details>
+    <details open>
+      <summary>Roads ({snapshot.road.scene.corridors.length})</summary>
+      {#each snapshot.road.scene.corridors as road}
+        {#if roadMatches(road.id)}
+          <div class="entity-node">
+            <button
+              type="button"
+              class:active={selected("road", String(road.id))}
+              aria-label={`Select road ${road.id}`}
+              onclick={() => actions.select("road", String(road.id))}
+            >Road {road.id}</button>
+            <details open>
+              <summary>Segments ({road.segments.length})</summary>
+              {#each road.segments as segment}
+                {#if matches(`Segment ${segment.segmentId}`) || filter.trim() === ""}
+                  <button
+                    type="button"
+                    class:active={selected("roadSegment", String(segment.segmentId))}
+                    aria-label={`Select road segment ${segment.segmentId}`}
+                    onclick={() => actions.select("roadSegment", String(segment.segmentId))}
+                  >Segment {segment.segmentId}</button>
+                {/if}
+              {/each}
+            </details>
+          </div>
         {/if}
       {/each}
     </details>

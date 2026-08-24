@@ -494,11 +494,13 @@
             </label>
             <p class="hint">LMB: commit interval / Enter: commit and finish / Esc: cancel preview</p>
           </div>
-          <SelectionInspector {actions} {snapshot} />
-          <Settings {actions} {snapshot} />
-          <Templates {actions} {snapshot} />
         {:else}
           <RoadPanel {actions} {snapshot} />
+        {/if}
+        <SelectionInspector {actions} {snapshot} />
+        {#if snapshot.rightPanelMode === "wire"}
+          <Settings {actions} {snapshot} />
+          <Templates {actions} {snapshot} />
         {/if}
       </div>
     {/if}

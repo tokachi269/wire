@@ -21,7 +21,13 @@ import { CommitFailureCategory, type CommitFailure, type OperationResult } from 
 import { createRoadToolState, type RoadToolState } from "../road";
 
 export type WorldPoint = [number, number, number];
-export type SelectionKind = "pole" | "port" | "span" | "supportNode";
+export type SelectionKind =
+  | "pole"
+  | "port"
+  | "span"
+  | "supportNode"
+  | "road"
+  | "roadSegment";
 export type RightPanelMode = "wire" | "road";
 export type ActiveTool = "wire" | "road";
 export type DrawActionResult =

@@ -730,9 +730,6 @@ aside .metric:focus {
 }
 
 .outliner {
-  border: 0;
-  background: var(--panel);
-  padding: 0.6rem;
   max-height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
@@ -742,13 +739,6 @@ aside .metric:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.outliner h2,
-.outliner h3 {
-  margin: 0 0 0.5rem;
-  font: 600 var(--sidebar-title-size) "JetBrains Mono", monospace;
-  color: var(--accent);
 }
 
 .entity-lists {
@@ -782,7 +772,7 @@ aside .metric:focus {
   padding-top: 0.3rem;
 }
 
-.selection-inspector {
+.sidebar-card {
   display: grid;
   min-width: 0;
   gap: 0.55rem;
@@ -792,12 +782,17 @@ aside .metric:focus {
   font-size: var(--sidebar-control-size);
 }
 
-.selection-inspector h2 {
+.sidebar-card h2 {
   margin: 0 0 0.15rem;
   font: 600 var(--sidebar-title-size) "JetBrains Mono", monospace;
   color: var(--accent);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.outliner-title button {
+  width: auto;
+  margin: 0 0 0.15rem;
 }
 
 .template-grid section {

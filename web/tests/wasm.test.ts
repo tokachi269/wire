@@ -472,6 +472,53 @@ describe("wire wasm smoke", () => {
     loaded.delete();
   });
 
+  it("keeps non-Auto final viewer samples on the requested parabola", () => {
+    const runState = createState();
+    const bundleTemplate = Array.from({ length: runState.bundleTemplateCount() }, (_, index) =>
+      runState.bundleTemplate(index)
+    ).find((template) => template.id === 102);
+    expect(bundleTemplate).toBeDefined();
+    const cableTemplate = Array.from({ length: runState.cableTemplateCount() }, (_, index) =>
+      runState.cableTemplate(index)
+    ).find((template) => template.id === bundleTemplate!.cableTemplateId);
+    expect(cableTemplate).toBeDefined();
+    const updated = runState.updateCableTemplate({
+      ...cableTemplate!,
+      sagFactor: 0.025,
+      slackFactor: 0,
+      continuityPolicy: 1,
+      supplementalEnabled: false
+    }, []);
+    expect(updated.ok, updated.error).toBe(true);
+
+    const generated = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 20, 0, 0]),
+      [{ id: 1, bundleTemplateId: 102, count: 1, explicit: true,
+         height: 7.7, offset: 0, spacing: 0.2 }],
+      0, 1, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const bodies = visualParts(runState).filter((part) =>
+      part.info.kind === 0 && part.info.bundleTemplateId === 102
+    );
+    expect(bodies).toHaveLength(1);
+    const body = bodies[0];
+    const pointCount = body.samples.length / 3;
+    expect(pointCount).toBeGreaterThan(2);
+    const start = startPoint(body);
+    const end = endPoint(body);
+    expect(end[0] - start[0]).toBe(20);
+    expect(end[2]).toBe(start[2]);
+    for (let index = 0; index < pointCount; index += 1) {
+      const u = index / (pointCount - 1);
+      const chordZ = start[2] + (end[2] - start[2]) * u;
+      const expectedZ = chordZ - 0.5 * 4 * u * (1 - u);
+      expect(Math.abs(body.samples[index * 3 + 2] - expectedZ),
+        `viewer sample ${index} at u=${u}`).toBeLessThanOrEqual(1e-12);
+    }
+    runState.delete();
+  });
+
   it("returns machine-readable edit error kinds from wasm operations", () => {
     const runState = createState();
     const validation = runState.generatePlacements(

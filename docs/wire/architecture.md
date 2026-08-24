@@ -342,6 +342,8 @@ main spanの既定方式はparabolic sagとし、支持点でsag勾配を持つ�
 continuity policyは端点接線とhandleを決めるが、main spanのsag profileを別方式へ切り替えない。
 `CableTemplate.sag_factor + slack_factor`はspan全体に1回適用するratioであり、start/endごとの加算値ではない。
 Endpoint constraintを経由するcurve方式でも、両端へ同じratioを重複適用してはならない。
+このratioが指定する物理sag量は`endpoint chord length * ratio`であり、span長、pass種別、continuity、
+曲げ剛性を理由に別倍率で再解釈しない。これらは端点接線やhandleを決めても、sag量を変更しない。
 bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。
 G2接続は現時点の必須条件ではない。support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、
 未対応familyは別方式へsilent fallbackせず明示的に拒否する。

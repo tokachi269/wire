@@ -128,7 +128,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C277 | Behavior | Symptom | 高低差の大きい smooth span は composite curve へ切り替える | `legacy_unclassified` | 高低差 span が単一 cubic へ戻り、support 近傍で不自然に直線化・急変する回帰防止 |
 | C161 | Behavior | Symptom | 長い branch span は横回り込みを抑える | `legacy_unclassified` | branch support の横向きが span 全体を左右へ引っ張る回帰防止 |
 | C162 | Behavior | Symptom | branch の局所 departure は短スパンほど強い | `legacy_unclassified` | branch の横成分抑制が span 長に応じて変わらない回帰防止 |
-| C163 | Behavior | Symptom | main の sag は branch より強く読める | `legacy_unclassified` | branch まで main と同じ sag 読みになって垂れすぎる回帰防止 |
+| C163 | Behavior | Invariant | pass種別は端点処理を変えても指定された物理sag量を再加重しない | `oracle` | branch/mainの見た目差を理由にsag量へ隠れ倍率を掛ける回帰防止 |
 | C287 | Behavior | Symptom | CommunicationPole はCore所有の日本配電profileを保つ | `legacy_unclassified` | Web起動時mutation撤去後にCore既定profileが古い値へ戻る回帰防止 |
 | C289 | Behavior | Symptom | pole type 高さ更新は既存 pole 本体高さと owned auto ports へ再適用される | `legacy_unclassified` | pole type 編集後も既存 pole の本体高さや port 高さが stale のまま残る回帰防止 |
 | C296 | Behavior | Authority | default pole template の HV category は単一高さを使う | `legacy_unclassified` | HV band ごとに高さが微妙にずれていて category UI の初期値だけ高く見える回帰防止 |
@@ -596,7 +596,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C852 | Behavior | Invariant | row角度差が1e-6 degreeより大きく1e-6 radianより小さい場合も、support levelは実角度順で決まりpath入力方向に依存しない | `metamorphic` `oracle` | atan2のradian値をdegree toleranceと比較し、ID順tieへ約57.3倍広げる回帰を防ぐ |
 | C853 | Behavior | Invariant | Portはband/explicit placementの論理anchorを保持し、support level/groupから一度resolveしたbranch downだけが物理endpointへ適用され、save/loadとscoped placement regenerateでも同じ意味結果を保つ | `differential` `oracle` `anchor` | row offset、stable slot、support level loweringが独立にPort/endpoint Zを決めて相互補償する回帰を防ぐ |
 | C854 | SourceGuard | Boundary | productionのrow height経路にrow-height offset、stable slot、bundle update時の保存offsetを残さず、row ordering角度はatan2直後にdegreeへ正規化する | `source_guard` | 別経路のno-op faultを他経路が補償する構造とradian/degree混在が再導入される回帰を防ぐ |
-| C855 | Behavior | Invariant | 非Autoのmain spanもsag_factorとslack_factorをspan全体へ1回適用し、独立式`4u(1-u)`のparabolic profileを使う | `oracle` `presence` | continuity policyによってcosh profileへ分岐し、既定の多くのcableがお椀型になる回帰とsag ratio二重加算を防ぐ |
+| C855 | Behavior | Invariant | 非Autoのmain spanもsag_factorとslack_factorをspan全体へ1回適用し、`chord length * ratio`の物理sag量と独立式`4u(1-u)`のparabolic profileを使う | `oracle` `presence` | continuity policyによるprofile分岐、sag ratio二重加算、長さ・pass・剛性による隠れ倍率を防ぐ |
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各観測点でrow frame coherenceを検査して実行する | `oracle` `presence` `anchor` | case名と手書き表だけで未構築stateをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |
 
 ## 廃止済み旧pipeline検査

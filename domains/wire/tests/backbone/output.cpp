@@ -3927,13 +3927,22 @@ bool C855_backbone_non_auto_main_span_sag_is_parabolic_once() {
         almost_equal(curve->detail.quality.sag_base_ratio,
                      expected_span_sag_ratio, 1e-12),
         "span sag ratio was counted once for each endpoint instead of once for the span");
+    const double chord_length = city::wire::Length(
+        curve->detail.EvaluatePosition(1.0) -
+        curve->detail.EvaluatePosition(0.0));
+    const double expected_sag_amplitude =
+        chord_length * expected_span_sag_ratio;
+    WIRE_TEST_EXPECT_ORACLE(
+        almost_equal(curve->detail.sag_amplitude_m,
+                     expected_sag_amplitude, 1e-12),
+        "non-Auto main span reinterpreted the requested physical sag amplitude");
     constexpr double kQuarter = 0.25;
     const double expected_quarter_height =
         city::wire::HeightAlongWorldUp(curve->detail.EvaluatePosition(0.0)) +
         (city::wire::HeightAlongWorldUp(curve->detail.EvaluatePosition(1.0)) -
          city::wire::HeightAlongWorldUp(curve->detail.EvaluatePosition(0.0))) *
             kQuarter -
-        curve->detail.sag_amplitude_m * 4.0 * kQuarter * (1.0 - kQuarter);
+        expected_sag_amplitude * 4.0 * kQuarter * (1.0 - kQuarter);
     WIRE_TEST_EXPECT_ORACLE(
         almost_equal(city::wire::HeightAlongWorldUp(
                          curve->detail.EvaluatePosition(kQuarter)),

@@ -47,6 +47,21 @@ class RepositoryArchitectureChecksTest(unittest.TestCase):
             any("malformed operation-state row" in error for error in errors)
         )
 
+    def test_backbone_semantics_parser_follows_declared_state_order(self) -> None:
+        from backbone_semantics import parse_backbone_semantics_cells
+
+        semantics = """
+## 操作×状態
+| Operation | `SM` | `S1` |
+|---|---|---|
+| `add_one_edge` | `O` | `C` |
+"""
+        required, errors = parse_backbone_semantics_cells(semantics)
+        self.assertEqual([], errors)
+        self.assertEqual(
+            {"BOS:add_one_edge:SM", "BOS:add_one_edge:S1"}, required
+        )
+
     def test_authority_unique_owner_markdown_reaches_checker(self) -> None:
         ledger = "\n".join(
             (

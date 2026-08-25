@@ -15,8 +15,8 @@
 #include <tuple>
 #include <vector>
 
-#ifndef WIRE_TEST_BACKBONE_SEMANTICS_PATH
-#define WIRE_TEST_BACKBONE_SEMANTICS_PATH "docs/wire/backbone_operation_semantics.md"
+#ifndef WIRE_TEST_BACKBONE_SEMANTICS_CELLS_PATH
+#define WIRE_TEST_BACKBONE_SEMANTICS_CELLS_PATH "backbone_semantics_required_cells.txt"
 #endif
 
 namespace backbone_tests::semantics_coverage {
@@ -84,56 +84,24 @@ std::string cell_id(Operation operation, State state) {
   return std::string("BOS:") + operation_name(operation) + ":" + state_name(state);
 }
 
-std::vector<std::string> markdown_cells(const std::string& line) {
-  std::vector<std::string> cells;
-  std::size_t begin = 0;
-  while (begin < line.size()) {
-    const std::size_t separator = line.find('|', begin);
-    const std::size_t end = separator == std::string::npos ? line.size() : separator;
-    std::string cell = line.substr(begin, end - begin);
-    const std::size_t first = cell.find_first_not_of(" \t`\r\n");
-    const std::size_t last = cell.find_last_not_of(" \t`\r\n");
-    if (first != std::string::npos) cells.push_back(cell.substr(first, last - first + 1));
-    if (separator == std::string::npos) break;
-    begin = separator + 1;
-  }
-  return cells;
-}
-
-std::set<std::string> required_cells(std::string* error) {
-  std::ifstream input(WIRE_TEST_BACKBONE_SEMANTICS_PATH);
+std::set<std::string> load_required_cells(std::string* error) {
+  std::ifstream input(WIRE_TEST_BACKBONE_SEMANTICS_CELLS_PATH);
   if (!input.is_open()) {
-    if (error != nullptr) *error = std::string("unable to open ") + WIRE_TEST_BACKBONE_SEMANTICS_PATH;
+    if (error != nullptr) {
+      *error = std::string("unable to open ") + WIRE_TEST_BACKBONE_SEMANTICS_CELLS_PATH;
+    }
     return {};
   }
-  bool in_matrix = false;
   std::set<std::string> required;
-  const std::vector<std::string> states{"S0", "S1", "S2", "S3", "S4", "S5", "SM"};
   std::string line;
   while (std::getline(input, line)) {
-    if (line.find("`S0`") != std::string::npos && line.find("`SM`") != std::string::npos) {
-      in_matrix = true;
-      continue;
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.empty()) continue;
+    if (!line.starts_with("BOS:")) {
+      if (error != nullptr) *error = "generated operation semantics cell list is malformed";
+      return {};
     }
-    if (in_matrix && line.rfind("## ", 0) == 0) break;
-    if (!in_matrix || line.empty() || line.rfind("|---", 0) == 0) continue;
-    const std::vector<std::string> cells = markdown_cells(line);
-    if (cells.size() != 8) continue;
-    const std::size_t operation_end = cells[0].find(' ');
-    std::string operation = cells[0].substr(0, operation_end);
-    operation.erase(std::remove(operation.begin(), operation.end(), char(96)), operation.end());
-    for (std::size_t i = 1; i < cells.size(); ++i) {
-      const std::string& value = cells[i];
-      const auto has_code = [&](char code) {
-        return value == std::string(1, code) ||
-               value.find(std::string("`") + code + "`") != std::string::npos;
-      };
-      const bool covered = has_code('C') || has_code('O') || has_code('K') || has_code('U');
-      if (covered && value.find("D2") == std::string::npos &&
-          value.find("D3") == std::string::npos) {
-        required.insert("BOS:" + operation + ":" + states[i - 1]);
-      }
-    }
+    required.insert(line);
   }
   if (required.empty() && error != nullptr) *error = "operation semantics matrix has no required cells";
   return required;
@@ -374,7 +342,7 @@ bool ValidateRecordedObservationEvidence(std::string* error) {
 
 bool ValidateRuntimeCoverage(std::string* error) {
   std::string parse_error;
-  const std::set<std::string> required = required_cells(&parse_error);
+  const std::set<std::string> required = load_required_cells(&parse_error);
   if (!parse_error.empty()) {
     if (error != nullptr) *error = parse_error;
     return false;

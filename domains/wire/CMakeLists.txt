@@ -66,6 +66,27 @@ if(BUILD_TESTING)
 
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+  set(
+    WIRE_BACKBONE_SEMANTICS_CELLS
+    "${CMAKE_CURRENT_BINARY_DIR}/backbone_semantics_required_cells.txt"
+  )
+  add_custom_command(
+    OUTPUT ${WIRE_BACKBONE_SEMANTICS_CELLS}
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_SOURCE_DIR}/tools/backbone_semantics.py
+      --input ${CMAKE_SOURCE_DIR}/docs/wire/backbone_operation_semantics.md
+      --output ${WIRE_BACKBONE_SEMANTICS_CELLS}
+    DEPENDS
+      ${CMAKE_SOURCE_DIR}/tools/backbone_semantics.py
+      ${CMAKE_SOURCE_DIR}/docs/wire/backbone_operation_semantics.md
+    VERBATIM
+  )
+  add_custom_target(
+    wire_backbone_semantics_cells
+    DEPENDS ${WIRE_BACKBONE_SEMANTICS_CELLS}
+  )
+
   add_custom_target(
     wire_arch_lint
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/harness/test_architecture_lint.py
@@ -125,7 +146,12 @@ if(BUILD_TESTING)
     wire_core
   )
 
-  add_dependencies(wire_core_tests wire_arch_lint wire_test_family_lint)
+  add_dependencies(
+    wire_core_tests
+    wire_arch_lint
+    wire_backbone_semantics_cells
+    wire_test_family_lint
+  )
 
   wire_enable_msvc_target_defaults(wire_core_tests)
 
@@ -142,7 +168,7 @@ if(BUILD_TESTING)
     PRIVATE
     WIRE_INTERNAL=1
     WIRE_TEST_SPEC_LEDGER_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tests/spec_ledger.md"
-    WIRE_TEST_BACKBONE_SEMANTICS_PATH="${CMAKE_SOURCE_DIR}/docs/wire/backbone_operation_semantics.md"
+    WIRE_TEST_BACKBONE_SEMANTICS_CELLS_PATH="${WIRE_BACKBONE_SEMANTICS_CELLS}"
   )
 
   wire_enable_builtin_vcpkg_applocal(wire_core_tests)

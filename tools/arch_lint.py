@@ -7,6 +7,12 @@ import re
 import sys
 from pathlib import Path
 
+from backbone_semantics import (
+    is_separator_row,
+    markdown_cells,
+    parse_backbone_semantics_cells,
+    table_after_heading,
+)
 from harness.architecture_lint import ArchitectureLintResult, lint_architecture
 from road_arch_lint import check_road_architecture
 
@@ -21,72 +27,6 @@ def word_present(text: str, symbol: str) -> bool:
     if symbol.isidentifier():
         return re.search(rf"\b{re.escape(symbol)}\b", text) is not None
     return symbol in text
-
-
-def markdown_cells(line: str) -> list[str]:
-    stripped = line.strip()
-    if not stripped.startswith("|") or not stripped.endswith("|"):
-        return []
-    return [cell.strip() for cell in stripped.strip("|").split("|")]
-
-
-def is_separator_row(cells: list[str]) -> bool:
-    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells)
-
-
-def table_after_heading(text: str, heading: str) -> list[str]:
-    lines = text.splitlines()
-    try:
-        start = next(index for index, line in enumerate(lines) if line.strip() == heading)
-    except StopIteration:
-        return []
-    table: list[str] = []
-    in_table = False
-    for line in lines[start + 1:]:
-        if line.startswith("## ") and in_table:
-            break
-        cells = markdown_cells(line)
-        if cells:
-            table.append(line)
-            in_table = True
-            continue
-        if in_table and line.strip() == "":
-            break
-    return table
-
-
-def parse_backbone_semantics_cells(text: str) -> tuple[set[str], list[str]]:
-    errors: list[str] = []
-    table = table_after_heading(text, "## 操作×状態")
-    if len(table) < 2:
-        return set(), ["docs/wire/backbone_operation_semantics.md: missing operation-state table"]
-    header = markdown_cells(table[0])
-    states = [match.group(1) for cell in header[1:] if (match := re.fullmatch(r"`([^`]+)`", cell))]
-    if len(states) != len(header) - 1:
-        errors.append("docs/wire/backbone_operation_semantics.md: operation-state table state headers must be backtick ids")
-    required: set[str] = set()
-    for line in table[1:]:
-        cells = markdown_cells(line)
-        if not cells or is_separator_row(cells):
-            continue
-        if len(cells) != len(header):
-            errors.append(f"docs/wire/backbone_operation_semantics.md: malformed operation-state row: {line.strip()}")
-            continue
-        op_match = re.search(r"`([^`]+)`", cells[0])
-        if op_match is None:
-            errors.append(f"docs/wire/backbone_operation_semantics.md: operation row lacks backtick id: {cells[0]}")
-            continue
-        operation = op_match.group(1)
-        for state, value in zip(states, cells[1:]):
-            code_values = set(re.findall(r"`([^`]+)`", value))
-            bare = re.sub(r"`[^`]+`", "", value).strip()
-            if "-" in code_values or bare == "-":
-                continue
-            if any(re.fullmatch(r"D\d+", item) for item in code_values):
-                continue
-            if code_values.intersection({"C", "O", "K", "U"}):
-                required.add(f"BOS:{operation}:{state}")
-    return required, errors
 
 
 def parse_aspect_list(value: str) -> set[str]:
@@ -190,7 +130,7 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
     required_runtime_tokens = {
         "domains/wire/tests/backbone/semantics_coverage.cpp": (
             "ValidateRuntimeCoverage",
-            "required_cells",
+            "load_required_cells",
             "classify",
             "ObserveMidspan",
             "RecordObservationEvidence",
@@ -211,7 +151,9 @@ def check_backbone_semantics_coverage(root: Path) -> list[str]:
             "ValidateRuntimeCoverage",
         ),
         "domains/wire/CMakeLists.txt": (
-            "WIRE_TEST_BACKBONE_SEMANTICS_PATH",
+            "tools/backbone_semantics.py",
+            "wire_backbone_semantics_cells",
+            "WIRE_TEST_BACKBONE_SEMANTICS_CELLS_PATH",
             "tests/backbone/semantics_coverage.cpp",
             "tests/backbone/semantics_matrix.cpp",
         ),

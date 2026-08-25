@@ -722,40 +722,6 @@ bool sampled_xy_turn_is_monotonic(const city::wire::VisualCurvePart& patch) {
   return true;
 }
 
-bool touches_patch_boundary(const city::wire::VisualCurvePart& body, const city::wire::VisualCurvePart& patch) {
-  return almost_equal(body.boundary_a, patch.boundary_a, 1e-9) ||
-         almost_equal(body.boundary_b, patch.boundary_a, 1e-9) ||
-         almost_equal(body.boundary_a, patch.boundary_b, 1e-9) ||
-         almost_equal(body.boundary_b, patch.boundary_b, 1e-9);
-}
-
-bool same_visual_cable_section_family(const city::wire::CableSectionKey& a, const city::wire::CableSectionKey& b) {
-  return a.is_base() == b.is_base() && a.rule_owner_id == b.rule_owner_id &&
-         a.rule_id == b.rule_id && a.instance_index == b.instance_index;
-}
-
-city::wire::CablePopulationRule two_extra_lv_population_rule() {
-  city::wire::CablePopulationRule rule{};
-  rule.rule_id = 11;
-  rule.explicit_seed = 1234;
-  rule.priority = 10;
-  rule.min_extra_count = 2;
-  rule.max_extra_count = 2;
-  rule.min_spacing_m = 0.01;
-  rule.lateral_min_m = -2.0;
-  rule.lateral_max_m = 2.0;
-  rule.height_min_m = 0.0;
-  rule.height_max_m = 20.0;
-  rule.randomness = 0.6;
-  return rule;
-}
-
-bool enable_two_extra_lv_population(city::wire::CoreState& state) {
-  city::wire::BundleTemplate lv_template = state.view().bundle_templates().at(city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kLowVoltage));
-  lv_template.population_rules.push_back(two_extra_lv_population_rule());
-  return state.UpdateBundleTemplate(lv_template).ok;
-}
-
 bool prepare_two_lane_low_voltage_for_run_test(city::wire::CoreState& state) {
   city::wire::BundleTemplate lv_template = state.view().bundle_templates().at(city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kLowVoltage));
   lv_template.count_rule = city::wire::BundleCountRuleKind::kFixed;
@@ -769,18 +735,6 @@ std::vector<const city::wire::VisualCurvePart*> base_edge_bodies(const city::wir
   for (const city::wire::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
     if (part.kind == city::wire::VisualCurvePartKind::kEdgeBody && part.has_section_key &&
         part.section_key.is_base()) {
-      bodies.push_back(&part);
-    }
-  }
-  return bodies;
-}
-
-std::vector<const city::wire::VisualCurvePart*> extra_edge_bodies(const city::wire::CoreState& state,
-                                                                  std::size_t instance_index) {
-  std::vector<const city::wire::VisualCurvePart*> bodies{};
-  for (const city::wire::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
-    if (part.kind == city::wire::VisualCurvePartKind::kEdgeBody && part.has_section_key &&
-        !part.section_key.is_base() && part.section_key.instance_index == instance_index) {
       bodies.push_back(&part);
     }
   }
@@ -1592,86 +1546,6 @@ bool C655_backbone_node_patch_grouping_uses_band_identity() {
          !contains_text(cpp, "\"multiple overlapping connectivity-owned patch pairs\"");
 }
 
-bool C656_backbone_node_patch_does_not_mix_base_and_extra_sections() {
-  city::wire::CoreState state;
-  if (!enable_two_extra_lv_population(state)) {
-    return false;
-  }
-  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
-  if (!generated.ok) {
-    return false;
-  }
-  bool saw_patch = false;
-  for (const city::wire::VisualCurvePart& patch : state.view().visual_curve_parts().parts) {
-    if (patch.kind != city::wire::VisualCurvePartKind::kNodePatch) {
-      continue;
-    }
-    saw_patch = true;
-    bool have_reference = false;
-    city::wire::CableSectionKey reference{};
-    for (const city::wire::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
-      if (body.kind != city::wire::VisualCurvePartKind::kEdgeBody || !body.has_section_key ||
-          !touches_patch_boundary(body, patch)) {
-        continue;
-      }
-      if (!have_reference) {
-        reference = body.section_key;
-        have_reference = true;
-      } else if (!same_visual_cable_section_family(reference, body.section_key)) {
-        return false;
-      }
-    }
-  }
-  return saw_patch;
-}
-
-bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
-  city::wire::CoreState state;
-  if (!enable_two_extra_lv_population(state)) {
-    return false;
-  }
-  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
-  if (!generated.ok) {
-    return false;
-  }
-  bool saw_extra_body = false;
-  for (const city::wire::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
-    saw_extra_body = saw_extra_body || (body.kind == city::wire::VisualCurvePartKind::kEdgeBody &&
-                                        body.has_section_key && !body.section_key.is_base());
-  }
-  if (!saw_extra_body) {
-    return false;
-  }
-  bool saw_extra_patch = false;
-  for (const city::wire::VisualCurvePart& patch : state.view().visual_curve_parts().parts) {
-    if (patch.kind != city::wire::VisualCurvePartKind::kNodePatch) {
-      continue;
-    }
-    std::size_t extra_instance_index = 0;
-    std::size_t matching_extra_bodies = 0;
-    bool saw_extra = false;
-    for (const city::wire::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
-      if (body.kind != city::wire::VisualCurvePartKind::kEdgeBody || !body.has_section_key ||
-          body.section_key.is_base() || !touches_patch_boundary(body, patch)) {
-        continue;
-      }
-      if (!saw_extra) {
-        extra_instance_index = body.section_key.instance_index;
-        saw_extra = true;
-      } else if (extra_instance_index != body.section_key.instance_index) {
-        return false;
-      }
-      ++matching_extra_bodies;
-    }
-    if (saw_extra && matching_extra_bodies == 2) {
-      saw_extra_patch = true;
-    } else if (saw_extra) {
-      return false;
-    }
-  }
-  return saw_extra_patch;
-}
-
 bool C665_backbone_midair_attachment_uses_derived_curve() {
   struct Result {
     bool ok = false;
@@ -1985,33 +1859,9 @@ bool C693_cable_run_id_keeps_branch_and_dead_end_separate() {
   return sharp_generated.ok && sharp_bodies.size() == 4 && all_distinct_nonzero_runs(sharp_bodies);
 }
 
-bool C694_cable_run_id_connects_population_instances() {
-  city::wire::CoreState state;
-  if (!enable_two_extra_lv_population(state)) {
-    return false;
-  }
-  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
-  if (!generated.ok) {
-    return false;
-  }
-  const auto base = base_edge_bodies(state);
-  const auto extra1 = extra_edge_bodies(state, 1);
-  const auto extra2 = extra_edge_bodies(state, 2);
-  if (base.size() != 2 || extra1.size() != 2 || extra2.size() != 2 ||
-      !all_same_nonzero_run(base) || !all_same_nonzero_run(extra1) || !all_same_nonzero_run(extra2)) {
-    return false;
-  }
-  return base.front()->cable_run_id != extra1.front()->cable_run_id &&
-         base.front()->cable_run_id != extra2.front()->cable_run_id &&
-         extra1.front()->cable_run_id != extra2.front()->cable_run_id;
-}
-
 bool C695_cable_run_id_is_deterministic() {
   city::wire::CoreState a;
   city::wire::CoreState b;
-  if (!enable_two_extra_lv_population(a) || !enable_two_extra_lv_population(b)) {
-    return false;
-  }
   const auto generated_a = a.GenerateFromBackboneSpec(poly3_req(a));
   const auto generated_b = b.GenerateFromBackboneSpec(poly3_req(b));
   if (!generated_a.ok || !generated_b.ok ||

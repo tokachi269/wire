@@ -1,5 +1,7 @@
 import type {
   BundlePlacement,
+  RandomBundleRule,
+  RouteBundleVariationResult,
   BundleTemplateInfo,
   CableTemplateInfo,
   BackboneEdgeInfo,
@@ -101,6 +103,12 @@ export interface WireStateHandle {
     poleTypeId: number,
     count: number
   ): DefaultBundlePlacementInfo;
+  resolveRouteBundleVariation(
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    poleTypeId: number
+  ): RouteBundleVariationResult;
   updateBackboneBundlePlacement(bundleId: string, placement: BundlePlacement): OperationResult;
   applyRelatedPoleType(bundleTemplateId: number): OperationResult;
   cableTemplateCount(): number;

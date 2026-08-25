@@ -1,6 +1,13 @@
 import type { ViewerActionContext } from "./context";
 import { CommitFailureCategory, type BundleTemplateInfo, type PathPickInfo, type WireIntervalRequest } from "../model";
 import type { DrawActionResult, PathPointSpec, WorldPoint } from "../store/viewer";
+import { DEFAULT_BUNDLE_RULES, DEFAULT_PREFERRED_SIDE_SIGN } from "../profile/defaultBundlePreset";
+
+function newRouteSeed(): number {
+  const words = new Uint32Array(2);
+  globalThis.crypto.getRandomValues(words);
+  return words[0] * 0x200000 + (words[1] & 0x1fffff);
+}
 
 export class DrawActions {
   private readonly committedHistory: Array<{ before: string; after: string }> = [];
@@ -10,8 +17,12 @@ export class DrawActions {
   primaryViewportPoint(point: WorldPoint, pick?: PathPickInfo): DrawActionResult {
     const current = this.ctx.readSnapshot();
     if (current.pathPoints.length === 0) {
+      if (!this.beginRouteVariation()) {
+        return { kind: "commit-rejected", reasonCode: "wire_route_variation_rejected" };
+      }
       const anchor = this.resolveAnchor(point, pick);
       if (anchor === null) {
+        this.ctx.store.update((snapshot) => ({ ...snapshot, wireRouteSeed: null }));
         return {
           kind: "commit-rejected",
           reasonCode: this.ctx.readSnapshot().lastCommitFailure?.reasonCode ?? "wire_anchor_rejected"
@@ -88,6 +99,7 @@ export class DrawActions {
       ...current,
       pathPoints: [],
       pathPointSpecs: [],
+      wireRouteSeed: null,
       wirePreview: { state: "none", request: null },
       error: "",
       lastCommitFailure: null
@@ -117,6 +129,7 @@ export class DrawActions {
       ...current,
       pathPoints: [],
       pathPointSpecs: [],
+      wireRouteSeed: null,
       wirePreview: { state: "none", request: null },
       drawBundlePlacements: current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement),
       error: ""
@@ -124,6 +137,7 @@ export class DrawActions {
   }
 
   addPathPoint(point: WorldPoint, pick?: PathPickInfo): void {
+    if (this.ctx.readSnapshot().pathPoints.length === 0 && !this.beginRouteVariation()) return;
     let nextPoint = point;
     let nextSpec: PathPointSpec | null = null;
     if (pick !== undefined) {
@@ -174,16 +188,22 @@ export class DrawActions {
       this.ctx.store.setError(cleared.error);
       return;
     }
-    this.ctx.store.update((current) => ({ ...current, pathPoints: [], pathPointSpecs: [], error: "" }));
+    this.ctx.store.update((current) => ({
+      ...current, pathPoints: [], pathPointSpecs: [], wireRouteSeed: null, error: ""
+    }));
   }
 
   undoPathPoint(): void {
-    this.ctx.store.update((current) => ({
-      ...current,
-      pathPoints: current.pathPoints.slice(0, -1),
-      pathPointSpecs: current.pathPointSpecs.slice(0, -1),
-      error: ""
-    }));
+    this.ctx.store.update((current) => {
+      const pathPoints = current.pathPoints.slice(0, -1);
+      return {
+        ...current,
+        pathPoints,
+        pathPointSpecs: current.pathPointSpecs.slice(0, -1),
+        wireRouteSeed: pathPoints.length === 0 ? null : current.wireRouteSeed,
+        error: ""
+      };
+    });
   }
 
   undoPathPointOrClearSelection(clearSelection: () => void): void {
@@ -198,6 +218,7 @@ export class DrawActions {
   updateDrawBundlePlacement(id: number, change: Partial<Omit<import("../model").BundlePlacement, "id">>): void {
     this.ctx.store.update((current) => ({
       ...current,
+      wireRouteSeed: current.wireRouteSeed ?? newRouteSeed(),
       drawBundlePlacements: current.drawBundlePlacements.map((placement) =>
         placement.id === id ? { ...placement, ...change } : placement
       )
@@ -220,7 +241,11 @@ export class DrawActions {
       const placements = [...current.drawBundlePlacements];
       const { generatedBundleId: _generatedBundleId, ...source } = placements[index];
       placements.splice(index + 1, 0, { ...source, id: nextId });
-      return { ...current, drawBundlePlacements: placements };
+      return {
+        ...current,
+        wireRouteSeed: current.wireRouteSeed ?? newRouteSeed(),
+        drawBundlePlacements: placements
+      };
     });
   }
 
@@ -253,6 +278,29 @@ export class DrawActions {
       point: [resolved.positionX, resolved.positionY, resolved.positionZ],
       spec: { supportKind: resolved.supportKind, nodeId: resolved.nodeId }
     };
+  }
+
+  private beginRouteVariation(): boolean {
+    const current = this.ctx.readSnapshot();
+    if (current.wireRouteSeed !== null) return true;
+    const routeSeed = newRouteSeed();
+    const resolved = this.ctx.bridge.resolveRouteBundleVariation(
+      [...DEFAULT_BUNDLE_RULES],
+      routeSeed,
+      DEFAULT_PREFERRED_SIDE_SIGN,
+      current.selectedPoleTemplateId ?? 1
+    );
+    if (!resolved.ok || resolved.placements.length === 0) {
+      this.ctx.store.setError(resolved.error || "route bundle variation resolved no bundles");
+      return false;
+    }
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      wireRouteSeed: routeSeed,
+      drawBundlePlacements: [...resolved.placements]
+        .sort((a, b) => b.height - a.height || a.id - b.id)
+    }));
+    return true;
   }
 
   private intervalRequest(point: WorldPoint, pick?: PathPickInfo): WireIntervalRequest | null {
@@ -325,6 +373,7 @@ export class DrawActions {
       ...current,
       pathPoints: endSession ? [] : [endpoint],
       pathPointSpecs: endSession ? [] : [endpointSpec],
+      wireRouteSeed: endSession ? null : current.wireRouteSeed,
       wirePreview: { state: "none", request: null },
       drawBundlePlacements: current.drawBundlePlacements.map((placement, index) => ({
         ...placement,

@@ -999,23 +999,6 @@ public:
     assembly_output.set("memberTwistTurnsPerMeter", assembly.member_twist_turns_per_meter);
     assembly_output.set("memberTwistPhase", assembly.member_twist_phase);
     output.set("spanVisualAssembly", assembly_output);
-    val population_rules = val::array();
-    for (std::size_t index = 0; index < bundle_template.population_rules.size(); ++index) {
-      const auto& rule = bundle_template.population_rules[index];
-      val item = val::object();
-      item.set("ruleId", static_cast<double>(rule.rule_id));
-      item.set("explicitSeed", static_cast<double>(rule.explicit_seed));
-      item.set("priority", rule.priority);
-      item.set("minExtraCount", rule.min_extra_count);
-      item.set("maxExtraCount", rule.max_extra_count);
-      item.set("minSpacing", rule.min_spacing_m);
-      item.set("lateralMin", rule.lateral_min_m);
-      item.set("lateralMax", rule.lateral_max_m);
-      item.set("heightMin", rule.height_min_m);
-      item.set("heightMax", rule.height_max_m);
-      population_rules.set(index, item);
-    }
-    output.set("populationRules", population_rules);
     return output;
   }
 
@@ -1056,33 +1039,6 @@ public:
     bundle_template.span_visual_assembly.member_wander_phase_bias = property<double>(assembly, "memberWanderPhaseBias");
     bundle_template.span_visual_assembly.member_twist_turns_per_meter = property<double>(assembly, "memberTwistTurnsPerMeter");
     bundle_template.span_visual_assembly.member_twist_phase = property<double>(assembly, "memberTwistPhase");
-    const std::vector<city::wire::CablePopulationRule> existing_population_rules =
-        bundle_template.population_rules;
-    bundle_template.population_rules.clear();
-    const val population_rules = input["populationRules"];
-    const std::size_t population_rule_count = population_rules["length"].as<std::size_t>();
-    bundle_template.population_rules.reserve(population_rule_count);
-    for (std::size_t index = 0; index < population_rule_count; ++index) {
-      const val item = population_rules[index];
-      const city::wire::CableSectionRuleId rule_id =
-          property<city::wire::CableSectionRuleId>(item, "ruleId");
-      const auto existing_rule = std::ranges::find_if(
-          existing_population_rules,
-          [rule_id](const city::wire::CablePopulationRule& rule) { return rule.rule_id == rule_id; });
-      city::wire::CablePopulationRule rule =
-          existing_rule == existing_population_rules.end() ? city::wire::CablePopulationRule{} : *existing_rule;
-      rule.rule_id = rule_id;
-      rule.explicit_seed = property<std::uint64_t>(item, "explicitSeed");
-      rule.priority = property<int>(item, "priority");
-      rule.min_extra_count = property<int>(item, "minExtraCount");
-      rule.max_extra_count = property<int>(item, "maxExtraCount");
-      rule.min_spacing_m = property<double>(item, "minSpacing");
-      rule.lateral_min_m = property<double>(item, "lateralMin");
-      rule.lateral_max_m = property<double>(item, "lateralMax");
-      rule.height_min_m = property<double>(item, "heightMin");
-      rule.height_max_m = property<double>(item, "heightMax");
-      bundle_template.population_rules.push_back(rule);
-    }
     const auto updated = state_->UpdateBundleTemplate(bundle_template);
     return result_value(updated.ok, updated.error);
   }
@@ -1103,6 +1059,48 @@ public:
     output.set("height", resolved.ok ? resolved.value.height_m : 0.0);
     output.set("offset", resolved.ok ? resolved.value.lateral_m : 0.0);
     output.set("spacing", resolved.ok ? resolved.value.spacing_m : 0.0);
+    return output;
+  }
+
+  val resolve_route_bundle_variation(const val& rules, double route_seed,
+                                     int preferred_side_sign, int pole_type_id) const {
+    city::wire::RouteBundleVariationInput input{};
+    input.route_seed = static_cast<std::uint64_t>(route_seed);
+    input.preferred_side_sign = preferred_side_sign;
+    input.pole_type_id = static_cast<PoleTypeId>(pole_type_id);
+    const std::size_t rule_count = rules["length"].as<std::size_t>();
+    input.rules.reserve(rule_count);
+    for (std::size_t index = 0; index < rule_count; ++index) {
+      const val item = rules[index];
+      city::wire::RandomBackboneBundleRule rule{};
+      rule.bundle_template_id = ::bundle_template_id(property<int>(item, "bundleTemplateId"));
+      rule.min_instances = property<int>(item, "minInstances");
+      rule.max_instances = property<int>(item, "maxInstances");
+      rule.conductor_count = property<int>(item, "conductorCount");
+      rule.height_min_m = property<double>(item, "heightMin");
+      rule.height_max_m = property<double>(item, "heightMax");
+      rule.lateral_abs_min_m = property<double>(item, "lateralAbsMin");
+      rule.lateral_abs_max_m = property<double>(item, "lateralAbsMax");
+      rule.min_spacing_m = property<double>(item, "minSpacing");
+      input.rules.push_back(rule);
+    }
+    const auto resolved = state_->ResolveRouteBundleVariation(input);
+    val output = result_value(resolved.ok, resolved.error,
+                              resolved.effective_failure_category(), resolved.reason_code);
+    val placements = val::array();
+    for (std::size_t index = 0; index < resolved.value.size(); ++index) {
+      const BackboneBundleSpec& spec = resolved.value[index];
+      val placement = val::object();
+      placement.set("id", static_cast<double>(spec.placement_key));
+      placement.set("bundleTemplateId", static_cast<int>(spec.bundle_template_id));
+      placement.set("count", spec.count);
+      placement.set("explicit", spec.placement_explicit);
+      placement.set("height", spec.height_m);
+      placement.set("offset", spec.lateral_m);
+      placement.set("spacing", spec.spacing_m);
+      placements.set(index, placement);
+    }
+    output.set("placements", placements);
     return output;
   }
 
@@ -2346,6 +2344,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("updateBackboneBundlePlacement", &WireState::update_backbone_bundle_placement)
       .function("applyRelatedPoleType", &WireState::apply_related_pole_type)
       .function("resolveDefaultBundlePlacement", &WireState::resolve_default_bundle_placement)
+      .function("resolveRouteBundleVariation", &WireState::resolve_route_bundle_variation)
       .function("cableTemplateCount", &WireState::cable_template_count)
       .function("cableTemplate", &WireState::cable_template)
       .function("updateCableTemplate", &WireState::update_cable_template)

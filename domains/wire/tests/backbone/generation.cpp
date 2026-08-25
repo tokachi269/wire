@@ -215,14 +215,19 @@ bool C821_backbone_external_input_validation_lists_numeric_fields() {
   const std::size_t path_begin = workflow_text.find("struct BackboneInputSpec");
   const std::size_t path_end = workflow_text.find("struct AttachmentSocketTemplate");
   const std::size_t spec_begin = workflow_text.find("struct BackboneBundleSpec");
-  const std::size_t spec_end = workflow_text.find("struct JunctionIncident");
+  const std::size_t spec_end = workflow_text.find("struct RandomBackboneBundleRule");
+  const std::size_t backbone_spec_begin = workflow_text.find("struct BackboneSpec");
+  const std::size_t backbone_spec_end = workflow_text.find("struct JunctionIncident");
   if (path_begin == std::string::npos || path_end == std::string::npos || path_begin >= path_end ||
-      spec_begin == std::string::npos || spec_end == std::string::npos || spec_begin >= spec_end) {
+      spec_begin == std::string::npos || spec_end == std::string::npos || spec_begin >= spec_end ||
+      backbone_spec_begin == std::string::npos || backbone_spec_end == std::string::npos ||
+      backbone_spec_begin >= backbone_spec_end) {
     return false;
   }
   const std::string input_block =
       workflow_text.substr(path_begin, path_end - path_begin) +
-      workflow_text.substr(spec_begin, spec_end - spec_begin);
+      workflow_text.substr(spec_begin, spec_end - spec_begin) +
+      workflow_text.substr(backbone_spec_begin, backbone_spec_end - backbone_spec_begin);
   const auto count_token = [&](const std::string& token) {
     std::size_t count = 0;
     std::size_t pos = 0;

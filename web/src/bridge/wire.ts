@@ -10,6 +10,8 @@ import {
 import type {
   BackboneEdgeInfo,
   BundlePlacement,
+  RandomBundleRule,
+  RouteBundleVariationResult,
   BundleTemplateInfo,
   CableTemplateInfo,
   DefaultBundlePlacementInfo,
@@ -152,6 +154,17 @@ export class WireBridge {
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo {
     return this.state.resolveBranchPick(input, selectedBundleTemplateIds);
+  }
+
+  resolveRouteBundleVariation(
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    poleTypeId: number
+  ): RouteBundleVariationResult {
+    return this.state.resolveRouteBundleVariation(
+      rules, routeSeed, preferredSideSign, poleTypeId
+    );
   }
 
   previewWireInterval(input: WireIntervalRequest): WireIntervalPreview {

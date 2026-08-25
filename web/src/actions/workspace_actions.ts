@@ -1,10 +1,9 @@
 import type { ViewerActionContext } from "./context";
 import {
   bundlePlacementDefault,
-  defaultBundlePlacements,
   placementUsesTransientZeroDefaults
 } from "./draw_defaults";
-import { DEFAULT_BUNDLE_PRESET } from "../profile/defaultBundlePreset";
+import { DEFAULT_BUNDLE_RULES, DEFAULT_PREFERRED_SIDE_SIGN } from "../profile/defaultBundlePreset";
 import { seedRoadSections } from "../road_templates";
 import { createViewerSnapshot } from "../store/viewer";
 import {
@@ -71,7 +70,7 @@ export class WorkspaceActions {
     const bundleTemplates = this.ctx.bridge.bundleTemplates();
     const cableTemplates = this.ctx.bridge.cableTemplates();
     const poleTemplates = this.ctx.bridge.poleTemplates();
-    const presetBundleTemplateId = DEFAULT_BUNDLE_PRESET[0]?.bundleTemplateId;
+    const presetBundleTemplateId = DEFAULT_BUNDLE_RULES[0]?.bundleTemplateId;
     const defaultBundleId =
       bundleTemplates.find((template) => template.id === presetBundleTemplateId)?.id ??
       bundleTemplates[0]?.id ??
@@ -84,6 +83,13 @@ export class WorkspaceActions {
       poleTemplates.find((template) => template.name === "CommunicationPole")?.id ??
       poleTemplates[0]?.id ??
       null;
+    const initialVariation = defaultPoleId === null
+      ? { ok: false, error: "default pole template is unavailable", placements: [] }
+      : this.ctx.bridge.resolveRouteBundleVariation(
+          [...DEFAULT_BUNDLE_RULES], 8, DEFAULT_PREFERRED_SIDE_SIGN, defaultPoleId
+        );
+    const initialPlacements = [...initialVariation.placements]
+      .sort((a, b) => b.height - a.height || a.id - b.id);
     this.ctx.store.update((current) => ({
       ...current,
       bundleTemplates,
@@ -92,7 +98,7 @@ export class WorkspaceActions {
       drawBundlePlacements:
         current.drawBundlePlacements.length > 0
           ? current.drawBundlePlacements
-          : defaultBundlePlacements(bundleTemplates),
+          : initialPlacements,
       cableTemplates,
       selectedCableTemplateId:
         current.selectedCableTemplateId ?? defaultCableId,
@@ -107,6 +113,9 @@ export class WorkspaceActions {
         scene: this.ctx.bridge.roadScene()
       }
     }));
+    if (!initialVariation.ok) {
+      this.ctx.store.setError(initialVariation.error);
+    }
   }
 
   async restoreWorkspace(): Promise<void> {

@@ -304,7 +304,6 @@ describe("viewer actions", () => {
             memberWanderWavelength: 0, memberWanderPhaseBias: 0,
             memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
           },
-          populationRules: []
         }
       ],
       cableTemplates: () => [],
@@ -326,6 +325,14 @@ describe("viewer actions", () => {
         enableInsulators: true,
         insulatorRadius: 0.07,
         insulatorLength: 0.16
+      }),
+      resolveRouteBundleVariation: () => ({
+        ok: true,
+        error: "",
+        placements: [{
+          id: 1, bundleTemplateId: 102, count: 1, explicit: true,
+          height: 7.4, offset: -0.25, spacing: 0.2
+        }]
       }),
       saveState: () => "factory-state",
       roadSaveState: () => "factory-road-state",
@@ -382,7 +389,6 @@ describe("viewer actions", () => {
             memberWanderWavelength: 0, memberWanderPhaseBias: 0,
             memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
           },
-          populationRules: []
         }
       ],
       generate: (points: Float64Array) => {
@@ -446,7 +452,6 @@ describe("viewer actions", () => {
             memberWanderWavelength: 0, memberWanderPhaseBias: 0,
             memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
           },
-          populationRules: []
         }
       ],
       selectedBundleTemplateId: 102,
@@ -492,8 +497,7 @@ const bundleTemplate: BundleTemplateInfo = {
     helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
     memberWanderWavelength: 0, memberWanderPhaseBias: 0,
     memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
-  },
-  populationRules: []
+  }
 };
 
 const cableTemplate: CableTemplateInfo = {
@@ -563,6 +567,19 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       height: 7.4,
       offset: 0,
       spacing: bundleTemplate.defaultSpacing
+    }),
+    resolveRouteBundleVariation: () => ({
+      ok: true,
+      error: "",
+      placements: [{
+        id: 1,
+        bundleTemplateId: bundleTemplate.id,
+        count: 1,
+        explicit: true,
+        height: 7.4,
+        offset: -0.25,
+        spacing: bundleTemplate.defaultSpacing
+      }]
     }),
     updateCableTemplate: () => ({ ok: true, error: "" }),
     updateBackboneBundlePlacement: () => ({ ok: true, error: "" }),
@@ -800,6 +817,45 @@ describe("viewport tool routing", () => {
     expect(loadState).not.toHaveBeenCalled();
     expect(current(store).pathPoints).toEqual([]);
     expect(current(store).wirePreview.state).toBe("none");
+  });
+
+  it("resolves route variation once and shares its concrete placement across preview and commit", () => {
+    const resolveRouteBundleVariation = vi.fn((_rules: unknown, routeSeed: number) => ({
+      ok: true,
+      error: "",
+      placements: [{
+        id: routeSeed,
+        bundleTemplateId: 102,
+        count: 1,
+        explicit: true,
+        height: 7.2,
+        offset: -0.31,
+        spacing: 0.2
+      }]
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+      generatedBundleIds: ["301"], generatedPoleIds: ["101", "102"],
+      generatedSpanIds: ["201"], totalMs: 1, timing: timing(1),
+      endpoint: request.points[1], endpointSpec: null
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ resolveRouteBundleVariation, generateWireInterval }), store);
+    actions.initialize();
+    resolveRouteBundleVariation.mockClear();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.previewViewportPoint([12, 0, 0]);
+    const previewPlacement = current(store).wirePreview.request?.bundlePlacements[0];
+    actions.addViewportPoint([12, 0, 0]);
+
+    expect(resolveRouteBundleVariation).toHaveBeenCalledOnce();
+    expect(generateWireInterval.mock.calls[0][0].bundlePlacements[0]).toEqual(previewPlacement);
+    expect(current(store).wireRouteSeed).not.toBeNull();
+
+    actions.cancelDrawSession();
+    actions.addViewportPoint([30, 0, 0]);
+    expect(resolveRouteBundleVariation).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a committed picked midair endpoint usable as the next wire anchor", () => {
@@ -2281,88 +2337,6 @@ describe("P1 action contracts", () => {
 
     actions.applyRelatedPoleType(bundleTemplate.id);
     expect(applyRelated).toHaveBeenCalledWith(bundleTemplate.id);
-  });
-
-  it("sends population rules through bundle template update", () => {
-    const update = vi.fn(() => ({ ok: true, error: "" }));
-    const store = new ViewerStore();
-    const actions = new ViewerActions(
-      actionBridge({ updateBundleTemplate: update }),
-      store
-    );
-    actions.initialize();
-
-    actions.commitBundleTemplate({
-      ...bundleTemplate,
-      populationRules: [
-        {
-          ruleId: 7,
-          explicitSeed: 11,
-          priority: 2,
-          minExtraCount: 1,
-          maxExtraCount: 3,
-          minSpacing: 0.08,
-          lateralMin: -0.4,
-          lateralMax: 0.4,
-          heightMin: 5,
-          heightMax: 6
-        }
-      ]
-    });
-
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        populationRules: [
-          expect.objectContaining({ ruleId: 7, maxExtraCount: 3, minSpacing: 0.08 })
-        ]
-      })
-    );
-  });
-
-  it("previews bundle population numeric edits without logging a commit", async () => {
-    vi.useFakeTimers();
-    const update = vi.fn(() => ({ ok: true, error: "" }));
-    const store = new ViewerStore();
-    const actions = new ViewerActions(
-      actionBridge({ updateBundleTemplate: update }),
-      store
-    );
-    actions.initialize();
-    const template = {
-      ...bundleTemplate,
-      populationRules: [
-        {
-          ruleId: 1,
-          explicitSeed: 1,
-          priority: 0,
-          minExtraCount: 1,
-          maxExtraCount: 1,
-          minSpacing: 0.09,
-          lateralMin: -1,
-          lateralMax: 1,
-          heightMin: 0,
-          heightMax: 20
-        }
-      ]
-    };
-
-    actions.previewBundleTemplate(
-      template,
-      "bundle.population.1.minSpacing",
-      "minSpacing",
-      0.05
-    );
-    await vi.advanceTimersByTimeAsync(33);
-
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        populationRules: [
-          expect.objectContaining({ ruleId: 1, minSpacing: 0.09 })
-        ]
-      })
-    );
-    expect(current(store).logs).toEqual([]);
-    vi.useRealTimers();
   });
 
   it("sends cable shape updates with the selected template", () => {

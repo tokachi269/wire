@@ -165,51 +165,6 @@ describe("viewer numeric inputs", () => {
     expect(current(mounted.store).showGroundGrid).toBe(false);
   });
 
-  it("applies bundle population input to the selected template", async () => {
-    const mounted = await mountViewer();
-    let selectedId: number | null = null;
-    const unsubscribe = mounted.store.value.subscribe((snapshot) => {
-      selectedId = snapshot.selectedBundleTemplateId;
-    });
-    unsubscribe();
-    let before = mounted.bridge.bundleTemplates()
-      .find((template) => template.id === selectedId);
-    expect(before).toBeDefined();
-    if (before!.populationRules.length === 0) {
-      mounted.actions.commitBundleTemplate({
-        ...before!,
-        populationRules: [{
-          ruleId: 1,
-          explicitSeed: 1,
-          priority: 0,
-          minExtraCount: 1,
-          maxExtraCount: 1,
-          minSpacing: 0.05,
-          lateralMin: -1,
-          lateralMax: 1,
-          heightMin: 0,
-          heightMax: 20
-        }]
-      });
-      await tick();
-      before = mounted.bridge.bundleTemplates()
-        .find((template) => template.id === selectedId);
-    }
-    const rule = before!.populationRules[0];
-    const input = inputForDetails("Population rules", "Min spacing");
-    const next = rule.minSpacing + 0.01;
-    input.value = String(next);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    input.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
-    await tick();
-
-    const after = mounted.bridge.bundleTemplates()
-      .find((template) => template.id === selectedId);
-    expect(after?.populationRules.find((candidate) => candidate.ruleId === rule.ruleId)
-      ?.minSpacing).toBeCloseTo(next, 8);
-  });
-
   it("exposes helix controls and applies them to the selected bundle template", async () => {
     const mounted = await mountViewer();
     const selectedId = current(mounted.store).selectedBundleTemplateId;
@@ -588,20 +543,6 @@ function inputForLabel(text: string): HTMLInputElement {
   const input = label?.querySelector("input");
   if (!(input instanceof HTMLInputElement)) {
     throw new Error(`input not found for label: ${text}`);
-  }
-  return input;
-}
-
-function inputForDetails(summaryText: string, labelText: string): HTMLInputElement {
-  const details = [...document.querySelectorAll("details")]
-    .find((candidate) =>
-      candidate.querySelector("summary")?.textContent?.trim().startsWith(summaryText)
-    );
-  const label = [...(details?.querySelectorAll("label") ?? [])]
-    .find((candidate) => candidate.textContent?.trim().startsWith(labelText));
-  const input = label?.querySelector("input");
-  if (!(input instanceof HTMLInputElement)) {
-    throw new Error(`input not found: ${summaryText} / ${labelText}`);
   }
   return input;
 }

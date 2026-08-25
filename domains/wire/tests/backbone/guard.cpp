@@ -1765,12 +1765,10 @@ bool C674_backbone_port_band_selection_has_one_owner() {
   };
   std::string state{};
   std::string endpoint{};
-  std::string population{};
   std::string shared{};
   std::string emit{};
   if (!file_text(repo_root() / "domains/wire/src/state/state.cpp", &state) ||
       !file_text(repo_root() / "domains/wire/src/state/endpoint_refresh_service.cpp", &endpoint) ||
-      !file_text(repo_root() / "domains/wire/src/generation/backbone/population.cpp", &population) ||
       !file_text(repo_root() / "domains/wire/src/state/port_placement.cpp", &shared) ||
       !file_text(repo_root() / "domains/wire/src/generation/backbone/emit_shared.cpp", &emit)) {
     return false;
@@ -1778,11 +1776,9 @@ bool C674_backbone_port_band_selection_has_one_owner() {
   const std::string priority_decision = "band.priority >";
   const std::size_t decision_count =
       occurrences(state, priority_decision) + occurrences(endpoint, priority_decision) +
-      occurrences(population, priority_decision) + occurrences(shared, priority_decision) +
+      occurrences(shared, priority_decision) +
       occurrences(emit, priority_decision);
-  return decision_count <= 2 && !contains_text(population, "identity_score") &&
-         contains_text(population, "backbone_port_bindings_for_edge_bundle") &&
-         contains_text(shared, "placement_band_id");
+  return decision_count <= 2 && contains_text(shared, "placement_band_id");
 }
 
 bool C675_backbone_layout_yaw_does_not_read_debug_records() {

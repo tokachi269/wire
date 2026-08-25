@@ -7,7 +7,6 @@
 #include "../../support/hash_mix.hpp"
 #include "out.hpp"
 #include "mount_graph.hpp"
-#include "population.hpp"
 #include "row_representation.hpp"
 #include "span_visual_assembly.hpp"
 #include "../../geometry/detail_curve_postprocess.hpp"
@@ -1061,26 +1060,6 @@ VisualCurvePartCache merge_visual_changes(const CoreState& state, VisualCurvePar
       merged.diagnostics.end(),
       std::make_move_iterator(rebuilt.diagnostics.begin()),
       std::make_move_iterator(rebuilt.diagnostics.end()));
-  const auto population_is_affected = [&](const CablePopulationDiagnostic& diagnostic) {
-    return diagnostic.logical_span_id != kInvalidObjectId &&
-           changed_spans.contains(diagnostic.logical_span_id);
-  };
-  rebuilt.population_diagnostics.erase(
-      std::remove_if(rebuilt.population_diagnostics.begin(),
-                     rebuilt.population_diagnostics.end(),
-                     [&](const CablePopulationDiagnostic& diagnostic) {
-                       return !population_is_affected(diagnostic);
-                     }),
-      rebuilt.population_diagnostics.end());
-  merged.population_diagnostics.erase(
-      std::remove_if(merged.population_diagnostics.begin(),
-                     merged.population_diagnostics.end(),
-                     population_is_affected),
-      merged.population_diagnostics.end());
-  merged.population_diagnostics.insert(
-      merged.population_diagnostics.end(),
-      std::make_move_iterator(rebuilt.population_diagnostics.begin()),
-      std::make_move_iterator(rebuilt.population_diagnostics.end()));
   merged.stats = rebuilt.stats;
   sort_visual_parts(&merged);
   return merged;
@@ -1164,32 +1143,6 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
     section.start_source_projection = entry.start.source_projection;
     section.end_source_projection = entry.end.source_projection;
     sections.push_back(section);
-  }
-  CablePopulation population = make_cable_population(state, placed.entries);
-  out.population_diagnostics = std::move(population.diagnostics);
-  for (CableSectionLayout& extra : population.sections) {
-    const auto source = std::find_if(placed.entries.begin(), placed.entries.end(), [&](const SpanLayoutEntry& entry) {
-      return entry.span_id == extra.key.logical_span_id;
-    });
-    if (source == placed.entries.end()) {
-      continue;
-    }
-    visual_cable_section section{};
-    section.layout = std::move(extra);
-    section.start_node_id = source->start.endpoint_node_id;
-    section.end_node_id = source->end.endpoint_node_id;
-    const auto base_section =
-        std::find_if(sections.begin(), sections.end(), [&](const visual_cable_section& candidate) {
-          return candidate.layout.key.logical_span_id == section.layout.key.logical_span_id &&
-                 candidate.layout.key.is_base();
-        });
-    if (base_section != sections.end()) {
-      section.start_row_key = base_section->start_row_key;
-      section.end_row_key = base_section->end_row_key;
-      section.start_source_projection = base_section->start_source_projection;
-      section.end_source_projection = base_section->end_source_projection;
-    }
-    sections.push_back(std::move(section));
   }
   out.stats.sections = sections.size();
 

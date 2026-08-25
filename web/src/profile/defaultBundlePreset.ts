@@ -1,10 +1,24 @@
-import type { BundlePlacement } from "../model";
+import type { RandomBundleRule } from "../model";
 
-export const DEFAULT_BUNDLE_PRESET: ReadonlyArray<Omit<BundlePlacement, "spacing">> = [
-  { id: 1, bundleTemplateId: 101, count: 3, explicit: true, height: 9.2, offset: -0.2 },
-  { id: 2, bundleTemplateId: 102, count: 1, explicit: true, height: 7.7, offset: 0 },
-  { id: 3, bundleTemplateId: 102, count: 1, explicit: true, height: 7.35, offset: 0 },
-  { id: 4, bundleTemplateId: 102, count: 1, explicit: true, height: 7.0, offset: 0 },
-  { id: 5, bundleTemplateId: 104, count: 1, explicit: true, height: 5.5, offset: 0 },
-  { id: 6, bundleTemplateId: 105, count: 1, explicit: true, height: 5.3, offset: 0 }
+// Initial visual-evaluation envelopes. They are input data, not Japanese
+// engineering-standard values and not persisted as Core entities.
+export const DEFAULT_BUNDLE_RULES: ReadonlyArray<RandomBundleRule> = [
+  {
+    bundleTemplateId: 101, minInstances: 1, maxInstances: 1, conductorCount: 3,
+    heightMin: 9.2, heightMax: 9.2, lateralAbsMin: 0.2, lateralAbsMax: 0.2, minSpacing: 0.25
+  },
+  {
+    bundleTemplateId: 102, minInstances: 2, maxInstances: 4, conductorCount: 1,
+    heightMin: 7.0, heightMax: 7.7, lateralAbsMin: 0.14, lateralAbsMax: 0.52, minSpacing: 0.20
+  },
+  {
+    bundleTemplateId: 104, minInstances: 1, maxInstances: 4, conductorCount: 1,
+    heightMin: 5.0, heightMax: 5.8, lateralAbsMin: 0.14, lateralAbsMax: 0.50, minSpacing: 0.16
+  },
+  {
+    bundleTemplateId: 105, minInstances: 0, maxInstances: 2, conductorCount: 1,
+    heightMin: 4.9, heightMax: 5.7, lateralAbsMin: 0.14, lateralAbsMax: 0.50, minSpacing: 0.16
+  }
 ];
+
+export const DEFAULT_PREFERRED_SIDE_SIGN = -1;

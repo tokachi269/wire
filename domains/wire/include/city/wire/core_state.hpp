@@ -75,6 +75,8 @@ public:
   EditResult<bool> ClearPendingSupportNodes();
   [[nodiscard]] EditResult<DefaultBundlePlacementResult>
   ResolveDefaultBundlePlacement(BundleTemplateId bundle_template_id, PoleTypeId pole_type_id, int count) const;
+  [[nodiscard]] EditResult<std::vector<BackboneBundleSpec>>
+  ResolveRouteBundleVariation(const RouteBundleVariationInput& input) const;
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   EditResult<ObjectId> SetPoleManualYawOverride(ObjectId pole_id, double manual_yaw_deg);

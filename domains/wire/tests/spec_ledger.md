@@ -424,20 +424,11 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C646 | Behavior | Boundary | NodePatchはturn内側で単調に曲がる | `legacy_unclassified` | 左折前に右へ外振りする回帰防止 |
 | C647 | Behavior | Boundary | NodePatchはincident cableのappearanceを使う | `legacy_unclassified` | source_span_idを持たないpatchだけviewer既定の太さ・色へ落ちる回帰防止 |
 | C655 | SourceGuard | Boundary | NodePatch grouping は band identity を含み、pair選択はrow continuityだけを読む | `source_guard` | 同templateの別Bundle、上下band、別placement slotを同じ接続部としてpatch化する回帰防止 |
-| C656 | Behavior | Boundary | NodePatch は base section と extra section を混ぜない | `legacy_unclassified` | base線とpopulation線がjunctionで接続される回帰防止 |
-| C657 | Behavior | Boundary | extra section は同一 instance だけを接続する | `legacy_unclassified` | extra instance 0と1がjunctionで交差接続される、または同じinstanceがspan境界で切れる回帰防止 |
-| C648 | Behavior | Invariant | 同じexplicit seedは同じspan section populationを返す | `legacy_unclassified` | redrawで追加線が並べ替わる回帰防止 |
-| C649 | Behavior | Invariant | logical span identityだけではpopulation配置seedを変えない | `legacy_unclassified` | 同じ生成Bundle上の追加線が電柱間ごとに別位置へ飛び、junctionで切れる回帰防止 |
-| C650 | Behavior | Invariant | reserveはcandidate pairを拒否する | `legacy_unclassified` | reserved領域へ線を置く回帰防止 |
-| C651 | Behavior | Invariant | spacing不足はcandidateを拒否する | `legacy_unclassified` | 密集線が同位置へ重なる回帰防止 |
-| C652 | Behavior | Boundary | 片endpoint失敗はsection全体をomitする | `legacy_unclassified` | endpointを独立solveして線がねじれる回帰防止 |
-| C653 | Behavior | Boundary | band identity重複を拒否する | `legacy_unclassified` | vector順で曖昧bandを選ぶ回帰防止 |
-| C654 | Behavior | Boundary | span section populationはlogical topologyを変更しない | `legacy_unclassified` | 見た目用追加線がtopologyまたは別curve familyになる回帰防止 |
 | C658 | Behavior | Boundary | CableCurve は endpoint tangent hints を実サンプルに使う | `legacy_unclassified` | NodePatch境界tangentをEdgeBodyがmetadataだけ持ち、描画samplesでは無視する回帰防止 |
 | C688 | Behavior | Invariant | 片側hintのCableCurveはhint無し端の自然なsag端点接線を保つ | `legacy_unclassified` | 3点以上routeの終端spanだけ弦方向接線+端点微分ゼロの装飾sagへ切り替わる回帰防止 |
 | C730 | Behavior | Invariant | BundleKind は BundleTemplate identity ではない | `legacy_unclassified` | BundleKind keyed map へ戻る回帰防止 |
 | C731 | Behavior | Invariant | BackboneSpec は同 kind 別 template を区別する | `legacy_unclassified` | BackboneBundleSpec が BundleKind identity に戻る回帰防止 |
-| C732 | Behavior | Invariant | population rule owner は BundleTemplateId | `legacy_unclassified` | BundleKind 単位で population rule が混線する回帰防止 |
+| C732 | Behavior | Invariant | route bundle rule owner は BundleTemplateId | `legacy_unclassified` | BundleKind 単位で random bundle rule が混線する回帰防止 |
 | C733 | Behavior | Invariant | regenerate scope は BundleTemplateId | `legacy_unclassified` | regenerate scope が kind で集まる回帰防止 |
 | C734 | Behavior | Invariant | cable template lookup は kind based ではない | `legacy_unclassified` | CableTemplate lookup が BundleKind に戻る回帰防止 |
 | C735 | SourceGuard | Boundary | source guard は BundleKind identity 残存を拒否する | `source_guard` | 永続化前に enum identity を焼き戻す回帰防止 |
@@ -447,7 +438,6 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C691 | Behavior | Invariant | run id は through section を接続する | `legacy_unclassified` | section scope idのままspan境界で見た目上1本のcableが分断される回帰防止 |
 | C692 | Behavior | Invariant | run id は世代跨ぎterminal extensionを接続する | `legacy_unclassified` | 別生成回の連続sectionが別run扱いになる回帰防止 |
 | C693 | Behavior | Invariant | branchとdead-endは別runになる | `legacy_unclassified` | jumperやbranchをpatch連続として誤集約する回帰防止 |
-| C694 | Behavior | Invariant | population instance ごとに run を接続する | `legacy_unclassified` | baseとpopulationまたは別instanceを同じrunへ混ぜる回帰防止 |
 | C695 | Behavior | Invariant | identityを持つcable sectionのrun idは決定的 | `legacy_unclassified` | identityなしsupport/helixをrunへ偽装せず、pointer/order依存の不安定run id回帰を防止 |
 | C696 | SourceGuard | Boundary | run idはvisual derive層の派生値で、section indexから決定する | `source_guard` | run identityをtopology正本へ保存する、またはsectionごとの線形探索へ戻る回帰防止 |
 | C660 | Behavior | Boundary | regenerate fixed count increase は SavedGraph identity を維持して下流だけ更新する | `legacy_unclassified` | route-local regenerate が入力replayや位置推測でgraphを作り直す回帰防止 |
@@ -523,8 +513,6 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C683 | Behavior | Invariant | ModelDescriptor から path無し AttachmentTemplate を生成する | `legacy_unclassified` | DCC marker descriptor を state や viewer に依存せず core template へ変換できることを固定する |
 | C684 | Behavior | Invariant | 端子函 descriptor の drop socket は補助 socket として保持する | `legacy_unclassified` | 追加 socket を topology や line path と誤解して補完生成する回帰を防ぐ |
 | C685 | Behavior | Invariant | descriptor-built template は既存更新経路で使用中 span を更新する | `legacy_unclassified` | モデル再読込専用経路を作らず、通常 template 更新経路で使用中 attachment を更新する契約を固定する |
-| C686 | Behavior | Boundary | BundleTemplate の population rule は派生線だけを追加する | `legacy_unclassified` | 追加平行線を topology や saved graph として保存する回帰防止 |
-| C687 | Behavior | Boundary | population rule 差分は kReshape として再導出する | `legacy_unclassified` | rule 変更を regenerate 級として拒否したり topology_change に混ぜる回帰防止 |
 | C755 | Behavior | Invariant | 鋭角Jumperはincident spanへG1接続する | `legacy_unclassified` | 鋭角接続がport間chord接線で折れる既存不具合の固定 |
 | C756 | SourceGuard | Boundary | write/readは型別wrapperを持たず同じarchive visitorから導出する | `source_guard` | field列挙一元化後にwrite/read二重familyが再発することを防ぐ |
 | C757 | Behavior | Invariant | load後authoritativeは同じarchive field列挙で直接一致する | `legacy_unclassified` | writer/reader双方から同じfieldが落ちbyte一致だけ通る盲点を防ぐ |
@@ -597,6 +585,12 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C853 | Behavior | Invariant | Portはband/explicit placementの論理anchorを保持し、support level/groupから一度resolveしたbranch downだけが物理endpointへ適用され、save/loadとscoped placement regenerateでも同じ意味結果を保つ | `differential` `oracle` `anchor` | row offset、stable slot、support level loweringが独立にPort/endpoint Zを決めて相互補償する回帰を防ぐ |
 | C854 | SourceGuard | Boundary | productionのrow height経路にrow-height offset、stable slot、bundle update時の保存offsetを残さず、row ordering角度はatan2直後にdegreeへ正規化する | `source_guard` | 別経路のno-op faultを他経路が補償する構造とradian/degree混在が再導入される回帰を防ぐ |
 | C855 | Behavior | Invariant | 非Autoのmain spanも単一のsag_factorをspan全体へ1回適用し、`chord length * ratio`の物理sag量と独立式`4u(1-u)`のparabolic profileを使う | `oracle` `presence` | continuity policyによるprofile分岐、sag ratio二重加算、長さ・pass・剛性による隠れ倍率を防ぐ |
+| C856 | Behavior | Invariant | 同じroute seedとruleはBundle数・placement_key・height・lateralを完全同一に解決し、代表的な別seedは異なる結果になる | `differential` `anchor` | redrawでrerollする、またはseedを無視して常に同じ配置になる回帰を防ぐ |
+| C857 | Behavior | Invariant | route bundle variationは全Bundleを指定sideに保ち、rule envelopeとpole-local YZ最小間隔を守り、横位置にもvariationを持つ | `oracle` | 高さだけの縦積み、左右反転、spacing違反を防ぐ |
+| C858 | Behavior | Boundary | Communication/Opticalだけのruleは指定templateだけを通常Bundle・Port・Span・saved bindingとして生成する | `presence` `anchor` | category推測でHV/LVを追加する、またはvisual-only線へ戻る回帰を防ぐ |
+| C859 | Behavior | Boundary | required instanceを有限candidateで配置できない場合は明示失敗し、authoritative stateを変更しない | `differential` `anchor` | silent omissionや部分mutationを防ぐ |
+| C860 | Behavior | Invariant | acute cornerを通るrandomized multi-bundle routeはbackbone invariantを満たし、save/load後もconcrete placementを維持する | `presence` `differential` | load時rerollとlane/continuity twist再発を防ぐ |
+| C861 | Behavior | Invariant | incremental extensionは同じresolved placementとsource Bundleを使い、既存spanとconnection outputを保つ | `presence` `anchor` | extension時rerollと既存visual update scope欠落を防ぐ |
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各Observation tokenへそのoperation結果の独立evidenceを結び付けて実行する | `oracle` `presence` `anchor` | case内の別cellやObserve自体のassertionで未検証cellをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |
 
 ## 廃止済み旧pipeline検査

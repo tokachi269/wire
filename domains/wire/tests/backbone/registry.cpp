@@ -831,48 +831,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddSourceGuardTest(tests, "C655_backbone_node_patch_grouping_uses_band_identity",
                          "backbone node patch grouping includes local band identity", "Boundary", false,
                          C655_backbone_node_patch_grouping_uses_band_identity);
-  test_registry::AddTest(tests, "C656_backbone_node_patch_does_not_mix_base_and_extra_sections",
-                         "backbone node patch does not connect base and populated span sections", "Boundary", false,
-                         C656_backbone_node_patch_does_not_mix_base_and_extra_sections);
-  test_registry::AddTest(tests, "C657_backbone_node_patch_does_not_mix_extra_instance_indices",
-                         "backbone node patch does not connect different populated section instances", "Boundary",
-                         false, C657_backbone_node_patch_does_not_mix_extra_instance_indices);
-  test_registry::AddTest(tests, "C648_population_same_seed_is_stable",
-                         "cable population is stable for the same explicit seed", "Invariant", false,
-                         C648_population_same_seed_is_stable);
-  test_registry::AddTest(tests, "C649_population_span_identity_does_not_change_placement",
-                         "cable population placement is continuous across logical spans", "Invariant", false,
-                         C649_population_span_identity_does_not_change_placement);
-  test_registry::AddTest(tests, "C650_population_reserve_blocks_candidates",
-                         "cable population reserves block candidate pairs", "Invariant", false,
-                         C650_population_reserve_blocks_candidates);
-  test_registry::AddTest(tests, "C651_population_spacing_rejects_overlap",
-                         "cable population spacing rejects overlapping candidates", "Invariant", false,
-                         C651_population_spacing_rejects_overlap);
-  test_registry::AddTest(tests, "C652_population_endpoint_failure_omits_pair",
-                         "cable population endpoint failure omits the whole pair", "Boundary", true,
-                         C652_population_endpoint_failure_omits_pair);
-  test_registry::AddTest(tests, "C653_population_rejects_duplicate_band_identity",
-                         "cable population rejects duplicate local band identity", "Boundary", true,
-                         C653_population_rejects_duplicate_band_identity);
-  test_registry::AddTest(tests, "C654_population_does_not_mutate_logical_topology",
-                         "cable population changes visual output only", "Boundary", false,
-                         C654_population_does_not_mutate_logical_topology);
-  test_registry::AddTest(tests, "C686_population_rule_on_bundle_template_adds_visual_only_sections",
-                         "bundle template population rules add derived visual sections without topology mutation",
-                         "Boundary", false, C686_population_rule_on_bundle_template_adds_visual_only_sections);
-  test_registry::AddTest(tests, "C687_population_rule_update_is_reshape_not_regenerate",
-                         "bundle template population rule edits are reshape updates instead of regenerate",
-                         "Boundary", false, C687_population_rule_update_is_reshape_not_regenerate);
   test_registry::AddTest(tests, "C730_same_kind_bundle_templates_can_coexist",
                          "bundle template identity is separate from BundleKind category",
                          "Invariant", false, C730_same_kind_bundle_templates_can_coexist);
   test_registry::AddTest(tests, "C731_backbone_spec_references_duplicate_kind_templates",
                          "backbone spec can generate two templates with the same BundleKind",
                          "Invariant", false, C731_backbone_spec_references_duplicate_kind_templates);
-  test_registry::AddTest(tests, "C732_population_rule_owner_is_bundle_template_id",
-                         "population rules are owned by BundleTemplateId, not BundleKind",
-                         "Invariant", false, C732_population_rule_owner_is_bundle_template_id);
+  test_registry::AddTest(tests, "C732_route_bundle_rule_owner_is_bundle_template_id",
+                         "route bundle rules are owned by BundleTemplateId, not BundleKind",
+                         "Invariant", false, C732_route_bundle_rule_owner_is_bundle_template_id);
   test_registry::AddTest(tests, "C733_regenerate_scope_uses_bundle_template_id",
                          "bundle template regenerate scope matches BundleTemplateId only",
                          "Invariant", false, C733_regenerate_scope_uses_bundle_template_id);
@@ -897,9 +864,6 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C693_cable_run_id_keeps_branch_and_dead_end_separate",
                          "cable run id keeps branch spans and sharp dead-end sides separate",
                          "Invariant", false, C693_cable_run_id_keeps_branch_and_dead_end_separate);
-  test_registry::AddTest(tests, "C694_cable_run_id_connects_population_instances",
-                         "cable run id connects each population instance across through spans without merging base",
-                         "Invariant", false, C694_cable_run_id_connects_population_instances);
   test_registry::AddTest(tests, "C695_cable_run_id_is_deterministic",
                          "cable run id assignment is deterministic for identical fresh states",
                          "Invariant", false, C695_cable_run_id_is_deterministic);
@@ -1416,6 +1380,24 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "non-Auto main spans use one CableTemplate sag ratio with a parabolic profile",
                          "Invariant", false,
                          C855_backbone_non_auto_main_span_sag_is_parabolic_once);
+  test_registry::AddTest(tests, "C856_route_bundle_variation_is_seed_stable_and_seed_sensitive",
+                         "route bundle variation is stable for one seed and differs for representative seeds",
+                         "Invariant", false, C856_route_bundle_variation_is_seed_stable_and_seed_sensitive);
+  test_registry::AddTest(tests, "C857_route_bundle_variation_obeys_side_envelopes_and_spacing",
+                         "route bundle variation stays on one side and obeys envelopes and spacing",
+                         "Invariant", false, C857_route_bundle_variation_obeys_side_envelopes_and_spacing);
+  test_registry::AddTest(tests, "C858_route_bundle_variation_creates_only_requested_authoritative_topology",
+                         "communication-only variation creates ordinary topology for only requested templates",
+                         "Boundary", false, C858_route_bundle_variation_creates_only_requested_authoritative_topology);
+  test_registry::AddTest(tests, "C859_route_bundle_variation_failure_is_atomic",
+                         "unsatisfiable route bundle variation fails without authoritative mutation",
+                         "Boundary", true, C859_route_bundle_variation_failure_is_atomic);
+  test_registry::AddTest(tests, "C860_route_bundle_variation_survives_save_load_and_acute_corner",
+                         "resolved route placement survives save/load and an acute multi-bundle corner",
+                         "Invariant", false, C860_route_bundle_variation_survives_save_load_and_acute_corner);
+  test_registry::AddTest(tests, "C861_route_bundle_variation_incremental_extension_preserves_existing_output",
+                         "incremental extension reuses resolved placements and preserves existing spans",
+                         "Invariant", false, C861_route_bundle_variation_incremental_extension_preserves_existing_output);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

@@ -9,6 +9,7 @@ add_library(
   src/state/endpoint_refresh_service.cpp
   src/state/port_placement.cpp
   src/state/default_bundle_placement.cpp
+  src/state/route_bundle_variation.cpp
   src/state/override_resolution.cpp
   src/state/template/update.cpp
   src/generation/backbone/curve_parts.cpp
@@ -16,7 +17,6 @@ add_library(
   src/generation/backbone/derive_span_layout.cpp
   src/generation/backbone/emit_shared.cpp
   src/generation/backbone/out.cpp
-  src/generation/backbone/population.cpp
   src/generation/backbone/regenerate.cpp
   src/generation/backbone/span_visual_assembly.cpp
   src/generation/backbone/mount_graph.cpp
@@ -124,7 +124,8 @@ if(BUILD_TESTING)
     tests/backbone/guard.cpp
     tests/backbone/input.cpp
     tests/backbone/output.cpp
-    tests/backbone/population.cpp
+    tests/backbone/bundle_template_identity.cpp
+    tests/backbone/route_bundle_variation.cpp
     tests/backbone/semantics_coverage.cpp
     tests/backbone/semantics_matrix.cpp
     tests/backbone/update.cpp

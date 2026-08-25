@@ -81,6 +81,7 @@ export interface ViewerSnapshot {
   bundleTemplates: BundleTemplateInfo[];
   selectedBundleTemplateId: number | null;
   drawBundlePlacements: BundlePlacement[];
+  wireRouteSeed: number | null;
   cableTemplates: CableTemplateInfo[];
   selectedCableTemplateId: number | null;
   poleTemplates: PoleTemplateInfo[];
@@ -147,6 +148,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     bundleTemplates: [],
     selectedBundleTemplateId: null,
     drawBundlePlacements: [],
+    wireRouteSeed: null,
     cableTemplates: [],
     selectedCableTemplateId: null,
     poleTemplates: [],

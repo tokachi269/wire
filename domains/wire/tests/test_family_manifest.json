@@ -41,13 +41,6 @@
       "notes": "Derived outputs remain consumers of saved decisions."
     },
     {
-      "name": "backbone_population",
-      "status": "keep",
-      "owner": "Topology-neutral cable population",
-      "sources": ["domains/wire/tests/backbone/population.cpp"],
-      "notes": "Pure placement identity, pairing, constraints, and no-topology-mutation contracts."
-    },
-    {
       "name": "backbone_update",
       "status": "keep",
       "owner": "Coarse UpdateKind and direct derive contracts",

@@ -279,7 +279,6 @@ export interface BundleTemplateInfo {
   rowFixtureAssemblyId: number;
   endpointFixtureAssemblyId: number;
   spanVisualAssembly: SpanVisualAssemblyInfo;
-  populationRules: PopulationRuleInfo[];
 }
 
 export interface BundlePlacement {
@@ -291,6 +290,22 @@ export interface BundlePlacement {
   height: number;
   offset: number;
   spacing: number;
+}
+
+export interface RandomBundleRule {
+  bundleTemplateId: number;
+  minInstances: number;
+  maxInstances: number;
+  conductorCount: number;
+  heightMin: number;
+  heightMax: number;
+  lateralAbsMin: number;
+  lateralAbsMax: number;
+  minSpacing: number;
+}
+
+export interface RouteBundleVariationResult extends OperationResult {
+  placements: BundlePlacement[];
 }
 
 export interface DefaultBundlePlacementInfo extends OperationResult {
@@ -312,19 +327,6 @@ export interface SpanVisualAssemblyInfo {
   memberWanderPhaseBias: number;
   memberTwistTurnsPerMeter: number;
   memberTwistPhase: number;
-}
-
-export interface PopulationRuleInfo {
-  ruleId: number;
-  explicitSeed: number;
-  priority: number;
-  minExtraCount: number;
-  maxExtraCount: number;
-  minSpacing: number;
-  lateralMin: number;
-  lateralMax: number;
-  heightMin: number;
-  heightMax: number;
 }
 
 export interface CableTemplateInfo {

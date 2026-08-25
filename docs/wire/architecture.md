@@ -378,14 +378,21 @@ materializationのため読むだけの`context spans`を分ける。EdgeBody等
 NodePatch/Jumper等のnode-owned partはaffected nodeだけを削除・置換する。context spanの反対側nodeは
 削除対象へ昇格させない。context不足時に既存connectionを削除してsilent skipすることは禁止する。
 
-### cable population
+### route bundle variation
 
-CableInstance / CableSection / carrier の設計語は `cable_instance_section.md` を参照する。
-`CableSectionKey` は section scope の識別子であり、`logical_span_id` を含む。見た目上連続する1本の
-identity は `VisualCurvePart.cable_run_id` として visual derive 層で派生する。run は採用済み
-NodePatch pair で接続された section の連結成分で、canonical key は成分内最小の
-`(edge_bundle_id, logical_span_id, rule_owner_id, rule_id, instance_index)` である。run id は
-`SavedBackboneGraph`、binding、template に保存しない。
+Decision は route bundle variation、Owner は Wire generation input resolver とする。入力は人間が記述した
+random bundle rule、route seed、preferred side、`PoleTypeDefinition` / `BundleTemplate` 定義であり、出力は
+concrete な `BackboneBundleSpec` entries である。consumer は既存 backbone generation pipeline だけで、
+pipeline / layout / curve / viewer は randomization を再判断しない。
+
+random rule と route seed は Input であり保存しない。resolver は route 生成開始時に1回だけ Bundle 数と
+pole-local の height / lateral を確定し、通常の Bundle / Port / Span / saved placement として保存する。
+load、regenerate、通常 update は保存済み concrete placement を使い、reroll しない。同一 Bundle の placement を
+Pole ごとに変えず、同一 route 内で side を反転しない。road-facing side は外部から与える単純な sign であり、
+Wire は Road domain や道路の意味を解釈しない。
+
+旧 cable population の visual-only duplication は退役する。Bundle 本数の variation を
+`CableSectionLayout` の追加描画として生成せず、すべて通常の authoritative topology として生成する。
 
 ## BundleTemplate identity
 
@@ -394,28 +401,15 @@ Communication などの default category/tag であり、identity ではない�
 `BundleTemplate` は複数存在できる。
 
 `bundle_templates` の key、`Bundle.bundle_template_id`、backbone spec / saved graph / binding、
-population rule owner、regenerate scope は `BundleTemplateId` を使う。`BundleKind` から一意の
+random bundle rule、regenerate scope は `BundleTemplateId` を使う。`BundleKind` から一意の
 template を引く API は持たない。kind で探す場合は grouping/filter として複数 id を返す。
-
-`BundleTemplate.population_rules` は、その bundle が派生させる追加の平行線を定義する。
-rules が空なら追加線は無い。global enable や global seed は持たない。
-
-population は derived output であり、`SavedBackboneGraph`、`Span`、`Port`を増やさない。
-layout後に base span と追加線を `CableSectionLayout` へ揃え、同じ `EdgeBodyCurve` /
-`NodePatchCurve` 生成へ渡す。追加線専用の curve、tessellation、render 経路は持たない。
-section identity は logical span、edge bundle、bundle template、明示 rule id、instance index から作り、
-両 endpoint は同じ instance index で対応させる。配置不能時は support や route を作らず omit diagnostic を残す。
-
-rule 変更は `UpdateBundleTemplate` の `kReshape` 差分であり、topology/regenerate 差分にしない。
-配置は rule の explicit seed、logical span、edge bundle、rule id、instance index から決定的に導出する。
-lateral / height は rule 範囲と endpoint band 範囲の交差内で stable random 配置する。
 
 ## span visual assembly
 
 span visual assembly は derived visual output であり、authoritative topology ではない。
 assembly の単位は logical span であり、Bundle の全 lane を物理的に束ねるものではない。
 
-members は base section と同一 logical span の population sections である。support path と
+members は base section と同一 logical span の lane sections である。support path と
 members は helix の内側に置き、support path は内周上部に接し、members は下側に配置する。
 helix は endpoint trim 区間だけ生成し、電柱や attachment へ接続しない。
 

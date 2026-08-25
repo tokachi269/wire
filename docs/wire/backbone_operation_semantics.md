@@ -56,7 +56,7 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 構築された `CoreState` から状態を分類してcoverageへ記録する。matrixに行または列を追加し、
 対応する実状態を構築しなければcore test全実行を失敗させる。
 
-coverageとして認めるcaseは、次の独立evidenceを1つ以上持つ。
+coverageとして認める各Observationは、そのcellのoperation結果について次の独立evidenceを1つ以上持つ。
 
 - `oracle`: 手計算値または固定fixture期待値
 - `anchor`: 正本入力やstable IDとの関係

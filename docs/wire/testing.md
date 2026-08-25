@@ -33,6 +33,7 @@ Backbone fixtureは`domains/wire/tests/backbone/fixtures.*`に置く。Testはv1
 操作×状態coverageは、要求されたsemantics cellへ実際に到達したことを証明する。共通invariantはcoverage metadataへ埋め込まず、安定した各観測点のstate correctnessを証明する。
 
 - `Observe`、`ObserveEmpty`、`ObserveMidspan`は`(cell, entry)`を記録する前にrow-frame coherenceを検査する。
+- 各`Observe`が返すtokenへ、そのoperation実行後の`oracle`、`anchor`、`presence`、`differential`を結び付ける。case内の別cellに対するassertion、fixture構築成功、Observe自体はそのcellのevidenceにしない。
 - Coreはすべてのrequired cellを`core_api`経由で実行する。
 - WASMとviewer testは`backbone_operation_semantics.md`の`入口境界`表を読み、実payloadを実行する。
 - `derived_equality`だけを記録するcaseは独立evidenceではない。Full core test outputは該当caseを列挙する。

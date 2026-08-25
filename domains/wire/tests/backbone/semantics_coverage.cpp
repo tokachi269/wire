@@ -38,6 +38,7 @@ struct Observation {
   State state = State::kS0;
   Entry entry = Entry::kCoreApi;
   test_registry::TestFamily family = test_registry::TestFamily::kBehavior;
+  std::vector<test_registry::AssertionKind> evidence{};
 };
 
 std::vector<Observation>& observations() {
@@ -232,16 +233,17 @@ bool classify(const city::wire::CoreState& state, city::wire::ObjectId pole_id,
   return true;
 }
 
-void add_observation(Operation operation, State state, Entry entry) {
+ObservationToken add_observation(Operation operation, State state, Entry entry) {
   observations().push_back({test_registry::CurrentTestCaseId(), operation, state, entry,
-                            test_registry::CurrentTestFamily()});
+                            test_registry::CurrentTestFamily(), {}});
+  return ObservationToken{observations().size() - 1};
 }
 
 } // namespace
 
 bool Observe(Operation operation, Entry entry, const city::wire::CoreState& state,
              city::wire::ObjectId pole_id, city::wire::ObjectId reference_edge_bundle_id,
-             std::size_t lane_index, std::string* error) {
+             std::size_t lane_index, std::string* error, ObservationToken* token) {
   State classified = State::kS0;
   if (!classify(state, pole_id, reference_edge_bundle_id, lane_index, &classified, error)) return false;
   std::string invariant_error;
@@ -252,11 +254,13 @@ bool Observe(Operation operation, Entry entry, const city::wire::CoreState& stat
     }
     return false;
   }
-  add_observation(operation, classified, entry);
+  const ObservationToken observed = add_observation(operation, classified, entry);
+  if (token != nullptr) *token = observed;
   return true;
 }
 
-bool ObserveEmpty(Operation operation, Entry entry, const city::wire::CoreState& state, std::string* error) {
+bool ObserveEmpty(Operation operation, Entry entry, const city::wire::CoreState& state,
+                  std::string* error, ObservationToken* token) {
   if (!state.view().backbone().port_bindings.empty()) {
     if (error != nullptr) *error = "S0 observation requires no existing endpoint bindings";
     return false;
@@ -269,12 +273,14 @@ bool ObserveEmpty(Operation operation, Entry entry, const city::wire::CoreState&
     }
     return false;
   }
-  add_observation(operation, State::kS0, entry);
+  const ObservationToken observed = add_observation(operation, State::kS0, entry);
+  if (token != nullptr) *token = observed;
   return true;
 }
 
 bool ObserveMidspan(Operation operation, Entry entry, city::wire::CoreState& state,
-                    city::wire::ObjectId source_edge_id, std::string* error) {
+                    city::wire::ObjectId source_edge_id, std::string* error,
+                    ObservationToken* token) {
   const city::wire::SavedBackboneEdge* source_edge = state.view().backbone_edge(source_edge_id);
   if (source_edge == nullptr) {
     if (error != nullptr) *error = "midspan observation requires an existing source edge";
@@ -308,8 +314,62 @@ bool ObserveMidspan(Operation operation, Entry entry, city::wire::CoreState& sta
     }
     return false;
   }
-  add_observation(operation, State::kSM, entry);
+  const ObservationToken observed = add_observation(operation, State::kSM, entry);
+  if (token != nullptr) *token = observed;
   return true;
+}
+
+bool RecordObservationEvidence(ObservationToken token, test_registry::AssertionKind kind,
+                               std::string* error) {
+  if (token.index >= observations().size()) {
+    if (error != nullptr) *error = "semantics evidence references an invalid observation";
+    return false;
+  }
+  Observation& observation = observations()[token.index];
+  if (observation.case_id != test_registry::CurrentTestCaseId()) {
+    if (error != nullptr) *error = "semantics evidence belongs to a different test case";
+    return false;
+  }
+  if (std::find(observation.evidence.begin(), observation.evidence.end(), kind) ==
+      observation.evidence.end()) {
+    observation.evidence.push_back(kind);
+  }
+  return true;
+}
+
+bool ValidateRecordedObservationEvidence(std::string* error) {
+  std::set<std::string> weak;
+  for (const Observation& observation : observations()) {
+    const std::string cell = cell_id(observation.operation, observation.state);
+    if (observation.family == test_registry::TestFamily::kSourceGuard) {
+      weak.insert(cell + " case:" + observation.case_id + " is a SourceGuard");
+      continue;
+    }
+    const bool has_observation_evidence =
+        std::any_of(observation.evidence.begin(), observation.evidence.end(),
+                    [](test_registry::AssertionKind kind) {
+                      return kind == test_registry::AssertionKind::kOracle ||
+                             kind == test_registry::AssertionKind::kAnchor ||
+                             kind == test_registry::AssertionKind::kPresence ||
+                             kind == test_registry::AssertionKind::kDifferential;
+                    });
+    if (!has_observation_evidence) {
+      weak.insert(cell + " case:" + observation.case_id + " entry:" +
+                  entry_name(observation.entry));
+    }
+  }
+  if (weak.empty()) return true;
+  if (error != nullptr) {
+    std::ostringstream out;
+    out << "observations without independent assertion: ";
+    std::size_t i = 0;
+    for (const std::string& item : weak) {
+      if (i++ > 0) out << ", ";
+      out << item;
+    }
+    *error = out.str();
+  }
+  return false;
 }
 
 bool ValidateRuntimeCoverage(std::string* error) {
@@ -325,22 +385,16 @@ bool ValidateRuntimeCoverage(std::string* error) {
     required_entries.emplace(cell, Entry::kCoreApi);
   }
   std::set<CoveredEntry> covered;
-  std::set<std::string> weak;
   for (const Observation& observation : observations()) {
     const std::string cell = cell_id(observation.operation, observation.state);
-    if (observation.family == test_registry::TestFamily::kSourceGuard) {
-      weak.insert(cell + " case:" + observation.case_id + " is a SourceGuard");
-      continue;
-    }
     covered.emplace(cell, observation.entry);
-    if (!test_registry::TestCaseHasIndependentAssertion(observation.case_id)) {
-      weak.insert(cell + " case:" + observation.case_id + " entry:" + entry_name(observation.entry));
-    }
   }
   std::vector<CoveredEntry> missing;
   std::set_difference(required_entries.begin(), required_entries.end(), covered.begin(), covered.end(),
                       std::back_inserter(missing));
-  if (missing.empty() && weak.empty()) return true;
+  std::string evidence_error;
+  const bool evidence_ok = ValidateRecordedObservationEvidence(&evidence_error);
+  if (missing.empty() && evidence_ok) return true;
   if (error != nullptr) {
     std::ostringstream out;
     if (!missing.empty()) {
@@ -350,14 +404,9 @@ bool ValidateRuntimeCoverage(std::string* error) {
         out << missing[i].first << " entry:" << entry_name(missing[i].second);
       }
     }
-    if (!weak.empty()) {
+    if (!evidence_ok) {
       if (!missing.empty()) out << "; ";
-      out << "observations without independent assertion: ";
-      std::size_t i = 0;
-      for (const std::string& item : weak) {
-        if (i++ > 0) out << ", ";
-        out << item;
-      }
+      out << evidence_error;
     }
     *error = out.str();
   }

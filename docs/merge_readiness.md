@@ -18,10 +18,10 @@
 
 ## test evidence debt
 
-2026-07-29時点のfull core test実測:
+2026-08-25時点のspec ledger集計:
 
 - `derived_equality`単独case: 0
-- `legacy_unclassified`: 419
+- `legacy_unclassified`: 422
 
 `legacy_unclassified`は一括書換えしない。matrix観測に使うcaseは即時分類し、その他は
 production/testを触った作業単位で分類する。case総数の増加ではなく、この残件数の減少を
@@ -66,6 +66,7 @@ viewerはこれらを事前に判別せず、Apply後のerror logで初めてuns
 |---|---|---|
 | `UpdateCableTemplate` | non-backbone span を含む decision差分は mutation 前に unsupported。backbone-only scope は統一 regenerate が所有する | [wire/architecture.md](wire/architecture.md) の transaction / regenerate 契約 |
 | `UpdateAttachmentTemplate` | 使用中 attachment の構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更)は、モデル再読込 conflict として解決するまで mutation 前に unsupported | [wire/models.md](wire/models.md) の `UpdateAttachmentTemplate` 構造差分 |
+| Road archive | 現段階では保存互換を保証しない。version fieldとmigration分岐を持たず、現行schemaだけを読み書きする | [road/architecture.md](road/architecture.md) の Persistence target |
 
 既に保留から外したもの: `UpdateBundleTemplate` の fixed count 増減、`kTopology` policy差分、range化(`count_rule` fixed/range、`min_count` / `max_count` / `default_count`: 保存済み`conductor_count`が新policy内なら出力不変、外ならmutation前拒否)、multi-bundle、3点以上route、存続attachment保持、退役attachment拒否、存続manual port保持、退役manual port拒否、`population_rules` / `support_wire_pole_band_id` / `cable_template_id` detail差分、`related_pole_type_id` の定義更新のみ、metadata/name、`UpdateCableTemplate` の backbone continuity policy decision差分、geometry/render差分、source-edge branch projection追従、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles`、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings`。
 
@@ -77,9 +78,28 @@ E. Docs stale only: `docs/viewer/operations.md` に残っていた backbone span
 |---|---|---|---|
 | R2 | `ResolveBranchPick` の pure 化 | `ResolveBranchPick` は現在、viewer の draw bridge が次の generation に渡す pending support node を作る操作でもある。照会APIとして pure に分離するには bridge 協定変更が必要 | `ResolveBranchPick` は副作用なしの解決だけを返し、pending support node の作成/消費は別の確定操作へ移す。web bridge と clear/cancel lifecycle を同時に更新し、既存 pending lifecycle tests を通す |
 | R3 | road authored profile / reference mesh UV source がない | `Mesh`はnormal、uv0、material groupを持つが、現行UVはprocedural defaultである。Blender等で制作したgutter/highway reference meshからcross section、V、material groupを取り込む経路はまだない | reference mesh/profile asset importerを追加し、procedural default UVをauthored metadataへ置換できることを実メッシュで確認する |
-| J2 | `MovePole`で接続済みpairの角度が通常/鋭角閾値を跨ぐ | endpoint Port identityとcontinuityは維持されるが、repositionは保存済みlayout ruleを再利用するため、row/fixtureとNodePatch/jumperの表現切替を再導出しない | `SavedBackboneRowContinuity`と現在幾何から通常/鋭角表現を再導出し、Port ID不変のままfixture 1↔2、NodePatch↔jumperを切り替えるfail-first testを通す |
 
-J2がsource上の既知blockerである。必須check、実画面の最終確認、mainとの差分・競合確認も必要である。
+既にblockerから外したもの: `MovePole`で通常/鋭角閾値を跨ぐ場合の表現再導出。
+`C813_backbone_move_pole_rederives_pair_representation`が、endpoint Port IDとrow keyを維持したまま
+fixture 1↔2、NodePatch↔jumperを切り替え、通常角へ戻せることを検証する。
+
+## 直近の検証状況
+
+2026-08-25時点で確認した結果:
+
+- Road core tests: 101 cases PASS
+- Road architecture lint: PASS
+- repository architecture lint: PASS
+- test-family lint: 585 registered cases / 29 source files PASS
+- Web/WASM build: PASS
+- `web/tests/wasm.test.ts`: 59 cases PASS
+- `git diff --check`: PASS
+- Road architecture contract tests: 2 cases FAIL
+  - `reverse_input_has_equivalent_geometry`: reverse surface mesh geometry differs
+  - `same_angle_approaches_use_id_tie_break`: road junction perimeter has zero signed area
+
+Road architecture contractの2件が残るため、現時点では必須check完了ではない。
+この記録は実画面確認、mainとの差分・競合確認、未記載の必須checkを代替しない。
 
 ## merge可能条件
 

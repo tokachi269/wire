@@ -96,8 +96,7 @@ XY上で道路が交差しても、それだけではjunctionを作らない。�
 banking、terrain cut/fill、bridge/tunnel geometryは別課題である。
 
 `RoadNode.elevation_m`はauthoritative archiveへ保存する。evaluated Z sample、3D frame、mesh vertex Z、
-lane path point Z、marking ZはDerivedであり保存しない。旧archiveから読むnode elevationは0.0mへmigrationし、
-既存の平面道路の見た目を保つ。
+lane path point Z、marking ZはDerivedであり保存しない。
 
 ### Coreに残す具体値と、その理由
 
@@ -121,7 +120,7 @@ lane path point Z、marking ZはDerivedであり保存しない。旧archiveか�
 Webへ移すと過去のworkspaceが同じ線幅で再現できない。選択肢は次の3つで、
 いずれもarchive schema変更かrequest契約変更を伴うため、今回は実施しない。
 
-- `AutoMarkingPolicy`へ幅を保存する (schema変更、migration必要)
+- `AutoMarkingPolicy`へ幅を保存する (schema変更。保存互換を保証する段階ならversioningが必要)
 - 新規workspace作成時にWebがstyle表をCoreへ登録する (断面templateと同じ方式、schema変更必要)
 - Core固定のまま、日本の道路標示規格に由来する値として文書化する (現状)
 
@@ -412,7 +411,7 @@ authoritativeに保存するのは`ApproachGeometryOverride`のmanual setback / 
 
 ## Persistence target
 
-road persistence version 12は局所segment/corridorに加えてlane/boundary topologyとlayoutのalignment offsetを保存する。保存対象はauthoritative stateとnext IDだけとする。
+Road archiveは現行schemaだけを読み書きする。保存対象はauthoritative stateとnext IDだけとする。
 CanonicalAlignment、connection、gate、section evaluation、junction geometry、mesh、mask、auto markingは保存しない。
 resolved connection、derived marking、mesh、maskも保存しない。ApproachGeometryOverrideはmanual fieldがある場合だけ保存する。
 `LaneConnection`と`BoundaryContinuation`はID順に保存し、lane/boundary path geometryは保存しない。
@@ -429,7 +428,7 @@ AddLaneの固定基準はCoreがlaneの方向・追加側・断面順から決�
 top-level entityはID順にcanonical serializeする。順序に意味がある`SegmentShape.internal_knots`やPath spanは保存順を維持する。
 doubleはload後に同じbinary doubleへ戻る表現で保存する。
 
-未知versionと対応外の旧versionは明示rejectする。対応済み旧versionは明示migrationだけを通す。loadはparse、field構造検証、型変換、
+version fieldとmigration分岐は持たない。loadは現行schemaとしてparse、field構造検証、型変換、
 `ValidateAuthoritativeGraph`、`generate_road`、不変条件検査を通過した場合だけ新stateを返す。duplicate key、missing key、
 unknown key、count不一致、enum範囲外、非有限値、重複ID、欠損参照をrejectする。
 
@@ -509,11 +508,10 @@ sourceだけにあるIDは消滅として幅0のedgeから、またはedgeへ補
 同じIDのsurface stripまたは進行方向が変わる遷移、およびcollapse edgeが一意でない遷移はunsupportedとする。
 物理外形の変化とlane数の変化は独立であり、固定外形内の再配分と外側拡幅の両方を同じ補間で扱う。
 
-現行persistence versionは16。局所segment、corridor、directed ref、section strip、lane allocation、
+現行schemaは局所segment、corridor、directed ref、section strip、lane allocation、
 lane connection、boundary continuation、layoutのalignment offset、boundary profile、segment corner radius、
-RoadNode elevationをnamed fieldで保存する。version 15以前のnode elevationは0.0mとして読む。
-version 14以前のcorner radiusはCore既定値として読む。version 12はboundaryのwidth/heightを2点profileへ解決し、
-その幅を左隣stripへ移して読む。version 11以前はmigrationせず明示rejectする。
+RoadNode elevationをnamed fieldで保存する。欠落fieldやversion fieldを含むarchiveは現行schemaではないためrejectする。
+保存互換を保証する段階になった時点でversioningとmigrationを改めて導入する。
 corridor長、累積distance、connection geometry、evaluated elevation、3D frameは派生なので保存しない。
 
 ## Boundary profile

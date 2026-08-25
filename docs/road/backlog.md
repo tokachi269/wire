@@ -15,7 +15,7 @@
 | 高架の連続形状 | 高架壁と床版側面・下面の押し出し、地面マスクの無効化と遷移 | 縦断が入ってから。橋脚等の個別モデル配置は別 |
 | ユーザー定義Area | ロータリー・広場の形状生成。outerとhole 1個から | 交差点とcorridorが安定してから。内部の交通意味論は対象外 |
 | wire連携 | 道路脇の基準Path、side、offset、許可区間だけを公開する`RoadsideGuide` | wire側にconsumerができてから。roadとwireは相互に内部構造を読まない |
-| 白線幅の所有権移動 | style IDから物理幅を導く表をWebへ移す | 幅の保存場所を決めてから。現在archiveはstyle IDだけを持ち、幅は `marking_width_m` がCore内で決めている。移すとarchive schema変更とmigrationが必要 |
+| 白線幅の所有権移動 | style IDから物理幅を導く表をWebへ移す | 幅の保存場所を決めてから。現在archiveはstyle IDだけを持ち、幅は `marking_width_m` がCore内で決めている。現段階ではschema変更後の旧archive互換を保証しない |
 | wire製品カタログの所有権移動 | 電柱型・束・ケーブル・取付テンプレートをWebへ移す | road断面と同じ扱いにする。`CoreState()` が4カタログを自動登録し、Web(`defaultBundlePreset.ts`)が固定ID 101/102/104を仮定している。archiveは定義を保存しているのでLoad互換は取れるが、wire test 457箇所のCoreState生成と4種のWASM入力schemaが必要 |
 
 ## 端部構造
@@ -49,6 +49,5 @@ L字溝・縁石・median edgeは`BoundaryProfile`のcontourとして実装済�
 
 ## 保存互換性
 
-手動線・手動面・lane connection・boundary continuationは `SavedRoadGraph` に残り、archive version 13 で読み書きできる。
-version 12 の workspace も開ける。boundary の width/height を2点profileへ解決し、その幅を左隣stripへ移す。
-標準UIとpublic APIから外しただけで、既存workspaceは開ける。保存fieldの削除は別途migration方針を決めてから行う。
+現段階のRoad archiveは現行schemaだけを読み書きし、旧schemaとの後方互換を保証しない。
+version fieldとmigration機構は持たず、保存互換を保証する段階になった時点で改めて導入する。

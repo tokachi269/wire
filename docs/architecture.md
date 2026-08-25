@@ -73,11 +73,11 @@ pipeline stageは責務で分ける。operation固有分岐をmaterializationや
 
 ## Persistence
 
-- identityとauthoritative値だけをversion付きで保存する。
+- identityとauthoritative値だけを保存する。保存互換を保証するdomainだけがversioningを持つ。
 - 未知field、欠落、重複、truncation、構文不正を拒否する。
 - loadは新しいtrial stateでparse、index構築、通常build、validationを完了してからcommitする。
 - save -> load -> saveはauthoritative byte一致を基本契約とする。
-- schema migrationはversionごとの明示処理とし、geometryや名前から欠損identityを推測しない。
+- versioningを持たないdomainは現行schemaだけを読み書きし、互換分岐を置かない。将来、保存互換を保証する時点でversioningと明示migrationを導入し、geometryや名前から欠損identityを推測しない。
 
 ## Geometry and materialization
 

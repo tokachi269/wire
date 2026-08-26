@@ -347,7 +347,10 @@ struct RandomBackboneBundleRule {
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   int min_instances = 0;
   int max_instances = 0;
-  int conductor_count = 0;
+  int min_conductor_count = 0;
+  int max_conductor_count = 0;
+  double member_spacing_min_m = 0.0;
+  double member_spacing_max_m = 0.0;
   double height_min_m = 0.0;
   double height_max_m = 0.0;
   double lateral_abs_min_m = 0.0;

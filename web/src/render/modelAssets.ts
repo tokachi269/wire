@@ -21,6 +21,7 @@ export type ModelAssetKind =
   | "crossarmHv"
   | "hvInsulator"
   | "poleBody"
+  | "nonHvSupportRowProxy"
   | "poleDecorationX"
   | "poleTransformer20kvaProxy"
   | "transformerIntermediateInsulatorProxy"
@@ -38,6 +39,7 @@ export type ModelKey =
   | "hv_crossarm"
   | "hv_insulator"
   | "pole_body"
+  | "non_hv_support_row_proxy"
   | "pole_decoration_x"
   | "pole_transformer_20kva_proxy"
   | "transformer_intermediate_insulator_proxy"
@@ -127,6 +129,12 @@ const adapters: Record<ModelAssetKind, ModelAssetAdapter> = {
     radialReferenceM: poleRadiusAtDistanceFromTop(polePrimitive.visibleHeightM),
     radialTopM: poleRadiusAtDistanceFromTop(0.0),
     adapterVersion: 5
+  },
+  nonHvSupportRowProxy: {
+    modelKey: "non_hv_support_row_proxy",
+    url: "primitive:non_hv_support_row_proxy",
+    mountRule: "center",
+    adapterVersion: 1
   },
   poleDecorationX: {
     modelKey: "pole_decoration_x",
@@ -282,6 +290,12 @@ function makeTransformerSupportBracketProxy(): THREE.Group {
   return group;
 }
 
+function makeNonHvSupportRowProxy(): THREE.Group {
+  const group = new THREE.Group();
+  addMesh(group, new THREE.BoxGeometry(0.040, 1.0, 0.040), 0x969d9f, [0, 0, 0], [0, 0, 0], 0.35);
+  return group;
+}
+
 function makePoleDecorationX(): THREE.Group {
   const group = new THREE.Group();
   const zinc = 0x969d9f;
@@ -365,6 +379,7 @@ export class ModelAssetCache {
 
   constructor(private readonly loadScene: SceneLoader = loadGltfScene) {
     this.registerPrimitiveSource("poleDecorationX", makePoleDecorationX());
+    this.registerPrimitiveSource("nonHvSupportRowProxy", makeNonHvSupportRowProxy());
     this.registerPrimitiveSource("poleTransformer20kvaProxy", makePoleTransformer20kvaProxy());
     this.registerPrimitiveSource("transformerIntermediateInsulatorProxy", makeTransformerIntermediateInsulatorProxy());
     this.registerPrimitiveSource("transformerSupportBracketProxy", makeTransformerSupportBracketProxy());

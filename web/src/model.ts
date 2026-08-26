@@ -296,7 +296,10 @@ export interface RandomBundleRule {
   bundleTemplateId: number;
   minInstances: number;
   maxInstances: number;
-  conductorCount: number;
+  minConductorCount: number;
+  maxConductorCount: number;
+  memberSpacingMin: number;
+  memberSpacingMax: number;
   heightMin: number;
   heightMax: number;
   lateralAbsMin: number;

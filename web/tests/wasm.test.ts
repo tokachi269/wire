@@ -472,7 +472,7 @@ describe("wire wasm smoke", () => {
     loaded.delete();
   });
 
-  it("keeps non-Auto final viewer samples on the requested parabola", () => {
+  it("keeps non-Auto final viewer samples on the resolved sag parabola", () => {
     const runState = createState();
     const bundleTemplate = Array.from({ length: runState.bundleTemplateCount() }, (_, index) =>
       runState.bundleTemplate(index)
@@ -508,10 +508,16 @@ describe("wire wasm smoke", () => {
     const end = endPoint(body);
     expect(end[0] - start[0]).toBe(20);
     expect(end[2]).toBe(start[2]);
+    const anchorU = 1 / (pointCount - 1);
+    const anchorChordZ = start[2] + (end[2] - start[2]) * anchorU;
+    const resolvedSag = (anchorChordZ - body.samples[5]) /
+      (4 * anchorU * (1 - anchorU));
+    expect(resolvedSag).toBeGreaterThanOrEqual(0.475);
+    expect(resolvedSag).toBeLessThanOrEqual(0.525);
     for (let index = 0; index < pointCount; index += 1) {
       const u = index / (pointCount - 1);
       const chordZ = start[2] + (end[2] - start[2]) * u;
-      const expectedZ = chordZ - 0.5 * 4 * u * (1 - u);
+      const expectedZ = chordZ - resolvedSag * 4 * u * (1 - u);
       expect(Math.abs(body.samples[index * 3 + 2] - expectedZ),
         `viewer sample ${index} at u=${u}`).toBeLessThanOrEqual(1e-12);
     }

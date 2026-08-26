@@ -1398,6 +1398,18 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C861_route_bundle_variation_incremental_extension_preserves_existing_output",
                          "incremental extension reuses resolved placements and preserves existing spans",
                          "Invariant", false, C861_route_bundle_variation_incremental_extension_preserves_existing_output);
+  test_registry::AddTest(tests, "C862_non_hv_route_variation_covers_each_category_and_keeps_hv_fixed",
+                         "non-HV route variation covers each category while HV remains fixed",
+                         "Invariant", false, C862_non_hv_route_variation_covers_each_category_and_keeps_hv_fixed);
+  test_registry::AddTest(tests, "C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct",
+                         "compatible supported bundles share rows and near-pole bundles stay direct",
+                         "Invariant", false, C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct);
+  test_registry::AddTest(tests, "C864_non_hv_bundle_wander_preserves_endpoints_and_hv_sag",
+                         "non-HV member wander preserves endpoints while HV sag remains unchanged",
+                         "Invariant", false, C864_non_hv_bundle_wander_preserves_endpoints_and_hv_sag);
+  test_registry::AddTest(tests, "C865_non_hv_support_and_member_shape_survive_save_load",
+                         "derived support rows and member shapes survive authoritative save-load",
+                         "Invariant", false, C865_non_hv_support_and_member_shape_survive_save_load);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",
                          "Invariant", false,

@@ -1,6 +1,7 @@
 #include "city/wire/core_state.hpp"
 
 #include "../generation/backbone/emit_shared.hpp"
+#include "../generation/backbone/route_support.hpp"
 #include "../support/hash_mix.hpp"
 
 #include <algorithm>
@@ -32,6 +33,29 @@ double sample_range(std::uint64_t seed, std::uint64_t salt, double minimum, doub
     return minimum;
   }
   return minimum + (maximum - minimum) * unit_value(support::hash_combine(seed, salt));
+}
+
+int sample_count(std::uint64_t seed, int minimum, int maximum) {
+  const int range = maximum - minimum + 1;
+  return minimum + static_cast<int>(support::splitmix64(seed) % static_cast<std::uint64_t>(range));
+}
+
+double sample_lateral_magnitude(std::uint64_t seed, double minimum, double maximum,
+                                ConnectionCategory category) {
+  const double raw = sample_range(seed, 0x4c41544552414cull, minimum, maximum);
+  if (generation::backbone::route_support::is_high_voltage(category) ||
+      raw <= generation::backbone::route_support::kDirectReachM) {
+    return raw;
+  }
+  const double slot_offset =
+      (raw - generation::backbone::route_support::kSupportedSlotStartM) /
+      generation::backbone::route_support::kSupportedSlotSpacingM;
+  const double slot = generation::backbone::route_support::kSupportedSlotStartM +
+      std::round(slot_offset) * generation::backbone::route_support::kSupportedSlotSpacingM;
+  const double jitter = sample_range(seed, 0x534c4f544a495454ull,
+                                     -generation::backbone::route_support::kSupportedSlotJitterM,
+                                     generation::backbone::route_support::kSupportedSlotJitterM);
+  return std::clamp(slot + jitter, minimum, maximum);
 }
 
 struct PlacedPoint {
@@ -77,7 +101,7 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
       }
       const int lane_count = bundle_template->count_rule == BundleCountRuleKind::kFixed
           ? bundle_template->fixed_count
-          : (rule.conductor_count > 0 ? rule.conductor_count : bundle_template->default_count);
+          : (rule.min_conductor_count > 0 ? rule.min_conductor_count : bundle_template->default_count);
       const auto bands = generation::backbone::SelectPortPlacementBands(
           *pole_type, bundle_template->category, bundle_template->default_layer, lane_count);
       if (!bands.ok) {
@@ -111,44 +135,55 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
         !std::isfinite(rule.height_max_m) || rule.height_max_m < rule.height_min_m ||
         !std::isfinite(rule.lateral_abs_min_m) || !std::isfinite(rule.lateral_abs_max_m) ||
         rule.lateral_abs_min_m < 0.0 || rule.lateral_abs_max_m < rule.lateral_abs_min_m ||
-        !std::isfinite(rule.min_spacing_m) || rule.min_spacing_m < 0.0) {
+        !std::isfinite(rule.min_spacing_m) || rule.min_spacing_m < 0.0 ||
+        rule.min_conductor_count < 0 || rule.max_conductor_count < rule.min_conductor_count ||
+        !std::isfinite(rule.member_spacing_min_m) ||
+        !std::isfinite(rule.member_spacing_max_m) ||
+        rule.member_spacing_min_m < 0.0 ||
+        rule.member_spacing_max_m < rule.member_spacing_min_m) {
       result.error = "core invalid input: route bundle variation rule is invalid";
       return result;
     }
-    const int conductor_count = bundle_template->count_rule == BundleCountRuleKind::kFixed
-        ? bundle_template->fixed_count
-        : (rule.conductor_count > 0 ? rule.conductor_count : bundle_template->default_count);
-    if (conductor_count <= 0 ||
+    const int minimum_conductor_count = rule.min_conductor_count > 0
+        ? rule.min_conductor_count : bundle_template->default_count;
+    const int maximum_conductor_count = rule.max_conductor_count > 0
+        ? rule.max_conductor_count : minimum_conductor_count;
+    if (minimum_conductor_count <= 0 ||
         (bundle_template->count_rule == BundleCountRuleKind::kFixed &&
-         rule.conductor_count > 0 && rule.conductor_count != bundle_template->fixed_count) ||
+         (minimum_conductor_count != bundle_template->fixed_count ||
+          maximum_conductor_count != bundle_template->fixed_count)) ||
         (bundle_template->count_rule == BundleCountRuleKind::kRange &&
-         (conductor_count < bundle_template->min_count || conductor_count > bundle_template->max_count))) {
+         (minimum_conductor_count < bundle_template->min_count ||
+          maximum_conductor_count > bundle_template->max_count))) {
       result.error = "core invalid input: route bundle variation conductor count is invalid";
-      return result;
-    }
-    const auto bands = generation::backbone::SelectPortPlacementBands(
-        *pole_type, bundle_template->category, bundle_template->default_layer, conductor_count);
-    if (!bands.ok) {
-      result.error = bands.error;
       return result;
     }
 
     const std::uint64_t count_seed = rule_seed(input.route_seed, rule_ordinal,
                                                rule.bundle_template_id, -1);
-    const int count_range = rule.max_instances - rule.min_instances + 1;
-    const int instance_count = rule.min_instances +
-        static_cast<int>(support::splitmix64(count_seed) % static_cast<std::uint64_t>(count_range));
+    const int instance_count = sample_count(count_seed, rule.min_instances, rule.max_instances);
     for (int instance_ordinal = 0; instance_ordinal < instance_count; ++instance_ordinal) {
       const std::uint64_t base_seed = rule_seed(input.route_seed, rule_ordinal,
                                                 rule.bundle_template_id, instance_ordinal);
+      const int conductor_count = bundle_template->count_rule == BundleCountRuleKind::kFixed
+          ? bundle_template->fixed_count
+          : sample_count(support::hash_combine(base_seed, 0x434f554e54ull),
+                         minimum_conductor_count, maximum_conductor_count);
+      const auto bands = generation::backbone::SelectPortPlacementBands(
+          *pole_type, bundle_template->category, bundle_template->default_layer, conductor_count);
+      if (!bands.ok) {
+        result.error = bands.error;
+        return result;
+      }
       bool accepted = false;
       PlacedPoint candidate{};
       for (int attempt = 0; attempt < kPlacementAttempts; ++attempt) {
         const std::uint64_t attempt_seed = support::hash_combine(base_seed, static_cast<std::uint64_t>(attempt));
         candidate.height_m = sample_range(attempt_seed, 0x484549474854ull,
                                           rule.height_min_m, rule.height_max_m);
-        const double magnitude = sample_range(attempt_seed, 0x4c41544552414cull,
-                                              rule.lateral_abs_min_m, rule.lateral_abs_max_m);
+        const double magnitude = sample_lateral_magnitude(
+            attempt_seed, rule.lateral_abs_min_m, rule.lateral_abs_max_m,
+            bundle_template->category);
         candidate.lateral_m = static_cast<double>(side_sign) * magnitude;
         candidate.min_spacing_m = rule.min_spacing_m;
         if (separated(candidate, placed)) {
@@ -178,7 +213,10 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
       spec.placement_explicit = true;
       spec.height_m = candidate.height_m;
       spec.lateral_m = candidate.lateral_m;
-      spec.spacing_m = bundle_template->default_spacing_m;
+      spec.spacing_m = conductor_count > 1 && rule.member_spacing_max_m > 0.0
+          ? sample_range(base_seed, 0x4d454d4245525350ull,
+                         rule.member_spacing_min_m, rule.member_spacing_max_m)
+          : bundle_template->default_spacing_m;
       resolved.push_back(spec);
       placed.push_back(candidate);
     }

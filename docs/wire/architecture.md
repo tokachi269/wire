@@ -386,10 +386,19 @@ concrete な `BackboneBundleSpec` entries である。consumer は既存 backbon
 pipeline / layout / curve / viewer は randomization を再判断しない。
 
 random rule と route seed は Input であり保存しない。resolver は route 生成開始時に1回だけ Bundle 数と
-pole-local の height / lateral を確定し、通常の Bundle / Port / Span / saved placement として保存する。
+pole-local の height / lateral / member count / member spacing を確定し、通常の Bundle / Port / Span /
+saved placement として保存する。HVの3相配置はrandomization対象外とする。非HVのsupported placementは
+連続座標をそのまま使わず、同じroute-wide sideにある有限のsupport slotへ寄せる。
 load、regenerate、通常 update は保存済み concrete placement を使い、reroll しない。同一 Bundle の placement を
 Pole ごとに変えず、同一 route 内で side を反転しない。road-facing side は外部から与える単純な sign であり、
 Wire は Road domain や道路の意味を解釈しない。
+
+非HV endpointの支持表現は、authoritative Bundle placementからgeneration時に導出する。pole surface近傍は
+Direct attachment、明確に離れたplacementはSupported rowとし、新しいSupportRow entityや保存fieldは作らない。
+同じpole、同じrow方向、同じside、互換fixture semanticsで高さが近いBundleはdeterministicに1 rowへまとめる。
+LVはLV内、CommunicationとOpticalは相互にだけ共有候補とし、rowのreachは最外memberとmarginから求め、
+短すぎる支持物は生成しない。supportの有無、grouping、高さ、reachはCore derived placementが所有し、viewerの
+asset adapterは形状だけを提供する。
 
 旧 cable population の visual-only duplication は退役する。Bundle 本数の variation を
 `CableSectionLayout` の追加描画として生成せず、すべて通常の authoritative topology として生成する。
@@ -414,8 +423,13 @@ members は helix の内側に置き、support path は内周上部に接し、m
 helix は endpoint trim 区間だけ生成し、電柱や attachment へ接続しない。
 
 member twist と member wander は visual curve だけを変更し、Span、Port、SavedGraph、
-CableRun identity を変更しない。member の関連付けは `CableSectionKey.logical_span_id` による
-明示的なものだけであり、geometry 近傍から探索しない。
+CableRun identity を変更しない。helix内memberの関連付けは `CableSectionKey.logical_span_id`、通常の
+multi-member Bundleの関連付けは保存済み`edge_bundle_id`による明示identityを使い、geometry近傍から探索しない。
+通常Bundleのwanderは非HVかつmulti-memberだけに適用し、両endpointで必ず0へ戻す。HVとsingle-memberの
+main spanは変更しない。
+
+main spanのsagは`ResolvedSpanCurveInputs.effective_sag_ratio`を最終curveまで一貫して使う。非HVは既存の
+hierarchical variationから小さな差を導出し、HVはvariation multiplierを適用せず従来値を維持する。
 
 `BundleTemplate.span_visual_assembly` は assembly の正本設定である。radius が 0 の場合は、
 support path からの member offset、member wire radius、helix wire radius、clearance を含む最小半径を

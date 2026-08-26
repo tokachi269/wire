@@ -8,14 +8,14 @@
 namespace city::wire {
 
 struct VariationSettings {
-  bool enabled = false;
+  bool enabled = true;
   std::uint64_t global_seed = 1;
   double world_cell_size_m = 40.0;
   double world_bias_scale = 0.35;
   double flow_bias_scale = 0.40;
   double pole_delta_scale = 0.18;
   double local_jitter_scale = 0.07;
-  double sag_variation_scale = 0.0;
+  double sag_variation_scale = 0.05;
   double branch_down_offset_variation_scale = 0.0;
 };
 

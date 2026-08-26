@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 #include <unordered_map>
 
 namespace city::wire::generation::backbone {
@@ -180,6 +181,64 @@ void apply_member_twist(const SpanVisualAssemblyTemplate& settings, std::vector<
     }
   }
   for (VisualCurvePart* member : members) {
+    member->boundary_a = member->samples.front();
+    member->boundary_b = member->samples.back();
+    member->bounds = bounds_for(member->samples);
+  }
+}
+
+void apply_ordinary_bundle_wander(const CoreState& state,
+                                  const BundleTemplate& bundle_template,
+                                  const Bundle& bundle,
+                                  std::vector<VisualCurvePart*> members) {
+  const SpanVisualAssemblyTemplate& settings = bundle_template.span_visual_assembly;
+  if (bundle_template.category == ConnectionCategory::kHighVoltage ||
+      settings.support_path_enabled || members.size() < 2 ||
+      settings.member_wander_ratio <= 0.0 ||
+      settings.member_wander_wavelength_m <= kLengthToleranceM) {
+    return;
+  }
+  std::sort(members.begin(), members.end(), [](const VisualCurvePart* a,
+                                                const VisualCurvePart* b) {
+    return std::tie(a->lane_index, a->source_span_id) <
+           std::tie(b->lane_index, b->source_span_id);
+  });
+  const double amplitude = std::min(bundle.phase_spacing_m * settings.member_wander_ratio,
+                                    bundle.phase_spacing_m * 0.30);
+  for (VisualCurvePart* member : members) {
+    if (member->samples.size() < 3) continue;
+    const std::vector<Vec3d> original = member->samples;
+    const double total = path_length(original);
+    const double trim = settings.endpoint_trim_m > kLengthToleranceM
+        ? settings.endpoint_trim_m : std::min(1.2, total * 0.2);
+    const Span* span = state.view().spans().find(member->source_span_id);
+    const std::uint64_t flow_key = span == nullptr ? 0 :
+        variation_flow_key_for_span(state.view().find_span_runtime_state(span->id), *span);
+    const std::uint64_t seed = mix_seed(flow_key ^
+        static_cast<std::uint64_t>(member->section_key.edge_bundle_id) ^
+        (static_cast<std::uint64_t>(member->lane_index) << 32));
+    const double phase = settings.member_wander_phase_bias +
+        kTwoPi * (static_cast<double>(seed >> 11) / static_cast<double>(1ull << 53));
+    double distance = 0.0;
+    for (std::size_t index = 0; index < original.size(); ++index) {
+      if (index > 0) distance += Length(original[index] - original[index - 1]);
+      const Vec3d tangent = index + 1 < original.size()
+          ? unit_or(original[index + 1] - original[index], {1.0, 0.0, 0.0})
+          : unit_or(original[index] - original[index - 1], {1.0, 0.0, 0.0});
+      Vec3d lateral{};
+      Vec3d up{};
+      frame_for(tangent, &lateral, &up);
+      const double primary = phase + kTwoPi * distance / settings.member_wander_wavelength_m;
+      const double secondary = phase * 0.73 + kTwoPi * distance /
+          (settings.member_wander_wavelength_m * 1.71);
+      const double envelope = endpoint_envelope(distance, total, trim);
+      const double lateral_offset = amplitude * envelope *
+          (0.68 * std::sin(primary) + 0.32 * std::sin(secondary));
+      const double vertical_offset = amplitude * 0.35 * envelope *
+          (0.70 * std::cos(primary * 0.83) + 0.30 * std::sin(secondary * 1.19));
+      member->samples[index] = original[index] + ScaleVec(lateral, lateral_offset) +
+          ScaleVec(up, vertical_offset);
+    }
     member->boundary_a = member->samples.front();
     member->boundary_b = member->samples.back();
     member->bounds = bounds_for(member->samples);
@@ -410,6 +469,22 @@ void apply_span_visual_assemblies(const CoreState& state,
     VisualCurvePart helix = make_helix_part(support, settings, radius);
     supplemental.push_back(std::move(support));
     if (helix.samples.size() >= 2) supplemental.push_back(std::move(helix));
+  }
+  std::unordered_map<ObjectId, std::vector<VisualCurvePart*>> members_by_edge_bundle{};
+  for (VisualCurvePart& part : cache->parts) {
+    if (part.kind == VisualCurvePartKind::kEdgeBody && part.has_section_key &&
+        part.section_key.edge_bundle_id != kInvalidObjectId) {
+      members_by_edge_bundle[part.section_key.edge_bundle_id].push_back(&part);
+    }
+  }
+  for (auto& [edge_bundle_id, members] : members_by_edge_bundle) {
+    const auto* edge_bundle = state.view().backbone_edge_bundle(edge_bundle_id);
+    const Bundle* bundle = edge_bundle == nullptr ? nullptr :
+        state.view().bundles().find(edge_bundle->bundle_id);
+    const auto template_it = bundle == nullptr ? state.view().bundle_templates().end() :
+        state.view().bundle_templates().find(bundle->bundle_template_id);
+    if (bundle == nullptr || template_it == state.view().bundle_templates().end()) continue;
+    apply_ordinary_bundle_wander(state, template_it->second, *bundle, std::move(members));
   }
   cache->parts.insert(cache->parts.end(), std::make_move_iterator(supplemental.begin()),
                       std::make_move_iterator(supplemental.end()));

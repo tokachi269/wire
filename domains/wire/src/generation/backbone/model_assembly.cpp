@@ -4,6 +4,7 @@
 #include "mount_graph.hpp"
 #include "model_placement_rules.hpp"
 #include "row_representation.hpp"
+#include "route_support.hpp"
 
 #include "../../support/instrumentation.hpp"
 
@@ -148,6 +149,22 @@ std::uint64_t content_version(const ModelAssemblyTemplate& assembly,
   hash_u64(&hash, part.part_id);
   hash_u64(&hash, part.descriptor_version);
   hash_bytes(&hash, part.model_key.data(), part.model_key.size());
+  hash_double(&hash, world_transform.position.x);
+  hash_double(&hash, world_transform.position.y);
+  hash_double(&hash, world_transform.position.z);
+  hash_double(&hash, world_transform.rotation_euler_deg.x);
+  hash_double(&hash, world_transform.rotation_euler_deg.y);
+  hash_double(&hash, world_transform.rotation_euler_deg.z);
+  hash_double(&hash, world_transform.scale.x);
+  hash_double(&hash, world_transform.scale.y);
+  hash_double(&hash, world_transform.scale.z);
+  return hash == 0 ? 1 : hash;
+}
+
+std::uint64_t derived_content_version(const std::string& model_key,
+                                      const Transformd& world_transform) {
+  std::uint64_t hash = 1469598103934665603ull;
+  hash_bytes(&hash, model_key.data(), model_key.size());
   hash_double(&hash, world_transform.position.x);
   hash_double(&hash, world_transform.position.y);
   hash_double(&hash, world_transform.position.z);
@@ -969,6 +986,15 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     return out;
   }
 
+  struct SupportCandidate {
+    const RowFixtureContext* row = nullptr;
+    const RowFixturePlacementPlan* plan = nullptr;
+    int family = 0;
+    int side = 0;
+    double lateral_m = 0.0;
+  };
+  std::vector<SupportCandidate> support_candidates{};
+
   for (const RowFixtureContext& row : contexts.value.rows) {
     const auto assembly_it = view.model_assembly_templates().find(row.assembly_id);
     if (assembly_it == view.model_assembly_templates().end() || row.members.empty()) {
@@ -986,6 +1012,18 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
     if (row_plan == nullptr) {
       continue;
     }
+    const auto bundle_template_it = view.bundle_templates().find(row.bundle_template_id);
+    const EditResult<double> lateral = row_lateral_position(state, row);
+    if (!lateral.ok) {
+      out.error = lateral.error;
+      return out;
+    }
+    if (bundle_template_it != view.bundle_templates().end() &&
+        route_support::is_supported(bundle_template_it->second.category, lateral.value)) {
+      support_candidates.push_back({&row, row_plan,
+                                    route_support::compatibility_family(bundle_template_it->second.category),
+                                    lateral.value < 0.0 ? -1 : 1, lateral.value});
+    }
     std::string error{};
     append_instances(
         state, *row.pole, row_plan->placement_height_m, assembly_it->second, row_plan->root,
@@ -997,6 +1035,64 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
       out.error = std::move(error);
       return out;
     }
+  }
+
+  std::sort(support_candidates.begin(), support_candidates.end(),
+            [](const SupportCandidate& a, const SupportCandidate& b) {
+              return std::tie(a.row->pole->id, a.family, a.side, a.row->layout_yaw_deg,
+                              a.plan->placement_height_m, a.row->bundle_id) <
+                     std::tie(b.row->pole->id, b.family, b.side, b.row->layout_yaw_deg,
+                              b.plan->placement_height_m, b.row->bundle_id);
+            });
+  struct SupportRow {
+    const Pole* pole = nullptr;
+    ModelAssemblyTemplateId assembly_id = kInvalidModelAssemblyTemplateId;
+    int family = 0;
+    int side = 0;
+    double layout_yaw_deg = 0.0;
+    double height_sum_m = 0.0;
+    std::size_t member_count = 0;
+    double reach_m = 0.0;
+    ObjectId first_bundle_id = kInvalidObjectId;
+  };
+  std::vector<SupportRow> support_rows{};
+  for (const SupportCandidate& candidate : support_candidates) {
+    const double height_m = candidate.plan->placement_height_m;
+    auto row = std::find_if(support_rows.begin(), support_rows.end(), [&](const SupportRow& existing) {
+      const double mean_height = existing.height_sum_m / static_cast<double>(existing.member_count);
+      return existing.pole->id == candidate.row->pole->id &&
+             existing.assembly_id == candidate.row->assembly_id &&
+             existing.family == candidate.family && existing.side == candidate.side &&
+             std::abs(existing.layout_yaw_deg - candidate.row->layout_yaw_deg) <= kStrictAngleToleranceDeg &&
+             std::abs(mean_height - height_m) <= route_support::kRowMergeDistanceM;
+    });
+    if (row == support_rows.end()) {
+      support_rows.push_back({candidate.row->pole, candidate.row->assembly_id,
+                              candidate.family, candidate.side,
+                              candidate.row->layout_yaw_deg, height_m, 1,
+                              route_support::support_reach(candidate.lateral_m),
+                              candidate.row->bundle_id});
+    } else {
+      row->height_sum_m += height_m;
+      row->member_count += 1;
+      row->reach_m = std::max(row->reach_m, route_support::support_reach(candidate.lateral_m));
+      row->first_bundle_id = std::min(row->first_bundle_id, candidate.row->bundle_id);
+    }
+  }
+  for (const SupportRow& row : support_rows) {
+    const double height_m = row.height_sum_m / static_cast<double>(row.member_count);
+    const PoleFrame frame = BuildPoleFrame(row.pole->world_transform, row.layout_yaw_deg);
+    VisualModelInstance instance{};
+    instance.stable_key = "non-hv-support:" + std::to_string(row.pole->id) + ":" +
+                          std::to_string(row.family) + ":" + std::to_string(row.side) + ":" +
+                          std::to_string(row.first_bundle_id);
+    instance.model_key = "non_hv_support_row_proxy";
+    instance.world_transform = transform_from_frame(
+        frame, LocalPointToWorld(frame, {0.0, static_cast<double>(row.side) * row.reach_m * 0.5,
+                                         height_m}));
+    instance.world_transform.scale.y = row.reach_m;
+    instance.content_version = derived_content_version(instance.model_key, instance.world_transform);
+    out.value.instances.push_back(std::move(instance));
   }
 
   for (const RowFixtureContexts::Endpoint& endpoint : contexts.value.endpoints) {

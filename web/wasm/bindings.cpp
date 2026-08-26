@@ -1076,7 +1076,10 @@ public:
       rule.bundle_template_id = ::bundle_template_id(property<int>(item, "bundleTemplateId"));
       rule.min_instances = property<int>(item, "minInstances");
       rule.max_instances = property<int>(item, "maxInstances");
-      rule.conductor_count = property<int>(item, "conductorCount");
+      rule.min_conductor_count = property<int>(item, "minConductorCount");
+      rule.max_conductor_count = property<int>(item, "maxConductorCount");
+      rule.member_spacing_min_m = property<double>(item, "memberSpacingMin");
+      rule.member_spacing_max_m = property<double>(item, "memberSpacingMax");
       rule.height_min_m = property<double>(item, "heightMin");
       rule.height_max_m = property<double>(item, "heightMax");
       rule.lateral_abs_min_m = property<double>(item, "lateralAbsMin");

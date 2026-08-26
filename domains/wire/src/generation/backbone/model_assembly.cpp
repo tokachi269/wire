@@ -1013,27 +1013,19 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
       continue;
     }
     const auto bundle_template_it = view.bundle_templates().find(row.bundle_template_id);
+    if (bundle_template_it == view.bundle_templates().end() ||
+        route_support::is_high_voltage(bundle_template_it->second.category)) {
+      continue;
+    }
     const EditResult<double> lateral = row_lateral_position(state, row);
     if (!lateral.ok) {
       out.error = lateral.error;
       return out;
     }
-    if (bundle_template_it != view.bundle_templates().end() &&
-        route_support::is_supported(bundle_template_it->second.category, lateral.value)) {
+    if (route_support::is_supported(bundle_template_it->second.category, lateral.value)) {
       support_candidates.push_back({&row, row_plan,
                                     route_support::compatibility_family(bundle_template_it->second.category),
                                     lateral.value < 0.0 ? -1 : 1, lateral.value});
-    }
-    std::string error{};
-    append_instances(
-        state, *row.pole, row_plan->placement_height_m, assembly_it->second, row_plan->root,
-        row_plan->rigid_offset_world,
-        "row:" + std::to_string(row.pole->id) + ":" + row_key_text(row.row_key) + ":" +
-            std::to_string(row.bundle_id),
-        &out.value, &error);
-    if (!error.empty()) {
-      out.error = std::move(error);
-      return out;
     }
   }
 
@@ -1079,6 +1071,40 @@ EditResult<VisualModelInstanceCache> materialize_model_assemblies(
       row->first_bundle_id = std::min(row->first_bundle_id, candidate.row->bundle_id);
     }
   }
+
+  for (const RowFixtureContext& row : contexts.value.rows) {
+    const bool owned_by_shared_support = std::ranges::any_of(
+        support_candidates, [&](const SupportCandidate& candidate) {
+          return candidate.row == &row;
+        });
+    if (owned_by_shared_support) continue;
+    const auto assembly_it = view.model_assembly_templates().find(row.assembly_id);
+    if (assembly_it == view.model_assembly_templates().end()) {
+      out.error = "model assembly unsupported: row fixture assembly is missing";
+      return out;
+    }
+    const RowFixturePlacementPlan* row_plan = nullptr;
+    for (const RowFixtureContext::Member& member : row.members) {
+      const auto plan_it = fixture_plan.find(member.port_id);
+      if (plan_it != fixture_plan.end() && plan_it->second.row_fixture.available) {
+        row_plan = &plan_it->second.row_fixture;
+        break;
+      }
+    }
+    if (row_plan == nullptr) continue;
+    std::string error{};
+    append_instances(
+        state, *row.pole, row_plan->placement_height_m, assembly_it->second, row_plan->root,
+        row_plan->rigid_offset_world,
+        "row:" + std::to_string(row.pole->id) + ":" + row_key_text(row.row_key) + ":" +
+            std::to_string(row.bundle_id),
+        &out.value, &error);
+    if (!error.empty()) {
+      out.error = std::move(error);
+      return out;
+    }
+  }
+
   for (const SupportRow& row : support_rows) {
     const double height_m = row.height_sum_m / static_cast<double>(row.member_count);
     const PoleFrame frame = BuildPoleFrame(row.pole->world_transform, row.layout_yaw_deg);

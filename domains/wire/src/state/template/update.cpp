@@ -351,6 +351,11 @@ bool span_visual_assembly_equals(const SpanVisualAssemblyTemplate& a, const Span
          a.helix_enabled == b.helix_enabled && a.helix_radius_m == b.helix_radius_m &&
          a.helix_clearance_m == b.helix_clearance_m && a.helix_turns_per_meter == b.helix_turns_per_meter &&
          a.helix_samples_per_turn == b.helix_samples_per_turn && a.endpoint_trim_m == b.endpoint_trim_m &&
+         a.visual_member_count_min == b.visual_member_count_min &&
+         a.visual_member_count_max == b.visual_member_count_max &&
+         a.visual_member_spacing_m == b.visual_member_spacing_m &&
+         a.center_wander_amplitude_m == b.center_wander_amplitude_m &&
+         a.center_wander_wavelength_m == b.center_wander_wavelength_m &&
          a.member_wander_ratio == b.member_wander_ratio &&
          a.member_wander_wavelength_m == b.member_wander_wavelength_m &&
          a.member_wander_phase_bias == b.member_wander_phase_bias &&
@@ -701,7 +706,15 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       !std::isfinite(assembly.helix_clearance_m) || assembly.helix_clearance_m < 0.0 ||
       !std::isfinite(assembly.helix_turns_per_meter) || assembly.helix_turns_per_meter < 0.0 ||
       assembly.helix_samples_per_turn < 4 || !std::isfinite(assembly.endpoint_trim_m) ||
-      assembly.endpoint_trim_m < 0.0 || !std::isfinite(assembly.member_wander_ratio) ||
+      assembly.endpoint_trim_m < 0.0 || assembly.visual_member_count_min < 1 ||
+      assembly.visual_member_count_max < assembly.visual_member_count_min ||
+      !std::isfinite(assembly.visual_member_spacing_m) || assembly.visual_member_spacing_m < 0.0 ||
+      (assembly.visual_member_count_max > 1 && assembly.visual_member_spacing_m <= 0.0) ||
+      !std::isfinite(assembly.center_wander_amplitude_m) || assembly.center_wander_amplitude_m < 0.0 ||
+      !std::isfinite(assembly.center_wander_wavelength_m) ||
+      (assembly.center_wander_amplitude_m > 0.0 &&
+       assembly.center_wander_wavelength_m <= 0.0) ||
+      !std::isfinite(assembly.member_wander_ratio) ||
       assembly.member_wander_ratio < 0.0 || assembly.member_wander_ratio > 1.0 ||
       !std::isfinite(assembly.member_wander_wavelength_m) ||
       !std::isfinite(assembly.member_wander_phase_bias) ||

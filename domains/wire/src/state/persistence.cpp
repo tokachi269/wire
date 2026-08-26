@@ -1021,6 +1021,16 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "span_visual_assembly.helix_turns_per_meter", v.span_visual_assembly.helix_turns_per_meter) ||
       !ar.field(p, "span_visual_assembly.helix_samples_per_turn", v.span_visual_assembly.helix_samples_per_turn) ||
       !ar.field(p, "span_visual_assembly.endpoint_trim_m", v.span_visual_assembly.endpoint_trim_m) ||
+      !ar.compatible_field(p, "span_visual_assembly.visual_member_count_min",
+                           v.span_visual_assembly.visual_member_count_min, 1) ||
+      !ar.compatible_field(p, "span_visual_assembly.visual_member_count_max",
+                           v.span_visual_assembly.visual_member_count_max, 1) ||
+      !ar.compatible_field(p, "span_visual_assembly.visual_member_spacing_m",
+                           v.span_visual_assembly.visual_member_spacing_m, 0.0) ||
+      !ar.compatible_field(p, "span_visual_assembly.center_wander_amplitude_m",
+                           v.span_visual_assembly.center_wander_amplitude_m, 0.0) ||
+      !ar.compatible_field(p, "span_visual_assembly.center_wander_wavelength_m",
+                           v.span_visual_assembly.center_wander_wavelength_m, 0.0) ||
       !ar.field(p, "span_visual_assembly.member_wander_ratio", v.span_visual_assembly.member_wander_ratio) ||
       !ar.field(p, "span_visual_assembly.member_wander_wavelength_m", v.span_visual_assembly.member_wander_wavelength_m) ||
       !ar.field(p, "span_visual_assembly.member_wander_phase_bias", v.span_visual_assembly.member_wander_phase_bias) ||
@@ -1037,7 +1047,7 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
 
 
 #ifdef _MSC_VER
-static_assert(sizeof(BundleTemplate) == 272, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(BundleTemplate) == 304, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

@@ -993,6 +993,11 @@ public:
     assembly_output.set("helixTurnsPerMeter", assembly.helix_turns_per_meter);
     assembly_output.set("helixSamplesPerTurn", assembly.helix_samples_per_turn);
     assembly_output.set("endpointTrim", assembly.endpoint_trim_m);
+    assembly_output.set("visualMemberCountMin", assembly.visual_member_count_min);
+    assembly_output.set("visualMemberCountMax", assembly.visual_member_count_max);
+    assembly_output.set("visualMemberSpacing", assembly.visual_member_spacing_m);
+    assembly_output.set("centerWanderAmplitude", assembly.center_wander_amplitude_m);
+    assembly_output.set("centerWanderWavelength", assembly.center_wander_wavelength_m);
     assembly_output.set("memberWanderRatio", assembly.member_wander_ratio);
     assembly_output.set("memberWanderWavelength", assembly.member_wander_wavelength_m);
     assembly_output.set("memberWanderPhaseBias", assembly.member_wander_phase_bias);
@@ -1034,6 +1039,16 @@ public:
     bundle_template.span_visual_assembly.helix_turns_per_meter = property<double>(assembly, "helixTurnsPerMeter");
     bundle_template.span_visual_assembly.helix_samples_per_turn = property<int>(assembly, "helixSamplesPerTurn");
     bundle_template.span_visual_assembly.endpoint_trim_m = property<double>(assembly, "endpointTrim");
+    bundle_template.span_visual_assembly.visual_member_count_min =
+        property<int>(assembly, "visualMemberCountMin");
+    bundle_template.span_visual_assembly.visual_member_count_max =
+        property<int>(assembly, "visualMemberCountMax");
+    bundle_template.span_visual_assembly.visual_member_spacing_m =
+        property<double>(assembly, "visualMemberSpacing");
+    bundle_template.span_visual_assembly.center_wander_amplitude_m =
+        property<double>(assembly, "centerWanderAmplitude");
+    bundle_template.span_visual_assembly.center_wander_wavelength_m =
+        property<double>(assembly, "centerWanderWavelength");
     bundle_template.span_visual_assembly.member_wander_ratio = property<double>(assembly, "memberWanderRatio");
     bundle_template.span_visual_assembly.member_wander_wavelength_m = property<double>(assembly, "memberWanderWavelength");
     bundle_template.span_visual_assembly.member_wander_phase_bias = property<double>(assembly, "memberWanderPhaseBias");
@@ -1076,10 +1091,7 @@ public:
       rule.bundle_template_id = ::bundle_template_id(property<int>(item, "bundleTemplateId"));
       rule.min_instances = property<int>(item, "minInstances");
       rule.max_instances = property<int>(item, "maxInstances");
-      rule.min_conductor_count = property<int>(item, "minConductorCount");
-      rule.max_conductor_count = property<int>(item, "maxConductorCount");
-      rule.member_spacing_min_m = property<double>(item, "memberSpacingMin");
-      rule.member_spacing_max_m = property<double>(item, "memberSpacingMax");
+      rule.conductor_count = property<int>(item, "conductorCount");
       rule.height_min_m = property<double>(item, "heightMin");
       rule.height_max_m = property<double>(item, "heightMax");
       rule.lateral_abs_min_m = property<double>(item, "lateralAbsMin");

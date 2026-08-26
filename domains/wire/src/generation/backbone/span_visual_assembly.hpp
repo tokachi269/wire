@@ -14,7 +14,7 @@ struct SpanVisualAssemblyEndpoints {
 using SpanVisualAssemblyEndpointMap =
     std::unordered_map<ObjectId, SpanVisualAssemblyEndpoints>;
 
-// Applies visual-only member transforms to base/population sections grouped by logical span.
+// Resolves center-path variation and visual members from each source logical span.
 // Endpoint input comes from the same placed layout consumed by body construction.
 // It does not create or modify authoritative objects.
 void apply_span_visual_assemblies(const CoreState& state,

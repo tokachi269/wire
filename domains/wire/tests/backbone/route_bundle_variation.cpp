@@ -18,10 +18,10 @@ namespace {
 std::vector<city::wire::RandomBackboneBundleRule> visual_rules() {
   using namespace city::wire;
   return {
-      {kDefaultHighVoltageBundleTemplateId, 1, 1, 3, 3, 0.45, 0.45, 9.2, 9.2, 0.2, 0.2, 0.25},
-      {kDefaultLowVoltageBundleTemplateId, 2, 4, 1, 1, 0.20, 0.20, 7.0, 7.7, 0.12, 0.52, 0.20},
-      {kDefaultCommunicationBundleTemplateId, 1, 4, 1, 3, 0.035, 0.060, 5.0, 5.8, 0.12, 0.50, 0.16},
-      {kDefaultOpticalBundleTemplateId, 0, 2, 1, 1, 0.20, 0.20, 4.9, 5.7, 0.12, 0.50, 0.16},
+      {kDefaultHighVoltageBundleTemplateId, 1, 1, 3, 9.2, 9.2, 0.2, 0.2, 0.25},
+      {kDefaultLowVoltageBundleTemplateId, 2, 4, 1, 7.0, 7.7, 0.12, 0.52, 0.20},
+      {kDefaultCommunicationBundleTemplateId, 1, 4, 1, 5.0, 5.8, 0.12, 0.50, 0.16},
+      {kDefaultOpticalBundleTemplateId, 0, 2, 1, 4.9, 5.7, 0.12, 0.50, 0.16},
   };
 }
 
@@ -120,8 +120,8 @@ std::vector<const city::wire::VisualCurvePart*> edge_bodies(
         part.bundle_template_id == template_id) out.push_back(&part);
   }
   std::sort(out.begin(), out.end(), [](const auto* a, const auto* b) {
-    return std::tie(a->lane_index, a->source_span_id) <
-           std::tie(b->lane_index, b->source_span_id);
+    return std::tie(a->lane_index, a->source_span_id, a->section_key.instance_index) <
+           std::tie(b->lane_index, b->source_span_id, b->section_key.instance_index);
   });
   return out;
 }
@@ -134,6 +134,15 @@ bool same_samples(const std::vector<city::wire::Vec3d>& a,
         a[index].z != b[index].z) return false;
   }
   return true;
+}
+
+bool same_point(const city::wire::Vec3d& a, const city::wire::Vec3d& b) {
+  return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+city::wire::Vec3d normalized(city::wire::Vec3d value) {
+  city::wire::Normalize(&value);
+  return value;
 }
 
 } // namespace
@@ -182,8 +191,8 @@ bool C858_route_bundle_variation_creates_only_requested_authoritative_topology()
   input.preferred_side_sign = -1;
   input.pole_type_id = 2;
   input.rules = {
-      {kDefaultCommunicationBundleTemplateId, 2, 3, 1, 3, 0.035, 0.060, 5.0, 5.8, 0.12, 0.50, 0.16},
-      {kDefaultOpticalBundleTemplateId, 1, 2, 1, 1, 0.20, 0.20, 4.9, 5.7, 0.12, 0.50, 0.16},
+      {kDefaultCommunicationBundleTemplateId, 2, 3, 1, 5.0, 5.8, 0.12, 0.50, 0.16},
+      {kDefaultOpticalBundleTemplateId, 1, 2, 1, 4.9, 5.7, 0.12, 0.50, 0.16},
   };
   const auto resolved = state.ResolveRouteBundleVariation(input);
   if (!resolved.ok || resolved.value.empty()) return false;
@@ -203,7 +212,7 @@ bool C859_route_bundle_variation_failure_is_atomic() {
   if (!state.SerializeAuthoritative(&before).ok) return false;
   auto input = variation_input(99);
   input.rules = {{city::wire::kDefaultLowVoltageBundleTemplateId,
-                  2, 2, 1, 1, 0.20, 0.20, 7.0, 7.0, 0.2, 0.2, 0.5}};
+                  2, 2, 1, 7.0, 7.0, 0.2, 0.2, 0.5}};
   const auto resolved = state.ResolveRouteBundleVariation(input);
   std::string after{};
   return !resolved.ok && resolved.error.find("cannot satisfy minimum spacing") != std::string::npos &&
@@ -266,7 +275,6 @@ bool C862_non_hv_route_variation_covers_each_category_and_keeps_hv_fixed() {
   using namespace city::wire;
   CoreState state;
   std::map<BundleTemplateId, std::set<std::string>> signatures{};
-  std::set<int> communication_counts{};
   for (std::uint64_t seed = 1; seed <= 32; ++seed) {
     const auto resolved = state.ResolveRouteBundleVariation(variation_input(seed));
     if (!resolved.ok) return false;
@@ -280,16 +288,13 @@ bool C862_non_hv_route_variation_covers_each_category_and_keeps_hv_fixed() {
       signature << spec.count << ':' << spec.height_m << ':' << spec.lateral_m;
       signatures[spec.bundle_template_id].insert(signature.str());
       if (spec.bundle_template_id == kDefaultCommunicationBundleTemplateId) {
-        communication_counts.insert(spec.count);
-        if (spec.count > 1 && (spec.spacing_m < 0.035 || spec.spacing_m > 0.060)) return false;
+        if (spec.count != 1) return false;
       }
     }
   }
   return signatures[kDefaultLowVoltageBundleTemplateId].size() > 1 &&
          signatures[kDefaultCommunicationBundleTemplateId].size() > 1 &&
-         signatures[kDefaultOpticalBundleTemplateId].size() > 1 &&
-         communication_counts.contains(1) && communication_counts.contains(2) &&
-         communication_counts.contains(3);
+         signatures[kDefaultOpticalBundleTemplateId].size() > 1;
 }
 
 bool C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct() {
@@ -300,10 +305,16 @@ bool C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct() {
       request_with(supported, support_fixture_specs()));
   if (!generated.ok) return false;
   std::vector<const VisualModelInstance*> rows{};
+  std::size_t belt_count = 0;
+  std::size_t supported_clamp_count = 0;
   for (const auto& model : supported.view().visual_model_instances().instances) {
     if (model.model_key == "non_hv_support_row_proxy") rows.push_back(&model);
+    if (model.model_key == "test_non_hv_belt") ++belt_count;
+    if (model.model_key == "test_non_hv_clamp") ++supported_clamp_count;
   }
   if (rows.size() != generated.value.generated_pole_ids.size() ||
+      belt_count != 0 ||
+      supported_clamp_count != generated.value.generated_pole_ids.size() * support_fixture_specs().size() ||
       !std::ranges::all_of(rows, [](const auto* row) { return row->world_transform.scale.y >= 0.34; })) {
     return false;
   }
@@ -333,14 +344,41 @@ bool C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct() {
     }
     if (!near_pole_surface) return false;
   }
-  return clamp_count == direct_generated.value.generated_pole_ids.size() &&
-         std::ranges::none_of(direct.view().visual_model_instances().instances,
-                              [](const VisualModelInstance& model) {
-           return model.model_key == "non_hv_support_row_proxy";
-         });
+  if (clamp_count != direct_generated.value.generated_pole_ids.size() ||
+      std::ranges::any_of(direct.view().visual_model_instances().instances,
+                          [](const VisualModelInstance& model) {
+        return model.model_key == "non_hv_support_row_proxy";
+      })) return false;
+
+  CoreState single_member;
+  CoreState four_members;
+  if (!configure_non_hv_model_fixtures(&single_member) ||
+      !configure_non_hv_model_fixtures(&four_members)) return false;
+  BundleTemplate single_template =
+      single_member.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
+  single_template.span_visual_assembly.visual_member_count_min = 1;
+  single_template.span_visual_assembly.visual_member_count_max = 1;
+  BundleTemplate four_template =
+      four_members.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
+  four_template.span_visual_assembly.visual_member_count_min = 4;
+  four_template.span_visual_assembly.visual_member_count_max = 4;
+  if (!single_member.UpdateBundleTemplate(single_template).ok ||
+      !four_members.UpdateBundleTemplate(four_template).ok ||
+      !single_member.GenerateFromBackboneSpec(
+          request_with(single_member, support_fixture_specs())).ok ||
+      !four_members.GenerateFromBackboneSpec(
+          request_with(four_members, support_fixture_specs())).ok) return false;
+  WIRE_TEST_EXPECT(single_member.view().spans().size() == four_members.view().spans().size() &&
+                       single_member.view().ports().size() == four_members.view().ports().size(),
+                   "visual member count multiplied authoritative attachment topology");
+  WIRE_TEST_EXPECT(single_member.view().visual_model_instances().instances ==
+                       four_members.view().visual_model_instances().instances,
+                   "visual member count multiplied endpoint or support fixtures");
+  return edge_bodies(four_members, kDefaultCommunicationBundleTemplateId).size() ==
+         edge_bodies(single_member, kDefaultCommunicationBundleTemplateId).size() * 4;
 }
 
-bool C864_non_hv_bundle_wander_preserves_endpoints_and_hv_sag() {
+bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   using namespace city::wire;
   auto generate = [](CoreState* state, BundleTemplateId template_id, int count,
                      std::uint64_t placement_key) {
@@ -353,44 +391,117 @@ bool C864_non_hv_bundle_wander_preserves_endpoints_and_hv_sag() {
     return state->GenerateFromBackboneSpec(request_with(*state, {spec}));
   };
 
+  const std::vector<BackboneBundleSpec> independent_specs = {
+      {kDefaultCommunicationBundleTemplateId, 3001, SpanLayer::kCommunication, 1, true, 5.1, -0.30, 0.20},
+      {kDefaultCommunicationBundleTemplateId, 3002, SpanLayer::kCommunication, 1, true, 5.4, -0.40, 0.20},
+      {kDefaultCommunicationBundleTemplateId, 3003, SpanLayer::kCommunication, 1, true, 5.7, -0.50, 0.20},
+  };
   CoreState plain;
   BundleTemplate plain_comm = plain.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
+  plain_comm.span_visual_assembly.visual_member_count_min = 1;
+  plain_comm.span_visual_assembly.visual_member_count_max = 1;
+  plain_comm.span_visual_assembly.center_wander_amplitude_m = 0.0;
   plain_comm.span_visual_assembly.member_wander_ratio = 0.0;
   if (!plain.UpdateBundleTemplate(plain_comm).ok ||
-      !generate(&plain, kDefaultCommunicationBundleTemplateId, 3, 3001).ok) return false;
+      !plain.GenerateFromBackboneSpec(request_with(plain, independent_specs)).ok) return false;
   CoreState wandered;
-  if (!generate(&wandered, kDefaultCommunicationBundleTemplateId, 3, 3001).ok) return false;
+  BundleTemplate wandered_comm = wandered.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
+  wandered_comm.span_visual_assembly.visual_member_count_min = 1;
+  wandered_comm.span_visual_assembly.visual_member_count_max = 1;
+  wandered_comm.span_visual_assembly.member_wander_ratio = 0.0;
+  if (!wandered.UpdateBundleTemplate(wandered_comm).ok ||
+      !wandered.GenerateFromBackboneSpec(request_with(wandered, independent_specs)).ok) return false;
   const auto plain_parts = edge_bodies(plain, kDefaultCommunicationBundleTemplateId);
   const auto wandered_parts = edge_bodies(wandered, kDefaultCommunicationBundleTemplateId);
-  WIRE_TEST_EXPECT(plain_parts.size() == 3 && wandered_parts.size() == 3,
-                   "communication member count mismatch");
-  bool middle_changed = false;
+  WIRE_TEST_EXPECT(plain_parts.size() == independent_specs.size() &&
+                       wandered_parts.size() == plain_parts.size(),
+                   "independent communication cable count mismatch");
   std::set<double> sags{};
-  for (std::size_t lane = 0; lane < plain_parts.size(); ++lane) {
-    const auto& before = *plain_parts[lane];
-    const auto& after = *wandered_parts[lane];
-    if (before.samples.size() != after.samples.size() || before.samples.empty() ||
-        before.samples.front().x != after.samples.front().x ||
-        before.samples.front().y != after.samples.front().y ||
-        before.samples.front().z != after.samples.front().z ||
-        before.samples.back().x != after.samples.back().x ||
-        before.samples.back().y != after.samples.back().y ||
-        before.samples.back().z != after.samples.back().z) {
-      WIRE_TEST_EXPECT(false, "wander changed an endpoint");
-    }
+  std::vector<Vec3d> middle_offsets{};
+  std::vector<double> maximum_offsets{};
+  for (std::size_t cable = 0; cable < plain_parts.size(); ++cable) {
+    const auto& before = *plain_parts[cable];
+    const auto& after = *wandered_parts[cable];
+    WIRE_TEST_EXPECT(before.samples.size() == after.samples.size() && before.samples.size() >= 4,
+                     "wander changed sampling");
+    WIRE_TEST_EXPECT(same_point(before.samples.front(), after.samples.front()) &&
+                         same_point(before.samples.back(), after.samples.back()),
+                     "center wander changed an attachment endpoint");
+    const Vec3d before_start_tangent = normalized(before.samples[1] - before.samples[0]);
+    const Vec3d after_start_tangent = normalized(after.samples[1] - after.samples[0]);
+    const Vec3d before_end_tangent = normalized(before.samples.back() - before.samples[before.samples.size() - 2]);
+    const Vec3d after_end_tangent = normalized(after.samples.back() - after.samples[after.samples.size() - 2]);
+    WIRE_TEST_EXPECT(Dot(before_start_tangent, after_start_tangent) >= 0.9998 &&
+                         Dot(before_end_tangent, after_end_tangent) >= 0.9998,
+                     "center wander changed an endpoint tangent too much");
+    double maximum_offset = 0.0;
     for (std::size_t index = 1; index + 1 < before.samples.size(); ++index) {
-      middle_changed = middle_changed || city::wire::Length(before.samples[index] - after.samples[index]) > 1e-6;
-      WIRE_TEST_EXPECT(city::wire::Length(before.samples[index] - after.samples[index]) <= 0.016,
-                       "wander exceeded member spacing envelope");
+      maximum_offset = std::max(maximum_offset, Length(before.samples[index] - after.samples[index]));
     }
+    maximum_offsets.push_back(maximum_offset);
+    WIRE_TEST_EXPECT(Length(before.samples[1] - after.samples[1]) > 1e-8 &&
+                         Length(before.samples[before.samples.size() - 2] -
+                                after.samples[after.samples.size() - 2]) > 1e-8,
+                     "center wander has a fully straight endpoint interval");
+    middle_offsets.push_back(
+        after.samples[after.samples.size() / 2] - before.samples[before.samples.size() / 2]);
     const double unvaried_sag = 0.03 * Length(after.boundary_b - after.boundary_a);
-    WIRE_TEST_EXPECT(after.sag_m >= unvaried_sag * 0.95 - 1e-12 &&
-                     after.sag_m <= unvaried_sag * 1.05 + 1e-12,
+    WIRE_TEST_EXPECT(after.sag_m >= unvaried_sag * 0.88 - 1e-12 &&
+                         after.sag_m <= unvaried_sag * 1.12 + 1e-12,
                      "non-HV sag exceeded the configured variation range");
     sags.insert(after.sag_m);
   }
-  WIRE_TEST_EXPECT(middle_changed, "wander did not change a middle sample");
-  WIRE_TEST_EXPECT(sags.size() >= 2, "non-HV sag did not vary by member");
+  WIRE_TEST_EXPECT(Length(middle_offsets[0] - middle_offsets[1]) > 0.005 ||
+                       Length(middle_offsets[1] - middle_offsets[2]) > 0.005,
+                   "independent non-HV cables received the same center path variation");
+  const auto [minimum_offset, maximum_offset] = std::ranges::minmax(maximum_offsets);
+  WIRE_TEST_EXPECT(minimum_offset >= 0.03 && maximum_offset <= 0.08,
+                   "center wander is not within the visible tuning envelope: min=" +
+                       std::to_string(minimum_offset) + " max=" +
+                       std::to_string(maximum_offset));
+  WIRE_TEST_EXPECT(sags.size() >= 2, "non-HV sag did not vary by independent cable");
+
+  CoreState bundled;
+  BundleTemplate bundled_comm = bundled.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
+  bundled_comm.span_visual_assembly.visual_member_count_min = 3;
+  bundled_comm.span_visual_assembly.visual_member_count_max = 3;
+  if (!bundled.UpdateBundleTemplate(bundled_comm).ok ||
+      !generate(&bundled, kDefaultCommunicationBundleTemplateId, 1, 3010).ok) return false;
+  const auto bundled_parts = edge_bodies(bundled, kDefaultCommunicationBundleTemplateId);
+  WIRE_TEST_EXPECT(bundled.view().spans().size() == 1 && bundled_parts.size() == 3,
+                   "visual members multiplied authoritative topology");
+  for (const VisualCurvePart* member : bundled_parts) {
+    WIRE_TEST_EXPECT(same_point(member->samples.front(), bundled_parts.front()->samples.front()) &&
+                         same_point(member->samples.back(), bundled_parts.front()->samples.back()),
+                     "visual member changed the logical attachment endpoint");
+    const Vec3d center_start_tangent = normalized(
+        bundled_parts.front()->samples[1] - bundled_parts.front()->samples[0]);
+    const Vec3d member_start_tangent = normalized(member->samples[1] - member->samples[0]);
+    const Vec3d center_end_tangent = normalized(
+        bundled_parts.front()->samples.back() -
+        bundled_parts.front()->samples[bundled_parts.front()->samples.size() - 2]);
+    const Vec3d member_end_tangent = normalized(
+        member->samples.back() - member->samples[member->samples.size() - 2]);
+    WIRE_TEST_EXPECT(Dot(center_start_tangent, member_start_tangent) >= 0.9998 &&
+                         Dot(center_end_tangent, member_end_tangent) >= 0.9998,
+                     "visual member changed the logical attachment tangent too much");
+  }
+  const std::size_t quarter = bundled_parts.front()->samples.size() / 4;
+  const std::size_t three_quarters = bundled_parts.front()->samples.size() * 3 / 4;
+  const Vec3d separation_a = bundled_parts[1]->samples[quarter] - bundled_parts[0]->samples[quarter];
+  const Vec3d separation_b = bundled_parts[1]->samples[three_quarters] -
+                             bundled_parts[0]->samples[three_quarters];
+  WIRE_TEST_EXPECT(Length(separation_a - separation_b) > 0.001,
+                   "visual members remained exact parallel copies");
+  for (std::size_t index = 0; index < bundled_parts.front()->samples.size(); ++index) {
+    Vec3d centroid{};
+    for (const VisualCurvePart* member : bundled_parts) centroid = centroid + member->samples[index];
+    centroid = ScaleVec(centroid, 1.0 / static_cast<double>(bundled_parts.size()));
+    for (const VisualCurvePart* member : bundled_parts) {
+      WIRE_TEST_EXPECT(Length(member->samples[index] - centroid) <= 0.06,
+                       "visual bundle member escaped the bundle center path");
+    }
+  }
 
   CoreState hv_default;
   CoreState hv_no_variation;
@@ -414,8 +525,13 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
   using namespace city::wire;
   CoreState state;
   if (!configure_non_hv_model_fixtures(&state)) return false;
+  BundleTemplate communication_template =
+      state.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
+  communication_template.span_visual_assembly.visual_member_count_min = 3;
+  communication_template.span_visual_assembly.visual_member_count_max = 3;
+  if (!state.UpdateBundleTemplate(communication_template).ok) return false;
   BackboneBundleSpec communication{kDefaultCommunicationBundleTemplateId, 4001,
-      SpanLayer::kCommunication, 3, true, 5.2, -0.40, 0.05};
+      SpanLayer::kCommunication, 1, true, 5.2, -0.40, 0.20};
   if (!state.GenerateFromBackboneSpec(request_with(state, {communication})).ok) return false;
   const auto models_before = state.view().visual_model_instances().instances;
   const auto bodies_before = edge_bodies(state, kDefaultCommunicationBundleTemplateId);
@@ -431,6 +547,39 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
   for (std::size_t index = 0; index < bodies_after.size(); ++index) {
     if (!same_samples(bodies_after[index]->samples, samples_before[index])) return false;
   }
+
+  CoreState optical;
+  BundleTemplate optical_template =
+      optical.view().bundle_templates().at(kDefaultOpticalBundleTemplateId);
+  optical_template.span_visual_assembly.visual_member_count_min = 2;
+  optical_template.span_visual_assembly.visual_member_count_max = 2;
+  if (!optical.UpdateBundleTemplate(optical_template).ok) return false;
+  BackboneBundleSpec optical_spec{kDefaultOpticalBundleTemplateId, 4101,
+      SpanLayer::kOptical, 1, true, 5.1, -0.38, 0.20};
+  if (!optical.GenerateFromBackboneSpec(request_with(optical, {optical_spec})).ok) return false;
+  const auto optical_members = edge_bodies(optical, kDefaultOpticalBundleTemplateId);
+  const VisualCurvePart* support = nullptr;
+  const VisualCurvePart* helix = nullptr;
+  for (const VisualCurvePart& part : optical.view().visual_curve_parts().parts) {
+    if (part.bundle_template_id != kDefaultOpticalBundleTemplateId) continue;
+    if (part.supplemental_kind == VisualSupplementalKind::kSupportPath) support = &part;
+    if (part.supplemental_kind == VisualSupplementalKind::kHelix) helix = &part;
+  }
+  WIRE_TEST_EXPECT(optical.view().spans().size() == 1 && optical_members.size() == 2 &&
+                       support != nullptr && helix != nullptr,
+                   "optical did not use one span visual assembly pipeline");
+  const ObjectId logical_span_id = optical_members.front()->section_key.logical_span_id;
+  WIRE_TEST_EXPECT(optical_members.back()->section_key.logical_span_id == logical_span_id &&
+                       support->source_span_id == logical_span_id && helix->source_span_id == logical_span_id,
+                   "optical assembly lost source logical span identity");
+  const Vec3d support_middle = support->samples[support->samples.size() / 2];
+  Vec3d member_middle{};
+  for (const VisualCurvePart* member : optical_members) {
+    member_middle = member_middle + member->samples[member->samples.size() / 2];
+  }
+  member_middle = ScaleVec(member_middle, 1.0 / static_cast<double>(optical_members.size()));
+  WIRE_TEST_EXPECT(Length(member_middle - support_middle) <= 0.10,
+                   "optical support path separated from its visual members");
   return true;
 }
 

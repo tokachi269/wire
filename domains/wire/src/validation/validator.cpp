@@ -722,7 +722,14 @@ ValidationResult CoreState::Validate() const {
         std::isfinite(assembly.helix_clearance_m) && assembly.helix_clearance_m >= 0.0 &&
         std::isfinite(assembly.helix_turns_per_meter) && assembly.helix_turns_per_meter >= 0.0 &&
         assembly.helix_samples_per_turn >= 4 && std::isfinite(assembly.endpoint_trim_m) &&
-        assembly.endpoint_trim_m >= 0.0 && std::isfinite(assembly.member_wander_ratio) &&
+        assembly.endpoint_trim_m >= 0.0 && assembly.visual_member_count_min >= 1 &&
+        assembly.visual_member_count_max >= assembly.visual_member_count_min &&
+        std::isfinite(assembly.visual_member_spacing_m) && assembly.visual_member_spacing_m >= 0.0 &&
+        (assembly.visual_member_count_max == 1 || assembly.visual_member_spacing_m > 0.0) &&
+        std::isfinite(assembly.center_wander_amplitude_m) && assembly.center_wander_amplitude_m >= 0.0 &&
+        std::isfinite(assembly.center_wander_wavelength_m) &&
+        (assembly.center_wander_amplitude_m == 0.0 || assembly.center_wander_wavelength_m > 0.0) &&
+        std::isfinite(assembly.member_wander_ratio) &&
         assembly.member_wander_ratio >= 0.0 && assembly.member_wander_ratio <= 1.0 &&
         std::isfinite(assembly.member_wander_wavelength_m) &&
         std::isfinite(assembly.member_wander_phase_bias) &&

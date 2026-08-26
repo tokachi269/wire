@@ -1404,9 +1404,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct",
                          "compatible supported bundles share rows and near-pole bundles stay direct",
                          "Invariant", false, C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct);
-  test_registry::AddTest(tests, "C864_non_hv_bundle_wander_preserves_endpoints_and_hv_sag",
-                         "non-HV member wander preserves endpoints while HV sag remains unchanged",
-                         "Invariant", false, C864_non_hv_bundle_wander_preserves_endpoints_and_hv_sag);
+  test_registry::AddTest(tests, "C864_non_hv_span_visual_variation_preserves_attachment_contracts",
+                         "non-HV center and member variation preserve attachment endpoints and tangents while HV remains unchanged",
+                         "Invariant", false, C864_non_hv_span_visual_variation_preserves_attachment_contracts);
   test_registry::AddTest(tests, "C865_non_hv_support_and_member_shape_survive_save_load",
                          "derived support rows and member shapes survive authoritative save-load",
                          "Invariant", false, C865_non_hv_support_and_member_shape_survive_save_load);

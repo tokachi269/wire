@@ -203,6 +203,12 @@ bool C514_backbone_draw_save_is_direct() {
 
 bool C740_visual_curve_part_stats_count_full_curve_builds() {
   city::wire::CoreState state;
+  city::wire::BundleTemplate lv =
+      state.view().bundle_templates().at(city::wire::kDefaultLowVoltageBundleTemplateId);
+  lv.span_visual_assembly.center_wander_amplitude_m = 0.0;
+  if (!state.UpdateBundleTemplate(lv).ok) {
+    return false;
+  }
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
     return false;
@@ -213,10 +219,10 @@ bool C740_visual_curve_part_stats_count_full_curve_builds() {
       cache.parts.begin(), cache.parts.end(), [](const city::wire::VisualCurvePart& part) {
         return part.supplemental_kind == city::wire::VisualSupplementalKind::kSupportPath;
       }));
-  if (cache.stats.sections != expected_sections ||
-      cache.stats.curve_builds != expected_sections + support_count) {
-    return false;
-  }
+  WIRE_TEST_EXPECT(cache.stats.sections == expected_sections,
+                   "visual curve stats section count does not match authoritative spans");
+  WIRE_TEST_EXPECT(cache.stats.curve_builds == expected_sections + support_count,
+                   "visual curve stats counted a derived member as a full curve build");
 
   const city::wire::ObjectId span_id = out.value.generated_span_ids.front();
   const city::wire::SpanLayoutView span_layout = state.span_layout(span_id);
@@ -1066,6 +1072,12 @@ bool C636_backbone_edge_body_stops_at_node_patch_boundaries() {
 
 bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
   city::wire::CoreState state;
+  city::wire::BundleTemplate lv =
+      state.view().bundle_templates().at(city::wire::kDefaultLowVoltageBundleTemplateId);
+  lv.span_visual_assembly.center_wander_amplitude_m = 0.0;
+  if (!state.UpdateBundleTemplate(lv).ok) {
+    return false;
+  }
   city::wire::GeometrySettings settings = state.view().geometry_settings();
   settings.curve_samples = 8;
   settings.sag_enabled = true;
@@ -1324,6 +1336,12 @@ bool C659_backbone_draw_time_tilt_materializes_ports_before_spans() {
 
 bool C642_backbone_edge_body_uses_formal_sag_curve() {
   city::wire::CoreState state;
+  city::wire::BundleTemplate lv =
+      state.view().bundle_templates().at(city::wire::kDefaultLowVoltageBundleTemplateId);
+  lv.span_visual_assembly.center_wander_amplitude_m = 0.0;
+  if (!state.UpdateBundleTemplate(lv).ok) {
+    return false;
+  }
   city::wire::GeometrySettings settings = state.view().geometry_settings();
   settings.sag_enabled = true;
   settings.sag_factor = 0.03;

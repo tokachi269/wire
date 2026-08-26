@@ -101,7 +101,7 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
       }
       const int lane_count = bundle_template->count_rule == BundleCountRuleKind::kFixed
           ? bundle_template->fixed_count
-          : (rule.min_conductor_count > 0 ? rule.min_conductor_count : bundle_template->default_count);
+          : (rule.conductor_count > 0 ? rule.conductor_count : bundle_template->default_count);
       const auto bands = generation::backbone::SelectPortPlacementBands(
           *pole_type, bundle_template->category, bundle_template->default_layer, lane_count);
       if (!bands.ok) {
@@ -136,25 +136,18 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
         !std::isfinite(rule.lateral_abs_min_m) || !std::isfinite(rule.lateral_abs_max_m) ||
         rule.lateral_abs_min_m < 0.0 || rule.lateral_abs_max_m < rule.lateral_abs_min_m ||
         !std::isfinite(rule.min_spacing_m) || rule.min_spacing_m < 0.0 ||
-        rule.min_conductor_count < 0 || rule.max_conductor_count < rule.min_conductor_count ||
-        !std::isfinite(rule.member_spacing_min_m) ||
-        !std::isfinite(rule.member_spacing_max_m) ||
-        rule.member_spacing_min_m < 0.0 ||
-        rule.member_spacing_max_m < rule.member_spacing_min_m) {
+        rule.conductor_count < 0) {
       result.error = "core invalid input: route bundle variation rule is invalid";
       return result;
     }
-    const int minimum_conductor_count = rule.min_conductor_count > 0
-        ? rule.min_conductor_count : bundle_template->default_count;
-    const int maximum_conductor_count = rule.max_conductor_count > 0
-        ? rule.max_conductor_count : minimum_conductor_count;
-    if (minimum_conductor_count <= 0 ||
+    const int conductor_count = rule.conductor_count > 0
+        ? rule.conductor_count : bundle_template->default_count;
+    if (conductor_count <= 0 ||
         (bundle_template->count_rule == BundleCountRuleKind::kFixed &&
-         (minimum_conductor_count != bundle_template->fixed_count ||
-          maximum_conductor_count != bundle_template->fixed_count)) ||
+         conductor_count != bundle_template->fixed_count) ||
         (bundle_template->count_rule == BundleCountRuleKind::kRange &&
-         (minimum_conductor_count < bundle_template->min_count ||
-          maximum_conductor_count > bundle_template->max_count))) {
+         (conductor_count < bundle_template->min_count ||
+          conductor_count > bundle_template->max_count))) {
       result.error = "core invalid input: route bundle variation conductor count is invalid";
       return result;
     }
@@ -165,10 +158,6 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
     for (int instance_ordinal = 0; instance_ordinal < instance_count; ++instance_ordinal) {
       const std::uint64_t base_seed = rule_seed(input.route_seed, rule_ordinal,
                                                 rule.bundle_template_id, instance_ordinal);
-      const int conductor_count = bundle_template->count_rule == BundleCountRuleKind::kFixed
-          ? bundle_template->fixed_count
-          : sample_count(support::hash_combine(base_seed, 0x434f554e54ull),
-                         minimum_conductor_count, maximum_conductor_count);
       const auto bands = generation::backbone::SelectPortPlacementBands(
           *pole_type, bundle_template->category, bundle_template->default_layer, conductor_count);
       if (!bands.ok) {
@@ -213,10 +202,7 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
       spec.placement_explicit = true;
       spec.height_m = candidate.height_m;
       spec.lateral_m = candidate.lateral_m;
-      spec.spacing_m = conductor_count > 1 && rule.member_spacing_max_m > 0.0
-          ? sample_range(base_seed, 0x4d454d4245525350ull,
-                         rule.member_spacing_min_m, rule.member_spacing_max_m)
-          : bundle_template->default_spacing_m;
+      spec.spacing_m = bundle_template->default_spacing_m;
       resolved.push_back(spec);
       placed.push_back(candidate);
     }

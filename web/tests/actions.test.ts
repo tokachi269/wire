@@ -300,7 +300,9 @@ describe("viewer actions", () => {
           spanVisualAssembly: {
             supportPathEnabled: false,
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
-            helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
+            helixSamplesPerTurn: 16, endpointTrim: 0,
+            visualMemberCountMin: 1, visualMemberCountMax: 1, visualMemberSpacing: 0,
+            centerWanderAmplitude: 0, centerWanderWavelength: 0, memberWanderRatio: 0,
             memberWanderWavelength: 0, memberWanderPhaseBias: 0,
             memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
           },
@@ -385,7 +387,9 @@ describe("viewer actions", () => {
           spanVisualAssembly: {
             supportPathEnabled: false,
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
-            helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
+            helixSamplesPerTurn: 16, endpointTrim: 0,
+            visualMemberCountMin: 1, visualMemberCountMax: 1, visualMemberSpacing: 0,
+            centerWanderAmplitude: 0, centerWanderWavelength: 0, memberWanderRatio: 0,
             memberWanderWavelength: 0, memberWanderPhaseBias: 0,
             memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
           },
@@ -448,7 +452,9 @@ describe("viewer actions", () => {
           spanVisualAssembly: {
             supportPathEnabled: false,
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
-            helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
+            helixSamplesPerTurn: 16, endpointTrim: 0,
+            visualMemberCountMin: 1, visualMemberCountMax: 1, visualMemberSpacing: 0,
+            centerWanderAmplitude: 0, centerWanderWavelength: 0, memberWanderRatio: 0,
             memberWanderWavelength: 0, memberWanderPhaseBias: 0,
             memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
           },
@@ -494,7 +500,9 @@ const bundleTemplate: BundleTemplateInfo = {
   spanVisualAssembly: {
     supportPathEnabled: false,
     helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
-    helixSamplesPerTurn: 16, endpointTrim: 0, memberWanderRatio: 0,
+    helixSamplesPerTurn: 16, endpointTrim: 0,
+    visualMemberCountMin: 1, visualMemberCountMax: 1, visualMemberSpacing: 0,
+    centerWanderAmplitude: 0, centerWanderWavelength: 0, memberWanderRatio: 0,
     memberWanderWavelength: 0, memberWanderPhaseBias: 0,
     memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
   }

@@ -591,10 +591,10 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C859 | Behavior | Boundary | required instanceを有限candidateで配置できない場合は明示失敗し、authoritative stateを変更しない | `differential` `anchor` | silent omissionや部分mutationを防ぐ |
 | C860 | Behavior | Invariant | acute cornerを通るrandomized multi-bundle routeはbackbone invariantを満たし、save/load後もconcrete placementを維持する | `presence` `differential` | load時rerollとlane/continuity twist再発を防ぐ |
 | C861 | Behavior | Invariant | incremental extensionは同じresolved placementとsource Bundleを使い、既存spanとconnection outputを保つ | `presence` `anchor` | extension時rerollと既存visual update scope欠落を防ぐ |
-| C862 | Behavior | Invariant | 固定seed群でLV・Communication・Opticalの構成または配置が実際に変わり、Communicationは1～3 memberを生成する一方、HV 3相配置は不変 | `oracle` `differential` | Communicationだけが変わる、またはHVまでrandom化する回帰を防ぐ |
-| C863 | Behavior | Invariant | 同じpole・side・row方向で近いCommunication/Opticalは1本のminimum reach付きsupport rowを共有し、direct reach内は横支持物を生成しない | `presence` `oracle` | Bundleごとの横棒乱造、短すぎる支持物、near-pole fixtureの浮遊を防ぐ |
-| C864 | Behavior | Invariant | 非HV multi-member wanderは両endpointを厳密に維持して中間だけを小さく非平行化し、laneごとのsagを小さく変える一方、HV sagはvariation設定の影響を受けない | `anchor` `differential` | endpoint切断、過大wander、完全平行束、HV形状変化を防ぐ |
-| C865 | Behavior | Invariant | 保存済みconcrete placementから導出したsupport row本数・transformとmember curveはsave/load後に完全同一 | `differential` | load時のreroll、container order依存、派生支持表現の不安定化を防ぐ |
+| C862 | Behavior | Invariant | 固定seed群でLV・Communication・OpticalのBundle構成または配置が実際に変わり、Communicationは1 conductor Bundleを複数生成する一方、HV 3相配置は不変 | `oracle` `differential` | 見た目の束をtopology laneで増やす、またはHVまでrandom化する回帰を防ぐ |
+| C863 | Behavior | Invariant | 近いCommunication/Opticalは1本のsupport rowを共有しper-Bundle row fixtureを残さず、visual member数を増やしてもSpan・Port・endpoint fixture・support数は増えない | `presence` `oracle` `differential` | Bundleごとの横棒・belt乱造、visual memberによるattachment増殖、direct fixtureの浮遊を防ぐ |
+| C864 | Behavior | Invariant | 非HV center pathはendpointとendpoint tangentを維持しつつ3～8cmの全span variationを持ち、独立cableと束内部memberは非平行かつcohesiveで、非HV sagだけが±12%内で変化する | `anchor` `oracle` `differential` | endpoint切断、直線区間からの急なwander、微小または過大variation、完全平行束、HV形状変化を防ぐ |
+| C865 | Behavior | Invariant | 保存済みplacementからのmember curveとsupportはsave/loadで同一で、Opticalも同じlogical-span assemblyからmember・support・helixを生成する | `differential` `presence` | load時reroll、Communication/Opticalの物理束経路分裂、supportとmemberの分離を防ぐ |
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各Observation tokenへそのoperation結果の独立evidenceを結び付けて実行する | `oracle` `presence` `anchor` | case内の別cellやObserve自体のassertionで未検証cellをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |
 
 ## 廃止済み旧pipeline検査

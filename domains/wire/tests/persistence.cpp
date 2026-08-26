@@ -331,6 +331,11 @@ bool make_roundtrip_source(city::wire::CoreState* state, std::string* saved, Der
   lv.span_visual_assembly.helix_turns_per_meter = 0.5;
   lv.span_visual_assembly.helix_samples_per_turn = 12;
   lv.span_visual_assembly.endpoint_trim_m = 0.2;
+  lv.span_visual_assembly.visual_member_count_min = 2;
+  lv.span_visual_assembly.visual_member_count_max = 3;
+  lv.span_visual_assembly.visual_member_spacing_m = 0.04;
+  lv.span_visual_assembly.center_wander_amplitude_m = 0.06;
+  lv.span_visual_assembly.center_wander_wavelength_m = 14.0;
   lv.span_visual_assembly.member_wander_ratio = 0.6;
   lv.span_visual_assembly.member_wander_wavelength_m = 3.0;
   lv.span_visual_assembly.member_twist_turns_per_meter = 0.2;

@@ -232,6 +232,11 @@ struct SpanVisualAssemblyTemplate {
   double helix_turns_per_meter = 0.0;
   int helix_samples_per_turn = 16;
   double endpoint_trim_m = 0.0;
+  int visual_member_count_min = 1;
+  int visual_member_count_max = 1;
+  double visual_member_spacing_m = 0.0;
+  double center_wander_amplitude_m = 0.0;
+  double center_wander_wavelength_m = 0.0;
   double member_wander_ratio = 0.0;
   double member_wander_wavelength_m = 0.0;
   double member_wander_phase_bias = 0.0;
@@ -347,10 +352,7 @@ struct RandomBackboneBundleRule {
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   int min_instances = 0;
   int max_instances = 0;
-  int min_conductor_count = 0;
-  int max_conductor_count = 0;
-  double member_spacing_min_m = 0.0;
-  double member_spacing_max_m = 0.0;
+  int conductor_count = 0;
   double height_min_m = 0.0;
   double height_max_m = 0.0;
   double lateral_abs_min_m = 0.0;

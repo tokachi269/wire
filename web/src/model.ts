@@ -296,10 +296,7 @@ export interface RandomBundleRule {
   bundleTemplateId: number;
   minInstances: number;
   maxInstances: number;
-  minConductorCount: number;
-  maxConductorCount: number;
-  memberSpacingMin: number;
-  memberSpacingMax: number;
+  conductorCount: number;
   heightMin: number;
   heightMax: number;
   lateralAbsMin: number;
@@ -325,6 +322,11 @@ export interface SpanVisualAssemblyInfo {
   helixTurnsPerMeter: number;
   helixSamplesPerTurn: number;
   endpointTrim: number;
+  visualMemberCountMin: number;
+  visualMemberCountMax: number;
+  visualMemberSpacing: number;
+  centerWanderAmplitude: number;
+  centerWanderWavelength: number;
   memberWanderRatio: number;
   memberWanderWavelength: number;
   memberWanderPhaseBias: number;

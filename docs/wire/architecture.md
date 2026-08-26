@@ -386,8 +386,9 @@ concrete な `BackboneBundleSpec` entries である。consumer は既存 backbon
 pipeline / layout / curve / viewer は randomization を再判断しない。
 
 random rule と route seed は Input であり保存しない。resolver は route 生成開始時に1回だけ Bundle 数と
-pole-local の height / lateral / member count / member spacing を確定し、通常の Bundle / Port / Span /
-saved placement として保存する。HVの3相配置はrandomization対象外とする。非HVのsupported placementは
+pole-local の height / lateral を確定し、通常の Bundle / Port / Span / saved placement として保存する。
+ruleのconductor countはtopology上の導体数であり、見た目の束を作るためには変動させない。
+HVの3相配置はrandomization対象外とする。非HVのsupported placementは
 連続座標をそのまま使わず、同じroute-wide sideにある有限のsupport slotへ寄せる。
 load、regenerate、通常 update は保存済み concrete placement を使い、reroll しない。同一 Bundle の placement を
 Pole ごとに変えず、同一 route 内で side を反転しない。road-facing side は外部から与える単純な sign であり、
@@ -398,7 +399,9 @@ Direct attachment、明確に離れたplacementはSupported rowとし、新し�
 同じpole、同じrow方向、同じside、互換fixture semanticsで高さが近いBundleはdeterministicに1 rowへまとめる。
 LVはLV内、CommunicationとOpticalは相互にだけ共有候補とし、rowのreachは最外memberとmarginから求め、
 短すぎる支持物は生成しない。supportの有無、grouping、高さ、reachはCore derived placementが所有し、viewerの
-asset adapterは形状だけを提供する。
+asset adapterは形状だけを提供する。support groupingはrow fixture materializationより先に確定し、Supported rowは
+shared supportを1つだけ生成してper-Bundle row fixtureを生成しない。endpoint fixtureはlogical cableごとに必要な数だけ
+生成し、visual member数では増やさない。
 
 旧 cable population の visual-only duplication は退役する。Bundle 本数の variation を
 `CableSectionLayout` の追加描画として生成せず、すべて通常の authoritative topology として生成する。
@@ -416,26 +419,34 @@ template を引く API は持たない。kind で探す場合は grouping/filter
 ## span visual assembly
 
 span visual assembly は derived visual output であり、authoritative topology ではない。
-assembly の単位は logical span であり、Bundle の全 lane を物理的に束ねるものではない。
+assembly の単位とidentity ownerはsource logical span / Bundleであり、Bundle の全 topology laneを物理的に束ねるものではない。
+1 logical spanは設定により1本または複数の近接visual memberとして描画できるが、Span、Port、Bundle、attachment、
+CableRun identityは増やさない。
 
-members は base section と同一 logical span の lane sections である。support path と
+members はbase sectionから派生する同一logical spanのvisual構成要素である。support path と
 members は helix の内側に置き、support path は内周上部に接し、members は下側に配置する。
 helix は endpoint trim 区間だけ生成し、電柱や attachment へ接続しない。
 
-member twist と member wander は visual curve だけを変更し、Span、Port、SavedGraph、
-CableRun identity を変更しない。helix内memberの関連付けは `CableSectionKey.logical_span_id`、通常の
-multi-member Bundleの関連付けは保存済み`edge_bundle_id`による明示identityを使い、geometry近傍から探索しない。
-通常Bundleのwanderは非HVかつmulti-memberだけに適用し、両endpointで必ず0へ戻す。HVとsingle-memberの
-main spanは変更しない。
+Communication、Optical、support path、helix、member twist、member wanderは同じlogical-span assembly pipelineの
+設定差で表現する。別のedge-bundle groupingやcategory専用wander ownerを持たず、geometry近傍からmemberを探索しない。
+
+非HV main spanはsingle-memberを含め、arc length `s` に対するdeterministicなcenter-path offsetを全中間sampleへ適用する。
+physical bundleではこのcenter variationに、より小さいmember-relative variationを重ねる。support pathとhelixも同じ
+center pathへ追従する。center variationのenvelopeはspan長を`L`として
+`E(s) = 16 (s/L)^2 (1-s/L)^2` とし、`E(0)=E(L)=0`かつ`E'(0)=E'(L)=0`を満たす。
+したがってattachment endpointとendpoint tangentを維持し、直線区間とwander区間の離散境界を作らない。
+HV main spanとHV arrangementにはcenter variationを適用しない。
 
 main spanのsagは`ResolvedSpanCurveInputs.effective_sag_ratio`を最終curveまで一貫して使う。非HVは既存の
 hierarchical variationから小さな差を導出し、HVはvariation multiplierを適用せず従来値を維持する。
 
-`BundleTemplate.span_visual_assembly` は assembly の正本設定である。radius が 0 の場合は、
+`BundleTemplate.span_visual_assembly` はvisual member数・間隔、center variation、member-relative variation、
+support、helixを含むassemblyの正本設定である。visual member数はsaved topologyへ保存せず、保存済みBundle placementから
+決定的に再導出する。radius が 0 の場合は、
 support path からの member offset、member wire radius、helix wire radius、clearance を含む最小半径を
 derived 側で求める。contained member は support path のnormalized arc-length位置へ対応付け、
-helix内周から出ないように断面offsetをclampする。wander はclamp後に残るmarginの比率だけを使い、
-同じvariation flowとsection keyから決定的に導出する。
+helix内周から出ないように断面offsetをclampする。member数・phaseはstableなBundle placement keyとlogical laneから
+決定的に導出し、loadやregenerateでrerollしない。
 明示radiusは、support wireとhelix wireの径およびclearanceを収められない値を設定時に拒否する。
 
 support path は helix と独立して有効化できる。全support pathはendpoint解決後に

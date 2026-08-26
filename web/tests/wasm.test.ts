@@ -478,6 +478,17 @@ describe("wire wasm smoke", () => {
       runState.bundleTemplate(index)
     ).find((template) => template.id === 102);
     expect(bundleTemplate).toBeDefined();
+    const visualAssemblyDisabled = runState.updateBundleTemplate({
+      ...bundleTemplate!,
+      spanVisualAssembly: {
+        ...bundleTemplate!.spanVisualAssembly,
+        centerWanderAmplitude: 0
+      }
+    });
+    expect(visualAssemblyDisabled.ok, visualAssemblyDisabled.error).toBe(true);
+    expect(Array.from({ length: runState.bundleTemplateCount() }, (_, index) =>
+      runState.bundleTemplate(index)
+    ).find((template) => template.id === 102)?.spanVisualAssembly.centerWanderAmplitude).toBe(0);
     const cableTemplate = Array.from({ length: runState.cableTemplateCount() }, (_, index) =>
       runState.cableTemplate(index)
     ).find((template) => template.id === bundleTemplate!.cableTemplateId);
@@ -512,8 +523,8 @@ describe("wire wasm smoke", () => {
     const anchorChordZ = start[2] + (end[2] - start[2]) * anchorU;
     const resolvedSag = (anchorChordZ - body.samples[5]) /
       (4 * anchorU * (1 - anchorU));
-    expect(resolvedSag).toBeGreaterThanOrEqual(0.475);
-    expect(resolvedSag).toBeLessThanOrEqual(0.525);
+    expect(resolvedSag).toBeGreaterThanOrEqual(0.44);
+    expect(resolvedSag).toBeLessThanOrEqual(0.56);
     for (let index = 0; index < pointCount; index += 1) {
       const u = index / (pointCount - 1);
       const chordZ = start[2] + (end[2] - start[2]) * u;

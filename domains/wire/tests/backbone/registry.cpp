@@ -1405,7 +1405,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "compatible supported bundles share rows and near-pole bundles stay direct",
                          "Invariant", false, C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct);
   test_registry::AddTest(tests, "C864_non_hv_span_visual_variation_preserves_attachment_contracts",
-                         "non-HV center variation preserves attachment authority while visual members keep a compact two-dimensional endpoint cross-section",
+                         "non-HV main and connection curves preserve attachment authority while visual members keep one compact two-dimensional cross-section",
                          "Invariant", false, C864_non_hv_span_visual_variation_preserves_attachment_contracts);
   test_registry::AddTest(tests, "C865_non_hv_support_and_member_shape_survive_save_load",
                          "visual member cross-sections survive rebuild and save-load while Optical remains contained by its shared helix",

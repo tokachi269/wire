@@ -996,6 +996,10 @@ bool visual_part_less(const VisualCurvePart& a, const VisualCurvePart& b) {
   if (a.has_section_key && !same_cable_section(a.section_key, b.section_key)) {
     return section_key_less(a.section_key, b.section_key);
   }
+  if (!a.has_section_key && a.section_count > 1 &&
+      a.section_key.instance_index != b.section_key.instance_index) {
+    return a.section_key.instance_index < b.section_key.instance_index;
+  }
   if (a.cable_run_id != b.cable_run_id) {
     return a.cable_run_id < b.cable_run_id;
   }
@@ -1606,8 +1610,6 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
         entry.span_id,
         SpanVisualAssemblyEndpoints{entry.start.endpoint_world, entry.end.endpoint_world});
   }
-  apply_span_visual_assemblies(state, assembly_endpoints, &out);
-
   for (const curve_patch_spec& spec : patch_specs) {
     curve_boundary a_boundary{};
     curve_boundary b_boundary{};
@@ -1699,6 +1701,8 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       emitted_jumper_ports.push_back(peer->port_id);
     }
   }
+  // main spanだけでなく、ここまでに確定した接続曲線も同じbundle断面へ展開する。
+  apply_span_visual_assemblies(state, assembly_endpoints, &out);
   append_pole_decoration_curves(state, endpoints, affected_nodes, &out);
   if (!changed_spans.empty()) {
     result.value = merge_visual_changes(

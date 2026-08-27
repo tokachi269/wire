@@ -423,8 +423,8 @@ assembly の単位とidentity ownerはsource logical span / Bundleであり、Bu
 1 logical spanは設定により1本または複数の近接visual memberとして描画できるが、Span、Port、Bundle、attachment、
 CableRun identityは増やさない。
 
-members はbase sectionから派生する同一logical spanのvisual構成要素である。support path と
-members は helix の内側に置き、support path は内周上部に接し、members は下側に配置する。
+members はbase sectionと、そのlogical cableをつなぐNodePatch / Lead / Jumperから派生するvisual構成要素である。
+main spanのsupport path とmembersはhelixの内側に置き、support pathは内周上部に接し、membersは下側に配置する。
 helix は endpoint trim 区間だけ生成し、電柱や attachment へ接続しない。
 
 visual memberの断面はcenter curveに直交するlateral/up 2次元平面へcompactに配置する。1本はcenter、
@@ -457,6 +457,8 @@ helix内周から出ないように断面offsetをclampする。member-relative 
 CommunicationとOpticalは同じpacking、containment、margin-based wander処理を使う。Opticalのsupport path、member、helixは
 同じcenter pathとcontainment radiusを共有する。member数・phaseはstableなBundle placement keyとlogical laneから
 決定的に導出し、load、derived rebuild、regenerateでrerollしない。
+NodePatch / Lead / Jumperもmain spanと同じBundle placement key、logical lane、compact cross-sectionを使い、接続区間だけ
+center curve 1本へ戻さない。support pathとhelixはmain spanだけの補助表現であり、接続区間へ重複生成しない。
 明示radiusは、support wireとhelix wireの径およびclearanceを収められない値を設定時に拒否する。
 
 support path は helix と独立して有効化できる。全support pathはendpoint解決後に

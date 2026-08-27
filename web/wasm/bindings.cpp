@@ -741,6 +741,8 @@ private:
                     std::to_string(part.section_key.edge_bundle_id) + ":" +
                     std::to_string(part.section_key.rule_owner_id) + ":" + std::to_string(part.section_key.rule_id) +
                     ":" + std::to_string(part.section_key.instance_index);
+      } else if (part.section_count > 1) {
+        part_key += ":m:" + std::to_string(part.section_key.instance_index);
       }
       for (ObjectId edge_id : part.incident_edge_ids) {
         part_key += ":e:" + std::to_string(edge_id);

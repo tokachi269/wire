@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <set>
 #include <sstream>
@@ -565,6 +566,57 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   }
   WIRE_TEST_EXPECT(cross_section_change > 0.0001,
                    "visual bundle cross-section remained completely fixed along the span");
+
+  CoreState connected;
+  BundleTemplate connected_comm =
+      connected.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
+  connected_comm.span_visual_assembly.visual_member_count_min = 3;
+  connected_comm.span_visual_assembly.visual_member_count_max = 3;
+  if (!connected.UpdateBundleTemplate(connected_comm).ok) return false;
+  BackboneBundleSpec connected_spec{kDefaultCommunicationBundleTemplateId, 3201,
+      SpanLayer::kCommunication, 1, true, 5.3, -0.30, 0.20};
+  const auto connected_result = connected.GenerateFromBackboneSpec(request_with(
+      connected, {connected_spec}, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0},
+                                    {18.0, 6.0, 0.0}}));
+  if (!connected_result.ok) return false;
+  std::vector<const VisualCurvePart*> connection_members{};
+  for (const VisualCurvePart& part : connected.view().visual_curve_parts().parts) {
+    if (part.kind == VisualCurvePartKind::kNodePatch &&
+        part.bundle_template_id == kDefaultCommunicationBundleTemplateId) {
+      connection_members.push_back(&part);
+    }
+  }
+  WIRE_TEST_EXPECT(connection_members.size() == 3,
+                   "visual bundle connection collapsed to one center curve");
+  const std::size_t connection_middle = connection_members.front()->samples.size() / 2;
+  WIRE_TEST_EXPECT(connection_members.front()->samples.size() >= 3 &&
+                       std::ranges::all_of(connection_members,
+                           [connection_middle](const VisualCurvePart* member) {
+                             return member->samples.size() > connection_middle;
+                           }),
+                   "visual bundle connection members do not share a sampling frame");
+  WIRE_TEST_EXPECT(Length(Cross(
+                       connection_members[1]->samples[connection_middle] -
+                           connection_members[0]->samples[connection_middle],
+                       connection_members[2]->samples[connection_middle] -
+                           connection_members[0]->samples[connection_middle])) > 1e-6,
+                   "visual bundle connection lost its two-dimensional cross-section");
+  const auto connected_bodies = edge_bodies(connected, kDefaultCommunicationBundleTemplateId);
+  WIRE_TEST_EXPECT(connected_bodies.size() == 6,
+                   "visual bundle main spans did not keep three members per edge");
+  for (const VisualCurvePart* connection : connection_members) {
+    for (const Vec3d endpoint : {connection->samples.front(), connection->samples.back()}) {
+      double minimum_endpoint_distance = std::numeric_limits<double>::max();
+      for (const VisualCurvePart* body : connected_bodies) {
+        minimum_endpoint_distance = std::min({minimum_endpoint_distance,
+            Length(body->samples.front() - endpoint),
+            Length(body->samples.back() - endpoint)});
+      }
+      WIRE_TEST_EXPECT(minimum_endpoint_distance <= 0.0025,
+                       "visual bundle connection member did not meet a main-span member: " +
+                           std::to_string(minimum_endpoint_distance));
+    }
+  }
 
   CoreState hv_default;
   CoreState hv_no_variation;

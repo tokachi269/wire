@@ -659,6 +659,37 @@ void apply_span_visual_assemblies(const CoreState& state,
   }
   cache->parts.insert(cache->parts.end(), std::make_move_iterator(supplemental.begin()),
                       std::make_move_iterator(supplemental.end()));
+
+  std::vector<VisualCurvePart> connection_members{};
+  const std::size_t part_count = cache->parts.size();
+  for (std::size_t part_index = 0; part_index < part_count; ++part_index) {
+    VisualCurvePart& part = cache->parts[part_index];
+    if (part.kind != VisualCurvePartKind::kNodePatch &&
+        part.kind != VisualCurvePartKind::kLead &&
+        part.kind != VisualCurvePartKind::kJumper) {
+      continue;
+    }
+    const Bundle* bundle = state.view().bundles().find(part.source_bundle_id);
+    const auto template_it = bundle == nullptr ? state.view().bundle_templates().end() :
+        state.view().bundle_templates().find(bundle->bundle_template_id);
+    if (template_it == state.view().bundle_templates().end() ||
+        template_it->second.category == ConnectionCategory::kHighVoltage) {
+      continue;
+    }
+    const SpanVisualAssemblyTemplate& settings = template_it->second.span_visual_assembly;
+    const std::uint64_t seed = assembly_seed(*bundle, template_it->second, part.lane_index);
+    std::vector<VisualCurvePart> visual_members = make_visual_members(settings, seed, part);
+    std::vector<VisualCurvePart*> visual_member_ptrs{};
+    visual_member_ptrs.reserve(visual_members.size());
+    for (VisualCurvePart& member : visual_members) visual_member_ptrs.push_back(&member);
+    apply_member_twist(settings, visual_member_ptrs);
+    part = std::move(visual_members.front());
+    for (std::size_t member_index = 1; member_index < visual_members.size(); ++member_index) {
+      connection_members.push_back(std::move(visual_members[member_index]));
+    }
+  }
+  cache->parts.insert(cache->parts.end(), std::make_move_iterator(connection_members.begin()),
+                      std::make_move_iterator(connection_members.end()));
 }
 
 } // namespace city::wire::generation::backbone

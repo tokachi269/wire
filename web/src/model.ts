@@ -410,4 +410,22 @@ export interface VisualSettings {
   enableInsulators: boolean;
   insulatorRadius: number;
   insulatorLength: number;
+  wireIrregularityScale: number;
+}
+
+export interface VariationSettings {
+  enabled: boolean;
+  globalSeed: number;
+  worldCellSize: number;
+  worldBiasScale: number;
+  flowBiasScale: number;
+  poleDeltaScale: number;
+  localJitterScale: number;
+  sagVariationScale: number;
+  branchDownOffsetVariationScale: number;
+}
+
+export interface RouteVariationControls {
+  density: number;
+  heightSpread: number;
 }

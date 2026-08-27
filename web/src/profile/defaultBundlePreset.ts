@@ -1,4 +1,4 @@
-import type { RandomBundleRule } from "../model";
+import type { RandomBundleRule, RouteVariationControls } from "../model";
 
 // Initial visual-evaluation envelopes. They are input data, not Japanese
 // engineering-standard values and not persisted as Core entities.
@@ -26,3 +26,30 @@ export const DEFAULT_BUNDLE_RULES: ReadonlyArray<RandomBundleRule> = [
 ];
 
 export const DEFAULT_PREFERRED_SIDE_SIGN = -1;
+
+export const DEFAULT_ROUTE_VARIATION_CONTROLS: RouteVariationControls = {
+  density: 1,
+  heightSpread: 1
+};
+
+export function routeBundleRules(
+  controls: RouteVariationControls
+): RandomBundleRule[] {
+  return DEFAULT_BUNDLE_RULES.map((rule, index) => {
+    if (index === 0) return { ...rule };
+    const center = (rule.heightMin + rule.heightMax) * 0.5;
+    const halfRange = (rule.heightMax - rule.heightMin) * 0.5 * controls.heightSpread;
+    const minInstances = Math.round(rule.minInstances * controls.density);
+    const maxInstances = Math.max(
+      minInstances,
+      Math.round(rule.maxInstances * controls.density)
+    );
+    return {
+      ...rule,
+      minInstances,
+      maxInstances,
+      heightMin: center - halfRange,
+      heightMax: center + halfRange
+    };
+  });
+}

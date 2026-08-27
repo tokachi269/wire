@@ -424,6 +424,9 @@ assembly の単位とidentity ownerはsource logical span / Bundleであり、Bu
 CableRun identityは増やさない。
 
 members はbase sectionと、そのlogical cableをつなぐNodePatch / Lead / Jumperから派生するvisual構成要素である。
+線種ごとの`SpanVisualAssemblyTemplate`が基準となる形状を所有し、globalな線の乱れ倍率は
+`VisualSettings`がcenter wanderとmember-relative wanderへ同じ比率で作用させる。倍率は基準値を
+置き換えず、HVの物理lane/crossarm形状には作用しない。
 main spanのsupport path とmembersはhelixの内側に置き、support pathは内周上部に接し、membersは下側に配置する。
 helix は endpoint trim 区間だけ生成し、電柱や attachment へ接続しない。
 

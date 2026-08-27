@@ -31,6 +31,7 @@ import type {
   VisualPartInfo,
   VisualModelInstanceInfo,
   VisualSettings,
+  VariationSettings,
   WireIntervalRequest,
   WireIntervalResult
 } from "../model";
@@ -346,6 +347,14 @@ export class WireBridge {
 
   updateVisualSettings(settings: VisualSettings): OperationResult {
     return this.state.updateVisualSettings(settings);
+  }
+
+  variationSettings(): VariationSettings {
+    return this.state.variationSettings();
+  }
+
+  updateVariationSettings(settings: VariationSettings): OperationResult {
+    return this.state.updateVariationSettings(settings);
   }
 
   applyPoleTilt(poleIds: string[], maxTiltDeg: number): OperationResult {

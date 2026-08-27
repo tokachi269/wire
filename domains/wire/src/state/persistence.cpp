@@ -1259,13 +1259,18 @@ bool archive_visual_settings(Archive& archive, const std::string& prefix, Value&
       return false;
     }
   }
-  return archive.field(prefix, "enable_insulators", value.enable_insulators) &&
-         archive.field(prefix, "insulator_radius_m", value.insulator_radius_m) &&
-         archive.field(prefix, "insulator_length_m", value.insulator_length_m);
+  if (!archive.field(prefix, "enable_insulators", value.enable_insulators) ||
+      !archive.field(prefix, "insulator_radius_m", value.insulator_radius_m) ||
+      !archive.field(prefix, "insulator_length_m", value.insulator_length_m)) return false;
+  if constexpr (Archive::loading) {
+    return archive.compatible_field(prefix, "wire_irregularity_scale",
+                                    value.wire_irregularity_scale, 1.0);
+  }
+  return archive.field(prefix, "wire_irregularity_scale", value.wire_irregularity_scale);
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(VisualSettings) == 24, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(VisualSettings) == 32, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

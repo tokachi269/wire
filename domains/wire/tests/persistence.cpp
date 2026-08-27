@@ -308,6 +308,7 @@ bool make_roundtrip_source(city::wire::CoreState* state, std::string* saved, Der
   if (!state->UpdateGeometrySettings(geometry).ok) return false;
   city::wire::VisualSettings visual = state->view().visual_settings();
   visual.insulator_length_m = 0.27;
+  visual.wire_irregularity_scale = 0.63;
   if (!state->UpdateVisualSettings(visual).ok) return false;
 
   const city::wire::AttachmentTemplateId attachment_template_id = replace_attachment_template_id(*state);

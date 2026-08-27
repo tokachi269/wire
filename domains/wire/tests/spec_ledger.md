@@ -396,7 +396,7 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C621 | Behavior | Boundary | sag は geom/draw だけを reshape する | `legacy_unclassified` | backbone wire が直線固定へ戻る、または sag が topology/layout を再決定する回帰防止 |
 | C622 | Behavior | Boundary | pipeline/update timing は診断専用 | `legacy_unclassified` | global profiler や timing 起点の生成分岐を作らず性能観測の入口を固定する |
 | C623 | Behavior | Boundary | backbone layout settings は regenerate で派生出力を更新する | `legacy_unclassified` | layout settings を stale 成功または全拒否へ戻す回帰防止 |
-| C624 | Behavior | Boundary | variation settings は stale 成功しない | `legacy_unclassified` | 未接続設定の成功扱い防止 |
+| C624 | Behavior | Differential | variation settings は既存Spanをreshapeしfresh生成と一致する | `legacy_unclassified` | sag variation変更がstale成功またはtopology再生成へ戻る回帰防止 |
 | C625 | Behavior | Boundary | context profile は stale 成功しない | `legacy_unclassified` | 未接続profileの成功扱い防止 |
 | C626 | Behavior | Boundary | cable shape/render 更新は direct derive | `legacy_unclassified` | dirty markerなしで出力更新を保証 |
 | C627 | SourceGuard | Boundary | 旧 topology mutation API は public surface に残さない | `source_guard` | 旧 API が graph 外 topology 経路として復活する回帰防止 |

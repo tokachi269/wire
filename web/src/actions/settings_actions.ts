@@ -1,5 +1,5 @@
 import type { ViewerActionContext } from "./context";
-import type { GeometrySettings, LayoutSettings, VisualSettings } from "../model";
+import type { GeometrySettings, LayoutSettings, VariationSettings, VisualSettings } from "../model";
 
 export class SettingsActions {
   constructor(private readonly ctx: ViewerActionContext) {}
@@ -109,6 +109,37 @@ export class SettingsActions {
           ...current,
           visual: this.ctx.bridge.visualSettings()
         }))
+    );
+  }
+
+  previewVariation<K extends keyof VariationSettings>(
+    param: K,
+    value: VariationSettings[K]
+  ): void {
+    this.ctx.previewSetting(
+      `variation.${String(param)}`,
+      String(param),
+      value,
+      33,
+      (current) => current.variation[param],
+      (current, next) => ({ ...current, variation: { ...current.variation, [param]: next } }),
+      () => this.ctx.bridge.updateVariationSettings(this.ctx.readSnapshot().variation)
+    );
+  }
+
+  commitVariation<K extends keyof VariationSettings>(
+    param: K,
+    value: VariationSettings[K]
+  ): void {
+    this.ctx.commitSetting(
+      `variation.${String(param)}`,
+      value,
+      (current, next) => ({ ...current, variation: { ...current.variation, [param]: next } }),
+      () => this.ctx.bridge.updateVariationSettings(this.ctx.readSnapshot().variation),
+      () => this.ctx.store.update((current) => ({
+        ...current,
+        variation: this.ctx.bridge.variationSettings()
+      }))
     );
   }
 }

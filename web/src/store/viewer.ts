@@ -15,6 +15,8 @@ import type {
   VisualModelInstanceInfo,
   VisualPartInfo,
   VisualSettings,
+  VariationSettings,
+  RouteVariationControls,
   WireIntervalRequest
 } from "../model";
 import { CommitFailureCategory, type CommitFailure, type OperationResult } from "../model";
@@ -82,6 +84,7 @@ export interface ViewerSnapshot {
   selectedBundleTemplateId: number | null;
   drawBundlePlacements: BundlePlacement[];
   wireRouteSeed: number | null;
+  routeVariation: RouteVariationControls;
   cableTemplates: CableTemplateInfo[];
   selectedCableTemplateId: number | null;
   poleTemplates: PoleTemplateInfo[];
@@ -89,6 +92,7 @@ export interface ViewerSnapshot {
   geometry: GeometrySettings;
   layout: LayoutSettings;
   visual: VisualSettings;
+  variation: VariationSettings;
   interaction: {
     controlId: string;
     param: string;
@@ -149,6 +153,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     selectedBundleTemplateId: null,
     drawBundlePlacements: [],
     wireRouteSeed: null,
+    routeVariation: { density: 1, heightSpread: 1 },
     cableTemplates: [],
     selectedCableTemplateId: null,
     poleTemplates: [],
@@ -168,7 +173,19 @@ export function createViewerSnapshot(): ViewerSnapshot {
     visual: {
       enableInsulators: true,
       insulatorRadius: 0.07,
-      insulatorLength: 0.16
+      insulatorLength: 0.16,
+      wireIrregularityScale: 1
+    },
+    variation: {
+      enabled: true,
+      globalSeed: 1,
+      worldCellSize: 40,
+      worldBiasScale: 0.35,
+      flowBiasScale: 0.4,
+      poleDeltaScale: 0.18,
+      localJitterScale: 0.07,
+      sagVariationScale: 0.12,
+      branchDownOffsetVariationScale: 0
     },
     interaction: null,
     logs: [],

@@ -1398,6 +1398,7 @@ public:
     output.set("enableInsulators", settings.enable_insulators);
     output.set("insulatorRadius", settings.insulator_radius_m);
     output.set("insulatorLength", settings.insulator_length_m);
+    output.set("wireIrregularityScale", settings.wire_irregularity_scale);
     return output;
   }
 
@@ -1406,7 +1407,40 @@ public:
     settings.enable_insulators = property<bool>(input, "enableInsulators");
     settings.insulator_radius_m = property<double>(input, "insulatorRadius");
     settings.insulator_length_m = property<double>(input, "insulatorLength");
+    settings.wire_irregularity_scale = property<double>(input, "wireIrregularityScale");
     const auto updated = state_->UpdateVisualSettings(settings, true);
+    return result_value(updated.ok, updated.error);
+  }
+
+  [[nodiscard]] val variation_settings() const {
+    const auto& settings = CoreView(*state_).variation_settings();
+    val output = val::object();
+    output.set("enabled", settings.enabled);
+    output.set("globalSeed", static_cast<double>(settings.global_seed));
+    output.set("worldCellSize", settings.world_cell_size_m);
+    output.set("worldBiasScale", settings.world_bias_scale);
+    output.set("flowBiasScale", settings.flow_bias_scale);
+    output.set("poleDeltaScale", settings.pole_delta_scale);
+    output.set("localJitterScale", settings.local_jitter_scale);
+    output.set("sagVariationScale", settings.sag_variation_scale);
+    output.set("branchDownOffsetVariationScale",
+               settings.branch_down_offset_variation_scale);
+    return output;
+  }
+
+  val update_variation_settings(const val& input) {
+    city::wire::VariationSettings settings{};
+    settings.enabled = property<bool>(input, "enabled");
+    settings.global_seed = static_cast<std::uint64_t>(property<double>(input, "globalSeed"));
+    settings.world_cell_size_m = property<double>(input, "worldCellSize");
+    settings.world_bias_scale = property<double>(input, "worldBiasScale");
+    settings.flow_bias_scale = property<double>(input, "flowBiasScale");
+    settings.pole_delta_scale = property<double>(input, "poleDeltaScale");
+    settings.local_jitter_scale = property<double>(input, "localJitterScale");
+    settings.sag_variation_scale = property<double>(input, "sagVariationScale");
+    settings.branch_down_offset_variation_scale =
+        property<double>(input, "branchDownOffsetVariationScale");
+    const auto updated = state_->UpdateVariationSettings(settings, true);
     return result_value(updated.ok, updated.error);
   }
 
@@ -2374,6 +2408,8 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("updateLayoutSettings", &WireState::update_layout_settings)
       .function("visualSettings", &WireState::visual_settings)
       .function("updateVisualSettings", &WireState::update_visual_settings)
+      .function("variationSettings", &WireState::variation_settings)
+      .function("updateVariationSettings", &WireState::update_variation_settings)
       .function("applyPoleTilt", &WireState::apply_pole_tilt)
       .function("resetSpanReferenceLengths", &WireState::reset_span_reference_lengths)
       .function("saveState", &WireState::save_state)

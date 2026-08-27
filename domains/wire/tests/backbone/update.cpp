@@ -956,16 +956,37 @@ bool C623_backbone_layout_settings_reject_before_mutation() {
          !updated.change_set.updated_ids.empty();
 }
 
-bool C624_backbone_variation_settings_reject_before_mutation() {
-  city::wire::CoreState state;
-  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
-  if (!generated.ok) return false;
-  const city::wire::VariationSettings before = state.view().variation_settings();
-  city::wire::VariationSettings edited = before;
-  edited.enabled = !before.enabled;
-  const auto updated = state.UpdateVariationSettings(edited);
-  return !updated.ok && contains_text(updated.error, "unsupported") &&
-         state.view().variation_settings().enabled == before.enabled;
+bool C624_backbone_variation_settings_reshape_existing_output() {
+  using namespace city::wire;
+  auto request = [](CoreState& state) {
+    BackboneSpec spec = line_req(state);
+    spec.bundles = {{kDefaultCommunicationBundleTemplateId, 62401,
+                     SpanLayer::kCommunication, 1, true, 5.3, -0.3, 0.2}};
+    return spec;
+  };
+
+  CoreState updated_state;
+  VariationSettings initial = updated_state.view().variation_settings();
+  initial.sag_variation_scale = 0.0;
+  if (!updated_state.UpdateVariationSettings(initial).ok ||
+      !updated_state.GenerateFromBackboneSpec(request(updated_state)).ok) return false;
+  const VisualCurvePartCache before = updated_state.view().visual_curve_parts();
+  const std::size_t before_span_count = updated_state.view().spans().size();
+  const std::size_t before_port_count = updated_state.view().ports().size();
+
+  VariationSettings edited = initial;
+  edited.sag_variation_scale = 0.4;
+  const auto updated = updated_state.UpdateVariationSettings(edited);
+  if (!updated.ok || !updated.value || updated.change_set.updated_ids.empty()) return false;
+
+  CoreState fresh;
+  if (!fresh.UpdateVariationSettings(edited).ok ||
+      !fresh.GenerateFromBackboneSpec(request(fresh)).ok) return false;
+  return visual_member_samples_differ(before, updated_state.view().visual_curve_parts()) &&
+         same_visual_curve_samples(updated_state.view().visual_curve_parts(),
+                                   fresh.view().visual_curve_parts()) &&
+         updated_state.view().spans().size() == before_span_count &&
+         updated_state.view().ports().size() == before_port_count;
 }
 
 bool C625_backbone_context_profile_reject_before_mutation() {

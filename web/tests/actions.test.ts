@@ -326,7 +326,13 @@ describe("viewer actions", () => {
       visualSettings: () => ({
         enableInsulators: true,
         insulatorRadius: 0.07,
-        insulatorLength: 0.16
+        insulatorLength: 0.16,
+        wireIrregularityScale: 1
+      }),
+      variationSettings: () => ({
+        enabled: true, globalSeed: 1, worldCellSize: 40, worldBiasScale: 0.35,
+        flowBiasScale: 0.4, poleDeltaScale: 0.18, localJitterScale: 0.07,
+        sagVariationScale: 0.12, branchDownOffsetVariationScale: 0
       }),
       resolveRouteBundleVariation: () => ({
         ok: true,
@@ -567,7 +573,13 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     visualSettings: () => ({
       enableInsulators: true,
       insulatorRadius: 0.07,
-      insulatorLength: 0.16
+      insulatorLength: 0.16,
+      wireIrregularityScale: 1
+    }),
+    variationSettings: () => ({
+      enabled: true, globalSeed: 1, worldCellSize: 40, worldBiasScale: 0.35,
+      flowBiasScale: 0.4, poleDeltaScale: 0.18, localJitterScale: 0.07,
+      sagVariationScale: 0.12, branchDownOffsetVariationScale: 0
     }),
     resolveDefaultBundlePlacement: () => ({
       ok: true,
@@ -592,6 +604,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     updateCableTemplate: () => ({ ok: true, error: "" }),
     updateBackboneBundlePlacement: () => ({ ok: true, error: "" }),
     updatePoleTemplate: () => ({ ok: true, error: "" }),
+    updateVariationSettings: () => ({ ok: true, error: "" }),
     clearPendingSupportNodes: () => ({ ok: true, error: "" }),
     roadAddSegment: () => ({ ok: true, error: "" }),
     roadPreviewSegment: () => ({ ok: true, error: "", meshes: [] }),
@@ -864,6 +877,43 @@ describe("viewport tool routing", () => {
     actions.cancelDrawSession();
     actions.addViewportPoint([30, 0, 0]);
     expect(resolveRouteBundleVariation).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies route controls to the next resolution and rerolls only before the route starts", () => {
+    const resolveRouteBundleVariation = vi.fn((_rules: Array<{
+      bundleTemplateId: number; minInstances: number; maxInstances: number;
+      heightMin: number; heightMax: number;
+    }>, routeSeed: number) => ({
+      ok: true,
+      error: "",
+      placements: [{
+        id: routeSeed, bundleTemplateId: 102, count: 1, explicit: true,
+        height: 7.2, offset: -0.31, spacing: 0.2
+      }]
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({ resolveRouteBundleVariation }), store);
+    actions.initialize();
+    resolveRouteBundleVariation.mockClear();
+
+    actions.setRouteVariation("density", 0.5);
+    actions.setRouteVariation("heightSpread", 0.5);
+    actions.rerollRouteSeed();
+
+    const rules = resolveRouteBundleVariation.mock.calls[0][0];
+    expect(rules[0]).toMatchObject({ bundleTemplateId: 101, minInstances: 1, maxInstances: 1 });
+    expect(rules[1]).toMatchObject({
+      bundleTemplateId: 102, minInstances: 1, maxInstances: 2
+    });
+    expect(rules[1].heightMax - rules[1].heightMin).toBeCloseTo(0.35, 12);
+    const seed = current(store).wireRouteSeed;
+    expect(seed).not.toBeNull();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.rerollRouteSeed();
+    expect(current(store).wireRouteSeed).toBe(seed);
+    expect(current(store).error).toContain("finish or cancel");
+    expect(resolveRouteBundleVariation).toHaveBeenCalledOnce();
   });
 
   it("keeps a committed picked midair endpoint usable as the next wire anchor", () => {
@@ -2323,6 +2373,22 @@ describe("P1 action contracts", () => {
 
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({ enableInsulators: false })
+    );
+  });
+
+  it("sends sag spread through the variation API", () => {
+    const update = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ updateVariationSettings: update }),
+      store
+    );
+    actions.initialize();
+
+    actions.commitVariation("sagVariationScale", 0.24);
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ sagVariationScale: 0.24 })
     );
   });
 

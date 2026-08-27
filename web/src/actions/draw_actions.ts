@@ -1,7 +1,11 @@
 import type { ViewerActionContext } from "./context";
 import { CommitFailureCategory, type BundleTemplateInfo, type PathPickInfo, type WireIntervalRequest } from "../model";
 import type { DrawActionResult, PathPointSpec, WorldPoint } from "../store/viewer";
-import { DEFAULT_BUNDLE_RULES, DEFAULT_PREFERRED_SIDE_SIGN } from "../profile/defaultBundlePreset";
+import {
+  DEFAULT_PREFERRED_SIDE_SIGN,
+  routeBundleRules
+} from "../profile/defaultBundlePreset";
+import type { RouteVariationControls } from "../model";
 
 function newRouteSeed(): number {
   const words = new Uint32Array(2);
@@ -13,6 +17,28 @@ export class DrawActions {
   private readonly committedHistory: Array<{ before: string; after: string }> = [];
 
   constructor(private readonly ctx: ViewerActionContext) {}
+
+  setRouteVariation<K extends keyof RouteVariationControls>(
+    param: K,
+    value: RouteVariationControls[K]
+  ): void {
+    this.ctx.store.update((current) => ({
+      ...current,
+      routeVariation: { ...current.routeVariation, [param]: value },
+      wireRouteSeed: current.pathPoints.length === 0 ? null : current.wireRouteSeed
+    }));
+  }
+
+  rerollRouteSeed(): void {
+    const current = this.ctx.readSnapshot();
+    if (current.pathPoints.length > 0) {
+      this.ctx.store.setError("finish or cancel the current wire route before rerolling");
+      return;
+    }
+    let routeSeed = newRouteSeed();
+    if (routeSeed === current.wireRouteSeed) routeSeed = (routeSeed + 1) % Number.MAX_SAFE_INTEGER;
+    this.resolveRouteVariation(routeSeed);
+  }
 
   primaryViewportPoint(point: WorldPoint, pick?: PathPickInfo): DrawActionResult {
     const current = this.ctx.readSnapshot();
@@ -283,9 +309,13 @@ export class DrawActions {
   private beginRouteVariation(): boolean {
     const current = this.ctx.readSnapshot();
     if (current.wireRouteSeed !== null) return true;
-    const routeSeed = newRouteSeed();
+    return this.resolveRouteVariation(newRouteSeed());
+  }
+
+  private resolveRouteVariation(routeSeed: number): boolean {
+    const current = this.ctx.readSnapshot();
     const resolved = this.ctx.bridge.resolveRouteBundleVariation(
-      [...DEFAULT_BUNDLE_RULES],
+      routeBundleRules(current.routeVariation),
       routeSeed,
       DEFAULT_PREFERRED_SIDE_SIGN,
       current.selectedPoleTemplateId ?? 1

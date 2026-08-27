@@ -108,6 +108,7 @@ export class WorkspaceActions {
       geometry: this.ctx.bridge.geometrySettings(),
       layout: this.ctx.bridge.layoutSettings(),
       visual: this.ctx.bridge.visualSettings(),
+      variation: this.ctx.bridge.variationSettings(),
       road: {
         ...current.road,
         scene: this.ctx.bridge.roadScene()
@@ -133,6 +134,7 @@ export class WorkspaceActions {
           geometry: this.ctx.bridge.geometrySettings(),
           layout: this.ctx.bridge.layoutSettings(),
           visual: this.ctx.bridge.visualSettings(),
+          variation: this.ctx.bridge.variationSettings(),
           error: ""
         }));
         this.ctx.refreshScene();
@@ -197,6 +199,7 @@ export class WorkspaceActions {
       geometry: this.ctx.bridge.geometrySettings(),
       layout: this.ctx.bridge.layoutSettings(),
       visual: this.ctx.bridge.visualSettings(),
+      variation: this.ctx.bridge.variationSettings(),
       error: ""
     }));
     this.ctx.refreshScene();

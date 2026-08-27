@@ -960,6 +960,14 @@ summary {
   gap: 0.4rem;
 }
 
+.settings .route-seed {
+  display: block;
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font: 500 var(--sidebar-small-size) "JetBrains Mono", monospace;
+}
+
 .commit-failure {
   display: grid;
   max-width: min(620px, calc(100vw - 12px));

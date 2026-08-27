@@ -1838,14 +1838,20 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
   VisualSettings normalized = settings;
   normalized.insulator_radius_m = std::max(0.0, normalized.insulator_radius_m);
   normalized.insulator_length_m = std::max(0.0, normalized.insulator_length_m);
+  normalized.wire_irregularity_scale = std::max(0.0, normalized.wire_irregularity_scale);
 
   const bool changed = normalized.enable_insulators != authoritative_.visual_settings.enable_insulators ||
                        std::abs(normalized.insulator_radius_m - authoritative_.visual_settings.insulator_radius_m) > kStrictLengthToleranceM ||
-                       std::abs(normalized.insulator_length_m - authoritative_.visual_settings.insulator_length_m) > kStrictLengthToleranceM;
+                       std::abs(normalized.insulator_length_m - authoritative_.visual_settings.insulator_length_m) > kStrictLengthToleranceM ||
+                       std::abs(normalized.wire_irregularity_scale - authoritative_.visual_settings.wire_irregularity_scale) > kStrictLengthToleranceM;
+  const bool curve_shape_changed =
+      std::abs(normalized.wire_irregularity_scale -
+               authoritative_.visual_settings.wire_irregularity_scale) > kStrictLengthToleranceM;
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
-    plan = make_update_plan({UpdateKind::kRedraw, UpdateTargetKind::kAllSpans, kInvalidObjectId});
+    plan = make_update_plan({curve_shape_changed ? UpdateKind::kReshape : UpdateKind::kRedraw,
+                             UpdateTargetKind::kAllSpans, kInvalidObjectId});
     if (!plan.ok) {
       result.error = plan.error;
       return result;
@@ -1889,13 +1895,27 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
       std::abs(normalized.sag_variation_scale - current.sag_variation_scale) > kStrictLengthToleranceM ||
       std::abs(normalized.branch_down_offset_variation_scale - current.branch_down_offset_variation_scale) > kStrictLengthToleranceM;
 
-  if (changed && !authoritative_.backbone.span_bindings.empty()) {
-    result.error = "backbone unsupported: variation settings are not consumed by generated outputs";
-    return result;
+  EditResult<UpdatePlan> plan{};
+  if (changed) {
+    plan = make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kAllSpans,
+                             kInvalidObjectId});
+    if (!plan.ok) {
+      result.error = plan.error;
+      return result;
+    }
   }
   authoritative_.variation_settings = normalized;
   result.ok = true;
   result.value = changed;
+  if (changed) {
+    const auto updated = execute_update_plan(plan.value);
+    if (!updated.ok) {
+      result.error = updated.error;
+      result.ok = false;
+      return result;
+    }
+    result.change_set.updated_ids = plan.value.affected.spans;
+  }
   return result;
 }
 

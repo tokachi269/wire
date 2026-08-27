@@ -761,9 +761,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C623_backbone_layout_settings_reject_before_mutation",
                          "backbone layout settings regenerate derived outputs", "Boundary", false,
                          C623_backbone_layout_settings_reject_before_mutation);
-  test_registry::AddTest(tests, "C624_backbone_variation_settings_reject_before_mutation",
-                         "backbone variation settings reject before mutation while unsupported", "Boundary", true,
-                         C624_backbone_variation_settings_reject_before_mutation);
+  test_registry::AddTest(tests, "C624_backbone_variation_settings_reshape_existing_output",
+                         "backbone variation settings reshape existing output to match fresh generation",
+                         "Differential", false, C624_backbone_variation_settings_reshape_existing_output);
   test_registry::AddTest(tests, "C625_backbone_context_profile_reject_before_mutation",
                          "backbone context profile rejects before mutation while unsupported", "Boundary", true,
                          C625_backbone_context_profile_reject_before_mutation);

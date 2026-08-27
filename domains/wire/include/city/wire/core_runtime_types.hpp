@@ -239,6 +239,7 @@ struct VisualSettings {
   bool enable_insulators = true;
   double insulator_radius_m = 0.07;
   double insulator_length_m = 0.16;
+  double wire_irregularity_scale = 1.0;
 };
 
 struct CacheState {

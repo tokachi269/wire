@@ -263,7 +263,7 @@ bool C619_backbone_reposition_updates_only_affected_spans();
 bool C620_backbone_update_boundary_has_no_operation_specific_kinds();
 bool C621_backbone_sag_reshape_updates_geom_only();
 bool C623_backbone_layout_settings_reject_before_mutation();
-bool C624_backbone_variation_settings_reject_before_mutation();
+bool C624_backbone_variation_settings_reshape_existing_output();
 bool C625_backbone_context_profile_reject_before_mutation();
 bool C626_backbone_cable_template_updates_derive_outputs();
 bool C627_backbone_legacy_topology_apis_are_removed();

@@ -241,7 +241,7 @@ std::uint64_t assembly_seed(const Bundle& bundle, const BundleTemplate& bundle_t
 }
 
 void apply_center_wander(const SpanVisualAssemblyTemplate& settings, std::uint64_t seed,
-                         VisualCurvePart* center) {
+                         double irregularity_scale, VisualCurvePart* center) {
   if (center == nullptr || center->samples.size() < 3 ||
       settings.center_wander_amplitude_m <= 0.0 ||
       settings.center_wander_wavelength_m <= kLengthToleranceM) {
@@ -263,9 +263,9 @@ void apply_center_wander(const SpanVisualAssemblyTemplate& settings, std::uint64
     const double secondary = phase * 0.73 + kTwoPi * distance /
         (settings.center_wander_wavelength_m * 1.71);
     const double envelope = span_envelope(distance, total);
-    const double lateral_offset = settings.center_wander_amplitude_m * envelope *
+    const double lateral_offset = settings.center_wander_amplitude_m * irregularity_scale * envelope *
         (0.68 * std::sin(primary) + 0.32 * std::sin(secondary));
-    const double vertical_offset = settings.center_wander_amplitude_m * 0.35 * envelope *
+    const double vertical_offset = settings.center_wander_amplitude_m * irregularity_scale * 0.35 * envelope *
         (0.70 * std::cos(primary * 0.83) + 0.30 * std::sin(secondary * 1.19));
     center->samples[index] = original[index] + ScaleVec(lateral, lateral_offset) +
         ScaleVec(up, vertical_offset);
@@ -341,7 +341,7 @@ double minimum_separation(const std::vector<cross_section_offset>& offsets) {
 }
 
 std::vector<VisualCurvePart> make_visual_members(const SpanVisualAssemblyTemplate& settings,
-                                                 std::uint64_t seed,
+                                                 std::uint64_t seed, double irregularity_scale,
                                                  const VisualCurvePart& center) {
   const int count = visual_member_count(settings, seed);
   std::vector<VisualCurvePart> members(static_cast<std::size_t>(count), center);
@@ -414,7 +414,7 @@ std::vector<VisualCurvePart> make_visual_members(const SpanVisualAssemblyTemplat
       const double radial_margin = std::max(0.0,
           allowed_radius - std::hypot(base.lateral, base.up));
       const double amplitude = std::min(pair_margin, radial_margin) *
-          settings.member_wander_ratio * envelope;
+          std::clamp(settings.member_wander_ratio * irregularity_scale, 0.0, 1.0) * envelope;
       cross_section_offset resolved{
           base.lateral + wander[static_cast<std::size_t>(member_index)].lateral * amplitude,
           base.up + wander[static_cast<std::size_t>(member_index)].up * amplitude,
@@ -544,6 +544,7 @@ std::optional<std::pair<Vec3d, Vec3d>> support_endpoints(
 std::optional<VisualCurvePart> make_support_path(
     const CoreState& state, const Span& span, const BundleTemplate& bundle_template,
     const SpanVisualAssemblyTemplate& settings, std::uint64_t seed,
+    double irregularity_scale,
     const VisualCurvePart& member,
     const SpanVisualAssemblyEndpointMap& member_endpoints, VisualCurvePartCache* cache) {
   const std::optional<std::pair<Vec3d, Vec3d>> endpoints =
@@ -575,7 +576,7 @@ std::optional<VisualCurvePart> make_support_path(
     support.material_style = member.material_style;
     support.source_version = member.source_version;
   }
-  apply_center_wander(settings, seed, &support);
+  apply_center_wander(settings, seed, irregularity_scale, &support);
   if (bundle_template.support_wire_pole_band_id == 0) {
     separate_support_from_member(&support, settings);
   }
@@ -614,11 +615,14 @@ void apply_span_visual_assemblies(const CoreState& state,
     if (base == members.end()) continue;
 
     const std::uint64_t seed = assembly_seed(*bundle, template_it->second, (*base)->lane_index);
+    const double irregularity_scale = template_it->second.category == ConnectionCategory::kHighVoltage
+        ? 1.0 : state.view().visual_settings().wire_irregularity_scale;
     VisualCurvePart center = **base;
     if (template_it->second.category != ConnectionCategory::kHighVoltage) {
-      apply_center_wander(settings, seed, &center);
+      apply_center_wander(settings, seed, irregularity_scale, &center);
     }
-    std::vector<VisualCurvePart> visual_members = make_visual_members(settings, seed, center);
+    std::vector<VisualCurvePart> visual_members = make_visual_members(
+        settings, seed, irregularity_scale, center);
     std::vector<VisualCurvePart*> visual_member_ptrs{};
     visual_member_ptrs.reserve(visual_members.size());
     for (VisualCurvePart& member : visual_members) visual_member_ptrs.push_back(&member);
@@ -632,7 +636,8 @@ void apply_span_visual_assemblies(const CoreState& state,
       continue;
     }
     std::optional<VisualCurvePart> support_result = make_support_path(
-        state, *span, template_it->second, settings, seed, center, member_endpoints, cache);
+        state, *span, template_it->second, settings, seed, irregularity_scale,
+        center, member_endpoints, cache);
     if (!support_result.has_value()) continue;
     VisualCurvePart support = std::move(*support_result);
     std::optional<VisualCurvePart> helix_part{};
@@ -678,7 +683,8 @@ void apply_span_visual_assemblies(const CoreState& state,
     }
     const SpanVisualAssemblyTemplate& settings = template_it->second.span_visual_assembly;
     const std::uint64_t seed = assembly_seed(*bundle, template_it->second, part.lane_index);
-    std::vector<VisualCurvePart> visual_members = make_visual_members(settings, seed, part);
+    std::vector<VisualCurvePart> visual_members = make_visual_members(
+        settings, seed, state.view().visual_settings().wire_irregularity_scale, part);
     std::vector<VisualCurvePart*> visual_member_ptrs{};
     visual_member_ptrs.reserve(visual_members.size());
     for (VisualCurvePart& member : visual_members) visual_member_ptrs.push_back(&member);

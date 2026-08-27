@@ -22,7 +22,8 @@ import type {
   SupportNodeInfo,
   VisualPartInfo,
   VisualModelInstanceInfo,
-  VisualSettings
+  VisualSettings,
+  VariationSettings
 } from "../model";
 import type { RoadSegmentInput } from "../road";
 import type { RoadSectionInput } from "../road_templates";
@@ -126,6 +127,8 @@ export interface WireStateHandle {
   updateLayoutSettings(settings: LayoutSettings): OperationResult;
   visualSettings(): VisualSettings;
   updateVisualSettings(settings: VisualSettings): OperationResult;
+  variationSettings(): VariationSettings;
+  updateVariationSettings(settings: VariationSettings): OperationResult;
   applyPoleTilt(poleIds: string[], maxTiltDeg: number): OperationResult;
   resetSpanReferenceLengths(): OperationResult;
   saveState(): string;

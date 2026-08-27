@@ -46,6 +46,51 @@
   </section>
 
   <section>
+    <h2>Route variation</h2>
+    <label>
+      Line density
+      <input type="range" min="0.5" max="1.25" step="0.05"
+        value={snapshot.routeVariation.density}
+        oninput={(event) => actions.setRouteVariation("density", numberValue(event))} />
+      <output>{snapshot.routeVariation.density.toFixed(2)}x</output>
+    </label>
+    <label>
+      Height spread
+      <input type="range" min="0.25" max="1.75" step="0.05"
+        value={snapshot.routeVariation.heightSpread}
+        oninput={(event) => actions.setRouteVariation("heightSpread", numberValue(event))} />
+      <output>{snapshot.routeVariation.heightSpread.toFixed(2)}x</output>
+    </label>
+    <label>
+      Sag spread
+      <input type="range" min="0" max="2" step="0.05"
+        value={snapshot.variation.sagVariationScale / 0.12}
+        oninput={(event) => actions.previewVariation(
+          "sagVariationScale", numberValue(event) * 0.12)}
+        onchange={(event) => actions.commitVariation(
+          "sagVariationScale", numberValue(event) * 0.12)} />
+      <output>{(snapshot.variation.sagVariationScale / 0.12).toFixed(2)}x</output>
+    </label>
+    <label>
+      Wire irregularity
+      <input type="range" min="0" max="2" step="0.05"
+        value={snapshot.visual.wireIrregularityScale}
+        oninput={(event) => actions.previewVisual(
+          "wireIrregularityScale", numberValue(event))}
+        onchange={(event) => actions.commitVisual(
+          "wireIrregularityScale", numberValue(event))} />
+      <output>{snapshot.visual.wireIrregularityScale.toFixed(2)}x</output>
+    </label>
+    <button class="secondary" type="button" disabled={snapshot.pathPoints.length > 0}
+      onclick={() => actions.rerollRouteSeed()}>
+      Reroll seed
+    </button>
+    <output class="route-seed">
+      {snapshot.wireRouteSeed === null ? "Seed: next route" : `Seed: ${snapshot.wireRouteSeed}`}
+    </output>
+  </section>
+
+  <section>
     <h2>Pole tilt</h2>
     <label>
       Max tilt (also used for generation)

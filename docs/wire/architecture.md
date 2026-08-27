@@ -292,6 +292,11 @@ preflight を増やしたことを理由に本 state 直接変更へ戻すこと
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
 `UpdateBundleTemplate` の fixed count 増減は、同じtemplateを使う全placementを一括scopeにせず、
 exact `Bundle` identityごとにsaved row continuityで接続された`edge_bundle_id` componentを選び、全component成功後に一度だけcommitする。
+`UpdateBackboneBundleConductorCount` はexact `Bundle` identity、現在の`BundleTemplate` count policy、要求countを入力とする。
+`kRange`は範囲内の要求だけを受理し、`kFixed`の個別変更は拒否する。lane topologyは先頭からのprefixとして扱い、
+増加時は既存lane identityを保って末尾laneだけを生成し、減少時は末尾laneだけを退役する。
+全continuity componentを同じtrialで既存pipelineへreplayし、binding reconcileが完了した場合だけcommitする。
+退役laneにuser Attachmentまたはmanual Portがある場合はauthority不変で拒否する。
 現対応は `UpdateBundleTemplate` の fixed count 増減と `kTopology` policy 差分、`UpdateCableTemplate` の backbone continuity policy / default endpoint attachment decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeの接続は saved row continuity と saved node から

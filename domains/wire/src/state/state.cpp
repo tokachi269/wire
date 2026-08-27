@@ -1963,6 +1963,11 @@ EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_te
   return state_internal::TemplateMutationService::UpdateBundleTemplate(*this, bundle_template);
 }
 
+EditResult<bool> CoreState::UpdateBackboneBundleConductorCount(ObjectId bundle_id, int conductor_count) {
+  return state_internal::TemplateMutationService::UpdateBackboneBundleConductorCount(
+      *this, bundle_id, conductor_count);
+}
+
 EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
                                                           double height_m, double lateral_m, double spacing_m) {
   EditResult<bool> result;

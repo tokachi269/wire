@@ -347,18 +347,26 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
                                                              const CableTemplate* cable_template_override,
                                                              const std::vector<ObjectId>* scoped_edge_bundle_ids,
                                                              const PoleTypeDefinition* pole_type_override,
-                                                             BackboneRegenerateCause cause) {
+                                                             BackboneRegenerateCause cause,
+                                                             const BackboneLaneCountTransition* lane_count_transition) {
   EditResult<bool> result{};
   auto fail = [&](std::string message) {
     result.error = std::move(message);
     return result;
   };
 
-  const bool count_changes = next_template.fixed_count != previous_template.fixed_count;
+  const int previous_count = lane_count_transition == nullptr
+                                 ? previous_template.fixed_count
+                                 : lane_count_transition->previous_count;
+  const int next_count = lane_count_transition == nullptr
+                             ? next_template.fixed_count
+                             : lane_count_transition->next_count;
+  const bool count_changes = next_count != previous_count;
   const bool bundle_topology_change = cause == BackboneRegenerateCause::kBundleTopology;
-  if (previous_template.count_rule != BundleCountRuleKind::kFixed ||
-      next_template.count_rule != BundleCountRuleKind::kFixed || previous_template.fixed_count <= 0 ||
-      next_template.fixed_count <= 0 ||
+  if ((lane_count_transition == nullptr &&
+       (previous_template.count_rule != BundleCountRuleKind::kFixed ||
+        next_template.count_rule != BundleCountRuleKind::kFixed)) ||
+      previous_count <= 0 || next_count <= 0 ||
       (!count_changes && cable_template_override == nullptr && pole_type_override == nullptr &&
        !bundle_topology_change && cause != BackboneRegenerateCause::kSpanOverride &&
        cause != BackboneRegenerateCause::kLayoutSettings)) {
@@ -413,7 +421,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   }
   target.bundle_id = edge_bundle->bundle_id;
   const Bundle* bundle = view().bundles().find(edge_bundle->bundle_id);
-  if (bundle == nullptr || bundle->conductor_count != previous_template.fixed_count) {
+  if (bundle == nullptr ||
+      (lane_count_transition == nullptr && bundle->conductor_count != previous_count)) {
     return fail("backbone unsupported: bundle count is not synchronized with previous template");
   }
   const SavedBackboneEdge* edge = saved_edge_by_id(graph, edge_bundle->edge_id);
@@ -470,7 +479,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     if (span_binding_it == runtime_.backbone_index.edge_bundle_span_bindings.end()) {
       return fail("backbone regenerate: span binding missing");
     }
-    std::vector<bool> seen_lanes(static_cast<std::size_t>(previous_template.fixed_count), false);
+    std::vector<bool> seen_lanes(static_cast<std::size_t>(previous_count), false);
     for (std::size_t binding_index : span_binding_it->second) {
       if (binding_index >= graph.span_bindings.size()) {
         return fail("backbone regenerate: span binding index invalid");
@@ -480,7 +489,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
         return fail("backbone unsupported: existing span lane is outside previous bundle count");
       }
       seen_lanes[binding.lane_index] = true;
-      if (binding.lane_index >= static_cast<std::size_t>(next_template.fixed_count)) {
+      if (binding.lane_index >= static_cast<std::size_t>(next_count)) {
         target.retired_spans.push_back(binding.span_id);
         const auto attachment_it = runtime_.relation_index.attachments_by_span.find(binding.span_id);
         if (attachment_it != runtime_.relation_index.attachments_by_span.end()) {
@@ -519,7 +528,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
       if (std::find(row_keys.begin(), row_keys.end(), binding.row_key) == row_keys.end()) {
         row_keys.push_back(binding.row_key);
       }
-      if (binding.lane_index >= static_cast<std::size_t>(next_template.fixed_count)) {
+      if (binding.lane_index >= static_cast<std::size_t>(next_count)) {
         if (port->position_mode == PortPositionMode::kManual || port->user_edited_position) {
           return fail("backbone unsupported: regenerate cannot retire manual ports");
         }
@@ -534,7 +543,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   }
   for (ObjectId port_id : target.retired_ports) {
     if (!port_is_retired_only(*this, port_id, target.retired_spans, target.edge_bundle_ids,
-                              static_cast<std::size_t>(next_template.fixed_count))) {
+                              static_cast<std::size_t>(next_count))) {
       return fail("backbone unsupported: regenerate requires retired ports to be lane-local");
     }
   }
@@ -587,6 +596,9 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   bundle_spec.bundle_template_id = bundle->bundle_template_id;
   bundle_spec.placement_key = bundle->placement_key;
   bundle_spec.existing_bundle_id = bundle->id;
+  if (next_template.count_rule == BundleCountRuleKind::kRange) {
+    bundle_spec.count = next_count;
+  }
   bundle_spec.layer = bundle->bundle_template_id == bundle_template_id
                           ? next_template.default_layer
                           : template_it->second.default_layer;
@@ -606,7 +618,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     trial.authoritative_.pole_types[pole_type_override->id] = *pole_type_override;
   }
   trial.remove_backbone_row_continuities_for_lanes(target.edge_bundle_ids,
-                                                   static_cast<std::size_t>(next_template.fixed_count));
+                                                   static_cast<std::size_t>(next_count));
   generation::backbone::pipeline trial_pipeline(trial, spec);
   EditResult<GenerateBundleFromPathResult> replay = trial_pipeline.build(
       trial_pipeline.build_input_from_saved_scope(std::move(made_graph), std::move(active_bundle_indices)));
@@ -616,7 +628,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
 
   Bundle* edited_bundle = trial.authoritative_.edit_state.bundles.find(target.bundle_id);
   if (edited_bundle != nullptr) {
-    edited_bundle->conductor_count = next_template.fixed_count;
+    edited_bundle->conductor_count = next_count;
     if (edited_bundle->spacing_override_m == 0.0) {
       edited_bundle->phase_spacing_m = next_template.default_spacing_m;
     }

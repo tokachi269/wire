@@ -1364,6 +1364,18 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "fixed-count decrease retires lanes within each independent Bundle component",
                          "Invariant", false,
                          C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes);
+  test_registry::AddTest(tests, "C866_backbone_range_bundle_count_reconciles_exact_identity",
+                         "range-count update reconciles only the exact Bundle while preserving surviving lane identity",
+                         "Invariant", false,
+                         C866_backbone_range_bundle_count_reconciles_exact_identity);
+  test_registry::AddTest(tests, "C867_backbone_range_bundle_count_retirement_conflicts_are_atomic",
+                         "range-count retirement rejects user attachments and manual Ports atomically",
+                         "Boundary", true,
+                         C867_backbone_range_bundle_count_retirement_conflicts_are_atomic);
+  test_registry::AddTest(tests, "C868_backbone_bundle_count_policy_rejects_invalid_individual_change",
+                         "fixed and range count policies reject invalid individual Bundle count changes without mutation",
+                         "Boundary", true,
+                         C868_backbone_bundle_count_policy_rejects_invalid_individual_change);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

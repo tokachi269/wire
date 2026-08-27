@@ -101,6 +101,7 @@ public:
                                        const std::vector<ObjectId>& preferred_visible_span_ids);
   EditResult<bool> UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
+  EditResult<bool> UpdateBackboneBundleConductorCount(ObjectId bundle_id, int conductor_count);
   EditResult<bool> UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
                                                  double height_m, double lateral_m, double spacing_m);
   // Registers one adapter-built assembly before any template references it.
@@ -209,6 +210,10 @@ private:
     kSpanOverride,
     kLayoutSettings,
   };
+  struct BackboneLaneCountTransition {
+    int previous_count = 0;
+    int next_count = 0;
+  };
   EditResult<bool> regenerate_backbone_edge_bundles(BundleTemplateId bundle_template_id,
                                                     const BundleTemplate& previous_template,
                                                     const BundleTemplate& next_template,
@@ -216,7 +221,8 @@ private:
                                                     const CableTemplate* cable_template_override = nullptr,
                                                     const std::vector<ObjectId>* scoped_edge_bundle_ids = nullptr,
                                                     const PoleTypeDefinition* pole_type_override = nullptr,
-                                                    BackboneRegenerateCause cause = BackboneRegenerateCause::kBundleCount);
+                                                    BackboneRegenerateCause cause = BackboneRegenerateCause::kBundleCount,
+                                                    const BackboneLaneCountTransition* lane_count_transition = nullptr);
   EditResult<bool> regenerate_backbone_span_override(ObjectId span_id, ChangeSet* change_set);
   EditResult<bool> rebuild_loaded_outputs();
   [[nodiscard]] bool authoritative_equals(const CoreState& other) const;

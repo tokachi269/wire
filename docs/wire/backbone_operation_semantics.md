@@ -50,6 +50,15 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 | `regenerate` regenerate | `K` | `K` | `K` | `K` | `K` | `K` | `K` |
 | `connect_two_open` 明示的に2 openを接続 | `-` | `-` | `-` | `-` | `-` | `D2` | `D2` |
 
+### exact Bundle lane topology reconcile
+
+`UpdateBackboneBundleConductorCount`は接続状態を別の意味へ遷移させる操作ではなく、exact `Bundle`のlane topologyを
+保存済みrow continuity componentごとにreconcileするpost-edit operationである。存続laneは全状態で`K`、増加laneは
+同じcomponentの既存row/continuity判断を使って追加し、減少laneは末尾から退役する。lane permutationやorder変更は扱わない。
+
+`kRange`はtemplate範囲内の要求countだけを受理する。`kFixed`の個別変更、必須binding不足、退役spanのuser Attachment、
+退役Portのmanual position、scope外でも使用中のPortは失敗とし、全component成功前にauthorityへ反映しない。
+
 ## 実行時coverage契約
 
 `C` / `O` / `K` / `U` の各セルは、test case ID や手書きタグではなく、test実行中に

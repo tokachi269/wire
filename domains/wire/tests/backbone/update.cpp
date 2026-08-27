@@ -496,6 +496,21 @@ bool set_low_voltage_count_before_generation(city::wire::CoreState& state, int f
   return updated.ok && updated.value;
 }
 
+bool set_low_voltage_range_before_generation(city::wire::CoreState& state, int default_count) {
+  const auto template_id =
+      city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kLowVoltage);
+  const auto template_it = state.view().bundle_templates().find(template_id);
+  if (template_it == state.view().bundle_templates().end()) return false;
+  city::wire::BundleTemplate edited = template_it->second;
+  edited.count_rule = city::wire::BundleCountRuleKind::kRange;
+  edited.fixed_count = 0;
+  edited.min_count = 1;
+  edited.max_count = 6;
+  edited.default_count = default_count;
+  const auto updated = state.UpdateBundleTemplate(edited);
+  return updated.ok && updated.value;
+}
+
 struct FixedCountBundleComponent {
   city::wire::ObjectId bundle_id = city::wire::kInvalidObjectId;
   std::vector<city::wire::ObjectId> edge_bundle_ids{};
@@ -2927,6 +2942,205 @@ bool C851_backbone_fixed_count_decrease_retires_each_bundle_component_lanes() {
     WIRE_TEST_EXPECT(state.view().ports().find(port_id) == nullptr,
                      "Bundle B retired Port survived decrease");
   }
+  return true;
+}
+
+bool C866_backbone_range_bundle_count_reconciles_exact_identity() {
+  auto prepare = [](city::wire::CoreState* state, bool with_unrelated,
+                    FixedCountBundleComponent* component_a,
+                    FixedCountBundleComponent* component_b) {
+    if (state == nullptr || component_a == nullptr || component_b == nullptr ||
+        !set_low_voltage_range_before_generation(*state, 3)) return false;
+    *component_a = generate_fixed_count_component(*state, 0.0);
+    if (with_unrelated) *component_b = generate_fixed_count_component(*state, 30.0);
+    return fixed_count_component_relations_are_internal(*state, *component_a, 3) &&
+           (!with_unrelated || fixed_count_component_relations_are_internal(*state, *component_b, 3));
+  };
+
+  city::wire::CoreState alone{};
+  FixedCountBundleComponent alone_a{};
+  FixedCountBundleComponent unused{};
+  WIRE_TEST_EXPECT_PRESENCE(prepare(&alone, false, &alone_a, &unused),
+                            "single range Bundle fixture is incomplete");
+  const auto alone_update = alone.UpdateBackboneBundleConductorCount(alone_a.bundle_id, 4);
+  WIRE_TEST_EXPECT_PRESENCE(alone_update.ok && alone_update.value,
+                            alone_update.error.empty() ? "single range Bundle 3 to 4 failed"
+                                                       : alone_update.error);
+  const auto alone_signature = route_bundle_signatures_for_ids(alone, alone_a.edge_bundle_ids);
+
+  city::wire::CoreState together{};
+  FixedCountBundleComponent together_a{};
+  FixedCountBundleComponent together_b{};
+  WIRE_TEST_EXPECT_PRESENCE(prepare(&together, true, &together_a, &together_b),
+                            "two range Bundle fixture is incomplete");
+  const auto a_bundle_id = together_a.bundle_id;
+  const auto b_bundle_id = together_b.bundle_id;
+  std::array<std::vector<city::wire::ObjectId>, 3> a_span_ids{};
+  std::array<std::vector<city::wire::ObjectId>, 3> a_port_ids{};
+  std::array<std::vector<city::wire::ObjectId>, 3> b_span_ids{};
+  std::array<std::vector<city::wire::ObjectId>, 3> b_port_ids{};
+  for (std::size_t lane = 0; lane < 3; ++lane) {
+    a_span_ids[lane] = component_lane_span_ids(together, together_a, lane);
+    a_port_ids[lane] = component_lane_port_ids(together, together_a, lane);
+    b_span_ids[lane] = component_lane_span_ids(together, together_b, lane);
+    b_port_ids[lane] = component_lane_port_ids(together, together_b, lane);
+  }
+  const auto b_signature_before = route_bundle_signatures_for_ids(together, together_b.edge_bundle_ids);
+
+  const auto increased = together.UpdateBackboneBundleConductorCount(together_a.bundle_id, 4);
+  WIRE_TEST_EXPECT_PRESENCE(increased.ok && increased.value,
+                            increased.error.empty() ? "range Bundle A 3 to 4 failed" : increased.error);
+  WIRE_TEST_EXPECT_ANCHOR(
+      together_a.bundle_id == a_bundle_id && together_b.bundle_id == b_bundle_id &&
+          together.view().bundles().find(a_bundle_id) != nullptr &&
+          together.view().bundles().find(b_bundle_id) != nullptr,
+      "range Bundle identity changed during exact count increase");
+  WIRE_TEST_EXPECT_ANCHOR(
+      fixed_count_component_relations_are_internal(together, together_a, 4) &&
+          fixed_count_component_relations_are_internal(together, together_b, 3),
+      "range count increase escaped the exact Bundle component");
+  for (std::size_t lane = 0; lane < 3; ++lane) {
+    WIRE_TEST_EXPECT_ANCHOR(
+        component_lane_span_ids(together, together_a, lane) == a_span_ids[lane] &&
+            component_lane_port_ids(together, together_a, lane) == a_port_ids[lane],
+        "range count increase replaced a surviving Bundle A lane identity");
+    WIRE_TEST_EXPECT_ANCHOR(
+        component_lane_span_ids(together, together_b, lane) == b_span_ids[lane] &&
+            component_lane_port_ids(together, together_b, lane) == b_port_ids[lane],
+        "range count increase changed unrelated Bundle B identity");
+  }
+  WIRE_TEST_EXPECT_PRESENCE(
+      component_lane_span_ids(together, together_a, 3).size() == 2 &&
+          component_lane_port_ids(together, together_a, 3).size() == 4 &&
+          component_lane_span_ids(together, together_b, 3).empty() &&
+          component_lane_port_ids(together, together_b, 3).empty(),
+      "range count increase did not add only Bundle A lane 3");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      same_route_bundle_signatures(alone_signature,
+                                   route_bundle_signatures_for_ids(together, together_a.edge_bundle_ids)) &&
+          same_route_bundle_signatures(b_signature_before,
+                                       route_bundle_signatures_for_ids(together, together_b.edge_bundle_ids)),
+      "range Bundle A result depends on unrelated Bundle B");
+
+  std::string saved{};
+  WIRE_TEST_EXPECT_PRESENCE(together.SerializeAuthoritative(&saved).ok,
+                            "range count increase state did not serialize");
+  city::wire::CoreState loaded{};
+  const auto loaded_result = loaded.DeserializeAuthoritative(saved);
+  WIRE_TEST_EXPECT_PRESENCE(loaded_result.ok, loaded_result.error);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      fixed_count_component_relations_are_internal(loaded, together_a, 4) &&
+          fixed_count_component_relations_are_internal(loaded, together_b, 3),
+      "range Bundle count or relations changed across save/load");
+
+  const auto retired_spans = component_lane_span_ids(together, together_a, 3);
+  const auto retired_ports = component_lane_port_ids(together, together_a, 3);
+  const auto decreased = together.UpdateBackboneBundleConductorCount(together_a.bundle_id, 3);
+  WIRE_TEST_EXPECT_PRESENCE(decreased.ok && decreased.value,
+                            decreased.error.empty() ? "range Bundle A 4 to 3 failed" : decreased.error);
+  WIRE_TEST_EXPECT_ANCHOR(
+      fixed_count_component_relations_are_internal(together, together_a, 3) &&
+          fixed_count_component_relations_are_internal(together, together_b, 3),
+      "range count decrease damaged a surviving or unrelated component");
+  for (std::size_t lane = 0; lane < 3; ++lane) {
+    WIRE_TEST_EXPECT_ANCHOR(
+        component_lane_span_ids(together, together_a, lane) == a_span_ids[lane] &&
+            component_lane_port_ids(together, together_a, lane) == a_port_ids[lane] &&
+            component_lane_span_ids(together, together_b, lane) == b_span_ids[lane] &&
+            component_lane_port_ids(together, together_b, lane) == b_port_ids[lane],
+        "range count decrease changed surviving lane identity");
+  }
+  WIRE_TEST_EXPECT_ANCHOR(no_binding_references(together, retired_spans, retired_ports),
+                          "range count decrease left stale lane 3 bindings");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(together);
+  return true;
+}
+
+bool C867_backbone_range_bundle_count_retirement_conflicts_are_atomic() {
+  auto make_four_lane = [](city::wire::CoreState* state,
+                           FixedCountBundleComponent* component) {
+    if (state == nullptr || component == nullptr ||
+        !set_low_voltage_range_before_generation(*state, 4)) return false;
+    *component = generate_fixed_count_component(*state, 0.0);
+    return fixed_count_component_relations_are_internal(*state, *component, 4);
+  };
+
+  city::wire::CoreState with_attachment{};
+  FixedCountBundleComponent attachment_component{};
+  WIRE_TEST_EXPECT_PRESENCE(make_four_lane(&with_attachment, &attachment_component),
+                            "user Attachment conflict fixture is incomplete");
+  const auto retiring_spans = component_lane_span_ids(with_attachment, attachment_component, 3);
+  WIRE_TEST_EXPECT_PRESENCE(!retiring_spans.empty() &&
+                                with_attachment.AddAttachment(retiring_spans.front(), 0.5).ok,
+                            "failed to add user Attachment to retiring lane");
+  std::string attachment_before{};
+  WIRE_TEST_EXPECT_PRESENCE(with_attachment.SerializeAuthoritative(&attachment_before).ok,
+                            "failed to serialize user Attachment fixture");
+  const auto attachment_update =
+      with_attachment.UpdateBackboneBundleConductorCount(attachment_component.bundle_id, 3);
+  std::string attachment_after{};
+  WIRE_TEST_EXPECT_PRESENCE(with_attachment.SerializeAuthoritative(&attachment_after).ok,
+                            "failed to serialize rejected user Attachment state");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(!attachment_update.ok && attachment_before == attachment_after,
+                                "retiring lane user Attachment was not rejected atomically");
+
+  city::wire::CoreState with_manual_port{};
+  FixedCountBundleComponent port_component{};
+  WIRE_TEST_EXPECT_PRESENCE(make_four_lane(&with_manual_port, &port_component),
+                            "manual Port conflict fixture is incomplete");
+  const auto retiring_ports = component_lane_port_ids(with_manual_port, port_component, 3);
+  const city::wire::Port* port = retiring_ports.empty()
+                                     ? nullptr
+                                     : with_manual_port.view().ports().find(retiring_ports.front());
+  WIRE_TEST_EXPECT_PRESENCE(
+      port != nullptr &&
+          with_manual_port.SetPortWorldPositionManual(
+              port->id, {port->world_position.x, port->world_position.y,
+                         port->world_position.z + 0.05}).ok,
+      "failed to mark retiring lane Port manual");
+  std::string port_before{};
+  WIRE_TEST_EXPECT_PRESENCE(with_manual_port.SerializeAuthoritative(&port_before).ok,
+                            "failed to serialize manual Port fixture");
+  const auto port_update =
+      with_manual_port.UpdateBackboneBundleConductorCount(port_component.bundle_id, 3);
+  std::string port_after{};
+  WIRE_TEST_EXPECT_PRESENCE(with_manual_port.SerializeAuthoritative(&port_after).ok,
+                            "failed to serialize rejected manual Port state");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(!port_update.ok && port_before == port_after,
+                                "retiring lane manual Port was not rejected atomically");
+  return true;
+}
+
+bool C868_backbone_bundle_count_policy_rejects_invalid_individual_change() {
+  city::wire::CoreState state{};
+  const FixedCountBundleComponent component = generate_fixed_count_component(state, 0.0);
+  WIRE_TEST_EXPECT_PRESENCE(
+      fixed_count_component_relations_are_internal(state, component, 1),
+      "fixed Bundle rejection fixture is incomplete");
+  std::string before{};
+  WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&before).ok,
+                            "failed to serialize fixed Bundle fixture");
+  const auto updated = state.UpdateBackboneBundleConductorCount(component.bundle_id, 2);
+  std::string after{};
+  WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&after).ok,
+                            "failed to serialize rejected fixed Bundle state");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(!updated.ok && before == after,
+                                "fixed template individual Bundle count change was not rejected atomically");
+
+  city::wire::CoreState range_state{};
+  WIRE_TEST_EXPECT_PRESENCE(set_low_voltage_range_before_generation(range_state, 3),
+                            "range count policy rejection fixture setup failed");
+  const FixedCountBundleComponent range_component = generate_fixed_count_component(range_state, 0.0);
+  std::string range_before{};
+  WIRE_TEST_EXPECT_PRESENCE(range_state.SerializeAuthoritative(&range_before).ok,
+                            "failed to serialize range count policy fixture");
+  const auto range_updated =
+      range_state.UpdateBackboneBundleConductorCount(range_component.bundle_id, 7);
+  std::string range_after{};
+  WIRE_TEST_EXPECT_PRESENCE(range_state.SerializeAuthoritative(&range_after).ok,
+                            "failed to serialize rejected range count state");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(!range_updated.ok && range_before == range_after,
+                                "out-of-range individual Bundle count was not rejected atomically");
   return true;
 }
 

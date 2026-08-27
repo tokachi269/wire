@@ -297,6 +297,14 @@ exact `Bundle` identityごとにsaved row continuityで接続された`edge_bund
 増加時は既存lane identityを保って末尾laneだけを生成し、減少時は末尾laneだけを退役する。
 全continuity componentを同じtrialで既存pipelineへreplayし、binding reconcileが完了した場合だけcommitする。
 退役laneにuser Attachmentまたはmanual Portがある場合はauthority不変で拒否する。
+`RetireBackboneBundle` はexact `Bundle` identityから、そのBundleを参照する全`SavedBackboneEdgeBundle`を
+完全退役するCore topology operationである。削除ownerは既存pipelineの`retire_untouched`に置き、
+Span、専用Port、binding、row continuity、default endpoint Attachment、orphan edgeを同じtrialで除去し、
+derived outputとruntime indexを残存authorityから再構築してから一度だけcommitする。
+branch / cross / sharpはcategoryで除外せずexact Bundle identityで全componentを対象にする。
+source-edge branch Bundleはsourceを残したまま退役できるが、source Bundleを消すと存続branchのprojection
+authorityが失われる場合はdependencyを推測せずmutation前に拒否する。user Attachment、manual Port、
+Span overrideを暗黙に破棄してはならない。
 現対応は `UpdateBundleTemplate` の fixed count 増減と `kTopology` policy 差分、`UpdateCableTemplate` の backbone continuity policy / default endpoint attachment decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeの接続は saved row continuity と saved node から

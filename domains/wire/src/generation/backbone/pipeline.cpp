@@ -105,6 +105,9 @@ EditResult<bool> validate_backbone_spec_external_input(const BackboneSpec& spec)
   return out;
 }
 
+ObjectId source_edge_bundle_for(const CoreState& state, ObjectId edge_id,
+                                const BackboneBundleSpec& bundle_spec);
+
 } // namespace
 
 EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
@@ -118,6 +121,23 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
 
   EditResult<GenerateBundleFromPathResult> out{};
   GenerationTiming* timing = input.timing == nullptr ? &out.value.timing : input.timing;
+  if (input.retired_bundle_id != kInvalidObjectId) {
+    route retired{};
+    retired.active = true;
+    retired.retired_bundle_id = input.retired_bundle_id;
+    retired.retired_edge_bundle_ids = std::move(input.retired_edge_bundle_ids);
+    retired.scope_edge_bundle_ids = retired.retired_edge_bundle_ids;
+    const EditResult<bool> checked = check_bundle_retirement(retired);
+    if (!checked.ok) {
+      out.error = checked.error;
+      return out;
+    }
+    retire_untouched(&retired);
+    write_route_result(&out, std::move(retired.change_set),
+                       std::move(retired.made));
+    out.ok = true;
+    return out;
+  }
   EditResult<route> made = emit_route(timing);
   if (!made.ok) {
     out.error = made.error;
@@ -199,6 +219,101 @@ pipeline::build_input pipeline::build_input_from_saved_scope(
   input.retire_untouched = retire_untouched;
   input.write_row_continuity = write_row_continuity;
   return input;
+}
+
+pipeline::build_input pipeline::build_input_for_bundle_retirement(
+    ObjectId bundle_id, std::vector<ObjectId> edge_bundle_ids) const {
+  build_input input{};
+  input.retired_bundle_id = bundle_id;
+  input.retired_edge_bundle_ids = std::move(edge_bundle_ids);
+  return input;
+}
+
+EditResult<bool> pipeline::check_bundle_retirement(const route& retired) const {
+  auto reject = [](std::string reason) {
+    EditResult<bool> out{};
+    out.error = "backbone unsupported: " + std::move(reason);
+    return out;
+  };
+  const SavedBackboneGraph& graph = state_.view().backbone();
+  const Bundle* retired_bundle =
+      state_.view().bundles().find(retired.retired_bundle_id);
+  if (retired_bundle == nullptr) {
+    return reject("exact Bundle retirement target is missing");
+  }
+
+  std::unordered_set<ObjectId> retired_edge_bundle_ids(
+      retired.retired_edge_bundle_ids.begin(),
+      retired.retired_edge_bundle_ids.end());
+  std::unordered_set<ObjectId> retired_span_ids{};
+  for (const SavedBackboneSpanBinding& binding : graph.span_bindings) {
+    if (retired_edge_bundle_ids.contains(binding.edge_bundle_id)) {
+      retired_span_ids.insert(binding.span_id);
+    }
+  }
+
+  for (const Span& span : state_.view().spans().items()) {
+    if (retired_span_ids.contains(span.id)) continue;
+    for (ObjectId endpoint_node_id :
+         {span.endpoint_node_a_id, span.endpoint_node_b_id}) {
+      const SavedBackboneNode* source_node =
+          state_.view().backbone_node(endpoint_node_id);
+      if (source_node == nullptr || !source_node->has_source_edge) continue;
+
+      const ObjectId source_lo =
+          std::min(source_node->source_edge_node_a,
+                   source_node->source_edge_node_b);
+      const ObjectId source_hi =
+          std::max(source_node->source_edge_node_a,
+                   source_node->source_edge_node_b);
+      ObjectId retired_source_edge_id = kInvalidObjectId;
+      for (ObjectId edge_bundle_id : retired.retired_edge_bundle_ids) {
+        const SavedBackboneEdgeBundle* edge_bundle =
+            state_.view().backbone_edge_bundle(edge_bundle_id);
+        const SavedBackboneEdge* edge = edge_bundle == nullptr
+                                            ? nullptr
+                                            : state_.view().backbone_edge(
+                                                  edge_bundle->edge_id);
+        if (edge != nullptr && std::min(edge->node_a, edge->node_b) == source_lo &&
+            std::max(edge->node_a, edge->node_b) == source_hi) {
+          retired_source_edge_id = edge->edge_id;
+          break;
+        }
+      }
+      if (retired_source_edge_id == kInvalidObjectId) continue;
+
+      const Bundle* branch_bundle =
+          state_.view().bundles().find(span.bundle_id);
+      if (branch_bundle == nullptr) {
+        return reject("surviving source-edge Bundle is missing");
+      }
+      BackboneBundleSpec branch_spec{};
+      branch_spec.bundle_template_id = branch_bundle->bundle_template_id;
+      branch_spec.placement_key = branch_bundle->placement_key;
+
+      const ObjectId resolved_source_edge_bundle =
+          source_edge_bundle_for(state_, retired_source_edge_id, branch_spec);
+      if (retired_edge_bundle_ids.contains(resolved_source_edge_bundle)) {
+        return reject(
+            "exact Bundle retirement cannot discard a surviving source-edge dependency");
+      }
+      const bool retired_bundle_is_candidate =
+          retired_bundle->bundle_template_id == branch_bundle->bundle_template_id &&
+          (retired_bundle->placement_key == 0 ||
+           branch_bundle->placement_key == 0 ||
+           retired_bundle->placement_key == branch_bundle->placement_key);
+      if (resolved_source_edge_bundle == kInvalidObjectId &&
+          retired_bundle_is_candidate) {
+        return reject(
+            "exact Bundle retirement cannot resolve a surviving source-edge dependency");
+      }
+    }
+  }
+
+  EditResult<bool> out{};
+  out.ok = true;
+  out.value = true;
+  return out;
 }
 
 EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
@@ -1482,7 +1597,8 @@ void pipeline::retire_untouched(route* route) {
       }
     }
   }
-  if (retired_spans.empty() && retired_ports.empty()) {
+  const bool retires_bundle = route->retired_bundle_id != kInvalidObjectId;
+  if (retired_spans.empty() && retired_ports.empty() && !retires_bundle) {
     return;
   }
 
@@ -1532,15 +1648,78 @@ void pipeline::retire_untouched(route* route) {
   graph.span_bindings.erase(
       std::remove_if(graph.span_bindings.begin(), graph.span_bindings.end(),
                      [&](const SavedBackboneSpanBinding& binding) {
-                       return contains_id(retired_spans, binding.span_id);
+                       return contains_id(retired_spans, binding.span_id) ||
+                              contains_id(route->retired_edge_bundle_ids,
+                                          binding.edge_bundle_id);
                      }),
       graph.span_bindings.end());
   graph.port_bindings.erase(
       std::remove_if(graph.port_bindings.begin(), graph.port_bindings.end(),
                      [&](const SavedBackbonePortBinding& binding) {
-                       return contains_id(retired_ports, binding.port_id);
+                       return contains_id(retired_ports, binding.port_id) ||
+                              contains_id(route->retired_edge_bundle_ids,
+                                          binding.edge_bundle_id);
                      }),
       graph.port_bindings.end());
+  if (retires_bundle) {
+    graph.row_continuities.erase(
+        std::remove_if(graph.row_continuities.begin(),
+                       graph.row_continuities.end(),
+                       [&](const SavedBackboneRowContinuity& continuity) {
+                         return contains_id(route->retired_edge_bundle_ids,
+                                            continuity.a.edge_bundle_id) ||
+                                contains_id(route->retired_edge_bundle_ids,
+                                            continuity.b.edge_bundle_id);
+                       }),
+        graph.row_continuities.end());
+    graph.edge_bundles.erase(
+        std::remove_if(graph.edge_bundles.begin(), graph.edge_bundles.end(),
+                       [&](const SavedBackboneEdgeBundle& edge_bundle) {
+                         return contains_id(route->retired_edge_bundle_ids,
+                                            edge_bundle.edge_bundle_id);
+                       }),
+        graph.edge_bundles.end());
+    graph.edges.erase(
+        std::remove_if(graph.edges.begin(), graph.edges.end(),
+                       [&](const SavedBackboneEdge& edge) {
+                         const bool has_bundle = std::any_of(
+                             graph.edge_bundles.begin(), graph.edge_bundles.end(),
+                             [&](const SavedBackboneEdgeBundle& edge_bundle) {
+                               return edge_bundle.edge_id == edge.edge_id;
+                             });
+                         if (!has_bundle) {
+                           CoreState::add_unique_id(route->change_set.deleted_ids,
+                                                    edge.edge_id);
+                         }
+                         return !has_bundle;
+                       }),
+        graph.edges.end());
+    graph.nodes.erase(
+        std::remove_if(graph.nodes.begin(), graph.nodes.end(),
+                       [&](const SavedBackboneNode& node) {
+                         if (node.pole_id != kInvalidObjectId) return false;
+                         const bool has_edge = std::any_of(
+                             graph.edges.begin(), graph.edges.end(),
+                             [&](const SavedBackboneEdge& edge) {
+                               return edge.node_a == node.node_id ||
+                                      edge.node_b == node.node_id;
+                             });
+                         if (!has_edge) {
+                           CoreState::add_unique_id(route->change_set.deleted_ids,
+                                                    node.node_id);
+                         }
+                         return !has_edge;
+                       }),
+        graph.nodes.end());
+    if (state_.authoritative_.edit_state.bundles.remove(
+            route->retired_bundle_id)) {
+      CoreState::add_unique_id(route->change_set.deleted_ids,
+                               route->retired_bundle_id);
+    }
+    for (ObjectId edge_bundle_id : route->retired_edge_bundle_ids) {
+      CoreState::add_unique_id(route->change_set.deleted_ids, edge_bundle_id);
+    }
+  }
 
   // authoritative graphを削除後の唯一の入力としてruntime indexを再構築する。
   BackboneIndex rebuilt{};

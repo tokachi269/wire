@@ -210,6 +210,8 @@ public:
     GenerationTiming* timing = nullptr;
     bool retire_untouched = true;
     bool write_row_continuity = true;
+    ObjectId retired_bundle_id = kInvalidObjectId;
+    std::vector<ObjectId> retired_edge_bundle_ids{};
   };
 
   [[nodiscard]] EditResult<bool> prepare();
@@ -218,6 +220,8 @@ public:
   [[nodiscard]] build_input build_input_from_saved_scope(
       graph made, std::vector<std::size_t> active_bundle_indices, bool retire_untouched = true,
       bool write_row_continuity = true) const;
+  [[nodiscard]] build_input build_input_for_bundle_retirement(
+      ObjectId bundle_id, std::vector<ObjectId> edge_bundle_ids) const;
   [[nodiscard]] EditResult<GenerateBundleFromPathResult> build(build_input input);
 
 private:
@@ -243,10 +247,13 @@ private:
     std::vector<ObjectId> scope_edge_bundle_ids{};
     std::vector<ObjectId> touched_span_ids{};
     std::vector<ObjectId> touched_port_ids{};
+    ObjectId retired_bundle_id = kInvalidObjectId;
+    std::vector<ObjectId> retired_edge_bundle_ids{};
   };
 
   [[nodiscard]] EditResult<route> emit_route(GenerationTiming*);
   [[nodiscard]] EditResult<bool> save_derived(const route&, GenerationTiming*);
+  [[nodiscard]] EditResult<bool> check_bundle_retirement(const route&) const;
   void retire_untouched(route* made);
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;
   [[nodiscard]] EditResult<intent> make(const pairs& ps) const;

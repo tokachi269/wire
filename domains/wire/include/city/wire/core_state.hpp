@@ -102,6 +102,7 @@ public:
   EditResult<bool> UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
   EditResult<bool> UpdateBackboneBundleConductorCount(ObjectId bundle_id, int conductor_count);
+  EditResult<bool> RetireBackboneBundle(ObjectId bundle_id);
   EditResult<bool> UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
                                                  double height_m, double lateral_m, double spacing_m);
   // Registers one adapter-built assembly before any template references it.

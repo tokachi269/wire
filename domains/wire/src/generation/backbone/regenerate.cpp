@@ -662,6 +662,173 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   return result;
 }
 
+EditResult<bool> CoreState::RetireBackboneBundle(ObjectId bundle_id) {
+  EditResult<bool> result{};
+  auto reject = [&](std::string error) {
+    result.error = std::move(error);
+    result.classify_error();
+    return result;
+  };
+
+  const Bundle* bundle = view().bundles().find(bundle_id);
+  if (bundle == nullptr) {
+    return reject("core invalid input: bundle not found");
+  }
+  const SavedBackboneGraph& graph = view().backbone();
+  std::vector<ObjectId> edge_bundle_ids{};
+  std::unordered_set<ObjectId> edge_bundle_id_set{};
+  if (bundle->conductor_count <= 0) {
+    return reject("backbone invalid input: exact Bundle retirement conductor count is invalid");
+  }
+  for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    if (edge_bundle.bundle_id != bundle_id) continue;
+    if (edge_bundle.edge_bundle_id == kInvalidObjectId ||
+        edge_bundle.edge_id == kInvalidObjectId ||
+        !edge_bundle_id_set.insert(edge_bundle.edge_bundle_id).second) {
+      return reject("backbone invalid input: exact Bundle retirement edge scope is invalid");
+    }
+    edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+  }
+  if (edge_bundle_ids.empty()) {
+    return reject("backbone unsupported: exact Bundle retirement has no saved edge bundles");
+  }
+
+  std::unordered_set<ObjectId> retired_span_ids{};
+  std::unordered_set<ObjectId> retired_port_ids{};
+  for (ObjectId edge_bundle_id : edge_bundle_ids) {
+    std::vector<bool> span_lanes(static_cast<std::size_t>(bundle->conductor_count), false);
+    std::vector<std::size_t> port_lane_counts(
+        static_cast<std::size_t>(bundle->conductor_count), 0);
+    for (const SavedBackboneSpanBinding& binding : graph.span_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id) continue;
+      if (binding.lane_index >= span_lanes.size() || span_lanes[binding.lane_index]) {
+        return reject("backbone invalid input: exact Bundle retirement span lanes are inconsistent");
+      }
+      const Span* span = view().spans().find(binding.span_id);
+      if (span == nullptr || span->bundle_id != bundle_id) {
+        return reject("backbone invalid input: exact Bundle retirement span binding is incomplete");
+      }
+      span_lanes[binding.lane_index] = true;
+      retired_span_ids.insert(binding.span_id);
+    }
+    if (span_lanes.empty() ||
+        std::find(span_lanes.begin(), span_lanes.end(), false) != span_lanes.end()) {
+      return reject("backbone invalid input: exact Bundle retirement span binding is missing");
+    }
+    for (const SavedBackbonePortBinding& binding : graph.port_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id) continue;
+      if (binding.lane_index >= port_lane_counts.size()) {
+        return reject("backbone invalid input: exact Bundle retirement port lane is inconsistent");
+      }
+      const Port* port = view().ports().find(binding.port_id);
+      if (port == nullptr) {
+        return reject("backbone invalid input: exact Bundle retirement bound Port is missing");
+      }
+      if (port->position_mode == PortPositionMode::kManual ||
+          port->user_edited_position) {
+        return reject("backbone unsupported: exact Bundle retirement cannot retire manual Ports");
+      }
+      ++port_lane_counts[binding.lane_index];
+      retired_port_ids.insert(binding.port_id);
+    }
+    if (port_lane_counts.empty() ||
+        std::any_of(port_lane_counts.begin(), port_lane_counts.end(),
+                    [](std::size_t count) { return count != 2; })) {
+      return reject("backbone invalid input: exact Bundle retirement port bindings are incomplete");
+    }
+  }
+
+  for (ObjectId span_id : retired_span_ids) {
+    if (authoritative_.override_state.span_endpoint_by_span.contains(span_id) ||
+        authoritative_.override_state.span_support_by_span.contains(span_id)) {
+      return reject("backbone unsupported: exact Bundle retirement cannot discard Span overrides");
+    }
+    for (const Attachment& attachment : view().attachments().items()) {
+      if (attachment.span_id == span_id &&
+          attachment.origin == AttachmentOrigin::kUser) {
+        return reject("backbone unsupported: exact Bundle retirement cannot discard user Attachments");
+      }
+    }
+  }
+  for (ObjectId port_id : retired_port_ids) {
+    const auto spans_it = runtime_.connection_index.spans_by_port.find(port_id);
+    if (spans_it == runtime_.connection_index.spans_by_port.end()) continue;
+    for (ObjectId span_id : spans_it->second) {
+      if (!retired_span_ids.contains(span_id)) {
+        return reject("backbone unsupported: exact Bundle retirement Port is used by surviving topology");
+      }
+    }
+  }
+  for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+    const bool a_retired = edge_bundle_id_set.contains(continuity.a.edge_bundle_id);
+    const bool b_retired = edge_bundle_id_set.contains(continuity.b.edge_bundle_id);
+    if (a_retired != b_retired) {
+      return reject("backbone unsupported: exact Bundle retirement continuity crosses Bundle identity");
+    }
+  }
+
+  CoreState trial = *this;
+  BackboneSpec empty_spec{};
+  generation::backbone::pipeline retirement_pipeline(trial, empty_spec);
+  EditResult<GenerateBundleFromPathResult> retired = retirement_pipeline.build(
+      retirement_pipeline.build_input_for_bundle_retirement(
+          bundle_id, edge_bundle_ids));
+  if (!retired.ok) return reject(retired.error);
+  if (trial.view().bundles().find(bundle_id) != nullptr ||
+      std::any_of(trial.view().spans().items().begin(),
+                  trial.view().spans().items().end(),
+                  [&](const Span& span) { return span.bundle_id == bundle_id; }) ||
+      std::any_of(trial.view().backbone().edge_bundles.begin(),
+                  trial.view().backbone().edge_bundles.end(),
+                  [&](const SavedBackboneEdgeBundle& edge_bundle) {
+                    return edge_bundle.bundle_id == bundle_id ||
+                           edge_bundle_id_set.contains(edge_bundle.edge_bundle_id);
+                  }) ||
+      std::any_of(trial.view().backbone().span_bindings.begin(),
+                  trial.view().backbone().span_bindings.end(),
+                  [&](const SavedBackboneSpanBinding& binding) {
+                    return edge_bundle_id_set.contains(binding.edge_bundle_id) ||
+                           retired_span_ids.contains(binding.span_id);
+                  }) ||
+      std::any_of(trial.view().backbone().port_bindings.begin(),
+                  trial.view().backbone().port_bindings.end(),
+                  [&](const SavedBackbonePortBinding& binding) {
+                    return edge_bundle_id_set.contains(binding.edge_bundle_id);
+                  }) ||
+      std::any_of(trial.view().backbone().row_continuities.begin(),
+                  trial.view().backbone().row_continuities.end(),
+                  [&](const SavedBackboneRowContinuity& continuity) {
+                    return edge_bundle_id_set.contains(continuity.a.edge_bundle_id) ||
+                           edge_bundle_id_set.contains(continuity.b.edge_bundle_id);
+                  }) ||
+      std::any_of(trial.view().attachments().items().begin(),
+                  trial.view().attachments().items().end(),
+                  [&](const Attachment& attachment) {
+                    return retired_span_ids.contains(attachment.span_id);
+                  })) {
+    return reject("backbone internal: exact Bundle retirement cleanup is incomplete");
+  }
+
+  EditResult<bool> rebuilt = trial.rebuild_loaded_outputs();
+  if (!rebuilt.ok) return reject(rebuilt.error);
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      return reject("backbone invalid input: exact Bundle retirement validation failed: " +
+                    issue.code + ": " + issue.message);
+    }
+  }
+
+  identity_ = trial.identity_;
+  authoritative_ = trial.authoritative_;
+  runtime_ = trial.runtime_;
+  debug_ = trial.debug_;
+  result.ok = true;
+  result.value = true;
+  result.change_set = std::move(retired.change_set);
+  return result;
+}
+
 EditResult<bool> CoreState::regenerate_backbone_span_override(ObjectId span_id, ChangeSet* change_set) {
   EditResult<bool> result{};
   const auto backbone_it = runtime_.backbone_index.span_edge_bundle.find(span_id);

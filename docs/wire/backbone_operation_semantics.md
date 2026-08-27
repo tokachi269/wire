@@ -59,6 +59,17 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 `kRange`はtemplate範囲内の要求countだけを受理する。`kFixed`の個別変更、必須binding不足、退役spanのuser Attachment、
 退役Portのmanual position、scope外でも使用中のPortは失敗とし、全component成功前にauthorityへ反映しない。
 
+### exact Bundle lifecycle
+
+`RetireBackboneBundle`は接続状態を別の状態へ遷移させる操作ではなく、exact `Bundle` identityと、
+そのidentityを参照する全edge bundle componentをauthoritative topologyから完全退役するpost-edit operationである。
+`S1`～`S5`、branch、cross、sharpをcategoryで除外せず、対象BundleのSpan、専用Port、binding、row continuity、
+default endpoint Attachmentを同じtrialで退役し、残存authorityからderived outputとruntime indexを再構築する。
+
+`SM`ではsource-edge側のexact edge bundle identityを参照する存続Spanがある場合、そのsource Bundle退役を拒否する。
+sourceを残したbranch Bundleの退役は可能とする。必須binding不足、user Attachment、manual Port、Span override、
+scope外Spanが使用するPort、またはsource dependencyをexact identityで確定できない状態は、authority不変で失敗する。
+
 ## 実行時coverage契約
 
 `C` / `O` / `K` / `U` の各セルは、test case ID や手書きタグではなく、test実行中に

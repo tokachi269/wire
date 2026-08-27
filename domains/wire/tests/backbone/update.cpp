@@ -3144,4 +3144,571 @@ bool C868_backbone_bundle_count_policy_rejects_invalid_individual_change() {
   return true;
 }
 
+namespace {
+
+struct ExactBundleRetirementFixture {
+  city::wire::ObjectId bundle_a = city::wire::kInvalidObjectId;
+  city::wire::ObjectId bundle_b = city::wire::kInvalidObjectId;
+  std::vector<city::wire::ObjectId> edge_bundles_a{};
+  std::vector<city::wire::ObjectId> edge_bundles_b{};
+};
+
+std::vector<city::wire::ObjectId> exact_edge_bundles(
+    const city::wire::CoreState& state, city::wire::ObjectId bundle_id) {
+  std::vector<city::wire::ObjectId> out{};
+  for (const city::wire::SavedBackboneEdgeBundle& edge_bundle :
+       state.view().backbone().edge_bundles) {
+    if (edge_bundle.bundle_id == bundle_id) out.push_back(edge_bundle.edge_bundle_id);
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+city::wire::BackboneSpec exact_bundle_route_request(
+    city::wire::CoreState& state, const std::vector<city::wire::Vec3d>& points) {
+  city::wire::BackboneSpec request = line_req(state);
+  request.path.polyline = points;
+  city::wire::BackboneBundleSpec a = request.bundles.front();
+  a.placement_key = 86901;
+  a.placement_explicit = true;
+  a.height_m = 7.15;
+  a.lateral_m = -0.22;
+  a.spacing_m = 0.20;
+  city::wire::BackboneBundleSpec b = a;
+  b.placement_key = 86902;
+  b.height_m = 7.55;
+  b.lateral_m = -0.42;
+  request.bundles = {a, b};
+  return request;
+}
+
+bool generate_exact_bundle_route(city::wire::CoreState* state,
+                                 const std::vector<city::wire::Vec3d>& points,
+                                 ExactBundleRetirementFixture* fixture,
+                                 city::wire::GenerateBundleFromPathResult* generated = nullptr) {
+  if (state == nullptr || fixture == nullptr) return false;
+  const auto result = state->GenerateFromBackboneSpec(
+      exact_bundle_route_request(*state, points));
+  if (!result.ok || result.value.bundle_ids.size() != 2) return false;
+  for (city::wire::ObjectId bundle_id : result.value.bundle_ids) {
+    const city::wire::Bundle* bundle = state->view().bundles().find(bundle_id);
+    if (bundle == nullptr) return false;
+    if (bundle->placement_key == 86901) fixture->bundle_a = bundle_id;
+    if (bundle->placement_key == 86902) fixture->bundle_b = bundle_id;
+  }
+  fixture->edge_bundles_a = exact_edge_bundles(*state, fixture->bundle_a);
+  fixture->edge_bundles_b = exact_edge_bundles(*state, fixture->bundle_b);
+  if (generated != nullptr) *generated = result.value;
+  return fixture->bundle_a != city::wire::kInvalidObjectId &&
+         fixture->bundle_b != city::wire::kInvalidObjectId &&
+         !fixture->edge_bundles_a.empty() &&
+         fixture->edge_bundles_a.size() == fixture->edge_bundles_b.size();
+}
+
+std::vector<EdgeBundleIdentitySnapshot> exact_bundle_identity_snapshot(
+    const city::wire::CoreState& state,
+    const std::vector<city::wire::ObjectId>& edge_bundle_ids) {
+  std::vector<EdgeBundleIdentitySnapshot> out{};
+  for (city::wire::ObjectId edge_bundle_id : edge_bundle_ids) {
+    out.push_back(edge_bundle_identity_snapshot(state, edge_bundle_id));
+  }
+  return out;
+}
+
+bool same_exact_bundle_identity_snapshot(
+    const std::vector<EdgeBundleIdentitySnapshot>& a,
+    const std::vector<EdgeBundleIdentitySnapshot>& b) {
+  if (a.size() != b.size()) return false;
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    if (!same_edge_bundle_identity_snapshot(a[i], b[i])) return false;
+  }
+  return true;
+}
+
+bool exact_bundle_is_fully_retired(
+    const city::wire::CoreState& state, city::wire::ObjectId bundle_id,
+    const std::vector<city::wire::ObjectId>& edge_bundle_ids,
+    const std::vector<city::wire::ObjectId>& span_ids,
+    const std::vector<city::wire::ObjectId>& port_ids,
+    const std::vector<city::wire::ObjectId>& attachment_ids) {
+  if (state.view().bundles().find(bundle_id) != nullptr ||
+      state.view().backbone_index().bundle_edge.contains(bundle_id) ||
+      state.view().relation_index().spans_by_bundle.contains(bundle_id)) return false;
+  for (const city::wire::SavedBackboneEdgeBundle& edge_bundle :
+       state.view().backbone().edge_bundles) {
+    if (edge_bundle.bundle_id == bundle_id ||
+        std::find(edge_bundle_ids.begin(), edge_bundle_ids.end(),
+                  edge_bundle.edge_bundle_id) != edge_bundle_ids.end()) return false;
+  }
+  for (const city::wire::SavedBackboneSpanBinding& binding :
+       state.view().backbone().span_bindings) {
+    if (std::find(edge_bundle_ids.begin(), edge_bundle_ids.end(),
+                  binding.edge_bundle_id) != edge_bundle_ids.end() ||
+        std::find(span_ids.begin(), span_ids.end(), binding.span_id) != span_ids.end()) return false;
+  }
+  for (const city::wire::SavedBackbonePortBinding& binding :
+       state.view().backbone().port_bindings) {
+    if (std::find(edge_bundle_ids.begin(), edge_bundle_ids.end(),
+                  binding.edge_bundle_id) != edge_bundle_ids.end()) return false;
+  }
+  for (const city::wire::SavedBackboneRowContinuity& continuity :
+       state.view().backbone().row_continuities) {
+    if (std::find(edge_bundle_ids.begin(), edge_bundle_ids.end(),
+                  continuity.a.edge_bundle_id) != edge_bundle_ids.end() ||
+        std::find(edge_bundle_ids.begin(), edge_bundle_ids.end(),
+                  continuity.b.edge_bundle_id) != edge_bundle_ids.end()) return false;
+  }
+  for (city::wire::ObjectId span_id : span_ids) {
+    if (state.view().spans().find(span_id) != nullptr ||
+        state.find_curve_cache(span_id) != nullptr ||
+        state.find_bounds_cache(span_id) != nullptr ||
+        state.find_span_visual_cache(span_id) != nullptr ||
+        state.find_span_render_cache(span_id) != nullptr) return false;
+  }
+  for (city::wire::ObjectId port_id : port_ids) {
+    if (state.view().ports().find(port_id) != nullptr) return false;
+  }
+  for (city::wire::ObjectId attachment_id : attachment_ids) {
+    if (state.view().attachments().find(attachment_id) != nullptr) return false;
+  }
+  return std::none_of(
+      state.view().visual_curve_parts().parts.begin(),
+      state.view().visual_curve_parts().parts.end(),
+      [&](const city::wire::VisualCurvePart& part) {
+        return part.source_bundle_id == bundle_id ||
+               std::find(span_ids.begin(), span_ids.end(), part.source_span_id) != span_ids.end();
+      });
+}
+
+void collect_exact_bundle_dependents(
+    const city::wire::CoreState& state,
+    const std::vector<city::wire::ObjectId>& edge_bundle_ids,
+    std::vector<city::wire::ObjectId>* span_ids,
+    std::vector<city::wire::ObjectId>* port_ids,
+    std::vector<city::wire::ObjectId>* attachment_ids) {
+  for (const city::wire::SavedBackboneSpanBinding& binding :
+       state.view().backbone().span_bindings) {
+    if (std::find(edge_bundle_ids.begin(), edge_bundle_ids.end(),
+                  binding.edge_bundle_id) != edge_bundle_ids.end()) {
+      span_ids->push_back(binding.span_id);
+    }
+  }
+  for (const city::wire::SavedBackbonePortBinding& binding :
+       state.view().backbone().port_bindings) {
+    if (std::find(edge_bundle_ids.begin(), edge_bundle_ids.end(),
+                  binding.edge_bundle_id) != edge_bundle_ids.end()) {
+      port_ids->push_back(binding.port_id);
+    }
+  }
+  std::sort(span_ids->begin(), span_ids->end());
+  span_ids->erase(std::unique(span_ids->begin(), span_ids->end()), span_ids->end());
+  std::sort(port_ids->begin(), port_ids->end());
+  port_ids->erase(std::unique(port_ids->begin(), port_ids->end()), port_ids->end());
+  for (city::wire::ObjectId span_id : *span_ids) {
+    const auto it = state.view().relation_index().attachments_by_span.find(span_id);
+    if (it != state.view().relation_index().attachments_by_span.end()) {
+      attachment_ids->insert(attachment_ids->end(), it->second.begin(), it->second.end());
+    }
+  }
+}
+
+struct SourceEdgeRetirementFixture {
+  city::wire::ObjectId source_bundle = city::wire::kInvalidObjectId;
+  city::wire::ObjectId branch_bundle = city::wire::kInvalidObjectId;
+};
+
+bool generate_source_edge_retirement_fixture(
+    city::wire::CoreState* state, SourceEdgeRetirementFixture* fixture) {
+  if (state == nullptr || fixture == nullptr) return false;
+  const auto source = state->GenerateFromBackboneSpec(line_req(*state));
+  if (!source.ok || source.value.bundle_ids.size() != 1 ||
+      source.value.generated_span_ids.empty() ||
+      state->view().backbone().edges.size() != 1) return false;
+  fixture->source_bundle = source.value.bundle_ids.front();
+  const city::wire::SavedBackboneEdge source_edge =
+      state->view().backbone().edges.front();
+  city::wire::PickResult pick{};
+  pick.hit_kind = city::wire::PickHitKind::kSegment;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  city::wire::ResolveBranchPickOptions options{};
+  options.selected_bundle_template_ids = {
+      city::wire::DefaultBundleTemplateId(city::wire::BundleKind::kLowVoltage)};
+  const auto resolved = state->ResolveBranchPick(pick, options);
+  if (!resolved.ok ||
+      resolved.value.resolved_node_id == city::wire::kInvalidObjectId) return false;
+  city::wire::BackboneSpec branch = line_req(*state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  city::wire::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto generated = state->GenerateFromBackboneSpec(branch);
+  if (!generated.ok || generated.value.bundle_ids.size() != 1) return false;
+  fixture->branch_bundle = generated.value.bundle_ids.front();
+  return fixture->branch_bundle != fixture->source_bundle;
+}
+
+} // namespace
+
+bool C869_backbone_exact_bundle_retirement_removes_only_target_topology() {
+  city::wire::CoreState state{};
+  ExactBundleRetirementFixture fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 8.0, 0.0}},
+          &fixture),
+      "two exact Bundle route fixture is incomplete");
+  std::vector<city::wire::ObjectId> spans_a{};
+  std::vector<city::wire::ObjectId> ports_a{};
+  std::vector<city::wire::ObjectId> attachments_a{};
+  collect_exact_bundle_dependents(state, fixture.edge_bundles_a,
+                                  &spans_a, &ports_a, &attachments_a);
+  const auto b_identity_before =
+      exact_bundle_identity_snapshot(state, fixture.edge_bundles_b);
+  const auto b_curves_before =
+      route_bundle_signatures_for_ids(state, fixture.edge_bundles_b);
+
+  const auto retired = state.RetireBackboneBundle(fixture.bundle_a);
+  WIRE_TEST_EXPECT_PRESENCE(retired.ok && retired.value,
+                            retired.error.empty() ? "exact Bundle retirement failed"
+                                                  : retired.error);
+  WIRE_TEST_EXPECT_ANCHOR(
+      exact_bundle_is_fully_retired(state, fixture.bundle_a,
+                                    fixture.edge_bundles_a, spans_a, ports_a,
+                                    attachments_a),
+      "exact Bundle retirement left authoritative or derived topology");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      state.view().bundles().find(fixture.bundle_b) != nullptr &&
+          same_exact_bundle_identity_snapshot(
+              b_identity_before,
+              exact_bundle_identity_snapshot(state, fixture.edge_bundles_b)) &&
+          same_route_bundle_signatures(
+              b_curves_before,
+              route_bundle_signatures_for_ids(state, fixture.edge_bundles_b)),
+      "exact Bundle retirement changed the peer Bundle on the same route");
+  std::string saved{};
+  WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&saved).ok,
+                            "retired state serialization failed");
+  city::wire::CoreState loaded{};
+  const auto loaded_result = loaded.DeserializeAuthoritative(saved);
+  WIRE_TEST_EXPECT_PRESENCE(loaded_result.ok, loaded_result.error);
+  std::string resaved{};
+  WIRE_TEST_EXPECT_ANCHOR(
+      loaded.SerializeAuthoritative(&resaved).ok && saved == resaved &&
+          exact_bundle_is_fully_retired(
+              loaded, fixture.bundle_a, fixture.edge_bundles_a,
+              spans_a, ports_a, attachments_a),
+      "exact Bundle retirement did not survive save-load");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
+
+  city::wire::CoreState sole{};
+  const auto sole_generated = sole.GenerateFromBackboneSpec(poly3_req(sole));
+  WIRE_TEST_EXPECT_PRESENCE(
+      sole_generated.ok && sole_generated.value.bundle_ids.size() == 1,
+      "sole Bundle retirement fixture is incomplete");
+  const city::wire::ObjectId sole_bundle = sole_generated.value.bundle_ids.front();
+  const auto sole_edge_bundles = exact_edge_bundles(sole, sole_bundle);
+  std::vector<city::wire::ObjectId> sole_spans{};
+  std::vector<city::wire::ObjectId> sole_ports{};
+  std::vector<city::wire::ObjectId> sole_attachments{};
+  collect_exact_bundle_dependents(sole, sole_edge_bundles, &sole_spans,
+                                  &sole_ports, &sole_attachments);
+  const auto sole_retired = sole.RetireBackboneBundle(sole_bundle);
+  WIRE_TEST_EXPECT_PRESENCE(sole_retired.ok && sole_retired.value,
+                            sole_retired.error);
+  WIRE_TEST_EXPECT_ANCHOR(
+      sole.view().bundles().find(sole_bundle) == nullptr &&
+          sole.view().backbone().edge_bundles.empty() &&
+          sole.view().backbone().edges.empty() &&
+          sole.view().spans().empty() &&
+          exact_bundle_is_fully_retired(
+              sole, sole_bundle, sole_edge_bundles, sole_spans, sole_ports,
+              sole_attachments),
+      "sole Bundle retirement left orphan saved edges or entities: bundles=" +
+          std::to_string(sole.view().bundles().size()) + " edge_bundles=" +
+          std::to_string(sole.view().backbone().edge_bundles.size()) + " edges=" +
+          std::to_string(sole.view().backbone().edges.size()) + " spans=" +
+          std::to_string(sole.view().spans().size()));
+  std::string sole_saved{};
+  city::wire::CoreState sole_loaded{};
+  WIRE_TEST_EXPECT_ANCHOR(
+      sole.SerializeAuthoritative(&sole_saved).ok &&
+          sole_loaded.DeserializeAuthoritative(sole_saved).ok &&
+          sole_loaded.view().backbone().edges.empty(),
+      "sole Bundle retirement did not load without orphan saved edges");
+  return true;
+}
+
+bool C870_backbone_exact_bundle_retirement_covers_cross_and_sharp_outputs() {
+  city::wire::CoreState state{};
+  ExactBundleRetirementFixture fixture{};
+  city::wire::GenerateBundleFromPathResult base{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &state,
+          {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0},
+           {5.0, 8.660254037844386, 0.0}},
+          &fixture, &base) && base.generated_pole_ids.size() == 3,
+      "sharp exact Bundle fixture is incomplete");
+  const city::wire::ObjectId junction_pole_id = base.generated_pole_ids[1];
+  const city::wire::Pole* junction_pole =
+      state.view().poles().find(junction_pole_id);
+  WIRE_TEST_EXPECT_PRESENCE(junction_pole != nullptr,
+                            "sharp fixture junction Pole is missing");
+  city::wire::BackboneSpec cross = exact_bundle_route_request(
+      state, {{10.0, -8.0, 0.0}, junction_pole->world_transform.position,
+              {18.0, 2.0, 0.0}});
+  cross.path.node_specs = {pole_spec(1, junction_pole_id)};
+  cross.bundles[0].existing_bundle_id = fixture.bundle_a;
+  cross.bundles[1].existing_bundle_id = fixture.bundle_b;
+  const auto extended = state.GenerateFromBackboneSpec(cross);
+  WIRE_TEST_EXPECT_PRESENCE(extended.ok, extended.error);
+  fixture.edge_bundles_a = exact_edge_bundles(state, fixture.bundle_a);
+  fixture.edge_bundles_b = exact_edge_bundles(state, fixture.bundle_b);
+  const std::size_t target_connection_parts = static_cast<std::size_t>(
+      std::count_if(state.view().visual_curve_parts().parts.begin(),
+                    state.view().visual_curve_parts().parts.end(),
+                    [&](const city::wire::VisualCurvePart& part) {
+                      return part.source_bundle_id == fixture.bundle_a &&
+                             (part.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+                              part.kind == city::wire::VisualCurvePartKind::kJumper);
+                    }));
+  WIRE_TEST_EXPECT_ORACLE(
+      fixture.edge_bundles_a.size() >= 4 &&
+          fixture.edge_bundles_a.size() == fixture.edge_bundles_b.size() &&
+          target_connection_parts > 0,
+      "cross/sharp fixture has no exact continuity components or derived curve: A=" +
+          std::to_string(fixture.edge_bundles_a.size()) + " B=" +
+          std::to_string(fixture.edge_bundles_b.size()) + " parts=" +
+          std::to_string(target_connection_parts));
+  const auto b_before =
+      exact_bundle_identity_snapshot(state, fixture.edge_bundles_b);
+  const auto retired = state.RetireBackboneBundle(fixture.bundle_a);
+  WIRE_TEST_EXPECT_PRESENCE(retired.ok && retired.value,
+                            retired.error.empty() ? "cross exact Bundle retirement failed"
+                                                  : retired.error);
+  WIRE_TEST_EXPECT_ANCHOR(
+      exact_edge_bundles(state, fixture.bundle_a).empty() &&
+          std::none_of(state.view().visual_curve_parts().parts.begin(),
+                       state.view().visual_curve_parts().parts.end(),
+                       [&](const city::wire::VisualCurvePart& part) {
+                         return part.source_bundle_id == fixture.bundle_a;
+                       }),
+      "cross/sharp exact Bundle retirement left continuity or derived output");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      same_exact_bundle_identity_snapshot(
+          b_before,
+          exact_bundle_identity_snapshot(state, fixture.edge_bundles_b)),
+      "cross/sharp exact Bundle retirement changed peer identity");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+
+  city::wire::CoreState branch_retirement{};
+  SourceEdgeRetirementFixture branch_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_source_edge_retirement_fixture(&branch_retirement,
+                                              &branch_fixture),
+      "source-edge branch retirement fixture is incomplete");
+  const auto branch_retired =
+      branch_retirement.RetireBackboneBundle(branch_fixture.branch_bundle);
+  WIRE_TEST_EXPECT_ANCHOR(
+      branch_retired.ok && branch_retired.value &&
+          branch_retirement.view().bundles().find(
+              branch_fixture.source_bundle) != nullptr &&
+          branch_retirement.view().bundles().find(
+              branch_fixture.branch_bundle) == nullptr,
+      "source-edge branch Bundle was blanket-rejected or damaged its source");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(branch_retirement);
+
+  city::wire::CoreState source_retirement{};
+  SourceEdgeRetirementFixture source_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_source_edge_retirement_fixture(&source_retirement,
+                                              &source_fixture),
+      "source-edge dependency rejection fixture is incomplete");
+  std::string source_before{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      source_retirement.SerializeAuthoritative(&source_before).ok,
+      "failed to serialize source-edge dependency fixture");
+  const auto source_branch_span = std::find_if(
+      source_retirement.view().spans().items().begin(),
+      source_retirement.view().spans().items().end(),
+      [&](const city::wire::Span& span) {
+        return span.bundle_id == source_fixture.branch_bundle;
+      });
+  WIRE_TEST_EXPECT_PRESENCE(
+      source_branch_span != source_retirement.view().spans().items().end(),
+      "source-edge dependency Span is missing");
+  city::wire::CoreStateTestHook::cache_state(source_retirement)
+      .span_layout_cache.clear_layout(source_branch_span->id);
+  const auto source_retired =
+      source_retirement.RetireBackboneBundle(source_fixture.source_bundle);
+  std::string source_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !source_retired.ok &&
+          source_retirement.SerializeAuthoritative(&source_after).ok &&
+          source_before == source_after,
+      "surviving source-edge dependency was not rejected atomically");
+
+  city::wire::CoreState unrelated_source{};
+  SourceEdgeRetirementFixture unrelated_source_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_source_edge_retirement_fixture(&unrelated_source,
+                                              &unrelated_source_fixture),
+      "unrelated source-edge fixture is incomplete");
+  ExactBundleRetirementFixture unrelated_target{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &unrelated_source,
+          {{100.0, 0.0, 0.0}, {112.0, 0.0, 0.0}},
+          &unrelated_target),
+      "unrelated exact Bundle fixture is incomplete");
+  const auto unrelated_branch_span = std::find_if(
+      unrelated_source.view().spans().items().begin(),
+      unrelated_source.view().spans().items().end(),
+      [&](const city::wire::Span& span) {
+        return span.bundle_id == unrelated_source_fixture.branch_bundle;
+      });
+  WIRE_TEST_EXPECT_PRESENCE(
+      unrelated_branch_span != unrelated_source.view().spans().items().end(),
+      "unrelated source-edge branch Span is missing");
+  city::wire::CoreStateTestHook::cache_state(unrelated_source)
+      .span_layout_cache.clear_layout(unrelated_branch_span->id);
+  const auto unrelated_retired =
+      unrelated_source.RetireBackboneBundle(unrelated_target.bundle_a);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      unrelated_retired.ok && unrelated_retired.value &&
+          unrelated_source.view().bundles().find(
+              unrelated_source_fixture.source_bundle) != nullptr &&
+          unrelated_source.view().bundles().find(
+              unrelated_source_fixture.branch_bundle) != nullptr,
+      unrelated_retired.error.empty()
+          ? "unrelated source-edge cache affected exact Bundle retirement"
+          : unrelated_retired.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(unrelated_source);
+  return true;
+}
+
+bool C871_backbone_exact_bundle_retirement_conflicts_are_atomic() {
+  auto prepare = [](city::wire::CoreState* state,
+                    ExactBundleRetirementFixture* fixture) {
+    return generate_exact_bundle_route(
+        state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}, fixture);
+  };
+
+  city::wire::CoreState with_attachment{};
+  ExactBundleRetirementFixture attachment_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(prepare(&with_attachment, &attachment_fixture),
+                            "Attachment conflict fixture is incomplete");
+  std::vector<city::wire::ObjectId> spans{};
+  std::vector<city::wire::ObjectId> ports{};
+  std::vector<city::wire::ObjectId> attachments{};
+  collect_exact_bundle_dependents(with_attachment,
+                                  attachment_fixture.edge_bundles_a,
+                                  &spans, &ports, &attachments);
+  WIRE_TEST_EXPECT_PRESENCE(
+      !spans.empty() && with_attachment.AddAttachment(spans.front(), 0.5).ok,
+      "failed to add user Attachment to exact Bundle");
+  std::string attachment_before{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      with_attachment.SerializeAuthoritative(&attachment_before).ok,
+      "failed to serialize Attachment conflict fixture");
+  const auto attachment_retired =
+      with_attachment.RetireBackboneBundle(attachment_fixture.bundle_a);
+  std::string attachment_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !attachment_retired.ok &&
+          with_attachment.SerializeAuthoritative(&attachment_after).ok &&
+          attachment_before == attachment_after,
+      "user Attachment exact Bundle retirement was not failure atomic");
+
+  city::wire::CoreState with_manual_port{};
+  ExactBundleRetirementFixture port_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(prepare(&with_manual_port, &port_fixture),
+                            "manual Port conflict fixture is incomplete");
+  spans.clear();
+  ports.clear();
+  attachments.clear();
+  collect_exact_bundle_dependents(with_manual_port,
+                                  port_fixture.edge_bundles_a,
+                                  &spans, &ports, &attachments);
+  const city::wire::Port* port =
+      ports.empty() ? nullptr : with_manual_port.view().ports().find(ports.front());
+  WIRE_TEST_EXPECT_PRESENCE(
+      port != nullptr &&
+          with_manual_port.SetPortWorldPositionManual(
+              port->id, {port->world_position.x, port->world_position.y,
+                         port->world_position.z + 0.05}).ok,
+      "failed to mark exact Bundle Port manual");
+  std::string port_before{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      with_manual_port.SerializeAuthoritative(&port_before).ok,
+      "failed to serialize manual Port conflict fixture");
+  const auto port_retired =
+      with_manual_port.RetireBackboneBundle(port_fixture.bundle_a);
+  std::string port_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !port_retired.ok &&
+          with_manual_port.SerializeAuthoritative(&port_after).ok &&
+          port_before == port_after,
+      "manual Port exact Bundle retirement was not failure atomic");
+
+  city::wire::CoreState with_span_override{};
+  ExactBundleRetirementFixture override_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(prepare(&with_span_override, &override_fixture),
+                            "Span override conflict fixture is incomplete");
+  spans.clear();
+  ports.clear();
+  attachments.clear();
+  collect_exact_bundle_dependents(with_span_override,
+                                  override_fixture.edge_bundles_a,
+                                  &spans, &ports, &attachments);
+  WIRE_TEST_EXPECT_PRESENCE(
+      !spans.empty() &&
+          with_span_override.SetSpanBranchDownOffsetOverride(
+              spans.front(), 0.25).ok,
+      "failed to set exact Bundle Span override");
+  std::string override_before{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      with_span_override.SerializeAuthoritative(&override_before).ok,
+      "failed to serialize Span override conflict fixture");
+  const auto override_retired =
+      with_span_override.RetireBackboneBundle(override_fixture.bundle_a);
+  std::string override_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !override_retired.ok &&
+          with_span_override.SerializeAuthoritative(&override_after).ok &&
+          override_before == override_after,
+      "Span override exact Bundle retirement was not failure atomic");
+  return true;
+}
+
+bool C872_backbone_exact_bundle_retirement_rejects_incomplete_binding_scope() {
+  city::wire::CoreState state{};
+  ExactBundleRetirementFixture fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}, &fixture),
+      "fault injection fixture is incomplete");
+  WIRE_TEST_EXPECT_PRESENCE(
+      city::wire::CoreStateTestHook::erase_backbone_span_binding(
+          state, fixture.edge_bundles_a.front(), 0),
+      "failed to inject an incomplete exact Bundle SpanBinding scope");
+  std::string before{};
+  WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&before).ok,
+                            "failed to serialize injected binding fault");
+  const auto retired = state.RetireBackboneBundle(fixture.bundle_a);
+  std::string after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !retired.ok && state.SerializeAuthoritative(&after).ok && before == after,
+      "incomplete exact Bundle binding scope did not fail closed atomically");
+  return true;
+}
+
 } // namespace backbone_tests

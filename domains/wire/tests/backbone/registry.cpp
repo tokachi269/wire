@@ -1376,6 +1376,22 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "fixed and range count policies reject invalid individual Bundle count changes without mutation",
                          "Boundary", true,
                          C868_backbone_bundle_count_policy_rejects_invalid_individual_change);
+  test_registry::AddTest(tests, "C869_backbone_exact_bundle_retirement_removes_only_target_topology",
+                         "exact Bundle retirement removes its full saved topology while preserving a peer on the same route",
+                         "Invariant", true,
+                         C869_backbone_exact_bundle_retirement_removes_only_target_topology);
+  test_registry::AddTest(tests, "C870_backbone_exact_bundle_retirement_covers_cross_and_sharp_outputs",
+                         "exact Bundle retirement follows cross components and removes sharp derived output",
+                         "Boundary", true,
+                         C870_backbone_exact_bundle_retirement_covers_cross_and_sharp_outputs);
+  test_registry::AddTest(tests, "C871_backbone_exact_bundle_retirement_conflicts_are_atomic",
+                         "exact Bundle retirement rejects user attachments, manual Ports, and Span overrides atomically",
+                         "Boundary", true,
+                         C871_backbone_exact_bundle_retirement_conflicts_are_atomic);
+  test_registry::AddTest(tests, "C872_backbone_exact_bundle_retirement_rejects_incomplete_binding_scope",
+                         "exact Bundle retirement fails closed when its saved binding scope is incomplete",
+                         "Boundary", true,
+                         C872_backbone_exact_bundle_retirement_rejects_incomplete_binding_scope);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

@@ -1405,10 +1405,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "compatible supported bundles share rows and near-pole bundles stay direct",
                          "Invariant", false, C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct);
   test_registry::AddTest(tests, "C864_non_hv_span_visual_variation_preserves_attachment_contracts",
-                         "non-HV center and member variation preserve attachment endpoints and tangents while HV remains unchanged",
+                         "non-HV center variation preserves attachment authority while visual members keep a compact two-dimensional endpoint cross-section",
                          "Invariant", false, C864_non_hv_span_visual_variation_preserves_attachment_contracts);
   test_registry::AddTest(tests, "C865_non_hv_support_and_member_shape_survive_save_load",
-                         "derived support rows and member shapes survive authoritative save-load",
+                         "visual member cross-sections survive rebuild and save-load while Optical remains contained by its shared helix",
                          "Invariant", false, C865_non_hv_support_and_member_shape_survive_save_load);
   test_registry::AddTest(tests, "C803_model_mount_graph_resolves_depth_four_chain",
                          "model mount graph resolves socket-parent chains to depth four and rejects invalid links",

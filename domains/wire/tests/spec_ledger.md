@@ -593,8 +593,8 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C861 | Behavior | Invariant | incremental extensionは同じresolved placementとsource Bundleを使い、既存spanとconnection outputを保つ | `presence` `anchor` | extension時rerollと既存visual update scope欠落を防ぐ |
 | C862 | Behavior | Invariant | 固定seed群でLV・Communication・OpticalのBundle構成または配置が実際に変わり、Communicationは1 conductor Bundleを複数生成する一方、HV 3相配置は不変 | `oracle` `differential` | 見た目の束をtopology laneで増やす、またはHVまでrandom化する回帰を防ぐ |
 | C863 | Behavior | Invariant | 近いCommunication/Opticalは1本のsupport rowを共有しper-Bundle row fixtureを残さず、visual member数を増やしてもSpan・Port・endpoint fixture・support数は増えない | `presence` `oracle` `differential` | Bundleごとの横棒・belt乱造、visual memberによるattachment増殖、direct fixtureの浮遊を防ぐ |
-| C864 | Behavior | Invariant | 非HV center pathはendpointとendpoint tangentを維持しつつ3～8cmの全span variationを持ち、独立cableと束内部memberは非平行かつcohesiveで、非HV sagだけが±12%内で変化する | `anchor` `oracle` `differential` | endpoint切断、直線区間からの急なwander、微小または過大variation、完全平行束、HV形状変化を防ぐ |
-| C865 | Behavior | Invariant | 保存済みplacementからのmember curveとsupportはsave/loadで同一で、Opticalも同じlogical-span assemblyからmember・support・helixを生成する | `differential` `presence` | load時reroll、Communication/Opticalの物理束経路分裂、supportとmemberの分離を防ぐ |
+| C864 | Behavior | Invariant | 非HV center pathはendpointとendpoint tangentを維持しつつ3～8cmの全span variationを持つ。3-member visual bundleはPortを重心とする非collinearな三角断面をendpointでも維持し、全sampleで線径超の間隔とcontainmentを守りながら断面内variationを持つ。非HV sagだけが±12%内で変化する | `anchor` `oracle` `differential` | endpointで一点へ収束する扇形、横一列、member衝突・離脱、完全固定断面、HV形状変化を防ぐ |
+| C865 | Behavior | Invariant | 保存済みplacementからのmember断面はderived rebuildとsave/loadで同一で、Opticalも同じlogical-span packingから3 member・support・helixを生成し、member外周を共有helix containment内へ保つ | `differential` `presence` `oracle` | rebuild/load時reroll、Communication/Opticalの断面処理分裂、helix外へのmember離脱を防ぐ |
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各Observation tokenへそのoperation結果の独立evidenceを結び付けて実行する | `oracle` `presence` `anchor` | case内の別cellやObserve自体のassertionで未検証cellをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |
 
 ## 廃止済み旧pipeline検査

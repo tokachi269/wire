@@ -427,6 +427,12 @@ members はbase sectionから派生する同一logical spanのvisual構成要素
 members は helix の内側に置き、support path は内周上部に接し、members は下側に配置する。
 helix は endpoint trim 区間だけ生成し、電柱や attachment へ接続しない。
 
+visual memberの断面はcenter curveに直交するlateral/up 2次元平面へcompactに配置する。1本はcenter、
+2本は対向、3本は三角形、4本は正方形相当、5本以上は小さな決定的円形配置とし、packing solverは持たない。
+`visual_member_spacing_m`はこの基準断面のmember中心間隔である。基準断面offsetはendpointでも維持し、
+全memberをlogical endpointの1点へ収束させない。authoritative Port / logical endpointはvisual member endpoint群の
+重心であり、member数に応じてPort、Span、Bundle、attachment、fixtureを増やさない。
+
 Communication、Optical、support path、helix、member twist、member wanderは同じlogical-span assembly pipelineの
 設定差で表現する。別のedge-bundle groupingやcategory専用wander ownerを持たず、geometry近傍からmemberを探索しない。
 
@@ -445,8 +451,12 @@ support、helixを含むassemblyの正本設定である。visual member数はsa
 決定的に再導出する。radius が 0 の場合は、
 support path からの member offset、member wire radius、helix wire radius、clearance を含む最小半径を
 derived 側で求める。contained member は support path のnormalized arc-length位置へ対応付け、
-helix内周から出ないように断面offsetをclampする。member数・phaseはstableなBundle placement keyとlogical laneから
-決定的に導出し、loadやregenerateでrerollしない。
+helix内周から出ないように断面offsetをclampする。member-relative variationは基準packingと線径の間に残るmarginの
+`member_wander_ratio`分だけを使い、endpoint近傍では弱めても基準断面offsetは弱めない。arc lengthに沿う少数の
+低周波成分をlateral/upの両方向へ適用し、sampleごとの独立random、member交差、containment radiusからの離脱を許さない。
+CommunicationとOpticalは同じpacking、containment、margin-based wander処理を使う。Opticalのsupport path、member、helixは
+同じcenter pathとcontainment radiusを共有する。member数・phaseはstableなBundle placement keyとlogical laneから
+決定的に導出し、load、derived rebuild、regenerateでrerollしない。
 明示radiusは、support wireとhelix wireの径およびclearanceを収められない値を設定時に拒否する。
 
 support path は helix と独立して有効化できる。全support pathはendpoint解決後に

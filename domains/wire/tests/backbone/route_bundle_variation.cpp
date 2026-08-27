@@ -145,6 +145,34 @@ city::wire::Vec3d normalized(city::wire::Vec3d value) {
   return value;
 }
 
+double polyline_length(const std::vector<city::wire::Vec3d>& samples) {
+  double length = 0.0;
+  for (std::size_t index = 1; index < samples.size(); ++index) {
+    length += city::wire::Length(samples[index] - samples[index - 1]);
+  }
+  return length;
+}
+
+std::pair<city::wire::Vec3d, city::wire::Vec3d> sample_polyline(
+    const std::vector<city::wire::Vec3d>& samples, double distance) {
+  if (samples.size() < 2) return {};
+  distance = std::clamp(distance, 0.0, polyline_length(samples));
+  double accumulated = 0.0;
+  for (std::size_t index = 1; index < samples.size(); ++index) {
+    const city::wire::Vec3d segment = samples[index] - samples[index - 1];
+    const double length = city::wire::Length(segment);
+    if (distance <= accumulated + length || index + 1 == samples.size()) {
+      const double fraction = length <= 1e-12 ? 0.0 :
+          (distance - accumulated) / length;
+      return {samples[index - 1] + city::wire::ScaleVec(
+                  segment, std::clamp(fraction, 0.0, 1.0)),
+              normalized(segment)};
+    }
+    accumulated += length;
+  }
+  return {samples.back(), normalized(samples.back() - samples[samples.size() - 2])};
+}
+
 } // namespace
 
 bool C856_route_bundle_variation_is_seed_stable_and_seed_sensitive() {
@@ -470,38 +498,73 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   const auto bundled_parts = edge_bodies(bundled, kDefaultCommunicationBundleTemplateId);
   WIRE_TEST_EXPECT(bundled.view().spans().size() == 1 && bundled_parts.size() == 3,
                    "visual members multiplied authoritative topology");
-  for (const VisualCurvePart* member : bundled_parts) {
-    WIRE_TEST_EXPECT(same_point(member->samples.front(), bundled_parts.front()->samples.front()) &&
-                         same_point(member->samples.back(), bundled_parts.front()->samples.back()),
-                     "visual member changed the logical attachment endpoint");
-    const Vec3d center_start_tangent = normalized(
-        bundled_parts.front()->samples[1] - bundled_parts.front()->samples[0]);
-    const Vec3d member_start_tangent = normalized(member->samples[1] - member->samples[0]);
-    const Vec3d center_end_tangent = normalized(
-        bundled_parts.front()->samples.back() -
-        bundled_parts.front()->samples[bundled_parts.front()->samples.size() - 2]);
-    const Vec3d member_end_tangent = normalized(
-        member->samples.back() - member->samples[member->samples.size() - 2]);
-    WIRE_TEST_EXPECT(Dot(center_start_tangent, member_start_tangent) >= 0.9998 &&
-                         Dot(center_end_tangent, member_end_tangent) >= 0.9998,
-                     "visual member changed the logical attachment tangent too much");
-  }
-  const std::size_t quarter = bundled_parts.front()->samples.size() / 4;
-  const std::size_t three_quarters = bundled_parts.front()->samples.size() * 3 / 4;
-  const Vec3d separation_a = bundled_parts[1]->samples[quarter] - bundled_parts[0]->samples[quarter];
-  const Vec3d separation_b = bundled_parts[1]->samples[three_quarters] -
-                             bundled_parts[0]->samples[three_quarters];
-  WIRE_TEST_EXPECT(Length(separation_a - separation_b) > 0.001,
-                   "visual members remained exact parallel copies");
-  for (std::size_t index = 0; index < bundled_parts.front()->samples.size(); ++index) {
+  const Span* bundled_span = bundled.view().spans().find(bundled_parts.front()->source_span_id);
+  const Port* bundled_port_a = bundled_span == nullptr ? nullptr :
+      bundled.view().ports().find(bundled_span->port_a_id);
+  const Port* bundled_port_b = bundled_span == nullptr ? nullptr :
+      bundled.view().ports().find(bundled_span->port_b_id);
+  WIRE_TEST_EXPECT(bundled_port_a != nullptr && bundled_port_b != nullptr,
+                   "visual bundle lost its authoritative endpoint ports");
+  const std::size_t sample_count = bundled_parts.front()->samples.size();
+  WIRE_TEST_EXPECT(sample_count >= 5 &&
+                       std::ranges::all_of(bundled_parts, [sample_count](const auto* member) {
+                         return member->samples.size() == sample_count;
+                       }),
+                   "visual bundle members do not share a stable sampling frame");
+  const auto centroid_at = [&bundled_parts](std::size_t index) {
     Vec3d centroid{};
     for (const VisualCurvePart* member : bundled_parts) centroid = centroid + member->samples[index];
-    centroid = ScaleVec(centroid, 1.0 / static_cast<double>(bundled_parts.size()));
+    return ScaleVec(centroid, 1.0 / static_cast<double>(bundled_parts.size()));
+  };
+  WIRE_TEST_EXPECT(Length(centroid_at(0) - bundled_port_a->world_position) <= 1e-9 &&
+                       Length(centroid_at(sample_count - 1) - bundled_port_b->world_position) <= 1e-9,
+                   "visual bundle endpoint centroid moved away from the authoritative Port");
+
+  const double cable_diameter = bundled.view().cable_templates().at(
+      bundled_comm.cable_template_id).outer_diameter_m;
+  const double member_spacing = bundled_comm.span_visual_assembly.visual_member_spacing_m;
+  const auto pair_distances_at = [&bundled_parts](std::size_t index) {
+    std::vector<double> distances{};
+    for (std::size_t a = 0; a < bundled_parts.size(); ++a) {
+      for (std::size_t b = a + 1; b < bundled_parts.size(); ++b) {
+        distances.push_back(Length(bundled_parts[a]->samples[index] -
+                                   bundled_parts[b]->samples[index]));
+      }
+    }
+    std::sort(distances.begin(), distances.end());
+    return distances;
+  };
+  const auto triangle_area_at = [&bundled_parts](std::size_t index) {
+    return Length(Cross(bundled_parts[1]->samples[index] - bundled_parts[0]->samples[index],
+                        bundled_parts[2]->samples[index] - bundled_parts[0]->samples[index])) * 0.5;
+  };
+  for (std::size_t index = 0; index < sample_count; ++index) {
+    const Vec3d centroid = centroid_at(index);
+    const std::vector<double> pair_distances = pair_distances_at(index);
+    WIRE_TEST_EXPECT(pair_distances.front() > cable_diameter &&
+                         pair_distances.back() <= member_spacing * 1.35,
+                     "visual bundle members overlap or separate beyond the compact cross-section");
+    WIRE_TEST_EXPECT(triangle_area_at(index) >= member_spacing * member_spacing * 0.25,
+                     "three visual members collapsed to a collinear cross-section");
     for (const VisualCurvePart* member : bundled_parts) {
-      WIRE_TEST_EXPECT(Length(member->samples[index] - centroid) <= 0.06,
-                       "visual bundle member escaped the bundle center path");
+      WIRE_TEST_EXPECT(Length(member->samples[index] - centroid) <= member_spacing * 0.85,
+                       "visual bundle member escaped the containment radius");
     }
   }
+  const std::size_t quarter = bundled_parts.front()->samples.size() / 4;
+  const std::size_t middle = bundled_parts.front()->samples.size() / 2;
+  const std::size_t three_quarters = bundled_parts.front()->samples.size() * 3 / 4;
+  const std::vector<double> quarter_distances = pair_distances_at(quarter);
+  const std::vector<double> middle_distances = pair_distances_at(middle);
+  const std::vector<double> three_quarter_distances = pair_distances_at(three_quarters);
+  double cross_section_change = 0.0;
+  for (std::size_t index = 0; index < quarter_distances.size(); ++index) {
+    cross_section_change = std::max({cross_section_change,
+        std::abs(quarter_distances[index] - middle_distances[index]),
+        std::abs(middle_distances[index] - three_quarter_distances[index])});
+  }
+  WIRE_TEST_EXPECT(cross_section_change > 0.0001,
+                   "visual bundle cross-section remained completely fixed along the span");
 
   CoreState hv_default;
   CoreState hv_no_variation;
@@ -537,6 +600,17 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
   const auto bodies_before = edge_bodies(state, kDefaultCommunicationBundleTemplateId);
   std::vector<std::vector<Vec3d>> samples_before{};
   for (const auto* body : bodies_before) samples_before.push_back(body->samples);
+  const ObjectId communication_span_id = bodies_before.empty() ? kInvalidObjectId :
+      bodies_before.front()->section_key.logical_span_id;
+  if (communication_span_id == kInvalidObjectId ||
+      !state.DeriveGeneratedSpanOutputs(communication_span_id).ok) return false;
+  const auto bodies_rederived = edge_bodies(state, kDefaultCommunicationBundleTemplateId);
+  WIRE_TEST_EXPECT(bodies_rederived.size() == samples_before.size(),
+                   "derived rebuild changed visual member count");
+  for (std::size_t index = 0; index < bodies_rederived.size(); ++index) {
+    WIRE_TEST_EXPECT(same_samples(bodies_rederived[index]->samples, samples_before[index]),
+                     "derived rebuild rerolled the visual bundle cross-section");
+  }
   std::string saved{};
   if (!state.SerializeAuthoritative(&saved).ok) return false;
   CoreState loaded;
@@ -551,8 +625,8 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
   CoreState optical;
   BundleTemplate optical_template =
       optical.view().bundle_templates().at(kDefaultOpticalBundleTemplateId);
-  optical_template.span_visual_assembly.visual_member_count_min = 2;
-  optical_template.span_visual_assembly.visual_member_count_max = 2;
+  optical_template.span_visual_assembly.visual_member_count_min = 3;
+  optical_template.span_visual_assembly.visual_member_count_max = 3;
   if (!optical.UpdateBundleTemplate(optical_template).ok) return false;
   BackboneBundleSpec optical_spec{kDefaultOpticalBundleTemplateId, 4101,
       SpanLayer::kOptical, 1, true, 5.1, -0.38, 0.20};
@@ -565,7 +639,7 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
     if (part.supplemental_kind == VisualSupplementalKind::kSupportPath) support = &part;
     if (part.supplemental_kind == VisualSupplementalKind::kHelix) helix = &part;
   }
-  WIRE_TEST_EXPECT(optical.view().spans().size() == 1 && optical_members.size() == 2 &&
+  WIRE_TEST_EXPECT(optical.view().spans().size() == 1 && optical_members.size() == 3 &&
                        support != nullptr && helix != nullptr,
                    "optical did not use one span visual assembly pipeline");
   const ObjectId logical_span_id = optical_members.front()->section_key.logical_span_id;
@@ -580,6 +654,44 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
   member_middle = ScaleVec(member_middle, 1.0 / static_cast<double>(optical_members.size()));
   WIRE_TEST_EXPECT(Length(member_middle - support_middle) <= 0.10,
                    "optical support path separated from its visual members");
+
+  const double support_length = polyline_length(support->samples);
+  const double trim = optical_template.span_visual_assembly.endpoint_trim_m;
+  const auto [helix_start_anchor, helix_start_tangent] =
+      sample_polyline(support->samples, trim);
+  const Vec3d helix_start_lateral = normalized(Cross({0.0, 0.0, 1.0}, helix_start_tangent));
+  const double helix_radius = std::abs(Dot(
+      helix->samples.front() - helix_start_anchor, helix_start_lateral));
+  const double inset = support->wire_radius_m * 2.0 +
+      optical_template.span_visual_assembly.helix_clearance_m;
+  const double optical_diameter = optical.view().cable_templates().at(
+      optical_template.cable_template_id).outer_diameter_m;
+  WIRE_TEST_EXPECT(helix_radius > inset,
+                   "optical helix radius could not be recovered from its support frame");
+  for (std::size_t index = 0; index < optical_members.front()->samples.size(); ++index) {
+    for (std::size_t a = 0; a < optical_members.size(); ++a) {
+      for (std::size_t b = a + 1; b < optical_members.size(); ++b) {
+        WIRE_TEST_EXPECT(Length(optical_members[a]->samples[index] -
+                                    optical_members[b]->samples[index]) > optical_diameter,
+                         "optical visual members overlap inside the helix");
+      }
+    }
+    const double t = optical_members.front()->samples.size() < 2 ? 0.0 :
+        static_cast<double>(index) /
+            static_cast<double>(optical_members.front()->samples.size() - 1);
+    if (t < 0.15 || t > 0.85) continue;
+    const auto [anchor, tangent] = sample_polyline(support->samples, support_length * t);
+    const Vec3d lateral = normalized(Cross({0.0, 0.0, 1.0}, tangent));
+    const Vec3d up = normalized(Cross(tangent, lateral));
+    const Vec3d axis = anchor - ScaleVec(up, helix_radius - inset);
+    for (const VisualCurvePart* member : optical_members) {
+      const double occupied_radius = Length(member->samples[index] - axis) +
+          support->wire_radius_m + member->wire_radius_m +
+          optical_template.span_visual_assembly.helix_clearance_m;
+      WIRE_TEST_EXPECT(occupied_radius <= helix_radius + 1e-8,
+                       "optical visual member escaped the shared helix containment radius");
+    }
+  }
   return true;
 }
 

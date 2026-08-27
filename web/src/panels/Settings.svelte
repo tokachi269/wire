@@ -46,10 +46,12 @@
   </section>
 
   <section>
-    <h2>Route variation</h2>
+    <h2>Next route variation</h2>
+    <p class="setting-note">次に描き始めるrouteへ適用します。route途中と確定済みwireは変更しません。</p>
     <label>
       Line density
       <input type="range" min="0.5" max="1.25" step="0.05"
+        disabled={snapshot.pathPoints.length > 0}
         value={snapshot.routeVariation.density}
         oninput={(event) => actions.setRouteVariation("density", numberValue(event))} />
       <output>{snapshot.routeVariation.density.toFixed(2)}x</output>
@@ -57,10 +59,23 @@
     <label>
       Height spread
       <input type="range" min="0.25" max="1.75" step="0.05"
+        disabled={snapshot.pathPoints.length > 0}
         value={snapshot.routeVariation.heightSpread}
         oninput={(event) => actions.setRouteVariation("heightSpread", numberValue(event))} />
       <output>{snapshot.routeVariation.heightSpread.toFixed(2)}x</output>
     </label>
+    <button class="secondary" type="button" disabled={snapshot.pathPoints.length > 0}
+      onclick={() => actions.rerollRouteSeed()}>
+      Reroll seed
+    </button>
+    <output class="route-seed">
+      {snapshot.wireRouteSeed === null ? "Seed: next route" : `Seed: ${snapshot.wireRouteSeed}`}
+    </output>
+  </section>
+
+  <section>
+    <h2>Current wire appearance</h2>
+    <p class="setting-note">確定済みwireへ即時反映します。Non-HV irregularityはHVを変更しません。</p>
     <label>
       Sag spread
       <input type="range" min="0" max="2" step="0.05"
@@ -72,7 +87,7 @@
       <output>{(snapshot.variation.sagVariationScale / 0.12).toFixed(2)}x</output>
     </label>
     <label>
-      Wire irregularity
+      Non-HV irregularity
       <input type="range" min="0" max="2" step="0.05"
         value={snapshot.visual.wireIrregularityScale}
         oninput={(event) => actions.previewVisual(
@@ -81,13 +96,6 @@
           "wireIrregularityScale", numberValue(event))} />
       <output>{snapshot.visual.wireIrregularityScale.toFixed(2)}x</output>
     </label>
-    <button class="secondary" type="button" disabled={snapshot.pathPoints.length > 0}
-      onclick={() => actions.rerollRouteSeed()}>
-      Reroll seed
-    </button>
-    <output class="route-seed">
-      {snapshot.wireRouteSeed === null ? "Seed: next route" : `Seed: ${snapshot.wireRouteSeed}`}
-    </output>
   </section>
 
   <section>

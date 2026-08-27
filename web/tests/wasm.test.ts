@@ -1812,6 +1812,44 @@ describe("wire wasm smoke", () => {
     layoutState.delete();
   });
 
+  it("updates existing non-HV visual samples when wire irregularity changes", () => {
+    const irregularityState = createState();
+    expect(irregularityState.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
+    const generated = irregularityState.generatePlacements(
+      new Float64Array([0, 0, 0, 24, 0, 0]),
+      [{
+        id: 8801, bundleTemplateId: 104, count: 1, explicit: true,
+        height: 5.4, offset: -0.3, spacing: 0.2
+      }],
+      0,
+      2,
+      0,
+      0,
+      []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const before = visualParts(irregularityState)
+      .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 104)
+      .map((part) => Array.from(part.samples));
+    expect(before.length).toBeGreaterThan(0);
+
+    const settings = irregularityState.visualSettings();
+    const updated = irregularityState.updateVisualSettings({
+      ...settings,
+      wireIrregularityScale: 0
+    });
+    expect(updated.ok, updated.error).toBe(true);
+    const after = visualParts(irregularityState)
+      .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 104)
+      .map((part) => Array.from(part.samples));
+    expect(after).toHaveLength(before.length);
+    const maximumDelta = Math.max(...after.flatMap((samples, index) =>
+      samples.map((value, sampleIndex) => Math.abs(value - before[index][sampleIndex]))
+    ));
+    expect(maximumDelta).toBeGreaterThan(0.01);
+    irregularityState.delete();
+  });
+
   it("applies pole category height edits to ports and curve endpoints", () => {
     const placementState = createState();
     const templates = Array.from(

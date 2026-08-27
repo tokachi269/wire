@@ -22,10 +22,14 @@ export class DrawActions {
     param: K,
     value: RouteVariationControls[K]
   ): void {
+    if (this.ctx.readSnapshot().pathPoints.length > 0) {
+      this.ctx.store.setError("finish or cancel the current wire route before changing route variation");
+      return;
+    }
     this.ctx.store.update((current) => ({
       ...current,
       routeVariation: { ...current.routeVariation, [param]: value },
-      wireRouteSeed: current.pathPoints.length === 0 ? null : current.wireRouteSeed
+      wireRouteSeed: null
     }));
   }
 

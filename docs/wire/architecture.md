@@ -393,6 +393,8 @@ HVの3相配置はrandomization対象外とする。非HVのsupported placement�
 load、regenerate、通常 update は保存済み concrete placement を使い、reroll しない。同一 Bundle の placement を
 Pole ごとに変えず、同一 route 内で side を反転しない。road-facing side は外部から与える単純な sign であり、
 Wire は Road domain や道路の意味を解釈しない。
+random ruleの調整は次に開始するrouteだけへ適用し、描画途中または確定済みrouteのconcrete placementを
+暗黙に再解決しない。確定済みplacementの変更は、保存済みBundle identityを指定する通常のplacement更新操作を使う。
 
 非HV endpointの支持表現は、authoritative Bundle placementからgeneration時に導出する。pole surface近傍は
 Direct attachment、明確に離れたplacementはSupported rowとし、新しいSupportRow entityや保存fieldは作らない。

@@ -910,6 +910,10 @@ describe("viewport tool routing", () => {
     expect(seed).not.toBeNull();
 
     actions.addViewportPoint([0, 0, 0]);
+    const density = current(store).routeVariation.density;
+    actions.setRouteVariation("density", 1.25);
+    expect(current(store).routeVariation.density).toBe(density);
+    expect(current(store).error).toContain("finish or cancel");
     actions.rerollRouteSeed();
     expect(current(store).wireRouteSeed).toBe(seed);
     expect(current(store).error).toContain("finish or cancel");

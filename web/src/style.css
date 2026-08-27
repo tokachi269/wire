@@ -968,6 +968,13 @@ summary {
   font: 500 var(--sidebar-small-size) "JetBrains Mono", monospace;
 }
 
+.settings .setting-note {
+  margin: 0.15rem 0 0.45rem;
+  color: var(--muted);
+  font-size: var(--sidebar-small-size);
+  line-height: 1.45;
+}
+
 .commit-failure {
   display: grid;
   max-width: min(620px, calc(100vw - 12px));

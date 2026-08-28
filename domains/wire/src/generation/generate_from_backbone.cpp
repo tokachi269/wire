@@ -28,6 +28,19 @@ std::unordered_set<ObjectId> referenced_pending_node_ids(const BackboneSpec& spe
 } // namespace
 
 EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
+  for (const BackboneBundleSpec& bundle : spec.bundles) {
+    const ObjectId exact_id = bundle.existing_bundle_id != kInvalidObjectId
+                                  ? bundle.existing_bundle_id
+                                  : bundle.source_bundle_id;
+    if (exact_id != kInvalidObjectId &&
+        backbone_bundle_variation_for_bundle(exact_id) != nullptr) {
+      EditResult<GenerateBundleFromPathResult> out{};
+      out.error =
+          "backbone unsupported: recipe-backed Bundle topology must be extended by its variation operation";
+      out.classify_error();
+      return out;
+    }
+  }
   const auto total_started = std::chrono::steady_clock::now();
   const auto copy_started = std::chrono::steady_clock::now();
   CoreState trial = *this;

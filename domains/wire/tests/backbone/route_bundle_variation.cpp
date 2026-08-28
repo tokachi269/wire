@@ -452,6 +452,190 @@ bool C883_backbone_variation_apply_reconciles_concrete_scope_atomically() {
   return true;
 }
 
+bool C884_backbone_variation_apply_restores_zero_count_membership() {
+  using namespace city::wire;
+  CoreState state;
+  RouteBundleVariationInput one{};
+  one.route_seed = 0x8840102;
+  one.preferred_side_sign = -1;
+  one.pole_type_id = 2;
+  one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
+                5.2, 5.2, 0.25, 0.25, 0.16}};
+  BackboneSpec request = request_with(
+      state, {}, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 1.5, 0.0}});
+  const auto generated = state.GenerateBackboneBundleVariation(request, one);
+  if (!generated.ok) return false;
+  const ObjectId variation_id = generated.value.variation_id;
+  const SavedBackboneBundleVariation* initial =
+      state.view().backbone_bundle_variation(variation_id);
+  if (initial == nullptr || initial->instances.size() != 1 ||
+      initial->memberships.size() != 1) return false;
+  const std::uint64_t placement_key = initial->instances.front().placement_key;
+  const ObjectId retired_id = initial->instances.front().bundle_id;
+  const std::size_t edge_count = initial->memberships.front().edges.size();
+  const std::size_t continuity_count =
+      initial->memberships.front().row_continuities.size();
+
+  RouteBundleVariationInput zero = one;
+  zero.rules.front().min_instances = 0;
+  zero.rules.front().max_instances = 0;
+  const auto removed = state.ApplyBackboneBundleVariation(variation_id, zero);
+  const SavedBackboneBundleVariation* empty =
+      state.view().backbone_bundle_variation(variation_id);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      removed.ok && removed.value && empty != nullptr &&
+          empty->instances.empty() && state.view().bundles().find(retired_id) == nullptr,
+      removed.error.empty() ? "variation zero Apply retained a concrete Bundle"
+                            : removed.error);
+
+  const auto restored = state.ApplyBackboneBundleVariation(variation_id, one);
+  const SavedBackboneBundleVariation* final =
+      state.view().backbone_bundle_variation(variation_id);
+  WIRE_TEST_EXPECT_ANCHOR(
+      restored.ok && restored.value && final != nullptr &&
+          final->instances.size() == 1 &&
+          final->instances.front().placement_key == placement_key &&
+          final->instances.front().bundle_id != retired_id,
+      restored.error.empty()
+          ? "variation one-to-zero-to-one did not restore placement identity"
+          : restored.error);
+  const auto captured = state.view().backbone_bundle_variation(variation_id);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      captured != nullptr && captured->memberships.size() == 1 &&
+          captured->memberships.front().edges.size() == edge_count &&
+          captured->memberships.front().row_continuities.size() ==
+              continuity_count,
+      "variation one-to-zero-to-one changed saved membership shape");
+  std::string saved{};
+  CoreState loaded;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      state.SerializeAuthoritative(&saved).ok &&
+          loaded.DeserializeAuthoritative(saved).ok &&
+          loaded.view().backbone_bundle_variation(variation_id) != nullptr &&
+          loaded.view().backbone_bundle_variation(variation_id)
+                  ->instances.front()
+                  .placement_key == placement_key,
+      "restored variation topology did not survive save/load");
+
+  RouteBundleVariationInput initial_zero = one;
+  initial_zero.rules.push_back(
+      {kDefaultOpticalBundleTemplateId, 0, 0, 1,
+       4.9, 5.3, 0.20, 0.50, 0.16});
+  CoreState no_source;
+  const auto initial_zero_generation =
+      no_source.GenerateBackboneBundleVariation(
+          request_with(no_source, {}), initial_zero);
+  if (!initial_zero_generation.ok) return false;
+  RouteBundleVariationInput request_first_optical = initial_zero;
+  request_first_optical.rules.back().min_instances = 1;
+  request_first_optical.rules.back().max_instances = 1;
+  std::string zero_before{};
+  std::string zero_after{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      no_source.SerializeAuthoritative(&zero_before).ok,
+      "initial zero membership failure snapshot save failed");
+  const auto initial_zero_rejected =
+      no_source.ApplyBackboneBundleVariation(
+          initial_zero_generation.value.variation_id,
+          request_first_optical);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !initial_zero_rejected.ok &&
+          initial_zero_rejected.error.find("initial zero-instance") !=
+              std::string::npos &&
+          no_source.SerializeAuthoritative(&zero_after).ok &&
+          zero_before == zero_after,
+      "initial zero-to-one without membership source did not fail atomically");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
+  return true;
+}
+
+bool C885_backbone_variation_apply_preserves_branch_cross_sharp_membership() {
+  using namespace city::wire;
+  CoreState state;
+  RouteBundleVariationInput one{};
+  one.route_seed = 0x8850102;
+  one.preferred_side_sign = -1;
+  one.pole_type_id = 2;
+  one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
+                5.2, 5.2, 0.25, 0.25, 0.16}};
+  const auto generated = state.GenerateBackboneBundleVariation(
+      request_with(state, {},
+                   {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0},
+                    {5.0, 8.660254037844386, 0.0}}),
+      one);
+  if (!generated.ok || generated.value.generation.generated_pole_ids.size() != 3 ||
+      generated.value.generation.bundle_ids.size() != 1) return false;
+  const ObjectId variation_id = generated.value.variation_id;
+  const ObjectId bundle_id = generated.value.generation.bundle_ids.front();
+  const Bundle* bundle = state.view().bundles().find(bundle_id);
+  const Pole* junction = state.view().poles().find(
+      generated.value.generation.generated_pole_ids[1]);
+  if (bundle == nullptr || junction == nullptr) return false;
+  BackboneBundleSpec concrete{};
+  concrete.bundle_template_id = bundle->bundle_template_id;
+  concrete.placement_key = bundle->placement_key;
+  concrete.layer = SpanLayer::kCommunication;
+  concrete.count = bundle->conductor_count;
+  concrete.placement_explicit = true;
+  concrete.height_m = bundle->height_m;
+  concrete.lateral_m = bundle->lateral_m;
+  concrete.spacing_m = bundle->spacing_override_m;
+  concrete.existing_bundle_id = bundle_id;
+  BackboneSpec crossing = request_with(
+      state, {concrete},
+      {{10.0, -8.0, 0.0}, junction->world_transform.position,
+       {18.0, 2.0, 0.0}});
+  crossing.path.node_specs = {
+      pole_spec(1, generated.value.generation.generated_pole_ids[1])};
+  const auto extended =
+      state.ExtendBackboneBundleVariation(variation_id, crossing);
+  const SavedBackboneBundleVariation* extended_descriptor =
+      state.view().backbone_bundle_variation(variation_id);
+  if (!extended.ok || extended_descriptor == nullptr ||
+      extended_descriptor->memberships.size() != 1) return false;
+  const std::size_t expected_edges =
+      extended_descriptor->memberships.front().edges.size();
+  const std::size_t expected_continuities =
+      extended_descriptor->memberships.front().row_continuities.size();
+  if (expected_edges < 4 || expected_continuities == 0) return false;
+
+  RouteBundleVariationInput two = one;
+  two.rules.front().min_instances = 2;
+  two.rules.front().max_instances = 2;
+  two.rules.front().lateral_abs_max_m = 0.60;
+  const auto applied = state.ApplyBackboneBundleVariation(variation_id, two);
+  const SavedBackboneBundleVariation* final =
+      state.view().backbone_bundle_variation(variation_id);
+  WIRE_TEST_EXPECT_ANCHOR(
+      applied.ok && final != nullptr && final->instances.size() == 2,
+      applied.error.empty() ? "branch/cross/sharp variation Apply failed"
+                            : applied.error);
+  for (const SavedBackboneBundleVariationInstance& instance : final->instances) {
+    std::set<ObjectId> edge_bundle_ids{};
+    for (const SavedBackboneEdgeBundle& edge_bundle :
+         state.view().backbone().edge_bundles) {
+      if (edge_bundle.bundle_id == instance.bundle_id) {
+        edge_bundle_ids.insert(edge_bundle.edge_bundle_id);
+      }
+    }
+    const std::size_t continuity_count = static_cast<std::size_t>(
+        std::count_if(state.view().backbone().row_continuities.begin(),
+                      state.view().backbone().row_continuities.end(),
+                      [&](const SavedBackboneRowContinuity& continuity) {
+                        return edge_bundle_ids.contains(
+                                   continuity.a.edge_bundle_id) &&
+                               edge_bundle_ids.contains(
+                                   continuity.b.edge_bundle_id);
+                      }));
+    WIRE_TEST_EXPECT_DIFFERENTIAL(
+        edge_bundle_ids.size() == expected_edges &&
+            continuity_count == expected_continuities,
+        "branch/cross/sharp exact membership was not cloned");
+  }
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  return true;
+}
+
 bool C862_non_hv_route_variation_covers_each_category_and_keeps_hv_fixed() {
   using namespace city::wire;
   CoreState state;

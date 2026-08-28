@@ -1436,6 +1436,14 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "explicit variation Apply preserves surviving placement identity and atomically reconciles density and placement",
                          "Differential", true,
                          C883_backbone_variation_apply_reconciles_concrete_scope_atomically);
+  test_registry::AddTest(tests, "C884_backbone_variation_apply_restores_zero_count_membership",
+                         "variation Apply preserves saved membership through one-to-zero-to-one without retaining a hidden Bundle",
+                         "Invariant", true,
+                         C884_backbone_variation_apply_restores_zero_count_membership);
+  test_registry::AddTest(tests, "C885_backbone_variation_apply_preserves_branch_cross_sharp_membership",
+                         "variation extension and Apply preserve exact saved branch cross and sharp membership",
+                         "Invariant", true,
+                         C885_backbone_variation_apply_preserves_branch_cross_sharp_membership);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

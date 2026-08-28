@@ -231,7 +231,7 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
       return result;
     }
     if (rule.min_instances < 0 || rule.max_instances < rule.min_instances ||
-        rule.max_instances <= 0 || !std::isfinite(rule.height_min_m) ||
+        !std::isfinite(rule.height_min_m) ||
         !std::isfinite(rule.height_max_m) || rule.height_max_m < rule.height_min_m ||
         !std::isfinite(rule.lateral_abs_min_m) || !std::isfinite(rule.lateral_abs_max_m) ||
         rule.lateral_abs_min_m < 0.0 || rule.lateral_abs_max_m < rule.lateral_abs_min_m ||
@@ -398,6 +398,89 @@ CoreState::GenerateBackboneBundleVariation(
   return result;
 }
 
+EditResult<GenerateBundleFromPathResult>
+CoreState::ExtendBackboneBundleVariation(
+    ObjectId variation_id, const BackboneSpec& spec) {
+  EditResult<GenerateBundleFromPathResult> result{};
+  auto reject = [&](std::string error) {
+    result.error = std::move(error);
+    result.classify_error();
+    return result;
+  };
+  CoreState trial = *this;
+  auto variation_it = std::ranges::find_if(
+      trial.authoritative_.backbone_bundle_variations,
+      [variation_id](const SavedBackboneBundleVariation& value) {
+        return value.variation_id == variation_id;
+      });
+  if (variation_it ==
+      trial.authoritative_.backbone_bundle_variations.end()) {
+    return reject("core invalid input: backbone Bundle variation not found");
+  }
+  SavedBackboneBundleVariation updated = *variation_it;
+  std::unordered_set<ObjectId> exact_scope{};
+  for (const SavedBackboneBundleVariationInstance& instance :
+       updated.instances) {
+    exact_scope.insert(instance.bundle_id);
+  }
+  if (spec.bundles.empty()) {
+    return reject(
+        "backbone invalid input: variation extension requires exact Bundle specs");
+  }
+  for (const BackboneBundleSpec& bundle : spec.bundles) {
+    if (bundle.existing_bundle_id == kInvalidObjectId ||
+        !exact_scope.contains(bundle.existing_bundle_id) ||
+        (bundle.source_bundle_id != kInvalidObjectId &&
+         !exact_scope.contains(bundle.source_bundle_id))) {
+      return reject(
+          "backbone invalid input: variation extension Bundle identity is outside exact scope");
+    }
+  }
+  trial.authoritative_.backbone_bundle_variations.erase(variation_it);
+  EditResult<GenerateBundleFromPathResult> generated =
+      trial.GenerateFromBackboneSpec(spec);
+  if (!generated.ok) return reject(generated.error);
+
+  updated.memberships.clear();
+  for (const SavedBackboneBundleVariationInstance& instance :
+       updated.instances) {
+    const Bundle* bundle = trial.view().bundles().find(instance.bundle_id);
+    if (bundle == nullptr || bundle->placement_key != instance.placement_key) {
+      return reject(
+          "backbone internal: variation extension changed exact Bundle identity");
+    }
+    const auto existing = std::ranges::find_if(
+        updated.memberships,
+        [&](const SavedBackboneBundleVariationMembership& membership) {
+          return membership.bundle_template_id == bundle->bundle_template_id &&
+                 membership.conductor_count == bundle->conductor_count;
+        });
+    if (existing == updated.memberships.end()) {
+      auto captured =
+          trial.capture_backbone_bundle_variation_membership(bundle->id);
+      if (!captured.ok) return reject(captured.error);
+      updated.memberships.push_back(std::move(captured.value));
+    }
+  }
+  std::sort(updated.memberships.begin(), updated.memberships.end(),
+            [](const auto& a, const auto& b) {
+              return std::tie(a.bundle_template_id, a.conductor_count) <
+                     std::tie(b.bundle_template_id, b.conductor_count);
+            });
+  trial.authoritative_.backbone_bundle_variations.push_back(
+      std::move(updated));
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      return reject(
+          "backbone invalid input: variation extension validation failed: " +
+          issue.code + ": " + issue.message);
+    }
+  }
+  *this = std::move(trial);
+  return generated;
+}
+
 EditResult<bool> CoreState::ApplyBackboneBundleVariation(
     ObjectId variation_id,
     const RouteBundleVariationInput& descriptor) {
@@ -428,6 +511,20 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
   if (!resolved.ok) return reject(resolved.error);
 
   BackboneBundleReconcileInput reconcile{};
+  ChangeSet replay_changes{};
+  auto merge_replay_changes = [&](const ChangeSet& source) {
+    auto append = [](std::vector<ObjectId>* target,
+                     const std::vector<ObjectId>& values) {
+      for (ObjectId id : values) {
+        if (std::find(target->begin(), target->end(), id) == target->end()) {
+          target->push_back(id);
+        }
+      }
+    };
+    append(&replay_changes.created_ids, source.created_ids);
+    append(&replay_changes.updated_ids, source.updated_ids);
+    append(&replay_changes.deleted_ids, source.deleted_ids);
+  };
   for (const SavedBackboneBundleVariationInstance& instance :
        updated.instances) {
     const Bundle* bundle = trial.view().bundles().find(instance.bundle_id);
@@ -468,8 +565,23 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
         }
       }
       if (entry.anchor_bundle_id == kInvalidObjectId) {
-        return reject(
-            "backbone unsupported: variation add has no live exact membership anchor");
+        const auto membership = std::ranges::find_if(
+            updated.memberships,
+            [&](const SavedBackboneBundleVariationMembership& value) {
+              return value.bundle_template_id == desired.bundle_template_id &&
+                     value.conductor_count == desired_count;
+            });
+        if (membership == updated.memberships.end()) {
+          return reject(
+              "backbone unsupported: initial zero-instance variation has no exact membership source");
+        }
+        EditResult<ObjectId> replayed =
+            trial.add_backbone_bundle_instance_from_variation_membership(
+                *membership, desired.placement_key, desired.height_m,
+                desired.lateral_m, desired.spacing_m);
+        if (!replayed.ok) return reject(replayed.error);
+        reconcile.current_bundle_ids.push_back(replayed.value);
+        merge_replay_changes(replayed.change_set);
       }
     }
     reconcile.desired_bundles.push_back(entry);
@@ -531,8 +643,31 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
   }
   *this = std::move(trial);
   result.ok = true;
-  result.value = reconciled.value;
+  result.value = reconciled.value || !replay_changes.created_ids.empty() ||
+                 !replay_changes.updated_ids.empty() ||
+                 !replay_changes.deleted_ids.empty();
   result.change_set = std::move(reconciled.change_set);
+  for (ObjectId id : replay_changes.created_ids) {
+    if (std::find(result.change_set.created_ids.begin(),
+                  result.change_set.created_ids.end(), id) ==
+        result.change_set.created_ids.end()) {
+      result.change_set.created_ids.push_back(id);
+    }
+  }
+  for (ObjectId id : replay_changes.updated_ids) {
+    if (std::find(result.change_set.updated_ids.begin(),
+                  result.change_set.updated_ids.end(), id) ==
+        result.change_set.updated_ids.end()) {
+      result.change_set.updated_ids.push_back(id);
+    }
+  }
+  for (ObjectId id : replay_changes.deleted_ids) {
+    if (std::find(result.change_set.deleted_ids.begin(),
+                  result.change_set.deleted_ids.end(), id) ==
+        result.change_set.deleted_ids.end()) {
+      result.change_set.deleted_ids.push_back(id);
+    }
+  }
   return result;
 }
 

@@ -97,6 +97,21 @@ outer `CoreState` trial内で行い、最終desired集合、SavedBackboneGraph�
 一度commitする。late retire conflictやsource-edge add unsupportedを含む任意の失敗では、先行survive / addも本stateへ
 反映しない。
 
+### persisted Bundle variation Apply
+
+`GenerateBackboneBundleVariation`はresolver input、生成されたexact Bundle scope、template/count別のsaved physical
+membershipとrow continuityを、通常topologyと同じtrialで関連付ける。descriptorはexplicit Applyの入力であり、loadや
+regenerateはresolveしない。`ApplyBackboneBundleVariation`は保存scopeをcurrent、descriptorのresolve結果をdesiredとして
+既存`ReconcileBackboneBundleInstances`へ渡し、descriptor更新とconcrete topology更新を1つのouter trialでcommitする。
+存続placement keyのBundle identityを維持し、branch / cross / sharpは保存membershipとcontinuityだけを複製する。
+
+1 -> 0ではconcrete Bundleを完全退役するがmembership sourceはdescriptorに残す。0 -> 1への復帰はそのrelationを
+pipelineのexplicit continuity constraintへ再生し、通常pairingの偶然一致をoracleにしない。initial 0 -> 1はexact
+membership sourceがないため`U`、source-edge新instance追加はexact source Bundle mappingがないため`U`とする。
+recipe-backed Bundleの個別placement/count/add/retire/通常extensionは`U`とし、exact scopeを持つvariation operationだけが
+一時的にdescriptorをouter trialから外して既存generic operationを合成する。いずれの失敗もdescriptorとphysical
+authorityの両方を不変に保つ。
+
 ## 実行時coverage契約
 
 `C` / `O` / `K` / `U` の各セルは、test case ID や手書きタグではなく、test実行中に

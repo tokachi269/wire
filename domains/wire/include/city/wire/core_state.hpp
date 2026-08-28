@@ -69,6 +69,8 @@ public:
   EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
   EditResult<GenerateBackboneBundleVariationResult> GenerateBackboneBundleVariation(
       const BackboneSpec& spec, const RouteBundleVariationInput& descriptor);
+  EditResult<GenerateBundleFromPathResult> ExtendBackboneBundleVariation(
+      ObjectId variation_id, const BackboneSpec& spec);
   // Interprets a viewer-side pick payload and creates volatile pending support nodes when needed.
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick);
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick,
@@ -151,6 +153,10 @@ public:
 private:
   [[nodiscard]] const SavedBackboneBundleVariation* backbone_bundle_variation_for_bundle(
       ObjectId bundle_id) const;
+  EditResult<ObjectId> add_backbone_bundle_instance_from_variation_membership(
+      const SavedBackboneBundleVariationMembership& membership,
+      std::uint64_t placement_key, double height_m, double lateral_m,
+      double spacing_m);
   EditResult<SavedBackboneBundleVariationMembership>
   capture_backbone_bundle_variation_membership(ObjectId bundle_id) const;
 #if defined(WIRE_INTERNAL) || defined(WIRE_TESTING)

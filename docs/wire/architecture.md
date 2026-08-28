@@ -419,16 +419,22 @@ random bundle rule、route seed、preferred side、`PoleTypeDefinition` / `Bundl
 concrete な `BackboneBundleSpec` entries である。consumer は既存 backbone generation pipeline だけで、
 pipeline / layout / curve / viewer は randomization を再判断しない。
 
-random rule と route seed は Input であり保存しない。resolver は route 生成開始時に1回だけ Bundle 数と
-pole-local の height / lateral を確定し、通常の Bundle / Port / Span / saved placement として保存する。
+random rule と route seed は自動的にphysical topologyを再構築するauthorityではなく、explicit Apply用の
+descriptorとして保存できるInputである。resolver は初回生成または明示Apply時だけ Bundle 数とpole-local の
+height / lateral を確定し、通常の Bundle / Port / Span / saved placement として保存する。load時はdescriptorを
+resolveせず、保存済みconcrete topologyをそのまま復元する。
 ruleのconductor countはtopology上の導体数であり、見た目の束を作るためには変動させない。
 HVの3相配置はrandomization対象外とする。非HVのsupported placementは
 連続座標をそのまま使わず、同じroute-wide sideにある有限のsupport slotへ寄せる。
 load、regenerate、通常 update は保存済み concrete placement を使い、reroll しない。同一 Bundle の placement を
 Pole ごとに変えず、同一 route 内で side を反転しない。road-facing side は外部から与える単純な sign であり、
 Wire は Road domain や道路の意味を解釈しない。
-random ruleの調整は次に開始するrouteだけへ適用し、描画途中または確定済みrouteのconcrete placementを
-暗黙に再解決しない。確定済みplacementの変更は、保存済みBundle identityを指定する通常のplacement更新操作を使う。
+保存済みdescriptorはexact Bundle scopeと、0件になった後の再materializeに必要なphysical edge membership /
+row continuityを保持する。physical authorityは常にBundle / Port / Span / SavedBackboneGraphであり、descriptorは
+branch membershipやpairingを再判断しない。`ApplyBackboneBundleVariation`はdescriptorをresolveしたdesired concrete
+specを既存reconcileへ渡し、descriptor更新とconcrete topology更新を同じouter trialでcommitする。1 -> 0 -> 1は
+保存済みmembershipをpipelineのexplicit constraintとして再生するが、initial 0 -> 1はmembership sourceがないため
+unsupportedとする。recipe-backed Bundleの個別placement/count/add/retireは許可せずexplicit Applyへ集約する。
 
 非HV endpointの支持表現は、authoritative Bundle placementからgeneration時に導出する。pole surface近傍は
 Direct attachment、明確に離れたplacementはSupported rowとし、新しいSupportRow entityや保存fieldは作らない。

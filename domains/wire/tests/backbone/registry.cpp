@@ -1392,6 +1392,22 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "exact Bundle retirement fails closed when its saved binding scope is incomplete",
                          "Boundary", true,
                          C872_backbone_exact_bundle_retirement_rejects_incomplete_binding_scope);
+  test_registry::AddTest(tests, "C873_backbone_add_instance_clones_exact_saved_membership",
+                         "exact Bundle instance addition clones saved edge membership and lane continuity with fresh identities",
+                         "Invariant", true,
+                         C873_backbone_add_instance_clones_exact_saved_membership);
+  test_registry::AddTest(tests, "C874_backbone_add_instance_clones_branch_cross_and_sharp",
+                         "exact Bundle instance addition clones anchor branch/cross/sharp relations without re-pairing",
+                         "Invariant", true,
+                         C874_backbone_add_instance_clones_branch_cross_and_sharp);
+  test_registry::AddTest(tests, "C875_backbone_add_instance_rejects_invalid_identity_and_source_edge",
+                         "exact Bundle instance addition rejects duplicate placement and source-edge dependency atomically",
+                         "Boundary", true,
+                         C875_backbone_add_instance_rejects_invalid_identity_and_source_edge);
+  test_registry::AddTest(tests, "C876_backbone_add_instance_rejects_incomplete_anchor_relations",
+                         "exact Bundle instance addition fails closed on incomplete anchor binding or lane continuity",
+                         "Boundary", true,
+                         C876_backbone_add_instance_rejects_incomplete_anchor_relations);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

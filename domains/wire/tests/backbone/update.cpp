@@ -13,6 +13,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <unordered_set>
 #include <vector>
 
@@ -3708,6 +3709,410 @@ bool C872_backbone_exact_bundle_retirement_rejects_incomplete_binding_scope() {
   WIRE_TEST_EXPECT_DIFFERENTIAL(
       !retired.ok && state.SerializeAuthoritative(&after).ok && before == after,
       "incomplete exact Bundle binding scope did not fail closed atomically");
+  return true;
+}
+
+namespace {
+
+std::vector<city::wire::ObjectId> exact_bundle_span_ids(
+    const city::wire::CoreState& state, city::wire::ObjectId bundle_id) {
+  std::vector<city::wire::ObjectId> out{};
+  for (const city::wire::Span& span : state.view().spans().items()) {
+    if (span.bundle_id == bundle_id) out.push_back(span.id);
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+std::vector<city::wire::ObjectId> exact_bundle_port_ids(
+    const city::wire::CoreState& state, city::wire::ObjectId bundle_id) {
+  std::vector<city::wire::ObjectId> out{};
+  const std::vector<city::wire::ObjectId> edge_bundles =
+      exact_edge_bundles(state, bundle_id);
+  for (const city::wire::SavedBackbonePortBinding& binding :
+       state.view().backbone().port_bindings) {
+    if (std::find(edge_bundles.begin(), edge_bundles.end(),
+                  binding.edge_bundle_id) != edge_bundles.end()) {
+      out.push_back(binding.port_id);
+    }
+  }
+  std::sort(out.begin(), out.end());
+  out.erase(std::unique(out.begin(), out.end()), out.end());
+  return out;
+}
+
+std::vector<city::wire::ObjectId> exact_bundle_edge_ids(
+    const city::wire::CoreState& state, city::wire::ObjectId bundle_id) {
+  std::vector<city::wire::ObjectId> out{};
+  for (const city::wire::SavedBackboneEdgeBundle& edge_bundle :
+       state.view().backbone().edge_bundles) {
+    if (edge_bundle.bundle_id == bundle_id) out.push_back(edge_bundle.edge_id);
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+using ContinuitySignature =
+    std::tuple<city::wire::ObjectId, city::wire::ObjectId, std::size_t,
+               city::wire::ObjectId, std::size_t>;
+
+std::vector<ContinuitySignature> exact_bundle_continuity_signature(
+    const city::wire::CoreState& state, city::wire::ObjectId bundle_id) {
+  std::vector<ContinuitySignature> out{};
+  auto endpoint = [&](const city::wire::SavedBackboneRowContinuityEndpoint& item)
+      -> std::pair<city::wire::ObjectId, std::size_t> {
+    const city::wire::SavedBackboneEdgeBundle* edge_bundle =
+        state.view().backbone_edge_bundle(item.edge_bundle_id);
+    if (edge_bundle == nullptr || edge_bundle->bundle_id != bundle_id) {
+      return {city::wire::kInvalidObjectId, item.lane_index};
+    }
+    return {edge_bundle->edge_id, item.lane_index};
+  };
+  for (const city::wire::SavedBackboneRowContinuity& continuity :
+       state.view().backbone().row_continuities) {
+    auto a = endpoint(continuity.a);
+    auto b = endpoint(continuity.b);
+    if (a.first == city::wire::kInvalidObjectId ||
+        b.first == city::wire::kInvalidObjectId) continue;
+    if (b < a) std::swap(a, b);
+    out.emplace_back(continuity.node_id, a.first, a.second, b.first,
+                     b.second);
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+bool disjoint_ids(const std::vector<city::wire::ObjectId>& a,
+                  const std::vector<city::wire::ObjectId>& b) {
+  return std::none_of(a.begin(), a.end(), [&](city::wire::ObjectId id) {
+    return std::find(b.begin(), b.end(), id) != b.end();
+  });
+}
+
+bool clone_matches_anchor(const city::wire::CoreState& state,
+                          city::wire::ObjectId anchor_bundle_id,
+                          city::wire::ObjectId new_bundle_id) {
+  return exact_bundle_edge_ids(state, anchor_bundle_id) ==
+             exact_bundle_edge_ids(state, new_bundle_id) &&
+         exact_bundle_continuity_signature(state, anchor_bundle_id) ==
+             exact_bundle_continuity_signature(state, new_bundle_id) &&
+         disjoint_ids(exact_bundle_span_ids(state, anchor_bundle_id),
+                      exact_bundle_span_ids(state, new_bundle_id)) &&
+         disjoint_ids(exact_bundle_port_ids(state, anchor_bundle_id),
+                      exact_bundle_port_ids(state, new_bundle_id));
+}
+
+} // namespace
+
+bool C873_backbone_add_instance_clones_exact_saved_membership() {
+  city::wire::CoreState two_point{};
+  ExactBundleRetirementFixture two_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &two_point, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}},
+          &two_fixture),
+      "two-point Bundle clone fixture is incomplete");
+  const auto peer_before = exact_bundle_identity_snapshot(
+      two_point, two_fixture.edge_bundles_b);
+  const auto added = two_point.AddBackboneBundleInstance(
+      two_fixture.bundle_a, 87301, 6.85, -0.31, 0.20);
+  WIRE_TEST_EXPECT_PRESENCE(added.ok, added.error);
+  const city::wire::Bundle* added_bundle =
+      two_point.view().bundles().find(added.value);
+  WIRE_TEST_EXPECT_ANCHOR(
+      added.value != two_fixture.bundle_a && added_bundle != nullptr &&
+          added_bundle->placement_key == 87301 &&
+          clone_matches_anchor(two_point, two_fixture.bundle_a, added.value),
+      "two-point Bundle instance does not clone exact membership with fresh identity");
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      same_exact_bundle_identity_snapshot(
+          peer_before,
+          exact_bundle_identity_snapshot(two_point,
+                                         two_fixture.edge_bundles_b)),
+      "Bundle instance addition changed peer identity");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(two_point);
+
+  city::wire::CoreState owned_relations{};
+  ExactBundleRetirementFixture owned_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &owned_relations, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}},
+          &owned_fixture),
+      "user-owned relation clone fixture is incomplete");
+  std::vector<city::wire::ObjectId> owned_spans{};
+  std::vector<city::wire::ObjectId> owned_ports{};
+  std::vector<city::wire::ObjectId> owned_attachments{};
+  collect_exact_bundle_dependents(
+      owned_relations, owned_fixture.edge_bundles_a, &owned_spans,
+      &owned_ports, &owned_attachments);
+  const city::wire::Port* owned_port =
+      owned_ports.empty() ? nullptr
+                          : owned_relations.view().ports().find(owned_ports.front());
+  const city::wire::ObjectId owned_port_id =
+      owned_port == nullptr ? city::wire::kInvalidObjectId : owned_port->id;
+  const city::wire::Vec3d owned_port_position =
+      owned_port == nullptr ? city::wire::Vec3d{} : owned_port->world_position;
+  WIRE_TEST_EXPECT_PRESENCE(
+      !owned_spans.empty() && owned_port != nullptr &&
+          owned_relations.AddAttachment(owned_spans.front(), 0.5).ok &&
+          owned_relations.SetSpanBranchDownOffsetOverride(
+              owned_spans.front(), 0.2).ok &&
+          owned_relations.SetPortWorldPositionManual(
+              owned_port_id,
+              {owned_port_position.x, owned_port_position.y,
+               owned_port_position.z + 0.03})
+              .ok,
+      "failed to prepare user-owned anchor relations");
+  const auto owned_clone = owned_relations.AddBackboneBundleInstance(
+      owned_fixture.bundle_a, 87303, 6.82, -0.29, 0.20);
+  bool copied_user_relation = false;
+  for (city::wire::ObjectId span_id :
+       exact_bundle_span_ids(owned_relations, owned_clone.value)) {
+    copied_user_relation =
+        copied_user_relation ||
+        city::wire::CoreStateTestHook::override_state(owned_relations)
+            .span_endpoint_by_span.contains(span_id) ||
+        city::wire::CoreStateTestHook::override_state(owned_relations)
+            .span_support_by_span.contains(span_id);
+    const auto attachments =
+        owned_relations.view().relation_index().attachments_by_span.find(span_id);
+    if (attachments ==
+        owned_relations.view().relation_index().attachments_by_span.end()) {
+      continue;
+    }
+    for (city::wire::ObjectId attachment_id : attachments->second) {
+      const city::wire::Attachment* attachment =
+          owned_relations.view().attachments().find(attachment_id);
+      copied_user_relation =
+          copied_user_relation || attachment == nullptr ||
+          attachment->origin == city::wire::AttachmentOrigin::kUser;
+    }
+  }
+  for (city::wire::ObjectId port_id :
+       exact_bundle_port_ids(owned_relations, owned_clone.value)) {
+    const city::wire::Port* port = owned_relations.view().ports().find(port_id);
+    copied_user_relation =
+        copied_user_relation || port == nullptr ||
+        port->position_mode == city::wire::PortPositionMode::kManual ||
+        port->user_edited_position;
+  }
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      owned_clone.ok && !copied_user_relation,
+      owned_clone.error.empty()
+          ? "Bundle instance addition copied user Attachment, manual Port, or Span override"
+          : owned_clone.error);
+
+  city::wire::CoreState state{};
+  ExactBundleRetirementFixture fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &state,
+          {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 8.0, 0.0}},
+          &fixture),
+      "multi-edge Bundle clone fixture is incomplete");
+  const auto anchor_before = exact_bundle_identity_snapshot(
+      state, fixture.edge_bundles_a);
+  const auto cloned = state.AddBackboneBundleInstance(
+      fixture.bundle_a, 87302, 6.95, -0.35, 0.20);
+  WIRE_TEST_EXPECT_ANCHOR(
+      cloned.ok &&
+          exact_bundle_continuity_signature(state, fixture.bundle_a).size() > 0 &&
+          clone_matches_anchor(state, fixture.bundle_a, cloned.value),
+      cloned.error.empty() ? "multi-edge Bundle continuity was not cloned"
+                           : cloned.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+
+  std::string saved{};
+  city::wire::CoreState loaded{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      state.SerializeAuthoritative(&saved).ok &&
+          loaded.DeserializeAuthoritative(saved).ok &&
+          clone_matches_anchor(loaded, fixture.bundle_a, cloned.value),
+      "cloned Bundle topology did not survive save/load");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
+
+  const auto retired = state.RetireBackboneBundle(cloned.value);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      retired.ok && retired.value &&
+          same_exact_bundle_identity_snapshot(
+              anchor_before,
+              exact_bundle_identity_snapshot(state,
+                                             fixture.edge_bundles_a)),
+      retired.error.empty()
+          ? "retiring cloned Bundle did not restore anchor semantic topology"
+          : retired.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  return true;
+}
+
+bool C874_backbone_add_instance_clones_branch_cross_and_sharp() {
+  city::wire::CoreState branch{};
+  ExactBundleRetirementFixture branch_fixture{};
+  city::wire::GenerateBundleFromPathResult branch_base{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &branch,
+          {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {18.0, 2.0, 0.0}},
+          &branch_fixture, &branch_base),
+      "branch clone base fixture is incomplete");
+  const city::wire::Pole* branch_pole =
+      branch.view().poles().find(branch_base.generated_pole_ids[1]);
+  WIRE_TEST_EXPECT_PRESENCE(branch_pole != nullptr,
+                            "branch clone junction Pole is missing");
+  city::wire::BackboneSpec branch_edge = exact_bundle_route_request(
+      branch, {branch_pole->world_transform.position, {10.0, 8.0, 0.0}});
+  branch_edge.path.node_specs = {
+      pole_spec(0, branch_base.generated_pole_ids[1])};
+  branch_edge.bundles[0].existing_bundle_id = branch_fixture.bundle_a;
+  branch_edge.bundles[1].existing_bundle_id = branch_fixture.bundle_b;
+  const auto branched = branch.GenerateFromBackboneSpec(branch_edge);
+  WIRE_TEST_EXPECT_PRESENCE(branched.ok, branched.error);
+  const auto branch_clone = branch.AddBackboneBundleInstance(
+      branch_fixture.bundle_a, 87401, 6.90, -0.30, 0.20);
+  WIRE_TEST_EXPECT_ANCHOR(
+      branch_clone.ok &&
+          clone_matches_anchor(branch, branch_fixture.bundle_a,
+                               branch_clone.value),
+      branch_clone.error.empty() ? "branch membership was re-decided"
+                                 : branch_clone.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(branch);
+
+  city::wire::CoreState cross{};
+  ExactBundleRetirementFixture cross_fixture{};
+  city::wire::GenerateBundleFromPathResult base{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &cross,
+          {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0},
+           {5.0, 8.660254037844386, 0.0}},
+          &cross_fixture, &base),
+      "cross/sharp clone base fixture is incomplete");
+  const city::wire::Pole* junction =
+      cross.view().poles().find(base.generated_pole_ids[1]);
+  WIRE_TEST_EXPECT_PRESENCE(junction != nullptr,
+                            "cross/sharp junction Pole is missing");
+  city::wire::BackboneSpec crossing = exact_bundle_route_request(
+      cross, {{10.0, -8.0, 0.0}, junction->world_transform.position,
+              {18.0, 2.0, 0.0}});
+  crossing.path.node_specs = {pole_spec(1, base.generated_pole_ids[1])};
+  crossing.bundles[0].existing_bundle_id = cross_fixture.bundle_a;
+  crossing.bundles[1].existing_bundle_id = cross_fixture.bundle_b;
+  const auto crossed = cross.GenerateFromBackboneSpec(crossing);
+  WIRE_TEST_EXPECT_PRESENCE(crossed.ok, crossed.error);
+  const auto cross_clone = cross.AddBackboneBundleInstance(
+      cross_fixture.bundle_a, 87402, 6.88, -0.33, 0.20);
+  const std::size_t connection_parts = static_cast<std::size_t>(
+      std::count_if(cross.view().visual_curve_parts().parts.begin(),
+                    cross.view().visual_curve_parts().parts.end(),
+                    [&](const city::wire::VisualCurvePart& part) {
+                      return part.source_bundle_id == cross_clone.value &&
+                             (part.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+                              part.kind == city::wire::VisualCurvePartKind::kJumper);
+                    }));
+  WIRE_TEST_EXPECT_ORACLE(
+      cross_clone.ok &&
+          clone_matches_anchor(cross, cross_fixture.bundle_a,
+                               cross_clone.value) &&
+          connection_parts > 0,
+      cross_clone.error.empty()
+          ? "cross/sharp clone lacks isomorphic continuity or derived connection output"
+          : cross_clone.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(cross);
+  return true;
+}
+
+bool C875_backbone_add_instance_rejects_invalid_identity_and_source_edge() {
+  city::wire::CoreState duplicate{};
+  ExactBundleRetirementFixture duplicate_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &duplicate, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}},
+          &duplicate_fixture),
+      "duplicate placement clone fixture is incomplete");
+  std::string duplicate_before{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      duplicate.SerializeAuthoritative(&duplicate_before).ok,
+      "failed to serialize duplicate placement fixture");
+  const auto duplicated = duplicate.AddBackboneBundleInstance(
+      duplicate_fixture.bundle_a, 86902, 6.8, -0.3, 0.2);
+  std::string duplicate_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !duplicated.ok &&
+          duplicate.SerializeAuthoritative(&duplicate_after).ok &&
+          duplicate_before == duplicate_after,
+      "duplicate placement_key was not rejected atomically");
+
+  city::wire::CoreState source{};
+  SourceEdgeRetirementFixture source_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_source_edge_retirement_fixture(&source, &source_fixture),
+      "source-edge clone fixture is incomplete");
+  std::string source_before{};
+  WIRE_TEST_EXPECT_PRESENCE(source.SerializeAuthoritative(&source_before).ok,
+                            "failed to serialize source-edge clone fixture");
+  const auto source_clone = source.AddBackboneBundleInstance(
+      source_fixture.branch_bundle, 87501, 6.8, -0.3, 0.2);
+  std::string source_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !source_clone.ok && source.SerializeAuthoritative(&source_after).ok &&
+          source_before == source_after,
+      "source-edge dependent anchor was not rejected atomically");
+  return true;
+}
+
+bool C876_backbone_add_instance_rejects_incomplete_anchor_relations() {
+  city::wire::CoreState missing_binding{};
+  ExactBundleRetirementFixture binding_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &missing_binding, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}},
+          &binding_fixture),
+      "incomplete clone binding fixture is missing");
+  WIRE_TEST_EXPECT_PRESENCE(
+      city::wire::CoreStateTestHook::erase_backbone_span_binding(
+          missing_binding, binding_fixture.edge_bundles_a.front(), 0),
+      "failed to inject missing clone SpanBinding");
+  std::string binding_before{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      missing_binding.SerializeAuthoritative(&binding_before).ok,
+      "failed to serialize missing clone binding fixture");
+  const auto binding_clone = missing_binding.AddBackboneBundleInstance(
+      binding_fixture.bundle_a, 87601, 6.8, -0.3, 0.2);
+  std::string binding_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !binding_clone.ok &&
+          missing_binding.SerializeAuthoritative(&binding_after).ok &&
+          binding_before == binding_after,
+      "incomplete anchor binding did not fail closed atomically");
+
+  city::wire::CoreState missing_continuity{};
+  city::wire::BackboneSpec hv = poly3_req(missing_continuity);
+  hv.bundles.clear();
+  add_backbone_bundle(hv, city::wire::BundleKind::kHighVoltage);
+  const auto generated = missing_continuity.GenerateFromBackboneSpec(hv);
+  WIRE_TEST_EXPECT_PRESENCE(
+      generated.ok && generated.value.bundle_ids.size() == 1,
+      generated.error.empty() ? "multi-lane clone fixture is incomplete"
+                              : generated.error);
+  const auto hv_edge_bundles = exact_edge_bundles(
+      missing_continuity, generated.value.bundle_ids.front());
+  WIRE_TEST_EXPECT_PRESENCE(
+      !hv_edge_bundles.empty() &&
+          city::wire::CoreStateTestHook::erase_backbone_row_continuity(
+              missing_continuity, hv_edge_bundles.front(), 0),
+      "failed to inject partial clone continuity");
+  std::string continuity_before{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      missing_continuity.SerializeAuthoritative(&continuity_before).ok,
+      "failed to serialize partial clone continuity fixture");
+  const auto continuity_clone = missing_continuity.AddBackboneBundleInstance(
+      generated.value.bundle_ids.front(), 87602, 9.1, 0.0, 0.45);
+  std::string continuity_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !continuity_clone.ok &&
+          missing_continuity.SerializeAuthoritative(&continuity_after).ok &&
+          continuity_before == continuity_after,
+      "partial anchor lane continuity did not fail closed atomically");
   return true;
 }
 

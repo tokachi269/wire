@@ -305,6 +305,17 @@ branch / cross / sharpはcategoryで除外せずexact Bundle identityで全compo
 source-edge branch Bundleはsourceを残したまま退役できるが、source Bundleを消すと存続branchのprojection
 authorityが失われる場合はdependencyを推測せずmutation前に拒否する。user Attachment、manual Port、
 Span overrideを暗黙に破棄してはならない。
+`AddBackboneBundleInstance` はexact anchor `Bundle`が所有する全`SavedBackboneEdgeBundle` membershipと
+`SavedBackboneRowContinuity`のlane対応を唯一のoracleに、同じtemplate、conductor count、lane policyを持つ
+別`Bundle` identityを追加するCore topology operationである。callerは非zero `placement_key`とexplicit
+height / lateral / spacingだけを指定する。anchor relationから作る一時的なrow continuity constraintを
+既存pipelineのpairing入力へ渡し、pairing -> intent -> support grouping -> emit -> save_graphのstage順を維持する。
+通常の候補規則で同じpairになったことを複製の根拠にせず、save_graphもconstraintのlane対応をそのまま保存する。
+constraintはInputであり保存しない。新Bundleのmembershipとcontinuityがanchorと同型であることをtrial内で
+検証し、全componentとderived/runtime rebuildが成功した場合だけ一度commitする。anchor、peer、既存Port / Spanを
+変更または共有しない。branch / cross / sharpはanchor relationを複製できる限り対象とする。
+source-edge dependencyはexact source Bundle mappingがInputにない現段階では推測せずmutation前に拒否する。
+Attachment、manual Port、Span overrideは新instanceへ複製しない。
 現対応は `UpdateBundleTemplate` の fixed count 増減と `kTopology` policy 差分、`UpdateCableTemplate` の backbone continuity policy / default endpoint attachment decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeの接続は saved row continuity と saved node から

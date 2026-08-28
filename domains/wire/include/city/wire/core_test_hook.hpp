@@ -61,6 +61,21 @@ struct CoreStateTestHook {
     }
     return true;
   }
+  static bool erase_backbone_row_continuity(CoreState& state,
+                                            ObjectId edge_bundle_id,
+                                            std::size_t lane_index) {
+    SavedBackboneGraph& graph = state.authoritative_.backbone;
+    const std::size_t before = graph.row_continuities.size();
+    std::erase_if(
+        graph.row_continuities,
+        [&](const SavedBackboneRowContinuity& continuity) {
+          return (continuity.a.edge_bundle_id == edge_bundle_id &&
+                  continuity.a.lane_index == lane_index) ||
+                 (continuity.b.edge_bundle_id == edge_bundle_id &&
+                  continuity.b.lane_index == lane_index);
+        });
+    return graph.row_continuities.size() + 1 == before;
+  }
   static EditResult<bool> update_backbone_port_binding_frame_exact(
       CoreState& state, ObjectId edge_bundle_id,
       const SavedBackboneRowKey& row_key, std::size_t lane_index,

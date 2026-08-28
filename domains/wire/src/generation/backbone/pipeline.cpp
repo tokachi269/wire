@@ -118,6 +118,8 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
   local_by_input_ = std::move(input.local_by_input);
   saved_node_by_input_.clear();
   write_row_continuity_ = input.write_row_continuity;
+  row_continuity_input_ =
+      std::move(input.row_continuity_constraints);
 
   EditResult<GenerateBundleFromPathResult> out{};
   GenerationTiming* timing = input.timing == nullptr ? &out.value.timing : input.timing;
@@ -212,12 +214,16 @@ pipeline::build_input pipeline::build_input_from_spec() const {
 
 pipeline::build_input pipeline::build_input_from_saved_scope(
     graph made_graph, std::vector<std::size_t> active_bundle_indices, bool retire_untouched,
-    bool write_row_continuity) const {
+    bool write_row_continuity,
+    std::optional<std::vector<row_continuity_constraint>>
+        row_continuity_constraints) const {
   build_input input{};
   input.made = std::move(made_graph);
   input.active_bundle_indices = std::move(active_bundle_indices);
   input.retire_untouched = retire_untouched;
   input.write_row_continuity = write_row_continuity;
+  input.row_continuity_constraints =
+      std::move(row_continuity_constraints);
   return input;
 }
 
@@ -762,7 +768,7 @@ ObjectId resolve_existing_bundle(const CoreState& state, const graph& made, cons
       if (bundle == nullptr || bundle->bundle_template_id != spec.bundle_template_id) {
         continue;
       }
-      if (spec.placement_key != 0 && bundle->placement_key != 0 &&
+      if (spec.placement_key != 0 &&
           bundle->placement_key != spec.placement_key) {
         continue;
       }
@@ -1361,6 +1367,22 @@ EditResult<pairs> unsupported_pairs(std::string reason) {
   EditResult<pairs> out{};
   out.error = "backbone unsupported: " + std::move(reason);
   return out;
+}
+
+bool has_explicit_continuity_pair(
+    const std::optional<std::vector<row_continuity_constraint>>& input,
+    ObjectId node_id, ObjectId edge_a, ObjectId edge_b) {
+  if (!input.has_value() || node_id == kInvalidObjectId ||
+      edge_a == kInvalidObjectId || edge_b == kInvalidObjectId) {
+    return false;
+  }
+  return std::any_of(
+      input->begin(), input->end(),
+      [&](const row_continuity_constraint& item) {
+        return item.node_id == node_id &&
+               ((item.edge_a == edge_a && item.edge_b == edge_b) ||
+                (item.edge_a == edge_b && item.edge_b == edge_a));
+      });
 }
 
 bool has_current_route_pair_at(const graph& made, std::size_t node_id) {
@@ -2409,6 +2431,10 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     auto is_candidate = [&](std::size_t left, std::size_t right) {
       const link& a = out.value.links[left];
       const link& b = out.value.links[right];
+      if (row_continuity_input_.has_value()) {
+        return has_explicit_continuity_pair(row_continuity_input_, n.saved,
+                                            a.saved, b.saved);
+      }
       if (is_saved_pair_continuation(state_, n, a, b)) {
         return true;
       }
@@ -2695,7 +2721,10 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
           continue;
         }
         const Bundle* bundle = state_.view().bundles().find(edge_bundle->bundle_id);
-        if (bundle != nullptr && bundle->bundle_template_id == spec.bundle_template_id) {
+        if (bundle != nullptr &&
+            bundle->bundle_template_id == spec.bundle_template_id &&
+            (spec.placement_key == 0 ||
+             bundle->placement_key == spec.placement_key)) {
           const auto spans_it = state_.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
           if (spans_it != state_.view().backbone_index().edge_bundle_span_bindings.end()) {
             const SavedBackboneGraph& graph = state_.view().backbone();
@@ -2755,7 +2784,7 @@ EditResult<std::vector<pipeline::PromotionPlanEntry>> pipeline::plan_promotions(
       if (spec.source_bundle_id != kInvalidObjectId && bundle->id != spec.source_bundle_id) {
         continue;
       }
-      if (spec.placement_key != 0 && bundle->placement_key != 0 &&
+      if (spec.placement_key != 0 &&
           bundle->placement_key != spec.placement_key) {
         continue;
       }
@@ -4342,6 +4371,58 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
         return true;
       };
 
+  auto constrained_lane_pairs =
+      [&](ObjectId node_id, std::size_t link_a, std::size_t link_b,
+          std::size_t lane_count)
+      -> EditResult<std::vector<std::pair<std::size_t, std::size_t>>> {
+    EditResult<std::vector<std::pair<std::size_t, std::size_t>>> result{};
+    if (!row_continuity_input_.has_value() ||
+        link_a >= edge_by_link.size() || link_b >= edge_by_link.size()) {
+      result.error =
+          "backbone internal: row continuity constraint input is missing";
+      return result;
+    }
+    const ObjectId edge_a = edge_by_link[link_a].edge_id;
+    const ObjectId edge_b = edge_by_link[link_b].edge_id;
+    std::vector<bool> used_a(lane_count, false);
+    std::vector<bool> used_b(lane_count, false);
+    for (const row_continuity_constraint& constraint :
+         *row_continuity_input_) {
+      if (constraint.node_id != node_id) continue;
+      std::size_t lane_a = bad;
+      std::size_t lane_b = bad;
+      if (constraint.edge_a == edge_a && constraint.edge_b == edge_b) {
+        lane_a = constraint.lane_a;
+        lane_b = constraint.lane_b;
+      } else if (constraint.edge_a == edge_b &&
+                 constraint.edge_b == edge_a) {
+        lane_a = constraint.lane_b;
+        lane_b = constraint.lane_a;
+      } else {
+        continue;
+      }
+      if (lane_a >= lane_count || lane_b >= lane_count || used_a[lane_a] ||
+          used_b[lane_b]) {
+        result.error =
+            "backbone invalid input: row continuity constraint lanes are inconsistent";
+        return result;
+      }
+      used_a[lane_a] = true;
+      used_b[lane_b] = true;
+      result.value.emplace_back(lane_a, lane_b);
+    }
+    if (result.value.size() != lane_count ||
+        std::find(used_a.begin(), used_a.end(), false) != used_a.end() ||
+        std::find(used_b.begin(), used_b.end(), false) != used_b.end()) {
+      result.error =
+          "backbone invalid input: row continuity constraint lanes are incomplete";
+      return result;
+    }
+    std::sort(result.value.begin(), result.value.end());
+    result.ok = true;
+    return result;
+  };
+
   // cross-edge continuityはSpan endpoint対応とは別の正本relationとして保存する。
   if (write_row_continuity_) {
     for (std::size_t row_index = 0; row_index < made.rows.size(); ++row_index) {
@@ -4372,19 +4453,34 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
               "backbone internal: row continuity lane input is missing";
           return out;
         }
-        const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
-            state_, node_id, left_edge_bundle_id, right_edge_bundle_id);
-        if (!mirror.ok) {
-          out.error = mirror.error;
-          return out;
-        }
         const std::size_t lane_count = (*row_ports)[bundle_index].size();
-        for (std::size_t lane = 0; lane < (*row_ports)[bundle_index].size(); ++lane) {
-          const std::size_t right_lane =
-              mirror.value ? lane_count - 1 - lane : lane;
-          if (!bind_continuity_lane(node_id, joined.left, joined.right,
-                                    bundle_index, lane, right_lane)) {
+        if (row_continuity_input_.has_value()) {
+          const auto constrained = constrained_lane_pairs(
+              node_id, joined.left, joined.right, lane_count);
+          if (!constrained.ok) {
+            out.error = constrained.error;
             return out;
+          }
+          for (const auto& [left_lane, right_lane] : constrained.value) {
+            if (!bind_continuity_lane(node_id, joined.left, joined.right,
+                                      bundle_index, left_lane, right_lane)) {
+              return out;
+            }
+          }
+        } else {
+          const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
+              state_, node_id, left_edge_bundle_id, right_edge_bundle_id);
+          if (!mirror.ok) {
+            out.error = mirror.error;
+            return out;
+          }
+          for (std::size_t lane = 0; lane < lane_count; ++lane) {
+            const std::size_t right_lane =
+                mirror.value ? lane_count - 1 - lane : lane;
+            if (!bind_continuity_lane(node_id, joined.left, joined.right,
+                                      bundle_index, lane, right_lane)) {
+              return out;
+            }
           }
         }
       }
@@ -4427,22 +4523,35 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
             edge_bundle_a == edge_bundle_b) {
           continue;
         }
-        const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
-            state_, node_id, edge_bundle_a, edge_bundle_b);
-        if (!mirror.ok) {
-          out.error = mirror.error;
-          return out;
-        }
         const std::size_t lane_count =
             static_cast<std::size_t>(bundle->conductor_count);
-        for (std::size_t lane = 0;
-             lane < lane_count;
-             ++lane) {
-          const std::size_t right_lane =
-              mirror.value ? lane_count - 1 - lane : lane;
-          if (!bind_continuity_lane(node_id, link_a, link_b, bundle_index,
-                                    lane, right_lane)) {
+        if (row_continuity_input_.has_value()) {
+          const auto constrained = constrained_lane_pairs(
+              node_id, link_a, link_b, lane_count);
+          if (!constrained.ok) {
+            out.error = constrained.error;
             return out;
+          }
+          for (const auto& [lane_a, lane_b] : constrained.value) {
+            if (!bind_continuity_lane(node_id, link_a, link_b, bundle_index,
+                                      lane_a, lane_b)) {
+              return out;
+            }
+          }
+        } else {
+          const EditResult<bool> mirror = mirror_permutable_continuity_lanes(
+              state_, node_id, edge_bundle_a, edge_bundle_b);
+          if (!mirror.ok) {
+            out.error = mirror.error;
+            return out;
+          }
+          for (std::size_t lane = 0; lane < lane_count; ++lane) {
+            const std::size_t right_lane =
+                mirror.value ? lane_count - 1 - lane : lane;
+            if (!bind_continuity_lane(node_id, link_a, link_b, bundle_index,
+                                      lane, right_lane)) {
+              return out;
+            }
           }
         }
       }

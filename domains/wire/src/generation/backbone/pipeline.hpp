@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -89,6 +90,14 @@ struct pairs {
   std::vector<open> opens{};
   std::vector<jumper> jumpers{};
   std::vector<row> rows{};
+};
+
+struct row_continuity_constraint {
+  ObjectId node_id = kInvalidObjectId;
+  ObjectId edge_a = kInvalidObjectId;
+  std::size_t lane_a = bad;
+  ObjectId edge_b = kInvalidObjectId;
+  std::size_t lane_b = bad;
 };
 
 enum class intent_reason : std::uint8_t {
@@ -210,6 +219,8 @@ public:
     GenerationTiming* timing = nullptr;
     bool retire_untouched = true;
     bool write_row_continuity = true;
+    std::optional<std::vector<row_continuity_constraint>>
+        row_continuity_constraints{};
     ObjectId retired_bundle_id = kInvalidObjectId;
     std::vector<ObjectId> retired_edge_bundle_ids{};
   };
@@ -219,7 +230,9 @@ public:
   [[nodiscard]] build_input build_input_from_spec() const;
   [[nodiscard]] build_input build_input_from_saved_scope(
       graph made, std::vector<std::size_t> active_bundle_indices, bool retire_untouched = true,
-      bool write_row_continuity = true) const;
+      bool write_row_continuity = true,
+      std::optional<std::vector<row_continuity_constraint>>
+          row_continuity_constraints = std::nullopt) const;
   [[nodiscard]] build_input build_input_for_bundle_retirement(
       ObjectId bundle_id, std::vector<ObjectId> edge_bundle_ids) const;
   [[nodiscard]] EditResult<GenerateBundleFromPathResult> build(build_input input);
@@ -287,6 +300,8 @@ private:
   std::vector<ObjectId> saved_node_by_input_{};
   std::vector<PromotionPlanEntry> promotion_plan_{};
   bool write_row_continuity_ = true;
+  std::optional<std::vector<row_continuity_constraint>>
+      row_continuity_input_{};
 };
 
 } // namespace city::wire::generation::backbone

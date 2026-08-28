@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -659,6 +660,437 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
 
   result.ok = true;
   result.value = true;
+  return result;
+}
+
+EditResult<ObjectId> CoreState::AddBackboneBundleInstance(
+    ObjectId anchor_bundle_id, std::uint64_t placement_key,
+    double height_m, double lateral_m, double spacing_m) {
+  EditResult<ObjectId> result{};
+  auto reject = [&](std::string error) {
+    result.error = std::move(error);
+    result.classify_error();
+    return result;
+  };
+  if (placement_key == 0) {
+    return reject(
+        "backbone invalid input: added Bundle placement_key must be nonzero");
+  }
+  if (!std::isfinite(height_m) || !std::isfinite(lateral_m) ||
+      !std::isfinite(spacing_m) || spacing_m < 0.0) {
+    return reject(
+        "backbone invalid input: added Bundle placement values must be finite and spacing >= 0");
+  }
+  const Bundle* anchor = view().bundles().find(anchor_bundle_id);
+  if (anchor == nullptr) {
+    return reject("core invalid input: anchor Bundle not found");
+  }
+  if (anchor->conductor_count <= 0) {
+    return reject(
+        "backbone invalid input: anchor Bundle conductor count is invalid");
+  }
+  const auto template_it =
+      authoritative_.bundle_templates.find(anchor->bundle_template_id);
+  if (template_it == authoritative_.bundle_templates.end()) {
+    return reject("backbone invalid input: anchor Bundle template is missing");
+  }
+  for (const Bundle& bundle : view().bundles().items()) {
+    if (bundle.bundle_template_id == anchor->bundle_template_id &&
+        bundle.placement_key == placement_key) {
+      return reject(
+          "backbone invalid input: added Bundle placement_key already exists");
+    }
+  }
+
+  const SavedBackboneGraph& graph = view().backbone();
+  const std::size_t lane_count =
+      static_cast<std::size_t>(anchor->conductor_count);
+  std::vector<ObjectId> anchor_edge_bundle_ids{};
+  std::unordered_set<ObjectId> anchor_edge_bundle_id_set{};
+  std::unordered_set<ObjectId> anchor_edge_ids{};
+  for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    if (edge_bundle.bundle_id != anchor_bundle_id) continue;
+    if (edge_bundle.edge_bundle_id == kInvalidObjectId ||
+        edge_bundle.edge_id == kInvalidObjectId ||
+        !anchor_edge_bundle_id_set.insert(edge_bundle.edge_bundle_id).second ||
+        !anchor_edge_ids.insert(edge_bundle.edge_id).second) {
+      return reject(
+          "backbone invalid input: anchor Bundle edge membership is invalid");
+    }
+    const SavedBackboneEdge* edge =
+        saved_edge_by_id(graph, edge_bundle.edge_id);
+    const SavedBackboneNode* node_a =
+        edge == nullptr ? nullptr : saved_node_by_id(graph, edge->node_a);
+    const SavedBackboneNode* node_b =
+        edge == nullptr ? nullptr : saved_node_by_id(graph, edge->node_b);
+    if (edge == nullptr || node_a == nullptr || node_b == nullptr) {
+      return reject(
+          "backbone invalid input: anchor Bundle physical membership is incomplete");
+    }
+    if (node_a->has_source_edge || node_b->has_source_edge) {
+      return reject(
+          "backbone unsupported: added Bundle source-edge dependency requires exact source Bundle mapping");
+    }
+    anchor_edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+  }
+  if (anchor_edge_bundle_ids.empty()) {
+    return reject(
+        "backbone unsupported: anchor Bundle has no saved edge membership");
+  }
+
+  std::unordered_set<ObjectId> anchor_span_ids{};
+  std::unordered_set<ObjectId> anchor_port_ids{};
+  for (ObjectId edge_bundle_id : anchor_edge_bundle_ids) {
+    std::vector<bool> span_lanes(lane_count, false);
+    std::vector<std::size_t> port_lane_counts(lane_count, 0);
+    for (const SavedBackboneSpanBinding& binding : graph.span_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id) continue;
+      if (binding.lane_index >= lane_count ||
+          span_lanes[binding.lane_index]) {
+        return reject(
+            "backbone invalid input: anchor Bundle SpanBinding lanes are inconsistent");
+      }
+      const Span* span = view().spans().find(binding.span_id);
+      if (span == nullptr || span->bundle_id != anchor_bundle_id) {
+        return reject(
+            "backbone invalid input: anchor Bundle SpanBinding is incomplete");
+      }
+      span_lanes[binding.lane_index] = true;
+      anchor_span_ids.insert(binding.span_id);
+    }
+    if (std::find(span_lanes.begin(), span_lanes.end(), false) !=
+        span_lanes.end()) {
+      return reject(
+          "backbone invalid input: anchor Bundle SpanBinding is missing");
+    }
+    for (const SavedBackbonePortBinding& binding : graph.port_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id) continue;
+      if (binding.lane_index >= lane_count ||
+          view().ports().find(binding.port_id) == nullptr) {
+        return reject(
+            "backbone invalid input: anchor Bundle PortBinding is incomplete");
+      }
+      ++port_lane_counts[binding.lane_index];
+      anchor_port_ids.insert(binding.port_id);
+    }
+    if (std::any_of(port_lane_counts.begin(), port_lane_counts.end(),
+                    [](std::size_t count) { return count != 2; })) {
+      return reject(
+          "backbone invalid input: anchor Bundle PortBinding lanes are incomplete");
+    }
+  }
+
+  using PhysicalContinuity =
+      std::tuple<ObjectId, ObjectId, std::size_t, ObjectId, std::size_t>;
+  std::vector<PhysicalContinuity> anchor_continuity{};
+  std::vector<generation::backbone::row_continuity_constraint>
+      all_constraints{};
+  for (const SavedBackboneRowContinuity& continuity :
+       graph.row_continuities) {
+    const bool a_anchor =
+        anchor_edge_bundle_id_set.contains(continuity.a.edge_bundle_id);
+    const bool b_anchor =
+        anchor_edge_bundle_id_set.contains(continuity.b.edge_bundle_id);
+    if (a_anchor != b_anchor) {
+      return reject(
+          "backbone invalid input: anchor Bundle continuity crosses Bundle identity");
+    }
+    if (!a_anchor) continue;
+    const SavedBackboneEdgeBundle* edge_bundle_a =
+        saved_edge_bundle_by_id(graph, continuity.a.edge_bundle_id);
+    const SavedBackboneEdgeBundle* edge_bundle_b =
+        saved_edge_bundle_by_id(graph, continuity.b.edge_bundle_id);
+    if (edge_bundle_a == nullptr || edge_bundle_b == nullptr ||
+        continuity.a.lane_index >= lane_count ||
+        continuity.b.lane_index >= lane_count) {
+      return reject(
+          "backbone invalid input: anchor Bundle continuity lane is invalid");
+    }
+    ObjectId edge_a = edge_bundle_a->edge_id;
+    ObjectId edge_b = edge_bundle_b->edge_id;
+    std::size_t lane_a = continuity.a.lane_index;
+    std::size_t lane_b = continuity.b.lane_index;
+    if (std::pair{edge_b, lane_b} < std::pair{edge_a, lane_a}) {
+      std::swap(edge_a, edge_b);
+      std::swap(lane_a, lane_b);
+    }
+    anchor_continuity.emplace_back(continuity.node_id, edge_a, lane_a,
+                                   edge_b, lane_b);
+    all_constraints.push_back({continuity.node_id, edge_a, lane_a, edge_b,
+                               lane_b});
+  }
+  std::sort(anchor_continuity.begin(), anchor_continuity.end());
+
+  for (std::size_t first = 0; first < anchor_continuity.size();) {
+    std::size_t last = first + 1;
+    while (last < anchor_continuity.size() &&
+           std::get<0>(anchor_continuity[last]) ==
+               std::get<0>(anchor_continuity[first]) &&
+           std::get<1>(anchor_continuity[last]) ==
+               std::get<1>(anchor_continuity[first]) &&
+           std::get<3>(anchor_continuity[last]) ==
+               std::get<3>(anchor_continuity[first])) {
+      ++last;
+    }
+    std::vector<bool> lanes_a(lane_count, false);
+    std::vector<bool> lanes_b(lane_count, false);
+    for (std::size_t index = first; index < last; ++index) {
+      const std::size_t lane_a = std::get<2>(anchor_continuity[index]);
+      const std::size_t lane_b = std::get<4>(anchor_continuity[index]);
+      if (lanes_a[lane_a] || lanes_b[lane_b]) {
+        return reject(
+            "backbone invalid input: anchor Bundle continuity lanes are inconsistent");
+      }
+      lanes_a[lane_a] = true;
+      lanes_b[lane_b] = true;
+    }
+    if (last - first != lane_count ||
+        std::find(lanes_a.begin(), lanes_a.end(), false) != lanes_a.end() ||
+        std::find(lanes_b.begin(), lanes_b.end(), false) != lanes_b.end()) {
+      return reject(
+          "backbone invalid input: anchor Bundle continuity lanes are incomplete");
+    }
+    first = last;
+  }
+
+  CoreState trial = *this;
+  ObjectId new_bundle_id = kInvalidObjectId;
+  ChangeSet change_set{};
+  std::vector<ObjectId> remaining = anchor_edge_bundle_ids;
+  while (!remaining.empty()) {
+    const EditResult<LoadedRoute> loaded =
+        continuity_route_from_saved_graph(graph, remaining.front());
+    if (!loaded.ok) return reject(loaded.error);
+    if (loaded.value.edges.empty()) {
+      return reject(
+          "backbone invalid input: anchor Bundle continuity component is empty");
+    }
+    std::unordered_set<ObjectId> component_edge_ids{};
+    for (ObjectId edge_bundle_id : loaded.value.edge_bundle_ids) {
+      if (!anchor_edge_bundle_id_set.contains(edge_bundle_id)) {
+        return reject(
+            "backbone invalid input: anchor Bundle continuity component crosses identity");
+      }
+      remaining.erase(
+          std::remove(remaining.begin(), remaining.end(), edge_bundle_id),
+          remaining.end());
+      const SavedBackboneEdgeBundle* edge_bundle =
+          saved_edge_bundle_by_id(graph, edge_bundle_id);
+      if (edge_bundle == nullptr) {
+        return reject(
+            "backbone invalid input: anchor Bundle component edge is missing");
+      }
+      component_edge_ids.insert(edge_bundle->edge_id);
+    }
+
+    generation::backbone::graph made_graph{};
+    std::vector<ObjectId> route_node_ids{};
+    route_node_ids.push_back(loaded.value.edges.front().from_node_id);
+    for (const LoadedRouteEdge& route_edge : loaded.value.edges) {
+      if (route_node_ids.back() != route_edge.from_node_id) {
+        return reject(
+            "backbone invalid input: anchor Bundle component is not contiguous");
+      }
+      route_node_ids.push_back(route_edge.to_node_id);
+    }
+    for (std::size_t node_index = 0; node_index < route_node_ids.size();
+         ++node_index) {
+      const SavedBackboneNode* saved_node =
+          saved_node_by_id(graph, route_node_ids[node_index]);
+      if (saved_node == nullptr || saved_node->has_source_edge) {
+        return reject(
+            "backbone unsupported: added Bundle requires source-edge-free membership");
+      }
+      generation::backbone::node node{};
+      node.id = node_index;
+      node.pos = saved_node->position;
+      node.support = saved_node->support_kind;
+      node.pole = saved_node->pole_id;
+      node.saved = saved_node->node_id;
+      node.is_new = false;
+      node.on_route = true;
+      node.bundle_modes = saved_node->bundle_modes;
+      made_graph.nodes.push_back(std::move(node));
+    }
+    for (std::size_t edge_index = 0;
+         edge_index < loaded.value.edges.size(); ++edge_index) {
+      const LoadedRouteEdge& route_edge = loaded.value.edges[edge_index];
+      generation::backbone::link link{};
+      link.id = edge_index;
+      link.a = edge_index;
+      link.b = edge_index + 1;
+      link.route = 0;
+      link.order = edge_index;
+      link.dir = route_edge.dir;
+      link.saved = route_edge.edge->edge_id;
+      link.is_new = true;
+      made_graph.links.push_back(std::move(link));
+    }
+
+    std::vector<generation::backbone::row_continuity_constraint>
+        component_constraints{};
+    for (const auto& constraint : all_constraints) {
+      if (component_edge_ids.contains(constraint.edge_a) &&
+          component_edge_ids.contains(constraint.edge_b)) {
+        component_constraints.push_back(constraint);
+      }
+    }
+
+    BackboneSpec spec{};
+    spec.pole_type_id = kInvalidPoleTypeId;
+    spec.constraints.lateral_offset_m =
+        loaded.value.edges.front().edge->lateral_offset_m;
+    BackboneBundleSpec bundle_spec{};
+    bundle_spec.bundle_template_id = anchor->bundle_template_id;
+    bundle_spec.placement_key = placement_key;
+    bundle_spec.layer = template_it->second.default_layer;
+    bundle_spec.placement_explicit = true;
+    bundle_spec.height_m = height_m;
+    bundle_spec.lateral_m = lateral_m;
+    bundle_spec.spacing_m = spacing_m;
+    bundle_spec.existing_bundle_id = new_bundle_id;
+    if (template_it->second.count_rule == BundleCountRuleKind::kRange) {
+      bundle_spec.count = anchor->conductor_count;
+    }
+    spec.bundles.push_back(bundle_spec);
+
+    generation::backbone::pipeline pipeline(trial, spec);
+    EditResult<GenerateBundleFromPathResult> replay = pipeline.build(
+        pipeline.build_input_from_saved_scope(
+            std::move(made_graph), {0}, false, true,
+            std::move(component_constraints)));
+    if (!replay.ok) return reject(replay.error);
+    if (replay.value.bundle_ids.size() != 1 ||
+        replay.value.bundle_ids.front() == kInvalidObjectId ||
+        (new_bundle_id != kInvalidObjectId &&
+         replay.value.bundle_ids.front() != new_bundle_id)) {
+      return reject(
+          "backbone internal: added Bundle identity is inconsistent across components");
+    }
+    new_bundle_id = replay.value.bundle_ids.front();
+    append_unique(change_set.created_ids, replay.change_set.created_ids);
+    append_unique(change_set.updated_ids, replay.change_set.updated_ids);
+    append_unique(change_set.deleted_ids, replay.change_set.deleted_ids);
+  }
+
+  const Bundle* added = trial.view().bundles().find(new_bundle_id);
+  if (added == nullptr || new_bundle_id == anchor_bundle_id ||
+      added->bundle_template_id != anchor->bundle_template_id ||
+      added->conductor_count != anchor->conductor_count ||
+      added->placement_key != placement_key || !added->placement_explicit ||
+      added->height_m != height_m || added->lateral_m != lateral_m ||
+      added->spacing_override_m != spacing_m) {
+    return reject(
+        "backbone internal: added Bundle identity or placement is invalid");
+  }
+
+  std::unordered_map<ObjectId, ObjectId> new_edge_bundle_by_edge{};
+  std::unordered_set<ObjectId> new_edge_bundle_ids{};
+  for (const SavedBackboneEdgeBundle& edge_bundle :
+       trial.view().backbone().edge_bundles) {
+    if (edge_bundle.bundle_id != new_bundle_id) continue;
+    if (!anchor_edge_ids.contains(edge_bundle.edge_id) ||
+        !new_edge_bundle_by_edge.emplace(edge_bundle.edge_id,
+                                         edge_bundle.edge_bundle_id)
+             .second) {
+      return reject(
+          "backbone internal: added Bundle physical membership is not isomorphic");
+    }
+    new_edge_bundle_ids.insert(edge_bundle.edge_bundle_id);
+  }
+  if (new_edge_bundle_by_edge.size() != anchor_edge_ids.size()) {
+    return reject(
+        "backbone internal: added Bundle physical membership is incomplete");
+  }
+
+  std::vector<PhysicalContinuity> added_continuity{};
+  for (const SavedBackboneRowContinuity& continuity :
+       trial.view().backbone().row_continuities) {
+    const bool a_added =
+        new_edge_bundle_ids.contains(continuity.a.edge_bundle_id);
+    const bool b_added =
+        new_edge_bundle_ids.contains(continuity.b.edge_bundle_id);
+    if (a_added != b_added) {
+      return reject(
+          "backbone internal: added Bundle continuity crosses identity");
+    }
+    if (!a_added) continue;
+    const SavedBackboneEdgeBundle* edge_bundle_a =
+        trial.view().backbone_edge_bundle(continuity.a.edge_bundle_id);
+    const SavedBackboneEdgeBundle* edge_bundle_b =
+        trial.view().backbone_edge_bundle(continuity.b.edge_bundle_id);
+    ObjectId edge_a = edge_bundle_a->edge_id;
+    ObjectId edge_b = edge_bundle_b->edge_id;
+    std::size_t lane_a = continuity.a.lane_index;
+    std::size_t lane_b = continuity.b.lane_index;
+    if (std::pair{edge_b, lane_b} < std::pair{edge_a, lane_a}) {
+      std::swap(edge_a, edge_b);
+      std::swap(lane_a, lane_b);
+    }
+    added_continuity.emplace_back(continuity.node_id, edge_a, lane_a,
+                                  edge_b, lane_b);
+  }
+  std::sort(added_continuity.begin(), added_continuity.end());
+  if (added_continuity != anchor_continuity) {
+    return reject(
+        "backbone internal: added Bundle row continuity is not isomorphic");
+  }
+
+  std::unordered_set<ObjectId> added_span_ids{};
+  std::unordered_set<ObjectId> added_port_ids{};
+  for (ObjectId edge_bundle_id : new_edge_bundle_ids) {
+    std::vector<bool> span_lanes(lane_count, false);
+    std::vector<std::size_t> port_lane_counts(lane_count, 0);
+    for (const SavedBackboneSpanBinding& binding :
+         trial.view().backbone().span_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id) continue;
+      if (binding.lane_index >= lane_count ||
+          span_lanes[binding.lane_index] ||
+          anchor_span_ids.contains(binding.span_id)) {
+        return reject(
+            "backbone internal: added Bundle Span identity is invalid");
+      }
+      span_lanes[binding.lane_index] = true;
+      added_span_ids.insert(binding.span_id);
+    }
+    for (const SavedBackbonePortBinding& binding :
+         trial.view().backbone().port_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id) continue;
+      if (binding.lane_index >= lane_count ||
+          anchor_port_ids.contains(binding.port_id)) {
+        return reject(
+            "backbone internal: added Bundle Port identity is invalid");
+      }
+      ++port_lane_counts[binding.lane_index];
+      added_port_ids.insert(binding.port_id);
+    }
+    if (std::find(span_lanes.begin(), span_lanes.end(), false) !=
+            span_lanes.end() ||
+        std::any_of(port_lane_counts.begin(), port_lane_counts.end(),
+                    [](std::size_t count) { return count != 2; })) {
+      return reject(
+          "backbone internal: added Bundle binding topology is incomplete");
+    }
+  }
+
+  EditResult<bool> rebuilt = trial.rebuild_loaded_outputs();
+  if (!rebuilt.ok) return reject(rebuilt.error);
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      return reject(
+          "backbone invalid input: added Bundle validation failed: " +
+          issue.code + ": " + issue.message);
+    }
+  }
+
+  identity_ = trial.identity_;
+  authoritative_ = trial.authoritative_;
+  runtime_ = trial.runtime_;
+  debug_ = trial.debug_;
+  result.ok = true;
+  result.value = new_bundle_id;
+  result.change_set = std::move(change_set);
   return result;
 }
 

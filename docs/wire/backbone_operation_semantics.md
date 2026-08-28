@@ -70,6 +70,20 @@ default endpoint Attachmentを同じtrialで退役し、残存authorityからder
 sourceを残したbranch Bundleの退役は可能とする。必須binding不足、user Attachment、manual Port、Span override、
 scope外Spanが使用するPort、またはsource dependencyをexact identityで確定できない状態は、authority不変で失敗する。
 
+`AddBackboneBundleInstance`は接続相手を新しく決める操作ではない。exact anchor `Bundle`の全edge bundle membership、
+row continuity、lane index relationを保存済みauthorityから読み、同じtemplate、conductor count、lane policyを持つ
+新しいexact `Bundle`へ同型複製する。callerが指定できるのは新しい非zero `placement_key`とexplicit
+height / lateral / spacingだけである。新Bundle、EdgeBundle、Port、Span、binding、default endpoint Attachmentは
+全componentを1つのtrialで生成し、anchorとpeerのidentityを変更または共有しない。新instanceのPort / Spanは
+常に別ObjectIdとする。Attachment、manual Port、Span overrideは複製対象にしない。
+
+branch / cross / sharpはcategoryで除外せず、anchorの保存済みrelationをそのまま複製できる限り扱う。
+pipelineへはanchor continuityを一時的なexplicit constraintとして渡し、通常の候補規則による再pairingを複製の
+oracleにしない。生成後のphysical edge membershipとlane continuityがanchorと同型でなければcommitしない。
+anchor scopeまたは必須bindingの欠落、placement key重複、template / count / lane relation不整合はauthority不変で
+失敗する。source-edge dependencyを持つanchorは、exact source Bundle mappingを入力できない現段階では`SM`の
+fail-closed制約としてmutation前に`unsupported`で拒否する。
+
 ## 実行時coverage契約
 
 `C` / `O` / `K` / `U` の各セルは、test case ID や手書きタグではなく、test実行中に

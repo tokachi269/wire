@@ -899,7 +899,10 @@ describe("viewport tool routing", () => {
       preferredSideSign: -1,
       poleTypeId: 1,
       rules: routeBundleRules({ density: 1, heightSpread: 1, lateralSpread: 1 }),
-      instances: [{ placementKey: 11, bundleId: "301" }]
+      instances: [
+        { placementKey: 11, bundleId: "301" },
+        { placementKey: 12, bundleId: "302" }
+      ]
     };
     const backboneBundleVariationForBundle = vi.fn(() => descriptor);
     const backboneBundleVariation = vi.fn(() => descriptor);
@@ -919,7 +922,10 @@ describe("viewport tool routing", () => {
     const store = new ViewerStore();
     store.update((snapshot) => ({
       ...snapshot,
-      spans: [{ id: "201", portAId: "101", portBId: "102", bundleId: "301" }]
+      spans: [
+        { id: "201", portAId: "101", portBId: "102", bundleId: "301" },
+        { id: "203", portAId: "105", portBId: "106", bundleId: "302" }
+      ]
     }));
     const actions = new ViewerActions(actionBridge({
       backboneBundleVariationForBundle,
@@ -929,6 +935,9 @@ describe("viewport tool routing", () => {
 
     actions.select("span", "201");
     expect(backboneBundleVariationForBundle).toHaveBeenCalledWith("301");
+    expect(current(store).selectedRouteVariation?.variationId).toBe("901");
+    actions.select("span", "203");
+    expect(backboneBundleVariationForBundle).toHaveBeenLastCalledWith("302");
     expect(current(store).selectedRouteVariation?.variationId).toBe("901");
 
     actions.setSelectedRouteVariation("heightSpread", 0.5);
@@ -946,6 +955,96 @@ describe("viewport tool routing", () => {
     expect(appliedRules[1].lateralAbsMax - appliedRules[1].lateralAbsMin).toBeCloseTo(0.3, 12);
   });
 
+  it("uses the persisted descriptor as the neutral Apply baseline", () => {
+    const persistedRules = [{
+      bundleTemplateId: 104, minInstances: 2, maxInstances: 3,
+      conductorCount: 1, heightMin: 6, heightMax: 7,
+      lateralAbsMin: 0.3, lateralAbsMax: 0.7, minSpacing: 0.16
+    }];
+    const descriptor = {
+      ok: true, error: "", found: true, variationId: "904", routeSeed: 321,
+      preferredSideSign: -1, poleTypeId: 1, rules: persistedRules,
+      instances: [{ placementKey: 31, bundleId: "501" }]
+    };
+    const applyBackboneBundleVariation = vi.fn((
+      _variationId: string,
+      _rules: typeof persistedRules
+    ) => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      spans: [{ id: "205", portAId: "109", portBId: "110", bundleId: "501" }]
+    }));
+    const actions = new ViewerActions(actionBridge({
+      backboneBundleVariationForBundle: () => descriptor,
+      backboneBundleVariation: () => descriptor,
+      applyBackboneBundleVariation
+    }), store);
+
+    actions.select("span", "205");
+    actions.applySelectedRouteVariation();
+
+    expect(applyBackboneBundleVariation.mock.calls[0][1]).toEqual(persistedRules);
+    expect(current(store).selectedRouteVariationControls).toEqual({
+      density: 1, heightSpread: 1, lateralSpread: 1
+    });
+  });
+
+  it("rejects persisted variation controls while the same route is active", () => {
+    const descriptor = {
+      ok: true, error: "", found: true, variationId: "905", routeSeed: 654,
+      preferredSideSign: -1, poleTypeId: 1,
+      rules: routeBundleRules({ density: 1, heightSpread: 1, lateralSpread: 1 }),
+      instances: [{ placementKey: 41, bundleId: "601" }]
+    };
+    const applyBackboneBundleVariation = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      spans: [{ id: "206", portAId: "111", portBId: "112", bundleId: "601" }],
+      pathPoints: [[0, 0, 0]],
+      wireVariationId: "905"
+    }));
+    const actions = new ViewerActions(actionBridge({
+      backboneBundleVariationForBundle: () => descriptor,
+      applyBackboneBundleVariation
+    }), store);
+
+    actions.select("span", "206");
+    actions.setSelectedRouteVariation("density", 1.25);
+    actions.rerollSelectedRouteVariation();
+    actions.applySelectedRouteVariation();
+
+    expect(applyBackboneBundleVariation).not.toHaveBeenCalled();
+    expect(current(store).selectedRouteVariationControls.density).toBe(1);
+    expect(current(store).selectedRouteVariation?.routeSeed).toBe(654);
+    expect(current(store).error).toContain("active wire route");
+  });
+
+  it("rejects an individual placement edit on an active recipe-backed route without staging it", () => {
+    const updateBackboneBundlePlacement = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      wireVariationId: "906",
+      pathPoints: [[0, 0, 0]],
+      drawBundlePlacements: [{
+        id: 51, bundleTemplateId: 104, count: 1, explicit: true,
+        height: 5.2, offset: -0.25, spacing: 0.16,
+        generatedBundleId: "701"
+      }]
+    }));
+    const actions = new ViewerActions(
+      actionBridge({ updateBackboneBundlePlacement }), store
+    );
+
+    actions.updateDrawBundlePlacement(51, { height: 8.8 });
+
+    expect(updateBackboneBundlePlacement).not.toHaveBeenCalled();
+    expect(current(store).drawBundlePlacements[0].height).toBe(5.2);
+    expect(current(store).error).toContain("recipe-backed route");
+  });
+
   it("does not expose recipe controls for a manually generated selected Span", () => {
     const store = new ViewerStore();
     store.update((snapshot) => ({
@@ -958,6 +1057,44 @@ describe("viewport tool routing", () => {
 
     actions.select("span", "201");
     expect(current(store).selectedRouteVariation).toBeNull();
+  });
+
+  it("keeps the variation scope inspectable when the selected rule reaches zero instances", () => {
+    const initial = {
+      ok: true, error: "", found: true, variationId: "903", routeSeed: 789,
+      preferredSideSign: -1, poleTypeId: 1,
+      rules: routeBundleRules({ density: 1, heightSpread: 1, lateralSpread: 1 }),
+      instances: [
+        { placementKey: 21, bundleId: "401" },
+        { placementKey: 22, bundleId: "402" }
+      ]
+    };
+    const after = {
+      ...initial,
+      rules: initial.rules.map((rule) => rule.bundleTemplateId === 105
+        ? { ...rule, minInstances: 0, maxInstances: 0 }
+        : rule),
+      instances: [{ placementKey: 21, bundleId: "401" }]
+    };
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      spans: [{ id: "204", portAId: "107", portBId: "108", bundleId: "402" }]
+    }));
+    const actions = new ViewerActions(actionBridge({
+      backboneBundleVariationForBundle: () => initial,
+      backboneBundleVariation: () => after,
+      applyBackboneBundleVariation: () => ({ ok: true, error: "" })
+    }), store);
+
+    actions.select("span", "204");
+    actions.applySelectedRouteVariation();
+
+    expect(current(store).selectedRouteVariation).toMatchObject({
+      found: true,
+      variationId: "903",
+      instances: [{ placementKey: 21, bundleId: "401" }]
+    });
   });
 
   it("keeps the selected descriptor staged and reports Core Apply failure", () => {
@@ -974,6 +1111,7 @@ describe("viewport tool routing", () => {
     }));
     const actions = new ViewerActions(actionBridge({
       backboneBundleVariationForBundle: () => descriptor,
+      backboneBundleVariation: () => descriptor,
       applyBackboneBundleVariation: () => ({
         ok: false,
         error: "backbone unsupported: initial zero-instance variation has no exact membership source"
@@ -982,11 +1120,43 @@ describe("viewport tool routing", () => {
 
     actions.select("span", "201");
     actions.setSelectedRouteVariation("density", 1.25);
+    actions.rerollSelectedRouteVariation();
+    expect(current(store).selectedRouteVariation?.routeSeed).not.toBe(123);
     actions.applySelectedRouteVariation();
 
     expect(current(store).selectedRouteVariation?.variationId).toBe("901");
-    expect(current(store).selectedRouteVariationControls.density).toBe(1.25);
+    expect(current(store).selectedRouteVariation?.routeSeed).toBe(123);
+    expect(current(store).selectedRouteVariationControls.density).toBe(1);
     expect(current(store).error).toContain("initial zero-instance");
+  });
+
+  it("surfaces source-edge add rejection and restores the persisted controls", () => {
+    const descriptor = {
+      ok: true, error: "", found: true, variationId: "902", routeSeed: 456,
+      preferredSideSign: -1, poleTypeId: 1,
+      rules: routeBundleRules({ density: 1, heightSpread: 1, lateralSpread: 1 }),
+      instances: [{ placementKey: 12, bundleId: "302" }]
+    };
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      spans: [{ id: "202", portAId: "103", portBId: "104", bundleId: "302" }]
+    }));
+    const actions = new ViewerActions(actionBridge({
+      backboneBundleVariationForBundle: () => descriptor,
+      backboneBundleVariation: () => descriptor,
+      applyBackboneBundleVariation: () => ({
+        ok: false,
+        error: "backbone unsupported: added Bundle source-edge dependency requires exact source Bundle mapping"
+      })
+    }), store);
+
+    actions.select("span", "202");
+    actions.setSelectedRouteVariation("density", 1.25);
+    actions.applySelectedRouteVariation();
+
+    expect(current(store).selectedRouteVariationControls.density).toBe(1);
+    expect(current(store).error).toContain("source-edge dependency");
   });
 
   it("applies route controls to the next resolution and rerolls only before the route starts", () => {

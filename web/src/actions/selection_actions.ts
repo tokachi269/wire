@@ -2,7 +2,10 @@ import type { ViewerActionContext } from "./context";
 import type { OperationResult } from "../model";
 import type { RouteVariationControls } from "../model";
 import type { SelectionKind } from "../store/viewer";
-import { controlsForRouteBundleRules, routeBundleRules } from "../profile/defaultBundlePreset";
+import {
+  adjustRouteBundleRules,
+  DEFAULT_ROUTE_VARIATION_CONTROLS
+} from "../profile/defaultBundlePreset";
 
 function newRouteSeed(): number {
   const words = new Uint32Array(2);
@@ -25,9 +28,9 @@ export class SelectionActions {
       ...current,
       selection: { kind, id },
       selectedRouteVariation: selectedVariation,
-      selectedRouteVariationControls: selectedVariation?.rules === undefined
+      selectedRouteVariationControls: selectedVariation === null
         ? current.selectedRouteVariationControls
-        : controlsForRouteBundleRules(selectedVariation.rules)
+        : { ...DEFAULT_ROUTE_VARIATION_CONTROLS }
     }));
   }
 
@@ -40,7 +43,15 @@ export class SelectionActions {
   setRouteVariation<K extends keyof RouteVariationControls>(
     param: K, value: RouteVariationControls[K]
   ): void {
-    if (this.ctx.readSnapshot().selectedRouteVariation === null) return;
+    const snapshot = this.ctx.readSnapshot();
+    if (snapshot.selectedRouteVariation === null) return;
+    if (snapshot.pathPoints.length > 0 &&
+        snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId) {
+      this.ctx.store.setError(
+        "finish or cancel the active wire route before changing its persisted variation"
+      );
+      return;
+    }
     this.ctx.store.update((current) => ({
       ...current,
       selectedRouteVariationControls: {
@@ -53,6 +64,13 @@ export class SelectionActions {
   rerollRouteVariation(): void {
     const current = this.ctx.readSnapshot();
     if (current.selectedRouteVariation === null) return;
+    if (current.pathPoints.length > 0 &&
+        current.wireVariationId === current.selectedRouteVariation.variationId) {
+      this.ctx.store.setError(
+        "finish or cancel the active wire route before rerolling its persisted variation"
+      );
+      return;
+    }
     let routeSeed = newRouteSeed();
     if (routeSeed === current.selectedRouteVariation.routeSeed) {
       routeSeed = (routeSeed + 1) % Number.MAX_SAFE_INTEGER;
@@ -73,18 +91,34 @@ export class SelectionActions {
       this.ctx.store.setError("select a recipe-backed wire span before applying route variation");
       return;
     }
+    if (current.pathPoints.length > 0 &&
+        current.wireVariationId === variation.variationId) {
+      this.ctx.store.setError(
+        "finish or cancel the active wire route before applying its persisted variation"
+      );
+      return;
+    }
     const result = this.ctx.bridge.applyBackboneBundleVariation(
       variation.variationId,
-      routeBundleRules(
-        current.selectedRouteVariationControls,
-        variation.rules ?? []
+      adjustRouteBundleRules(
+        variation.rules ?? [], current.selectedRouteVariationControls
       ),
       variation.routeSeed,
       variation.preferredSideSign,
       variation.poleTypeId
     );
     if (!result.ok) {
-      this.ctx.store.setError(result.error);
+      const persisted = this.ctx.bridge.backboneBundleVariation(variation.variationId);
+      this.ctx.store.update((snapshot) => ({
+        ...snapshot,
+        selectedRouteVariation: persisted.ok && persisted.found
+          ? persisted
+          : snapshot.selectedRouteVariation,
+        selectedRouteVariationControls: persisted.ok && persisted.found
+          ? { ...DEFAULT_ROUTE_VARIATION_CONTROLS }
+          : snapshot.selectedRouteVariationControls,
+        error: result.error
+      }));
       return;
     }
     this.ctx.refreshScene();
@@ -92,9 +126,9 @@ export class SelectionActions {
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       selectedRouteVariation: updated.ok && updated.found ? updated : null,
-      selectedRouteVariationControls: updated.rules === undefined
-        ? snapshot.selectedRouteVariationControls
-        : controlsForRouteBundleRules(updated.rules),
+      selectedRouteVariationControls: updated.ok && updated.found
+        ? { ...DEFAULT_ROUTE_VARIATION_CONTROLS }
+        : snapshot.selectedRouteVariationControls,
       error: "",
       logs: [...snapshot.logs, `route variation ${variation.variationId} applied`]
     }));

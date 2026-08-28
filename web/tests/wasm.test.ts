@@ -485,6 +485,12 @@ describe("wire wasm smoke", () => {
       lateralAbsMax: 0.25,
       minSpacing: 0.2
     }];
+    const previewFirst = runState.previewBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), rules, 12345, -1,
+      0, 1, 0, 0, []
+    );
+    expect(previewFirst.ok, previewFirst.error).toBe(true);
+    expect(runState.poleCount()).toBe(0);
     const first = runState.generateBundleVariation(
       new Float64Array([0, 0, 0, 12, 0, 0]), rules, 12345, -1,
       0, 1, 0, 0, []
@@ -492,6 +498,7 @@ describe("wire wasm smoke", () => {
     expect(first.ok, first.error).toBe(true);
     expect(first.variationId).toMatch(/^\d+$/);
     expect(first.generatedBundleIds).toHaveLength(1);
+    expect(first.generatedSpanCount).toBe(previewFirst.generatedSpanCount);
 
     const inspected = runState.backboneBundleVariationForBundle(first.generatedBundleIds![0]);
     expect(inspected).toMatchObject({
@@ -503,40 +510,65 @@ describe("wire wasm smoke", () => {
       poleTypeId: 1
     });
     expect(inspected.rules).toEqual(rules);
+    const initialBundleId = inspected.instances![0].bundleId;
+    const portsForBundle = (bundleId: string) => {
+      const portIds = new Set(
+        Array.from({ length: runState.spanCount() }, (_, index) => runState.span(index))
+          .filter((span) => span.bundleId === bundleId)
+          .flatMap((span) => [span.portAId, span.portBId])
+      );
+      return Array.from({ length: runState.portCount() }, (_, index) => runState.port(index))
+        .filter((port) => portIds.has(port.id));
+    };
+    const initialPorts = portsForBundle(initialBundleId);
 
+    const beforeExtendPreview = runState.saveState();
+    const previewSecond = runState.previewExtendBundleVariation(
+      first.variationId!,
+      new Float64Array([12, 0, 0, 24, 3, 0]),
+      0, 1, 0, 0,
+      [{ pointIndex: 0, supportKind: 0, nodeId: first.generatedNodeIds![1] }]
+    );
+    expect(previewSecond.ok, previewSecond.error).toBe(true);
+    expect(runState.saveState()).toBe(beforeExtendPreview);
     const second = runState.extendBundleVariation(
       first.variationId!,
       new Float64Array([12, 0, 0, 24, 3, 0]),
-      [{
-        id: inspected.instances![0].placementKey,
-        bundleTemplateId: 102,
-        generatedBundleId: first.generatedBundleIds![0],
-        count: 1,
-        explicit: true,
-        height: 7.1,
-        offset: -0.25,
-        spacing: 0.2
-      }],
       0, 1, 0, 0,
       [{ pointIndex: 0, supportKind: 0, nodeId: first.generatedNodeIds![1] }]
     );
     expect(second.ok, second.error).toBe(true);
+    expect(second.generatedSpanCount).toBe(previewSecond.generatedSpanCount);
     expect(second.variationId).toBe(first.variationId);
 
-    const changedRules = [{ ...rules[0], heightMin: 7.5, heightMax: 7.5 }];
+    const changedRules = [{
+      ...rules[0],
+      heightMin: 7.5,
+      heightMax: 7.5,
+      lateralAbsMin: 0.45,
+      lateralAbsMax: 0.45
+    }];
     const applied = runState.applyBackboneBundleVariation(
       first.variationId!, changedRules, 12345, -1, 1
     );
     expect(applied.ok, applied.error).toBe(true);
-    expect(runState.backboneBundleVariation(first.variationId!).rules).toEqual(changedRules);
+    const changed = runState.backboneBundleVariation(first.variationId!);
+    expect(changed.rules).toEqual(changedRules);
+    expect(changed.instances![0].bundleId).toBe(initialBundleId);
+    const changedPorts = portsForBundle(initialBundleId);
+    expect(Math.max(...changedPorts.map((port) => port.z)))
+      .toBeGreaterThan(Math.max(...initialPorts.map((port) => port.z)) + 0.3);
+    expect(Math.max(...changedPorts.map((port) => Math.abs(port.y))))
+      .toBeGreaterThan(Math.max(...initialPorts.map((port) => Math.abs(port.y))) + 0.1);
 
     const beforeFailure = runState.saveState();
     const rejected = runState.applyBackboneBundleVariation(
       first.variationId!, [{ ...rules[0], minInstances: 2, maxInstances: 1 }],
-      12345, -1, 1
+      99999, -1, 1
     );
     expect(rejected.ok).toBe(false);
     expect(runState.saveState()).toBe(beforeFailure);
+    expect(runState.backboneBundleVariation(first.variationId!).routeSeed).toBe(12345);
 
     const saved = runState.saveState();
     const loaded = createState();
@@ -607,6 +639,48 @@ describe("wire wasm smoke", () => {
     expect(final.instances).toHaveLength(2);
     expect(new Map(final.instances!.map((item) => [item.placementKey, item.bundleId])))
       .toEqual(initialByKey);
+
+    const rerolled = runState.applyBackboneBundleVariation(
+      generated.variationId!, rule(2), 884423, -1, 2
+    );
+    expect(rerolled.ok, rerolled.error).toBe(true);
+    const rerolledInfo = runState.backboneBundleVariation(generated.variationId!);
+    expect(rerolledInfo.routeSeed).toBe(884423);
+    expect(rerolledInfo.instances!.map((item) => item.placementKey))
+      .not.toEqual(initial.instances!.map((item) => item.placementKey));
+    runState.delete();
+  });
+
+  it("rejects initial zero to one variation Apply without changing descriptor or topology", () => {
+    const runState = createState();
+    const initialRules = [
+      {
+        bundleTemplateId: 102, minInstances: 1, maxInstances: 1,
+        conductorCount: 1, heightMin: 7.2, heightMax: 7.2,
+        lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.2
+      },
+      {
+        bundleTemplateId: 105, minInstances: 0, maxInstances: 0,
+        conductorCount: 1, heightMin: 5.1, heightMax: 5.1,
+        lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.16
+      }
+    ];
+    const generated = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), initialRules, 7001, -1,
+      0, 1, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const before = runState.saveState();
+    const requested = [initialRules[0], { ...initialRules[1], minInstances: 1, maxInstances: 1 }];
+
+    const rejected = runState.applyBackboneBundleVariation(
+      generated.variationId!, requested, 7001, -1, 1
+    );
+
+    expect(rejected.ok).toBe(false);
+    expect(rejected.error).toContain("initial zero-instance");
+    expect(runState.saveState()).toBe(before);
+    expect(runState.backboneBundleVariation(generated.variationId!).rules).toEqual(initialRules);
     runState.delete();
   });
 

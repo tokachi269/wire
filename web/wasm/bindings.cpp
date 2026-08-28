@@ -510,13 +510,36 @@ public:
   }
 
   val extend_bundle_variation(const std::string& variation_id, const val& flat_points,
-                              const val& bundle_placements, double interval_m,
+                              double interval_m,
                               int pole_type_id, int direction_mode, double max_tilt_deg,
                               const val& node_specs = val::undefined()) {
-    return run_placements(*state_, flat_points, bundle_placements, interval_m, pole_type_id,
+    return run_placements(*state_, flat_points, val::array(), interval_m, pole_type_id,
                           direction_mode, max_tilt_deg, node_specs, false,
                           val::undefined(), 0.0, 0,
                           static_cast<ObjectId>(std::stoull(variation_id)));
+  }
+
+  val preview_bundle_variation(const val& flat_points, const val& rules,
+                               double route_seed, int preferred_side_sign,
+                               double interval_m, int pole_type_id,
+                               int direction_mode, double max_tilt_deg,
+                               const val& node_specs = val::undefined()) {
+    CoreState trial = *state_;
+    return run_placements(trial, flat_points, val::array(), interval_m,
+                          pole_type_id, direction_mode, max_tilt_deg,
+                          node_specs, true, rules, route_seed,
+                          preferred_side_sign);
+  }
+
+  val preview_extend_bundle_variation(
+      const std::string& variation_id, const val& flat_points,
+      double interval_m, int pole_type_id, int direction_mode,
+      double max_tilt_deg, const val& node_specs = val::undefined()) {
+    CoreState trial = *state_;
+    return run_placements(
+        trial, flat_points, val::array(), interval_m, pole_type_id,
+        direction_mode, max_tilt_deg, node_specs, true, val::undefined(), 0.0,
+        0, static_cast<ObjectId>(std::stoull(variation_id)));
   }
 
   val preview_placements(const val& flat_points, const val& bundle_placements, double interval_m,
@@ -577,7 +600,8 @@ private:
 
     const bool generate_variation = !variation_rules.isUndefined() && !variation_rules.isNull();
     const std::size_t bundle_count = bundle_placements["length"].as<std::size_t>();
-    if (bundle_count == 0 && !generate_variation) {
+    if (bundle_count == 0 && !generate_variation &&
+        variation_id == city::wire::kInvalidObjectId) {
       return result_value(false, "backbone unsupported: bundle placements must be non-empty");
     }
     for (std::size_t index = 0; index < bundle_count; ++index) {
@@ -2504,6 +2528,8 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("generatePlacements", &WireState::generate_placements)
       .function("generateBundleVariation", &WireState::generate_bundle_variation)
       .function("extendBundleVariation", &WireState::extend_bundle_variation)
+      .function("previewBundleVariation", &WireState::preview_bundle_variation)
+      .function("previewExtendBundleVariation", &WireState::preview_extend_bundle_variation)
       .function("previewPlacements", &WireState::preview_placements)
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
       .function("previewResolveBranchPick", &WireState::preview_resolve_branch_pick)

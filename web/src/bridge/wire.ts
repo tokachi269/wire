@@ -209,15 +209,22 @@ export class WireBridge {
   previewWireInterval(input: WireIntervalRequest): WireIntervalPreview {
     const prepared = this.prepareWireInterval(input, true);
     if (!prepared.ok) return { ...prepared, parts: [], poles: [] };
-    const preview = this.state.previewPlacements(
-      prepared.points,
-      input.bundlePlacements,
-      input.intervalM,
-      input.poleTypeId,
-      input.directionMode,
-      input.maxTiltDeg,
-      prepared.nodeSpecs
-    );
+    const preview = input.variationId !== undefined
+      ? this.state.previewExtendBundleVariation(
+        input.variationId, prepared.points, input.intervalM, input.poleTypeId,
+        input.directionMode, input.maxTiltDeg, prepared.nodeSpecs
+      )
+      : input.variationRules !== undefined && input.routeSeed !== undefined
+        ? this.state.previewBundleVariation(
+          prepared.points, input.variationRules, input.routeSeed,
+          input.preferredSideSign ?? 0, input.intervalM, input.poleTypeId,
+          input.directionMode, input.maxTiltDeg, prepared.nodeSpecs
+        )
+        : this.state.previewPlacements(
+          prepared.points, input.bundlePlacements, input.intervalM,
+          input.poleTypeId, input.directionMode, input.maxTiltDeg,
+          prepared.nodeSpecs
+        );
     if (!preview.ok) {
       return {
         ...preview,
@@ -248,8 +255,8 @@ export class WireBridge {
     if (!prepared.ok) return prepared;
     const generated = input.variationId !== undefined
       ? this.state.extendBundleVariation(
-        input.variationId, prepared.points, input.bundlePlacements,
-        input.intervalM, input.poleTypeId, input.directionMode,
+        input.variationId, prepared.points, input.intervalM,
+        input.poleTypeId, input.directionMode,
         input.maxTiltDeg, prepared.nodeSpecs
       )
       : input.variationRules !== undefined && input.routeSeed !== undefined
@@ -277,7 +284,25 @@ export class WireBridge {
     let endpoint = input.points[1];
     let endpointSpec = input.pointSpecs[1];
     if (input.targetPick !== undefined) {
-      const selected = [...new Set(input.bundlePlacements.map((placement) => placement.bundleTemplateId))];
+      let selected = [...new Set(
+        input.bundlePlacements.map((placement) => placement.bundleTemplateId)
+      )];
+      if (input.variationId !== undefined) {
+        const variation = this.state.backboneBundleVariation(input.variationId);
+        if (!variation.ok || !variation.found || variation.rules === undefined) {
+          return {
+            ...emptyWireIntervalResult(
+              endpoint, endpointSpec,
+              variation.error || "backbone Bundle variation descriptor is missing"
+            ),
+            points: new Float64Array(),
+            nodeSpecs: []
+          };
+        }
+        selected = [...new Set(
+          variation.rules.map((rule) => rule.bundleTemplateId)
+        )];
+      }
       const resolved = preview
         ? this.state.previewResolveBranchPick(input.targetPick, selected)
         : this.state.resolveBranchPick(input.targetPick, selected);

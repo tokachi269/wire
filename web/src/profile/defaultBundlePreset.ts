@@ -37,20 +37,28 @@ export function routeBundleRules(
   controls: RouteVariationControls,
   sourceRules: ReadonlyArray<RandomBundleRule> = DEFAULT_BUNDLE_RULES
 ): RandomBundleRule[] {
+  return adjustRouteBundleRules(sourceRules, controls);
+}
+
+export function adjustRouteBundleRules(
+  sourceRules: ReadonlyArray<RandomBundleRule>,
+  controls: RouteVariationControls
+): RandomBundleRule[] {
+  if (controls.density === 1 && controls.heightSpread === 1 &&
+      controls.lateralSpread === 1) {
+    return sourceRules.map((rule) => ({ ...rule }));
+  }
   return sourceRules.map((rule) => {
-    const authored = DEFAULT_BUNDLE_RULES.find((candidate) =>
-      candidate.bundleTemplateId === rule.bundleTemplateId
-    ) ?? rule;
-    if (authored.bundleTemplateId === 101) return { ...rule };
-    const center = (authored.heightMin + authored.heightMax) * 0.5;
-    const halfRange = (authored.heightMax - authored.heightMin) * 0.5 * controls.heightSpread;
-    const lateralCenter = (authored.lateralAbsMin + authored.lateralAbsMax) * 0.5;
-    const lateralHalfRange = (authored.lateralAbsMax - authored.lateralAbsMin) *
+    if (rule.bundleTemplateId === 101) return { ...rule };
+    const center = (rule.heightMin + rule.heightMax) * 0.5;
+    const halfRange = (rule.heightMax - rule.heightMin) * 0.5 * controls.heightSpread;
+    const lateralCenter = (rule.lateralAbsMin + rule.lateralAbsMax) * 0.5;
+    const lateralHalfRange = (rule.lateralAbsMax - rule.lateralAbsMin) *
       0.5 * controls.lateralSpread;
-    const minInstances = Math.round(authored.minInstances * controls.density);
+    const minInstances = Math.round(rule.minInstances * controls.density);
     const maxInstances = Math.max(
       minInstances,
-      Math.round(authored.maxInstances * controls.density)
+      Math.round(rule.maxInstances * controls.density)
     );
     return {
       ...rule,
@@ -62,25 +70,4 @@ export function routeBundleRules(
       lateralAbsMax: lateralCenter + lateralHalfRange
     };
   });
-}
-
-export function controlsForRouteBundleRules(
-  rules: ReadonlyArray<RandomBundleRule>
-): RouteVariationControls {
-  const current = rules.find((rule) => rule.bundleTemplateId !== 101) ?? rules[0];
-  const base = DEFAULT_BUNDLE_RULES.find((rule) =>
-    rule.bundleTemplateId === current?.bundleTemplateId
-  ) ?? current;
-  if (current === undefined || base === undefined) {
-    return { ...DEFAULT_ROUTE_VARIATION_CONTROLS };
-  }
-  const baseHeightRange = base.heightMax - base.heightMin;
-  const baseLateralRange = base.lateralAbsMax - base.lateralAbsMin;
-  return {
-    density: base.maxInstances === 0 ? 1 : current.maxInstances / base.maxInstances,
-    heightSpread: baseHeightRange === 0 ? 1 : (current.heightMax - current.heightMin) / baseHeightRange,
-    lateralSpread: baseLateralRange === 0
-      ? 1
-      : (current.lateralAbsMax - current.lateralAbsMin) / baseLateralRange
-  };
 }

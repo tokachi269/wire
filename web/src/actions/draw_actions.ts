@@ -250,6 +250,17 @@ export class DrawActions {
   }
 
   updateDrawBundlePlacement(id: number, change: Partial<Omit<import("../model").BundlePlacement, "id">>): void {
+    const before = this.ctx.readSnapshot();
+    const currentTarget = before.drawBundlePlacements.find(
+      (placement) => placement.id === id
+    );
+    if (before.wireVariationId !== null &&
+        currentTarget?.generatedBundleId !== undefined) {
+      this.ctx.store.setError(
+        "finish or cancel the recipe-backed route before editing an individual Bundle placement"
+      );
+      return;
+    }
     this.ctx.store.update((current) => {
       const target = current.drawBundlePlacements.find((placement) => placement.id === id);
       return {

@@ -88,6 +88,8 @@
       <label>
         Line density
         <input type="range" min="0.5" max="1.25" step="0.05"
+          disabled={snapshot.pathPoints.length > 0 &&
+            snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
           value={snapshot.selectedRouteVariationControls.density}
           oninput={(event) => actions.setSelectedRouteVariation("density", numberValue(event))} />
         <output>{snapshot.selectedRouteVariationControls.density.toFixed(2)}x</output>
@@ -95,6 +97,8 @@
       <label>
         Height spread
         <input type="range" min="0.25" max="1.75" step="0.05"
+          disabled={snapshot.pathPoints.length > 0 &&
+            snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
           value={snapshot.selectedRouteVariationControls.heightSpread}
           oninput={(event) => actions.setSelectedRouteVariation("heightSpread", numberValue(event))} />
         <output>{snapshot.selectedRouteVariationControls.heightSpread.toFixed(2)}x</output>
@@ -102,16 +106,23 @@
       <label>
         Lateral spread
         <input type="range" min="0.25" max="1.75" step="0.05"
+          disabled={snapshot.pathPoints.length > 0 &&
+            snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
           value={snapshot.selectedRouteVariationControls.lateralSpread}
           oninput={(event) => actions.setSelectedRouteVariation("lateralSpread", numberValue(event))} />
         <output>{snapshot.selectedRouteVariationControls.lateralSpread.toFixed(2)}x</output>
       </label>
       <button class="secondary" type="button"
+        disabled={snapshot.pathPoints.length > 0 &&
+          snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
         onclick={() => actions.rerollSelectedRouteVariation()}>
         Reroll seed
       </button>
       <output class="route-seed">Seed: {snapshot.selectedRouteVariation.routeSeed}</output>
-      <button type="button" onclick={() => actions.applySelectedRouteVariation()}>
+      <button type="button"
+        disabled={snapshot.pathPoints.length > 0 &&
+          snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
+        onclick={() => actions.applySelectedRouteVariation()}>
         Apply to selected route
       </button>
     </section>

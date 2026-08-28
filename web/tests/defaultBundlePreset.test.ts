@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  adjustRouteBundleRules,
   DEFAULT_BUNDLE_RULES,
   routeBundleRules
 } from "../src/profile/defaultBundlePreset";
@@ -44,5 +45,31 @@ describe("default route bundle variation controls", () => {
     expect(rules).toHaveLength(1);
     expect(rules[0].bundleTemplateId).toBe(104);
     expect(rules[0].maxInstances).toBe(2);
+  });
+
+  it("uses a persisted descriptor as the relative baseline and keeps neutral Apply exact", () => {
+    const persisted = [{
+      ...DEFAULT_BUNDLE_RULES[2],
+      minInstances: 2,
+      maxInstances: 3,
+      heightMin: 6.0,
+      heightMax: 7.0,
+      lateralAbsMin: 0.3,
+      lateralAbsMax: 0.7
+    }];
+
+    expect(adjustRouteBundleRules(
+      persisted, { density: 1, heightSpread: 1, lateralSpread: 1 }
+    )).toEqual(persisted);
+    expect(adjustRouteBundleRules(
+      persisted, { density: 0.5, heightSpread: 0.5, lateralSpread: 0.5 }
+    )[0]).toMatchObject({
+      minInstances: 1,
+      maxInstances: 2,
+      heightMin: 6.25,
+      heightMax: 6.75,
+      lateralAbsMin: 0.4,
+      lateralAbsMax: 0.6
+    });
   });
 });

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -1091,6 +1092,251 @@ EditResult<ObjectId> CoreState::AddBackboneBundleInstance(
   result.ok = true;
   result.value = new_bundle_id;
   result.change_set = std::move(change_set);
+  return result;
+}
+
+EditResult<bool> CoreState::ReconcileBackboneBundleInstances(
+    const BackboneBundleReconcileInput& input) {
+  EditResult<bool> result{};
+  auto reject = [&](std::string error) {
+    result.error = std::move(error);
+    result.classify_error();
+    return result;
+  };
+
+  std::unordered_set<ObjectId> current_ids{};
+  std::map<std::uint64_t, ObjectId> current_by_key{};
+  std::unordered_map<ObjectId, std::uint64_t> current_key_by_id{};
+  for (ObjectId bundle_id : input.current_bundle_ids) {
+    if (bundle_id == kInvalidObjectId || !current_ids.insert(bundle_id).second) {
+      return reject(
+          "backbone invalid input: reconcile current Bundle IDs must be exact and unique");
+    }
+    const Bundle* bundle = view().bundles().find(bundle_id);
+    if (bundle == nullptr || bundle->placement_key == 0) {
+      return reject(
+          "backbone invalid input: reconcile current Bundle requires a nonzero placement_key");
+    }
+    if (!current_by_key.emplace(bundle->placement_key, bundle_id).second) {
+      return reject(
+          "backbone invalid input: reconcile current placement_keys must be unique");
+    }
+    current_key_by_id.emplace(bundle_id, bundle->placement_key);
+  }
+
+  std::map<std::uint64_t, const BackboneBundleReconcileEntry*> desired_by_key{};
+  std::map<std::uint64_t, int> desired_count_by_key{};
+  for (const BackboneBundleReconcileEntry& entry : input.desired_bundles) {
+    const BackboneBundleSpec& desired = entry.desired;
+    if (desired.placement_key == 0 ||
+        !desired_by_key.emplace(desired.placement_key, &entry).second) {
+      return reject(
+          "backbone invalid input: reconcile desired placement_keys must be nonzero and unique");
+    }
+    if (!desired.placement_explicit || !std::isfinite(desired.height_m) ||
+        !std::isfinite(desired.lateral_m) ||
+        !std::isfinite(desired.spacing_m) || desired.spacing_m <= 0.0) {
+      return reject(
+          "backbone invalid input: reconcile desired placement must be explicit, finite, and positive-spaced");
+    }
+    if (desired.source_bundle_id != kInvalidObjectId ||
+        desired.existing_bundle_id != kInvalidObjectId) {
+      return reject(
+          "backbone invalid input: reconcile desired spec cannot carry source or existing Bundle identity");
+    }
+    const auto template_it =
+        authoritative_.bundle_templates.find(desired.bundle_template_id);
+    if (template_it == authoritative_.bundle_templates.end() ||
+        desired.layer != template_it->second.default_layer) {
+      return reject(
+          "backbone invalid input: reconcile desired template or layer is invalid");
+    }
+    int desired_count = 0;
+    if (template_it->second.count_rule == BundleCountRuleKind::kFixed) {
+      if (desired.count != 0 || template_it->second.fixed_count <= 0) {
+        return reject(
+            "backbone invalid input: reconcile fixed template rejects desired count input");
+      }
+      desired_count = template_it->second.fixed_count;
+    } else {
+      if (desired.count < template_it->second.min_count ||
+          desired.count > template_it->second.max_count) {
+        return reject(
+            "backbone invalid input: reconcile desired count is outside template range");
+      }
+      desired_count = desired.count;
+    }
+    desired_count_by_key.emplace(desired.placement_key, desired_count);
+  }
+
+  // A desired key must not silently capture an existing Bundle outside the
+  // caller-declared exact current scope.
+  for (const Bundle& bundle : view().bundles().items()) {
+    if (current_ids.contains(bundle.id) || bundle.placement_key == 0 ||
+        !desired_by_key.contains(bundle.placement_key)) {
+      continue;
+    }
+    return reject(
+        "backbone invalid input: reconcile desired placement_key collides outside current scope");
+  }
+
+  for (const auto& [placement_key, entry] : desired_by_key) {
+    const auto current_it = current_by_key.find(placement_key);
+    if (current_it != current_by_key.end()) {
+      if (entry->anchor_bundle_id != kInvalidObjectId) {
+        return reject(
+            "backbone invalid input: reconcile survivor must not specify an add anchor");
+      }
+      const Bundle* current = view().bundles().find(current_it->second);
+      if (current == nullptr ||
+          current->bundle_template_id != entry->desired.bundle_template_id) {
+        return reject(
+            "backbone unsupported: reconcile cannot migrate Bundle template identity");
+      }
+      continue;
+    }
+
+    if (!current_ids.contains(entry->anchor_bundle_id)) {
+      return reject(
+          "backbone unsupported: reconcile add requires an exact anchor from current scope");
+    }
+    const Bundle* anchor = view().bundles().find(entry->anchor_bundle_id);
+    if (anchor == nullptr ||
+        anchor->bundle_template_id != entry->desired.bundle_template_id) {
+      return reject(
+          "backbone unsupported: reconcile add anchor template is incompatible");
+    }
+    int anchor_final_count = anchor->conductor_count;
+    const auto anchor_key_it = current_key_by_id.find(entry->anchor_bundle_id);
+    if (anchor_key_it != current_key_by_id.end()) {
+      const auto anchor_desired_count =
+          desired_count_by_key.find(anchor_key_it->second);
+      if (anchor_desired_count != desired_count_by_key.end()) {
+        anchor_final_count = anchor_desired_count->second;
+      }
+    }
+    if (anchor_final_count != desired_count_by_key.at(placement_key)) {
+      return reject(
+          "backbone unsupported: reconcile add anchor lane topology is incompatible");
+    }
+  }
+
+  CoreState trial = *this;
+  ChangeSet changes{};
+  bool changed = false;
+  auto merge_changes = [&](const ChangeSet& source) {
+    append_unique(changes.created_ids, source.created_ids);
+    append_unique(changes.updated_ids, source.updated_ids);
+    append_unique(changes.deleted_ids, source.deleted_ids);
+  };
+
+  // Survivors are updated first so an exact anchor that survives with a new
+  // permitted lane count has its final lane topology before instance cloning.
+  for (const auto& [placement_key, entry] : desired_by_key) {
+    const auto current_it = current_by_key.find(placement_key);
+    if (current_it == current_by_key.end()) continue;
+    const ObjectId bundle_id = current_it->second;
+    EditResult<bool> count = trial.UpdateBackboneBundleConductorCount(
+        bundle_id, desired_count_by_key.at(placement_key));
+    if (!count.ok) return reject(count.error);
+    changed = changed || count.value;
+    merge_changes(count.change_set);
+    EditResult<bool> placement = trial.UpdateBackboneBundlePlacement(
+        bundle_id, true, entry->desired.height_m, entry->desired.lateral_m,
+        entry->desired.spacing_m);
+    if (!placement.ok) return reject(placement.error);
+    changed = changed || placement.value;
+    merge_changes(placement.change_set);
+  }
+
+  std::map<std::uint64_t, ObjectId> added_by_key{};
+  for (const auto& [placement_key, entry] : desired_by_key) {
+    if (current_by_key.contains(placement_key)) continue;
+    EditResult<ObjectId> added = trial.AddBackboneBundleInstance(
+        entry->anchor_bundle_id, placement_key, entry->desired.height_m,
+        entry->desired.lateral_m, entry->desired.spacing_m);
+    if (!added.ok) return reject(added.error);
+    added_by_key.emplace(placement_key, added.value);
+    changed = true;
+    merge_changes(added.change_set);
+  }
+
+  // Retire only after all additions, because a caller may intentionally use a
+  // current-only Bundle as the exact membership oracle for its replacement.
+  for (const auto& [placement_key, bundle_id] : current_by_key) {
+    if (desired_by_key.contains(placement_key)) continue;
+    EditResult<bool> retired = trial.RetireBackboneBundle(bundle_id);
+    if (!retired.ok) return reject(retired.error);
+    changed = changed || retired.value;
+    merge_changes(retired.change_set);
+  }
+
+  if (!changed) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+
+  for (const auto& [placement_key, entry] : desired_by_key) {
+    const Bundle* matched = nullptr;
+    for (const Bundle& bundle : trial.view().bundles().items()) {
+      if (bundle.placement_key != placement_key) continue;
+      if (matched != nullptr) {
+        return reject(
+            "backbone internal: reconcile final placement identity is ambiguous");
+      }
+      matched = &bundle;
+    }
+    const ObjectId expected_id = current_by_key.contains(placement_key)
+                                     ? current_by_key.at(placement_key)
+                                     : added_by_key.at(placement_key);
+    if (matched == nullptr || matched->id != expected_id ||
+        matched->bundle_template_id != entry->desired.bundle_template_id ||
+        matched->conductor_count != desired_count_by_key.at(placement_key) ||
+        !matched->placement_explicit ||
+        matched->height_m != entry->desired.height_m ||
+        matched->lateral_m != entry->desired.lateral_m ||
+        matched->spacing_override_m != entry->desired.spacing_m) {
+      return reject(
+          "backbone internal: reconcile final concrete Bundle does not match desired spec");
+    }
+    const bool has_edge_membership = std::any_of(
+        trial.view().backbone().edge_bundles.begin(),
+        trial.view().backbone().edge_bundles.end(),
+        [&](const SavedBackboneEdgeBundle& edge_bundle) {
+          return edge_bundle.bundle_id == matched->id;
+        });
+    if (!has_edge_membership) {
+      return reject(
+          "backbone internal: reconcile final Bundle membership is missing");
+    }
+  }
+  for (const auto& [placement_key, bundle_id] : current_by_key) {
+    if (!desired_by_key.contains(placement_key) &&
+        trial.view().bundles().find(bundle_id) != nullptr) {
+      return reject(
+          "backbone internal: reconcile retired Bundle survived final scope");
+    }
+  }
+
+  EditResult<bool> rebuilt = trial.rebuild_loaded_outputs();
+  if (!rebuilt.ok) return reject(rebuilt.error);
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      return reject(
+          "backbone invalid input: reconcile validation failed: " +
+          issue.code + ": " + issue.message);
+    }
+  }
+
+  identity_ = trial.identity_;
+  authoritative_ = trial.authoritative_;
+  runtime_ = trial.runtime_;
+  debug_ = trial.debug_;
+  result.ok = true;
+  result.value = true;
+  result.change_set = std::move(changes);
   return result;
 }
 

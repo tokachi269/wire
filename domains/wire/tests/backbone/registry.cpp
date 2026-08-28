@@ -1408,6 +1408,26 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "exact Bundle instance addition fails closed on incomplete anchor binding or lane continuity",
                          "Boundary", true,
                          C876_backbone_add_instance_rejects_incomplete_anchor_relations);
+  test_registry::AddTest(tests, "C877_backbone_reconcile_preserves_survivors_and_updates_concrete_values",
+                         "concrete Bundle reconcile is a no-op for equality and preserves Bundle and lane identity across placement and range-count updates",
+                         "Invariant", true,
+                         C877_backbone_reconcile_preserves_survivors_and_updates_concrete_values);
+  test_registry::AddTest(tests, "C878_backbone_reconcile_adds_retires_and_restores_exact_set",
+                         "concrete Bundle reconcile composes exact add and retire atomically while preserving surviving placement identities",
+                         "Invariant", true,
+                         C878_backbone_reconcile_adds_retires_and_restores_exact_set);
+  test_registry::AddTest(tests, "C879_backbone_reconcile_is_order_independent_across_saved_topologies",
+                         "concrete Bundle reconcile ignores input order and preserves branch cross sharp saved topology through save-load",
+                         "Invariant", true,
+                         C879_backbone_reconcile_is_order_independent_across_saved_topologies);
+  test_registry::AddTest(tests, "C880_backbone_reconcile_failures_are_outer_transaction_atomic",
+                         "late retire and source-edge add failures roll back every earlier concrete Bundle reconcile edit",
+                         "Boundary", true,
+                         C880_backbone_reconcile_failures_are_outer_transaction_atomic);
+  test_registry::AddTest(tests, "C881_backbone_reconcile_rejects_invalid_scope_and_desired_specs",
+                         "concrete Bundle reconcile rejects ambiguous identity template count placement and anchor inputs without mutation",
+                         "Boundary", true,
+                         C881_backbone_reconcile_rejects_invalid_scope_and_desired_specs);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

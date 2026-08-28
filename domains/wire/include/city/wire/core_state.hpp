@@ -107,6 +107,8 @@ public:
                                                  double height_m,
                                                  double lateral_m,
                                                  double spacing_m);
+  EditResult<bool> ReconcileBackboneBundleInstances(
+      const BackboneBundleReconcileInput& input);
   EditResult<bool> RetireBackboneBundle(ObjectId bundle_id);
   EditResult<bool> UpdateBackboneBundlePlacement(ObjectId bundle_id, bool placement_explicit,
                                                  double height_m, double lateral_m, double spacing_m);

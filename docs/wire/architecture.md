@@ -316,6 +316,16 @@ constraintはInputであり保存しない。新Bundleのmembershipとcontinuity
 変更または共有しない。branch / cross / sharpはanchor relationを複製できる限り対象とする。
 source-edge dependencyはexact source Bundle mappingがInputにない現段階では推測せずmutation前に拒否する。
 Attachment、manual Port、Span overrideは新instanceへ複製しない。
+`ReconcileBackboneBundleInstances`はcallerが明示したexact current Bundle IDsとdesired concrete
+`BackboneBundleSpec`集合をplacement keyで対応付けるCore topology operationである。scope membership、route、
+branch membership、anchorをcategory、template名、位置、配列順から推測しない。desired-only entryはcallerが
+current scope内のexact anchor Bundle IDを指定し、survive / add / retireを1つのouter trialで既存のplacement、
+count、instance add、exact retire operationへ委譲する。desiredはnonzeroでscope内一意のplacement key、既存templateの
+default layer、positive spacingを持つexplicit placementに限定する。survivorはObjectIdと存続lane identityを維持する。
+addはanchorと同じtemplate / lane topologyに限り、0 -> 1やsource-edge exact mappingを推測しない。
+input vector順は意味を持たずplacement key順に処理する。explicit placementだけを対象とするため、個別Addでappendされる
+saved edge-bundle順をplacementやgroup offsetの新しいauthorityにしない。全operation、derived/runtime rebuild、validation、
+desired集合postconditionが成功した場合だけ一度commitし、失敗時はouter stateを変更しない。
 現対応は `UpdateBundleTemplate` の fixed count 増減と `kTopology` policy 差分、`UpdateCableTemplate` の backbone continuity policy / default endpoint attachment decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeの接続は saved row continuity と saved node から

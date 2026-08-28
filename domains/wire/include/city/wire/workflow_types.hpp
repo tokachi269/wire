@@ -346,6 +346,18 @@ struct BackboneBundleSpec {
   ObjectId existing_bundle_id = kInvalidObjectId;
 };
 
+struct BackboneBundleReconcileEntry {
+  BackboneBundleSpec desired{};
+  // Required only when desired.placement_key is absent from current_bundle_ids.
+  ObjectId anchor_bundle_id = kInvalidObjectId;
+};
+
+struct BackboneBundleReconcileInput {
+  // Exact current membership; the operation never discovers scope by category or geometry.
+  std::vector<ObjectId> current_bundle_ids{};
+  std::vector<BackboneBundleReconcileEntry> desired_bundles{};
+};
+
 // Human-authored route envelope. The resolver consumes this input once and
 // emits ordinary BackboneBundleSpec entries; rules and seed are not persisted.
 struct RandomBackboneBundleRule {

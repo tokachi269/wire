@@ -84,6 +84,19 @@ anchor scopeまたは必須bindingの欠落、placement key重複、template / c
 失敗する。source-edge dependencyを持つanchorは、exact source Bundle mappingを入力できない現段階では`SM`の
 fail-closed制約としてmutation前に`unsupported`で拒否する。
 
+`ReconcileBackboneBundleInstances`は接続状態やscope membershipを推測する操作ではない。callerが明示するexact
+current Bundle IDsと、nonzero placement keyを持つdesired concrete `BackboneBundleSpec`をkeyで分類し、intersectionは
+identityを維持してplacement / permitted countだけを更新し、desired-onlyはcaller指定のcurrent-scope anchorから追加し、
+current-onlyはexact retireする。desired-only anchorは同じtemplate / lane topologyを持つ必要があり、0 -> 1、source-edge
+mapping、template migration、lane order / pairing policy変更は推測せず拒否する。
+
+desiredはexplicit placementで、keyはscope内一意、layerはtemplate default、spacingはpositive finiteとする。input順は
+意味を持たず、placement key順の安定処理とする。addを全て終えてからretireするためretire予定anchorも利用できるが、
+個別operationが保存したmembership / continuity / support assignmentを並べ替えや補正で書き換えない。全処理は1つの
+outer `CoreState` trial内で行い、最終desired集合、SavedBackboneGraph、derived/runtime、validationが整合した場合だけ
+一度commitする。late retire conflictやsource-edge add unsupportedを含む任意の失敗では、先行survive / addも本stateへ
+反映しない。
+
 ## 実行時coverage契約
 
 `C` / `O` / `K` / `U` の各セルは、test case ID や手書きタグではなく、test実行中に

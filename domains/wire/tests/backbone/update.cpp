@@ -3319,9 +3319,19 @@ struct SourceEdgeRetirementFixture {
 };
 
 bool generate_source_edge_retirement_fixture(
-    city::wire::CoreState* state, SourceEdgeRetirementFixture* fixture) {
+    city::wire::CoreState* state, SourceEdgeRetirementFixture* fixture,
+    std::uint64_t source_placement_key = 0,
+    std::uint64_t branch_placement_key = 0) {
   if (state == nullptr || fixture == nullptr) return false;
-  const auto source = state->GenerateFromBackboneSpec(line_req(*state));
+  city::wire::BackboneSpec source_request = line_req(*state);
+  if (source_placement_key != 0) {
+    source_request.bundles.front().placement_key = source_placement_key;
+    source_request.bundles.front().placement_explicit = true;
+    source_request.bundles.front().height_m = 7.1;
+    source_request.bundles.front().lateral_m = -0.25;
+    source_request.bundles.front().spacing_m = 0.20;
+  }
+  const auto source = state->GenerateFromBackboneSpec(source_request);
   if (!source.ok || source.value.bundle_ids.size() != 1 ||
       source.value.generated_span_ids.empty() ||
       state->view().backbone().edges.size() != 1) return false;
@@ -3349,6 +3359,14 @@ bool generate_source_edge_retirement_fixture(
   node.support_kind = resolved.value.support_kind;
   node.node_id = resolved.value.resolved_node_id;
   branch.path.node_specs = {node};
+  if (branch_placement_key != 0) {
+    branch.bundles.front().placement_key = branch_placement_key;
+    branch.bundles.front().placement_explicit = true;
+    branch.bundles.front().height_m = 6.8;
+    branch.bundles.front().lateral_m = -0.30;
+    branch.bundles.front().spacing_m = 0.20;
+    branch.bundles.front().source_bundle_id = fixture->source_bundle;
+  }
   const auto generated = state->GenerateFromBackboneSpec(branch);
   if (!generated.ok || generated.value.bundle_ids.size() != 1) return false;
   fixture->branch_bundle = generated.value.bundle_ids.front();
@@ -4113,6 +4131,519 @@ bool C876_backbone_add_instance_rejects_incomplete_anchor_relations() {
           missing_continuity.SerializeAuthoritative(&continuity_after).ok &&
           continuity_before == continuity_after,
       "partial anchor lane continuity did not fail closed atomically");
+  return true;
+}
+
+namespace {
+
+city::wire::BackboneBundleReconcileEntry reconcile_entry_for(
+    const city::wire::CoreState& state, city::wire::ObjectId bundle_id) {
+  city::wire::BackboneBundleReconcileEntry entry{};
+  const city::wire::Bundle* bundle = state.view().bundles().find(bundle_id);
+  if (bundle == nullptr) return entry;
+  const auto template_it =
+      state.view().bundle_templates().find(bundle->bundle_template_id);
+  if (template_it == state.view().bundle_templates().end()) return entry;
+  entry.desired.bundle_template_id = bundle->bundle_template_id;
+  entry.desired.placement_key = bundle->placement_key;
+  entry.desired.layer = template_it->second.default_layer;
+  entry.desired.count =
+      template_it->second.count_rule == city::wire::BundleCountRuleKind::kRange
+          ? bundle->conductor_count
+          : 0;
+  entry.desired.placement_explicit = true;
+  entry.desired.height_m = bundle->height_m;
+  entry.desired.lateral_m = bundle->lateral_m;
+  entry.desired.spacing_m = bundle->spacing_override_m > 0.0
+                                ? bundle->spacing_override_m
+                                : bundle->phase_spacing_m;
+  return entry;
+}
+
+const city::wire::Bundle* bundle_for_placement_key(
+    const city::wire::CoreState& state, std::uint64_t placement_key) {
+  const city::wire::Bundle* found = nullptr;
+  for (const city::wire::Bundle& bundle : state.view().bundles().items()) {
+    if (bundle.placement_key != placement_key) continue;
+    if (found != nullptr) return nullptr;
+    found = &bundle;
+  }
+  return found;
+}
+
+bool rejected_without_authoritative_mutation(
+    city::wire::CoreState* state,
+    const city::wire::BackboneBundleReconcileInput& input) {
+  if (state == nullptr) return false;
+  std::string before{};
+  std::string after{};
+  if (!state->SerializeAuthoritative(&before).ok) return false;
+  const auto result = state->ReconcileBackboneBundleInstances(input);
+  return !result.ok && state->SerializeAuthoritative(&after).ok &&
+         before == after;
+}
+
+} // namespace
+
+bool C877_backbone_reconcile_preserves_survivors_and_updates_concrete_values() {
+  city::wire::CoreState no_op{};
+  ExactBundleRetirementFixture no_op_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &no_op, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}},
+          &no_op_fixture),
+      "reconcile no-op fixture is incomplete");
+  city::wire::BackboneBundleReconcileInput no_op_input{};
+  no_op_input.current_bundle_ids = {no_op_fixture.bundle_b,
+                                    no_op_fixture.bundle_a};
+  no_op_input.desired_bundles = {
+      reconcile_entry_for(no_op, no_op_fixture.bundle_a),
+      reconcile_entry_for(no_op, no_op_fixture.bundle_b)};
+  std::string no_op_before{};
+  std::string no_op_after{};
+  WIRE_TEST_EXPECT_PRESENCE(no_op.SerializeAuthoritative(&no_op_before).ok,
+                            "failed to serialize reconcile no-op fixture");
+  const auto unchanged = no_op.ReconcileBackboneBundleInstances(no_op_input);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      unchanged.ok && !unchanged.value &&
+          no_op.SerializeAuthoritative(&no_op_after).ok &&
+          no_op_before == no_op_after,
+      unchanged.error.empty() ? "equal concrete set was not a semantic no-op"
+                              : unchanged.error);
+
+  city::wire::BackboneSpec unrelated_request = exact_bundle_route_request(
+      no_op, {{0.0, 30.0, 0.0}, {12.0, 30.0, 0.0}});
+  unrelated_request.bundles.resize(1);
+  unrelated_request.bundles.front().placement_key = 87790;
+  const auto unrelated_generated =
+      no_op.GenerateFromBackboneSpec(unrelated_request);
+  WIRE_TEST_EXPECT_PRESENCE(
+      unrelated_generated.ok && unrelated_generated.value.bundle_ids.size() == 1,
+      unrelated_generated.error.empty()
+          ? "unrelated reconcile fixture is incomplete"
+          : unrelated_generated.error);
+  const city::wire::ObjectId unrelated_bundle_id =
+      unrelated_generated.value.bundle_ids.front();
+  const auto unrelated_edge_bundles =
+      exact_edge_bundles(no_op, unrelated_bundle_id);
+  const auto unrelated_before =
+      exact_bundle_identity_snapshot(no_op, unrelated_edge_bundles);
+
+  const auto peer_before = exact_bundle_identity_snapshot(
+      no_op, no_op_fixture.edge_bundles_b);
+  auto moved_a = reconcile_entry_for(no_op, no_op_fixture.bundle_a);
+  moved_a.desired.height_m += 0.35;
+  moved_a.desired.lateral_m -= 0.11;
+  city::wire::BackboneBundleReconcileInput move_input{};
+  move_input.current_bundle_ids = {no_op_fixture.bundle_a,
+                                   no_op_fixture.bundle_b};
+  move_input.desired_bundles = {
+      moved_a, reconcile_entry_for(no_op, no_op_fixture.bundle_b)};
+  const auto moved = no_op.ReconcileBackboneBundleInstances(move_input);
+  const city::wire::Bundle* moved_bundle =
+      no_op.view().bundles().find(no_op_fixture.bundle_a);
+  WIRE_TEST_EXPECT_ANCHOR(
+      moved.ok && moved.value && moved_bundle != nullptr &&
+          moved_bundle->id == no_op_fixture.bundle_a &&
+          std::abs(moved_bundle->height_m - moved_a.desired.height_m) < 1e-12 &&
+          std::abs(moved_bundle->lateral_m - moved_a.desired.lateral_m) < 1e-12 &&
+          same_exact_bundle_identity_snapshot(
+              peer_before,
+              exact_bundle_identity_snapshot(no_op,
+                                             no_op_fixture.edge_bundles_b)) &&
+          same_exact_bundle_identity_snapshot(
+              unrelated_before,
+              exact_bundle_identity_snapshot(no_op, unrelated_edge_bundles)),
+      moved.error.empty() ? "placement reconcile replaced survivor or peer identity"
+                          : moved.error);
+
+  city::wire::CoreState range{};
+  WIRE_TEST_EXPECT_PRESENCE(set_low_voltage_range_before_generation(range, 3),
+                            "failed to configure reconcile range template");
+  city::wire::BackboneSpec range_request = poly3_req(range);
+  range_request.bundles.front().placement_key = 87701;
+  range_request.bundles.front().count = 3;
+  range_request.bundles.front().placement_explicit = true;
+  range_request.bundles.front().height_m = 7.2;
+  range_request.bundles.front().lateral_m = -0.25;
+  range_request.bundles.front().spacing_m = 0.20;
+  const auto range_generated = range.GenerateFromBackboneSpec(range_request);
+  WIRE_TEST_EXPECT_PRESENCE(
+      range_generated.ok && range_generated.value.bundle_ids.size() == 1,
+      range_generated.error.empty() ? "range reconcile fixture is incomplete"
+                                    : range_generated.error);
+  const city::wire::ObjectId range_bundle_id =
+      range_generated.value.bundle_ids.front();
+  FixedCountBundleComponent range_component{
+      range_bundle_id, exact_edge_bundles(range, range_bundle_id)};
+  std::array<std::vector<city::wire::ObjectId>, 3> lane_spans{};
+  std::array<std::vector<city::wire::ObjectId>, 3> lane_ports{};
+  for (std::size_t lane = 0; lane < 3; ++lane) {
+    lane_spans[lane] = component_lane_span_ids(range, range_component, lane);
+    lane_ports[lane] = component_lane_port_ids(range, range_component, lane);
+  }
+  auto count_four = reconcile_entry_for(range, range_bundle_id);
+  count_four.desired.count = 4;
+  city::wire::BackboneBundleReconcileInput count_input{
+      {range_bundle_id}, {count_four}};
+  const auto increased = range.ReconcileBackboneBundleInstances(count_input);
+  auto count_three = reconcile_entry_for(range, range_bundle_id);
+  count_three.desired.count = 3;
+  count_input.desired_bundles = {count_three};
+  const auto decreased = range.ReconcileBackboneBundleInstances(count_input);
+  WIRE_TEST_EXPECT_ANCHOR(
+      increased.ok && increased.value && decreased.ok && decreased.value &&
+          range.view().bundles().find(range_bundle_id) != nullptr,
+      !increased.ok ? increased.error
+                    : (!decreased.ok ? decreased.error
+                                     : "range reconcile changed Bundle identity"));
+  for (std::size_t lane = 0; lane < 3; ++lane) {
+    WIRE_TEST_EXPECT_ANCHOR(
+        component_lane_span_ids(range, range_component, lane) == lane_spans[lane] &&
+            component_lane_port_ids(range, range_component, lane) == lane_ports[lane],
+        "range reconcile replaced a surviving lane identity");
+  }
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(no_op);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(range);
+  return true;
+}
+
+bool C878_backbone_reconcile_adds_retires_and_restores_exact_set() {
+  city::wire::CoreState state{};
+  ExactBundleRetirementFixture fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &state,
+          {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 8.0, 0.0}},
+          &fixture),
+      "instance-set reconcile fixture is incomplete");
+  const auto a_before =
+      exact_bundle_identity_snapshot(state, fixture.edge_bundles_a);
+  const auto b_before =
+      exact_bundle_identity_snapshot(state, fixture.edge_bundles_b);
+  const auto a = reconcile_entry_for(state, fixture.bundle_a);
+  const auto b = reconcile_entry_for(state, fixture.bundle_b);
+  auto c = a;
+  c.desired.placement_key = 87803;
+  c.desired.height_m = 7.85;
+  c.desired.lateral_m = -0.52;
+  c.anchor_bundle_id = fixture.bundle_a;
+  auto d = b;
+  d.desired.placement_key = 87804;
+  d.desired.height_m = 6.95;
+  d.desired.lateral_m = -0.12;
+  d.anchor_bundle_id = fixture.bundle_b;
+  city::wire::BackboneBundleReconcileInput grow{
+      {fixture.bundle_a, fixture.bundle_b}, {d, a, c, b}};
+  const auto grown = state.ReconcileBackboneBundleInstances(grow);
+  const city::wire::Bundle* bundle_c = bundle_for_placement_key(state, 87803);
+  const city::wire::Bundle* bundle_d = bundle_for_placement_key(state, 87804);
+  WIRE_TEST_EXPECT_ANCHOR(
+      grown.ok && grown.value && bundle_c != nullptr && bundle_d != nullptr &&
+          clone_matches_anchor(state, fixture.bundle_a, bundle_c->id) &&
+          clone_matches_anchor(state, fixture.bundle_b, bundle_d->id) &&
+          same_exact_bundle_identity_snapshot(
+              a_before,
+              exact_bundle_identity_snapshot(state, fixture.edge_bundles_a)) &&
+          same_exact_bundle_identity_snapshot(
+              b_before,
+              exact_bundle_identity_snapshot(state, fixture.edge_bundles_b)),
+      grown.error.empty() ? "2 to 4 reconcile changed survivor or failed exact add"
+                          : grown.error);
+  const city::wire::ObjectId c_id = bundle_c->id;
+  const city::wire::ObjectId d_id = bundle_d->id;
+  city::wire::BackboneBundleReconcileInput shrink{
+      {fixture.bundle_a, fixture.bundle_b, c_id, d_id}, {b, a}};
+  const auto shrunk = state.ReconcileBackboneBundleInstances(shrink);
+  WIRE_TEST_EXPECT_ANCHOR(
+      shrunk.ok && shrunk.value &&
+          bundle_for_placement_key(state, 87803) == nullptr &&
+          bundle_for_placement_key(state, 87804) == nullptr &&
+          same_exact_bundle_identity_snapshot(
+              a_before,
+              exact_bundle_identity_snapshot(state, fixture.edge_bundles_a)) &&
+          same_exact_bundle_identity_snapshot(
+              b_before,
+              exact_bundle_identity_snapshot(state, fixture.edge_bundles_b)),
+      shrunk.error.empty() ? "4 to 2 reconcile damaged surviving set"
+                           : shrunk.error);
+
+  auto replacement = a;
+  replacement.desired.placement_key = 87805;
+  replacement.desired.height_m = 7.35;
+  replacement.anchor_bundle_id = fixture.bundle_b;
+  city::wire::BackboneBundleReconcileInput replace{
+      {fixture.bundle_a, fixture.bundle_b}, {a, replacement}};
+  const auto replaced = state.ReconcileBackboneBundleInstances(replace);
+  const city::wire::Bundle* replacement_bundle =
+      bundle_for_placement_key(state, 87805);
+  WIRE_TEST_EXPECT_ANCHOR(
+      replaced.ok && replaced.value && replacement_bundle != nullptr &&
+          state.view().bundles().find(fixture.bundle_b) == nullptr &&
+          exact_bundle_edge_ids(state, replacement_bundle->id) ==
+              exact_bundle_edge_ids(state, fixture.bundle_a),
+      replaced.error.empty() ? "A,B to A,C reconcile did not add then retire"
+                             : replaced.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  return true;
+}
+
+bool C879_backbone_reconcile_is_order_independent_across_saved_topologies() {
+  auto reconcile_order = [](bool reversed, city::wire::CoreState* state,
+                            ExactBundleRetirementFixture* fixture) {
+    if (state == nullptr || fixture == nullptr ||
+        !generate_exact_bundle_route(
+            state,
+            {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 8.0, 0.0}},
+            fixture)) return false;
+    const auto a = reconcile_entry_for(*state, fixture->bundle_a);
+    auto c = a;
+    c.desired.placement_key = 87903;
+    c.desired.height_m = 7.8;
+    c.anchor_bundle_id = fixture->bundle_b;
+    auto d = a;
+    d.desired.placement_key = 87904;
+    d.desired.height_m = 6.9;
+    d.anchor_bundle_id = fixture->bundle_a;
+    city::wire::BackboneBundleReconcileInput input{};
+    input.current_bundle_ids = reversed
+                                   ? std::vector<city::wire::ObjectId>{fixture->bundle_b,
+                                                                       fixture->bundle_a}
+                                   : std::vector<city::wire::ObjectId>{fixture->bundle_a,
+                                                                       fixture->bundle_b};
+    input.desired_bundles = reversed
+                                ? std::vector<city::wire::BackboneBundleReconcileEntry>{d, c, a}
+                                : std::vector<city::wire::BackboneBundleReconcileEntry>{a, c, d};
+    const auto reconciled = state->ReconcileBackboneBundleInstances(input);
+    return reconciled.ok && reconciled.value;
+  };
+
+  city::wire::CoreState forward{};
+  city::wire::CoreState reversed{};
+  ExactBundleRetirementFixture forward_fixture{};
+  ExactBundleRetirementFixture reversed_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      reconcile_order(false, &forward, &forward_fixture) &&
+          reconcile_order(true, &reversed, &reversed_fixture),
+      "ordered reconcile fixtures failed");
+  std::string forward_saved{};
+  std::string reversed_saved{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      forward.SerializeAuthoritative(&forward_saved).ok &&
+          reversed.SerializeAuthoritative(&reversed_saved).ok &&
+          forward_saved == reversed_saved,
+      "desired/current input permutation changed authoritative result");
+  city::wire::CoreState loaded{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      loaded.DeserializeAuthoritative(forward_saved).ok &&
+          bundle_for_placement_key(loaded, 87903) != nullptr &&
+          bundle_for_placement_key(loaded, 87904) != nullptr,
+      "reconciled multi-edge topology did not survive save/load");
+
+  city::wire::CoreState cross{};
+  ExactBundleRetirementFixture cross_fixture{};
+  city::wire::GenerateBundleFromPathResult base{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &cross,
+          {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0},
+           {5.0, 8.660254037844386, 0.0}},
+          &cross_fixture, &base),
+      "cross reconcile fixture is incomplete");
+  const city::wire::Pole* junction =
+      cross.view().poles().find(base.generated_pole_ids[1]);
+  WIRE_TEST_EXPECT_PRESENCE(junction != nullptr,
+                            "cross reconcile junction is missing");
+  city::wire::BackboneSpec crossing = exact_bundle_route_request(
+      cross, {{10.0, -8.0, 0.0}, junction->world_transform.position,
+              {18.0, 2.0, 0.0}});
+  crossing.path.node_specs = {pole_spec(1, base.generated_pole_ids[1])};
+  crossing.bundles[0].existing_bundle_id = cross_fixture.bundle_a;
+  crossing.bundles[1].existing_bundle_id = cross_fixture.bundle_b;
+  const auto crossed = cross.GenerateFromBackboneSpec(crossing);
+  WIRE_TEST_EXPECT_PRESENCE(crossed.ok, crossed.error);
+  const auto anchor_edges = exact_bundle_edge_ids(cross, cross_fixture.bundle_b);
+  const auto anchor_continuity =
+      exact_bundle_continuity_signature(cross, cross_fixture.bundle_b);
+  const auto keep = reconcile_entry_for(cross, cross_fixture.bundle_a);
+  auto added = keep;
+  added.desired.placement_key = 87905;
+  added.desired.height_m = 7.9;
+  added.anchor_bundle_id = cross_fixture.bundle_b;
+  const auto cross_reconciled = cross.ReconcileBackboneBundleInstances(
+      {{cross_fixture.bundle_a, cross_fixture.bundle_b}, {added, keep}});
+  const city::wire::Bundle* cross_added = bundle_for_placement_key(cross, 87905);
+  const std::size_t connection_parts = static_cast<std::size_t>(
+      std::count_if(cross.view().visual_curve_parts().parts.begin(),
+                    cross.view().visual_curve_parts().parts.end(),
+                    [&](const city::wire::VisualCurvePart& part) {
+                      return cross_added != nullptr &&
+                             part.source_bundle_id == cross_added->id &&
+                             (part.kind == city::wire::VisualCurvePartKind::kNodePatch ||
+                              part.kind == city::wire::VisualCurvePartKind::kJumper);
+                    }));
+  WIRE_TEST_EXPECT_ORACLE(
+      cross_reconciled.ok && cross_added != nullptr &&
+          exact_bundle_edge_ids(cross, cross_added->id) == anchor_edges &&
+          exact_bundle_continuity_signature(cross, cross_added->id) ==
+              anchor_continuity &&
+          connection_parts > 0,
+      cross_reconciled.error.empty()
+          ? "branch/cross/sharp reconcile re-decided saved topology"
+          : cross_reconciled.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(cross);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
+  return true;
+}
+
+bool C880_backbone_reconcile_failures_are_outer_transaction_atomic() {
+  city::wire::CoreState late_retire{};
+  ExactBundleRetirementFixture fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &late_retire, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}},
+          &fixture),
+      "late-retire reconcile fixture is incomplete");
+  const auto retired_spans = exact_bundle_span_ids(late_retire, fixture.bundle_b);
+  WIRE_TEST_EXPECT_PRESENCE(
+      !retired_spans.empty() &&
+          late_retire.AddAttachment(retired_spans.front(), 0.5).ok,
+      "failed to add late-retire user authority");
+  auto moved = reconcile_entry_for(late_retire, fixture.bundle_a);
+  moved.desired.height_m += 0.4;
+  auto added = moved;
+  added.desired.placement_key = 88003;
+  added.desired.lateral_m -= 0.15;
+  added.anchor_bundle_id = fixture.bundle_a;
+  const city::wire::BackboneBundleReconcileInput late_input{
+      {fixture.bundle_a, fixture.bundle_b}, {moved, added}};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(&late_retire, late_input),
+      "late retire failure leaked survivor placement or added Bundle");
+
+  city::wire::CoreState source{};
+  SourceEdgeRetirementFixture source_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_source_edge_retirement_fixture(&source, &source_fixture,
+                                              88011, 88012),
+      "source-edge reconcile fixture is incomplete");
+  auto source_keep = reconcile_entry_for(source, source_fixture.source_bundle);
+  source_keep.desired.height_m += 0.2;
+  const auto branch_keep =
+      reconcile_entry_for(source, source_fixture.branch_bundle);
+  auto source_add = branch_keep;
+  source_add.desired.placement_key = 88013;
+  source_add.anchor_bundle_id = source_fixture.branch_bundle;
+  const city::wire::BackboneBundleReconcileInput source_input{
+      {source_fixture.source_bundle, source_fixture.branch_bundle},
+      {source_add, branch_keep, source_keep}};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(&source, source_input),
+      "source-edge add failure leaked earlier reconcile operations");
+  return true;
+}
+
+bool C881_backbone_reconcile_rejects_invalid_scope_and_desired_specs() {
+  city::wire::CoreState state{};
+  ExactBundleRetirementFixture fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}, &fixture),
+      "invalid reconcile fixture is incomplete");
+  const auto a = reconcile_entry_for(state, fixture.bundle_a);
+  const auto b = reconcile_entry_for(state, fixture.bundle_b);
+
+  auto duplicate = b;
+  duplicate.desired.placement_key = a.desired.placement_key;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(
+          &state, {{fixture.bundle_a, fixture.bundle_b}, {a, duplicate}}),
+      "duplicate desired placement_key was accepted");
+
+  auto zero = a;
+  zero.desired.placement_key = 0;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(
+          &state, {{fixture.bundle_a}, {zero}}),
+      "zero desired placement_key was accepted");
+
+  auto bad_spacing = a;
+  bad_spacing.desired.spacing_m = 0.0;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(
+          &state, {{fixture.bundle_a}, {bad_spacing}}),
+      "invalid desired spacing was accepted");
+
+  auto mismatch = a;
+  mismatch.desired.bundle_template_id =
+      city::wire::kDefaultOpticalBundleTemplateId;
+  mismatch.desired.layer = city::wire::SpanLayer::kOptical;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(
+          &state, {{fixture.bundle_a}, {mismatch}}),
+      "survivor template migration was accepted");
+
+  auto outside_collision = b;
+  outside_collision.anchor_bundle_id = fixture.bundle_a;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(
+          &state, {{fixture.bundle_a}, {a, outside_collision}}),
+      "desired key collision outside current scope was accepted");
+
+  auto outside_anchor = a;
+  outside_anchor.desired.placement_key = 88103;
+  outside_anchor.anchor_bundle_id = fixture.bundle_b;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(
+          &state, {{fixture.bundle_a}, {a, outside_anchor}}),
+      "anchor outside exact current scope was accepted");
+
+  auto zero_to_one = a;
+  zero_to_one.desired.placement_key = 88104;
+  zero_to_one.anchor_bundle_id = city::wire::kInvalidObjectId;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(&state, {{}, {zero_to_one}}),
+      "zero-to-one reconcile guessed a membership anchor");
+
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(
+          &state, {{fixture.bundle_a, fixture.bundle_a}, {a}}),
+      "duplicate exact current Bundle ID was accepted");
+
+  city::wire::CoreState range{};
+  WIRE_TEST_EXPECT_PRESENCE(set_low_voltage_range_before_generation(range, 3),
+                            "failed to configure invalid range fixture");
+  city::wire::BackboneSpec request = poly3_req(range);
+  request.bundles.front().placement_key = 88111;
+  request.bundles.front().count = 3;
+  request.bundles.front().placement_explicit = true;
+  request.bundles.front().height_m = 7.2;
+  request.bundles.front().lateral_m = -0.25;
+  request.bundles.front().spacing_m = 0.20;
+  const auto generated = range.GenerateFromBackboneSpec(request);
+  WIRE_TEST_EXPECT_PRESENCE(
+      generated.ok && generated.value.bundle_ids.size() == 1,
+      generated.error.empty() ? "invalid range fixture generation failed"
+                              : generated.error);
+  auto out_of_range =
+      reconcile_entry_for(range, generated.value.bundle_ids.front());
+  out_of_range.desired.count = 7;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(
+          &range, {{generated.value.bundle_ids.front()}, {out_of_range}}),
+      "out-of-range desired conductor count was accepted");
+  auto incompatible_add =
+      reconcile_entry_for(range, generated.value.bundle_ids.front());
+  incompatible_add.desired.placement_key = 88112;
+  incompatible_add.desired.count = 4;
+  incompatible_add.anchor_bundle_id = generated.value.bundle_ids.front();
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      rejected_without_authoritative_mutation(
+          &range,
+          {{generated.value.bundle_ids.front()},
+           {reconcile_entry_for(range, generated.value.bundle_ids.front()),
+            incompatible_add}}),
+      "add anchor with incompatible lane topology was accepted");
   return true;
 }
 

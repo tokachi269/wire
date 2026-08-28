@@ -358,8 +358,9 @@ struct BackboneBundleReconcileInput {
   std::vector<BackboneBundleReconcileEntry> desired_bundles{};
 };
 
-// Human-authored route envelope. The resolver consumes this input once and
-// emits ordinary BackboneBundleSpec entries; rules and seed are not persisted.
+// Human-authored route envelope. Resolution emits ordinary
+// BackboneBundleSpec entries. A top-level variation operation may persist this
+// input for explicit Apply; load never resolves or rerolls it.
 struct RandomBackboneBundleRule {
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   int min_instances = 0;

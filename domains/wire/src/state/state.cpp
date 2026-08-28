@@ -1964,6 +1964,13 @@ EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_te
 }
 
 EditResult<bool> CoreState::UpdateBackboneBundleConductorCount(ObjectId bundle_id, int conductor_count) {
+  if (backbone_bundle_variation_for_bundle(bundle_id) != nullptr) {
+    EditResult<bool> result{};
+    result.error =
+        "backbone unsupported: recipe-backed Bundle instance must be changed by explicit variation Apply";
+    result.classify_error();
+    return result;
+  }
   return state_internal::TemplateMutationService::UpdateBackboneBundleConductorCount(
       *this, bundle_id, conductor_count);
 }
@@ -1974,6 +1981,12 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
   const Bundle* bundle = authoritative_.edit_state.bundles.find(bundle_id);
   if (bundle == nullptr) {
     result.error = "core invalid input: bundle not found";
+    return result;
+  }
+  if (backbone_bundle_variation_for_bundle(bundle_id) != nullptr) {
+    result.error =
+        "backbone unsupported: recipe-backed Bundle instance must be changed by explicit variation Apply";
+    result.classify_error();
     return result;
   }
   if (!std::isfinite(height_m) || !std::isfinite(lateral_m) || !std::isfinite(spacing_m) || spacing_m <= 0.0) {

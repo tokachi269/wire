@@ -686,6 +686,10 @@ EditResult<ObjectId> CoreState::AddBackboneBundleInstance(
   if (anchor == nullptr) {
     return reject("core invalid input: anchor Bundle not found");
   }
+  if (backbone_bundle_variation_for_bundle(anchor_bundle_id) != nullptr) {
+    return reject(
+        "backbone unsupported: recipe-backed Bundle instance must be changed by explicit variation Apply");
+  }
   if (anchor->conductor_count <= 0) {
     return reject(
         "backbone invalid input: anchor Bundle conductor count is invalid");
@@ -1113,6 +1117,10 @@ EditResult<bool> CoreState::ReconcileBackboneBundleInstances(
           "backbone invalid input: reconcile current Bundle IDs must be exact and unique");
     }
     const Bundle* bundle = view().bundles().find(bundle_id);
+    if (backbone_bundle_variation_for_bundle(bundle_id) != nullptr) {
+      return reject(
+          "backbone unsupported: recipe-backed Bundle scope must be changed by explicit variation Apply");
+    }
     if (bundle == nullptr || bundle->placement_key == 0) {
       return reject(
           "backbone invalid input: reconcile current Bundle requires a nonzero placement_key");
@@ -1351,6 +1359,10 @@ EditResult<bool> CoreState::RetireBackboneBundle(ObjectId bundle_id) {
   const Bundle* bundle = view().bundles().find(bundle_id);
   if (bundle == nullptr) {
     return reject("core invalid input: bundle not found");
+  }
+  if (backbone_bundle_variation_for_bundle(bundle_id) != nullptr) {
+    return reject(
+        "backbone unsupported: recipe-backed Bundle instance must be changed by explicit variation Apply");
   }
   const SavedBackboneGraph& graph = view().backbone();
   std::vector<ObjectId> edge_bundle_ids{};

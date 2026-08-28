@@ -398,4 +398,142 @@ CoreState::GenerateBackboneBundleVariation(
   return result;
 }
 
+EditResult<bool> CoreState::ApplyBackboneBundleVariation(
+    ObjectId variation_id,
+    const RouteBundleVariationInput& descriptor) {
+  EditResult<bool> result{};
+  auto reject = [&](std::string error) {
+    result.error = std::move(error);
+    result.classify_error();
+    return result;
+  };
+  if (view().backbone_bundle_variation(variation_id) == nullptr) {
+    return reject("core invalid input: backbone Bundle variation not found");
+  }
+
+  CoreState trial = *this;
+  auto variation_it = std::ranges::find_if(
+      trial.authoritative_.backbone_bundle_variations,
+      [variation_id](const SavedBackboneBundleVariation& value) {
+        return value.variation_id == variation_id;
+      });
+  if (variation_it ==
+      trial.authoritative_.backbone_bundle_variations.end()) {
+    return reject("core internal: backbone Bundle variation scope is missing");
+  }
+  SavedBackboneBundleVariation updated = *variation_it;
+  trial.authoritative_.backbone_bundle_variations.erase(variation_it);
+  EditResult<std::vector<BackboneBundleSpec>> resolved =
+      trial.ResolveRouteBundleVariation(descriptor);
+  if (!resolved.ok) return reject(resolved.error);
+
+  BackboneBundleReconcileInput reconcile{};
+  for (const SavedBackboneBundleVariationInstance& instance :
+       updated.instances) {
+    const Bundle* bundle = trial.view().bundles().find(instance.bundle_id);
+    if (bundle == nullptr || bundle->placement_key != instance.placement_key) {
+      return reject(
+          "backbone invalid input: variation current exact Bundle scope is stale");
+    }
+    reconcile.current_bundle_ids.push_back(instance.bundle_id);
+  }
+
+  for (const BackboneBundleSpec& desired : resolved.value) {
+    BackboneBundleReconcileEntry entry{};
+    entry.desired = desired;
+    const auto survivor = std::ranges::find_if(
+        updated.instances,
+        [&](const SavedBackboneBundleVariationInstance& instance) {
+          return instance.placement_key == desired.placement_key;
+        });
+    if (survivor == updated.instances.end()) {
+      const BundleTemplate* bundle_template =
+          trial.find_bundle_template(desired.bundle_template_id);
+      if (bundle_template == nullptr) {
+        return reject(
+            "backbone invalid input: variation desired Bundle template is missing");
+      }
+      const int desired_count =
+          bundle_template->count_rule == BundleCountRuleKind::kFixed
+              ? bundle_template->fixed_count
+              : desired.count;
+      for (const SavedBackboneBundleVariationInstance& candidate :
+           updated.instances) {
+        const Bundle* bundle = trial.view().bundles().find(candidate.bundle_id);
+        if (bundle != nullptr &&
+            bundle->bundle_template_id == desired.bundle_template_id &&
+            bundle->conductor_count == desired_count) {
+          entry.anchor_bundle_id = bundle->id;
+          break;
+        }
+      }
+      if (entry.anchor_bundle_id == kInvalidObjectId) {
+        return reject(
+            "backbone unsupported: variation add has no live exact membership anchor");
+      }
+    }
+    reconcile.desired_bundles.push_back(entry);
+  }
+
+  EditResult<bool> reconciled =
+      trial.ReconcileBackboneBundleInstances(reconcile);
+  if (!reconciled.ok) return reject(reconciled.error);
+
+  updated.descriptor = descriptor;
+  updated.instances.clear();
+  for (const BackboneBundleSpec& desired : resolved.value) {
+    const Bundle* matched = nullptr;
+    for (const Bundle& bundle : trial.view().bundles().items()) {
+      if (bundle.placement_key != desired.placement_key) continue;
+      if (matched != nullptr) {
+        return reject(
+            "backbone internal: variation final placement identity is ambiguous");
+      }
+      matched = &bundle;
+    }
+    if (matched == nullptr) {
+      return reject(
+          "backbone internal: variation final concrete Bundle is missing");
+    }
+    updated.instances.push_back({matched->placement_key, matched->id});
+    const auto membership = std::ranges::find_if(
+        updated.memberships,
+        [&](const SavedBackboneBundleVariationMembership& value) {
+          return value.bundle_template_id == matched->bundle_template_id &&
+                 value.conductor_count == matched->conductor_count;
+        });
+    if (membership == updated.memberships.end()) {
+      auto captured =
+          trial.capture_backbone_bundle_variation_membership(matched->id);
+      if (!captured.ok) return reject(captured.error);
+      updated.memberships.push_back(std::move(captured.value));
+    }
+  }
+  std::sort(updated.instances.begin(), updated.instances.end(),
+            [](const auto& a, const auto& b) {
+              return a.placement_key < b.placement_key;
+            });
+  std::sort(updated.memberships.begin(), updated.memberships.end(),
+            [](const auto& a, const auto& b) {
+              return std::tie(a.bundle_template_id, a.conductor_count) <
+                     std::tie(b.bundle_template_id, b.conductor_count);
+            });
+  trial.authoritative_.backbone_bundle_variations.push_back(
+      std::move(updated));
+
+  const ValidationResult validation = trial.Validate();
+  for (const ValidationIssue& issue : validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      return reject(
+          "backbone invalid input: variation Apply validation failed: " +
+          issue.code + ": " + issue.message);
+    }
+  }
+  *this = std::move(trial);
+  result.ok = true;
+  result.value = reconciled.value;
+  result.change_set = std::move(reconciled.change_set);
+  return result;
+}
+
 } // namespace city::wire

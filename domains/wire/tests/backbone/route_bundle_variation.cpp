@@ -371,6 +371,87 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
   return true;
 }
 
+bool C883_backbone_variation_apply_reconciles_concrete_scope_atomically() {
+  using namespace city::wire;
+  CoreState state;
+  RouteBundleVariationInput initial{};
+  initial.route_seed = 0x8830102;
+  initial.preferred_side_sign = -1;
+  initial.pole_type_id = 2;
+  initial.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
+                    5.1, 5.1, 0.20, 0.20, 0.16}};
+  const auto generated = state.GenerateBackboneBundleVariation(
+      request_with(state, {}), initial);
+  if (!generated.ok) return false;
+  const ObjectId variation_id = generated.value.variation_id;
+  const SavedBackboneBundleVariation* before =
+      state.view().backbone_bundle_variation(variation_id);
+  if (before == nullptr || before->instances.size() != 1) return false;
+  const std::uint64_t surviving_key = before->instances.front().placement_key;
+  const ObjectId surviving_id = before->instances.front().bundle_id;
+
+  RouteBundleVariationInput denser = initial;
+  denser.rules.front().min_instances = 2;
+  denser.rules.front().max_instances = 2;
+  denser.rules.front().height_min_m = 5.25;
+  denser.rules.front().height_max_m = 5.25;
+  denser.rules.front().lateral_abs_min_m = 0.30;
+  denser.rules.front().lateral_abs_max_m = 0.60;
+  const auto applied = state.ApplyBackboneBundleVariation(variation_id, denser);
+  const SavedBackboneBundleVariation* after =
+      state.view().backbone_bundle_variation(variation_id);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      applied.ok && applied.value && after != nullptr &&
+          after->instances.size() == 2,
+      applied.error.empty() ? "variation density Apply did not add one instance"
+                            : applied.error);
+  const auto survivor = std::ranges::find_if(
+      after->instances, [surviving_key](const auto& instance) {
+        return instance.placement_key == surviving_key;
+      });
+  const Bundle* surviving_bundle =
+      survivor == after->instances.end()
+          ? nullptr
+          : state.view().bundles().find(survivor->bundle_id);
+  WIRE_TEST_EXPECT_ANCHOR(
+      survivor != after->instances.end() && survivor->bundle_id == surviving_id &&
+          surviving_bundle != nullptr && surviving_bundle->height_m == 5.25 &&
+          surviving_bundle->lateral_m <= -0.30,
+      "variation Apply did not preserve survivor identity while updating placement");
+
+  std::string manual_before{};
+  WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&manual_before).ok,
+                            "manual-edit boundary snapshot save failed");
+  const auto manual = state.UpdateBackboneBundlePlacement(
+      surviving_id, true, 5.4, -0.4, 0.2);
+  std::string manual_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !manual.ok && state.SerializeAuthoritative(&manual_after).ok &&
+          manual_before == manual_after,
+      "recipe-backed Bundle accepted an individual placement edit");
+
+  std::string stable_before{};
+  WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&stable_before).ok,
+                            "variation Apply failure snapshot save failed");
+  RouteBundleVariationInput impossible = denser;
+  impossible.rules.front().min_instances = 3;
+  impossible.rules.front().max_instances = 3;
+  impossible.rules.front().height_min_m = 5.0;
+  impossible.rules.front().height_max_m = 5.0;
+  impossible.rules.front().lateral_abs_min_m = 0.2;
+  impossible.rules.front().lateral_abs_max_m = 0.2;
+  impossible.rules.front().min_spacing_m = 0.5;
+  const auto rejected =
+      state.ApplyBackboneBundleVariation(variation_id, impossible);
+  std::string stable_after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !rejected.ok && state.SerializeAuthoritative(&stable_after).ok &&
+          stable_before == stable_after,
+      "failed variation Apply changed descriptor or physical authority");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  return true;
+}
+
 bool C862_non_hv_route_variation_covers_each_category_and_keeps_hv_fixed() {
   using namespace city::wire;
   CoreState state;

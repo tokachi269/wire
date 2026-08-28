@@ -1432,6 +1432,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "route Bundle variation generation atomically persists its explicit-Apply descriptor and exact concrete scope",
                          "Invariant", true,
                          C882_backbone_variation_descriptor_is_atomically_associated_and_persisted);
+  test_registry::AddTest(tests, "C883_backbone_variation_apply_reconciles_concrete_scope_atomically",
+                         "explicit variation Apply preserves surviving placement identity and atomically reconciles density and placement",
+                         "Differential", true,
+                         C883_backbone_variation_apply_reconciles_concrete_scope_atomically);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

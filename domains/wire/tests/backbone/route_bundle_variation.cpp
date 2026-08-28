@@ -375,6 +375,22 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
               }),
       "Validate accepted a malformed persisted variation membership");
 
+  CoreState wrong_rule_ordinal = loaded;
+  auto& wrong_rule_variations =
+      CoreStateTestHook::backbone_bundle_variations(wrong_rule_ordinal);
+  wrong_rule_variations.front().descriptor.route_seed ^= 0x5a5a5a5aULL;
+  const ValidationResult wrong_rule_validation =
+      CoreStateTestHook::validate(wrong_rule_ordinal);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !wrong_rule_validation.ok() &&
+          std::ranges::any_of(
+              wrong_rule_validation.issues,
+              [](const ValidationIssue& issue) {
+                return issue.code ==
+                       "BackboneBundleVariationInstanceRuleMissing";
+              }),
+      "Validate accepted an instance placement key from a different rule ordinal");
+
   std::string malformed_archive = serialized;
   const std::string membership_node_key =
       ".memberships.0.nodes.0.node_id=";
@@ -662,8 +678,81 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
       ownerless_restored.error.empty()
           ? "ownerless variation one-to-zero-to-one lost its exact support membership"
           : ownerless_restored.error);
+
+  CoreState extended_zero;
+  RouteBundleVariationInput two_groups = one;
+  two_groups.rules.push_back(
+      {kDefaultLowVoltageBundleTemplateId, 1, 1, 1,
+       7.1, 7.1, 0.25, 0.25, 0.20});
+  const auto two_generated = extended_zero.GenerateBackboneBundleVariation(
+      request_with(extended_zero, {}), two_groups);
+  if (!two_generated.ok ||
+      two_generated.value.generation.generated_node_ids.size() != 2) {
+    return false;
+  }
+  const ObjectId extended_variation_id = two_generated.value.variation_id;
+  const SavedBackboneBundleVariation* before_zero =
+      extended_zero.view().backbone_bundle_variation(extended_variation_id);
+  const auto communication_membership = [](const auto* variation) {
+    return variation == nullptr
+               ? std::vector<SavedBackboneBundleVariationMembership>::const_iterator{}
+               : std::ranges::find_if(
+                     variation->memberships, [](const auto& membership) {
+                       return membership.bundle_template_id ==
+                              kDefaultCommunicationBundleTemplateId;
+                     });
+  };
+  if (before_zero == nullptr) return false;
+  const auto before_zero_membership = communication_membership(before_zero);
+  if (before_zero_membership == before_zero->memberships.end()) return false;
+  const std::size_t edges_before_extension =
+      before_zero_membership->edges.size();
+
+  RouteBundleVariationInput zero_communication = two_groups;
+  zero_communication.rules.front().min_instances = 0;
+  zero_communication.rules.front().max_instances = 0;
+  const auto zeroed = extended_zero.ApplyBackboneBundleVariation(
+      extended_variation_id, zero_communication);
+  BackboneSpec extension = request_with(
+      extended_zero, {}, {{12.0, 0.0, 0.0}, {24.0, 3.0, 0.0}});
+  BackboneInputSpec::NodeSpec extension_start{};
+  extension_start.point_index = 0;
+  extension_start.support_kind = SupportKind::kPole;
+  extension_start.node_id =
+      two_generated.value.generation.generated_node_ids.back();
+  extension.path.node_specs = {extension_start};
+  const auto extended = extended_zero.ExtendBackboneBundleVariation(
+      extended_variation_id, extension);
+  const SavedBackboneBundleVariation* after_extension =
+      extended_zero.view().backbone_bundle_variation(extended_variation_id);
+  if (!zeroed.ok || !extended.ok || after_extension == nullptr) return false;
+  const auto extended_membership = communication_membership(after_extension);
+  if (extended_membership == after_extension->memberships.end()) return false;
+  const std::size_t edges_after_extension = extended_membership->edges.size();
+  const auto extended_restored = extended_zero.ApplyBackboneBundleVariation(
+      extended_variation_id, two_groups);
+  const SavedBackboneBundleVariation* extended_final =
+      extended_zero.view().backbone_bundle_variation(extended_variation_id);
+  const auto final_membership = communication_membership(extended_final);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      extended_restored.ok && extended_final != nullptr &&
+          final_membership != extended_final->memberships.end() &&
+          edges_after_extension > edges_before_extension &&
+          final_membership->edges.size() == edges_after_extension &&
+          std::ranges::any_of(
+              extended_final->instances, [&](const auto& instance) {
+                const Bundle* bundle =
+                    extended_zero.view().bundles().find(instance.bundle_id);
+                return bundle != nullptr &&
+                       bundle->bundle_template_id ==
+                           kDefaultCommunicationBundleTemplateId;
+              }),
+      extended_restored.error.empty()
+          ? "zero-instance membership did not extend before rematerialization"
+          : extended_restored.error);
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(ownerless);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(extended_zero);
   return true;
 }
 

@@ -1429,7 +1429,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Boundary", true,
                          C881_backbone_reconcile_rejects_invalid_scope_and_desired_specs);
   test_registry::AddTest(tests, "C882_backbone_variation_descriptor_is_atomically_associated_and_persisted",
-                         "route Bundle variation generation atomically persists its explicit-Apply descriptor and exact concrete scope",
+                         "route Bundle variation atomically persists and validates its descriptor rule identity and exact concrete scope",
                          "Invariant", true,
                          C882_backbone_variation_descriptor_is_atomically_associated_and_persisted);
   test_registry::AddTest(tests, "C883_backbone_variation_apply_reconciles_concrete_scope_atomically",
@@ -1437,7 +1437,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Differential", true,
                          C883_backbone_variation_apply_reconciles_concrete_scope_atomically);
   test_registry::AddTest(tests, "C884_backbone_variation_apply_restores_zero_count_membership",
-                         "variation Apply preserves saved membership through one-to-zero-to-one without retaining a hidden Bundle",
+                         "variation preserves and extends saved membership through one-to-zero-to-extend-to-one without a hidden Bundle",
                          "Invariant", true,
                          C884_backbone_variation_apply_restores_zero_count_membership);
   test_registry::AddTest(tests, "C885_backbone_variation_apply_preserves_branch_cross_sharp_membership",

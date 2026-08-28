@@ -990,6 +990,54 @@ describe("viewport tool routing", () => {
     });
   });
 
+  it("uses the successful Apply result as the next neutral persisted baseline", () => {
+    const persistedRules = [{
+      bundleTemplateId: 104, minInstances: 2, maxInstances: 4,
+      conductorCount: 1, heightMin: 5, heightMax: 7,
+      lateralAbsMin: 0.2, lateralAbsMax: 0.6, minSpacing: 0.16
+    }];
+    const appliedRules = [{
+      ...persistedRules[0], heightMin: 5.5, heightMax: 6.5
+    }];
+    const descriptor = {
+      ok: true, error: "", found: true, variationId: "907", routeSeed: 777,
+      preferredSideSign: -1, poleTypeId: 1, rules: persistedRules,
+      instances: [{ placementKey: 71, bundleId: "801" }]
+    };
+    let applied = false;
+    const applyBackboneBundleVariation = vi.fn((
+      _variationId: string,
+      _rules: typeof persistedRules
+    ) => {
+      applied = true;
+      return { ok: true, error: "" };
+    });
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      spans: [{ id: "207", portAId: "113", portBId: "114", bundleId: "801" }]
+    }));
+    const actions = new ViewerActions(actionBridge({
+      backboneBundleVariationForBundle: () => descriptor,
+      backboneBundleVariation: () => applied
+        ? { ...descriptor, rules: appliedRules }
+        : descriptor,
+      applyBackboneBundleVariation
+    }), store);
+
+    actions.select("span", "207");
+    actions.setSelectedRouteVariation("heightSpread", 0.5);
+    actions.applySelectedRouteVariation();
+
+    expect(applyBackboneBundleVariation.mock.calls[0][1][0]).toMatchObject({
+      heightMin: 5.5, heightMax: 6.5
+    });
+    expect(current(store).selectedRouteVariation?.rules).toEqual(appliedRules);
+    expect(current(store).selectedRouteVariationControls).toEqual({
+      density: 1, heightSpread: 1, lateralSpread: 1
+    });
+  });
+
   it("rejects persisted variation controls while the same route is active", () => {
     const descriptor = {
       ok: true, error: "", found: true, variationId: "905", routeSeed: 654,

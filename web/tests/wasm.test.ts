@@ -579,7 +579,50 @@ describe("wire wasm smoke", () => {
       routeSeed: 12345,
       rules: changedRules
     });
+    const loadedRules = [{
+      ...changedRules[0], heightMin: 7.7, heightMax: 7.7
+    }];
+    const loadedApply = loaded.applyBackboneBundleVariation(
+      first.variationId!, loadedRules, 12345, -1, 1
+    );
+    expect(loadedApply.ok, loadedApply.error).toBe(true);
+    expect(loaded.backboneBundleVariation(first.variationId!).rules)
+      .toEqual(loadedRules);
     loaded.delete();
+    runState.delete();
+  });
+
+  it("keeps same-seed route variation placement keys scoped by exact Bundle identity", () => {
+    const runState = createState();
+    const rules = [{
+      bundleTemplateId: 104, minInstances: 1, maxInstances: 1,
+      conductorCount: 1, heightMin: 5.2, heightMax: 5.2,
+      lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.16
+    }];
+    const first = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), rules, 88601, -1,
+      0, 2, 0, 0, []
+    );
+    const second = runState.generateBundleVariation(
+      new Float64Array([0, 20, 0, 12, 20, 0]), rules, 88601, -1,
+      0, 2, 0, 0, []
+    );
+    expect(first.ok, first.error).toBe(true);
+    expect(second.ok, second.error).toBe(true);
+    const firstInfo = runState.backboneBundleVariation(first.variationId!);
+    const secondBefore = runState.backboneBundleVariation(second.variationId!);
+    expect(firstInfo.instances![0].placementKey)
+      .toBe(secondBefore.instances![0].placementKey);
+    expect(firstInfo.instances![0].bundleId)
+      .not.toBe(secondBefore.instances![0].bundleId);
+
+    const changed = [{ ...rules[0], heightMin: 5.7, heightMax: 5.7 }];
+    const applied = runState.applyBackboneBundleVariation(
+      first.variationId!, changed, 88601, -1, 2
+    );
+    expect(applied.ok, applied.error).toBe(true);
+    expect(runState.backboneBundleVariation(second.variationId!))
+      .toEqual(secondBefore);
     runState.delete();
   });
 

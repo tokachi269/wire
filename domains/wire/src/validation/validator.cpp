@@ -180,10 +180,18 @@ void validate_backbone_bundle_variations(const CoreState& state,
     }
     const EditResult<std::vector<BackboneBundleSpec>> resolved =
         state.ResolveRouteBundleVariation(variation.descriptor);
+    std::unordered_map<std::uint64_t,
+                       std::pair<BundleTemplateId, int>> resolved_instances{};
     if (!resolved.ok) {
       issue("BackboneBundleVariationDescriptorInvalid",
             "Backbone Bundle variation descriptor must resolve as valid input",
             variation.variation_id);
+    } else {
+      for (const BackboneBundleSpec& spec : resolved.value) {
+        resolved_instances.emplace(
+            spec.placement_key,
+            std::pair{spec.bundle_template_id, spec.count});
+      }
     }
 
     std::unordered_set<std::uint64_t> placement_keys{};
@@ -218,9 +226,22 @@ void validate_backbone_bundle_variations(const CoreState& state,
         issue("BackboneBundleVariationInstanceRuleMissing",
               "Backbone Bundle variation instance has no matching descriptor rule ordinal",
               instance.bundle_id);
+      } else if (const auto expected =
+                     resolved_instances.find(instance.placement_key);
+                 expected == resolved_instances.end() ||
+                 expected->second.first != bundle->bundle_template_id ||
+                 expected->second.second != bundle->conductor_count) {
+        issue("BackboneBundleVariationInstanceRuleMissing",
+              "Backbone Bundle variation instance placement identity is not emitted by its descriptor rule ordinal",
+              instance.bundle_id);
       }
       live_groups.insert(
           {bundle->bundle_template_id, bundle->conductor_count});
+    }
+    if (resolved.ok && placement_keys.size() != resolved_instances.size()) {
+      issue("BackboneBundleVariationInstanceSetMismatch",
+            "Backbone Bundle variation live instance set must exactly match its resolved descriptor keys",
+            variation.variation_id);
     }
 
     std::set<std::pair<BundleTemplateId, int>> membership_keys{};

@@ -61,6 +61,19 @@ describe("default route bundle variation controls", () => {
     expect(adjustRouteBundleRules(
       persisted, { density: 1, heightSpread: 1, lateralSpread: 1 }
     )).toEqual(persisted);
+    const changedFutureDefaults = DEFAULT_BUNDLE_RULES.map((rule) => ({
+      ...rule,
+      minInstances: rule.minInstances + 5,
+      maxInstances: rule.maxInstances + 5,
+      heightMin: rule.heightMin + 10,
+      heightMax: rule.heightMax + 10
+    }));
+    expect(routeBundleRules(
+      { density: 1, heightSpread: 1, lateralSpread: 1 }, persisted
+    )).toEqual(persisted);
+    expect(routeBundleRules(
+      { density: 1, heightSpread: 1, lateralSpread: 1 }, persisted
+    )).not.toEqual(changedFutureDefaults);
     expect(adjustRouteBundleRules(
       persisted, { density: 0.5, heightSpread: 0.5, lateralSpread: 0.5 }
     )[0]).toMatchObject({

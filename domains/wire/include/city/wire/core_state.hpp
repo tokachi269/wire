@@ -67,6 +67,8 @@ public:
   EditResult<ObjectId> ApplyPoleType(ObjectId pole_id, PoleTypeId pole_type_id);
   // Canonical path-generation API.
   EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
+  EditResult<GenerateBackboneBundleVariationResult> GenerateBackboneBundleVariation(
+      const BackboneSpec& spec, const RouteBundleVariationInput& descriptor);
   // Interprets a viewer-side pick payload and creates volatile pending support nodes when needed.
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick);
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick,
@@ -145,6 +147,10 @@ public:
   [[nodiscard]] CoreView view() const;
 
 private:
+  [[nodiscard]] const SavedBackboneBundleVariation* backbone_bundle_variation_for_bundle(
+      ObjectId bundle_id) const;
+  EditResult<SavedBackboneBundleVariationMembership>
+  capture_backbone_bundle_variation_membership(ObjectId bundle_id) const;
 #if defined(WIRE_INTERNAL) || defined(WIRE_TESTING)
   friend struct CoreStateTestHook;
 #endif

@@ -28,6 +28,8 @@ public:
   [[nodiscard]] const ObjectStore<Span>& spans() const;
   [[nodiscard]] const ObjectStore<Attachment>& attachments() const;
   [[nodiscard]] const SavedBackboneGraph& backbone() const;
+  [[nodiscard]] const std::vector<SavedBackboneBundleVariation>& backbone_bundle_variations() const;
+  [[nodiscard]] const SavedBackboneBundleVariation* backbone_bundle_variation(ObjectId variation_id) const;
 
   [[nodiscard]] const ConnectionIndex& connection_index() const;
   [[nodiscard]] const RelationIndex& relation_index() const;

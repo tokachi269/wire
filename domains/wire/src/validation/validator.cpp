@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -351,6 +352,52 @@ ValidationResult CoreState::ValidateFast() const {
     if (!core.bundle_templates().contains(bundle.bundle_template_id)) {
       result.issues.push_back(
           {ValidationSeverity::kError, "BundleTemplateMissing", "Bundle references unknown BundleTemplate", bundle.id});
+    }
+  }
+
+  std::unordered_set<ObjectId> variation_ids{};
+  std::unordered_set<ObjectId> variation_bundle_ids{};
+  for (const SavedBackboneBundleVariation& variation :
+       core.backbone_bundle_variations()) {
+    if (variation.variation_id == kInvalidObjectId ||
+        !variation_ids.insert(variation.variation_id).second ||
+        variation.descriptor.rules.empty()) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "BackboneBundleVariationIdentityInvalid",
+           "Backbone Bundle variation requires a unique identity and non-empty descriptor",
+           variation.variation_id});
+      continue;
+    }
+    std::unordered_set<std::uint64_t> placement_keys{};
+    for (const SavedBackboneBundleVariationInstance& instance :
+         variation.instances) {
+      const Bundle* bundle = edit_state.bundles.find(instance.bundle_id);
+      if (instance.placement_key == 0 || bundle == nullptr ||
+          bundle->placement_key != instance.placement_key ||
+          !placement_keys.insert(instance.placement_key).second ||
+          !variation_bundle_ids.insert(instance.bundle_id).second) {
+        result.issues.push_back(
+            {ValidationSeverity::kError,
+             "BackboneBundleVariationInstanceInvalid",
+             "Backbone Bundle variation instance must reference one exact live Bundle placement",
+             instance.bundle_id});
+      }
+    }
+    std::set<std::pair<BundleTemplateId, int>> membership_keys{};
+    for (const SavedBackboneBundleVariationMembership& membership :
+         variation.memberships) {
+      if (membership.bundle_template_id == kInvalidBundleTemplateId ||
+          membership.conductor_count <= 0 || membership.edges.empty() ||
+          !membership_keys
+               .insert({membership.bundle_template_id,
+                        membership.conductor_count})
+               .second) {
+        result.issues.push_back(
+            {ValidationSeverity::kError,
+             "BackboneBundleVariationMembershipInvalid",
+             "Backbone Bundle variation membership source must be unique and non-empty",
+             variation.variation_id});
+      }
     }
   }
 

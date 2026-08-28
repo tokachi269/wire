@@ -1428,6 +1428,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "concrete Bundle reconcile rejects ambiguous identity template count placement and anchor inputs without mutation",
                          "Boundary", true,
                          C881_backbone_reconcile_rejects_invalid_scope_and_desired_specs);
+  test_registry::AddTest(tests, "C882_backbone_variation_descriptor_is_atomically_associated_and_persisted",
+                         "route Bundle variation generation atomically persists its explicit-Apply descriptor and exact concrete scope",
+                         "Invariant", true,
+                         C882_backbone_variation_descriptor_is_atomically_associated_and_persisted);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

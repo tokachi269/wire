@@ -300,6 +300,77 @@ bool C861_route_bundle_variation_incremental_extension_preserves_existing_output
   return true;
 }
 
+bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted() {
+  using namespace city::wire;
+  CoreState state;
+  BackboneSpec request = request_with(state, {});
+  const RouteBundleVariationInput descriptor = variation_input(0x8820102);
+  const auto generated =
+      state.GenerateBackboneBundleVariation(request, descriptor);
+  const SavedBackboneBundleVariation* saved_descriptor =
+      generated.ok
+          ? state.view().backbone_bundle_variation(
+                generated.value.variation_id)
+          : nullptr;
+  WIRE_TEST_EXPECT_ANCHOR(
+      generated.ok && saved_descriptor != nullptr &&
+          saved_descriptor->descriptor.route_seed == descriptor.route_seed &&
+          saved_descriptor->descriptor.rules.size() == descriptor.rules.size() &&
+          saved_descriptor->instances.size() ==
+              generated.value.generation.bundle_ids.size() &&
+          !saved_descriptor->memberships.empty(),
+      generated.error.empty()
+          ? "variation descriptor was not associated with exact generated scope"
+          : generated.error);
+
+  std::map<std::uint64_t, ObjectId> identities{};
+  for (const auto& instance : saved_descriptor->instances) {
+    const Bundle* bundle = state.view().bundles().find(instance.bundle_id);
+    WIRE_TEST_EXPECT_PRESENCE(
+        bundle != nullptr && bundle->placement_key == instance.placement_key,
+        "variation descriptor instance does not reference exact concrete Bundle");
+    identities.emplace(instance.placement_key, instance.bundle_id);
+  }
+  std::string serialized{};
+  WIRE_TEST_EXPECT_PRESENCE(state.SerializeAuthoritative(&serialized).ok,
+                            "variation descriptor save failed");
+  CoreState loaded;
+  WIRE_TEST_EXPECT_PRESENCE(loaded.DeserializeAuthoritative(serialized).ok,
+                            "variation descriptor load failed");
+  const SavedBackboneBundleVariation* loaded_descriptor =
+      loaded.view().backbone_bundle_variation(generated.value.variation_id);
+  std::string resaved{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      loaded_descriptor != nullptr &&
+          loaded_descriptor->descriptor.route_seed == descriptor.route_seed &&
+          loaded_descriptor->instances.size() == identities.size() &&
+          loaded.SerializeAuthoritative(&resaved).ok && serialized == resaved,
+      "variation descriptor did not survive save-load-save without reroll");
+  for (const auto& instance : loaded_descriptor->instances) {
+    const auto expected = identities.find(instance.placement_key);
+    WIRE_TEST_EXPECT_ANCHOR(
+        expected != identities.end() && expected->second == instance.bundle_id,
+        "load changed a persisted variation placement identity");
+  }
+
+  CoreState failed;
+  std::string before{};
+  WIRE_TEST_EXPECT_PRESENCE(failed.SerializeAuthoritative(&before).ok,
+                            "variation failure fixture save failed");
+  RouteBundleVariationInput impossible = descriptor;
+  impossible.rules = {{kDefaultLowVoltageBundleTemplateId, 2, 2, 1,
+                       7.0, 7.0, 0.2, 0.2, 0.5}};
+  const auto rejected = failed.GenerateBackboneBundleVariation(
+      request_with(failed, {}), impossible);
+  std::string after{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !rejected.ok && failed.SerializeAuthoritative(&after).ok &&
+          before == after,
+      "failed variation generation partially persisted descriptor or topology");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
+  return true;
+}
+
 bool C862_non_hv_route_variation_covers_each_category_and_keeps_hv_fixed() {
   using namespace city::wire;
   CoreState state;

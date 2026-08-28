@@ -21,6 +21,20 @@ const ObjectStore<Bundle>& CoreView::bundles() const { return state_.authoritati
 const ObjectStore<Span>& CoreView::spans() const { return state_.authoritative_.edit_state.spans; }
 const ObjectStore<Attachment>& CoreView::attachments() const { return state_.authoritative_.edit_state.attachments; }
 const SavedBackboneGraph& CoreView::backbone() const { return state_.authoritative_.backbone; }
+const std::vector<SavedBackboneBundleVariation>& CoreView::backbone_bundle_variations() const {
+  return state_.authoritative_.backbone_bundle_variations;
+}
+const SavedBackboneBundleVariation* CoreView::backbone_bundle_variation(ObjectId variation_id) const {
+  const auto found = std::find_if(
+      state_.authoritative_.backbone_bundle_variations.begin(),
+      state_.authoritative_.backbone_bundle_variations.end(),
+      [&](const SavedBackboneBundleVariation& value) {
+        return value.variation_id == variation_id;
+      });
+  return found == state_.authoritative_.backbone_bundle_variations.end()
+             ? nullptr
+             : &*found;
+}
 
 const ConnectionIndex& CoreView::connection_index() const { return state_.runtime_.connection_index; }
 const RelationIndex& CoreView::relation_index() const { return state_.runtime_.relation_index; }

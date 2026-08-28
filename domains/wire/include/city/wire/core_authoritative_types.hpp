@@ -97,6 +97,45 @@ struct SavedBackboneGraph {
   std::vector<SavedBackboneRowContinuity> row_continuities{};
 };
 
+// Explicit-Apply descriptor for one concrete Bundle variation scope.
+// Concrete Bundle/Port/Span/SavedBackboneGraph state remains the current
+// physical authority; this record owns only replay input, exact scope
+// membership, and the saved membership oracle required after count reaches 0.
+struct SavedBackboneBundleVariationInstance {
+  std::uint64_t placement_key = 0;
+  ObjectId bundle_id = kInvalidObjectId;
+};
+
+struct SavedBackboneBundleVariationEdge {
+  ObjectId edge_id = kInvalidObjectId;
+  ObjectId node_a = kInvalidObjectId;
+  ObjectId node_b = kInvalidObjectId;
+  Vec3d dir{};
+  double lateral_offset_m = 0.0;
+};
+
+struct SavedBackboneBundleVariationContinuity {
+  ObjectId node_id = kInvalidObjectId;
+  ObjectId edge_a = kInvalidObjectId;
+  std::size_t lane_a = 0;
+  ObjectId edge_b = kInvalidObjectId;
+  std::size_t lane_b = 0;
+};
+
+struct SavedBackboneBundleVariationMembership {
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
+  int conductor_count = 0;
+  std::vector<SavedBackboneBundleVariationEdge> edges{};
+  std::vector<SavedBackboneBundleVariationContinuity> row_continuities{};
+};
+
+struct SavedBackboneBundleVariation {
+  ObjectId variation_id = kInvalidObjectId;
+  RouteBundleVariationInput descriptor{};
+  std::vector<SavedBackboneBundleVariationInstance> instances{};
+  std::vector<SavedBackboneBundleVariationMembership> memberships{};
+};
+
 struct EditState {
   // Entity-layer authoritative stores.
   ObjectStore<Pole> poles;

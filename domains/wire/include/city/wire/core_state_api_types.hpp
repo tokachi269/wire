@@ -64,6 +64,11 @@ struct GenerateBundleFromPathResult {
   GenerationTiming timing{};
 };
 
+struct GenerateBackboneBundleVariationResult {
+  ObjectId variation_id = kInvalidObjectId;
+  GenerateBundleFromPathResult generation{};
+};
+
 struct DefaultBundlePlacementResult {
   double height_m = 0.0;
   double lateral_m = 0.0;

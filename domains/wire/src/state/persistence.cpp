@@ -673,6 +673,47 @@ bool archive_saved_row_continuity(Archive& archive, const std::string& prefix, V
          archive_saved_row_continuity_endpoint(archive, child(prefix, "b"), value.b);
 }
 
+template <typename Archive, typename Value>
+bool archive_random_bundle_rule(Archive& archive, const std::string& prefix,
+                                Value& value) {
+  return archive.field(prefix, "bundle_template_id", value.bundle_template_id) &&
+         archive.field(prefix, "min_instances", value.min_instances) &&
+         archive.field(prefix, "max_instances", value.max_instances) &&
+         archive.field(prefix, "conductor_count", value.conductor_count) &&
+         archive.field(prefix, "height_min_m", value.height_min_m) &&
+         archive.field(prefix, "height_max_m", value.height_max_m) &&
+         archive.field(prefix, "lateral_abs_min_m", value.lateral_abs_min_m) &&
+         archive.field(prefix, "lateral_abs_max_m", value.lateral_abs_max_m) &&
+         archive.field(prefix, "min_spacing_m", value.min_spacing_m);
+}
+
+template <typename Archive, typename Value>
+bool archive_variation_instance(Archive& archive, const std::string& prefix,
+                                Value& value) {
+  return archive.field(prefix, "placement_key", value.placement_key) &&
+         archive.field(prefix, "bundle_id", value.bundle_id);
+}
+
+template <typename Archive, typename Value>
+bool archive_variation_edge(Archive& archive, const std::string& prefix,
+                            Value& value) {
+  return archive.field(prefix, "edge_id", value.edge_id) &&
+         archive.field(prefix, "node_a", value.node_a) &&
+         archive.field(prefix, "node_b", value.node_b) &&
+         archive_vec3(archive, child(prefix, "dir"), value.dir) &&
+         archive.field(prefix, "lateral_offset_m", value.lateral_offset_m);
+}
+
+template <typename Archive, typename Value>
+bool archive_variation_continuity(Archive& archive, const std::string& prefix,
+                                  Value& value) {
+  return archive.field(prefix, "node_id", value.node_id) &&
+         archive.field(prefix, "edge_a", value.edge_a) &&
+         archive.field(prefix, "lane_a", value.lane_a) &&
+         archive.field(prefix, "edge_b", value.edge_b) &&
+         archive.field(prefix, "lane_b", value.lane_b);
+}
+
 #ifdef _MSC_VER
 static_assert(sizeof(SavedBackboneRowContinuityEndpoint) == 16, "field added: update archive visitor and full-fat persistence fixture");
 static_assert(sizeof(SavedBackboneRowContinuity) == 40, "field added: update archive visitor and full-fat persistence fixture");
@@ -867,6 +908,92 @@ void write_backbone_as(StateWriter& writer, const SavedBackboneGraph& graph) {
                        }, [](auto& out, const auto& prefix, const SavedBackboneRowContinuity& value) {
                          FieldArchive a(out); (void)archive_saved_row_continuity(a, prefix, value);
                        });
+}
+
+template <typename FieldArchive>
+void write_backbone_bundle_variations_as(
+    StateWriter& writer,
+    const std::vector<SavedBackboneBundleVariation>& variations) {
+  write_id_vector(
+      writer, "authoritative.backbone_bundle_variations", variations,
+      [](const SavedBackboneBundleVariation& value) {
+        return value.variation_id;
+      },
+      [](auto& out, const auto& prefix,
+         const SavedBackboneBundleVariation& value) {
+        FieldArchive archive(out);
+        archive.field(prefix, "variation_id", value.variation_id);
+        archive.field(prefix, "route_seed", value.descriptor.route_seed);
+        archive.field(prefix, "preferred_side_sign",
+                      value.descriptor.preferred_side_sign);
+        archive.field(prefix, "pole_type_id", value.descriptor.pole_type_id);
+        out.value(child(prefix, "rules.count"), value.descriptor.rules.size());
+        for (std::size_t i = 0; i < value.descriptor.rules.size(); ++i) {
+          FieldArchive rule_archive(out);
+          archive_random_bundle_rule(rule_archive,
+                                     indexed(child(prefix, "rules"), i),
+                                     value.descriptor.rules[i]);
+        }
+        write_ordered_vector(
+            out, child(prefix, "instances"), value.instances,
+            [](const SavedBackboneBundleVariationInstance& a,
+               const SavedBackboneBundleVariationInstance& b) {
+              return std::tie(a.placement_key, a.bundle_id) <
+                     std::tie(b.placement_key, b.bundle_id);
+            },
+            [](auto& instance_out, const auto& instance_prefix,
+               const SavedBackboneBundleVariationInstance& instance) {
+              FieldArchive instance_archive(instance_out);
+              archive_variation_instance(instance_archive, instance_prefix,
+                                         instance);
+            });
+        write_ordered_vector(
+            out, child(prefix, "memberships"), value.memberships,
+            [](const SavedBackboneBundleVariationMembership& a,
+               const SavedBackboneBundleVariationMembership& b) {
+              return std::tie(a.bundle_template_id, a.conductor_count) <
+                     std::tie(b.bundle_template_id, b.conductor_count);
+            },
+            [](auto& membership_out, const auto& membership_prefix,
+               const SavedBackboneBundleVariationMembership& membership) {
+              FieldArchive membership_archive(membership_out);
+              membership_archive.field(membership_prefix,
+                                       "bundle_template_id",
+                                       membership.bundle_template_id);
+              membership_archive.field(membership_prefix, "conductor_count",
+                                       membership.conductor_count);
+              write_ordered_vector(
+                  membership_out, child(membership_prefix, "edges"),
+                  membership.edges,
+                  [](const SavedBackboneBundleVariationEdge& a,
+                     const SavedBackboneBundleVariationEdge& b) {
+                    return std::tie(a.edge_id, a.node_a, a.node_b) <
+                           std::tie(b.edge_id, b.node_a, b.node_b);
+                  },
+                  [](auto& edge_out, const auto& edge_prefix,
+                     const SavedBackboneBundleVariationEdge& edge) {
+                    FieldArchive edge_archive(edge_out);
+                    archive_variation_edge(edge_archive, edge_prefix, edge);
+                  });
+              write_ordered_vector(
+                  membership_out,
+                  child(membership_prefix, "row_continuities"),
+                  membership.row_continuities,
+                  [](const SavedBackboneBundleVariationContinuity& a,
+                     const SavedBackboneBundleVariationContinuity& b) {
+                    return std::tie(a.node_id, a.edge_a, a.lane_a, a.edge_b,
+                                    a.lane_b) <
+                           std::tie(b.node_id, b.edge_a, b.lane_a, b.edge_b,
+                                    b.lane_b);
+                  },
+                  [](auto& continuity_out, const auto& continuity_prefix,
+                     const SavedBackboneBundleVariationContinuity& continuity) {
+                    FieldArchive continuity_archive(continuity_out);
+                    archive_variation_continuity(
+                        continuity_archive, continuity_prefix, continuity);
+                  });
+            });
+      });
 }
 
 
@@ -1329,6 +1456,8 @@ template <typename FieldArchive>
 void write_authoritative_as(StateWriter& writer, const CoreStateAuthoritativeStorage& authoritative) {
   write_edit_state_as<FieldArchive>(writer, authoritative.edit_state);
   write_backbone_as<FieldArchive>(writer, authoritative.backbone);
+  write_backbone_bundle_variations_as<FieldArchive>(
+      writer, authoritative.backbone_bundle_variations);
   write_map(writer, "authoritative.pole_types", authoritative.pole_types,
             [](auto& out, const auto& prefix, const PoleTypeDefinition& value) {
               FieldArchive a(out); (void)archive_pole_type(a, prefix, value);
@@ -1517,6 +1646,113 @@ bool read_backbone(StateReader& reader, SavedBackboneGraph* graph) {
     }
   } else {
     migrate_v1_row_continuities(graph, legacy_row_keys);
+  }
+  return true;
+}
+
+bool read_backbone_bundle_variations(
+    StateReader& reader,
+    std::vector<SavedBackboneBundleVariation>* variations) {
+  const std::string root = "authoritative.backbone_bundle_variations";
+  if (!reader.contains(child(root, "count"))) {
+    variations->clear();
+    return true;
+  }
+  std::size_t count = 0;
+  if (!reader.count(child(root, "count"), &count)) return false;
+  std::vector<std::uint64_t> ids{};
+  if (!reader.record_ids(root, count, &ids)) return false;
+  variations->clear();
+  variations->reserve(count);
+  for (std::uint64_t id : ids) {
+    const std::string prefix = indexed(root, id);
+    SavedBackboneBundleVariation value{};
+    ReadFieldArchive archive(reader);
+    if (!archive.field(prefix, "variation_id", value.variation_id) ||
+        value.variation_id != id ||
+        !archive.field(prefix, "route_seed", value.descriptor.route_seed) ||
+        !archive.field(prefix, "preferred_side_sign",
+                       value.descriptor.preferred_side_sign) ||
+        !archive.field(prefix, "pole_type_id", value.descriptor.pole_type_id)) {
+      return false;
+    }
+    std::size_t rule_count = 0;
+    if (!reader.count(child(prefix, "rules.count"), &rule_count)) return false;
+    value.descriptor.rules.resize(rule_count);
+    for (std::size_t i = 0; i < rule_count; ++i) {
+      ReadFieldArchive rule_archive(reader);
+      if (!archive_random_bundle_rule(
+              rule_archive, indexed(child(prefix, "rules"), i),
+              value.descriptor.rules[i])) {
+        return false;
+      }
+    }
+    std::size_t instance_count = 0;
+    if (!reader.count(child(prefix, "instances.count"), &instance_count)) {
+      return false;
+    }
+    value.instances.resize(instance_count);
+    for (std::size_t i = 0; i < instance_count; ++i) {
+      ReadFieldArchive instance_archive(reader);
+      if (!archive_variation_instance(
+              instance_archive, indexed(child(prefix, "instances"), i),
+              value.instances[i])) {
+        return false;
+      }
+    }
+    std::size_t membership_count = 0;
+    if (!reader.count(child(prefix, "memberships.count"),
+                      &membership_count)) {
+      return false;
+    }
+    value.memberships.resize(membership_count);
+    for (std::size_t i = 0; i < membership_count; ++i) {
+      const std::string membership_prefix =
+          indexed(child(prefix, "memberships"), i);
+      SavedBackboneBundleVariationMembership& membership =
+          value.memberships[i];
+      ReadFieldArchive membership_archive(reader);
+      if (!membership_archive.field(membership_prefix, "bundle_template_id",
+                                    membership.bundle_template_id) ||
+          !membership_archive.field(membership_prefix, "conductor_count",
+                                    membership.conductor_count)) {
+        return false;
+      }
+      std::size_t edge_count = 0;
+      if (!reader.count(child(membership_prefix, "edges.count"),
+                        &edge_count)) {
+        return false;
+      }
+      membership.edges.resize(edge_count);
+      for (std::size_t edge_index = 0; edge_index < edge_count; ++edge_index) {
+        ReadFieldArchive edge_archive(reader);
+        if (!archive_variation_edge(
+                edge_archive,
+                indexed(child(membership_prefix, "edges"), edge_index),
+                membership.edges[edge_index])) {
+          return false;
+        }
+      }
+      std::size_t continuity_count = 0;
+      if (!reader.count(child(membership_prefix,
+                              "row_continuities.count"),
+                        &continuity_count)) {
+        return false;
+      }
+      membership.row_continuities.resize(continuity_count);
+      for (std::size_t continuity_index = 0;
+           continuity_index < continuity_count; ++continuity_index) {
+        ReadFieldArchive continuity_archive(reader);
+        if (!archive_variation_continuity(
+                continuity_archive,
+                indexed(child(membership_prefix, "row_continuities"),
+                        continuity_index),
+                membership.row_continuities[continuity_index])) {
+          return false;
+        }
+      }
+    }
+    variations->push_back(std::move(value));
   }
   return true;
 }
@@ -1809,6 +2045,8 @@ bool normalize_saved_support_levels(CoreStateAuthoritativeStorage* authoritative
 bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* authoritative) {
   if (!(read_edit_state(reader, &authoritative->edit_state) &&
          read_backbone(reader, &authoritative->backbone) &&
+         read_backbone_bundle_variations(
+             reader, &authoritative->backbone_bundle_variations) &&
          read_map(reader, "authoritative.pole_types", &authoritative->pole_types,
                   [](auto& in, const auto& prefix, PoleTypeDefinition* value) {
                     ReadFieldArchive a(in); return archive_pole_type(a, prefix, *value);

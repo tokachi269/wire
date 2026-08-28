@@ -538,21 +538,27 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
   for (const BackboneBundleSpec& desired : resolved.value) {
     BackboneBundleReconcileEntry entry{};
     entry.desired = desired;
+    const BundleTemplate* desired_template =
+        trial.find_bundle_template(desired.bundle_template_id);
+    if (desired_template == nullptr) {
+      return reject(
+          "backbone invalid input: variation desired Bundle template is missing");
+    }
+    // Reconcile uses count=0 to mean "use the fixed template count". The
+    // resolver emits the concrete conductor count, so normalize only this API
+    // representation before delegating to the generic reconcile operation.
+    if (desired_template->count_rule == BundleCountRuleKind::kFixed) {
+      entry.desired.count = 0;
+    }
     const auto survivor = std::ranges::find_if(
         updated.instances,
         [&](const SavedBackboneBundleVariationInstance& instance) {
           return instance.placement_key == desired.placement_key;
         });
     if (survivor == updated.instances.end()) {
-      const BundleTemplate* bundle_template =
-          trial.find_bundle_template(desired.bundle_template_id);
-      if (bundle_template == nullptr) {
-        return reject(
-            "backbone invalid input: variation desired Bundle template is missing");
-      }
       const int desired_count =
-          bundle_template->count_rule == BundleCountRuleKind::kFixed
-              ? bundle_template->fixed_count
+          desired_template->count_rule == BundleCountRuleKind::kFixed
+              ? desired_template->fixed_count
               : desired.count;
       for (const SavedBackboneBundleVariationInstance& candidate :
            updated.instances) {

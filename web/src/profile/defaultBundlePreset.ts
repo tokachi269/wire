@@ -1,7 +1,7 @@
 import type { RandomBundleRule, RouteVariationControls } from "../model";
 
 // Initial visual-evaluation envelopes. They are input data, not Japanese
-// engineering-standard values and not persisted as Core entities.
+// engineering-standard values; Core persists the resolved route descriptor.
 export const DEFAULT_BUNDLE_RULES: ReadonlyArray<RandomBundleRule> = [
   {
     bundleTemplateId: 101, minInstances: 1, maxInstances: 1,
@@ -29,27 +29,58 @@ export const DEFAULT_PREFERRED_SIDE_SIGN = -1;
 
 export const DEFAULT_ROUTE_VARIATION_CONTROLS: RouteVariationControls = {
   density: 1,
-  heightSpread: 1
+  heightSpread: 1,
+  lateralSpread: 1
 };
 
 export function routeBundleRules(
-  controls: RouteVariationControls
+  controls: RouteVariationControls,
+  sourceRules: ReadonlyArray<RandomBundleRule> = DEFAULT_BUNDLE_RULES
 ): RandomBundleRule[] {
-  return DEFAULT_BUNDLE_RULES.map((rule, index) => {
-    if (index === 0) return { ...rule };
-    const center = (rule.heightMin + rule.heightMax) * 0.5;
-    const halfRange = (rule.heightMax - rule.heightMin) * 0.5 * controls.heightSpread;
-    const minInstances = Math.round(rule.minInstances * controls.density);
+  return sourceRules.map((rule) => {
+    const authored = DEFAULT_BUNDLE_RULES.find((candidate) =>
+      candidate.bundleTemplateId === rule.bundleTemplateId
+    ) ?? rule;
+    if (authored.bundleTemplateId === 101) return { ...rule };
+    const center = (authored.heightMin + authored.heightMax) * 0.5;
+    const halfRange = (authored.heightMax - authored.heightMin) * 0.5 * controls.heightSpread;
+    const lateralCenter = (authored.lateralAbsMin + authored.lateralAbsMax) * 0.5;
+    const lateralHalfRange = (authored.lateralAbsMax - authored.lateralAbsMin) *
+      0.5 * controls.lateralSpread;
+    const minInstances = Math.round(authored.minInstances * controls.density);
     const maxInstances = Math.max(
       minInstances,
-      Math.round(rule.maxInstances * controls.density)
+      Math.round(authored.maxInstances * controls.density)
     );
     return {
       ...rule,
       minInstances,
       maxInstances,
       heightMin: center - halfRange,
-      heightMax: center + halfRange
+      heightMax: center + halfRange,
+      lateralAbsMin: Math.max(0, lateralCenter - lateralHalfRange),
+      lateralAbsMax: lateralCenter + lateralHalfRange
     };
   });
+}
+
+export function controlsForRouteBundleRules(
+  rules: ReadonlyArray<RandomBundleRule>
+): RouteVariationControls {
+  const current = rules.find((rule) => rule.bundleTemplateId !== 101) ?? rules[0];
+  const base = DEFAULT_BUNDLE_RULES.find((rule) =>
+    rule.bundleTemplateId === current?.bundleTemplateId
+  ) ?? current;
+  if (current === undefined || base === undefined) {
+    return { ...DEFAULT_ROUTE_VARIATION_CONTROLS };
+  }
+  const baseHeightRange = base.heightMax - base.heightMin;
+  const baseLateralRange = base.lateralAbsMax - base.lateralAbsMin;
+  return {
+    density: base.maxInstances === 0 ? 1 : current.maxInstances / base.maxInstances,
+    heightSpread: baseHeightRange === 0 ? 1 : (current.heightMax - current.heightMin) / baseHeightRange,
+    lateralSpread: baseLateralRange === 0
+      ? 1
+      : (current.lateralAbsMax - current.lateralAbsMin) / baseLateralRange
+  };
 }

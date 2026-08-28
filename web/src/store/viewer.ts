@@ -17,6 +17,7 @@ import type {
   VisualSettings,
   VariationSettings,
   RouteVariationControls,
+  BackboneBundleVariationInfo,
   WireIntervalRequest
 } from "../model";
 import { CommitFailureCategory, type CommitFailure, type OperationResult } from "../model";
@@ -83,8 +84,12 @@ export interface ViewerSnapshot {
   bundleTemplates: BundleTemplateInfo[];
   selectedBundleTemplateId: number | null;
   drawBundlePlacements: BundlePlacement[];
+  drawBundleSource: "variation" | "manual";
   wireRouteSeed: number | null;
+  wireVariationId: string | null;
   routeVariation: RouteVariationControls;
+  selectedRouteVariation: BackboneBundleVariationInfo | null;
+  selectedRouteVariationControls: RouteVariationControls;
   cableTemplates: CableTemplateInfo[];
   selectedCableTemplateId: number | null;
   poleTemplates: PoleTemplateInfo[];
@@ -152,8 +157,12 @@ export function createViewerSnapshot(): ViewerSnapshot {
     bundleTemplates: [],
     selectedBundleTemplateId: null,
     drawBundlePlacements: [],
+    drawBundleSource: "variation",
     wireRouteSeed: null,
-    routeVariation: { density: 1, heightSpread: 1 },
+    wireVariationId: null,
+    routeVariation: { density: 1, heightSpread: 1, lateralSpread: 1 },
+    selectedRouteVariation: null,
+    selectedRouteVariationControls: { density: 1, heightSpread: 1, lateralSpread: 1 },
     cableTemplates: [],
     selectedCableTemplateId: null,
     poleTemplates: [],

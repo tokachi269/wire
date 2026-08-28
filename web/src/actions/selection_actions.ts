@@ -1,16 +1,103 @@
 import type { ViewerActionContext } from "./context";
 import type { OperationResult } from "../model";
+import type { RouteVariationControls } from "../model";
 import type { SelectionKind } from "../store/viewer";
+import { controlsForRouteBundleRules, routeBundleRules } from "../profile/defaultBundlePreset";
+
+function newRouteSeed(): number {
+  const words = new Uint32Array(2);
+  globalThis.crypto.getRandomValues(words);
+  return words[0] * 0x200000 + (words[1] & 0x1fffff);
+}
 
 export class SelectionActions {
   constructor(private readonly ctx: ViewerActionContext) {}
 
   select(kind: SelectionKind, id: string): void {
-    this.ctx.store.update((current) => ({ ...current, selection: { kind, id } }));
+    const span = kind === "span"
+      ? this.ctx.readSnapshot().spans.find((item) => item.id === id)
+      : undefined;
+    const variation = span === undefined
+      ? null
+      : this.ctx.bridge.backboneBundleVariationForBundle(span.bundleId);
+    const selectedVariation = variation?.ok && variation.found ? variation : null;
+    this.ctx.store.update((current) => ({
+      ...current,
+      selection: { kind, id },
+      selectedRouteVariation: selectedVariation,
+      selectedRouteVariationControls: selectedVariation?.rules === undefined
+        ? current.selectedRouteVariationControls
+        : controlsForRouteBundleRules(selectedVariation.rules)
+    }));
   }
 
   clearSelection(): void {
-    this.ctx.store.update((current) => ({ ...current, selection: null }));
+    this.ctx.store.update((current) => ({
+      ...current, selection: null, selectedRouteVariation: null
+    }));
+  }
+
+  setRouteVariation<K extends keyof RouteVariationControls>(
+    param: K, value: RouteVariationControls[K]
+  ): void {
+    if (this.ctx.readSnapshot().selectedRouteVariation === null) return;
+    this.ctx.store.update((current) => ({
+      ...current,
+      selectedRouteVariationControls: {
+        ...current.selectedRouteVariationControls,
+        [param]: value
+      }
+    }));
+  }
+
+  rerollRouteVariation(): void {
+    const current = this.ctx.readSnapshot();
+    if (current.selectedRouteVariation === null) return;
+    let routeSeed = newRouteSeed();
+    if (routeSeed === current.selectedRouteVariation.routeSeed) {
+      routeSeed = (routeSeed + 1) % Number.MAX_SAFE_INTEGER;
+    }
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      selectedRouteVariation: snapshot.selectedRouteVariation === null
+        ? null
+        : { ...snapshot.selectedRouteVariation, routeSeed }
+    }));
+  }
+
+  applyRouteVariation(): void {
+    const current = this.ctx.readSnapshot();
+    const variation = current.selectedRouteVariation;
+    if (variation?.variationId === undefined || variation.routeSeed === undefined ||
+        variation.preferredSideSign === undefined || variation.poleTypeId === undefined) {
+      this.ctx.store.setError("select a recipe-backed wire span before applying route variation");
+      return;
+    }
+    const result = this.ctx.bridge.applyBackboneBundleVariation(
+      variation.variationId,
+      routeBundleRules(
+        current.selectedRouteVariationControls,
+        variation.rules ?? []
+      ),
+      variation.routeSeed,
+      variation.preferredSideSign,
+      variation.poleTypeId
+    );
+    if (!result.ok) {
+      this.ctx.store.setError(result.error);
+      return;
+    }
+    this.ctx.refreshScene();
+    const updated = this.ctx.bridge.backboneBundleVariation(variation.variationId);
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      selectedRouteVariation: updated.ok && updated.found ? updated : null,
+      selectedRouteVariationControls: updated.rules === undefined
+        ? snapshot.selectedRouteVariationControls
+        : controlsForRouteBundleRules(updated.rules),
+      error: "",
+      logs: [...snapshot.logs, `route variation ${variation.variationId} applied`]
+    }));
   }
 
   applyTiltToAll(maxTiltDeg: number): void {

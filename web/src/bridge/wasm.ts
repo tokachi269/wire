@@ -2,6 +2,7 @@ import type {
   BundlePlacement,
   RandomBundleRule,
   RouteBundleVariationResult,
+  BackboneBundleVariationInfo,
   BundleTemplateInfo,
   CableTemplateInfo,
   BackboneEdgeInfo,
@@ -44,6 +45,27 @@ export interface WireStateHandle {
     nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
   ): EditResult;
   generatePlacements(
+    points: Float64Array,
+    bundlePlacements: BundlePlacement[],
+    intervalM: number,
+    poleTypeId: number,
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult;
+  generateBundleVariation(
+    points: Float64Array,
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    intervalM: number,
+    poleTypeId: number,
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
+  ): EditResult;
+  extendBundleVariation(
+    variationId: string,
     points: Float64Array,
     bundlePlacements: BundlePlacement[],
     intervalM: number,
@@ -110,6 +132,15 @@ export interface WireStateHandle {
     preferredSideSign: number,
     poleTypeId: number
   ): RouteBundleVariationResult;
+  backboneBundleVariationForBundle(bundleId: string): BackboneBundleVariationInfo;
+  backboneBundleVariation(variationId: string): BackboneBundleVariationInfo;
+  applyBackboneBundleVariation(
+    variationId: string,
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    poleTypeId: number
+  ): OperationResult;
   updateBackboneBundlePlacement(bundleId: string, placement: BundlePlacement): OperationResult;
   applyRelatedPoleType(bundleTemplateId: number): OperationResult;
   cableTemplateCount(): number;

@@ -6,7 +6,7 @@ import {
 
 describe("default route bundle variation controls", () => {
   it("changes non-HV density while leaving the fixed HV rule unchanged", () => {
-    const rules = routeBundleRules({ density: 0.5, heightSpread: 1 });
+    const rules = routeBundleRules({ density: 0.5, heightSpread: 1, lateralSpread: 1 });
 
     expect(rules[0]).toEqual(DEFAULT_BUNDLE_RULES[0]);
     expect(rules.slice(1).map(({ minInstances, maxInstances }) =>
@@ -14,7 +14,7 @@ describe("default route bundle variation controls", () => {
   });
 
   it("scales each height envelope around its authored center", () => {
-    const rules = routeBundleRules({ density: 1, heightSpread: 0.5 });
+    const rules = routeBundleRules({ density: 1, heightSpread: 0.5, lateralSpread: 1 });
     const lowVoltage = rules.find((rule) => rule.bundleTemplateId === 102);
     const communication = rules.find((rule) => rule.bundleTemplateId === 104);
 
@@ -23,5 +23,26 @@ describe("default route bundle variation controls", () => {
     expect(communication?.heightMin).toBeCloseTo(5.2, 12);
     expect(communication?.heightMax).toBeCloseTo(5.6, 12);
     expect(rules[0]).toEqual(DEFAULT_BUNDLE_RULES[0]);
+  });
+
+  it("scales each lateral envelope without crossing the route-wide side", () => {
+    const rules = routeBundleRules({ density: 1, heightSpread: 1, lateralSpread: 0.5 });
+    const lowVoltage = rules.find((rule) => rule.bundleTemplateId === 102);
+
+    expect(lowVoltage?.lateralAbsMin).toBeCloseTo(0.22, 12);
+    expect(lowVoltage?.lateralAbsMax).toBeCloseTo(0.42, 12);
+    expect(rules[0]).toEqual(DEFAULT_BUNDLE_RULES[0]);
+  });
+
+  it("does not add templates that are absent from a persisted descriptor", () => {
+    const communicationOnly = [DEFAULT_BUNDLE_RULES[2]];
+    const rules = routeBundleRules(
+      { density: 0.5, heightSpread: 0.5, lateralSpread: 0.5 },
+      communicationOnly
+    );
+
+    expect(rules).toHaveLength(1);
+    expect(rules[0].bundleTemplateId).toBe(104);
+    expect(rules[0].maxInstances).toBe(2);
   });
 });

@@ -185,6 +185,20 @@ export class ViewerActions {
     this.road.setSetting(key, value);
   }
 
+  setSelectedRouteVariation<K extends keyof RouteVariationControls>(
+    param: K, value: RouteVariationControls[K]
+  ): void {
+    this.selection.setRouteVariation(param, value);
+  }
+
+  rerollSelectedRouteVariation(): void {
+    this.selection.rerollRouteVariation();
+  }
+
+  applySelectedRouteVariation(): void {
+    this.selection.applyRouteVariation();
+  }
+
   selectRoadLayoutTemplate(templateId: number): void {
     this.road.selectRoadLayoutTemplate(templateId);
   }

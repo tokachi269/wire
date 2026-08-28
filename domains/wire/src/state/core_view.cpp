@@ -35,6 +35,22 @@ const SavedBackboneBundleVariation* CoreView::backbone_bundle_variation(ObjectId
              ? nullptr
              : &*found;
 }
+const SavedBackboneBundleVariation* CoreView::backbone_bundle_variation_for_bundle(
+    ObjectId bundle_id) const {
+  const auto found = std::find_if(
+      state_.authoritative_.backbone_bundle_variations.begin(),
+      state_.authoritative_.backbone_bundle_variations.end(),
+      [bundle_id](const SavedBackboneBundleVariation& value) {
+        return std::ranges::any_of(
+            value.instances,
+            [bundle_id](const SavedBackboneBundleVariationInstance& instance) {
+              return instance.bundle_id == bundle_id;
+            });
+      });
+  return found == state_.authoritative_.backbone_bundle_variations.end()
+             ? nullptr
+             : &*found;
+}
 
 const ConnectionIndex& CoreView::connection_index() const { return state_.runtime_.connection_index; }
 const RelationIndex& CoreView::relation_index() const { return state_.runtime_.relation_index; }

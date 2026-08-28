@@ -23,6 +23,7 @@ import type {
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 import { decodeWorkspaceText, WorkspaceCache, WORKSPACE_CACHE_KEY } from "../src/store/workspace";
 import { missingBackboneEntryCells } from "./backbone_semantics_contract";
+import { routeBundleRules } from "../src/profile/defaultBundlePreset";
 import { verifySharedDrawContract } from "./drawSessionContract";
 
 function current(store: ViewerStore): ViewerSnapshot {
@@ -345,7 +346,7 @@ describe("viewer actions", () => {
       saveState: () => "factory-state",
       roadSaveState: () => "factory-road-state",
       roadScene: () => actionBridge().roadScene(),
-      generate: () => ({
+      generateBundleVariation: () => ({
         ok: true,
         error: "",
         generatedPoleCount: 2,
@@ -401,7 +402,7 @@ describe("viewer actions", () => {
           },
         }
       ],
-      generate: (points: Float64Array) => {
+      generateBundleVariation: (points: Float64Array) => {
         generatedPoints = points;
         return {
           ok: false,
@@ -601,6 +602,9 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
         spacing: bundleTemplate.defaultSpacing
       }]
     }),
+    backboneBundleVariationForBundle: () => ({ ok: true, error: "", found: false }),
+    backboneBundleVariation: () => ({ ok: true, error: "", found: false }),
+    applyBackboneBundleVariation: () => ({ ok: true, error: "" }),
     updateCableTemplate: () => ({ ok: true, error: "" }),
     updateBackboneBundlePlacement: () => ({ ok: true, error: "" }),
     updatePoleTemplate: () => ({ ok: true, error: "" }),
@@ -858,6 +862,7 @@ describe("viewport tool routing", () => {
       ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
       generatedBundleIds: ["301"], generatedPoleIds: ["101", "102"],
       generatedSpanIds: ["201"], totalMs: 1, timing: timing(1),
+      variationId: "901",
       endpoint: request.points[1], endpointSpec: null
     }));
     const store = new ViewerStore();
@@ -872,11 +877,116 @@ describe("viewport tool routing", () => {
 
     expect(resolveRouteBundleVariation).toHaveBeenCalledOnce();
     expect(generateWireInterval.mock.calls[0][0].bundlePlacements[0]).toEqual(previewPlacement);
+    expect(generateWireInterval.mock.calls[0][0]).toMatchObject({
+      routeSeed: current(store).wireRouteSeed,
+      preferredSideSign: -1
+    });
+    expect(generateWireInterval.mock.calls[0][0].variationRules).toHaveLength(4);
     expect(current(store).wireRouteSeed).not.toBeNull();
 
     actions.cancelDrawSession();
     actions.addViewportPoint([30, 0, 0]);
     expect(resolveRouteBundleVariation).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads the exact persisted variation for a selected Span and applies only on request", () => {
+    const descriptor = {
+      ok: true,
+      error: "",
+      found: true,
+      variationId: "901",
+      routeSeed: 123,
+      preferredSideSign: -1,
+      poleTypeId: 1,
+      rules: routeBundleRules({ density: 1, heightSpread: 1, lateralSpread: 1 }),
+      instances: [{ placementKey: 11, bundleId: "301" }]
+    };
+    const backboneBundleVariationForBundle = vi.fn(() => descriptor);
+    const backboneBundleVariation = vi.fn(() => descriptor);
+    let appliedVariationId = "";
+    let appliedRules = descriptor.rules;
+    let appliedRouteSeed = 0;
+    const applyBackboneBundleVariation = vi.fn((
+      variationId: string,
+      rules: typeof descriptor.rules,
+      routeSeed: number
+    ) => {
+      appliedVariationId = variationId;
+      appliedRules = rules;
+      appliedRouteSeed = routeSeed;
+      return { ok: true, error: "" };
+    });
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      spans: [{ id: "201", portAId: "101", portBId: "102", bundleId: "301" }]
+    }));
+    const actions = new ViewerActions(actionBridge({
+      backboneBundleVariationForBundle,
+      backboneBundleVariation,
+      applyBackboneBundleVariation
+    }), store);
+
+    actions.select("span", "201");
+    expect(backboneBundleVariationForBundle).toHaveBeenCalledWith("301");
+    expect(current(store).selectedRouteVariation?.variationId).toBe("901");
+
+    actions.setSelectedRouteVariation("heightSpread", 0.5);
+    actions.setSelectedRouteVariation("lateralSpread", 0.75);
+    actions.rerollSelectedRouteVariation();
+    const rerolledSeed = current(store).selectedRouteVariation?.routeSeed;
+    expect(rerolledSeed).not.toBe(123);
+    expect(applyBackboneBundleVariation).not.toHaveBeenCalled();
+    actions.applySelectedRouteVariation();
+
+    expect(applyBackboneBundleVariation).toHaveBeenCalledOnce();
+    expect(appliedVariationId).toBe("901");
+    expect(appliedRouteSeed).toBe(rerolledSeed);
+    expect(appliedRules[1].heightMax - appliedRules[1].heightMin).toBeCloseTo(0.35, 12);
+    expect(appliedRules[1].lateralAbsMax - appliedRules[1].lateralAbsMin).toBeCloseTo(0.3, 12);
+  });
+
+  it("does not expose recipe controls for a manually generated selected Span", () => {
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      spans: [{ id: "201", portAId: "101", portBId: "102", bundleId: "301" }]
+    }));
+    const actions = new ViewerActions(actionBridge({
+      backboneBundleVariationForBundle: () => ({ ok: true, error: "", found: false })
+    }), store);
+
+    actions.select("span", "201");
+    expect(current(store).selectedRouteVariation).toBeNull();
+  });
+
+  it("keeps the selected descriptor staged and reports Core Apply failure", () => {
+    const descriptor = {
+      ok: true, error: "", found: true, variationId: "901", routeSeed: 123,
+      preferredSideSign: -1, poleTypeId: 1,
+      rules: routeBundleRules({ density: 1, heightSpread: 1, lateralSpread: 1 }),
+      instances: [{ placementKey: 11, bundleId: "301" }]
+    };
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      spans: [{ id: "201", portAId: "101", portBId: "102", bundleId: "301" }]
+    }));
+    const actions = new ViewerActions(actionBridge({
+      backboneBundleVariationForBundle: () => descriptor,
+      applyBackboneBundleVariation: () => ({
+        ok: false,
+        error: "backbone unsupported: initial zero-instance variation has no exact membership source"
+      })
+    }), store);
+
+    actions.select("span", "201");
+    actions.setSelectedRouteVariation("density", 1.25);
+    actions.applySelectedRouteVariation();
+
+    expect(current(store).selectedRouteVariation?.variationId).toBe("901");
+    expect(current(store).selectedRouteVariationControls.density).toBe(1.25);
+    expect(current(store).error).toContain("initial zero-instance");
   });
 
   it("applies route controls to the next resolution and rerolls only before the route starts", () => {
@@ -2617,7 +2727,9 @@ describe("P1 action contracts", () => {
           supportKind: scenario.supportKind,
           nodeId: scenario.nodeId
         }),
-        generate: (_points, _placements, _interval, _poleType, _direction, _tilt, specs) => {
+        generateBundleVariation: (
+          _points, _rules, _seed, _side, _interval, _poleType, _direction, _tilt, specs
+        ) => {
           nodeSpecs = Array.isArray(specs) ? specs : undefined;
           return {
             ok: true,
@@ -2672,7 +2784,7 @@ describe("P1 action contracts", () => {
   it("starts a new path after generation by default and undoes one point", () => {
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({
-      generate: () => ({
+      generateBundleVariation: () => ({
         ok: true,
         error: "",
         generatedPoleCount: 2,

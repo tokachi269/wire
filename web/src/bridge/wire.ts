@@ -12,6 +12,7 @@ import type {
   BundlePlacement,
   RandomBundleRule,
   RouteBundleVariationResult,
+  BackboneBundleVariationInfo,
   BundleTemplateInfo,
   CableTemplateInfo,
   DefaultBundlePlacementInfo,
@@ -168,6 +169,43 @@ export class WireBridge {
     );
   }
 
+  generateBundleVariation(
+    points: Float64Array,
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    intervalM: number,
+    poleTypeId: number,
+    directionMode: number,
+    maxTiltDeg: number,
+    nodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }> = []
+  ): EditResult {
+    return this.state.generateBundleVariation(
+      points, rules, routeSeed, preferredSideSign, intervalM, poleTypeId,
+      directionMode, maxTiltDeg, nodeSpecs
+    );
+  }
+
+  backboneBundleVariationForBundle(bundleId: string): BackboneBundleVariationInfo {
+    return this.state.backboneBundleVariationForBundle(bundleId);
+  }
+
+  backboneBundleVariation(variationId: string): BackboneBundleVariationInfo {
+    return this.state.backboneBundleVariation(variationId);
+  }
+
+  applyBackboneBundleVariation(
+    variationId: string,
+    rules: RandomBundleRule[],
+    routeSeed: number,
+    preferredSideSign: number,
+    poleTypeId: number
+  ): OperationResult {
+    return this.state.applyBackboneBundleVariation(
+      variationId, rules, routeSeed, preferredSideSign, poleTypeId
+    );
+  }
+
   previewWireInterval(input: WireIntervalRequest): WireIntervalPreview {
     const prepared = this.prepareWireInterval(input, true);
     if (!prepared.ok) return { ...prepared, parts: [], poles: [] };
@@ -208,15 +246,23 @@ export class WireBridge {
   generateWireInterval(input: WireIntervalRequest): WireIntervalResult {
     const prepared = this.prepareWireInterval(input, false);
     if (!prepared.ok) return prepared;
-    const generated = this.state.generatePlacements(
-      prepared.points,
-      input.bundlePlacements,
-      input.intervalM,
-      input.poleTypeId,
-      input.directionMode,
-      input.maxTiltDeg,
-      prepared.nodeSpecs
-    );
+    const generated = input.variationId !== undefined
+      ? this.state.extendBundleVariation(
+        input.variationId, prepared.points, input.bundlePlacements,
+        input.intervalM, input.poleTypeId, input.directionMode,
+        input.maxTiltDeg, prepared.nodeSpecs
+      )
+      : input.variationRules !== undefined && input.routeSeed !== undefined
+        ? this.state.generateBundleVariation(
+          prepared.points, input.variationRules, input.routeSeed,
+          input.preferredSideSign ?? 0, input.intervalM, input.poleTypeId,
+          input.directionMode, input.maxTiltDeg, prepared.nodeSpecs
+        )
+        : this.state.generatePlacements(
+          prepared.points, input.bundlePlacements, input.intervalM,
+          input.poleTypeId, input.directionMode, input.maxTiltDeg,
+          prepared.nodeSpecs
+        );
     return {
       ...generated,
       endpoint: prepared.endpoint,

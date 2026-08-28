@@ -130,6 +130,7 @@ export class DrawActions {
       pathPoints: [],
       pathPointSpecs: [],
       wireRouteSeed: null,
+      wireVariationId: null,
       wirePreview: { state: "none", request: null },
       error: "",
       lastCommitFailure: null
@@ -160,6 +161,7 @@ export class DrawActions {
       pathPoints: [],
       pathPointSpecs: [],
       wireRouteSeed: null,
+      wireVariationId: null,
       wirePreview: { state: "none", request: null },
       drawBundlePlacements: current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement),
       error: ""
@@ -219,7 +221,8 @@ export class DrawActions {
       return;
     }
     this.ctx.store.update((current) => ({
-      ...current, pathPoints: [], pathPointSpecs: [], wireRouteSeed: null, error: ""
+      ...current, pathPoints: [], pathPointSpecs: [], wireRouteSeed: null,
+      wireVariationId: null, error: ""
     }));
   }
 
@@ -231,6 +234,7 @@ export class DrawActions {
         pathPoints,
         pathPointSpecs: current.pathPointSpecs.slice(0, -1),
         wireRouteSeed: pathPoints.length === 0 ? null : current.wireRouteSeed,
+        wireVariationId: pathPoints.length === 0 ? null : current.wireVariationId,
         error: ""
       };
     });
@@ -246,13 +250,17 @@ export class DrawActions {
   }
 
   updateDrawBundlePlacement(id: number, change: Partial<Omit<import("../model").BundlePlacement, "id">>): void {
-    this.ctx.store.update((current) => ({
-      ...current,
-      wireRouteSeed: current.wireRouteSeed ?? newRouteSeed(),
-      drawBundlePlacements: current.drawBundlePlacements.map((placement) =>
-        placement.id === id ? { ...placement, ...change } : placement
-      )
-    }));
+    this.ctx.store.update((current) => {
+      const target = current.drawBundlePlacements.find((placement) => placement.id === id);
+      return {
+        ...current,
+        wireRouteSeed: current.wireRouteSeed ?? newRouteSeed(),
+        drawBundleSource: target?.generatedBundleId === undefined ? "manual" : current.drawBundleSource,
+        drawBundlePlacements: current.drawBundlePlacements.map((placement) =>
+          placement.id === id ? { ...placement, ...change } : placement
+        )
+      };
+    });
     const placement = this.ctx.readSnapshot().drawBundlePlacements.find((item) => item.id === id);
     if (placement?.generatedBundleId === undefined) return;
     const result = this.ctx.bridge.updateBackboneBundlePlacement(placement.generatedBundleId, placement);
@@ -274,6 +282,7 @@ export class DrawActions {
       return {
         ...current,
         wireRouteSeed: current.wireRouteSeed ?? newRouteSeed(),
+        drawBundleSource: "manual",
         drawBundlePlacements: placements
       };
     });
@@ -331,6 +340,7 @@ export class DrawActions {
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
       wireRouteSeed: routeSeed,
+      drawBundleSource: "variation",
       drawBundlePlacements: [...resolved.placements]
         .sort((a, b) => b.height - a.height || a.id - b.id)
     }));
@@ -349,11 +359,25 @@ export class DrawActions {
       points: [anchor, point],
       pointSpecs: [current.pathPointSpecs[0] ?? null, null],
       targetPick: pick,
-      bundlePlacements: current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement),
+      bundlePlacements: current.wireVariationId === null
+        ? current.drawBundlePlacements.map(({ generatedBundleId: _id, ...placement }) => placement)
+        : current.drawBundlePlacements,
       intervalM: current.clickedPointsOnly ? 0 : current.intervalM,
       poleTypeId: current.selectedPoleTemplateId ?? 1,
       directionMode: current.directionMode,
-      maxTiltDeg: current.maxTiltDeg
+      maxTiltDeg: current.maxTiltDeg,
+      variationId: current.drawBundleSource === "variation"
+        ? current.wireVariationId ?? undefined
+        : undefined,
+      variationRules: current.drawBundleSource === "variation" && current.wireVariationId === null
+        ? routeBundleRules(current.routeVariation)
+        : undefined,
+      routeSeed: current.drawBundleSource === "variation" && current.wireVariationId === null
+        ? current.wireRouteSeed ?? undefined
+        : undefined,
+      preferredSideSign: current.drawBundleSource === "variation" && current.wireVariationId === null
+        ? DEFAULT_PREFERRED_SIDE_SIGN
+        : undefined
     };
   }
 
@@ -402,16 +426,27 @@ export class DrawActions {
           ? generatedEndpointNodeId
           : result.endpointSpec.nodeId
       };
+    const variationId = result.variationId || this.ctx.readSnapshot().wireVariationId;
+    const variation = variationId === null || variationId === undefined || variationId.length === 0
+      ? null
+      : this.ctx.bridge.backboneBundleVariation(variationId);
+    const bundleIdByPlacementKey = new Map(
+      variation?.ok && variation.found
+        ? (variation.instances ?? []).map((instance) => [instance.placementKey, instance.bundleId])
+        : []
+    );
     const generatedBundleIds = result.generatedBundleIds ?? [];
     this.ctx.store.update((current) => ({
       ...current,
       pathPoints: endSession ? [] : [endpoint],
       pathPointSpecs: endSession ? [] : [endpointSpec],
       wireRouteSeed: endSession ? null : current.wireRouteSeed,
+      wireVariationId: endSession ? null : variationId ?? null,
       wirePreview: { state: "none", request: null },
       drawBundlePlacements: current.drawBundlePlacements.map((placement, index) => ({
         ...placement,
-        generatedBundleId: generatedBundleIds[index] ?? placement.generatedBundleId
+        generatedBundleId: bundleIdByPlacementKey.get(placement.id) ??
+          generatedBundleIds[index] ?? placement.generatedBundleId
       })),
       error: "",
       lastCommitFailure: null
@@ -426,7 +461,6 @@ export class DrawActions {
   ): void {
     const before = this.ctx.readSnapshot();
     const placements = before.drawBundlePlacements;
-    const generationPlacements = placements.map(({ generatedBundleId: _generatedBundleId, ...placement }) => placement);
     const bundleTemplates: BundleTemplateInfo[] = before.bundleTemplates;
 
     if (points.length < 2) {
@@ -454,15 +488,23 @@ export class DrawActions {
       })
       .filter((spec): spec is { pointIndex: number; supportKind: number; nodeId: string } => spec !== null);
     const generateStart = performance.now();
-    const result = this.ctx.bridge.generate(
-      flatPoints,
-      generationPlacements,
-      before.clickedPointsOnly ? 0 : before.intervalM,
-      before.selectedPoleTemplateId ?? 1,
-      before.directionMode,
-      before.maxTiltDeg,
-      nodeSpecs
-    );
+    const result = before.drawBundleSource === "variation"
+      ? this.ctx.bridge.generateBundleVariation(
+        flatPoints, routeBundleRules(before.routeVariation),
+        before.wireRouteSeed ?? newRouteSeed(), DEFAULT_PREFERRED_SIDE_SIGN,
+        before.clickedPointsOnly ? 0 : before.intervalM,
+        before.selectedPoleTemplateId ?? 1, before.directionMode,
+        before.maxTiltDeg, nodeSpecs
+      )
+      : this.ctx.bridge.generate(
+        flatPoints,
+        placements.map(({ generatedBundleId: _generatedBundleId, ...placement }) => placement),
+        before.clickedPointsOnly ? 0 : before.intervalM,
+        before.selectedPoleTemplateId ?? 1,
+        before.directionMode,
+        before.maxTiltDeg,
+        nodeSpecs
+      );
     const generateEnd = performance.now();
     if (!result.ok) {
       this.ctx.store.setError(result.error);
@@ -470,9 +512,20 @@ export class DrawActions {
     }
     const sceneStart = performance.now();
     const scene = this.ctx.bridge.scene();
+    const generatedVariation = result.variationId === undefined || result.variationId.length === 0
+      ? null
+      : this.ctx.bridge.backboneBundleVariation(result.variationId);
+    const generatedBundleByPlacementKey = new Map(
+      generatedVariation?.ok && generatedVariation.found
+        ? (generatedVariation.instances ?? []).map((instance) =>
+          [instance.placementKey, instance.bundleId]
+        )
+        : []
+    );
     const placementsWithGeneratedIds = placements.map((placement, index) => ({
       ...placement,
-      generatedBundleId: result.generatedBundleIds?.[index] ?? placement.generatedBundleId
+      generatedBundleId: generatedBundleByPlacementKey.get(placement.id) ??
+        result.generatedBundleIds?.[index] ?? placement.generatedBundleId
     }));
     this.ctx.store.update((current) => ({
       ...current,
@@ -489,6 +542,7 @@ export class DrawActions {
       generationCallMs: generateEnd - generateStart,
       pathPoints: before.keepPathAfterGenerate ? points : [],
       pathPointSpecs: before.keepPathAfterGenerate ? pointSpecs : [],
+      wireVariationId: before.keepPathAfterGenerate ? result.variationId ?? null : null,
       showBackboneOverlay: true,
       bundleTemplates,
       drawBundlePlacements: placementsWithGeneratedIds

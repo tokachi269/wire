@@ -34,6 +34,7 @@ export interface EditResult {
   generatedPoleIds?: string[];
   generatedNodeIds?: string[];
   generatedSpanIds?: string[];
+  variationId?: string;
   totalMs: number;
   timing: GenerationTiming;
 }
@@ -62,6 +63,10 @@ export interface WireIntervalRequest {
   poleTypeId: number;
   directionMode: number;
   maxTiltDeg: number;
+  variationId?: string;
+  variationRules?: RandomBundleRule[];
+  routeSeed?: number;
+  preferredSideSign?: number;
 }
 
 export interface WireIntervalResult extends EditResult {
@@ -199,6 +204,7 @@ export interface SpanInfo {
   id: string;
   portAId: string;
   portBId: string;
+  bundleId: string;
 }
 
 export interface SpanLayoutEndpointInfo {
@@ -306,6 +312,16 @@ export interface RandomBundleRule {
 
 export interface RouteBundleVariationResult extends OperationResult {
   placements: BundlePlacement[];
+}
+
+export interface BackboneBundleVariationInfo extends OperationResult {
+  found: boolean;
+  variationId?: string;
+  routeSeed?: number;
+  preferredSideSign?: number;
+  poleTypeId?: number;
+  rules?: RandomBundleRule[];
+  instances?: Array<{ placementKey: number; bundleId: string }>;
 }
 
 export interface DefaultBundlePlacementInfo extends OperationResult {
@@ -428,4 +444,5 @@ export interface VariationSettings {
 export interface RouteVariationControls {
   density: number;
   heightSpread: number;
+  lateralSpread: number;
 }

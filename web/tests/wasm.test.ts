@@ -472,6 +472,144 @@ describe("wire wasm smoke", () => {
     loaded.delete();
   });
 
+  it("persists, inspects, applies, extends, and reloads a route bundle variation", () => {
+    const runState = createState();
+    const rules = [{
+      bundleTemplateId: 102,
+      minInstances: 1,
+      maxInstances: 1,
+      conductorCount: 1,
+      heightMin: 7.1,
+      heightMax: 7.1,
+      lateralAbsMin: 0.25,
+      lateralAbsMax: 0.25,
+      minSpacing: 0.2
+    }];
+    const first = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), rules, 12345, -1,
+      0, 1, 0, 0, []
+    );
+    expect(first.ok, first.error).toBe(true);
+    expect(first.variationId).toMatch(/^\d+$/);
+    expect(first.generatedBundleIds).toHaveLength(1);
+
+    const inspected = runState.backboneBundleVariationForBundle(first.generatedBundleIds![0]);
+    expect(inspected).toMatchObject({
+      ok: true,
+      found: true,
+      variationId: first.variationId,
+      routeSeed: 12345,
+      preferredSideSign: -1,
+      poleTypeId: 1
+    });
+    expect(inspected.rules).toEqual(rules);
+
+    const second = runState.extendBundleVariation(
+      first.variationId!,
+      new Float64Array([12, 0, 0, 24, 3, 0]),
+      [{
+        id: inspected.instances![0].placementKey,
+        bundleTemplateId: 102,
+        generatedBundleId: first.generatedBundleIds![0],
+        count: 1,
+        explicit: true,
+        height: 7.1,
+        offset: -0.25,
+        spacing: 0.2
+      }],
+      0, 1, 0, 0,
+      [{ pointIndex: 0, supportKind: 0, nodeId: first.generatedNodeIds![1] }]
+    );
+    expect(second.ok, second.error).toBe(true);
+    expect(second.variationId).toBe(first.variationId);
+
+    const changedRules = [{ ...rules[0], heightMin: 7.5, heightMax: 7.5 }];
+    const applied = runState.applyBackboneBundleVariation(
+      first.variationId!, changedRules, 12345, -1, 1
+    );
+    expect(applied.ok, applied.error).toBe(true);
+    expect(runState.backboneBundleVariation(first.variationId!).rules).toEqual(changedRules);
+
+    const beforeFailure = runState.saveState();
+    const rejected = runState.applyBackboneBundleVariation(
+      first.variationId!, [{ ...rules[0], minInstances: 2, maxInstances: 1 }],
+      12345, -1, 1
+    );
+    expect(rejected.ok).toBe(false);
+    expect(runState.saveState()).toBe(beforeFailure);
+
+    const saved = runState.saveState();
+    const loaded = createState();
+    expect(loaded.loadState(saved).ok).toBe(true);
+    expect(loaded.backboneBundleVariation(first.variationId!)).toMatchObject({
+      ok: true,
+      found: true,
+      routeSeed: 12345,
+      rules: changedRules
+    });
+    loaded.delete();
+    runState.delete();
+  });
+
+  it("does not invent a variation scope for a manually generated Bundle", () => {
+    const runState = createState();
+    const generated = runState.generatePlacements(
+      new Float64Array([0, 0, 0, 12, 0, 0]),
+      [{ id: 1, bundleTemplateId: 102, count: 1, explicit: true,
+        height: 7.4, offset: -0.25, spacing: 0.2 }],
+      0, 1, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    expect(runState.backboneBundleVariationForBundle(generated.generatedBundleIds![0]))
+      .toMatchObject({ ok: true, found: false });
+    runState.delete();
+  });
+
+  it("keeps surviving placement identity through a 2 to 4 to 2 density cycle", () => {
+    const runState = createState();
+    const rule = (count: number) => [{
+      bundleTemplateId: 104,
+      minInstances: count,
+      maxInstances: count,
+      conductorCount: 1,
+      heightMin: 5.0,
+      heightMax: 6.0,
+      lateralAbsMin: 0.15,
+      lateralAbsMax: 0.9,
+      minSpacing: 0.16
+    }];
+    const generated = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 16, 0, 0]), rule(2), 884422, -1,
+      0, 2, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const initial = runState.backboneBundleVariation(generated.variationId!);
+    expect(initial.instances).toHaveLength(2);
+    const initialByKey = new Map(initial.instances!.map((item) =>
+      [item.placementKey, item.bundleId]
+    ));
+
+    const denser = runState.applyBackboneBundleVariation(
+      generated.variationId!, rule(4), 884422, -1, 2
+    );
+    expect(denser.ok, denser.error).toBe(true);
+    const four = runState.backboneBundleVariation(generated.variationId!);
+    expect(four.instances).toHaveLength(4);
+    for (const [key, bundleId] of initialByKey) {
+      expect(four.instances!.find((item) => item.placementKey === key)?.bundleId).toBe(bundleId);
+    }
+
+    const sparser = runState.applyBackboneBundleVariation(
+      generated.variationId!, rule(2), 884422, -1, 2
+    );
+    expect(sparser.ok, sparser.error).toBe(true);
+    const final = runState.backboneBundleVariation(generated.variationId!);
+    expect(final.instances).toHaveLength(2);
+    expect(new Map(final.instances!.map((item) => [item.placementKey, item.bundleId])))
+      .toEqual(initialByKey);
+    runState.delete();
+  });
+
   it("keeps non-Auto final viewer samples on the resolved sag parabola", () => {
     const runState = createState();
     const bundleTemplate = Array.from({ length: runState.bundleTemplateCount() }, (_, index) =>

@@ -46,6 +46,17 @@ describe("workspace persistence", () => {
     expect(restoredBridge.geometrySettings().sagFactor)
       .toBeCloseTo(factorySagFactor + 0.015, 8);
     expect(restoredBridge.scene().spans.length).toBeGreaterThan(0);
+    const restoredSpan = restoredBridge.scene().spans[0];
+    restoredActions.select("span", restoredSpan.id);
+    expect(current(restoredStore).selectedRouteVariation).toMatchObject({
+      found: true,
+      routeSeed: expect.any(Number)
+    });
+    restoredActions.setSelectedRouteVariation("heightSpread", 0.5);
+    restoredActions.applySelectedRouteVariation();
+    expect(current(restoredStore).error).toBe("");
+    expect(current(restoredStore).selectedRouteVariation?.routeSeed)
+      .toBeGreaterThan(0);
     expect(current(restoredStore)).toEqual(expect.objectContaining({
       cameraFov: 67,
       showLeftPanel: false,

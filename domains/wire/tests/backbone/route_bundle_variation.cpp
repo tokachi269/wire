@@ -448,7 +448,31 @@ bool C883_backbone_variation_apply_reconciles_concrete_scope_atomically() {
       !rejected.ok && state.SerializeAuthoritative(&stable_after).ok &&
           stable_before == stable_after,
       "failed variation Apply changed descriptor or physical authority");
+
+  CoreState fixed_state;
+  RouteBundleVariationInput fixed_descriptor{};
+  fixed_descriptor.route_seed = 0x8830201;
+  fixed_descriptor.preferred_side_sign = -1;
+  fixed_descriptor.pole_type_id = 1;
+  fixed_descriptor.rules = {{kDefaultLowVoltageBundleTemplateId, 1, 1, 1,
+                             7.1, 7.1, 0.25, 0.25, 0.2}};
+  BackboneSpec fixed_request = line_req(fixed_state);
+  fixed_request.pole_type_id = 1;
+  fixed_request.bundles.clear();
+  const auto fixed_generated = fixed_state.GenerateBackboneBundleVariation(
+      fixed_request, fixed_descriptor);
+  if (!fixed_generated.ok) return false;
+  fixed_descriptor.rules.front().height_min_m = 7.5;
+  fixed_descriptor.rules.front().height_max_m = 7.5;
+  const auto fixed_applied = fixed_state.ApplyBackboneBundleVariation(
+      fixed_generated.value.variation_id, fixed_descriptor);
+  WIRE_TEST_EXPECT_ANCHOR(
+      fixed_applied.ok,
+      fixed_applied.error.empty()
+          ? "fixed-count variation Apply did not use the template count contract"
+          : fixed_applied.error);
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(fixed_state);
   return true;
 }
 

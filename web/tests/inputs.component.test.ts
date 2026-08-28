@@ -49,7 +49,7 @@ describe("viewer numeric inputs", () => {
     expect(placementPanel?.querySelectorAll('input[aria-label$="count"]')).toHaveLength(0);
   });
 
-  it("updates existing Bundle placement without regenerating the route", async () => {
+  it("rejects individual placement edits for a recipe-backed route", async () => {
     const mounted = await mountViewer();
     expect(current(mounted.store).pathPoints).toHaveLength(0);
     const source = current(mounted.store).drawBundlePlacements[0];
@@ -65,7 +65,8 @@ describe("viewer numeric inputs", () => {
     expect(afterScene.poles).toHaveLength(beforeScene.poles.length);
     expect(afterScene.spans).toHaveLength(beforeScene.spans.length);
     expect(current(mounted.store).logs).toHaveLength(beforeLogCount);
-    expect(afterZ).toBeGreaterThan(beforeZ + 0.25);
+    expect(afterZ).toBe(beforeZ);
+    expect(current(mounted.store).error).toContain("explicit variation Apply");
   });
 
   it("duplicates a Bundle placement and generates independent support and helix output", async () => {
@@ -129,6 +130,35 @@ describe("viewer numeric inputs", () => {
     await tick();
 
     expect(mounted.bridge.geometrySettings().sagFactor).toBeCloseTo(next, 8);
+  });
+
+  it("shows persisted route controls for an exact selected Span and applies on button click", async () => {
+    const mounted = await mountViewer();
+    const span = current(mounted.store).spans[0];
+    expect(span).toBeDefined();
+
+    mounted.actions.select("span", span.id);
+    await tick();
+    const section = [...document.querySelectorAll("section")].find((item) =>
+      item.querySelector("h2")?.textContent === "Selected route variation"
+    );
+    expect(section).toBeDefined();
+    const sliders = section!.querySelectorAll<HTMLInputElement>('input[type="range"]');
+    expect(sliders).toHaveLength(3);
+
+    sliders[1].value = "0.5";
+    sliders[1].dispatchEvent(new Event("input", { bubbles: true }));
+    expect(current(mounted.store).selectedRouteVariationControls.heightSpread).toBe(0.5);
+    expect(current(mounted.store).error).toBe("");
+
+    section!.querySelector<HTMLButtonElement>("button:last-of-type")!.click();
+    await tick();
+    expect(current(mounted.store).error).toBe("");
+    expect(current(mounted.store).selectedRouteVariation?.found).toBe(true);
+    const lowVoltage = current(mounted.store).selectedRouteVariation?.rules?.find(
+      (rule) => rule.bundleTemplateId === 102
+    );
+    expect(lowVoltage!.heightMax - lowVoltage!.heightMin).toBeCloseTo(0.35, 12);
   });
 
   it("changes the draw plane by three meters with PageUp and PageDown", async () => {
@@ -409,7 +439,9 @@ describe("viewer numeric inputs", () => {
       mounted.actions.previewViewportPoint([x + 12, 0, 0]);
       expect(mounted.actions.addViewportPoint([x + 12, 0, 0])).toEqual({ kind: "commit-succeeded" });
       mounted.actions.previewViewportPoint([x + 12, 10, 0]);
-      expect(mounted.actions.finishDrawSession()).toEqual({ kind: "commit-succeeded" });
+      const wireFinish = mounted.actions.finishDrawSession();
+      expect(wireFinish, current(mounted.store).lastCommitFailure?.message)
+        .toEqual({ kind: "commit-succeeded" });
       expect(current(mounted.store).pathPoints).toEqual([]);
       expect(current(mounted.store).lastCommitFailure).toBeNull();
     }

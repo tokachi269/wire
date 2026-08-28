@@ -1444,6 +1444,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "variation extension and Apply preserve exact saved branch cross and sharp membership",
                          "Invariant", true,
                          C885_backbone_variation_apply_preserves_branch_cross_sharp_membership);
+  test_registry::AddTest(tests, "C886_backbone_variation_placement_identity_is_scope_local",
+                         "same-seed variations may share placement correlation keys while physical Bundle identity and Apply scope remain independent",
+                         "Boundary", true,
+                         C886_backbone_variation_placement_identity_is_scope_local);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

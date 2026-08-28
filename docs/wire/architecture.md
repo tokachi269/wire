@@ -430,15 +430,26 @@ load、regenerate、通常 update は保存済み concrete placement を使い�
 Pole ごとに変えず、同一 route 内で side を反転しない。road-facing side は外部から与える単純な sign であり、
 Wire は Road domain や道路の意味を解釈しない。
 保存済みdescriptorはexact Bundle scopeと、0件になった後の再materializeに必要なphysical edge membership /
-row continuityを保持する。physical authorityは常にBundle / Port / Span / SavedBackboneGraphであり、descriptorは
+row continuity、source-edgeを持たないexact support node snapshotを保持する。physical authorityは常に
+Bundle / Port / Span / SavedBackboneGraphであり、descriptorは
 branch membershipやpairingを再判断しない。`ApplyBackboneBundleVariation`はdescriptorをresolveしたdesired concrete
 specを既存reconcileへ渡し、descriptor更新とconcrete topology更新を同じouter trialでcommitする。1 -> 0 -> 1は
 保存済みmembershipをpipelineのexplicit constraintとして再生するが、initial 0 -> 1はmembership sourceがないため
 unsupportedとする。recipe-backed Bundleの個別placement/count/add/retireは許可せずexplicit Applyへ集約する。
+`placement_key`は1つのvariation scope内でdescriptorとconcrete instanceを対応付けるcorrelationであり、
+repository全体のBundle identityではない。physical identityは`Bundle::id`であるため、同じseedの別variationが同じ
+`placement_key`を持っても互いのscopeへ入らない。
+
+`ExtendBackboneBundleVariation`のBundle membershipはCore-ownedである。adapterはpath / exact node referenceだけを渡し、
+Coreが保存済みinstanceからfull concrete Bundle specを再構築して通常pipelineへ渡す。callerがpartial Bundle specを渡す
+extensionは拒否する。0件のrule groupも、別のlive groupによるextension後に保存membershipを同じexact pathへ更新し、
+後の1 -> 0 -> 1で古いroute shapeへ戻さない。
 WASM/Webは選択Spanのexact `bundle_id`から保存済みdescriptorを参照し、選択中scopeの調整を
 `ApplyBackboneBundleVariation`へ渡す。adapterはcategory、template名、geometryからscopeを推測せず、初回生成も
 Webでresolveしたconcrete specを通常Generateへ渡す経路ではなく、descriptorをCoreのvariation生成入口へ渡す。
-viewerはrecipeを解釈せず、Apply後の通常sceneだけを描画する。
+既存routeの調整値は保存済みdescriptorに対する相対値であり、neutral Applyはrulesを変えない。active draw中の同じ
+variationへのApplyと個別Bundle編集は拒否し、preview / commitは同じCore variation operationをtrial / real stateで
+それぞれ実行する。viewerはrecipeを解釈せず、Apply後の通常sceneだけを描画する。
 
 非HV endpointの支持表現は、authoritative Bundle placementからgeneration時に導出する。pole surface近傍は
 Direct attachment、明確に離れたplacementはSupported rowとし、新しいSupportRow entityや保存fieldは作らない。

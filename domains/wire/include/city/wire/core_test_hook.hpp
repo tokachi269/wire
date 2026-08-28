@@ -12,6 +12,10 @@ struct CoreStateTestHook {
   static CacheState& cache_state(CoreState& state) { return state.runtime_.cache_state; }
   static RelationIndex& relation_index(CoreState& state) { return state.runtime_.relation_index; }
   static OverrideState& override_state(CoreState& state) { return state.authoritative_.override_state; }
+  static std::vector<SavedBackboneBundleVariation>& backbone_bundle_variations(
+      CoreState& state) {
+    return state.authoritative_.backbone_bundle_variations;
+  }
   static IdGenerator& id_generator(CoreState& state) { return state.identity_.id_generator; }
   static bool authoritative_equals(const CoreState& a, const CoreState& b) { return a.authoritative_equals(b); }
   static std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states(CoreState& state) {

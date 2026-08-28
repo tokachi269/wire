@@ -960,9 +960,27 @@ void write_backbone_bundle_variations_as(
               membership_archive.field(membership_prefix,
                                        "bundle_template_id",
                                        membership.bundle_template_id);
-              membership_archive.field(membership_prefix, "conductor_count",
-                                       membership.conductor_count);
-              write_ordered_vector(
+               membership_archive.field(membership_prefix, "conductor_count",
+                                        membership.conductor_count);
+               membership_archive.field(membership_prefix, "height_m",
+                                        membership.height_m);
+               membership_archive.field(membership_prefix, "lateral_m",
+                                        membership.lateral_m);
+               membership_archive.field(membership_prefix, "spacing_m",
+                                        membership.spacing_m);
+               write_ordered_vector(
+                   membership_out, child(membership_prefix, "nodes"),
+                   membership.nodes,
+                   [](const SavedBackboneNode& a,
+                      const SavedBackboneNode& b) {
+                     return a.node_id < b.node_id;
+                   },
+                   [](auto& node_out, const auto& node_prefix,
+                      const SavedBackboneNode& node) {
+                     FieldArchive node_archive(node_out);
+                     (void)archive_saved_node(node_archive, node_prefix, node);
+                   });
+               write_ordered_vector(
                   membership_out, child(membership_prefix, "edges"),
                   membership.edges,
                   [](const SavedBackboneBundleVariationEdge& a,
@@ -1715,8 +1733,29 @@ bool read_backbone_bundle_variations(
       if (!membership_archive.field(membership_prefix, "bundle_template_id",
                                     membership.bundle_template_id) ||
           !membership_archive.field(membership_prefix, "conductor_count",
-                                    membership.conductor_count)) {
+                                    membership.conductor_count) ||
+          !membership_archive.field(membership_prefix, "height_m",
+                                    membership.height_m) ||
+          !membership_archive.field(membership_prefix, "lateral_m",
+                                    membership.lateral_m) ||
+          !membership_archive.field(membership_prefix, "spacing_m",
+                                    membership.spacing_m)) {
         return false;
+      }
+      std::size_t node_count = 0;
+      if (!reader.count(child(membership_prefix, "nodes.count"),
+                        &node_count)) {
+        return false;
+      }
+      membership.nodes.resize(node_count);
+      for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
+        ReadFieldArchive node_archive(reader);
+        if (!archive_saved_node(
+                node_archive,
+                indexed(child(membership_prefix, "nodes"), node_index),
+                membership.nodes[node_index])) {
+          return false;
+        }
       }
       std::size_t edge_count = 0;
       if (!reader.count(child(membership_prefix, "edges.count"),

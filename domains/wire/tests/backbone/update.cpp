@@ -4583,12 +4583,29 @@ bool C881_backbone_reconcile_rejects_invalid_scope_and_desired_specs() {
           &state, {{fixture.bundle_a}, {mismatch}}),
       "survivor template migration was accepted");
 
-  auto outside_collision = b;
-  outside_collision.anchor_bundle_id = fixture.bundle_a;
+  city::wire::CoreState scope_local_state{};
+  ExactBundleRetirementFixture scope_local_fixture{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &scope_local_state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}},
+          &scope_local_fixture),
+      "scope-local placement identity fixture is incomplete");
+  const auto scope_local_a =
+      reconcile_entry_for(scope_local_state, scope_local_fixture.bundle_a);
+  auto scope_local_collision =
+      reconcile_entry_for(scope_local_state, scope_local_fixture.bundle_b);
+  scope_local_collision.anchor_bundle_id = scope_local_fixture.bundle_a;
+  const auto scope_local_result =
+      scope_local_state.ReconcileBackboneBundleInstances(
+          {{scope_local_fixture.bundle_a},
+           {scope_local_a, scope_local_collision}});
   WIRE_TEST_EXPECT_DIFFERENTIAL(
-      rejected_without_authoritative_mutation(
-          &state, {{fixture.bundle_a}, {a, outside_collision}}),
-      "desired key collision outside current scope was accepted");
+      scope_local_result.ok &&
+          scope_local_state.view().bundles().find(scope_local_fixture.bundle_b) !=
+              nullptr,
+      scope_local_result.error.empty()
+          ? "scope-local placement identity was treated as globally unique"
+          : scope_local_result.error);
 
   auto outside_anchor = a;
   outside_anchor.desired.placement_key = 88103;

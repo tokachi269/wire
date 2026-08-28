@@ -125,6 +125,10 @@ struct SavedBackboneBundleVariationContinuity {
 struct SavedBackboneBundleVariationMembership {
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   int conductor_count = 0;
+  double height_m = 0.0;
+  double lateral_m = 0.0;
+  double spacing_m = 0.0;
+  std::vector<SavedBackboneNode> nodes{};
   std::vector<SavedBackboneBundleVariationEdge> edges{};
   std::vector<SavedBackboneBundleVariationContinuity> row_continuities{};
 };

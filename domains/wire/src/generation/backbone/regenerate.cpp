@@ -699,14 +699,6 @@ EditResult<ObjectId> CoreState::AddBackboneBundleInstance(
   if (template_it == authoritative_.bundle_templates.end()) {
     return reject("backbone invalid input: anchor Bundle template is missing");
   }
-  for (const Bundle& bundle : view().bundles().items()) {
-    if (bundle.bundle_template_id == anchor->bundle_template_id &&
-        bundle.placement_key == placement_key) {
-      return reject(
-          "backbone invalid input: added Bundle placement_key already exists");
-    }
-  }
-
   const SavedBackboneGraph& graph = view().backbone();
   const std::size_t lane_count =
       static_cast<std::size_t>(anchor->conductor_count);
@@ -1128,15 +1120,31 @@ CoreState::add_backbone_bundle_instance_from_variation_membership(
     return reject(
         "backbone unsupported: variation membership lane topology is incompatible with template policy");
   }
-  for (const Bundle& bundle : view().bundles().items()) {
-    if (bundle.bundle_template_id == membership.bundle_template_id &&
-        bundle.placement_key == placement_key) {
-      return reject(
-          "backbone invalid input: variation membership placement_key already exists");
-    }
-  }
-
   CoreState trial = *this;
+  std::vector<ObjectId> restored_node_ids{};
+  std::unordered_set<ObjectId> membership_node_ids{};
+  for (const SavedBackboneNode& saved_node : membership.nodes) {
+    if (saved_node.node_id == kInvalidObjectId ||
+        !membership_node_ids.insert(saved_node.node_id).second) {
+      return reject(
+          "backbone invalid input: variation membership support snapshot is invalid");
+    }
+    if (saved_node_by_id(trial.view().backbone(), saved_node.node_id) !=
+        nullptr) {
+      continue;
+    }
+    if (saved_node.has_source_edge) {
+      return reject(
+          "backbone unsupported: variation membership replay requires exact source Bundle mapping");
+    }
+    if (saved_node.pole_id != kInvalidObjectId &&
+        trial.view().poles().find(saved_node.pole_id) == nullptr) {
+      return reject(
+          "backbone unsupported: variation membership support owner no longer exists");
+    }
+    trial.restore_backbone_variation_support_node(saved_node);
+    restored_node_ids.push_back(saved_node.node_id);
+  }
   std::unordered_map<ObjectId, ObjectId> current_edge_by_saved{};
   for (std::size_t index = 0; index < membership.edges.size(); ++index) {
     const SavedBackboneBundleVariationEdge& saved = membership.edges[index];
@@ -1162,10 +1170,8 @@ CoreState::add_backbone_bundle_instance_from_variation_membership(
         saved_edge_by_id(trial.view().backbone(), saved.edge_id);
     ObjectId current_edge_id = edge == nullptr ? kInvalidObjectId : edge->edge_id;
     if (edge == nullptr) {
-      const SavedBackboneEdgeRef recreated = trial.save_backbone_edge(
-          saved.node_a, saved.node_b, 0, index, saved.dir,
-          saved.lateral_offset_m);
-      current_edge_id = recreated.edge_id;
+      current_edge_id =
+          trial.restore_backbone_variation_physical_edge(saved, index);
     }
     if (current_edge_id == kInvalidObjectId ||
         !current_edge_by_saved.emplace(saved.edge_id, current_edge_id).second) {
@@ -1216,6 +1222,7 @@ CoreState::add_backbone_bundle_instance_from_variation_membership(
 
   ObjectId new_bundle_id = kInvalidObjectId;
   ChangeSet changes{};
+  append_unique(changes.created_ids, restored_node_ids);
   std::vector<ObjectId> remaining{};
   for (const SavedBackboneEdgeBundle& edge_bundle :
        replay_graph.edge_bundles) {
@@ -1476,17 +1483,6 @@ EditResult<bool> CoreState::ReconcileBackboneBundleInstances(
     desired_count_by_key.emplace(desired.placement_key, desired_count);
   }
 
-  // A desired key must not silently capture an existing Bundle outside the
-  // caller-declared exact current scope.
-  for (const Bundle& bundle : view().bundles().items()) {
-    if (current_ids.contains(bundle.id) || bundle.placement_key == 0 ||
-        !desired_by_key.contains(bundle.placement_key)) {
-      continue;
-    }
-    return reject(
-        "backbone invalid input: reconcile desired placement_key collides outside current scope");
-  }
-
   for (const auto& [placement_key, entry] : desired_by_key) {
     const auto current_it = current_by_key.find(placement_key);
     if (current_it != current_by_key.end()) {
@@ -1585,18 +1581,10 @@ EditResult<bool> CoreState::ReconcileBackboneBundleInstances(
   }
 
   for (const auto& [placement_key, entry] : desired_by_key) {
-    const Bundle* matched = nullptr;
-    for (const Bundle& bundle : trial.view().bundles().items()) {
-      if (bundle.placement_key != placement_key) continue;
-      if (matched != nullptr) {
-        return reject(
-            "backbone internal: reconcile final placement identity is ambiguous");
-      }
-      matched = &bundle;
-    }
     const ObjectId expected_id = current_by_key.contains(placement_key)
                                      ? current_by_key.at(placement_key)
                                      : added_by_key.at(placement_key);
+    const Bundle* matched = trial.view().bundles().find(expected_id);
     if (matched == nullptr || matched->id != expected_id ||
         matched->bundle_template_id != entry->desired.bundle_template_id ||
         matched->conductor_count != desired_count_by_key.at(placement_key) ||

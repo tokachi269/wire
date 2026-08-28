@@ -2,6 +2,7 @@
 #include "cases.hpp"
 #include "../registry.hpp"
 #include "city/wire/coord_utils.hpp"
+#include "city/wire/core_test_hook.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -353,6 +354,50 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
         "load changed a persisted variation placement identity");
   }
 
+  CoreState malformed = loaded;
+  auto& malformed_variations =
+      CoreStateTestHook::backbone_bundle_variations(malformed);
+  if (malformed_variations.empty() ||
+      malformed_variations.front().memberships.empty() ||
+      malformed_variations.front().memberships.front().edges.empty()) {
+    return false;
+  }
+  malformed_variations.front().memberships.front().edges.front().node_a =
+      kInvalidObjectId;
+  const ValidationResult malformed_validation =
+      CoreStateTestHook::validate(malformed);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !malformed_validation.ok() &&
+          std::ranges::any_of(
+              malformed_validation.issues, [](const ValidationIssue& issue) {
+                return issue.code ==
+                       "BackboneBundleVariationMembershipEdgeInvalid";
+              }),
+      "Validate accepted a malformed persisted variation membership");
+
+  std::string malformed_archive = serialized;
+  const std::string membership_node_key =
+      ".memberships.0.nodes.0.node_id=";
+  const std::size_t node_key = malformed_archive.find(membership_node_key);
+  if (node_key == std::string::npos) return false;
+  const std::size_t node_value = node_key + membership_node_key.size();
+  const std::size_t node_line_end = malformed_archive.find('\n', node_value);
+  if (node_line_end == std::string::npos) return false;
+  malformed_archive.replace(node_value, node_line_end - node_value, "0");
+  CoreState load_target = loaded;
+  std::string load_before{};
+  std::string load_after{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      load_target.SerializeAuthoritative(&load_before).ok,
+      "malformed variation load fixture save failed");
+  const auto malformed_load =
+      load_target.DeserializeAuthoritative(malformed_archive);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !malformed_load.ok &&
+          load_target.SerializeAuthoritative(&load_after).ok &&
+          load_before == load_after,
+      "Deserialize accepted malformed variation membership or mutated state");
+
   CoreState failed;
   std::string before{};
   WIRE_TEST_EXPECT_PRESENCE(failed.SerializeAuthoritative(&before).ok,
@@ -389,6 +434,20 @@ bool C883_backbone_variation_apply_reconciles_concrete_scope_atomically() {
   if (before == nullptr || before->instances.size() != 1) return false;
   const std::uint64_t surviving_key = before->instances.front().placement_key;
   const ObjectId surviving_id = before->instances.front().bundle_id;
+
+  std::string neutral_before{};
+  std::string neutral_after{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      state.SerializeAuthoritative(&neutral_before).ok,
+      "neutral variation Apply fixture save failed");
+  const auto neutral =
+      state.ApplyBackboneBundleVariation(variation_id, initial);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      neutral.ok && state.SerializeAuthoritative(&neutral_after).ok &&
+          neutral_before == neutral_after,
+      neutral.error.empty()
+          ? "neutral variation Apply changed authoritative state"
+          : neutral.error);
 
   RouteBundleVariationInput denser = initial;
   denser.rules.front().min_instances = 2;
@@ -569,7 +628,42 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
           no_source.SerializeAuthoritative(&zero_after).ok &&
           zero_before == zero_after,
       "initial zero-to-one without membership source did not fail atomically");
+
+  CoreState ownerless;
+  BackboneSpec ownerless_request = request_with(
+      ownerless, {}, {{0.0, 20.0, 4.0}, {12.0, 20.0, 4.0}});
+  BackboneInputSpec::NodeSpec ownerless_a{};
+  ownerless_a.point_index = 0;
+  ownerless_a.support_kind = SupportKind::kMidair;
+  BackboneInputSpec::NodeSpec ownerless_b{};
+  ownerless_b.point_index = 1;
+  ownerless_b.support_kind = SupportKind::kMidair;
+  ownerless_request.path.node_specs = {ownerless_a, ownerless_b};
+  const auto ownerless_generated =
+      ownerless.GenerateBackboneBundleVariation(ownerless_request, one);
+  if (!ownerless_generated.ok) return false;
+  const ObjectId ownerless_variation_id =
+      ownerless_generated.value.variation_id;
+  const auto ownerless_removed =
+      ownerless.ApplyBackboneBundleVariation(ownerless_variation_id, zero);
+  const auto ownerless_restored =
+      ownerless.ApplyBackboneBundleVariation(ownerless_variation_id, one);
+  const SavedBackboneBundleVariation* ownerless_final =
+      ownerless.view().backbone_bundle_variation(ownerless_variation_id);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      ownerless_removed.ok && ownerless_restored.ok &&
+          ownerless_final != nullptr && ownerless_final->instances.size() == 1 &&
+          std::ranges::all_of(
+              ownerless.view().backbone().nodes,
+              [](const SavedBackboneNode& node) {
+                return node.support_kind != SupportKind::kMidair ||
+                       node.pole_id == kInvalidObjectId;
+              }),
+      ownerless_restored.error.empty()
+          ? "ownerless variation one-to-zero-to-one lost its exact support membership"
+          : ownerless_restored.error);
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(ownerless);
   return true;
 }
 
@@ -611,6 +705,18 @@ bool C885_backbone_variation_apply_preserves_branch_cross_sharp_membership() {
        {18.0, 2.0, 0.0}});
   crossing.path.node_specs = {
       pole_spec(1, generated.value.generation.generated_pole_ids[1])};
+  std::string partial_before{};
+  std::string partial_after{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      state.SerializeAuthoritative(&partial_before).ok,
+      "partial variation Extend fixture save failed");
+  const auto partial =
+      state.ExtendBackboneBundleVariation(variation_id, crossing);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !partial.ok && state.SerializeAuthoritative(&partial_after).ok &&
+          partial_before == partial_after,
+      "variation Extend accepted caller-owned partial Bundle membership");
+  crossing.bundles.clear();
   const auto extended =
       state.ExtendBackboneBundleVariation(variation_id, crossing);
   const SavedBackboneBundleVariation* extended_descriptor =
@@ -656,6 +762,61 @@ bool C885_backbone_variation_apply_preserves_branch_cross_sharp_membership() {
             continuity_count == expected_continuities,
         "branch/cross/sharp exact membership was not cloned");
   }
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
+  return true;
+}
+
+bool C886_backbone_variation_placement_identity_is_scope_local() {
+  using namespace city::wire;
+  CoreState state;
+  RouteBundleVariationInput descriptor{};
+  descriptor.route_seed = 0x8860102;
+  descriptor.preferred_side_sign = -1;
+  descriptor.pole_type_id = 2;
+  descriptor.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
+                       5.2, 5.2, 0.25, 0.25, 0.16}};
+  const auto first = state.GenerateBackboneBundleVariation(
+      request_with(state, {}, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}),
+      descriptor);
+  const auto second = state.GenerateBackboneBundleVariation(
+      request_with(state, {}, {{0.0, 20.0, 0.0}, {12.0, 20.0, 0.0}}),
+      descriptor);
+  if (!first.ok || !second.ok) return false;
+  const SavedBackboneBundleVariation* first_saved =
+      state.view().backbone_bundle_variation(first.value.variation_id);
+  const SavedBackboneBundleVariation* second_saved =
+      state.view().backbone_bundle_variation(second.value.variation_id);
+  if (first_saved == nullptr || second_saved == nullptr ||
+      first_saved->instances.size() != 1 || second_saved->instances.size() != 1) {
+    return false;
+  }
+  const auto first_instance = first_saved->instances.front();
+  const auto second_instance = second_saved->instances.front();
+  WIRE_TEST_EXPECT_ANCHOR(
+      first_instance.placement_key == second_instance.placement_key &&
+          first_instance.bundle_id != second_instance.bundle_id,
+      "same-seed variations did not keep placement correlation scope-local");
+
+  RouteBundleVariationInput changed = descriptor;
+  changed.rules.front().height_min_m = 5.6;
+  changed.rules.front().height_max_m = 5.6;
+  const auto applied =
+      state.ApplyBackboneBundleVariation(first.value.variation_id, changed);
+  const Bundle* first_bundle =
+      state.view().bundles().find(first_instance.bundle_id);
+  const Bundle* second_bundle =
+      state.view().bundles().find(second_instance.bundle_id);
+  const SavedBackboneBundleVariation* second_after =
+      state.view().backbone_bundle_variation(second.value.variation_id);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      applied.ok && first_bundle != nullptr && second_bundle != nullptr &&
+          first_bundle->height_m == 5.6 && second_bundle->height_m == 5.2 &&
+          second_after != nullptr &&
+          second_after->descriptor.route_seed == descriptor.route_seed &&
+          second_after->instances.front().bundle_id == second_instance.bundle_id,
+      applied.error.empty()
+          ? "Apply crossed variation scope through a shared placement_key"
+          : applied.error);
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   return true;
 }

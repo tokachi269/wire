@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <set>
 #include <unordered_set>
 #include <vector>
 
@@ -74,6 +76,34 @@ bool separated(const PlacedPoint& candidate, const std::vector<PlacedPoint>& pla
   });
 }
 
+bool same_membership_topology(
+    const SavedBackboneBundleVariationMembership& a,
+    const SavedBackboneBundleVariationMembership& b) {
+  if (a.edges.size() != b.edges.size() ||
+      a.row_continuities.size() != b.row_continuities.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.edges.size(); ++i) {
+    const auto& lhs = a.edges[i];
+    const auto& rhs = b.edges[i];
+    if (lhs.edge_id != rhs.edge_id || lhs.node_a != rhs.node_a ||
+        lhs.node_b != rhs.node_b) {
+      return false;
+    }
+  }
+  for (std::size_t i = 0; i < a.row_continuities.size(); ++i) {
+    const auto& lhs = a.row_continuities[i];
+    const auto& rhs = b.row_continuities[i];
+    if (std::tie(lhs.node_id, lhs.edge_a, lhs.lane_a, lhs.edge_b,
+                 lhs.lane_b) !=
+        std::tie(rhs.node_id, rhs.edge_a, rhs.lane_a, rhs.edge_b,
+                 rhs.lane_b)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 const SavedBackboneBundleVariation*
@@ -90,6 +120,18 @@ CoreState::backbone_bundle_variation_for_bundle(ObjectId bundle_id) const {
   return nullptr;
 }
 
+void CoreState::restore_backbone_variation_support_node(
+    const SavedBackboneNode& node) {
+  authoritative_.backbone.nodes.push_back(node);
+}
+
+ObjectId CoreState::restore_backbone_variation_physical_edge(
+    const SavedBackboneBundleVariationEdge& edge, std::size_t order) {
+  return save_backbone_edge(edge.node_a, edge.node_b, 0, order, edge.dir,
+                            edge.lateral_offset_m)
+      .edge_id;
+}
+
 EditResult<SavedBackboneBundleVariationMembership>
 CoreState::capture_backbone_bundle_variation_membership(
     ObjectId bundle_id) const {
@@ -102,6 +144,9 @@ CoreState::capture_backbone_bundle_variation_membership(
   SavedBackboneBundleVariationMembership membership{};
   membership.bundle_template_id = bundle->bundle_template_id;
   membership.conductor_count = bundle->conductor_count;
+  membership.height_m = bundle->height_m;
+  membership.lateral_m = bundle->lateral_m;
+  membership.spacing_m = bundle->spacing_override_m;
   std::unordered_set<ObjectId> edge_bundle_ids{};
   std::unordered_set<ObjectId> edge_ids{};
   const SavedBackboneGraph& graph = view().backbone();
@@ -124,6 +169,23 @@ CoreState::capture_backbone_bundle_variation_membership(
   if (membership.edges.empty()) {
     result.error = "backbone unsupported: variation membership has no saved physical edges";
     return result;
+  }
+  std::unordered_set<ObjectId> membership_node_ids{};
+  for (const SavedBackboneBundleVariationEdge& edge : membership.edges) {
+    membership_node_ids.insert(edge.node_a);
+    membership_node_ids.insert(edge.node_b);
+  }
+  for (ObjectId node_id : membership_node_ids) {
+    const auto node = std::ranges::find_if(
+        graph.nodes, [node_id](const SavedBackboneNode& value) {
+          return value.node_id == node_id;
+        });
+    if (node == graph.nodes.end()) {
+      result.error =
+          "backbone invalid input: variation membership support node is missing";
+      return result;
+    }
+    membership.nodes.push_back(*node);
   }
   for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
     const bool a_owned = edge_bundle_ids.contains(continuity.a.edge_bundle_id);
@@ -163,6 +225,10 @@ CoreState::capture_backbone_bundle_variation_membership(
   }
   std::sort(membership.edges.begin(), membership.edges.end(),
             [](const auto& a, const auto& b) { return a.edge_id < b.edge_id; });
+  std::sort(membership.nodes.begin(), membership.nodes.end(),
+            [](const auto& a, const auto& b) {
+              return a.node_id < b.node_id;
+            });
   std::sort(membership.row_continuities.begin(),
             membership.row_continuities.end(), [](const auto& a, const auto& b) {
               return std::tie(a.node_id, a.edge_a, a.lane_a, a.edge_b,
@@ -418,30 +484,57 @@ CoreState::ExtendBackboneBundleVariation(
     return reject("core invalid input: backbone Bundle variation not found");
   }
   SavedBackboneBundleVariation updated = *variation_it;
-  std::unordered_set<ObjectId> exact_scope{};
+  if (!spec.bundles.empty()) {
+    return reject(
+        "backbone invalid input: variation extension membership is Core-owned");
+  }
+  if (updated.instances.empty()) {
+    return reject(
+        "backbone unsupported: variation extension requires a live exact scope");
+  }
+
+  BackboneSpec concrete = spec;
+  if (concrete.pole_type_id == kInvalidPoleTypeId) {
+    concrete.pole_type_id = updated.descriptor.pole_type_id;
+  } else if (concrete.pole_type_id != updated.descriptor.pole_type_id) {
+    return reject(
+        "backbone invalid input: variation extension pole type mismatch");
+  }
+  std::set<std::pair<BundleTemplateId, int>> live_groups{};
   for (const SavedBackboneBundleVariationInstance& instance :
        updated.instances) {
-    exact_scope.insert(instance.bundle_id);
-  }
-  if (spec.bundles.empty()) {
-    return reject(
-        "backbone invalid input: variation extension requires exact Bundle specs");
-  }
-  for (const BackboneBundleSpec& bundle : spec.bundles) {
-    if (bundle.existing_bundle_id == kInvalidObjectId ||
-        !exact_scope.contains(bundle.existing_bundle_id) ||
-        (bundle.source_bundle_id != kInvalidObjectId &&
-         !exact_scope.contains(bundle.source_bundle_id))) {
+    const Bundle* bundle = trial.view().bundles().find(instance.bundle_id);
+    if (bundle == nullptr || bundle->placement_key != instance.placement_key) {
       return reject(
-          "backbone invalid input: variation extension Bundle identity is outside exact scope");
+          "backbone invalid input: variation extension exact scope is stale");
     }
+    const BundleTemplate* bundle_template =
+        trial.find_bundle_template(bundle->bundle_template_id);
+    if (bundle_template == nullptr) {
+      return reject(
+          "backbone invalid input: variation extension Bundle template is missing");
+    }
+    BackboneBundleSpec bundle_spec{};
+    bundle_spec.bundle_template_id = bundle->bundle_template_id;
+    bundle_spec.placement_key = bundle->placement_key;
+    bundle_spec.layer = bundle_template->default_layer;
+    bundle_spec.count = bundle->conductor_count;
+    bundle_spec.placement_explicit = bundle->placement_explicit;
+    bundle_spec.height_m = bundle->height_m;
+    bundle_spec.lateral_m = bundle->lateral_m;
+    bundle_spec.spacing_m = bundle->spacing_override_m;
+    bundle_spec.source_bundle_id = bundle->id;
+    bundle_spec.existing_bundle_id = bundle->id;
+    concrete.bundles.push_back(bundle_spec);
+    live_groups.insert(
+        {bundle->bundle_template_id, bundle->conductor_count});
   }
   trial.authoritative_.backbone_bundle_variations.erase(variation_it);
   EditResult<GenerateBundleFromPathResult> generated =
-      trial.GenerateFromBackboneSpec(spec);
+      trial.GenerateFromBackboneSpec(concrete);
   if (!generated.ok) return reject(generated.error);
 
-  updated.memberships.clear();
+  std::vector<SavedBackboneBundleVariationMembership> refreshed{};
   for (const SavedBackboneBundleVariationInstance& instance :
        updated.instances) {
     const Bundle* bundle = trial.view().bundles().find(instance.bundle_id);
@@ -450,18 +543,99 @@ CoreState::ExtendBackboneBundleVariation(
           "backbone internal: variation extension changed exact Bundle identity");
     }
     const auto existing = std::ranges::find_if(
-        updated.memberships,
+        refreshed,
         [&](const SavedBackboneBundleVariationMembership& membership) {
           return membership.bundle_template_id == bundle->bundle_template_id &&
                  membership.conductor_count == bundle->conductor_count;
         });
-    if (existing == updated.memberships.end()) {
-      auto captured =
-          trial.capture_backbone_bundle_variation_membership(bundle->id);
-      if (!captured.ok) return reject(captured.error);
-      updated.memberships.push_back(std::move(captured.value));
+    auto captured =
+        trial.capture_backbone_bundle_variation_membership(bundle->id);
+    if (!captured.ok) return reject(captured.error);
+    if (existing == refreshed.end()) {
+      refreshed.push_back(std::move(captured.value));
+    } else if (!same_membership_topology(*existing, captured.value)) {
+      return reject(
+          "backbone invalid input: variation extension live membership groups diverged");
     }
   }
+
+  if (refreshed.size() < updated.memberships.size()) {
+    if (generated.value.generated_node_ids.size() !=
+        concrete.path.polyline.size()) {
+      return reject(
+          "backbone unsupported: variation extension cannot bind zero-instance membership to exact path nodes");
+    }
+    BackboneSpec exact_extension = spec;
+    exact_extension.pole_type_id = concrete.pole_type_id;
+    exact_extension.path.node_specs.clear();
+    for (std::size_t index = 0;
+         index < generated.value.generated_node_ids.size(); ++index) {
+      const ObjectId node_id = generated.value.generated_node_ids[index];
+      const auto node = std::ranges::find_if(
+          trial.view().backbone().nodes,
+          [node_id](const SavedBackboneNode& value) {
+            return value.node_id == node_id;
+          });
+      if (node == trial.view().backbone().nodes.end()) {
+        return reject(
+            "backbone internal: variation extension exact path node is missing");
+      }
+      BackboneInputSpec::NodeSpec node_spec{};
+      node_spec.point_index = index;
+      node_spec.support_kind = node->support_kind;
+      node_spec.node_id = node->node_id;
+      exact_extension.path.node_specs.push_back(node_spec);
+    }
+
+    for (const SavedBackboneBundleVariationMembership& saved :
+         updated.memberships) {
+      if (live_groups.contains(
+              {saved.bundle_template_id, saved.conductor_count})) {
+        continue;
+      }
+      CoreState replay = trial;
+      std::uint64_t temporary_key =
+          support::hash_combine(
+              support::hash_combine(variation_id,
+                                    static_cast<std::uint64_t>(
+                                        saved.bundle_template_id)),
+              static_cast<std::uint64_t>(saved.conductor_count)) &
+          kJavascriptExactIntegerMask;
+      if (temporary_key == 0) temporary_key = 1;
+      EditResult<ObjectId> materialized =
+          replay.add_backbone_bundle_instance_from_variation_membership(
+              saved, temporary_key, saved.height_m, saved.lateral_m,
+              saved.spacing_m);
+      if (!materialized.ok) return reject(materialized.error);
+      const BundleTemplate* bundle_template =
+          replay.find_bundle_template(saved.bundle_template_id);
+      if (bundle_template == nullptr) {
+        return reject(
+            "backbone invalid input: variation membership template is missing");
+      }
+      BackboneBundleSpec bundle_spec{};
+      bundle_spec.bundle_template_id = saved.bundle_template_id;
+      bundle_spec.placement_key = temporary_key;
+      bundle_spec.layer = bundle_template->default_layer;
+      bundle_spec.count = saved.conductor_count;
+      bundle_spec.placement_explicit = true;
+      bundle_spec.height_m = saved.height_m;
+      bundle_spec.lateral_m = saved.lateral_m;
+      bundle_spec.spacing_m = saved.spacing_m;
+      bundle_spec.source_bundle_id = materialized.value;
+      bundle_spec.existing_bundle_id = materialized.value;
+      BackboneSpec replay_extension = exact_extension;
+      replay_extension.bundles.push_back(bundle_spec);
+      EditResult<GenerateBundleFromPathResult> replayed =
+          replay.GenerateFromBackboneSpec(replay_extension);
+      if (!replayed.ok) return reject(replayed.error);
+      auto captured = replay.capture_backbone_bundle_variation_membership(
+          materialized.value);
+      if (!captured.ok) return reject(captured.error);
+      refreshed.push_back(std::move(captured.value));
+    }
+  }
+  updated.memberships = std::move(refreshed);
   std::sort(updated.memberships.begin(), updated.memberships.end(),
             [](const auto& a, const auto& b) {
               return std::tie(a.bundle_template_id, a.conductor_count) <
@@ -511,6 +685,7 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
   if (!resolved.ok) return reject(resolved.error);
 
   BackboneBundleReconcileInput reconcile{};
+  std::map<std::uint64_t, ObjectId> final_bundle_id_by_key{};
   ChangeSet replay_changes{};
   auto merge_replay_changes = [&](const ChangeSet& source) {
     auto append = [](std::vector<ObjectId>* target,
@@ -533,6 +708,7 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
           "backbone invalid input: variation current exact Bundle scope is stale");
     }
     reconcile.current_bundle_ids.push_back(instance.bundle_id);
+    final_bundle_id_by_key.emplace(instance.placement_key, instance.bundle_id);
   }
 
   for (const BackboneBundleSpec& desired : resolved.value) {
@@ -587,46 +763,80 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
                 desired.lateral_m, desired.spacing_m);
         if (!replayed.ok) return reject(replayed.error);
         reconcile.current_bundle_ids.push_back(replayed.value);
+        final_bundle_id_by_key.emplace(desired.placement_key, replayed.value);
         merge_replay_changes(replayed.change_set);
       }
     }
     reconcile.desired_bundles.push_back(entry);
   }
 
+  std::unordered_set<ObjectId> bundles_before_reconcile{};
+  for (const Bundle& bundle : trial.view().bundles().items()) {
+    bundles_before_reconcile.insert(bundle.id);
+  }
   EditResult<bool> reconciled =
       trial.ReconcileBackboneBundleInstances(reconcile);
   if (!reconciled.ok) return reject(reconciled.error);
 
   updated.descriptor = descriptor;
   updated.instances.clear();
+  std::vector<SavedBackboneBundleVariationMembership> live_memberships{};
   for (const BackboneBundleSpec& desired : resolved.value) {
-    const Bundle* matched = nullptr;
-    for (const Bundle& bundle : trial.view().bundles().items()) {
-      if (bundle.placement_key != desired.placement_key) continue;
-      if (matched != nullptr) {
-        return reject(
-            "backbone internal: variation final placement identity is ambiguous");
+    auto final_id = final_bundle_id_by_key.find(desired.placement_key);
+    if (final_id == final_bundle_id_by_key.end()) {
+      for (const Bundle& bundle : trial.view().bundles().items()) {
+        if (bundles_before_reconcile.contains(bundle.id) ||
+            bundle.placement_key != desired.placement_key ||
+            bundle.bundle_template_id != desired.bundle_template_id) {
+          continue;
+        }
+        if (!final_bundle_id_by_key
+                 .emplace(desired.placement_key, bundle.id)
+                 .second) {
+          return reject(
+              "backbone internal: variation added placement identity is ambiguous within reconcile scope");
+        }
       }
-      matched = &bundle;
+      final_id = final_bundle_id_by_key.find(desired.placement_key);
     }
+    const Bundle* matched =
+        final_id == final_bundle_id_by_key.end()
+            ? nullptr
+            : trial.view().bundles().find(final_id->second);
     if (matched == nullptr) {
       return reject(
           "backbone internal: variation final concrete Bundle is missing");
     }
     updated.instances.push_back({matched->placement_key, matched->id});
+    auto captured =
+        trial.capture_backbone_bundle_variation_membership(matched->id);
+    if (!captured.ok) return reject(captured.error);
     const auto membership = std::ranges::find_if(
-        updated.memberships,
+        live_memberships,
         [&](const SavedBackboneBundleVariationMembership& value) {
           return value.bundle_template_id == matched->bundle_template_id &&
                  value.conductor_count == matched->conductor_count;
         });
-    if (membership == updated.memberships.end()) {
-      auto captured =
-          trial.capture_backbone_bundle_variation_membership(matched->id);
-      if (!captured.ok) return reject(captured.error);
-      updated.memberships.push_back(std::move(captured.value));
+    if (membership == live_memberships.end()) {
+      live_memberships.push_back(std::move(captured.value));
+    } else if (!same_membership_topology(*membership, captured.value)) {
+      return reject(
+          "backbone unsupported: variation instances in one rule group do not share exact saved membership");
     }
   }
+  for (const SavedBackboneBundleVariationMembership& membership :
+       updated.memberships) {
+    const auto live = std::ranges::find_if(
+        live_memberships,
+        [&](const SavedBackboneBundleVariationMembership& value) {
+          return value.bundle_template_id == membership.bundle_template_id &&
+                 value.conductor_count == membership.conductor_count;
+        });
+    if (live == live_memberships.end()) {
+      live_memberships.push_back(membership);
+    }
+  }
+  updated.memberships = std::move(live_memberships);
   std::sort(updated.instances.begin(), updated.instances.end(),
             [](const auto& a, const auto& b) {
               return a.placement_key < b.placement_key;

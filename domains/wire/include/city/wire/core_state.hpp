@@ -159,6 +159,10 @@ private:
       double spacing_m);
   EditResult<SavedBackboneBundleVariationMembership>
   capture_backbone_bundle_variation_membership(ObjectId bundle_id) const;
+  void restore_backbone_variation_support_node(
+      const SavedBackboneNode& node);
+  [[nodiscard]] ObjectId restore_backbone_variation_physical_edge(
+      const SavedBackboneBundleVariationEdge& edge, std::size_t order);
 #if defined(WIRE_INTERNAL) || defined(WIRE_TESTING)
   friend struct CoreStateTestHook;
 #endif

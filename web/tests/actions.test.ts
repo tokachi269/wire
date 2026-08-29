@@ -1042,35 +1042,50 @@ describe("viewport tool routing", () => {
     });
   });
 
-  it("rejects persisted variation controls while the same route is active", () => {
+  it("applies route controls to the persisted variation while the same route is active", () => {
     const descriptor = {
       ok: true, error: "", found: true, variationId: "905", routeSeed: 654,
       preferredSideSign: -1, poleTypeId: 1,
       rules: routeBundleRules({ density: 1, heightSpread: 1, lateralSpread: 1 }),
-      instances: [{ placementKey: 41, bundleId: "601" }]
+      instances: [{ placementKey: 51, bundleId: "601" }]
     };
-    const applyBackboneBundleVariation = vi.fn(() => ({ ok: true, error: "" }));
+    const applyBackboneBundleVariation = vi.fn((
+      _variationId: string,
+      _rules: ReturnType<typeof routeBundleRules>,
+      _routeSeed: number
+    ) => ({ ok: true, error: "" }));
+    const resolveRouteBundleVariation = vi.fn(() => ({
+      ok: true, error: "", placements: [{
+        id: 51, bundleTemplateId: 104, count: 1, explicit: true,
+        height: 5.4, offset: -0.31, spacing: 0.16
+      }]
+    }));
     const store = new ViewerStore();
     store.update((snapshot) => ({
       ...snapshot,
       spans: [{ id: "206", portAId: "111", portBId: "112", bundleId: "601" }],
       pathPoints: [[0, 0, 0]],
+      wireRouteSeed: 654,
       wireVariationId: "905"
     }));
     const actions = new ViewerActions(actionBridge({
       backboneBundleVariationForBundle: () => descriptor,
+      backboneBundleVariation: () => descriptor,
+      resolveRouteBundleVariation,
       applyBackboneBundleVariation
     }), store);
 
     actions.select("span", "206");
-    actions.setSelectedRouteVariation("density", 1.25);
-    actions.rerollSelectedRouteVariation();
-    actions.applySelectedRouteVariation();
+    actions.setRouteVariation("density", 1.25);
 
-    expect(applyBackboneBundleVariation).not.toHaveBeenCalled();
-    expect(current(store).selectedRouteVariationControls.density).toBe(1);
-    expect(current(store).selectedRouteVariation?.routeSeed).toBe(654);
-    expect(current(store).error).toContain("active wire route");
+    expect(applyBackboneBundleVariation).toHaveBeenCalledOnce();
+    expect(applyBackboneBundleVariation.mock.calls[0][0]).toBe("905");
+    expect(applyBackboneBundleVariation.mock.calls[0][2]).toBe(654);
+    expect(current(store).routeVariation.density).toBe(1.25);
+    expect(current(store).drawBundlePlacements).toEqual([expect.objectContaining({
+      id: 51, generatedBundleId: "601", height: 5.4, offset: -0.31
+    })]);
+    expect(current(store).error).toBe("");
   });
 
   it("rejects an individual placement edit on an active recipe-backed route without staging it", () => {
@@ -1250,7 +1265,7 @@ describe("viewport tool routing", () => {
     expect(current(store).error).toContain("source-edge dependency");
   });
 
-  it("applies route controls to the next resolution and rerolls only before the route starts", () => {
+  it("applies route controls before the route and delegates active changes to persisted Apply", () => {
     const resolveRouteBundleVariation = vi.fn((_rules: Array<{
       bundleTemplateId: number; minInstances: number; maxInstances: number;
       heightMin: number; heightMax: number;
@@ -1281,14 +1296,10 @@ describe("viewport tool routing", () => {
     expect(seed).not.toBeNull();
 
     actions.addViewportPoint([0, 0, 0]);
-    const density = current(store).routeVariation.density;
     actions.setRouteVariation("density", 1.25);
-    expect(current(store).routeVariation.density).toBe(density);
-    expect(current(store).error).toContain("finish or cancel");
-    actions.rerollRouteSeed();
-    expect(current(store).wireRouteSeed).toBe(seed);
-    expect(current(store).error).toContain("finish or cancel");
-    expect(resolveRouteBundleVariation).toHaveBeenCalledOnce();
+    expect(current(store).routeVariation.density).toBe(1.25);
+    expect(current(store).error).toBe("");
+    expect(resolveRouteBundleVariation).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a committed picked midair endpoint usable as the next wire anchor", () => {

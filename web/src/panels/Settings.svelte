@@ -46,12 +46,11 @@
   </section>
 
   <section>
-    <h2>New route variation</h2>
-    <p class="setting-note">新しく描き始めるrouteの初期descriptorです。描画開始後は変更しません。</p>
+    <h2>Route variation</h2>
+    <p class="setting-note">描画前は次routeの初期値、描画開始後は現在route全体へ即時反映します。</p>
     <label>
       Line density
       <input type="range" min="0.5" max="1.25" step="0.05"
-        disabled={snapshot.pathPoints.length > 0}
         value={snapshot.routeVariation.density}
         oninput={(event) => actions.setRouteVariation("density", numberValue(event))} />
       <output>{snapshot.routeVariation.density.toFixed(2)}x</output>
@@ -59,7 +58,6 @@
     <label>
       Height spread
       <input type="range" min="0.25" max="1.75" step="0.05"
-        disabled={snapshot.pathPoints.length > 0}
         value={snapshot.routeVariation.heightSpread}
         oninput={(event) => actions.setRouteVariation("heightSpread", numberValue(event))} />
       <output>{snapshot.routeVariation.heightSpread.toFixed(2)}x</output>
@@ -67,12 +65,11 @@
     <label>
       Lateral spread
       <input type="range" min="0.25" max="1.75" step="0.05"
-        disabled={snapshot.pathPoints.length > 0}
         value={snapshot.routeVariation.lateralSpread}
         oninput={(event) => actions.setRouteVariation("lateralSpread", numberValue(event))} />
       <output>{snapshot.routeVariation.lateralSpread.toFixed(2)}x</output>
     </label>
-    <button class="secondary" type="button" disabled={snapshot.pathPoints.length > 0}
+    <button class="secondary" type="button"
       onclick={() => actions.rerollRouteSeed()}>
       Reroll seed
     </button>

@@ -22,25 +22,39 @@ export class DrawActions {
     param: K,
     value: RouteVariationControls[K]
   ): void {
-    if (this.ctx.readSnapshot().pathPoints.length > 0) {
-      this.ctx.store.setError("finish or cancel the current wire route before changing route variation");
+    const current = this.ctx.readSnapshot();
+    const controls = { ...current.routeVariation, [param]: value };
+    if (current.pathPoints.length > 0) {
+      if (current.wireVariationId === null) {
+        this.ctx.store.update((snapshot) => ({
+          ...snapshot,
+          routeVariation: controls
+        }));
+        this.resolveRouteVariation(current.wireRouteSeed ?? newRouteSeed());
+        return;
+      }
+      this.applyActiveRouteVariation(controls, current.wireRouteSeed);
       return;
     }
     this.ctx.store.update((current) => ({
       ...current,
-      routeVariation: { ...current.routeVariation, [param]: value },
+      routeVariation: controls,
       wireRouteSeed: null
     }));
   }
 
   rerollRouteSeed(): void {
     const current = this.ctx.readSnapshot();
-    if (current.pathPoints.length > 0) {
-      this.ctx.store.setError("finish or cancel the current wire route before rerolling");
-      return;
-    }
     let routeSeed = newRouteSeed();
     if (routeSeed === current.wireRouteSeed) routeSeed = (routeSeed + 1) % Number.MAX_SAFE_INTEGER;
+    if (current.pathPoints.length > 0) {
+      if (current.wireVariationId === null) {
+        this.resolveRouteVariation(routeSeed);
+        return;
+      }
+      this.applyActiveRouteVariation(current.routeVariation, routeSeed);
+      return;
+    }
     this.resolveRouteVariation(routeSeed);
   }
 
@@ -385,6 +399,70 @@ export class DrawActions {
       drawBundlePlacements: [...resolved.placements]
         .sort((a, b) => b.height - a.height || a.id - b.id)
     }));
+    return true;
+  }
+
+  private applyActiveRouteVariation(
+    controls: RouteVariationControls,
+    routeSeed: number | null
+  ): boolean {
+    const current = this.ctx.readSnapshot();
+    if (current.wireVariationId === null || routeSeed === null) {
+      this.ctx.store.setError("active wire route has no persisted variation identity");
+      return false;
+    }
+    const persisted = this.ctx.bridge.backboneBundleVariation(current.wireVariationId);
+    if (!persisted.ok || !persisted.found || persisted.preferredSideSign === undefined ||
+        persisted.poleTypeId === undefined) {
+      this.ctx.store.setError(persisted.error || "active wire route variation is missing");
+      return false;
+    }
+    const rules = routeBundleRules(controls);
+    const resolved = this.ctx.bridge.resolveRouteBundleVariation(
+      rules, routeSeed, persisted.preferredSideSign, persisted.poleTypeId
+    );
+    if (!resolved.ok || resolved.placements.length === 0) {
+      this.ctx.store.setError(resolved.error || "active route variation resolved no bundles");
+      return false;
+    }
+    const beforeState = this.ctx.bridge.saveState();
+    const applied = this.ctx.bridge.applyBackboneBundleVariation(
+      current.wireVariationId, rules, routeSeed,
+      persisted.preferredSideSign, persisted.poleTypeId
+    );
+    if (!applied.ok) {
+      this.ctx.store.setError(applied.error);
+      return false;
+    }
+    const updated = this.ctx.bridge.backboneBundleVariation(current.wireVariationId);
+    if (!updated.ok || !updated.found) {
+      const restored = this.ctx.bridge.loadState(beforeState);
+      this.ctx.store.setError(restored.ok
+        ? (updated.error || "applied route variation could not be reloaded")
+        : restored.error);
+      return false;
+    }
+    this.committedHistory.push({ before: beforeState, after: this.ctx.bridge.saveState() });
+    const bundleIdByPlacementKey = new Map(
+      (updated.instances ?? []).map((instance) => [instance.placementKey, instance.bundleId])
+    );
+    this.ctx.store.update((snapshot) => ({
+      ...snapshot,
+      routeVariation: controls,
+      wireRouteSeed: routeSeed,
+      drawBundlePlacements: [...resolved.placements]
+        .sort((a, b) => b.height - a.height || a.id - b.id)
+        .map((placement) => ({
+          ...placement,
+          generatedBundleId: bundleIdByPlacementKey.get(placement.id)
+        })),
+      selectedRouteVariation:
+        snapshot.selectedRouteVariation?.variationId === updated.variationId
+          ? updated
+          : snapshot.selectedRouteVariation,
+      error: ""
+    }));
+    this.ctx.refreshScene();
     return true;
   }
 

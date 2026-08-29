@@ -477,9 +477,9 @@ variation extensionのbranch pickも、Coreがvariation IDからexact live insta
 WASM/Webは選択Spanのexact `bundle_id`から保存済みdescriptorを参照し、選択中scopeの調整を
 `ApplyBackboneBundleVariation`へ渡す。adapterはcategory、template名、geometryからscopeを推測せず、初回生成も
 Webでresolveしたconcrete specを通常Generateへ渡す経路ではなく、descriptorをCoreのvariation生成入口へ渡す。
-既存routeの調整値は保存済みdescriptorに対する相対値であり、neutral Applyはrulesを変えない。active draw中の同じ
-variationへのApplyと個別Bundle編集は拒否し、preview / commitは同じCore variation operationをtrial / real stateで
-それぞれ実行する。viewerはrecipeを解釈せず、Apply後の通常sceneだけを描画する。
+既存routeの調整値は保存済みdescriptorに対する相対値であり、neutral Applyはrulesを変えない。描画中routeでは
+同じroute controlが保存済みvariation IDへatomic Applyし、確定済み全区間と次のpreview / commit inputを同じdescriptorへ
+更新する。個別Bundle編集は拒否する。viewerはrecipeを解釈せず、Apply後の通常sceneだけを描画する。
 
 非HV endpointの支持表現は、authoritative Bundle placementからgeneration時に導出する。pole surface近傍は
 Direct attachment、明確に離れたplacementはSupported rowとし、新しいSupportRow entityや保存fieldは作らない。

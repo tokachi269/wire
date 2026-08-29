@@ -359,10 +359,10 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
       CoreStateTestHook::backbone_bundle_variations(malformed);
   if (malformed_variations.empty() ||
       malformed_variations.front().memberships.empty() ||
-      malformed_variations.front().memberships.front().edges.empty()) {
+      malformed_variations.front().memberships.front().edge_ids.empty()) {
     return false;
   }
-  malformed_variations.front().memberships.front().edges.front().node_a =
+  malformed_variations.front().memberships.front().edge_ids.front() =
       kInvalidObjectId;
   const ValidationResult malformed_validation =
       CoreStateTestHook::validate(malformed);
@@ -375,31 +375,25 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
               }),
       "Validate accepted a malformed persisted variation membership");
 
-  CoreState wrong_rule_ordinal = loaded;
-  auto& wrong_rule_variations =
-      CoreStateTestHook::backbone_bundle_variations(wrong_rule_ordinal);
-  wrong_rule_variations.front().descriptor.route_seed ^= 0x5a5a5a5aULL;
-  const ValidationResult wrong_rule_validation =
-      CoreStateTestHook::validate(wrong_rule_ordinal);
+  CoreState changed_resolver_input = loaded;
+  auto& changed_variations =
+      CoreStateTestHook::backbone_bundle_variations(changed_resolver_input);
+  changed_variations.front().descriptor.route_seed ^= 0x5a5a5a5aULL;
+  const ValidationResult changed_seed_validation =
+      CoreStateTestHook::validate(changed_resolver_input);
   WIRE_TEST_EXPECT_DIFFERENTIAL(
-      !wrong_rule_validation.ok() &&
-          std::ranges::any_of(
-              wrong_rule_validation.issues,
-              [](const ValidationIssue& issue) {
-                return issue.code ==
-                       "BackboneBundleVariationInstanceRuleMissing";
-              }),
-      "Validate accepted an instance placement key from a different rule ordinal");
+      changed_seed_validation.ok(),
+      "persistent validation reran the current resolver against saved concrete instances");
 
   std::string malformed_archive = serialized;
-  const std::string membership_node_key =
-      ".memberships.0.nodes.0.node_id=";
-  const std::size_t node_key = malformed_archive.find(membership_node_key);
-  if (node_key == std::string::npos) return false;
-  const std::size_t node_value = node_key + membership_node_key.size();
-  const std::size_t node_line_end = malformed_archive.find('\n', node_value);
-  if (node_line_end == std::string::npos) return false;
-  malformed_archive.replace(node_value, node_line_end - node_value, "0");
+  const std::string membership_edge_key =
+      ".memberships.0.edge_ids.0.edge_id=";
+  const std::size_t edge_key = malformed_archive.find(membership_edge_key);
+  if (edge_key == std::string::npos) return false;
+  const std::size_t edge_value = edge_key + membership_edge_key.size();
+  const std::size_t edge_line_end = malformed_archive.find('\n', edge_value);
+  if (edge_line_end == std::string::npos) return false;
+  malformed_archive.replace(edge_value, edge_line_end - edge_value, "0");
   CoreState load_target = loaded;
   std::string load_before{};
   std::string load_after{};
@@ -571,7 +565,9 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
       initial->memberships.size() != 1) return false;
   const std::uint64_t placement_key = initial->instances.front().placement_key;
   const ObjectId retired_id = initial->instances.front().bundle_id;
-  const std::size_t edge_count = initial->memberships.front().edges.size();
+  const std::vector<ObjectId> retained_edge_ids =
+      initial->memberships.front().edge_ids;
+  const std::size_t edge_count = retained_edge_ids.size();
   const std::size_t continuity_count =
       initial->memberships.front().row_continuities.size();
 
@@ -583,9 +579,31 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
       state.view().backbone_bundle_variation(variation_id);
   WIRE_TEST_EXPECT_DIFFERENTIAL(
       removed.ok && removed.value && empty != nullptr &&
-          empty->instances.empty() && state.view().bundles().find(retired_id) == nullptr,
+          empty->instances.empty() &&
+          state.view().bundles().find(retired_id) == nullptr &&
+          std::ranges::all_of(
+              retained_edge_ids, [&](ObjectId edge_id) {
+                return state.view().backbone_edge(edge_id) != nullptr;
+              }),
       removed.error.empty() ? "variation zero Apply retained a concrete Bundle"
                             : removed.error);
+
+  std::string zero_archive{};
+  CoreState zero_loaded;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      state.SerializeAuthoritative(&zero_archive).ok &&
+          zero_archive.find(".memberships.0.edge_ids.count=") !=
+              std::string::npos &&
+          zero_archive.find(".memberships.0.nodes.count=") ==
+              std::string::npos &&
+          zero_loaded.DeserializeAuthoritative(zero_archive).ok &&
+          zero_loaded.view().backbone_bundle_variation(variation_id) !=
+              nullptr &&
+          zero_loaded.view()
+              .backbone_bundle_variation(variation_id)
+              ->instances.empty(),
+      "zero-instance variation did not preserve its retained graph authority through load");
+  state = std::move(zero_loaded);
 
   const auto restored = state.ApplyBackboneBundleVariation(variation_id, one);
   const SavedBackboneBundleVariation* final =
@@ -601,7 +619,7 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
   const auto captured = state.view().backbone_bundle_variation(variation_id);
   WIRE_TEST_EXPECT_DIFFERENTIAL(
       captured != nullptr && captured->memberships.size() == 1 &&
-          captured->memberships.front().edges.size() == edge_count &&
+          captured->memberships.front().edge_ids.size() == edge_count &&
           captured->memberships.front().row_continuities.size() ==
               continuity_count,
       "variation one-to-zero-to-one changed saved membership shape");
@@ -706,7 +724,7 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
   const auto before_zero_membership = communication_membership(before_zero);
   if (before_zero_membership == before_zero->memberships.end()) return false;
   const std::size_t edges_before_extension =
-      before_zero_membership->edges.size();
+      before_zero_membership->edge_ids.size();
 
   RouteBundleVariationInput zero_communication = two_groups;
   zero_communication.rules.front().min_instances = 0;
@@ -728,7 +746,7 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
   if (!zeroed.ok || !extended.ok || after_extension == nullptr) return false;
   const auto extended_membership = communication_membership(after_extension);
   if (extended_membership == after_extension->memberships.end()) return false;
-  const std::size_t edges_after_extension = extended_membership->edges.size();
+  const std::size_t edges_after_extension = extended_membership->edge_ids.size();
   const auto extended_restored = extended_zero.ApplyBackboneBundleVariation(
       extended_variation_id, two_groups);
   const SavedBackboneBundleVariation* extended_final =
@@ -738,7 +756,7 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
       extended_restored.ok && extended_final != nullptr &&
           final_membership != extended_final->memberships.end() &&
           edges_after_extension > edges_before_extension &&
-          final_membership->edges.size() == edges_after_extension &&
+          final_membership->edge_ids.size() == edges_after_extension &&
           std::ranges::any_of(
               extended_final->instances, [&](const auto& instance) {
                 const Bundle* bundle =
@@ -813,7 +831,7 @@ bool C885_backbone_variation_apply_preserves_branch_cross_sharp_membership() {
   if (!extended.ok || extended_descriptor == nullptr ||
       extended_descriptor->memberships.size() != 1) return false;
   const std::size_t expected_edges =
-      extended_descriptor->memberships.front().edges.size();
+      extended_descriptor->memberships.front().edge_ids.size();
   const std::size_t expected_continuities =
       extended_descriptor->memberships.front().row_continuities.size();
   if (expected_edges < 4 || expected_continuities == 0) return false;
@@ -1354,6 +1372,55 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
                        "optical visual member escaped the shared helix containment radius");
     }
   }
+  return true;
+}
+
+bool C888_variation_branch_pick_uses_exact_live_scope() {
+  using namespace city::wire;
+  CoreState state{};
+  RouteBundleVariationInput descriptor{};
+  descriptor.route_seed = 0x8880102;
+  descriptor.preferred_side_sign = -1;
+  descriptor.pole_type_id = 2;
+  descriptor.rules = {
+      {kDefaultCommunicationBundleTemplateId, 1, 1, 1,
+       5.2, 5.2, 0.25, 0.25, 0.16},
+      {kDefaultHighVoltageBundleTemplateId, 0, 0, 3,
+       9.2, 9.2, 0.2, 0.2, 0.25}};
+  const auto generated = state.GenerateBackboneBundleVariation(
+      request_with(state, {}), descriptor);
+  WIRE_TEST_EXPECT_PRESENCE(
+      generated.ok && generated.value.generation.generated_span_ids.size() == 1,
+      generated.error.empty()
+          ? "variation branch-pick fixture did not create one live Bundle"
+          : generated.error);
+  const ObjectId span_id =
+      generated.value.generation.generated_span_ids.front();
+  const Span* span = state.view().spans().find(span_id);
+  const Port* port_a = span == nullptr
+                           ? nullptr
+                           : state.view().ports().find(span->port_a_id);
+  const Port* port_b = span == nullptr
+                           ? nullptr
+                           : state.view().ports().find(span->port_b_id);
+  WIRE_TEST_EXPECT_PRESENCE(port_a != nullptr && port_b != nullptr,
+                            "variation branch-pick Span endpoints are missing");
+  PickResult pick{};
+  pick.hit_kind = PickHitKind::kSegment;
+  pick.hit_id = span_id;
+  pick.hit_pos_world = ScaleVec(
+      port_a->world_position + port_b->world_position, 0.5);
+  const auto resolved = state.ResolveBackboneBundleVariationBranchPick(
+      generated.value.variation_id, pick);
+  const auto& pending = CoreStateTestHook::pending_support_nodes(state);
+  WIRE_TEST_EXPECT_ANCHOR(
+      resolved.ok && pending.size() == 1 &&
+          pending.front().bundle_modes.size() == 1 &&
+          pending.front().bundle_modes.front().bundle_template_id ==
+              kDefaultCommunicationBundleTemplateId,
+      resolved.error.empty()
+          ? "zero-instance descriptor rule entered the physical branch scope"
+          : resolved.error);
   return true;
 }
 

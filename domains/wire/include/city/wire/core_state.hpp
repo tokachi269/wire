@@ -75,6 +75,8 @@ public:
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick);
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick,
                                                         const ResolveBranchPickOptions& options);
+  EditResult<ResolveBranchPickResult> ResolveBackboneBundleVariationBranchPick(
+      ObjectId variation_id, const PickResult& pick);
   // Clears pending support-node drafts created by ResolveBranchPick for the current draw session.
   EditResult<bool> ClearPendingSupportNodes();
   [[nodiscard]] EditResult<DefaultBundlePlacementResult>
@@ -155,14 +157,9 @@ private:
       ObjectId bundle_id) const;
   EditResult<ObjectId> add_backbone_bundle_instance_from_variation_membership(
       const SavedBackboneBundleVariationMembership& membership,
-      std::uint64_t placement_key, double height_m, double lateral_m,
-      double spacing_m);
+      const BackboneBundleSpec& requested);
   EditResult<SavedBackboneBundleVariationMembership>
   capture_backbone_bundle_variation_membership(ObjectId bundle_id) const;
-  void restore_backbone_variation_support_node(
-      const SavedBackboneNode& node);
-  [[nodiscard]] ObjectId restore_backbone_variation_physical_edge(
-      const SavedBackboneBundleVariationEdge& edge, std::size_t order);
 #if defined(WIRE_INTERNAL) || defined(WIRE_TESTING)
   friend struct CoreStateTestHook;
 #endif

@@ -659,6 +659,154 @@ bool C768_legacy_state_preserves_implicit_helix_support() {
          });
 }
 
+bool C887_legacy_v4_variation_membership_uses_retained_graph() {
+  const std::filesystem::path fixture_root =
+      backbone_tests::repo_root() / "domains" / "wire" / "tests" /
+      "fixtures";
+  std::string legacy{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      backbone_tests::file_text(
+          fixture_root / "legacy_variation_v4_93cbac57.txt", &legacy) &&
+          legacy.rfind("wire_state_v4\n", 0) == 0 &&
+          legacy.find(".memberships.0.height_m=") == std::string::npos &&
+          legacy.find(".memberships.0.nodes.count=") == std::string::npos,
+      "previous-deploy v4 variation fixture is missing or already current");
+
+  city::wire::CoreState loaded{};
+  const auto migrated = loaded.DeserializeAuthoritative(legacy);
+  WIRE_TEST_EXPECT_PRESENCE(migrated.ok, migrated.error);
+  const auto& variations = loaded.view().backbone_bundle_variations();
+  WIRE_TEST_EXPECT_ANCHOR(
+      variations.size() == 1 && variations.front().instances.size() == 1 &&
+          variations.front().memberships.size() == 1,
+      "legacy v4 variation did not restore one exact concrete scope");
+  const auto& variation = variations.front();
+  const auto& membership = variation.memberships.front();
+  WIRE_TEST_EXPECT_ANCHOR(
+      !membership.edge_ids.empty() &&
+          std::ranges::all_of(
+              membership.edge_ids, [&](city::wire::ObjectId edge_id) {
+                return loaded.view().backbone_edge(edge_id) != nullptr;
+              }),
+      "legacy v4 membership did not resolve to retained SavedBackboneGraph edges");
+
+  std::string multiple_legacy{};
+  city::wire::CoreState multiple{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      backbone_tests::file_text(
+          fixture_root / "legacy_variation_v4_multiple_93cbac57.txt",
+          &multiple_legacy) &&
+          multiple_legacy.rfind("wire_state_v4\n", 0) == 0 &&
+          multiple.DeserializeAuthoritative(multiple_legacy).ok,
+      "previous-deploy multiple-instance v4 variation fixture did not load");
+  const auto& multiple_variations =
+      multiple.view().backbone_bundle_variations();
+  WIRE_TEST_EXPECT_ANCHOR(
+      multiple_variations.size() == 1 &&
+          multiple_variations.front().instances.size() == 2 &&
+          multiple_variations.front().memberships.size() == 1 &&
+          multiple_variations.front().instances[0].bundle_id !=
+              multiple_variations.front().instances[1].bundle_id &&
+          multiple_variations.front().instances[0].placement_key !=
+              multiple_variations.front().instances[1].placement_key,
+      "legacy v4 compatibility guessed one representative from a multiple-instance group");
+
+  std::string zero_legacy{};
+  city::wire::CoreState zero{};
+  const bool zero_fixture_loaded = backbone_tests::file_text(
+      fixture_root / "legacy_variation_v4_zero_48ae95de.txt", &zero_legacy);
+  const auto zero_load = zero_fixture_loaded
+                             ? zero.DeserializeAuthoritative(zero_legacy)
+                             : city::wire::EditResult<bool>{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      zero_fixture_loaded &&
+          zero_legacy.rfind("wire_state_v4\n", 0) == 0 &&
+          zero_legacy.find("authoritative.backbone.edges.count=0") !=
+              std::string::npos &&
+          zero_legacy.find(".memberships.0.nodes.count=") !=
+              std::string::npos &&
+          zero_load.ok,
+      zero_load.error.empty()
+          ? "previous-deploy zero-instance v4 variation fixture did not load"
+          : zero_load.error);
+  const auto& zero_variations = zero.view().backbone_bundle_variations();
+  WIRE_TEST_EXPECT_ANCHOR(
+      zero_variations.size() == 1 && zero_variations.front().instances.empty() &&
+          zero_variations.front().memberships.size() == 1 &&
+          !zero_variations.front().memberships.front().edge_ids.empty() &&
+          std::ranges::all_of(
+              zero_variations.front().memberships.front().edge_ids,
+              [&](city::wire::ObjectId edge_id) {
+                return zero.view().backbone_edge(edge_id) != nullptr;
+              }),
+      "legacy zero-instance snapshot did not normalize to retained graph edges");
+  std::string zero_current{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      zero.SerializeAuthoritative(&zero_current).ok &&
+          zero_current.find("authoritative.backbone.edges.count=2") !=
+              std::string::npos &&
+          zero_current.find(".memberships.0.edge_ids.count=") !=
+              std::string::npos &&
+          zero_current.find(".memberships.0.height_m=") ==
+              std::string::npos &&
+          zero_current.find(".memberships.0.nodes.count=") ==
+              std::string::npos,
+      "legacy zero-instance snapshot did not canonicalize to retained graph authority");
+  city::wire::RouteBundleVariationInput restored_descriptor =
+      zero_variations.front().descriptor;
+  const city::wire::ObjectId zero_variation_id =
+      zero_variations.front().variation_id;
+  restored_descriptor.rules.front().min_instances = 1;
+  restored_descriptor.rules.front().max_instances = 1;
+  const auto restored = zero.ApplyBackboneBundleVariation(
+      zero_variation_id, restored_descriptor);
+  const auto* restored_zero =
+      zero.view().backbone_bundle_variation(zero_variation_id);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      restored.ok && restored_zero != nullptr &&
+          restored_zero->instances.size() == 1,
+      restored.error.empty()
+          ? "legacy zero-instance variation did not restore from retained graph"
+          : restored.error);
+
+  std::string current{};
+  city::wire::CoreState reloaded{};
+  std::string resaved{};
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      loaded.SerializeAuthoritative(&current).ok &&
+          current.find(".memberships.0.edge_ids.count=") != std::string::npos &&
+          current.find(".memberships.0.height_m=") == std::string::npos &&
+          current.find(".memberships.0.nodes.count=") == std::string::npos &&
+          reloaded.DeserializeAuthoritative(current).ok &&
+          reloaded.SerializeAuthoritative(&resaved).ok && current == resaved,
+      "migrated v4 variation did not canonicalize to stable current fields");
+
+  std::string missing_retained_edge = current;
+  const std::string membership_edge =
+      ".memberships.0.edge_ids.0.edge_id=";
+  const std::size_t edge_pos = missing_retained_edge.find(membership_edge);
+  WIRE_TEST_EXPECT_PRESENCE(
+      edge_pos != std::string::npos,
+      "canonical variation retained edge field is missing");
+  const std::size_t edge_value = edge_pos + membership_edge.size();
+  const std::size_t edge_end = missing_retained_edge.find('\n', edge_value);
+  if (edge_end == std::string::npos) return false;
+  missing_retained_edge.replace(edge_value, edge_end - edge_value, "0");
+  city::wire::CoreState rejected{};
+  std::string reject_before{};
+  std::string reject_after{};
+  const auto reject_saved = rejected.SerializeAuthoritative(&reject_before);
+  const auto rejected_load =
+      rejected.DeserializeAuthoritative(missing_retained_edge);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      reject_saved.ok && !rejected_load.ok &&
+          rejected.SerializeAuthoritative(&reject_after).ok &&
+          reject_before == reject_after,
+      "legacy v4 compatibility accepted a structurally mismatched membership");
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(reloaded);
+  return true;
+}
+
 bool C763_model_assembly_registration_is_transactional_and_persistent() {
   city::wire::CoreState state;
   city::wire::ModelAssemblyTemplate assembly{};
@@ -746,6 +894,11 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C768_legacy_state_preserves_implicit_helix_support",
                          "legacy authoritative states preserve implicit helix support and resave the explicit field",
                          "Boundary", true, C768_legacy_state_preserves_implicit_helix_support);
+  test_registry::AddTest(
+      tests, "C887_legacy_v4_variation_membership_uses_retained_graph",
+      "previous-deploy v4 variation membership resolves single, multiple, and zero instances through retained graph edges",
+      "Boundary", true,
+      C887_legacy_v4_variation_membership_uses_retained_graph);
   test_registry::AddTest(tests, "C763_model_assembly_registration_is_transactional_and_persistent",
                          "model assembly registration validates before mutation and survives save/load",
                          "Boundary", true, C763_model_assembly_registration_is_transactional_and_persistent);

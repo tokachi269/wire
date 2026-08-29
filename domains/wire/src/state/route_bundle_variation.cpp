@@ -4,6 +4,7 @@
 #include "../generation/backbone/emit_shared.hpp"
 #include "../generation/backbone/route_support.hpp"
 #include "../support/hash_mix.hpp"
+#include "route_bundle_variation_validation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -79,17 +80,9 @@ bool separated(const PlacedPoint& candidate, const std::vector<PlacedPoint>& pla
 bool same_membership_topology(
     const SavedBackboneBundleVariationMembership& a,
     const SavedBackboneBundleVariationMembership& b) {
-  if (a.edges.size() != b.edges.size() ||
+  if (a.edge_ids != b.edge_ids ||
       a.row_continuities.size() != b.row_continuities.size()) {
     return false;
-  }
-  for (std::size_t i = 0; i < a.edges.size(); ++i) {
-    const auto& lhs = a.edges[i];
-    const auto& rhs = b.edges[i];
-    if (lhs.edge_id != rhs.edge_id || lhs.node_a != rhs.node_a ||
-        lhs.node_b != rhs.node_b) {
-      return false;
-    }
   }
   for (std::size_t i = 0; i < a.row_continuities.size(); ++i) {
     const auto& lhs = a.row_continuities[i];
@@ -106,6 +99,66 @@ bool same_membership_topology(
 
 } // namespace
 
+EditResult<bool> detail::validate_route_bundle_variation_descriptor(
+    const CoreState& state, const RouteBundleVariationInput& input) {
+  EditResult<bool> result{};
+  if (state.view().pole_types().find(input.pole_type_id) ==
+      state.view().pole_types().end()) {
+    result.error =
+        "core invalid input: route bundle variation pole template is missing";
+    return result;
+  }
+  if (input.preferred_side_sign < -1 || input.preferred_side_sign > 1) {
+    result.error =
+        "core invalid input: preferred side sign must be -1, 0, or +1";
+    return result;
+  }
+  if (input.rules.empty()) {
+    result.error = "core invalid input: route bundle variation rules are empty";
+    return result;
+  }
+  for (const RandomBackboneBundleRule& rule : input.rules) {
+    const auto template_it =
+        state.view().bundle_templates().find(rule.bundle_template_id);
+    if (template_it == state.view().bundle_templates().end()) {
+      result.error =
+          "core invalid input: route bundle variation bundle template is missing";
+      return result;
+    }
+    if (rule.min_instances < 0 || rule.max_instances < rule.min_instances ||
+        !std::isfinite(rule.height_min_m) ||
+        !std::isfinite(rule.height_max_m) ||
+        rule.height_max_m < rule.height_min_m ||
+        !std::isfinite(rule.lateral_abs_min_m) ||
+        !std::isfinite(rule.lateral_abs_max_m) ||
+        rule.lateral_abs_min_m < 0.0 ||
+        rule.lateral_abs_max_m < rule.lateral_abs_min_m ||
+        !std::isfinite(rule.min_spacing_m) || rule.min_spacing_m < 0.0 ||
+        rule.conductor_count < 0) {
+      result.error =
+          "core invalid input: route bundle variation rule is invalid";
+      return result;
+    }
+    const BundleTemplate& bundle_template = template_it->second;
+    const int conductor_count = rule.conductor_count > 0
+                                    ? rule.conductor_count
+                                    : bundle_template.default_count;
+    if (conductor_count <= 0 ||
+        (bundle_template.count_rule == BundleCountRuleKind::kFixed &&
+         conductor_count != bundle_template.fixed_count) ||
+        (bundle_template.count_rule == BundleCountRuleKind::kRange &&
+         (conductor_count < bundle_template.min_count ||
+          conductor_count > bundle_template.max_count))) {
+      result.error =
+          "core invalid input: route bundle variation conductor count is invalid";
+      return result;
+    }
+  }
+  result.ok = true;
+  result.value = true;
+  return result;
+}
+
 const SavedBackboneBundleVariation*
 CoreState::backbone_bundle_variation_for_bundle(ObjectId bundle_id) const {
   for (const SavedBackboneBundleVariation& variation :
@@ -120,16 +173,39 @@ CoreState::backbone_bundle_variation_for_bundle(ObjectId bundle_id) const {
   return nullptr;
 }
 
-void CoreState::restore_backbone_variation_support_node(
-    const SavedBackboneNode& node) {
-  authoritative_.backbone.nodes.push_back(node);
-}
-
-ObjectId CoreState::restore_backbone_variation_physical_edge(
-    const SavedBackboneBundleVariationEdge& edge, std::size_t order) {
-  return save_backbone_edge(edge.node_a, edge.node_b, 0, order, edge.dir,
-                            edge.lateral_offset_m)
-      .edge_id;
+EditResult<ResolveBranchPickResult>
+CoreState::ResolveBackboneBundleVariationBranchPick(
+    ObjectId variation_id, const PickResult& pick) {
+  EditResult<ResolveBranchPickResult> result{};
+  const auto variation = std::ranges::find_if(
+      authoritative_.backbone_bundle_variations,
+      [variation_id](const SavedBackboneBundleVariation& candidate) {
+        return candidate.variation_id == variation_id;
+      });
+  if (variation == authoritative_.backbone_bundle_variations.end()) {
+    result.error = "core invalid input: backbone Bundle variation not found";
+    return result;
+  }
+  ResolveBranchPickOptions options{};
+  options.create_midair_node = true;
+  options.create_midair_node_set = true;
+  options.selected_bundle_template_ids.reserve(variation->instances.size());
+  for (const SavedBackboneBundleVariationInstance& instance :
+       variation->instances) {
+    const Bundle* bundle = view().bundles().find(instance.bundle_id);
+    if (bundle == nullptr || bundle->placement_key != instance.placement_key) {
+      result.error =
+          "backbone invalid input: variation branch scope has stale Bundle identity";
+      return result;
+    }
+    options.selected_bundle_template_ids.push_back(bundle->bundle_template_id);
+  }
+  if (options.selected_bundle_template_ids.empty()) {
+    result.error =
+        "backbone unsupported: variation branch scope has no live Bundle instances";
+    return result;
+  }
+  return ResolveBranchPick(pick, options);
 }
 
 EditResult<SavedBackboneBundleVariationMembership>
@@ -144,9 +220,6 @@ CoreState::capture_backbone_bundle_variation_membership(
   SavedBackboneBundleVariationMembership membership{};
   membership.bundle_template_id = bundle->bundle_template_id;
   membership.conductor_count = bundle->conductor_count;
-  membership.height_m = bundle->height_m;
-  membership.lateral_m = bundle->lateral_m;
-  membership.spacing_m = bundle->spacing_override_m;
   std::unordered_set<ObjectId> edge_bundle_ids{};
   std::unordered_set<ObjectId> edge_ids{};
   const SavedBackboneGraph& graph = view().backbone();
@@ -163,29 +236,11 @@ CoreState::capture_backbone_bundle_variation_membership(
       result.error = "backbone invalid input: variation membership edge relation is invalid";
       return result;
     }
-    membership.edges.push_back({edge->edge_id, edge->node_a, edge->node_b,
-                                edge->dir, edge->lateral_offset_m});
+    membership.edge_ids.push_back(edge->edge_id);
   }
-  if (membership.edges.empty()) {
+  if (membership.edge_ids.empty()) {
     result.error = "backbone unsupported: variation membership has no saved physical edges";
     return result;
-  }
-  std::unordered_set<ObjectId> membership_node_ids{};
-  for (const SavedBackboneBundleVariationEdge& edge : membership.edges) {
-    membership_node_ids.insert(edge.node_a);
-    membership_node_ids.insert(edge.node_b);
-  }
-  for (ObjectId node_id : membership_node_ids) {
-    const auto node = std::ranges::find_if(
-        graph.nodes, [node_id](const SavedBackboneNode& value) {
-          return value.node_id == node_id;
-        });
-    if (node == graph.nodes.end()) {
-      result.error =
-          "backbone invalid input: variation membership support node is missing";
-      return result;
-    }
-    membership.nodes.push_back(*node);
   }
   for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
     const bool a_owned = edge_bundle_ids.contains(continuity.a.edge_bundle_id);
@@ -223,12 +278,7 @@ CoreState::capture_backbone_bundle_variation_membership(
     membership.row_continuities.push_back(
         {continuity.node_id, edge_a, lane_a, edge_b, lane_b});
   }
-  std::sort(membership.edges.begin(), membership.edges.end(),
-            [](const auto& a, const auto& b) { return a.edge_id < b.edge_id; });
-  std::sort(membership.nodes.begin(), membership.nodes.end(),
-            [](const auto& a, const auto& b) {
-              return a.node_id < b.node_id;
-            });
+  std::sort(membership.edge_ids.begin(), membership.edge_ids.end());
   std::sort(membership.row_continuities.begin(),
             membership.row_continuities.end(), [](const auto& a, const auto& b) {
               return std::tie(a.node_id, a.edge_a, a.lane_a, a.edge_b,
@@ -244,19 +294,13 @@ CoreState::capture_backbone_bundle_variation_membership(
 EditResult<std::vector<BackboneBundleSpec>>
 CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) const {
   EditResult<std::vector<BackboneBundleSpec>> result{};
+  const EditResult<bool> descriptor =
+      detail::validate_route_bundle_variation_descriptor(*this, input);
+  if (!descriptor.ok) {
+    result.error = descriptor.error;
+    return result;
+  }
   const PoleTypeDefinition* pole_type = find_pole_type(input.pole_type_id);
-  if (pole_type == nullptr) {
-    result.error = "core invalid input: route bundle variation pole template is missing";
-    return result;
-  }
-  if (input.preferred_side_sign < -1 || input.preferred_side_sign > 1) {
-    result.error = "core invalid input: preferred side sign must be -1, 0, or +1";
-    return result;
-  }
-  if (input.rules.empty()) {
-    result.error = "core invalid input: route bundle variation rules are empty";
-    return result;
-  }
 
   int side_sign = input.preferred_side_sign;
   if (side_sign == 0) {
@@ -293,30 +337,12 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
     const RandomBackboneBundleRule& rule = input.rules[rule_ordinal];
     const BundleTemplate* bundle_template = find_bundle_template(rule.bundle_template_id);
     if (bundle_template == nullptr) {
-      result.error = "core invalid input: route bundle variation bundle template is missing";
-      return result;
-    }
-    if (rule.min_instances < 0 || rule.max_instances < rule.min_instances ||
-        !std::isfinite(rule.height_min_m) ||
-        !std::isfinite(rule.height_max_m) || rule.height_max_m < rule.height_min_m ||
-        !std::isfinite(rule.lateral_abs_min_m) || !std::isfinite(rule.lateral_abs_max_m) ||
-        rule.lateral_abs_min_m < 0.0 || rule.lateral_abs_max_m < rule.lateral_abs_min_m ||
-        !std::isfinite(rule.min_spacing_m) || rule.min_spacing_m < 0.0 ||
-        rule.conductor_count < 0) {
-      result.error = "core invalid input: route bundle variation rule is invalid";
+      result.error =
+          "core internal: structurally valid variation lost Bundle template";
       return result;
     }
     const int conductor_count = rule.conductor_count > 0
         ? rule.conductor_count : bundle_template->default_count;
-    if (conductor_count <= 0 ||
-        (bundle_template->count_rule == BundleCountRuleKind::kFixed &&
-         conductor_count != bundle_template->fixed_count) ||
-        (bundle_template->count_rule == BundleCountRuleKind::kRange &&
-         (conductor_count < bundle_template->min_count ||
-          conductor_count > bundle_template->max_count))) {
-      result.error = "core invalid input: route bundle variation conductor count is invalid";
-      return result;
-    }
 
     const std::uint64_t count_seed = rule_seed(input.route_seed, rule_ordinal,
                                                rule.bundle_template_id, -1);
@@ -529,7 +555,7 @@ CoreState::ExtendBackboneBundleVariation(
     live_groups.insert(
         {bundle->bundle_template_id, bundle->conductor_count});
   }
-  trial.authoritative_.backbone_bundle_variations.erase(variation_it);
+  variation_it->instances.clear();
   EditResult<GenerateBundleFromPathResult> generated =
       trial.GenerateFromBackboneSpec(concrete);
   if (!generated.ok) return reject(generated.error);
@@ -602,11 +628,6 @@ CoreState::ExtendBackboneBundleVariation(
               static_cast<std::uint64_t>(saved.conductor_count)) &
           kJavascriptExactIntegerMask;
       if (temporary_key == 0) temporary_key = 1;
-      EditResult<ObjectId> materialized =
-          replay.add_backbone_bundle_instance_from_variation_membership(
-              saved, temporary_key, saved.height_m, saved.lateral_m,
-              saved.spacing_m);
-      if (!materialized.ok) return reject(materialized.error);
       const BundleTemplate* bundle_template =
           replay.find_bundle_template(saved.bundle_template_id);
       if (bundle_template == nullptr) {
@@ -618,10 +639,11 @@ CoreState::ExtendBackboneBundleVariation(
       bundle_spec.placement_key = temporary_key;
       bundle_spec.layer = bundle_template->default_layer;
       bundle_spec.count = saved.conductor_count;
-      bundle_spec.placement_explicit = true;
-      bundle_spec.height_m = saved.height_m;
-      bundle_spec.lateral_m = saved.lateral_m;
-      bundle_spec.spacing_m = saved.spacing_m;
+      bundle_spec.placement_explicit = false;
+      EditResult<ObjectId> materialized =
+          replay.add_backbone_bundle_instance_from_variation_membership(
+              saved, bundle_spec);
+      if (!materialized.ok) return reject(materialized.error);
       bundle_spec.source_bundle_id = materialized.value;
       bundle_spec.existing_bundle_id = materialized.value;
       BackboneSpec replay_extension = exact_extension;
@@ -641,8 +663,17 @@ CoreState::ExtendBackboneBundleVariation(
               return std::tie(a.bundle_template_id, a.conductor_count) <
                      std::tie(b.bundle_template_id, b.conductor_count);
             });
-  trial.authoritative_.backbone_bundle_variations.push_back(
-      std::move(updated));
+  auto placeholder = std::ranges::find_if(
+      trial.authoritative_.backbone_bundle_variations,
+      [variation_id](const SavedBackboneBundleVariation& value) {
+        return value.variation_id == variation_id;
+      });
+  if (placeholder ==
+      trial.authoritative_.backbone_bundle_variations.end()) {
+    return reject(
+        "backbone internal: variation extension ownership scope is missing");
+  }
+  *placeholder = std::move(updated);
   const ValidationResult validation = trial.Validate();
   for (const ValidationIssue& issue : validation.issues) {
     if (issue.severity == ValidationSeverity::kError) {
@@ -679,7 +710,7 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
     return reject("core internal: backbone Bundle variation scope is missing");
   }
   SavedBackboneBundleVariation updated = *variation_it;
-  trial.authoritative_.backbone_bundle_variations.erase(variation_it);
+  variation_it->instances.clear();
   EditResult<std::vector<BackboneBundleSpec>> resolved =
       trial.ResolveRouteBundleVariation(descriptor);
   if (!resolved.ok) return reject(resolved.error);
@@ -759,8 +790,7 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
         }
         EditResult<ObjectId> replayed =
             trial.add_backbone_bundle_instance_from_variation_membership(
-                *membership, desired.placement_key, desired.height_m,
-                desired.lateral_m, desired.spacing_m);
+                *membership, desired);
         if (!replayed.ok) return reject(replayed.error);
         reconcile.current_bundle_ids.push_back(replayed.value);
         final_bundle_id_by_key.emplace(desired.placement_key, replayed.value);
@@ -846,8 +876,17 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
               return std::tie(a.bundle_template_id, a.conductor_count) <
                      std::tie(b.bundle_template_id, b.conductor_count);
             });
-  trial.authoritative_.backbone_bundle_variations.push_back(
-      std::move(updated));
+  auto placeholder = std::ranges::find_if(
+      trial.authoritative_.backbone_bundle_variations,
+      [variation_id](const SavedBackboneBundleVariation& value) {
+        return value.variation_id == variation_id;
+      });
+  if (placeholder ==
+      trial.authoritative_.backbone_bundle_variations.end()) {
+    return reject(
+        "backbone internal: variation Apply ownership scope is missing");
+  }
+  *placeholder = std::move(updated);
 
   const ValidationResult validation = trial.Validate();
   for (const ValidationIssue& issue : validation.issues) {

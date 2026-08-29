@@ -100,24 +100,30 @@ outer `CoreState` trial内で行い、最終desired集合、SavedBackboneGraph�
 ### persisted Bundle variation Apply
 
 `GenerateBackboneBundleVariation`はresolver input、生成されたexact Bundle scope、template/count別のsaved physical
-membership、row continuity、source-edgeを持たないexact support node snapshotを、通常topologyと同じtrialで
+edge ID membership、row continuityを、通常topologyと同じtrialで
 関連付ける。descriptorはexplicit Applyの入力であり、loadや
-regenerateはresolveしない。`ApplyBackboneBundleVariation`は保存scopeをcurrent、descriptorのresolve結果をdesiredとして
+regenerateはresolveしない。persistent validationはdescriptor構造とsaved relationを検査し、current resolver resultとの
+一致を要求しない。Generate / Apply transactionだけが実際のresolved resultとcommit instanceの一致を検査する。
+`ApplyBackboneBundleVariation`は保存scopeをcurrent、descriptorのresolve結果をdesiredとして
 既存`ReconcileBackboneBundleInstances`へ渡し、descriptor更新とconcrete topology更新を1つのouter trialでcommitする。
 存続placement keyのBundle identityを維持し、branch / cross / sharpは保存membershipとcontinuityだけを複製する。
 placement keyはvariation scope内のcorrelationであり、別variationの同値keyとは`Bundle::id`で区別する。
 
-1 -> 0ではconcrete Bundleを完全退役するがmembership sourceはdescriptorに残す。0 -> 1への復帰はそのrelationを
-pipelineのexplicit continuity constraintへ再生し、通常pairingの偶然一致をoracleにしない。initial 0 -> 1はexact
+1 -> 0ではconcrete Bundleを完全退役するが、variationが参照するnode / edge skeletonは`SavedBackboneGraph`に保持し、
+membershipにはedge IDとlane continuityだけを残す。0 -> 1への復帰はそのrelationをpipelineのexplicit continuity
+constraintへ再生し、通常pairingの偶然一致をoracleにしない。node snapshot、edge geometry copy、representative placementは保存しない。initial 0 -> 1はexact
 membership sourceがないため`U`、source-edge新instance追加はexact source Bundle mappingがないため`U`とする。
 recipe-backed Bundleの個別placement/count/add/retire/通常extensionは`U`とし、exact scopeを持つvariation operationだけが
-一時的にdescriptorをouter trialから外して既存generic operationを合成する。いずれの失敗もdescriptorとphysical
+outer trial内でinstance ownership associationを一時的に外して既存generic operationを合成する。membershipによるgraph
+retentionはその間も維持する。いずれの失敗もdescriptorとphysical
 authorityの両方を不変に保つ。
 
 `ExtendBackboneBundleVariation`はcallerのBundle specを受け付けず、保存済みexact instanceからfull concrete scopeを
 Core内で再構築して既存pipelineへ渡す。callerはpathとexact node referenceだけを指定する。zero-instance groupの
 membershipも、live groupのextensionで確定したexact pathへ更新する。partial membership入力、stale exact scope、
-source-edge snapshotの再materializeはfail-closedとし、既存descriptorとphysical authorityを変更しない。
+source-edge membershipの再materializeはfail-closedとし、既存descriptorとphysical authorityを変更しない。0件groupの
+extensionでは通常pipelineだけがpairing / support grouping / continuityを決めるためtemporary Bundle simulationを残すが、
+retained graphを直接使うためsupport node / physical edgeのrestore pathは持たない。
 
 ## 実行時coverage契約
 

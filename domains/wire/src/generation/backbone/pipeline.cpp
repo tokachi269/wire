@@ -1709,11 +1709,23 @@ void pipeline::retire_untouched(route* route) {
                              [&](const SavedBackboneEdgeBundle& edge_bundle) {
                                return edge_bundle.edge_id == edge.edge_id;
                              });
-                         if (!has_bundle) {
+                         const bool retained_by_variation = std::ranges::any_of(
+                             state_.view().backbone_bundle_variations(),
+                             [&](const SavedBackboneBundleVariation& variation) {
+                               return std::ranges::any_of(
+                                   variation.memberships,
+                                   [&](const SavedBackboneBundleVariationMembership& membership) {
+                                     return std::ranges::find(
+                                                membership.edge_ids,
+                                                edge.edge_id) !=
+                                            membership.edge_ids.end();
+                                   });
+                             });
+                         if (!has_bundle && !retained_by_variation) {
                            CoreState::add_unique_id(route->change_set.deleted_ids,
                                                     edge.edge_id);
                          }
-                         return !has_bundle;
+                         return !has_bundle && !retained_by_variation;
                        }),
         graph.edges.end());
     graph.nodes.erase(

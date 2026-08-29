@@ -4060,6 +4060,36 @@ bool C875_backbone_add_instance_rejects_invalid_identity_and_source_edge() {
           duplicate_before == duplicate_after,
       "duplicate placement_key was not rejected atomically");
 
+  city::wire::CoreState disjoint_scope{};
+  ExactBundleRetirementFixture first_scope{};
+  WIRE_TEST_EXPECT_PRESENCE(
+      generate_exact_bundle_route(
+          &disjoint_scope, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}},
+          &first_scope),
+      "disjoint placement-key scope fixtures are incomplete");
+  city::wire::BackboneSpec second_request = exact_bundle_route_request(
+      disjoint_scope, {{100.0, 0.0, 0.0}, {112.0, 0.0, 0.0}});
+  second_request.bundles[0].placement_key = 87901;
+  second_request.bundles[1].placement_key = 87902;
+  const auto second_generated =
+      disjoint_scope.GenerateFromBackboneSpec(second_request);
+  WIRE_TEST_EXPECT_PRESENCE(
+      second_generated.ok && second_generated.value.bundle_ids.size() == 2,
+      second_generated.error.empty()
+          ? "second placement-key scope was not generated"
+          : second_generated.error);
+  const city::wire::ObjectId second_anchor =
+      second_generated.value.bundle_ids.front();
+  const auto disjoint_duplicate = disjoint_scope.AddBackboneBundleInstance(
+      second_anchor, 86902, 6.8, -0.3, 0.2);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      disjoint_duplicate.ok &&
+          clone_matches_anchor(disjoint_scope, second_anchor,
+                               disjoint_duplicate.value),
+      disjoint_duplicate.error.empty()
+          ? "placement_key was incorrectly treated as globally unique"
+          : disjoint_duplicate.error);
+
   city::wire::CoreState source{};
   SourceEdgeRetirementFixture source_fixture{};
   WIRE_TEST_EXPECT_PRESENCE(

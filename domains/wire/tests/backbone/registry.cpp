@@ -1429,7 +1429,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "Boundary", true,
                          C881_backbone_reconcile_rejects_invalid_scope_and_desired_specs);
   test_registry::AddTest(tests, "C882_backbone_variation_descriptor_is_atomically_associated_and_persisted",
-                         "route Bundle variation atomically persists and validates its descriptor rule identity and exact concrete scope",
+                         "route Bundle variation validates resolved identity in transactions and loads persisted concrete scope without rerolling",
                          "Invariant", true,
                          C882_backbone_variation_descriptor_is_atomically_associated_and_persisted);
   test_registry::AddTest(tests, "C883_backbone_variation_apply_reconciles_concrete_scope_atomically",
@@ -1448,6 +1448,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "same-seed variations may share placement correlation keys while physical Bundle identity and Apply scope remain independent",
                          "Boundary", true,
                          C886_backbone_variation_placement_identity_is_scope_local);
+  test_registry::AddTest(tests, "C888_variation_branch_pick_uses_exact_live_scope",
+                         "variation branch pick derives selected templates from exact live instances instead of descriptor rules",
+                         "Boundary", true,
+                         C888_variation_branch_pick_uses_exact_live_scope);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

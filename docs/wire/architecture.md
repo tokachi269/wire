@@ -422,19 +422,22 @@ pipeline / layout / curve / viewer は randomization を再判断しない。
 random rule と route seed は自動的にphysical topologyを再構築するauthorityではなく、explicit Apply用の
 descriptorとして保存できるInputである。resolver は初回生成または明示Apply時だけ Bundle 数とpole-local の
 height / lateral を確定し、通常の Bundle / Port / Span / saved placement として保存する。load時はdescriptorを
-resolveせず、保存済みconcrete topologyをそのまま復元する。
+resolveせず、保存済みconcrete topologyをそのまま復元する。persistent validationもdescriptorの構造と保存relationを
+検査し、current sampling/hash algorithmが同じplacement key集合を返すことはload条件にしない。Generate / Applyの
+transaction内だけ、その場のresolved resultとcommit対象instanceを厳密対応させる。
 ruleのconductor countはtopology上の導体数であり、見た目の束を作るためには変動させない。
 HVの3相配置はrandomization対象外とする。非HVのsupported placementは
 連続座標をそのまま使わず、同じroute-wide sideにある有限のsupport slotへ寄せる。
 load、regenerate、通常 update は保存済み concrete placement を使い、reroll しない。同一 Bundle の placement を
 Pole ごとに変えず、同一 route 内で side を反転しない。road-facing side は外部から与える単純な sign であり、
 Wire は Road domain や道路の意味を解釈しない。
-保存済みdescriptorはexact Bundle scopeと、0件になった後の再materializeに必要なphysical edge membership /
-row continuity、source-edgeを持たないexact support node snapshotを保持する。physical authorityは常に
-Bundle / Port / Span / SavedBackboneGraphであり、descriptorは
+保存済みdescriptorはexact Bundle scopeと、0件になった後の再materializeに必要なphysical edge ID /
+row continuityを保持する。参照中の`SavedBackboneGraph` node / edge skeletonは最後のBundleが0件になっても保持し、
+variation側へnode・edge geometry・代表Bundle placementを複製しない。現在存在するphysical objectのauthorityは
+Bundle / Port / Span / SavedBackboneGraphであり、0件時に残るgraph skeletonとvariation membershipはfuture replay authorityである。descriptorは
 branch membershipやpairingを再判断しない。`ApplyBackboneBundleVariation`はdescriptorをresolveしたdesired concrete
 specを既存reconcileへ渡し、descriptor更新とconcrete topology更新を同じouter trialでcommitする。1 -> 0 -> 1は
-保存済みmembershipをpipelineのexplicit constraintとして再生するが、initial 0 -> 1はmembership sourceがないため
+保持されたgraph edgeとmembership continuityをpipelineのexplicit constraintとして再生するが、initial 0 -> 1はmembership sourceがないため
 unsupportedとする。recipe-backed Bundleの個別placement/count/add/retireは許可せずexplicit Applyへ集約する。
 `placement_key`は1つのvariation scope内でdescriptorとconcrete instanceを対応付けるcorrelationであり、
 repository全体のBundle identityではない。physical identityは`Bundle::id`であるため、同じseedの別variationが同じ
@@ -444,6 +447,11 @@ repository全体のBundle identityではない。physical identityは`Bundle::id
 Coreが保存済みinstanceからfull concrete Bundle specを再構築して通常pipelineへ渡す。callerがpartial Bundle specを渡す
 extensionは拒否する。0件のrule groupも、別のlive groupによるextension後に保存membershipを同じexact pathへ更新し、
 後の1 -> 0 -> 1で古いroute shapeへ戻さない。
+0件groupを延長するときは通常pipelineをpairing / support grouping / continuityの唯一のownerとして使うため、trial内だけ
+auto placementのtemporary Bundleをmaterializeする。結果からedge IDとcontinuityだけをcaptureし、temporary Bundleは保存しない。
+support node復元、physical edge復元、representative placement保存の各経路は持たない。
+variation extensionのbranch pickも、Coreがvariation IDからexact live instanceを引き、そのBundleTemplate集合だけを既存
+`ResolveBranchPick`へ渡す。descriptorにruleがあっても0 instanceのtemplateはphysical branch scopeへ含めない。
 WASM/Webは選択Spanのexact `bundle_id`から保存済みdescriptorを参照し、選択中scopeの調整を
 `ApplyBackboneBundleVariation`へ渡す。adapterはcategory、template名、geometryからscopeを推測せず、初回生成も
 Webでresolveしたconcrete specを通常Generateへ渡す経路ではなく、descriptorをCoreのvariation生成入口へ渡す。

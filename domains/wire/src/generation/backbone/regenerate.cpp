@@ -265,7 +265,8 @@ EditResult<LoadedRoute> continuity_route_from_saved_graph(
 }
 
 EditResult<std::vector<LoadedRoute>> continuity_routes_from_saved_graph(
-    const SavedBackboneGraph& graph) {
+    const SavedBackboneGraph& graph,
+    const std::unordered_set<ObjectId>& retained_edge_ids) {
   EditResult<std::vector<LoadedRoute>> result{};
   std::vector<ObjectId> remaining{};
   remaining.reserve(graph.edge_bundles.size());
@@ -293,7 +294,7 @@ EditResult<std::vector<LoadedRoute>> continuity_routes_from_saved_graph(
         [&](const SavedBackboneEdgeBundle& edge_bundle) {
           return edge_bundle.edge_id == edge.edge_id;
         });
-    if (!has_bundle) {
+    if (!has_bundle && !retained_edge_ids.contains(edge.edge_id)) {
       result.error = "authoritative invalid input: authoritative deserialization: saved route has no bundles";
       return result;
     }
@@ -1094,18 +1095,20 @@ EditResult<ObjectId> CoreState::AddBackboneBundleInstance(
 EditResult<ObjectId>
 CoreState::add_backbone_bundle_instance_from_variation_membership(
     const SavedBackboneBundleVariationMembership& membership,
-    std::uint64_t placement_key, double height_m, double lateral_m,
-    double spacing_m) {
+    const BackboneBundleSpec& requested) {
   EditResult<ObjectId> result{};
   auto reject = [&](std::string error) {
     result.error = std::move(error);
     result.classify_error();
     return result;
   };
-  if (placement_key == 0 || membership.edges.empty() ||
-      membership.conductor_count <= 0 || !std::isfinite(height_m) ||
-      !std::isfinite(lateral_m) || !std::isfinite(spacing_m) ||
-      spacing_m <= 0.0) {
+  if (requested.placement_key == 0 || membership.edge_ids.empty() ||
+      membership.conductor_count <= 0 ||
+      requested.bundle_template_id != membership.bundle_template_id ||
+      !std::isfinite(requested.height_m) ||
+      !std::isfinite(requested.lateral_m) ||
+      !std::isfinite(requested.spacing_m) || requested.spacing_m < 0.0 ||
+      (requested.placement_explicit && requested.spacing_m <= 0.0)) {
     return reject(
         "backbone invalid input: variation membership replay input is invalid");
   }
@@ -1121,69 +1124,39 @@ CoreState::add_backbone_bundle_instance_from_variation_membership(
         "backbone unsupported: variation membership lane topology is incompatible with template policy");
   }
   CoreState trial = *this;
-  std::vector<ObjectId> restored_node_ids{};
-  std::unordered_set<ObjectId> membership_node_ids{};
-  for (const SavedBackboneNode& saved_node : membership.nodes) {
-    if (saved_node.node_id == kInvalidObjectId ||
-        !membership_node_ids.insert(saved_node.node_id).second) {
-      return reject(
-          "backbone invalid input: variation membership support snapshot is invalid");
-    }
-    if (saved_node_by_id(trial.view().backbone(), saved_node.node_id) !=
-        nullptr) {
-      continue;
-    }
-    if (saved_node.has_source_edge) {
-      return reject(
-          "backbone unsupported: variation membership replay requires exact source Bundle mapping");
-    }
-    if (saved_node.pole_id != kInvalidObjectId &&
-        trial.view().poles().find(saved_node.pole_id) == nullptr) {
-      return reject(
-          "backbone unsupported: variation membership support owner no longer exists");
-    }
-    trial.restore_backbone_variation_support_node(saved_node);
-    restored_node_ids.push_back(saved_node.node_id);
-  }
   std::unordered_map<ObjectId, ObjectId> current_edge_by_saved{};
-  for (std::size_t index = 0; index < membership.edges.size(); ++index) {
-    const SavedBackboneBundleVariationEdge& saved = membership.edges[index];
-    if (saved.edge_id == kInvalidObjectId || saved.node_a == kInvalidObjectId ||
-        saved.node_b == kInvalidObjectId || saved.node_a == saved.node_b ||
-        current_edge_by_saved.contains(saved.edge_id)) {
+  for (ObjectId edge_id : membership.edge_ids) {
+    const SavedBackboneEdge* edge =
+        saved_edge_by_id(trial.view().backbone(), edge_id);
+    if (edge_id == kInvalidObjectId || edge == nullptr ||
+        edge->node_a == kInvalidObjectId || edge->node_b == kInvalidObjectId ||
+        edge->node_a == edge->node_b ||
+        current_edge_by_saved.contains(edge_id)) {
       return reject(
-          "backbone invalid input: variation membership edge identity is invalid");
+          "backbone invalid input: variation membership retained edge is invalid");
     }
     const SavedBackboneNode* node_a =
-        saved_node_by_id(trial.view().backbone(), saved.node_a);
+        saved_node_by_id(trial.view().backbone(), edge->node_a);
     const SavedBackboneNode* node_b =
-        saved_node_by_id(trial.view().backbone(), saved.node_b);
+        saved_node_by_id(trial.view().backbone(), edge->node_b);
     if (node_a == nullptr || node_b == nullptr) {
       return reject(
-          "backbone unsupported: variation membership support node no longer exists");
+          "backbone invalid input: variation membership retained support is missing");
     }
     if (node_a->has_source_edge || node_b->has_source_edge) {
       return reject(
           "backbone unsupported: variation membership replay requires exact source Bundle mapping");
     }
-    const SavedBackboneEdge* edge =
-        saved_edge_by_id(trial.view().backbone(), saved.edge_id);
-    ObjectId current_edge_id = edge == nullptr ? kInvalidObjectId : edge->edge_id;
-    if (edge == nullptr) {
-      current_edge_id =
-          trial.restore_backbone_variation_physical_edge(saved, index);
-    }
-    if (current_edge_id == kInvalidObjectId ||
-        !current_edge_by_saved.emplace(saved.edge_id, current_edge_id).second) {
+    if (!current_edge_by_saved.emplace(edge_id, edge_id).second) {
       return reject(
-          "backbone invalid input: variation membership physical edge cannot be restored");
+          "backbone invalid input: variation membership retained edge is duplicated");
     }
   }
 
   SavedBackboneGraph replay_graph{};
   replay_graph.nodes = trial.view().backbone().nodes;
-  for (const SavedBackboneBundleVariationEdge& saved : membership.edges) {
-    const ObjectId current_edge_id = current_edge_by_saved.at(saved.edge_id);
+  for (ObjectId edge_id : membership.edge_ids) {
+    const ObjectId current_edge_id = current_edge_by_saved.at(edge_id);
     const SavedBackboneEdge* edge =
         saved_edge_by_id(trial.view().backbone(), current_edge_id);
     if (edge == nullptr) {
@@ -1222,7 +1195,6 @@ CoreState::add_backbone_bundle_instance_from_variation_membership(
 
   ObjectId new_bundle_id = kInvalidObjectId;
   ChangeSet changes{};
-  append_unique(changes.created_ids, restored_node_ids);
   std::vector<ObjectId> remaining{};
   for (const SavedBackboneEdgeBundle& edge_bundle :
        replay_graph.edge_bundles) {
@@ -1297,12 +1269,12 @@ CoreState::add_backbone_bundle_instance_from_variation_membership(
         loaded.value.edges.front().edge->lateral_offset_m;
     BackboneBundleSpec bundle_spec{};
     bundle_spec.bundle_template_id = membership.bundle_template_id;
-    bundle_spec.placement_key = placement_key;
+    bundle_spec.placement_key = requested.placement_key;
     bundle_spec.layer = bundle_template->default_layer;
-    bundle_spec.placement_explicit = true;
-    bundle_spec.height_m = height_m;
-    bundle_spec.lateral_m = lateral_m;
-    bundle_spec.spacing_m = spacing_m;
+    bundle_spec.placement_explicit = requested.placement_explicit;
+    bundle_spec.height_m = requested.height_m;
+    bundle_spec.lateral_m = requested.lateral_m;
+    bundle_spec.spacing_m = requested.spacing_m;
     bundle_spec.existing_bundle_id = new_bundle_id;
     if (bundle_template->count_rule == BundleCountRuleKind::kRange) {
       bundle_spec.count = membership.conductor_count;
@@ -1332,29 +1304,18 @@ CoreState::add_backbone_bundle_instance_from_variation_membership(
   if (added == nullptr ||
       added->bundle_template_id != membership.bundle_template_id ||
       added->conductor_count != membership.conductor_count ||
-      added->placement_key != placement_key ||
-      added->height_m != height_m || added->lateral_m != lateral_m ||
-      added->spacing_override_m != spacing_m) {
+      added->placement_key != requested.placement_key ||
+      added->placement_explicit != requested.placement_explicit ||
+      (requested.placement_explicit &&
+       (added->height_m != requested.height_m ||
+        added->lateral_m != requested.lateral_m ||
+        added->spacing_override_m != requested.spacing_m))) {
     return reject(
         "backbone internal: variation membership replay result is invalid");
   }
   EditResult<SavedBackboneBundleVariationMembership> captured =
       trial.capture_backbone_bundle_variation_membership(new_bundle_id);
   if (!captured.ok) return reject(captured.error);
-  using EdgeSignature = std::tuple<ObjectId, ObjectId, ObjectId>;
-  std::vector<EdgeSignature> expected_edges{};
-  std::vector<EdgeSignature> actual_edges{};
-  for (const SavedBackboneBundleVariationEdge& edge : membership.edges) {
-    expected_edges.emplace_back(current_edge_by_saved.at(edge.edge_id),
-                                std::min(edge.node_a, edge.node_b),
-                                std::max(edge.node_a, edge.node_b));
-  }
-  for (const SavedBackboneBundleVariationEdge& edge : captured.value.edges) {
-    actual_edges.emplace_back(edge.edge_id, std::min(edge.node_a, edge.node_b),
-                              std::max(edge.node_a, edge.node_b));
-  }
-  std::sort(expected_edges.begin(), expected_edges.end());
-  std::sort(actual_edges.begin(), actual_edges.end());
   using ContinuitySignature =
       std::tuple<ObjectId, ObjectId, std::size_t, ObjectId, std::size_t>;
   std::vector<ContinuitySignature> expected_continuity{};
@@ -1380,7 +1341,7 @@ CoreState::add_backbone_bundle_instance_from_variation_membership(
   }
   std::sort(expected_continuity.begin(), expected_continuity.end());
   std::sort(actual_continuity.begin(), actual_continuity.end());
-  if (expected_edges != actual_edges ||
+  if (membership.edge_ids != captured.value.edge_ids ||
       expected_continuity != actual_continuity) {
     return reject(
         "backbone internal: variation membership replay is not isomorphic");
@@ -1836,8 +1797,17 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
   const CoreState loaded_state = *this;
   CoreState assembled = loaded_state;
   assembled.runtime_.cache_state = {};
+  std::unordered_set<ObjectId> retained_edge_ids{};
+  for (const SavedBackboneBundleVariation& variation :
+       view().backbone_bundle_variations()) {
+    for (const SavedBackboneBundleVariationMembership& membership :
+         variation.memberships) {
+      retained_edge_ids.insert(membership.edge_ids.begin(),
+                               membership.edge_ids.end());
+    }
+  }
   EditResult<std::vector<LoadedRoute>> saved_routes =
-      continuity_routes_from_saved_graph(saved);
+      continuity_routes_from_saved_graph(saved, retained_edge_ids);
   if (!saved_routes.ok) {
     result.error = saved_routes.error;
     return result;

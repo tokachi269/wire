@@ -99,19 +99,12 @@ struct SavedBackboneGraph {
 
 // Explicit-Apply descriptor for one concrete Bundle variation scope.
 // Concrete Bundle/Port/Span/SavedBackboneGraph state remains the current
-// physical authority; this record owns only replay input, exact scope
-// membership, and the saved membership oracle required after count reaches 0.
+// physical authority. Variation membership retains exact graph edge identity
+// and lane continuity required after count reaches 0 without copying graph
+// nodes, edge geometry, or a representative Bundle placement.
 struct SavedBackboneBundleVariationInstance {
   std::uint64_t placement_key = 0;
   ObjectId bundle_id = kInvalidObjectId;
-};
-
-struct SavedBackboneBundleVariationEdge {
-  ObjectId edge_id = kInvalidObjectId;
-  ObjectId node_a = kInvalidObjectId;
-  ObjectId node_b = kInvalidObjectId;
-  Vec3d dir{};
-  double lateral_offset_m = 0.0;
 };
 
 struct SavedBackboneBundleVariationContinuity {
@@ -125,11 +118,7 @@ struct SavedBackboneBundleVariationContinuity {
 struct SavedBackboneBundleVariationMembership {
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   int conductor_count = 0;
-  double height_m = 0.0;
-  double lateral_m = 0.0;
-  double spacing_m = 0.0;
-  std::vector<SavedBackboneNode> nodes{};
-  std::vector<SavedBackboneBundleVariationEdge> edges{};
+  std::vector<ObjectId> edge_ids{};
   std::vector<SavedBackboneBundleVariationContinuity> row_continuities{};
 };
 

@@ -1753,6 +1753,15 @@ bool C891_dormant_skeleton_does_not_change_unrelated_generation() {
     }
     return count;
   };
+  auto bundle_relations = [](const CoreState& state) {
+    std::vector<std::tuple<BundleTemplateId, std::uint64_t, int>> out{};
+    for (const Bundle& bundle : state.view().bundles().items()) {
+      out.emplace_back(bundle.bundle_template_id, bundle.placement_key,
+                       bundle.conductor_count);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+  };
   const BackboneResult baseline_result = baseline.SavedBackboneResult();
   const BackboneResult dormant_result = with_dormant.SavedBackboneResult();
   const std::size_t baseline_continuities =
@@ -1761,7 +1770,7 @@ bool C891_dormant_skeleton_does_not_change_unrelated_generation() {
       with_dormant.view().backbone().row_continuities.size();
   WIRE_TEST_EXPECT_DIFFERENTIAL(
       baseline_branch.ok && dormant_branch.ok &&
-          baseline.view().bundles().size() == with_dormant.view().bundles().size() &&
+          bundle_relations(baseline) == bundle_relations(with_dormant) &&
           baseline.view().spans().size() == with_dormant.view().spans().size() &&
           baseline_result.nodes.size() == dormant_result.nodes.size() &&
           baseline_result.edges.size() == dormant_result.edges.size() &&

@@ -125,6 +125,10 @@ export interface WireStateHandle {
     input: PathPickInfo,
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo;
+  resolveBundleVariationBranchPick(
+    input: PathPickInfo,
+    variationId: string
+  ): ResolvedPathPointInfo;
   clearPendingSupportNodes(): OperationResult;
   lastGenerationTiming(): GenerationTiming;
   visualScene(): {

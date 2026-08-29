@@ -559,6 +559,13 @@ public:
     return resolve_branch_pick_on(trial, input, selected_bundle_template_ids);
   }
 
+  val resolve_bundle_variation_branch_pick(
+      const val& input, const std::string& variation_id) {
+    return resolve_branch_pick_on(
+        *state_, input, val::array(),
+        static_cast<ObjectId>(std::stoull(variation_id)));
+  }
+
 private:
   val run_placements(CoreState& target, const val& flat_points, const val& bundle_placements,
                      double interval_m, int pole_type_id, int direction_mode, double max_tilt_deg,
@@ -721,7 +728,10 @@ private:
     return result;
   }
 
-  val resolve_branch_pick_on(CoreState& target, const val& input, const val& selected_bundle_template_ids) {
+  val resolve_branch_pick_on(
+      CoreState& target, const val& input,
+      const val& selected_bundle_template_ids,
+      ObjectId variation_id = city::wire::kInvalidObjectId) {
     PickResult pick{};
     pick.hit_kind = static_cast<PickHitKind>(property<int>(input, "hitKind"));
     const std::string hit_id = property<std::string>(input, "hitId");
@@ -765,7 +775,10 @@ private:
       }
     }
 
-    const auto resolved = target.ResolveBranchPick(pick, options);
+    const auto resolved = variation_id == city::wire::kInvalidObjectId
+                              ? target.ResolveBranchPick(pick, options)
+                              : target.ResolveBackboneBundleVariationBranchPick(
+                                    variation_id, pick);
     val output = result_value(resolved.ok, resolved.error,
                               resolved.effective_failure_category(), resolved.reason_code);
     output.set("positionX", resolved.value.position.x);
@@ -2533,6 +2546,8 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("previewPlacements", &WireState::preview_placements)
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
       .function("previewResolveBranchPick", &WireState::preview_resolve_branch_pick)
+      .function("resolveBundleVariationBranchPick",
+                &WireState::resolve_bundle_variation_branch_pick)
       .function("clearPendingSupportNodes", &WireState::clear_pending_support_nodes)
       .function("lastGenerationTiming", &WireState::last_generation_timing)
       .function("visualScene", &WireState::visual_scene)

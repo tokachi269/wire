@@ -605,6 +605,10 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     backboneBundleVariationForBundle: () => ({ ok: true, error: "", found: false }),
     backboneBundleVariation: () => ({ ok: true, error: "", found: false }),
     applyBackboneBundleVariation: () => ({ ok: true, error: "" }),
+    resolveBundleVariationBranchPick: () => ({
+      ok: true, error: "", positionX: 0, positionY: 0, positionZ: 0,
+      supportKind: 0, nodeId: "0"
+    }),
     updateCableTemplate: () => ({ ok: true, error: "" }),
     updateBackboneBundlePlacement: () => ({ ok: true, error: "" }),
     updatePoleTemplate: () => ({ ok: true, error: "" }),
@@ -1083,14 +1087,53 @@ describe("viewport tool routing", () => {
       }]
     }));
     const actions = new ViewerActions(
-      actionBridge({ updateBackboneBundlePlacement }), store
+      actionBridge({
+        backboneBundleVariationForBundle: () => ({
+          ok: true, error: "", found: true, variationId: "906"
+        }),
+        updateBackboneBundlePlacement
+      }), store
     );
 
     actions.updateDrawBundlePlacement(51, { height: 8.8 });
 
     expect(updateBackboneBundlePlacement).not.toHaveBeenCalled();
     expect(current(store).drawBundlePlacements[0].height).toBe(5.2);
-    expect(current(store).error).toContain("recipe-backed route");
+    expect(current(store).error).toContain("recipe-backed Bundle");
+  });
+
+  it("rejects finished recipe Bundle edits and implicit manual duplicates without stale state", () => {
+    const updateBackboneBundlePlacement = vi.fn(() => ({
+      ok: false, error: "core recipe ownership guard"
+    }));
+    const store = new ViewerStore();
+    store.update((snapshot) => ({
+      ...snapshot,
+      wireVariationId: null,
+      pathPoints: [],
+      drawBundleSource: "variation",
+      drawBundlePlacements: [{
+        id: 52, bundleTemplateId: 104, count: 1, explicit: true,
+        height: 5.2, offset: -0.25, spacing: 0.16,
+        generatedBundleId: "702"
+      }]
+    }));
+    const actions = new ViewerActions(actionBridge({
+      backboneBundleVariationForBundle: () => ({
+        ok: true, error: "", found: true, variationId: "907"
+      }),
+      updateBackboneBundlePlacement
+    }), store);
+
+    actions.updateDrawBundlePlacement(52, { height: 8.8 });
+    expect(updateBackboneBundlePlacement).not.toHaveBeenCalled();
+    expect(current(store).drawBundlePlacements).toHaveLength(1);
+    expect(current(store).drawBundlePlacements[0].height).toBe(5.2);
+
+    actions.duplicateDrawBundlePlacement(52);
+    expect(current(store).drawBundlePlacements).toHaveLength(1);
+    expect(current(store).drawBundleSource).toBe("variation");
+    expect(current(store).error).toContain("implicit manual");
   });
 
   it("does not expose recipe controls for a manually generated selected Span", () => {

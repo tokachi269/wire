@@ -174,10 +174,14 @@ export class DrawActions {
     let nextSpec: PathPointSpec | null = null;
     if (pick !== undefined) {
       const before = this.ctx.readSnapshot();
-      const resolved = this.ctx.bridge.resolveBranchPick(
-        pick,
-        [...new Set(before.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
-      );
+      const resolved = before.wireVariationId === null
+        ? this.ctx.bridge.resolveBranchPick(
+          pick,
+          [...new Set(before.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
+        )
+        : this.ctx.bridge.resolveBundleVariationBranchPick(
+          pick, before.wireVariationId
+        );
       if (!resolved.ok) {
         this.ctx.store.setError(resolved.error);
         return;
@@ -254,12 +258,25 @@ export class DrawActions {
     const currentTarget = before.drawBundlePlacements.find(
       (placement) => placement.id === id
     );
-    if (before.wireVariationId !== null &&
-        currentTarget?.generatedBundleId !== undefined) {
-      this.ctx.store.setError(
-        "finish or cancel the recipe-backed route before editing an individual Bundle placement"
+    if (currentTarget === undefined) return;
+    if (currentTarget.generatedBundleId !== undefined) {
+      const owner = this.ctx.bridge.backboneBundleVariationForBundle(
+        currentTarget.generatedBundleId
       );
-      return;
+      if (!owner.ok || owner.found) {
+        this.ctx.store.setError(
+          owner.error ||
+          "recipe-backed Bundle placement must be changed with explicit variation Apply"
+        );
+        return;
+      }
+      const result = this.ctx.bridge.updateBackboneBundlePlacement(
+        currentTarget.generatedBundleId, { ...currentTarget, ...change }
+      );
+      if (!result.ok) {
+        this.ctx.store.setError(result.error);
+        return;
+      }
     }
     this.ctx.store.update((current) => {
       const target = current.drawBundlePlacements.find((placement) => placement.id === id);
@@ -272,17 +289,26 @@ export class DrawActions {
         )
       };
     });
-    const placement = this.ctx.readSnapshot().drawBundlePlacements.find((item) => item.id === id);
-    if (placement?.generatedBundleId === undefined) return;
-    const result = this.ctx.bridge.updateBackboneBundlePlacement(placement.generatedBundleId, placement);
-    if (!result.ok) {
-      this.ctx.store.setError(result.error);
-      return;
-    }
-    this.ctx.refreshScene();
+    if (currentTarget.generatedBundleId !== undefined) this.ctx.refreshScene();
   }
 
   duplicateDrawBundlePlacement(id: number): void {
+    const before = this.ctx.readSnapshot();
+    const source = before.drawBundlePlacements.find(
+      (placement) => placement.id === id
+    );
+    if (source?.generatedBundleId !== undefined) {
+      const owner = this.ctx.bridge.backboneBundleVariationForBundle(
+        source.generatedBundleId
+      );
+      if (!owner.ok || owner.found) {
+        this.ctx.store.setError(
+          owner.error ||
+          "recipe-backed Bundle cannot be duplicated as an implicit manual Bundle"
+        );
+        return;
+      }
+    }
     this.ctx.store.update((current) => {
       const index = current.drawBundlePlacements.findIndex((placement) => placement.id === id);
       if (index < 0) return current;
@@ -316,10 +342,14 @@ export class DrawActions {
   ): { point: WorldPoint; spec: PathPointSpec | null } | null {
     if (pick === undefined) return { point, spec: null };
     const current = this.ctx.readSnapshot();
-    const resolved = this.ctx.bridge.resolveBranchPick(
-      pick,
-      [...new Set(current.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
-    );
+    const resolved = current.wireVariationId === null
+      ? this.ctx.bridge.resolveBranchPick(
+        pick,
+        [...new Set(current.drawBundlePlacements.map((placement) => placement.bundleTemplateId))]
+      )
+      : this.ctx.bridge.resolveBundleVariationBranchPick(
+        pick, current.wireVariationId
+      );
     if (!resolved.ok) {
       this.ctx.store.setCommitFailure(resolved, "wire anchor", point);
       return null;

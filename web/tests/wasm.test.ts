@@ -626,6 +626,115 @@ describe("wire wasm smoke", () => {
     runState.delete();
   });
 
+  it("resolves variation branch picks from live instances and excludes zero-count rules", () => {
+    const runState = createState();
+    const rules = [{
+      bundleTemplateId: 104, minInstances: 1, maxInstances: 1,
+      conductorCount: 1, heightMin: 5.2, heightMax: 5.2,
+      lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.16
+    }, {
+      bundleTemplateId: 101, minInstances: 0, maxInstances: 0,
+      conductorCount: 3, heightMin: 9.2, heightMax: 9.2,
+      lateralAbsMin: 0.2, lateralAbsMax: 0.2, minSpacing: 0.25
+    }];
+    const generated = runState.generateBundleVariation(
+      new Float64Array([0, 0, 0, 12, 0, 0]), rules, 88801, -1,
+      0, 2, 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const edge = runState.backboneEdge(0);
+    const nodes = Array.from(
+      { length: runState.supportNodeCount() },
+      (_, index) => runState.supportNode(index)
+    );
+    const nodeA = nodes.find((node) => node.id === edge.nodeAId)!;
+    const nodeB = nodes.find((node) => node.id === edge.nodeBId)!;
+    const pick = {
+      hitKind: 2,
+      hitId: "0",
+      hitX: (nodeA.x + nodeB.x) * 0.5,
+      hitY: (nodeA.y + nodeB.y) * 0.5,
+      hitZ: (nodeA.z + nodeB.z) * 0.5,
+      hasSegmentEndpoints: true,
+      segmentNodeAId: edge.nodeAId,
+      segmentNodeBId: edge.nodeBId,
+      segmentEndpointAX: nodeA.x,
+      segmentEndpointAY: nodeA.y,
+      segmentEndpointAZ: nodeA.z,
+      segmentEndpointBX: nodeB.x,
+      segmentEndpointBY: nodeB.y,
+      segmentEndpointBZ: nodeB.z
+    };
+    const resolved = runState.resolveBundleVariationBranchPick(
+      pick, generated.variationId!
+    );
+    expect(resolved.ok, resolved.error).toBe(true);
+    expect(resolved.supportKind).toBe(1);
+    runState.delete();
+  });
+
+  it("routes variation interval branch picks through the Core-owned live scope", async () => {
+    const bridge = await WireBridge.create();
+    const rules = [{
+      bundleTemplateId: 104, minInstances: 1, maxInstances: 1,
+      conductorCount: 1, heightMin: 5.2, heightMax: 5.2,
+      lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.16
+    }, {
+      bundleTemplateId: 101, minInstances: 0, maxInstances: 0,
+      conductorCount: 3, heightMin: 9.2, heightMax: 9.2,
+      lateralAbsMin: 0.2, lateralAbsMax: 0.2, minSpacing: 0.25
+    }];
+    const first = bridge.generateWireInterval({
+      points: [[0, 0, 0], [12, 0, 0]],
+      pointSpecs: [null, null],
+      bundlePlacements: [],
+      intervalM: 0,
+      poleTypeId: 2,
+      directionMode: 0,
+      maxTiltDeg: 0,
+      variationRules: rules,
+      routeSeed: 88802,
+      preferredSideSign: -1
+    });
+    expect(first.ok, first.error).toBe(true);
+    const scene = bridge.scene();
+    const edge = scene.backboneEdges[0];
+    const nodeA = scene.supportNodes.find((node) => node.id === edge.nodeAId)!;
+    const nodeB = scene.supportNodes.find((node) => node.id === edge.nodeBId)!;
+    const midpoint: [number, number, number] = [
+      (nodeA.x + nodeB.x) * 0.5,
+      (nodeA.y + nodeB.y) * 0.5,
+      (nodeA.z + nodeB.z) * 0.5
+    ];
+    const before = bridge.saveState();
+    const preview = bridge.previewWireInterval({
+      points: [[0, 8, 0], midpoint],
+      pointSpecs: [null, null],
+      targetPick: {
+        hitKind: 2,
+        hitId: "0",
+        hitX: midpoint[0], hitY: midpoint[1], hitZ: midpoint[2],
+        hasSegmentEndpoints: true,
+        segmentNodeAId: edge.nodeAId,
+        segmentNodeBId: edge.nodeBId,
+        segmentEndpointAX: nodeA.x,
+        segmentEndpointAY: nodeA.y,
+        segmentEndpointAZ: nodeA.z,
+        segmentEndpointBX: nodeB.x,
+        segmentEndpointBY: nodeB.y,
+        segmentEndpointBZ: nodeB.z
+      },
+      bundlePlacements: [],
+      intervalM: 0,
+      poleTypeId: 2,
+      directionMode: 0,
+      maxTiltDeg: 0,
+      variationId: first.variationId
+    });
+    expect(preview.ok, preview.error).toBe(true);
+    expect(bridge.saveState()).toBe(before);
+  });
+
   it("does not invent a variation scope for a manually generated Bundle", () => {
     const runState = createState();
     const generated = runState.generatePlacements(

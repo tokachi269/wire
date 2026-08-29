@@ -158,6 +158,13 @@ export class WireBridge {
     return this.state.resolveBranchPick(input, selectedBundleTemplateIds);
   }
 
+  resolveBundleVariationBranchPick(
+    input: PathPickInfo,
+    variationId: string
+  ): ResolvedPathPointInfo {
+    return this.state.resolveBundleVariationBranchPick(input, variationId);
+  }
+
   resolveRouteBundleVariation(
     rules: RandomBundleRule[],
     routeSeed: number,
@@ -284,28 +291,16 @@ export class WireBridge {
     let endpoint = input.points[1];
     let endpointSpec = input.pointSpecs[1];
     if (input.targetPick !== undefined) {
-      let selected = [...new Set(
+      const selected = [...new Set(
         input.bundlePlacements.map((placement) => placement.bundleTemplateId)
       )];
-      if (input.variationId !== undefined) {
-        const variation = this.state.backboneBundleVariation(input.variationId);
-        if (!variation.ok || !variation.found || variation.rules === undefined) {
-          return {
-            ...emptyWireIntervalResult(
-              endpoint, endpointSpec,
-              variation.error || "backbone Bundle variation descriptor is missing"
-            ),
-            points: new Float64Array(),
-            nodeSpecs: []
-          };
-        }
-        selected = [...new Set(
-          variation.rules.map((rule) => rule.bundleTemplateId)
-        )];
-      }
-      const resolved = preview
-        ? this.state.previewResolveBranchPick(input.targetPick, selected)
-        : this.state.resolveBranchPick(input.targetPick, selected);
+      const resolved = input.variationId !== undefined
+        ? this.state.resolveBundleVariationBranchPick(
+          input.targetPick, input.variationId
+        )
+        : preview
+          ? this.state.previewResolveBranchPick(input.targetPick, selected)
+          : this.state.resolveBranchPick(input.targetPick, selected);
       if (!resolved.ok) {
         return {
           ...emptyWireIntervalResult(endpoint, endpointSpec, resolved.error),

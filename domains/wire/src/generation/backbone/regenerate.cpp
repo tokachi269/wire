@@ -265,8 +265,7 @@ EditResult<LoadedRoute> continuity_route_from_saved_graph(
 }
 
 EditResult<std::vector<LoadedRoute>> continuity_routes_from_saved_graph(
-    const SavedBackboneGraph& graph,
-    const std::unordered_set<ObjectId>& retained_edge_ids) {
+    const SavedBackboneGraph& graph) {
   EditResult<std::vector<LoadedRoute>> result{};
   std::vector<ObjectId> remaining{};
   remaining.reserve(graph.edge_bundles.size());
@@ -287,17 +286,6 @@ EditResult<std::vector<LoadedRoute>> continuity_routes_from_saved_graph(
           remaining.end());
     }
     result.value.push_back(std::move(route.value));
-  }
-  for (const SavedBackboneEdge& edge : graph.edges) {
-    const bool has_bundle = std::any_of(
-        graph.edge_bundles.begin(), graph.edge_bundles.end(),
-        [&](const SavedBackboneEdgeBundle& edge_bundle) {
-          return edge_bundle.edge_id == edge.edge_id;
-        });
-    if (!has_bundle && !retained_edge_ids.contains(edge.edge_id)) {
-      result.error = "authoritative invalid input: authoritative deserialization: saved route has no bundles";
-      return result;
-    }
   }
   std::sort(result.value.begin(), result.value.end(),
             [](const LoadedRoute& a, const LoadedRoute& b) {
@@ -1747,6 +1735,8 @@ EditResult<bool> CoreState::RetireBackboneBundle(ObjectId bundle_id) {
     return reject("backbone internal: exact Bundle retirement cleanup is incomplete");
   }
 
+  trial.cleanup_orphan_backbone_skeleton(&retired.change_set);
+
   EditResult<bool> rebuilt = trial.rebuild_loaded_outputs();
   if (!rebuilt.ok) return reject(rebuilt.error);
   const ValidationResult validation = trial.Validate();
@@ -1797,17 +1787,8 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
   const CoreState loaded_state = *this;
   CoreState assembled = loaded_state;
   assembled.runtime_.cache_state = {};
-  std::unordered_set<ObjectId> retained_edge_ids{};
-  for (const SavedBackboneBundleVariation& variation :
-       view().backbone_bundle_variations()) {
-    for (const SavedBackboneBundleVariationMembership& membership :
-         variation.memberships) {
-      retained_edge_ids.insert(membership.edge_ids.begin(),
-                               membership.edge_ids.end());
-    }
-  }
   EditResult<std::vector<LoadedRoute>> saved_routes =
-      continuity_routes_from_saved_graph(saved, retained_edge_ids);
+      continuity_routes_from_saved_graph(saved);
   if (!saved_routes.ok) {
     result.error = saved_routes.error;
     return result;
@@ -1888,6 +1869,12 @@ EditResult<bool> CoreState::rebuild_loaded_outputs() {
     for (const LoadedRouteEdge& route_edge : edges) route_edge_ids.insert(route_edge.edge->edge_id);
     const std::size_t context_route_offset = saved_routes.value.size() + saved.edges.size() + 1;
     for (const SavedBackboneEdge& candidate : saved.edges) {
+      const bool live = std::ranges::any_of(
+          saved.edge_bundles,
+          [&](const SavedBackboneEdgeBundle& edge_bundle) {
+            return edge_bundle.edge_id == candidate.edge_id;
+          });
+      if (!live) continue;
       if (route_edge_ids.contains(candidate.edge_id) ||
           (!node_index.contains(candidate.node_a) && !node_index.contains(candidate.node_b))) continue;
       const int a = append_context_node(candidate.node_a);

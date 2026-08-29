@@ -113,6 +113,15 @@ placement keyはvariation scope内のcorrelationであり、別variationの同�
 membershipにはedge IDとlane continuityだけを残す。0 -> 1への復帰はそのrelationをpipelineのexplicit continuity
 constraintへ再生し、通常pairingの偶然一致をoracleにしない。node snapshot、edge geometry copy、representative placementは保存しない。initial 0 -> 1はexact
 membership sourceがないため`U`、source-edge新instance追加はexact source Bundle mappingがないため`U`とする。
+membershipはcurrent descriptorのeffective template/count groupだけを表し、過去groupの履歴ではない。Apply成功時はlive groupを
+current topologyからcaptureし、descriptorに残る0-instance groupだけ既存membershipを維持する。descriptorから消えたgroupの
+membershipは削除し、live EdgeBundleにも他membershipにも参照されないdormant edge/nodeをstate lifecycleで回収する。同じ
+effective template/countのduplicate ruleはreplay identityが曖昧になるためmutation前に拒否する。
+
+`SavedBackboneGraph`にedge identityがあることとlive Bundle topologyであることは別である。live edgeは
+`SavedBackboneEdgeBundle`の存在から導出し、Bundleを持たないdormant edgeはcurrent route、junction、通常pairing context、
+pass-through incident、source-edge候補、derived rebuildへ含めない。同じnode pairの通常生成がdormant edgeを再利用できるのは、
+保存route/order、lateral offset、向きが要求とexact compatibleな場合だけであり、不整合はsilent overwriteせずoperation failureとする。
 recipe-backed Bundleの個別placement/count/add/retire/通常extensionは`U`とし、exact scopeを持つvariation operationだけが
 outer trial内でinstance ownership associationを一時的に外して既存generic operationを合成する。membershipによるgraph
 retentionはその間も維持する。いずれの失敗もdescriptorとphysical

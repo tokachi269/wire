@@ -239,11 +239,12 @@ EditResult<UpdatePlan> CoreState::make_update_plan(UpdateRequest request) const 
     if (edge_id == kInvalidObjectId) {
       return;
     }
-    add_unique(&plan.affected.edges, edge_id);
     const auto edge_bundle_it = runtime_.backbone_index.edge_bundles.find(edge_id);
-    if (edge_bundle_it == runtime_.backbone_index.edge_bundles.end()) {
+    if (edge_bundle_it == runtime_.backbone_index.edge_bundles.end() ||
+        edge_bundle_it->second.empty()) {
       return;
     }
+    add_unique(&plan.affected.edges, edge_id);
     for (ObjectId edge_bundle_id : edge_bundle_it->second) {
       add_edge_bundle(edge_bundle_id);
     }
@@ -321,7 +322,7 @@ EditResult<UpdatePlan> CoreState::make_update_plan(UpdateRequest request) const 
       add_unique(&plan.affected.spans, binding.span_id);
     }
     for (const SavedBackboneEdge& edge : authoritative_.backbone.edges) {
-      add_unique(&plan.affected.edges, edge.edge_id);
+      add_edge(edge.edge_id);
     }
     break;
   case UpdateTargetKind::kUnknown:

@@ -1424,4 +1424,427 @@ bool C888_variation_branch_pick_uses_exact_live_scope() {
   return true;
 }
 
+bool C889_variation_membership_is_current_and_shared_skeleton_is_collected() {
+  using namespace city::wire;
+  CoreState state{};
+  RouteBundleVariationInput descriptor{};
+  descriptor.route_seed = 0x8890102;
+  descriptor.preferred_side_sign = -1;
+  descriptor.pole_type_id = 2;
+  descriptor.rules = {
+      {kDefaultCommunicationBundleTemplateId, 1, 1, 1,
+       5.2, 5.2, 0.25, 0.25, 0.16},
+      {kDefaultOpticalBundleTemplateId, 1, 1, 1,
+       5.0, 5.0, 0.35, 0.35, 0.16}};
+  const auto generated = state.GenerateBackboneBundleVariation(
+      request_with(state, {}), descriptor);
+  if (!generated.ok) return false;
+  const ObjectId variation_id = generated.value.variation_id;
+  RouteBundleVariationInput communication_only = descriptor;
+  communication_only.rules.pop_back();
+  const auto removed_group = state.ApplyBackboneBundleVariation(
+      variation_id, communication_only);
+  const SavedBackboneBundleVariation* current =
+      state.view().backbone_bundle_variation(variation_id);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      removed_group.ok && current != nullptr &&
+          current->memberships.size() == 1 &&
+          current->memberships.front().bundle_template_id ==
+              kDefaultCommunicationBundleTemplateId,
+      removed_group.error.empty()
+          ? "descriptor group removal retained historical membership"
+          : removed_group.error);
+
+  RouteBundleVariationInput duplicate = communication_only;
+  duplicate.rules.push_back(duplicate.rules.front());
+  std::string before_duplicate{};
+  std::string after_duplicate{};
+  const bool saved_before = state.SerializeAuthoritative(&before_duplicate).ok;
+  const auto duplicate_rejected =
+      state.ApplyBackboneBundleVariation(variation_id, duplicate);
+  const bool saved_after = state.SerializeAuthoritative(&after_duplicate).ok;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      saved_before && !duplicate_rejected.ok &&
+          duplicate_rejected.error.find("duplicated") != std::string::npos &&
+          saved_after && before_duplicate == after_duplicate,
+      "duplicate effective variation group was not rejected atomically");
+
+  CoreState shared{};
+  BackboneSpec ownerless_request = request_with(
+      shared, {}, {{0.0, 20.0, 4.0}, {12.0, 20.0, 4.0}});
+  BackboneInputSpec::NodeSpec ownerless_a{};
+  ownerless_a.point_index = 0;
+  ownerless_a.support_kind = SupportKind::kMidair;
+  BackboneInputSpec::NodeSpec ownerless_b{};
+  ownerless_b.point_index = 1;
+  ownerless_b.support_kind = SupportKind::kMidair;
+  ownerless_request.path.node_specs = {ownerless_a, ownerless_b};
+  RouteBundleVariationInput one = communication_only;
+  one.route_seed = 0x8890304;
+  const auto ownerless_generated =
+      shared.GenerateBackboneBundleVariation(ownerless_request, one);
+  if (!ownerless_generated.ok) return false;
+  RouteBundleVariationInput zero = one;
+  zero.rules.front().min_instances = 0;
+  zero.rules.front().max_instances = 0;
+  if (!shared.ApplyBackboneBundleVariation(
+                 ownerless_generated.value.variation_id, zero)
+           .ok) {
+    return false;
+  }
+  auto& variations = CoreStateTestHook::backbone_bundle_variations(shared);
+  if (variations.size() != 1 || variations.front().memberships.size() != 1) {
+    return false;
+  }
+  const std::vector<ObjectId> shared_edges =
+      variations.front().memberships.front().edge_ids;
+  const std::vector<ObjectId> shared_nodes = {
+      shared.view().backbone().edges.front().node_a,
+      shared.view().backbone().edges.front().node_b};
+  SavedBackboneBundleVariation second_owner = variations.front();
+  second_owner.variation_id = CoreStateTestHook::id_generator(shared).next();
+  variations.push_back(second_owner);
+  variations.front().memberships.clear();
+  ChangeSet first_release{};
+  CoreStateTestHook::cleanup_orphan_backbone_skeleton(shared, &first_release);
+  WIRE_TEST_EXPECT_ANCHOR(
+      std::ranges::all_of(shared_edges, [&](ObjectId edge_id) {
+        return shared.view().backbone_edge(edge_id) != nullptr;
+      }),
+      "releasing one replay owner collected a shared dormant edge");
+  variations.back().memberships.clear();
+  ChangeSet final_release{};
+  CoreStateTestHook::cleanup_orphan_backbone_skeleton(shared, &final_release);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      std::ranges::none_of(shared_edges, [&](ObjectId edge_id) {
+        return shared.view().backbone_edge(edge_id) != nullptr;
+      }) &&
+          std::ranges::none_of(shared_nodes, [&](ObjectId node_id) {
+            return shared.view().backbone_node(node_id) != nullptr;
+          }),
+      "final replay reference release left orphan dormant edge or node");
+  return true;
+}
+
+bool C890_dormant_skeleton_isolated_and_same_pair_reuse_is_exact() {
+  using namespace city::wire;
+  CoreState dormant{};
+  RouteBundleVariationInput one{};
+  one.route_seed = 0x8900102;
+  one.preferred_side_sign = -1;
+  one.pole_type_id = 2;
+  one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
+                5.2, 5.2, 0.25, 0.25, 0.16}};
+  BackboneSpec ownerless_request = request_with(
+      dormant, {}, {{0.0, 0.0, 4.0}, {12.0, 0.0, 4.0}});
+  BackboneInputSpec::NodeSpec node_a{};
+  node_a.point_index = 0;
+  node_a.support_kind = SupportKind::kMidair;
+  BackboneInputSpec::NodeSpec node_b{};
+  node_b.point_index = 1;
+  node_b.support_kind = SupportKind::kMidair;
+  ownerless_request.path.node_specs = {node_a, node_b};
+  const auto generated =
+      dormant.GenerateBackboneBundleVariation(ownerless_request, one);
+  if (!generated.ok || generated.value.generation.generated_node_ids.size() != 2) {
+    return false;
+  }
+  const std::vector<ObjectId> node_ids =
+      generated.value.generation.generated_node_ids;
+  const ObjectId dormant_edge_id = dormant.view().backbone().edges.front().edge_id;
+  RouteBundleVariationInput zero = one;
+  zero.rules.front().min_instances = 0;
+  zero.rules.front().max_instances = 0;
+  if (!dormant.ApplyBackboneBundleVariation(
+                  generated.value.variation_id, zero)
+           .ok) {
+    return false;
+  }
+  WIRE_TEST_EXPECT_ANCHOR(
+      dormant.SavedBackboneResult().nodes.empty() &&
+          dormant.SavedBackboneResult().edges.empty() &&
+          dormant.SavedBackboneResult().junctions.empty() &&
+          dormant.FindSavedBackboneRoute(node_ids.front(), node_ids.back())
+              .empty(),
+      "dormant skeleton leaked into current topology query");
+
+  SavedBackboneGraph& raw = CoreStateTestHook::backbone(dormant);
+  for (SavedBackboneNode& node : raw.nodes) {
+    node.bundle_modes = {{kDefaultCommunicationBundleTemplateId,
+                          BundleNodeMode::kNotPresent}};
+    node.has_source_edge = true;
+    node.source_edge_node_a = node_ids.front();
+    node.source_edge_node_b = node_ids.back();
+    node.source_edge_t = 0.5;
+  }
+  BackboneBundleSpec concrete{};
+  concrete.bundle_template_id = kDefaultCommunicationBundleTemplateId;
+  concrete.placement_key = 8901;
+  concrete.layer = SpanLayer::kCommunication;
+  concrete.count = 1;
+  concrete.placement_explicit = true;
+  concrete.height_m = 5.2;
+  concrete.lateral_m = -0.25;
+  concrete.spacing_m = 0.16;
+  BackboneSpec exact = request_with(
+      dormant, {concrete}, {{0.0, 0.0, 4.0}, {12.0, 0.0, 4.0}});
+  node_a.node_id = node_ids.front();
+  node_b.node_id = node_ids.back();
+  exact.path.node_specs = {node_a, node_b};
+
+  CoreState incompatible = dormant;
+  BackboneSpec incompatible_request = exact;
+  incompatible_request.constraints.lateral_offset_m = 0.5;
+  std::string before_incompatible{};
+  std::string after_incompatible{};
+  const bool before_saved =
+      incompatible.SerializeAuthoritative(&before_incompatible).ok;
+  const auto rejected =
+      incompatible.GenerateFromBackboneSpec(incompatible_request);
+  const bool after_saved =
+      incompatible.SerializeAuthoritative(&after_incompatible).ok;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      before_saved && !rejected.ok && after_saved &&
+          before_incompatible == after_incompatible,
+      "incompatible dormant same-node-pair edge was silently reused");
+
+  const auto reused = dormant.GenerateFromBackboneSpec(exact);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      reused.ok && dormant.SavedBackboneResult().edges.size() == 1 &&
+          dormant.view().backbone().edges.size() == 1 &&
+          dormant.view().backbone().edges.front().edge_id == dormant_edge_id &&
+          dormant.SavedBackboneResult().nodes.size() == 2,
+      reused.error.empty()
+          ? "compatible dormant same-node-pair edge did not reuse exact identity"
+          : reused.error);
+  return true;
+}
+
+bool C891_dormant_skeleton_does_not_change_unrelated_generation() {
+  using namespace city::wire;
+  CoreState baseline{};
+  CoreState with_dormant{};
+  BackboneBundleSpec initial{};
+  initial.bundle_template_id = kDefaultCommunicationBundleTemplateId;
+  initial.placement_key = 8911;
+  initial.layer = SpanLayer::kCommunication;
+  initial.count = 1;
+  initial.placement_explicit = true;
+  initial.height_m = 5.2;
+  initial.lateral_m = -0.25;
+  initial.spacing_m = 0.16;
+  const std::vector<Vec3d> trunk_points = {
+      {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
+  const auto baseline_trunk = baseline.GenerateFromBackboneSpec(
+      request_with(baseline, {initial}, trunk_points));
+  const auto dormant_trunk = with_dormant.GenerateFromBackboneSpec(
+      request_with(with_dormant, {initial}, trunk_points));
+  if (!baseline_trunk.ok || !dormant_trunk.ok ||
+      baseline_trunk.value.generated_node_ids.size() != 3 ||
+      dormant_trunk.value.generated_node_ids.size() != 3 ||
+      baseline_trunk.value.bundle_ids.size() != 1 ||
+      dormant_trunk.value.bundle_ids.size() != 1) {
+    return false;
+  }
+
+  const ObjectId dormant_incident =
+      dormant_trunk.value.generated_node_ids[2];
+  const ObjectId dormant_source_a =
+      dormant_trunk.value.generated_node_ids[0];
+  const ObjectId dormant_source_b =
+      dormant_trunk.value.generated_node_ids[1];
+  SavedBackboneGraph& raw = CoreStateTestHook::backbone(with_dormant);
+  SavedBackboneNode dormant_node{};
+  dormant_node.node_id = CoreStateTestHook::id_generator(with_dormant).next();
+  dormant_node.support_kind = SupportKind::kExternal;
+  dormant_node.position = {24.0, -10.0, 0.0};
+  dormant_node.bundle_modes = {{kDefaultCommunicationBundleTemplateId,
+                                 BundleNodeMode::kNotPresent}};
+  dormant_node.has_source_edge = true;
+  dormant_node.source_edge_node_a = dormant_source_a;
+  dormant_node.source_edge_node_b = dormant_source_b;
+  dormant_node.source_edge_t = 0.5;
+  raw.nodes.push_back(dormant_node);
+  SavedBackboneEdge dormant_edge{};
+  dormant_edge.edge_id = CoreStateTestHook::id_generator(with_dormant).next();
+  dormant_edge.node_a = dormant_incident;
+  dormant_edge.node_b = dormant_node.node_id;
+  dormant_edge.route = 891;
+  dormant_edge.order = 0;
+  dormant_edge.dir = {0.0, -10.0, 0.0};
+  dormant_edge.lateral_offset_m = 0.0;
+  raw.edges.push_back(dormant_edge);
+  SavedBackboneBundleVariation retained{};
+  retained.variation_id = CoreStateTestHook::id_generator(with_dormant).next();
+  retained.descriptor.route_seed = 0x8910203;
+  retained.descriptor.preferred_side_sign = -1;
+  retained.descriptor.pole_type_id = 2;
+  retained.descriptor.rules = {
+      {kDefaultCommunicationBundleTemplateId, 0, 0, 1,
+       5.2, 5.2, 0.25, 0.25, 0.16}};
+  retained.memberships.push_back(
+      {kDefaultCommunicationBundleTemplateId, 1, {dormant_edge.edge_id}, {}});
+  CoreStateTestHook::backbone_bundle_variations(with_dormant).push_back(
+      retained);
+  CoreStateTestHook::rebuild_backbone_index(with_dormant);
+
+  auto extension_for = [&](CoreState& state, ObjectId bundle_id,
+                           ObjectId junction_node_id,
+                           const std::vector<Vec3d>& points) {
+    const Bundle* bundle = state.view().bundles().find(bundle_id);
+    BackboneBundleSpec concrete{};
+    if (bundle != nullptr) {
+      concrete.bundle_template_id = bundle->bundle_template_id;
+      concrete.placement_key = bundle->placement_key;
+      concrete.layer = SpanLayer::kCommunication;
+      concrete.count = bundle->conductor_count;
+      concrete.placement_explicit = bundle->placement_explicit;
+      concrete.height_m = bundle->height_m;
+      concrete.lateral_m = bundle->lateral_m;
+      concrete.spacing_m = bundle->spacing_override_m;
+      concrete.existing_bundle_id = bundle->id;
+    }
+    BackboneSpec extension = request_with(state, {concrete}, points);
+    BackboneInputSpec::NodeSpec junction{};
+    junction.point_index = 0;
+    junction.support_kind = SupportKind::kPole;
+    junction.node_id = junction_node_id;
+    extension.path.node_specs = {junction};
+    return state.GenerateFromBackboneSpec(extension);
+  };
+  const auto baseline_continuation = extension_for(
+      baseline, baseline_trunk.value.bundle_ids.front(),
+      baseline_trunk.value.generated_node_ids[2],
+      {{24.0, 0.0, 0.0}, {24.0, 10.0, 0.0}});
+  const auto dormant_continuation = extension_for(
+      with_dormant, dormant_trunk.value.bundle_ids.front(), dormant_incident,
+      {{24.0, 0.0, 0.0}, {24.0, 10.0, 0.0}});
+  if (!baseline_continuation.ok || !dormant_continuation.ok) return false;
+  const auto baseline_branch = extension_for(
+      baseline, baseline_trunk.value.bundle_ids.front(),
+      baseline_trunk.value.generated_node_ids[1],
+      {{12.0, 0.0, 0.0}, {12.0, -10.0, 0.0}});
+  const auto dormant_branch = extension_for(
+      with_dormant, dormant_trunk.value.bundle_ids.front(),
+      dormant_trunk.value.generated_node_ids[1],
+      {{12.0, 0.0, 0.0}, {12.0, -10.0, 0.0}});
+
+  auto live_degree_sequence = [](const BackboneResult& result) {
+    std::map<ObjectId, std::size_t> degrees{};
+    for (const BackboneEdge& edge : result.edges) {
+      ++degrees[edge.node_a];
+      ++degrees[edge.node_b];
+    }
+    std::vector<std::size_t> out{};
+    for (const auto& [node_id, degree] : degrees) {
+      (void)node_id;
+      out.push_back(degree);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  auto source_projection_count = [](const CoreState& state) {
+    std::size_t count = 0;
+    for (const Span& span : state.view().spans().items()) {
+      const SpanLayoutRulesView rules = state.span_layout_rules(span.id);
+      if (!rules.has_rule()) continue;
+      if (rules.rule->start.source_projection.valid()) ++count;
+      if (rules.rule->end.source_projection.valid()) ++count;
+    }
+    return count;
+  };
+  const BackboneResult baseline_result = baseline.SavedBackboneResult();
+  const BackboneResult dormant_result = with_dormant.SavedBackboneResult();
+  const std::size_t baseline_continuities =
+      baseline.view().backbone().row_continuities.size();
+  const std::size_t dormant_continuities =
+      with_dormant.view().backbone().row_continuities.size();
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      baseline_branch.ok && dormant_branch.ok &&
+          baseline.view().bundles().size() == with_dormant.view().bundles().size() &&
+          baseline.view().spans().size() == with_dormant.view().spans().size() &&
+          baseline_result.nodes.size() == dormant_result.nodes.size() &&
+          baseline_result.edges.size() == dormant_result.edges.size() &&
+          baseline_result.junctions.size() == 1 &&
+          dormant_result.junctions.size() == 1 &&
+          live_degree_sequence(baseline_result) ==
+              live_degree_sequence(dormant_result) &&
+          baseline_continuities == dormant_continuities &&
+          source_projection_count(baseline) ==
+              source_projection_count(with_dormant) &&
+          with_dormant.view().backbone_edge(dormant_edge.edge_id) != nullptr &&
+          std::ranges::none_of(
+              dormant_result.edges, [&](const BackboneEdge& edge) {
+                return (edge.node_a == dormant_edge.node_a &&
+                        edge.node_b == dormant_edge.node_b) ||
+                       (edge.node_a == dormant_edge.node_b &&
+                        edge.node_b == dormant_edge.node_a);
+              }),
+      dormant_branch.error.empty()
+          ? "dormant skeleton changed normal branch topology or source resolution"
+          : dormant_branch.error);
+
+  CoreState pass_baseline{};
+  CoreState pass_with_dormant{};
+  auto add_start = [](CoreState& state) {
+    SavedBackboneNode start{};
+    start.node_id = CoreStateTestHook::id_generator(state).next();
+    start.support_kind = SupportKind::kMidair;
+    start.position = {0.0, 30.0, 4.0};
+    CoreStateTestHook::backbone(state).nodes.push_back(start);
+    CoreStateTestHook::rebuild_backbone_index(state);
+    return start.node_id;
+  };
+  const ObjectId baseline_start = add_start(pass_baseline);
+  const ObjectId dormant_start = add_start(pass_with_dormant);
+  SavedBackboneGraph& pass_graph =
+      CoreStateTestHook::backbone(pass_with_dormant);
+  SavedBackboneNode pass_peer{};
+  pass_peer.node_id =
+      CoreStateTestHook::id_generator(pass_with_dormant).next();
+  pass_peer.support_kind = SupportKind::kExternal;
+  pass_peer.position = {-10.0, 30.0, 4.0};
+  pass_peer.bundle_modes = {{kDefaultCommunicationBundleTemplateId,
+                             BundleNodeMode::kNotPresent}};
+  pass_peer.has_source_edge = true;
+  pass_peer.source_edge_node_a = dormant_start;
+  pass_peer.source_edge_node_b = pass_peer.node_id;
+  pass_peer.source_edge_t = 0.5;
+  pass_graph.nodes.push_back(pass_peer);
+  SavedBackboneEdge pass_edge{};
+  pass_edge.edge_id =
+      CoreStateTestHook::id_generator(pass_with_dormant).next();
+  pass_edge.node_a = dormant_start;
+  pass_edge.node_b = pass_peer.node_id;
+  pass_edge.dir = {-10.0, 0.0, 0.0};
+  pass_graph.edges.push_back(pass_edge);
+  SavedBackboneBundleVariation pass_owner = retained;
+  pass_owner.variation_id =
+      CoreStateTestHook::id_generator(pass_with_dormant).next();
+  pass_owner.memberships.front().edge_ids = {pass_edge.edge_id};
+  CoreStateTestHook::backbone_bundle_variations(pass_with_dormant)
+      .push_back(pass_owner);
+  CoreStateTestHook::rebuild_backbone_index(pass_with_dormant);
+  auto pass_request = [&](CoreState& state, ObjectId start_id) {
+    BackboneSpec request = request_with(
+        state, {initial}, {{0.0, 30.0, 4.0}, {10.0, 30.0, 4.0}});
+    BackboneInputSpec::NodeSpec start{};
+    start.point_index = 0;
+    start.support_kind = SupportKind::kMidair;
+    start.node_id = start_id;
+    request.path.node_specs = {start};
+    request.node_bundle_modes = {
+        {0, kDefaultCommunicationBundleTemplateId,
+         BundleNodeMode::kPassThrough}};
+    return state.GenerateFromBackboneSpec(request);
+  };
+  const auto baseline_pass = pass_request(pass_baseline, baseline_start);
+  const auto dormant_pass = pass_request(pass_with_dormant, dormant_start);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      !baseline_pass.ok && !dormant_pass.ok &&
+          baseline_pass.error == dormant_pass.error,
+      "dormant incident edge satisfied a live pass-through requirement");
+  return true;
+}
+
 } // namespace backbone_tests

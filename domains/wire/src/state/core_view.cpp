@@ -406,6 +406,8 @@ BackboneFrontier CoreView::pole_frontier(ObjectId pole_id) const {
   add_frontier_node(state_.authoritative_.backbone, out.node_id, &out);
   if (const auto edges = index.node_edges.find(out.node_id); edges != index.node_edges.end()) {
     for (ObjectId edge_id : edges->second) {
+      const auto live = index.edge_bundles.find(edge_id);
+      if (live == index.edge_bundles.end() || live->second.empty()) continue;
       add_frontier_edge(state_.authoritative_.backbone, index, edge_id, &out);
     }
   }

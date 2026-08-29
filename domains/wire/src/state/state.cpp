@@ -1211,6 +1211,11 @@ EditResult<bool> CoreState::refresh_backbone_rows_for_incident_edges(
     if (edge.node_a != moved_node->node_id && edge.node_b != moved_node->node_id) {
       continue;
     }
+    const auto live = runtime_.backbone_index.edge_bundles.find(edge.edge_id);
+    if (live == runtime_.backbone_index.edge_bundles.end() ||
+        live->second.empty()) {
+      continue;
+    }
     changed_edges.insert(edge.edge_id);
     affected_nodes.insert(edge.node_a);
     affected_nodes.insert(edge.node_b);

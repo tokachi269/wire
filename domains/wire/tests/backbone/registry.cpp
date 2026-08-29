@@ -1452,6 +1452,22 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "variation branch pick derives selected templates from exact live instances instead of descriptor rules",
                          "Boundary", true,
                          C888_variation_branch_pick_uses_exact_live_scope);
+  test_registry::AddTest(tests, "C889_variation_membership_is_current_and_shared_skeleton_is_collected",
+                         "variation memberships track current descriptor groups and shared dormant skeleton is collected only after the final reference",
+                         "Invariant", true,
+                         C889_variation_membership_is_current_and_shared_skeleton_is_collected);
+  test_registry::AddTest(tests, "C890_dormant_skeleton_isolated_and_same_pair_reuse_is_exact",
+                         "dormant topology is hidden from live queries and compatible same-pair reuse is exact while incompatible reuse fails atomically",
+                         "Differential", true,
+                         C890_dormant_skeleton_isolated_and_same_pair_reuse_is_exact);
+  test_registry::AddTest(tests, "C891_dormant_skeleton_does_not_change_unrelated_generation",
+                         "an incident dormant edge and its node policy and source metadata do not change normal extension topology pairing or source resolution",
+                         "Differential", true,
+                         C891_dormant_skeleton_does_not_change_unrelated_generation);
+  test_registry::AddSourceGuardTest(tests, "C892_generic_pipeline_and_rebuild_do_not_read_variation_retention",
+                         "generic pipeline and loaded-output rebuild derive live topology without variation retention scans",
+                         "Boundary", false,
+                         C892_generic_pipeline_and_rebuild_do_not_read_variation_retention);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

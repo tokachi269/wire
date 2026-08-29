@@ -20,6 +20,54 @@ using namespace helpers;
 
 namespace backbone_tests {
 
+bool C892_generic_pipeline_and_rebuild_do_not_read_variation_retention() {
+  const std::filesystem::path pipeline =
+      repo_root() / "domains" / "wire" / "src" / "generation" /
+      "backbone" / "pipeline.cpp";
+  const std::filesystem::path regenerate =
+      repo_root() / "domains" / "wire" / "src" / "generation" /
+      "backbone" / "regenerate.cpp";
+  std::string pipeline_text{};
+  std::string regenerate_text{};
+  if (!file_text(pipeline, &pipeline_text) ||
+      !file_text(regenerate, &regenerate_text)) {
+    return false;
+  }
+  const std::array<std::string, 4> pipeline_forbidden = {
+      "backbone_bundle_variations", "SavedBackboneBundleVariationMembership",
+      "retained_edge_ids", "preserve_edge_ids"};
+  for (const std::string& token : pipeline_forbidden) {
+    if (contains_text(pipeline_text, token)) {
+      return false;
+    }
+  }
+  std::string rebuild_body{};
+  std::string route_builder_body{};
+  if (!function_body(
+          regenerate_text,
+          "EditResult<bool> CoreState::rebuild_loaded_outputs()",
+          &rebuild_body) ||
+      !function_body(
+          regenerate_text,
+          "EditResult<std::vector<LoadedRoute>> continuity_routes_from_saved_graph(",
+          &route_builder_body)) {
+    return false;
+  }
+  const std::array<std::string, 4> rebuild_forbidden = {
+      "backbone_bundle_variations", "memberships", "retained_edge_ids",
+      "preserve_edge_ids"};
+  for (const std::string& token : rebuild_forbidden) {
+    if (contains_text(rebuild_body, token) ||
+        contains_text(route_builder_body, token)) {
+      return false;
+    }
+  }
+  return !contains_text(regenerate_text, "retained_edge_ids") &&
+         !contains_text(regenerate_text, "preserve_edge_ids") &&
+         contains_text(rebuild_body,
+                       "continuity_routes_from_saved_graph(saved)");
+}
+
 bool C370_backbone_no_v1_deps() {
   const std::filesystem::path dir = repo_root() / "domains" / "wire" / "src" / "generation" / "backbone";
   const std::vector<std::string> banned = {

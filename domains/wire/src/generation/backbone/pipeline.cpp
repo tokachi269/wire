@@ -493,6 +493,30 @@ ObjectId saved_node_id_for(const CoreState& state, ObjectId node_or_pole_id) {
   return kInvalidObjectId;
 }
 
+bool saved_edge_is_live(const CoreState& state, ObjectId edge_id) {
+  const auto bundles = state.view().backbone_index().edge_bundles.find(edge_id);
+  return bundles != state.view().backbone_index().edge_bundles.end() &&
+         !bundles->second.empty();
+}
+
+bool saved_node_has_live_incident(const CoreState& state, ObjectId node_id) {
+  const auto incident = state.view().backbone_index().node_edges.find(node_id);
+  return incident != state.view().backbone_index().node_edges.end() &&
+         std::ranges::any_of(incident->second, [&](ObjectId edge_id) {
+           return saved_edge_is_live(state, edge_id);
+         });
+}
+
+std::size_t live_saved_incident_count(const CoreState& state,
+                                      ObjectId node_id) {
+  const auto incident = state.view().backbone_index().node_edges.find(node_id);
+  if (incident == state.view().backbone_index().node_edges.end()) return 0;
+  return static_cast<std::size_t>(std::ranges::count_if(
+      incident->second, [&](ObjectId edge_id) {
+        return saved_edge_is_live(state, edge_id);
+      }));
+}
+
 const SavedBackboneNode* saved_source_node_for(const CoreState& state, const SupportNode& node) {
   if (!node.has_source_edge) {
     return nullptr;
@@ -504,6 +528,13 @@ const SavedBackboneNode* saved_source_node_for(const CoreState& state, const Sup
   }
   const ObjectId lo = std::min(source_a, source_b);
   const ObjectId hi = std::max(source_a, source_b);
+  const BackboneEdgeKey source_key{lo, hi};
+  const auto source_edge =
+      state.view().backbone_index().edge_by_nodes.find(source_key);
+  if (source_edge == state.view().backbone_index().edge_by_nodes.end() ||
+      !saved_edge_is_live(state, source_edge->second)) {
+    return nullptr;
+  }
   for (const SavedBackboneNode& saved : state.view().backbone().nodes) {
     if (saved.pole_id != kInvalidObjectId || saved.support_kind != node.support_kind || !saved.has_source_edge) {
       continue;
@@ -512,7 +543,9 @@ const SavedBackboneNode* saved_source_node_for(const CoreState& state, const Sup
         std::max(saved.source_edge_node_a, saved.source_edge_node_b) != hi) {
       continue;
     }
-    if (std::abs(saved.source_edge_t - node.source_edge_t) <= kUnitlessTolerance) {
+    if (saved_node_has_live_incident(state, saved.node_id) &&
+        std::abs(saved.source_edge_t - node.source_edge_t) <=
+            kUnitlessTolerance) {
       return &saved;
     }
   }
@@ -984,7 +1017,8 @@ SourceEdgeProjectionRef source_projection_for(const CoreState& state, const node
   }
   const BackboneEdgeKey key{std::min(source_a, source_b), std::max(source_a, source_b)};
   const auto edge_it = state.view().backbone_index().edge_by_nodes.find(key);
-  if (edge_it == state.view().backbone_index().edge_by_nodes.end()) {
+  if (edge_it == state.view().backbone_index().edge_by_nodes.end() ||
+      !saved_edge_is_live(state, edge_it->second)) {
     return out;
   }
   out.source_edge_id = edge_it->second;
@@ -1701,50 +1735,6 @@ void pipeline::retire_untouched(route* route) {
                                             edge_bundle.edge_bundle_id);
                        }),
         graph.edge_bundles.end());
-    graph.edges.erase(
-        std::remove_if(graph.edges.begin(), graph.edges.end(),
-                       [&](const SavedBackboneEdge& edge) {
-                         const bool has_bundle = std::any_of(
-                             graph.edge_bundles.begin(), graph.edge_bundles.end(),
-                             [&](const SavedBackboneEdgeBundle& edge_bundle) {
-                               return edge_bundle.edge_id == edge.edge_id;
-                             });
-                         const bool retained_by_variation = std::ranges::any_of(
-                             state_.view().backbone_bundle_variations(),
-                             [&](const SavedBackboneBundleVariation& variation) {
-                               return std::ranges::any_of(
-                                   variation.memberships,
-                                   [&](const SavedBackboneBundleVariationMembership& membership) {
-                                     return std::ranges::find(
-                                                membership.edge_ids,
-                                                edge.edge_id) !=
-                                            membership.edge_ids.end();
-                                   });
-                             });
-                         if (!has_bundle && !retained_by_variation) {
-                           CoreState::add_unique_id(route->change_set.deleted_ids,
-                                                    edge.edge_id);
-                         }
-                         return !has_bundle && !retained_by_variation;
-                       }),
-        graph.edges.end());
-    graph.nodes.erase(
-        std::remove_if(graph.nodes.begin(), graph.nodes.end(),
-                       [&](const SavedBackboneNode& node) {
-                         if (node.pole_id != kInvalidObjectId) return false;
-                         const bool has_edge = std::any_of(
-                             graph.edges.begin(), graph.edges.end(),
-                             [&](const SavedBackboneEdge& edge) {
-                               return edge.node_a == node.node_id ||
-                                      edge.node_b == node.node_id;
-                             });
-                         if (!has_edge) {
-                           CoreState::add_unique_id(route->change_set.deleted_ids,
-                                                    node.node_id);
-                         }
-                         return !has_edge;
-                       }),
-        graph.nodes.end());
     if (state_.authoritative_.edit_state.bundles.remove(
             route->retired_bundle_id)) {
       CoreState::add_unique_id(route->change_set.deleted_ids,
@@ -1756,38 +1746,7 @@ void pipeline::retire_untouched(route* route) {
   }
 
   // authoritative graphを削除後の唯一の入力としてruntime indexを再構築する。
-  BackboneIndex rebuilt{};
-  for (const SavedBackboneNode& node : graph.nodes) {
-    if (node.pole_id != kInvalidObjectId) {
-      rebuilt.pole_node[node.pole_id] = node.node_id;
-    }
-  }
-  for (const SavedBackboneEdge& item : graph.edges) {
-    CoreState::index_add(rebuilt.node_edges, item.node_a, item.edge_id);
-    CoreState::index_add(rebuilt.node_edges, item.node_b, item.edge_id);
-    const BackboneEdgeKey key{std::min(item.node_a, item.node_b), std::max(item.node_a, item.node_b)};
-    rebuilt.edge_by_nodes[key] = item.edge_id;
-  }
-  for (std::size_t position = 0; position < graph.edge_bundles.size(); ++position) {
-    const SavedBackboneEdgeBundle& item = graph.edge_bundles[position];
-    CoreState::index_add(rebuilt.edge_bundles, item.edge_id, item.edge_bundle_id);
-    rebuilt.edge_bundle_by_edge_and_bundle[{item.edge_id, item.bundle_id}] = item.edge_bundle_id;
-    rebuilt.edge_bundle_positions[item.edge_bundle_id] = position;
-    CoreState::index_add(rebuilt.bundle_edge, item.bundle_id, item.edge_id);
-  }
-  for (std::size_t i = 0; i < graph.span_bindings.size(); ++i) {
-    const SavedBackboneSpanBinding& binding = graph.span_bindings[i];
-    CoreState::index_add(rebuilt.edge_bundle_spans, binding.edge_bundle_id, binding.span_id);
-    rebuilt.span_edge_bundle[binding.span_id] = binding.edge_bundle_id;
-    rebuilt.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
-    rebuilt.span_bindings_by_span[binding.span_id].push_back(i);
-  }
-  for (std::size_t i = 0; i < graph.port_bindings.size(); ++i) {
-    const SavedBackbonePortBinding& binding = graph.port_bindings[i];
-    rebuilt.edge_bundle_ports[binding.edge_bundle_id].push_back(i);
-    rebuilt.port_bindings_by_port[binding.port_id].push_back(i);
-  }
-  state_.runtime_.backbone_index = std::move(rebuilt);
+  state_.rebuild_backbone_index();
 }
 
 std::size_t pipeline::local(std::size_t input_point) const {
@@ -2043,11 +2002,13 @@ EditResult<bool> pipeline::prepare() {
           n.saved = saved->node_id;
           n.pos = saved->position;
           n.is_new = false;
-          n.has_source_edge = saved->has_source_edge;
-          n.source_edge_node_a = saved->source_edge_node_a;
-          n.source_edge_node_b = saved->source_edge_node_b;
-          n.source_edge_t = saved->source_edge_t;
-          n.bundle_modes = saved->bundle_modes;
+          if (saved_node_has_live_incident(state_, saved->node_id)) {
+            n.has_source_edge = saved->has_source_edge;
+            n.source_edge_node_a = saved->source_edge_node_a;
+            n.source_edge_node_b = saved->source_edge_node_b;
+            n.source_edge_t = saved->source_edge_t;
+            n.bundle_modes = saved->bundle_modes;
+          }
           g_.nodes.push_back(n);
           continue;
         }
@@ -2210,7 +2171,7 @@ EditResult<bool> pipeline::prepare() {
         continue;
       }
       const SavedBackboneEdge* saved = state_.view().backbone_edge(edge_id);
-      if (saved == nullptr) {
+      if (saved == nullptr || !saved_edge_is_live(state_, edge_id)) {
         continue;
       }
       if (has_requested_saved_pair(saved->node_a, saved->node_b)) {
@@ -2271,6 +2232,10 @@ EditResult<bool> pipeline::prepare() {
       return out;
     }
     const ObjectId edge_id = edge_it->second;
+    if (!saved_edge_is_live(state_, edge_id)) {
+      out.error = "backbone unsupported: source edge context is not live";
+      return out;
+    }
     const SavedBackboneEdge* saved = state_.view().backbone_edge(edge_id);
     if (saved == nullptr) {
       out.error = "backbone unsupported: source edge context is missing";
@@ -2357,9 +2322,8 @@ EditResult<bool> pipeline::check() const {
         }
         continue;
       }
-      const auto incident_it = state_.view().backbone_index().node_edges.find(g_.nodes[local].saved);
       const std::size_t saved_incidents =
-          (incident_it == state_.view().backbone_index().node_edges.end()) ? 0U : incident_it->second.size();
+          live_saved_incident_count(state_, g_.nodes[local].saved);
       if (saved_incidents + current_route_incident_count_at(g_, local) < 2) {
         return unsupported("pass-through node mode requires current route pair or saved junction context");
       }
@@ -4162,9 +4126,15 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps,
     }
     if (edge.is_new) {
       if (edge.saved == kInvalidObjectId) {
-        edge_by_link[edge.id] = state_.save_backbone_edge(node_id_by_local[edge.a], node_id_by_local[edge.b],
-                                                          edge.route, edge.order, edge.dir,
-                                                          spec_.constraints.lateral_offset_m);
+        const SavedBackboneEdgeRef saved_edge = state_.save_backbone_edge(
+            node_id_by_local[edge.a], node_id_by_local[edge.b], edge.route,
+            edge.order, edge.dir, spec_.constraints.lateral_offset_m);
+        if (saved_edge.edge_id == kInvalidObjectId) {
+          out.error =
+              "backbone unsupported: saved edge identity is incompatible with the requested route";
+          return out;
+        }
+        edge_by_link[edge.id] = saved_edge;
         continue;
       }
       edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);

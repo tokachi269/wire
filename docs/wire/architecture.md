@@ -434,7 +434,24 @@ Wire は Road domain や道路の意味を解釈しない。
 保存済みdescriptorはexact Bundle scopeと、0件になった後の再materializeに必要なphysical edge ID /
 row continuityを保持する。参照中の`SavedBackboneGraph` node / edge skeletonは最後のBundleが0件になっても保持し、
 variation側へnode・edge geometry・代表Bundle placementを複製しない。現在存在するphysical objectのauthorityは
-Bundle / Port / Span / SavedBackboneGraphであり、0件時に残るgraph skeletonとvariation membershipはfuture replay authorityである。descriptorは
+Bundle / Port / Span / SavedBackboneGraphであり、0件時に残るgraph skeletonとvariation membershipはfuture replay authorityである。
+
+`SavedBackboneGraph`は`SavedBackboneNode` / `SavedBackboneEdge`の保存identityとgeometryを一意に所有するが、graphに
+保存されていること自体はcurrent live occupancyを意味しない。edgeに`SavedBackboneEdgeBundle`が1件以上あればlive、
+0件ならdormant skeletonであり、この区別はpersistent flagではなくrelationから導出する。dormant edge/nodeはpersistence、
+structural validation、exact replay、raw identity lookupには存在するが、viewer向け`SavedBackboneResult`、route/junction query、
+通常generationのcontext・pass-through・source projection、load時のderived rebuildへは参加しない。generic pipeline、viewer、
+live topology queryはvariationを解釈しない。
+
+variation membershipは履歴ではなく、current descriptorに存在するeffective template/count groupのexact replay referenceである。
+live instanceがあればcurrent topologyから更新し、count 0でもgroupがdescriptorに残る間だけ既存membershipを保持する。
+group削除・group変更ではold membershipを削除する。同じeffective template/countのruleを複数置くとreplay sourceを区別
+できないためdescriptor validationで拒否する。mutation後のskeleton GCはstate/backbone lifecycleが全authoritative relationを
+見る。live `SavedBackboneEdgeBundle`またはいずれかのcurrent membershipから参照されるedgeを保持し、最後の参照が消えた
+dormant edgeだけを削除する。nodeは残存edge、pole ownership、binding / continuity、他nodeのsource relationを含む参照が
+なくなった場合だけ削除する。reference countや別retention relationは保存しない。
+
+descriptorは
 branch membershipやpairingを再判断しない。`ApplyBackboneBundleVariation`はdescriptorをresolveしたdesired concrete
 specを既存reconcileへ渡し、descriptor更新とconcrete topology更新を同じouter trialでcommitする。1 -> 0 -> 1は
 保持されたgraph edgeとmembership continuityをpipelineのexplicit constraintとして再生するが、initial 0 -> 1はmembership sourceがないため

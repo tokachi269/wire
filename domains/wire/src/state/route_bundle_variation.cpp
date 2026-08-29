@@ -117,6 +117,7 @@ EditResult<bool> detail::validate_route_bundle_variation_descriptor(
     result.error = "core invalid input: route bundle variation rules are empty";
     return result;
   }
+  std::set<std::pair<BundleTemplateId, int>> effective_groups{};
   for (const RandomBackboneBundleRule& rule : input.rules) {
     const auto template_it =
         state.view().bundle_templates().find(rule.bundle_template_id);
@@ -151,6 +152,13 @@ EditResult<bool> detail::validate_route_bundle_variation_descriptor(
           conductor_count > bundle_template.max_count))) {
       result.error =
           "core invalid input: route bundle variation conductor count is invalid";
+      return result;
+    }
+    if (!effective_groups
+             .emplace(rule.bundle_template_id, conductor_count)
+             .second) {
+      result.error =
+          "core invalid input: route bundle variation effective rule group is duplicated";
       return result;
     }
   }
@@ -810,6 +818,19 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
 
   updated.descriptor = descriptor;
   updated.instances.clear();
+  std::set<std::pair<BundleTemplateId, int>> descriptor_groups{};
+  for (const RandomBackboneBundleRule& rule : descriptor.rules) {
+    const BundleTemplate* bundle_template =
+        trial.find_bundle_template(rule.bundle_template_id);
+    if (bundle_template == nullptr) {
+      return reject(
+          "backbone invalid input: variation descriptor template is missing");
+    }
+    descriptor_groups.emplace(
+        rule.bundle_template_id,
+        rule.conductor_count > 0 ? rule.conductor_count
+                                 : bundle_template->default_count);
+  }
   std::vector<SavedBackboneBundleVariationMembership> live_memberships{};
   for (const BackboneBundleSpec& desired : resolved.value) {
     auto final_id = final_bundle_id_by_key.find(desired.placement_key);
@@ -856,6 +877,10 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
   }
   for (const SavedBackboneBundleVariationMembership& membership :
        updated.memberships) {
+    if (!descriptor_groups.contains(
+            {membership.bundle_template_id, membership.conductor_count})) {
+      continue;
+    }
     const auto live = std::ranges::find_if(
         live_memberships,
         [&](const SavedBackboneBundleVariationMembership& value) {
@@ -887,6 +912,7 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
         "backbone internal: variation Apply ownership scope is missing");
   }
   *placeholder = std::move(updated);
+  trial.cleanup_orphan_backbone_skeleton(&reconciled.change_set);
 
   const ValidationResult validation = trial.Validate();
   for (const ValidationIssue& issue : validation.issues) {
@@ -898,7 +924,9 @@ EditResult<bool> CoreState::ApplyBackboneBundleVariation(
   }
   *this = std::move(trial);
   result.ok = true;
-  result.value = reconciled.value || !replay_changes.created_ids.empty() ||
+  result.value = reconciled.value ||
+                 !reconciled.change_set.deleted_ids.empty() ||
+                 !replay_changes.created_ids.empty() ||
                  !replay_changes.updated_ids.empty() ||
                  !replay_changes.deleted_ids.empty();
   result.change_set = std::move(reconciled.change_set);

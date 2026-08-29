@@ -115,8 +115,126 @@ EditResult<bool> CoreState::bind_backbone_node_path_point_index(ObjectId node_id
   return out;
 }
 
-SavedBackboneEdgeRef CoreState::save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route,
-                                                   std::size_t order, const Vec3d& dir, double lateral_offset_m) {
+void CoreState::rebuild_backbone_index() {
+  BackboneIndex rebuilt{};
+  const SavedBackboneGraph& graph = authoritative_.backbone;
+  for (const SavedBackboneNode& node : graph.nodes) {
+    if (node.pole_id != kInvalidObjectId) {
+      rebuilt.pole_node[node.pole_id] = node.node_id;
+    }
+  }
+  for (const SavedBackboneEdge& edge : graph.edges) {
+    index_add(rebuilt.node_edges, edge.node_a, edge.edge_id);
+    index_add(rebuilt.node_edges, edge.node_b, edge.edge_id);
+    const BackboneEdgeKey key{std::min(edge.node_a, edge.node_b),
+                              std::max(edge.node_a, edge.node_b)};
+    rebuilt.edge_by_nodes[key] = edge.edge_id;
+  }
+  for (std::size_t position = 0; position < graph.edge_bundles.size();
+       ++position) {
+    const SavedBackboneEdgeBundle& edge_bundle = graph.edge_bundles[position];
+    index_add(rebuilt.edge_bundles, edge_bundle.edge_id,
+              edge_bundle.edge_bundle_id);
+    rebuilt.edge_bundle_by_edge_and_bundle[
+        {edge_bundle.edge_id, edge_bundle.bundle_id}] =
+        edge_bundle.edge_bundle_id;
+    rebuilt.edge_bundle_positions[edge_bundle.edge_bundle_id] = position;
+    index_add(rebuilt.bundle_edge, edge_bundle.bundle_id,
+              edge_bundle.edge_id);
+  }
+  for (std::size_t index = 0; index < graph.span_bindings.size(); ++index) {
+    const SavedBackboneSpanBinding& binding = graph.span_bindings[index];
+    index_add(rebuilt.edge_bundle_spans, binding.edge_bundle_id,
+              binding.span_id);
+    rebuilt.span_edge_bundle[binding.span_id] = binding.edge_bundle_id;
+    rebuilt.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(index);
+    rebuilt.span_bindings_by_span[binding.span_id].push_back(index);
+  }
+  for (std::size_t index = 0; index < graph.port_bindings.size(); ++index) {
+    const SavedBackbonePortBinding& binding = graph.port_bindings[index];
+    rebuilt.edge_bundle_ports[binding.edge_bundle_id].push_back(index);
+    rebuilt.port_bindings_by_port[binding.port_id].push_back(index);
+  }
+  runtime_.backbone_index = std::move(rebuilt);
+}
+
+void CoreState::cleanup_orphan_backbone_skeleton(ChangeSet* change_set) {
+  SavedBackboneGraph& graph = authoritative_.backbone;
+  std::vector<ObjectId> replay_edge_ids{};
+  for (const SavedBackboneBundleVariation& variation :
+       authoritative_.backbone_bundle_variations) {
+    for (const SavedBackboneBundleVariationMembership& membership :
+         variation.memberships) {
+      replay_edge_ids.insert(replay_edge_ids.end(), membership.edge_ids.begin(),
+                             membership.edge_ids.end());
+    }
+  }
+  std::sort(replay_edge_ids.begin(), replay_edge_ids.end());
+  replay_edge_ids.erase(
+      std::unique(replay_edge_ids.begin(), replay_edge_ids.end()),
+      replay_edge_ids.end());
+  auto replay_referenced = [&](ObjectId edge_id) {
+    return std::binary_search(replay_edge_ids.begin(), replay_edge_ids.end(),
+                              edge_id);
+  };
+  graph.edges.erase(
+      std::remove_if(graph.edges.begin(), graph.edges.end(),
+                     [&](const SavedBackboneEdge& edge) {
+                       const bool live = std::ranges::any_of(
+                           graph.edge_bundles,
+                           [&](const SavedBackboneEdgeBundle& edge_bundle) {
+                             return edge_bundle.edge_id == edge.edge_id;
+                           });
+                       const bool remove =
+                           !live && !replay_referenced(edge.edge_id);
+                       if (remove && change_set != nullptr) {
+                         add_unique_id(change_set->deleted_ids, edge.edge_id);
+                       }
+                       return remove;
+                     }),
+      graph.edges.end());
+
+  std::unordered_set<ObjectId> retained_nodes{};
+  for (const SavedBackboneEdge& edge : graph.edges) {
+    retained_nodes.insert(edge.node_a);
+    retained_nodes.insert(edge.node_b);
+  }
+  for (const SavedBackboneNode& node : graph.nodes) {
+    if (node.pole_id != kInvalidObjectId) retained_nodes.insert(node.node_id);
+  }
+  for (const SavedBackbonePortBinding& binding : graph.port_bindings) {
+    retained_nodes.insert(binding.row_key.node_id);
+  }
+  for (const SavedBackboneRowContinuity& continuity : graph.row_continuities) {
+    retained_nodes.insert(continuity.node_id);
+  }
+  bool expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const SavedBackboneNode& node : graph.nodes) {
+      if (!retained_nodes.contains(node.node_id) || !node.has_source_edge) {
+        continue;
+      }
+      expanded |= retained_nodes.insert(node.source_edge_node_a).second;
+      expanded |= retained_nodes.insert(node.source_edge_node_b).second;
+    }
+  }
+  graph.nodes.erase(
+      std::remove_if(graph.nodes.begin(), graph.nodes.end(),
+                     [&](const SavedBackboneNode& node) {
+                       const bool remove = !retained_nodes.contains(node.node_id);
+                       if (remove && change_set != nullptr) {
+                         add_unique_id(change_set->deleted_ids, node.node_id);
+                       }
+                       return remove;
+                     }),
+      graph.nodes.end());
+  rebuild_backbone_index();
+}
+
+SavedBackboneEdgeRef CoreState::save_backbone_edge(
+    ObjectId node_a, ObjectId node_b, std::size_t route, std::size_t order,
+    const Vec3d& dir, double lateral_offset_m) {
   SavedBackboneEdgeRef out{};
   if (node_a == kInvalidObjectId || node_b == kInvalidObjectId || node_a == node_b) {
     return out;
@@ -126,6 +244,20 @@ SavedBackboneEdgeRef CoreState::save_backbone_edge(ObjectId node_a, ObjectId nod
       existing != runtime_.backbone_index.edge_by_nodes.end()) {
     for (const SavedBackboneEdge& edge : authoritative_.backbone.edges) {
       if (edge.edge_id == existing->second) {
+        const auto bundles = runtime_.backbone_index.edge_bundles.find(edge.edge_id);
+        const bool dormant = bundles == runtime_.backbone_index.edge_bundles.end() ||
+                             bundles->second.empty();
+        const Vec3d existing_dir = edge.node_a == node_a
+                                       ? edge.dir
+                                       : ScaleVec(edge.dir, -1.0);
+        const Vec3d delta = existing_dir - dir;
+        if (dormant &&
+            (edge.route != route || edge.order != order ||
+             std::abs(edge.lateral_offset_m - lateral_offset_m) >
+                 kLengthToleranceM ||
+             Dot(delta, delta) > kLengthSquaredToleranceM2)) {
+          return {};
+        }
         out.edge_id = edge.edge_id;
         out.node_a = edge.node_a;
         out.node_b = edge.node_b;
@@ -1056,14 +1188,30 @@ BackboneResult CoreState::SavedBackboneResult() const {
   BackboneResult out{};
   out.edge_orientations = debug_.last_generation_edge_orientations;
 
-  const bool has_saved_backbone = !authoritative_.backbone.nodes.empty() || !authoritative_.backbone.edges.empty();
+  std::unordered_map<ObjectId, std::vector<ObjectId>> bundles_by_edge{};
+  for (const SavedBackboneEdgeBundle& edge_bundle :
+       authoritative_.backbone.edge_bundles) {
+    if (edge_bundle.edge_id == kInvalidObjectId ||
+        edge_bundle.bundle_id == kInvalidObjectId) {
+      continue;
+    }
+    bundles_by_edge[edge_bundle.edge_id].push_back(edge_bundle.bundle_id);
+  }
+  std::unordered_set<ObjectId> live_node_ids{};
+  for (const SavedBackboneEdge& edge : authoritative_.backbone.edges) {
+    if (!bundles_by_edge.contains(edge.edge_id)) continue;
+    live_node_ids.insert(edge.node_a);
+    live_node_ids.insert(edge.node_b);
+  }
+  const bool has_saved_backbone = !bundles_by_edge.empty();
   if (!has_saved_backbone) {
     return out;
   }
 
   out.nodes.reserve(authoritative_.backbone.nodes.size());
   for (const SavedBackboneNode& saved_node : authoritative_.backbone.nodes) {
-    if (saved_node.node_id == kInvalidObjectId) {
+    if (saved_node.node_id == kInvalidObjectId ||
+        !live_node_ids.contains(saved_node.node_id)) {
       continue;
     }
     SupportNode node{};
@@ -1083,18 +1231,11 @@ BackboneResult CoreState::SavedBackboneResult() const {
   std::sort(out.nodes.begin(), out.nodes.end(),
             [](const SupportNode& lhs, const SupportNode& rhs) { return lhs.node_id < rhs.node_id; });
 
-  std::unordered_map<ObjectId, std::vector<ObjectId>> bundles_by_edge{};
-  for (const SavedBackboneEdgeBundle& edge_bundle : authoritative_.backbone.edge_bundles) {
-    if (edge_bundle.edge_id == kInvalidObjectId || edge_bundle.bundle_id == kInvalidObjectId) {
-      continue;
-    }
-    bundles_by_edge[edge_bundle.edge_id].push_back(edge_bundle.bundle_id);
-  }
-
   out.edges.reserve(authoritative_.backbone.edges.size());
   for (const SavedBackboneEdge& saved_edge : authoritative_.backbone.edges) {
     if (saved_edge.edge_id == kInvalidObjectId || saved_edge.node_a == kInvalidObjectId ||
-        saved_edge.node_b == kInvalidObjectId || saved_edge.node_a == saved_edge.node_b) {
+        saved_edge.node_b == kInvalidObjectId || saved_edge.node_a == saved_edge.node_b ||
+        !bundles_by_edge.contains(saved_edge.edge_id)) {
       continue;
     }
     BackboneEdge edge{};

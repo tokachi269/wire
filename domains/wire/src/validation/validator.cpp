@@ -188,6 +188,16 @@ void validate_backbone_bundle_variations(const CoreState& state,
             "Backbone Bundle variation descriptor must be structurally valid",
             variation.variation_id);
     }
+    std::set<std::pair<BundleTemplateId, int>> descriptor_groups{};
+    for (const RandomBackboneBundleRule& rule : variation.descriptor.rules) {
+      const auto template_it =
+          core.bundle_templates().find(rule.bundle_template_id);
+      if (template_it == core.bundle_templates().end()) continue;
+      descriptor_groups.emplace(
+          rule.bundle_template_id,
+          rule.conductor_count > 0 ? rule.conductor_count
+                                   : template_it->second.default_count);
+    }
 
     std::unordered_set<std::uint64_t> placement_keys{};
     for (const SavedBackboneBundleVariationInstance& instance :
@@ -237,7 +247,8 @@ void validate_backbone_bundle_variations(const CoreState& state,
            (template_it->second.count_rule == BundleCountRuleKind::kRange &&
             membership.conductor_count >= template_it->second.min_count &&
             membership.conductor_count <= template_it->second.max_count));
-      if (!count_valid || membership.edge_ids.empty() ||
+      if (!count_valid || !descriptor_groups.contains(membership_key) ||
+          membership.edge_ids.empty() ||
           !membership_keys.insert(membership_key).second) {
         issue("BackboneBundleVariationMembershipInvalid",
               "Backbone Bundle variation membership source must be unique, valid, and non-empty",

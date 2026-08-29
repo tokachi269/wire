@@ -1468,6 +1468,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "generic pipeline and loaded-output rebuild derive live topology without variation retention scans",
                          "Boundary", false,
                          C892_generic_pipeline_and_rebuild_do_not_read_variation_retention);
+  test_registry::AddTest(tests, "C893_dormant_same_pair_reuse_ignores_route_local_order",
+                         "dormant and live same-node-pair edges share one geometry compatibility contract independent of later route-local order",
+                         "Differential", true,
+                         C893_dormant_same_pair_reuse_ignores_route_local_order);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

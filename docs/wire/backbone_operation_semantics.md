@@ -121,7 +121,9 @@ effective template/countのduplicate ruleはreplay identityが曖昧になるた
 `SavedBackboneGraph`にedge identityがあることとlive Bundle topologyであることは別である。live edgeは
 `SavedBackboneEdgeBundle`の存在から導出し、Bundleを持たないdormant edgeはcurrent route、junction、通常pairing context、
 pass-through incident、source-edge候補、derived rebuildへ含めない。同じnode pairの通常生成がdormant edgeを再利用できるのは、
-保存route/order、lateral offset、向きが要求とexact compatibleな場合だけであり、不整合はsilent overwriteせずoperation failureとする。
+lateral offsetと向きが要求とexact compatibleな場合だけであり、不整合はsilent overwriteせずoperation failureとする。
+`SavedBackboneEdge.route / order`は初回保存時のroute-local metadataでphysical compatibilityには含めず、後続利用時の
+route/orderは新しい`SavedBackboneEdgeBundle` relationが所有する。この判定はlive/dormant edgeで同一とする。
 recipe-backed Bundleの個別placement/count/add/retire/通常extensionは`U`とし、exact scopeを持つvariation operationだけが
 outer trial内でinstance ownership associationを一時的に外して既存generic operationを合成する。membershipによるgraph
 retentionはその間も維持する。いずれの失敗もdescriptorとphysical

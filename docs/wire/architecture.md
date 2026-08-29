@@ -443,6 +443,11 @@ structural validation、exact replay、raw identity lookupには存在するが�
 通常generationのcontext・pass-through・source projection、load時のderived rebuildへは参加しない。generic pipeline、viewer、
 live topology queryはvariationを解釈しない。
 
+`SavedBackboneEdge.route / order`は初回保存時のroute-local導出補助であり、physical edge identityやsame-node-pair再利用の
+compatibilityではない。同じphysical edgeを別route順序から使う各occurrenceのroute/orderは`SavedBackboneEdgeBundle`が持つ。
+したがってlive/dormantのどちらもedge reuseをroute/orderで拒否せず、directionとlateral offset等のphysical geometryだけを
+exact compatibilityとして扱う。
+
 variation membershipは履歴ではなく、current descriptorに存在するeffective template/count groupのexact replay referenceである。
 live instanceがあればcurrent topologyから更新し、count 0でもgroupがdescriptorに残る間だけ既存membershipを保持する。
 group削除・group変更ではold membershipを削除する。同じeffective template/countのruleを複数置くとreplay sourceを区別

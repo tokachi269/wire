@@ -252,8 +252,7 @@ SavedBackboneEdgeRef CoreState::save_backbone_edge(
                                        : ScaleVec(edge.dir, -1.0);
         const Vec3d delta = existing_dir - dir;
         if (dormant &&
-            (edge.route != route || edge.order != order ||
-             std::abs(edge.lateral_offset_m - lateral_offset_m) >
+            (std::abs(edge.lateral_offset_m - lateral_offset_m) >
                  kLengthToleranceM ||
              Dot(delta, delta) > kLengthSquaredToleranceM2)) {
           return {};

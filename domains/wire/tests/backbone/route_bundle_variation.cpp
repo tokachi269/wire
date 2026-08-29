@@ -1856,4 +1856,124 @@ bool C891_dormant_skeleton_does_not_change_unrelated_generation() {
   return true;
 }
 
+bool C893_dormant_same_pair_reuse_ignores_route_local_order() {
+  using namespace city::wire;
+  RouteBundleVariationInput one{};
+  one.route_seed = 0x8930102;
+  one.preferred_side_sign = -1;
+  one.pole_type_id = 2;
+  one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
+                5.2, 5.2, 0.25, 0.25, 0.16}};
+
+  auto initial_request = [](CoreState& state) {
+    BackboneSpec request = request_with(
+        state, {}, {{0.0, 0.0, 4.0}, {12.0, 0.0, 4.0}});
+    BackboneInputSpec::NodeSpec a{};
+    a.point_index = 0;
+    a.support_kind = SupportKind::kMidair;
+    BackboneInputSpec::NodeSpec b{};
+    b.point_index = 1;
+    b.support_kind = SupportKind::kMidair;
+    request.path.node_specs = {a, b};
+    return request;
+  };
+  CoreState live{};
+  CoreState dormant{};
+  const auto live_initial =
+      live.GenerateBackboneBundleVariation(initial_request(live), one);
+  const auto dormant_initial =
+      dormant.GenerateBackboneBundleVariation(initial_request(dormant), one);
+  if (!live_initial.ok || !dormant_initial.ok ||
+      live_initial.value.generation.generated_node_ids.size() != 2 ||
+      dormant_initial.value.generation.generated_node_ids.size() != 2 ||
+      live.view().backbone().edges.size() != 1 ||
+      dormant.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const ObjectId live_ab_edge = live.view().backbone().edges.front().edge_id;
+  const ObjectId dormant_ab_edge =
+      dormant.view().backbone().edges.front().edge_id;
+  RouteBundleVariationInput zero = one;
+  zero.rules.front().min_instances = 0;
+  zero.rules.front().max_instances = 0;
+  if (!dormant.ApplyBackboneBundleVariation(
+                   dormant_initial.value.variation_id, zero)
+           .ok) {
+    return false;
+  }
+
+  BackboneBundleSpec peer{};
+  peer.bundle_template_id = kDefaultCommunicationBundleTemplateId;
+  peer.placement_key = 8931;
+  peer.layer = SpanLayer::kCommunication;
+  peer.count = 1;
+  peer.placement_explicit = true;
+  peer.height_m = 5.45;
+  peer.lateral_m = -0.45;
+  peer.spacing_m = 0.16;
+  auto reuse_request = [&](CoreState& state,
+                           const std::vector<ObjectId>& node_ids) {
+    BackboneSpec request = request_with(
+        state, {peer},
+        {{-12.0, 0.0, 4.0}, {0.0, 0.0, 4.0}, {12.0, 0.0, 4.0}});
+    BackboneInputSpec::NodeSpec x{};
+    x.point_index = 0;
+    x.support_kind = SupportKind::kMidair;
+    BackboneInputSpec::NodeSpec a{};
+    a.point_index = 1;
+    a.support_kind = SupportKind::kMidair;
+    a.node_id = node_ids[0];
+    BackboneInputSpec::NodeSpec b{};
+    b.point_index = 2;
+    b.support_kind = SupportKind::kMidair;
+    b.node_id = node_ids[1];
+    request.path.node_specs = {x, a, b};
+    return request;
+  };
+  const auto live_reused = live.GenerateFromBackboneSpec(reuse_request(
+      live, live_initial.value.generation.generated_node_ids));
+  const auto dormant_reused = dormant.GenerateFromBackboneSpec(reuse_request(
+      dormant, dormant_initial.value.generation.generated_node_ids));
+
+  auto edge_bundle_for = [](const CoreState& state, ObjectId edge_id,
+                            ObjectId bundle_id)
+      -> const SavedBackboneEdgeBundle* {
+    const auto found = std::ranges::find_if(
+        state.view().backbone().edge_bundles,
+        [&](const SavedBackboneEdgeBundle& edge_bundle) {
+          return edge_bundle.edge_id == edge_id &&
+                 edge_bundle.bundle_id == bundle_id;
+        });
+    return found == state.view().backbone().edge_bundles.end() ? nullptr
+                                                               : &*found;
+  };
+  const ObjectId live_peer_bundle =
+      live_reused.ok && !live_reused.value.bundle_ids.empty()
+          ? live_reused.value.bundle_ids.front()
+          : kInvalidObjectId;
+  const ObjectId dormant_peer_bundle =
+      dormant_reused.ok && !dormant_reused.value.bundle_ids.empty()
+          ? dormant_reused.value.bundle_ids.front()
+          : kInvalidObjectId;
+  const SavedBackboneEdgeBundle* live_ab_bundle =
+      edge_bundle_for(live, live_ab_edge, live_peer_bundle);
+  const SavedBackboneEdgeBundle* dormant_ab_bundle =
+      edge_bundle_for(dormant, dormant_ab_edge, dormant_peer_bundle);
+  const SavedBackboneEdge* live_saved = live.view().backbone_edge(live_ab_edge);
+  const SavedBackboneEdge* dormant_saved =
+      dormant.view().backbone_edge(dormant_ab_edge);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      live_reused.ok && dormant_reused.ok && live_saved != nullptr &&
+          dormant_saved != nullptr && live_ab_bundle != nullptr &&
+          dormant_ab_bundle != nullptr && live_saved->order == 0 &&
+          dormant_saved->order == 0 && live_ab_bundle->order == 1 &&
+          dormant_ab_bundle->order == 1 &&
+          live.view().backbone().edges.size() == 2 &&
+          dormant.view().backbone().edges.size() == 2,
+      dormant_reused.error.empty()
+          ? "dormant same-pair reuse diverged from live reuse after route-local order changed"
+          : dormant_reused.error);
+  return true;
+}
+
 } // namespace backbone_tests

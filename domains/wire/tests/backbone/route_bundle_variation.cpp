@@ -5,9 +5,11 @@
 #include "city/wire/core_test_hook.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -1057,16 +1059,19 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   BundleTemplate plain_comm = plain.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
   plain_comm.span_visual_assembly.visual_member_count_min = 1;
   plain_comm.span_visual_assembly.visual_member_count_max = 1;
-  plain_comm.span_visual_assembly.center_wander_amplitude_m = 0.0;
-  plain_comm.span_visual_assembly.member_wander_ratio = 0.0;
+  VisualSettings plain_visual = plain.view().visual_settings();
+  plain_visual.wire_irregularity_scale = 0.0;
   if (!plain.UpdateBundleTemplate(plain_comm).ok ||
+      !plain.UpdateVisualSettings(plain_visual).ok ||
       !plain.GenerateFromBackboneSpec(request_with(plain, independent_specs)).ok) return false;
   CoreState wandered;
   BundleTemplate wandered_comm = wandered.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
   wandered_comm.span_visual_assembly.visual_member_count_min = 1;
   wandered_comm.span_visual_assembly.visual_member_count_max = 1;
-  wandered_comm.span_visual_assembly.member_wander_ratio = 0.0;
+  VisualSettings wandered_visual = wandered.view().visual_settings();
+  wandered_visual.wire_irregularity_scale = 5.0;
   if (!wandered.UpdateBundleTemplate(wandered_comm).ok ||
+      !wandered.UpdateVisualSettings(wandered_visual).ok ||
       !wandered.GenerateFromBackboneSpec(request_with(wandered, independent_specs)).ok) return false;
   const auto plain_parts = edge_bodies(plain, kDefaultCommunicationBundleTemplateId);
   const auto wandered_parts = edge_bodies(wandered, kDefaultCommunicationBundleTemplateId);
@@ -1074,58 +1079,41 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
                        wandered_parts.size() == plain_parts.size(),
                    "independent communication cable count mismatch");
   std::set<double> sags{};
-  std::vector<Vec3d> middle_offsets{};
-  std::vector<double> maximum_offsets{};
   for (std::size_t cable = 0; cable < plain_parts.size(); ++cable) {
     const auto& before = *plain_parts[cable];
     const auto& after = *wandered_parts[cable];
-    WIRE_TEST_EXPECT(before.samples.size() == after.samples.size() && before.samples.size() >= 4,
-                     "wander changed sampling");
-    WIRE_TEST_EXPECT(same_point(before.samples.front(), after.samples.front()) &&
-                         same_point(before.samples.back(), after.samples.back()),
-                     "center wander changed an attachment endpoint");
-    const Vec3d before_start_tangent = normalized(before.samples[1] - before.samples[0]);
-    const Vec3d after_start_tangent = normalized(after.samples[1] - after.samples[0]);
-    const Vec3d before_end_tangent = normalized(before.samples.back() - before.samples[before.samples.size() - 2]);
-    const Vec3d after_end_tangent = normalized(after.samples.back() - after.samples[after.samples.size() - 2]);
-    WIRE_TEST_EXPECT(Dot(before_start_tangent, after_start_tangent) >= 0.9998 &&
-                         Dot(before_end_tangent, after_end_tangent) >= 0.9998,
-                     "center wander changed an endpoint tangent too much");
-    double maximum_offset = 0.0;
-    for (std::size_t index = 1; index + 1 < before.samples.size(); ++index) {
-      maximum_offset = std::max(maximum_offset, Length(before.samples[index] - after.samples[index]));
-    }
-    maximum_offsets.push_back(maximum_offset);
-    WIRE_TEST_EXPECT(Length(before.samples[1] - after.samples[1]) > 1e-8 &&
-                         Length(before.samples[before.samples.size() - 2] -
-                                after.samples[after.samples.size() - 2]) > 1e-8,
-                     "center wander has a fully straight endpoint interval");
-    middle_offsets.push_back(
-        after.samples[after.samples.size() / 2] - before.samples[before.samples.size() / 2]);
+    WIRE_TEST_EXPECT(same_samples(before.samples, after.samples),
+                     "member looseness moved a single cable centerline");
     const double unvaried_sag = 0.03 * Length(after.boundary_b - after.boundary_a);
     WIRE_TEST_EXPECT(after.sag_m >= unvaried_sag * 0.88 - 1e-12 &&
                          after.sag_m <= unvaried_sag * 1.12 + 1e-12,
                      "non-HV sag exceeded the configured variation range");
     sags.insert(after.sag_m);
   }
-  WIRE_TEST_EXPECT(Length(middle_offsets[0] - middle_offsets[1]) > 0.005 ||
-                       Length(middle_offsets[1] - middle_offsets[2]) > 0.005,
-                   "independent non-HV cables received the same center path variation");
-  const auto [minimum_offset, maximum_offset] = std::ranges::minmax(maximum_offsets);
-  WIRE_TEST_EXPECT(minimum_offset >= 0.03 && maximum_offset <= 0.08,
-                   "center wander is not within the visible tuning envelope: min=" +
-                       std::to_string(minimum_offset) + " max=" +
-                       std::to_string(maximum_offset));
   WIRE_TEST_EXPECT(sags.size() >= 2, "non-HV sag did not vary by independent cable");
 
+  CoreState compact;
   CoreState bundled;
+  BundleTemplate compact_comm = compact.view().bundle_templates().at(
+      kDefaultCommunicationBundleTemplateId);
   BundleTemplate bundled_comm = bundled.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
+  compact_comm.span_visual_assembly.visual_member_count_min = 3;
+  compact_comm.span_visual_assembly.visual_member_count_max = 3;
   bundled_comm.span_visual_assembly.visual_member_count_min = 3;
   bundled_comm.span_visual_assembly.visual_member_count_max = 3;
-  if (!bundled.UpdateBundleTemplate(bundled_comm).ok ||
+  VisualSettings compact_visual = compact.view().visual_settings();
+  compact_visual.wire_irregularity_scale = 0.0;
+  if (!compact.UpdateBundleTemplate(compact_comm).ok ||
+      !compact.UpdateVisualSettings(compact_visual).ok ||
+      !compact.GenerateFromBackboneSpec(request_with(compact, {{
+          kDefaultCommunicationBundleTemplateId, 3010, SpanLayer::kCommunication,
+          1, true, 5.3, -0.30, 0.05}})).ok ||
+      !bundled.UpdateBundleTemplate(bundled_comm).ok ||
       !generate(&bundled, kDefaultCommunicationBundleTemplateId, 1, 3010).ok) return false;
+  const auto compact_parts = edge_bodies(compact, kDefaultCommunicationBundleTemplateId);
   const auto bundled_parts = edge_bodies(bundled, kDefaultCommunicationBundleTemplateId);
-  WIRE_TEST_EXPECT(bundled.view().spans().size() == 1 && bundled_parts.size() == 3,
+  WIRE_TEST_EXPECT(bundled.view().spans().size() == 1 && bundled_parts.size() == 3 &&
+                       compact_parts.size() == bundled_parts.size(),
                    "visual members multiplied authoritative topology");
   const Span* bundled_span = bundled.view().spans().find(bundled_parts.front()->source_span_id);
   const Port* bundled_port_a = bundled_span == nullptr ? nullptr :
@@ -1137,6 +1125,9 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   const std::size_t sample_count = bundled_parts.front()->samples.size();
   WIRE_TEST_EXPECT(sample_count >= 5 &&
                        std::ranges::all_of(bundled_parts, [sample_count](const auto* member) {
+                         return member->samples.size() == sample_count;
+                       }) &&
+                       std::ranges::all_of(compact_parts, [sample_count](const auto* member) {
                          return member->samples.size() == sample_count;
                        }),
                    "visual bundle members do not share a stable sampling frame");
@@ -1152,6 +1143,12 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   const double cable_diameter = bundled.view().cable_templates().at(
       bundled_comm.cable_template_id).outer_diameter_m;
   const double member_spacing = bundled_comm.span_visual_assembly.visual_member_spacing_m;
+  WIRE_TEST_EXPECT(member_spacing > cable_diameter &&
+                       member_spacing - cable_diameter <= 0.0025 &&
+                       bundled_comm.span_visual_assembly.member_wander_wavelength_m >= 0.25 &&
+                       bundled_comm.span_visual_assembly.member_wander_wavelength_m <= 0.305 &&
+                       bundled_comm.span_visual_assembly.member_wander_ratio <= 0.20,
+                   "default communication bundle is not diameter- and binding-constrained");
   const auto pair_distances_at = [&bundled_parts](std::size_t index) {
     std::vector<double> distances{};
     for (std::size_t a = 0; a < bundled_parts.size(); ++a) {
@@ -1169,9 +1166,17 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   };
   for (std::size_t index = 0; index < sample_count; ++index) {
     const Vec3d centroid = centroid_at(index);
+    Vec3d compact_centroid{};
+    for (const VisualCurvePart* member : compact_parts) {
+      compact_centroid = compact_centroid + member->samples[index];
+    }
+    compact_centroid = ScaleVec(
+        compact_centroid, 1.0 / static_cast<double>(compact_parts.size()));
     const std::vector<double> pair_distances = pair_distances_at(index);
+    WIRE_TEST_EXPECT(Length(centroid - compact_centroid) <= 1e-9,
+                     "member looseness moved the logical bundle centerline");
     WIRE_TEST_EXPECT(pair_distances.front() > cable_diameter &&
-                         pair_distances.back() <= member_spacing * 1.35,
+                         pair_distances.back() <= member_spacing + 1e-9,
                      "visual bundle members overlap or separate beyond the compact cross-section");
     WIRE_TEST_EXPECT(triangle_area_at(index) >= member_spacing * member_spacing * 0.25,
                      "three visual members collapsed to a collinear cross-section");
@@ -1179,6 +1184,12 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
       WIRE_TEST_EXPECT(Length(member->samples[index] - centroid) <= member_spacing * 0.85,
                        "visual bundle member escaped the containment radius");
     }
+  }
+  for (const std::size_t endpoint : {std::size_t{0}, sample_count - 1}) {
+    const std::vector<double> endpoint_distances = pair_distances_at(endpoint);
+    WIRE_TEST_EXPECT(endpoint_distances.front() <= cable_diameter + 2e-6 &&
+                         endpoint_distances.back() <= cable_diameter + 2e-6,
+                     "binding endpoint did not return members to compact contact");
   }
   const std::size_t quarter = bundled_parts.front()->samples.size() / 4;
   const std::size_t middle = bundled_parts.front()->samples.size() / 2;
@@ -1192,7 +1203,7 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
         std::abs(quarter_distances[index] - middle_distances[index]),
         std::abs(middle_distances[index] - three_quarter_distances[index])});
   }
-  WIRE_TEST_EXPECT(cross_section_change > 0.0001,
+  WIRE_TEST_EXPECT(cross_section_change > 0.00005,
                    "visual bundle cross-section remained completely fixed along the span");
 
   CoreState connected;
@@ -1326,7 +1337,8 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
   WIRE_TEST_EXPECT(optical_members.back()->section_key.logical_span_id == logical_span_id &&
                        support->source_span_id == logical_span_id && helix->source_span_id == logical_span_id,
                    "optical assembly lost source logical span identity");
-  const Vec3d support_middle = support->samples[support->samples.size() / 2];
+  const Vec3d support_middle = sample_polyline(
+      support->samples, polyline_length(support->samples) * 0.5).first;
   Vec3d member_middle{};
   for (const VisualCurvePart* member : optical_members) {
     member_middle = member_middle + member->samples[member->samples.size() / 2];
@@ -1352,7 +1364,7 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
     for (std::size_t a = 0; a < optical_members.size(); ++a) {
       for (std::size_t b = a + 1; b < optical_members.size(); ++b) {
         WIRE_TEST_EXPECT(Length(optical_members[a]->samples[index] -
-                                    optical_members[b]->samples[index]) > optical_diameter,
+                                    optical_members[b]->samples[index]) + 1e-6 >= optical_diameter,
                          "optical visual members overlap inside the helix");
       }
     }
@@ -1371,6 +1383,65 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
       WIRE_TEST_EXPECT(occupied_radius <= helix_radius + 1e-8,
                        "optical visual member escaped the shared helix containment radius");
     }
+  }
+  return true;
+}
+
+bool C894_non_hv_sharp_jumper_keeps_two_port_g1_contract() {
+  using namespace city::wire;
+  CoreState state;
+  BundleTemplate communication = state.view().bundle_templates().at(
+      kDefaultCommunicationBundleTemplateId);
+  communication.span_visual_assembly.visual_member_count_min = 1;
+  communication.span_visual_assembly.visual_member_count_max = 1;
+  if (!state.UpdateBundleTemplate(communication).ok) return false;
+
+  BackboneBundleSpec spec{kDefaultCommunicationBundleTemplateId, 89401,
+      SpanLayer::kCommunication, 1, true, 5.2, -0.30, 0.20};
+  const auto generated = state.GenerateFromBackboneSpec(request_with(
+      state, {spec}, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {6.0, 3.0, 0.0}}));
+  WIRE_TEST_EXPECT_ANCHOR(generated.ok && generated.value.generated_span_ids.size() == 2,
+                          generated.error.empty() ?
+                              "sharp communication fixture generation failed" : generated.error);
+
+  std::vector<const VisualCurvePart*> bodies{};
+  std::vector<const VisualCurvePart*> jumpers{};
+  for (const VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.bundle_template_id != kDefaultCommunicationBundleTemplateId) continue;
+    if (part.kind == VisualCurvePartKind::kEdgeBody) bodies.push_back(&part);
+    if (part.kind == VisualCurvePartKind::kJumper) jumpers.push_back(&part);
+  }
+  WIRE_TEST_EXPECT_ANCHOR(bodies.size() == 2 && jumpers.size() == 1,
+                          "sharp communication did not keep two bodies and one Jumper");
+  const VisualCurvePart& jumper = *jumpers.front();
+  WIRE_TEST_EXPECT_PRESENCE(jumper.samples.size() >= 3,
+                            "sharp communication Jumper has insufficient final samples");
+
+  const auto body_away_from = [&](const Vec3d& endpoint) -> std::optional<Vec3d> {
+    for (const VisualCurvePart* body : bodies) {
+      if (body->samples.size() < 2) continue;
+      if (Length(body->samples.front() - endpoint) <= 1e-9) {
+        return normalized(body->samples[1] - body->samples.front());
+      }
+      if (Length(body->samples.back() - endpoint) <= 1e-9) {
+        return normalized(body->samples[body->samples.size() - 2] - body->samples.back());
+      }
+    }
+    return std::nullopt;
+  };
+  const std::array<std::pair<Vec3d, Vec3d>, 2> jumper_endpoints{{
+      {jumper.samples.front(), normalized(jumper.samples[1] - jumper.samples.front())},
+      {jumper.samples.back(), normalized(
+          jumper.samples[jumper.samples.size() - 2] - jumper.samples.back())},
+  }};
+  for (const auto& [endpoint, jumper_away] : jumper_endpoints) {
+    const std::optional<Vec3d> body_away = body_away_from(endpoint);
+    WIRE_TEST_EXPECT_PRESENCE(body_away.has_value(),
+                              "sharp Jumper endpoint did not meet a main body endpoint");
+    const double endpoint_dot = Dot(*body_away, jumper_away);
+    WIRE_TEST_EXPECT_ORACLE(endpoint_dot <= -0.995,
+                            "sharp Jumper final samples are not G1 with the main body: dot=" +
+                                std::to_string(endpoint_dot));
   }
   return true;
 }

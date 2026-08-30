@@ -1472,6 +1472,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "dormant and live same-node-pair edges share one geometry compatibility contract independent of later route-local order",
                          "Differential", true,
                          C893_dormant_same_pair_reuse_ignores_route_local_order);
+  test_registry::AddTest(tests, "C894_non_hv_sharp_jumper_keeps_two_port_g1_contract",
+                         "non-HV sharp rows keep the current two-port jumper representation and sampled endpoint G1",
+                         "Invariant", false,
+                         C894_non_hv_sharp_jumper_keeps_two_port_g1_contract);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,

@@ -235,8 +235,6 @@ struct SpanVisualAssemblyTemplate {
   int visual_member_count_min = 1;
   int visual_member_count_max = 1;
   double visual_member_spacing_m = 0.0;
-  double center_wander_amplitude_m = 0.0;
-  double center_wander_wavelength_m = 0.0;
   double member_wander_ratio = 0.0;
   double member_wander_wavelength_m = 0.0;
   double member_wander_phase_bias = 0.0;

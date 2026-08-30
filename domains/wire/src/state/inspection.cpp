@@ -857,8 +857,6 @@ std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleTe
   result.properties.push_back({"span_visual_assembly.visual_member_count_min", std::to_string(tpl.span_visual_assembly.visual_member_count_min), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.visual_member_count_max", std::to_string(tpl.span_visual_assembly.visual_member_count_max), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.visual_member_spacing_m", std::to_string(tpl.span_visual_assembly.visual_member_spacing_m), PropertyAccessKind::kEditable});
-  result.properties.push_back({"span_visual_assembly.center_wander_amplitude_m", std::to_string(tpl.span_visual_assembly.center_wander_amplitude_m), PropertyAccessKind::kEditable});
-  result.properties.push_back({"span_visual_assembly.center_wander_wavelength_m", std::to_string(tpl.span_visual_assembly.center_wander_wavelength_m), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.member_wander_ratio", std::to_string(tpl.span_visual_assembly.member_wander_ratio), PropertyAccessKind::kEditable});
   result.properties.push_back({"span_visual_assembly.member_twist_turns_per_meter", std::to_string(tpl.span_visual_assembly.member_twist_turns_per_meter), PropertyAccessKind::kEditable});
   result.properties.push_back({"cable_template_id", std::to_string(static_cast<unsigned long long>(tpl.cable_template_id)),

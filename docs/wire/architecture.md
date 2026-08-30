@@ -512,26 +512,31 @@ CableRun identityは増やさない。
 
 members はbase sectionと、そのlogical cableをつなぐNodePatch / Lead / Jumperから派生するvisual構成要素である。
 線種ごとの`SpanVisualAssemblyTemplate`が基準となる形状を所有し、globalな線の乱れ倍率は
-`VisualSettings`がcenter wanderとmember-relative wanderへ同じ比率で作用させる。倍率は基準値を
-置き換えず、HVの物理lane/crossarm形状には作用しない。
+member-relative variationだけへ作用する。logical cable centerlineは通常のsag curveを維持し、束全体を横波として
+動かさない。倍率は物理上限を置き換えず、HVの物理lane/crossarm形状には作用しない。
 main spanのsupport path とmembersはhelixの内側に置き、support pathは内周上部に接し、membersは下側に配置する。
 helix は endpoint trim 区間だけ生成し、電柱や attachment へ接続しない。
 
 visual memberの断面はcenter curveに直交するlateral/up 2次元平面へcompactに配置する。1本はcenter、
 2本は対向、3本は三角形、4本は正方形相当、5本以上は小さな決定的円形配置とし、packing solverは持たない。
-`visual_member_spacing_m`はこの基準断面のmember中心間隔である。基準断面offsetはendpointでも維持し、
+`visual_member_spacing_m`は結束間で許す最大member中心間隔であり、基準断面は線径から求める接触配置とする。
+基準断面offsetはendpointでも維持し、
 全memberをlogical endpointの1点へ収束させない。authoritative Port / logical endpointはvisual member endpoint群の
 重心であり、member数に応じてPort、Span、Bundle、attachment、fixtureを増やさない。
 
 Communication、Optical、support path、helix、member twist、member wanderは同じlogical-span assembly pipelineの
 設定差で表現する。別のedge-bundle groupingやcategory専用wander ownerを持たず、geometry近傍からmemberを探索しない。
 
-非HV main spanはsingle-memberを含め、arc length `s` に対するdeterministicなcenter-path offsetを全中間sampleへ適用する。
-physical bundleではこのcenter variationに、より小さいmember-relative variationを重ねる。support pathとhelixも同じ
-center pathへ追従する。center variationのenvelopeはspan長を`L`として
-`E(s) = 16 (s/L)^2 (1-s/L)^2` とし、`E(0)=E(L)=0`かつ`E'(0)=E'(L)=0`を満たす。
-したがってattachment endpointとendpoint tangentを維持し、直線区間とwander区間の離散境界を作らない。
-HV main spanとHV arrangementにはcenter variationを適用しない。
+非HV visual bundleは、結束位置で線径由来のcompact断面へ戻り、結束間だけ残りclearance内で断面の向きと密度を
+滑らかに変える。`member_wander_wavelength_m`はこの結束間隔として扱う。変位は線径と
+`visual_member_spacing_m`の差を越えず、曲率は`CableTemplate.min_bend_radius_m`を下回らない。
+sampleごとのrandom offsetやspan長に比例する長波長のcenter wanderを使わない。support pathとhelixも同じ安定した
+center pathへ追従し、HV main spanとHV arrangementにはmember variation multiplierを適用しない。
+
+Communication / Opticalの初期visual evaluation値では、結束間隔を0.30 mとする。これはCorningの架空光ケーブル
+施工手順にある「1 linear foot当たり1 wrap以上」を基準にした値であり、日本国内の規格値とは扱わない。
+線間の最大2 mmの余裕は結束位置以外で隣接線を視認するためのrendering allowanceで、物理規格値ではない。
+（参考: [Corning Standard Recommended Procedure 005-010](https://www.corning.com/content/dam/corning/catalog/coc/documents/standard-recommended-procedures/005-010.pdf), 3.20-3.21）
 
 main spanのsagは`ResolvedSpanCurveInputs.effective_sag_ratio`を最終curveまで一貫して使う。非HVは既存の
 hierarchical variationから小さな差を導出し、HVはvariation multiplierを適用せず従来値を維持する。
@@ -542,8 +547,8 @@ support、helixを含むassemblyの正本設定である。visual member数はsa
 support path からの member offset、member wire radius、helix wire radius、clearance を含む最小半径を
 derived 側で求める。contained member は support path のnormalized arc-length位置へ対応付け、
 helix内周から出ないように断面offsetをclampする。member-relative variationは基準packingと線径の間に残るmarginの
-`member_wander_ratio`分だけを使い、endpoint近傍では弱めても基準断面offsetは弱めない。arc lengthに沿う少数の
-低周波成分をlateral/upの両方向へ適用し、sampleごとの独立random、member交差、containment radiusからの離脱を許さない。
+`member_wander_ratio`分だけを使う。結束間の変化は両端で変位と微分が0になる決定的profileとし、
+sampleごとの独立random、member交差、containment radiusからの離脱を許さない。
 CommunicationとOpticalは同じpacking、containment、margin-based wander処理を使う。Opticalのsupport path、member、helixは
 同じcenter pathとcontainment radiusを共有する。member数・phaseはstableなBundle placement keyとlogical laneから
 決定的に導出し、load、derived rebuild、regenerateでrerollしない。

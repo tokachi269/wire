@@ -203,8 +203,6 @@ void CoreState::register_default_bundle_templates() {
   lv.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   lv.span_visual_assembly.support_path_enabled = true;
   lv.span_visual_assembly.endpoint_trim_m = 0.35;
-  lv.span_visual_assembly.center_wander_amplitude_m = 0.075;
-  lv.span_visual_assembly.center_wander_wavelength_m = 19.0;
   authoritative_.bundle_templates[lv.id] = lv;
 
   BundleTemplate drop{};
@@ -230,8 +228,6 @@ void CoreState::register_default_bundle_templates() {
   drop.enable_branch_down_offset = false;
   drop.branch_endpoint_offset_m = 0.0;
   drop.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
-  drop.span_visual_assembly.center_wander_amplitude_m = 0.065;
-  drop.span_visual_assembly.center_wander_wavelength_m = 16.0;
   authoritative_.bundle_templates[drop.id] = drop;
 
   BundleTemplate comm{};
@@ -260,11 +256,9 @@ void CoreState::register_default_bundle_templates() {
   comm.span_visual_assembly.endpoint_trim_m = 1.2;
   comm.span_visual_assembly.visual_member_count_min = 1;
   comm.span_visual_assembly.visual_member_count_max = 4;
-  comm.span_visual_assembly.visual_member_spacing_m = 0.045;
-  comm.span_visual_assembly.center_wander_amplitude_m = 0.09;
-  comm.span_visual_assembly.center_wander_wavelength_m = 18.0;
-  comm.span_visual_assembly.member_wander_ratio = 0.22;
-  comm.span_visual_assembly.member_wander_wavelength_m = 9.0;
+  comm.span_visual_assembly.visual_member_spacing_m = 0.018;
+  comm.span_visual_assembly.member_wander_ratio = 0.20;
+  comm.span_visual_assembly.member_wander_wavelength_m = 0.30;
   authoritative_.bundle_templates[comm.id] = comm;
 
   BundleTemplate optical{};
@@ -299,11 +293,9 @@ void CoreState::register_default_bundle_templates() {
   optical.span_visual_assembly.endpoint_trim_m = 1.05;
   optical.span_visual_assembly.visual_member_count_min = 1;
   optical.span_visual_assembly.visual_member_count_max = 2;
-  optical.span_visual_assembly.visual_member_spacing_m = 0.025;
-  optical.span_visual_assembly.center_wander_amplitude_m = 0.08;
-  optical.span_visual_assembly.center_wander_wavelength_m = 20.0;
-  optical.span_visual_assembly.member_wander_ratio = 0.15;
-  optical.span_visual_assembly.member_wander_wavelength_m = 10.0;
+  optical.span_visual_assembly.visual_member_spacing_m = 0.014;
+  optical.span_visual_assembly.member_wander_ratio = 0.20;
+  optical.span_visual_assembly.member_wander_wavelength_m = 0.30;
   authoritative_.bundle_templates[optical.id] = optical;
 }
 

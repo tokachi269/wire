@@ -842,17 +842,6 @@ describe("wire wasm smoke", () => {
       runState.bundleTemplate(index)
     ).find((template) => template.id === 102);
     expect(bundleTemplate).toBeDefined();
-    const visualAssemblyDisabled = runState.updateBundleTemplate({
-      ...bundleTemplate!,
-      spanVisualAssembly: {
-        ...bundleTemplate!.spanVisualAssembly,
-        centerWanderAmplitude: 0
-      }
-    });
-    expect(visualAssemblyDisabled.ok, visualAssemblyDisabled.error).toBe(true);
-    expect(Array.from({ length: runState.bundleTemplateCount() }, (_, index) =>
-      runState.bundleTemplate(index)
-    ).find((template) => template.id === 102)?.spanVisualAssembly.centerWanderAmplitude).toBe(0);
     const cableTemplate = Array.from({ length: runState.cableTemplateCount() }, (_, index) =>
       runState.cableTemplate(index)
     ).find((template) => template.id === bundleTemplate!.cableTemplateId);
@@ -2195,7 +2184,7 @@ describe("wire wasm smoke", () => {
     const before = visualParts(irregularityState)
       .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 104)
       .map((part) => Array.from(part.samples));
-    expect(before.length).toBeGreaterThan(0);
+    expect(before.length).toBeGreaterThan(1);
 
     const settings = irregularityState.visualSettings();
     const updated = irregularityState.updateVisualSettings({
@@ -2207,10 +2196,28 @@ describe("wire wasm smoke", () => {
       .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 104)
       .map((part) => Array.from(part.samples));
     expect(after).toHaveLength(before.length);
-    const maximumDelta = Math.max(...after.flatMap((samples, index) =>
-      samples.map((value, sampleIndex) => Math.abs(value - before[index][sampleIndex]))
-    ));
-    expect(maximumDelta).toBeGreaterThan(0.01);
+    expect(after.every((samples, index) => samples.length === before[index].length)).toBe(true);
+    const sampleCount = before[0].length / 3;
+    let maximumSpacingDelta = 0;
+    let maximumCentroidDelta = 0;
+    for (let sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
+      const offset = sampleIndex * 3;
+      const pairDistance = (members: number[][]) => Math.hypot(
+        members[0][offset] - members[1][offset],
+        members[0][offset + 1] - members[1][offset + 1],
+        members[0][offset + 2] - members[1][offset + 2]
+      );
+      maximumSpacingDelta = Math.max(maximumSpacingDelta,
+        Math.abs(pairDistance(before) - pairDistance(after)));
+      for (let axis = 0; axis < 3; ++axis) {
+        const centroid = (members: number[][]) => members.reduce(
+          (sum, samples) => sum + samples[offset + axis], 0) / members.length;
+        maximumCentroidDelta = Math.max(maximumCentroidDelta,
+          Math.abs(centroid(before) - centroid(after)));
+      }
+    }
+    expect(maximumSpacingDelta).toBeGreaterThan(0.00005);
+    expect(maximumCentroidDelta).toBeLessThan(1e-9);
     irregularityState.delete();
   });
 

@@ -356,8 +356,6 @@ bool span_visual_assembly_equals(const SpanVisualAssemblyTemplate& a, const Span
          a.visual_member_count_min == b.visual_member_count_min &&
          a.visual_member_count_max == b.visual_member_count_max &&
          a.visual_member_spacing_m == b.visual_member_spacing_m &&
-         a.center_wander_amplitude_m == b.center_wander_amplitude_m &&
-         a.center_wander_wavelength_m == b.center_wander_wavelength_m &&
          a.member_wander_ratio == b.member_wander_ratio &&
          a.member_wander_wavelength_m == b.member_wander_wavelength_m &&
          a.member_wander_phase_bias == b.member_wander_phase_bias &&
@@ -785,10 +783,6 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       assembly.visual_member_count_max < assembly.visual_member_count_min ||
       !std::isfinite(assembly.visual_member_spacing_m) || assembly.visual_member_spacing_m < 0.0 ||
       (assembly.visual_member_count_max > 1 && assembly.visual_member_spacing_m <= 0.0) ||
-      !std::isfinite(assembly.center_wander_amplitude_m) || assembly.center_wander_amplitude_m < 0.0 ||
-      !std::isfinite(assembly.center_wander_wavelength_m) ||
-      (assembly.center_wander_amplitude_m > 0.0 &&
-       assembly.center_wander_wavelength_m <= 0.0) ||
       !std::isfinite(assembly.member_wander_ratio) ||
       assembly.member_wander_ratio < 0.0 || assembly.member_wander_ratio > 1.0 ||
       !std::isfinite(assembly.member_wander_wavelength_m) ||

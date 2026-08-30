@@ -1100,8 +1100,6 @@ public:
     assembly_output.set("visualMemberCountMin", assembly.visual_member_count_min);
     assembly_output.set("visualMemberCountMax", assembly.visual_member_count_max);
     assembly_output.set("visualMemberSpacing", assembly.visual_member_spacing_m);
-    assembly_output.set("centerWanderAmplitude", assembly.center_wander_amplitude_m);
-    assembly_output.set("centerWanderWavelength", assembly.center_wander_wavelength_m);
     assembly_output.set("memberWanderRatio", assembly.member_wander_ratio);
     assembly_output.set("memberWanderWavelength", assembly.member_wander_wavelength_m);
     assembly_output.set("memberWanderPhaseBias", assembly.member_wander_phase_bias);
@@ -1149,10 +1147,6 @@ public:
         property<int>(assembly, "visualMemberCountMax");
     bundle_template.span_visual_assembly.visual_member_spacing_m =
         property<double>(assembly, "visualMemberSpacing");
-    bundle_template.span_visual_assembly.center_wander_amplitude_m =
-        property<double>(assembly, "centerWanderAmplitude");
-    bundle_template.span_visual_assembly.center_wander_wavelength_m =
-        property<double>(assembly, "centerWanderWavelength");
     bundle_template.span_visual_assembly.member_wander_ratio = property<double>(assembly, "memberWanderRatio");
     bundle_template.span_visual_assembly.member_wander_wavelength_m = property<double>(assembly, "memberWanderWavelength");
     bundle_template.span_visual_assembly.member_wander_phase_bias = property<double>(assembly, "memberWanderPhaseBias");

@@ -899,9 +899,6 @@ ValidationResult CoreState::Validate() const {
         assembly.visual_member_count_max >= assembly.visual_member_count_min &&
         std::isfinite(assembly.visual_member_spacing_m) && assembly.visual_member_spacing_m >= 0.0 &&
         (assembly.visual_member_count_max == 1 || assembly.visual_member_spacing_m > 0.0) &&
-        std::isfinite(assembly.center_wander_amplitude_m) && assembly.center_wander_amplitude_m >= 0.0 &&
-        std::isfinite(assembly.center_wander_wavelength_m) &&
-        (assembly.center_wander_amplitude_m == 0.0 || assembly.center_wander_wavelength_m > 0.0) &&
         std::isfinite(assembly.member_wander_ratio) &&
         assembly.member_wander_ratio >= 0.0 && assembly.member_wander_ratio <= 1.0 &&
         std::isfinite(assembly.member_wander_wavelength_m) &&

@@ -205,7 +205,6 @@ bool C740_visual_curve_part_stats_count_full_curve_builds() {
   city::wire::CoreState state;
   city::wire::BundleTemplate lv =
       state.view().bundle_templates().at(city::wire::kDefaultLowVoltageBundleTemplateId);
-  lv.span_visual_assembly.center_wander_amplitude_m = 0.0;
   if (!state.UpdateBundleTemplate(lv).ok) {
     return false;
   }
@@ -1074,7 +1073,6 @@ bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
   city::wire::CoreState state;
   city::wire::BundleTemplate lv =
       state.view().bundle_templates().at(city::wire::kDefaultLowVoltageBundleTemplateId);
-  lv.span_visual_assembly.center_wander_amplitude_m = 0.0;
   if (!state.UpdateBundleTemplate(lv).ok) {
     return false;
   }
@@ -1338,7 +1336,6 @@ bool C642_backbone_edge_body_uses_formal_sag_curve() {
   city::wire::CoreState state;
   city::wire::BundleTemplate lv =
       state.view().bundle_templates().at(city::wire::kDefaultLowVoltageBundleTemplateId);
-  lv.span_visual_assembly.center_wander_amplitude_m = 0.0;
   if (!state.UpdateBundleTemplate(lv).ok) {
     return false;
   }

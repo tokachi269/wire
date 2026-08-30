@@ -139,8 +139,8 @@
       <output>{(snapshot.variation.sagVariationScale / 0.12).toFixed(2)}x</output>
     </label>
     <label>
-      Non-HV irregularity
-      <input type="range" min="0" max="2" step="0.05"
+      Bundle looseness (non-HV)
+      <input type="range" min="0" max="5" step="0.05"
         value={snapshot.visual.wireIrregularityScale}
         oninput={(event) => actions.previewVisual(
           "wireIrregularityScale", numberValue(event))}

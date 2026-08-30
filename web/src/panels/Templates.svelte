@@ -363,10 +363,10 @@
         {/each}
         <p class="hint">Band 0 follows each member's saved band. Helix requires an explicit support band.</p>
         <details>
-          <summary>Wander, twist, and sampling</summary>
+          <summary>Binding, twist, and sampling</summary>
           {#each [
-            ["memberWanderRatio", "Member wander ratio", 0.05],
-            ["memberWanderWavelength", "Member wander wavelength", 0.1],
+            ["memberWanderRatio", "Between-binding looseness", 0.05],
+            ["memberWanderWavelength", "Binding interval (m)", 0.05],
             ["memberWanderPhaseBias", "Member wander phase", 0.1],
             ["memberTwistTurnsPerMeter", "Member twist turns / m", 0.1],
             ["memberTwistPhase", "Member twist phase", 0.1]

@@ -1186,6 +1186,8 @@ static_assert(sizeof(CablePopulationRule) == 112, "field added: update archive v
 
 template <typename Archive, typename Value>
 bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
+  double legacy_center_wander_amplitude_m = 0.0;
+  double legacy_center_wander_wavelength_m = 0.0;
   if (!ar.field(p, "id", v.id) || !ar.field(p, "kind", v.kind) || !ar.string_value(child(p, "name"), v.name) ||
       !ar.field(p, "category", v.category) || !ar.field(p, "cable_template_id", v.cable_template_id) ||
       !ar.field(p, "default_layer", v.default_layer) || !ar.field(p, "related_pole_type_id", v.related_pole_type_id) ||
@@ -1219,10 +1221,10 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
                            v.span_visual_assembly.visual_member_count_max, 1) ||
       !ar.compatible_field(p, "span_visual_assembly.visual_member_spacing_m",
                            v.span_visual_assembly.visual_member_spacing_m, 0.0) ||
-      !ar.compatible_field(p, "span_visual_assembly.center_wander_amplitude_m",
-                           v.span_visual_assembly.center_wander_amplitude_m, 0.0) ||
-      !ar.compatible_field(p, "span_visual_assembly.center_wander_wavelength_m",
-                           v.span_visual_assembly.center_wander_wavelength_m, 0.0) ||
+      !ar.legacy_field(p, "span_visual_assembly.center_wander_amplitude_m",
+                       legacy_center_wander_amplitude_m, 0.0) ||
+      !ar.legacy_field(p, "span_visual_assembly.center_wander_wavelength_m",
+                       legacy_center_wander_wavelength_m, 0.0) ||
       !ar.field(p, "span_visual_assembly.member_wander_ratio", v.span_visual_assembly.member_wander_ratio) ||
       !ar.field(p, "span_visual_assembly.member_wander_wavelength_m", v.span_visual_assembly.member_wander_wavelength_m) ||
       !ar.field(p, "span_visual_assembly.member_wander_phase_bias", v.span_visual_assembly.member_wander_phase_bias) ||
@@ -1239,7 +1241,7 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
 
 
 #ifdef _MSC_VER
-static_assert(sizeof(BundleTemplate) == 304, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(BundleTemplate) == 288, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>

@@ -341,8 +341,6 @@ export interface SpanVisualAssemblyInfo {
   visualMemberCountMin: number;
   visualMemberCountMax: number;
   visualMemberSpacing: number;
-  centerWanderAmplitude: number;
-  centerWanderWavelength: number;
   memberWanderRatio: number;
   memberWanderWavelength: number;
   memberWanderPhaseBias: number;

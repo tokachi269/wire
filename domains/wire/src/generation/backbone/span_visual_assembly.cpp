@@ -77,6 +77,33 @@ path_sample sample_normalized(const std::vector<Vec3d>& samples, double t) {
   return sample_at_distance(samples, path_length(samples) * std::clamp(t, 0.0, 1.0));
 }
 
+VisualCurvePart resample_for_binding_interval(
+    const VisualCurvePart& source, double interval_m) {
+  if (source.samples.size() < 2 || interval_m <= kLengthToleranceM) {
+    return source;
+  }
+  const double total = path_length(source.samples);
+  if (total <= kLengthToleranceM) return source;
+  const std::size_t minimum_segments = source.samples.size() - 1;
+  const std::size_t binding_segments = static_cast<std::size_t>(
+      std::ceil(total / std::max(interval_m * 0.25, kLengthToleranceM)));
+  const std::size_t segments = std::max(minimum_segments, binding_segments);
+  if (segments == minimum_segments) return source;
+
+  VisualCurvePart sampled = source;
+  sampled.samples.clear();
+  sampled.samples.reserve(segments + 1);
+  for (std::size_t index = 0; index <= segments; ++index) {
+    sampled.samples.push_back(sample_at_distance(
+        source.samples, total * static_cast<double>(index) /
+                            static_cast<double>(segments)).point);
+  }
+  sampled.boundary_a = sampled.samples.front();
+  sampled.boundary_b = sampled.samples.back();
+  sampled.bounds = bounds_for(sampled.samples);
+  return sampled;
+}
+
 void frame_for(const Vec3d& tangent, Vec3d* lateral, Vec3d* up) {
   *lateral = unit_or(Cross({0.0, 0.0, 1.0}, tangent), {0.0, 1.0, 0.0});
   *up = unit_or(Cross(tangent, *lateral), {0.0, 0.0, 1.0});
@@ -108,6 +135,21 @@ std::vector<Vec3d> place_bundle_below_support(
     centroid = centroid + offset;
   }
   centroid = ScaleVec(centroid, 1.0 / static_cast<double>(members.size()));
+  double separation_scale = 1.0;
+  for (std::size_t a = 0; a < offsets.size(); ++a) {
+    for (std::size_t b = a + 1; b < offsets.size(); ++b) {
+      const double separation = Length(offsets[a] - offsets[b]);
+      const double required = members[a]->wire_radius_m + members[b]->wire_radius_m;
+      if (separation > kLengthToleranceM) {
+        separation_scale = std::max(separation_scale, required / separation);
+      }
+    }
+  }
+  if (separation_scale > 1.0) {
+    for (Vec3d& offset : offsets) {
+      offset = centroid + ScaleVec(offset - centroid, separation_scale);
+    }
+  }
   Vec3d lateral{};
   Vec3d up{};
   frame_for(anchor.tangent, &lateral, &up);
@@ -161,7 +203,7 @@ double auto_fit_radius(const VisualCurvePart& support, const std::vector<VisualC
     if (members_fit_radius(support, members, clearance, middle)) high = middle;
     else low = middle;
   }
-  return high;
+  return high + kLengthToleranceM;
 }
 
 double smoothstep(double value) {
@@ -240,43 +282,6 @@ std::uint64_t assembly_seed(const Bundle& bundle, const BundleTemplate& bundle_t
   return seed;
 }
 
-void apply_center_wander(const SpanVisualAssemblyTemplate& settings, std::uint64_t seed,
-                         double irregularity_scale, VisualCurvePart* center) {
-  if (center == nullptr || center->samples.size() < 3 ||
-      settings.center_wander_amplitude_m <= 0.0 ||
-      settings.center_wander_wavelength_m <= kLengthToleranceM) {
-    return;
-  }
-  const std::vector<Vec3d> original = center->samples;
-  const double total = path_length(original);
-  const double phase = settings.member_wander_phase_bias + kTwoPi * unit_value(seed);
-  double distance = 0.0;
-  for (std::size_t index = 0; index < original.size(); ++index) {
-    if (index > 0) distance += Length(original[index] - original[index - 1]);
-    const Vec3d tangent = index + 1 < original.size()
-        ? unit_or(original[index + 1] - original[index], {1.0, 0.0, 0.0})
-        : unit_or(original[index] - original[index - 1], {1.0, 0.0, 0.0});
-    Vec3d lateral{};
-    Vec3d up{};
-    frame_for(tangent, &lateral, &up);
-    const double primary = phase + kTwoPi * distance / settings.center_wander_wavelength_m;
-    const double secondary = phase * 0.73 + kTwoPi * distance /
-        (settings.center_wander_wavelength_m * 1.71);
-    const double envelope = span_envelope(distance, total);
-    const double lateral_offset = settings.center_wander_amplitude_m * irregularity_scale * envelope *
-        (0.68 * std::sin(primary) + 0.32 * std::sin(secondary));
-    const double vertical_offset = settings.center_wander_amplitude_m * irregularity_scale * 0.35 * envelope *
-        (0.70 * std::cos(primary * 0.83) + 0.30 * std::sin(secondary * 1.19));
-    center->samples[index] = original[index] + ScaleVec(lateral, lateral_offset) +
-        ScaleVec(up, vertical_offset);
-  }
-  center->samples.front() = original.front();
-  center->samples.back() = original.back();
-  center->boundary_a = original.front();
-  center->boundary_b = original.back();
-  center->bounds = bounds_for(center->samples);
-}
-
 int visual_member_count(const SpanVisualAssemblyTemplate& settings, std::uint64_t seed) {
   const int range = settings.visual_member_count_max - settings.visual_member_count_min + 1;
   return settings.visual_member_count_min +
@@ -328,36 +333,35 @@ std::vector<cross_section_offset> compact_cross_section(int count, double spacin
   return offsets;
 }
 
-double minimum_separation(const std::vector<cross_section_offset>& offsets) {
-  if (offsets.size() < 2) return 0.0;
-  double minimum = std::numeric_limits<double>::max();
-  for (std::size_t a = 0; a < offsets.size(); ++a) {
-    for (std::size_t b = a + 1; b < offsets.size(); ++b) {
-      minimum = std::min(minimum, std::hypot(offsets[a].lateral - offsets[b].lateral,
-                                             offsets[a].up - offsets[b].up));
-    }
-  }
-  return minimum;
-}
-
 std::vector<VisualCurvePart> make_visual_members(const SpanVisualAssemblyTemplate& settings,
-                                                 std::uint64_t seed, double irregularity_scale,
-                                                 const VisualCurvePart& center) {
+                                                  std::uint64_t seed, double irregularity_scale,
+                                                  double min_bend_radius_m,
+                                                  const VisualCurvePart& center) {
   const int count = visual_member_count(settings, seed);
-  std::vector<VisualCurvePart> members(static_cast<std::size_t>(count), center);
   const double cable_diameter = center.wire_radius_m * 2.0;
-  const double packing_spacing = count < 2 ? 0.0 :
+  const double compact_spacing = count < 2 ? 0.0 :
+      cable_diameter + kLengthToleranceM;
+  const double allowed_spacing = count < 2 ? 0.0 :
       std::max(settings.visual_member_spacing_m, cable_diameter + kLengthToleranceM);
+  const VisualCurvePart sampled_center = count < 2 ? center :
+      resample_for_binding_interval(center, settings.member_wander_wavelength_m);
+  std::vector<VisualCurvePart> members(
+      static_cast<std::size_t>(count), sampled_center);
   const std::vector<cross_section_offset> baseline =
-      compact_cross_section(count, packing_spacing);
-  const double pair_margin = std::max(0.0,
-      (minimum_separation(baseline) - cable_diameter) * 0.5);
+      compact_cross_section(count, compact_spacing);
+  const std::vector<cross_section_offset> allowed =
+      compact_cross_section(count, allowed_spacing);
+  const double pair_margin =
+      std::max(0.0, (allowed_spacing - compact_spacing) * 0.5);
   double baseline_radius = 0.0;
+  double allowed_radius = 0.0;
   for (const cross_section_offset& offset : baseline) {
     baseline_radius = std::max(baseline_radius, std::hypot(offset.lateral, offset.up));
   }
-  const double allowed_radius = baseline_radius + pair_margin;
-  const double total = path_length(center.samples);
+  for (const cross_section_offset& offset : allowed) {
+    allowed_radius = std::max(allowed_radius, std::hypot(offset.lateral, offset.up));
+  }
+  const double total = path_length(sampled_center.samples);
   for (int member_index = 0; member_index < count; ++member_index) {
     VisualCurvePart& member = members[static_cast<std::size_t>(member_index)];
     member.section_count = static_cast<std::size_t>(count);
@@ -365,59 +369,61 @@ std::vector<VisualCurvePart> make_visual_members(const SpanVisualAssemblyTemplat
   }
 
   double distance = 0.0;
-  for (std::size_t sample_index = 0; sample_index < center.samples.size(); ++sample_index) {
+  for (std::size_t sample_index = 0; sample_index < sampled_center.samples.size(); ++sample_index) {
     if (sample_index > 0) {
-      distance += Length(center.samples[sample_index] - center.samples[sample_index - 1]);
+      distance += Length(sampled_center.samples[sample_index] -
+                         sampled_center.samples[sample_index - 1]);
     }
-    const Vec3d tangent = sample_index + 1 < center.samples.size()
-        ? unit_or(center.samples[sample_index + 1] - center.samples[sample_index], {1.0, 0.0, 0.0})
-        : unit_or(center.samples[sample_index] - center.samples[sample_index - 1], {1.0, 0.0, 0.0});
+    const Vec3d tangent = sample_index + 1 < sampled_center.samples.size()
+        ? unit_or(sampled_center.samples[sample_index + 1] -
+                      sampled_center.samples[sample_index], {1.0, 0.0, 0.0})
+        : unit_or(sampled_center.samples[sample_index] -
+                      sampled_center.samples[sample_index - 1], {1.0, 0.0, 0.0});
     Vec3d lateral{};
     Vec3d up{};
     frame_for(tangent, &lateral, &up);
-    std::vector<cross_section_offset> wander(static_cast<std::size_t>(count));
+    const double envelope = endpoint_envelope(distance, total, settings.endpoint_trim_m);
+    double looseness = 0.0;
+    double rotation = 0.0;
     if (count > 1 && settings.member_wander_ratio > 0.0 &&
         settings.member_wander_wavelength_m > kLengthToleranceM) {
-      cross_section_offset mean{};
-      for (int member_index = 0; member_index < count; ++member_index) {
-        const std::uint64_t member_seed = mix_seed(
-            seed ^ static_cast<std::uint64_t>(member_index + 1));
-        const double phase = settings.member_wander_phase_bias + kTwoPi * unit_value(member_seed);
-        const double primary = phase + kTwoPi * distance / settings.member_wander_wavelength_m;
-        const double secondary = phase * 1.31 + kTwoPi * distance /
-            (settings.member_wander_wavelength_m * 1.83);
-        cross_section_offset& value = wander[static_cast<std::size_t>(member_index)];
-        value.lateral = 0.68 * std::sin(primary) + 0.32 * std::sin(secondary);
-        value.up = 0.65 * std::cos(primary * 0.89) + 0.35 * std::sin(secondary * 1.17);
-        mean.lateral += value.lateral;
-        mean.up += value.up;
-      }
-      mean.lateral /= static_cast<double>(count);
-      mean.up /= static_cast<double>(count);
-      double maximum_wander = 0.0;
-      for (cross_section_offset& value : wander) {
-        value.lateral -= mean.lateral;
-        value.up -= mean.up;
-        maximum_wander = std::max(maximum_wander, std::hypot(value.lateral, value.up));
-      }
-      if (maximum_wander > 1.0) {
-        for (cross_section_offset& value : wander) {
-          value.lateral /= maximum_wander;
-          value.up /= maximum_wander;
-        }
-      }
-    }
+      const double interval = settings.member_wander_wavelength_m;
+      const std::uint64_t interval_index = static_cast<std::uint64_t>(
+          std::floor(distance / interval));
+      const double local = std::clamp(
+          (distance - static_cast<double>(interval_index) * interval) / interval,
+          0.0, 1.0);
+      const double binding_profile = std::pow(std::sin(3.14159265358979323846 * local), 2.0);
+      const std::uint64_t interval_seed = mix_seed(
+          seed ^ interval_index ^
+          std::bit_cast<std::uint64_t>(settings.member_wander_phase_bias));
+      const double interval_strength = 0.65 + 0.35 * unit_value(interval_seed);
+      const double requested = std::clamp(
+          settings.member_wander_ratio * irregularity_scale, 0.0, 1.0);
+      looseness = requested * interval_strength * binding_profile * envelope;
 
-    const double envelope = endpoint_envelope(distance, total, settings.endpoint_trim_m);
+      const double clearance_angle = baseline_radius <= kLengthToleranceM
+          ? 0.0 : pair_margin / baseline_radius;
+      const double bend_angle = baseline_radius <= kLengthToleranceM ||
+              min_bend_radius_m <= kLengthToleranceM
+          ? clearance_angle
+          : interval * interval /
+                (2.0 * 3.14159265358979323846 * 3.14159265358979323846 *
+                 baseline_radius * min_bend_radius_m);
+      const double direction = (interval_seed & 1ull) == 0 ? -1.0 : 1.0;
+      rotation = direction * std::min(clearance_angle, bend_angle) * looseness;
+    }
+    const double cosine = std::cos(rotation);
+    const double sine = std::sin(rotation);
+    const double spacing_scale = compact_spacing <= kLengthToleranceM
+        ? 1.0
+        : (compact_spacing +
+           (allowed_spacing - compact_spacing) * looseness) / compact_spacing;
     for (int member_index = 0; member_index < count; ++member_index) {
       const cross_section_offset& base = baseline[static_cast<std::size_t>(member_index)];
-      const double radial_margin = std::max(0.0,
-          allowed_radius - std::hypot(base.lateral, base.up));
-      const double amplitude = std::min(pair_margin, radial_margin) *
-          std::clamp(settings.member_wander_ratio * irregularity_scale, 0.0, 1.0) * envelope;
       cross_section_offset resolved{
-          base.lateral + wander[static_cast<std::size_t>(member_index)].lateral * amplitude,
-          base.up + wander[static_cast<std::size_t>(member_index)].up * amplitude,
+          (base.lateral * cosine - base.up * sine) * spacing_scale,
+          (base.lateral * sine + base.up * cosine) * spacing_scale,
       };
       const double radial = std::hypot(resolved.lateral, resolved.up);
       if (radial > allowed_radius && radial > kLengthToleranceM) {
@@ -425,7 +431,7 @@ std::vector<VisualCurvePart> make_visual_members(const SpanVisualAssemblyTemplat
         resolved.up *= allowed_radius / radial;
       }
       VisualCurvePart& member = members[static_cast<std::size_t>(member_index)];
-      member.samples[sample_index] = center.samples[sample_index] +
+      member.samples[sample_index] = sampled_center.samples[sample_index] +
           ScaleVec(lateral, resolved.lateral) + ScaleVec(up, resolved.up);
     }
   }
@@ -543,9 +549,7 @@ std::optional<std::pair<Vec3d, Vec3d>> support_endpoints(
 
 std::optional<VisualCurvePart> make_support_path(
     const CoreState& state, const Span& span, const BundleTemplate& bundle_template,
-    const SpanVisualAssemblyTemplate& settings, std::uint64_t seed,
-    double irregularity_scale,
-    const VisualCurvePart& member,
+    const SpanVisualAssemblyTemplate& settings, const VisualCurvePart& member,
     const SpanVisualAssemblyEndpointMap& member_endpoints, VisualCurvePartCache* cache) {
   const std::optional<std::pair<Vec3d, Vec3d>> endpoints =
       support_endpoints(state, span, bundle_template.support_wire_pole_band_id, member_endpoints);
@@ -576,7 +580,6 @@ std::optional<VisualCurvePart> make_support_path(
     support.material_style = member.material_style;
     support.source_version = member.source_version;
   }
-  apply_center_wander(settings, seed, irregularity_scale, &support);
   if (bundle_template.support_wire_pole_band_id == 0) {
     separate_support_from_member(&support, settings);
   }
@@ -618,11 +621,12 @@ void apply_span_visual_assemblies(const CoreState& state,
     const double irregularity_scale = template_it->second.category == ConnectionCategory::kHighVoltage
         ? 1.0 : state.view().visual_settings().wire_irregularity_scale;
     VisualCurvePart center = **base;
-    if (template_it->second.category != ConnectionCategory::kHighVoltage) {
-      apply_center_wander(settings, seed, irregularity_scale, &center);
-    }
+    const auto cable_template_it = state.view().cable_templates().find(
+        template_it->second.cable_template_id);
+    const double min_bend_radius_m = cable_template_it == state.view().cable_templates().end()
+        ? 0.0 : cable_template_it->second.min_bend_radius_m;
     std::vector<VisualCurvePart> visual_members = make_visual_members(
-        settings, seed, irregularity_scale, center);
+        settings, seed, irregularity_scale, min_bend_radius_m, center);
     std::vector<VisualCurvePart*> visual_member_ptrs{};
     visual_member_ptrs.reserve(visual_members.size());
     for (VisualCurvePart& member : visual_members) visual_member_ptrs.push_back(&member);
@@ -636,20 +640,19 @@ void apply_span_visual_assemblies(const CoreState& state,
       continue;
     }
     std::optional<VisualCurvePart> support_result = make_support_path(
-        state, *span, template_it->second, settings, seed, irregularity_scale,
-        center, member_endpoints, cache);
+        state, *span, template_it->second, settings, center, member_endpoints, cache);
     if (!support_result.has_value()) continue;
     VisualCurvePart support = std::move(*support_result);
     std::optional<VisualCurvePart> helix_part{};
     if (settings.helix_enabled) {
       const double fitted_radius = auto_fit_radius(support, visual_member_ptrs,
                                                    settings.helix_clearance_m);
-      const double radius = settings.helix_radius_m > 0.0 ? settings.helix_radius_m : fitted_radius;
+      const double radius = std::max(settings.helix_radius_m, fitted_radius);
       if (settings.helix_radius_m > 0.0 &&
           settings.helix_radius_m + kLengthToleranceM < fitted_radius) {
         cache->diagnostics.push_back({kInvalidObjectId, logical_span_id, template_it->second.id,
                                       visual_members.front().lane_index,
-                                      "span visual assembly radius clamped members"});
+                                      "span visual assembly radius expanded to contain members"});
       }
       contain_members(support, settings, visual_member_ptrs, radius);
       VisualCurvePart helix = make_helix_part(support, settings, radius);
@@ -683,8 +686,13 @@ void apply_span_visual_assemblies(const CoreState& state,
     }
     const SpanVisualAssemblyTemplate& settings = template_it->second.span_visual_assembly;
     const std::uint64_t seed = assembly_seed(*bundle, template_it->second, part.lane_index);
+    const auto cable_template_it = state.view().cable_templates().find(
+        template_it->second.cable_template_id);
+    const double min_bend_radius_m = cable_template_it == state.view().cable_templates().end()
+        ? 0.0 : cable_template_it->second.min_bend_radius_m;
     std::vector<VisualCurvePart> visual_members = make_visual_members(
-        settings, seed, state.view().visual_settings().wire_irregularity_scale, part);
+        settings, seed, state.view().visual_settings().wire_irregularity_scale,
+        min_bend_radius_m, part);
     std::vector<VisualCurvePart*> visual_member_ptrs{};
     visual_member_ptrs.reserve(visual_members.size());
     for (VisualCurvePart& member : visual_members) visual_member_ptrs.push_back(&member);

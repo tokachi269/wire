@@ -1204,12 +1204,12 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       source_curves.push_back(std::move(source_curve));
       section.source_curve_index = source_curve_index;
     }
-    const Vec3d start_away =
-        has_curve_tangent ? source_curves[source_curve_index].start_constraint.tangent_dir
-                          : safe_unit(chord, fallback_dir);
+    const Vec3d start_away = has_curve_tangent
+        ? source_curves[source_curve_index].EvaluateTangent(0.0)
+        : safe_unit(chord, fallback_dir);
     const Vec3d end_away = has_curve_tangent
-                              ? ScaleVec(source_curves[source_curve_index].end_constraint.tangent_dir, -1.0)
-                              : safe_unit(ScaleVec(chord, -1.0), ScaleVec(fallback_dir, -1.0));
+        ? ScaleVec(source_curves[source_curve_index].EvaluateTangent(1.0), -1.0)
+        : safe_unit(ScaleVec(chord, -1.0), ScaleVec(fallback_dir, -1.0));
 
     curve_endpoint_ref start{};
     start.section_key = entry.key;
@@ -1701,7 +1701,6 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
       emitted_jumper_ports.push_back(peer->port_id);
     }
   }
-  // main spanだけでなく、ここまでに確定した接続曲線も同じbundle断面へ展開する。
   apply_span_visual_assemblies(state, assembly_endpoints, &out);
   append_pole_decoration_curves(state, endpoints, affected_nodes, &out);
   if (!changed_spans.empty()) {

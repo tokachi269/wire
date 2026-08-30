@@ -52,8 +52,7 @@ describe("workspace persistence", () => {
       found: true,
       routeSeed: expect.any(Number)
     });
-    restoredActions.setSelectedRouteVariation("heightSpread", 0.5);
-    restoredActions.applySelectedRouteVariation();
+    restoredActions.setRouteVariation("heightSpread", 0.5);
     expect(current(restoredStore).error).toBe("");
     expect(current(restoredStore).selectedRouteVariation?.routeSeed)
       .toBeGreaterThan(0);

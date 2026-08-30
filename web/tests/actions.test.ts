@@ -893,7 +893,46 @@ describe("viewport tool routing", () => {
     expect(resolveRouteBundleVariation).toHaveBeenCalledTimes(2);
   });
 
-  it("loads the exact persisted variation for a selected Span and applies only on request", () => {
+  it("keeps the finished route as the variation target until a new route starts", () => {
+    const descriptor = {
+      ok: true, error: "", found: true, variationId: "901", routeSeed: 123,
+      preferredSideSign: -1, poleTypeId: 1,
+      rules: routeBundleRules({ density: 1, heightSpread: 1, lateralSpread: 1 }),
+      instances: [{ placementKey: 11, bundleId: "301" }]
+    };
+    const applyBackboneBundleVariation = vi.fn((_variationId: string) => ({
+      ok: true, error: ""
+    }));
+    const generateWireInterval = vi.fn((request: WireIntervalRequest) => ({
+      ok: true, error: "", generatedPoleCount: 2, generatedSpanCount: 1,
+      generatedBundleIds: ["301"], generatedPoleIds: ["101", "102"],
+      generatedSpanIds: ["201"], totalMs: 1, timing: timing(1),
+      variationId: "901", endpoint: request.points[1], endpointSpec: null
+    }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({
+      generateWireInterval,
+      backboneBundleVariation: () => descriptor,
+      applyBackboneBundleVariation
+    }), store);
+    actions.initialize();
+
+    actions.addViewportPoint([0, 0, 0]);
+    actions.addViewportPoint([12, 0, 0]);
+    expect(current(store).wireVariationId).toBe("901");
+    actions.finishDrawSession();
+
+    expect(current(store).wireVariationId).toBeNull();
+    expect(current(store).selectedRouteVariation?.variationId).toBe("901");
+    actions.setRouteVariation("heightSpread", 0.5);
+    expect(applyBackboneBundleVariation).toHaveBeenCalledOnce();
+    expect(applyBackboneBundleVariation.mock.calls[0][0]).toBe("901");
+
+    actions.addViewportPoint([30, 0, 0]);
+    expect(current(store).selectedRouteVariation).toBeNull();
+  });
+
+  it("loads the exact persisted variation for a selected Span and applies unified controls immediately", () => {
     const descriptor = {
       ok: true,
       error: "",
@@ -909,7 +948,10 @@ describe("viewport tool routing", () => {
       ]
     };
     const backboneBundleVariationForBundle = vi.fn(() => descriptor);
-    const backboneBundleVariation = vi.fn(() => descriptor);
+    const backboneBundleVariation = vi.fn(() => ({
+      ...descriptor,
+      routeSeed: appliedRouteSeed || descriptor.routeSeed
+    }));
     let appliedVariationId = "";
     let appliedRules = descriptor.rules;
     let appliedRouteSeed = 0;
@@ -944,15 +986,13 @@ describe("viewport tool routing", () => {
     expect(backboneBundleVariationForBundle).toHaveBeenLastCalledWith("302");
     expect(current(store).selectedRouteVariation?.variationId).toBe("901");
 
-    actions.setSelectedRouteVariation("heightSpread", 0.5);
-    actions.setSelectedRouteVariation("lateralSpread", 0.75);
-    actions.rerollSelectedRouteVariation();
+    actions.setRouteVariation("heightSpread", 0.5);
+    actions.setRouteVariation("lateralSpread", 0.75);
+    actions.rerollRouteSeed();
     const rerolledSeed = current(store).selectedRouteVariation?.routeSeed;
     expect(rerolledSeed).not.toBe(123);
-    expect(applyBackboneBundleVariation).not.toHaveBeenCalled();
-    actions.applySelectedRouteVariation();
 
-    expect(applyBackboneBundleVariation).toHaveBeenCalledOnce();
+    expect(applyBackboneBundleVariation).toHaveBeenCalledTimes(3);
     expect(appliedVariationId).toBe("901");
     expect(appliedRouteSeed).toBe(rerolledSeed);
     expect(appliedRules[1].heightMax - appliedRules[1].heightMin).toBeCloseTo(0.35, 12);
@@ -986,7 +1026,7 @@ describe("viewport tool routing", () => {
     }), store);
 
     actions.select("span", "205");
-    actions.applySelectedRouteVariation();
+    actions.setRouteVariation("heightSpread", 1);
 
     expect(applyBackboneBundleVariation.mock.calls[0][1]).toEqual(persistedRules);
     expect(current(store).selectedRouteVariationControls).toEqual({
@@ -994,7 +1034,7 @@ describe("viewport tool routing", () => {
     });
   });
 
-  it("uses the successful Apply result as the next neutral persisted baseline", () => {
+  it("keeps one persisted baseline while realtime controls change", () => {
     const persistedRules = [{
       bundleTemplateId: 104, minInstances: 2, maxInstances: 4,
       conductorCount: 1, heightMin: 5, heightMax: 7,
@@ -1030,16 +1070,13 @@ describe("viewport tool routing", () => {
     }), store);
 
     actions.select("span", "207");
-    actions.setSelectedRouteVariation("heightSpread", 0.5);
-    actions.applySelectedRouteVariation();
+    actions.setRouteVariation("heightSpread", 0.5);
 
     expect(applyBackboneBundleVariation.mock.calls[0][1][0]).toMatchObject({
       heightMin: 5.5, heightMax: 6.5
     });
-    expect(current(store).selectedRouteVariation?.rules).toEqual(appliedRules);
-    expect(current(store).selectedRouteVariationControls).toEqual({
-      density: 1, heightSpread: 1, lateralSpread: 1
-    });
+    expect(current(store).selectedRouteVariation?.rules).toEqual(persistedRules);
+    expect(current(store).selectedRouteVariationControls.heightSpread).toBe(0.5);
   });
 
   it("applies route controls to the persisted variation while the same route is active", () => {
@@ -1194,7 +1231,7 @@ describe("viewport tool routing", () => {
     }), store);
 
     actions.select("span", "204");
-    actions.applySelectedRouteVariation();
+    actions.setRouteVariation("density", 1);
 
     expect(current(store).selectedRouteVariation).toMatchObject({
       found: true,
@@ -1225,10 +1262,7 @@ describe("viewport tool routing", () => {
     }), store);
 
     actions.select("span", "201");
-    actions.setSelectedRouteVariation("density", 1.25);
-    actions.rerollSelectedRouteVariation();
-    expect(current(store).selectedRouteVariation?.routeSeed).not.toBe(123);
-    actions.applySelectedRouteVariation();
+    actions.setRouteVariation("density", 1.25);
 
     expect(current(store).selectedRouteVariation?.variationId).toBe("901");
     expect(current(store).selectedRouteVariation?.routeSeed).toBe(123);
@@ -1258,8 +1292,7 @@ describe("viewport tool routing", () => {
     }), store);
 
     actions.select("span", "202");
-    actions.setSelectedRouteVariation("density", 1.25);
-    actions.applySelectedRouteVariation();
+    actions.setRouteVariation("density", 1.25);
 
     expect(current(store).selectedRouteVariationControls.density).toBe(1);
     expect(current(store).error).toContain("source-edge dependency");

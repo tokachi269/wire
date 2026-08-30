@@ -13,6 +13,21 @@
     Number((event.currentTarget as HTMLInputElement).value);
   const checkedValue = (event: Event) =>
     (event.currentTarget as HTMLInputElement).checked;
+  const editingPersistedRoute = () =>
+    snapshot.pathPoints.length === 0 && snapshot.selectedRouteVariation !== null;
+  const routeControls = () => editingPersistedRoute()
+    ? snapshot.selectedRouteVariationControls
+    : snapshot.routeVariation;
+  const routeTarget = () => snapshot.pathPoints.length > 0
+    ? (snapshot.wireVariationId === null
+      ? "Editing: New route"
+      : `Editing: Route #${snapshot.wireVariationId}`)
+    : snapshot.selectedRouteVariation === null
+      ? "Target: Next route"
+      : `Editing: Route #${snapshot.selectedRouteVariation.variationId}`;
+  const routeSeed = () => snapshot.pathPoints.length > 0
+    ? snapshot.wireRouteSeed
+    : snapshot.selectedRouteVariation?.routeSeed ?? null;
 </script>
 
 <div class="settings">
@@ -47,83 +62,36 @@
 
   <section>
     <h2>Route variation</h2>
-    <p class="setting-note">描画前は次routeの初期値、描画開始後は現在route全体へ即時反映します。</p>
+    <p class="setting-note">{routeTarget()}。スライダーはtarget route全体へ即時反映します。</p>
     <label>
       Line density
       <input type="range" min="0.5" max="1.25" step="0.05"
-        value={snapshot.routeVariation.density}
+        value={routeControls().density}
         oninput={(event) => actions.setRouteVariation("density", numberValue(event))} />
-      <output>{snapshot.routeVariation.density.toFixed(2)}x</output>
+      <output>{routeControls().density.toFixed(2)}x</output>
     </label>
     <label>
       Height spread
       <input type="range" min="0.25" max="1.75" step="0.05"
-        value={snapshot.routeVariation.heightSpread}
+        value={routeControls().heightSpread}
         oninput={(event) => actions.setRouteVariation("heightSpread", numberValue(event))} />
-      <output>{snapshot.routeVariation.heightSpread.toFixed(2)}x</output>
+      <output>{routeControls().heightSpread.toFixed(2)}x</output>
     </label>
     <label>
       Lateral spread
       <input type="range" min="0.25" max="1.75" step="0.05"
-        value={snapshot.routeVariation.lateralSpread}
+        value={routeControls().lateralSpread}
         oninput={(event) => actions.setRouteVariation("lateralSpread", numberValue(event))} />
-      <output>{snapshot.routeVariation.lateralSpread.toFixed(2)}x</output>
+      <output>{routeControls().lateralSpread.toFixed(2)}x</output>
     </label>
     <button class="secondary" type="button"
       onclick={() => actions.rerollRouteSeed()}>
       Reroll seed
     </button>
     <output class="route-seed">
-      {snapshot.wireRouteSeed === null ? "Seed: next route" : `Seed: ${snapshot.wireRouteSeed}`}
+      {routeSeed() === null ? "Seed: next route" : `Seed: ${routeSeed()}`}
     </output>
   </section>
-
-  {#if snapshot.selectedRouteVariation}
-    <section>
-      <h2>Selected route variation</h2>
-      <p class="setting-note">選択中のrecipe-backed wireへ、Apply時に1 transactionで反映します。</p>
-      <label>
-        Line density
-        <input type="range" min="0.5" max="1.25" step="0.05"
-          disabled={snapshot.pathPoints.length > 0 &&
-            snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
-          value={snapshot.selectedRouteVariationControls.density}
-          oninput={(event) => actions.setSelectedRouteVariation("density", numberValue(event))} />
-        <output>{snapshot.selectedRouteVariationControls.density.toFixed(2)}x</output>
-      </label>
-      <label>
-        Height spread
-        <input type="range" min="0.25" max="1.75" step="0.05"
-          disabled={snapshot.pathPoints.length > 0 &&
-            snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
-          value={snapshot.selectedRouteVariationControls.heightSpread}
-          oninput={(event) => actions.setSelectedRouteVariation("heightSpread", numberValue(event))} />
-        <output>{snapshot.selectedRouteVariationControls.heightSpread.toFixed(2)}x</output>
-      </label>
-      <label>
-        Lateral spread
-        <input type="range" min="0.25" max="1.75" step="0.05"
-          disabled={snapshot.pathPoints.length > 0 &&
-            snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
-          value={snapshot.selectedRouteVariationControls.lateralSpread}
-          oninput={(event) => actions.setSelectedRouteVariation("lateralSpread", numberValue(event))} />
-        <output>{snapshot.selectedRouteVariationControls.lateralSpread.toFixed(2)}x</output>
-      </label>
-      <button class="secondary" type="button"
-        disabled={snapshot.pathPoints.length > 0 &&
-          snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
-        onclick={() => actions.rerollSelectedRouteVariation()}>
-        Reroll seed
-      </button>
-      <output class="route-seed">Seed: {snapshot.selectedRouteVariation.routeSeed}</output>
-      <button type="button"
-        disabled={snapshot.pathPoints.length > 0 &&
-          snapshot.wireVariationId === snapshot.selectedRouteVariation.variationId}
-        onclick={() => actions.applySelectedRouteVariation()}>
-        Apply to selected route
-      </button>
-    </section>
-  {/if}
 
   <section>
     <h2>Current wire appearance</h2>

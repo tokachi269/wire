@@ -76,6 +76,8 @@ export class DrawActions {
         ...snapshot,
         pathPoints: [anchor.point],
         pathPointSpecs: [anchor.spec],
+        selectedRouteVariation: null,
+        selectedRouteVariationControls: { density: 1, heightSpread: 1, lateralSpread: 1 },
         wirePreview: { state: "none", request: null },
         error: "",
         lastCommitFailure: null
@@ -124,10 +126,14 @@ export class DrawActions {
     if (preview.state === "guide" && preview.request !== null) {
       return this.commitWireInterval(preview.request, true);
     }
-    return this.cancelSession();
+    return this.endSession(true);
   }
 
   cancelSession(): DrawActionResult {
+    return this.endSession(false);
+  }
+
+  private endSession(retainVariationTarget: boolean): DrawActionResult {
     // Escape with nothing drawn is a distinguishable non-event, not the end of
     // a session. Road reports the same.
     const snapshot = this.ctx.readSnapshot();
@@ -139,12 +145,21 @@ export class DrawActions {
       this.ctx.store.setError(cleared.error);
       return { kind: "commit-rejected", reasonCode: cleared.reasonCode || "wire_session_clear_failed" };
     }
+    const variation = retainVariationTarget && snapshot.wireVariationId !== null
+      ? this.ctx.bridge.backboneBundleVariation(snapshot.wireVariationId)
+      : null;
     this.ctx.store.update((current) => ({
       ...current,
       pathPoints: [],
       pathPointSpecs: [],
       wireRouteSeed: null,
       wireVariationId: null,
+      selectedRouteVariation: variation?.ok && variation.found
+        ? variation
+        : current.selectedRouteVariation,
+      selectedRouteVariationControls: variation?.ok && variation.found
+        ? { density: 1, heightSpread: 1, lateralSpread: 1 }
+        : current.selectedRouteVariationControls,
       wirePreview: { state: "none", request: null },
       error: "",
       lastCommitFailure: null
@@ -227,6 +242,12 @@ export class DrawActions {
         ...current,
         pathPoints: [...current.pathPoints, appendPoint],
         pathPointSpecs: [...current.pathPointSpecs, nextSpec],
+        selectedRouteVariation: current.pathPoints.length === 0
+          ? null
+          : current.selectedRouteVariation,
+        selectedRouteVariationControls: current.pathPoints.length === 0
+          ? { density: 1, heightSpread: 1, lateralSpread: 1 }
+          : current.selectedRouteVariationControls,
         error: ""
       };
     });
@@ -561,6 +582,12 @@ export class DrawActions {
       pathPointSpecs: endSession ? [] : [endpointSpec],
       wireRouteSeed: endSession ? null : current.wireRouteSeed,
       wireVariationId: endSession ? null : variationId ?? null,
+      selectedRouteVariation: endSession && variation?.ok && variation.found
+        ? variation
+        : current.selectedRouteVariation,
+      selectedRouteVariationControls: endSession && variation?.ok && variation.found
+        ? { density: 1, heightSpread: 1, lateralSpread: 1 }
+        : current.selectedRouteVariationControls,
       wirePreview: { state: "none", request: null },
       drawBundlePlacements: current.drawBundlePlacements.map((placement, index) => ({
         ...placement,
@@ -661,7 +688,16 @@ export class DrawActions {
       generationCallMs: generateEnd - generateStart,
       pathPoints: before.keepPathAfterGenerate ? points : [],
       pathPointSpecs: before.keepPathAfterGenerate ? pointSpecs : [],
+      wireRouteSeed: before.keepPathAfterGenerate ? before.wireRouteSeed : null,
       wireVariationId: before.keepPathAfterGenerate ? result.variationId ?? null : null,
+      selectedRouteVariation: !before.keepPathAfterGenerate &&
+        generatedVariation?.ok && generatedVariation.found
+        ? generatedVariation
+        : current.selectedRouteVariation,
+      selectedRouteVariationControls: !before.keepPathAfterGenerate &&
+        generatedVariation?.ok && generatedVariation.found
+        ? { density: 1, heightSpread: 1, lateralSpread: 1 }
+        : current.selectedRouteVariationControls,
       showBackboneOverlay: true,
       bundleTemplates,
       drawBundlePlacements: placementsWithGeneratedIds

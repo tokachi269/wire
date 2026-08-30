@@ -132,7 +132,7 @@ describe("viewer numeric inputs", () => {
     expect(mounted.bridge.geometrySettings().sagFactor).toBeCloseTo(next, 8);
   });
 
-  it("shows persisted route controls for an exact selected Span and applies on button click", async () => {
+  it("uses one route variation panel and applies the selected route immediately", async () => {
     const mounted = await mountViewer();
     const span = current(mounted.store).spans[0];
     expect(span).toBeDefined();
@@ -140,22 +140,24 @@ describe("viewer numeric inputs", () => {
     mounted.actions.select("span", span.id);
     await tick();
     const section = [...document.querySelectorAll("section")].find((item) =>
-      item.querySelector("h2")?.textContent === "Selected route variation"
+      item.querySelector("h2")?.textContent === "Route variation"
     );
     expect(section).toBeDefined();
+    expect(document.body.textContent).not.toContain("Selected route variation");
+    expect(section!.textContent).toContain("Editing: Route #");
     const sliders = section!.querySelectorAll<HTMLInputElement>('input[type="range"]');
     expect(sliders).toHaveLength(3);
 
     sliders[1].value = "0.5";
     sliders[1].dispatchEvent(new Event("input", { bubbles: true }));
-    expect(current(mounted.store).selectedRouteVariationControls.heightSpread).toBe(0.5);
-    expect(current(mounted.store).error).toBe("");
-
-    section!.querySelector<HTMLButtonElement>("button:last-of-type")!.click();
     await tick();
     expect(current(mounted.store).error).toBe("");
-    expect(current(mounted.store).selectedRouteVariation?.found).toBe(true);
-    const lowVoltage = current(mounted.store).selectedRouteVariation?.rules?.find(
+    expect(current(mounted.store).selectedRouteVariationControls.heightSpread).toBe(0.5);
+
+    const variationId = current(mounted.store).selectedRouteVariation!.variationId!;
+    const persisted = mounted.bridge.backboneBundleVariation(variationId);
+    expect(persisted.found).toBe(true);
+    const lowVoltage = persisted.rules?.find(
       (rule) => rule.bundleTemplateId === 102
     );
     expect(lowVoltage!.heightMax - lowVoltage!.heightMin).toBeCloseTo(0.35, 12);

@@ -185,20 +185,6 @@ export class ViewerActions {
     this.road.setSetting(key, value);
   }
 
-  setSelectedRouteVariation<K extends keyof RouteVariationControls>(
-    param: K, value: RouteVariationControls[K]
-  ): void {
-    this.selection.setRouteVariation(param, value);
-  }
-
-  rerollSelectedRouteVariation(): void {
-    this.selection.rerollRouteVariation();
-  }
-
-  applySelectedRouteVariation(): void {
-    this.selection.applyRouteVariation();
-  }
-
   selectRoadLayoutTemplate(templateId: number): void {
     this.road.selectRoadLayoutTemplate(templateId);
   }
@@ -286,10 +272,20 @@ export class ViewerActions {
     param: K,
     value: RouteVariationControls[K]
   ): void {
+    const snapshot = this.ctx.readSnapshot();
+    if (snapshot.pathPoints.length === 0 && snapshot.selectedRouteVariation !== null) {
+      this.selection.setRouteVariation(param, value);
+      return;
+    }
     this.draw.setRouteVariation(param, value);
   }
 
   rerollRouteSeed(): void {
+    const snapshot = this.ctx.readSnapshot();
+    if (snapshot.pathPoints.length === 0 && snapshot.selectedRouteVariation !== null) {
+      this.selection.rerollRouteVariation();
+      return;
+    }
     this.draw.rerollRouteSeed();
   }
 

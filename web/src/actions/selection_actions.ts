@@ -27,8 +27,11 @@ export class SelectionActions {
     this.ctx.store.update((current) => ({
       ...current,
       selection: { kind, id },
-      selectedRouteVariation: selectedVariation,
-      selectedRouteVariationControls: selectedVariation === null
+      selectedRouteVariation: kind === "span"
+        ? selectedVariation
+        : current.selectedRouteVariation,
+      selectedRouteVariationControls: kind !== "span" || selectedVariation === null ||
+        selectedVariation.variationId === current.selectedRouteVariation?.variationId
         ? current.selectedRouteVariationControls
         : { ...DEFAULT_ROUTE_VARIATION_CONTROLS }
     }));
@@ -36,7 +39,7 @@ export class SelectionActions {
 
   clearSelection(): void {
     this.ctx.store.update((current) => ({
-      ...current, selection: null, selectedRouteVariation: null
+      ...current, selection: null
     }));
   }
 
@@ -59,6 +62,7 @@ export class SelectionActions {
         [param]: value
       }
     }));
+    this.applyRouteVariation();
   }
 
   rerollRouteVariation(): void {
@@ -81,6 +85,7 @@ export class SelectionActions {
         ? null
         : { ...snapshot.selectedRouteVariation, routeSeed }
     }));
+    this.applyRouteVariation();
   }
 
   applyRouteVariation(): void {
@@ -125,10 +130,11 @@ export class SelectionActions {
     const updated = this.ctx.bridge.backboneBundleVariation(variation.variationId);
     this.ctx.store.update((snapshot) => ({
       ...snapshot,
-      selectedRouteVariation: updated.ok && updated.found ? updated : null,
-      selectedRouteVariationControls: updated.ok && updated.found
-        ? { ...DEFAULT_ROUTE_VARIATION_CONTROLS }
-        : snapshot.selectedRouteVariationControls,
+      // The selected descriptor is the baseline for relative controls. Keep
+      // that baseline stable across input events so a value is not compounded.
+      selectedRouteVariation: updated.ok && updated.found
+        ? { ...updated, rules: variation.rules }
+        : null,
       error: "",
       logs: [...snapshot.logs, `route variation ${variation.variationId} applied`]
     }));

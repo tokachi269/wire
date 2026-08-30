@@ -65,7 +65,7 @@
     <p class="setting-note">{routeTarget()}。スライダーはtarget route全体へ即時反映します。</p>
     <label>
       Line density
-      <input type="range" min="0.5" max="1.25" step="0.05"
+      <input type="range" min="0.5" max="5" step="0.05"
         value={routeControls().density}
         oninput={(event) => actions.setRouteVariation("density", numberValue(event))} />
       <output>{routeControls().density.toFixed(2)}x</output>
@@ -108,7 +108,7 @@
     </label>
     <label>
       Bundle looseness (non-HV)
-      <input type="range" min="0" max="5" step="0.05"
+      <input type="range" min="0" max="50" step="0.25"
         value={snapshot.visual.wireIrregularityScale}
         oninput={(event) => actions.previewVisual(
           "wireIrregularityScale", numberValue(event))}

@@ -163,6 +163,12 @@ describe("viewer numeric inputs", () => {
     expect(lowVoltage!.heightMax - lowVoltage!.heightMin).toBeCloseTo(0.35, 12);
   });
 
+  it("keeps the visual evaluation ranges wider than the previous effective ceilings", async () => {
+    await mountViewer();
+    expect(inputForLabel("Line density").max).toBe("5");
+    expect(inputForLabel("Bundle looseness (non-HV)").max).toBe("50");
+  });
+
   it("changes the draw plane by three meters with PageUp and PageDown", async () => {
     const mounted = await mountViewer(false);
 

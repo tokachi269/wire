@@ -541,6 +541,12 @@ Communication / Opticalの初期visual evaluation値では、結束間隔を0.30
 線間の最大2 mmの余裕は結束位置以外で隣接線を視認するためのrendering allowanceで、物理規格値ではない。
 （参考: [Corning Standard Recommended Procedure 005-010](https://www.corning.com/content/dam/corning/catalog/coc/documents/standard-recommended-procedures/005-010.pdf), 3.20-3.21）
 
+globalなBundle loosenessはtemplateの`member_wander_ratio`へ掛ける評価倍率である。0xはcompact contactとし、積が1.0へ
+達するまでは従来どおりclearance allowance内の使用率だけを増やす。積が1.0を越えた分はclampで捨てず、clearance
+allowance自体へ移す。したがってcurrent defaultのratio 0.20では5xまで旧挙動を保ち、5xを越えて初めて評価断面を広げる。
+最小曲げ半径とOptical helix containmentは最終的な物理制約として維持する。Webの50xは旧5x ceilingから1桁上まで
+挙動を探索するためのevaluation rangeであり、推奨値や物理規格値ではない。
+
 main spanのsagは`ResolvedSpanCurveInputs.effective_sag_ratio`を最終curveまで一貫して使う。非HVは既存の
 hierarchical variationから小さな差を導出し、HVはvariation multiplierを適用せず従来値を維持する。
 

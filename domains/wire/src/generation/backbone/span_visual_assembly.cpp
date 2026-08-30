@@ -341,8 +341,13 @@ std::vector<VisualCurvePart> make_visual_members(const SpanVisualAssemblyTemplat
   const double cable_diameter = center.wire_radius_m * 2.0;
   const double compact_spacing = count < 2 ? 0.0 :
       cable_diameter + kLengthToleranceM;
+  const double evaluation_scale = std::max(0.0, irregularity_scale);
+  const double scaled_wander = settings.member_wander_ratio * evaluation_scale;
+  const double requested = std::clamp(scaled_wander, 0.0, 1.0);
+  const double base_clearance = count < 2 ? 0.0 :
+      std::max(0.0, settings.visual_member_spacing_m - compact_spacing);
   const double allowed_spacing = count < 2 ? 0.0 :
-      std::max(settings.visual_member_spacing_m, cable_diameter + kLengthToleranceM);
+      compact_spacing + base_clearance * std::max(1.0, scaled_wander);
   const VisualCurvePart sampled_center = count < 2 ? center :
       resample_for_binding_interval(center, settings.member_wander_wavelength_m);
   std::vector<VisualCurvePart> members(
@@ -398,8 +403,6 @@ std::vector<VisualCurvePart> make_visual_members(const SpanVisualAssemblyTemplat
           seed ^ interval_index ^
           std::bit_cast<std::uint64_t>(settings.member_wander_phase_bias));
       const double interval_strength = 0.65 + 0.35 * unit_value(interval_seed);
-      const double requested = std::clamp(
-          settings.member_wander_ratio * irregularity_scale, 0.0, 1.0);
       looseness = requested * interval_strength * binding_profile * envelope;
 
       const double clearance_angle = baseline_radius <= kLengthToleranceM

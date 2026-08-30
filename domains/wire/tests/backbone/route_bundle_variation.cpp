@@ -1206,6 +1206,36 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   WIRE_TEST_EXPECT(cross_section_change > 0.00005,
                    "visual bundle cross-section remained completely fixed along the span");
 
+  const auto maximum_member_distance = [&generate](double irregularity_scale) {
+    CoreState state;
+    BundleTemplate tpl = state.view().bundle_templates().at(
+        kDefaultCommunicationBundleTemplateId);
+    tpl.span_visual_assembly.visual_member_count_min = 3;
+    tpl.span_visual_assembly.visual_member_count_max = 3;
+    VisualSettings visual = state.view().visual_settings();
+    visual.wire_irregularity_scale = irregularity_scale;
+    if (!state.UpdateBundleTemplate(tpl).ok || !state.UpdateVisualSettings(visual).ok ||
+        !generate(&state, kDefaultCommunicationBundleTemplateId, 1, 3099).ok) {
+      return -1.0;
+    }
+    const auto parts = edge_bodies(state, kDefaultCommunicationBundleTemplateId);
+    if (parts.size() != 3) return -1.0;
+    double maximum = 0.0;
+    for (std::size_t sample = 0; sample < parts.front()->samples.size(); ++sample) {
+      for (std::size_t a = 0; a < parts.size(); ++a) {
+        for (std::size_t b = a + 1; b < parts.size(); ++b) {
+          maximum = std::max(maximum,
+              Length(parts[a]->samples[sample] - parts[b]->samples[sample]));
+        }
+      }
+    }
+    return maximum;
+  };
+  const double distance_at_5x = maximum_member_distance(5.0);
+  const double distance_at_25x = maximum_member_distance(25.0);
+  WIRE_TEST_EXPECT(distance_at_5x > 0.0 && distance_at_25x > distance_at_5x + 0.002,
+                   "bundle looseness remained saturated at the former 5x ceiling");
+
   CoreState connected;
   BundleTemplate connected_comm =
       connected.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);

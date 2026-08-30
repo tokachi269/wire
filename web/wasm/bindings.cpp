@@ -666,7 +666,6 @@ private:
         rule.height_max_m = property<double>(item, "heightMax");
         rule.lateral_abs_min_m = property<double>(item, "lateralAbsMin");
         rule.lateral_abs_max_m = property<double>(item, "lateralAbsMax");
-        rule.min_spacing_m = property<double>(item, "minSpacing");
         descriptor.rules.push_back(rule);
       }
       const auto variation = target.GenerateBackboneBundleVariation(spec, descriptor);
@@ -1609,7 +1608,6 @@ private:
       rule.height_max_m = property<double>(item, "heightMax");
       rule.lateral_abs_min_m = property<double>(item, "lateralAbsMin");
       rule.lateral_abs_max_m = property<double>(item, "lateralAbsMax");
-      rule.min_spacing_m = property<double>(item, "minSpacing");
       input.rules.push_back(rule);
     }
     return input;
@@ -1636,7 +1634,6 @@ private:
       item.set("heightMax", rule.height_max_m);
       item.set("lateralAbsMin", rule.lateral_abs_min_m);
       item.set("lateralAbsMax", rule.lateral_abs_max_m);
-      item.set("minSpacing", rule.min_spacing_m);
       rules.set(index, item);
     }
     output.set("rules", rules);

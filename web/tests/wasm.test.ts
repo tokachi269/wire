@@ -482,8 +482,7 @@ describe("wire wasm smoke", () => {
       heightMin: 7.1,
       heightMax: 7.1,
       lateralAbsMin: 0.25,
-      lateralAbsMax: 0.25,
-      minSpacing: 0.2
+      lateralAbsMax: 0.25
     }];
     const previewFirst = runState.previewBundleVariation(
       new Float64Array([0, 0, 0, 12, 0, 0]), rules, 12345, -1,
@@ -597,7 +596,7 @@ describe("wire wasm smoke", () => {
     const rules = [{
       bundleTemplateId: 104, minInstances: 1, maxInstances: 1,
       conductorCount: 1, heightMin: 5.2, heightMax: 5.2,
-      lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.16
+      lateralAbsMin: 0.25, lateralAbsMax: 0.25
     }];
     const first = runState.generateBundleVariation(
       new Float64Array([0, 0, 0, 12, 0, 0]), rules, 88601, -1,
@@ -631,11 +630,11 @@ describe("wire wasm smoke", () => {
     const rules = [{
       bundleTemplateId: 104, minInstances: 1, maxInstances: 1,
       conductorCount: 1, heightMin: 5.2, heightMax: 5.2,
-      lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.16
+      lateralAbsMin: 0.25, lateralAbsMax: 0.25
     }, {
       bundleTemplateId: 101, minInstances: 0, maxInstances: 0,
       conductorCount: 3, heightMin: 9.2, heightMax: 9.2,
-      lateralAbsMin: 0.2, lateralAbsMax: 0.2, minSpacing: 0.25
+      lateralAbsMin: 0.2, lateralAbsMax: 0.2
     }];
     const generated = runState.generateBundleVariation(
       new Float64Array([0, 0, 0, 12, 0, 0]), rules, 88801, -1,
@@ -678,11 +677,11 @@ describe("wire wasm smoke", () => {
     const rules = [{
       bundleTemplateId: 104, minInstances: 1, maxInstances: 1,
       conductorCount: 1, heightMin: 5.2, heightMax: 5.2,
-      lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.16
+      lateralAbsMin: 0.25, lateralAbsMax: 0.25
     }, {
       bundleTemplateId: 101, minInstances: 0, maxInstances: 0,
       conductorCount: 3, heightMin: 9.2, heightMax: 9.2,
-      lateralAbsMin: 0.2, lateralAbsMax: 0.2, minSpacing: 0.25
+      lateralAbsMin: 0.2, lateralAbsMax: 0.2
     }];
     const first = bridge.generateWireInterval({
       points: [[0, 0, 0], [12, 0, 0]],
@@ -760,7 +759,6 @@ describe("wire wasm smoke", () => {
       heightMax: 6.0,
       lateralAbsMin: 0.15,
       lateralAbsMax: 0.9,
-      minSpacing: 0.16
     }];
     const generated = runState.generateBundleVariation(
       new Float64Array([0, 0, 0, 16, 0, 0]), rule(2), 884422, -1,
@@ -809,12 +807,12 @@ describe("wire wasm smoke", () => {
       {
         bundleTemplateId: 102, minInstances: 1, maxInstances: 1,
         conductorCount: 1, heightMin: 7.2, heightMax: 7.2,
-        lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.2
+        lateralAbsMin: 0.25, lateralAbsMax: 0.25
       },
       {
         bundleTemplateId: 105, minInstances: 0, maxInstances: 0,
         conductorCount: 1, heightMin: 5.1, heightMax: 5.1,
-        lateralAbsMin: 0.25, lateralAbsMax: 0.25, minSpacing: 0.16
+        lateralAbsMin: 0.25, lateralAbsMax: 0.25
       }
     ];
     const generated = runState.generateBundleVariation(

@@ -676,6 +676,7 @@ bool archive_saved_row_continuity(Archive& archive, const std::string& prefix, V
 template <typename Archive, typename Value>
 bool archive_random_bundle_rule(Archive& archive, const std::string& prefix,
                                 Value& value) {
+  double obsolete_min_spacing_m = 0.0;
   return archive.field(prefix, "bundle_template_id", value.bundle_template_id) &&
          archive.field(prefix, "min_instances", value.min_instances) &&
          archive.field(prefix, "max_instances", value.max_instances) &&
@@ -684,7 +685,8 @@ bool archive_random_bundle_rule(Archive& archive, const std::string& prefix,
          archive.field(prefix, "height_max_m", value.height_max_m) &&
          archive.field(prefix, "lateral_abs_min_m", value.lateral_abs_min_m) &&
          archive.field(prefix, "lateral_abs_max_m", value.lateral_abs_max_m) &&
-         archive.field(prefix, "min_spacing_m", value.min_spacing_m);
+         archive.legacy_field(prefix, "min_spacing_m", obsolete_min_spacing_m,
+                              0.0);
 }
 
 template <typename Archive, typename Value>

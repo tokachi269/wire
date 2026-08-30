@@ -110,7 +110,7 @@ bool C732_route_bundle_rule_owner_is_bundle_template_id() {
   input.route_seed = 31;
   input.preferred_side_sign = -1;
   input.pole_type_id = 2;
-  input.rules = {{ids.a, 1, 1, 1, 7.0, 7.4, 0.2, 0.4, 0.2}};
+  input.rules = {{ids.a, 1, 1, 1, 7.0, 7.4, 0.2, 0.4}};
   const auto resolved = state.ResolveRouteBundleVariation(input);
   return resolved.ok && resolved.value.size() == 1 &&
          resolved.value.front().bundle_template_id == ids.a;

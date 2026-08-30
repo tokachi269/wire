@@ -368,7 +368,6 @@ struct RandomBackboneBundleRule {
   double height_max_m = 0.0;
   double lateral_abs_min_m = 0.0;
   double lateral_abs_max_m = 0.0;
-  double min_spacing_m = 0.0;
 };
 
 struct RouteBundleVariationInput {

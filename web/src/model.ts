@@ -307,7 +307,6 @@ export interface RandomBundleRule {
   heightMax: number;
   lateralAbsMin: number;
   lateralAbsMax: number;
-  minSpacing: number;
 }
 
 export interface RouteBundleVariationResult extends OperationResult {

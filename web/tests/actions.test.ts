@@ -1003,7 +1003,7 @@ describe("viewport tool routing", () => {
     const persistedRules = [{
       bundleTemplateId: 104, minInstances: 2, maxInstances: 3,
       conductorCount: 1, heightMin: 6, heightMax: 7,
-      lateralAbsMin: 0.3, lateralAbsMax: 0.7, minSpacing: 0.16
+      lateralAbsMin: 0.3, lateralAbsMax: 0.7
     }];
     const descriptor = {
       ok: true, error: "", found: true, variationId: "904", routeSeed: 321,
@@ -1038,7 +1038,7 @@ describe("viewport tool routing", () => {
     const persistedRules = [{
       bundleTemplateId: 104, minInstances: 2, maxInstances: 4,
       conductorCount: 1, heightMin: 5, heightMax: 7,
-      lateralAbsMin: 0.2, lateralAbsMax: 0.6, minSpacing: 0.16
+      lateralAbsMin: 0.2, lateralAbsMax: 0.6
     }];
     const appliedRules = [{
       ...persistedRules[0], heightMin: 5.5, heightMax: 6.5

@@ -1999,10 +1999,10 @@ EditResult<bool> CoreState::UpdateBackboneBundlePlacement(ObjectId bundle_id, bo
     return result;
   }
   if (bundle->placement_explicit == placement_explicit &&
-      std::abs(bundle->height_m - height_m) <= kStrictLengthToleranceM &&
-      std::abs(bundle->lateral_m - lateral_m) <= kStrictLengthToleranceM &&
-      std::abs(bundle->phase_spacing_m - spacing_m) <= kStrictLengthToleranceM &&
-      std::abs(bundle->spacing_override_m - spacing_m) <= kStrictLengthToleranceM) {
+      bundle->height_m == height_m &&
+      bundle->lateral_m == lateral_m &&
+      bundle->phase_spacing_m == spacing_m &&
+      bundle->spacing_override_m == spacing_m) {
     result.ok = true;
     result.value = false;
     return result;

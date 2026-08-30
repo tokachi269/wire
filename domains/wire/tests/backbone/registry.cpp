@@ -1476,6 +1476,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "non-HV sharp rows keep the current two-port jumper representation and sampled endpoint G1",
                          "Invariant", false,
                          C894_non_hv_sharp_jumper_keeps_two_port_g1_contract);
+  test_registry::AddTest(tests, "C895_route_variation_controls_resolve_and_apply_full_range",
+                         "route variation density and spread controls resolve and atomically apply across the exposed evaluation range",
+                         "Differential", false,
+                         C895_route_variation_controls_resolve_and_apply_full_range);
   test_registry::AddTest(tests, "C852_backbone_near_angle_row_order_uses_degree_contract",
                          "near-angle physical rows use degree ordering independent of path direction",
                          "Invariant", false,
@@ -1495,15 +1499,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C856_route_bundle_variation_is_seed_stable_and_seed_sensitive",
                          "route bundle variation is stable for one seed and differs for representative seeds",
                          "Invariant", false, C856_route_bundle_variation_is_seed_stable_and_seed_sensitive);
-  test_registry::AddTest(tests, "C857_route_bundle_variation_obeys_side_envelopes_and_spacing",
-                         "route bundle variation stays on one side and obeys envelopes and spacing",
-                         "Invariant", false, C857_route_bundle_variation_obeys_side_envelopes_and_spacing);
+  test_registry::AddTest(tests, "C857_route_bundle_variation_obeys_side_envelopes",
+                         "route bundle variation stays on one side and obeys authored envelopes without inventing cross-Bundle clearance",
+                         "Invariant", false, C857_route_bundle_variation_obeys_side_envelopes);
   test_registry::AddTest(tests, "C858_route_bundle_variation_creates_only_requested_authoritative_topology",
                          "communication-only variation creates ordinary topology for only requested templates",
                          "Boundary", false, C858_route_bundle_variation_creates_only_requested_authoritative_topology);
-  test_registry::AddTest(tests, "C859_route_bundle_variation_failure_is_atomic",
-                         "unsatisfiable route bundle variation fails without authoritative mutation",
-                         "Boundary", true, C859_route_bundle_variation_failure_is_atomic);
   test_registry::AddTest(tests, "C860_route_bundle_variation_survives_save_load_and_acute_corner",
                          "resolved route placement survives save/load and an acute multi-bundle corner",
                          "Invariant", false, C860_route_bundle_variation_survives_save_load_and_acute_corner);

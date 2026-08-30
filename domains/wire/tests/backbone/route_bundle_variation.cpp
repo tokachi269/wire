@@ -22,10 +22,10 @@ namespace {
 std::vector<city::wire::RandomBackboneBundleRule> visual_rules() {
   using namespace city::wire;
   return {
-      {kDefaultHighVoltageBundleTemplateId, 1, 1, 3, 9.2, 9.2, 0.2, 0.2, 0.25},
-      {kDefaultLowVoltageBundleTemplateId, 2, 4, 1, 7.0, 7.7, 0.12, 0.52, 0.20},
-      {kDefaultCommunicationBundleTemplateId, 1, 4, 1, 5.0, 5.8, 0.12, 0.50, 0.16},
-      {kDefaultOpticalBundleTemplateId, 0, 2, 1, 4.9, 5.7, 0.12, 0.50, 0.16},
+      {kDefaultHighVoltageBundleTemplateId, 1, 1, 3, 9.2, 9.2, 0.2, 0.2},
+      {kDefaultLowVoltageBundleTemplateId, 2, 4, 1, 7.0, 7.7, 0.12, 0.52},
+      {kDefaultCommunicationBundleTemplateId, 1, 4, 1, 5.0, 5.8, 0.12, 0.50},
+      {kDefaultOpticalBundleTemplateId, 0, 2, 1, 4.9, 5.7, 0.12, 0.50},
   };
 }
 
@@ -188,7 +188,7 @@ bool C856_route_bundle_variation_is_seed_stable_and_seed_sensitive() {
          !same_specs(first.value, other.value);
 }
 
-bool C857_route_bundle_variation_obeys_side_envelopes_and_spacing() {
+bool C857_route_bundle_variation_obeys_side_envelopes() {
   city::wire::CoreState state;
   const auto input = variation_input(0x12345678);
   const auto resolved = state.ResolveRouteBundleVariation(input);
@@ -203,13 +203,8 @@ bool C857_route_bundle_variation_obeys_side_envelopes_and_spacing() {
         spec.height_m < rule->height_min_m - 1e-12 ||
         spec.height_m > rule->height_max_m + 1e-12) return false;
     for (std::size_t j = 0; j < i; ++j) {
-      const auto* other_rule = rule_for(input.rules, resolved.value[j].bundle_template_id);
-      if (other_rule == nullptr) return false;
-      const double required = std::max(rule->min_spacing_m, other_rule->min_spacing_m);
-      const double dy = spec.lateral_m - resolved.value[j].lateral_m;
-      const double dz = spec.height_m - resolved.value[j].height_m;
-      if (dy * dy + dz * dz + 1e-12 < required * required) return false;
-      horizontal_variation = horizontal_variation || std::abs(dy) > 1e-6;
+      horizontal_variation = horizontal_variation ||
+          std::abs(spec.lateral_m - resolved.value[j].lateral_m) > 1e-6;
     }
   }
   return horizontal_variation;
@@ -223,8 +218,8 @@ bool C858_route_bundle_variation_creates_only_requested_authoritative_topology()
   input.preferred_side_sign = -1;
   input.pole_type_id = 2;
   input.rules = {
-      {kDefaultCommunicationBundleTemplateId, 2, 3, 1, 5.0, 5.8, 0.12, 0.50, 0.16},
-      {kDefaultOpticalBundleTemplateId, 1, 2, 1, 4.9, 5.7, 0.12, 0.50, 0.16},
+      {kDefaultCommunicationBundleTemplateId, 2, 3, 1, 5.0, 5.8, 0.12, 0.50},
+      {kDefaultOpticalBundleTemplateId, 1, 2, 1, 4.9, 5.7, 0.12, 0.50},
   };
   const auto resolved = state.ResolveRouteBundleVariation(input);
   if (!resolved.ok || resolved.value.empty()) return false;
@@ -236,19 +231,6 @@ bool C858_route_bundle_variation_creates_only_requested_authoritative_topology()
     const BundleTemplateId id = bundle.bundle_template_id;
     return id == kDefaultCommunicationBundleTemplateId || id == kDefaultOpticalBundleTemplateId;
   });
-}
-
-bool C859_route_bundle_variation_failure_is_atomic() {
-  city::wire::CoreState state;
-  std::string before{};
-  if (!state.SerializeAuthoritative(&before).ok) return false;
-  auto input = variation_input(99);
-  input.rules = {{city::wire::kDefaultLowVoltageBundleTemplateId,
-                  2, 2, 1, 7.0, 7.0, 0.2, 0.2, 0.5}};
-  const auto resolved = state.ResolveRouteBundleVariation(input);
-  std::string after{};
-  return !resolved.ok && resolved.error.find("cannot satisfy minimum spacing") != std::string::npos &&
-         state.SerializeAuthoritative(&after).ok && before == after;
 }
 
 bool C860_route_bundle_variation_survives_save_load_and_acute_corner() {
@@ -415,8 +397,8 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
   WIRE_TEST_EXPECT_PRESENCE(failed.SerializeAuthoritative(&before).ok,
                             "variation failure fixture save failed");
   RouteBundleVariationInput impossible = descriptor;
-  impossible.rules = {{kDefaultLowVoltageBundleTemplateId, 2, 2, 1,
-                       7.0, 7.0, 0.2, 0.2, 0.5}};
+  impossible.rules = {{kDefaultLowVoltageBundleTemplateId, 2, 1, 1,
+                       7.0, 7.0, 0.2, 0.2}};
   const auto rejected = failed.GenerateBackboneBundleVariation(
       request_with(failed, {}), impossible);
   std::string after{};
@@ -436,7 +418,7 @@ bool C883_backbone_variation_apply_reconciles_concrete_scope_atomically() {
   initial.preferred_side_sign = -1;
   initial.pole_type_id = 2;
   initial.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-                    5.1, 5.1, 0.20, 0.20, 0.16}};
+                    5.1, 5.1, 0.20, 0.20}};
   const auto generated = state.GenerateBackboneBundleVariation(
       request_with(state, {}), initial);
   if (!generated.ok) return false;
@@ -511,7 +493,7 @@ bool C883_backbone_variation_apply_reconciles_concrete_scope_atomically() {
   impossible.rules.front().height_max_m = 5.0;
   impossible.rules.front().lateral_abs_min_m = 0.2;
   impossible.rules.front().lateral_abs_max_m = 0.2;
-  impossible.rules.front().min_spacing_m = 0.5;
+  impossible.rules.front().max_instances = 2;
   const auto rejected =
       state.ApplyBackboneBundleVariation(variation_id, impossible);
   std::string stable_after{};
@@ -526,7 +508,7 @@ bool C883_backbone_variation_apply_reconciles_concrete_scope_atomically() {
   fixed_descriptor.preferred_side_sign = -1;
   fixed_descriptor.pole_type_id = 1;
   fixed_descriptor.rules = {{kDefaultLowVoltageBundleTemplateId, 1, 1, 1,
-                             7.1, 7.1, 0.25, 0.25, 0.2}};
+                             7.1, 7.1, 0.25, 0.25}};
   BackboneSpec fixed_request = line_req(fixed_state);
   fixed_request.pole_type_id = 1;
   fixed_request.bundles.clear();
@@ -555,7 +537,7 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
   one.preferred_side_sign = -1;
   one.pole_type_id = 2;
   one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-                5.2, 5.2, 0.25, 0.25, 0.16}};
+                5.2, 5.2, 0.25, 0.25}};
   BackboneSpec request = request_with(
       state, {}, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 1.5, 0.0}});
   const auto generated = state.GenerateBackboneBundleVariation(request, one);
@@ -639,31 +621,31 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
   RouteBundleVariationInput initial_zero = one;
   initial_zero.rules.push_back(
       {kDefaultOpticalBundleTemplateId, 0, 0, 1,
-       4.9, 5.3, 0.20, 0.50, 0.16});
+       4.9, 5.3, 0.20, 0.50});
   CoreState no_source;
   const auto initial_zero_generation =
       no_source.GenerateBackboneBundleVariation(
           request_with(no_source, {}), initial_zero);
   if (!initial_zero_generation.ok) return false;
+  std::string initial_zero_before;
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      no_source.SerializeAuthoritative(&initial_zero_before).ok,
+      "initial zero-to-one pre-state serialization failed");
   RouteBundleVariationInput request_first_optical = initial_zero;
   request_first_optical.rules.back().min_instances = 1;
   request_first_optical.rules.back().max_instances = 1;
-  std::string zero_before{};
-  std::string zero_after{};
-  WIRE_TEST_EXPECT_PRESENCE(
-      no_source.SerializeAuthoritative(&zero_before).ok,
-      "initial zero membership failure snapshot save failed");
-  const auto initial_zero_rejected =
+  const auto initial_zero_applied =
       no_source.ApplyBackboneBundleVariation(
           initial_zero_generation.value.variation_id,
           request_first_optical);
+  std::string initial_zero_after;
   WIRE_TEST_EXPECT_DIFFERENTIAL(
-      !initial_zero_rejected.ok &&
-          initial_zero_rejected.error.find("initial zero-instance") !=
+      !initial_zero_applied.ok &&
+          initial_zero_applied.error.find("initial zero-instance") !=
               std::string::npos &&
-          no_source.SerializeAuthoritative(&zero_after).ok &&
-          zero_before == zero_after,
-      "initial zero-to-one without membership source did not fail atomically");
+          no_source.SerializeAuthoritative(&initial_zero_after).ok &&
+          initial_zero_after == initial_zero_before,
+      "explicitly unavailable zero group did not fail atomically");
 
   CoreState ownerless;
   BackboneSpec ownerless_request = request_with(
@@ -703,7 +685,7 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
   RouteBundleVariationInput two_groups = one;
   two_groups.rules.push_back(
       {kDefaultLowVoltageBundleTemplateId, 1, 1, 1,
-       7.1, 7.1, 0.25, 0.25, 0.20});
+       7.1, 7.1, 0.25, 0.25});
   const auto two_generated = extended_zero.GenerateBackboneBundleVariation(
       request_with(extended_zero, {}), two_groups);
   if (!two_generated.ok ||
@@ -784,7 +766,7 @@ bool C885_backbone_variation_apply_preserves_branch_cross_sharp_membership() {
   one.preferred_side_sign = -1;
   one.pole_type_id = 2;
   one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-                5.2, 5.2, 0.25, 0.25, 0.16}};
+                5.2, 5.2, 0.25, 0.25}};
   const auto generated = state.GenerateBackboneBundleVariation(
       request_with(state, {},
                    {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0},
@@ -883,7 +865,7 @@ bool C886_backbone_variation_placement_identity_is_scope_local() {
   descriptor.preferred_side_sign = -1;
   descriptor.pole_type_id = 2;
   descriptor.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-                       5.2, 5.2, 0.25, 0.25, 0.16}};
+                       5.2, 5.2, 0.25, 0.25}};
   const auto first = state.GenerateBackboneBundleVariation(
       request_with(state, {}, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}),
       descriptor);
@@ -1485,9 +1467,9 @@ bool C888_variation_branch_pick_uses_exact_live_scope() {
   descriptor.pole_type_id = 2;
   descriptor.rules = {
       {kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-       5.2, 5.2, 0.25, 0.25, 0.16},
+       5.2, 5.2, 0.25, 0.25},
       {kDefaultHighVoltageBundleTemplateId, 0, 0, 3,
-       9.2, 9.2, 0.2, 0.2, 0.25}};
+       9.2, 9.2, 0.2, 0.2}};
   const auto generated = state.GenerateBackboneBundleVariation(
       request_with(state, {}), descriptor);
   WIRE_TEST_EXPECT_PRESENCE(
@@ -1534,9 +1516,9 @@ bool C889_variation_membership_is_current_and_shared_skeleton_is_collected() {
   descriptor.pole_type_id = 2;
   descriptor.rules = {
       {kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-       5.2, 5.2, 0.25, 0.25, 0.16},
+       5.2, 5.2, 0.25, 0.25},
       {kDefaultOpticalBundleTemplateId, 1, 1, 1,
-       5.0, 5.0, 0.35, 0.35, 0.16}};
+       5.0, 5.0, 0.35, 0.35}};
   const auto generated = state.GenerateBackboneBundleVariation(
       request_with(state, {}), descriptor);
   if (!generated.ok) return false;
@@ -1635,7 +1617,7 @@ bool C890_dormant_skeleton_isolated_and_same_pair_reuse_is_exact() {
   one.preferred_side_sign = -1;
   one.pole_type_id = 2;
   one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-                5.2, 5.2, 0.25, 0.25, 0.16}};
+                5.2, 5.2, 0.25, 0.25}};
   BackboneSpec ownerless_request = request_with(
       dormant, {}, {{0.0, 0.0, 4.0}, {12.0, 0.0, 4.0}});
   BackboneInputSpec::NodeSpec node_a{};
@@ -1782,7 +1764,7 @@ bool C891_dormant_skeleton_does_not_change_unrelated_generation() {
   retained.descriptor.pole_type_id = 2;
   retained.descriptor.rules = {
       {kDefaultCommunicationBundleTemplateId, 0, 0, 1,
-       5.2, 5.2, 0.25, 0.25, 0.16}};
+       5.2, 5.2, 0.25, 0.25}};
   retained.memberships.push_back(
       {kDefaultCommunicationBundleTemplateId, 1, {dormant_edge.edge_id}, {}});
   CoreStateTestHook::backbone_bundle_variations(with_dormant).push_back(
@@ -1964,7 +1946,7 @@ bool C893_dormant_same_pair_reuse_ignores_route_local_order() {
   one.preferred_side_sign = -1;
   one.pole_type_id = 2;
   one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-                5.2, 5.2, 0.25, 0.25, 0.16}};
+                5.2, 5.2, 0.25, 0.25}};
 
   auto initial_request = [](CoreState& state) {
     BackboneSpec request = request_with(
@@ -2074,6 +2056,151 @@ bool C893_dormant_same_pair_reuse_ignores_route_local_order() {
       dormant_reused.error.empty()
           ? "dormant same-pair reuse diverged from live reuse after route-local order changed"
           : dormant_reused.error);
+  return true;
+}
+
+bool C895_route_variation_controls_resolve_and_apply_full_range() {
+  using namespace city::wire;
+  auto controls = [](double density, double height_spread,
+                     double lateral_spread) {
+    auto rules = visual_rules();
+    for (RandomBackboneBundleRule& rule : rules) {
+      if (rule.bundle_template_id == kDefaultHighVoltageBundleTemplateId) {
+        continue;
+      }
+      const double height_center =
+          (rule.height_min_m + rule.height_max_m) * 0.5;
+      const double height_half =
+          (rule.height_max_m - rule.height_min_m) * 0.5 * height_spread;
+      const double lateral_center =
+          (rule.lateral_abs_min_m + rule.lateral_abs_max_m) * 0.5;
+      const double lateral_half =
+          (rule.lateral_abs_max_m - rule.lateral_abs_min_m) * 0.5 *
+          lateral_spread;
+      rule.min_instances =
+          static_cast<int>(std::lround(rule.min_instances * density));
+      rule.max_instances = std::max(
+          rule.min_instances,
+          static_cast<int>(std::lround(rule.max_instances * density)));
+      rule.height_min_m = height_center - height_half;
+      rule.height_max_m = height_center + height_half;
+      rule.lateral_abs_min_m = std::max(0.0, lateral_center - lateral_half);
+      rule.lateral_abs_max_m = lateral_center + lateral_half;
+    }
+    return rules;
+  };
+  auto input = [&](double density, double height_spread,
+                   double lateral_spread) {
+    RouteBundleVariationInput descriptor{};
+    descriptor.route_seed = 0x8950102;
+    descriptor.preferred_side_sign = -1;
+    descriptor.pole_type_id = 2;
+    descriptor.rules = controls(density, height_spread, lateral_spread);
+    return descriptor;
+  };
+  auto placement_by_key = [](const CoreState& state, ObjectId variation_id) {
+    std::map<std::uint64_t, std::pair<double, double>> placements{};
+    const SavedBackboneBundleVariation* variation =
+        state.view().backbone_bundle_variation(variation_id);
+    if (variation == nullptr) return placements;
+    for (const SavedBackboneBundleVariationInstance& instance :
+         variation->instances) {
+      const Bundle* bundle = state.view().bundles().find(instance.bundle_id);
+      if (bundle != nullptr) {
+        placements.emplace(instance.placement_key,
+                           std::pair{bundle->height_m, bundle->lateral_m});
+      }
+    }
+    return placements;
+  };
+
+  CoreState state{};
+  const RouteBundleVariationInput baseline = input(1.0, 1.0, 1.0);
+  const RouteBundleVariationInput dense = input(5.0, 1.0, 1.0);
+  const auto baseline_resolved = state.ResolveRouteBundleVariation(baseline);
+  const auto dense_resolved = state.ResolveRouteBundleVariation(dense);
+  WIRE_TEST_EXPECT_PRESENCE(
+      baseline_resolved.ok && dense_resolved.ok &&
+          dense_resolved.value.size() > baseline_resolved.value.size(),
+      dense_resolved.error.empty()
+          ? "Density 5x did not resolve a denser concrete Bundle set"
+          : dense_resolved.error);
+
+  const auto generated = state.GenerateBackboneBundleVariation(
+      request_with(state, {}), baseline);
+  WIRE_TEST_EXPECT_PRESENCE(generated.ok, generated.error);
+  const ObjectId variation_id = generated.value.variation_id;
+  const auto dense_applied =
+      state.ApplyBackboneBundleVariation(variation_id, dense);
+  const auto dense_placements = placement_by_key(state, variation_id);
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      dense_applied.ok && dense_applied.value &&
+          dense_placements.size() == dense_resolved.value.size(),
+      dense_applied.error.empty()
+          ? "Density 5x did not apply its full concrete Bundle set"
+          : dense_applied.error);
+
+  const RouteBundleVariationInput taller = input(5.0, 1.75, 1.0);
+  const auto taller_applied =
+      state.ApplyBackboneBundleVariation(variation_id, taller);
+  const auto taller_placements = placement_by_key(state, variation_id);
+  const bool height_changed = std::ranges::any_of(
+      taller_placements, [&](const auto& placement) {
+        const auto previous = dense_placements.find(placement.first);
+        return previous != dense_placements.end() &&
+               previous->second.first != placement.second.first;
+      });
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      taller_applied.ok && taller_applied.value && height_changed,
+      taller_applied.error.empty()
+          ? "Height spread changed the descriptor without changing concrete placement"
+          : taller_applied.error);
+
+  const RouteBundleVariationInput wider = input(5.0, 1.75, 1.75);
+  const auto wider_applied =
+      state.ApplyBackboneBundleVariation(variation_id, wider);
+  const auto wider_placements = placement_by_key(state, variation_id);
+  const bool lateral_changed = std::ranges::any_of(
+      wider_placements, [&](const auto& placement) {
+        const auto previous = taller_placements.find(placement.first);
+        return previous != taller_placements.end() &&
+               previous->second.second != placement.second.second;
+      });
+  WIRE_TEST_EXPECT_DIFFERENTIAL(
+      wider_applied.ok && wider_applied.value && lateral_changed,
+      wider_applied.error.empty()
+          ? "Lateral spread changed the descriptor without changing concrete placement"
+          : wider_applied.error);
+
+  RouteBundleVariationInput tiny = wider;
+  tiny.rules[1].height_min_m += 1e-8;
+  tiny.rules[1].height_max_m += 1e-8;
+  const auto tiny_resolved = state.ResolveRouteBundleVariation(tiny);
+  const auto tiny_applied =
+      state.ApplyBackboneBundleVariation(variation_id, tiny);
+  const SavedBackboneBundleVariation* tiny_variation =
+      state.view().backbone_bundle_variation(variation_id);
+  bool tiny_exact = tiny_resolved.ok && tiny_variation != nullptr;
+  for (const BackboneBundleSpec& desired : tiny_resolved.value) {
+    const auto instance = std::ranges::find_if(
+        tiny_variation->instances,
+        [&](const SavedBackboneBundleVariationInstance& value) {
+          return value.placement_key == desired.placement_key;
+        });
+    const Bundle* bundle =
+        instance == tiny_variation->instances.end()
+            ? nullptr
+            : state.view().bundles().find(instance->bundle_id);
+    tiny_exact = tiny_exact && bundle != nullptr &&
+                 bundle->height_m == desired.height_m &&
+                 bundle->lateral_m == desired.lateral_m;
+  }
+  WIRE_TEST_EXPECT_ANCHOR(
+      tiny_applied.ok && tiny_applied.value && tiny_exact,
+      tiny_applied.error.empty()
+          ? "sub-tolerance control change was not stored as the exact desired placement"
+          : tiny_applied.error);
+  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(state);
   return true;
 }
 

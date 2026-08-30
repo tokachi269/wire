@@ -18,7 +18,6 @@
 namespace city::wire {
 namespace {
 
-constexpr int kPlacementAttempts = 64;
 constexpr std::uint64_t kJavascriptExactIntegerMask = (std::uint64_t{1} << 53) - 1;
 
 double unit_value(std::uint64_t bits) {
@@ -60,21 +59,6 @@ double sample_lateral_magnitude(std::uint64_t seed, double minimum, double maxim
                                      -generation::backbone::route_support::kSupportedSlotJitterM,
                                      generation::backbone::route_support::kSupportedSlotJitterM);
   return std::clamp(slot + jitter, minimum, maximum);
-}
-
-struct PlacedPoint {
-  double lateral_m = 0.0;
-  double height_m = 0.0;
-  double min_spacing_m = 0.0;
-};
-
-bool separated(const PlacedPoint& candidate, const std::vector<PlacedPoint>& placed) {
-  return std::ranges::all_of(placed, [&](const PlacedPoint& existing) {
-    const double required = std::max(candidate.min_spacing_m, existing.min_spacing_m);
-    const double dy = candidate.lateral_m - existing.lateral_m;
-    const double dz = candidate.height_m - existing.height_m;
-    return dy * dy + dz * dz + kLengthSquaredToleranceM2 >= required * required;
-  });
 }
 
 bool same_membership_topology(
@@ -134,7 +118,6 @@ EditResult<bool> detail::validate_route_bundle_variation_descriptor(
         !std::isfinite(rule.lateral_abs_max_m) ||
         rule.lateral_abs_min_m < 0.0 ||
         rule.lateral_abs_max_m < rule.lateral_abs_min_m ||
-        !std::isfinite(rule.min_spacing_m) || rule.min_spacing_m < 0.0 ||
         rule.conductor_count < 0) {
       result.error =
           "core invalid input: route bundle variation rule is invalid";
@@ -339,7 +322,6 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
   }
 
   std::vector<BackboneBundleSpec> resolved{};
-  std::vector<PlacedPoint> placed{};
   std::unordered_set<std::uint64_t> placement_keys{};
   for (std::size_t rule_ordinal = 0; rule_ordinal < input.rules.size(); ++rule_ordinal) {
     const RandomBackboneBundleRule& rule = input.rules[rule_ordinal];
@@ -364,26 +346,17 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
         result.error = bands.error;
         return result;
       }
-      bool accepted = false;
-      PlacedPoint candidate{};
-      for (int attempt = 0; attempt < kPlacementAttempts; ++attempt) {
-        const std::uint64_t attempt_seed = support::hash_combine(base_seed, static_cast<std::uint64_t>(attempt));
-        candidate.height_m = sample_range(attempt_seed, 0x484549474854ull,
-                                          rule.height_min_m, rule.height_max_m);
-        const double magnitude = sample_lateral_magnitude(
-            attempt_seed, rule.lateral_abs_min_m, rule.lateral_abs_max_m,
-            bundle_template->category);
-        candidate.lateral_m = static_cast<double>(side_sign) * magnitude;
-        candidate.min_spacing_m = rule.min_spacing_m;
-        if (separated(candidate, placed)) {
-          accepted = true;
-          break;
-        }
-      }
-      if (!accepted) {
-        result.error = "core unsupported: route bundle variation cannot satisfy minimum spacing";
-        return result;
-      }
+      // Each concrete Bundle owns an independent point in the authored
+      // envelope. The resolver does not invent a cross-Bundle clearance
+      // policy or reject a density selected by its caller.
+      const std::uint64_t placement_seed = support::hash_combine(base_seed, 0);
+      const double height_m = sample_range(
+          placement_seed, 0x484549474854ull,
+          rule.height_min_m, rule.height_max_m);
+      const double magnitude = sample_lateral_magnitude(
+          placement_seed, rule.lateral_abs_min_m, rule.lateral_abs_max_m,
+          bundle_template->category);
+      const double lateral_m = static_cast<double>(side_sign) * magnitude;
 
       std::uint64_t placement_key = support::hash_combine(base_seed, 0x504c4143454d454eull) &
                                     kJavascriptExactIntegerMask;
@@ -400,11 +373,10 @@ CoreState::ResolveRouteBundleVariation(const RouteBundleVariationInput& input) c
       spec.layer = bundle_template->default_layer;
       spec.count = conductor_count;
       spec.placement_explicit = true;
-      spec.height_m = candidate.height_m;
-      spec.lateral_m = candidate.lateral_m;
+      spec.height_m = height_m;
+      spec.lateral_m = lateral_m;
       spec.spacing_m = bundle_template->default_spacing_m;
       resolved.push_back(spec);
-      placed.push_back(candidate);
     }
   }
 
@@ -471,6 +443,88 @@ CoreState::GenerateBackboneBundleVariation(
       if (!captured.ok) return reject(captured.error);
       variation.memberships.push_back(std::move(captured.value));
     }
+  }
+  // A rule may resolve to zero instances initially and still become nonzero
+  // through an explicit density Apply. Capture its exact membership while the
+  // initial route path is known; later Apply must not infer a route or pairing.
+  std::set<std::pair<BundleTemplateId, int>> captured_groups{};
+  for (const SavedBackboneBundleVariationMembership& membership :
+       variation.memberships) {
+    captured_groups.emplace(membership.bundle_template_id,
+                            membership.conductor_count);
+  }
+  for (std::size_t rule_index = 0; rule_index < descriptor.rules.size();
+       ++rule_index) {
+    const RandomBackboneBundleRule& rule = descriptor.rules[rule_index];
+    // A rule authored as permanently empty is not a latent topology group.
+    // Only a group that this descriptor can actually materialize needs an
+    // exact membership source when its initial seeded sample happens to be 0.
+    if (rule.max_instances == 0) continue;
+    const BundleTemplate* bundle_template =
+        trial.find_bundle_template(rule.bundle_template_id);
+    if (bundle_template == nullptr) {
+      return reject(
+          "backbone internal: zero-instance membership template is missing");
+    }
+    const int conductor_count = rule.conductor_count > 0
+                                    ? rule.conductor_count
+                                    : bundle_template->default_count;
+    if (captured_groups.contains({rule.bundle_template_id, conductor_count})) {
+      continue;
+    }
+
+    RouteBundleVariationInput forced = descriptor;
+    for (RandomBackboneBundleRule& candidate : forced.rules) {
+      candidate.min_instances = 0;
+      candidate.max_instances = 0;
+    }
+    forced.rules[rule_index].min_instances = 1;
+    forced.rules[rule_index].max_instances = 1;
+    EditResult<std::vector<BackboneBundleSpec>> temporary_resolved =
+        trial.ResolveRouteBundleVariation(forced);
+    if (!temporary_resolved.ok || temporary_resolved.value.size() != 1) {
+      return reject(temporary_resolved.ok
+                        ? "backbone internal: zero-instance membership did not resolve one temporary Bundle"
+                        : temporary_resolved.error);
+    }
+
+    BackboneSpec temporary = spec;
+    temporary.interval_m = 0.0;
+    temporary.pole_type_id = descriptor.pole_type_id;
+    temporary.bundles = temporary_resolved.value;
+    temporary.node_bundle_modes.clear();
+    temporary.path.polyline.clear();
+    temporary.path.node_specs.clear();
+    for (std::size_t node_index = 0;
+         node_index < generated.value.generated_node_ids.size(); ++node_index) {
+      const ObjectId node_id = generated.value.generated_node_ids[node_index];
+      const SavedBackboneNode* node = trial.view().backbone_node(node_id);
+      if (node == nullptr || node->has_source_edge) {
+        return reject(
+            "backbone unsupported: zero-instance variation membership requires a source-edge-free exact path");
+      }
+      BackboneInputSpec::NodeSpec node_spec{};
+      node_spec.point_index = node_index;
+      node_spec.support_kind = node->support_kind;
+      node_spec.node_id = node_id;
+      temporary.path.polyline.push_back(node->position);
+      temporary.path.node_specs.push_back(node_spec);
+    }
+    EditResult<GenerateBundleFromPathResult> materialized =
+        trial.GenerateFromBackboneSpec(temporary);
+    if (!materialized.ok || materialized.value.bundle_ids.size() != 1) {
+      return reject(materialized.ok
+                        ? "backbone internal: zero-instance membership temporary Bundle is incomplete"
+                        : materialized.error);
+    }
+    const ObjectId temporary_bundle_id = materialized.value.bundle_ids.front();
+    EditResult<SavedBackboneBundleVariationMembership> captured =
+        trial.capture_backbone_bundle_variation_membership(temporary_bundle_id);
+    if (!captured.ok) return reject(captured.error);
+    EditResult<bool> retired = trial.RetireBackboneBundle(temporary_bundle_id);
+    if (!retired.ok) return reject(retired.error);
+    variation.memberships.push_back(std::move(captured.value));
+    captured_groups.emplace(rule.bundle_template_id, conductor_count);
   }
   std::sort(variation.instances.begin(), variation.instances.end(),
             [](const auto& a, const auto& b) {

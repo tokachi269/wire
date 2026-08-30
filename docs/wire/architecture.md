@@ -426,6 +426,9 @@ resolveせず、保存済みconcrete topologyをそのまま復元する。persi
 検査し、current sampling/hash algorithmが同じplacement key集合を返すことはload条件にしない。Generate / Applyの
 transaction内だけ、その場のresolved resultとcommit対象instanceを厳密対応させる。
 ruleのconductor countはtopology上の導体数であり、見た目の束を作るためには変動させない。
+ruleのheight / lateral envelopeは各Bundle instanceを独立にsampleする入力である。resolverはBundle間の最小間隔や
+収容上限を推測せず、同じ位置へ近づくことを理由にdensityを拒否しない。相互clearanceが必要なfeatureは、random
+resolverの隠れ制約ではなく、その物理ownerと入力を別途決める。
 HVの3相配置はrandomization対象外とする。非HVのsupported placementは
 連続座標をそのまま使わず、同じroute-wide sideにある有限のsupport slotへ寄せる。
 load、regenerate、通常 update は保存済み concrete placement を使い、reroll しない。同一 Bundle の placement を
@@ -459,8 +462,9 @@ dormant edgeだけを削除する。nodeは残存edge、pole ownership、binding
 descriptorは
 branch membershipやpairingを再判断しない。`ApplyBackboneBundleVariation`はdescriptorをresolveしたdesired concrete
 specを既存reconcileへ渡し、descriptor更新とconcrete topology更新を同じouter trialでcommitする。1 -> 0 -> 1は
-保持されたgraph edgeとmembership continuityをpipelineのexplicit constraintとして再生するが、initial 0 -> 1はmembership sourceがないため
-unsupportedとする。recipe-backed Bundleの個別placement/count/add/retireは許可せずexplicit Applyへ集約する。
+保持されたgraph edgeとmembership continuityをpipelineのexplicit constraintとして再生する。`max_instances > 0`なのに
+初回sampleが0件となったgroupも、初回生成で確定した同じpathを通常pipelineへ一時materializeし、将来Apply用のmembershipだけをcaptureする。source-edge等で
+exact membershipを作れない場合は推測せずunsupportedとする。recipe-backed Bundleの個別placement/count/add/retireは許可せずexplicit Applyへ集約する。
 `placement_key`は1つのvariation scope内でdescriptorとconcrete instanceを対応付けるcorrelationであり、
 repository全体のBundle identityではない。physical identityは`Bundle::id`であるため、同じseedの別variationが同じ
 `placement_key`を持っても互いのscopeへ入らない。

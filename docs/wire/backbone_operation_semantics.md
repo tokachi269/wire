@@ -111,8 +111,10 @@ placement keyはvariation scope内のcorrelationであり、別variationの同�
 
 1 -> 0ではconcrete Bundleを完全退役するが、variationが参照するnode / edge skeletonは`SavedBackboneGraph`に保持し、
 membershipにはedge IDとlane continuityだけを残す。0 -> 1への復帰はそのrelationをpipelineのexplicit continuity
-constraintへ再生し、通常pairingの偶然一致をoracleにしない。node snapshot、edge geometry copy、representative placementは保存しない。initial 0 -> 1はexact
-membership sourceがないため`U`、source-edge新instance追加はexact source Bundle mappingがないため`U`とする。
+constraintへ再生し、通常pairingの偶然一致をoracleにしない。node snapshot、edge geometry copy、representative placementは保存しない。
+`max_instances > 0`で初回sampleが0件となったgroupは、同じ確定pathを通常pipelineへ一時materializeしてmembershipだけをcaptureするため、後の0 -> 1を扱える。
+`max_instances == 0`として明示的に対象外としたgroupはlatent topologyを作らず、後から0 -> 1へ変更する要求は`U`とする。
+source-edge等でexact membershipをcaptureできないgroupの新instance追加は`U`とし、exact source Bundle mappingを推測しない。
 membershipはcurrent descriptorのeffective template/count groupだけを表し、過去groupの履歴ではない。Apply成功時はlive groupを
 current topologyからcaptureし、descriptorに残る0-instance groupだけ既存membershipを維持する。descriptorから消えたgroupの
 membershipは削除し、live EdgeBundleにも他membershipにも参照されないdormant edge/nodeをstate lifecycleで回収する。同じ

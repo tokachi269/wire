@@ -615,15 +615,15 @@ production式が分散しないことを固定する。`Required owner tokens` �
 | C854 | SourceGuard | Boundary | productionのrow height経路にrow-height offset、stable slot、bundle update時の保存offsetを残さず、row ordering角度はatan2直後にdegreeへ正規化する | `source_guard` | 別経路のno-op faultを他経路が補償する構造とradian/degree混在が再導入される回帰を防ぐ |
 | C855 | Behavior | Invariant | 非Autoのmain spanも単一のsag_factorをspan全体へ1回適用し、`chord length * ratio`の物理sag量と独立式`4u(1-u)`のparabolic profileを使う | `oracle` `presence` | continuity policyによるprofile分岐、sag ratio二重加算、長さ・pass・剛性による隠れ倍率を防ぐ |
 | C856 | Behavior | Invariant | 同じroute seedとruleはBundle数・placement_key・height・lateralを完全同一に解決し、代表的な別seedは異なる結果になる | `differential` `anchor` | redrawでrerollする、またはseedを無視して常に同じ配置になる回帰を防ぐ |
-| C857 | Behavior | Invariant | route bundle variationは全Bundleを指定sideに保ち、rule envelopeとpole-local YZ最小間隔を守り、横位置にもvariationを持つ | `oracle` | 高さだけの縦積み、左右反転、spacing違反を防ぐ |
+| C857 | Behavior | Invariant | route bundle variationは全Bundleを指定sideとrule envelope内に保ち、横位置にもvariationを持つ。resolverはBundle間のclearance policyを推測しない | `oracle` | 高さだけの縦積み、左右反転、または入力にない配置制約の再導入を防ぐ |
 | C858 | Behavior | Boundary | Communication/Opticalだけのruleは指定templateだけを通常Bundle・Port・Span・saved bindingとして生成する | `presence` `anchor` | category推測でHV/LVを追加する、またはvisual-only線へ戻る回帰を防ぐ |
-| C859 | Behavior | Boundary | required instanceを有限candidateで配置できない場合は明示失敗し、authoritative stateを変更しない | `differential` `anchor` | silent omissionや部分mutationを防ぐ |
 | C860 | Behavior | Invariant | acute cornerを通るrandomized multi-bundle routeはbackbone invariantを満たし、save/load後もconcrete placementを維持する | `presence` `differential` | load時rerollとlane/continuity twist再発を防ぐ |
 | C861 | Behavior | Invariant | incremental extensionは同じresolved placementとsource Bundleを使い、既存spanとconnection outputを保つ | `presence` `anchor` | extension時rerollと既存visual update scope欠落を防ぐ |
 | C862 | Behavior | Invariant | 固定seed群でLV・Communication・OpticalのBundle構成または配置が実際に変わり、Communicationは1 conductor Bundleを複数生成する一方、HV 3相配置は不変 | `oracle` `differential` | 見た目の束をtopology laneで増やす、またはHVまでrandom化する回帰を防ぐ |
 | C863 | Behavior | Invariant | 近いCommunication/Opticalは1本のsupport rowを共有しper-Bundle row fixtureを残さず、visual member数を増やしてもSpan・Port・endpoint fixture・support数は増えない | `presence` `oracle` `differential` | Bundleごとの横棒・belt乱造、visual memberによるattachment増殖、direct fixtureの浮遊を防ぐ |
 | C864 | Behavior | Invariant | 非HV logical centerlineはirregularityから独立して通常のsag curveを維持する。3-member visual bundleは線径由来の接触三角断面を各結束点で保ち、結束間だけclearance・結束間隔・最小曲げ半径の範囲で断面を変化させ、NodePatchを含む接続曲線にも同じ断面を引き継ぐ。非HV sagだけが±12%内で変化する | `anchor` `oracle` `differential` | 束全体の長周期蛇行、endpointで一点へ収束する扇形、接続部だけcenter 1本へ戻る回帰、横一列、member衝突・離脱、完全固定断面、HV形状変化を防ぐ |
 | C865 | Behavior | Invariant | 保存済みplacementからのmember断面はderived rebuildとsave/loadで同一で、Opticalも同じlogical-span packingから3 member・support・helixを生成し、member外周を共有helix containment内へ保つ | `differential` `presence` `oracle` | rebuild/load時reroll、Communication/Opticalの断面処理分裂、helix外へのmember離脱を防ぐ |
+| C895 | Behavior | Differential | Webで公開するDensity 5xとHeight/Lateral spreadの全域はresolverが通常specへ解決でき、既存variationへatomic Applyすると本数および各spread由来のconcrete placementが変化する | `differential` `presence` `anchor` | 選択可能なcontrolがunsupportedになり、またはdescriptorだけ変わってconcrete placementへ反映されない回帰を防ぐ |
 | C836 | Behavior | Invariant | 操作×状態表の各確定セルを実際の正本状態から分類し、各Observation tokenへそのoperation結果の独立evidenceを結び付けて実行する | `oracle` `presence` `anchor` | case内の別cellやObserve自体のassertionで未検証cellをcoverage済みにする、または接続状態だけ正しく派生frameが分裂する回帰を防ぐ |
 
 ## 廃止済み旧pipeline検査

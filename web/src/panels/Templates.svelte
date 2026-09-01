@@ -362,30 +362,24 @@
             })} /></label>
         {/each}
         <p class="hint">Band 0 follows each member's saved band. Helix requires an explicit support band.</p>
-        <details>
-          <summary>Binding, twist, and sampling</summary>
-          {#each [
-            ["memberWanderRatio", "Between-binding looseness", 0.05],
-            ["memberWanderWavelength", "Binding interval (m)", 0.05],
-            ["memberWanderPhaseBias", "Member wander phase", 0.1],
-            ["memberTwistTurnsPerMeter", "Member twist turns / m", 0.1],
-            ["memberTwistPhase", "Member twist phase", 0.1]
-          ] as field}
-            <label>{field[1]}<input type="number" step={field[2]}
-              value={fmt(bundle.spanVisualAssembly[field[0] as keyof typeof bundle.spanVisualAssembly] as number)}
-              onchange={(event) => updateBundle(bundle, (draft) => {
-                (draft.spanVisualAssembly[field[0] as keyof typeof draft.spanVisualAssembly] as number) =
-                  round6(numberValue(event));
-              })} /></label>
-          {/each}
-          <label>Helix samples / turn
-            <input type="number" min="4" step="1" value={bundle.spanVisualAssembly.helixSamplesPerTurn}
-              onchange={(event) => updateBundle(bundle, (draft) => {
-                draft.spanVisualAssembly.helixSamplesPerTurn = Math.trunc(numberValue(event));
-              })} />
-          </label>
-          <p class="hint">Member twist also works when helix is disabled.</p>
-        </details>
+        <label>Visual members
+          <input type="number" min="1" step="1" value={bundle.spanVisualAssembly.visualMemberCount}
+            onchange={(event) => updateBundle(bundle, (draft) => {
+              draft.spanVisualAssembly.visualMemberCount = Math.trunc(numberValue(event));
+            })} />
+        </label>
+        <label>Member spacing
+          <input type="number" min="0" step="0.001" value={fmt(bundle.spanVisualAssembly.visualMemberSpacing)}
+            onchange={(event) => updateBundle(bundle, (draft) => {
+              draft.spanVisualAssembly.visualMemberSpacing = round6(numberValue(event));
+            })} />
+        </label>
+        <label>Helix samples / turn
+          <input type="number" min="4" step="1" value={bundle.spanVisualAssembly.helixSamplesPerTurn}
+            onchange={(event) => updateBundle(bundle, (draft) => {
+              draft.spanVisualAssembly.helixSamplesPerTurn = Math.trunc(numberValue(event));
+            })} />
+        </label>
       </div>
     {/if}
   </section>

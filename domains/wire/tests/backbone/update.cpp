@@ -2709,9 +2709,6 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   tpl.span_visual_assembly.support_path_enabled = false;
   tpl.span_visual_assembly.helix_enabled = true;
   tpl.span_visual_assembly.helix_turns_per_meter = 1.0;
-  tpl.span_visual_assembly.member_wander_ratio = 0.5;
-  tpl.span_visual_assembly.member_wander_wavelength_m = 3.0;
-  tpl.span_visual_assembly.member_twist_turns_per_meter = 0.2;
   if (state.UpdateBundleTemplate(tpl).ok) return false;
   tpl.span_visual_assembly.support_path_enabled = true;
   tpl.span_visual_assembly.helix_samples_per_turn = 12;
@@ -2767,9 +2764,6 @@ bool C758_span_visual_assembly_emits_support_and_helix() {
   fresh_template.span_visual_assembly.support_path_enabled = true;
   fresh_template.span_visual_assembly.helix_enabled = true;
   fresh_template.span_visual_assembly.helix_turns_per_meter = 1.0;
-  fresh_template.span_visual_assembly.member_wander_ratio = 0.5;
-  fresh_template.span_visual_assembly.member_wander_wavelength_m = 3.0;
-  fresh_template.span_visual_assembly.member_twist_turns_per_meter = 0.2;
   fresh_template.span_visual_assembly.helix_samples_per_turn = 12;
   fresh_template.span_visual_assembly.endpoint_trim_m = 0.25;
   fresh_template.span_visual_assembly.helix_clearance_m = 0.08;
@@ -2798,7 +2792,7 @@ bool C759_span_visual_assembly_has_one_geometry_owner() {
   return contains_text(assembly, "make_helix_part") && contains_text(assembly, "contain_members") &&
          contains_text(assembly, "make_support_path") &&
          contains_text(assembly, "make_primary_curve_between") &&
-         contains_text(assembly, "apply_member_twist") && contains_text(assembly, "apply_span_visual_assemblies") &&
+         contains_text(assembly, "compact_cross_section") && contains_text(assembly, "apply_span_visual_assemblies") &&
          !contains_text(assembly, "find_nearest") && !contains_text(assembly, "SavedBackbone") &&
          !contains_text(assembly, "AddSpan") && !contains_text(assembly, "AddBundle") &&
          !contains_text(assembly, "AddPort") && contains_text(curve_parts, "apply_span_visual_assemblies(state, assembly_endpoints, &out)") &&

@@ -153,24 +153,9 @@ void validate_backbone_bundle_variations(const CoreState& state,
   const SavedBackboneGraph& graph = core.backbone();
   std::unordered_set<ObjectId> variation_ids{};
   std::unordered_set<ObjectId> variation_bundle_ids{};
-  std::unordered_set<ObjectId> retained_edge_ids{};
   auto issue = [&](const char* code, const char* message, ObjectId id) {
     result->issues.push_back(
         {ValidationSeverity::kError, code, message, id});
-  };
-  auto graph_node = [&](ObjectId node_id) -> const SavedBackboneNode* {
-    const auto found = std::ranges::find_if(
-        graph.nodes, [node_id](const SavedBackboneNode& node) {
-          return node.node_id == node_id;
-        });
-    return found == graph.nodes.end() ? nullptr : &*found;
-  };
-  auto graph_edge = [&](ObjectId edge_id) -> const SavedBackboneEdge* {
-    const auto found = std::ranges::find_if(
-        graph.edges, [edge_id](const SavedBackboneEdge& edge) {
-          return edge.edge_id == edge_id;
-        });
-    return found == graph.edges.end() ? nullptr : &*found;
   };
   for (const SavedBackboneBundleVariation& variation :
        core.backbone_bundle_variations()) {
@@ -188,17 +173,6 @@ void validate_backbone_bundle_variations(const CoreState& state,
             "Backbone Bundle variation descriptor must be structurally valid",
             variation.variation_id);
     }
-    std::set<std::pair<BundleTemplateId, int>> descriptor_groups{};
-    for (const RandomBackboneBundleRule& rule : variation.descriptor.rules) {
-      const auto template_it =
-          core.bundle_templates().find(rule.bundle_template_id);
-      if (template_it == core.bundle_templates().end()) continue;
-      descriptor_groups.emplace(
-          rule.bundle_template_id,
-          rule.conductor_count > 0 ? rule.conductor_count
-                                   : template_it->second.default_count);
-    }
-
     std::unordered_set<std::uint64_t> placement_keys{};
     for (const SavedBackboneBundleVariationInstance& instance :
          variation.instances) {
@@ -232,82 +206,15 @@ void validate_backbone_bundle_variations(const CoreState& state,
               instance.bundle_id);
       }
     }
-    std::set<std::pair<BundleTemplateId, int>> membership_keys{};
-    for (const SavedBackboneBundleVariationMembership& membership :
-         variation.memberships) {
-      const auto membership_key =
-          std::pair{membership.bundle_template_id, membership.conductor_count};
-      const auto template_it =
-          core.bundle_templates().find(membership.bundle_template_id);
-      const bool count_valid =
-          template_it != core.bundle_templates().end() &&
-          membership.conductor_count > 0 &&
-          ((template_it->second.count_rule == BundleCountRuleKind::kFixed &&
-            membership.conductor_count == template_it->second.fixed_count) ||
-           (template_it->second.count_rule == BundleCountRuleKind::kRange &&
-            membership.conductor_count >= template_it->second.min_count &&
-            membership.conductor_count <= template_it->second.max_count));
-      if (!count_valid || !descriptor_groups.contains(membership_key) ||
-          membership.edge_ids.empty() ||
-          !membership_keys.insert(membership_key).second) {
-        issue("BackboneBundleVariationMembershipInvalid",
-              "Backbone Bundle variation membership source must be unique, valid, and non-empty",
-              variation.variation_id);
-        continue;
-      }
-
-      std::unordered_map<ObjectId, const SavedBackboneEdge*> edges{};
-      for (ObjectId edge_id : membership.edge_ids) {
-        const SavedBackboneEdge* edge = graph_edge(edge_id);
-        if (edge_id == kInvalidObjectId || edge == nullptr ||
-            graph_node(edge->node_a) == nullptr ||
-            graph_node(edge->node_b) == nullptr ||
-            !edges.emplace(edge_id, edge).second) {
-          issue("BackboneBundleVariationMembershipEdgeInvalid",
-                "Backbone Bundle variation membership must reference retained physical edges and supports",
-                variation.variation_id);
-          continue;
-        }
-        retained_edge_ids.insert(edge_id);
-      }
-
-      std::set<std::tuple<ObjectId, ObjectId, std::size_t, ObjectId,
-                          std::size_t>>
-          continuity_keys{};
-      for (const SavedBackboneBundleVariationContinuity& continuity :
-           membership.row_continuities) {
-        const auto edge_a = edges.find(continuity.edge_a);
-        const auto edge_b = edges.find(continuity.edge_b);
-        const bool incident =
-            edge_a != edges.end() && edge_b != edges.end() &&
-            (edge_a->second->node_a == continuity.node_id ||
-             edge_a->second->node_b == continuity.node_id) &&
-            (edge_b->second->node_a == continuity.node_id ||
-             edge_b->second->node_b == continuity.node_id);
-        if (!incident || continuity.lane_a >=
-                             static_cast<std::size_t>(membership.conductor_count) ||
-            continuity.lane_b >=
-                static_cast<std::size_t>(membership.conductor_count) ||
-            !continuity_keys
-                 .emplace(continuity.node_id, continuity.edge_a,
-                          continuity.lane_a, continuity.edge_b,
-                          continuity.lane_b)
-                 .second) {
-          issue("BackboneBundleVariationMembershipContinuityInvalid",
-                "Backbone Bundle variation continuity must reference incident membership edges and valid lanes",
-                variation.variation_id);
-        }
-      }
-    }
   }
   for (const SavedBackboneEdge& edge : graph.edges) {
     const bool has_live_bundle = std::ranges::any_of(
         graph.edge_bundles, [&](const SavedBackboneEdgeBundle& edge_bundle) {
           return edge_bundle.edge_id == edge.edge_id;
         });
-    if (!has_live_bundle && !retained_edge_ids.contains(edge.edge_id)) {
+    if (!has_live_bundle) {
       issue("BackboneRetainedEdgeOwnerMissing",
-            "A physical edge without a live Bundle must be retained by exact variation membership",
+            "A physical edge must be owned by a live Bundle",
             edge.edge_id);
     }
   }
@@ -895,16 +802,9 @@ ValidationResult CoreState::Validate() const {
         std::isfinite(assembly.helix_clearance_m) && assembly.helix_clearance_m >= 0.0 &&
         std::isfinite(assembly.helix_turns_per_meter) && assembly.helix_turns_per_meter >= 0.0 &&
         assembly.helix_samples_per_turn >= 4 && std::isfinite(assembly.endpoint_trim_m) &&
-        assembly.endpoint_trim_m >= 0.0 && assembly.visual_member_count_min >= 1 &&
-        assembly.visual_member_count_max >= assembly.visual_member_count_min &&
+        assembly.endpoint_trim_m >= 0.0 && assembly.visual_member_count >= 1 &&
         std::isfinite(assembly.visual_member_spacing_m) && assembly.visual_member_spacing_m >= 0.0 &&
-        (assembly.visual_member_count_max == 1 || assembly.visual_member_spacing_m > 0.0) &&
-        std::isfinite(assembly.member_wander_ratio) &&
-        assembly.member_wander_ratio >= 0.0 && assembly.member_wander_ratio <= 1.0 &&
-        std::isfinite(assembly.member_wander_wavelength_m) &&
-        std::isfinite(assembly.member_wander_phase_bias) &&
-        std::isfinite(assembly.member_twist_turns_per_meter) && std::isfinite(assembly.member_twist_phase) &&
-        (assembly.member_wander_ratio == 0.0 || assembly.member_wander_wavelength_m > 0.0);
+        (assembly.visual_member_count == 1 || assembly.visual_member_spacing_m > 0.0);
     if (!values_valid) {
       result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "SpanVisualAssemblyInvalid",
           "Span visual assembly settings are invalid", kInvalidObjectId});

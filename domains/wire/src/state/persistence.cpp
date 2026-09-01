@@ -21,7 +21,7 @@ namespace {
 
 class StateWriter {
 public:
-  StateWriter() { text_ = "wire_state_v4\n"; }
+  StateWriter() { text_ = "wire_state_v5\n"; }
 
   void value(const std::string& key, bool input) { line(key, input ? "1" : "0"); }
 
@@ -74,27 +74,12 @@ private:
 class StateReader {
 public:
   bool parse(const std::string& text) {
-    static constexpr std::string_view kHeaderV1 = "wire_state_v1\n";
-    static constexpr std::string_view kHeaderV2 = "wire_state_v2\n";
-    static constexpr std::string_view kHeaderV3 = "wire_state_v3\n";
-    static constexpr std::string_view kHeaderV4 = "wire_state_v4\n";
-    std::size_t header_size = 0;
-    if (text.starts_with(kHeaderV4)) {
-      version_ = 4;
-      header_size = kHeaderV4.size();
-    } else if (text.starts_with(kHeaderV3)) {
-      version_ = 3;
-      header_size = kHeaderV3.size();
-    } else if (text.starts_with(kHeaderV2)) {
-      version_ = 2;
-      header_size = kHeaderV2.size();
-    } else if (text.starts_with(kHeaderV1)) {
-      version_ = 1;
-      header_size = kHeaderV1.size();
-    } else {
+    static constexpr std::string_view kHeader = "wire_state_v5\n";
+    if (!text.starts_with(kHeader)) {
       error_ = "authoritative deserialization: unsupported or missing version";
       return false;
     }
+    const std::size_t header_size = kHeader.size();
     if (text.empty() || text.back() != '\n') {
       error_ = "authoritative deserialization: truncated final line";
       return false;
@@ -226,8 +211,6 @@ public:
 
   [[nodiscard]] const std::string& error() const { return error_; }
 
-  [[nodiscard]] int version() const { return version_; }
-
 private:
   const std::string* take(const std::string& key) {
     const auto it = values_.find(key);
@@ -254,7 +237,6 @@ private:
   std::unordered_map<std::string, std::string> values_{};
   std::string taken_{};
   std::string error_{};
-  int version_ = 0;
 };
 
 std::string child(const std::string& prefix, std::string_view field) {
@@ -277,15 +259,6 @@ public:
   template <typename T> bool field(const std::string& prefix, std::string_view name, const T& input) {
     return value(child(prefix, name), input);
   }
-  template <typename T>
-  bool compatible_field(const std::string& prefix, std::string_view name, const T& input, const T&) {
-    return field(prefix, name, input);
-  }
-  template <typename T>
-  bool legacy_field(const std::string&, std::string_view, const T&, const T&) {
-    return true;
-  }
-
   bool string_value(const std::string& key, const std::string& input) {
     writer_.string_value(key, input);
     return true;
@@ -318,20 +291,6 @@ public:
   template <typename T> bool field(const std::string& prefix, std::string_view name, T& output) {
     return value(child(prefix, name), output);
   }
-  template <typename T>
-  bool compatible_field(const std::string& prefix, std::string_view name, T& output, const T& legacy_default) {
-    const std::string key = child(prefix, name);
-    if (!reader_.contains(key)) {
-      output = legacy_default;
-      return true;
-    }
-    return value(key, output);
-  }
-  template <typename T>
-  bool legacy_field(const std::string& prefix, std::string_view name, T& output, const T& legacy_default) {
-    return compatible_field(prefix, name, output, legacy_default);
-  }
-
   bool string_value(const std::string& key, std::string& output) {
     return reader_.string_value(key, &output);
   }
@@ -454,12 +413,12 @@ template <typename Archive, typename Value>
 bool archive_bundle(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "conductor_count", value.conductor_count) &&
          archive.field(prefix, "phase_spacing_m", value.phase_spacing_m) &&
-         archive.compatible_field(prefix, "spacing_override_m", value.spacing_override_m, 0.0) &&
-         archive.compatible_field(prefix, "placement_explicit", value.placement_explicit, false) &&
-         archive.compatible_field(prefix, "height_m", value.height_m, 0.0) &&
-         archive.compatible_field(prefix, "lateral_m", value.lateral_m, 0.0) &&
+         archive.field(prefix, "spacing_override_m", value.spacing_override_m) &&
+         archive.field(prefix, "placement_explicit", value.placement_explicit) &&
+         archive.field(prefix, "height_m", value.height_m) &&
+         archive.field(prefix, "lateral_m", value.lateral_m) &&
          archive.field(prefix, "bundle_template_id", value.bundle_template_id) &&
-         archive.compatible_field(prefix, "placement_key", value.placement_key, static_cast<std::uint64_t>(0));
+         archive.field(prefix, "placement_key", value.placement_key);
 }
 
 #ifdef _MSC_VER
@@ -553,8 +512,6 @@ static_assert(sizeof(SavedBackboneNode) == 120, "field added: update archive vis
 template <typename Archive, typename Value>
 bool archive_saved_edge(Archive& archive, const std::string& prefix, Value& value) {
   return archive.field(prefix, "edge_id", value.edge_id) && archive.field(prefix, "node_a", value.node_a) && archive.field(prefix, "node_b", value.node_b) &&
-         archive.legacy_field(prefix, "route", value.route, std::size_t{0}) &&
-         archive.legacy_field(prefix, "order", value.order, std::size_t{0}) &&
          archive_vec3(archive, child(prefix, "dir"), value.dir) &&
          archive.field(prefix, "lateral_offset_m", value.lateral_offset_m);
 }
@@ -567,20 +524,7 @@ template <typename Archive, typename Value>
 bool archive_saved_edge_bundle(Archive& archive, const std::string& prefix, Value& value) {
   if (!archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) || !archive.field(prefix, "edge_id", value.edge_id) || !archive.field(prefix, "bundle_id", value.bundle_id) ||
       !archive.field(prefix, "edge_forward", value.edge_forward) ||
-      !archive.legacy_field(prefix, "route", value.route, std::size_t{0}) ||
-      !archive.legacy_field(prefix, "order", value.order, std::size_t{0}) ||
       !archive_vec3(archive, child(prefix, "dir"), value.dir)) return false;
-  if constexpr (Archive::loading) {
-    const std::string legacy_prefix = child(prefix, "span_ids");
-    if (archive.contains(child(legacy_prefix, "count"))) {
-      std::size_t legacy_count = 0;
-      if (!archive.count(child(legacy_prefix, "count"), legacy_count)) return false;
-      for (std::size_t i = 0; i < legacy_count; ++i) {
-        ObjectId ignored = kInvalidObjectId;
-        if (!archive.value(indexed(legacy_prefix, i), ignored)) return false;
-      }
-    }
-  }
   return true;
 }
 
@@ -603,48 +547,10 @@ bool archive_saved_port_binding(Archive& archive, const std::string& prefix, Val
   return archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) && archive_row_key(archive, child(prefix, "row_key"), value.row_key) &&
          archive.field(prefix, "lane_index", value.lane_index) && archive.field(prefix, "bundle_template_id", value.bundle_template_id) && archive.field(prefix, "port_kind", value.port_kind) &&
          archive.field(prefix, "port_layer", value.port_layer) && archive.field(prefix, "placement_band_id", value.placement_band_id) &&
-         archive.compatible_field(prefix, "support_level", value.support_level, -1) &&
-         archive.compatible_field(prefix, "support_group_id", value.support_group_id, -2) &&
+         archive.field(prefix, "support_level", value.support_level) &&
+         archive.field(prefix, "support_group_id", value.support_group_id) &&
          archive.field(prefix, "layout_yaw_deg", value.layout_yaw_deg) &&
          archive.field(prefix, "port_id", value.port_id);
-}
-
-struct LegacySavedBackboneRowKey {
-  ObjectId node_id = kInvalidObjectId;
-  bool source_is_open = false;
-  ObjectId source_edge_a = kInvalidObjectId;
-  ObjectId source_edge_b = kInvalidObjectId;
-};
-
-bool read_legacy_saved_port_binding(StateReader& reader, const std::string& prefix,
-                                    SavedBackbonePortBinding* value,
-                                    LegacySavedBackboneRowKey* legacy_row_key) {
-  if (value == nullptr || legacy_row_key == nullptr) {
-    return false;
-  }
-  ReadFieldArchive archive(reader);
-  const std::string row_prefix = child(prefix, "row_key");
-  return archive.field(prefix, "edge_bundle_id", value->edge_bundle_id) &&
-         archive.field(row_prefix, "node_id", legacy_row_key->node_id) &&
-         archive.field(row_prefix, "source_is_open",
-                       legacy_row_key->source_is_open) &&
-         archive.field(row_prefix, "source_edge_a",
-                       legacy_row_key->source_edge_a) &&
-         archive.field(row_prefix, "source_edge_b",
-                       legacy_row_key->source_edge_b) &&
-         archive.field(prefix, "lane_index", value->lane_index) &&
-         archive.field(prefix, "bundle_template_id",
-                       value->bundle_template_id) &&
-         archive.field(prefix, "port_kind", value->port_kind) &&
-         archive.field(prefix, "port_layer", value->port_layer) &&
-         archive.field(prefix, "placement_band_id",
-                       value->placement_band_id) &&
-         archive.compatible_field(prefix, "support_level",
-                                  value->support_level, -1) &&
-         archive.compatible_field(prefix, "support_group_id",
-                                  value->support_group_id, -2) &&
-         archive.field(prefix, "layout_yaw_deg", value->layout_yaw_deg) &&
-         archive.field(prefix, "port_id", value->port_id);
 }
 
 #ifdef _MSC_VER
@@ -676,7 +582,6 @@ bool archive_saved_row_continuity(Archive& archive, const std::string& prefix, V
 template <typename Archive, typename Value>
 bool archive_random_bundle_rule(Archive& archive, const std::string& prefix,
                                 Value& value) {
-  double obsolete_min_spacing_m = 0.0;
   return archive.field(prefix, "bundle_template_id", value.bundle_template_id) &&
          archive.field(prefix, "min_instances", value.min_instances) &&
          archive.field(prefix, "max_instances", value.max_instances) &&
@@ -684,9 +589,7 @@ bool archive_random_bundle_rule(Archive& archive, const std::string& prefix,
          archive.field(prefix, "height_min_m", value.height_min_m) &&
          archive.field(prefix, "height_max_m", value.height_max_m) &&
          archive.field(prefix, "lateral_abs_min_m", value.lateral_abs_min_m) &&
-         archive.field(prefix, "lateral_abs_max_m", value.lateral_abs_max_m) &&
-         archive.legacy_field(prefix, "min_spacing_m", obsolete_min_spacing_m,
-                              0.0);
+         archive.field(prefix, "lateral_abs_max_m", value.lateral_abs_max_m);
 }
 
 template <typename Archive, typename Value>
@@ -696,220 +599,10 @@ bool archive_variation_instance(Archive& archive, const std::string& prefix,
          archive.field(prefix, "bundle_id", value.bundle_id);
 }
 
-struct LegacyVariationEdge {
-  ObjectId edge_id = kInvalidObjectId;
-  ObjectId node_a = kInvalidObjectId;
-  ObjectId node_b = kInvalidObjectId;
-  Vec3d dir{};
-  double lateral_offset_m = 0.0;
-};
-
-bool same_legacy_variation_node(const SavedBackboneNode& a,
-                                const SavedBackboneNode& b) {
-  if (a.node_id != b.node_id || a.pole_id != b.pole_id ||
-      a.support_kind != b.support_kind || a.position.x != b.position.x ||
-      a.position.y != b.position.y || a.position.z != b.position.z ||
-      a.has_source_edge != b.has_source_edge ||
-      a.source_edge_node_a != b.source_edge_node_a ||
-      a.source_edge_node_b != b.source_edge_node_b ||
-      a.source_edge_t != b.source_edge_t ||
-      a.path_point_index != b.path_point_index ||
-      a.bundle_modes.size() != b.bundle_modes.size()) {
-    return false;
-  }
-  for (std::size_t i = 0; i < a.bundle_modes.size(); ++i) {
-    if (a.bundle_modes[i].bundle_template_id !=
-            b.bundle_modes[i].bundle_template_id ||
-        a.bundle_modes[i].mode != b.bundle_modes[i].mode) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool merge_legacy_variation_node(SavedBackboneGraph* graph,
-                                 const SavedBackboneNode& node) {
-  const auto existing = std::ranges::find_if(
-      graph->nodes, [&](const SavedBackboneNode& value) {
-        return value.node_id == node.node_id;
-      });
-  if (existing != graph->nodes.end()) {
-    return same_legacy_variation_node(*existing, node);
-  }
-  graph->nodes.push_back(node);
-  return true;
-}
-
-bool merge_legacy_variation_edge(SavedBackboneGraph* graph,
-                                 const LegacyVariationEdge& edge,
-                                 std::size_t order) {
-  const auto existing = std::ranges::find_if(
-      graph->edges, [&](const SavedBackboneEdge& value) {
-        return value.edge_id == edge.edge_id;
-      });
-  if (existing != graph->edges.end()) {
-    return existing->node_a == edge.node_a &&
-           existing->node_b == edge.node_b &&
-           existing->dir.x == edge.dir.x && existing->dir.y == edge.dir.y &&
-           existing->dir.z == edge.dir.z &&
-           existing->lateral_offset_m == edge.lateral_offset_m;
-  }
-  const auto has_node = [&](ObjectId node_id) {
-    return std::ranges::any_of(graph->nodes,
-                               [&](const SavedBackboneNode& node) {
-                                 return node.node_id == node_id;
-                               });
-  };
-  if (!has_node(edge.node_a) || !has_node(edge.node_b)) return false;
-  graph->edges.push_back({edge.edge_id, edge.node_a, edge.node_b, 0, order,
-                          edge.dir, edge.lateral_offset_m});
-  return true;
-}
-
-template <typename Archive, typename Value>
-bool archive_variation_edge(Archive& archive, const std::string& prefix,
-                            Value& value) {
-  return archive.field(prefix, "edge_id", value.edge_id) &&
-         archive.field(prefix, "node_a", value.node_a) &&
-         archive.field(prefix, "node_b", value.node_b) &&
-         archive_vec3(archive, child(prefix, "dir"), value.dir) &&
-         archive.field(prefix, "lateral_offset_m", value.lateral_offset_m);
-}
-
-template <typename Archive, typename Value>
-bool archive_variation_continuity(Archive& archive, const std::string& prefix,
-                                  Value& value) {
-  return archive.field(prefix, "node_id", value.node_id) &&
-         archive.field(prefix, "edge_a", value.edge_a) &&
-         archive.field(prefix, "lane_a", value.lane_a) &&
-         archive.field(prefix, "edge_b", value.edge_b) &&
-         archive.field(prefix, "lane_b", value.lane_b);
-}
-
 #ifdef _MSC_VER
 static_assert(sizeof(SavedBackboneRowContinuityEndpoint) == 16, "field added: update archive visitor and full-fat persistence fixture");
 static_assert(sizeof(SavedBackboneRowContinuity) == 40, "field added: update archive visitor and full-fat persistence fixture");
 #endif
-
-ObjectId migrated_edge_bundle_bundle_id(const SavedBackboneGraph& graph, ObjectId edge_bundle_id) {
-  const auto found = std::find_if(graph.edge_bundles.begin(), graph.edge_bundles.end(),
-                                  [&](const SavedBackboneEdgeBundle& edge_bundle) {
-                                    return edge_bundle.edge_bundle_id == edge_bundle_id;
-                                  });
-  return found == graph.edge_bundles.end() ? kInvalidObjectId : found->bundle_id;
-}
-
-void append_migrated_row_continuity(SavedBackboneGraph* graph,
-                                    ObjectId node_id,
-                                    ObjectId edge_bundle_a,
-                                    std::size_t lane_a,
-                                    ObjectId edge_bundle_b,
-                                    std::size_t lane_b) {
-  if (graph == nullptr || node_id == kInvalidObjectId ||
-      edge_bundle_a == kInvalidObjectId || edge_bundle_b == kInvalidObjectId ||
-      edge_bundle_a == edge_bundle_b) {
-    return;
-  }
-  for (const SavedBackboneRowContinuity& existing : graph->row_continuities) {
-    const bool forward = existing.node_id == node_id &&
-                         existing.a.edge_bundle_id == edge_bundle_a &&
-                         existing.a.lane_index == lane_a &&
-                         existing.b.edge_bundle_id == edge_bundle_b &&
-                         existing.b.lane_index == lane_b;
-    const bool reverse = existing.node_id == node_id &&
-                         existing.a.edge_bundle_id == edge_bundle_b &&
-                         existing.a.lane_index == lane_b &&
-                         existing.b.edge_bundle_id == edge_bundle_a &&
-                         existing.b.lane_index == lane_a;
-    if (forward || reverse) {
-      return;
-    }
-  }
-  SavedBackboneRowContinuity continuity{};
-  continuity.node_id = node_id;
-  continuity.a.edge_bundle_id = edge_bundle_a;
-  continuity.a.lane_index = lane_a;
-  continuity.b.edge_bundle_id = edge_bundle_b;
-  continuity.b.lane_index = lane_b;
-  graph->row_continuities.push_back(continuity);
-}
-
-void migrate_v1_row_continuities(
-    SavedBackboneGraph* graph,
-    const std::vector<std::optional<LegacySavedBackboneRowKey>>&
-        legacy_row_keys) {
-  if (graph == nullptr) {
-    return;
-  }
-  std::vector<std::size_t> pair_bindings{};
-  pair_bindings.reserve(graph->port_bindings.size());
-  for (std::size_t index = 0; index < graph->port_bindings.size() &&
-                              index < legacy_row_keys.size();
-       ++index) {
-    const SavedBackbonePortBinding& binding = graph->port_bindings[index];
-    const std::optional<LegacySavedBackboneRowKey>& legacy =
-        legacy_row_keys[index];
-    if (legacy.has_value() && !legacy->source_is_open &&
-        legacy->node_id != kInvalidObjectId &&
-        legacy->source_edge_a != kInvalidObjectId &&
-        legacy->source_edge_b != kInvalidObjectId &&
-        migrated_edge_bundle_bundle_id(*graph, binding.edge_bundle_id) != kInvalidObjectId) {
-      pair_bindings.push_back(index);
-    }
-  }
-  std::sort(pair_bindings.begin(), pair_bindings.end(),
-            [&](std::size_t a_index, std::size_t b_index) {
-              const SavedBackbonePortBinding& a = graph->port_bindings[a_index];
-              const SavedBackbonePortBinding& b = graph->port_bindings[b_index];
-              const LegacySavedBackboneRowKey& a_key = *legacy_row_keys[a_index];
-              const LegacySavedBackboneRowKey& b_key = *legacy_row_keys[b_index];
-              return std::make_tuple(a_key.node_id, a_key.source_edge_a,
-                                     a_key.source_edge_b, a.lane_index,
-                                     migrated_edge_bundle_bundle_id(*graph, a.edge_bundle_id),
-                                     a.edge_bundle_id) <
-                     std::make_tuple(b_key.node_id, b_key.source_edge_a,
-                                     b_key.source_edge_b, b.lane_index,
-                                     migrated_edge_bundle_bundle_id(*graph, b.edge_bundle_id),
-                                     b.edge_bundle_id);
-            });
-  for (std::size_t first = 0; first < pair_bindings.size();) {
-    std::size_t last = first + 1;
-    const SavedBackbonePortBinding& first_binding =
-        graph->port_bindings[pair_bindings[first]];
-    const LegacySavedBackboneRowKey& first_key =
-        *legacy_row_keys[pair_bindings[first]];
-    while (last < pair_bindings.size()) {
-      const std::optional<LegacySavedBackboneRowKey>& candidate_key =
-          legacy_row_keys[pair_bindings[last]];
-      if (!candidate_key.has_value() ||
-          candidate_key->node_id != first_key.node_id ||
-          candidate_key->source_edge_a != first_key.source_edge_a ||
-          candidate_key->source_edge_b != first_key.source_edge_b ||
-          graph->port_bindings[pair_bindings[last]].lane_index !=
-              first_binding.lane_index ||
-          migrated_edge_bundle_bundle_id(
-              *graph,
-              graph->port_bindings[pair_bindings[last]].edge_bundle_id) !=
-              migrated_edge_bundle_bundle_id(*graph,
-                                              first_binding.edge_bundle_id)) {
-        break;
-      }
-      ++last;
-    }
-    if (last - first == 2 &&
-        graph->port_bindings[pair_bindings[first]].edge_bundle_id !=
-            graph->port_bindings[pair_bindings[first + 1]].edge_bundle_id) {
-      const SavedBackbonePortBinding& a =
-          graph->port_bindings[pair_bindings[first]];
-      const SavedBackbonePortBinding& b =
-          graph->port_bindings[pair_bindings[first + 1]];
-      append_migrated_row_continuity(graph, first_key.node_id,
-                                     a.edge_bundle_id, a.lane_index,
-                                     b.edge_bundle_id, b.lane_index);
-    }
-    first = last;
-  }
-}
 
 template <typename T, typename Id, typename Write>
 void write_id_vector(StateWriter& writer, const std::string& prefix, const std::vector<T>& values, Id id, Write write) {
@@ -1019,47 +712,6 @@ void write_backbone_bundle_variations_as(
               archive_variation_instance(instance_archive, instance_prefix,
                                          instance);
             });
-        write_ordered_vector(
-            out, child(prefix, "memberships"), value.memberships,
-            [](const SavedBackboneBundleVariationMembership& a,
-               const SavedBackboneBundleVariationMembership& b) {
-              return std::tie(a.bundle_template_id, a.conductor_count) <
-                     std::tie(b.bundle_template_id, b.conductor_count);
-            },
-            [](auto& membership_out, const auto& membership_prefix,
-               const SavedBackboneBundleVariationMembership& membership) {
-              FieldArchive membership_archive(membership_out);
-              membership_archive.field(membership_prefix,
-                                       "bundle_template_id",
-                                       membership.bundle_template_id);
-              membership_archive.field(membership_prefix, "conductor_count",
-                                       membership.conductor_count);
-              write_ordered_vector(
-                  membership_out, child(membership_prefix, "edge_ids"),
-                  membership.edge_ids, std::less<ObjectId>{},
-                  [](auto& edge_out, const auto& edge_prefix,
-                     ObjectId edge_id) {
-                    FieldArchive edge_archive(edge_out);
-                    edge_archive.field(edge_prefix, "edge_id", edge_id);
-                  });
-              write_ordered_vector(
-                  membership_out,
-                  child(membership_prefix, "row_continuities"),
-                  membership.row_continuities,
-                  [](const SavedBackboneBundleVariationContinuity& a,
-                     const SavedBackboneBundleVariationContinuity& b) {
-                    return std::tie(a.node_id, a.edge_a, a.lane_a, a.edge_b,
-                                    a.lane_b) <
-                           std::tie(b.node_id, b.edge_a, b.lane_a, b.edge_b,
-                                    b.lane_b);
-                  },
-                  [](auto& continuity_out, const auto& continuity_prefix,
-                     const SavedBackboneBundleVariationContinuity& continuity) {
-                    FieldArchive continuity_archive(continuity_out);
-                    archive_variation_continuity(
-                        continuity_archive, continuity_prefix, continuity);
-                  });
-            });
       });
 }
 
@@ -1094,8 +746,8 @@ template <typename Archive, typename Value>
 bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value) {
   if (!archive.field(prefix, "id", value.id) || !archive.string_value(child(prefix, "name"), value.name) || !archive.string_value(child(prefix, "description"), value.description) ||
       !archive.field(prefix, "default_height_m", value.default_height_m) ||
-      !archive.compatible_field(prefix, "radius_base_m", value.radius_base_m, 0.0) ||
-      !archive.compatible_field(prefix, "radius_top_m", value.radius_top_m, 0.0) ||
+      !archive.field(prefix, "radius_base_m", value.radius_base_m) ||
+      !archive.field(prefix, "radius_top_m", value.radius_top_m) ||
       !archive.field(prefix, "pole_visual_assembly_id", value.pole_visual_assembly_id)) return false;
   std::size_t port_band_count = value.port_bands.size();
   if (!archive.count(child(prefix, "port_bands.count"), port_band_count)) return false;
@@ -1188,8 +840,6 @@ static_assert(sizeof(CablePopulationRule) == 112, "field added: update archive v
 
 template <typename Archive, typename Value>
 bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
-  double legacy_center_wander_amplitude_m = 0.0;
-  double legacy_center_wander_wavelength_m = 0.0;
   if (!ar.field(p, "id", v.id) || !ar.field(p, "kind", v.kind) || !ar.string_value(child(p, "name"), v.name) ||
       !ar.field(p, "category", v.category) || !ar.field(p, "cable_template_id", v.cable_template_id) ||
       !ar.field(p, "default_layer", v.default_layer) || !ar.field(p, "related_pole_type_id", v.related_pole_type_id) ||
@@ -1209,29 +859,17 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
       !ar.field(p, "row_fixture_assembly_id", v.row_fixture_assembly_id) ||
       !ar.field(p, "endpoint_fixture_assembly_id", v.endpoint_fixture_assembly_id) ||
       !ar.field(p, "span_visual_assembly.helix_enabled", v.span_visual_assembly.helix_enabled) ||
-      !ar.compatible_field(p, "span_visual_assembly.support_path_enabled",
-                           v.span_visual_assembly.support_path_enabled,
-                           v.span_visual_assembly.helix_enabled) ||
+      !ar.field(p, "span_visual_assembly.support_path_enabled",
+                v.span_visual_assembly.support_path_enabled) ||
       !ar.field(p, "span_visual_assembly.helix_radius_m", v.span_visual_assembly.helix_radius_m) ||
       !ar.field(p, "span_visual_assembly.helix_clearance_m", v.span_visual_assembly.helix_clearance_m) ||
       !ar.field(p, "span_visual_assembly.helix_turns_per_meter", v.span_visual_assembly.helix_turns_per_meter) ||
       !ar.field(p, "span_visual_assembly.helix_samples_per_turn", v.span_visual_assembly.helix_samples_per_turn) ||
       !ar.field(p, "span_visual_assembly.endpoint_trim_m", v.span_visual_assembly.endpoint_trim_m) ||
-      !ar.compatible_field(p, "span_visual_assembly.visual_member_count_min",
-                           v.span_visual_assembly.visual_member_count_min, 1) ||
-      !ar.compatible_field(p, "span_visual_assembly.visual_member_count_max",
-                           v.span_visual_assembly.visual_member_count_max, 1) ||
-      !ar.compatible_field(p, "span_visual_assembly.visual_member_spacing_m",
-                           v.span_visual_assembly.visual_member_spacing_m, 0.0) ||
-      !ar.legacy_field(p, "span_visual_assembly.center_wander_amplitude_m",
-                       legacy_center_wander_amplitude_m, 0.0) ||
-      !ar.legacy_field(p, "span_visual_assembly.center_wander_wavelength_m",
-                       legacy_center_wander_wavelength_m, 0.0) ||
-      !ar.field(p, "span_visual_assembly.member_wander_ratio", v.span_visual_assembly.member_wander_ratio) ||
-      !ar.field(p, "span_visual_assembly.member_wander_wavelength_m", v.span_visual_assembly.member_wander_wavelength_m) ||
-      !ar.field(p, "span_visual_assembly.member_wander_phase_bias", v.span_visual_assembly.member_wander_phase_bias) ||
-      !ar.field(p, "span_visual_assembly.member_twist_turns_per_meter", v.span_visual_assembly.member_twist_turns_per_meter) ||
-      !ar.field(p, "span_visual_assembly.member_twist_phase", v.span_visual_assembly.member_twist_phase)) return false;
+      !ar.field(p, "span_visual_assembly.visual_member_count",
+                v.span_visual_assembly.visual_member_count) ||
+      !ar.field(p, "span_visual_assembly.visual_member_spacing_m",
+                v.span_visual_assembly.visual_member_spacing_m)) return false;
   std::size_t count = v.population_rules.size();
   if (!ar.count(child(p, "population_rules.count"), count)) return false;
   if constexpr (Archive::loading) v.population_rules.resize(count);
@@ -1243,7 +881,7 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
 
 
 #ifdef _MSC_VER
-static_assert(sizeof(BundleTemplate) == 288, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(BundleTemplate) == 248, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -1340,8 +978,8 @@ bool archive_model_assembly_template(Archive& archive, const std::string& prefix
         !archive.string_value(child(prefix, "wire_socket.socket_name"), value.wire_socket->socket_name)) return false;
   }
   bool has_endpoint_mount_socket = value.endpoint_mount_socket.has_value();
-  if (!archive.compatible_field(prefix, "endpoint_mount_socket.has",
-                                has_endpoint_mount_socket, false)) return false;
+  if (!archive.field(prefix, "endpoint_mount_socket.has",
+                     has_endpoint_mount_socket)) return false;
   if constexpr (Archive::loading) {
     if (has_endpoint_mount_socket) value.endpoint_mount_socket.emplace();
     else value.endpoint_mount_socket.reset();
@@ -1436,37 +1074,14 @@ static_assert(sizeof(GeometrySettings) == 24, "field added: update archive visit
 
 template <typename Archive, typename Value>
 bool archive_visual_settings(Archive& archive, const std::string& prefix, Value& value) {
-  if constexpr (Archive::loading) {
-    bool legacy_enable_support_structures = false;
-    double legacy_support_center_threshold_m = 0.0;
-    double legacy_support_arm_extra_m = 0.0;
-    double legacy_support_arm_radius_m = 0.0;
-    if (archive.compatible_field(prefix, "enable_support_structures",
-                                 legacy_enable_support_structures, false) &&
-        archive.compatible_field(prefix, "support_center_threshold_m",
-                                 legacy_support_center_threshold_m, 0.0) &&
-        archive.compatible_field(prefix, "support_arm_extra_m", legacy_support_arm_extra_m, 0.0) &&
-        archive.compatible_field(prefix, "support_arm_radius_m", legacy_support_arm_radius_m, 0.0)) {
-      static_cast<void>(legacy_enable_support_structures);
-      static_cast<void>(legacy_support_center_threshold_m);
-      static_cast<void>(legacy_support_arm_extra_m);
-      static_cast<void>(legacy_support_arm_radius_m);
-    } else {
-      return false;
-    }
-  }
   if (!archive.field(prefix, "enable_insulators", value.enable_insulators) ||
       !archive.field(prefix, "insulator_radius_m", value.insulator_radius_m) ||
       !archive.field(prefix, "insulator_length_m", value.insulator_length_m)) return false;
-  if constexpr (Archive::loading) {
-    return archive.compatible_field(prefix, "wire_irregularity_scale",
-                                    value.wire_irregularity_scale, 1.0);
-  }
-  return archive.field(prefix, "wire_irregularity_scale", value.wire_irregularity_scale);
+  return true;
 }
 
 #ifdef _MSC_VER
-static_assert(sizeof(VisualSettings) == 32, "field added: update archive visitor and full-fat persistence fixture");
+static_assert(sizeof(VisualSettings) == 24, "field added: update archive visitor and full-fat persistence fixture");
 #endif
 
 template <typename Archive, typename Value>
@@ -1490,14 +1105,6 @@ public:
   }
   template <typename T> bool field(const std::string& prefix, std::string_view name, const T& input) {
     return value(child(prefix, name), input);
-  }
-  template <typename T>
-  bool compatible_field(const std::string& prefix, std::string_view name, const T& input, const T&) {
-    return field(prefix, name, input);
-  }
-  template <typename T>
-  bool legacy_field(const std::string&, std::string_view, const T&, const T&) {
-    return true;
   }
   bool string_value(const std::string& key, const std::string& input) {
     fields_.string_value(key, input);
@@ -1645,56 +1252,12 @@ bool read_backbone(StateReader& reader, SavedBackboneGraph* graph) {
   std::size_t port_count = 0;
   if (!reader.count("authoritative.backbone.port_bindings.count", &port_count)) return false;
   graph->port_bindings.resize(port_count);
-  std::vector<std::optional<LegacySavedBackboneRowKey>> legacy_row_keys(
-      port_count);
   for (std::size_t i = 0; i < port_count; ++i) {
     const std::string prefix =
         indexed("authoritative.backbone.port_bindings", i);
-    if (reader.contains(child(child(prefix, "row_key"), "edge_id"))) {
-      ReadFieldArchive archive(reader);
-      if (!archive_saved_port_binding(archive, prefix,
-                                      graph->port_bindings[i])) {
-        return false;
-      }
-    } else {
-      LegacySavedBackboneRowKey legacy{};
-      if (!read_legacy_saved_port_binding(
-              reader, prefix, &graph->port_bindings[i], &legacy)) {
-        return false;
-      }
-      legacy_row_keys[i] = legacy;
-    }
-  }
-  for (std::size_t i = 0; i < legacy_row_keys.size(); ++i) {
-    if (!legacy_row_keys[i].has_value()) {
-      continue;
-    }
-    SavedBackbonePortBinding& binding = graph->port_bindings[i];
-    const auto edge_bundle = std::find_if(
-        graph->edge_bundles.begin(), graph->edge_bundles.end(),
-        [&](const SavedBackboneEdgeBundle& value) {
-          return value.edge_bundle_id == binding.edge_bundle_id;
-        });
-    const LegacySavedBackboneRowKey& legacy = *legacy_row_keys[i];
-    if (edge_bundle == graph->edge_bundles.end() ||
-        legacy.node_id == kInvalidObjectId ||
-        edge_bundle->edge_id == kInvalidObjectId) {
-      return false;
-    }
-    const bool valid_open =
-        legacy.source_is_open &&
-        legacy.source_edge_a == edge_bundle->edge_id &&
-        legacy.source_edge_b == kInvalidObjectId;
-    const bool valid_pair =
-        !legacy.source_is_open &&
-        legacy.source_edge_a != kInvalidObjectId &&
-        legacy.source_edge_b != kInvalidObjectId &&
-        (legacy.source_edge_a == edge_bundle->edge_id ||
-         legacy.source_edge_b == edge_bundle->edge_id);
-    if (!valid_open && !valid_pair) {
-      return false;
-    }
-    binding.row_key = {legacy.node_id, edge_bundle->edge_id};
+    ReadFieldArchive archive(reader);
+    if (!archive_saved_port_binding(archive, prefix,
+                                    graph->port_bindings[i])) return false;
   }
   std::size_t span_count = 0;
   if (!reader.count("authoritative.backbone.span_bindings.count", &span_count)) return false;
@@ -1705,23 +1268,18 @@ bool read_backbone(StateReader& reader, SavedBackboneGraph* graph) {
                                     graph->span_bindings[i])) return false;
   }
   std::size_t continuity_count = 0;
-  if (reader.version() >= 2) {
-    if (!reader.count("authoritative.backbone.row_continuities.count", &continuity_count)) return false;
-    graph->row_continuities.resize(continuity_count);
-    for (std::size_t i = 0; i < continuity_count; ++i) {
-      ReadFieldArchive archive(reader);
-      if (!archive_saved_row_continuity(archive, indexed("authoritative.backbone.row_continuities", i),
-                                        graph->row_continuities[i])) return false;
-    }
-  } else {
-    migrate_v1_row_continuities(graph, legacy_row_keys);
+  if (!reader.count("authoritative.backbone.row_continuities.count", &continuity_count)) return false;
+  graph->row_continuities.resize(continuity_count);
+  for (std::size_t i = 0; i < continuity_count; ++i) {
+    ReadFieldArchive archive(reader);
+    if (!archive_saved_row_continuity(archive, indexed("authoritative.backbone.row_continuities", i),
+                                      graph->row_continuities[i])) return false;
   }
   return true;
 }
 
 bool read_backbone_bundle_variations(
     StateReader& reader,
-    SavedBackboneGraph* graph,
     std::vector<SavedBackboneBundleVariation>* variations) {
   const std::string root = "authoritative.backbone_bundle_variations";
   if (!reader.contains(child(root, "count"))) {
@@ -1770,112 +1328,8 @@ bool read_backbone_bundle_variations(
         return false;
       }
     }
-    std::size_t membership_count = 0;
-    if (!reader.count(child(prefix, "memberships.count"),
-                      &membership_count)) {
-      return false;
-    }
-    value.memberships.resize(membership_count);
-    for (std::size_t i = 0; i < membership_count; ++i) {
-      const std::string membership_prefix =
-          indexed(child(prefix, "memberships"), i);
-      SavedBackboneBundleVariationMembership& membership =
-          value.memberships[i];
-      ReadFieldArchive membership_archive(reader);
-      if (!membership_archive.field(membership_prefix, "bundle_template_id",
-                                    membership.bundle_template_id) ||
-          !membership_archive.field(membership_prefix, "conductor_count",
-                                    membership.conductor_count)) {
-        return false;
-      }
-      std::size_t edge_count = 0;
-      const bool retained_edge_ids =
-          reader.contains(child(membership_prefix, "edge_ids.count"));
-      if (!retained_edge_ids) {
-        for (const char* field : {"height_m", "lateral_m", "spacing_m"}) {
-          const std::string key = child(membership_prefix, field);
-          if (reader.contains(key)) {
-            double ignored = 0.0;
-            if (!membership_archive.field(membership_prefix, field, ignored)) {
-              return false;
-            }
-          }
-        }
-      }
-      if (!retained_edge_ids &&
-          reader.contains(child(membership_prefix, "nodes.count"))) {
-        std::size_t node_count = 0;
-        if (!reader.count(child(membership_prefix, "nodes.count"),
-                          &node_count)) {
-          return false;
-        }
-        for (std::size_t node_index = 0; node_index < node_count;
-             ++node_index) {
-          SavedBackboneNode node{};
-          ReadFieldArchive node_archive(reader);
-          if (!archive_saved_node(
-                  node_archive,
-                  indexed(child(membership_prefix, "nodes"), node_index),
-                  node) ||
-              !merge_legacy_variation_node(graph, node)) {
-            return false;
-          }
-        }
-      }
-      const std::string edge_prefix = child(
-          membership_prefix, retained_edge_ids ? "edge_ids" : "edges");
-      if (!reader.count(child(edge_prefix, "count"), &edge_count)) {
-        return false;
-      }
-      membership.edge_ids.reserve(edge_count);
-      for (std::size_t edge_index = 0; edge_index < edge_count; ++edge_index) {
-        ReadFieldArchive edge_archive(reader);
-        const std::string item_prefix = indexed(edge_prefix, edge_index);
-        if (retained_edge_ids) {
-          ObjectId edge_id = kInvalidObjectId;
-          if (!edge_archive.field(item_prefix, "edge_id", edge_id)) {
-            return false;
-          }
-          membership.edge_ids.push_back(edge_id);
-        } else {
-          LegacyVariationEdge legacy{};
-          if (!archive_variation_edge(edge_archive, item_prefix, legacy) ||
-              !merge_legacy_variation_edge(graph, legacy, edge_index)) {
-            return false;
-          }
-          membership.edge_ids.push_back(legacy.edge_id);
-        }
-      }
-      std::size_t continuity_count = 0;
-      if (!reader.count(child(membership_prefix,
-                              "row_continuities.count"),
-                        &continuity_count)) {
-        return false;
-      }
-      membership.row_continuities.resize(continuity_count);
-      for (std::size_t continuity_index = 0;
-           continuity_index < continuity_count; ++continuity_index) {
-        ReadFieldArchive continuity_archive(reader);
-        if (!archive_variation_continuity(
-                continuity_archive,
-                indexed(child(membership_prefix, "row_continuities"),
-                        continuity_index),
-                membership.row_continuities[continuity_index])) {
-          return false;
-        }
-      }
-      std::sort(membership.edge_ids.begin(), membership.edge_ids.end());
-    }
     variations->push_back(std::move(value));
   }
-  std::sort(graph->nodes.begin(), graph->nodes.end(),
-            [](const SavedBackboneNode& a, const SavedBackboneNode& b) {
-              return a.node_id < b.node_id;
-            });
-  std::sort(graph->edges.begin(), graph->edges.end(),
-            [](const SavedBackboneEdge& a, const SavedBackboneEdge& b) {
-              return a.edge_id < b.edge_id;
-            });
   return true;
 }
 
@@ -2168,8 +1622,7 @@ bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* auth
   if (!(read_edit_state(reader, &authoritative->edit_state) &&
          read_backbone(reader, &authoritative->backbone) &&
          read_backbone_bundle_variations(
-             reader, &authoritative->backbone,
-             &authoritative->backbone_bundle_variations) &&
+             reader, &authoritative->backbone_bundle_variations) &&
          read_map(reader, "authoritative.pole_types", &authoritative->pole_types,
                   [](auto& in, const auto& prefix, PoleTypeDefinition* value) {
                     ReadFieldArchive a(in); return archive_pole_type(a, prefix, *value);
@@ -2278,258 +1731,6 @@ EditResult<bool> CoreState::DeserializeAuthoritative(const std::string& text) {
   trial.session_ = {};
   trial.debug_ = {};
 
-  auto migrate_shared_pair_ports = [&]() -> bool {
-    SavedBackboneGraph& graph = trial.authoritative_.backbone;
-    std::unordered_map<ObjectId, std::vector<std::size_t>> bindings_by_port{};
-    for (std::size_t index = 0; index < graph.port_bindings.size(); ++index) {
-      bindings_by_port[graph.port_bindings[index].port_id].push_back(index);
-    }
-    auto edge_bundle_for = [&](ObjectId edge_bundle_id)
-        -> const SavedBackboneEdgeBundle* {
-      const auto found = std::find_if(
-          graph.edge_bundles.begin(), graph.edge_bundles.end(),
-          [&](const SavedBackboneEdgeBundle& value) {
-            return value.edge_bundle_id == edge_bundle_id;
-          });
-      return found == graph.edge_bundles.end() ? nullptr : &*found;
-    };
-    auto saved_node_for = [&](ObjectId node_id) -> const SavedBackboneNode* {
-      const auto found = std::find_if(
-          graph.nodes.begin(), graph.nodes.end(),
-          [&](const SavedBackboneNode& value) { return value.node_id == node_id; });
-      return found == graph.nodes.end() ? nullptr : &*found;
-    };
-    auto spans_for = [&](ObjectId edge_bundle_id, std::size_t lane_index) {
-      std::vector<ObjectId> span_ids{};
-      for (const SavedBackboneSpanBinding& binding : graph.span_bindings) {
-        if (binding.edge_bundle_id == edge_bundle_id &&
-            binding.lane_index == lane_index) {
-          span_ids.push_back(binding.span_id);
-        }
-      }
-      return span_ids;
-    };
-    auto has_continuity = [&](const SavedBackbonePortBinding& a,
-                              const SavedBackbonePortBinding& b) {
-      return std::any_of(
-          graph.row_continuities.begin(), graph.row_continuities.end(),
-          [&](const SavedBackboneRowContinuity& continuity) {
-            if (continuity.node_id != a.row_key.node_id) {
-              return false;
-            }
-            const auto matches = [](const SavedBackboneRowContinuityEndpoint& endpoint,
-                                    const SavedBackbonePortBinding& binding) {
-              return endpoint.edge_bundle_id == binding.edge_bundle_id &&
-                     endpoint.lane_index == binding.lane_index;
-            };
-            return (matches(continuity.a, a) && matches(continuity.b, b)) ||
-                   (matches(continuity.a, b) && matches(continuity.b, a));
-          });
-    };
-
-    for (auto& [port_id, binding_indices] : bindings_by_port) {
-      if (binding_indices.size() == 1) {
-        continue;
-      }
-      if (binding_indices.size() != 2) {
-        result.error =
-            "authoritative migration unsupported: shared port has ambiguous endpoint bindings";
-        return false;
-      }
-      std::sort(binding_indices.begin(), binding_indices.end(),
-                [&](std::size_t a, std::size_t b) {
-                  return graph.port_bindings[a].edge_bundle_id <
-                         graph.port_bindings[b].edge_bundle_id;
-                });
-      SavedBackbonePortBinding& keep =
-          graph.port_bindings[binding_indices[0]];
-      SavedBackbonePortBinding& split =
-          graph.port_bindings[binding_indices[1]];
-      const bool same_scope =
-          keep.row_key.node_id == split.row_key.node_id &&
-          keep.lane_index == split.lane_index &&
-          keep.bundle_template_id == split.bundle_template_id &&
-          keep.port_kind == split.port_kind &&
-          keep.port_layer == split.port_layer &&
-          keep.placement_band_id == split.placement_band_id &&
-          keep.support_level == split.support_level &&
-          keep.support_group_id == split.support_group_id &&
-          std::bit_cast<std::uint64_t>(keep.layout_yaw_deg) ==
-              std::bit_cast<std::uint64_t>(split.layout_yaw_deg) &&
-          keep.edge_bundle_id != split.edge_bundle_id;
-      const SavedBackboneEdgeBundle* keep_edge_bundle =
-          edge_bundle_for(keep.edge_bundle_id);
-      const SavedBackboneEdgeBundle* split_edge_bundle =
-          edge_bundle_for(split.edge_bundle_id);
-      const SavedBackboneNode* node = saved_node_for(keep.row_key.node_id);
-      const Port* source_port =
-          trial.authoritative_.edit_state.ports.find(port_id);
-      const std::vector<ObjectId> split_spans =
-          spans_for(split.edge_bundle_id, split.lane_index);
-      if (!same_scope || keep_edge_bundle == nullptr ||
-          split_edge_bundle == nullptr || node == nullptr ||
-          source_port == nullptr ||
-          keep.row_key.edge_id != keep_edge_bundle->edge_id ||
-          split.row_key.edge_id != split_edge_bundle->edge_id ||
-          !has_continuity(keep, split) || split_spans.size() != 1) {
-        result.error =
-            "authoritative migration unsupported: shared pair port cannot be split exactly";
-        return false;
-      }
-      Span* split_span =
-          trial.authoritative_.edit_state.spans.find(split_spans.front());
-      if (split_span == nullptr) {
-        result.error =
-            "authoritative migration unsupported: shared pair span is missing";
-        return false;
-      }
-      const bool replace_a =
-          split_span->port_a_id == port_id &&
-          split_span->endpoint_node_a_id == node->pole_id;
-      const bool replace_b =
-          split_span->port_b_id == port_id &&
-          split_span->endpoint_node_b_id == node->pole_id;
-      if (replace_a == replace_b) {
-        result.error =
-            "authoritative migration unsupported: shared pair span endpoint is ambiguous";
-        return false;
-      }
-
-      const Port source = *source_port;
-      EditResult<ObjectId> added =
-          trial.AddPort(source.owner_pole_id, source.world_position, source.kind,
-                        source.layer, source.direction);
-      if (!added.ok) {
-        result.error = "authoritative unsupported: authoritative migration unsupported: " + added.error;
-        return false;
-      }
-      Port* created =
-          trial.authoritative_.edit_state.ports.find(added.value);
-      if (created == nullptr) {
-        result.error =
-            "authoritative migration unsupported: split port was not created";
-        return false;
-      }
-      const ObjectId new_port_id = created->id;
-      const std::string new_display_id = created->display_id;
-      *created = source;
-      created->id = new_port_id;
-      created->display_id = new_display_id;
-      split.port_id = new_port_id;
-      if (replace_a) {
-        split_span->port_a_id = new_port_id;
-      } else {
-        split_span->port_b_id = new_port_id;
-      }
-    }
-    return true;
-  };
-  if (!migrate_shared_pair_ports()) {
-    result.classify_error();
-    return result;
-  }
-
-  auto migrate_permutable_continuity_lanes = [&]() -> bool {
-    if (reader.version() >= 3) {
-      return true;
-    }
-    SavedBackboneGraph& graph = trial.authoritative_.backbone;
-    const auto edge_bundle_for = [&](ObjectId edge_bundle_id)
-        -> const SavedBackboneEdgeBundle* {
-      const auto found = std::find_if(
-          graph.edge_bundles.begin(), graph.edge_bundles.end(),
-          [&](const SavedBackboneEdgeBundle& value) {
-            return value.edge_bundle_id == edge_bundle_id;
-          });
-      return found == graph.edge_bundles.end() ? nullptr : &*found;
-    };
-    for (SavedBackboneRowContinuity& continuity : graph.row_continuities) {
-      const SavedBackboneEdgeBundle* edge_bundle_a =
-          edge_bundle_for(continuity.a.edge_bundle_id);
-      const SavedBackboneEdgeBundle* edge_bundle_b =
-          edge_bundle_for(continuity.b.edge_bundle_id);
-      const Bundle* bundle_a = edge_bundle_a == nullptr
-                                   ? nullptr
-                                   : trial.authoritative_.edit_state.bundles.find(
-                                         edge_bundle_a->bundle_id);
-      const Bundle* bundle_b = edge_bundle_b == nullptr
-                                   ? nullptr
-                                   : trial.authoritative_.edit_state.bundles.find(
-                                         edge_bundle_b->bundle_id);
-      if (bundle_a == nullptr || bundle_b == nullptr ||
-          bundle_a->bundle_template_id != bundle_b->bundle_template_id ||
-          bundle_a->conductor_count != bundle_b->conductor_count ||
-          bundle_a->conductor_count <= 0) {
-        result.error =
-            "authoritative unsupported: continuity migration has incompatible lane layouts";
-        return false;
-      }
-      const auto template_it = trial.authoritative_.bundle_templates.find(
-          bundle_a->bundle_template_id);
-      if (template_it == trial.authoritative_.bundle_templates.end()) {
-        result.error =
-            "authoritative unsupported: continuity migration bundle template is missing";
-        return false;
-      }
-      const std::size_t lane_count =
-          static_cast<std::size_t>(bundle_a->conductor_count);
-      if (continuity.a.lane_index >= lane_count ||
-          continuity.b.lane_index >= lane_count) {
-        result.error =
-            "authoritative unsupported: continuity migration lane is out of range";
-        return false;
-      }
-      if (lane_count < 2 || template_it->second.preserve_conductor_identity ||
-          template_it->second.order_decision_policy !=
-              OrderDecisionPolicyKind::kPermutableHomogeneous) {
-        continue;
-      }
-
-      const auto row_direction = [&](ObjectId edge_bundle_id,
-                                     Vec3d* direction) {
-        const Port* first = nullptr;
-        const Port* last = nullptr;
-        for (const SavedBackbonePortBinding& binding : graph.port_bindings) {
-          if (binding.edge_bundle_id != edge_bundle_id ||
-              binding.row_key.node_id != continuity.node_id) {
-            continue;
-          }
-          if (binding.lane_index == 0) {
-            first = trial.authoritative_.edit_state.ports.find(binding.port_id);
-          } else if (binding.lane_index == lane_count - 1) {
-            last = trial.authoritative_.edit_state.ports.find(binding.port_id);
-          }
-        }
-        if (first == nullptr || last == nullptr || direction == nullptr) {
-          return false;
-        }
-        *direction = last->world_position - first->world_position;
-        return NormalizeXY(direction);
-      };
-      Vec3d direction_a{};
-      Vec3d direction_b{};
-      if (!row_direction(continuity.a.edge_bundle_id, &direction_a) ||
-          !row_direction(continuity.b.edge_bundle_id, &direction_b)) {
-        result.error =
-            "authoritative unsupported: continuity migration row has no horizontal direction";
-        return false;
-      }
-      const double alignment = Dot(direction_a, direction_b);
-      if (std::abs(alignment) <= kUnitlessTolerance) {
-        result.error =
-            "authoritative unsupported: continuity migration rows are orthogonal";
-        return false;
-      }
-      continuity.b.lane_index = alignment < 0.0
-                                    ? lane_count - 1 - continuity.a.lane_index
-                                    : continuity.a.lane_index;
-    }
-    return true;
-  };
-  if (!migrate_permutable_continuity_lanes()) {
-    result.classify_error();
-    return result;
-  }
   if (!normalize_saved_support_levels(&trial.authoritative_)) {
     result.error =
         "authoritative invalid input: saved support levels are inconsistent";

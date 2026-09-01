@@ -828,7 +828,7 @@ describe("wire wasm smoke", () => {
     );
 
     expect(rejected.ok).toBe(false);
-    expect(rejected.error).toContain("initial zero-instance");
+    expect(rejected.error).toContain("zero-instance variation");
     expect(runState.saveState()).toBe(before);
     expect(runState.backboneBundleVariation(generated.variationId!).rules).toEqual(initialRules);
     runState.delete();
@@ -2074,7 +2074,7 @@ describe("wire wasm smoke", () => {
     }));
 
     const text = savedState.saveState();
-    expect(text.startsWith("wire_state_v4\n")).toBe(true);
+    expect(text.startsWith("wire_state_v5\n")).toBe(true);
     const loadedState = createState();
     const loaded = loadedState.loadState(text);
     expect(loaded.ok, loaded.error).toBe(true);
@@ -2161,62 +2161,6 @@ describe("wire wasm smoke", () => {
     expect(regenerate.ok, regenerate.error).toBe(true);
     expect(visualParts(layoutState).length).toBeGreaterThan(0);
     layoutState.delete();
-  });
-
-  it("updates existing non-HV visual samples when wire irregularity changes", () => {
-    const irregularityState = createState();
-    expect(irregularityState.configureModelAssemblies(modelBootstrap()).ok).toBe(true);
-    const generated = irregularityState.generatePlacements(
-      new Float64Array([0, 0, 0, 24, 0, 0]),
-      [{
-        id: 8801, bundleTemplateId: 104, count: 1, explicit: true,
-        height: 5.4, offset: -0.3, spacing: 0.2
-      }],
-      0,
-      2,
-      0,
-      0,
-      []
-    );
-    expect(generated.ok, generated.error).toBe(true);
-    const before = visualParts(irregularityState)
-      .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 104)
-      .map((part) => Array.from(part.samples));
-    expect(before.length).toBeGreaterThan(1);
-
-    const settings = irregularityState.visualSettings();
-    const updated = irregularityState.updateVisualSettings({
-      ...settings,
-      wireIrregularityScale: 0
-    });
-    expect(updated.ok, updated.error).toBe(true);
-    const after = visualParts(irregularityState)
-      .filter((part) => part.info.kind === 0 && part.info.bundleTemplateId === 104)
-      .map((part) => Array.from(part.samples));
-    expect(after).toHaveLength(before.length);
-    expect(after.every((samples, index) => samples.length === before[index].length)).toBe(true);
-    const sampleCount = before[0].length / 3;
-    let maximumSpacingDelta = 0;
-    let maximumCentroidDelta = 0;
-    for (let sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
-      const offset = sampleIndex * 3;
-      const pairDistance = (members: number[][]) => Math.hypot(
-        members[0][offset] - members[1][offset],
-        members[0][offset + 1] - members[1][offset + 1],
-        members[0][offset + 2] - members[1][offset + 2]
-      );
-      maximumSpacingDelta = Math.max(maximumSpacingDelta,
-        Math.abs(pairDistance(before) - pairDistance(after)));
-      for (let axis = 0; axis < 3; ++axis) {
-        const centroid = (members: number[][]) => members.reduce(
-          (sum, samples) => sum + samples[offset + axis], 0) / members.length;
-        maximumCentroidDelta = Math.max(maximumCentroidDelta,
-          Math.abs(centroid(before) - centroid(after)));
-      }
-    }
-    expect(maximumSpacingDelta).toBeGreaterThan(0.00005);
-    expect(maximumCentroidDelta).toBeLessThan(1e-9);
-    irregularityState.delete();
   });
 
   it("applies pole category height edits to ports and curve endpoints", () => {

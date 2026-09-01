@@ -254,11 +254,8 @@ void CoreState::register_default_bundle_templates() {
   comm.branch_endpoint_offset_m = 0.0;
   comm.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   comm.span_visual_assembly.endpoint_trim_m = 1.2;
-  comm.span_visual_assembly.visual_member_count_min = 1;
-  comm.span_visual_assembly.visual_member_count_max = 4;
+  comm.span_visual_assembly.visual_member_count = 3;
   comm.span_visual_assembly.visual_member_spacing_m = 0.018;
-  comm.span_visual_assembly.member_wander_ratio = 0.20;
-  comm.span_visual_assembly.member_wander_wavelength_m = 0.30;
   authoritative_.bundle_templates[comm.id] = comm;
 
   BundleTemplate optical{};
@@ -291,11 +288,8 @@ void CoreState::register_default_bundle_templates() {
   optical.span_visual_assembly.helix_turns_per_meter = 1.8;
   optical.span_visual_assembly.helix_samples_per_turn = 6;
   optical.span_visual_assembly.endpoint_trim_m = 1.05;
-  optical.span_visual_assembly.visual_member_count_min = 1;
-  optical.span_visual_assembly.visual_member_count_max = 2;
+  optical.span_visual_assembly.visual_member_count = 2;
   optical.span_visual_assembly.visual_member_spacing_m = 0.014;
-  optical.span_visual_assembly.member_wander_ratio = 0.20;
-  optical.span_visual_assembly.member_wander_wavelength_m = 0.30;
   authoritative_.bundle_templates[optical.id] = optical;
 }
 

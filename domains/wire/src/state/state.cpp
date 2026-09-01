@@ -1843,20 +1843,15 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
   VisualSettings normalized = settings;
   normalized.insulator_radius_m = std::max(0.0, normalized.insulator_radius_m);
   normalized.insulator_length_m = std::max(0.0, normalized.insulator_length_m);
-  normalized.wire_irregularity_scale = std::max(0.0, normalized.wire_irregularity_scale);
 
   const bool changed = normalized.enable_insulators != authoritative_.visual_settings.enable_insulators ||
                        std::abs(normalized.insulator_radius_m - authoritative_.visual_settings.insulator_radius_m) > kStrictLengthToleranceM ||
-                       std::abs(normalized.insulator_length_m - authoritative_.visual_settings.insulator_length_m) > kStrictLengthToleranceM ||
-                       std::abs(normalized.wire_irregularity_scale - authoritative_.visual_settings.wire_irregularity_scale) > kStrictLengthToleranceM;
-  const bool curve_shape_changed =
-      std::abs(normalized.wire_irregularity_scale -
-               authoritative_.visual_settings.wire_irregularity_scale) > kStrictLengthToleranceM;
+                       std::abs(normalized.insulator_length_m - authoritative_.visual_settings.insulator_length_m) > kStrictLengthToleranceM;
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
-    plan = make_update_plan({curve_shape_changed ? UpdateKind::kReshape : UpdateKind::kRedraw,
-                             UpdateTargetKind::kAllSpans, kInvalidObjectId});
+    plan = make_update_plan({UpdateKind::kRedraw, UpdateTargetKind::kAllSpans,
+                             kInvalidObjectId});
     if (!plan.ok) {
       result.error = plan.error;
       return result;

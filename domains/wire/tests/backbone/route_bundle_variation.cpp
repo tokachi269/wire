@@ -3,7 +3,6 @@
 #include "../registry.hpp"
 #include "city/wire/coord_utils.hpp"
 #include "city/wire/core_test_hook.hpp"
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -25,7 +24,7 @@ std::vector<city::wire::RandomBackboneBundleRule> visual_rules() {
       {kDefaultHighVoltageBundleTemplateId, 1, 1, 3, 9.2, 9.2, 0.2, 0.2},
       {kDefaultLowVoltageBundleTemplateId, 2, 4, 1, 7.0, 7.7, 0.12, 0.52},
       {kDefaultCommunicationBundleTemplateId, 1, 4, 1, 5.0, 5.8, 0.12, 0.50},
-      {kDefaultOpticalBundleTemplateId, 0, 2, 1, 4.9, 5.7, 0.12, 0.50},
+      {kDefaultOpticalBundleTemplateId, 1, 2, 1, 4.9, 5.7, 0.12, 0.50},
   };
 }
 
@@ -302,8 +301,7 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
           saved_descriptor->descriptor.route_seed == descriptor.route_seed &&
           saved_descriptor->descriptor.rules.size() == descriptor.rules.size() &&
           saved_descriptor->instances.size() ==
-              generated.value.generation.bundle_ids.size() &&
-          !saved_descriptor->memberships.empty(),
+              generated.value.generation.bundle_ids.size(),
       generated.error.empty()
           ? "variation descriptor was not associated with exact generated scope"
           : generated.error);
@@ -341,13 +339,8 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
   CoreState malformed = loaded;
   auto& malformed_variations =
       CoreStateTestHook::backbone_bundle_variations(malformed);
-  if (malformed_variations.empty() ||
-      malformed_variations.front().memberships.empty() ||
-      malformed_variations.front().memberships.front().edge_ids.empty()) {
-    return false;
-  }
-  malformed_variations.front().memberships.front().edge_ids.front() =
-      kInvalidObjectId;
+  if (malformed_variations.empty()) return false;
+  malformed_variations.front().descriptor.rules.clear();
   const ValidationResult malformed_validation =
       CoreStateTestHook::validate(malformed);
   WIRE_TEST_EXPECT_DIFFERENTIAL(
@@ -355,9 +348,9 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
           std::ranges::any_of(
               malformed_validation.issues, [](const ValidationIssue& issue) {
                 return issue.code ==
-                       "BackboneBundleVariationMembershipEdgeInvalid";
+                       "BackboneBundleVariationDescriptorInvalid";
               }),
-      "Validate accepted a malformed persisted variation membership");
+      "Validate accepted a malformed persisted variation descriptor");
 
   CoreState changed_resolver_input = loaded;
   auto& changed_variations =
@@ -370,14 +363,8 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
       "persistent validation reran the current resolver against saved concrete instances");
 
   std::string malformed_archive = serialized;
-  const std::string membership_edge_key =
-      ".memberships.0.edge_ids.0.edge_id=";
-  const std::size_t edge_key = malformed_archive.find(membership_edge_key);
-  if (edge_key == std::string::npos) return false;
-  const std::size_t edge_value = edge_key + membership_edge_key.size();
-  const std::size_t edge_line_end = malformed_archive.find('\n', edge_value);
-  if (edge_line_end == std::string::npos) return false;
-  malformed_archive.replace(edge_value, edge_line_end - edge_value, "0");
+  malformed_archive.replace(0, std::string("wire_state_v5").size(),
+                            "wire_state_v4");
   CoreState load_target = loaded;
   std::string load_before{};
   std::string load_after{};
@@ -390,7 +377,7 @@ bool C882_backbone_variation_descriptor_is_atomically_associated_and_persisted()
       !malformed_load.ok &&
           load_target.SerializeAuthoritative(&load_after).ok &&
           load_before == load_after,
-      "Deserialize accepted malformed variation membership or mutated state");
+      "Deserialize accepted an obsolete schema or mutated state");
 
   CoreState failed;
   std::string before{};
@@ -529,7 +516,7 @@ bool C883_backbone_variation_apply_reconciles_concrete_scope_atomically() {
   return true;
 }
 
-bool C884_backbone_variation_apply_restores_zero_count_membership() {
+bool C884_backbone_variation_zero_count_retires_and_readd_is_unsupported() {
   using namespace city::wire;
   CoreState state;
   RouteBundleVariationInput one{};
@@ -538,22 +525,17 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
   one.pole_type_id = 2;
   one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
                 5.2, 5.2, 0.25, 0.25}};
-  BackboneSpec request = request_with(
-      state, {}, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 1.5, 0.0}});
-  const auto generated = state.GenerateBackboneBundleVariation(request, one);
-  if (!generated.ok) return false;
+  const auto generated = state.GenerateBackboneBundleVariation(
+      request_with(state, {},
+                   {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0},
+                    {18.0, 3.0, 0.0}}),
+      one);
+  if (!generated.ok || generated.value.generation.bundle_ids.size() != 1) {
+    return false;
+  }
   const ObjectId variation_id = generated.value.variation_id;
-  const SavedBackboneBundleVariation* initial =
-      state.view().backbone_bundle_variation(variation_id);
-  if (initial == nullptr || initial->instances.size() != 1 ||
-      initial->memberships.size() != 1) return false;
-  const std::uint64_t placement_key = initial->instances.front().placement_key;
-  const ObjectId retired_id = initial->instances.front().bundle_id;
-  const std::vector<ObjectId> retained_edge_ids =
-      initial->memberships.front().edge_ids;
-  const std::size_t edge_count = retained_edge_ids.size();
-  const std::size_t continuity_count =
-      initial->memberships.front().row_continuities.size();
+  const ObjectId retired_bundle_id =
+      generated.value.generation.bundle_ids.front();
 
   RouteBundleVariationInput zero = one;
   zero.rules.front().min_instances = 0;
@@ -564,197 +546,38 @@ bool C884_backbone_variation_apply_restores_zero_count_membership() {
   WIRE_TEST_EXPECT_DIFFERENTIAL(
       removed.ok && removed.value && empty != nullptr &&
           empty->instances.empty() &&
-          state.view().bundles().find(retired_id) == nullptr &&
-          std::ranges::all_of(
-              retained_edge_ids, [&](ObjectId edge_id) {
-                return state.view().backbone_edge(edge_id) != nullptr;
-              }),
-      removed.error.empty() ? "variation zero Apply retained a concrete Bundle"
-                            : removed.error);
+          state.view().bundles().find(retired_bundle_id) == nullptr &&
+          state.view().backbone().edge_bundles.empty() &&
+          state.view().backbone().edges.empty() &&
+          state.view().backbone().row_continuities.empty(),
+      removed.error.empty()
+          ? "zero-count Apply retained live or dormant Bundle topology"
+          : removed.error);
 
   std::string zero_archive{};
-  CoreState zero_loaded;
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      state.SerializeAuthoritative(&zero_archive).ok &&
-          zero_archive.find(".memberships.0.edge_ids.count=") !=
-              std::string::npos &&
-          zero_archive.find(".memberships.0.nodes.count=") ==
-              std::string::npos &&
-          zero_loaded.DeserializeAuthoritative(zero_archive).ok &&
-          zero_loaded.view().backbone_bundle_variation(variation_id) !=
-              nullptr &&
-          zero_loaded.view()
-              .backbone_bundle_variation(variation_id)
-              ->instances.empty(),
-      "zero-instance variation did not preserve its retained graph authority through load");
-  state = std::move(zero_loaded);
-
-  const auto restored = state.ApplyBackboneBundleVariation(variation_id, one);
-  const SavedBackboneBundleVariation* final =
-      state.view().backbone_bundle_variation(variation_id);
-  WIRE_TEST_EXPECT_ANCHOR(
-      restored.ok && restored.value && final != nullptr &&
-          final->instances.size() == 1 &&
-          final->instances.front().placement_key == placement_key &&
-          final->instances.front().bundle_id != retired_id,
-      restored.error.empty()
-          ? "variation one-to-zero-to-one did not restore placement identity"
-          : restored.error);
-  const auto captured = state.view().backbone_bundle_variation(variation_id);
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      captured != nullptr && captured->memberships.size() == 1 &&
-          captured->memberships.front().edge_ids.size() == edge_count &&
-          captured->memberships.front().row_continuities.size() ==
-              continuity_count,
-      "variation one-to-zero-to-one changed saved membership shape");
-  std::string saved{};
   CoreState loaded;
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      state.SerializeAuthoritative(&saved).ok &&
-          loaded.DeserializeAuthoritative(saved).ok &&
+  WIRE_TEST_EXPECT_ANCHOR(
+      state.SerializeAuthoritative(&zero_archive).ok &&
+          loaded.DeserializeAuthoritative(zero_archive).ok &&
           loaded.view().backbone_bundle_variation(variation_id) != nullptr &&
           loaded.view().backbone_bundle_variation(variation_id)
-                  ->instances.front()
-                  .placement_key == placement_key,
-      "restored variation topology did not survive save/load");
+              ->instances.empty() &&
+          loaded.view().backbone().edges.empty(),
+      "current zero-count variation did not roundtrip without replay topology");
 
-  RouteBundleVariationInput initial_zero = one;
-  initial_zero.rules.push_back(
-      {kDefaultOpticalBundleTemplateId, 0, 0, 1,
-       4.9, 5.3, 0.20, 0.50});
-  CoreState no_source;
-  const auto initial_zero_generation =
-      no_source.GenerateBackboneBundleVariation(
-          request_with(no_source, {}), initial_zero);
-  if (!initial_zero_generation.ok) return false;
-  std::string initial_zero_before;
+  std::string before_readd{};
+  std::string after_readd{};
+  if (!loaded.SerializeAuthoritative(&before_readd).ok) return false;
+  const auto rejected =
+      loaded.ApplyBackboneBundleVariation(variation_id, one);
   WIRE_TEST_EXPECT_DIFFERENTIAL(
-      no_source.SerializeAuthoritative(&initial_zero_before).ok,
-      "initial zero-to-one pre-state serialization failed");
-  RouteBundleVariationInput request_first_optical = initial_zero;
-  request_first_optical.rules.back().min_instances = 1;
-  request_first_optical.rules.back().max_instances = 1;
-  const auto initial_zero_applied =
-      no_source.ApplyBackboneBundleVariation(
-          initial_zero_generation.value.variation_id,
-          request_first_optical);
-  std::string initial_zero_after;
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      !initial_zero_applied.ok &&
-          initial_zero_applied.error.find("initial zero-instance") !=
+      !rejected.ok &&
+          rejected.error.find("zero-instance variation has no live exact membership source") !=
               std::string::npos &&
-          no_source.SerializeAuthoritative(&initial_zero_after).ok &&
-          initial_zero_after == initial_zero_before,
-      "explicitly unavailable zero group did not fail atomically");
-
-  CoreState ownerless;
-  BackboneSpec ownerless_request = request_with(
-      ownerless, {}, {{0.0, 20.0, 4.0}, {12.0, 20.0, 4.0}});
-  BackboneInputSpec::NodeSpec ownerless_a{};
-  ownerless_a.point_index = 0;
-  ownerless_a.support_kind = SupportKind::kMidair;
-  BackboneInputSpec::NodeSpec ownerless_b{};
-  ownerless_b.point_index = 1;
-  ownerless_b.support_kind = SupportKind::kMidair;
-  ownerless_request.path.node_specs = {ownerless_a, ownerless_b};
-  const auto ownerless_generated =
-      ownerless.GenerateBackboneBundleVariation(ownerless_request, one);
-  if (!ownerless_generated.ok) return false;
-  const ObjectId ownerless_variation_id =
-      ownerless_generated.value.variation_id;
-  const auto ownerless_removed =
-      ownerless.ApplyBackboneBundleVariation(ownerless_variation_id, zero);
-  const auto ownerless_restored =
-      ownerless.ApplyBackboneBundleVariation(ownerless_variation_id, one);
-  const SavedBackboneBundleVariation* ownerless_final =
-      ownerless.view().backbone_bundle_variation(ownerless_variation_id);
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      ownerless_removed.ok && ownerless_restored.ok &&
-          ownerless_final != nullptr && ownerless_final->instances.size() == 1 &&
-          std::ranges::all_of(
-              ownerless.view().backbone().nodes,
-              [](const SavedBackboneNode& node) {
-                return node.support_kind != SupportKind::kMidair ||
-                       node.pole_id == kInvalidObjectId;
-              }),
-      ownerless_restored.error.empty()
-          ? "ownerless variation one-to-zero-to-one lost its exact support membership"
-          : ownerless_restored.error);
-
-  CoreState extended_zero;
-  RouteBundleVariationInput two_groups = one;
-  two_groups.rules.push_back(
-      {kDefaultLowVoltageBundleTemplateId, 1, 1, 1,
-       7.1, 7.1, 0.25, 0.25});
-  const auto two_generated = extended_zero.GenerateBackboneBundleVariation(
-      request_with(extended_zero, {}), two_groups);
-  if (!two_generated.ok ||
-      two_generated.value.generation.generated_node_ids.size() != 2) {
-    return false;
-  }
-  const ObjectId extended_variation_id = two_generated.value.variation_id;
-  const SavedBackboneBundleVariation* before_zero =
-      extended_zero.view().backbone_bundle_variation(extended_variation_id);
-  const auto communication_membership = [](const auto* variation) {
-    return variation == nullptr
-               ? std::vector<SavedBackboneBundleVariationMembership>::const_iterator{}
-               : std::ranges::find_if(
-                     variation->memberships, [](const auto& membership) {
-                       return membership.bundle_template_id ==
-                              kDefaultCommunicationBundleTemplateId;
-                     });
-  };
-  if (before_zero == nullptr) return false;
-  const auto before_zero_membership = communication_membership(before_zero);
-  if (before_zero_membership == before_zero->memberships.end()) return false;
-  const std::size_t edges_before_extension =
-      before_zero_membership->edge_ids.size();
-
-  RouteBundleVariationInput zero_communication = two_groups;
-  zero_communication.rules.front().min_instances = 0;
-  zero_communication.rules.front().max_instances = 0;
-  const auto zeroed = extended_zero.ApplyBackboneBundleVariation(
-      extended_variation_id, zero_communication);
-  BackboneSpec extension = request_with(
-      extended_zero, {}, {{12.0, 0.0, 0.0}, {24.0, 3.0, 0.0}});
-  BackboneInputSpec::NodeSpec extension_start{};
-  extension_start.point_index = 0;
-  extension_start.support_kind = SupportKind::kPole;
-  extension_start.node_id =
-      two_generated.value.generation.generated_node_ids.back();
-  extension.path.node_specs = {extension_start};
-  const auto extended = extended_zero.ExtendBackboneBundleVariation(
-      extended_variation_id, extension);
-  const SavedBackboneBundleVariation* after_extension =
-      extended_zero.view().backbone_bundle_variation(extended_variation_id);
-  if (!zeroed.ok || !extended.ok || after_extension == nullptr) return false;
-  const auto extended_membership = communication_membership(after_extension);
-  if (extended_membership == after_extension->memberships.end()) return false;
-  const std::size_t edges_after_extension = extended_membership->edge_ids.size();
-  const auto extended_restored = extended_zero.ApplyBackboneBundleVariation(
-      extended_variation_id, two_groups);
-  const SavedBackboneBundleVariation* extended_final =
-      extended_zero.view().backbone_bundle_variation(extended_variation_id);
-  const auto final_membership = communication_membership(extended_final);
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      extended_restored.ok && extended_final != nullptr &&
-          final_membership != extended_final->memberships.end() &&
-          edges_after_extension > edges_before_extension &&
-          final_membership->edge_ids.size() == edges_after_extension &&
-          std::ranges::any_of(
-              extended_final->instances, [&](const auto& instance) {
-                const Bundle* bundle =
-                    extended_zero.view().bundles().find(instance.bundle_id);
-                return bundle != nullptr &&
-                       bundle->bundle_template_id ==
-                           kDefaultCommunicationBundleTemplateId;
-              }),
-      extended_restored.error.empty()
-          ? "zero-instance membership did not extend before rematerialization"
-          : extended_restored.error);
+          loaded.SerializeAuthoritative(&after_readd).ok &&
+          before_readd == after_readd,
+      "zero-to-one Apply inferred deleted membership or changed authority");
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
-  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(ownerless);
-  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(extended_zero);
   return true;
 }
 
@@ -813,11 +636,26 @@ bool C885_backbone_variation_apply_preserves_branch_cross_sharp_membership() {
   const SavedBackboneBundleVariation* extended_descriptor =
       state.view().backbone_bundle_variation(variation_id);
   if (!extended.ok || extended_descriptor == nullptr ||
-      extended_descriptor->memberships.size() != 1) return false;
-  const std::size_t expected_edges =
-      extended_descriptor->memberships.front().edge_ids.size();
-  const std::size_t expected_continuities =
-      extended_descriptor->memberships.front().row_continuities.size();
+      extended_descriptor->instances.size() != 1) return false;
+  const ObjectId anchor_bundle_id =
+      extended_descriptor->instances.front().bundle_id;
+  std::set<ObjectId> anchor_edge_bundle_ids{};
+  for (const SavedBackboneEdgeBundle& edge_bundle :
+       state.view().backbone().edge_bundles) {
+    if (edge_bundle.bundle_id == anchor_bundle_id) {
+      anchor_edge_bundle_ids.insert(edge_bundle.edge_bundle_id);
+    }
+  }
+  const std::size_t expected_edges = anchor_edge_bundle_ids.size();
+  const std::size_t expected_continuities = static_cast<std::size_t>(
+      std::count_if(state.view().backbone().row_continuities.begin(),
+                    state.view().backbone().row_continuities.end(),
+                    [&](const SavedBackboneRowContinuity& continuity) {
+                      return anchor_edge_bundle_ids.contains(
+                                 continuity.a.edge_bundle_id) &&
+                             anchor_edge_bundle_ids.contains(
+                                 continuity.b.edge_bundle_id);
+                    }));
   if (expected_edges < 4 || expected_continuities == 0) return false;
 
   RouteBundleVariationInput two = one;
@@ -997,12 +835,10 @@ bool C863_non_hv_support_rows_are_shared_and_direct_attachment_stays_direct() {
       !configure_non_hv_model_fixtures(&four_members)) return false;
   BundleTemplate single_template =
       single_member.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
-  single_template.span_visual_assembly.visual_member_count_min = 1;
-  single_template.span_visual_assembly.visual_member_count_max = 1;
+  single_template.span_visual_assembly.visual_member_count = 1;
   BundleTemplate four_template =
       four_members.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
-  four_template.span_visual_assembly.visual_member_count_min = 4;
-  four_template.span_visual_assembly.visual_member_count_max = 4;
+  four_template.span_visual_assembly.visual_member_count = 4;
   if (!single_member.UpdateBundleTemplate(single_template).ok ||
       !four_members.UpdateBundleTemplate(four_template).ok ||
       !single_member.GenerateFromBackboneSpec(
@@ -1037,65 +873,34 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
       {kDefaultCommunicationBundleTemplateId, 3002, SpanLayer::kCommunication, 1, true, 5.4, -0.40, 0.20},
       {kDefaultCommunicationBundleTemplateId, 3003, SpanLayer::kCommunication, 1, true, 5.7, -0.50, 0.20},
   };
-  CoreState plain;
-  BundleTemplate plain_comm = plain.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
-  plain_comm.span_visual_assembly.visual_member_count_min = 1;
-  plain_comm.span_visual_assembly.visual_member_count_max = 1;
-  VisualSettings plain_visual = plain.view().visual_settings();
-  plain_visual.wire_irregularity_scale = 0.0;
-  if (!plain.UpdateBundleTemplate(plain_comm).ok ||
-      !plain.UpdateVisualSettings(plain_visual).ok ||
-      !plain.GenerateFromBackboneSpec(request_with(plain, independent_specs)).ok) return false;
-  CoreState wandered;
-  BundleTemplate wandered_comm = wandered.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
-  wandered_comm.span_visual_assembly.visual_member_count_min = 1;
-  wandered_comm.span_visual_assembly.visual_member_count_max = 1;
-  VisualSettings wandered_visual = wandered.view().visual_settings();
-  wandered_visual.wire_irregularity_scale = 5.0;
-  if (!wandered.UpdateBundleTemplate(wandered_comm).ok ||
-      !wandered.UpdateVisualSettings(wandered_visual).ok ||
-      !wandered.GenerateFromBackboneSpec(request_with(wandered, independent_specs)).ok) return false;
-  const auto plain_parts = edge_bodies(plain, kDefaultCommunicationBundleTemplateId);
-  const auto wandered_parts = edge_bodies(wandered, kDefaultCommunicationBundleTemplateId);
-  WIRE_TEST_EXPECT(plain_parts.size() == independent_specs.size() &&
-                       wandered_parts.size() == plain_parts.size(),
+  CoreState independent;
+  BundleTemplate independent_comm = independent.view().bundle_templates().at(
+      kDefaultCommunicationBundleTemplateId);
+  independent_comm.span_visual_assembly.visual_member_count = 1;
+  if (!independent.UpdateBundleTemplate(independent_comm).ok ||
+      !independent.GenerateFromBackboneSpec(
+          request_with(independent, independent_specs)).ok) return false;
+  const auto independent_parts = edge_bodies(
+      independent, kDefaultCommunicationBundleTemplateId);
+  WIRE_TEST_EXPECT(independent_parts.size() == independent_specs.size(),
                    "independent communication cable count mismatch");
   std::set<double> sags{};
-  for (std::size_t cable = 0; cable < plain_parts.size(); ++cable) {
-    const auto& before = *plain_parts[cable];
-    const auto& after = *wandered_parts[cable];
-    WIRE_TEST_EXPECT(same_samples(before.samples, after.samples),
-                     "member looseness moved a single cable centerline");
-    const double unvaried_sag = 0.03 * Length(after.boundary_b - after.boundary_a);
-    WIRE_TEST_EXPECT(after.sag_m >= unvaried_sag * 0.88 - 1e-12 &&
-                         after.sag_m <= unvaried_sag * 1.12 + 1e-12,
+  for (const VisualCurvePart* part : independent_parts) {
+    const double unvaried_sag = 0.03 * Length(part->boundary_b - part->boundary_a);
+    WIRE_TEST_EXPECT(part->sag_m >= unvaried_sag * 0.88 - 1e-12 &&
+                         part->sag_m <= unvaried_sag * 1.12 + 1e-12,
                      "non-HV sag exceeded the configured variation range");
-    sags.insert(after.sag_m);
+    sags.insert(part->sag_m);
   }
   WIRE_TEST_EXPECT(sags.size() >= 2, "non-HV sag did not vary by independent cable");
 
-  CoreState compact;
   CoreState bundled;
-  BundleTemplate compact_comm = compact.view().bundle_templates().at(
-      kDefaultCommunicationBundleTemplateId);
   BundleTemplate bundled_comm = bundled.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
-  compact_comm.span_visual_assembly.visual_member_count_min = 3;
-  compact_comm.span_visual_assembly.visual_member_count_max = 3;
-  bundled_comm.span_visual_assembly.visual_member_count_min = 3;
-  bundled_comm.span_visual_assembly.visual_member_count_max = 3;
-  VisualSettings compact_visual = compact.view().visual_settings();
-  compact_visual.wire_irregularity_scale = 0.0;
-  if (!compact.UpdateBundleTemplate(compact_comm).ok ||
-      !compact.UpdateVisualSettings(compact_visual).ok ||
-      !compact.GenerateFromBackboneSpec(request_with(compact, {{
-          kDefaultCommunicationBundleTemplateId, 3010, SpanLayer::kCommunication,
-          1, true, 5.3, -0.30, 0.05}})).ok ||
-      !bundled.UpdateBundleTemplate(bundled_comm).ok ||
+  bundled_comm.span_visual_assembly.visual_member_count = 3;
+  if (!bundled.UpdateBundleTemplate(bundled_comm).ok ||
       !generate(&bundled, kDefaultCommunicationBundleTemplateId, 1, 3010).ok) return false;
-  const auto compact_parts = edge_bodies(compact, kDefaultCommunicationBundleTemplateId);
   const auto bundled_parts = edge_bodies(bundled, kDefaultCommunicationBundleTemplateId);
-  WIRE_TEST_EXPECT(bundled.view().spans().size() == 1 && bundled_parts.size() == 3 &&
-                       compact_parts.size() == bundled_parts.size(),
+  WIRE_TEST_EXPECT(bundled.view().spans().size() == 1 && bundled_parts.size() == 3,
                    "visual members multiplied authoritative topology");
   const Span* bundled_span = bundled.view().spans().find(bundled_parts.front()->source_span_id);
   const Port* bundled_port_a = bundled_span == nullptr ? nullptr :
@@ -1107,9 +912,6 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   const std::size_t sample_count = bundled_parts.front()->samples.size();
   WIRE_TEST_EXPECT(sample_count >= 5 &&
                        std::ranges::all_of(bundled_parts, [sample_count](const auto* member) {
-                         return member->samples.size() == sample_count;
-                       }) &&
-                       std::ranges::all_of(compact_parts, [sample_count](const auto* member) {
                          return member->samples.size() == sample_count;
                        }),
                    "visual bundle members do not share a stable sampling frame");
@@ -1125,12 +927,9 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   const double cable_diameter = bundled.view().cable_templates().at(
       bundled_comm.cable_template_id).outer_diameter_m;
   const double member_spacing = bundled_comm.span_visual_assembly.visual_member_spacing_m;
-  WIRE_TEST_EXPECT(member_spacing > cable_diameter &&
-                       member_spacing - cable_diameter <= 0.0025 &&
-                       bundled_comm.span_visual_assembly.member_wander_wavelength_m >= 0.25 &&
-                       bundled_comm.span_visual_assembly.member_wander_wavelength_m <= 0.305 &&
-                       bundled_comm.span_visual_assembly.member_wander_ratio <= 0.20,
-                   "default communication bundle is not diameter- and binding-constrained");
+  WIRE_TEST_EXPECT(member_spacing >= cable_diameter &&
+                       member_spacing - cable_diameter <= 0.0025,
+                   "default communication bundle is not diameter-constrained");
   const auto pair_distances_at = [&bundled_parts](std::size_t index) {
     std::vector<double> distances{};
     for (std::size_t a = 0; a < bundled_parts.size(); ++a) {
@@ -1148,16 +947,8 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
   };
   for (std::size_t index = 0; index < sample_count; ++index) {
     const Vec3d centroid = centroid_at(index);
-    Vec3d compact_centroid{};
-    for (const VisualCurvePart* member : compact_parts) {
-      compact_centroid = compact_centroid + member->samples[index];
-    }
-    compact_centroid = ScaleVec(
-        compact_centroid, 1.0 / static_cast<double>(compact_parts.size()));
     const std::vector<double> pair_distances = pair_distances_at(index);
-    WIRE_TEST_EXPECT(Length(centroid - compact_centroid) <= 1e-9,
-                     "member looseness moved the logical bundle centerline");
-    WIRE_TEST_EXPECT(pair_distances.front() > cable_diameter &&
+    WIRE_TEST_EXPECT(pair_distances.front() + 1e-9 >= cable_diameter &&
                          pair_distances.back() <= member_spacing + 1e-9,
                      "visual bundle members overlap or separate beyond the compact cross-section");
     WIRE_TEST_EXPECT(triangle_area_at(index) >= member_spacing * member_spacing * 0.25,
@@ -1167,62 +958,10 @@ bool C864_non_hv_span_visual_variation_preserves_attachment_contracts() {
                        "visual bundle member escaped the containment radius");
     }
   }
-  for (const std::size_t endpoint : {std::size_t{0}, sample_count - 1}) {
-    const std::vector<double> endpoint_distances = pair_distances_at(endpoint);
-    WIRE_TEST_EXPECT(endpoint_distances.front() <= cable_diameter + 2e-6 &&
-                         endpoint_distances.back() <= cable_diameter + 2e-6,
-                     "binding endpoint did not return members to compact contact");
-  }
-  const std::size_t quarter = bundled_parts.front()->samples.size() / 4;
-  const std::size_t middle = bundled_parts.front()->samples.size() / 2;
-  const std::size_t three_quarters = bundled_parts.front()->samples.size() * 3 / 4;
-  const std::vector<double> quarter_distances = pair_distances_at(quarter);
-  const std::vector<double> middle_distances = pair_distances_at(middle);
-  const std::vector<double> three_quarter_distances = pair_distances_at(three_quarters);
-  double cross_section_change = 0.0;
-  for (std::size_t index = 0; index < quarter_distances.size(); ++index) {
-    cross_section_change = std::max({cross_section_change,
-        std::abs(quarter_distances[index] - middle_distances[index]),
-        std::abs(middle_distances[index] - three_quarter_distances[index])});
-  }
-  WIRE_TEST_EXPECT(cross_section_change > 0.00005,
-                   "visual bundle cross-section remained completely fixed along the span");
-
-  const auto maximum_member_distance = [&generate](double irregularity_scale) {
-    CoreState state;
-    BundleTemplate tpl = state.view().bundle_templates().at(
-        kDefaultCommunicationBundleTemplateId);
-    tpl.span_visual_assembly.visual_member_count_min = 3;
-    tpl.span_visual_assembly.visual_member_count_max = 3;
-    VisualSettings visual = state.view().visual_settings();
-    visual.wire_irregularity_scale = irregularity_scale;
-    if (!state.UpdateBundleTemplate(tpl).ok || !state.UpdateVisualSettings(visual).ok ||
-        !generate(&state, kDefaultCommunicationBundleTemplateId, 1, 3099).ok) {
-      return -1.0;
-    }
-    const auto parts = edge_bodies(state, kDefaultCommunicationBundleTemplateId);
-    if (parts.size() != 3) return -1.0;
-    double maximum = 0.0;
-    for (std::size_t sample = 0; sample < parts.front()->samples.size(); ++sample) {
-      for (std::size_t a = 0; a < parts.size(); ++a) {
-        for (std::size_t b = a + 1; b < parts.size(); ++b) {
-          maximum = std::max(maximum,
-              Length(parts[a]->samples[sample] - parts[b]->samples[sample]));
-        }
-      }
-    }
-    return maximum;
-  };
-  const double distance_at_5x = maximum_member_distance(5.0);
-  const double distance_at_25x = maximum_member_distance(25.0);
-  WIRE_TEST_EXPECT(distance_at_5x > 0.0 && distance_at_25x > distance_at_5x + 0.002,
-                   "bundle looseness remained saturated at the former 5x ceiling");
-
   CoreState connected;
   BundleTemplate connected_comm =
       connected.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
-  connected_comm.span_visual_assembly.visual_member_count_min = 3;
-  connected_comm.span_visual_assembly.visual_member_count_max = 3;
+  connected_comm.span_visual_assembly.visual_member_count = 3;
   if (!connected.UpdateBundleTemplate(connected_comm).ok) return false;
   BackboneBundleSpec connected_spec{kDefaultCommunicationBundleTemplateId, 3201,
       SpanLayer::kCommunication, 1, true, 5.3, -0.30, 0.20};
@@ -1293,8 +1032,7 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
   if (!configure_non_hv_model_fixtures(&state)) return false;
   BundleTemplate communication_template =
       state.view().bundle_templates().at(kDefaultCommunicationBundleTemplateId);
-  communication_template.span_visual_assembly.visual_member_count_min = 3;
-  communication_template.span_visual_assembly.visual_member_count_max = 3;
+  communication_template.span_visual_assembly.visual_member_count = 3;
   if (!state.UpdateBundleTemplate(communication_template).ok) return false;
   BackboneBundleSpec communication{kDefaultCommunicationBundleTemplateId, 4001,
       SpanLayer::kCommunication, 1, true, 5.2, -0.40, 0.20};
@@ -1328,8 +1066,7 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
   CoreState optical;
   BundleTemplate optical_template =
       optical.view().bundle_templates().at(kDefaultOpticalBundleTemplateId);
-  optical_template.span_visual_assembly.visual_member_count_min = 3;
-  optical_template.span_visual_assembly.visual_member_count_max = 3;
+  optical_template.span_visual_assembly.visual_member_count = 3;
   if (!optical.UpdateBundleTemplate(optical_template).ok) return false;
   BackboneBundleSpec optical_spec{kDefaultOpticalBundleTemplateId, 4101,
       SpanLayer::kOptical, 1, true, 5.1, -0.38, 0.20};
@@ -1349,16 +1086,6 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
   WIRE_TEST_EXPECT(optical_members.back()->section_key.logical_span_id == logical_span_id &&
                        support->source_span_id == logical_span_id && helix->source_span_id == logical_span_id,
                    "optical assembly lost source logical span identity");
-  const Vec3d support_middle = sample_polyline(
-      support->samples, polyline_length(support->samples) * 0.5).first;
-  Vec3d member_middle{};
-  for (const VisualCurvePart* member : optical_members) {
-    member_middle = member_middle + member->samples[member->samples.size() / 2];
-  }
-  member_middle = ScaleVec(member_middle, 1.0 / static_cast<double>(optical_members.size()));
-  WIRE_TEST_EXPECT(Length(member_middle - support_middle) <= 0.10,
-                   "optical support path separated from its visual members");
-
   const double support_length = polyline_length(support->samples);
   const double trim = optical_template.span_visual_assembly.endpoint_trim_m;
   const auto [helix_start_anchor, helix_start_tangent] =
@@ -1404,8 +1131,7 @@ bool C894_non_hv_sharp_jumper_keeps_two_port_g1_contract() {
   CoreState state;
   BundleTemplate communication = state.view().bundle_templates().at(
       kDefaultCommunicationBundleTemplateId);
-  communication.span_visual_assembly.visual_member_count_min = 1;
-  communication.span_visual_assembly.visual_member_count_max = 1;
+  communication.span_visual_assembly.visual_member_count = 1;
   if (!state.UpdateBundleTemplate(communication).ok) return false;
 
   BackboneBundleSpec spec{kDefaultCommunicationBundleTemplateId, 89401,
@@ -1507,558 +1233,6 @@ bool C888_variation_branch_pick_uses_exact_live_scope() {
   return true;
 }
 
-bool C889_variation_membership_is_current_and_shared_skeleton_is_collected() {
-  using namespace city::wire;
-  CoreState state{};
-  RouteBundleVariationInput descriptor{};
-  descriptor.route_seed = 0x8890102;
-  descriptor.preferred_side_sign = -1;
-  descriptor.pole_type_id = 2;
-  descriptor.rules = {
-      {kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-       5.2, 5.2, 0.25, 0.25},
-      {kDefaultOpticalBundleTemplateId, 1, 1, 1,
-       5.0, 5.0, 0.35, 0.35}};
-  const auto generated = state.GenerateBackboneBundleVariation(
-      request_with(state, {}), descriptor);
-  if (!generated.ok) return false;
-  const ObjectId variation_id = generated.value.variation_id;
-  RouteBundleVariationInput communication_only = descriptor;
-  communication_only.rules.pop_back();
-  const auto removed_group = state.ApplyBackboneBundleVariation(
-      variation_id, communication_only);
-  const SavedBackboneBundleVariation* current =
-      state.view().backbone_bundle_variation(variation_id);
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      removed_group.ok && current != nullptr &&
-          current->memberships.size() == 1 &&
-          current->memberships.front().bundle_template_id ==
-              kDefaultCommunicationBundleTemplateId,
-      removed_group.error.empty()
-          ? "descriptor group removal retained historical membership"
-          : removed_group.error);
-
-  RouteBundleVariationInput duplicate = communication_only;
-  duplicate.rules.push_back(duplicate.rules.front());
-  std::string before_duplicate{};
-  std::string after_duplicate{};
-  const bool saved_before = state.SerializeAuthoritative(&before_duplicate).ok;
-  const auto duplicate_rejected =
-      state.ApplyBackboneBundleVariation(variation_id, duplicate);
-  const bool saved_after = state.SerializeAuthoritative(&after_duplicate).ok;
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      saved_before && !duplicate_rejected.ok &&
-          duplicate_rejected.error.find("duplicated") != std::string::npos &&
-          saved_after && before_duplicate == after_duplicate,
-      "duplicate effective variation group was not rejected atomically");
-
-  CoreState shared{};
-  BackboneSpec ownerless_request = request_with(
-      shared, {}, {{0.0, 20.0, 4.0}, {12.0, 20.0, 4.0}});
-  BackboneInputSpec::NodeSpec ownerless_a{};
-  ownerless_a.point_index = 0;
-  ownerless_a.support_kind = SupportKind::kMidair;
-  BackboneInputSpec::NodeSpec ownerless_b{};
-  ownerless_b.point_index = 1;
-  ownerless_b.support_kind = SupportKind::kMidair;
-  ownerless_request.path.node_specs = {ownerless_a, ownerless_b};
-  RouteBundleVariationInput one = communication_only;
-  one.route_seed = 0x8890304;
-  const auto ownerless_generated =
-      shared.GenerateBackboneBundleVariation(ownerless_request, one);
-  if (!ownerless_generated.ok) return false;
-  RouteBundleVariationInput zero = one;
-  zero.rules.front().min_instances = 0;
-  zero.rules.front().max_instances = 0;
-  if (!shared.ApplyBackboneBundleVariation(
-                 ownerless_generated.value.variation_id, zero)
-           .ok) {
-    return false;
-  }
-  auto& variations = CoreStateTestHook::backbone_bundle_variations(shared);
-  if (variations.size() != 1 || variations.front().memberships.size() != 1) {
-    return false;
-  }
-  const std::vector<ObjectId> shared_edges =
-      variations.front().memberships.front().edge_ids;
-  const std::vector<ObjectId> shared_nodes = {
-      shared.view().backbone().edges.front().node_a,
-      shared.view().backbone().edges.front().node_b};
-  SavedBackboneBundleVariation second_owner = variations.front();
-  second_owner.variation_id = CoreStateTestHook::id_generator(shared).next();
-  variations.push_back(second_owner);
-  variations.front().memberships.clear();
-  ChangeSet first_release{};
-  CoreStateTestHook::cleanup_orphan_backbone_skeleton(shared, &first_release);
-  WIRE_TEST_EXPECT_ANCHOR(
-      std::ranges::all_of(shared_edges, [&](ObjectId edge_id) {
-        return shared.view().backbone_edge(edge_id) != nullptr;
-      }),
-      "releasing one replay owner collected a shared dormant edge");
-  variations.back().memberships.clear();
-  ChangeSet final_release{};
-  CoreStateTestHook::cleanup_orphan_backbone_skeleton(shared, &final_release);
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      std::ranges::none_of(shared_edges, [&](ObjectId edge_id) {
-        return shared.view().backbone_edge(edge_id) != nullptr;
-      }) &&
-          std::ranges::none_of(shared_nodes, [&](ObjectId node_id) {
-            return shared.view().backbone_node(node_id) != nullptr;
-          }),
-      "final replay reference release left orphan dormant edge or node");
-  return true;
-}
-
-bool C890_dormant_skeleton_isolated_and_same_pair_reuse_is_exact() {
-  using namespace city::wire;
-  CoreState dormant{};
-  RouteBundleVariationInput one{};
-  one.route_seed = 0x8900102;
-  one.preferred_side_sign = -1;
-  one.pole_type_id = 2;
-  one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-                5.2, 5.2, 0.25, 0.25}};
-  BackboneSpec ownerless_request = request_with(
-      dormant, {}, {{0.0, 0.0, 4.0}, {12.0, 0.0, 4.0}});
-  BackboneInputSpec::NodeSpec node_a{};
-  node_a.point_index = 0;
-  node_a.support_kind = SupportKind::kMidair;
-  BackboneInputSpec::NodeSpec node_b{};
-  node_b.point_index = 1;
-  node_b.support_kind = SupportKind::kMidair;
-  ownerless_request.path.node_specs = {node_a, node_b};
-  const auto generated =
-      dormant.GenerateBackboneBundleVariation(ownerless_request, one);
-  if (!generated.ok || generated.value.generation.generated_node_ids.size() != 2) {
-    return false;
-  }
-  const std::vector<ObjectId> node_ids =
-      generated.value.generation.generated_node_ids;
-  const ObjectId dormant_edge_id = dormant.view().backbone().edges.front().edge_id;
-  RouteBundleVariationInput zero = one;
-  zero.rules.front().min_instances = 0;
-  zero.rules.front().max_instances = 0;
-  if (!dormant.ApplyBackboneBundleVariation(
-                  generated.value.variation_id, zero)
-           .ok) {
-    return false;
-  }
-  WIRE_TEST_EXPECT_ANCHOR(
-      dormant.SavedBackboneResult().nodes.empty() &&
-          dormant.SavedBackboneResult().edges.empty() &&
-          dormant.SavedBackboneResult().junctions.empty() &&
-          dormant.FindSavedBackboneRoute(node_ids.front(), node_ids.back())
-              .empty(),
-      "dormant skeleton leaked into current topology query");
-
-  SavedBackboneGraph& raw = CoreStateTestHook::backbone(dormant);
-  for (SavedBackboneNode& node : raw.nodes) {
-    node.bundle_modes = {{kDefaultCommunicationBundleTemplateId,
-                          BundleNodeMode::kNotPresent}};
-    node.has_source_edge = true;
-    node.source_edge_node_a = node_ids.front();
-    node.source_edge_node_b = node_ids.back();
-    node.source_edge_t = 0.5;
-  }
-  BackboneBundleSpec concrete{};
-  concrete.bundle_template_id = kDefaultCommunicationBundleTemplateId;
-  concrete.placement_key = 8901;
-  concrete.layer = SpanLayer::kCommunication;
-  concrete.count = 1;
-  concrete.placement_explicit = true;
-  concrete.height_m = 5.2;
-  concrete.lateral_m = -0.25;
-  concrete.spacing_m = 0.16;
-  BackboneSpec exact = request_with(
-      dormant, {concrete}, {{0.0, 0.0, 4.0}, {12.0, 0.0, 4.0}});
-  node_a.node_id = node_ids.front();
-  node_b.node_id = node_ids.back();
-  exact.path.node_specs = {node_a, node_b};
-
-  CoreState incompatible = dormant;
-  BackboneSpec incompatible_request = exact;
-  incompatible_request.constraints.lateral_offset_m = 0.5;
-  std::string before_incompatible{};
-  std::string after_incompatible{};
-  const bool before_saved =
-      incompatible.SerializeAuthoritative(&before_incompatible).ok;
-  const auto rejected =
-      incompatible.GenerateFromBackboneSpec(incompatible_request);
-  const bool after_saved =
-      incompatible.SerializeAuthoritative(&after_incompatible).ok;
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      before_saved && !rejected.ok && after_saved &&
-          before_incompatible == after_incompatible,
-      "incompatible dormant same-node-pair edge was silently reused");
-
-  const auto reused = dormant.GenerateFromBackboneSpec(exact);
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      reused.ok && dormant.SavedBackboneResult().edges.size() == 1 &&
-          dormant.view().backbone().edges.size() == 1 &&
-          dormant.view().backbone().edges.front().edge_id == dormant_edge_id &&
-          dormant.SavedBackboneResult().nodes.size() == 2,
-      reused.error.empty()
-          ? "compatible dormant same-node-pair edge did not reuse exact identity"
-          : reused.error);
-  return true;
-}
-
-bool C891_dormant_skeleton_does_not_change_unrelated_generation() {
-  using namespace city::wire;
-  CoreState baseline{};
-  CoreState with_dormant{};
-  BackboneBundleSpec initial{};
-  initial.bundle_template_id = kDefaultCommunicationBundleTemplateId;
-  initial.placement_key = 8911;
-  initial.layer = SpanLayer::kCommunication;
-  initial.count = 1;
-  initial.placement_explicit = true;
-  initial.height_m = 5.2;
-  initial.lateral_m = -0.25;
-  initial.spacing_m = 0.16;
-  const std::vector<Vec3d> trunk_points = {
-      {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
-  const auto baseline_trunk = baseline.GenerateFromBackboneSpec(
-      request_with(baseline, {initial}, trunk_points));
-  const auto dormant_trunk = with_dormant.GenerateFromBackboneSpec(
-      request_with(with_dormant, {initial}, trunk_points));
-  if (!baseline_trunk.ok || !dormant_trunk.ok ||
-      baseline_trunk.value.generated_node_ids.size() != 3 ||
-      dormant_trunk.value.generated_node_ids.size() != 3 ||
-      baseline_trunk.value.bundle_ids.size() != 1 ||
-      dormant_trunk.value.bundle_ids.size() != 1) {
-    return false;
-  }
-
-  const ObjectId dormant_incident =
-      dormant_trunk.value.generated_node_ids[2];
-  const ObjectId dormant_source_a =
-      dormant_trunk.value.generated_node_ids[0];
-  const ObjectId dormant_source_b =
-      dormant_trunk.value.generated_node_ids[1];
-  SavedBackboneGraph& raw = CoreStateTestHook::backbone(with_dormant);
-  SavedBackboneNode dormant_node{};
-  dormant_node.node_id = CoreStateTestHook::id_generator(with_dormant).next();
-  dormant_node.support_kind = SupportKind::kExternal;
-  dormant_node.position = {24.0, -10.0, 0.0};
-  dormant_node.bundle_modes = {{kDefaultCommunicationBundleTemplateId,
-                                 BundleNodeMode::kNotPresent}};
-  dormant_node.has_source_edge = true;
-  dormant_node.source_edge_node_a = dormant_source_a;
-  dormant_node.source_edge_node_b = dormant_source_b;
-  dormant_node.source_edge_t = 0.5;
-  raw.nodes.push_back(dormant_node);
-  SavedBackboneEdge dormant_edge{};
-  dormant_edge.edge_id = CoreStateTestHook::id_generator(with_dormant).next();
-  dormant_edge.node_a = dormant_incident;
-  dormant_edge.node_b = dormant_node.node_id;
-  dormant_edge.route = 891;
-  dormant_edge.order = 0;
-  dormant_edge.dir = {0.0, -10.0, 0.0};
-  dormant_edge.lateral_offset_m = 0.0;
-  raw.edges.push_back(dormant_edge);
-  SavedBackboneBundleVariation retained{};
-  retained.variation_id = CoreStateTestHook::id_generator(with_dormant).next();
-  retained.descriptor.route_seed = 0x8910203;
-  retained.descriptor.preferred_side_sign = -1;
-  retained.descriptor.pole_type_id = 2;
-  retained.descriptor.rules = {
-      {kDefaultCommunicationBundleTemplateId, 0, 0, 1,
-       5.2, 5.2, 0.25, 0.25}};
-  retained.memberships.push_back(
-      {kDefaultCommunicationBundleTemplateId, 1, {dormant_edge.edge_id}, {}});
-  CoreStateTestHook::backbone_bundle_variations(with_dormant).push_back(
-      retained);
-  CoreStateTestHook::rebuild_backbone_index(with_dormant);
-
-  auto extension_for = [&](CoreState& state, ObjectId bundle_id,
-                           ObjectId junction_node_id,
-                           const std::vector<Vec3d>& points) {
-    const Bundle* bundle = state.view().bundles().find(bundle_id);
-    BackboneBundleSpec concrete{};
-    if (bundle != nullptr) {
-      concrete.bundle_template_id = bundle->bundle_template_id;
-      concrete.placement_key = bundle->placement_key;
-      concrete.layer = SpanLayer::kCommunication;
-      concrete.count = bundle->conductor_count;
-      concrete.placement_explicit = bundle->placement_explicit;
-      concrete.height_m = bundle->height_m;
-      concrete.lateral_m = bundle->lateral_m;
-      concrete.spacing_m = bundle->spacing_override_m;
-      concrete.existing_bundle_id = bundle->id;
-    }
-    BackboneSpec extension = request_with(state, {concrete}, points);
-    BackboneInputSpec::NodeSpec junction{};
-    junction.point_index = 0;
-    junction.support_kind = SupportKind::kPole;
-    junction.node_id = junction_node_id;
-    extension.path.node_specs = {junction};
-    return state.GenerateFromBackboneSpec(extension);
-  };
-  const auto baseline_continuation = extension_for(
-      baseline, baseline_trunk.value.bundle_ids.front(),
-      baseline_trunk.value.generated_node_ids[2],
-      {{24.0, 0.0, 0.0}, {24.0, 10.0, 0.0}});
-  const auto dormant_continuation = extension_for(
-      with_dormant, dormant_trunk.value.bundle_ids.front(), dormant_incident,
-      {{24.0, 0.0, 0.0}, {24.0, 10.0, 0.0}});
-  if (!baseline_continuation.ok || !dormant_continuation.ok) return false;
-  const auto baseline_branch = extension_for(
-      baseline, baseline_trunk.value.bundle_ids.front(),
-      baseline_trunk.value.generated_node_ids[1],
-      {{12.0, 0.0, 0.0}, {12.0, -10.0, 0.0}});
-  const auto dormant_branch = extension_for(
-      with_dormant, dormant_trunk.value.bundle_ids.front(),
-      dormant_trunk.value.generated_node_ids[1],
-      {{12.0, 0.0, 0.0}, {12.0, -10.0, 0.0}});
-
-  auto live_degree_sequence = [](const BackboneResult& result) {
-    std::map<ObjectId, std::size_t> degrees{};
-    for (const BackboneEdge& edge : result.edges) {
-      ++degrees[edge.node_a];
-      ++degrees[edge.node_b];
-    }
-    std::vector<std::size_t> out{};
-    for (const auto& [node_id, degree] : degrees) {
-      (void)node_id;
-      out.push_back(degree);
-    }
-    std::sort(out.begin(), out.end());
-    return out;
-  };
-  auto source_projection_count = [](const CoreState& state) {
-    std::size_t count = 0;
-    for (const Span& span : state.view().spans().items()) {
-      const SpanLayoutRulesView rules = state.span_layout_rules(span.id);
-      if (!rules.has_rule()) continue;
-      if (rules.rule->start.source_projection.valid()) ++count;
-      if (rules.rule->end.source_projection.valid()) ++count;
-    }
-    return count;
-  };
-  auto bundle_relations = [](const CoreState& state) {
-    std::vector<std::tuple<BundleTemplateId, std::uint64_t, int>> out{};
-    for (const Bundle& bundle : state.view().bundles().items()) {
-      out.emplace_back(bundle.bundle_template_id, bundle.placement_key,
-                       bundle.conductor_count);
-    }
-    std::sort(out.begin(), out.end());
-    return out;
-  };
-  const BackboneResult baseline_result = baseline.SavedBackboneResult();
-  const BackboneResult dormant_result = with_dormant.SavedBackboneResult();
-  const std::size_t baseline_continuities =
-      baseline.view().backbone().row_continuities.size();
-  const std::size_t dormant_continuities =
-      with_dormant.view().backbone().row_continuities.size();
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      baseline_branch.ok && dormant_branch.ok &&
-          bundle_relations(baseline) == bundle_relations(with_dormant) &&
-          baseline.view().spans().size() == with_dormant.view().spans().size() &&
-          baseline_result.nodes.size() == dormant_result.nodes.size() &&
-          baseline_result.edges.size() == dormant_result.edges.size() &&
-          baseline_result.junctions.size() == 1 &&
-          dormant_result.junctions.size() == 1 &&
-          live_degree_sequence(baseline_result) ==
-              live_degree_sequence(dormant_result) &&
-          baseline_continuities == dormant_continuities &&
-          source_projection_count(baseline) ==
-              source_projection_count(with_dormant) &&
-          with_dormant.view().backbone_edge(dormant_edge.edge_id) != nullptr &&
-          std::ranges::none_of(
-              dormant_result.edges, [&](const BackboneEdge& edge) {
-                return (edge.node_a == dormant_edge.node_a &&
-                        edge.node_b == dormant_edge.node_b) ||
-                       (edge.node_a == dormant_edge.node_b &&
-                        edge.node_b == dormant_edge.node_a);
-              }),
-      dormant_branch.error.empty()
-          ? "dormant skeleton changed normal branch topology or source resolution"
-          : dormant_branch.error);
-
-  CoreState pass_baseline{};
-  CoreState pass_with_dormant{};
-  auto add_start = [](CoreState& state) {
-    SavedBackboneNode start{};
-    start.node_id = CoreStateTestHook::id_generator(state).next();
-    start.support_kind = SupportKind::kMidair;
-    start.position = {0.0, 30.0, 4.0};
-    CoreStateTestHook::backbone(state).nodes.push_back(start);
-    CoreStateTestHook::rebuild_backbone_index(state);
-    return start.node_id;
-  };
-  const ObjectId baseline_start = add_start(pass_baseline);
-  const ObjectId dormant_start = add_start(pass_with_dormant);
-  SavedBackboneGraph& pass_graph =
-      CoreStateTestHook::backbone(pass_with_dormant);
-  SavedBackboneNode pass_peer{};
-  pass_peer.node_id =
-      CoreStateTestHook::id_generator(pass_with_dormant).next();
-  pass_peer.support_kind = SupportKind::kExternal;
-  pass_peer.position = {-10.0, 30.0, 4.0};
-  pass_peer.bundle_modes = {{kDefaultCommunicationBundleTemplateId,
-                             BundleNodeMode::kNotPresent}};
-  pass_peer.has_source_edge = true;
-  pass_peer.source_edge_node_a = dormant_start;
-  pass_peer.source_edge_node_b = pass_peer.node_id;
-  pass_peer.source_edge_t = 0.5;
-  pass_graph.nodes.push_back(pass_peer);
-  SavedBackboneEdge pass_edge{};
-  pass_edge.edge_id =
-      CoreStateTestHook::id_generator(pass_with_dormant).next();
-  pass_edge.node_a = dormant_start;
-  pass_edge.node_b = pass_peer.node_id;
-  pass_edge.dir = {-10.0, 0.0, 0.0};
-  pass_graph.edges.push_back(pass_edge);
-  SavedBackboneBundleVariation pass_owner = retained;
-  pass_owner.variation_id =
-      CoreStateTestHook::id_generator(pass_with_dormant).next();
-  pass_owner.memberships.front().edge_ids = {pass_edge.edge_id};
-  CoreStateTestHook::backbone_bundle_variations(pass_with_dormant)
-      .push_back(pass_owner);
-  CoreStateTestHook::rebuild_backbone_index(pass_with_dormant);
-  auto pass_request = [&](CoreState& state, ObjectId start_id) {
-    BackboneSpec request = request_with(
-        state, {initial}, {{0.0, 30.0, 4.0}, {10.0, 30.0, 4.0}});
-    BackboneInputSpec::NodeSpec start{};
-    start.point_index = 0;
-    start.support_kind = SupportKind::kMidair;
-    start.node_id = start_id;
-    request.path.node_specs = {start};
-    request.node_bundle_modes = {
-        {0, kDefaultCommunicationBundleTemplateId,
-         BundleNodeMode::kPassThrough}};
-    return state.GenerateFromBackboneSpec(request);
-  };
-  const auto baseline_pass = pass_request(pass_baseline, baseline_start);
-  const auto dormant_pass = pass_request(pass_with_dormant, dormant_start);
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      !baseline_pass.ok && !dormant_pass.ok &&
-          baseline_pass.error == dormant_pass.error,
-      "dormant incident edge satisfied a live pass-through requirement");
-  return true;
-}
-
-bool C893_dormant_same_pair_reuse_ignores_route_local_order() {
-  using namespace city::wire;
-  RouteBundleVariationInput one{};
-  one.route_seed = 0x8930102;
-  one.preferred_side_sign = -1;
-  one.pole_type_id = 2;
-  one.rules = {{kDefaultCommunicationBundleTemplateId, 1, 1, 1,
-                5.2, 5.2, 0.25, 0.25}};
-
-  auto initial_request = [](CoreState& state) {
-    BackboneSpec request = request_with(
-        state, {}, {{0.0, 0.0, 4.0}, {12.0, 0.0, 4.0}});
-    BackboneInputSpec::NodeSpec a{};
-    a.point_index = 0;
-    a.support_kind = SupportKind::kMidair;
-    BackboneInputSpec::NodeSpec b{};
-    b.point_index = 1;
-    b.support_kind = SupportKind::kMidair;
-    request.path.node_specs = {a, b};
-    return request;
-  };
-  CoreState live{};
-  CoreState dormant{};
-  const auto live_initial =
-      live.GenerateBackboneBundleVariation(initial_request(live), one);
-  const auto dormant_initial =
-      dormant.GenerateBackboneBundleVariation(initial_request(dormant), one);
-  if (!live_initial.ok || !dormant_initial.ok ||
-      live_initial.value.generation.generated_node_ids.size() != 2 ||
-      dormant_initial.value.generation.generated_node_ids.size() != 2 ||
-      live.view().backbone().edges.size() != 1 ||
-      dormant.view().backbone().edges.size() != 1) {
-    return false;
-  }
-  const ObjectId live_ab_edge = live.view().backbone().edges.front().edge_id;
-  const ObjectId dormant_ab_edge =
-      dormant.view().backbone().edges.front().edge_id;
-  RouteBundleVariationInput zero = one;
-  zero.rules.front().min_instances = 0;
-  zero.rules.front().max_instances = 0;
-  if (!dormant.ApplyBackboneBundleVariation(
-                   dormant_initial.value.variation_id, zero)
-           .ok) {
-    return false;
-  }
-
-  BackboneBundleSpec peer{};
-  peer.bundle_template_id = kDefaultCommunicationBundleTemplateId;
-  peer.placement_key = 8931;
-  peer.layer = SpanLayer::kCommunication;
-  peer.count = 1;
-  peer.placement_explicit = true;
-  peer.height_m = 5.45;
-  peer.lateral_m = -0.45;
-  peer.spacing_m = 0.16;
-  auto reuse_request = [&](CoreState& state,
-                           const std::vector<ObjectId>& node_ids) {
-    BackboneSpec request = request_with(
-        state, {peer},
-        {{-12.0, 0.0, 4.0}, {0.0, 0.0, 4.0}, {12.0, 0.0, 4.0}});
-    BackboneInputSpec::NodeSpec x{};
-    x.point_index = 0;
-    x.support_kind = SupportKind::kMidair;
-    BackboneInputSpec::NodeSpec a{};
-    a.point_index = 1;
-    a.support_kind = SupportKind::kMidair;
-    a.node_id = node_ids[0];
-    BackboneInputSpec::NodeSpec b{};
-    b.point_index = 2;
-    b.support_kind = SupportKind::kMidair;
-    b.node_id = node_ids[1];
-    request.path.node_specs = {x, a, b};
-    return request;
-  };
-  const auto live_reused = live.GenerateFromBackboneSpec(reuse_request(
-      live, live_initial.value.generation.generated_node_ids));
-  const auto dormant_reused = dormant.GenerateFromBackboneSpec(reuse_request(
-      dormant, dormant_initial.value.generation.generated_node_ids));
-
-  auto edge_bundle_for = [](const CoreState& state, ObjectId edge_id,
-                            ObjectId bundle_id)
-      -> const SavedBackboneEdgeBundle* {
-    const auto found = std::ranges::find_if(
-        state.view().backbone().edge_bundles,
-        [&](const SavedBackboneEdgeBundle& edge_bundle) {
-          return edge_bundle.edge_id == edge_id &&
-                 edge_bundle.bundle_id == bundle_id;
-        });
-    return found == state.view().backbone().edge_bundles.end() ? nullptr
-                                                               : &*found;
-  };
-  const ObjectId live_peer_bundle =
-      live_reused.ok && !live_reused.value.bundle_ids.empty()
-          ? live_reused.value.bundle_ids.front()
-          : kInvalidObjectId;
-  const ObjectId dormant_peer_bundle =
-      dormant_reused.ok && !dormant_reused.value.bundle_ids.empty()
-          ? dormant_reused.value.bundle_ids.front()
-          : kInvalidObjectId;
-  const SavedBackboneEdgeBundle* live_ab_bundle =
-      edge_bundle_for(live, live_ab_edge, live_peer_bundle);
-  const SavedBackboneEdgeBundle* dormant_ab_bundle =
-      edge_bundle_for(dormant, dormant_ab_edge, dormant_peer_bundle);
-  const SavedBackboneEdge* live_saved = live.view().backbone_edge(live_ab_edge);
-  const SavedBackboneEdge* dormant_saved =
-      dormant.view().backbone_edge(dormant_ab_edge);
-  WIRE_TEST_EXPECT_DIFFERENTIAL(
-      live_reused.ok && dormant_reused.ok && live_saved != nullptr &&
-          dormant_saved != nullptr && live_ab_bundle != nullptr &&
-          dormant_ab_bundle != nullptr && live_saved->order == 0 &&
-          dormant_saved->order == 0 && live_ab_bundle->order == 1 &&
-          dormant_ab_bundle->order == 1 &&
-          live.view().backbone().edges.size() == 2 &&
-          dormant.view().backbone().edges.size() == 2,
-      dormant_reused.error.empty()
-          ? "dormant same-pair reuse diverged from live reuse after route-local order changed"
-          : dormant_reused.error);
-  return true;
-}
-
 bool C895_route_variation_controls_resolve_and_apply_full_range() {
   using namespace city::wire;
   auto controls = [](double density, double height_spread,
@@ -2077,8 +1251,8 @@ bool C895_route_variation_controls_resolve_and_apply_full_range() {
       const double lateral_half =
           (rule.lateral_abs_max_m - rule.lateral_abs_min_m) * 0.5 *
           lateral_spread;
-      rule.min_instances =
-          static_cast<int>(std::lround(rule.min_instances * density));
+      rule.min_instances = std::max(
+          1, static_cast<int>(std::lround(rule.min_instances * density)));
       rule.max_instances = std::max(
           rule.min_instances,
           static_cast<int>(std::lround(rule.max_instances * density)));

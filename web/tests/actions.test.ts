@@ -302,10 +302,7 @@ describe("viewer actions", () => {
             supportPathEnabled: false,
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
             helixSamplesPerTurn: 16, endpointTrim: 0,
-            visualMemberCountMin: 1, visualMemberCountMax: 1, visualMemberSpacing: 0,
-            memberWanderRatio: 0,
-            memberWanderWavelength: 0, memberWanderPhaseBias: 0,
-            memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
+            visualMemberCount: 1, visualMemberSpacing: 0
           },
         }
       ],
@@ -327,8 +324,7 @@ describe("viewer actions", () => {
       visualSettings: () => ({
         enableInsulators: true,
         insulatorRadius: 0.07,
-        insulatorLength: 0.16,
-        wireIrregularityScale: 1
+        insulatorLength: 0.16
       }),
       variationSettings: () => ({
         enabled: true, globalSeed: 1, worldCellSize: 40, worldBiasScale: 0.35,
@@ -395,10 +391,7 @@ describe("viewer actions", () => {
             supportPathEnabled: false,
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
             helixSamplesPerTurn: 16, endpointTrim: 0,
-            visualMemberCountMin: 1, visualMemberCountMax: 1, visualMemberSpacing: 0,
-            memberWanderRatio: 0,
-            memberWanderWavelength: 0, memberWanderPhaseBias: 0,
-            memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
+            visualMemberCount: 1, visualMemberSpacing: 0
           },
         }
       ],
@@ -460,10 +453,7 @@ describe("viewer actions", () => {
             supportPathEnabled: false,
             helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
             helixSamplesPerTurn: 16, endpointTrim: 0,
-            visualMemberCountMin: 1, visualMemberCountMax: 1, visualMemberSpacing: 0,
-            memberWanderRatio: 0,
-            memberWanderWavelength: 0, memberWanderPhaseBias: 0,
-            memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
+            visualMemberCount: 1, visualMemberSpacing: 0
           },
         }
       ],
@@ -508,10 +498,7 @@ const bundleTemplate: BundleTemplateInfo = {
     supportPathEnabled: false,
     helixEnabled: false, helixRadius: 0, helixClearance: 0, helixTurnsPerMeter: 0,
     helixSamplesPerTurn: 16, endpointTrim: 0,
-    visualMemberCountMin: 1, visualMemberCountMax: 1, visualMemberSpacing: 0,
-    memberWanderRatio: 0,
-    memberWanderWavelength: 0, memberWanderPhaseBias: 0,
-    memberTwistTurnsPerMeter: 0, memberTwistPhase: 0
+    visualMemberCount: 1, visualMemberSpacing: 0
   }
 };
 
@@ -574,8 +561,7 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     visualSettings: () => ({
       enableInsulators: true,
       insulatorRadius: 0.07,
-      insulatorLength: 0.16,
-      wireIrregularityScale: 1
+      insulatorLength: 0.16
     }),
     variationSettings: () => ({
       enabled: true, globalSeed: 1, worldCellSize: 40, worldBiasScale: 0.35,
@@ -1257,7 +1243,7 @@ describe("viewport tool routing", () => {
       backboneBundleVariation: () => descriptor,
       applyBackboneBundleVariation: () => ({
         ok: false,
-        error: "backbone unsupported: initial zero-instance variation has no exact membership source"
+        error: "backbone unsupported: zero-instance variation has no live exact membership source"
       })
     }), store);
 
@@ -1267,7 +1253,7 @@ describe("viewport tool routing", () => {
     expect(current(store).selectedRouteVariation?.variationId).toBe("901");
     expect(current(store).selectedRouteVariation?.routeSeed).toBe(123);
     expect(current(store).selectedRouteVariationControls.density).toBe(1);
-    expect(current(store).error).toContain("initial zero-instance");
+    expect(current(store).error).toContain("zero-instance variation");
   });
 
   it("surfaces source-edge add rejection and restores the persisted controls", () => {

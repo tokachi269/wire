@@ -98,35 +98,15 @@ struct SavedBackboneGraph {
 };
 
 // Explicit-Apply descriptor for one concrete Bundle variation scope.
-// Concrete Bundle/Port/Span/SavedBackboneGraph state remains the current
-// physical authority. Variation membership retains exact graph edge identity
-// and lane continuity required after count reaches 0 without copying graph
-// nodes, edge geometry, or a representative Bundle placement.
 struct SavedBackboneBundleVariationInstance {
   std::uint64_t placement_key = 0;
   ObjectId bundle_id = kInvalidObjectId;
-};
-
-struct SavedBackboneBundleVariationContinuity {
-  ObjectId node_id = kInvalidObjectId;
-  ObjectId edge_a = kInvalidObjectId;
-  std::size_t lane_a = 0;
-  ObjectId edge_b = kInvalidObjectId;
-  std::size_t lane_b = 0;
-};
-
-struct SavedBackboneBundleVariationMembership {
-  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
-  int conductor_count = 0;
-  std::vector<ObjectId> edge_ids{};
-  std::vector<SavedBackboneBundleVariationContinuity> row_continuities{};
 };
 
 struct SavedBackboneBundleVariation {
   ObjectId variation_id = kInvalidObjectId;
   RouteBundleVariationInput descriptor{};
   std::vector<SavedBackboneBundleVariationInstance> instances{};
-  std::vector<SavedBackboneBundleVariationMembership> memberships{};
 };
 
 struct EditState {

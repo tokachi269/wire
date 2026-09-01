@@ -5297,35 +5297,6 @@ bool C841_backbone_span_binding_duplicate_span_rejected_on_load() {
   return !result.ok;
 }
 
-bool C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped() {
-  city::wire::CoreState state;
-  const auto out = state.GenerateFromBackboneSpec(line_req(state));
-  std::string saved{};
-  if (!out.ok || out.value.generated_span_ids.empty() || !state.SerializeAuthoritative(&saved).ok ||
-      saved.find("span_ids") != std::string::npos) {
-    return false;
-  }
-  const city::wire::ObjectId edge_bundle_id = state.view().backbone().edge_bundles.front().edge_bundle_id;
-  const std::string edge_bundle_prefix =
-      "authoritative.backbone.edge_bundles." + std::to_string(edge_bundle_id);
-  const std::string marker = edge_bundle_prefix + ".dir.z=";
-  const std::size_t line = saved.find(marker);
-  if (line == std::string::npos) return false;
-  const std::size_t insert_at = saved.find('\n', line);
-  if (insert_at == std::string::npos) return false;
-  const std::string legacy =
-      "\n" + edge_bundle_prefix + ".span_ids.count=1"
-      "\n" + edge_bundle_prefix + ".span_ids.0=" +
-      std::to_string(out.value.generated_span_ids.front());
-  saved.insert(insert_at, legacy);
-  city::wire::CoreState loaded;
-  std::string resaved{};
-  return loaded.DeserializeAuthoritative(saved).ok && loaded.SerializeAuthoritative(&resaved).ok &&
-         resaved.find("span_ids") == std::string::npos &&
-         edge_bundle_span_count(loaded, loaded.view().backbone().edge_bundles.front().edge_bundle_id) ==
-             out.value.generated_span_ids.size();
-}
-
 bool C503_backbone_duplicate_span_binding_rejected_by_lane() {
   const std::filesystem::path source = repo_root() / "domains" / "wire" / "src" / "state" / "backbone.cpp";
   std::string cpp;
@@ -5938,28 +5909,6 @@ bool C809_backbone_incremental_rows_use_one_support_level_per_pair() {
   WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(loaded);
   WIRE_TEST_EXPECT_ORACLE(expected(loaded, junction, {0.0, 1.0, 2.0}),
                           "loaded junction levels are not {0,1,2}");
-  std::string legacy{};
-  for (std::size_t line_begin = 0; line_begin < saved.size();) {
-    const std::size_t line_end = saved.find('\n', line_begin);
-    if (line_end == std::string::npos) {
-      return false;
-    }
-    const std::string_view line(saved.data() + line_begin,
-                                line_end - line_begin);
-    if (line.find(".support_level=") == std::string_view::npos &&
-        line.find(".support_group_id=") == std::string_view::npos) {
-      legacy.append(line);
-      legacy.push_back('\n');
-    }
-    line_begin = line_end + 1;
-  }
-  city::wire::CoreState legacy_loaded;
-  const auto legacy_loaded_result = legacy_loaded.DeserializeAuthoritative(legacy);
-  WIRE_TEST_EXPECT_PRESENCE(legacy_loaded_result.ok,
-                            legacy_loaded_result.error);
-  WIRE_TEST_EXPECT_BACKBONE_INVARIANTS(legacy_loaded);
-  WIRE_TEST_EXPECT_ORACLE(expected(legacy_loaded, junction, {0.0, 1.0, 2.0}),
-                          "legacy loaded junction levels are not {0,1,2}");
   return true;
 }
 

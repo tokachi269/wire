@@ -1096,14 +1096,8 @@ public:
     assembly_output.set("helixTurnsPerMeter", assembly.helix_turns_per_meter);
     assembly_output.set("helixSamplesPerTurn", assembly.helix_samples_per_turn);
     assembly_output.set("endpointTrim", assembly.endpoint_trim_m);
-    assembly_output.set("visualMemberCountMin", assembly.visual_member_count_min);
-    assembly_output.set("visualMemberCountMax", assembly.visual_member_count_max);
+    assembly_output.set("visualMemberCount", assembly.visual_member_count);
     assembly_output.set("visualMemberSpacing", assembly.visual_member_spacing_m);
-    assembly_output.set("memberWanderRatio", assembly.member_wander_ratio);
-    assembly_output.set("memberWanderWavelength", assembly.member_wander_wavelength_m);
-    assembly_output.set("memberWanderPhaseBias", assembly.member_wander_phase_bias);
-    assembly_output.set("memberTwistTurnsPerMeter", assembly.member_twist_turns_per_meter);
-    assembly_output.set("memberTwistPhase", assembly.member_twist_phase);
     output.set("spanVisualAssembly", assembly_output);
     return output;
   }
@@ -1140,17 +1134,10 @@ public:
     bundle_template.span_visual_assembly.helix_turns_per_meter = property<double>(assembly, "helixTurnsPerMeter");
     bundle_template.span_visual_assembly.helix_samples_per_turn = property<int>(assembly, "helixSamplesPerTurn");
     bundle_template.span_visual_assembly.endpoint_trim_m = property<double>(assembly, "endpointTrim");
-    bundle_template.span_visual_assembly.visual_member_count_min =
-        property<int>(assembly, "visualMemberCountMin");
-    bundle_template.span_visual_assembly.visual_member_count_max =
-        property<int>(assembly, "visualMemberCountMax");
+    bundle_template.span_visual_assembly.visual_member_count =
+        property<int>(assembly, "visualMemberCount");
     bundle_template.span_visual_assembly.visual_member_spacing_m =
         property<double>(assembly, "visualMemberSpacing");
-    bundle_template.span_visual_assembly.member_wander_ratio = property<double>(assembly, "memberWanderRatio");
-    bundle_template.span_visual_assembly.member_wander_wavelength_m = property<double>(assembly, "memberWanderWavelength");
-    bundle_template.span_visual_assembly.member_wander_phase_bias = property<double>(assembly, "memberWanderPhaseBias");
-    bundle_template.span_visual_assembly.member_twist_turns_per_meter = property<double>(assembly, "memberTwistTurnsPerMeter");
-    bundle_template.span_visual_assembly.member_twist_phase = property<double>(assembly, "memberTwistPhase");
     const auto updated = state_->UpdateBundleTemplate(bundle_template);
     return result_value(updated.ok, updated.error);
   }
@@ -1500,7 +1487,6 @@ public:
     output.set("enableInsulators", settings.enable_insulators);
     output.set("insulatorRadius", settings.insulator_radius_m);
     output.set("insulatorLength", settings.insulator_length_m);
-    output.set("wireIrregularityScale", settings.wire_irregularity_scale);
     return output;
   }
 
@@ -1509,7 +1495,6 @@ public:
     settings.enable_insulators = property<bool>(input, "enableInsulators");
     settings.insulator_radius_m = property<double>(input, "insulatorRadius");
     settings.insulator_length_m = property<double>(input, "insulatorLength");
-    settings.wire_irregularity_scale = property<double>(input, "wireIrregularityScale");
     const auto updated = state_->UpdateVisualSettings(settings, true);
     return result_value(updated.ok, updated.error);
   }

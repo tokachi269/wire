@@ -337,14 +337,8 @@ export interface SpanVisualAssemblyInfo {
   helixTurnsPerMeter: number;
   helixSamplesPerTurn: number;
   endpointTrim: number;
-  visualMemberCountMin: number;
-  visualMemberCountMax: number;
+  visualMemberCount: number;
   visualMemberSpacing: number;
-  memberWanderRatio: number;
-  memberWanderWavelength: number;
-  memberWanderPhaseBias: number;
-  memberTwistTurnsPerMeter: number;
-  memberTwistPhase: number;
 }
 
 export interface CableTemplateInfo {
@@ -423,7 +417,6 @@ export interface VisualSettings {
   enableInsulators: boolean;
   insulatorRadius: number;
   insulatorLength: number;
-  wireIrregularityScale: number;
 }
 
 export interface VariationSettings {

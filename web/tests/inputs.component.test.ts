@@ -79,6 +79,9 @@ describe("viewer numeric inputs", () => {
     );
     expect(optical).toBeDefined();
     expect(source).toBeDefined();
+    const initialOpticalCount = current(mounted.store).drawBundlePlacements.filter(
+      (placement) => placement.bundleTemplateId === optical!.id
+    ).length;
 
     const duplicate = [...document.querySelectorAll("button")].find(
       (button) => button.getAttribute("aria-label") === `Duplicate ${optical!.name}`
@@ -90,12 +93,15 @@ describe("viewer numeric inputs", () => {
     const copies = current(mounted.store).drawBundlePlacements.filter(
       (placement) => placement.bundleTemplateId === optical!.id
     );
-    expect(copies).toHaveLength(2);
+    expect(copies).toHaveLength(initialOpticalCount + 1);
+    const sourceCopyIndex = copies.findIndex((placement) => placement.id === source!.id);
+    const duplicatedCopy = copies[sourceCopyIndex + 1];
+    expect(duplicatedCopy).toBeDefined();
     const placementIds = current(mounted.store).drawBundlePlacements.map((placement) => placement.id);
-    expect(placementIds.indexOf(copies[1].id)).toBe(placementIds.indexOf(copies[0].id) + 1);
+    expect(placementIds.indexOf(duplicatedCopy.id)).toBe(placementIds.indexOf(source!.id) + 1);
     expect(document.body.textContent).toContain("OPT 1");
     expect(document.body.textContent).toContain("OPT 2");
-    mounted.actions.updateDrawBundlePlacement(copies[1].id, {
+    mounted.actions.updateDrawBundlePlacement(duplicatedCopy.id, {
       height: 8.4,
       offset: 0.4,
       spacing: 0.47
@@ -108,7 +114,7 @@ describe("viewer numeric inputs", () => {
       (part) => part.info.bundleTemplateId === optical!.id
     );
     const bundleIds = [...new Set(opticalParts.map((part) => part.info.sourceBundleId))];
-    expect(bundleIds).toHaveLength(2);
+    expect(bundleIds).toHaveLength(copies.length);
     for (const bundleId of bundleIds) {
       expect(opticalParts.filter((part) =>
         part.info.sourceBundleId === bundleId && part.info.supplementalKind === 1
@@ -163,10 +169,10 @@ describe("viewer numeric inputs", () => {
     expect(lowVoltage!.heightMax - lowVoltage!.heightMin).toBeCloseTo(0.35, 12);
   });
 
-  it("keeps the visual evaluation ranges wider than the previous effective ceilings", async () => {
+  it("keeps the route density evaluation range at five times", async () => {
     await mountViewer();
     expect(inputForLabel("Line density").max).toBe("5");
-    expect(inputForLabel("Bundle looseness (non-HV)").max).toBe("50");
+    expect(() => inputForLabel("Bundle looseness (non-HV)")).toThrow();
   });
 
   it("changes the draw plane by three meters with PageUp and PageDown", async () => {

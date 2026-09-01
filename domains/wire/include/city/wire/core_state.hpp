@@ -155,13 +155,8 @@ public:
 private:
   [[nodiscard]] const SavedBackboneBundleVariation* backbone_bundle_variation_for_bundle(
       ObjectId bundle_id) const;
-  EditResult<ObjectId> add_backbone_bundle_instance_from_variation_membership(
-      const SavedBackboneBundleVariationMembership& membership,
-      const BackboneBundleSpec& requested);
-  EditResult<SavedBackboneBundleVariationMembership>
-  capture_backbone_bundle_variation_membership(ObjectId bundle_id) const;
-  void cleanup_orphan_backbone_skeleton(ChangeSet* change_set);
   void rebuild_backbone_index();
+  void cleanup_orphan_backbone_skeleton(ChangeSet* change_set);
 #if defined(WIRE_INTERNAL) || defined(WIRE_TESTING)
   friend struct CoreStateTestHook;
 #endif

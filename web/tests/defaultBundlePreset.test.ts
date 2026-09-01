@@ -11,7 +11,7 @@ describe("default route bundle variation controls", () => {
 
     expect(rules[0]).toEqual(DEFAULT_BUNDLE_RULES[0]);
     expect(rules.slice(1).map(({ minInstances, maxInstances }) =>
-      [minInstances, maxInstances])).toEqual([[1, 2], [1, 2], [0, 1]]);
+      [minInstances, maxInstances])).toEqual([[1, 2], [1, 2], [1, 1]]);
   });
 
   it("scales each height envelope around its authored center", () => {

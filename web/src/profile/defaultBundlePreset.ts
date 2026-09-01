@@ -19,7 +19,7 @@ export const DEFAULT_BUNDLE_RULES: ReadonlyArray<RandomBundleRule> = [
     heightMin: 5.0, heightMax: 5.8, lateralAbsMin: 0.12, lateralAbsMax: 0.50
   },
   {
-    bundleTemplateId: 105, minInstances: 0, maxInstances: 2,
+    bundleTemplateId: 105, minInstances: 1, maxInstances: 2,
     conductorCount: 1,
     heightMin: 4.9, heightMax: 5.7, lateralAbsMin: 0.12, lateralAbsMax: 0.50
   }
@@ -55,7 +55,7 @@ export function adjustRouteBundleRules(
     const lateralCenter = (rule.lateralAbsMin + rule.lateralAbsMax) * 0.5;
     const lateralHalfRange = (rule.lateralAbsMax - rule.lateralAbsMin) *
       0.5 * controls.lateralSpread;
-    const minInstances = Math.round(rule.minInstances * controls.density);
+    const minInstances = Math.max(1, Math.round(rule.minInstances * controls.density));
     const maxInstances = Math.max(
       minInstances,
       Math.round(rule.maxInstances * controls.density)

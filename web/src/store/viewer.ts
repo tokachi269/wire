@@ -182,8 +182,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     visual: {
       enableInsulators: true,
       insulatorRadius: 0.07,
-      insulatorLength: 0.16,
-      wireIrregularityScale: 1
+      insulatorLength: 0.16
     },
     variation: {
       enabled: true,

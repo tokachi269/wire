@@ -95,7 +95,7 @@
 
   <section>
     <h2>Current wire appearance</h2>
-    <p class="setting-note">確定済みwireへ即時反映します。Non-HV irregularityはHVを変更しません。</p>
+    <p class="setting-note">確定済みwireへ即時反映します。</p>
     <label>
       Sag spread
       <input type="range" min="0" max="2" step="0.05"
@@ -105,16 +105,6 @@
         onchange={(event) => actions.commitVariation(
           "sagVariationScale", numberValue(event) * 0.12)} />
       <output>{(snapshot.variation.sagVariationScale / 0.12).toFixed(2)}x</output>
-    </label>
-    <label>
-      Bundle looseness (non-HV)
-      <input type="range" min="0" max="50" step="0.25"
-        value={snapshot.visual.wireIrregularityScale}
-        oninput={(event) => actions.previewVisual(
-          "wireIrregularityScale", numberValue(event))}
-        onchange={(event) => actions.commitVisual(
-          "wireIrregularityScale", numberValue(event))} />
-      <output>{snapshot.visual.wireIrregularityScale.toFixed(2)}x</output>
     </label>
   </section>
 

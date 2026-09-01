@@ -22,10 +22,6 @@ struct CoreStateTestHook {
   static void rebuild_backbone_index(CoreState& state) {
     state.rebuild_backbone_index();
   }
-  static void cleanup_orphan_backbone_skeleton(CoreState& state,
-                                                ChangeSet* change_set) {
-    state.cleanup_orphan_backbone_skeleton(change_set);
-  }
   static IdGenerator& id_generator(CoreState& state) { return state.identity_.id_generator; }
   static bool authoritative_equals(const CoreState& a, const CoreState& b) { return a.authoritative_equals(b); }
   static std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states(CoreState& state) {

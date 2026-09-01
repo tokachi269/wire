@@ -1273,14 +1273,6 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "normal pair keeps edge endpoint ports distinct while deriving one row fixture",
                          "Invariant", false,
                          C810_backbone_normal_pair_uses_edge_ports_and_derived_fixture);
-  test_registry::AddTest(tests, "C811_authoritative_v2_migrates_shared_pair_ports_without_visual_change",
-                         "v2 shared pair ports migrate without changing derived geometry",
-                         "Invariant", false,
-                         C811_authoritative_v2_migrates_shared_pair_ports_without_visual_change);
-  test_registry::AddTest(tests, "C812_authoritative_v2_rejects_ambiguous_shared_port_migration",
-                         "v2 shared ports without exact continuity reject before mutation",
-                         "Boundary", true,
-                         C812_authoritative_v2_rejects_ambiguous_shared_port_migration);
   test_registry::AddTest(tests, "C813_backbone_move_pole_rederives_pair_representation",
                          "MovePole preserves endpoint identity while switching patch and jumper representation",
                          "Invariant", false,
@@ -1324,10 +1316,6 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "duplicate span binding span ids are rejected on authoritative load",
                          "Boundary", true,
                          C841_backbone_span_binding_duplicate_span_rejected_on_load);
-  test_registry::AddTest(tests, "C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped",
-                         "legacy edge bundle span ids are consumed on load and omitted on save",
-                         "Boundary", false,
-                         C842_backbone_legacy_edge_bundle_span_ids_are_read_and_dropped);
   test_registry::AddTest(tests, "C843_backbone_continuity_binding_rejects_incomplete_lane_relation",
                          "continuity construction rejects a missing authoritative lane relation without mutation",
                          "Boundary", true,
@@ -1436,10 +1424,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "explicit variation Apply preserves surviving placement identity and atomically reconciles density and placement",
                          "Differential", true,
                          C883_backbone_variation_apply_reconciles_concrete_scope_atomically);
-  test_registry::AddTest(tests, "C884_backbone_variation_apply_restores_zero_count_membership",
-                         "variation preserves and extends saved membership through one-to-zero-to-extend-to-one without a hidden Bundle",
-                         "Invariant", true,
-                         C884_backbone_variation_apply_restores_zero_count_membership);
+  test_registry::AddTest(tests, "C884_backbone_variation_zero_count_retires_and_readd_is_unsupported",
+                         "zero-count variation retires physical topology and later re-add without a live exact source is unsupported atomically",
+                         "Boundary", true,
+                         C884_backbone_variation_zero_count_retires_and_readd_is_unsupported);
   test_registry::AddTest(tests, "C885_backbone_variation_apply_preserves_branch_cross_sharp_membership",
                          "variation extension and Apply preserve exact saved branch cross and sharp membership",
                          "Invariant", true,
@@ -1452,26 +1440,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "variation branch pick derives selected templates from exact live instances instead of descriptor rules",
                          "Boundary", true,
                          C888_variation_branch_pick_uses_exact_live_scope);
-  test_registry::AddTest(tests, "C889_variation_membership_is_current_and_shared_skeleton_is_collected",
-                         "variation memberships track current descriptor groups and shared dormant skeleton is collected only after the final reference",
-                         "Invariant", true,
-                         C889_variation_membership_is_current_and_shared_skeleton_is_collected);
-  test_registry::AddTest(tests, "C890_dormant_skeleton_isolated_and_same_pair_reuse_is_exact",
-                         "dormant topology is hidden from live queries and compatible same-pair reuse is exact while incompatible reuse fails atomically",
-                         "Differential", true,
-                         C890_dormant_skeleton_isolated_and_same_pair_reuse_is_exact);
-  test_registry::AddTest(tests, "C891_dormant_skeleton_does_not_change_unrelated_generation",
-                         "an incident dormant edge and its node policy and source metadata do not change normal extension topology pairing or source resolution",
-                         "Differential", true,
-                         C891_dormant_skeleton_does_not_change_unrelated_generation);
   test_registry::AddSourceGuardTest(tests, "C892_generic_pipeline_and_rebuild_do_not_read_variation_retention",
                          "generic pipeline and loaded-output rebuild derive live topology without variation retention scans",
                          "Boundary", false,
                          C892_generic_pipeline_and_rebuild_do_not_read_variation_retention);
-  test_registry::AddTest(tests, "C893_dormant_same_pair_reuse_ignores_route_local_order",
-                         "dormant and live same-node-pair edges share one geometry compatibility contract independent of later route-local order",
-                         "Differential", true,
-                         C893_dormant_same_pair_reuse_ignores_route_local_order);
   test_registry::AddTest(tests, "C894_non_hv_sharp_jumper_keeps_two_port_g1_contract",
                          "non-HV sharp rows keep the current two-port jumper representation and sampled endpoint G1",
                          "Invariant", false,

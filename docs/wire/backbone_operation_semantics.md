@@ -99,44 +99,28 @@ outer `CoreState` trial内で行い、最終desired集合、SavedBackboneGraph�
 
 ### persisted Bundle variation Apply
 
-`GenerateBackboneBundleVariation`はresolver input、生成されたexact Bundle scope、template/count別のsaved physical
-edge ID membership、row continuityを、通常topologyと同じtrialで
+`GenerateBackboneBundleVariation`はresolver inputと生成されたexact live Bundle scopeを、通常topologyと同じtrialで
 関連付ける。descriptorはexplicit Applyの入力であり、loadや
 regenerateはresolveしない。persistent validationはdescriptor構造とsaved relationを検査し、current resolver resultとの
 一致を要求しない。Generate / Apply transactionだけが実際のresolved resultとcommit instanceの一致を検査する。
 `ApplyBackboneBundleVariation`は保存scopeをcurrent、descriptorのresolve結果をdesiredとして
 既存`ReconcileBackboneBundleInstances`へ渡し、descriptor更新とconcrete topology更新を1つのouter trialでcommitする。
-存続placement keyのBundle identityを維持し、branch / cross / sharpは保存membershipとcontinuityだけを複製する。
+存続placement keyのBundle identityを維持し、branch / cross / sharpの追加instanceはlive anchorの保存membershipと
+continuityだけを複製する。
 placement keyはvariation scope内のcorrelationであり、別variationの同値keyとは`Bundle::id`で区別する。
 
-1 -> 0ではconcrete Bundleを完全退役するが、variationが参照するnode / edge skeletonは`SavedBackboneGraph`に保持し、
-membershipにはedge IDとlane continuityだけを残す。0 -> 1への復帰はそのrelationをpipelineのexplicit continuity
-constraintへ再生し、通常pairingの偶然一致をoracleにしない。node snapshot、edge geometry copy、representative placementは保存しない。
-`max_instances > 0`で初回sampleが0件となったgroupは、同じ確定pathを通常pipelineへ一時materializeしてmembershipだけをcaptureするため、後の0 -> 1を扱える。
-`max_instances == 0`として明示的に対象外としたgroupはlatent topologyを作らず、後から0 -> 1へ変更する要求は`U`とする。
-source-edge等でexact membershipをcaptureできないgroupの新instance追加は`U`とし、exact source Bundle mappingを推測しない。
-membershipはcurrent descriptorのeffective template/count groupだけを表し、過去groupの履歴ではない。Apply成功時はlive groupを
-current topologyからcaptureし、descriptorに残る0-instance groupだけ既存membershipを維持する。descriptorから消えたgroupの
-membershipは削除し、live EdgeBundleにも他membershipにも参照されないdormant edge/nodeをstate lifecycleで回収する。同じ
-effective template/countのduplicate ruleはreplay identityが曖昧になるためmutation前に拒否する。
-
-`SavedBackboneGraph`にedge identityがあることとlive Bundle topologyであることは別である。live edgeは
-`SavedBackboneEdgeBundle`の存在から導出し、Bundleを持たないdormant edgeはcurrent route、junction、通常pairing context、
-pass-through incident、source-edge候補、derived rebuildへ含めない。同じnode pairの通常生成がdormant edgeを再利用できるのは、
-lateral offsetと向きが要求とexact compatibleな場合だけであり、不整合はsilent overwriteせずoperation failureとする。
-`SavedBackboneEdge.route / order`は初回保存時のroute-local metadataでphysical compatibilityには含めず、後続利用時の
-route/orderは新しい`SavedBackboneEdgeBundle` relationが所有する。この判定はlive/dormant edgeで同一とする。
+1 -> 0ではconcrete Bundleを完全退役し、live `SavedBackboneEdgeBundle`に所有されなくなったedge/nodeも同じtrialで回収する。
+hidden skeleton、membership snapshot、row-continuity replay recordは保存しない。その後の0 -> 1はinitial 0 -> 1と同じく`U`で、
+過去path、category、geometryからmembershipを推測しない。Density Applyは同じtemplate / lane topologyのlive instanceをanchorに
+追加できる範囲をsupportedとし、高レベル既定ruleはeditable groupを1本以上に保つ。
 recipe-backed Bundleの個別placement/count/add/retire/通常extensionは`U`とし、exact scopeを持つvariation operationだけが
-outer trial内でinstance ownership associationを一時的に外して既存generic operationを合成する。membershipによるgraph
-retentionはその間も維持する。いずれの失敗もdescriptorとphysical
+outer trial内でinstance ownership associationを一時的に外して既存generic operationを合成する。いずれの失敗もdescriptorとphysical
 authorityの両方を不変に保つ。
 
 `ExtendBackboneBundleVariation`はcallerのBundle specを受け付けず、保存済みexact instanceからfull concrete scopeを
-Core内で再構築して既存pipelineへ渡す。callerはpathとexact node referenceだけを指定する。zero-instance groupの
-membershipも、live groupのextensionで確定したexact pathへ更新する。partial membership入力、stale exact scope、
-source-edge membershipの再materializeはfail-closedとし、既存descriptorとphysical authorityを変更しない。0件groupの
-extensionでは通常pipelineだけがpairing / support grouping / continuityを決めるためtemporary Bundle simulationを残すが、
-retained graphを直接使うためsupport node / physical edgeのrestore pathは持たない。
+Core内で再構築して既存pipelineへ渡す。callerはpathとexact node referenceだけを指定する。partial scope入力、stale exact
+scope、live instanceのないvariation、source-edge mappingの推測はfail-closedとし、既存descriptorとphysical authorityを
+変更しない。
 
 ## 実行時coverage契約
 

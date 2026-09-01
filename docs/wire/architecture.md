@@ -434,48 +434,31 @@ HVの3相配置はrandomization対象外とする。非HVのsupported placement�
 load、regenerate、通常 update は保存済み concrete placement を使い、reroll しない。同一 Bundle の placement を
 Pole ごとに変えず、同一 route 内で side を反転しない。road-facing side は外部から与える単純な sign であり、
 Wire は Road domain や道路の意味を解釈しない。
-保存済みdescriptorはexact Bundle scopeと、0件になった後の再materializeに必要なphysical edge ID /
-row continuityを保持する。参照中の`SavedBackboneGraph` node / edge skeletonは最後のBundleが0件になっても保持し、
-variation側へnode・edge geometry・代表Bundle placementを複製しない。現在存在するphysical objectのauthorityは
-Bundle / Port / Span / SavedBackboneGraphであり、0件時に残るgraph skeletonとvariation membershipはfuture replay authorityである。
-
-`SavedBackboneGraph`は`SavedBackboneNode` / `SavedBackboneEdge`の保存identityとgeometryを一意に所有するが、graphに
-保存されていること自体はcurrent live occupancyを意味しない。edgeに`SavedBackboneEdgeBundle`が1件以上あればlive、
-0件ならdormant skeletonであり、この区別はpersistent flagではなくrelationから導出する。dormant edge/nodeはpersistence、
-structural validation、exact replay、raw identity lookupには存在するが、viewer向け`SavedBackboneResult`、route/junction query、
-通常generationのcontext・pass-through・source projection、load時のderived rebuildへは参加しない。generic pipeline、viewer、
-live topology queryはvariationを解釈しない。
+保存済みvariationはdescriptorと現在存在するexact Bundle instanceだけを保持する。physical topologyのauthorityは
+Bundle / Port / Span / SavedBackboneGraphであり、最後のBundleが退役したgroupのhidden route skeletonやfuture replay
+authorityは保存しない。`SavedBackboneGraph`のedgeは少なくとも1つのlive `SavedBackboneEdgeBundle`に所有される。
+Bundle退役後にownerを失ったedgeとnodeは同じtransactionで回収し、generic pipeline、load、viewerへvariation固有の
+retention ruleを持ち込まない。
 
 `SavedBackboneEdge.route / order`は初回保存時のroute-local導出補助であり、physical edge identityやsame-node-pair再利用の
 compatibilityではない。同じphysical edgeを別route順序から使う各occurrenceのroute/orderは`SavedBackboneEdgeBundle`が持つ。
-したがってlive/dormantのどちらもedge reuseをroute/orderで拒否せず、directionとlateral offset等のphysical geometryだけを
-exact compatibilityとして扱う。
+したがってsame-node-pair edgeのreuseはlive topology内の既存identityを使い、各occurrenceのroute/orderは
+`SavedBackboneEdgeBundle`が所有する。Bundleを持たないedgeのreuse contractはv1には存在しない。
 
-variation membershipは履歴ではなく、current descriptorに存在するeffective template/count groupのexact replay referenceである。
-live instanceがあればcurrent topologyから更新し、count 0でもgroupがdescriptorに残る間だけ既存membershipを保持する。
-group削除・group変更ではold membershipを削除する。同じeffective template/countのruleを複数置くとreplay sourceを区別
-できないためdescriptor validationで拒否する。mutation後のskeleton GCはstate/backbone lifecycleが全authoritative relationを
-見る。live `SavedBackboneEdgeBundle`またはいずれかのcurrent membershipから参照されるedgeを保持し、最後の参照が消えた
-dormant edgeだけを削除する。nodeは残存edge、pole ownership、binding / continuity、他nodeのsource relationを含む参照が
-なくなった場合だけ削除する。reference countや別retention relationは保存しない。
-
-descriptorは
-branch membershipやpairingを再判断しない。`ApplyBackboneBundleVariation`はdescriptorをresolveしたdesired concrete
-specを既存reconcileへ渡し、descriptor更新とconcrete topology更新を同じouter trialでcommitする。1 -> 0 -> 1は
-保持されたgraph edgeとmembership continuityをpipelineのexplicit constraintとして再生する。`max_instances > 0`なのに
-初回sampleが0件となったgroupも、初回生成で確定した同じpathを通常pipelineへ一時materializeし、将来Apply用のmembershipだけをcaptureする。source-edge等で
-exact membershipを作れない場合は推測せずunsupportedとする。recipe-backed Bundleの個別placement/count/add/retireは許可せずexplicit Applyへ集約する。
+descriptorはbranch membershipやpairingを再判断しない。`ApplyBackboneBundleVariation`はdescriptorをresolveしたdesired
+concrete specを既存reconcileへ渡し、descriptor更新とconcrete topology更新を同じouter trialでcommitする。1 -> 0は
+concrete Bundleとそのownerless topologyを完全退役する。その後の0 -> 1はlive exact membership sourceがないため
+initial 0 -> 1と同じくunsupportedとし、過去path、category、geometryから推測しない。高レベルUIの既定ruleは各editable
+groupを1本以上に保ち、通常のDensity Applyはlive anchorからinstance数を増減する。recipe-backed Bundleの個別
+placement/count/add/retireは許可せずexplicit Applyへ集約する。
 `placement_key`は1つのvariation scope内でdescriptorとconcrete instanceを対応付けるcorrelationであり、
 repository全体のBundle identityではない。physical identityは`Bundle::id`であるため、同じseedの別variationが同じ
 `placement_key`を持っても互いのscopeへ入らない。
 
 `ExtendBackboneBundleVariation`のBundle membershipはCore-ownedである。adapterはpath / exact node referenceだけを渡し、
-Coreが保存済みinstanceからfull concrete Bundle specを再構築して通常pipelineへ渡す。callerがpartial Bundle specを渡す
-extensionは拒否する。0件のrule groupも、別のlive groupによるextension後に保存membershipを同じexact pathへ更新し、
-後の1 -> 0 -> 1で古いroute shapeへ戻さない。
-0件groupを延長するときは通常pipelineをpairing / support grouping / continuityの唯一のownerとして使うため、trial内だけ
-auto placementのtemporary Bundleをmaterializeする。結果からedge IDとcontinuityだけをcaptureし、temporary Bundleは保存しない。
-support node復元、physical edge復元、representative placement保存の各経路は持たない。
+Coreが保存済みlive instanceからfull concrete Bundle specを再構築して通常pipelineへ渡す。callerがpartial Bundle specを
+渡すextensionは拒否する。live instanceが1つもないvariationはexact membership sourceを持たないためExtendをunsupported
+とし、temporary Bundle materialization、support/edge restoration、continuity replayは行わない。
 variation extensionのbranch pickも、Coreがvariation IDからexact live instanceを引き、そのBundleTemplate集合だけを既存
 `ResolveBranchPick`へ渡す。descriptorにruleがあっても0 instanceのtemplateはphysical branch scopeへ含めない。
 WASM/Webは選択Spanのexact `bundle_id`から保存済みdescriptorを参照し、選択中scopeの調整を
@@ -518,53 +501,31 @@ assembly の単位とidentity ownerはsource logical span / Bundleであり、Bu
 CableRun identityは増やさない。
 
 members はbase sectionと、そのlogical cableをつなぐNodePatch / Lead / Jumperから派生するvisual構成要素である。
-線種ごとの`SpanVisualAssemblyTemplate`が基準となる形状を所有し、globalな線の乱れ倍率は
-member-relative variationだけへ作用する。logical cable centerlineは通常のsag curveを維持し、束全体を横波として
-動かさない。倍率は物理上限を置き換えず、HVの物理lane/crossarm形状には作用しない。
+線種ごとの`SpanVisualAssemblyTemplate`が固定member数と基準間隔を所有する。logical cable centerlineは通常の
+sag curveを維持し、束全体または個別memberへ見た目だけのrandom wander、phase、twistを加えない。
 main spanのsupport path とmembersはhelixの内側に置き、support pathは内周上部に接し、membersは下側に配置する。
 helix は endpoint trim 区間だけ生成し、電柱や attachment へ接続しない。
 
 visual memberの断面はcenter curveに直交するlateral/up 2次元平面へcompactに配置する。1本はcenter、
 2本は対向、3本は三角形、4本は正方形相当、5本以上は小さな決定的円形配置とし、packing solverは持たない。
-`visual_member_spacing_m`は結束間で許す最大member中心間隔であり、基準断面は線径から求める接触配置とする。
+`visual_member_spacing_m`はmember中心間隔であり、実際の間隔はCableTemplateの外径以上にclampする。
+初期templateでは線径に小clearanceを加えたcompact配置とする。
 基準断面offsetはendpointでも維持し、
 全memberをlogical endpointの1点へ収束させない。authoritative Port / logical endpointはvisual member endpoint群の
 重心であり、member数に応じてPort、Span、Bundle、attachment、fixtureを増やさない。
 
-Communication、Optical、support path、helix、member twist、member wanderは同じlogical-span assembly pipelineの
-設定差で表現する。別のedge-bundle groupingやcategory専用wander ownerを持たず、geometry近傍からmemberを探索しない。
-
-非HV visual bundleは、結束位置で線径由来のcompact断面へ戻り、結束間だけ残りclearance内で断面の向きと密度を
-滑らかに変える。`member_wander_wavelength_m`はこの結束間隔として扱う。変位は線径と
-`visual_member_spacing_m`の差を越えず、曲率は`CableTemplate.min_bend_radius_m`を下回らない。
-sampleごとのrandom offsetやspan長に比例する長波長のcenter wanderを使わない。support pathとhelixも同じ安定した
-center pathへ追従し、HV main spanとHV arrangementにはmember variation multiplierを適用しない。
-
-Communication / Opticalの初期visual evaluation値では、結束間隔を0.30 mとする。これはCorningの架空光ケーブル
-施工手順にある「1 linear foot当たり1 wrap以上」を基準にした値であり、日本国内の規格値とは扱わない。
-線間の最大2 mmの余裕は結束位置以外で隣接線を視認するためのrendering allowanceで、物理規格値ではない。
-（参考: [Corning Standard Recommended Procedure 005-010](https://www.corning.com/content/dam/corning/catalog/coc/documents/standard-recommended-procedures/005-010.pdf), 3.20-3.21）
-
-globalなBundle loosenessはtemplateの`member_wander_ratio`へ掛ける評価倍率である。0xはcompact contactとし、積が1.0へ
-達するまでは従来どおりclearance allowance内の使用率だけを増やす。積が1.0を越えた分はclampで捨てず、clearance
-allowance自体へ移す。したがってcurrent defaultのratio 0.20では5xまで旧挙動を保ち、5xを越えて初めて評価断面を広げる。
-最小曲げ半径とOptical helix containmentは最終的な物理制約として維持する。Webの50xは旧5x ceilingから1桁上まで
-挙動を探索するためのevaluation rangeであり、推奨値や物理規格値ではない。
+Communication、Optical、support path、helixは同じlogical-span assembly pipelineの設定差で表現する。
+別のedge-bundle groupingやcategory専用geometry ownerを持たず、geometry近傍からmemberを探索しない。
 
 main spanのsagは`ResolvedSpanCurveInputs.effective_sag_ratio`を最終curveまで一貫して使う。非HVは既存の
 hierarchical variationから小さな差を導出し、HVはvariation multiplierを適用せず従来値を維持する。
 
-`BundleTemplate.span_visual_assembly` はvisual member数・間隔、center variation、member-relative variation、
-support、helixを含むassemblyの正本設定である。visual member数はsaved topologyへ保存せず、保存済みBundle placementから
-決定的に再導出する。radius が 0 の場合は、
+`BundleTemplate.span_visual_assembly` は固定visual member数・間隔、support、helixを含むassemblyの正本設定である。
+visual member数はauthoritative conductor数ではなく、Span、Port、Bundle、fixtureを増やさない。radius が 0 の場合は、
 support path からの member offset、member wire radius、helix wire radius、clearance を含む最小半径を
 derived 側で求める。contained member は support path のnormalized arc-length位置へ対応付け、
-helix内周から出ないように断面offsetをclampする。member-relative variationは基準packingと線径の間に残るmarginの
-`member_wander_ratio`分だけを使う。結束間の変化は両端で変位と微分が0になる決定的profileとし、
-sampleごとの独立random、member交差、containment radiusからの離脱を許さない。
-CommunicationとOpticalは同じpacking、containment、margin-based wander処理を使う。Opticalのsupport path、member、helixは
-同じcenter pathとcontainment radiusを共有する。member数・phaseはstableなBundle placement keyとlogical laneから
-決定的に導出し、load、derived rebuild、regenerateでrerollしない。
+helix内周から出ないように断面offsetをclampする。CommunicationとOpticalは同じcompact packingとcontainment処理を使う。
+Opticalのsupport path、member、helixは同じcenter pathとcontainment radiusを共有する。
 NodePatch / Lead / Jumperもmain spanと同じBundle placement key、logical lane、compact cross-sectionを使い、接続区間だけ
 center curve 1本へ戻さない。support pathとhelixはmain spanだけの補助表現であり、接続区間へ重複生成しない。
 明示radiusは、support wireとhelix wireの径およびclearanceを収められない値を設定時に拒否する。

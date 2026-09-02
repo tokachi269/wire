@@ -275,7 +275,8 @@ describe("viewer actions", () => {
             bundleTemplateId: 0,
             laneIndex: 0,
             runId: 1,
-            sampleCount: 2
+            sampleCount: 2,
+            appearancePieces: []
           },
           samples: new Float64Array([0, 0, 2, 10, 0, 2])
         }
@@ -428,7 +429,8 @@ describe("viewer actions", () => {
         bundleTemplateId: 0,
         laneIndex: 0,
         runId: 1,
-        sampleCount: 2
+        sampleCount: 2,
+        appearancePieces: []
       },
       samples: new Float64Array([0, 0, 2, 10, 0, 2])
     };

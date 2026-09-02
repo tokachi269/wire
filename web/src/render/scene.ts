@@ -18,6 +18,7 @@ import {
   type LoadedModelAsset,
   modelAssetCache
 } from "./modelAssets";
+import { materializeWirePattern } from "./wirePatternAssets";
 
 function colorFromRgba(rgba: number): { color: THREE.Color; opacity: number } {
   const red = (rgba >>> 24) & 0xff;
@@ -1566,6 +1567,10 @@ export class WireScene {
         part.info.materialStyle,
         part.info.colorRgba,
         part.info.sampleCount,
+        part.info.appearancePieces.map((piece) => [
+          piece.assetKey, piece.curveStartM, piece.curveEndM, piece.sourceLengthM,
+          piece.localOffsetScaleM, piece.reverse
+        ].join(",")).join(";"),
         sampleContentVersion(part.samples)
       ].join(":");
       const previous = this.partMeshes.get(key);
@@ -1583,8 +1588,11 @@ export class WireScene {
       }
 
       const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
+      const renderedSamples = part.info.appearancePieces.length > 0
+        ? materializeWirePattern(part.samples, part.info.appearancePieces)
+        : part.samples;
       const materialKey = `${part.info.supplementalKind}:${part.info.materialStyle}:${part.info.colorRgba}`;
-      if (previous !== undefined && this.updateSampledTubeGeometry(previous.mesh.geometry, part.samples, radius)) {
+      if (previous !== undefined && this.updateSampledTubeGeometry(previous.mesh.geometry, renderedSamples, radius)) {
         if (previous.materialKey !== materialKey) {
           this.disposeMeshMaterial(previous.mesh);
           previous.mesh.material = this.makePartMaterial(part);
@@ -1599,7 +1607,7 @@ export class WireScene {
         this.disposeContentMesh(previous.mesh);
         this.partMeshes.delete(key);
       }
-      const geometry = makeSampledTubeGeometry(part.samples, radius);
+      const geometry = makeSampledTubeGeometry(renderedSamples, radius);
       const material = this.makePartMaterial(part);
       const mesh = new THREE.Mesh(geometry, material);
       mesh.castShadow = true;

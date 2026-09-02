@@ -753,7 +753,7 @@ export async function loadDefaultModelBootstrap(): Promise<ModelAssemblyBootstra
   );
 }
 
-async function loadGltfScene(url: string): Promise<THREE.Group> {
+export async function loadGltfScene(url: string): Promise<THREE.Group> {
   const gltf = await new GLTFLoader().loadAsync(url);
   return gltf.scene;
 }

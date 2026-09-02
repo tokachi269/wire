@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import {
   POLE_RENDER_SIDES,
@@ -19,6 +19,7 @@ import {
   setPoleRotation
 } from "../src/render/scene";
 import { modelAssetCache } from "../src/render/modelAssets";
+import { wirePatternAssetCache } from "../src/render/wirePatternAssets";
 import { createViewerSnapshot } from "../src/store/viewer";
 import { WireBridge } from "../src/bridge/wire";
 import type {
@@ -328,7 +329,8 @@ describe("scene part reuse", () => {
         bundleTemplateId: 102,
         laneIndex: 0,
         runId: 1,
-        sampleCount: 2
+        sampleCount: 2,
+        appearancePieces: []
       },
       samples: new Float64Array([0, 0, 0, 10, 0, 0])
     }, {
@@ -348,7 +350,8 @@ describe("scene part reuse", () => {
         bundleTemplateId: 102,
         laneIndex: 0,
         runId: 2,
-        sampleCount: 2
+        sampleCount: 2,
+        appearancePieces: []
       },
       samples: new Float64Array([0, 1, 0, 10, 1, 0])
     }];
@@ -425,7 +428,8 @@ describe("scene part reuse", () => {
         bundleTemplateId: 101,
         laneIndex: 0,
         runId: 1,
-        sampleCount: 2
+        sampleCount: 2,
+        appearancePieces: []
       },
       samples: new Float64Array([0, y, 0, 10, y, 0])
     });
@@ -507,6 +511,11 @@ function modelBootstrap(): ModelAssemblyBootstrapInput {
 
 describe("scene geometry from wasm", () => {
   it("creates three distinct model-aware HV meshes on first sync from a bridge snapshot", async () => {
+    const patternSpy = vi.spyOn(wirePatternAssetCache, "asset").mockReturnValue({
+      points: [-2, -1, 0, 1, 2].map((x) => new THREE.Vector3(x, 0, 0)),
+      minX: -2,
+      maxX: 2
+    });
     const bridge = await WireBridge.create();
     const configured = bridge.configureModelAssemblies(modelBootstrap());
     expect(configured.ok, configured.error).toBe(true);
@@ -558,6 +567,7 @@ describe("scene geometry from wasm", () => {
       .filter((model) => model.modelKey === "hv_insulator" && !model.stableKey.includes(":intermediate-insulator:"))
       .map((model) => model.positionY.toFixed(3));
     expect(new Set(insulatorYs)).toEqual(new Set(["-0.650", "-0.200", "0.250"]));
+    patternSpy.mockRestore();
     bridge.dispose();
   });
 });
@@ -713,7 +723,8 @@ describe("scene model reuse", () => {
         bundleTemplateId: 101,
         laneIndex: 0,
         runId: 1,
-        sampleCount: 2
+        sampleCount: 2,
+        appearancePieces: []
       },
       samples: new Float64Array([0, 0, 0, 1, 0, 0])
     }];

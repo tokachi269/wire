@@ -662,16 +662,17 @@ bool C520_backbone_duplicate_span_binding_preflight_before_emit() {
 }
 
 bool C522_backbone_supported_scope_is_documented() {
-  const std::filesystem::path doc = repo_root() / "docs" / "wire" / "architecture.md";
-  std::string text;
-  if (!file_text(doc, &text)) {
+  std::string generation;
+  std::string state;
+  if (!file_text(repo_root() / "docs" / "wire" / "generation.md", &generation) ||
+      !file_text(repo_root() / "docs" / "wire" / "state_and_persistence.md", &state)) {
     return false;
   }
-  return contains_text(text, "## backbone generation") && contains_text(text, "`GenerateFromBackboneSpec()`") &&
-         contains_text(text, "`unsupported`") && contains_text(text, "`SavedBackboneGraph`") &&
-         contains_text(text, "`pairs make(graph)`") && contains_text(text, "duplicate edge bundle/span binding") &&
-         contains_text(text, "`support_world`") && contains_text(text, "`endpoint_world`") &&
-         contains_text(text, "v1") && contains_text(text, "fallback");
+  return contains_text(generation, "## Pipeline") && contains_text(generation, "`GenerateFromBackboneSpec()`") &&
+         contains_text(generation, "`unsupported`") && contains_text(state, "`SavedBackboneGraph`") &&
+         contains_text(state, "`pairs make(graph)`") && contains_text(generation, "duplicate edge bundle/span binding") &&
+         contains_text(generation, "`support_world`") && contains_text(generation, "`endpoint_world`") &&
+         contains_text(generation, "v1") && contains_text(generation, "fallback");
 }
 
 bool C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates() {
@@ -809,7 +810,7 @@ bool C538_backbone_viewer_deps_are_not_core_draw_gate() {
   if (!file_text(doc, &text)) {
     return false;
   }
-  return contains_text(text, "viewer") && contains_text(text, "visual/render cache") &&
+  return contains_text(text, "viewer") && contains_text(text, "visual / render cache") &&
          contains_text(text, "topology") && contains_text(text, "pair") &&
          contains_text(text, "row") && contains_text(text, "lowering");
 }
@@ -838,7 +839,7 @@ bool C541_backbone_manual_existing_pole_without_graph_is_gate_rejected() {
 }
 
 bool C542_backbone_usable_mainline_architecture_audit_passes() {
-  const std::filesystem::path doc = repo_root() / "docs" / "wire" / "architecture.md";
+  const std::filesystem::path doc = repo_root() / "docs" / "wire" / "state_and_persistence.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;

@@ -4,6 +4,7 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
+    "assets:wire-patterns": "node scripts/generate-wire-pattern-assets.mjs",
     "wasm:configure": "scripts\\wasm-nmake-build.cmd configure",
     "wasm:build": "scripts\\wasm-nmake-build.cmd build",
     "test": "vitest run",

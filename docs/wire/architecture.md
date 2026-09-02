@@ -407,6 +407,17 @@ boundary tangentをdebug/captureで見えるようにするための派生出力
 分割後のspan片が接続部curveのauthorityになってはいけない。長いrun全体を毎回正本として再計算する方式にはせず、
 dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
 
+線の局所形状assetを適用するDecisionはCoreのvisual generationが所有する。入力はsag済み
+`VisualCurvePart.samples`、part kind / supplemental kind、source identityであり、出力はasset key、親curve上の
+arc-length区間、authoring length、決定的variant / reverse、局所offset scaleからなるderived appearance pieceである。
+main curveは4m、NodePatch / Lead / Jumperは1mを基準に、curve全長を隙間なく等分しsource assetを伸長しない。
+appearance pieceは親samplesを参照し、world-space curveを重複保存しない。
+
+GLBのparseとglTF `LINES` primitiveの抽出はWeb asset adapterが所有する。adapterはCoreが決定済みのpieceと
+`VisualCurvePart.samples`をarc lengthで評価し、world-up基準frameへlocal X/Y/Zを機械的に写像する。
+variant、reverse、sag、material、wire radiusを再判断せず、triangle faceのedgeをwire centerlineとして解釈しない。
+`VisualModelInstance`はrigid model用のままとし、deformable cableをその経路へ押し込まない。
+
 scoped visual rebuildでは、`changed spans`、その端点でconnection visualを書き換える`affected nodes`、
 materializationのため読むだけの`context spans`を分ける。EdgeBody等のspan-owned partはchanged spanだけ、
 NodePatch/Jumper等のnode-owned partはaffected nodeだけを削除・置換する。context spanの反対側nodeは

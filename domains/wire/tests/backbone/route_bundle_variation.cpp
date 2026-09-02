@@ -1087,18 +1087,20 @@ bool C865_non_hv_support_and_member_shape_survive_save_load() {
                        support->source_span_id == logical_span_id && helix->source_span_id == logical_span_id,
                    "optical assembly lost source logical span identity");
   const double support_length = polyline_length(support->samples);
-  const double trim = optical_template.span_visual_assembly.endpoint_trim_m;
-  const auto [helix_start_anchor, helix_start_tangent] =
-      sample_polyline(support->samples, trim);
-  const Vec3d helix_start_lateral = normalized(Cross({0.0, 0.0, 1.0}, helix_start_tangent));
-  const double helix_radius = std::abs(Dot(
-      helix->samples.front() - helix_start_anchor, helix_start_lateral));
+  WIRE_TEST_EXPECT_PRESENCE(!helix->appearance_pieces.empty(),
+                            "optical helix has no GLB appearance plan");
+  const double helix_radius = helix->appearance_pieces.front().local_offset_scale_m;
+  for (const VisualCurveAppearancePiece& piece : helix->appearance_pieces) {
+    WIRE_TEST_EXPECT(piece.asset_key.find("helix_") != std::string::npos &&
+                         std::abs(piece.local_offset_scale_m - helix_radius) <= 1e-12,
+                     "optical helix appearance pieces do not share the Core containment radius");
+  }
   const double inset = support->wire_radius_m * 2.0 +
       optical_template.span_visual_assembly.helix_clearance_m;
   const double optical_diameter = optical.view().cable_templates().at(
       optical_template.cable_template_id).outer_diameter_m;
   WIRE_TEST_EXPECT(helix_radius > inset,
-                   "optical helix radius could not be recovered from its support frame");
+                   "optical helix GLB plan does not expose its containment radius");
   for (std::size_t index = 0; index < optical_members.front()->samples.size(); ++index) {
     for (std::size_t a = 0; a < optical_members.size(); ++a) {
       for (std::size_t b = a + 1; b < optical_members.size(); ++b) {

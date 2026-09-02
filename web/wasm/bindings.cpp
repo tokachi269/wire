@@ -864,6 +864,19 @@ private:
       output.set("bundleTemplateId", static_cast<int>(part.bundle_template_id));
       output.set("laneIndex", part.lane_index);
       output.set("runId", static_cast<double>(part.cable_run_id));
+      val appearance_pieces = val::array();
+      for (std::size_t piece_index = 0; piece_index < part.appearance_pieces.size(); ++piece_index) {
+        const auto& piece = part.appearance_pieces[piece_index];
+        val piece_output = val::object();
+        piece_output.set("assetKey", piece.asset_key);
+        piece_output.set("curveStartM", piece.curve_start_m);
+        piece_output.set("curveEndM", piece.curve_end_m);
+        piece_output.set("sourceLengthM", piece.source_length_m);
+        piece_output.set("localOffsetScaleM", piece.local_offset_scale_m);
+        piece_output.set("reverse", piece.reverse);
+        appearance_pieces.set(piece_index, piece_output);
+      }
+      output.set("appearancePieces", appearance_pieces);
       descriptors.set(descriptor_index++, output);
     }
     val result = val::object();

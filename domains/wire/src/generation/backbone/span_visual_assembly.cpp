@@ -320,11 +320,12 @@ VisualCurvePart make_helix_part(const VisualCurvePart& support, const SpanVisual
                                 double radius) {
   VisualCurvePart helix = support;
   helix.supplemental_kind = VisualSupplementalKind::kHelix;
+  helix.pattern_offset_scale_m = radius;
   helix.samples.clear();
   const double support_length = path_length(support.samples);
   const double trim = std::min(settings.endpoint_trim_m, support_length * 0.5);
   const double visible = support_length - trim * 2.0;
-  const int samples = std::max(4, static_cast<int>(std::ceil(visible * settings.helix_turns_per_meter * settings.helix_samples_per_turn)));
+  const int samples = std::max(4, static_cast<int>(std::ceil(visible * 4.0)));
   if (visible <= kLengthToleranceM || samples < 2) return helix;
   const double inset = top_inset(support, settings.helix_clearance_m);
   for (int i = 0; i <= samples; ++i) {
@@ -334,8 +335,7 @@ VisualCurvePart make_helix_part(const VisualCurvePart& support, const SpanVisual
     Vec3d up{};
     frame_for(anchor.tangent, &lateral, &up);
     const Vec3d axis = anchor.point - ScaleVec(up, radius - inset);
-    const double phase = kTwoPi * settings.helix_turns_per_meter * (distance - trim);
-    helix.samples.push_back(axis + ScaleVec(lateral, std::cos(phase) * radius) + ScaleVec(up, std::sin(phase) * radius));
+    helix.samples.push_back(axis);
   }
   helix.boundary_a = helix.samples.front();
   helix.boundary_b = helix.samples.back();

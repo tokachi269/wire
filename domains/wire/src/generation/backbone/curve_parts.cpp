@@ -27,6 +27,8 @@ constexpr double kNodePatchMaxSpanFraction = 0.25;
 constexpr double kPatchMetersPerSegment = 0.08;
 constexpr double kPatchRadiansPerSegment = 0.17453292519943295;
 constexpr double kLocalDecorationCurveOffsetM = 0.18;
+constexpr double kMainPatternLengthM = 4.0;
+constexpr double kConnectionPatternLengthM = 1.0;
 
 struct curve_endpoint_ref {
   CableSectionKey section_key{};
@@ -1013,6 +1015,71 @@ void sort_visual_parts(VisualCurvePartCache* cache) {
   std::sort(cache->parts.begin(), cache->parts.end(), visual_part_less);
 }
 
+double visual_curve_length(const std::vector<Vec3d>& samples) {
+  double length = 0.0;
+  for (std::size_t index = 1; index < samples.size(); ++index) {
+    length += Length(samples[index] - samples[index - 1]);
+  }
+  return length;
+}
+
+bool uses_connection_pattern(const VisualCurvePart& part) {
+  return part.kind == VisualCurvePartKind::kNodePatch ||
+         part.kind == VisualCurvePartKind::kLead ||
+         part.kind == VisualCurvePartKind::kJumper;
+}
+
+std::uint64_t appearance_seed(const VisualCurvePart& part, std::size_t piece_index) {
+  std::uint64_t seed = hash_combine(0, static_cast<std::uint64_t>(part.kind));
+  seed = hash_combine(seed, static_cast<std::uint64_t>(part.supplemental_kind));
+  seed = hash_combine(seed, static_cast<std::uint64_t>(part.source_node_id));
+  seed = hash_combine(seed, static_cast<std::uint64_t>(part.source_edge_id));
+  seed = hash_combine(seed, static_cast<std::uint64_t>(part.source_span_id));
+  seed = hash_combine(seed, static_cast<std::uint64_t>(part.source_bundle_id));
+  seed = hash_combine(seed, static_cast<std::uint64_t>(part.bundle_template_id));
+  seed = hash_combine(seed, static_cast<std::uint64_t>(part.lane_index));
+  seed = hash_combine(seed, static_cast<std::uint64_t>(part.section_key.instance_index));
+  for (ObjectId edge_id : part.incident_edge_ids) {
+    seed = hash_combine(seed, static_cast<std::uint64_t>(edge_id));
+  }
+  return hash_combine(seed, static_cast<std::uint64_t>(piece_index));
+}
+
+void assign_curve_appearance(VisualCurvePart* part) {
+  if (part == nullptr || part->samples.size() < 2 ||
+      part->supplemental_kind == VisualSupplementalKind::kLocalDecoration) {
+    return;
+  }
+  const bool connection = uses_connection_pattern(*part);
+  const double source_length = connection ? kConnectionPatternLengthM : kMainPatternLengthM;
+  const double curve_length = visual_curve_length(part->samples);
+  const std::size_t piece_count = std::max<std::size_t>(
+      1, static_cast<std::size_t>(std::ceil(curve_length / source_length)));
+  const bool helix = part->supplemental_kind == VisualSupplementalKind::kHelix;
+  part->appearance_pieces.clear();
+  part->appearance_pieces.reserve(piece_count);
+  for (std::size_t index = 0; index < piece_count; ++index) {
+    const std::uint64_t seed = appearance_seed(*part, index);
+    const int variant = static_cast<int>(seed % 2u) + 1;
+    VisualCurveAppearancePiece piece{};
+    piece.asset_key = std::string(connection ? "connection/" : "main/") +
+        (helix ? "helix_" : "wire_") + std::to_string(variant);
+    piece.curve_start_m = curve_length * static_cast<double>(index) /
+        static_cast<double>(piece_count);
+    piece.curve_end_m = curve_length * static_cast<double>(index + 1) /
+        static_cast<double>(piece_count);
+    piece.source_length_m = source_length;
+    piece.local_offset_scale_m = part->pattern_offset_scale_m;
+    piece.reverse = ((seed >> 1u) & 1u) != 0;
+    part->appearance_pieces.push_back(std::move(piece));
+  }
+}
+
+void assign_curve_appearances(VisualCurvePartCache* cache) {
+  if (cache == nullptr) return;
+  for (VisualCurvePart& part : cache->parts) assign_curve_appearance(&part);
+}
+
 VisualCurvePartCache merge_visual_changes(const CoreState& state, VisualCurvePartCache rebuilt,
                                           const std::unordered_set<ObjectId>& changed_spans,
                                           const std::unordered_set<ObjectId>& affected_nodes) {
@@ -1703,6 +1770,7 @@ EditResult<VisualCurvePartCache> make_visual_curve_parts(const CoreState& state,
   }
   apply_span_visual_assemblies(state, assembly_endpoints, &out);
   append_pole_decoration_curves(state, endpoints, affected_nodes, &out);
+  assign_curve_appearances(&out);
   if (!changed_spans.empty()) {
     result.value = merge_visual_changes(
         state, std::move(out), changed_spans, affected_nodes);

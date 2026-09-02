@@ -91,6 +91,16 @@ export interface VisualPartInfo {
   laneIndex: number;
   runId: number;
   sampleCount: number;
+  appearancePieces: VisualCurveAppearancePieceInfo[];
+}
+
+export interface VisualCurveAppearancePieceInfo {
+  assetKey: string;
+  curveStartM: number;
+  curveEndM: number;
+  sourceLengthM: number;
+  localOffsetScaleM: number;
+  reverse: boolean;
 }
 
 export interface VisualModelInstanceInfo {

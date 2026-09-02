@@ -1,0 +1,105 @@
+compilation_database_dir: build/clang-uml-db
+output_directory: docs/diagrams/clang-uml
+generate_method_arguments: abbreviated
+
+diagrams:
+  core_packages:
+    type: package
+    title: wire core package topology
+    package_type: directory
+    glob:
+      include:
+        - core/src/**/*.cpp
+        - core/tests/**/*.cpp
+
+  core_state_context:
+    type: class
+    title: CoreState context
+    using_namespace: wire::core
+    generate_packages: true
+    package_type: namespace
+    include_relations_also_as_members: false
+    glob:
+      include:
+        - core/src/**/*.cpp
+        - core/tests/**/*.cpp
+    include:
+      namespaces:
+        - wire::core
+      context:
+        - CoreState
+    exclude:
+      namespaces:
+        - wire::core::state_internal
+      access:
+        - private
+
+  detail_curve_context:
+    type: class
+    title: DetailCurve relation map
+    using_namespace: wire::core
+    generate_packages: true
+    package_type: namespace
+    include_relations_also_as_members: false
+    glob:
+      include:
+        - core/src/**/*.cpp
+        - core/tests/**/*.cpp
+    include:
+      namespaces:
+        - wire::core
+      context:
+        - match:
+            radius: 2
+            pattern: DetailCurve
+        - match:
+            radius: 1
+            pattern: CurveConstraint
+    exclude:
+      namespaces:
+        - wire::core::state_internal
+      access:
+        - public
+        - protected
+        - private
+
+  support_layout_curve_context:
+    type: class
+    title: Support layout to detail-curve relation map
+    using_namespace: wire::core
+    generate_packages: true
+    package_type: namespace
+    include_relations_also_as_members: false
+    glob:
+      include:
+        - core/src/**/*.cpp
+        - core/tests/**/*.cpp
+    include:
+      namespaces:
+        - wire::core
+      context:
+        - match:
+            radius: 2
+            pattern: SpanSupportLayoutEntry
+        - match:
+            radius: 2
+            pattern: SupportLayoutInspectionView
+        - match:
+            radius: 2
+            pattern: DetailCurveInspectionView
+    exclude:
+      namespaces:
+        - wire::core::state_internal
+      access:
+        - public
+        - protected
+        - private
+
+  viewer_packages:
+    type: package
+    title: wire viewer source packages
+    package_type: directory
+    glob:
+      include:
+        - viewer/src/**/*.cpp
+        - viewer/tests/**/*.cpp

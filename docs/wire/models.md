@@ -114,6 +114,8 @@ CableTemplate appearanceから `VisualModelInstance` / `VisualCurvePart` を再�
 model assemblyのworld materializationはCoreが所有し、初回生成とpost-editで同じ経路を使う。
 asset adapterはGLB/node/Empty由来のmodel/socket metadataを渡すだけで、Wireの接続先、curve、materialは判断しない。
 `VisualModelInstance`はderived cacheであり、Pole、row、PortやSavedBackboneGraphへmodel instance identityを追加しない。
+deformable cable patternもmesh asset自体のparse、catalog、authoring extent、局所deformationはadapter側に置く。
+Coreはsag済みcurveとWire semanticだけを返し、GLB asset identityを`VisualModelInstance`や保存schemaへ追加しない。
 
 配置されるinstanceの親参照は次の3種だけに限定する。
 

@@ -225,20 +225,11 @@ support levelはcontinuity単位ではなく物理fixture row単位で割り当�
 既に低いlevelが別rowで埋まっている場合は、鋭角pairの2 rowへ次の2つの空きlevelを割り当てる。
 jumperはcontinuityを表すだけで、placement levelを共有させない。
 
-### 既存saveの移行
+### save schema
 
-共有Portを含む既存`wire_state_v2`はload時にedge endpoint別Portへ移行する。
-`wire_state_v1`/`wire_state_v2`のpermutable continuityは、load時に保存済みPort列の
-`first -> last`方向からsame/reverseの1bitを再導出して`wire_state_v3`以降のlane対応へ移行する。
-片側endpointへ決定的に新しいObjectIdを割り当て、そのedge bundleのPort bindingと
-Span endpoint参照を同じIDへ書き換える。pair row keyは、各bindingが所有する
-edge bundleのedge IDを使う`(node_id, edge_id)`へ分割する。高さ、edge IDの大小、
-Bundle ID、container順から
-接続相手を推測せず、既存のrow continuityとbindingだけを使う。
-
-分割対象または書き換えるendpointを一意に特定できないsaveは、部分適用せず
-明示errorで停止する。移行前後でNodePatch、jumper、fixture、layout endpoint、
-curve endpointの意味値を一致させ、load後の再saveは新形式へ正規化する。
+正式v1前のarchive migrationは保証しない。現行`wire_state_v6`だけをexact-key schemaとして読み書きし、
+旧development schemaはunsupported versionとしてmutation前に拒否する。`save -> load -> save`は現行schemaの
+authoritative byte一致を維持し、欠落fieldを位置、名前、container順から推測しない。
 
 ## 決定済みセル
 

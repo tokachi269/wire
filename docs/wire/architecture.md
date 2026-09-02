@@ -407,15 +407,15 @@ boundary tangentをdebug/captureで見えるようにするための派生出力
 分割後のspan片が接続部curveのauthorityになってはいけない。長いrun全体を毎回正本として再計算する方式にはせず、
 dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
 
-線の局所形状assetを適用するDecisionはCoreのvisual generationが所有する。入力はsag済み
-`VisualCurvePart.samples`、part kind / supplemental kind、source identityであり、出力はasset key、親curve上の
-arc-length区間、authoring length、決定的variant / reverse、局所offset scaleからなるderived appearance pieceである。
-main curveは4m、NodePatch / Lead / Jumperは1mを基準に、curve全長を隙間なく等分しsource assetを伸長しない。
-appearance pieceは親samplesを参照し、world-space curveを重複保存しない。
+Core visual generationはWire curve semanticsを所有する。sag済み`VisualCurvePart.samples`、part kind / supplemental
+kind、boundary/tangent、wire radius、material/color、およびhelixのresolved axis/radiusを派生出力とする。
+Coreは具体GLB、asset family、authoring length、piece、variant、visual flipを知らない。
 
-GLBのparseとglTF `LINES` primitiveの抽出はWeb asset adapterが所有する。adapterはCoreが決定済みのpieceと
-`VisualCurvePart.samples`をarc lengthで評価し、world-up基準frameへlocal X/Y/Zを機械的に写像する。
-variant、reverse、sag、material、wire radiusを再判断せず、triangle faceのedgeをwire centerlineとして解釈しない。
+GLBのparseとglTF `LINES` primitiveの抽出、asset catalog/family mapping、実asset extentの計測、piece tiling、
+`partKey`由来のpresentation-only variantと長手軸180度flipはWeb asset adapter / render materializationが所有する。
+adapterはCoreの`VisualCurvePart.samples`をarc lengthで評価し、world-up基準frameへlocal X/Y/Zを機械的に写像する。
+sag、connection geometry、material、wire radiusを再判断せず、triangle faceのedgeをwire centerlineとして解釈しない。
+helixの局所巻き形状とtessellationはGLB、axisとresolved radiusはCoreだけが決定する。
 `VisualModelInstance`はrigid model用のままとし、deformable cableをその経路へ押し込まない。
 
 scoped visual rebuildでは、`changed spans`、その端点でconnection visualを書き換える`affected nodes`、

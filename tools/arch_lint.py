@@ -218,7 +218,31 @@ def check_architecture_documents(root: Path) -> list[str]:
         ),
         "docs/wire/architecture.md": (
             "# Wire architecture",
+            "## High-level structure",
+            "## Architecture views",
+            "## Essential architecture contracts",
             "backbone_operation_semantics.md",
+        ),
+        "docs/wire/state_and_persistence.md": (
+            "# Wire state and persistence",
+            "## Authority map",
+            "## Session draft",
+            "## Persistence",
+            "## Public view lifetime",
+        ),
+        "docs/wire/generation.md": (
+            "# Wire generation",
+            "## Pipeline",
+            "## Placement",
+            "## Identity mapping",
+            "## Build-Rebuild",
+            "## Validation boundary",
+        ),
+        "docs/wire/cable_visual.md": (
+            "# Wire cable visual",
+            "## Cable curve",
+            "## Span visual assembly",
+            "## Render materialization boundary",
         ),
         "docs/wire/testing.md": (
             "# Wire検証",

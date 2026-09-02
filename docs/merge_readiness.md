@@ -63,7 +63,7 @@ viewerはこれらを事前に判別せず、Apply後のerror logで初めてuns
 
 | 操作 | 制限 | 正本 |
 |---|---|---|
-| `UpdateCableTemplate` | non-backbone span を含む decision差分は mutation 前に unsupported。backbone-only scope は統一 regenerate が所有する | [wire/architecture.md](wire/architecture.md) の transaction / regenerate 契約 |
+| `UpdateCableTemplate` | non-backbone span を含む decision差分は mutation 前に unsupported。backbone-only scope は統一 regenerate が所有する | [wire/backbone_operation_semantics.md](wire/backbone_operation_semantics.md) の post-edit regenerate 契約 |
 | `UpdateAttachmentTemplate` | 使用中 attachment の構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更)は、モデル再読込 conflict として解決するまで mutation 前に unsupported | [wire/models.md](wire/models.md) の `UpdateAttachmentTemplate` 構造差分 |
 | Road archive | 現段階では保存互換を保証しない。version fieldとmigration分岐を持たず、現行schemaだけを読み書きする | [road/architecture.md](road/architecture.md) の Persistence target |
 
@@ -81,6 +81,10 @@ E. Docs stale only: `docs/viewer/operations.md` に残っていた backbone span
 既にblockerから外したもの: `MovePole`で通常/鋭角閾値を跨ぐ場合の表現再導出。
 `C813_backbone_move_pole_rederives_pair_representation`が、endpoint Port IDとrow keyを維持したまま
 fixture 1↔2、NodePatch↔jumperを切り替え、通常角へ戻せることを検証する。
+
+### Future architecture evaluation
+
+具体的なmodifiability scenarioが必要になった時点でSAAM等のscenario-based evaluationを検討する。今回はframework、schema、placeholder systemを先回りして実装しない。
 
 ## 直近の検証状況
 

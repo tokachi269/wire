@@ -63,6 +63,7 @@ placementが違うedgeは別の評価単位であり、category名や高さで�
 
 `RetireBackboneBundle`は接続状態を別の状態へ遷移させる操作ではなく、exact `Bundle` identityと、
 そのidentityを参照する全edge bundle componentをauthoritative topologyから完全退役するpost-edit operationである。
+削除ownerは既存pipelineの`retire_untouched`に置く。
 `S1`～`S5`、branch、cross、sharpをcategoryで除外せず、対象BundleのSpan、専用Port、binding、row continuity、
 default endpoint Attachmentを同じtrialで退役し、残存authorityからderived outputとruntime indexを再構築する。
 
@@ -99,6 +100,10 @@ outer `CoreState` trial内で行い、最終desired集合、SavedBackboneGraph�
 
 ### persisted Bundle variation Apply
 
+route bundle variationのDecision ownerはWire generation input resolverである。入力は人間が記述したrandom bundle rule、
+route seed、preferred side、`PoleTypeDefinition` / `BundleTemplate`定義で、出力はconcreteな`BackboneBundleSpec` entriesである。
+consumerは既存backbone generation pipelineだけとし、pipeline / layout / curve / viewerはrandomizationを再判断しない。
+
 `GenerateBackboneBundleVariation`はresolver inputと生成されたexact live Bundle scopeを、通常topologyと同じtrialで
 関連付ける。descriptorはexplicit Applyの入力であり、loadや
 regenerateはresolveしない。persistent validationはdescriptor構造とsaved relationを検査し、current resolver resultとの
@@ -108,6 +113,14 @@ regenerateはresolveしない。persistent validationはdescriptor構造とsaved
 存続placement keyのBundle identityを維持し、branch / cross / sharpの追加instanceはlive anchorの保存membershipと
 continuityだけを複製する。
 placement keyはvariation scope内のcorrelationであり、別variationの同値keyとは`Bundle::id`で区別する。
+
+ruleのconductor countはtopology上の導体数であり、見た目の束を作るためには変動させない。ruleのheight / lateral envelopeは
+各Bundle instanceを独立にsampleする入力である。resolverはBundle間の最小間隔や収容上限を推測せず、同じ位置へ近づくことを
+理由にdensityを拒否しない。相互clearanceが必要なfeatureはrandom resolverの隠れ制約ではなく、その物理ownerと入力を別途決める。
+HVの3相配置はrandomization対象外とする。非HVのsupported placementは連続座標をそのまま使わず、同じroute-wide sideにある
+有限のsupport slotへ寄せる。load、regenerate、通常updateは保存済みconcrete placementを使い、rerollしない。
+同一BundleのplacementをPoleごとに変えず、同一route内でsideを反転しない。road-facing sideは外部から与える単純なsignであり、
+WireはRoad domainや道路の意味を解釈しない。
 
 1 -> 0ではconcrete Bundleを完全退役し、live `SavedBackboneEdgeBundle`に所有されなくなったedge/nodeも同じtrialで回収する。
 hidden skeleton、membership snapshot、row-continuity replay recordは保存しない。その後の0 -> 1はinitial 0 -> 1と同じく`U`で、
@@ -121,6 +134,55 @@ authorityの両方を不変に保つ。
 Core内で再構築して既存pipelineへ渡す。callerはpathとexact node referenceだけを指定する。partial scope入力、stale exact
 scope、live instanceのないvariation、source-edge mappingの推測はfail-closedとし、既存descriptorとphysical authorityを
 変更しない。
+
+variation extensionのbranch pickもCoreがvariation IDからexact live instanceを引き、その`BundleTemplate`集合だけを既存
+`ResolveBranchPick`へ渡す。descriptorにruleがあっても0 instanceのtemplateはphysical branch scopeへ含めない。
+
+`SavedBackboneEdge.route / order`は初回保存時のroute-local導出補助であり、physical edge identityやsame-node-pair再利用の
+compatibilityではない。同じphysical edgeを別route順序から使う各occurrenceのroute/orderは
+`SavedBackboneEdgeBundle`が所有する。same-node-pair edgeのreuseはlive topology内の既存identityを使う。
+Bundleを持たないedgeのreuse contractはv1には存在しない。
+
+WASM/Webは選択Spanのexact `bundle_id`から保存済みdescriptorを参照し、選択中scopeの調整を
+`ApplyBackboneBundleVariation`へ渡す。adapterはcategory、template名、geometryからscopeを推測しない。
+初回生成もWebでresolveしたconcrete specを通常Generateへ渡さず、descriptorをCoreのvariation生成入口へ渡す。
+既存routeの調整値は保存済みdescriptorに対する相対値であり、neutral Applyはrulesを変えない。
+
+描画中routeでは同じroute controlが保存済みvariation IDへatomic Applyし、確定済み全区間と次のpreview / commit inputを
+同じdescriptorへ更新する。Finishはdraw sessionだけを終了し、直前のrouteをvariation編集targetとして保持する。
+recipe-backed routeの選択はtargetをそのexact variationへ切り替え、新規routeの最初のanchor確定だけがtargetをnext routeへ戻す。
+Webは1組のcontrolをtargetに応じて初期descriptor生成または保存済みvariation Applyへ振り分ける。
+個別Bundle編集は拒否し、viewerはrecipeを解釈せずApply後の通常sceneだけを描画する。
+
+### Other post-edit regenerate operations
+
+現対応は`UpdateBundleTemplate`のfixed count増減と`kTopology` policy差分、
+`UpdateCableTemplate`のbackbone continuity policy / default endpoint attachment decision差分、
+`UpdatePoleTypeDefinition`のactive backbone pole構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles`のrelated pole type適用、
+backbone spanのendpoint socket / branch-down override、`UpdateLayoutSettings`の全backbone route再導出である。
+
+同一edgeに複数edge_bundleがある場合はsaved edge_bundles順を生成時のbundle spec順として扱い、group offsetを再構成する。
+3点以上routeの接続はsaved row continuityとsaved nodeからpipeline graphを復元し、row表現は現在幾何から再導出する。
+row key / laneが一致するbindingは再利用し、不一致のbindingはretire + emitでreconcileする。
+
+存続するuser attachmentはspan idとともに保持し、退役spanにuser attachmentがあればmutation前に`unsupported`で拒否する。
+`AttachmentOrigin::kDefaultEndpoint`はtrial内で退役できる。`UpdateCableTemplate`のcontinuity policyとdefault endpoint attachmentは
+route scopeごとに同じ入口を通し、既存spanのcurve decisionとauto endpoint attachmentを編集後templateへreconcileする。
+non-backbone spanを含むdecision差分は未対応として拒否する。
+
+`UpdatePoleTypeDefinition`は対象typeをactive backbone poleが使用中でもplacement-only差分なら`kReposition`として
+既存auto portを再配置し、layout -> geom -> drawを再導出する。band追加・削除、enabled/side/layer/role/priority変更、
+anchor slot変更などの構造差分は、対象poleのincident edgeをroute-local bundle scopeに展開し、統一regenerateでemitから再解決する。
+manual portはtemplate placement更新では動かさない。統一regenerateでも存続laneのmanual portはworld positionとmanual markerを保持し、
+退役laneのmanual portはmutation前に拒否する。
+
+backbone spanのendpoint socket / branch-down overrideは`override_state`が正本である。APIは本stateを直接書かず、
+trial stateにoverrideを入れて対象spanのedgeを統一regenerateする。layout ruleはoverride解決を消費し、
+socketはendpoint source / resolved socket、branch-downはendpoint offsetとcurveに反映する。
+
+`UpdateLayoutSettings`はlayout settingsをtrial stateに入れ、row continuityで接続されたedge_bundle componentと
+bundle instanceごとのscopeを統一regenerateする。scope復元はsaved row continuity componentを正本とし、
+保存済みedgeのroute/orderは判定入力にしない。
 
 ## 実行時coverage契約
 
@@ -227,9 +289,7 @@ jumperはcontinuityを表すだけで、placement levelを共有させない。
 
 ### save schema
 
-正式v1前のarchive migrationは保証しない。現行`wire_state_v6`だけをexact-key schemaとして読み書きし、
-旧development schemaはunsupported versionとしてmutation前に拒否する。`save -> load -> save`は現行schemaの
-authoritative byte一致を維持し、欠落fieldを位置、名前、container順から推測しない。
+save schemaとload atomicityは[`state_and_persistence.md`](state_and_persistence.md)を正本とする。
 
 ## 決定済みセル
 

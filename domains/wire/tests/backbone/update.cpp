@@ -2668,7 +2668,7 @@ bool C745_legacy_wrap_family_is_absent() {
       repo_root() / "domains/wire/src/validation/validator.cpp",
       repo_root() / "web/wasm/bindings.cpp",
       repo_root() / "docs/wire/architecture.md",
-      repo_root() / "docs/wire/cable_instance_section.md",
+      repo_root() / "docs/wire/cable_visual.md",
   };
   for (const std::filesystem::path& path : sources) {
     std::string source{};

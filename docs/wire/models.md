@@ -24,6 +24,9 @@ bbox等の抽出はdescriptorを生成するimportツールの仕事で、core�
 BundleTemplate の identity は `BundleTemplateId` とし、`BundleKind` は分類タグとしてだけ使う。
 asset / descriptor / viewer は kind から template を一意に推測しない。同じ kind の template が複数ある場合も、
 参照・編集・population/regenerate scope は必ず `BundleTemplateId` で渡す。
+`bundle_templates`のkey、`Bundle.bundle_template_id`、backbone spec / saved graph / binding、
+random bundle rule、regenerate scopeも`BundleTemplateId`を使う。kindで探すAPIはgrouping/filterとして
+複数idを返し、`BundleKind`から一意のtemplateを引かない。
 
 ## 接続点: markerを正、bboxは粗い初期値
 
@@ -113,9 +116,20 @@ CableTemplate appearanceから `VisualModelInstance` / `VisualCurvePart` を再�
 
 model assemblyのworld materializationはCoreが所有し、初回生成とpost-editで同じ経路を使う。
 asset adapterはGLB/node/Empty由来のmodel/socket metadataを渡すだけで、Wireの接続先、curve、materialは判断しない。
+GLBを読む責務はasset adapterに留める。adapterはmodel key、local transform、名前付きsocketのmetadataを
+`ModelAssemblyTemplate` / `ModelAssemblyPart` / `ModelAssemblySocket`としてCoreへ渡すが、`connect_*`
+socketからcarrierを探したりlocal cable curveやmaterialを決めたりしない。socket名のWire上の意味はCoreだけが
+解釈し、CoreはGLB parserを持たない。
 `VisualModelInstance`はderived cacheであり、Pole、row、PortやSavedBackboneGraphへmodel instance identityを追加しない。
 deformable cable patternもmesh asset自体のparse、catalog、authoring extent、局所deformationはadapter側に置く。
 Coreはsag済みcurveとWire semanticだけを返し、GLB asset identityを`VisualModelInstance`や保存schemaへ追加しない。
+
+未完成のsupport detail catalogは、Coreの派生・保存契約を変えずviewerのpresentation availabilityとして
+非表示にしてよい。この境界で配置、接続先、curve、material semanticsを再計算してはいけない。
+
+lowered endpointのsocket/endpoint contractは[`generation.md`](generation.md)のPlacementを正本とする。
+旧`support_world -> endpoint_world`の`SupportArm` placeholderは生成しない。row fixtureとPort fixtureは
+generic model assemblyから派生し、旧い用途boolや高さscalarを決定者にしない。viewerが不足fixtureを推測して補ってはいけない。
 
 配置されるinstanceの親参照は次の3種だけに限定する。
 
